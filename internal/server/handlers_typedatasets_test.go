@@ -635,7 +635,7 @@ func TestTypeDatasets_Lifecycle(t *testing.T) {
 	})
 
 	t.Run("registered built-in type rejects", func(t *testing.T) {
-		rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types/data_view/parts",
+		rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types/dataview/parts",
 			`{"key":"extra"}`)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("built-in type: %d %s", rec.Code, rec.Body.String())

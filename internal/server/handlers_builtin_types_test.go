@@ -10,6 +10,7 @@ import (
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/bin"
+	"github.com/anyproto/any/internal/dataview"
 	"github.com/anyproto/any/internal/editor"
 	"github.com/anyproto/any/internal/miniapp"
 	"github.com/anyproto/any/internal/page"
@@ -56,7 +57,7 @@ func propertiesRecord(t *testing.T, e http.Handler, spaceId, objectId string) ma
 }
 
 // TestServer_BuiltinTypesHidden pins the listing contract shared by the
-// three hidden built-ins: out of the default picker listing, present
+// hidden built-ins: out of the default picker listing, present
 // with includeHidden as hidden built-ins whose xKey is their id,
 // resolvable by GET, and reserved against user types.
 func TestServer_BuiltinTypesHidden(t *testing.T) {
@@ -69,7 +70,7 @@ func TestServer_BuiltinTypesHidden(t *testing.T) {
 	visible := typesById(t, e, base, "")
 	all := typesById(t, e, base, "?includeHidden=true")
 
-	for _, id := range []string{page.TypeId, miniapp.TypeId, bin.TypeId} {
+	for _, id := range []string{page.TypeId, miniapp.TypeId, bin.TypeId, dataview.TypeId} {
 		if _, listed := visible[id]; listed {
 			t.Errorf("%s listed by default", id)
 		}

@@ -1,24 +1,41 @@
-# Saved views (built-in `data_view` type)
+# Saved views (built-in `dataview` type)
 
 A **view** is a saved way of looking at a set of objects: a name, an
-icon, a layout, a filter/sort/groupBy, and column settings. SYN-175
-gives views a home in the space so a view saved in one client is the
-same view in the next — instead of each client keeping its own
-per-device copy in browser storage.
+icon, a layout, a filter/sort/groupBy, and column settings. Views give
+that a home in the space so a view saved in one client is the same view
+in the next — instead of each client keeping its own per-device copy in
+browser storage.
 
-`data_view` is a **registered built-in type**, not a type a client
+Views come in two levels. A **dataview** is a named, ordered table on
+the host object — "Tasks", "Reading list" — and every view belongs to
+one dataview. An object carries as many dataviews as it needs, each
+with its own views, which is what lets a page hold a task board and a
+reading list side by side without their views bleeding into each other.
+
+`dataview` is a **registered built-in type**, not a type a client
 creates. Two clients (or two devices of one client) that each
 check-then-create a "views" type both pass their local check and then
 merge, leaving the space with parallel type definitions — the
 proliferation a client-registered bundle solves for document types
 (`03-api.md` § Bundles). A registered type exists in every space by
-construction.
+construction. It is `hidden`: a capability an object opts into, not a
+class a user picks (`GET …/types` lists it only with
+`?includeHidden=true`).
+
+It replaces the earlier `data_view` type and its `data_views` dataset
+with no back-compat: on an upgraded space the old collection and its
+rows stay on disk unreachable (an unregistered dataset), `data_view`
+lingers in `any.types` while `GET …/types/data_view` answers 404, and
+an old change that arrives late parks for good. Existing installs are
+abandoned in place; a client detaches `data_view` from its hosts and
+ensures the new defaults.
 
 ## Data model
 
-The type attaches to a **host object** and owns one dataset,
-`data_views`, holding one record per view. The host is whatever the
-views are "of":
+The type attaches to a **host object** and owns two records datasets
+under one part (`views`): `dataviews`, one record per dataview on the
+host, and `views`, one record per view. The host is whatever the views
+are "of":
 
 | Views of…            | Host object                          |
 |----------------------|--------------------------------------|
@@ -28,9 +45,26 @@ views are "of":
 Attaching to a type object is deliberate — `AttachType` has no
 meta-type guard, so "views on a type" needs no special mechanism.
 
+A dataview record:
+
 ```json
 {
   "id": "default",
+  "name": "Tasks",
+  "icon": "✅",
+  "pos": "a0",
+  "creator": "<identity>",
+  "createdAt": { "$date": "2026-08-20T17:06:40Z" },
+  "modifiedAt": { "$date": "2026-08-20T17:06:40Z" }
+}
+```
+
+A view record — `dataview` names the dataview it belongs to:
+
+```json
+{
+  "id": "default",
+  "dataview": "default",
   "name": "All",
   "icon": "📋",
   "pos": "a0",
@@ -65,32 +99,55 @@ since deleted. Validating property references server-side would turn a
 deleted property into a *write failure* instead of a rule the client
 marks invalid — the view must stay editable precisely when it is broken.
 
+The same rule applies one level up. A view's `dataview` is required but
+**not validated** against the `dataviews` collection, and deleting a
+dataview does **not** cascade: its views stay as orphans, still
+readable through `{"dataview": "<id>"}` and still writable. The client
+deletes them with the dataview, or re-parents them with one path write
+(`$set dataview`). Making the reference a server rule would let a
+dataview deleted on one device turn every view write on another into a
+failure.
+
 `query.type` is `"plain"` today. The discriminator exists so an
 aggregation-backed view (chart, rollup) can land later without
 migrating existing records.
 
 ### Field rules
 
+`dataviews`:
+
 | Field | Scope | Rule |
 |-------|-------|------|
-| `name`, `pos`, `layout` | synced | required on create |
+| `name`, `pos` | synced | required on create |
+| `icon` | synced | free to rewrite |
+| `creator`, `createdAt`, `modifiedAt` | derived | server-stamped, client writes rejected |
+
+`views`:
+
+| Field | Scope | Rule |
+|-------|-------|------|
+| `dataview`, `name`, `pos`, `layout` | synced | required on create |
 | `icon`, `query`, `layoutSettings` | synced | free to rewrite |
 | `localSettings` | **local** | device-only, never synced |
 | `creator`, `createdAt`, `modifiedAt` | derived | server-stamped, client writes rejected |
 
-Everything synced is `mutableBy: any` and any writer may delete a view:
-a shared view is space furniture, and readers/guests are already fenced
-by the ACL. Author-only would freeze a departed member's view forever.
+Everything synced is `mutableBy: any` and any writer may delete a record
+in either dataset: a shared view is space furniture, and readers/guests
+are already fenced by the ACL. Author-only would freeze a departed
+member's view forever.
 
-Deleting a view **burns its id permanently** — see
-[Ensuring the default view](#ensuring-the-default-view) before relying
-on a well-known id.
+Deleting a record **burns its id permanently** in that dataset — see
+[Ensuring the defaults](#ensuring-the-defaults) before relying on a
+well-known id.
 
-`pos` is required precisely because views are read in `pos` order: an
-absent one sorts as `""`, ahead of every positioned view on every peer.
+`pos` is required in both datasets precisely because they are read in
+`pos` order: an absent one sorts as `""`, ahead of every positioned
+record on every peer.
 
 Read the rules from `GET /v1/spaces/:spaceId/datasets` (`x-scope`,
-`x-mutable-by`, `x-stamp`, `x-id`) rather than hardcoding them.
+`x-mutable-by`, `x-stamp`, `x-id`) rather than hardcoding them; the
+part and its two collections come back from
+`GET …/types/dataview/parts`.
 
 `createdAt` / `modifiedAt` are **instants**, not numbers — they read and
 write as `{"$date": "<RFC 3339>"}` (`{"$date": <unix millis>}` for years
@@ -99,11 +156,13 @@ and a filter literal must carry the same shape or it matches nothing.
 Both are the author's clock: sort and display with them, never fence on
 them.
 
-### `pos` — view order
+### `pos` — order
 
-A client-assigned lexid string, opaque to the server. Sort views with
-`{"sort": ["pos"]}`; insert between two views by minting a lexid between
-their `pos` values.
+A client-assigned lexid string, opaque to the server, in both datasets.
+Sort with `{"sort": ["pos"]}`; insert between two records by minting a
+lexid between their `pos` values. Views are ordered within their
+dataview — the documented read `{"filter": {"dataview": "<id>"},
+"sort": ["pos"]}` is served by the `(dataview, pos)` index.
 
 ### `layoutSettings` vs `localSettings`
 
@@ -122,40 +181,58 @@ preference, not as data.
 
 ## Writing and reading
 
-No bespoke endpoints — the record shape carries no server semantics
+No bespoke endpoints — the record shapes carry no server semantics
 worth one.
 
 **Attach the type once** (only needed for an object that already
 exists; `POST …/objects` takes a `types` array):
 
 ```
-POST /v1/spaces/:spaceId/properties/:objectId/attach/data_view
+POST /v1/spaces/:spaceId/properties/:objectId/attach/dataview
 ```
 
 **Write** through `POST /v1/spaces/:spaceId/modify` with
-`dataset: "data_views"`. Ids are **client-supplied**, which is what
-makes the default view safe:
+`dataset: "dataviews"` or `dataset: "views"`. Ids are
+**client-supplied** in both, which is what makes the defaults safe:
 
 ```json
 {
   "objectId": "<host>",
-  "dataset": "data_views",
+  "dataset": "dataviews",
   "records": [{
     "id": "default",
     "upsert": true,
-    "ops": [{"type": "$set", "path": "", "value": {"name": "All", "layout": "table", "pos": "a0"}}]
+    "ops": [{"type": "$set", "path": "", "value": {"name": "Tasks", "pos": "a0"}}]
   }]
 }
 ```
+
+```json
+{
+  "objectId": "<host>",
+  "dataset": "views",
+  "records": [{
+    "id": "default",
+    "upsert": true,
+    "ops": [{"type": "$set", "path": "", "value": {"dataview": "default", "name": "All", "layout": "table", "pos": "a0"}}]
+  }]
+}
+```
+
+View ids are one namespace per host, not per dataview: a second
+dataview's views need their own ids — the convention is
+`<dataviewId>.<key>` (`board.default`), which keeps the deterministic
+ensure below working per dataview.
 
 Concurrent creates of the *same* id by *different* members take
 arrival-order-dependent creation verdicts; the content still converges
 last-write-wins.
 
-#### Ensuring the default view
+#### Ensuring the defaults
 
-Ensure it with a **fixed id plus upsert**, never create-on-open: two
-devices opening the same object would otherwise mint two "All" views.
+Ensure the default dataview and its default view with **fixed ids plus
+upsert**, never create-on-open: two devices opening the same object
+would otherwise mint two "Tasks" tables with two "All" views.
 
 **A deleted record id is burned permanently.** Ids never reuse, so once
 someone deletes the view with id `default`, upserting `default` again
@@ -170,15 +247,17 @@ returns **HTTP 200 with a rejection** and creates nothing:
 A client that only checks the status code therefore shows an empty view
 list with no error. **Always inspect `rejections`** on an ensure, and
 recover by walking a deterministic id sequence — `default`, `default-2`,
-`default-3`, … — taking the first id that is not rejected. The sequence
-is what preserves convergence: every device walks the same one and lands
-on the same replacement, instead of each minting a fresh id and
-recreating the duplicate problem.
+`default-3`, … — taking the first id that is not rejected. The same
+sequence applies to the dataview (`default`, `default-2`, …) and to the
+views under a non-default dataview (`board.default`, `board.default-2`,
+…). The sequence is what preserves convergence: every device walks the
+same one and lands on the same replacement, instead of each minting a
+fresh id and recreating the duplicate problem.
 
 This is the cost of client-supplied ids, and it is why the product rule
-"at least one view always exists" is a **client** rule: the server
-cannot refuse the delete, so the client must not offer to delete the
-last remaining view.
+"at least one dataview with one view always exists" is a **client**
+rule: the server cannot refuse the delete, so the client must not offer
+to delete the last remaining one.
 
 Device-local settings go through the same endpoint with
 `"scope": "local"` — explicit record id, no upsert (the record must
@@ -186,7 +265,7 @@ already exist), no `traceIds`:
 
 ```json
 {
-  "objectId": "<host>", "dataset": "data_views", "scope": "local",
+  "objectId": "<host>", "dataset": "views", "scope": "local",
   "records": [{"id": "default", "ops": [
     {"type": "$set", "path": "localSettings", "value": {"widths": {"name": 480}}}
   ]}]
@@ -194,9 +273,10 @@ already exist), no `traceIds`:
 ```
 
 **Read** through `POST /v1/spaces/:spaceId/query` (snapshot) or
-`…/query/subscribe` (live), `dataset: "data_views"`, `sort: ["pos"]`.
-Both scopes come back on one record — there is no second read for the
-local half.
+`…/query/subscribe` (live): the dataview list is `dataset: "dataviews"`,
+`sort: ["pos"]`; one dataview's views are `dataset: "views"`,
+`filter: {"dataview": "<id>"}`, `sort: ["pos"]`. Both scopes of a view
+come back on one record — there is no second read for the local half.
 
 Saved views are **not** search-indexed: a view name is navigation
 chrome, not knowledge.
@@ -452,7 +532,8 @@ Views come in three tiers. **Only the shared tier ships here.**
 The private tiers need scoped **datasets** — records that only exist for
 me — not scoped fields. The SDK scopes fields, and its account mirror
 covers the `objects` rows only. When they land they are parallel
-datasets (`data_views_account` / `_device`), not a per-record scope
+datasets — a `_account` / `_device` twin of `views`, and of
+`dataviews` if a private table is ever wanted — not a per-record scope
 flag: one dataset is one version domain, and mixing DAG, tech-tree and
 local-lexid versions in one dataset breaks versionId ordering and
 subscribe dedup.
@@ -466,6 +547,6 @@ resolves across all three tiers.
 
 - `08-clients.md` § 13 — the client call patterns: ensure, autosave
   debounce, live-surface budget, migration off per-device storage
-- `03-api.md` § Types → Built-in `data_view` type, § Properties
+- `03-api.md` § Types → Built-in `dataview` type, § Properties
 - `09-query.md` — the filter/sort grammar a view's `query` embeds
 - `14-aggregation.md` — the pipeline surface grouping depends on

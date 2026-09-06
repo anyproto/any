@@ -10,11 +10,12 @@ import (
 	"github.com/anyproto/any/internal/dataview"
 )
 
-// viewRecord is the test-local decode target for a data_views record
-// read back through /query. `query` / `layoutSettings` / `localSettings`
+// viewRecord is the test-local decode target for a `views` record read
+// back through /query. `query` / `layoutSettings` / `localSettings`
 // stay raw — the point is that the server round-trips them verbatim.
 type viewRecord struct {
 	Id             string          `json:"id"`
+	Dataview       string          `json:"dataview"`
 	Name           string          `json:"name"`
 	Icon           string          `json:"icon"`
 	Pos            string          `json:"pos"`
@@ -30,11 +31,23 @@ type viewRecord struct {
 	ModifiedAt extDate `json:"modifiedAt"`
 }
 
-// setupViewFixture creates a space and a host object for saved views.
-// The data_view type is a registered built-in, so nothing has to be
-// created — attaching it is the only binding step, and a fresh object
-// exercises the attach endpoint the same way a client would on an
-// existing object.
+// dataviewRecord is the decode target for a `dataviews` record.
+type dataviewRecord struct {
+	Id         string  `json:"id"`
+	Name       string  `json:"name"`
+	Icon       string  `json:"icon"`
+	Pos        string  `json:"pos"`
+	Creator    string  `json:"creator"`
+	CreatedAt  extDate `json:"createdAt"`
+	ModifiedAt extDate `json:"modifiedAt"`
+}
+
+// setupViewFixture creates a space and a host object for saved views,
+// attaches the dataview type and ensures the `default` dataview the
+// view fixtures hang off. The type is a registered built-in, so nothing
+// has to be created — attaching it is the only binding step, and a
+// fresh object exercises the attach endpoint the same way a client
+// would on an existing object.
 func setupViewFixture(t *testing.T, e http.Handler) (spaceId, objectId string) {
 	t.Helper()
 
@@ -59,17 +72,73 @@ func setupViewFixture(t *testing.T, e http.Handler) (spaceId, objectId string) {
 	rec = doJSON(t, e, http.MethodPost,
 		fmt.Sprintf("/v1/spaces/%s/properties/%s/attach/%s", sp.Id, obj.ObjectId, dataview.TypeId), "")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("attach data_view: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("attach dataview: %d %s", rec.Code, rec.Body.String())
 	}
+	ensureDataview(t, e, sp.Id, obj.ObjectId, "default", `{"name": "Table", "pos": "a0"}`)
 	return sp.Id, obj.ObjectId
 }
 
-// listViews reads every view record on the object.
-func listViews(t *testing.T, e http.Handler, spaceId, objectId string) []viewRecord {
+// ensureDataview upserts one dataviews record with a client-supplied id.
+func ensureDataview(t *testing.T, e http.Handler, spaceId, objectId, id, payload string) api.ModifyResult {
+	t.Helper()
+	body := fmt.Sprintf(`{
+		"objectId": %q, "dataset": %q,
+		"records": [{"id": %q, "upsert": true, "ops": [{"type": "$set", "path": "", "value": %s}]}]
+	}`, objectId, dataview.DatasetDataviews, id, payload)
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/modify", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ensure dataview %q: %d %s", id, rec.Code, rec.Body.String())
+	}
+	res := decodeModifyResult(t, rec.Body.Bytes())
+	if len(res.Rejections) > 0 {
+		t.Fatalf("ensure dataview %q rejected: %+v", id, res.Rejections)
+	}
+	return res
+}
+
+// listDataviews reads every dataview record on the object, in pos order.
+func listDataviews(t *testing.T, e http.Handler, spaceId, objectId string) []dataviewRecord {
 	t.Helper()
 	body, _ := json.Marshal(map[string]any{
 		"objectId": objectId,
-		"dataset":  dataview.Dataset,
+		"dataset":  dataview.DatasetDataviews,
+		"sort":     []string{"pos"},
+	})
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/query", string(body))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("query dataviews: %d %s", rec.Code, rec.Body.String())
+	}
+	var resp api.QueryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode query: %v", err)
+	}
+	out := make([]dataviewRecord, 0, len(resp.Records))
+	for _, raw := range resp.Records {
+		var v dataviewRecord
+		if err := json.Unmarshal(raw, &v); err != nil {
+			t.Fatalf("decode dataview record: %v\nraw=%s", err, raw)
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// listViews reads every view record on the object, whichever dataview
+// it belongs to, in pos order.
+func listViews(t *testing.T, e http.Handler, spaceId, objectId string) []viewRecord {
+	t.Helper()
+	return queryViews(t, e, spaceId, objectId, nil)
+}
+
+// queryViews reads the view records matching filter (nil = all), in
+// pos order — the documented per-dataview read is
+// `{"dataview": "<id>"}`.
+func queryViews(t *testing.T, e http.Handler, spaceId, objectId string, filter map[string]any) []viewRecord {
+	t.Helper()
+	body, _ := json.Marshal(map[string]any{
+		"objectId": objectId,
+		"dataset":  dataview.DatasetViews,
+		"filter":   filter,
 		"sort":     []string{"pos"},
 	})
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/query", string(body))
@@ -108,7 +177,7 @@ func createView(t *testing.T, e http.Handler, spaceId, objectId, id, payload str
 	body := fmt.Sprintf(`{
 		"objectId": %q, "dataset": %q,
 		"records": [{"id": %q, "upsert": true, "ops": [{"type": "$set", "path": "", "value": %s}]}]
-	}`, objectId, dataview.Dataset, id, payload)
+	}`, objectId, dataview.DatasetViews, id, payload)
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/modify", body)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create view %q: %d %s", id, rec.Code, rec.Body.String())
@@ -123,7 +192,7 @@ func writeLocalSettings(t *testing.T, e http.Handler, spaceId, objectId, id, val
 	body := fmt.Sprintf(`{
 		"objectId": %q, "dataset": %q, "scope": "local",
 		"records": [{"id": %q, "ops": [{"type": "$set", "path": "localSettings", "value": %s}]}]
-	}`, objectId, dataview.Dataset, id, value)
+	}`, objectId, dataview.DatasetViews, id, value)
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/modify", body)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("local write: %d %s", rec.Code, rec.Body.String())
@@ -136,6 +205,7 @@ func writeLocalSettings(t *testing.T, e http.Handler, spaceId, objectId, id, val
 }
 
 const defaultViewPayload = `{
+	"dataview": "default",
 	"name": "All",
 	"icon": "📋",
 	"pos": "a0",
@@ -173,8 +243,12 @@ func TestServer_DataView_CreateReadStamp(t *testing.T) {
 	}
 
 	v := getView(t, e, spaceId, objectId, "default")
-	if v.Name != "All" || v.Layout != "table" || v.Icon != "📋" || v.Pos != "a0" {
+	if v.Dataview != "default" || v.Name != "All" || v.Layout != "table" || v.Icon != "📋" || v.Pos != "a0" {
 		t.Errorf("scalars round-tripped wrong: %+v", v)
+	}
+	dvs := listDataviews(t, e, spaceId, objectId)
+	if len(dvs) != 1 || dvs[0].Id != "default" || dvs[0].Name != "Table" || dvs[0].Creator == "" || dvs[0].CreatedAt.seconds() == 0 {
+		t.Errorf("dataviews = %+v, want the stamped default", dvs)
 	}
 	if v.Creator == "" {
 		t.Errorf("creator not stamped")
@@ -227,7 +301,7 @@ func TestServer_DataView_EditBumpsModifiedAt(t *testing.T) {
 			{"type": "$set", "path": "name", "value": "Urgent"},
 			{"type": "$set", "path": "query", "value": {"type": "plain", "filter": {"status": "urgent"}}}
 		]}]
-	}`, objectId, dataview.Dataset))
+	}`, objectId, dataview.DatasetViews))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("edit view: %d %s", rec.Code, rec.Body.String())
 	}
@@ -258,15 +332,18 @@ func TestServer_DataView_Required(t *testing.T) {
 
 	spaceId, objectId := setupViewFixture(t, e)
 
-	for _, tc := range []struct{ name, payload string }{
-		{"no name", `{"layout": "table", "pos": "a0"}`},
-		{"no layout", `{"name": "All", "pos": "a0"}`},
-		{"no pos", `{"name": "All", "layout": "table"}`},
+	for _, tc := range []struct{ name, dataset, payload string }{
+		{"no dataview", dataview.DatasetViews, `{"name": "All", "layout": "table", "pos": "a0"}`},
+		{"no name", dataview.DatasetViews, `{"dataview": "default", "layout": "table", "pos": "a0"}`},
+		{"no layout", dataview.DatasetViews, `{"dataview": "default", "name": "All", "pos": "a0"}`},
+		{"no pos", dataview.DatasetViews, `{"dataview": "default", "name": "All", "layout": "table"}`},
+		{"dataview without name", dataview.DatasetDataviews, `{"pos": "a1"}`},
+		{"dataview without pos", dataview.DatasetDataviews, `{"name": "Board"}`},
 	} {
 		body := fmt.Sprintf(`{
 			"objectId": %q, "dataset": %q,
 			"records": [{"id": "bad", "upsert": true, "ops": [{"type": "$set", "path": "", "value": %s}]}]
-		}`, objectId, dataview.Dataset, tc.payload)
+		}`, objectId, tc.dataset, tc.payload)
 		rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/modify", body)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: %d %s, want 400", tc.name, rec.Code, rec.Body.String())
@@ -278,6 +355,9 @@ func TestServer_DataView_Required(t *testing.T) {
 	}
 	if got := len(listViews(t, e, spaceId, objectId)); got != 0 {
 		t.Errorf("view count = %d, want 0 — rejected creates must leave nothing", got)
+	}
+	if got := len(listDataviews(t, e, spaceId, objectId)); got != 1 {
+		t.Errorf("dataview count = %d, want 1 (the fixture's) — rejected creates must leave nothing", got)
 	}
 }
 
@@ -301,7 +381,7 @@ func TestServer_DataView_DerivedFieldsRejected(t *testing.T) {
 		rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/modify", fmt.Sprintf(`{
 			"objectId": %q, "dataset": %q,
 			"records": [{"id": "default", "ops": [{"type": "$set", "path": %q, "value": %s}]}]
-		}`, objectId, dataview.Dataset, field, value))
+		}`, objectId, dataview.DatasetViews, field, value))
 		if rec.Code == http.StatusOK {
 			if res := decodeModifyResult(t, rec.Body.Bytes()); len(res.Rejections) == 0 {
 				t.Errorf("write to derived %s accepted, want rejection", field)
@@ -351,7 +431,7 @@ func TestServer_DataView_LocalSettings(t *testing.T) {
 		"records": [{"id": "default", "ops": [
 			{"type": "$set", "path": "localSettings", "value": {"widths": {"name": 999}}}
 		]}]
-	}`, objectId, dataview.Dataset))
+	}`, objectId, dataview.DatasetViews))
 	if rec.Code == http.StatusOK {
 		if res := decodeModifyResult(t, rec.Body.Bytes()); len(res.Rejections) == 0 {
 			t.Errorf("synced write to a local field accepted, want rejection")
@@ -392,32 +472,162 @@ func TestServer_DataView_DatasetDiscovery(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode datasets: %v", err)
 	}
+	seen := 0
 	for _, ds := range resp.Datasets {
-		if ds.Name != dataview.Dataset {
-			continue
+		switch ds.Name {
+		case dataview.DatasetViews:
+			seen++
+			if ds.Schema.Id != "user" {
+				t.Errorf("views x-id = %q, want user", ds.Schema.Id)
+			}
+			if got := ds.Schema.Properties[dataview.FieldLocalSettings].Scope; got != "local" {
+				t.Errorf("localSettings x-scope = %q, want local", got)
+			}
+			if got := ds.Schema.Properties[dataview.FieldName].MutableBy; got != "any" {
+				t.Errorf("name x-mutable-by = %q, want any", got)
+			}
+			if got := ds.Schema.Properties[dataview.FieldModifiedAt].Stamp; got != "modifyTime" {
+				t.Errorf("modifiedAt x-stamp = %q, want modifyTime", got)
+			}
+			if got := fmt.Sprint(ds.Schema.Required); got != "[dataview name pos layout]" {
+				t.Errorf("views required = %v, want dataview+name+pos+layout", ds.Schema.Required)
+			}
+		case dataview.DatasetDataviews:
+			seen++
+			if ds.Schema.Id != "user" {
+				t.Errorf("dataviews x-id = %q, want user", ds.Schema.Id)
+			}
+			if got := fmt.Sprint(ds.Schema.Required); got != "[name pos]" {
+				t.Errorf("dataviews required = %v, want name+pos", ds.Schema.Required)
+			}
+			if got := ds.Schema.Properties[dataview.FieldCreator].Stamp; got != "creator" {
+				t.Errorf("dataviews creator x-stamp = %q, want creator", got)
+			}
 		}
-		if ds.Schema.Id != "user" {
-			t.Errorf("x-id = %q, want user", ds.Schema.Id)
-		}
-		if got := ds.Schema.Properties[dataview.FieldLocalSettings].Scope; got != "local" {
-			t.Errorf("localSettings x-scope = %q, want local", got)
-		}
-		if got := ds.Schema.Properties[dataview.FieldName].MutableBy; got != "any" {
-			t.Errorf("name x-mutable-by = %q, want any", got)
-		}
-		if got := ds.Schema.Properties[dataview.FieldModifiedAt].Stamp; got != "modifyTime" {
-			t.Errorf("modifiedAt x-stamp = %q, want modifyTime", got)
-		}
-		if got := fmt.Sprint(ds.Schema.Required); got != "[name pos layout]" {
-			t.Errorf("required = %v, want name+pos+layout", ds.Schema.Required)
-		}
-		return
 	}
-	t.Fatalf("dataset %q missing from discovery", dataview.Dataset)
+	if seen != 2 {
+		t.Fatalf("discovery lists %d of the two dataview datasets", seen)
+	}
+
+	// One static part owns both, on the generic records handler.
+	var parts api.TypePartsListResponse
+	decodeGet(t, e, "/v1/spaces/"+spaceId+"/types/"+dataview.TypeId+"/parts", &parts)
+	if len(parts.Parts) != 1 || parts.Parts[0].Id != dataview.PartViews || string(parts.Parts[0].UI) != `{"type":"table"}` {
+		t.Fatalf("parts = %+v, want one `views` table part", parts.Parts)
+	}
+	colls := map[string]string{}
+	for _, d := range parts.Parts[0].Datasets {
+		colls[d.Collection] = d.Module
+	}
+	if colls[dataview.DatasetDataviews] != api.ModuleRecords || colls[dataview.DatasetViews] != api.ModuleRecords || len(colls) != 2 {
+		t.Errorf("part datasets = %+v", parts.Parts[0].Datasets)
+	}
+}
+
+// TestServer_DataView_ManyDataviews pins the added level: an object
+// carries several dataviews, each read through its own filtered window
+// on `views`, and deleting a dataview leaves its views as orphans — no
+// cascade, the client deletes or re-parents them.
+func TestServer_DataView_ManyDataviews(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	spaceId, objectId := setupViewFixture(t, e)
+	ensureDataview(t, e, spaceId, objectId, "board", `{"name": "Board", "icon": "🗂", "pos": "a1"}`)
+	createView(t, e, spaceId, objectId, "default", defaultViewPayload)
+	createView(t, e, spaceId, objectId, "board.default", `{"dataview": "board", "name": "Kanban", "layout": "board", "pos": "a0"}`)
+	createView(t, e, spaceId, objectId, "board.done", `{"dataview": "board", "name": "Done", "layout": "table", "pos": "a1"}`)
+
+	dvs := listDataviews(t, e, spaceId, objectId)
+	if len(dvs) != 2 || dvs[0].Id != "default" || dvs[1].Id != "board" {
+		t.Fatalf("dataviews = %+v, want default then board", dvs)
+	}
+	board := queryViews(t, e, spaceId, objectId, map[string]any{"dataview": "board"})
+	if len(board) != 2 || board[0].Id != "board.default" || board[1].Id != "board.done" {
+		t.Errorf("board views = %+v, want kanban then done", board)
+	}
+	if def := queryViews(t, e, spaceId, objectId, map[string]any{"dataview": "default"}); len(def) != 1 || def[0].Id != "default" {
+		t.Errorf("default views = %+v", def)
+	}
+	if all := listViews(t, e, spaceId, objectId); len(all) != 3 {
+		t.Errorf("all views = %d, want 3", len(all))
+	}
+
+	// View ids are one namespace per host, not per dataview: upserting
+	// `default` under the board MERGES into the existing default view
+	// (re-parenting it) instead of creating a second record — the
+	// mistake a client assuming per-dataview ids would make.
+	createView(t, e, spaceId, objectId, "default", `{"dataview": "board", "name": "Merged", "layout": "table", "pos": "a0"}`)
+	if all := listViews(t, e, spaceId, objectId); len(all) != 3 {
+		t.Errorf("all views after re-upserting `default` under board = %d, want 3 (one namespace)", len(all))
+	}
+	if v := getView(t, e, spaceId, objectId, "default"); v.Dataview != "board" || v.Name != "Merged" {
+		t.Errorf("default view after the merge = %+v, want re-parented to board", v)
+	}
+	createView(t, e, spaceId, objectId, "default", defaultViewPayload)
+
+	// A view moves between dataviews with one path write.
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/modify", fmt.Sprintf(`{
+		"objectId": %q, "dataset": %q,
+		"records": [{"id": "board.done", "ops": [{"type": "$set", "path": "dataview", "value": "default"}]}]
+	}`, objectId, dataview.DatasetViews))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("move view: %d %s", rec.Code, rec.Body.String())
+	}
+	if res := decodeModifyResult(t, rec.Body.Bytes()); len(res.Rejections) > 0 {
+		t.Fatalf("move rejected: %+v", res.Rejections)
+	}
+	if def := queryViews(t, e, spaceId, objectId, map[string]any{"dataview": "default"}); len(def) != 2 {
+		t.Errorf("default views after the move = %+v, want 2", def)
+	}
+
+	// Deleting the dataview leaves its remaining view an orphan.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/delete-records", fmt.Sprintf(`{
+		"objectId": %q, "dataset": %q, "recordIds": ["board"]
+	}`, objectId, dataview.DatasetDataviews))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete dataview: %d %s", rec.Code, rec.Body.String())
+	}
+	if dvs := listDataviews(t, e, spaceId, objectId); len(dvs) != 1 {
+		t.Errorf("dataviews after delete = %+v, want the default only", dvs)
+	}
+	// The deleted dataview id is burned like a view id: re-ensuring it
+	// is a 200 with a rejection that creates nothing, and the recovery
+	// is the next id in the sequence.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/modify", fmt.Sprintf(`{
+		"objectId": %q, "dataset": %q,
+		"records": [{"id": "board", "upsert": true, "ops": [{"type": "$set", "path": "", "value": {"name": "Board", "pos": "a1"}}]}]
+	}`, objectId, dataview.DatasetDataviews))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("re-ensure a deleted dataview: %d %s", rec.Code, rec.Body.String())
+	}
+	if res := decodeModifyResult(t, rec.Body.Bytes()); len(res.Rejections) == 0 {
+		t.Errorf("re-ensuring a deleted dataview id was accepted; the burn rule changed")
+	}
+	if dvs := listDataviews(t, e, spaceId, objectId); len(dvs) != 1 {
+		t.Errorf("dataviews after re-ensure = %+v, want the default only (a burned id creates nothing)", dvs)
+	}
+	ensureDataview(t, e, spaceId, objectId, "board-2", `{"name": "Board", "pos": "a1"}`)
+	if dvs := listDataviews(t, e, spaceId, objectId); len(dvs) != 2 || dvs[1].Id != "board-2" {
+		t.Errorf("dataviews after recovery = %+v, want default + board-2", dvs)
+	}
+	orphans := queryViews(t, e, spaceId, objectId, map[string]any{"dataview": "board"})
+	if len(orphans) != 1 || orphans[0].Id != "board.default" {
+		t.Errorf("orphan views = %+v, want board.default kept (no cascade)", orphans)
+	}
+	// …and stays writable: the reference is not validated.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/modify", fmt.Sprintf(`{
+		"objectId": %q, "dataset": %q,
+		"records": [{"id": "board.default", "ops": [{"type": "$set", "path": "name", "value": "Orphan"}]}]
+	}`, objectId, dataview.DatasetViews))
+	if rec.Code != http.StatusOK {
+		t.Errorf("edit orphan view: %d %s", rec.Code, rec.Body.String())
+	}
 }
 
 // TestServer_DataView_XKeyFenced: the registered id occupies the xKey
-// namespace, so a client cannot mint a competing user "data_view" type.
+// namespace, so a client cannot mint a competing user "dataview" type.
 func TestServer_DataView_XKeyFenced(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()

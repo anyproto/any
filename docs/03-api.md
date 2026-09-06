@@ -39,7 +39,7 @@
     - [Parts and modules](#parts-and-modules)
     - [Runtime dataset schemas](#runtime-dataset-schemas)
     - [Upsert records](#upsert-records)
-    - [Built-in `data_view` type](#built-in-data_view-type)
+    - [Built-in `dataview` type](#built-in-dataview-type)
     - [Built-in hidden types: `page`, `miniapp`, `bin`](#built-in-hidden-types-page-miniapp-bin)
   - [Properties (values on objects)](#properties-values-on-objects)
   - [Chat (the `chat` module)](#chat-the-chat-module)
@@ -2052,8 +2052,8 @@ enforces it: empty → `400 type.xkey_required`; collision with an
 existing type's `xKey` **or** id in the same space → `409
 type.xkey_conflict` (`details: {xKey, existingTypeId}`). Clients derive
 the xKey as a slug of the name (`"Pages"` → `pages`); it must survive
-display-name renames. Built-in types (`data_view`, `nav`, and the
-hidden `page` / `miniapp` / `bin`) are registered, not created here,
+display-name renames. Built-in types (`nav`, and the hidden
+`dataview` / `page` / `miniapp` / `bin`) are registered, not created here,
 and resolve by their literal id; a registered type's parts are static —
 `GET …/types/:typeId/parts` reads them compiled (keys as ids, a static
 dataset's collection is its name, `module: records` on a schema-only
@@ -2368,7 +2368,7 @@ previously took a compiled-in handler: required fields, write-once vs
 author-mutable fields, author-only delete, derived creator/time
 stamps, user-supplied record ids, search extraction. This is the
 `records` module — the default when a dataset names none. Registered
-built-in types (`data_view`, `nav`, `page`, …) refuse (`400 type.registered`) —
+built-in types (`dataview`, `nav`, `page`, …) refuse (`400 type.registered`) —
 their datasets are statically declared. SDK contract (vocabulary,
 convergence rules, storage model, runtime registration): the SDK's
 `docs/17-user-datasets.md`.
@@ -2582,16 +2582,24 @@ carry properties, a `weight` and a `layout` like any other; `page`
 carries none — a client that needs them declares its own document
 type.
 
-#### Built-in `data_view` type
+#### Built-in `dataview` type
 
-`data_view` is the built-in for **saved views** — a named, shareable way
-of looking at a set of objects. It attaches to a host object (including
-a **type object**, which is how "views on a type" works) and owns the
-`data_views` dataset, one record per view:
+`dataview` is the built-in for **saved views** — a named, shareable way
+of looking at a set of objects — in two levels: a host object carries
+many **dataviews** (named, ordered tables), each with its own **views**.
+It attaches to a host object (including a **type object**, which is how
+"views on a type" works) and owns two records datasets under one part
+`views` (`ui: {"type": "table"}`): `dataviews`, one record per dataview,
+and `views`, one record per view. Hidden, like the three types below.
 
 ```json
+// dataviews
+{ "id": "default", "name": "Tasks", "icon": "✅", "pos": "a0",
+  "creator": "<identity>", "createdAt": { "$date": "…" }, "modifiedAt": { "$date": "…" } }
+
+// views
 {
-  "id": "default",
+  "id": "default", "dataview": "default",
   "name": "All", "icon": "📋", "pos": "a0", "layout": "table",
   "query":          { "type": "plain", "filter": {…}, "sort": […], "groupBy": {…} },
   "layoutSettings": { "visible": […], "order": […], "widths": {…} },
@@ -2606,21 +2614,29 @@ a **type object**, which is how "views on a type" works) and owns the
 feeds straight into `…/objects/query[/subscribe]`. `query`,
 `layoutSettings` and `localSettings` are **opaque** — the server checks
 only that each is an object; clients own the vocabulary and decide what
-a rule naming a deleted property means.
+a rule naming a deleted property means. A view's `dataview` is required
+but **not validated** against the collection, and deleting a dataview
+does not cascade — orphan views stay readable and writable for the
+client to delete or re-parent (`$set dataview`).
 
-No bespoke endpoints: write through `POST /v1/spaces/:spaceId/modify`
-with `dataset: "data_views"`, read through `…/query[/subscribe]` sorted
-by `pos`. `name`, `pos` and `layout` are required on create; `creator` /
-`createdAt` / `modifiedAt` are server-stamped and reject client writes;
-every synced field is `mutableBy: any` and any writer may delete a view.
+No bespoke endpoints and no `dataview` module: write through
+`POST /v1/spaces/:spaceId/modify` with `dataset: "dataviews"` /
+`"views"`, read through `…/query[/subscribe]` — the dataview list sorted
+by `pos`, one dataview's views with `{"filter": {"dataview": "<id>"},
+"sort": ["pos"]}` (indexed). `name` + `pos` are required on a dataview,
+`dataview` + `name` + `pos` + `layout` on a view; `creator` / `createdAt`
+/ `modifiedAt` are server-stamped and reject client writes; every synced
+field is `mutableBy: any` and any writer may delete a record.
 
-Record ids are **client-supplied** (`idRule: user`) — ensure the default
-view with a fixed id plus `upsert`, never create-on-open, or two devices
-mint two "All" views. A deleted id is **burned permanently**: re-upserting
-it returns `200` with a `rejections` entry and creates nothing, so an
-ensure must inspect `rejections` and fall through to the next id in a
-deterministic sequence (`default`, `default-2`, …). See
-`24-data-views.md` § Ensuring the default view.
+Record ids are **client-supplied** (`idRule: user`) in both datasets —
+ensure the default dataview and its default view with fixed ids plus
+`upsert`, never create-on-open, or two devices mint two "All" views.
+View ids are one namespace per host, so a second dataview's views take
+`<dataviewId>.<key>` ids. A deleted id is **burned permanently**:
+re-upserting it returns `200` with a `rejections` entry and creates
+nothing, so an ensure must inspect `rejections` and fall through to the
+next id in a deterministic sequence (`default`, `default-2`, …). See
+`24-data-views.md` § Ensuring the defaults.
 
 `localSettings` is `scope: local` — this device's override of
 `layoutSettings`, written with `"scope": "local"` on `/modify` (explicit
@@ -2633,8 +2649,8 @@ the tier roadmap: `24-data-views.md`.
 
 #### Built-in hidden types: `page`, `miniapp`, `bin`
 
-Three registered types an object **opts into** rather than a class a
-user picks, so all three are `hidden`: out of `GET …/types` unless
+Three more registered types an object **opts into** rather than a class
+a user picks, so all three are `hidden`: out of `GET …/types` unless
 `?includeHidden=true`, resolvable by `GET …/types/:typeId` always,
 `builtIn: true` with `xKey` equal to the id (which reserves `page`,
 `miniapp` and `bin` against user types — `409 type.xkey_conflict`),
