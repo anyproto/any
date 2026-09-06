@@ -56,5 +56,5 @@ Two themes recur across the section:
 <a href="acl.html"><strong>ACL</strong><span>Accept, decline, change permissions, remove, add by identity, transfer ownership, stop sharing.</span></a>
 <a href="one-to-one.html"><strong>One-to-one</strong><span>Direct spaces derived from two identities, with the pending/declined state machine.</span></a>
 <a href="derived-spaces.html"><strong>Derived spaces</strong><span>Well-known per-account spaces every device converges on; permanent by design.</span></a>
-<a href="bundles.html"><strong>Bundles</strong><span>Adopt-or-install roots, derived roots, losers and resolve, the general-chat convention.</span></a>
+<a href="bundles.html"><strong>Bundles</strong><span>Adopt-or-install roots, derived roots, losers and resolve, the general chat.</span></a>
 </div>

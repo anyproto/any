@@ -44,7 +44,7 @@ Every write endpoint returns the same small result instead of the record body:
 
 ## Where the objects come from
 
-Modules attach to ordinary objects through their types. A document is an object carrying a document type — the built-in `page`, or your own user type with an editor part — and blocks in `editor_blocks`. A chat is an object carrying a type with a chat part — and for "the chat of this space", the object is registered as a [bundle](../collaboration/bundles.html) with a derived root and the chat part declared on it, so every device and member computes the same object id and the conversation can never fork. There is no built-in `editor` or `chat` type: what used to need one — every client minting its own type and racing into parallel definitions — is solved by registering the type as a bundle instead.
+Modules attach to ordinary objects through their types. A document is an object carrying a document type — the built-in `page`, or your own user type with an editor part — and blocks in `editor_blocks`. A chat is an object carrying a type with a chat part — and the chat module is reserved to the server, so the one chat a space has is the catalog's general chat ([the general chat](../collaboration/bundles.html#the-general-chat)): a derived root every device and member computes, so the conversation can never fork. There is no built-in `editor` or `chat` type: what used to need one — every client minting its own document type and racing into parallel definitions — is solved by registering the type as a bundle instead.
 
 <div class="cards">
 <a href="chat.html"><strong>Chat</strong><span>A complete messenger on one CRDT dataset: send, edit, react, mentions, private read tracking, unread counters.</span></a>

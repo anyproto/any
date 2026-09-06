@@ -730,7 +730,7 @@ Implementation slices landed:
     space has ONE chat, installed by `POST /v1/catalog/general-chat/
     setup` (item 50) as the derived, hidden, self-typed root
     `system:general-chat/v1` (handle `general_chat`, one shared `chat`
-    part). The `chat` module is `Reserved` (item 51), so no client
+    part). The `chat` module is `Reserved` (item 52), so no client
     declares a chat part and that root is the type's only carrier.
     History: `SpaceInfo.generalChatObjectId` and the server-derived
     `any/general-chat/v1` object went first (clients registered the
@@ -1069,7 +1069,7 @@ Implementation slices landed:
       readable through the generic dataset surface (that path is
       read-only — the SDK fences the dataset off modify).
     - The `id` is the whole identity — marketplace id, app slug, or a
-      versioned convention like `general-chat/v1` — so there is no
+      versioned convention like `favorites/v1` — so there is no
       separate provenance field.
     - **Derived roots (SYN-172).** `"derived": true` installs the
       bundle on the root DERIVED from its id
@@ -1586,7 +1586,7 @@ Implementation slices landed:
     the SDK's `space.ErrModuleReserved` as the backstop; only the SDK's
     `space.SystemInstall()` ensure option (the server's own catalog
     path — `bundles.Install.SystemInstall`, never client input) or a
-    static part may declare it. `chat` is reserved (item 51). (c)
+    static part may declare it. `chat` is reserved (item 52). (c)
     **Bundles declare a
     full type**: `properties` (each with an `xKey`; the propId is
     derived from `(rootId, xKey)` — `crdt.DeriveRecordId` over
@@ -1838,12 +1838,8 @@ Implementation slices landed:
     declares parts and one `properties` change when it declares
     properties — a peer may briefly see the parts before the property
     definitions; a bundle with no declaration mints its root through
-    the ordinary object create plus the name stamp). `chat` stays
-    unreserved here: the follow-up that reserves the chat module and
-    moves the general chat to `system:general-chat/v1` (a different
-    derived root than `general-chat/v1` — nothing migrates, so the
-    client recipe stays the convention until then) branches off this;
-    the `nav` → `wiki` follow-up is item 51. Contract:
+    the ordinary object create plus the name stamp). `chat` is reserved
+    by item 52; the `nav` → `wiki` follow-up is item 51. Contract:
     docs/28-well-known-bundles.md, docs/03-api.md § Catalog + § Bundles
     (`xKey`, root types on created roots, root + up to 3) + § Types →
     Built-in hidden types (`miniapp`), docs/01-cli.md § Catalog,
@@ -1868,7 +1864,7 @@ Implementation slices landed:
     module's schema, item 7). Contract: docs/03-api.md § The wiki tree,
     docs/09-query.md § Paths, docs/28-well-known-bundles.md § What
     clients delete.
-51. **General chat under the reserved `chat` module (SYN-216)** —
+52. **General chat under the reserved `chat` module (SYN-216)** —
     `chat.NewModule()` sets `Reserved: true`: a client part, part
     dataset or bundle body naming `chat` is `400
     dataset.module_reserved` (`datasetDraftFromAPI`; the catalog

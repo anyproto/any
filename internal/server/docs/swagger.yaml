@@ -862,17 +862,19 @@ components:
           type: string
         module:
           description: |-
-            Module is the serving module: "records" (the default), "editor"
-            or "chat".
+            Module is the serving module: "records" (the default) or
+            "editor". "chat" is reserved to the server (400
+            dataset.module_reserved) — the catalog's general-chat usecase is
+            its one declaration.
           type: string
         search:
           $ref: '#/components/schemas/api.DatasetSearchFields'
         shared:
           description: |-
             Shared makes the type participate in the module's canonical
-            collection (editor_blocks, chat_messages) instead of a namespaced
-            one, so two types sharing the editor give an object carrying both
-            a single body. Editor: either; chat: shared only; records: never.
+            collection (editor_blocks) instead of a namespaced one, so two
+            types sharing the editor give an object carrying both a single
+            body. Editor: either; records: never.
           type: boolean
         skipHistory:
           description: SkipHistory keeps the dataset out of the version-history index.

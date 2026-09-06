@@ -49,11 +49,10 @@ becomes useful. Needs:
 
 ## Open questions (still unresolved)
 
-- **Opening `chat` to clients** — namespaced chat instances and
-  client-declared chat parts stay refused until push topics
-  (`groupId = sha256(chatId)`) and read tracking are per collection,
-  not per object; until then a space has the one general chat.
-
+0. **Opening `chat` to clients.** Namespaced chat instances and
+   client-declared chat parts stay refused until push topics
+   (`groupId = sha256(chatId)`) and read tracking are per collection,
+   not per object; until then a space has the one general chat.
 1. **Port default.** Picked 7001 arbitrarily. If it collides with
    anything real, change before first ship.
 2. ~~**`any init` vs first-`any run` auto-create.**~~ Resolved: `run`

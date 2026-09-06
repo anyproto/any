@@ -7,8 +7,8 @@ import "encoding/json"
 // register their own; the server keeps no catalog of its own.
 //
 // Wire note: bundle ids carry a version suffix and therefore a slash
-// ("general-chat/v1"). In a path segment they must be percent-encoded
-// (`general-chat%2Fv1`); request bodies take them verbatim. Ids under
+// ("favorites/v1"). In a path segment they must be percent-encoded
+// (`favorites%2Fv1`); request bodies take them verbatim. Ids under
 // the `system:` prefix are the server's (its embedded catalog installs
 // them) — a client install under it is refused.
 

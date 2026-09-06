@@ -13,7 +13,7 @@ Messages are records on the chat object's `chat_messages` dataset, ordered by `_
 
 ## Finding the chat object
 
-A space has one chat, installed by the server's [catalog](../collaboration/bundles.html#catalog):
+A space has one chat, installed by the server's [catalog](../collaboration/bundles.html#the-general-chat):
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/catalog/general-chat/setup \

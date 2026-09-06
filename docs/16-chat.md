@@ -41,8 +41,14 @@ Two consequences:
   dataset.module_reserved`, and the general-chat root is the only
   object that may carry its type — creating or attaching another
   object with it is `400 type.reserved_carrier`. `POST /objects` never
-  makes a chat. Per-collection chats (a client's own chat types) wait
-  on per-collection push topics and read tracking (`07-roadmap.md`).
+  makes a chat. One exception on disk, not on the API: a space set up
+  under the former client recipe keeps its old root, which still
+  carries its declaring type and still takes writes (the rule refuses
+  additions only) — so `chat_messages` `owners` can list two ids
+  there; the server neither detects nor adopts it
+  (`28-well-known-bundles.md` § What clients delete). Per-collection
+  chats (a client's own chat types) wait on per-collection push topics
+  and read tracking (`07-roadmap.md`).
 
 ## The model in four sentences
 

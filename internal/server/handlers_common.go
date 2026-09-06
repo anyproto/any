@@ -493,7 +493,8 @@ func sdkValidationError(c echo.Context, err error, details map[string]any) error
 		case handler.ReasonUnknownProperty:
 			code = "property.not_found"
 		case handler.ReasonReservedCarrier:
-			code = "type.reserved_carrier"
+			// The server's own wording: the SDK's names the write path.
+			return writeError(c, http.StatusBadRequest, "type.reserved_carrier", reservedCarrierMessage, details)
 		}
 	}
 	return writeError(c, http.StatusBadRequest, code, err.Error(), details)

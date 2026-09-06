@@ -41,6 +41,14 @@ func init() {
 		New: func(handler.ModuleInstance) handler.Dataset {
 			return handler.Dataset{Schema: handler.Schema{Dynamic: true}}
 		},
+	}, handler.Module{
+		// Shared-only without Reserved: pins the shared-only rule on
+		// its own (chat is both).
+		Name: "shared_notes", Canonical: "shared_notes_shared",
+		SharedOnly: true, DataVersion: "shared_notes-v1",
+		New: func(handler.ModuleInstance) handler.Dataset {
+			return handler.Dataset{Schema: handler.Schema{Dynamic: true}}
+		},
 	})
 }
 

@@ -379,11 +379,8 @@ POST /v1/spaces/one-to-one
 
 The reply's `spaceType` is `"any.onetoone"` — that is how you tell a
 direct chat from a regular space in any list (the on-wire `type` matches,
-but classify on `spaceType`). A 1-1 space carries
-no chat object of its own — register one as a bundle (§ 4). It has
-no owner to arbitrate, so the two clients agree out of band that the
-**initiating** side ensures the bundle and the other adopts it; both
-then read and write the same root.
+but classify on `spaceType`). Its chat is the general chat, set up by
+both sides (below).
 
 **Discover incoming requests** — when someone reaches out to you, a
 *pending* row appears (surfaced automatically by the server's inbox

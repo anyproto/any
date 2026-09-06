@@ -112,6 +112,6 @@ The pending row carries the peer's display hint (`name` / `iconCid`) so a UI can
 Everything else is a regular space: both members are writers, so create objects, send chat and subscribe as usual, and read the two participants through the normal members collection. Two caveats:
 
 - Both participants report `ownRole: "writer"`, never `owner` — the ACL owner slot is a synthetic key nobody holds. Do not gate anything on owner for `any.onetoone` rows.
-- A 1-1 carries no chat object of its own. Register one as a [bundle with a derived root](bundles.html) — the only install shape that cannot fork when the two sides set up while apart.
+- A 1-1's chat is the [general chat](bundles.html#the-general-chat): both sides run the catalog setup and land on the same derived root on the first attempt — the only install shape that cannot fork when the two sides set up while apart.
 
 > **Note.** Deletion is local-only. `DELETE /v1/spaces/:spaceId` offloads the space on this device and propagates the offload to the account's other devices, but a derived space is not node-owned and is never removed from the network; a later `POST /v1/spaces/one-to-one` re-derives and re-materializes it.

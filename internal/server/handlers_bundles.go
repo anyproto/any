@@ -406,6 +406,11 @@ func (d *deps) checkBundleRoot(c echo.Context, sp space.Space, inst bundles.Inst
 				"rootTypes names a type this space does not have",
 				map[string]any{"typeId": typeId, "spaceId": sp.Id()}), true
 		}
+		// Refused here: the root's tree is minted before the write the
+		// SDK would reject, and a row-less tree cannot be named to delete.
+		if reservedCarrierType(ctx, sp, typeId) {
+			return reservedCarrierError(c, sp.Id(), typeId), true
+		}
 	}
 	for typeId, patch := range inst.RootProperties {
 		if _, err := sp.Types().Get(ctx, typeId); err != nil {
@@ -595,6 +600,13 @@ func (d *deps) bundleChild(c echo.Context) error {
 	b, err := d.bundleResolver().Get(ctx, sp, bundleId)
 	if err != nil {
 		return bundleError(c, err, sp.Id(), bundleId)
+	}
+	// Same pre-check as the root's: the child is derived before its
+	// types are written.
+	for _, typeId := range req.Types {
+		if reservedCarrierType(ctx, sp, typeId) {
+			return reservedCarrierError(c, sp.Id(), typeId)
+		}
 	}
 	objectId, err := bundles.Child(ctx, sp, b, req.Seed, req.Types...)
 	if err != nil {

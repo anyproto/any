@@ -982,11 +982,11 @@ POST   /v1/spaces/:spaceId/bundles/:bundleId/resolve      → 204
 POST   /v1/spaces/:spaceId/bundles/:bundleId/children     → 200 {objectId}
 ```
 
-**Bundle ids carry a slash** (`general-chat/v1` — the version suffix is
+**Bundle ids carry a slash** (`favorites/v1` — the version suffix is
 part of the id, and ids are permanent: a successor install takes a new
 one, since record deletes are refused and a reused id could never be
 reclaimed). In a path segment the slash is percent-encoded:
-`/bundles/general-chat%2Fv1`. Request bodies take the id verbatim.
+`/bundles/favorites%2Fv1`. Request bodies take the id verbatim.
 
 **Ensure** (`POST …/bundles`) is adopt-or-install:
 `{id, name?, rootTypes?, rootProperties?, derived?, parts?, properties?,
@@ -1003,7 +1003,7 @@ without write permission gets `403` (use `GET …/bundles/:bundleId`
 instead). `name` is stamped as `any.name` on the root, which is also
 what puts the root's tree in the head-sync diff. The `id` is the whole
 identity — a marketplace id, an app slug, a versioned convention like
-`general-chat/v1` — so there is no separate provenance field.
+`favorites/v1` — so there is no separate provenance field.
 
 Installing waits for the registry to converge first (bounded, 30s —
 cut to 3s when no peer is connected, since a head-sync round against
@@ -1213,8 +1213,8 @@ already runs the same wait as its convergence gate. The raw `bundles`
 dataset via `POST …/query[/subscribe]` stays the live local view.
 
 **Favourites** is a client-registered bundle (`favorites/v1`, created
-root, an `entries` part) — a documented convention like
-`general-chat/v1`, no server code. Model and client contract:
+root, an `entries` part) — a documented convention, no server code.
+Model and client contract:
 `docs/25-favorites.md`.
 
 **Reads.** `GET …/bundles` lists the live rows as of local state;

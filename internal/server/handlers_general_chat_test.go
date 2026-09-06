@@ -101,6 +101,18 @@ func TestServer_ChatModuleReserved(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("attach editor type: %d %s", rec.Code, rec.Body.String())
 	}
+	// The bundle paths that mint a tree before their type write are
+	// refused up front: a root carrying the type, a child carrying it.
+	rec = doJSON(t, e, http.MethodPost, base+"/bundles", `{"id":"carrier/v1","rootTypes":["`+root+`"]}`)
+	assertStatusCode(t, rec, http.StatusBadRequest, "type.reserved_carrier")
+	rec = doJSON(t, e, http.MethodGet, base+"/bundles/carrier%2Fv1", "")
+	assertStatusCode(t, rec, http.StatusNotFound, "bundle.not_found")
+	notes := ensureBundle(t, e, sp.Id, `{"id":"notes/v1","parts":[{"key":"body","datasets":[{"module":"editor","shared":true}]}]}`)
+	if !notes.Installed {
+		t.Fatalf("notes install: %+v", notes)
+	}
+	rec = doJSON(t, e, http.MethodPost, base+"/bundles/notes%2Fv1/children", `{"seed":"log","types":["`+root+`"]}`)
+	assertStatusCode(t, rec, http.StatusBadRequest, "type.reserved_carrier")
 }
 
 // assertStatusCode checks the status and the error code of a refusal.
