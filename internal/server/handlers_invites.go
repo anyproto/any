@@ -230,7 +230,7 @@ func (d *deps) guestKeyRevoke(c echo.Context) error {
 //	@Success	201		{object}	api.SpaceInfo			"Joined immediately"
 //	@Success	202		{object}	api.SpaceInfo			"Join pending owner approval (member) or space load pending (guest)"
 //	@Failure	400		{object}	api.ErrorEnvelope
-//	@Failure	409		{object}	api.ErrorEnvelope	"Guest token for a space this account already tracks / deleted"
+//	@Failure	409		{object}	api.ErrorEnvelope	"space.deleted — the space was deleted on this account (any token); space.already_member — guest token for a space this account already tracks"
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/join [post]
 func (d *deps) spaceJoin(c echo.Context) error {
@@ -313,6 +313,13 @@ func (d *deps) spaceJoin(c echo.Context) error {
 	}
 	if errors.Is(err, space.ErrInvalidInvite) {
 		return inviteDecodeError(c)
+	}
+	// A synced tombstone is sticky: the SDK refuses before posting a
+	// request nothing local could complete. (A declined or withdrawn
+	// join is NOT this — that row re-requests fine.)
+	if errors.Is(err, space.ErrSpaceDeleted) {
+		return writeError(c, http.StatusConflict, "space.deleted",
+			"the space was deleted on this account", map[string]any{"spaceId": inv.SpaceId})
 	}
 	return aclOpError(c, err, nil)
 }

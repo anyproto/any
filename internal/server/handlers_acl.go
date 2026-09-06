@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -249,19 +250,44 @@ func (d *deps) aclSelfRemove(c echo.Context) error {
 
 // aclCancelJoin handles POST /v1/spaces/:spaceId/acl/cancel-join.
 //
-//	@Summary	Cancel your pending join request
-//	@Tags		acl
-//	@Param		spaceId	path	string	true	"Space ID"
-//	@Success	204
-//	@Failure	500	{object}	api.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/acl/cancel-join [post]
+// Account-level, not space-level: the only state a cancel applies to is
+// a pending join, and a pending join is exactly what resolveSpace
+// refuses (the SDK never materializes a space before acceptance), so
+// the route goes through Service.CancelJoin — the joining client posts
+// the withdrawal to the ACL chain the nodes serve, no local space
+// involved. On success the joiner's row reads `deleted` and a fresh
+// POST /v1/spaces/join with a valid invite revives it.
+//
+//	@Summary		Cancel your pending join request
+//	@Description	Withdraws this account's pending join request. The space row flips to status "deleted" on this device; POST /v1/spaces/join with a valid invite re-requests. 409 space.join_not_pending when the row is not joining, or when the owner accepted or declined first — the row then settles to active or deleted on its own.
+//	@Tags			acl
+//	@Param			spaceId	path	string	true	"Space ID"
+//	@Success		204
+//	@Failure		404	{object}	api.ErrorEnvelope	"space.not_found"
+//	@Failure		409	{object}	api.ErrorEnvelope	"space.join_not_pending"
+//	@Failure		500	{object}	api.ErrorEnvelope
+//	@Router			/spaces/{spaceId}/acl/cancel-join [post]
 func (d *deps) aclCancelJoin(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
-	if done {
-		return errResp
+	id := c.Param("spaceId")
+	if id == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "spaceId required", nil)
 	}
-	if err := sp.ACL().CancelJoinRequest(c.Request().Context()); err != nil {
-		return aclOpError(c, err, map[string]any{"spaceId": sp.Id()})
+	details := map[string]any{"spaceId": id}
+	if err := d.sdk.Spaces().CancelJoin(c.Request().Context(), id); err != nil {
+		// A torn-down engine (logout / switch / shutdown cancels the
+		// request ctx) makes the row lookup answer "unknown" — that is
+		// unavailability, not a missing space.
+		if c.Request().Context().Err() != nil {
+			return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
+		}
+		if errors.Is(err, space.ErrJoinNotPending) {
+			return writeError(c, http.StatusConflict, "space.join_not_pending",
+				"no pending join request to cancel: the space is not in the joining state, or the owner already resolved the request", details)
+		}
+		if errors.Is(err, space.ErrSpaceUnknown) {
+			return spaceError(c, err, id)
+		}
+		return aclOpError(c, err, details)
 	}
 	return c.NoContent(http.StatusNoContent)
 }

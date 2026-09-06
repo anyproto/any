@@ -3294,7 +3294,11 @@ pass it back verbatim:
 // → 201 {SpaceInfo}      (AnyoneCanJoin: deferred — never returned in v1)
 ```
 
-A malformed or unrecognized `inviteToken` returns `400 invite.invalid`.
+A malformed or unrecognized `inviteToken` returns `400 invite.invalid`. A
+token for a space this account deleted returns `409 space.deleted` before
+anything reaches the network — the tombstone is sticky. A join that merely
+ended (the owner declined, or the joiner withdrew it with `cancel-join`) is
+not a tombstone: the same call re-requests and the row returns to `joining`.
 
 In the v1 RequestToJoin flow `Service.Join` returns 202: the SDK has
 posted the join request, written a `joining` index entry, and the
@@ -3355,7 +3359,7 @@ for guest spaces the delete marker is non-terminal: a later
 | POST   | `/v1/spaces/:spaceId/acl/add`                        | `ACL.AddAccounts` — server-side flow       |
 | POST   | `/v1/spaces/:spaceId/acl/ownership`                  | `ACL.OwnershipChange`                      |
 | POST   | `/v1/spaces/:spaceId/acl/self-remove`                | `ACL.RequestSelfRemove`                    |
-| POST   | `/v1/spaces/:spaceId/acl/cancel-join`                | `ACL.CancelJoinRequest`                    |
+| POST   | `/v1/spaces/:spaceId/acl/cancel-join`                | `Service.CancelJoin` — account-level, see below |
 | POST   | `/v1/spaces/:spaceId/acl/stop-sharing`               | `ACL.StopSharing` — drops everyone, rotates|
 
 Bodies (every successful op returns `204 No Content`):
@@ -3387,6 +3391,24 @@ Bodies (every successful op returns `204 No Content`):
 ```
 
 `self-remove`, `cancel-join`, and `stop-sharing` take no body.
+
+`cancel-join` is the one ACL op that never resolves the space. It
+applies only to a pending join, and a pending join is never
+materialized (`Service.Get` refuses it with `space.not_accepted`), so
+the server posts the withdrawal through the SDK's account-level
+`Service.CancelJoin`: the joining client writes the cancel record
+straight to the ACL chain the nodes serve, the same way the request
+was posted. Afterwards the joiner's row reads `status: "deleted"` on
+this device — the end state an owner decline leaves — and drops out of
+the default space list; `POST /v1/spaces/join` with a valid token
+re-requests and returns the row to `joining` (a fresh ACL request,
+fresh `requestRecordId` on the owner's side). Errors: `404
+space.not_found` for an id this account has no row for; `409
+space.join_not_pending` when the row is not `joining`, or when the
+owner accepted or declined before the cancel landed — consensus is
+linear, so exactly one side wins, and the row settles to `active` or
+`deleted` on its own within the join controller's poll; re-read
+`GET /v1/spaces/:id` rather than retrying.
 
 #### Permission / status strings
 

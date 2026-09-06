@@ -77,7 +77,8 @@ Panics are converted to `500 internal` with a generic message.
 | `space.exists` | 409 | create conflict |
 | `space.not_joined` | — | operation requires membership |
 | `space.not_accepted` | 409 | join pending approval; space not materialized |
-| `space.deleted` | 409 | the row is a tombstone |
+| `space.deleted` | 409 | the row is a tombstone; a declined or withdrawn join is re-requestable via `POST /v1/spaces/join` |
+| `space.join_not_pending` | 409 | `POST …/acl/cancel-join` with nothing to withdraw: the row is not `joining`, or the owner already accepted or declined (the row settles to `active` / `deleted` on its own) |
 | `space.derived_unknown` | 404 | name outside the derived-spaces registry |
 | `space.derived_undeletable` | 409 | derived spaces are permanent |
 | `space.not_invite_pending` | 409 | invite accept on a row not awaiting approval |
