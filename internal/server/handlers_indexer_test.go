@@ -515,12 +515,12 @@ func TestIndexer_ObjectDeleteEviction(t *testing.T) {
 	defer func() { _ = ix.Close() }()
 
 	spaceId := mustCreateSpace(t, e, "DeleteEviction")
-	chatType := installModuleType(t, e, spaceId, "chat")
+	edType := installModuleType(t, e, spaceId, "editor")
 	obj := mustCreateObject(t, e, spaceId,
-		`{"types":["`+chatType+`"],"initialProperties":{"any":{"name":"ephemeral quokka dossier"}}}`)
-	chatBase := "/v1/spaces/" + spaceId + "/objects/" + obj
-	mustModify(t, e, http.MethodPost, chatBase+"/chat/messages",
-		`{"text":"ephemeral quokka message"}`, http.StatusCreated)
+		`{"types":["`+edType+`"],"initialProperties":{"any":{"name":"ephemeral quokka dossier"}}}`)
+	edBase := "/v1/spaces/" + spaceId + "/objects/" + obj
+	mustModify(t, e, http.MethodPost, edBase+"/editor/editor_blocks/blocks",
+		`{"type":"paragraph","text":"ephemeral quokka message"}`, http.StatusCreated)
 
 	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
 	if err != nil {
@@ -530,7 +530,7 @@ func TestIndexer_ObjectDeleteEviction(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := doSearch(t, e, spaceId, api.SearchRequest{Query: "quokka", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
-	if len(res.Hits) != 2 { // prop name doc + chat message
+	if len(res.Hits) != 2 { // prop name doc + editor block
 		t.Fatalf("pre-delete hits = %v, want 2", hitRecordIds(res))
 	}
 
@@ -549,7 +549,7 @@ func TestIndexer_ObjectDeleteEviction(t *testing.T) {
 	// A client following a stale hit into the per-object read path gets
 	// a typed 404, not a 500 (any-sync's deleted-tree sentinel mapped).
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/query",
-		`{"objectId":"`+obj+`","dataset":"chat_messages"}`)
+		`{"objectId":"`+obj+`","dataset":"editor_blocks"}`)
 	var env api.ErrorEnvelope
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("decode envelope: %v (%s)", err, rec.Body.String())

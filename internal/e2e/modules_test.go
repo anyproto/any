@@ -5,13 +5,16 @@ import (
 	"net/http"
 	"sync"
 	"testing"
+
+	"github.com/anyproto/any/internal/api"
 )
 
 // Module-declaring types for the e2e suite: a chat or editor
 // collection is writable on an object only when one of its types
-// declares the module in a part. Production clients register a bundle
-// (chat/v1, page/v1); the tests mint one plain user type per space
-// and module, with a single shared part.
+// declares the module in a part. For the editor the tests mint one
+// plain user type per space with a single shared part; chat is a
+// reserved module, so the chat "type" is the catalog's general-chat
+// root and the chat object is that root (one chat per space).
 
 var (
 	e2eModuleTypesMu sync.Mutex
@@ -28,6 +31,11 @@ func installModuleType(t *testing.T, base, spaceId, module string) string {
 	defer e2eModuleTypesMu.Unlock()
 	if id, ok := e2eModuleTypes[key]; ok {
 		return id
+	}
+	if module == "chat" {
+		root := setupGeneralChat(t, base, spaceId)
+		e2eModuleTypes[key] = root
+		return root
 	}
 	var created map[string]any
 	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+spaceId+"/types",
@@ -48,6 +56,9 @@ func installModuleType(t *testing.T, base, spaceId, module string) string {
 func createModuleObject(t *testing.T, base, spaceId, module string) string {
 	t.Helper()
 	typeId := installModuleType(t, base, spaceId, module)
+	if module == "chat" {
+		return typeId // the general-chat root is the space's one chat
+	}
 	var resp map[string]any
 	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+spaceId+"/objects",
 		fmt.Sprintf(`{"types":[%q]}`, typeId), http.StatusCreated, &resp)
@@ -58,9 +69,25 @@ func createModuleObject(t *testing.T, base, spaceId, module string) string {
 	return id
 }
 
+// setupGeneralChat runs the catalog's general-chat setup against the
+// given peer and returns the derived chat root.
+func setupGeneralChat(t *testing.T, base, spaceId string) string {
+	t.Helper()
+	var out api.CatalogSetupResponse
+	mustJSON(t, http.MethodPost, base+"/v1/catalog/general-chat/setup",
+		fmt.Sprintf(`{"spaceId":%q}`, spaceId), http.StatusOK, &out)
+	for _, b := range out.Bundles {
+		if b.Id == "system:general-chat/v1" && b.Bundle.RootId != "" {
+			return b.Bundle.RootId
+		}
+	}
+	t.Fatalf("setup general-chat: no chat root in %+v", out)
+	return ""
+}
+
 // modulePartsBody is the bundle `parts` declaration installing one
-// shared module part on the bundle root — the shape the well-known
-// chat/v1 and page/v1 bundles carry.
+// shared module part on the bundle root — the shape a client's
+// document bundle carries.
 func modulePartsBody(module string) string {
 	return fmt.Sprintf(`[{"key":%q,"datasets":[{"module":%q,"shared":true}]}]`, module, module)
 }

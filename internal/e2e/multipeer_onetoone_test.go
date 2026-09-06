@@ -80,28 +80,36 @@ func TestE2E_MultipeerOneToOne(t *testing.T) {
 		t.Errorf("bob: status after accept = %q, want active", bobSpace.Status)
 	}
 
-	// The 1-1's chat, on a DERIVED root. Both participants are
-	// writers and the ACL owner is a synthetic key nobody holds, so
-	// neither side can ever claim "nobody else could have installed" —
-	// a created root leaves both refused until the registry converges,
-	// which never happens while they are apart. A derived root is the
-	// same id on both sides by construction, so each installs its own
-	// copy immediately and they meet on the one object.
-	const bundleId = "general-chat/v1"
-	var ensureBody = `{"id":"` + bundleId + `","name":"General","parts":` + modulePartsBody("chat") + `,"derived":true}`
+	// The 1-1's chat: the catalog's general-chat usecase, on a DERIVED
+	// root. Both participants are writers and the ACL owner is a
+	// synthetic key nobody holds, so neither side can ever claim
+	// "nobody else could have installed" — a created root leaves both
+	// refused until the registry converges, which never happens while
+	// they are apart. A derived root is the same id on both sides by
+	// construction, so each installs its own copy immediately and they
+	// meet on the one object. The chat module is reserved to the
+	// server, so the setup call is the only way to get one.
+	setupBody := `{"spaceId":"` + aliceSpace.Id + `"}`
 
 	// FIRST attempt, both sides, no convergence polling: that is the
 	// contract — a derived install never waits and never 409s.
-	var aliceBundle api.BundleEnsureResponse
-	mustJSON(t, http.MethodPost, alice.base+"/v1/spaces/"+aliceSpace.Id+"/bundles",
-		ensureBody, http.StatusOK, &aliceBundle)
+	var aliceSetup, bobSetup api.CatalogSetupResponse
+	mustJSON(t, http.MethodPost, alice.base+"/v1/catalog/general-chat/setup",
+		setupBody, http.StatusOK, &aliceSetup)
+	if len(aliceSetup.Bundles) != 1 {
+		t.Fatalf("initiator setup: %+v", aliceSetup)
+	}
+	aliceBundle := aliceSetup.Bundles[0]
 	if aliceBundle.Bundle.RootId == "" || !aliceBundle.Bundle.Derived {
 		t.Fatalf("initiator did not install a derived chat: %+v", aliceBundle)
 	}
 
-	var bobBundle api.BundleEnsureResponse
-	mustJSON(t, http.MethodPost, bob.base+"/v1/spaces/"+aliceSpace.Id+"/bundles",
-		ensureBody, http.StatusOK, &bobBundle)
+	mustJSON(t, http.MethodPost, bob.base+"/v1/catalog/general-chat/setup",
+		setupBody, http.StatusOK, &bobSetup)
+	if len(bobSetup.Bundles) != 1 {
+		t.Fatalf("peer setup: %+v", bobSetup)
+	}
+	bobBundle := bobSetup.Bundles[0]
 	if bobBundle.Bundle.RootId != aliceBundle.Bundle.RootId {
 		t.Fatalf("1-1 chat forked: alice=%q bob=%q",
 			aliceBundle.Bundle.RootId, bobBundle.Bundle.RootId)

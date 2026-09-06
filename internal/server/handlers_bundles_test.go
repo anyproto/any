@@ -71,8 +71,8 @@ func TestServer_BundleEnsureInstallsThenAdopts(t *testing.T) {
 	e := buildEcho(d)
 
 	sp := createSpaceInfo(t, e, "BundleEnsure")
-	chatType := installModuleType(t, e, sp.Id, "chat")
-	body := `{"id":"` + testBundleId + `","name":"General","rootTypes":["` + chatType + `"]}`
+	edType := installModuleType(t, e, sp.Id, "editor")
+	body := `{"id":"` + testBundleId + `","name":"General","rootTypes":["` + edType + `"]}`
 
 	first := ensureBundle(t, e, sp.Id, body)
 	if !first.Installed {
@@ -101,9 +101,10 @@ func TestServer_BundleEnsureInstallsThenAdopts(t *testing.T) {
 
 	// The requested type is on the root, so the install's dataset is
 	// writable straight away.
-	msg := chatSend(t, e, "/v1/spaces/"+sp.Id+"/objects/"+first.Bundle.RootId, "hello bundle", "")
-	if msg.Id == "" {
-		t.Fatalf("root does not accept chat writes: %+v", msg)
+	msg := mustModify(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/"+first.Bundle.RootId+"/editor/editor_blocks/blocks",
+		`{"type":"paragraph","text":"hello bundle"}`, http.StatusCreated)
+	if len(msg.RecordIds) == 0 {
+		t.Fatalf("root does not accept editor writes: %+v", msg)
 	}
 }
 
@@ -422,8 +423,8 @@ func TestServer_BundleEnsureDerivedRoot(t *testing.T) {
 	e := buildEcho(d)
 
 	sp := createSpaceInfo(t, e, "BundleDerived")
-	chatType := installModuleType(t, e, sp.Id, "chat")
-	body := `{"id":"` + testBundleId + `","name":"General","rootTypes":["` + chatType + `"],"derived":true}`
+	edType := installModuleType(t, e, sp.Id, "editor")
+	body := `{"id":"` + testBundleId + `","name":"General","rootTypes":["` + edType + `"],"derived":true}`
 
 	first := ensureBundle(t, e, sp.Id, body)
 	if !first.Installed || !first.Bundle.Derived || first.Bundle.RootId == "" {
@@ -449,8 +450,9 @@ func TestServer_BundleEnsureDerivedRoot(t *testing.T) {
 	}
 
 	// The requested type is on the root, so its dataset is writable.
-	if msg := chatSend(t, e, "/v1/spaces/"+sp.Id+"/objects/"+first.Bundle.RootId, "hello derived", ""); msg.Id == "" {
-		t.Fatalf("derived root does not accept chat writes: %+v", msg)
+	if msg := mustModify(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/"+first.Bundle.RootId+"/editor/editor_blocks/blocks",
+		`{"type":"paragraph","text":"hello derived"}`, http.StatusCreated); len(msg.RecordIds) == 0 {
+		t.Fatalf("derived root does not accept editor writes: %+v", msg)
 	}
 
 	// Children: bound by seed, deterministic, distinct per seed.

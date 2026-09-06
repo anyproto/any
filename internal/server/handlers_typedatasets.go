@@ -695,16 +695,23 @@ func sanitizeSDKMessage(err error) string {
 	return msg
 }
 
-// datasetDraftFromAPI converts the wire draft to space.DatasetDraft,
-// parsing enum labels. Returns ("", "") code/reason on success.
+// datasetDraftFromAPI converts a CLIENT wire draft to
+// space.DatasetDraft, parsing enum labels; a reserved module is refused
+// here — decidable from the compiled-in catalog, so before a bundle's
+// convergence wait, with the SDK's own refusal as the backstop. Returns
+// ("", "") code/reason on success.
 func datasetDraftFromAPI(req api.DatasetDraftRequest) (space.DatasetDraft, string, string) {
 	if reservedModule(req.Module) {
-		// Decidable from the compiled-in catalog, so it is refused here
-		// — before a bundle's convergence wait — and the SDK's own
-		// refusal stays the backstop.
 		return space.DatasetDraft{}, api.ErrDatasetModuleReserved,
 			"module " + req.Module + " is reserved to the server's own installs — a runtime declaration cannot name it"
 	}
+	return systemDatasetDraftFromAPI(req)
+}
+
+// systemDatasetDraftFromAPI is datasetDraftFromAPI without the
+// reserved-module refusal — the server's own catalog installs, which
+// go to the SDK under SystemInstall.
+func systemDatasetDraftFromAPI(req api.DatasetDraftRequest) (space.DatasetDraft, string, string) {
 	draft := space.DatasetDraft{
 		Key:         req.Key,
 		Module:      req.Module,

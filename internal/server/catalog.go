@@ -117,7 +117,7 @@ func compileCatalog(src []byte) (*compiledCatalog, catalog.Problems) {
 				}
 			}
 			for pi, req := range b.Parts {
-				draft, code, reason, _ := partDraftFromAPI(req)
+				draft, code, reason, _ := systemPartDraftFromAPI(req)
 				if code != "" {
 					add(fmt.Sprintf("%s.parts[%d]", bp, pi), code, reason)
 					continue

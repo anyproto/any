@@ -107,6 +107,15 @@ func (d *deps) objectCreate(c echo.Context) error {
 		}
 	}
 
+	// A type declaring a reserved module is carried only by its own
+	// root: the SDK refuses the bootstrap, but Create has minted the
+	// tree by then, so the check runs first and no bare object is left.
+	for _, typeId := range opts.Types {
+		if reservedCarrierType(c.Request().Context(), sp, typeId) {
+			return reservedCarrierError(c, sp.Id(), typeId)
+		}
+	}
+
 	// Same descriptor value gate as propertiesSet, per initial type (see
 	// descriptor.go).
 	for typeId, patch := range opts.InitialProperties {

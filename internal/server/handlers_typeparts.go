@@ -279,6 +279,16 @@ func (d *deps) typeRemovePart(c echo.Context) error {
 // partDraftFromAPI converts the wire draft to space.PartDraft. Returns
 // ("", "", nil) code/reason/details on success.
 func partDraftFromAPI(req api.PartDraftRequest) (space.PartDraft, string, string, map[string]any) {
+	return partDraftFrom(req, datasetDraftFromAPI)
+}
+
+// systemPartDraftFromAPI is partDraftFromAPI for the server's own
+// catalog installs: a part may name a reserved module.
+func systemPartDraftFromAPI(req api.PartDraftRequest) (space.PartDraft, string, string, map[string]any) {
+	return partDraftFrom(req, systemDatasetDraftFromAPI)
+}
+
+func partDraftFrom(req api.PartDraftRequest, dataset func(api.DatasetDraftRequest) (space.DatasetDraft, string, string)) (space.PartDraft, string, string, map[string]any) {
 	draft := space.PartDraft{
 		Key:    req.Key,
 		Name:   req.Name,
@@ -302,7 +312,7 @@ func partDraftFromAPI(req api.PartDraftRequest) (space.PartDraft, string, string
 	}
 	draft.UI = ui
 	for i, ds := range req.Datasets {
-		dsDraft, code, reason := datasetDraftFromAPI(ds)
+		dsDraft, code, reason := dataset(ds)
 		if code != "" {
 			return draft, code, reason, map[string]any{"key": req.Key, "dataset": i}
 		}

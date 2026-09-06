@@ -492,6 +492,8 @@ func sdkValidationError(c echo.Context, err error, details map[string]any) error
 			code = "property.kind_mismatch"
 		case handler.ReasonUnknownProperty:
 			code = "property.not_found"
+		case handler.ReasonReservedCarrier:
+			code = "type.reserved_carrier"
 		}
 	}
 	return writeError(c, http.StatusBadRequest, code, err.Error(), details)
