@@ -1483,6 +1483,9 @@ components:
             replaced or revoked on another device).
           type: string
         permission:
+          description: |-
+            Permission is "none" for the request-to-join invites v1 mints —
+            the role is chosen at accept time, not carried by the invite.
           type: string
         recordId:
           type: string
