@@ -39,6 +39,11 @@ The body vocabulary is closed (these fields plus the subscribe-only
 An unknown key — `"filters"`, say — is `400 request.unknown_field`
 naming the accepted set, never a silently unfiltered full-space query.
 
+On `/subscribe`, **`limit` requires `sort`** — a live window has to be
+ordered for the engine to know which records fall inside it, so a limit
+with no sort is `400 request.invalid_field`. Snapshots take an
+unordered limit: there it is just an arbitrary page.
+
 Snapshot reply: `{ "records": [ ... ], "total": <int|omitted> }`. Records are the
 raw stored documents (per-object datasets) or computed property rows
 (cross-object). `/subscribe` adds the live frames documented in `docs/04-events.md`.

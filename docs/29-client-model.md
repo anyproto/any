@@ -43,7 +43,8 @@ never reaches storage. Keying a value by `xKey` is `property.not_found`.
    after the convergence wait and carries `synced`; `synced: true` plus no
    row means definitively not installed.
 2. `GET /v1/spaces/:spaceId/types?includeHidden=true` — every type, with
-   `xKey`, `weight`, `layout`, `hidden`, `builtIn`.
+   `xKey`, `weight`, `layout` and the `hidden` / `builtIn` flags. The
+   flags are omitted when false, so read an absent key as false.
 3. `POST /v1/spaces/:spaceId/objects/query` with
    `{"filter": {"any.types": "miniapp"}}` — the installed apps. Each row
    carries `miniapp.bundle`, the bundle id that installed it. This one
@@ -179,7 +180,8 @@ writes.
 `POST /v1/spaces/:spaceId/query` (with `objectId` + `dataset`) for a
 dataset's records. Both take `filter` / `sort` / `limit` / `offset` /
 `projection`, and both have a `…/subscribe` twin that streams a snapshot
-then live deltas. Property paths are `"<typeId>.<propId>"`.
+then live deltas. On a subscribe, `limit` requires `sort` — a live
+window has to be ordered. Property paths are `"<typeId>.<propId>"`.
 
 ### The one trap: "all objects of type X" includes the type object
 

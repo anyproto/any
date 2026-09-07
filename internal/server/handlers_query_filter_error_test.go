@@ -197,3 +197,49 @@ func TestScalarFilterMatchesArrayElement(t *testing.T) {
 			"tells callers to rely on; body=%s", len(resp.Records), rec.Body.String())
 	}
 }
+
+// TestSubscribeLimitRequiresSort pins the window precondition: a live
+// window has to be ordered, and the SDK's check lives in an internal
+// package, so an unguarded `limit` without `sort` reached sdkOpError
+// unclassified and answered 500 — a client body mistake reading as a
+// server fault. Covers both parse paths (buildBodyQuery and
+// buildPerObjectQuery) and confirms snapshots are unaffected, where an
+// unordered limit is just an arbitrary page.
+func TestSubscribeLimitRequiresSort(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", `{"name":"SubWindow"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create space: %d %s", rec.Code, rec.Body.String())
+	}
+	var sp api.SpaceInfo
+	_ = json.Unmarshal(rec.Body.Bytes(), &sp)
+	base := "/v1/spaces/" + sp.Id
+
+	obj := mustCreateModuleObject(t, e, sp.Id, "editor")
+
+	refused := []struct{ path, body string }{
+		{base + "/objects/query/subscribe", `{"limit":1}`},
+		{base + "/query/subscribe", `{"objectId":"` + obj + `","dataset":"editor_blocks","limit":1}`},
+		{"/v1/spaces/query/subscribe", `{"limit":1}`},
+		{"/v1/devices/query/subscribe", `{"limit":1}`},
+	}
+	for _, tc := range refused {
+		rec := doJSON(t, e, http.MethodPost, tc.path, tc.body)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status = %d, want 400: %s", tc.path, rec.Code, rec.Body.String())
+		}
+		if code := decodeErrEnvelope(t, rec.Body.Bytes()).Code; code != "request.invalid_field" {
+			t.Errorf("%s: code = %s, want request.invalid_field", tc.path, code)
+		}
+	}
+
+	// Snapshots keep taking an unordered limit.
+	for _, path := range []string{base + "/objects/query", "/v1/spaces/query"} {
+		if rec := doJSON(t, e, http.MethodPost, path, `{"limit":1}`); rec.Code != http.StatusOK {
+			t.Errorf("%s snapshot: status = %d, want 200: %s", path, rec.Code, rec.Body.String())
+		}
+	}
+}
