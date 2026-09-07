@@ -138,13 +138,14 @@ slug is checked against that.
 | `options` | enumerated formats | the map **key is the stored value**; the entry is the display slice `{name, color, pos, meta.<k>}`, all strings. `color` is an open string — clients render the palette names they know |
 | `relation` | reference formats | `targetTypes` names types by type xKey (array of strings). `filter` is an additional condition over candidate objects, one JSON-text leaf that must parse as a query condition. |
 | `config` | per format | scalar settings (string / number / boolean), keyed by the vocabulary below |
+| `links` | any | the link-index marker: `link` (the string value is one `any://` reference, kind string), `links` (the array lists references, kind array), `markdown` (the text is scanned for references, kind string) or `none` (never scanned — the off-switch for a `relation` or `markdown` field whose references must stay out of backlinks). Implied by the `relation` slug (`links`) and the `markdown` slug (`markdown`); set it explicitly on any other shape that carries references. See docs/13-index.md § Links. |
 
 Reserved and unwritten: `validate` (a future declarative assertion
 layer — where `required`, `unique` and range rules on a property will
 live) and `compute` (a future read-time computed value). Both answer
 `400 property.format_invalid` today.
 
-These six are the keys `any` interprets — their leaves are typed on
+These seven are the keys `any` interprets — their leaves are typed on
 write. **Any other top-level key is a vendor namespace** (`acme`),
 stored verbatim at any depth, never validated. Clients preserve keys
 they do not recognise.
@@ -205,6 +206,7 @@ prefix, and own their `config` keys.
 |---|---|---|---|---|---|
 | `text` | string | | | | string |
 | `longtext` | string | | | | string |
+| `markdown` | string | | | | string — inline markdown; the link index scans it for `any://` references (chat and editor `text` carry it) |
 | `url` | string | | | | absolute URL with a scheme |
 | `email` | string | | | | one `local@domain` |
 | `phone` | string | | | | string |
@@ -530,9 +532,10 @@ alone.
 - **On every property write** (`/set`, object-create `initialProperties`,
   bundle `rootProperties`): the value against the current slug —
   `400 property.format_violation` with `details.{propId, format, reason}`.
-- **Backlinks** (`GET …/objects/:id/backlinks`) select `relation`
-  properties from the type catalog; a relation nested in a composite is
-  invisible to them.
+- **The link index** reads references off every property and field
+  whose descriptor carries a `links` marker, implied or explicit; a
+  marker nested in a composite is invisible to it. The marker is paired
+  with the kind on create and on PATCH (`400 property.format_invalid`).
 - `meta` narrowed to `index`.
 
 ## Not covered yet
@@ -574,15 +577,14 @@ is a contract:
   `dataviews` / `views`), the `objects` row's `any.*` properties, the
   built-in types' properties and the SDK's system datasets — carries a
   `description`, and an `xFormat` where the vocabulary above names its
-  value (`text`, `longtext`, `datetime`, `checkbox`). Three value shapes
-  those fields are made of have no slug yet and ship description-only:
-  inline-markdown text (`chat_messages.text`, `editor_blocks.text` — the
-  slug is decided with backlinks, since it is what a link scanner
-  selects on), account identities (the "Person / identity values" item
-  above), and record ids (`replyToMessageId`, `views.dataview`). Icon
-  values, lexid `pos`, enum strings and opaque objects are system
+  value (`text`, `longtext`, `markdown`, `datetime`, `checkbox`). Two
+  value shapes those fields are made of have no slug yet and ship
+  description-only: account identities (the "Person / identity values"
+  item above) and record ids (`replyToMessageId`, `views.dataview`).
+  Icon values, lexid `pos`, enum strings and opaque objects are system
   values and stay undecorated by design.
 
-One behaviour worth knowing while these are open: a `relation` slug is
-legal in a nested descriptor, but the backlinks index inspects only
-top-level definitions, so a link inside a composite is invisible to it.
+One behaviour worth knowing while these are open: a `relation` slug or
+a `links` marker is legal in a nested descriptor, but the link index
+inspects only top-level definitions, so a link inside a composite is
+invisible to it.

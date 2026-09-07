@@ -126,8 +126,10 @@ id `objectId:prop:<propId>`:
   definition's `meta["index"]` (set at `AddProperty` time — SDK
   `PropertyDraft.Meta`, HTTP `meta` field) is a 3-state override:
   absent/empty ⇒ `props`; `"<scope>"` ⇒ that scope; the literal
-  `"none"` ⇒ excluded (the opt-out for blobs and noisy enums). An
-  invalid slug excludes rather than silently landing in the default.
+  `"none"` ⇒ excluded from the TEXT index (the opt-out for blobs and
+  noisy enums — a property carrying a link marker still reports its
+  edges, § Links). An invalid slug excludes rather than silently
+  landing in the default.
 - **Entry text is self-describing**: `"<prop name>: <value>"`
   ("Score: 9", "Publisher: Gollancz") — property-NAME search works
   (property definitions are indexed nowhere else) and bare numbers get
@@ -288,6 +290,126 @@ miss the map and re-upsert once.
 Runtime datasets declared without a `search` mapping (anybao's
 `program_source`, `mini_app`) are never indexed — see § Schema chunker.
 
+## Links
+
+The chunker feed carries a second output next to text: the **edges** a
+record holds — every `any://` reference, classified. The worker lands
+them in a per-space link collection of `index.db` in the same page
+transaction as the text docs, behind the same cursor, so eviction is
+applySeq-consistent with content and the rebuild triggers cover both.
+This is the backlinks index behind `GET …/objects/:id/backlinks`,
+`GET …/objects/:id/links` and `GET /v1/backlinks` (docs/03-api.md
+§ Links and backlinks); the SDK has no reverse index of its own.
+
+### Contract
+
+```go
+type LinkEntry struct {
+    ObjectId, Dataset, RecordId string   // the source place (DatasetProp + propId for a value)
+    Kind     string                      // mention | link | card | embed | relation (open set)
+    Target   anyuri.URI                  // canonical (URI.Canonical): never a space, never a fragment
+}
+// IndexEntry.Links carries the edges of the record(s) the entry covers.
+```
+
+- A **streaming** chunker's entry replaces its record's edges — nil
+  means the record links nothing (a tombstone, a cleared value, a
+  detached type's value). A **reconciling** chunker's set replaces the
+  whole collection's edges. Either way the source place is per record:
+  a coalesced editor window reports each member block's links under
+  that block's own id.
+- **Canonical targets.** `anyuri.Canonical` resolves what was written
+  to one key: the bare in-space form and the global form become
+  `any://o/<sp>/<id>`; a record path stays a record path (a block link
+  is a block link — the object is not counted twice); `p` / `m` / `f`
+  keep their kind, params and fragments dropped; `s` and unknown kinds
+  are not targets. A link whose target is the source object itself,
+  as a whole, is dropped (the parent is not a backlink).
+- **What reports edges**, by field descriptor (docs/27-descriptors.md
+  § `xFormat`): `xFormat.links` marks a field — `link` (the string is
+  one reference), `links` (the array lists references), `markdown` (the
+  text is scanned), `none` (never scanned, the off-switch) — and the
+  `relation` slug implies `links`, the `markdown` slug implies
+  `markdown`. Plain `text` / `longtext` is never scanned; `meta.index:
+  none` keeps a property out of the TEXT index only. Kinds: a value
+  field yields `relation`; scanned text yields `mention` for an `m`
+  reference and `link` for the rest. A runtime record's edge carries
+  the `field` it was read from; a property value's edge its `typeId`.
+- **Catalog freshness.** A type object changing in the feed (a
+  property added, patched or removed) invalidates every chunker's
+  per-space catalog snapshot before the rest of the page is extracted,
+  so a value written right after its definition indexes on that
+  write, not after the snapshot's TTL and a later write. The prop
+  chunker's stream is complete per row (every catalog property, every
+  time), so the worker replaces the whole `prop` collection's edges on
+  each stream and a removed definition's edges fall out on the row's
+  next change.
+- **Per source:**
+
+| Source | Fields | Kinds |
+|---|---|---|
+| editor blocks (every editor collection) | `text` (markdown) | `link` / `mention`; `card` when a paragraph is exactly one whole-line `[…](any://o/…)` or `[…](any://f/…)` link; `embed` for the synced-block reference envelope (an `html` block `<!-- any:block {…"kind":"synced-block","data":{"role":"reference","ref":"any://o/…/editor_blocks/…"}} -->`) |
+| chat messages | `text` (markdown), `attachments.<k>.link`, `agent.debugLink` | `link` / `mention` |
+| property values (the virtual `prop` dataset) | every property whose descriptor carries a marker; a detached type's values yield nothing | `relation` (`link` / `mention` under a `markdown` marker) |
+| runtime records | every field whose `x-format` carries a marker; a dataset with link fields and no `x-search` is streamed for its edges only | as above |
+
+### Store
+
+- `<spaceId>_links`, one doc per edge:
+  `{id, objectId, dataset, recordId, typeId?, kind, target{kind,
+  spaceId, objectId?, dataset?, recordId?, propId?, identity?,
+  fileId?}, targetKey, targetObject?, applySeq}`. `id` is the text-doc
+  base `objectId:dataset:recordId` + `U+001F` + `<hash(kind,
+  targetKey)>` — the chunk separator, so a record id containing `:`
+  can never be confused with a sibling's prefix: structural removals
+  are the `:`-terminated ranges (`objectId:`, `objectId:dataset:`), a
+  record's edges are `[base+U+001F, base+U+0020)`, and the hash merges
+  duplicates from one place. `typeId` names a property value's type
+  (`prop` sources). `targetKey` is the canonical target, `targetObject`
+  the object it belongs to (absent for identities and files). Indexes:
+  `(targetObject, id)` (sparse), `(targetKey, id)`, so a capped read is
+  a prefix scan in id order.
+- **Content changes are an exact diff.** Per changed object the worker
+  reads the object's stored edge ids once (`LinkIds`, one range), then
+  removes the ids that fell out of a replaced scope — a re-streamed
+  record, a reconciled collection — and writes the ids that appeared
+  (`diffLinks`). An edit that leaves a record's edges unchanged costs
+  the read and nothing else; a property write on a page with 300
+  links rewrites nothing and signals nothing. Structural prefix deletes
+  (object deleted, type detached, definition retired) apply to the
+  link collection as they apply to text docs; a `TextEvictor` chunker
+  can evict a dataset's text docs alone (a runtime dataset that lost
+  its search mapping but keeps link fields).
+- The cursor row carries `links`, the sink's layout version, stamped
+  by the worker after its first landed page or its backfill — never by
+  a plain cursor write, so a failed backfill is retried on the next
+  start. An indexed space stamped behind is **backfilled** on its
+  worker's advance goroutine (off the boot path, outside the indexer
+  lock): the collection is dropped, every object the feed knows is
+  re-extracted once through the chunkers and only the edges are kept,
+  landed page by page — text docs untouched, nothing re-embeds; an
+  unreadable object is skipped, its edges arrive with its next change.
+  Reported as `index.links_backfill.<spaceId>` on the process view
+  (docs/22-processes.md). This is also how a db indexed before the
+  sink existed gets its edges.
+- After a page changed edges the indexer reports the affected target
+  keys (`Options.OnLinks` — only targets an edge appeared for or
+  vanished from); the server publishes them as one device-scope bus
+  event `links.updated` (docs/21-events.md), capped at 200 targets
+  with `truncated: true` past that, so an open panel refreshes.
+
+### Reads
+
+`Indexer.Backlinks` seeks `targetObject` for a whole-object target
+(every edge to the object, its records and its values — the reply
+splits them on whether the target is a part) and `targetKey` for a
+record, value, identity or file target; `Indexer.Links` walks the
+source prefix (object / dataset / record); `BacklinksAll` runs the
+seek over every indexed space — the device holds only spaces this
+account is a member of, so the account-wide read is access-filtered by
+construction. All reads are capped (500 per space over HTTP) and say
+so (`truncated`); there is no continuation.
+
 ## Removal semantics
 
 Three granularities, all addSeq-consistent (discovered through the same
@@ -301,6 +423,10 @@ Three granularities, all addSeq-consistent (discovered through the same
 | type detached (`DetachType` — bumps `_addSeq`) | the indexer (a gated chunker's `TypeId()` ∉ `any.types`; module and runtime collections via their chunker's `EvictDatasets` — no owner type attached) | prefix delete `objectId:dataset:` |
 | part or runtime dataset definition removed | the module / schema chunker (the collection vanishes from the catalog → per-space retired set, held for the process lifetime) | prefix delete `objectId:dataset:` on each object's NEXT dirty tick |
 | object deleted (`Objects().Delete`) | the indexer (`ObjectChange.Deleted` in the change feed) | prefix delete `objectId:` |
+
+Every prefix operation runs on the link collection too (§ Links), so
+an object's or a dataset's edges leave with its text docs; a record's
+edges are replaced whenever the record re-streams.
 
 Object deletion leaves **no tombstone**: the SDK purges the shared
 `objects` row and every per-object dataset collection outright, and
@@ -972,6 +1098,14 @@ Re-measure with `go test ./internal/indexer -bench . -benchtime 30x`
   and stops + closes on a yield error; `IsDeleted`.
 - `internal/editor/chunker_test.go`, `internal/chat/chunker_test.go` —
   text extraction including the tombstone case.
+- `anyuri/links_test.go`, `internal/index/links_test.go`,
+  `internal/editor/links_test.go`, `internal/chat/links_test.go` —
+  the link scanner, canonical targets, marker resolution, the card /
+  embed rules, chat attachments; `internal/indexer/links_store_test.go`
+  — the link sink (replace / rewrite / eviction / backfill stamp),
+  untagged on purpose; `internal/server/handlers_links_test.go` — the
+  index end to end over HTTP; `internal/e2e/multipeer_links_test.go` —
+  the joiner's index sees the owner's block link and its deletion.
 - `internal/server/handlers_index_test.go::TestIndexChunkers_FullFlow` —
   in-process SDK end to end: creation, cursor advance, deletions
   (tombstones), and the non-memory tombstone case.

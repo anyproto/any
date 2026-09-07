@@ -1,10 +1,5 @@
 package anyuri
 
-import "strings"
-
-// mentionPrefix is what ExtractMentions scans for.
-const mentionPrefix = prefix + string(KindMention) + "/"
-
 // ExtractMentions scans text for mention URIs (any://m/<spaceId>/<identity>)
 // and returns the mentioned identities, deduplicated, in first-occurrence
 // order. It is a substring scan, not a markdown parser: it works
@@ -14,44 +9,13 @@ const mentionPrefix = prefix + string(KindMention) + "/"
 // appear inside one). Percent-encoded destinations are not decoded; ids
 // never need encoding. This is the sanctioned mention scanner — the
 // chat mentions derivation and any client-side detection share it.
+// A filter over ExtractLinks, the general scanner.
 func ExtractMentions(text string) []string {
 	var out []string
 	var seen map[string]struct{}
-	for i := 0; i < len(text); {
-		idx := strings.Index(text[i:], mentionPrefix)
-		if idx < 0 {
-			break
-		}
-		start := i + idx
-		// Resume after the matched prefix regardless of the token's
-		// fate — safe against crafted tokens containing the prefix.
-		i = start + len(mentionPrefix)
-		// A scheme hit mid-word ("many://m/…") is another scheme's
-		// URI, not ours.
-		if start > 0 && isSchemeByte(text[start-1]) {
+	for _, u := range ExtractLinks(text) {
+		if u.Kind != KindMention || u.Identity == "" {
 			continue
-		}
-		// The prefix is already matched; scan only the TAIL charset
-		// from here. '.' must stay in the charset — space ids are
-		// "<cid>.<replKey>" — but ':' is only ever in the scheme, so a
-		// glued colon terminates the token.
-		end := i
-		for end < len(text) && isTailByte(text[end]) {
-			end++
-		}
-		token := strings.TrimRight(text[start:end], ".,;:!?")
-		u, err := Parse(token)
-		if err != nil || u.Kind != KindMention || u.Identity == "" {
-			continue
-		}
-		// Identities are base58 — never dotted. A '.' inside the parsed
-		// identity is a glued sentence period ("…/<id>.Check this"):
-		// keep the id, shed the absorbed word.
-		if dot := strings.IndexByte(u.Identity, '.'); dot >= 0 {
-			u.Identity = u.Identity[:dot]
-			if u.Identity == "" {
-				continue
-			}
 		}
 		if _, dup := seen[u.Identity]; dup {
 			continue

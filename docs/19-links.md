@@ -224,8 +224,10 @@ These are what's stored today and must keep parsing:
 - **Relation property values** (`xFormat.type: "relation"`,
   `internal/server/descriptor.go`): strictly the one-segment, fragment-less form
   `any://<objectId>`. Value writes are validated against exactly this shape.
-- **Backlinks** (`internal/api/backlinks.go`, `handlers_backlinks.go`): reverse
-  lookup keyed on that same one-segment form.
+- **The link index** (docs/13-index.md § Links) canonicalises every
+  written form through `URI.Canonical` — bare and global object forms
+  become `any://o/<sp>/<id>` — so backlinks are keyed on one string
+  whatever the writer emitted.
 - **Agent `debugLink`** on chat messages: `any://<spaceId>/<objectId>#turn_<n>`.
 
 `Parse` accepts the bare forms as kind `o` (flagged `Legacy: true`);
@@ -255,8 +257,9 @@ citations, dataset records) always use the explicit-kind form.
 | Concern | Location |
 |---------|----------|
 | Grammar (builders / `Parse` / `IsValid` / `IsPropertyValueRef`, kind constants) | `anyuri/` — public `github.com/anyproto/any/anyuri` |
-| Mention extraction from text (`ExtractMentions`) | `anyuri/mentions.go` — the sanctioned scanner, shared by server derivation and clients |
+| Link extraction from text (`ExtractLinks`), canonical targets (`Canonical`, `ObjectKey`, `IsPart`) | `anyuri/links.go` — the sanctioned scanner, shared by the link index and clients |
+| Mention extraction from text (`ExtractMentions`) | `anyuri/mentions.go` — a filter over `ExtractLinks`, shared by the chat mentions derivation and clients |
 | Relation property-value validation | `internal/server/descriptor.go` |
-| Backlinks reverse lookup | `internal/api/backlinks.go`, `internal/server/handlers_backlinks.go` |
+| Links and backlinks (the link index) | `internal/index/links.go`, `internal/indexer/links_store.go`, `internal/server/handlers_backlinks.go` — [docs/13-index.md](13-index.md) § Links |
 | Chat mentions derivation (server-parsed `mentions` field) | `internal/chat/handler.go` (`deriveMentions`) — see [docs/16-chat.md](16-chat.md) § Mentions |
 | File links | [docs/17-files.md](17-files.md) |

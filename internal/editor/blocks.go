@@ -155,15 +155,17 @@ func NewModule() handler.Module {
 func datasetSchema() handler.Schema {
 	return handler.Schema{
 		Dynamic: true,
-		// Descriptions only: the block kind is an enum, the text's slug
-		// is a backlinks decision, style and nav are nested objects.
+		// The text carries the `markdown` slug (the link index scans it —
+		// docs/13-index.md § Links); the block kind is an enum, style and
+		// nav are nested objects, so those describe themselves in prose.
 		Fields: []handler.Field{
 			{Id: FieldType, Name: "Type", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced,
 				Description: "Block kind: paragraph, heading, list_item, …"},
 			{Id: FieldStyle, Name: "Style", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced,
 				Description: "Per-kind rendering options: level, ordered, checked, lang, …"},
 			{Id: FieldText, Name: "Text", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced,
-				Description: "Block body, inline markdown only; empty for an empty paragraph."},
+				Description: "Block body, inline markdown only; empty for an empty paragraph.",
+				XFormat:     map[string]any{"type": "markdown"}},
 			{Id: FieldNav, Name: "Nav", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced,
 				Description: "Tree placement: {parentId, pos} with a lexid pos."},
 		},

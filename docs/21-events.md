@@ -191,6 +191,29 @@ emit the frames and an in-memory registry taps the hub to serve the
 live view. Full convention — data shapes, composite key, heartbeat and
 staleness rules — in `docs/22-processes.md`.
 
+### `links.updated` — the link index (device scope)
+
+Published by the search indexer after a page of changes landed edges
+in the link index (docs/13-index.md § Links): the canonical targets
+whose backlinks changed, so a panel showing them re-reads.
+
+```jsonc
+// type: "links.updated"
+{ "spaceId": "<the space whose edges changed>", "targets": ["any://o/<sp>/<obj>", "any://m/<sp>/<identity>", …] }
+```
+
+`spaceId` is the **source** space — where the writing records live.
+A target's own space is inside its URI: a block in space B linking an
+object of space A publishes `spaceId: B, targets: ["any://o/A/…"]`, so
+a panel matches on `targets`, never on `spaceId`.
+
+`targets` name objects (whatever part of the object was linked — a
+block link reports the block's object) or, for identities and files,
+the target itself; only targets an edge appeared for or vanished from
+are named. Capped at 200 entries, `"truncated": true` past that — a
+panel showing an unlisted target re-reads too. At-most-once like every
+bus event; a missed frame costs one stale panel until the next read.
+
 ## Scopes over the network
 
 `account` and `space` events ride the SDK's ephemeral pub/sub

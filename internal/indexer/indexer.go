@@ -56,6 +56,12 @@ type Options struct {
 	// nil = no reporting. Called from indexer goroutines — must not
 	// block.
 	OnProcess func(ProcessUpdate)
+	// OnLinks, when set, receives the target keys (canonical object
+	// references, or the target itself for identities and files) whose
+	// backlinks changed in a landed page — the liveness signal a client
+	// panel refreshes on. Called from the advance goroutine after the
+	// page committed; must not block.
+	OnLinks func(spaceId string, targets []string)
 	// AnnounceAfter gates fts/embed reporting on elapsed work time: a
 	// pass/drain announces only once it has been running this long, so
 	// usual indexing (one message, one edit — done in well under a
@@ -132,6 +138,11 @@ const (
 	// are bytes (Total 0 until the server reports a length), Name the
 	// model file name. Account-global, not per-space.
 	ProcessKindModelDownload = "model_download"
+	// ProcessKindLinksBackfill — a per-space rebuild of the link index
+	// from the records (a db that predates the link sink's layout):
+	// Done counts objects, Total is unknown. Reported past
+	// AnnounceAfter like an advance.
+	ProcessKindLinksBackfill = "links_backfill"
 )
 
 // procHeartbeat paces the mid-work progress heartbeat: one embed call
@@ -473,6 +484,7 @@ func (ix *Indexer) Sync(ctx context.Context) error {
 // space without started workers).
 func (ix *Indexer) SyncSpace(ctx context.Context, sp space.Space) error {
 	w := newSpaceWorker(ix, sp)
+	w.backfillLinks(ctx)
 	if err := w.advance(ctx); err != nil {
 		return err
 	}

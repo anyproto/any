@@ -58,6 +58,14 @@ type IndexEntry struct {
 	// its terms should also appear in Data — Title only adds ranking weight,
 	// and the content hash (embed-skip) is over Data alone.
 	ApplySeq uint64 // peer-local, per-space monotonic apply counter
+	// Links are the edges found in the record(s) this entry covers —
+	// the link sink's input (docs/13-index.md § Links). Each carries
+	// its own source place: a coalesced editor window reports the
+	// links of every member block under that block's id. A streaming
+	// chunker's entry replaces its record's edges (nil = the record
+	// links nothing); a reconciling chunker's set replaces the
+	// collection's edges. Not part of the content hash.
+	Links []LinkEntry
 }
 
 // Reconciler is an optional chunker capability for datasets whose index
@@ -110,6 +118,36 @@ type DynamicChunker interface {
 	// datasets whose owning type is not attached (the DetachType path),
 	// plus names retired since process start (definition removed).
 	EvictDatasets(ctx context.Context, sp space.Space, attached map[string]bool) ([]string, error)
+}
+
+// TextEvictor is an optional DynamicChunker capability for datasets
+// whose TEXT docs must go while their edges stay: the worker
+// prefix-evicts `objectId:<ds>:` on the text collection only for every
+// name returned, and the chunker keeps streaming the dataset for its
+// links (docs/13-index.md § Links). A dataset that lost its search
+// mapping but keeps link fields is the case.
+type TextEvictor interface {
+	EvictText(ctx context.Context, sp space.Space, attached map[string]bool) []string
+}
+
+// CatalogInvalidator is an optional Chunker capability for chunkers
+// holding a per-space catalog snapshot with a TTL (the prop chunker):
+// the worker calls Invalidate when a type object changed in the feed,
+// so a property added a moment ago is in the catalog when the values
+// written right after it are extracted.
+type CatalogInvalidator interface {
+	Invalidate(spaceId string)
+}
+
+// WholeCollectionLinks is an optional Chunker capability for streaming
+// chunkers whose every stream carries the record's complete edge set
+// for the whole collection — the prop chunker emits one entry per
+// catalog property per row, so a property that left the catalog
+// (definition removed) simply stops being emitted. The worker then
+// replaces the collection's edges on every stream instead of only the
+// streamed records', and the removed property's edges fall out.
+type WholeCollectionLinks interface {
+	LinksReplaceCollection()
 }
 
 // Chunker streams the IndexEntry values for one dataset on one object.

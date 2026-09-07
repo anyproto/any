@@ -204,6 +204,13 @@ heartbeat can resurrect a finished row.
 - **FTS / chunking pass** — id `index.fts.<spaceId>`, kind
   `index.fts`, target the spaceId. `done` counts processed changes;
   `total` unknown (the change feed has no backlog count).
+- **Link-index backfill** — id `index.links_backfill.<spaceId>`, kind
+  `index.links_backfill`, target the spaceId. A space whose edges
+  predate the link sink's layout (a db indexed before backlinks
+  existed, or a layout bump) is re-extracted once by its worker
+  before it advances (docs/13-index.md § Links). Announced past
+  `AnnounceAfter` like the fts pass; `done` counts objects, `total`
+  unknown; terminal `done` / `failed` (retried on the next start).
 - **Embedding-model download** — id `index.model_download`, kind
   `index.model_download`, target the model file name. Always
   announces, at download start — even fully offline (a download is

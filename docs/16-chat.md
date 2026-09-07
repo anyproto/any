@@ -247,7 +247,12 @@ the history is.
 ## Mentions
 
 A mention is a markdown link whose destination is a mention URI
-(docs/19-links.md; build it with `anyuri.BuildMention`):
+(docs/19-links.md; build it with `anyuri.BuildMention`). Every
+`any://` reference in a message — the text's links and mentions, each
+attachment's `link`, the agent group's `debugLink` — also lands in
+the link index, so "which messages mention this member" and "which
+chats link this page" are `GET …/backlinks` reads (docs/03-api.md
+§ Links and backlinks). Mentions in the text:
 
 ```
 Hey [Zarko](any://m/<spaceId>/<identity>), take a look

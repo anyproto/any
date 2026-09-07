@@ -214,7 +214,7 @@ func NewIndexRegistry() *index.Registry {
 // onProcess (nil = off) receives indexing lifecycle updates (fts /
 // embed / model download) for the process view — see
 // deps.indexerProcess.
-func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir string, sdk *anysyncsdk.SDK, chunkers *index.Registry, onProcess func(indexer.ProcessUpdate)) (*indexer.Indexer, error) {
+func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir string, sdk *anysyncsdk.SDK, chunkers *index.Registry, onProcess func(indexer.ProcessUpdate), onLinks func(spaceId string, targets []string)) (*indexer.Indexer, error) {
 	emb, err := indexer.NewEmbedder(cfg, modelsDir, filepath.Join(dataDir, "index", "models"), onProcess)
 	if err != nil {
 		return nil, err
@@ -259,6 +259,7 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 		MinVectorSim:      cfg.Search.MinVectorSim,
 		StopWords:         stopWords,
 		OnProcess:         onProcess,
+		OnLinks:           onLinks,
 	})
 	// The chunk target comes back from the indexer that resolved it, so
 	// the db's pin can never describe boundaries the chunker isn't using.

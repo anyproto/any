@@ -96,10 +96,10 @@ any://<objectId>              in-space object reference (the relation property-v
 any://<spaceId>/<objectId>    global object reference
 ```
 
-Relation property values and backlinks use the one-segment form, and agent `debugLink` fields on chat messages use `any://<spaceId>/<objectId>#turn_<n>`. Parsers accept both as kind `o`; new typed references (mentions, files, citations, records) always use the explicit-kind form. No stored value is rewritten.
+Relation property values use the one-segment form, and agent `debugLink` fields on chat messages use `any://<spaceId>/<objectId>#turn_<n>`. Parsers accept both as kind `o`; the link index canonicalises every written form to `any://o/<spaceId>/<objectId>` before keying backlinks on it; new typed references (mentions, files, citations, records) always use the explicit-kind form. No stored value is rewritten.
 
 ## Use the package, not a regex
 
-The grammar ships as the public Go package `github.com/anyproto/any/anyuri` — builders (`BuildObject`, `BuildMention`, …), `Parse`, `IsValid`, `IsPropertyValueRef`, and `ExtractMentions`, the sanctioned scanner the server itself uses to derive chat mentions. `Parse` distinguishes an unknown kind (`ErrKindUnknown`, degrade) from a malformed URI (`ErrInvalid`, reject); classify with `errors.Is`. Clients and agents import the rule rather than reimplementing it.
+The grammar ships as the public Go package `github.com/anyproto/any/anyuri` — builders (`BuildObject`, `BuildMention`, …), `Parse`, `IsValid`, `IsPropertyValueRef`, `ExtractLinks` (the sanctioned scanner the server's link index uses, with `Canonical` for the index-key form) and `ExtractMentions`, its filter the server uses to derive chat mentions. `Parse` distinguishes an unknown kind (`ErrKindUnknown`, degrade) from a malformed URI (`ErrInvalid`, reject); classify with `errors.Is`. Clients and agents import the rule rather than reimplementing it.
 
 > **Note.** Invite deep links (`i`) are reserved but not implemented — invites are shared as raw text tokens today (see [invites](../collaboration/invites.html)). Inline transclusion of a live value is not a link either; a future embed block will *contain* an `any://` target rather than be one.

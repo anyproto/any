@@ -221,6 +221,19 @@ pluggable embedders, parallel batched pipelines),
   a runtime dataset may declare a permissive `idPattern`, or a name
   carrying a control byte, and only finds out its records go unindexed.
   Rejecting at the creation API is the remaining half.
+- **Link index follow-ups (SYN-229 shipped the first iteration —
+  docs/13-index.md § Links).** Evidence edges (a result citing the
+  block or record it relied on, with the used version or a fragment —
+  needs the evidence field shape and a `v` URI param, decided with
+  anybao as the first producer); a dedicated subscribe stream if the
+  `links.updated` bus event proves too coarse; a `links.enabled`
+  switch independent of `index.enabled`; the whole-line card rule is
+  the web client's promotion rule and moves with it; a continuation
+  or per-group limits on the capped reads (today >500 edges are an
+  arbitrary cut before the object/parts split); a global identity key
+  so "mentions of me" is one read, not one per space; the prop
+  chunker's text docs for a removed property definition (its edges
+  now fall out on the row's next change, the text doc does not).
 - **Local embedder follow-ups.** Multi-sequence batched decode (texts
   currently embed sequentially under one mutex); a packaged
   distribution story for the llama.cpp libs (today: `make llamacpp`
@@ -291,14 +304,13 @@ pluggable embedders, parallel batched pipelines),
   and a member is `any://m/<spaceId>/<identity>` — neither is an object,
   so `relation.targetTypes` cannot name them. Each needs its own slug
   plus a target member.
-- **Markdown slug.** `chat_messages.text` and `editor_blocks.text` are
-  inline markdown and carry a description but no slug; the slug is what
-  a link scanner selects on, so it is decided with backlinks (SYN-229).
+- ~~**Markdown slug.**~~ Shipped with the link index (SYN-229):
+  `markdown` is in the vocabulary and chat / editor `text` carry it.
   Identity-valued fields (`author`, `modifiedBy`, chat `creator` /
-  `mentions`) wait on the member-relation item above.
+  `mentions`) still wait on the member-relation item above.
 - **Nested descriptors.** `items` / `properties` are not settable over
   HTTP and a `relation` slug nested in a composite is invisible to
-  backlinks. Composites are validated by the vocabulary's fixed shapes
+  the link index. Composites are validated by the vocabulary's fixed shapes
   (`period` / `money` / `geo`) instead.
 - **Paired / inverse relations, localisation of labels, autonumber,
   unit properties** — no contract yet; see docs/27-descriptors.md

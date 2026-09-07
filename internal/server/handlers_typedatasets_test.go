@@ -1016,6 +1016,24 @@ func TestTypeDatasets_FieldPatch(t *testing.T) {
 		t.Fatalf("cross-kind slug: %d %s", rec.Code, rec.Body.String())
 	}
 	assertErrorCode(t, rec, "property.format_invalid")
+	// The link marker pairs with the kind like the slug does.
+	rec = doJSON(t, e, http.MethodPatch, fieldURL+stage.Id, `{"set":{"xFormat.links":"link"}}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("cross-kind links marker: %d %s", rec.Code, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "property.format_invalid")
+	rec = doJSON(t, e, http.MethodPatch, fieldURL+stage.Id, `{"set":{"xFormat.links":"links"}}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("links marker on an array field: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPatch, fieldURL+stage.Id, `{"set":{"xFormat.links":"refs"}}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown links marker: %d %s", rec.Code, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "property.format_invalid")
+	if rec = doJSON(t, e, http.MethodPatch, fieldURL+stage.Id, `{"unset":["xFormat.links"]}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("unset links marker: %d %s", rec.Code, rec.Body.String())
+	}
 	// Containers are unset-only; the declaration is pinned.
 	rec = doJSON(t, e, http.MethodPatch, fieldURL+stage.Id, `{"set":{"xFormat.options.lead":{"name":"X"}}}`)
 	if rec.Code != http.StatusBadRequest {

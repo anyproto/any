@@ -336,28 +336,37 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
-            "api.Backlink": {
+            "api.BacklinksAllResponse": {
                 "properties": {
-                    "objectId": {
-                        "type": "string"
-                    },
-                    "propId": {
-                        "type": "string"
-                    },
-                    "typeId": {
-                        "type": "string"
+                    "spaces": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.SpaceBacklinks"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     }
                 },
                 "type": "object"
             },
             "api.BacklinksResponse": {
                 "properties": {
-                    "backlinks": {
+                    "object": {
                         "items": {
-                            "$ref": "#/components/schemas/api.Backlink"
+                            "$ref": "#/components/schemas/api.Link"
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "parts": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.Link"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "truncated": {
+                        "description": "Truncated reports that the read hit its cap (` + "`" + `limit` + "`" + `, max 500)\nbefore the split into Object / Parts; there is no continuation.",
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -1839,6 +1848,93 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.Link": {
+                "properties": {
+                    "kind": {
+                        "type": "string"
+                    },
+                    "source": {
+                        "$ref": "#/components/schemas/api.LinkSource"
+                    },
+                    "target": {
+                        "$ref": "#/components/schemas/api.LinkTarget"
+                    }
+                },
+                "type": "object"
+            },
+            "api.LinkSource": {
+                "properties": {
+                    "dataset": {
+                        "type": "string"
+                    },
+                    "field": {
+                        "description": "Field is the record field the reference was read from, for a\nruntime record with link-bearing fields; absent for a block or\nmessage text and for a property value.",
+                        "type": "string"
+                    },
+                    "objectId": {
+                        "type": "string"
+                    },
+                    "recordId": {
+                        "type": "string"
+                    },
+                    "spaceId": {
+                        "type": "string"
+                    },
+                    "typeId": {
+                        "description": "TypeId is the type declaring a property value's source (` + "`" + `prop` + "`" + `\nedges only): the value lives at record[typeId][recordId].",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.LinkTarget": {
+                "properties": {
+                    "dataset": {
+                        "type": "string"
+                    },
+                    "fileId": {
+                        "type": "string"
+                    },
+                    "identity": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "objectId": {
+                        "type": "string"
+                    },
+                    "propId": {
+                        "type": "string"
+                    },
+                    "recordId": {
+                        "type": "string"
+                    },
+                    "spaceId": {
+                        "type": "string"
+                    },
+                    "uri": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.LinksResponse": {
+                "properties": {
+                    "links": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.Link"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "truncated": {
+                        "description": "Truncated reports that the read hit its cap.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "api.LocalAggregateRequest": {
                 "properties": {
                     "accumArrayLimit": {
@@ -3169,6 +3265,31 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.SpaceBacklinks": {
+                "properties": {
+                    "object": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.Link"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "parts": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.Link"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "spaceId": {
+                        "type": "string"
+                    },
+                    "truncated": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "api.SpaceCreateRequest": {
                 "properties": {
                     "description": {
@@ -4037,6 +4158,86 @@ const docTemplate = `{
                 "summary": "Authorize: generate, restore (mnemonic) or select an account; replace switches (managed)",
                 "tags": [
                     "auth"
+                ]
+            }
+        },
+        "/backlinks": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Canonical any:// target (object, record, property value, identity or file)",
+                        "in": "query",
+                        "name": "target",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Edge kinds to keep (repeatable)",
+                        "in": "query",
+                        "name": "kind",
+                        "schema": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    {
+                        "description": "Max edges per space (default and max 500)",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.BacklinksAllResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List the edges pointing at a target from every indexed space",
+                "tags": [
+                    "links"
                 ]
             }
         },
@@ -9840,6 +10041,49 @@ const docTemplate = `{
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "description": "Narrow to one record (with dataset)",
+                        "in": "query",
+                        "name": "record",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "The record's collection",
+                        "in": "query",
+                        "name": "dataset",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Narrow to one property value (propId)",
+                        "in": "query",
+                        "name": "prop",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Edge kinds to keep (repeatable)",
+                        "in": "query",
+                        "name": "kind",
+                        "schema": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    {
+                        "description": "Max edges (default and max 500)",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        }
                     }
                 ],
                 "responses": {
@@ -9873,6 +10117,16 @@ const docTemplate = `{
                         },
                         "description": "Not Found"
                     },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -9884,9 +10138,9 @@ const docTemplate = `{
                         "description": "Internal Server Error"
                     }
                 },
-                "summary": "List objects that reference an object (relation property values)",
+                "summary": "List the edges pointing at an object, or at one of its records / property values",
                 "tags": [
-                    "objects"
+                    "links"
                 ]
             }
         },
@@ -11718,6 +11972,129 @@ const docTemplate = `{
                 "summary": "View one record at a past version (fast path)",
                 "tags": [
                     "history"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/objects/{objectId}/links": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Object ID",
+                        "in": "path",
+                        "name": "objectId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Narrow to one record (with dataset)",
+                        "in": "query",
+                        "name": "record",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "The record's collection, or alone: one collection's edges",
+                        "in": "query",
+                        "name": "dataset",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Narrow to one property value (propId)",
+                        "in": "query",
+                        "name": "prop",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Edge kinds to keep (repeatable)",
+                        "in": "query",
+                        "name": "kind",
+                        "schema": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    {
+                        "description": "Max edges (default and max 500)",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.LinksResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List the edges an object (or one of its records / property values) points at",
+                "tags": [
+                    "links"
                 ]
             }
         },

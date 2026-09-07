@@ -142,7 +142,17 @@ any space query      [--filter JSON] [--sort ...] [--limit N] [--offset N] [--to
 any space subscribe  [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--projection ...] [--dataset spaces|profile]   # shipped — windowed space-list SSE
 any datasets [<spaceId>]                            # shipped — dataset schemas (JSON Schema + x-scope)
 any search <spaceId> <query> [--scopes basic,chat,props] [--limit N] [--mode hybrid|fts|vector] [--require T ...] [--exclude T ...] [--max-data N] [--passages N]   # shipped — local search index
+any backlinks <spaceId> <objectId> [--record ID --dataset NAME | --prop ID] [--kind K ...] [--limit N]   # shipped — what links here (the link index)
+any backlinks --target <any://…> [--kind K ...] [--limit N]         # shipped — across every indexed space
+any links <spaceId> <objectId> [--record ID --dataset NAME | --prop ID] [--kind K ...] [--limit N]       # shipped — what this links to
 ```
+
+`any backlinks` / `any links` wrap `GET …/objects/:id/backlinks`,
+`GET …/objects/:id/links` and `GET /v1/backlinks` — the link index the
+search indexer maintains (`docs/13-index.md` § Links; wire shape in
+`docs/03-api.md` § Links and backlinks). `--record` + `--dataset` or
+`--prop` narrow to one part of the object; `--kind` (repeatable) keeps
+only those edge kinds.
 
 `any search` wraps `POST /v1/spaces/:spaceId/search` — the server's
 local FTS + vector index over chats, editor blocks, and properties

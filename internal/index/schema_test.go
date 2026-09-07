@@ -1,6 +1,7 @@
 package index
 
 import (
+	"context"
 	"encoding/json"
 	"reflect"
 	"sort"
@@ -12,10 +13,23 @@ import (
 )
 
 func schemaDoc(t *testing.T, search map[string]any) json.RawMessage {
+	return schemaDocFields(t, search, nil)
+}
+
+// schemaDocFields is schemaDoc with per-field descriptors under
+// `properties.<field>.x-format`.
+func schemaDocFields(t *testing.T, search map[string]any, xformats map[string]map[string]any) json.RawMessage {
 	t.Helper()
 	doc := map[string]any{"type": "object"}
 	if search != nil {
 		doc["x-search"] = search
+	}
+	if len(xformats) > 0 {
+		props := map[string]any{}
+		for f, xf := range xformats {
+			props[f] = map[string]any{"type": "string", "x-format": xf}
+		}
+		doc["properties"] = props
 	}
 	b, err := json.Marshal(doc)
 	if err != nil {
@@ -44,12 +58,12 @@ func TestParseSchemaDatasets(t *testing.T) {
 	searchable, unsearchable := parseSchemaDatasets(list, skip)
 
 	want := []schemaDataset{
-		{name: "articles", typeId: "t1", titleField: "title", textFields: []string{"body"}, scope: ScopeBasic},
-		{name: "notes", typeId: "t1", titleField: "", textFields: []string{"content"}, scope: ScopeBasic},
-		{name: "headlines", typeId: "t2", titleField: "headline", textFields: nil, scope: ScopeBasic},
-		{name: "scoped", typeId: "t3", titleField: "", textFields: []string{"x"}, scope: "recipes"},
-		{name: "emails", typeId: "t4", titleField: "subject", textFields: []string{"body", "notes"}, scope: ScopeBasic},
-		{name: "single", typeId: "t4", titleField: "", textFields: []string{"body"}, scope: ScopeBasic},
+		{name: "articles", typeId: "t1", titleField: "title", textFields: []string{"body"}, scope: ScopeBasic, searchable: true},
+		{name: "notes", typeId: "t1", titleField: "", textFields: []string{"content"}, scope: ScopeBasic, searchable: true},
+		{name: "headlines", typeId: "t2", titleField: "headline", textFields: nil, scope: ScopeBasic, searchable: true},
+		{name: "scoped", typeId: "t3", titleField: "", textFields: []string{"x"}, scope: "recipes", searchable: true},
+		{name: "emails", typeId: "t4", titleField: "subject", textFields: []string{"body", "notes"}, scope: ScopeBasic, searchable: true},
+		{name: "single", typeId: "t4", titleField: "", textFields: []string{"body"}, scope: ScopeBasic, searchable: true},
 	}
 	if !reflect.DeepEqual(searchable, want) {
 		t.Errorf("searchable = %+v, want %+v", searchable, want)
@@ -198,3 +212,66 @@ func TestNewSchemaChunker_SkipSet(t *testing.T) {
 		t.Errorf("TypeId() = %q, want ungated", c.TypeId())
 	}
 }
+
+// A dataset with link fields but no usable search mapping is streamed
+// for its edges only: it stays out of the always-evicted set (or its
+// edges would be wiped every page) and reports its text docs through
+// EvictText instead.
+func TestParseSchemaDatasets_LinkFields(t *testing.T) {
+	skip := map[string]bool{DatasetProp: true, DatasetSchemaVirtual: true}
+	list := []space.DatasetSchema{
+		{Name: "linked", Owners: []string{"t1"}, JSONSchema: schemaDocFields(t, map[string]any{"text": "body"},
+			map[string]map[string]any{"ref": {"type": "relation"}, "body": {"type": "markdown"}, "plain": {"type": "text"}})},
+		{Name: "linkonly", Owners: []string{"t1"}, JSONSchema: schemaDocFields(t, nil,
+			map[string]map[string]any{"ref": {"type": "text", "links": "link"}})},
+		{Name: "cleared", Owners: []string{"t2"}, JSONSchema: schemaDocFields(t, map[string]any{"scope": "Not A Slug"},
+			map[string]map[string]any{"ref": {"type": "relation"}})},
+		{Name: "nothing", Owners: []string{"t2"}, JSONSchema: schemaDoc(t, nil)},
+	}
+	searchable, unsearchable := parseSchemaDatasets(list, skip)
+	byName := map[string]schemaDataset{}
+	for _, ds := range searchable {
+		byName[ds.name] = ds
+	}
+	if ds := byName["linked"]; !ds.searchable || ds.linkFields["ref"] != LinkModeMany || ds.linkFields["body"] != LinkModeMarkdown || ds.linkFields["plain"] != "" {
+		t.Errorf("linked = %+v", ds)
+	}
+	if ds := byName["linkonly"]; ds.searchable || ds.linkFields["ref"] != LinkModeOne {
+		t.Errorf("linkonly = %+v", ds)
+	}
+	if ds := byName["cleared"]; ds.searchable || ds.linkFields["ref"] != LinkModeMany {
+		t.Errorf("cleared = %+v", ds)
+	}
+	if len(unsearchable) != 1 || unsearchable[0] != "nothing" {
+		t.Errorf("unsearchable = %v, want only the dataset with neither", unsearchable)
+	}
+
+	c := NewSchemaChunker(DatasetProp, DatasetSchemaVirtual)
+	sp := fakeDatasetsSpace{id: "sp1", datasets: list}
+	text := c.EvictText(context.Background(), sp, map[string]bool{"t1": true, "t2": true})
+	sort.Strings(text)
+	if !reflect.DeepEqual(text, []string{"cleared", "linkonly"}) {
+		t.Errorf("EvictText = %v, want the two link-only datasets", text)
+	}
+	if text := c.EvictText(context.Background(), sp, map[string]bool{"t1": true}); !reflect.DeepEqual(text, []string{"linkonly"}) {
+		t.Errorf("EvictText with t2 detached = %v (the detached one is a structural eviction)", text)
+	}
+	evict, err := c.EvictDatasets(context.Background(), sp, map[string]bool{"t1": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(evict)
+	if !reflect.DeepEqual(evict, []string{"cleared", "nothing"}) {
+		t.Errorf("EvictDatasets = %v, want the detached and the empty one", evict)
+	}
+}
+
+// fakeDatasetsSpace serves a fixed catalog for the chunker's resolve.
+type fakeDatasetsSpace struct {
+	space.Space
+	id       string
+	datasets []space.DatasetSchema
+}
+
+func (f fakeDatasetsSpace) Id() string                      { return f.id }
+func (f fakeDatasetsSpace) Datasets() []space.DatasetSchema { return f.datasets }

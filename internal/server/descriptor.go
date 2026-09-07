@@ -57,6 +57,11 @@ const (
 	xfOptions  = "options"
 	xfRelation = "relation"
 	xfConfig   = "config"
+	// xfLinks marks a field whose value carries any:// references for
+	// the link index (docs/13-index.md § Links): "link" (one string),
+	// "links" (an array), "markdown" (text scanned for references) or
+	// "none" (never scanned). The relation and markdown slugs imply it.
+	xfLinks = "links"
 	// Reserved for future contracts; refused today.
 	xfValidate = "validate"
 	xfCompute  = "compute"
@@ -73,6 +78,7 @@ const (
 const (
 	slugText     = "text"
 	slugLongtext = "longtext"
+	slugMarkdown = "markdown"
 	slugURL      = "url"
 	slugEmail    = "email"
 	slugPhone    = "phone"
@@ -96,7 +102,7 @@ const (
 // slugKinds is the kind each known slug requires. `kind` is pinned, so
 // a slug can only ever move within one kind.
 var slugKinds = map[string]string{
-	slugText: api.PropertyKindString, slugLongtext: api.PropertyKindString,
+	slugText: api.PropertyKindString, slugLongtext: api.PropertyKindString, slugMarkdown: api.PropertyKindString,
 	slugURL: api.PropertyKindString, slugEmail: api.PropertyKindString, slugPhone: api.PropertyKindString,
 	slugChoice: api.PropertyKindArray, slugRelation: api.PropertyKindArray,
 	slugNumber: api.PropertyKindNumber, slugCurrency: api.PropertyKindNumber, slugPercent: api.PropertyKindNumber,
@@ -118,6 +124,23 @@ func slugKindMismatch(slug, kind string) string {
 		return ""
 	}
 	return fmt.Sprintf("slug %q requires kind %s; the property's kind is %s (kind is pinned — define a new property)", slug, want, kind)
+}
+
+// linkModeKinds is the kind each link marker requires: one reference
+// is a string, a list an array, scanned text a string.
+var linkModeKinds = map[string]string{
+	index.LinkModeOne: api.PropertyKindString, index.LinkModeMany: api.PropertyKindArray,
+	index.LinkModeMarkdown: api.PropertyKindString,
+}
+
+// linkModeMismatch reports why a link marker cannot sit on a property
+// of kind ("" = fine; kind "" skips the check).
+func linkModeMismatch(mode, kind string) string {
+	want, known := linkModeKinds[mode]
+	if !known || kind == "" || want == kind {
+		return ""
+	}
+	return fmt.Sprintf("links marker %q requires kind %s; the property's kind is %s", mode, want, kind)
 }
 
 // xfSlug reads the semantic slug off a stored descriptor ("" when
@@ -174,7 +197,7 @@ func validateDescriptor(raw json.RawMessage, kind string) (xf map[string]any, co
 		}
 		key := string(k)
 		switch key {
-		case xfType, xfIcon, xfPos:
+		case xfType, xfIcon, xfPos, xfLinks:
 			code, reason = checkDescriptorLeaf([]string{key}, val)
 		case xfOptions:
 			code, reason = checkOptionsObject(val)
@@ -193,6 +216,11 @@ func validateDescriptor(raw json.RawMessage, kind string) (xf map[string]any, co
 	}
 	if slug := string(v.GetStringBytes(xfType)); slug != "" {
 		if r := slugKindMismatch(slug, kind); r != "" {
+			return nil, "property.format_invalid", r
+		}
+	}
+	if mode := string(v.GetStringBytes(xfLinks)); mode != "" {
+		if r := linkModeMismatch(mode, kind); r != "" {
 			return nil, "property.format_invalid", r
 		}
 	}
@@ -329,6 +357,17 @@ func checkDescriptorLeaf(segs []string, v *fastjson.Value) (code, reason string)
 		return "", ""
 	case xfIcon, xfPos:
 		return wantString()
+	case xfLinks:
+		if len(segs) != 1 {
+			return "request.invalid_field", path + " is a leaf"
+		}
+		if c, r := wantString(); c != "" {
+			return c, r
+		}
+		if !index.ValidLinkMode(string(v.GetStringBytes())) {
+			return "property.format_invalid", path + " must be one of link, links, markdown, none"
+		}
+		return "", ""
 	case xfOptions:
 		// options.<key>.{name,color,pos} and options.<key>.meta.<k>
 		if (len(segs) == 4 && segs[2] == "meta") || (len(segs) == 3 && (segs[2] == "name" || segs[2] == "color" || segs[2] == "pos")) {
@@ -636,6 +675,10 @@ func checkDescriptorValue(slug string, xf map[string]any, v *fastjson.Value) str
 	case slugText, slugLongtext, slugPhone:
 		if _, ok := fastjsonString(v); !ok {
 			return slug + " value must be a string"
+		}
+	case slugMarkdown:
+		if _, ok := fastjsonString(v); !ok {
+			return "markdown value must be a string"
 		}
 	case slugURL:
 		s, ok := fastjsonString(v)
