@@ -91,6 +91,7 @@ catalog.not_found                # 404 — GET /v1/catalog/:usecaseId or POST �
 
 object.not_found                 # 404 — objectId unknown or deleted in this space (per-object query, editor, markdown, history …)
 object.deleted                   # 410 — GET …/objects/:objectId on a deleted object (distinct from never-existed)
+object.derived_undeletable       # 409 — DELETE on a derived object (a bundle root installed with derived:true, e.g. the general chat); derived objects are permanent
 object.id_required               # 400 — the object id in the path or body is a serialized nil ("None", "null", "undefined", …): the caller's id variable was unset; never a store lookup failure
 object.type_required
 

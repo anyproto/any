@@ -2169,6 +2169,7 @@ auto-start.
 | `docs/26-local-store.md` | local store — device-local, non-CRDT collections in `sdk.db` under the `l_` tag: why the same file, the fence, model, `/v1/local` surface, limits, what it is NOT |
 | `docs/27-descriptors.md` | property & field descriptors — the `xFormat` bag: guarantee boundary (`kind` vs hint), the six interpreted keys, merge model, leaf-only PATCH rule, v1 slug vocabulary + value checks, composites, client rendering/tolerance/ordering rules, what the server enforces, not-covered list |
 | `docs/28-well-known-bundles.md` | the usecase catalog — usecases as sets of `system:` bundles + `requires`, the three `/v1/catalog` endpoints, setup semantics (closure, one wait, adopt-or-install, resume), handle conflicts, client rules (registry resolution, rendering of hidden types, fork merge by xKey), evolution, the shipped entries, validation codes |
+| `docs/29-client-model.md` | the client-facing object model — types / usecases / properties in the order a client needs them: startup sequence, catalog setup, the three ids (typeId / xKey / propId), descriptor value shapes, the `__type__` query trap, write gate, content surfaces |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or

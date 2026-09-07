@@ -12,6 +12,7 @@ import (
 	"github.com/valyala/fastjson"
 
 	"github.com/anyproto/any-sync-sdk/space"
+	"github.com/anyproto/any-sync/commonspace/settings"
 
 	"github.com/anyproto/any/internal/api"
 )
@@ -146,6 +147,7 @@ func (d *deps) objectCreate(c echo.Context) error {
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	409	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId} [delete]
 func (d *deps) objectDelete(c echo.Context) error {
@@ -155,12 +157,32 @@ func (d *deps) objectDelete(c echo.Context) error {
 	}
 
 	if err := sp.Objects().Delete(c.Request().Context(), objectId); err != nil {
+		details := map[string]any{"spaceId": sp.Id(), "objectId": objectId}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
 		}
+		if errors.Is(err, settings.ErrCantDeleteDerivedObject) {
+			return writeError(c, http.StatusConflict, "object.derived_undeletable",
+				"derived objects are permanent and cannot be deleted", details)
+		}
+		if errors.Is(err, space.ErrReadOnlySpace) {
+			return writeError(c, http.StatusForbidden, "space.read_only",
+				"space is read-only for this account (guest access or reader role)", details)
+		}
+		if resp, done := unsupportedError(c, err, details); done {
+			return resp
+		}
+		if errors.Is(err, space.ErrCRDTVersionNewer) {
+			return writeError(c, http.StatusConflict, "sdk.crdt_version_newer",
+				"the account's data was written by a newer version — this server is read-only until it is upgraded",
+				crdtVersionDetails(err, details))
+		}
+		// Last, not through sdkOpError: the ordinary misses here are
+		// any-sync's ErrAlreadyDeleted and a head-storage lookup miss,
+		// neither of which carries an SDK sentinel — sdkOpError would
+		// answer 500 for the most common caller mistake.
 		return writeError(c, http.StatusNotFound, "sdk.not_found",
-			"object not found or already deleted",
-			map[string]any{"spaceId": sp.Id(), "objectId": objectId})
+			"object not found or already deleted", details)
 	}
 	return c.NoContent(http.StatusNoContent)
 }

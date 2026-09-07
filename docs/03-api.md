@@ -1741,6 +1741,13 @@ on the per-space firehose (`dataset=objects`) with the change's
 `versionId` — the canonical signal subscribers use to drop the id
 from local state. See `04-events.md`.
 
+A **derived** object is permanent — any bundle root installed with
+`derived: true`, so the general chat (§ Bundles → Derived roots) —
+and answers `409 object.derived_undeletable`; the row stays readable.
+An unknown or already-deleted id is `404 sdk.not_found`, a reader or
+guest `403 space.read_only`, and a non-root id on the tech space
+`405 space.unsupported`.
+
 #### Backlinks
 
 `GET /v1/spaces/:spaceId/objects/:objectId/backlinks` answers "which

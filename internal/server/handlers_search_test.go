@@ -235,13 +235,31 @@ func TestSearch_FullFlow(t *testing.T) {
 	}
 
 	// --- Object deletion purges its docs ---
-	doJSONExpect(t, e, http.MethodDelete, "/v1/spaces/"+spaceId+"/objects/"+chatObj, http.StatusNoContent)
+	// The general chat root is derived and undeletable, so the deletable
+	// editor object carries this case. It gets a chunked block first, so
+	// the prefix delete is exercised over a multi-chunk record.
+	mustModify(t, e, http.MethodPost, edBase+"/editor/editor_blocks/blocks",
+		`{"type":"paragraph","text":"`+strings.Repeat("budget ledger appendix. ", 260)+`"}`,
+		http.StatusCreated)
 	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
 		t.Fatal(err)
 	}
-	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "zeppelin"}, http.StatusOK)
+	doJSONExpect(t, e, http.MethodDelete, "/v1/spaces/"+spaceId+"/objects/"+edObj, http.StatusNoContent)
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "quarterly budget", Mode: api.SearchModeFTS}, http.StatusOK)
 	if len(res.Hits) != 0 {
-		t.Fatalf("hits after object delete = %v, want none", hitRecordIds(res))
+		t.Fatalf("hits after object delete = %+v, want none", res.Hits)
+	}
+	// Hybrid too, so the vector side is asserted evicted. The fake
+	// embedder scores unrelated docs just above the noise floor, so the
+	// check is "nothing from the deleted object", not "no hits".
+	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "quarterly budget ledger", Limit: 20}, http.StatusOK)
+	for _, h := range res.Hits {
+		if h.ObjectId == edObj {
+			t.Fatalf("deleted object still indexed: %+v", h)
+		}
 	}
 
 	// --- Validation ---
