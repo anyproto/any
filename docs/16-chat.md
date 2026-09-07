@@ -69,8 +69,13 @@ fields — you never compute read state yourself.
 `createdAt` / `modifiedAt` and every reaction leaf
 (`reactions.<emoji>.<accountId>`) are instants:
 `{"$date": "2026-05-01T21:00:00.000Z"}`. Unwrap the one key
-(`new Date(v.$date)`), and compare instants to instants — an edited
-message is one whose `modifiedAt` is later than its `createdAt`.
+(`new Date(v.$date)`), and compare instants to instants. They come
+from the change envelope's clock, which is second-resolution, so they
+are for display: a message edited within the second it was sent
+carries equal stamps. Show an "edited" marker off `_ver` instead —
+`_ver.text != _ver.id` means the text changed after creation
+(`_ver.id` is the creation marker, `_ver.<path>` advances with every
+write to that path).
 
 **Tolerate a number there.** The stamps are derived on each device from
 the change envelope, so a peer running an older build materializes the

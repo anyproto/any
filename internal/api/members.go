@@ -59,7 +59,9 @@ type InviteCreateResponse struct {
 // InviteInfo mirrors space.InviteInfo. RecordId is what the
 // DELETE /v1/spaces/:spaceId/invites/:recordId path expects.
 type InviteInfo struct {
-	RecordId   string `json:"recordId"`
+	RecordId string `json:"recordId"`
+	// Permission is "none" for the request-to-join invites v1 mints —
+	// the role is chosen at accept time, not carried by the invite.
 	Permission string `json:"permission"`
 	// InviteToken is the same share token POST /invites returned at
 	// mint time, recovered from the minting account's synced custody.

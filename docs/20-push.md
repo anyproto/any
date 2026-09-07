@@ -79,8 +79,12 @@ The pre-encryption JSON (`internal/push/chatpush.go`, pinned by
 ```
 
 - `type: 1` (new chat message) is the only loud payload v1 emits.
-- `spaceUxType` / `spaceType` are heart's enums; `any` doesn't carry
-  either, so both stay `0` (best-effort until a mapping exists).
+- `spaceUxType` / `spaceType` are heart's enums, filled from the
+  space's type: a one-to-one space sends `4` / `4`
+  (`SpaceUxType_OneToOne` / `SpaceType_SpaceTypeOneToOne`), which is
+  what a receiver keys its direct-message rendering on for a space it
+  has never seen; every other space type sends `0` (unknown), so the
+  channel rendering stays the fallback.
 - `attachments` entries are `{"layout": 0}` stubs — `any`'s chat
   attachments have no layout notion.
 - Read notifications are **silent** (data-only, no payload): the server
@@ -116,7 +120,11 @@ Where to read it:
 
 Omitted until the SDK's mirror has run for that space — e.g. a joiner
 whose access is still pending has no read key and gets `push` only
-after the owner's accept lands.
+after the owner's accept lands. A deleted space's tombstone row
+(`status:"deleted"`) keeps its `push` object on purpose: a payload
+sent before the delete propagated can still arrive, and the
+append-only rule below already covers it — drop the cached keys only
+when the row itself is gone.
 
 **Cache contract (per space, in the OS keystore):**
 

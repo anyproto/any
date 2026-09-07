@@ -44,9 +44,10 @@ const ChatMessage Type = 1
 type Payload struct {
 	SpaceId string `json:"spaceId,omitempty"`
 	// SpaceUxType / SpaceType are heart's model.SpaceUxType /
-	// model.SpaceType enums. `any` doesn't carry either (SpaceInfo's
-	// string SpaceType is a different vocabulary), so both stay 0 —
-	// best-effort until any grows the mapping.
+	// model.SpaceType enums, filled by heartSpaceKinds from the space's
+	// type: the payload is the only thing a receiver that has never
+	// seen the space can classify on (a 1-1 renders as a direct
+	// message, not a channel). Unmapped space types stay 0 (unknown).
 	SpaceUxType       int                `json:"spaceUxType"`
 	SpaceType         int                `json:"spaceType"`
 	SenderId          string             `json:"senderId"`
@@ -201,6 +202,24 @@ func chatRecord(ctx context.Context, sp space.Space, objectId, msgId string) (*a
 		One(ctx)
 }
 
+// heart's enum values `any` maps onto — only the pair the receiver
+// branches on (heart's model.SpaceUxType_OneToOne /
+// model.SpaceType_SpaceTypeOneToOne). Every other space type stays 0
+// (unknown), so a client keeps its channel rendering for those.
+const (
+	heartSpaceUxTypeOneToOne = 4
+	heartSpaceTypeOneToOne   = 4
+)
+
+// heartSpaceKinds returns heart's (spaceUxType, spaceType) pair for an
+// `any` space type.
+func heartSpaceKinds(spaceType string) (uxType, kind int) {
+	if spaceType == space.SpaceTypeOneToOne {
+		return heartSpaceUxTypeOneToOne, heartSpaceTypeOneToOne
+	}
+	return 0, 0
+}
+
 // chatPayload builds the heart-wire Payload JSON for one message
 // record. Enrichment is all local and best-effort: spaceName from the
 // space's Info snapshot, chatName from the chat object's `any.name`
@@ -221,14 +240,18 @@ func (s *Service) chatPayload(ctx context.Context, sp space.Space, objectId, msg
 			atts = append(atts, &Attachment{})
 		})
 	}
+	info := sp.Info()
+	uxType, kind := heartSpaceKinds(info.SpaceType)
 	return json.Marshal(Payload{
-		SpaceId:  sp.Id(),
-		SenderId: s.sdk.Account().Id(),
-		Type:     ChatMessage,
+		SpaceId:     sp.Id(),
+		SpaceUxType: uxType,
+		SpaceType:   kind,
+		SenderId:    s.sdk.Account().Id(),
+		Type:        ChatMessage,
 		NewMessagePayload: &NewMessagePayload{
 			ChatId:         objectId,
 			MsgId:          msgId,
-			SpaceName:      sp.Info().Name,
+			SpaceName:      info.Name,
 			ChatName:       chatName,
 			SenderName:     senderName,
 			Text:           truncateRunes(string(rec.GetStringBytes(chat.FieldText)), maxPushTextRunes),

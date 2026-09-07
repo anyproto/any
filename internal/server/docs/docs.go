@@ -1796,6 +1796,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "permission": {
+                        "description": "Permission is \"none\" for the request-to-join invites v1 mints —\nthe role is chosen at accept time, not carried by the invite.",
                         "type": "string"
                     },
                     "recordId": {
