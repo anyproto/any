@@ -157,6 +157,14 @@ before relying on a slug not listed.
 `xFormat.relation.targetTypes` holds **xKeys**, not type ids — resolve
 them against the space's type list before rendering a picker.
 
+Built-in fields render through the same table: `any.name`,
+`chat_messages.createdAt`, a dataview's `name` all come back from
+discovery (`description` / `x-format` on the field node) and
+`GET …/types/:id/properties` (`description` / `xFormat`) with a
+description and, where a slug fits, a descriptor. Where none fits (markdown text bodies,
+identities, record ids) the `description` says what the value is —
+hardcode nothing a descriptor already tells you.
+
 ### Editing a definition
 
 `PATCH …/types/:typeId/properties/:propId` takes `{set, unset}` of dotted

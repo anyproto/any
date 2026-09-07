@@ -40,8 +40,10 @@ func NewType() handler.Type {
 		Description: Description,
 		Hidden:      true,
 		Properties: []handler.PropertyDecl{
-			{Id: PropMovedAt, Name: "Moved At", Kind: handler.PropertyKindDatetime, XFormat: map[string]any{"type": "datetime"}},
-			{Id: PropMovedBy, Name: "Moved By", Kind: handler.PropertyKindString},
+			{Id: PropMovedAt, Name: "Moved At", Kind: handler.PropertyKindDatetime, XFormat: map[string]any{"type": "datetime"},
+				Description: "Instant the object was moved to the bin."},
+			{Id: PropMovedBy, Name: "Moved By", Kind: handler.PropertyKindString,
+				Description: "Account identity that moved the object to the bin."},
 		},
 	}
 }

@@ -1900,6 +1900,28 @@ Implementation slices landed:
     prerequisite:** the sole-carrier pre-flight (branch
     cheggaaa/syn-216-reserved-type-carrier, pseudo-versioned).
 
+53. **Built-in field descriptors (SYN-230)** — every field the server
+    serves from a Go declaration carries the descriptive slice: the
+    module / static datasets (`internal/chat`, `internal/editor`,
+    `internal/dataview`), the built-in types' properties
+    (`handler.PropertyDecl` gained `Description`), and — in the SDK —
+    the `any` / `type` / `spaceIndex` property tables (`BuiltInProperty`
+    gained `Description` / `XFormat`, threaded through
+    `Types().Properties`; the `objects` discovery document declares only
+    the derived root fields — the synced `any.*` values are not heads)
+    plus the tech-space system datasets, `bundles` and `payloads`. The
+    chat module's `chat.*` row properties carry descriptions too, though
+    no read path surfaces module property metadata yet. A slug only where the existing vocabulary
+    names the value (`text`, `longtext`, `datetime`, `checkbox`);
+    markdown text, identities, record ids, icons, `pos`, enums and
+    opaque objects are description-only — the markdown slug is a
+    SYN-229 decision. No vocabulary change, no wire break.
+    `TestServer_BuiltinDescriptors` walks space + system discovery and
+    every built-in type's properties through `validateDescriptor`, so a
+    Go declaration that drifts from docs/27 fails the build. Contract:
+    docs/27-descriptors.md § Not covered, docs/03-api.md § Datasets +
+    § Types, docs/29-client-model.md.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 
