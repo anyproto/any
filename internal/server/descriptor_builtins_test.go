@@ -79,7 +79,8 @@ func TestServer_BuiltinDescriptors(t *testing.T) {
 			"objects.createdAt":       "datetime",
 			"chat_messages.createdAt": "datetime",
 			"chat_messages.unread":    "checkbox",
-			"editor_blocks.text":      "",
+			"editor_blocks.text":      "markdown",
+			"chat_messages.text":      "markdown",
 			"views.layout":            "",
 			"dataviews.name":          "text",
 		})

@@ -179,6 +179,10 @@ type walletSeed struct {
 // nil disables process reporting (tests).
 type processHook func(*engine) func(indexer.ProcessUpdate)
 
+// linksHook builds the engine's link-index liveness publisher —
+// nil = no bus event.
+type linksHook func(*engine) func(spaceId string, targets []string)
+
 // bootEngine opens the identity's keys through open and brings up the
 // SDK and the indexer for it. On any failure everything already
 // opened is torn back down; if THIS call freshly created the account
@@ -187,7 +191,7 @@ type processHook func(*engine) func(indexer.ProcessUpdate)
 // to the caller) would linger and be auto-selected on the next start.
 // A pre-existing dir (an account reached under the other custody, or
 // one holding data from an earlier boot) is left untouched.
-func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identity, open credential, onProcess processHook) (_ *engine, err error) {
+func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identity, open credential, onProcess processHook, onLinks linksHook) (_ *engine, err error) {
 	_, statErr := os.Stat(id.Dir)
 	dirExisted := statErr == nil
 	if err := os.MkdirAll(id.Dir, 0o700); err != nil {
@@ -257,7 +261,11 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 		if onProcess != nil {
 			hook = onProcess(eng)
 		}
-		ix, err := OpenIndexer(ctx, cfg.Index, id.Dir, config.ModelsDir(root), sdk, eng.chunkers, hook)
+		var links func(string, []string)
+		if onLinks != nil {
+			links = onLinks(eng)
+		}
+		ix, err := OpenIndexer(ctx, cfg.Index, id.Dir, config.ModelsDir(root), sdk, eng.chunkers, hook, links)
 		if err != nil {
 			return nil, fmt.Errorf("open indexer: %w", err)
 		}
@@ -373,7 +381,7 @@ func (d *deps) bootAccountLocked(id *Identity, open credential) (*engine, error)
 		}
 		return nil, errAccountMismatch
 	}
-	eng, err := bootEngine(d.runCtx, d.cfg, d.root, id, open, d.indexerProcessFor)
+	eng, err := bootEngine(d.runCtx, d.cfg, d.root, id, open, d.indexerProcessFor, d.indexerLinksFor)
 	if err != nil {
 		return nil, err
 	}
@@ -606,6 +614,27 @@ func (d *deps) indexerProcessFor(eng *engine) func(indexer.ProcessUpdate) {
 			Type:   typ,
 			Scope:  api.EventScopeDevice,
 			Target: id,
+			Data:   payload,
+			Sender: &api.EventSender{Identity: eng.account, Self: true},
+		})
+	}
+}
+
+// indexerLinksFor bridges the link index's page signal onto the bus as
+// a device-scope `links.updated` event (docs/21-events.md): the
+// targets whose backlinks changed, so an open panel refreshes.
+func (d *deps) indexerLinksFor(eng *engine) func(spaceId string, targets []string) {
+	return func(spaceId string, targets []string) {
+		if eng.done.Load() {
+			return
+		}
+		payload, err := json.Marshal(api.EventLinksUpdatedData{SpaceId: spaceId, Targets: targets})
+		if err != nil {
+			return
+		}
+		d.eventsHub().publish(api.Event{
+			Type:   api.EventLinksUpdated,
+			Scope:  api.EventScopeDevice,
 			Data:   payload,
 			Sender: &api.EventSender{Identity: eng.account, Self: true},
 		})

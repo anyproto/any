@@ -1926,6 +1926,41 @@ Implementation slices landed:
     docs/27-descriptors.md § Not covered, docs/03-api.md § Datasets +
     § Types, docs/29-client-model.md.
 
+54. **Link index — backlinks (SYN-229)** — a second sink on the search
+    indexer's pipeline: every chunker reports the **edges** a record
+    holds next to its text (`IndexEntry.Links`, `index.LinkEntry` =
+    source place + kind + canonical target), the worker lands them in
+    `<spaceId>_links` of `index.db` in the same page transaction behind
+    the same cursor (`internal/indexer/links_store.go`; doc id
+    `objectId:dataset:recordId:<hash>` so the text-doc prefix evictions
+    apply verbatim; indexes `targetObject` + `targetKey`; a `links`
+    layout stamp on the cursor row, a behind stamp = backfill from the
+    records on worker start, no re-embed). Extraction is `any`'s:
+    `anyuri.ExtractLinks` + `URI.Canonical` (bare / global object forms
+    → `any://o/<sp>/<id>`, record paths kept, `p`/`m`/`f` kept, `s`
+    dropped, self dropped), `index.TextLinks` / `ValueLinks`, the
+    `xFormat.links` marker (`link | links | markdown`, implied by the
+    `relation` and new `markdown` slugs, paired with the kind in the
+    descriptor gate), editor `BlockLinks` (whole-line
+    `[…](any://o|f/…)` paragraph = `card`, synced-block reference
+    envelope on an `html` block = `embed`), chat `MessageLinks` (text +
+    `attachments.<k>.link` + `agent.debugLink`), prop and schema
+    chunkers off the marker. Reads (`handlers_backlinks.go`):
+    `GET …/objects/:o/backlinks` → `{object, parts}` (`?record=&dataset=`
+    / `?prop=` narrow, `?kind=` repeatable, cap 500 — REPLACES the
+    scan-based endpoint and its `{objectId,typeId,propId}` reply),
+    `GET …/objects/:o/links`, account-wide `GET /v1/backlinks?target=`;
+    `409 index.disabled` without the indexer. Liveness: `Options.OnLinks`
+    → device-scope bus event `links.updated {spaceId, targets}`. CLI:
+    `any backlinks` / `any links`. SDK untouched. Not in v1: evidence
+    edges, a subscribe stream, `links.enabled` (docs/07-roadmap.md).
+    Tests: anyuri/links_test, index/links_test, editor/links_test,
+    chat/links_test, indexer/links_store_test (untagged),
+    server/handlers_links_test, e2e multipeer_links_test. Contract:
+    docs/13-index.md § Links, docs/03-api.md § Links and backlinks,
+    docs/19-links.md, docs/27-descriptors.md, docs/21-events.md,
+    docs/08-clients.md § 15, docs/01-cli.md.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 

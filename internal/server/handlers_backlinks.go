@@ -1,137 +1,275 @@
 package server
 
 import (
-	"context"
+	"errors"
 	"net/http"
 
-	"github.com/anyproto/any-store/v2/query"
 	"github.com/labstack/echo/v4"
 
-	"github.com/anyproto/any-sync-sdk/space"
-
+	"github.com/anyproto/any/anyuri"
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/index"
+	"github.com/anyproto/any/internal/indexer"
 )
 
-// Backlinks — "which objects reference X?" — the reverse direction of
-// relation property values. The SDK exposes no reverse index, so this
-// is a consumer-side read built from what it does expose: object
-// references are properties whose descriptor slug is "relation"
-// (arrays of "any://<objectId>" URI strings, the in-space fragment-less
-// form — see descriptor.go), stored at record[typeId][propId] in the
-// shared `objects` collection. Backlinks of X = rows whose relation
-// arrays contain "any://<X>". Only top-level definitions are inspected:
-// a relation slug nested inside a composite is invisible here.
+// Links and backlinks — reads over the link index the search indexer
+// maintains next to its text docs (docs/13-index.md § Links). Like
+// `/search`, a consumer-side exception to the 1:1 rule: the SDK has no
+// reverse index. `409 index.disabled` when the indexer is off.
 
-// linkProp is one catalog row: a relation property and the type that
-// declares it.
-type linkProp struct {
-	typeId string
-	propId string
+// maxLinksLimit caps one links reply.
+const maxLinksLimit = 500
+
+func registerLinkRoutes(g *echo.Group, d *deps) {
+	g.GET("/spaces/:spaceId/objects/:objectId/backlinks", d.objectBacklinks)
+	g.GET("/spaces/:spaceId/objects/:objectId/links", d.objectLinks)
+	// Account-wide: every indexed space in one read. Outside the
+	// :spaceId group like /datasets.
+	g.GET("/backlinks", d.backlinksAll)
 }
 
-// linkPropCatalog resolves the space's relation properties by walking
-// every user type's definitions. Built-in types are skipped — none
-// declare a relation (the wiki's parentId is a plain string; the
-// parent/child tree is queried directly by it, not through backlinks).
-func linkPropCatalog(ctx context.Context, sp space.Space) ([]linkProp, error) {
-	types, err := sp.Types().List(ctx)
-	if err != nil {
-		return nil, err
+// linkQueryParams reads the shared narrowing params: `kind`
+// (repeatable) and `limit`.
+func linkQueryParams(c echo.Context) (indexer.LinkQuery, error, bool) {
+	var q indexer.LinkQuery
+	for _, k := range c.QueryParams()["kind"] {
+		if !index.ValidScope(k) {
+			return q, writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"kind must be a short slug ([a-z0-9_-], max 64)", map[string]any{"field": "kind"}), true
+		}
+		q.Kinds = append(q.Kinds, k)
 	}
-	var props []linkProp
-	for _, t := range types {
-		if t.BuiltIn {
-			continue
+	if raw := c.QueryParam("limit"); raw != "" {
+		n, ok := parseIntParam(raw)
+		if !ok {
+			return q, writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"limit must be a non-negative integer", map[string]any{"field": "limit"}), true
 		}
-		defs, err := sp.Types().Properties(ctx, t.Id)
-		if err != nil {
-			return nil, err
+		q.Limit = n
+	}
+	if q.Limit <= 0 || q.Limit > maxLinksLimit {
+		q.Limit = maxLinksLimit
+	}
+	return q, nil, false
+}
+
+func parseIntParam(s string) (int, bool) {
+	n := 0
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return 0, false
 		}
-		for _, d := range defs {
-			if xfSlug(d.XFormat) == slugRelation {
-				props = append(props, linkProp{typeId: t.Id, propId: d.Id})
-			}
+		n = n*10 + int(r-'0')
+		if n > 1<<30 {
+			return 0, false
 		}
 	}
-	return props, nil
+	return n, len(s) > 0
+}
+
+// partParams reads the optional part narrowing: `record` + `dataset`
+// (both or neither) or `prop`. Returns the part's dataset and record
+// id under the link-source vocabulary (`prop` + propId for a value).
+func partParams(c echo.Context) (dataset, recordId string, errResp error, done bool) {
+	record, ds, prop := c.QueryParam("record"), c.QueryParam("dataset"), c.QueryParam("prop")
+	switch {
+	case prop != "" && (record != "" || ds != ""):
+		return "", "", writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"prop cannot be combined with record/dataset", map[string]any{"field": "prop"}), true
+	case prop != "":
+		return index.DatasetProp, prop, nil, false
+	case (record == "") != (ds == ""):
+		return "", "", writeError(c, http.StatusBadRequest, "request.missing_field",
+			"record and dataset go together", nil), true
+	case record != "":
+		return ds, record, nil, false
+	}
+	return "", "", nil, false
 }
 
 // objectBacklinks handles GET /v1/spaces/:spaceId/objects/:objectId/backlinks.
 //
 // No existence check on objectId — backlinks of an unknown (or
-// deleted) object is an empty list, not a 404.
+// deleted) object is an empty reply, not a 404.
 //
-//	@Summary	List objects that reference an object (relation property values)
-//	@Tags		objects
+//	@Summary	List the edges pointing at an object, or at one of its records / property values
+//	@Tags		links
 //	@Produce	json
 //	@Param		spaceId		path		string	true	"Space ID"
 //	@Param		objectId	path		string	true	"Object ID"
+//	@Param		record		query		string	false	"Narrow to one record (with dataset)"
+//	@Param		dataset		query		string	false	"The record's collection"
+//	@Param		prop		query		string	false	"Narrow to one property value (propId)"
+//	@Param		kind		query		[]string	false	"Edge kinds to keep (repeatable)"
+//	@Param		limit		query		int		false	"Max edges (default and max 500)"
 //	@Success	200			{object}	api.BacklinksResponse
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	404			{object}	api.ErrorEnvelope
+//	@Failure	409			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/backlinks [get]
 func (d *deps) objectBacklinks(c echo.Context) error {
+	q, errResp, done := linkQueryParams(c)
+	if done {
+		return errResp
+	}
+	dataset, recordId, errResp, done := partParams(c)
+	if done {
+		return errResp
+	}
 	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
 	}
-	ctx := c.Request().Context()
-
-	props, err := linkPropCatalog(ctx, sp)
-	if err != nil {
-		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
+	if d.indexer == nil {
+		return indexDisabled(c)
 	}
-	backlinks := []api.Backlink{}
-	if len(props) == 0 {
-		return c.JSON(http.StatusOK, api.BacklinksResponse{Backlinks: backlinks})
+	target := anyuri.URI{Kind: anyuri.KindObject, SpaceId: sp.Id(), ObjectId: objectId}
+	narrowed := recordId != ""
+	switch {
+	case dataset == index.DatasetProp:
+		target = anyuri.URI{Kind: anyuri.KindProp, SpaceId: sp.Id(), ObjectId: objectId, PropId: recordId}
+	case narrowed:
+		target.Dataset, target.RecordId = dataset, recordId
 	}
-
-	link := "any://" + objectId
-
-	// Scalar equality against an array field means "contains" (see
-	// docs/09-query.md) — one disjunct per catalog property. Link
-	// values carry no index, so this is a scan over the objects
-	// collection; acceptable at v1 scale, a reverse index is the
-	// follow-up.
-	or := make(query.Or, 0, len(props))
-	for _, p := range props {
-		or = append(or, query.Key{Path: []string{p.typeId, p.propId}, Filter: query.NewComp(query.CompOpEq, link)})
-	}
-
-	iter, err := sp.QueryObjects().Filter(or).Sort("id").Iter(ctx)
+	docs, err := d.indexer.Backlinks(c.Request().Context(), sp.Id(), target, q)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
-	defer iter.Close()
-	for iter.Next() {
-		doc, err := iter.Doc()
-		if err != nil {
-			return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
-		}
-		srcId := string(doc.GetStringBytes("id"))
-		attached := map[string]bool{}
-		for _, v := range doc.GetArray("any", "types") {
-			attached[string(v.GetStringBytes())] = true
-		}
-		// The filter says "some disjunct matched"; recover WHICH
-		// properties reference the target. Values under a detached
-		// type are stale, not live references — skipped, matching the
-		// prop chunker's convention (internal/index/prop.go).
-		for _, p := range props {
-			if !attached[p.typeId] {
-				continue
-			}
-			for _, el := range doc.GetArray(p.typeId, p.propId) {
-				if string(el.GetStringBytes()) == link {
-					backlinks = append(backlinks, api.Backlink{ObjectId: srcId, TypeId: p.typeId, PropId: p.propId})
-					break
-				}
-			}
+	return c.JSON(http.StatusOK, splitBacklinks(sp.Id(), docs, narrowed))
+}
+
+// splitBacklinks groups edges into object-level and part-level; a
+// narrowed read keeps everything under Object.
+func splitBacklinks(spaceId string, docs []indexer.LinkDoc, narrowed bool) api.BacklinksResponse {
+	out := api.BacklinksResponse{Object: []api.Link{}, Parts: []api.Link{}}
+	for _, doc := range docs {
+		l := linkToAPI(spaceId, doc)
+		if !narrowed && doc.Target.IsPart() {
+			out.Parts = append(out.Parts, l)
+		} else {
+			out.Object = append(out.Object, l)
 		}
 	}
-	if err := iter.Err(); err != nil {
+	return out
+}
+
+// objectLinks handles GET /v1/spaces/:spaceId/objects/:objectId/links.
+//
+//	@Summary	List the edges an object (or one of its records / property values) points at
+//	@Tags		links
+//	@Produce	json
+//	@Param		spaceId		path		string	true	"Space ID"
+//	@Param		objectId	path		string	true	"Object ID"
+//	@Param		record		query		string	false	"Narrow to one record (with dataset)"
+//	@Param		dataset		query		string	false	"The record's collection"
+//	@Param		prop		query		string	false	"Narrow to one property value (propId)"
+//	@Param		kind		query		[]string	false	"Edge kinds to keep (repeatable)"
+//	@Param		limit		query		int		false	"Max edges (default and max 500)"
+//	@Success	200			{object}	api.LinksResponse
+//	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	404			{object}	api.ErrorEnvelope
+//	@Failure	409			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId}/links [get]
+func (d *deps) objectLinks(c echo.Context) error {
+	q, errResp, done := linkQueryParams(c)
+	if done {
+		return errResp
+	}
+	dataset, recordId, errResp, done := partParams(c)
+	if done {
+		return errResp
+	}
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
+	if done {
+		return errResp
+	}
+	if d.indexer == nil {
+		return indexDisabled(c)
+	}
+	docs, err := d.indexer.Links(c.Request().Context(), sp.Id(), objectId, dataset, recordId, q)
+	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
-	return c.JSON(http.StatusOK, api.BacklinksResponse{Backlinks: backlinks})
+	out := api.LinksResponse{Links: []api.Link{}}
+	for _, doc := range docs {
+		out.Links = append(out.Links, linkToAPI(sp.Id(), doc))
+	}
+	return c.JSON(http.StatusOK, out)
+}
+
+// backlinksAll handles GET /v1/backlinks?target=<uri>.
+//
+//	@Summary	List the edges pointing at a target from every indexed space
+//	@Tags		links
+//	@Produce	json
+//	@Param		target	query		string	true	"Canonical any:// target (object, record, property value, identity or file)"
+//	@Param		kind	query		[]string	false	"Edge kinds to keep (repeatable)"
+//	@Param		limit	query		int		false	"Max edges per space (default and max 500)"
+//	@Success	200		{object}	api.BacklinksAllResponse
+//	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	409		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/backlinks [get]
+func (d *deps) backlinksAll(c echo.Context) error {
+	q, errResp, done := linkQueryParams(c)
+	if done {
+		return errResp
+	}
+	raw := c.QueryParam("target")
+	if raw == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "target required", nil)
+	}
+	u, err := anyuri.Parse(raw)
+	if err != nil {
+		if errors.Is(err, anyuri.ErrKindUnknown) {
+			return writeError(c, http.StatusBadRequest, "request.invalid_field", "target: unknown link kind", map[string]any{"field": "target"})
+		}
+		return writeError(c, http.StatusBadRequest, "request.invalid_field", "target: not a valid any:// URI", map[string]any{"field": "target"})
+	}
+	target, ok := u.Canonical("")
+	if !ok {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"target must name a space (a global any:// form)", map[string]any{"field": "target"})
+	}
+	if d.indexer == nil {
+		return indexDisabled(c)
+	}
+	res, err := d.indexer.BacklinksAll(c.Request().Context(), target, q)
+	if err != nil {
+		return sdkOpError(c, err, nil)
+	}
+	narrowed := target.IsPart() || target.Kind != anyuri.KindObject
+	out := api.BacklinksAllResponse{Spaces: []api.SpaceBacklinks{}}
+	for _, sb := range res {
+		split := splitBacklinks(sb.SpaceId, sb.Links, narrowed)
+		out.Spaces = append(out.Spaces, api.SpaceBacklinks{SpaceId: sb.SpaceId, Object: split.Object, Parts: split.Parts})
+	}
+	return c.JSON(http.StatusOK, out)
+}
+
+func indexDisabled(c echo.Context) error {
+	return writeError(c, http.StatusConflict, "index.disabled",
+		"the search index is disabled on this server (index.enabled)", nil)
+}
+
+// linkToAPI renders one stored edge.
+func linkToAPI(spaceId string, doc indexer.LinkDoc) api.Link {
+	t := doc.Target
+	return api.Link{
+		Source: api.LinkSource{SpaceId: spaceId, ObjectId: doc.ObjectId, Dataset: doc.Dataset, RecordId: doc.RecordId},
+		Kind:   doc.Kind,
+		Target: api.LinkTarget{
+			Uri:      t.String(),
+			Kind:     string(t.Kind),
+			SpaceId:  t.SpaceId,
+			ObjectId: t.ObjectId,
+			Dataset:  t.Dataset,
+			RecordId: t.RecordId,
+			PropId:   t.PropId,
+			Identity: t.Identity,
+			FileId:   t.FileId,
+		},
+	}
 }

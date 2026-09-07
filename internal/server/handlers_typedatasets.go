@@ -218,7 +218,7 @@ func (d *deps) typePatchDatasetField(c echo.Context) error {
 	if len(req.Set) > 0 {
 		patch.Set = make(map[string]any, len(req.Set))
 	}
-	var newSlug string
+	var newSlug, newMode string
 	for path, raw := range req.Set {
 		storagePath, code, reason := fieldPatchPathToStorage(path, true)
 		if code != "" {
@@ -263,6 +263,12 @@ func (d *deps) typePatchDatasetField(c echo.Context) error {
 		if reason := slugKindMismatch(newSlug, propertyKindToString(field.Kind)); reason != "" {
 			return writeError(c, http.StatusBadRequest, "property.format_invalid", reason,
 				map[string]any{"path": wireXFormat + "." + xfType})
+		}
+	}
+	if newMode != "" {
+		if reason := linkModeMismatch(newMode, propertyKindToString(field.Kind)); reason != "" {
+			return writeError(c, http.StatusBadRequest, "property.format_invalid", reason,
+				map[string]any{"path": wireXFormat + "." + xfLinks})
 		}
 	}
 	if err := sp.Types().PatchDatasetField(c.Request().Context(), typeId, fieldId, patch); err != nil {

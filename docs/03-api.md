@@ -27,7 +27,7 @@
     - [The wiki tree](#the-wiki-tree)
     - [Moves (drag-and-drop)](#moves-drag-and-drop)
     - [Object deletion](#object-deletion)
-    - [Backlinks](#backlinks)
+    - [Links and backlinks](#links-and-backlinks)
   - [Data plane](#data-plane)
     - [Snapshot request body (shared by both `…/query` and `…/query/subscribe`)](#snapshot-request-body-shared-by-both-query-and-querysubscribe)
     - [Aggregate](#aggregate)
@@ -1378,7 +1378,9 @@ list | get | setup`.
 | POST   | `/v1/spaces/:spaceId/objects/aggregate`                   | `Space.AggregateObjects` (pipeline) |
 | GET    | `/v1/spaces/:spaceId/objects/:objectId`                   | `Objects.Get` — the objects row; `404 object.not_found` / `410 object.deleted` |
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId`                   | `Objects.Delete`                   |
-| GET    | `/v1/spaces/:spaceId/objects/:objectId/backlinks`         | reverse reference lookup (no SDK method) |
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/backlinks`         | what links here — the link index (no SDK method, § Links and backlinks) |
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/links`             | what this links to — the link index |
+| GET    | `/v1/backlinks?target=…`                                  | backlinks across every indexed space (account-scoped) |
 | GET    | `/v1/spaces/:spaceId/objects/:objectId/editor/:collection/markdown`        | render blocks as markdown |
 | PUT    | `/v1/spaces/:spaceId/objects/:objectId/editor/:collection/markdown`        | bulk parse markdown → blocks |
 | PATCH  | `/v1/spaces/:spaceId/objects/:objectId/editor/:collection/markdown`        | targeted oldText → newText replacements |
@@ -1758,31 +1760,66 @@ An unknown or already-deleted id is `404 sdk.not_found`, a reader or
 guest `403 space.read_only`, and a non-root id on the tech space
 `405 space.unsupported`.
 
-#### Backlinks
+#### Links and backlinks
 
-`GET /v1/spaces/:spaceId/objects/:objectId/backlinks` answers "which
-objects reference X?" — the reverse direction of relation property
-values. The SDK exposes no reverse index, so like `/search` this is a
-consumer-side exception to the 1:1 rule: object references are
-properties whose descriptor slug is `relation` (`xFormat.type`, arrays
-of `"any://<objectId>"` URIs), stored at `record[typeId][propId]`; the
-handler resolves the space's relation property catalog (top-level
-definitions only) and queries the `objects` collection for rows whose
-arrays contain `"any://<X>"`.
+Three reads over the server's **link index** — the edges the search
+indexer extracts from every record next to its text (`docs/13-index.md`
+§ Links). Like `/search`, a consumer-side exception to the 1:1 rule:
+the SDK has no reverse index. All three answer `409 index.disabled`
+when `index.enabled` is off, and reflect a write after the indexer's
+debounce (a few hundred ms), never inside the write.
+
+An **edge** is a source place, a kind and a canonical target:
 
 ```json
-{"backlinks": [{"objectId": "…", "typeId": "…", "propId": "…"}]}
+{
+  "source": {"spaceId": "…", "objectId": "P", "dataset": "editor_blocks", "recordId": "blk_a"},
+  "kind":   "link",
+  "target": {"uri": "any://o/<sp>/X/editor_blocks/blk_z", "kind": "o", "spaceId": "<sp>",
+             "objectId": "X", "dataset": "editor_blocks", "recordId": "blk_z"}
+}
 ```
 
-One entry per (referencing object, property) pair — an object linking
-X through two different links properties appears twice. Only live
-references count: values under a currently detached type are skipped
-(same convention as the search index's prop chunker). No existence
-check on `:objectId` — an unknown or unreferenced id returns
-`{"backlinks": []}`, not 404. Link values carry no index, so this is a
-scan over the objects collection; fine at v1 scale, a reverse index is
-a follow-up. The wiki tree's `parentId` is a plain string, not a
-relation — query children directly (§ The wiki tree).
+`source.dataset` is the collection the reference was found in — a
+module or runtime collection, or the virtual `prop` for a property
+value, where `recordId` is the property id. `kind` is one of
+`mention` (an identity in text), `link` (an object, record, value or
+file reference in text or a chat attachment), `card` (an editor
+paragraph that is exactly one whole-line link to an object or file),
+`embed` (the editor's synced-block reference) and `relation` (a
+value of a link-bearing property or field); the set is open. `target`
+is the canonical form (`docs/19-links.md`): the object key for an
+object, the record path for a block or message, `p` / `m` / `f` for a
+value, an identity, a file.
+
+- `GET /v1/spaces/:spaceId/objects/:objectId/backlinks` —
+  `{"object": [edge…], "parts": [edge…]}`: `object` holds the edges
+  pointing at the object itself, `parts` those pointing at one of its
+  records or property values (a block link stays a block link; the
+  parent is not counted twice). `?record=<id>&dataset=<collection>` or
+  `?prop=<propId>` narrows to one part — then `object` holds that
+  part's edges and `parts` is empty. `?kind=` (repeatable) keeps only
+  those kinds; `?limit=` caps the reply (default and max 500). No
+  existence check: an unknown or unreferenced id answers empty lists.
+- `GET /v1/spaces/:spaceId/objects/:objectId/links` — `{"links":
+  [edge…]}`, the edges whose source is the object; the same narrowing
+  selects one record's or one value's edges.
+- `GET /v1/backlinks?target=<uri>` — `{"spaces": [{"spaceId",
+  "object", "parts"}…]}`: the edges pointing at one target from every
+  space this device indexes, one entry per space with an edge. The
+  target must be a global form (`any://o/<sp>/…`, `any://m/…`,
+  `any://f/…`, `any://p/…`); the bare in-space form is
+  `400 request.invalid_field`. The device holds only spaces this
+  account is a member of, so the read is access-filtered by
+  construction.
+
+Liveness: after a page changes edges the server publishes one
+device-scope `links.updated` event naming the targets whose backlinks
+moved (`docs/21-events.md`); a panel re-reads on it. Only live
+references count: a deleted record, a cleared value, a detached type's
+values and a deleted object all drop their edges. The wiki tree's
+`parentId` is a plain string, not a link — query children directly
+(§ The wiki tree). Client recipe: `docs/08-clients.md` § 15.
 
 ### Data plane
 

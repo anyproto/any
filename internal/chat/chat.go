@@ -286,9 +286,9 @@ func NewModule() handler.Module {
 //
 // Every field carries a description; a descriptor (docs/27-descriptors.md)
 // only where the vocabulary names the value — instants and flags. The
-// markdown text, identities, record refs and the nested objects have no
-// slug yet (the text slug is a backlinks decision) and describe
-// themselves in prose.
+// identities, record refs and the nested objects have no slug and
+// describe themselves in prose; the text carries `markdown`, the slug
+// the link index scans (docs/13-index.md § Links).
 func datasetSchema() handler.Schema {
 	str := func() *handler.FieldShape { return handler.Leaf(handler.PropertyKindString) }
 	obj := func() *handler.FieldShape { return handler.Leaf(handler.PropertyKindObject) }
@@ -305,7 +305,8 @@ func datasetSchema() handler.Schema {
 			{Id: FieldMentions, Name: "Mentions", Schema: handler.Leaf(handler.PropertyKindArray), Scope: handler.ScopeDerived,
 				Description: "Identities linked in the text plus the replied-to message's author; derived."},
 			{Id: FieldText, Name: "Text", Schema: str(), Scope: handler.ScopeSynced,
-				Description: "Message body, markdown; any:// links carry mentions and references."},
+				Description: "Message body, markdown; any:// links carry mentions and references.",
+				XFormat:     map[string]any{"type": "markdown"}},
 			{Id: FieldReplyToMessageId, Name: "Reply To", Schema: str(), Scope: handler.ScopeSynced,
 				Description: "Id of the message this one replies to."},
 			{Id: FieldAgent, Name: "Agent", Schema: obj(), Scope: handler.ScopeSynced,

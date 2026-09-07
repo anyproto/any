@@ -81,8 +81,11 @@ type indexedProp struct {
 	typeId string
 	propId string
 	name   string
-	scope  string
+	scope  string             // "" = not text-indexed (a link-only property)
 	kind   space.PropertyKind // String, Array or Number — others never index
+	// linkMode is the descriptor's link marker (LinkMode); "" = the
+	// value carries no references.
+	linkMode string
 }
 
 type propCatalog struct {
@@ -141,7 +144,12 @@ func (c *PropChunker) catalog(ctx context.Context, sp space.Space) ([]indexedPro
 			return nil, err
 		}
 		for _, d := range defs {
-			if p, ok := resolveIndexedProp(t.Id, d); ok {
+			p, text := resolveIndexedProp(t.Id, d)
+			p.linkMode = LinkMode(d.XFormat)
+			if !text {
+				p.scope = ""
+			}
+			if text || p.linkMode != "" {
 				props = append(props, p)
 			}
 		}
@@ -154,29 +162,33 @@ func (c *PropChunker) catalog(ctx context.Context, sp space.Space) ([]indexedPro
 }
 
 // resolveIndexedProp maps one property definition to its catalog row.
-// ok=false when the definition doesn't index: opted out
+// text=false when the definition doesn't text-index: opted out
 // (meta.index "none"), an invalid scope override (a broken override
 // must not silently land in the default scope), or a text-less kind.
-func resolveIndexedProp(typeId string, d space.PropertyDef) (indexedProp, bool) {
-	scope := d.Meta[MetaIndexKey]
-	switch {
-	case scope == MetaIndexNone:
-		return indexedProp{}, false
-	case scope == "":
-		scope = ScopeProps
-	case !ValidScope(scope):
-		return indexedProp{}, false
-	}
-	switch d.Kind {
-	case space.PropertyKindString, space.PropertyKindArray, space.PropertyKindNumber, space.PropertyKindDatetime:
-	default:
-		return indexedProp{}, false // booleans/null/object carry no discoverable text
-	}
+// The row is returned either way so a link-only property (see
+// linkMode) keeps its identity.
+func resolveIndexedProp(typeId string, d space.PropertyDef) (p indexedProp, text bool) {
 	name := d.Name
 	if name == "" {
 		name = d.XKey
 	}
-	return indexedProp{typeId: typeId, propId: d.Id, name: name, scope: scope, kind: d.Kind}, true
+	p = indexedProp{typeId: typeId, propId: d.Id, name: name, kind: d.Kind}
+	scope := d.Meta[MetaIndexKey]
+	switch {
+	case scope == MetaIndexNone:
+		return p, false
+	case scope == "":
+		scope = ScopeProps
+	case !ValidScope(scope):
+		return p, false
+	}
+	switch d.Kind {
+	case space.PropertyKindString, space.PropertyKindArray, space.PropertyKindNumber, space.PropertyKindDatetime:
+	default:
+		return p, false // booleans/null/object carry no discoverable text
+	}
+	p.scope = scope
+	return p, true
 }
 
 // ChunksSince streams the object's property entries past the cursor.
@@ -226,7 +238,12 @@ func (c *PropChunker) ChunksSince(ctx context.Context, sp space.Space, objectId 
 
 		for _, p := range props {
 			e := IndexEntry{Scope: p.scope, ObjectId: objectId, Dataset: DatasetProp, RecordId: p.propId, ApplySeq: seq}
-			if attached[p.typeId] {
+			if attached[p.typeId] && p.linkMode != "" {
+				// The value's references (docs/13-index.md § Links);
+				// a detached type's values are stale, not live links.
+				e.Links = ValueLinks(sp.Id(), objectId, DatasetProp, p.propId, p.linkMode, rec.Get(p.typeId, p.propId))
+			}
+			if attached[p.typeId] && p.scope != "" {
 				// Entry text is self-describing — "<prop name>: <value>"
 				// — so property-NAME search works and bare numbers get
 				// context. The name also rides Title, which the chunker

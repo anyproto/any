@@ -76,7 +76,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.DELETE("/spaces/:spaceId/objects/:objectId", d.objectDelete)
 	// Reverse reference lookup over relation property values —
 	// consumer-side read, no SDK method behind it (handlers_backlinks.go).
-	g.GET("/spaces/:spaceId/objects/:objectId/backlinks", d.objectBacklinks)
+	registerLinkRoutes(g, d)
 
 	// Editor (module — see internal/editor). Atomic blocks + markdown
 	// bridge on one editor collection: the canonical editor_blocks a

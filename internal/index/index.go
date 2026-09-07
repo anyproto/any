@@ -58,6 +58,14 @@ type IndexEntry struct {
 	// its terms should also appear in Data — Title only adds ranking weight,
 	// and the content hash (embed-skip) is over Data alone.
 	ApplySeq uint64 // peer-local, per-space monotonic apply counter
+	// Links are the edges found in the record(s) this entry covers —
+	// the link sink's input (docs/13-index.md § Links). Each carries
+	// its own source place: a coalesced editor window reports the
+	// links of every member block under that block's id. A streaming
+	// chunker's entry replaces its record's edges (nil = the record
+	// links nothing); a reconciling chunker's set replaces the
+	// collection's edges. Not part of the content hash.
+	Links []LinkEntry
 }
 
 // Reconciler is an optional chunker capability for datasets whose index

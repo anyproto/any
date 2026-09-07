@@ -368,7 +368,7 @@ func (d *deps) typePatchProperty(c echo.Context) error {
 	if len(req.Set) > 0 {
 		patch.Set = make(map[string]any, len(req.Set))
 	}
-	var newXKey, newSlug string
+	var newXKey, newSlug, newMode string
 	for path, raw := range req.Set {
 		storagePath, code, reason := patchPathToStorage(path, true)
 		if code != "" {
@@ -384,6 +384,8 @@ func (d *deps) typePatchProperty(c echo.Context) error {
 			newXKey, _ = val.(string)
 		case propFieldXFormat + "." + xfType:
 			newSlug, _ = val.(string)
+		case propFieldXFormat + "." + xfLinks:
+			newMode, _ = val.(string)
 		}
 	}
 	for _, path := range req.Unset {
@@ -398,7 +400,7 @@ func (d *deps) typePatchProperty(c echo.Context) error {
 	// unique within the type, and a slug can only move within the
 	// pinned kind. Both need the current definitions — one read, only
 	// when either leaf is touched.
-	if newXKey != "" || newSlug != "" {
+	if newXKey != "" || newSlug != "" || newMode != "" {
 		defs, err := sp.Types().Properties(c.Request().Context(), typeId)
 		if err != nil {
 			return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
@@ -415,6 +417,17 @@ func (d *deps) typePatchProperty(c echo.Context) error {
 			if reason := slugKindMismatch(newSlug, propertyKindToString(def.Kind)); reason != "" {
 				return writeError(c, http.StatusBadRequest, "property.format_invalid", reason,
 					map[string]any{"path": wireXFormat + "." + xfType})
+			}
+		}
+		if newMode != "" {
+			for _, def := range defs {
+				if def.Id != propId {
+					continue
+				}
+				if reason := linkModeMismatch(newMode, propertyKindToString(def.Kind)); reason != "" {
+					return writeError(c, http.StatusBadRequest, "property.format_invalid", reason,
+						map[string]any{"path": wireXFormat + "." + xfLinks})
+				}
 			}
 		}
 	}

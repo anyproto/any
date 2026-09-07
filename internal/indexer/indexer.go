@@ -56,6 +56,12 @@ type Options struct {
 	// nil = no reporting. Called from indexer goroutines — must not
 	// block.
 	OnProcess func(ProcessUpdate)
+	// OnLinks, when set, receives the target keys (canonical object
+	// references, or the target itself for identities and files) whose
+	// backlinks changed in a landed page — the liveness signal a client
+	// panel refreshes on. Called from the advance goroutine after the
+	// page committed; must not block.
+	OnLinks func(spaceId string, targets []string)
 	// AnnounceAfter gates fts/embed reporting on elapsed work time: a
 	// pass/drain announces only once it has been running this long, so
 	// usual indexing (one message, one edit — done in well under a

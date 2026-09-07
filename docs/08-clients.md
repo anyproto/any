@@ -824,6 +824,49 @@ Managed hosts, per launch: spawn `run --mode managed --addr
 `embedded.Options.Mode` + `ControlToken` in-process), `POST /v1/auth
 {mnemonic}` with the token, and stop with `POST /v1/shutdown` + token.
 
+## 15. Links panel: backlinks, forward links, refresh on the bus event
+
+The contextual panel of an object, a block or a record is three reads
+over the link index (`03-api.md` § Links and backlinks, pipeline in
+`13-index.md` § Links):
+
+```
+GET /v1/spaces/:s/objects/:o/backlinks                       what links here
+GET /v1/spaces/:s/objects/:o/backlinks?record=<b>&dataset=editor_blocks   what links this block
+GET /v1/spaces/:s/objects/:o/links                           what this links to
+```
+
+Call patterns:
+
+- **Render `object` and `parts` as two groups.** `object` is what
+  points at the entity itself; `parts` what points at one of its
+  blocks, messages or values. A block link is a block link — never
+  count it as a second link to the page.
+- **Show the kind.** `mention`, `link`, `card`, `embed`, `relation`
+  are the vocabulary today; render an unknown kind as a plain
+  reference (the set is open).
+- **Navigate by the source place.** `source.dataset` +
+  `source.recordId` locate the block or message; `prop` + the property
+  id locate a value. Build the deep link with `anyuri.BuildRecord` /
+  the object form — never guess from the target.
+- **Refresh on `links.updated`.** Subscribe to the device bus
+  (`GET /v1/events/subscribe?scope=device&type=links.updated`) and
+  re-read when `data.targets` names the entity's object key
+  (`any://o/<sp>/<obj>`), or its own key for an identity or file. The
+  index lags a write by the indexer's debounce, so read the panel on
+  open and on the event, never assume the write is visible in the
+  same tick.
+- **Across spaces**, `GET /v1/backlinks?target=any://o/<sp>/<obj>`
+  answers from every space this device indexes; a space absent from
+  the reply has no edge to show. Names come from one
+  `objects/query` with `id $in` per space.
+- **Write links so the index sees them.** Object references in text
+  are markdown links with `any://` destinations; a whole-line
+  `[Name](any://o/…)` paragraph is a card; property references go
+  into a `relation` property as bare `any://<objectId>` values. A
+  runtime dataset field that carries references declares
+  `xFormat.links` (`27-descriptors.md`), or the index never reads it.
+
 ## See also
 
 - `03-api.md` — endpoint catalog and request/response bodies.

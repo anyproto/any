@@ -44,12 +44,12 @@ func TestParseSchemaDatasets(t *testing.T) {
 	searchable, unsearchable := parseSchemaDatasets(list, skip)
 
 	want := []schemaDataset{
-		{name: "articles", typeId: "t1", titleField: "title", textFields: []string{"body"}, scope: ScopeBasic},
-		{name: "notes", typeId: "t1", titleField: "", textFields: []string{"content"}, scope: ScopeBasic},
-		{name: "headlines", typeId: "t2", titleField: "headline", textFields: nil, scope: ScopeBasic},
-		{name: "scoped", typeId: "t3", titleField: "", textFields: []string{"x"}, scope: "recipes"},
-		{name: "emails", typeId: "t4", titleField: "subject", textFields: []string{"body", "notes"}, scope: ScopeBasic},
-		{name: "single", typeId: "t4", titleField: "", textFields: []string{"body"}, scope: ScopeBasic},
+		{name: "articles", typeId: "t1", titleField: "title", textFields: []string{"body"}, scope: ScopeBasic, searchable: true},
+		{name: "notes", typeId: "t1", titleField: "", textFields: []string{"content"}, scope: ScopeBasic, searchable: true},
+		{name: "headlines", typeId: "t2", titleField: "headline", textFields: nil, scope: ScopeBasic, searchable: true},
+		{name: "scoped", typeId: "t3", titleField: "", textFields: []string{"x"}, scope: "recipes", searchable: true},
+		{name: "emails", typeId: "t4", titleField: "subject", textFields: []string{"body", "notes"}, scope: ScopeBasic, searchable: true},
+		{name: "single", typeId: "t4", titleField: "", textFields: []string{"body"}, scope: ScopeBasic, searchable: true},
 	}
 	if !reflect.DeepEqual(searchable, want) {
 		t.Errorf("searchable = %+v, want %+v", searchable, want)

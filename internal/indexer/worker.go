@@ -66,6 +66,7 @@ func (w *spaceWorker) start() {
 	// the embed loop caches the space collection handle — a drop racing
 	// it would put a dropped handle back in the cache.
 	w.alignIndex(w.ctx)
+	w.backfillLinks(w.ctx)
 	w.ix.wg.Add(1)
 	go w.advanceLoop()
 	if w.ix.HasEmbedder() {
@@ -287,8 +288,12 @@ func (w *spaceWorker) advancePages(ctx context.Context, onWork func(), progress 
 			}
 		}
 
-		if err := w.ix.store.Apply(ctx, spaceId, page.ups, page.dels, page.prefixDels); err != nil {
+		touched, err := w.ix.store.ApplyPage(ctx, spaceId, page.ups, page.dels, page.prefixDels, &page.links)
+		if err != nil {
 			return err
+		}
+		if len(touched) > 0 && w.ix.opts.OnLinks != nil {
+			w.ix.opts.OnLinks(spaceId, touched)
 		}
 		cursor = changes[len(changes)-1].ApplySeq
 		if err := w.ix.store.SetCursor(ctx, spaceId, cursor, w.generation); err != nil {
@@ -324,6 +329,9 @@ type pageOps struct {
 	ups        []DocUpsert
 	dels       []string
 	prefixDels []string
+	// links are the page's edge changes (links_store.go); the
+	// structural prefixDels above evict edges too.
+	links LinkOps
 }
 
 // collectObject gathers one live object's page ops, derived from the
@@ -401,6 +409,7 @@ func (w *spaceWorker) reconcile(ctx context.Context, rc index.Reconciler, object
 		return err
 	}
 	w.plan(entries, stored, objectId, rc.Dataset(), page)
+	planLinks(entries, objectId, rc.Dataset(), cursor, true, &page.links)
 	return nil
 }
 
@@ -418,6 +427,7 @@ func (w *spaceWorker) reconcileMulti(ctx context.Context, mr index.MultiReconcil
 			return err
 		}
 		w.plan(entries, stored, objectId, coll, page)
+		planLinks(entries, objectId, coll, cursor, true, &page.links)
 	}
 	return nil
 }
@@ -464,6 +474,39 @@ func planDocs(entries []index.IndexEntry, stored map[string]string, chunkRunes i
 		page.dels = append(page.dels, id) // vanished
 	}
 	return unindexable
+}
+
+// planLinks turns the entries' edges into page link ops. Streaming
+// shape (full=false): every entry's record is replaced — its record
+// prefix cleared, its edges re-inserted — so a record that now links
+// nothing loses its edges and a tombstone (no Links) too. Reconciled
+// shape (full=true): the whole collection's edges are rewritten from
+// the returned set — its prefix cleared once, even when the set is
+// empty, which is exactly the case of a collection whose last linked
+// record was deleted. Entries whose ids carry a control byte are
+// skipped like their text docs.
+func planLinks(entries []index.IndexEntry, objectId, dataset string, cursor uint64, full bool, ops *LinkOps) {
+	if full {
+		ops.Prefixes = append(ops.Prefixes, objectId+":"+dataset+":")
+	}
+	for _, e := range entries {
+		if !indexableId(e.RecordId) || !indexableId(e.Dataset) {
+			continue
+		}
+		if !full {
+			// On the cold cursor nothing is stored: no clear to pay.
+			if cursor > 0 {
+				ops.Dels = append(ops.Dels, linkRecordPrefix(e.ObjectId, e.Dataset, e.RecordId))
+			}
+		}
+		for _, l := range e.Links {
+			if !indexableId(l.RecordId) || !indexableId(l.Dataset) {
+				continue
+			}
+			ops.Ups = append(ops.Ups, l)
+			ops.Seqs = append(ops.Seqs, e.ApplySeq)
+		}
+	}
 }
 
 // indexableId rejects a doc-id component carrying a control byte. Chunk
@@ -516,6 +559,7 @@ func (w *spaceWorker) streamChunks(ctx context.Context, ch index.Chunker, object
 	}); err != nil {
 		return err
 	}
+	planLinks(entries, objectId, ch.Dataset(), cursor, false, &page.links)
 	if cursor == 0 {
 		w.plan(entries, nil, objectId, ch.Dataset(), page)
 		return nil
@@ -692,5 +736,57 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 		if len(ids) < batch*conc {
 			return nil // last page
 		}
+	}
+}
+
+// backfillLinks rebuilds the space's edges from its records when they
+// predate the link sink's layout (a db indexed before links existed,
+// or a layout bump): every object the feed knows is re-extracted once
+// through the chunkers and only the edges are kept — text docs are
+// not touched, so nothing re-embeds. Runs before the loops; a failure
+// is logged and retried on the next boot (the stamp stays behind).
+func (w *spaceWorker) backfillLinks(ctx context.Context) {
+	spaceId := w.sp.Id()
+	needed, err := w.ix.store.LinksBackfillNeeded(ctx, spaceId)
+	if err != nil {
+		w.ix.lg.Warn("read links version", zap.String("spaceId", spaceId), zap.Error(err))
+		return
+	}
+	if !needed {
+		return
+	}
+	w.ix.lg.Info("backfilling links", zap.String("spaceId", spaceId))
+	var ops LinkOps
+	seen := map[string]bool{}
+	var from uint64
+	for {
+		changes, err := w.sp.Changes().ChangedSince(ctx, from, w.ix.opts.BatchLimit)
+		if err != nil {
+			w.ix.lg.Warn("links backfill: change feed", zap.String("spaceId", spaceId), zap.Error(err))
+			return
+		}
+		if len(changes) == 0 {
+			break
+		}
+		for _, ch := range changes {
+			if ch.Deleted || seen[ch.ObjectId] {
+				continue
+			}
+			seen[ch.ObjectId] = true
+			var page pageOps
+			if err := w.collectObject(ctx, ch.ObjectId, 0, &page); err != nil {
+				w.ix.lg.Warn("links backfill: collect object", zap.String("spaceId", spaceId), zap.String("objectId", ch.ObjectId), zap.Error(err))
+				return
+			}
+			ops.Ups = append(ops.Ups, page.links.Ups...)
+			ops.Seqs = append(ops.Seqs, page.links.Seqs...)
+		}
+		from = changes[len(changes)-1].ApplySeq
+		if len(changes) < w.ix.opts.BatchLimit {
+			break
+		}
+	}
+	if err := w.ix.store.ReplaceLinks(ctx, spaceId, &ops); err != nil {
+		w.ix.lg.Warn("links backfill: replace", zap.String("spaceId", spaceId), zap.Error(err))
 	}
 }

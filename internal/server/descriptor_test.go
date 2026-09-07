@@ -70,6 +70,8 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 	custom := add(`{"name":"Custom","xKey":"custom","kind":"string","xFormat":{"type":"acme.widget","acme":{"anything":[1,2,{"deep":true}]}}}`)
 	bare := add(`{"name":"Title","xKey":"title","kind":"string","meta":{"index":"basic"}}`)
 	nulled := add(`{"name":"Nulled","xKey":"nulled","kind":"string","xFormat":null}`)
+	notes := add(`{"name":"Notes","xKey":"notes","kind":"string","xFormat":{"type":"markdown"}}`)
+	ref := add(`{"name":"Ref","xKey":"ref","kind":"string","xFormat":{"type":"text","links":"link"}}`)
 
 	for name, tc := range map[string]struct {
 		body string
@@ -94,6 +96,10 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 		"dollar top-level key":    {`{"name":"O","xKey":"o","kind":"string","xFormat":{"$date":"2026-01-01T00:00:00Z"}}`, 400, "request.invalid_field"},
 		"dollar key in vendor":    {`{"name":"P","xKey":"p","kind":"string","xFormat":{"type":"text","acme":{"list":[{"$date":"x"}]}}}`, 400, "request.invalid_field"},
 		"empty option meta key":   {`{"name":"Q","xKey":"q","kind":"array","xFormat":{"type":"choice","options":{"a":{"meta":{"":"x"}}}}}`, 400, "request.invalid_field"},
+		"links marker unknown":    {`{"name":"R","xKey":"r","kind":"string","xFormat":{"type":"text","links":"refs"}}`, 400, "property.format_invalid"},
+		"links marker not string": {`{"name":"S","xKey":"s","kind":"string","xFormat":{"type":"text","links":true}}`, 400, "request.invalid_field"},
+		"links marker kind":       {`{"name":"T","xKey":"t","kind":"string","xFormat":{"type":"text","links":"links"}}`, 400, "property.format_invalid"},
+		"markdown on array":       {`{"name":"U","xKey":"u","kind":"array","xFormat":{"type":"markdown"}}`, 400, "property.format_invalid"},
 	} {
 		rec = doJSON(t, e, http.MethodPost, propsURL, tc.body)
 		if rec.Code != tc.want {
@@ -195,6 +201,9 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 		{"relation global form", related, `["any://space1/objabc"]`, 400},
 		{"relation typed form", related, `["any://o/space1/objabc"]`, 400},
 		{"relation short id (kind namespace)", related, `["any://abc"]`, 400},
+		{"markdown string", notes, `"see [x](any://abc123def)"`, 200},
+		{"markdown not string", notes, `7`, 400},
+		{"link marker keeps text checks", ref, `"any://abc123def"`, 200},
 		{"date midnight", due, `{"$date":"2026-07-03T00:00:00Z"}`, 200},
 		{"date not midnight", due, `{"$date":"2026-07-03T12:00:00Z"}`, 400},
 		{"date bare string", due, `"2026-07-03"`, 400},
@@ -287,6 +296,8 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 		code       string
 	}{
 		"cross-kind slug":       {stage, `{"set":{"xFormat.type":"text"}}`, 400, "property.format_invalid"},
+		"cross-kind links mark": {stage, `{"set":{"xFormat.links":"link"}}`, 400, "property.format_invalid"},
+		"bad links mark":        {stage, `{"set":{"xFormat.links":"refs"}}`, 400, "property.format_invalid"},
 		"object over option":    {stage, `{"set":{"xFormat.options.lead":{"name":"X"}}}`, 400, "request.invalid_field"},
 		"object over bag":       {stage, `{"set":{"xFormat":{"type":"choice"}}}`, 400, "request.invalid_field"},
 		"reserved key":          {stage, `{"set":{"xFormat.validate.min":1}}`, 400, "property.format_invalid"},

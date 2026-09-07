@@ -515,6 +515,9 @@ func (s *Store) SetCursor(ctx context.Context, spaceId string, seq uint64, gener
 		if generation != "" {
 			v.Set("gen", a.NewString(generation))
 		}
+		// Every advance writes edges on the current layout; a space
+		// that reaches here needs no backfill (links_store.go).
+		v.Set("links", a.NewNumberInt(linksSchemaVersion))
 		return v, true, nil
 	})
 	_, err = coll.UpsertId(ctx, spaceId, mod)
@@ -536,16 +539,29 @@ func (s *Store) SetCursor(ctx context.Context, spaceId string, seq uint64, gener
 // for it. Writing those would resurrect docs of an object nothing will
 // ever re-stream, so they are dropped rather than ordered around.
 func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels []string, prefixDels []string) error {
-	if len(ups) == 0 && len(dels) == 0 && len(prefixDels) == 0 {
-		return nil
+	_, err := s.ApplyPage(ctx, spaceId, ups, dels, prefixDels, nil)
+	return err
+}
+
+// ApplyPage is Apply plus the page's link ops, landed on the link
+// collection in the same transaction (links_store.go): the shared
+// structural prefixes evict edges as they evict text docs. Returns the
+// target keys whose edge set changed (the liveness signal).
+func (s *Store) ApplyPage(ctx context.Context, spaceId string, ups []DocUpsert, dels []string, prefixDels []string, links *LinkOps) ([]string, error) {
+	if len(ups) == 0 && len(dels) == 0 && len(prefixDels) == 0 && links.empty() {
+		return nil, nil
 	}
 	coll, err := s.spaceColl(ctx, spaceId)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	linksColl, err := s.linksColl(ctx, spaceId)
+	if err != nil {
+		return nil, err
 	}
 	tx, err := coll.WriteTx(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer tx.Rollback() //nolint:errcheck — no-op after Commit
 
@@ -558,7 +574,7 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, prefixUpper(p))},
 		}
 		if _, err := coll.Find(idRange).Delete(tx.Context()); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -568,7 +584,7 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, recordUpper(id))},
 		}
 		if _, err := coll.Find(idRange).Delete(tx.Context()); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -604,10 +620,17 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 			doc.Set("pending", arena.NewNumberInt(1))
 		}
 		if err := coll.UpsertOne(tx.Context(), doc); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return tx.Commit()
+	touched, err := s.applyLinks(tx.Context(), linksColl, prefixDels, links)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return touched, nil
 }
 
 // removals indexes one page's deletions so an upsert can be tested in
@@ -797,6 +820,9 @@ func (s *Store) DropSpace(ctx context.Context, spaceId string) error {
 		return err
 	}
 	if err := coll.Drop(ctx); err != nil {
+		return err
+	}
+	if err := s.dropLinks(ctx, spaceId); err != nil {
 		return err
 	}
 	cursors, err := s.db.Collection(ctx, cursorsCollection)

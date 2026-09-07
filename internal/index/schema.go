@@ -79,6 +79,12 @@ type schemaDataset struct {
 	titleField string
 	textFields []string
 	scope      string
+	// searchable: an x-search mapping is declared (text docs are
+	// produced); linkFields: field → link marker mode (LinkMode) for
+	// every field whose descriptor carries references. A dataset with
+	// link fields and no search mapping is streamed for its edges only.
+	searchable bool
+	linkFields map[string]string
 }
 
 // NewSchemaChunker constructs the chunker. staticDatasets are the
@@ -132,35 +138,48 @@ func parseSchemaDatasets(list []space.DatasetSchema, skip map[string]bool) (sear
 				Text  json.RawMessage `json:"text"`
 				Scope string          `json:"scope"`
 			} `json:"x-search"`
+			Properties map[string]struct {
+				XFormat map[string]any `json:"x-format"`
+			} `json:"properties"`
 		}
 		if err := json.Unmarshal(ds.JSONSchema, &doc); err != nil {
 			// Malformed schema doc — not indexed, evicted unconditionally.
 			unsearchable = append(unsearchable, ds.Name)
 			continue
 		}
-		textFields, ok := parseSearchTextFields(doc.Search.Text)
-		if !ok || (doc.Search.Title == "" && len(textFields) == 0) {
-			// Malformed text mapping or no search annotation — same
-			// stance as a malformed doc.
-			unsearchable = append(unsearchable, ds.Name)
-			continue
+		var linkFields map[string]string
+		for field, f := range doc.Properties {
+			if mode := LinkMode(f.XFormat); mode != "" {
+				if linkFields == nil {
+					linkFields = map[string]string{}
+				}
+				linkFields[field] = mode
+			}
 		}
+		sd := schemaDataset{name: ds.Name, typeId: ds.Owners[0], linkFields: linkFields}
+		textFields, ok := parseSearchTextFields(doc.Search.Text)
 		scope := doc.Search.Scope
 		if scope == "" {
 			scope = ScopeBasic
-		} else if !ValidScope(scope) {
-			// A broken scope override must not silently land in the
-			// default scope (the resolveIndexedProp stance).
-			unsearchable = append(unsearchable, ds.Name)
-			continue
 		}
-		searchable = append(searchable, schemaDataset{
-			name:       ds.Name,
-			typeId:     ds.Owners[0],
-			titleField: doc.Search.Title,
-			textFields: textFields,
-			scope:      scope,
-		})
+		switch {
+		case !ok, doc.Search.Title == "" && len(textFields) == 0, !ValidScope(scope):
+			// Malformed text mapping, no search annotation, or a broken
+			// scope override (which must not silently land in the
+			// default scope — the resolveIndexedProp stance): no text
+			// docs. Still streamed for its edges when a field carries
+			// references; otherwise evicted unconditionally.
+			if len(linkFields) == 0 {
+				unsearchable = append(unsearchable, ds.Name)
+				continue
+			}
+		default:
+			sd.searchable = true
+			sd.titleField = doc.Search.Title
+			sd.textFields = textFields
+			sd.scope = scope
+		}
+		searchable = append(searchable, sd)
 	}
 	return searchable, unsearchable
 }
@@ -291,10 +310,15 @@ func (c *SchemaChunker) ChunksSince(ctx context.Context, sp space.Space, objectI
 				ApplySeq: seq,
 			}
 			if !IsDeleted(rec) {
-				title := renderSearchValue(fieldValue(rec, ds.titleField))
-				text := renderTextFields(rec, ds.textFields)
-				e.Title = title
-				e.Data = joinTitleText(title, text)
+				if ds.searchable {
+					title := renderSearchValue(fieldValue(rec, ds.titleField))
+					text := renderTextFields(rec, ds.textFields)
+					e.Title = title
+					e.Data = joinTitleText(title, text)
+				}
+				for field, mode := range ds.linkFields {
+					e.Links = append(e.Links, ValueLinks(sp.Id(), objectId, ds.name, e.RecordId, mode, fieldValue(rec, field))...)
+				}
 			}
 			return yield(e)
 		})
