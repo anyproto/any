@@ -22,9 +22,10 @@ message, not in the object row.
 
 A **usecase** is a set of well-known bundles the server installs on
 request. A **bundle** is one root object under a permanent id
-(`system:person/v1`) that declares a type, a miniapp, or both. Installing
-is idempotent and convergent: every device that asks lands on the same
-root and the same property ids.
+(`system:person/v1`) that can be a miniapp, a type definition and an
+implementation of that type at the same time (§ Reading data).
+Installing is idempotent and convergent: every device that asks lands on
+the same root and the same property ids.
 
 Three ids, never interchangeable:
 
@@ -183,12 +184,25 @@ dataset's records. Both take `filter` / `sort` / `limit` / `offset` /
 then live deltas. On a subscribe, `limit` requires `sort` — a live
 window has to be ordered. Property paths are `"<typeId>.<propId>"`.
 
-### The one trap: "all objects of type X" includes the type object
+### One object, three roles — and what it means for type filters
 
-Every bundle root that declares a type **carries that type**
-(`any.types: ["__type__", "<rootId>", …]`). So the obvious filter returns
-the Person type definition next to the actual people. Always exclude the
-marker:
+A bundle is a single root object, and that one object can be three things
+at once:
+
+1. the **miniapp** — the app's entry point (`miniapp.bundle`);
+2. the **type definition** — `typeId == rootId`, carrying `__type__`;
+3. an **implementation of that type** — it carries the type itself, so it
+   holds that type's property values and datasets.
+
+The wiki root is all three: it is the Wiki app, it defines the wiki type,
+and because it implements that type it can sit in the tree like any other
+node. Favourites and contacts use role 3 to host their own records on the
+root; the write gate only lets an object hold a type's datasets if it
+carries that type.
+
+The consequence for reads: a type row **matches a filter for its own
+type**, so `{"any.types": "<personTypeId>"}` returns the Person
+definition next to the actual people. Exclude the marker:
 
 ```json
 {"$and": [{"any.types": "<typeId>"},
@@ -200,9 +214,10 @@ The third clause is the other half: a binned object keeps its type
 membership, so an ordinary list must exclude `bin` carriers too
 (§ Content surfaces).
 
-A type created through `POST …/types` carries only `__type__` and does
-not self-match — but write the filter this way regardless, so it keeps
-working when the type later ships as a bundle.
+A type created through `POST …/types` is a definition only — role 2
+without role 3 — so it carries just `__type__` and does not self-match.
+Write the filter this way regardless, so it keeps working when the type
+later ships as a bundle.
 
 ### Timestamps
 
