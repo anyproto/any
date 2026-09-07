@@ -82,7 +82,7 @@ space.unsupported                # 405 — the surface is not available on the t
 invite.invalid                   # invite token malformed or unrecognized
 
 bundle.not_found                 # 404 — no live install for the bundle id in this space
-bundle.not_ready                 # 409 — the winner's tree (or the registry) has not reached this device yet; retry
+bundle.not_ready                 # 409 — the winner's tree (or the registry) has not reached this device yet, incl. a tree the SDK does not hold at all right after a join; retry
 bundle.not_loser                 # 409 — resolve target is the current winner or was never claimed
 bundle.loser_not_ready           # 409 — the losing root is still syncing / inside the grace window; the server keeps retrying
 bundle.reserved                  # 409 — a client ensure with an id under the server's `system:` prefix (the embedded catalog's ids)

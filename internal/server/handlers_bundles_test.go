@@ -3,11 +3,17 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
 )
@@ -295,6 +301,34 @@ func TestServer_BundleResolveUnknownRoot(t *testing.T) {
 }
 
 // TestServer_BundleEnsureValidation pins the request-shape errors.
+// TestBundleError_TreeNotLocalIsNotReady: a tree this device does not
+// hold yet surfaces from the SDK as ErrObjectNotFound; on the bundle
+// paths that is the retryable `409 bundle.not_ready`, never the 404 the
+// generic mapping would give (a joiner polls ensure right after the
+// accept, and a 404 stops the poll).
+func TestBundleError_TreeNotLocalIsNotReady(t *testing.T) {
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	c := e.NewContext(httptest.NewRequest(http.MethodPost, "/", nil), rec)
+	err := bundleError(c, fmt.Errorf("open tree: %w", space.ErrObjectNotFound), "sp1", testBundleId)
+	if err != nil {
+		t.Fatalf("bundleError returned %v", err)
+	}
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (%s)", rec.Code, rec.Body.String())
+	}
+	var env api.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.Error.Code != api.ErrBundleNotReady {
+		t.Fatalf("code = %q, want %q", env.Error.Code, api.ErrBundleNotReady)
+	}
+	if env.Error.Details["bundleId"] != testBundleId {
+		t.Fatalf("details = %v, want bundleId", env.Error.Details)
+	}
+}
+
 func TestServer_BundleEnsureValidation(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
