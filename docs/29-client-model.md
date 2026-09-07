@@ -22,9 +22,10 @@ message, not in the object row.
 
 A **usecase** is a set of well-known bundles the server installs on
 request. A **bundle** is one root object under a permanent id
-(`system:person/v1`) that declares a type, a miniapp, or both. Installing
-is idempotent and convergent: every device that asks lands on the same
-root and the same property ids.
+(`system:person/v1`) that can be a miniapp, a type definition and an
+implementation of that type — up to all three at once (§ Reading data).
+Installing is idempotent and convergent: every device that asks lands on
+the same root and the same property ids.
 
 Three ids, never interchangeable:
 
@@ -43,7 +44,8 @@ never reaches storage. Keying a value by `xKey` is `property.not_found`.
    after the convergence wait and carries `synced`; `synced: true` plus no
    row means definitively not installed.
 2. `GET /v1/spaces/:spaceId/types?includeHidden=true` — every type, with
-   `xKey`, `weight`, `layout`, `hidden`, `builtIn`.
+   `xKey`, `weight`, `layout` and the `hidden` / `builtIn` flags. The
+   flags are omitted when false, so read an absent key as false.
 3. `POST /v1/spaces/:spaceId/objects/query` with
    `{"filter": {"any.types": "miniapp"}}` — the installed apps. Each row
    carries `miniapp.bundle`, the bundle id that installed it. This one
@@ -179,14 +181,33 @@ writes.
 `POST /v1/spaces/:spaceId/query` (with `objectId` + `dataset`) for a
 dataset's records. Both take `filter` / `sort` / `limit` / `offset` /
 `projection`, and both have a `…/subscribe` twin that streams a snapshot
-then live deltas. Property paths are `"<typeId>.<propId>"`.
+then live deltas. On a subscribe, `limit` requires `sort` — a live
+window has to be ordered. Property paths are `"<typeId>.<propId>"`.
 
-### The one trap: "all objects of type X" includes the type object
+### One object, three roles — and what it means for type filters
 
-Every bundle root that declares a type **carries that type**
-(`any.types: ["__type__", "<rootId>", …]`). So the obvious filter returns
-the Person type definition next to the actual people. Always exclude the
-marker:
+A bundle is a single root object, and that one object can be three things
+at once:
+
+1. the **miniapp** — the app's entry point (`miniapp.bundle`);
+2. the **type definition** — `typeId == rootId`, carrying `__type__`;
+3. an **implementation of that type** — it carries the type itself, so it
+   holds that type's property values and datasets.
+
+Role 3 is what lets a root hold its own bundle's data: favourites keeps
+its entries on the favourites root and contacts keeps its layouts on the
+contacts root, and the write gate only admits a type's datasets on an
+object that carries that type.
+
+The self type is attached to **every** root that declares one, whether or
+not the bundle uses role 3. The wiki root, for instance, is the Wiki app
+and the wiki type definition, and it carries the wiki type while holding
+no wiki values of its own — the tree is made of the other objects that
+carry it.
+
+The consequence for reads: a type row **matches a filter for its own
+type**, so `{"any.types": "<personTypeId>"}` returns the Person
+definition next to the actual people. Exclude the marker:
 
 ```json
 {"$and": [{"any.types": "<typeId>"},
@@ -198,9 +219,10 @@ The third clause is the other half: a binned object keeps its type
 membership, so an ordinary list must exclude `bin` carriers too
 (§ Content surfaces).
 
-A type created through `POST …/types` carries only `__type__` and does
-not self-match — but write the filter this way regardless, so it keeps
-working when the type later ships as a bundle.
+A type created through `POST …/types` is a definition only — role 2
+without role 3 — so it carries just `__type__` and does not self-match.
+Write the filter this way regardless, so it keeps working when the type
+later ships as a bundle.
 
 ### Timestamps
 

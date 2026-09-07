@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
@@ -154,12 +155,38 @@ func buildBodyQuery(c echo.Context, fields []string, base func(root *fastjson.Va
 	if errResp, done := checkFilter(c, root); done {
 		return nil, space.QueryOpts{}, none, errResp, true
 	}
+	if errResp, done := checkSubscribeWindow(c, root); done {
+		return nil, space.QueryOpts{}, none, errResp, true
+	}
 	proj, errResp, done := parseProjection(c, root, false)
 	if done {
 		return nil, space.QueryOpts{}, none, errResp, true
 	}
 	q, opts := applyQueryParams(root, q)
 	return q, opts, recordShaper{proj: proj}, nil, false
+}
+
+// checkSubscribeWindow rejects a windowed subscribe that sets `limit`
+// without `sort`. A live window has to be ordered for the SDK to know
+// which records fall inside it; its precondition lives in an SDK
+// internal package, so an unguarded violation reaches sdkOpError
+// unclassified and answers 500 — a client body mistake reading as a
+// server fault. Keyed off the registered route so every windowed
+// subscribe is covered, including ones added later. Snapshot queries
+// are unaffected: an unordered limit there is just an arbitrary page.
+func checkSubscribeWindow(c echo.Context, root *fastjson.Value) (error, bool) {
+	if root == nil || !strings.HasSuffix(c.Path(), "/subscribe") {
+		return nil, false
+	}
+	if v := root.Get("limit"); v == nil || v.GetInt() <= 0 {
+		return nil, false
+	}
+	if len(root.GetArray("sort")) > 0 {
+		return nil, false
+	}
+	return writeError(c, http.StatusBadRequest, "request.invalid_field",
+		`"limit" on a subscribe requires "sort" — a live window has to be ordered`,
+		map[string]any{"field": "limit"}), true
 }
 
 // buildSharedQuery parses the request body for the QueryObjects (per-
@@ -229,6 +256,9 @@ func buildPerObjectQuery(c echo.Context, sp space.Space, vet perObjectVet) (perO
 		return none, writeError(c, http.StatusBadRequest, "request.missing_field", "dataset required", nil), true
 	}
 	if errResp, done := checkFilter(c, root); done {
+		return none, errResp, true
+	}
+	if errResp, done := checkSubscribeWindow(c, root); done {
 		return none, errResp, true
 	}
 	var strip []string
