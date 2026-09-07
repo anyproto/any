@@ -730,7 +730,8 @@ Implementation slices landed:
     space has ONE chat, installed by `POST /v1/catalog/general-chat/
     setup` (item 50) as the derived, hidden, self-typed root
     `system:general-chat/v1` (handle `general_chat`, one shared `chat`
-    part). The `chat` module is `Reserved` (item 52), so no client
+    part, a `miniapp` carrier so it sits in the sidebar — SYN-233).
+    The `chat` module is `Reserved` (item 52), so no client
     declares a chat part and that root is the type's only carrier.
     History: `SpaceInfo.generalChatObjectId` and the server-derived
     `any/general-chat/v1` object went first (clients registered the
@@ -1646,8 +1647,11 @@ Implementation slices landed:
     takes every `…/editor/editor_blocks/**` write; optional for
     clients (their own document types keep working, both share the
     body); no `weight` / `layout` (registered types have none — an SDK
-    change if ever needed). **`miniapp`**: one string property
-    `bundle` (the installed bundle id), no parts. **`bin`**: properties
+    change if ever needed). **`miniapp`**: the sidebar marker
+    (SYN-233) — `bundle` (string, the installed bundle id; absent on
+    an object the user pinned), `pos` (string, client-allocated lexid
+    order), `hidden` (boolean, out of the sidebar without uninstall),
+    no parts; the general-chat catalog root carries it too. **`bin`**: properties
     `movedAt` (datetime) + `movedBy` (account identity), no parts;
     move = `attach/bin`, restore = `detach/bin` on the EXISTING
     `POST …/properties/:objectId/{attach,detach}/:typeId` — the handler

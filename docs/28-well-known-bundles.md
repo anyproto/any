@@ -302,7 +302,7 @@ leaves their values orphaned (readable, no schema).
 |---|---|---|---|
 | `wiki` | — | `system:wiki/v1` | type `wiki` (hidden; `parentId`, `pos` — both kept out of the search index — and `folder`, a checkbox) + miniapp |
 | `collections` | — | `system:collections/v1` | miniapp only — a feature switch: installing it turns the types feature on in clients |
-| `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one shared `chat` part — the reserved module's only declaration, the root its only carrier |
+| `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one shared `chat` part — the reserved module's only declaration, the root its only carrier — + miniapp, so the chat is a sidebar entry |
 | `people` | — | `system:person/v1` | type `person` (weight 10, layout `profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags) + shared editor `body` part |
 | | | `system:organization/v1` | type `organization` (weight 10, layout `profile`; kind, domain, categories, location, size, linkedin, main_contact → `person`) + shared editor `body` part |
 | `contact` | `people` | `system:contact/v1` | type `contact` (weight 5; owner → `person`, status, source, referred_by → `person`, last_contact, next_follow_up) — the relationship facet on a person or organisation |

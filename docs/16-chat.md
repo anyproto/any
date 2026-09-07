@@ -20,7 +20,9 @@ POST /v1/catalog/general-chat/setup
 
 The install is a bundle whose root is its own type with a part that
 declares the `chat` module (`03-api.md` § Parts and modules), so the
-root holds `chat_messages` from the first write. Use `rootId` as the
+root holds `chat_messages` from the first write, and a `miniapp`
+carrier, so the chat shows in the space sidebar next to the other apps
+(`03-api.md` § Built-in hidden types). Use `rootId` as the
 `<objectId>` in every endpoint below. The call is adopt-or-install and
 idempotent: the first caller installs, every later caller — any
 member, any device, online or not — gets the same root, because the
