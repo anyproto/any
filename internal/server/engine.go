@@ -579,6 +579,9 @@ func (d *deps) indexerProcessFor(eng *engine) func(indexer.ProcessUpdate) {
 		case indexer.ProcessKindModelDownload:
 			id = "index.model_download"
 			data = processEventData{Kind: "index.model_download", Title: "Downloading embedding model", Target: u.Name}
+		case indexer.ProcessKindLinksBackfill:
+			id = "index.links_backfill." + u.SpaceId
+			data = processEventData{Kind: "index.links_backfill", Title: "Rebuilding the link index", Target: u.SpaceId}
 		default:
 			return
 		}
@@ -628,7 +631,13 @@ func (d *deps) indexerLinksFor(eng *engine) func(spaceId string, targets []strin
 		if eng.done.Load() {
 			return
 		}
-		payload, err := json.Marshal(api.EventLinksUpdatedData{SpaceId: spaceId, Targets: targets})
+		data := api.EventLinksUpdatedData{SpaceId: spaceId, Targets: targets}
+		if len(targets) > api.MaxEventLinksTargets {
+			// Bounded like every bus payload; a panel showing an
+			// unlisted target re-reads on Truncated.
+			data.Targets, data.Truncated = targets[:api.MaxEventLinksTargets], true
+		}
+		payload, err := json.Marshal(data)
 		if err != nil {
 			return
 		}

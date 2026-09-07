@@ -363,6 +363,10 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "truncated": {
+                        "description": "Truncated reports that the read hit its cap (` + "`" + `limit` + "`" + `, max 500)\nbefore the split into Object / Parts; there is no continuation.",
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -1871,6 +1875,10 @@ const docTemplate = `{
                     },
                     "spaceId": {
                         "type": "string"
+                    },
+                    "typeId": {
+                        "description": "TypeId is the type declaring a property value's source (` + "`" + `prop` + "`" + `\nedges only): the value lives at record[typeId][recordId].",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -1915,6 +1923,10 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "truncated": {
+                        "description": "Truncated reports that the read hit its cap.",
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -3267,6 +3279,9 @@ const docTemplate = `{
                     },
                     "spaceId": {
                         "type": "string"
+                    },
+                    "truncated": {
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -11986,7 +12001,7 @@ const docTemplate = `{
                         }
                     },
                     {
-                        "description": "The record's collection",
+                        "description": "The record's collection, or alone: one collection's edges",
                         "in": "query",
                         "name": "dataset",
                         "schema": {

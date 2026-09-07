@@ -46,109 +46,119 @@ func TestStore_LinksApplyAndRead(t *testing.T) {
 	s := linkStore(t)
 	const sp = "sp1"
 
-	ops := &LinkOps{
-		Ups: []index.LinkEntry{
-			edge("P", "editor_blocks", "b1", "link", "any://o/sp1/X"),
-			edge("P", "editor_blocks", "b1", "link", "any://o/sp1/X/editor_blocks/z"),
-			edge("P", "editor_blocks", "b2", "mention", "any://m/sp1/ident1"),
-			edge("C", "chat_messages", "m1", "link", "any://o/sp1/X"),
-			edge("C", "chat_messages", "m1", "link", "any://o/sp1/X"), // duplicate from one place
-			edge("Q", "prop", "p1", "relation", "any://o/sp1/Y"),
-		},
-		Seqs: []uint64{1, 1, 2, 3, 3, 4},
+	ups := []index.LinkEntry{
+		edge("P", "editor_blocks", "b1", "link", "any://o/sp1/X"),
+		edge("P", "editor_blocks", "b1", "link", "any://o/sp1/X/editor_blocks/z"),
+		edge("P", "editor_blocks", "b2", "mention", "any://m/sp1/ident1"),
+		edge("C", "chat_messages", "m1", "link", "any://o/sp1/X"),
+		edge("C", "chat_messages", "m1", "link", "any://o/sp1/X"), // duplicate from one place
+		edge("Q", "prop", "p1", "relation", "any://o/sp1/Y"),
+		edge("R", "mail", "thread:1", "relation", "any://o/sp1/Y"),       // record ids may carry ':'
+		edge("R", "mail", "thread:1:reply", "relation", "any://o/sp1/Y"), // … and be prefixes of each other
 	}
-	touched, err := s.ApplyPage(ctx, sp, nil, nil, nil, ops)
+	touched, err := s.ApplyPage(ctx, sp, nil, nil, nil, nil, &LinkOps{
+		Ups: ups, Seqs: []uint64{1, 1, 2, 3, 3, 4, 5, 5},
+		Touched: []string{"any://o/sp1/X", "any://m/sp1/ident1", "any://o/sp1/Y"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(touched) != 3 { // X, ident1, Y
+	if len(touched) != 3 {
 		t.Errorf("touched = %v, want 3 targets", touched)
 	}
 
 	// Backlinks of X by object: the whole-object edges AND the block edge.
-	docs, err := s.Backlinks(ctx, sp, "any://o/sp1/X", true, nil, 0)
-	if err != nil {
-		t.Fatal(err)
+	docs, more, err := s.Backlinks(ctx, sp, "any://o/sp1/X", true, nil, 0)
+	if err != nil || more {
+		t.Fatal(err, more)
 	}
 	if len(docs) != 3 {
 		t.Fatalf("backlinks of X = %v, want 3", keys(docs))
 	}
 	// Exactly the block target.
-	docs, err = s.Backlinks(ctx, sp, "any://o/sp1/X/editor_blocks/z", false, nil, 0)
+	docs, _, err = s.Backlinks(ctx, sp, "any://o/sp1/X/editor_blocks/z", false, nil, 0)
 	if err != nil || len(docs) != 1 || docs[0].RecordId != "b1" {
 		t.Fatalf("backlinks of block z = %v (%v)", keys(docs), err)
 	}
-	// Kind filter.
-	docs, err = s.Backlinks(ctx, sp, "any://o/sp1/X", true, []string{"mention"}, 0)
+	// Kind filter, identity target, and the cap.
+	docs, _, err = s.Backlinks(ctx, sp, "any://o/sp1/X", true, []string{"mention"}, 0)
 	if err != nil || len(docs) != 0 {
 		t.Fatalf("mention backlinks of X = %v (%v), want none", keys(docs), err)
 	}
-	docs, err = s.Backlinks(ctx, sp, "any://m/sp1/ident1", false, nil, 0)
+	docs, _, err = s.Backlinks(ctx, sp, "any://m/sp1/ident1", false, nil, 0)
 	if err != nil || len(docs) != 1 || docs[0].Kind != "mention" {
 		t.Fatalf("backlinks of the identity = %v (%v)", keys(docs), err)
 	}
+	docs, more, err = s.Backlinks(ctx, sp, "any://o/sp1/Y", true, nil, 2)
+	if err != nil || len(docs) != 2 || !more {
+		t.Fatalf("capped backlinks of Y = %v more=%v (%v), want 2 + more", keys(docs), more, err)
+	}
 
-	// Forward links: object, dataset, record prefixes.
-	docs, err = s.Links(ctx, sp, "P:", nil, 0)
+	// Forward links: object, dataset, record prefixes — a record whose
+	// id is a prefix of a sibling's reads only its own edges.
+	docs, _, err = s.Links(ctx, sp, "P:", nil, 0)
 	if err != nil || len(docs) != 3 {
 		t.Fatalf("links of P = %v (%v), want 3", keys(docs), err)
 	}
-	docs, err = s.Links(ctx, sp, "P:editor_blocks:b2:", nil, 0)
+	docs, _, err = s.Links(ctx, sp, linkRecordPrefix("P", "editor_blocks", "b2"), nil, 0)
 	if err != nil || len(docs) != 1 || docs[0].Target.Identity != "ident1" {
 		t.Fatalf("links of P/b2 = %v (%v)", keys(docs), err)
 	}
+	docs, _, err = s.Links(ctx, sp, linkRecordPrefix("R", "mail", "thread:1"), nil, 0)
+	if err != nil || len(docs) != 1 || docs[0].RecordId != "thread:1" {
+		t.Fatalf("links of R/thread:1 = %v (%v), want only its own", keys(docs), err)
+	}
 
-	// Record replace: b1 now links only Y; the X edges of b1 go.
-	touched, err = s.ApplyPage(ctx, sp, nil, nil, nil, &LinkOps{
-		Ups:  []index.LinkEntry{edge("P", "editor_blocks", "b1", "link", "any://o/sp1/Y")},
-		Seqs: []uint64{5},
-		Dels: []string{"P:editor_blocks:b1:"},
+	// LinkIds: the diff's read, keyed by doc id with the liveness key.
+	ids, err := s.LinkIds(ctx, sp, "P:")
+	if err != nil || len(ids) != 3 || ids[linkDocId(ups[2])].Key != "any://m/sp1/ident1" || ids[linkDocId(ups[0])].Key != "any://o/sp1/X" {
+		t.Fatalf("LinkIds(P) = %v (%v)", ids, err)
+	}
+	if ids, _ := s.LinkIds(ctx, "nowhere", "P:"); ids != nil {
+		t.Errorf("LinkIds on an unindexed space = %v", ids)
+	}
+
+	// Exact deletes: b1 drops its X edges, keeps nothing else.
+	touched, err = s.ApplyPage(ctx, sp, nil, nil, nil, nil, &LinkOps{
+		Dels:    []string{linkDocId(ups[0]), linkDocId(ups[1])},
+		Touched: []string{"any://o/sp1/X"},
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || len(touched) != 1 {
+		t.Fatal(err, touched)
 	}
-	if len(touched) != 2 { // X (removed) and Y (added)
-		t.Errorf("touched after replace = %v, want X and Y", touched)
-	}
-	docs, _ = s.Backlinks(ctx, sp, "any://o/sp1/X", true, nil, 0)
+	docs, _, _ = s.Backlinks(ctx, sp, "any://o/sp1/X", true, nil, 0)
 	if len(docs) != 1 || docs[0].ObjectId != "C" {
-		t.Fatalf("backlinks of X after replace = %v, want only the chat edge", keys(docs))
-	}
-
-	// Collection rewrite (reconciled shape): P's editor edges replaced whole.
-	if _, err := s.ApplyPage(ctx, sp, nil, nil, nil, &LinkOps{
-		Prefixes: []string{"P:editor_blocks:"},
-		Ups:      []index.LinkEntry{edge("P", "editor_blocks", "b3", "card", "any://f/sp1/file1")},
-		Seqs:     []uint64{6},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	docs, _ = s.Links(ctx, sp, "P:", nil, 0)
-	if len(docs) != 1 || docs[0].Kind != "card" {
-		t.Fatalf("links of P after rewrite = %v, want one card", keys(docs))
+		t.Fatalf("backlinks of X after delete = %v, want only the chat edge", keys(docs))
 	}
 
 	// Structural eviction rides the shared prefix: the chat object is
-	// deleted, its edges go with the text docs.
-	if _, err := s.ApplyPage(ctx, sp, nil, nil, []string{"C:"}, nil); err != nil {
-		t.Fatal(err)
+	// deleted, its edges go with the text docs, and its targets are
+	// reported.
+	touched, err = s.ApplyPage(ctx, sp, nil, nil, []string{"C:"}, nil, nil)
+	if err != nil || len(touched) != 1 || touched[0] != "any://o/sp1/X" {
+		t.Fatal(err, touched)
 	}
-	docs, _ = s.Backlinks(ctx, sp, "any://o/sp1/X", true, nil, 0)
+	docs, _, _ = s.Backlinks(ctx, sp, "any://o/sp1/X", true, nil, 0)
 	if len(docs) != 0 {
 		t.Fatalf("backlinks of X after object eviction = %v, want none", keys(docs))
 	}
-	// An upsert of an evicted object in the same page is dropped.
-	if _, err := s.ApplyPage(ctx, sp, nil, nil, []string{"Q:"}, &LinkOps{
+	// A dataset prefix evicts one collection; an upsert of an evicted
+	// object in the same page is dropped (removal wins).
+	if _, err := s.ApplyPage(ctx, sp, nil, nil, []string{"R:mail:", "Q:"}, nil, &LinkOps{
 		Ups: []index.LinkEntry{edge("Q", "prop", "p1", "relation", "any://o/sp1/Y")}, Seqs: []uint64{7},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	docs, _ = s.Backlinks(ctx, sp, "any://o/sp1/Y", true, nil, 0)
+	docs, _, _ = s.Backlinks(ctx, sp, "any://o/sp1/Y", true, nil, 0)
 	if len(docs) != 0 {
-		t.Fatalf("backlinks of Y = %v, want none (Q evicted, P's b1 rewritten away)", keys(docs))
+		t.Fatalf("backlinks of Y after evictions = %v, want none", keys(docs))
 	}
-	if docs, _ = s.Links(ctx, sp, "Q:", nil, 0); len(docs) != 0 {
-		t.Fatalf("links of the evicted Q = %v", keys(docs))
+	// A text-only prefix leaves edges alone.
+	if _, err := s.ApplyPage(ctx, sp, nil, nil, nil, []string{"P:editor_blocks:"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if docs, _, _ = s.Links(ctx, sp, "P:", nil, 0); len(docs) != 1 {
+		t.Fatalf("text-only eviction touched edges: %v", keys(docs))
 	}
 
 	spaces, err := s.LinkSpaces(ctx)
@@ -158,9 +168,11 @@ func TestStore_LinksApplyAndRead(t *testing.T) {
 	if err := s.DropSpace(ctx, sp); err != nil {
 		t.Fatal(err)
 	}
-	docs, _ = s.Backlinks(ctx, sp, "any://f/sp1/file1", false, nil, 0)
-	if len(docs) != 0 {
-		t.Fatalf("backlinks after DropSpace = %v", keys(docs))
+	if docs, _, _ = s.Links(ctx, sp, "P:", nil, 0); len(docs) != 0 {
+		t.Fatalf("links after DropSpace = %v", keys(docs))
+	}
+	if spaces, _ := s.LinkSpaces(ctx); len(spaces) != 0 {
+		t.Fatalf("link spaces after DropSpace = %v", spaces)
 	}
 }
 
@@ -170,34 +182,60 @@ func TestStore_LinksVersionStamp(t *testing.T) {
 	const sp = "sp1"
 
 	// A never-indexed space needs no backfill; an indexed one stamped
-	// on the current layout neither.
+	// on the current layout neither; an indexed one without a stamp (a
+	// db from before the sink) does.
 	if need, _ := s.LinksBackfillNeeded(ctx, sp); need {
 		t.Error("fresh space needs a backfill")
 	}
 	if err := s.SetCursor(ctx, sp, 10, "gen"); err != nil {
 		t.Fatal(err)
 	}
+	if need, _ := s.LinksBackfillNeeded(ctx, sp); !need {
+		t.Error("indexed, unstamped space needs no backfill")
+	}
+	if err := s.StampLinksVersion(ctx, sp); err != nil {
+		t.Fatal(err)
+	}
 	if need, _ := s.LinksBackfillNeeded(ctx, sp); need {
 		t.Error("stamped space needs a backfill")
 	}
-	// A cursor written before the link sink existed (no stamp) does.
 	if err := s.stampLinksVersionAs(ctx, sp, 0); err != nil {
 		t.Fatal(err)
 	}
 	if need, _ := s.LinksBackfillNeeded(ctx, sp); !need {
-		t.Error("unstamped indexed space needs no backfill")
+		t.Error("space stamped on an old layout needs no backfill")
 	}
-	if err := s.ReplaceLinks(ctx, sp, &LinkOps{
+	// The backfill's writes: reset, per-page apply, stamp.
+	if err := s.ResetLinks(ctx, sp); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ApplyLinks(ctx, sp, &LinkOps{
 		Ups: []index.LinkEntry{edge("P", "prop", "p1", "relation", "any://o/sp1/Y")}, Seqs: []uint64{1},
 	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.StampLinksVersion(ctx, sp); err != nil {
 		t.Fatal(err)
 	}
 	if need, _ := s.LinksBackfillNeeded(ctx, sp); need {
 		t.Error("backfilled space still needs a backfill")
 	}
-	docs, _ := s.Backlinks(ctx, sp, "any://o/sp1/Y", true, nil, 0)
-	if len(docs) != 1 {
+	if docs, _, _ := s.Backlinks(ctx, sp, "any://o/sp1/Y", true, nil, 0); len(docs) != 1 {
 		t.Fatalf("backlinks after backfill = %v", keys(docs))
+	}
+	// The cursor row keeps the stamp across cursor writes; DropSpace
+	// takes it away with the row.
+	if err := s.SetCursor(ctx, sp, 20, "gen"); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := s.LinksVersion(ctx, sp); v != linksSchemaVersion {
+		t.Errorf("stamp after SetCursor = %d", v)
+	}
+	if err := s.DropSpace(ctx, sp); err != nil {
+		t.Fatal(err)
+	}
+	if need, _ := s.LinksBackfillNeeded(ctx, sp); need {
+		t.Error("dropped space needs a backfill")
 	}
 }
 
@@ -207,34 +245,30 @@ func TestPlanLinks(t *testing.T) {
 	}
 	l := edge("P", "editor_blocks", "b1", "link", "any://o/sp1/X")
 
-	// Reconciled shape: the collection prefix is cleared even for an
-	// empty set (the last linked block was deleted).
-	var full LinkOps
-	planLinks(nil, "P", "editor_blocks", 5, true, &full)
-	if len(full.Prefixes) != 1 || full.Prefixes[0] != "P:editor_blocks:" || len(full.Ups) != 0 {
+	// Reconciled shape: the collection is the scope, even for an empty
+	// set (the last linked block was deleted).
+	var full objectLinks
+	planLinks(nil, "P", "editor_blocks", true, &full)
+	if len(full.scopes) != 1 || full.scopes[0] != "P:editor_blocks:" || len(full.edges) != 0 {
 		t.Errorf("empty reconciled set: %+v", full)
 	}
-	full = LinkOps{}
-	planLinks([]index.IndexEntry{e("win_b1", l)}, "P", "editor_blocks", 5, true, &full)
-	if len(full.Prefixes) != 1 || len(full.Ups) != 1 || len(full.Dels) != 0 || full.Seqs[0] != 9 {
+	full = objectLinks{}
+	planLinks([]index.IndexEntry{e("win_b1", l)}, "P", "editor_blocks", true, &full)
+	if len(full.scopes) != 1 || len(full.edges) != 1 || full.edges[linkDocId(l)].seq != 9 {
 		t.Errorf("reconciled set: %+v", full)
 	}
 
-	// Streaming shape: per-record clears past the cold cursor, none on it.
-	var stream LinkOps
-	planLinks([]index.IndexEntry{e("b1", l), e("b2")}, "P", "editor_blocks", 5, false, &stream)
-	if len(stream.Prefixes) != 0 || len(stream.Dels) != 2 || len(stream.Ups) != 1 {
-		t.Errorf("stream past cursor: %+v", stream)
-	}
-	stream = LinkOps{}
-	planLinks([]index.IndexEntry{e("b1", l)}, "P", "editor_blocks", 0, false, &stream)
-	if len(stream.Dels) != 0 || len(stream.Ups) != 1 {
-		t.Errorf("stream on cold cursor: %+v", stream)
+	// Streaming shape: each record is a scope; a record with no links
+	// is a scope with nothing in it (its stored edges go).
+	var stream objectLinks
+	planLinks([]index.IndexEntry{e("b1", l), e("b2")}, "P", "editor_blocks", false, &stream)
+	if len(stream.scopes) != 2 || stream.scopes[1] != linkRecordPrefix("P", "editor_blocks", "b2") || len(stream.edges) != 1 {
+		t.Errorf("stream: %+v", stream)
 	}
 	// A control byte in the record id is skipped, like its text doc.
-	stream = LinkOps{}
-	planLinks([]index.IndexEntry{e("b\x1f1", l)}, "P", "editor_blocks", 5, false, &stream)
-	if len(stream.Dels) != 0 || len(stream.Ups) != 0 {
+	stream = objectLinks{}
+	planLinks([]index.IndexEntry{e("b\x1f1", l)}, "P", "editor_blocks", false, &stream)
+	if len(stream.scopes) != 0 || len(stream.edges) != 0 {
 		t.Errorf("control byte: %+v", stream)
 	}
 }

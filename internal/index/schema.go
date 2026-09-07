@@ -242,6 +242,21 @@ func (c *SchemaChunker) trackRetired(spaceId string, allNames []string) {
 	c.mu.Unlock()
 }
 
+// EvictText implements TextEvictor: link-only datasets (link fields,
+// no usable search mapping — a cleared `x-search` included) keep
+// their edges but must lose their text docs every page, the stance
+// `unsearchable` takes for datasets with nothing to keep.
+func (c *SchemaChunker) EvictText(_ context.Context, sp space.Space, attached map[string]bool) []string {
+	cat := c.resolve(sp)
+	var out []string
+	for _, ds := range cat.searchable {
+		if !ds.searchable && attached[ds.typeId] {
+			out = append(out, ds.name)
+		}
+	}
+	return out
+}
+
 // EvictDatasets implements DynamicChunker: searchable catalog datasets
 // whose owning type is not attached to this object, every unsearchable
 // runtime name (x-search absent or cleared), and every retired name.

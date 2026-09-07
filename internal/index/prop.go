@@ -242,6 +242,9 @@ func (c *PropChunker) ChunksSince(ctx context.Context, sp space.Space, objectId 
 				// The value's references (docs/13-index.md § Links);
 				// a detached type's values are stale, not live links.
 				e.Links = ValueLinks(sp.Id(), objectId, DatasetProp, p.propId, p.linkMode, rec.Get(p.typeId, p.propId))
+				for i := range e.Links {
+					e.Links[i].TypeId = p.typeId
+				}
 			}
 			if attached[p.typeId] && p.scope != "" {
 				// Entry text is self-describing — "<prop name>: <value>"

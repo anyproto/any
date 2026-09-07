@@ -204,8 +204,10 @@ whose backlinks changed, so a panel showing them re-reads.
 
 `targets` name objects (whatever part of the object was linked — a
 block link reports the block's object) or, for identities and files,
-the target itself. At-most-once like every bus event; a missed frame
-costs one stale panel until the next read.
+the target itself; only targets an edge appeared for or vanished from
+are named. Capped at 200 entries, `"truncated": true` past that — a
+panel showing an unlisted target re-reads too. At-most-once like every
+bus event; a missed frame costs one stale panel until the next read.
 
 ## Scopes over the network
 

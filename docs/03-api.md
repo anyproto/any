@@ -1782,7 +1782,9 @@ An **edge** is a source place, a kind and a canonical target:
 
 `source.dataset` is the collection the reference was found in — a
 module or runtime collection, or the virtual `prop` for a property
-value, where `recordId` is the property id. `kind` is one of
+value, where `recordId` is the property id and `source.typeId` the
+type declaring it (the value lives at `record[typeId][propId]`).
+`kind` is one of
 `mention` (an identity in text), `link` (an object, record, value or
 file reference in text or a chat attachment), `card` (an editor
 paragraph that is exactly one whole-line link to an object or file),
@@ -1799,11 +1801,14 @@ value, an identity, a file.
   parent is not counted twice). `?record=<id>&dataset=<collection>` or
   `?prop=<propId>` narrows to one part — then `object` holds that
   part's edges and `parts` is empty. `?kind=` (repeatable) keeps only
-  those kinds; `?limit=` caps the reply (default and max 500). No
+  those kinds; `?limit=` caps the reply (default and max 500; a larger
+  value clamps) — the cap applies to the read before the split, and
+  `"truncated": true` says it was hit; there is no continuation. No
   existence check: an unknown or unreferenced id answers empty lists.
 - `GET /v1/spaces/:spaceId/objects/:objectId/links` — `{"links":
   [edge…]}`, the edges whose source is the object; the same narrowing
-  selects one record's or one value's edges.
+  selects one record's or one value's edges, and `?dataset=` alone one
+  collection's.
 - `GET /v1/backlinks?target=<uri>` — `{"spaces": [{"spaceId",
   "object", "parts"}…]}`: the edges pointing at one target from every
   space this device indexes, one entry per space with an edge. The
@@ -1815,7 +1820,8 @@ value, an identity, a file.
 
 Liveness: after a page changes edges the server publishes one
 device-scope `links.updated` event naming the targets whose backlinks
-moved (`docs/21-events.md`); a panel re-reads on it. Only live
+moved — at most 200, `truncated: true` past that (`docs/21-events.md`);
+a panel re-reads on it. Only live
 references count: a deleted record, a cleared value, a detached type's
 values and a deleted object all drop their edges. The wiki tree's
 `parentId` is a plain string, not a link — query children directly

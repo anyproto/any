@@ -41,22 +41,24 @@ func BlockLinks(spaceId, objectId, collection string, b Block) []index.LinkEntry
 		}
 	}
 	out := index.TextLinks(spaceId, objectId, collection, b.Id, b.Text)
-	if b.Type == TypeParagraph && len(out) == 1 && isWholeLineLink(b.Text) {
-		switch out[0].Target.Kind {
-		case anyuri.KindObject, anyuri.KindFile:
+	if b.Type == TypeParagraph && len(out) == 1 {
+		if dest, ok := wholeLineLink(b.Text); ok && isCardTarget(dest) {
 			out[0].Kind = index.LinkKindCard
 		}
 	}
 	return out
 }
 
-// isWholeLineLink reports whether text is exactly one markdown link
-// `[label](destination)` with nothing else on the line — the client's
-// card rule. Escaped brackets inside the label are allowed.
-func isWholeLineLink(text string) bool {
+// wholeLineLink returns the destination when text is exactly one
+// markdown link `[label](destination)` with a non-empty label and
+// nothing else on the line — the client's card rule. Escaped brackets
+// inside the label are allowed; a destination carrying the client's
+// backslash escapes for `(` / `)` is not a card (inert for base58
+// ids, which never need them).
+func wholeLineLink(text string) (string, bool) {
 	t := strings.TrimSpace(text)
 	if len(t) < 5 || t[0] != '[' || t[len(t)-1] != ')' {
-		return false
+		return "", false
 	}
 	// Find the label's closing bracket, skipping escapes.
 	i := 1
@@ -70,13 +72,34 @@ func isWholeLineLink(text string) bool {
 		}
 		i++
 	}
-	return false
+	return "", false
 labelEnd:
-	if i+1 >= len(t) || t[i+1] != '(' {
-		return false
+	if i == 1 || i+1 >= len(t) || t[i+1] != '(' {
+		return "", false
 	}
 	dest := t[i+2 : len(t)-1]
-	return dest != "" && !strings.ContainsAny(dest, " \t()")
+	if dest == "" || strings.ContainsAny(dest, " \t()\\") {
+		return "", false
+	}
+	return dest, true
+}
+
+// isCardTarget applies the client's promotion rule to the destination:
+// the typed global object form (`any://o/<sp>/<id>`, no record path —
+// a record reference and the legacy bare forms stay inline links) or a
+// file.
+func isCardTarget(dest string) bool {
+	u, err := anyuri.Parse(dest)
+	if err != nil || u.Legacy {
+		return false
+	}
+	switch u.Kind {
+	case anyuri.KindObject:
+		return u.RecordId == ""
+	case anyuri.KindFile:
+		return true
+	}
+	return false
 }
 
 // embedLink recognises the synced-block reference envelope on an html

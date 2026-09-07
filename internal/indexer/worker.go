@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,6 +44,11 @@ type spaceWorker struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	cancelSub func()
+
+	// linksStamped: the cursor row already carries the link sink's
+	// layout stamp (written once per worker after the first landed
+	// page, or by the backfill).
+	linksStamped bool
 }
 
 func newSpaceWorker(ix *Indexer, sp space.Space) *spaceWorker {
@@ -66,7 +72,6 @@ func (w *spaceWorker) start() {
 	// the embed loop caches the space collection handle — a drop racing
 	// it would put a dropped handle back in the cache.
 	w.alignIndex(w.ctx)
-	w.backfillLinks(w.ctx)
 	w.ix.wg.Add(1)
 	go w.advanceLoop()
 	if w.ix.HasEmbedder() {
@@ -162,6 +167,11 @@ func (w *spaceWorker) stop() {
 // applied batches, so a retry resumes exactly where it failed).
 func (w *spaceWorker) advanceLoop() {
 	defer w.ix.wg.Done()
+	// A db whose edges predate the link sink's layout is backfilled
+	// first — here, off the boot path and outside the indexer lock, so
+	// a first start after an upgrade neither stalls the server nor
+	// blocks Close.
+	w.backfillLinks(w.ctx)
 	w.runAdvance()
 	for {
 		select {
@@ -288,7 +298,7 @@ func (w *spaceWorker) advancePages(ctx context.Context, onWork func(), progress 
 			}
 		}
 
-		touched, err := w.ix.store.ApplyPage(ctx, spaceId, page.ups, page.dels, page.prefixDels, &page.links)
+		touched, err := w.ix.store.ApplyPage(ctx, spaceId, page.ups, page.dels, page.prefixDels, page.textPrefixDels, &page.links)
 		if err != nil {
 			return err
 		}
@@ -298,6 +308,14 @@ func (w *spaceWorker) advancePages(ctx context.Context, onWork func(), progress 
 		cursor = changes[len(changes)-1].ApplySeq
 		if err := w.ix.store.SetCursor(ctx, spaceId, cursor, w.generation); err != nil {
 			return err
+		}
+		if !w.linksStamped {
+			// Edges written by an advance are on the current layout:
+			// stamp once so a restart never backfills this space.
+			if err := w.ix.store.StampLinksVersion(ctx, spaceId); err != nil {
+				return err
+			}
+			w.linksStamped = true
 		}
 		progress(len(changes))
 		if w.ix.HasEmbedder() && hasIndexableText(page.ups) {
@@ -329,9 +347,34 @@ type pageOps struct {
 	ups        []DocUpsert
 	dels       []string
 	prefixDels []string
-	// links are the page's edge changes (links_store.go); the
-	// structural prefixDels above evict edges too.
+	// textPrefixDels evict text docs only — a runtime dataset that
+	// lost its search mapping but keeps link fields.
+	textPrefixDels []string
+	// links are the page's edge changes (links_store.go), already
+	// diffed per object against the store (diffLinks); the structural
+	// prefixDels above evict edges too.
 	links LinkOps
+}
+
+// objectLinks accumulates one object's edges as its chunkers report
+// them, with the scopes each report replaces: a streaming entry
+// replaces its record's edges, a reconciled set a whole collection's.
+// diffLinks turns it into exact page ops.
+type objectLinks struct {
+	edges  map[string]linkUp // doc id → edge
+	scopes []string          // ':'-terminated prefixes whose stored edges are authoritative-replaced
+}
+
+type linkUp struct {
+	entry index.LinkEntry
+	seq   uint64
+}
+
+func (o *objectLinks) add(e index.LinkEntry, seq uint64) {
+	if o.edges == nil {
+		o.edges = map[string]linkUp{}
+	}
+	o.edges[linkDocId(e)] = linkUp{entry: e, seq: seq}
 }
 
 // collectObject gathers one live object's page ops, derived from the
@@ -354,6 +397,7 @@ func (w *spaceWorker) collectObject(ctx context.Context, objectId string, cursor
 		return nil
 	}
 	attached := typeSet(row)
+	var links objectLinks
 	for _, ch := range w.ix.reg.All() {
 		if dyn, ok := ch.(index.DynamicChunker); ok {
 			// Runtime datasets: per-dataset eviction names come from the
@@ -368,17 +412,24 @@ func (w *spaceWorker) collectObject(ctx context.Context, objectId string, cursor
 			for _, ds := range evict {
 				page.prefixDels = append(page.prefixDels, objectId+":"+ds+":")
 			}
+			if te, ok := ch.(index.TextEvictor); ok {
+				// Datasets that keep their edges but lost their text
+				// mapping: text docs go, edges follow the diff below.
+				for _, ds := range te.EvictText(ctx, w.sp, attached) {
+					page.textPrefixDels = append(page.textPrefixDels, objectId+":"+ds+":")
+				}
+			}
 		} else if tid := ch.TypeId(); tid != "" && !attached[tid] {
 			page.prefixDels = append(page.prefixDels, objectId+":"+ch.Dataset()+":")
 			continue
 		}
 		var err error
 		if mr, ok := ch.(index.MultiReconciler); ok && mr.Reconciles() {
-			err = w.reconcileMulti(ctx, mr, objectId, cursor, page)
+			err = w.reconcileMulti(ctx, mr, objectId, cursor, page, &links)
 		} else if rc, ok := ch.(index.Reconciler); ok {
-			err = w.reconcile(ctx, rc, objectId, cursor, page)
+			err = w.reconcile(ctx, rc, objectId, cursor, page, &links)
 		} else {
-			err = w.streamChunks(ctx, ch, objectId, cursor, page)
+			err = w.streamChunks(ctx, ch, objectId, cursor, page, &links)
 		}
 		if err != nil {
 			// The object may have been deleted between the row read and
@@ -390,6 +441,56 @@ func (w *spaceWorker) collectObject(ctx context.Context, objectId string, cursor
 			return err
 		}
 	}
+	return w.diffLinks(ctx, objectId, cursor, &links, page)
+}
+
+// diffLinks turns an object's reported edges into exact page ops: the
+// stored edge ids under the object are read once, every stored id
+// inside a replaced scope that the records no longer produce is
+// deleted, every produced id not stored is written, and only the
+// liveness keys on either side are reported. Unchanged edges cost
+// nothing — no rewrite, no signal. On the cold cursor nothing is
+// stored, so the read is skipped.
+func (w *spaceWorker) diffLinks(ctx context.Context, objectId string, cursor uint64, links *objectLinks, page *pageOps) error {
+	if len(links.scopes) == 0 && len(links.edges) == 0 {
+		return nil
+	}
+	var stored map[string]StoredLink
+	if cursor > 0 {
+		var err error
+		if stored, err = w.ix.store.LinkIds(ctx, w.sp.Id(), objectId+":"); err != nil {
+			return err
+		}
+	}
+	touched := map[string]struct{}{}
+	for id, st := range stored {
+		if _, keep := links.edges[id]; keep {
+			continue
+		}
+		inScope := false
+		for _, p := range links.scopes {
+			if strings.HasPrefix(id, p) {
+				inScope = true
+				break
+			}
+		}
+		if !inScope {
+			continue
+		}
+		page.links.Dels = append(page.links.Dels, id)
+		touched[st.Key] = struct{}{}
+	}
+	for id, up := range links.edges {
+		if _, have := stored[id]; have {
+			continue
+		}
+		page.links.Ups = append(page.links.Ups, up.entry)
+		page.links.Seqs = append(page.links.Seqs, up.seq)
+		touched[linkTargetKey(up.entry.Target)] = struct{}{}
+	}
+	for k := range touched {
+		page.links.Touched = append(page.links.Touched, k)
+	}
 	return nil
 }
 
@@ -399,7 +500,7 @@ func (w *spaceWorker) collectObject(ctx context.Context, objectId string, cursor
 // unchanged docs left alone — so their vectors survive and are not
 // re-embedded. This is what keeps an edit/append from re-embedding the
 // whole object (chunker-hybrid-search-report § 9.5).
-func (w *spaceWorker) reconcile(ctx context.Context, rc index.Reconciler, objectId string, cursor uint64, page *pageOps) error {
+func (w *spaceWorker) reconcile(ctx context.Context, rc index.Reconciler, objectId string, cursor uint64, page *pageOps, links *objectLinks) error {
 	entries, err := rc.Reconcile(ctx, w.sp, objectId, cursor)
 	if err != nil {
 		return err
@@ -409,14 +510,14 @@ func (w *spaceWorker) reconcile(ctx context.Context, rc index.Reconciler, object
 		return err
 	}
 	w.plan(entries, stored, objectId, rc.Dataset(), page)
-	planLinks(entries, objectId, rc.Dataset(), cursor, true, &page.links)
+	planLinks(entries, objectId, rc.Dataset(), true, links)
 	return nil
 }
 
 // reconcileMulti is reconcile for a module chunker spanning several
 // collections: one stored-hash diff per active collection, keyed by the
 // real collection name the entries carry.
-func (w *spaceWorker) reconcileMulti(ctx context.Context, mr index.MultiReconciler, objectId string, cursor uint64, page *pageOps) error {
+func (w *spaceWorker) reconcileMulti(ctx context.Context, mr index.MultiReconciler, objectId string, cursor uint64, page *pageOps, links *objectLinks) error {
 	sets, err := mr.ReconcileAll(ctx, w.sp, objectId, cursor)
 	if err != nil {
 		return err
@@ -427,7 +528,7 @@ func (w *spaceWorker) reconcileMulti(ctx context.Context, mr index.MultiReconcil
 			return err
 		}
 		w.plan(entries, stored, objectId, coll, page)
-		planLinks(entries, objectId, coll, cursor, true, &page.links)
+		planLinks(entries, objectId, coll, true, links)
 	}
 	return nil
 }
@@ -476,35 +577,29 @@ func planDocs(entries []index.IndexEntry, stored map[string]string, chunkRunes i
 	return unindexable
 }
 
-// planLinks turns the entries' edges into page link ops. Streaming
-// shape (full=false): every entry's record is replaced — its record
-// prefix cleared, its edges re-inserted — so a record that now links
-// nothing loses its edges and a tombstone (no Links) too. Reconciled
-// shape (full=true): the whole collection's edges are rewritten from
-// the returned set — its prefix cleared once, even when the set is
-// empty, which is exactly the case of a collection whose last linked
-// record was deleted. Entries whose ids carry a control byte are
-// skipped like their text docs.
-func planLinks(entries []index.IndexEntry, objectId, dataset string, cursor uint64, full bool, ops *LinkOps) {
+// planLinks folds the entries' edges into the object's accumulator
+// with the scope each report replaces: streaming shape (full=false),
+// every entry's record — a record that now links nothing, or a
+// tombstone (no Links), drops its edges; reconciled shape (full=true),
+// the whole collection — even when the set is empty, which is exactly
+// a collection whose last linked record was deleted. Entries whose ids
+// carry a control byte are skipped like their text docs.
+func planLinks(entries []index.IndexEntry, objectId, dataset string, full bool, links *objectLinks) {
 	if full {
-		ops.Prefixes = append(ops.Prefixes, objectId+":"+dataset+":")
+		links.scopes = append(links.scopes, objectId+":"+dataset+":")
 	}
 	for _, e := range entries {
 		if !indexableId(e.RecordId) || !indexableId(e.Dataset) {
 			continue
 		}
 		if !full {
-			// On the cold cursor nothing is stored: no clear to pay.
-			if cursor > 0 {
-				ops.Dels = append(ops.Dels, linkRecordPrefix(e.ObjectId, e.Dataset, e.RecordId))
-			}
+			links.scopes = append(links.scopes, linkRecordPrefix(e.ObjectId, e.Dataset, e.RecordId))
 		}
 		for _, l := range e.Links {
 			if !indexableId(l.RecordId) || !indexableId(l.Dataset) {
 				continue
 			}
-			ops.Ups = append(ops.Ups, l)
-			ops.Seqs = append(ops.Seqs, e.ApplySeq)
+			links.add(l, e.ApplySeq)
 		}
 	}
 }
@@ -551,7 +646,7 @@ func (w *spaceWorker) plan(entries []index.IndexEntry, stored map[string]string,
 // hash-checks each re-streamed record and skips re-embedding ones whose
 // indexed text is unchanged — e.g. a memory item bumped only on
 // accessCount, or a chat message that got a reaction.
-func (w *spaceWorker) streamChunks(ctx context.Context, ch index.Chunker, objectId string, cursor uint64, page *pageOps) error {
+func (w *spaceWorker) streamChunks(ctx context.Context, ch index.Chunker, objectId string, cursor uint64, page *pageOps, links *objectLinks) error {
 	var entries []index.IndexEntry
 	if err := ch.ChunksSince(ctx, w.sp, objectId, cursor, func(e index.IndexEntry) error {
 		entries = append(entries, e)
@@ -559,7 +654,7 @@ func (w *spaceWorker) streamChunks(ctx context.Context, ch index.Chunker, object
 	}); err != nil {
 		return err
 	}
-	planLinks(entries, objectId, ch.Dataset(), cursor, false, &page.links)
+	planLinks(entries, objectId, ch.Dataset(), false, links)
 	if cursor == 0 {
 		w.plan(entries, nil, objectId, ch.Dataset(), page)
 		return nil
@@ -741,10 +836,12 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 
 // backfillLinks rebuilds the space's edges from its records when they
 // predate the link sink's layout (a db indexed before links existed,
-// or a layout bump): every object the feed knows is re-extracted once
-// through the chunkers and only the edges are kept — text docs are
-// not touched, so nothing re-embeds. Runs before the loops; a failure
-// is logged and retried on the next boot (the stamp stays behind).
+// or a layout bump): the collection is dropped, every object the feed
+// knows is re-extracted once through the chunkers and only its edges
+// are kept, landed page by page — text docs are not touched, so
+// nothing re-embeds — and the layout is stamped at the end. A failure
+// is logged and retried on the next start (the stamp stays behind).
+// Reported on the process view past AnnounceAfter like an advance.
 func (w *spaceWorker) backfillLinks(ctx context.Context) {
 	spaceId := w.sp.Id()
 	needed, err := w.ix.store.LinksBackfillNeeded(ctx, spaceId)
@@ -753,40 +850,67 @@ func (w *spaceWorker) backfillLinks(ctx context.Context) {
 		return
 	}
 	if !needed {
+		w.linksStamped = true
 		return
 	}
 	w.ix.lg.Info("backfilling links", zap.String("spaceId", spaceId))
-	var ops LinkOps
+	rep := newProcReporter(w.ix.opts.OnProcess,
+		ProcessUpdate{Kind: ProcessKindLinksBackfill, SpaceId: spaceId}, w.ix.opts.AnnounceAfter)
+	rep.begin()
+	err = w.backfillLinksPages(ctx, rep)
+	rep.finish(ctx, err)
+	if err != nil {
+		w.ix.lg.Warn("links backfill failed; retried on next start", zap.String("spaceId", spaceId), zap.Error(err))
+		return
+	}
+	w.linksStamped = true
+}
+
+func (w *spaceWorker) backfillLinksPages(ctx context.Context, rep *procReporter) error {
+	spaceId := w.sp.Id()
+	if err := w.ix.store.ResetLinks(ctx, spaceId); err != nil {
+		return err
+	}
 	seen := map[string]bool{}
 	var from uint64
+	var objects int64
 	for {
 		changes, err := w.sp.Changes().ChangedSince(ctx, from, w.ix.opts.BatchLimit)
 		if err != nil {
-			w.ix.lg.Warn("links backfill: change feed", zap.String("spaceId", spaceId), zap.Error(err))
-			return
+			return err
 		}
 		if len(changes) == 0 {
 			break
 		}
+		var ops LinkOps
 		for _, ch := range changes {
 			if ch.Deleted || seen[ch.ObjectId] {
 				continue
 			}
 			seen[ch.ObjectId] = true
+			// Cursor 0: the diff sees nothing stored and emits every
+			// edge as an upsert; the collection was just dropped, so
+			// that is exact.
 			var page pageOps
 			if err := w.collectObject(ctx, ch.ObjectId, 0, &page); err != nil {
-				w.ix.lg.Warn("links backfill: collect object", zap.String("spaceId", spaceId), zap.String("objectId", ch.ObjectId), zap.Error(err))
-				return
+				// One unreadable object must not hold the whole space
+				// back: its edges arrive with its next change.
+				w.ix.lg.Warn("links backfill: object skipped", zap.String("spaceId", spaceId),
+					zap.String("objectId", ch.ObjectId), zap.Error(err))
+				continue
 			}
 			ops.Ups = append(ops.Ups, page.links.Ups...)
 			ops.Seqs = append(ops.Seqs, page.links.Seqs...)
+			objects++
 		}
+		if err := w.ix.store.ApplyLinks(ctx, spaceId, &ops); err != nil {
+			return err
+		}
+		rep.progress(objects, -1, "")
 		from = changes[len(changes)-1].ApplySeq
 		if len(changes) < w.ix.opts.BatchLimit {
 			break
 		}
 	}
-	if err := w.ix.store.ReplaceLinks(ctx, spaceId, &ops); err != nil {
-		w.ix.lg.Warn("links backfill: replace", zap.String("spaceId", spaceId), zap.Error(err))
-	}
+	return w.ix.store.StampLinksVersion(ctx, spaceId)
 }

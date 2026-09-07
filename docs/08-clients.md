@@ -847,8 +847,8 @@ Call patterns:
   reference (the set is open).
 - **Navigate by the source place.** `source.dataset` +
   `source.recordId` locate the block or message; `prop` + the property
-  id locate a value. Build the deep link with `anyuri.BuildRecord` /
-  the object form — never guess from the target.
+  id, with `source.typeId`, locate a value. Build the deep link with
+  `anyuri.BuildRecord` / the object form — never guess from the target.
 - **Refresh on `links.updated`.** Subscribe to the device bus
   (`GET /v1/events/subscribe?scope=device&type=links.updated`) and
   re-read when `data.targets` names the entity's object key

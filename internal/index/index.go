@@ -120,6 +120,16 @@ type DynamicChunker interface {
 	EvictDatasets(ctx context.Context, sp space.Space, attached map[string]bool) ([]string, error)
 }
 
+// TextEvictor is an optional DynamicChunker capability for datasets
+// whose TEXT docs must go while their edges stay: the worker
+// prefix-evicts `objectId:<ds>:` on the text collection only for every
+// name returned, and the chunker keeps streaming the dataset for its
+// links (docs/13-index.md § Links). A dataset that lost its search
+// mapping but keeps link fields is the case.
+type TextEvictor interface {
+	EvictText(ctx context.Context, sp space.Space, attached map[string]bool) []string
+}
+
 // Chunker streams the IndexEntry values for one dataset on one object.
 type Chunker interface {
 	// Dataset is the dataset this chunker writes — the middle segment

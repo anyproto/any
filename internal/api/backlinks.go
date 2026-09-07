@@ -13,6 +13,9 @@ type LinkSource struct {
 	ObjectId string `json:"objectId"`
 	Dataset  string `json:"dataset"`
 	RecordId string `json:"recordId"`
+	// TypeId is the type declaring a property value's source (`prop`
+	// edges only): the value lives at record[typeId][recordId].
+	TypeId string `json:"typeId,omitempty"`
 }
 
 // LinkTarget is the canonical any:// target, parsed. Uri is the
@@ -57,6 +60,9 @@ const (
 type BacklinksResponse struct {
 	Object []Link `json:"object"`
 	Parts  []Link `json:"parts"`
+	// Truncated reports that the read hit its cap (`limit`, max 500)
+	// before the split into Object / Parts; there is no continuation.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // LinksResponse is the body of
@@ -65,13 +71,16 @@ type BacklinksResponse struct {
 // to). Never null.
 type LinksResponse struct {
 	Links []Link `json:"links"`
+	// Truncated reports that the read hit its cap.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // SpaceBacklinks is one space's share of an account-wide read.
 type SpaceBacklinks struct {
-	SpaceId string `json:"spaceId"`
-	Object  []Link `json:"object"`
-	Parts   []Link `json:"parts"`
+	SpaceId   string `json:"spaceId"`
+	Object    []Link `json:"object"`
+	Parts     []Link `json:"parts"`
+	Truncated bool   `json:"truncated,omitempty"`
 }
 
 // BacklinksAllResponse is the body of GET /v1/backlinks?target=… —
@@ -87,8 +96,14 @@ const EventLinksUpdated = "links.updated"
 
 // EventLinksUpdatedData is the payload of EventLinksUpdated: the
 // canonical targets (object references, or the identity / file URI)
-// whose backlinks changed in spaceId.
+// whose backlinks changed in spaceId. Targets is capped at
+// MaxEventLinksTargets; Truncated says more changed than listed — a
+// panel showing an unlisted target re-reads too.
 type EventLinksUpdatedData struct {
-	SpaceId string   `json:"spaceId"`
-	Targets []string `json:"targets"`
+	SpaceId   string   `json:"spaceId"`
+	Targets   []string `json:"targets"`
+	Truncated bool     `json:"truncated,omitempty"`
 }
+
+// MaxEventLinksTargets caps EventLinksUpdatedData.Targets.
+const MaxEventLinksTargets = 200

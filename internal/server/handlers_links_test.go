@@ -220,6 +220,83 @@ func TestIndexer_Links(t *testing.T) {
 		t.Errorf("OnLinks never named the target: %v", signalled)
 	}
 
+	// Cap: the read is cut before the split and says so.
+	if capped := getBacklinks(t, e, spaceId, target, "?limit=2"); !capped.Truncated || len(capped.Object)+len(capped.Parts) != 2 {
+		t.Errorf("capped backlinks = %+v", capped)
+	}
+	if capped := getBacklinks(t, e, spaceId, target, "?limit=2000000000"); capped.Truncated {
+		t.Errorf("an oversized limit clamps to the cap, %+v", capped)
+	}
+	// Forward read of one collection.
+	if got := getLinks(t, e, spaceId, page, "?dataset=editor_blocks"); len(got.Links) != 5 {
+		t.Errorf("links of the page's editor collection = %+v", got)
+	}
+	if rec := doJSON(t, e, http.MethodGet, "/v1/spaces/"+spaceId+"/objects/"+target+"/backlinks?dataset=editor_blocks", ""); rec.Code != http.StatusBadRequest {
+		t.Errorf("dataset without record on backlinks: %d", rec.Code)
+	}
+	// The relation edge names its type.
+	for _, l := range bl.Object {
+		if l.Source.Dataset == "prop" && l.Source.TypeId != tr.TypeId {
+			t.Errorf("relation edge typeId = %q, want %s", l.Source.TypeId, tr.TypeId)
+		}
+	}
+
+	// --- backfill: a db indexed before the sink existed ---------------
+	if err := st.ResetLinks(ctx, spaceId); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UnstampLinks(ctx, spaceId); err != nil {
+		t.Fatal(err)
+	}
+	if got := getBacklinks(t, e, spaceId, target, ""); len(got.Object) != 0 {
+		t.Fatalf("edges survived the reset: %+v", got)
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	if got := linkKeys(getBacklinks(t, e, spaceId, target, "").Object); len(got) != len(wantObject) {
+		t.Errorf("after backfill: %v, want %v", got, wantObject)
+	}
+	if need, _ := st.LinksBackfillNeeded(ctx, spaceId); need {
+		t.Error("space still needs a backfill after one ran")
+	}
+
+	// --- type detach -----------------------------------------------------
+	// Detaching the type that declares the editor collection evicts the
+	// page's editor edges (a structural prefix, no re-extraction);
+	// detaching the relation's type drops the value's edges (the value
+	// is stale, not a live reference).
+	edType := installModuleType(t, e, spaceId, "editor")
+	if _, err := sdkSpace.Properties().DetachType(ctx, page, edType); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sdkSpace.Properties().DetachType(ctx, doc, tr.TypeId); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	if got := getLinks(t, e, spaceId, page, ""); len(got.Links) != 0 {
+		t.Errorf("edges of the detached editor collection survived: %+v", got)
+	}
+	if got := linkKeys(getBacklinks(t, e, spaceId, target, "").Object); len(got) != 1 || got["chat_messages/"+msg+"→"+targetUri] == "" {
+		t.Errorf("after detaches: %v, want only the chat edge", got)
+	}
+	// Re-attach: the value comes back on the row's next change (the
+	// attach itself), the blocks on theirs.
+	if _, err := sdkSpace.Properties().AttachType(ctx, page, edType); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sdkSpace.Properties().AttachType(ctx, doc, tr.TypeId); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	if got := linkKeys(getBacklinks(t, e, spaceId, target, "").Object); len(got) != len(wantObject) {
+		t.Errorf("after re-attach: %v, want %v", got, wantObject)
+	}
+
 	// --- removals ------------------------------------------------------
 	mustModify(t, e, http.MethodDelete, blocks+"/"+card, "", http.StatusOK)
 	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
@@ -260,6 +337,36 @@ func TestIndexer_Links(t *testing.T) {
 	}
 	if got := linkKeys(getBacklinks(t, e, spaceId, target, "").Object); len(got) != 1 || got["chat_messages/"+msg+"→"+targetUri] == "" {
 		t.Errorf("after relation clear: %v, want only the chat edge", got)
+	}
+}
+
+// TestLinks_BusBridge: the engine turns the indexer's page signal into
+// one device-scope links.updated event, capped.
+func TestLinks_BusBridge(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	id, ch := d.eventsHub().subscribe(eventFilter{types: []string{api.EventLinksUpdated}})
+	defer d.eventsHub().unsubscribe(id)
+
+	targets := make([]string, api.MaxEventLinksTargets+5)
+	for i := range targets {
+		targets[i] = "any://o/sp/obj" + string(rune('a'+i%26)) + string(rune('a'+i/26))
+	}
+	d.indexerLinksFor(d.eng)("sp", targets)
+	select {
+	case ev := <-ch:
+		if ev.Scope != api.EventScopeDevice || ev.Sender == nil || !ev.Sender.Self {
+			t.Errorf("envelope = %+v", ev)
+		}
+		var data api.EventLinksUpdatedData
+		if err := json.Unmarshal(ev.Data, &data); err != nil {
+			t.Fatal(err)
+		}
+		if data.SpaceId != "sp" || len(data.Targets) != api.MaxEventLinksTargets || !data.Truncated {
+			t.Errorf("payload = %d targets truncated=%v space=%s", len(data.Targets), data.Truncated, data.SpaceId)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no links.updated event on the hub")
 	}
 }
 

@@ -71,6 +71,6 @@ func addLinkFlags(cmd *cobra.Command, opts *client.LinkOpts) {
 	cmd.Flags().StringVar(&opts.Record, "record", "", "narrow to one record (with --dataset)")
 	cmd.Flags().StringVar(&opts.Dataset, "dataset", "", "the record's collection")
 	cmd.Flags().StringVar(&opts.Prop, "prop", "", "narrow to one property value (propId)")
-	cmd.Flags().StringArrayVar(&opts.Kinds, "kind", nil, "edge kind to keep: mention, link, relation (repeatable)")
+	cmd.Flags().StringArrayVar(&opts.Kinds, "kind", nil, "edge kind to keep: mention, link, card, embed, relation (repeatable)")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 0, "max edges (default and max 500)")
 }

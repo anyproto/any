@@ -138,6 +138,11 @@ const (
 	// are bytes (Total 0 until the server reports a length), Name the
 	// model file name. Account-global, not per-space.
 	ProcessKindModelDownload = "model_download"
+	// ProcessKindLinksBackfill — a per-space rebuild of the link index
+	// from the records (a db that predates the link sink's layout):
+	// Done counts objects, Total is unknown. Reported past
+	// AnnounceAfter like an advance.
+	ProcessKindLinksBackfill = "links_backfill"
 )
 
 // procHeartbeat paces the mid-work progress heartbeat: one embed call
@@ -479,6 +484,7 @@ func (ix *Indexer) Sync(ctx context.Context) error {
 // space without started workers).
 func (ix *Indexer) SyncSpace(ctx context.Context, sp space.Space) error {
 	w := newSpaceWorker(ix, sp)
+	w.backfillLinks(ctx)
 	if err := w.advance(ctx); err != nil {
 		return err
 	}

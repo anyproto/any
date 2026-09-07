@@ -24,7 +24,8 @@ type LinkQuery struct {
 // any of its records / values is returned — the caller splits them on
 // Target.IsPart(). A record target, an identity or a file returns the
 // edges to exactly that target.
-func (ix *Indexer) Backlinks(ctx context.Context, spaceId string, target anyuri.URI, q LinkQuery) ([]LinkDoc, error) {
+// more reports that the read was cut at the limit.
+func (ix *Indexer) Backlinks(ctx context.Context, spaceId string, target anyuri.URI, q LinkQuery) (docs []LinkDoc, more bool, err error) {
 	key, byObject := backlinkKey(target)
 	return ix.store.Backlinks(ctx, spaceId, key, byObject, q.Kinds, q.Limit)
 }
@@ -43,12 +44,12 @@ func backlinkKey(target anyuri.URI) (key string, byObject bool) {
 // Links returns the edges whose source is the object, one of its
 // datasets or one of its records — forward links, "what does this
 // link to".
-func (ix *Indexer) Links(ctx context.Context, spaceId, objectId, dataset, recordId string, q LinkQuery) ([]LinkDoc, error) {
+func (ix *Indexer) Links(ctx context.Context, spaceId, objectId, dataset, recordId string, q LinkQuery) (docs []LinkDoc, more bool, err error) {
 	prefix := objectId + ":"
 	if dataset != "" {
 		prefix += dataset + ":"
 		if recordId != "" {
-			prefix += recordId + ":"
+			prefix = linkRecordPrefix(objectId, dataset, recordId)
 		}
 	}
 	return ix.store.Links(ctx, spaceId, prefix, q.Kinds, q.Limit)
@@ -58,6 +59,7 @@ func (ix *Indexer) Links(ctx context.Context, spaceId, objectId, dataset, record
 type SpaceBacklinks struct {
 	SpaceId string
 	Links   []LinkDoc
+	More    bool
 }
 
 // BacklinksAll runs Backlinks over every indexed space — the device
@@ -72,12 +74,12 @@ func (ix *Indexer) BacklinksAll(ctx context.Context, target anyuri.URI, q LinkQu
 	key, byObject := backlinkKey(target)
 	var out []SpaceBacklinks
 	for _, sp := range spaces {
-		docs, err := ix.store.Backlinks(ctx, sp, key, byObject, q.Kinds, q.Limit)
+		docs, more, err := ix.store.Backlinks(ctx, sp, key, byObject, q.Kinds, q.Limit)
 		if err != nil {
 			continue
 		}
 		if len(docs) > 0 {
-			out = append(out, SpaceBacklinks{SpaceId: sp, Links: docs})
+			out = append(out, SpaceBacklinks{SpaceId: sp, Links: docs, More: more})
 		}
 	}
 	return out, nil

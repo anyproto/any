@@ -38,8 +38,12 @@ type LinkEntry struct {
 	ObjectId string
 	Dataset  string
 	RecordId string
-	Kind     string
-	Target   anyuri.URI // canonical (URI.Canonical), never a space
+	// TypeId names the type declaring a property value's source
+	// (DatasetProp edges — a value lives at record[typeId][propId]);
+	// empty for record sources.
+	TypeId string
+	Kind   string
+	Target anyuri.URI // canonical (URI.Canonical), never a space
 }
 
 // Link markers on a descriptor: the explicit `links` key, or the

@@ -229,8 +229,11 @@ func (d *deps) typePatchDatasetField(c echo.Context) error {
 			return writeError(c, http.StatusBadRequest, vcode, reason, map[string]any{"path": path})
 		}
 		patch.Set[storagePath] = val
-		if storagePath == propFieldXFormat+"."+xfType {
+		switch storagePath {
+		case propFieldXFormat + "." + xfType:
 			newSlug, _ = val.(string)
+		case propFieldXFormat + "." + xfLinks:
+			newMode, _ = val.(string)
 		}
 	}
 	for _, path := range req.Unset {

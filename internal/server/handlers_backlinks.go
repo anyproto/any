@@ -33,6 +33,7 @@ func registerLinkRoutes(g *echo.Group, d *deps) {
 func linkQueryParams(c echo.Context) (indexer.LinkQuery, error, bool) {
 	var q indexer.LinkQuery
 	for _, k := range c.QueryParams()["kind"] {
+		// Kinds are an open slug set like scopes; the same shape check.
 		if !index.ValidScope(k) {
 			return q, writeError(c, http.StatusBadRequest, "request.invalid_field",
 				"kind must be a short slug ([a-z0-9_-], max 64)", map[string]any{"field": "kind"}), true
@@ -60,17 +61,19 @@ func parseIntParam(s string) (int, bool) {
 			return 0, false
 		}
 		n = n*10 + int(r-'0')
-		if n > 1<<30 {
-			return 0, false
+		if n > maxLinksLimit {
+			return maxLinksLimit, true // any larger value clamps to the cap
 		}
 	}
 	return n, len(s) > 0
 }
 
 // partParams reads the optional part narrowing: `record` + `dataset`
-// (both or neither) or `prop`. Returns the part's dataset and record
-// id under the link-source vocabulary (`prop` + propId for a value).
-func partParams(c echo.Context) (dataset, recordId string, errResp error, done bool) {
+// (a record needs its dataset; a dataset alone is admitted only when
+// datasetAlone — the forward read of one collection) or `prop`.
+// Returns the part's dataset and record id under the link-source
+// vocabulary (`prop` + propId for a value).
+func partParams(c echo.Context, datasetAlone bool) (dataset, recordId string, errResp error, done bool) {
 	record, ds, prop := c.QueryParam("record"), c.QueryParam("dataset"), c.QueryParam("prop")
 	switch {
 	case prop != "" && (record != "" || ds != ""):
@@ -78,13 +81,14 @@ func partParams(c echo.Context) (dataset, recordId string, errResp error, done b
 			"prop cannot be combined with record/dataset", map[string]any{"field": "prop"}), true
 	case prop != "":
 		return index.DatasetProp, prop, nil, false
-	case (record == "") != (ds == ""):
+	case record != "" && ds == "":
 		return "", "", writeError(c, http.StatusBadRequest, "request.missing_field",
-			"record and dataset go together", nil), true
-	case record != "":
-		return ds, record, nil, false
+			"record needs its dataset", nil), true
+	case record == "" && ds != "" && !datasetAlone:
+		return "", "", writeError(c, http.StatusBadRequest, "request.missing_field",
+			"dataset needs a record", nil), true
 	}
-	return "", "", nil, false
+	return ds, record, nil, false
 }
 
 // objectBacklinks handles GET /v1/spaces/:spaceId/objects/:objectId/backlinks.
@@ -113,7 +117,7 @@ func (d *deps) objectBacklinks(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	dataset, recordId, errResp, done := partParams(c)
+	dataset, recordId, errResp, done := partParams(c, false)
 	if done {
 		return errResp
 	}
@@ -132,11 +136,13 @@ func (d *deps) objectBacklinks(c echo.Context) error {
 	case narrowed:
 		target.Dataset, target.RecordId = dataset, recordId
 	}
-	docs, err := d.indexer.Backlinks(c.Request().Context(), sp.Id(), target, q)
+	docs, more, err := d.indexer.Backlinks(c.Request().Context(), sp.Id(), target, q)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
-	return c.JSON(http.StatusOK, splitBacklinks(sp.Id(), docs, narrowed))
+	out := splitBacklinks(sp.Id(), docs, narrowed)
+	out.Truncated = more
+	return c.JSON(http.StatusOK, out)
 }
 
 // splitBacklinks groups edges into object-level and part-level; a
@@ -162,7 +168,7 @@ func splitBacklinks(spaceId string, docs []indexer.LinkDoc, narrowed bool) api.B
 //	@Param		spaceId		path		string	true	"Space ID"
 //	@Param		objectId	path		string	true	"Object ID"
 //	@Param		record		query		string	false	"Narrow to one record (with dataset)"
-//	@Param		dataset		query		string	false	"The record's collection"
+//	@Param		dataset		query		string	false	"The record's collection, or alone: one collection's edges"
 //	@Param		prop		query		string	false	"Narrow to one property value (propId)"
 //	@Param		kind		query		[]string	false	"Edge kinds to keep (repeatable)"
 //	@Param		limit		query		int		false	"Max edges (default and max 500)"
@@ -177,7 +183,7 @@ func (d *deps) objectLinks(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	dataset, recordId, errResp, done := partParams(c)
+	dataset, recordId, errResp, done := partParams(c, true)
 	if done {
 		return errResp
 	}
@@ -188,11 +194,11 @@ func (d *deps) objectLinks(c echo.Context) error {
 	if d.indexer == nil {
 		return indexDisabled(c)
 	}
-	docs, err := d.indexer.Links(c.Request().Context(), sp.Id(), objectId, dataset, recordId, q)
+	docs, more, err := d.indexer.Links(c.Request().Context(), sp.Id(), objectId, dataset, recordId, q)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
-	out := api.LinksResponse{Links: []api.Link{}}
+	out := api.LinksResponse{Links: []api.Link{}, Truncated: more}
 	for _, doc := range docs {
 		out.Links = append(out.Links, linkToAPI(sp.Id(), doc))
 	}
@@ -231,7 +237,7 @@ func (d *deps) backlinksAll(c echo.Context) error {
 	target, ok := u.Canonical("")
 	if !ok {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
-			"target must name a space (a global any:// form)", map[string]any{"field": "target"})
+			"target must be a global any:// reference to an object, record, property value, identity or file", map[string]any{"field": "target"})
 	}
 	if d.indexer == nil {
 		return indexDisabled(c)
@@ -244,7 +250,7 @@ func (d *deps) backlinksAll(c echo.Context) error {
 	out := api.BacklinksAllResponse{Spaces: []api.SpaceBacklinks{}}
 	for _, sb := range res {
 		split := splitBacklinks(sb.SpaceId, sb.Links, narrowed)
-		out.Spaces = append(out.Spaces, api.SpaceBacklinks{SpaceId: sb.SpaceId, Object: split.Object, Parts: split.Parts})
+		out.Spaces = append(out.Spaces, api.SpaceBacklinks{SpaceId: sb.SpaceId, Object: split.Object, Parts: split.Parts, Truncated: sb.More})
 	}
 	return c.JSON(http.StatusOK, out)
 }
@@ -258,7 +264,7 @@ func indexDisabled(c echo.Context) error {
 func linkToAPI(spaceId string, doc indexer.LinkDoc) api.Link {
 	t := doc.Target
 	return api.Link{
-		Source: api.LinkSource{SpaceId: spaceId, ObjectId: doc.ObjectId, Dataset: doc.Dataset, RecordId: doc.RecordId},
+		Source: api.LinkSource{SpaceId: spaceId, ObjectId: doc.ObjectId, Dataset: doc.Dataset, RecordId: doc.RecordId, TypeId: doc.TypeId},
 		Kind:   doc.Kind,
 		Target: api.LinkTarget{
 			Uri:      t.String(),

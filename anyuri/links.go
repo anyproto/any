@@ -1,9 +1,6 @@
 package anyuri
 
-import (
-	"errors"
-	"strings"
-)
+import "strings"
 
 // ExtractLinks scans text for any:// URIs of every known kind and
 // returns them parsed, deduplicated by their text form, in
@@ -13,6 +10,8 @@ import (
 // (an unescaped ")" legally terminates a destination, and ids are
 // base58, so no terminator byte can appear inside one). A glued
 // sentence period after the last id segment is shed ("…/<id>.Next").
+// Percent-encoding is not decoded: '%' ends a token, so an encoded id
+// truncates rather than resolving — ids never need encoding.
 //
 // This is the sanctioned link scanner: the server's link index and
 // clients detecting links in text share it.
@@ -42,10 +41,7 @@ func ExtractLinks(text string) []URI {
 		token := strings.TrimRight(text[start:end], ".,;:!?")
 		u, err := Parse(token)
 		if err != nil {
-			if errors.Is(err, ErrKindUnknown) {
-				continue // degrade: not ours to index
-			}
-			continue
+			continue // malformed, or a kind this build does not know: not ours
 		}
 		if !shedGluedPeriod(&u) {
 			continue
@@ -80,9 +76,6 @@ func shedGluedPeriod(u *URI) bool {
 	case KindObject:
 		if u.RecordId != "" {
 			return cut(&u.RecordId)
-		}
-		if u.Legacy && u.SpaceId == "" {
-			return cut(&u.ObjectId)
 		}
 		return cut(&u.ObjectId)
 	case KindMention:

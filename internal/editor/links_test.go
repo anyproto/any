@@ -37,6 +37,14 @@ func TestBlockLinks(t *testing.T) {
 			`<!-- any:block {"v":1,"kind":"embed","schema":1,"instance":"01ARZ","data":{"provider":"youtube","url":"https://youtu.be/x"}} -->`),
 			map[string]string{}},
 		{"self link dropped", blk("b11", TypeParagraph, "[me](any://o/spc1/obj42)"), map[string]string{}},
+		{"legacy bare form is a link, not a card", blk("b13", TypeParagraph, "[Roadmap](any://obj9abcdef)"),
+			map[string]string{"any://o/spc1/obj9abcdef": index.LinkKindLink}},
+		{"legacy global form is a link, not a card", blk("b14", TypeParagraph, "[Roadmap](any://spacespace1/obj9abcdef)"),
+			map[string]string{"any://o/spacespace1/obj9abcdef": index.LinkKindLink}},
+		{"record reference is a link, not a card", blk("b15", TypeParagraph, "[blk](any://o/spc1/obj9/editor_blocks/blk7)"),
+			map[string]string{"any://o/spc1/obj9/editor_blocks/blk7": index.LinkKindLink}},
+		{"empty label is a link, not a card", blk("b16", TypeParagraph, "[](any://o/spc1/obj9)"),
+			map[string]string{"any://o/spc1/obj9": index.LinkKindLink}},
 		{"empty", blk("b12", TypeParagraph, ""), map[string]string{}},
 	}
 	for _, tc := range cases {

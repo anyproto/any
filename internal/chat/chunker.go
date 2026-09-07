@@ -7,6 +7,7 @@ import (
 
 	"github.com/anyproto/any-sync-sdk/space"
 
+	"github.com/anyproto/any/anyuri"
 	"github.com/anyproto/any/internal/index"
 )
 
@@ -76,6 +77,9 @@ func MessageLinks(spaceId, objectId, collection, msgId string, rec *anyenc.Value
 		}
 		seen[key] = true
 		e.Kind = index.LinkKindLink
+		if e.Target.Kind == anyuri.KindMention {
+			e.Kind = index.LinkKindMention
+		}
 		out = append(out, e)
 	}
 	return out

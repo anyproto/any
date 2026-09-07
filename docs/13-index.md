@@ -126,8 +126,10 @@ id `objectId:prop:<propId>`:
   definition's `meta["index"]` (set at `AddProperty` time — SDK
   `PropertyDraft.Meta`, HTTP `meta` field) is a 3-state override:
   absent/empty ⇒ `props`; `"<scope>"` ⇒ that scope; the literal
-  `"none"` ⇒ excluded (the opt-out for blobs and noisy enums). An
-  invalid slug excludes rather than silently landing in the default.
+  `"none"` ⇒ excluded from the TEXT index (the opt-out for blobs and
+  noisy enums — a property carrying a link marker still reports its
+  edges, § Links). An invalid slug excludes rather than silently
+  landing in the default.
 - **Entry text is self-describing**: `"<prop name>: <value>"`
   ("Score: 9", "Publisher: Gollancz") — property-NAME search works
   (property definitions are indexed nowhere else) and bare numbers get
@@ -342,29 +344,47 @@ type LinkEntry struct {
 ### Store
 
 - `<spaceId>_links`, one doc per edge:
-  `{id, objectId, dataset, recordId, kind, target{kind, spaceId,
-  objectId?, dataset?, recordId?, propId?, identity?, fileId?},
-  targetKey, targetObject?, applySeq}`. `id` is
-  `objectId:dataset:recordId:<hash(kind, targetKey)>` — the text-doc
-  grammar plus one segment, so every removal is a primary-key range
-  (`objectId:`, `objectId:dataset:`, `objectId:dataset:recordId:`) and
-  the hash merges duplicates from one place. `targetKey` is the
-  canonical target, `targetObject` the object it belongs to (absent
-  for identities and files). Indexes: `targetObject` (sparse),
-  `targetKey`.
-- The page's structural prefix deletes (object deleted, type detached,
-  definition retired) apply to the link collection too; record
-  replaces and collection rewrites are the sink's own ranges.
-- The cursor row carries `links`, the sink's layout version. An
-  indexed space stamped behind it is **backfilled** before its worker
-  advances: every object the feed knows is re-extracted once through
-  the chunkers and only the edges are kept — text docs untouched,
-  nothing re-embeds. This is also how a db indexed before the sink
-  existed gets its edges.
+  `{id, objectId, dataset, recordId, typeId?, kind, target{kind,
+  spaceId, objectId?, dataset?, recordId?, propId?, identity?,
+  fileId?}, targetKey, targetObject?, applySeq}`. `id` is the text-doc
+  base `objectId:dataset:recordId` + `U+001F` + `<hash(kind,
+  targetKey)>` — the chunk separator, so a record id containing `:`
+  can never be confused with a sibling's prefix: structural removals
+  are the `:`-terminated ranges (`objectId:`, `objectId:dataset:`), a
+  record's edges are `[base+U+001F, base+U+0020)`, and the hash merges
+  duplicates from one place. `typeId` names a property value's type
+  (`prop` sources). `targetKey` is the canonical target, `targetObject`
+  the object it belongs to (absent for identities and files). Indexes:
+  `(targetObject, id)` (sparse), `(targetKey, id)`, so a capped read is
+  a prefix scan in id order.
+- **Content changes are an exact diff.** Per changed object the worker
+  reads the object's stored edge ids once (`LinkIds`, one range), then
+  removes the ids that fell out of a replaced scope — a re-streamed
+  record, a reconciled collection — and writes the ids that appeared
+  (`diffLinks`). An edit that leaves a record's edges unchanged costs
+  the read and nothing else; a property write on a page with 300
+  links rewrites nothing and signals nothing. Structural prefix deletes
+  (object deleted, type detached, definition retired) apply to the
+  link collection as they apply to text docs; a `TextEvictor` chunker
+  can evict a dataset's text docs alone (a runtime dataset that lost
+  its search mapping but keeps link fields).
+- The cursor row carries `links`, the sink's layout version, stamped
+  by the worker after its first landed page or its backfill — never by
+  a plain cursor write, so a failed backfill is retried on the next
+  start. An indexed space stamped behind is **backfilled** on its
+  worker's advance goroutine (off the boot path, outside the indexer
+  lock): the collection is dropped, every object the feed knows is
+  re-extracted once through the chunkers and only the edges are kept,
+  landed page by page — text docs untouched, nothing re-embeds; an
+  unreadable object is skipped, its edges arrive with its next change.
+  Reported as `index.links_backfill.<spaceId>` on the process view
+  (docs/22-processes.md). This is also how a db indexed before the
+  sink existed gets its edges.
 - After a page changed edges the indexer reports the affected target
-  keys (`Options.OnLinks`); the server publishes them as one
-  device-scope bus event `links.updated` (docs/21-events.md) so an
-  open panel refreshes.
+  keys (`Options.OnLinks` — only targets an edge appeared for or
+  vanished from); the server publishes them as one device-scope bus
+  event `links.updated` (docs/21-events.md), capped at 200 targets
+  with `truncated: true` past that, so an open panel refreshes.
 
 ### Reads
 
@@ -375,7 +395,8 @@ record, value, identity or file target; `Indexer.Links` walks the
 source prefix (object / dataset / record); `BacklinksAll` runs the
 seek over every indexed space — the device holds only spaces this
 account is a member of, so the account-wide read is access-filtered by
-construction. All reads are capped (500 per space over HTTP).
+construction. All reads are capped (500 per space over HTTP) and say
+so (`truncated`); there is no continuation.
 
 ## Removal semantics
 

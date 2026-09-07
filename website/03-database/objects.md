@@ -117,16 +117,20 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/$WIKI \
 
 The server never allocates a position. Clients compute every `pos` with the lexid allocator the editor's blocks use (alphabet `CharsAllNoEscape`, block size 4, step 100): past the last sibling on create, between two siblings on a drop — no server round-trip.
 
-## Backlinks
+## Links and backlinks
 
-Object references are values of `relation` properties (`xFormat.type: "relation"`) — arrays of `any://<objectId>` URIs. The reverse lookup answers "which objects reference X?":
+The server keeps a link index next to its search index: every `any://` reference in editor blocks, chat messages and link-bearing property values becomes an edge with a source place, a kind and a canonical target. Three reads serve a contextual panel:
 
 ```bash
 curl http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/backlinks
-# → {"backlinks": [{"objectId": "…", "typeId": "…", "propId": "…"}]}
+# → {"object": [edge…], "parts": [edge…]}
+curl http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/links
+# → {"links": [edge…]}
+curl "http://127.0.0.1:7001/v1/backlinks?target=any://o/$SPACE/$OBJ"
+# → {"spaces": [{"spaceId": "…", "object": […], "parts": […]}]}
 ```
 
-One entry per (referencing object, property) pair; only values under a currently attached type count. An unknown or unreferenced id returns an empty array, not a 404. Link values carry no index, so this is a scan over the objects collection. The wiki tree's `parentId` is a plain string, not a relation — query children as shown above.
+An edge is `{"source": {spaceId, objectId, dataset, recordId, typeId?}, "kind": "mention|link|card|embed|relation", "target": {uri, kind, …ids}}`. `object` holds what points at the object itself, `parts` what points at one of its blocks, messages or property values; `?record=…&dataset=…` or `?prop=…` narrows to one part, `?kind=` filters, and replies cap at 500 edges (`truncated: true`). The index follows every write after a short debounce and publishes a device-scope `links.updated` event naming the targets that changed. An unknown or unreferenced id returns empty lists, not a 404. The wiki tree's `parentId` is a plain string, not a link — query children as shown above.
 
 ## Delete an object
 
