@@ -30,7 +30,8 @@ func NewType() handler.Type {
 		Description: Description,
 		Hidden:      true,
 		Properties: []handler.PropertyDecl{
-			{Id: PropBundle, Name: "Bundle", Kind: handler.PropertyKindString},
+			{Id: PropBundle, Name: "Bundle", Kind: handler.PropertyKindString,
+				Description: "Id of the installed bundle this object is the app of."},
 		},
 	}
 }

@@ -154,11 +154,14 @@ func NewType() handler.Type {
 // carry; client writes to them are rejected.
 func stamps() []handler.Field {
 	return []handler.Field{
-		{Id: FieldCreator, Name: "Creator", Schema: handler.Leaf(handler.PropertyKindString), Stamp: handler.StampCreator},
+		{Id: FieldCreator, Name: "Creator", Schema: handler.Leaf(handler.PropertyKindString), Stamp: handler.StampCreator,
+			Description: "Account identity that created the record; derived."},
 		// Instants, not numbers: `{"$date": "<RFC 3339>"}` on the wire,
 		// memcmp-orderable and index-keyable in the store.
-		{Id: FieldCreatedAt, Name: "Created At", Schema: handler.Leaf(handler.PropertyKindDatetime), Stamp: handler.StampCreateTime},
-		{Id: FieldModifiedAt, Name: "Modified At", Schema: handler.Leaf(handler.PropertyKindDatetime), Stamp: handler.StampModifyTime},
+		{Id: FieldCreatedAt, Name: "Created At", Schema: handler.Leaf(handler.PropertyKindDatetime), Stamp: handler.StampCreateTime,
+			Description: "Instant the record was created (author's clock); derived.", XFormat: map[string]any{"type": "datetime"}},
+		{Id: FieldModifiedAt, Name: "Modified At", Schema: handler.Leaf(handler.PropertyKindDatetime), Stamp: handler.StampModifyTime,
+			Description: "Instant of the last edit (author's clock); derived.", XFormat: map[string]any{"type": "datetime"}},
 	}
 }
 
@@ -195,13 +198,16 @@ func dataviewsSchema() handler.Schema {
 		IdRule:   handler.IdUser,
 		DeleteBy: handler.DeleteByAnyone,
 		Fields: append([]handler.Field{
-			{Id: FieldName, Name: "Name", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone},
-			{Id: FieldIcon, Name: "Icon", Schema: str(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone},
+			{Id: FieldName, Name: "Name", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone,
+				Description: "Display name of the table.", XFormat: map[string]any{"type": "text"}},
+			{Id: FieldIcon, Name: "Icon", Schema: str(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone,
+				Description: "Display icon; the encoding is the client's."},
 			// Required: dataviews are read in `pos` order, and an absent
 			// pos sorts as "" — ahead of every positioned one, on every
 			// peer. A loud create failure beats silently pinning a
 			// record to the top of everyone's list.
-			{Id: FieldPos, Name: "Position", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone},
+			{Id: FieldPos, Name: "Position", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone,
+				Description: "Lexid ordering key among the host's tables."},
 		}, stamps()...),
 	}
 }
@@ -213,14 +219,22 @@ func viewsSchema() handler.Schema {
 		IdRule:   handler.IdUser,
 		DeleteBy: handler.DeleteByAnyone,
 		Fields: append([]handler.Field{
-			{Id: FieldDataview, Name: "Dataview", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone},
-			{Id: FieldName, Name: "Name", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone},
-			{Id: FieldIcon, Name: "Icon", Schema: str(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone},
-			{Id: FieldPos, Name: "Position", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone},
-			{Id: FieldLayout, Name: "Layout", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone},
-			{Id: FieldQuery, Name: "Query", Schema: object(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone},
-			{Id: FieldLayoutSettings, Name: "Layout Settings", Schema: object(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone},
-			{Id: FieldLocalSettings, Name: "Local Settings", Schema: object(), Scope: handler.ScopeLocal, MutableBy: handler.MutableByAnyone},
+			{Id: FieldDataview, Name: "Dataview", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone,
+				Description: "Id of the table this view belongs to; not validated."},
+			{Id: FieldName, Name: "Name", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone,
+				Description: "Display name of the view.", XFormat: map[string]any{"type": "text"}},
+			{Id: FieldIcon, Name: "Icon", Schema: str(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone,
+				Description: "Display icon; the encoding is the client's."},
+			{Id: FieldPos, Name: "Position", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone,
+				Description: "Lexid ordering key among the table's views."},
+			{Id: FieldLayout, Name: "Layout", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone,
+				Description: "Rendering layout slug: table, board, …"},
+			{Id: FieldQuery, Name: "Query", Schema: object(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone,
+				Description: "Opaque filter / sort / groupBy in the /query body shapes."},
+			{Id: FieldLayoutSettings, Name: "Layout Settings", Schema: object(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone,
+				Description: "Opaque per-layout settings shared by every member."},
+			{Id: FieldLocalSettings, Name: "Local Settings", Schema: object(), Scope: handler.ScopeLocal, MutableBy: handler.MutableByAnyone,
+				Description: "Device-local overrides of layoutSettings; local wins."},
 		}, stamps()...),
 	}
 }

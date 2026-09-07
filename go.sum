@@ -10,8 +10,8 @@ github.com/anyproto/any-store/v2 v2.0.2 h1:SFJfgl/1/J9CZk/Ps0Jryx6YNcbIzran7Dv73
 github.com/anyproto/any-store/v2 v2.0.2/go.mod h1:Mw/A48qIY3anKfv4jaiTEvv/JhuMpPEp6VuxHn6lAeM=
 github.com/anyproto/any-sync v0.13.2 h1:oQ5SxHKWcsMgva4afHHP0HlO3L+8CAQZRSBwrUR+QuU=
 github.com/anyproto/any-sync v0.13.2/go.mod h1:JtysRxnZ9cf/qd3x254CW6KBZxPdSfczGCX1hP87hTE=
-github.com/anyproto/any-sync-sdk v0.3.1 h1:RDoTdztUhkvkYXLsbSEp2K8ArIQi66gH0zIzNGZ9qro=
-github.com/anyproto/any-sync-sdk v0.3.1/go.mod h1:Nq0dgU5Ky2oRLbuClH22Pst03OnbB0jM9YjZ3FDQsjs=
+github.com/anyproto/any-sync-sdk v0.3.2-0.20260907090653-7df1afe6f4d1 h1:r3cIDy8HFeHiE9UKqwiqum/x6IPNPQiUeP9/hnQeWf4=
+github.com/anyproto/any-sync-sdk v0.3.2-0.20260907090653-7df1afe6f4d1/go.mod h1:Nq0dgU5Ky2oRLbuClH22Pst03OnbB0jM9YjZ3FDQsjs=
 github.com/anyproto/anytype-push-server/pushclient v0.0.0-20250801122506-553f6c085a23 h1:jXAjKY4g9ec7lDtayIlzM9u0/b3xGS9YgGA6JtRhHfU=
 github.com/anyproto/anytype-push-server/pushclient v0.0.0-20250801122506-553f6c085a23/go.mod h1:fY9DmDaVetOtBqr5di6sVZKKx1AiIiCQkKxttAD7xWc=
 github.com/anyproto/go-bip39 v1.0.0 h1:T6/7WowKYDeyuX/QyXtt98ZX0XXaoOh17M/LFF2M5yk=

@@ -746,6 +746,14 @@ classifying the field:
   other members (declarable on property definitions today; dataset
   record fields await the SDK's record-level account transport).
 
+Every declared field also carries `description`, and `x-format` where
+the descriptor vocabulary (docs/27-descriptors.md) names its value —
+`chat_messages.createdAt` is `{"type": "datetime"}`, `unread` is
+`{"type": "checkbox"}`, the `objects` row's `any.name` is `{"type":
+"text"}`. A field with no slug (the markdown `text` bodies, identities,
+record ids, opaque objects) describes itself in `description` alone.
+Built-in and client-declared fields render through one descriptor path.
+
 `additionalProperties:true` marks a dynamic dataset (free-form keys
 allowed, defaulting to synced — e.g. the per-type `objects` namespace and
 the chat/editor collections, which declare their known fields while
@@ -2210,7 +2218,12 @@ true` with `xKey` equal to their id, which is what reserves those ids
 against user types (`409 type.xkey_conflict`); user types report
 `builtIn: false` and their caller-set `xKey`. The three synthetic ids
 are not attachable to an object — a client offering "filter by type" or
-"add a type" should skip them.
+"add a type" should skip them. Their properties (`GET
+…/types/any/properties`, `…/types/type/properties`) come back with the
+same `description` / `xFormat` slice a user definition carries —
+`any.name` is `{"type": "text"}`, `any.createdAt` `{"type":
+"datetime"}`, `type.hidden` `{"type": "checkbox"}`; identities, ids and
+the icon carry a description alone (docs/27-descriptors.md).
 
 Storage note for anyone reading raw rows (`GET …/properties/:objectId`,
 `/query`): a type's own row keeps `any.name` / `any.description` /

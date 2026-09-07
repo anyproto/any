@@ -291,11 +291,11 @@ pluggable embedders, parallel batched pipelines),
   and a member is `any://m/<spaceId>/<identity>` — neither is an object,
   so `relation.targetTypes` cannot name them. Each needs its own slug
   plus a target member.
-- **Built-in field descriptors.** `handler.Field` carries
-  `Description` / `XFormat` and discovery renders them, but
-  `chat_messages`, `editor_blocks`, `dataviews` / `views` and the `any.*` row
-  fields declare none — clients still hardcode that `any.icon` is an
-  icon and `chat_messages.text` is markdown.
+- **Markdown slug.** `chat_messages.text` and `editor_blocks.text` are
+  inline markdown and carry a description but no slug; the slug is what
+  a link scanner selects on, so it is decided with backlinks (SYN-229).
+  Identity-valued fields (`author`, `modifiedBy`, chat `creator` /
+  `mentions`) wait on the member-relation item above.
 - **Nested descriptors.** `items` / `properties` are not settable over
   HTTP and a `relation` slug nested in a composite is invisible to
   backlinks. Composites are validated by the vocabulary's fixed shapes
@@ -409,6 +409,12 @@ pluggable embedders, parallel batched pipelines),
   gained per-module chunkers over every collection a module serves;
   push resolves chats through the chat collection's owners. Contract:
   docs/03-api.md § Parts and modules, the SDK's docs/17-user-datasets.md.
+- **Built-in field descriptors (SYN-230)** — every Go-declared field
+  (module and static datasets, the `objects` row, built-in type
+  properties, the SDK's system datasets) carries a `description` and a
+  descriptor where the vocabulary names the value; one test runs every
+  served descriptor through the client-draft gate. Contract:
+  docs/27-descriptors.md, docs/03-api.md § Datasets + § Types.
 - **Property & field descriptors (SYN-211)** — one opaque `xFormat`
   bag on property and dataset-field definitions; the typed `format`
   object, `xKind` and the `meta.pos` / `meta.icon` conventions removed;

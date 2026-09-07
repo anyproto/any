@@ -569,13 +569,19 @@ is a contract:
   related question of distinguishing bundle-authored from user-authored
   leaves so a bundle upgrade does not clobber a user's rename.
 - **Autonumber, non-date ranges, unit/measure properties.**
-- **Built-in dataset fields.** `chat_messages`, `editor_blocks`,
-  `dataviews` / `views` and the `objects` row's `any.*` fields are declared in Go.
-  The SDK's `handler.Field` now carries `Description` / `XFormat` and
-  discovery renders them, but no built-in declares one yet — a client
-  still hardcodes that `any.icon` is an icon and `chat_messages.text` is
-  markdown. "One renderer for both surfaces" does not yet reach the
-  fields every client renders most.
+- **Slugs the built-ins still lack.** Every Go-declared field — the
+  module and static datasets (`chat_messages`, `editor_blocks`,
+  `dataviews` / `views`), the `objects` row's `any.*` properties, the
+  built-in types' properties and the SDK's system datasets — carries a
+  `description`, and an `xFormat` where the vocabulary above names its
+  value (`text`, `longtext`, `datetime`, `checkbox`). Three value shapes
+  those fields are made of have no slug yet and ship description-only:
+  inline-markdown text (`chat_messages.text`, `editor_blocks.text` — the
+  slug is decided with backlinks, since it is what a link scanner
+  selects on), account identities (the "Person / identity values" item
+  above), and record ids (`replyToMessageId`, `views.dataview`). Icon
+  values, lexid `pos`, enum strings and opaque objects are system
+  values and stay undecorated by design.
 
 One behaviour worth knowing while these are open: a `relation` slug is
 legal in a nested descriptor, but the backlinks index inspects only

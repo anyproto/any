@@ -279,26 +279,49 @@ func NewModule() handler.Module {
 // keyspaces (emoji→accountId→ts, attachmentId→{type,link},
 // {name,debugLink,done}) so they declare an unconstrained object
 // shape.
+//
+// Every field carries a description; a descriptor (docs/27-descriptors.md)
+// only where the vocabulary names the value — instants and flags. The
+// markdown text, identities, record refs and the nested objects have no
+// slug yet (the text slug is a backlinks decision) and describe
+// themselves in prose.
 func datasetSchema() handler.Schema {
+	str := func() *handler.FieldShape { return handler.Leaf(handler.PropertyKindString) }
+	obj := func() *handler.FieldShape { return handler.Leaf(handler.PropertyKindObject) }
+	flag := func() *handler.FieldShape { return handler.Leaf(handler.PropertyKindBoolean) }
 	return handler.Schema{
 		Dynamic: true,
 		Fields: []handler.Field{
-			{Id: FieldCreator, Name: "Creator", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeDerived},
-			{Id: FieldCreatedAt, Name: "Created At", Schema: handler.Leaf(handler.PropertyKindDatetime), Scope: handler.ScopeDerived},
-			{Id: FieldModifiedAt, Name: "Modified At", Schema: handler.Leaf(handler.PropertyKindDatetime), Scope: handler.ScopeDerived},
-			{Id: FieldMentions, Name: "Mentions", Schema: handler.Leaf(handler.PropertyKindArray), Scope: handler.ScopeDerived},
-			{Id: FieldText, Name: "Text", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced},
-			{Id: FieldReplyToMessageId, Name: "Reply To", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced},
-			{Id: FieldAgent, Name: "Agent", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
-			{Id: FieldReactions, Name: "Reactions", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
-			{Id: FieldAttachments, Name: "Attachments", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
-			{Id: FieldContext, Name: "Context", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
-			{Id: FieldControl, Name: "Control", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
+			{Id: FieldCreator, Name: "Creator", Schema: str(), Scope: handler.ScopeDerived,
+				Description: "Account identity of the sender; derived."},
+			{Id: FieldCreatedAt, Name: "Created At", Schema: handler.Leaf(handler.PropertyKindDatetime), Scope: handler.ScopeDerived,
+				Description: "Instant the message was sent (sender's clock); derived.", XFormat: map[string]any{"type": "datetime"}},
+			{Id: FieldModifiedAt, Name: "Modified At", Schema: handler.Leaf(handler.PropertyKindDatetime), Scope: handler.ScopeDerived,
+				Description: "Instant of the last edit (sender's clock); derived.", XFormat: map[string]any{"type": "datetime"}},
+			{Id: FieldMentions, Name: "Mentions", Schema: handler.Leaf(handler.PropertyKindArray), Scope: handler.ScopeDerived,
+				Description: "Identities mentioned in the text or replied to; derived."},
+			{Id: FieldText, Name: "Text", Schema: str(), Scope: handler.ScopeSynced,
+				Description: "Message body, inline markdown; any:// links carry mentions and references."},
+			{Id: FieldReplyToMessageId, Name: "Reply To", Schema: str(), Scope: handler.ScopeSynced,
+				Description: "Id of the message this one replies to."},
+			{Id: FieldAgent, Name: "Agent", Schema: obj(), Scope: handler.ScopeSynced,
+				Description: "Agent authorship hint {name, debugLink, done}; set once on send."},
+			{Id: FieldReactions, Name: "Reactions", Schema: obj(), Scope: handler.ScopeSynced,
+				Description: "Reactions by emoji, then by identity, to the instant reacted."},
+			{Id: FieldAttachments, Name: "Attachments", Schema: obj(), Scope: handler.ScopeSynced,
+				Description: "Attachments by id: {type, link}."},
+			{Id: FieldContext, Name: "Context", Schema: obj(), Scope: handler.ScopeSynced,
+				Description: "Client context the message was sent from."},
+			{Id: FieldControl, Name: "Control", Schema: obj(), Scope: handler.ScopeSynced,
+				Description: "Client control payload; opaque to the server."},
 			// Read-tracking flags — SDK-materialized, device-local,
 			// filterable ({"unread": true}). See reading.go.
-			{Id: FieldUnread, Name: "Unread", Schema: handler.Leaf(handler.PropertyKindBoolean), Scope: handler.ScopeLocal},
-			{Id: FieldUnreadMention, Name: "Unread Mention", Schema: handler.Leaf(handler.PropertyKindBoolean), Scope: handler.ScopeLocal},
-			{Id: FieldUnreadReactions, Name: "Unread Reactions", Schema: handler.Leaf(handler.PropertyKindBoolean), Scope: handler.ScopeLocal},
+			{Id: FieldUnread, Name: "Unread", Schema: flag(), Scope: handler.ScopeLocal,
+				Description: "Unread on this device; absent once read.", XFormat: map[string]any{"type": "checkbox"}},
+			{Id: FieldUnreadMention, Name: "Unread Mention", Schema: flag(), Scope: handler.ScopeLocal,
+				Description: "Unread mention of this account on this device.", XFormat: map[string]any{"type": "checkbox"}},
+			{Id: FieldUnreadReactions, Name: "Unread Reactions", Schema: flag(), Scope: handler.ScopeLocal,
+				Description: "Unseen reactions to this account's own message.", XFormat: map[string]any{"type": "checkbox"}},
 		},
 	}
 }
