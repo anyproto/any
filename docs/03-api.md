@@ -990,7 +990,7 @@ reclaimed). In a path segment the slash is percent-encoded:
 
 **Ensure** (`POST …/bundles`) is adopt-or-install:
 `{id, name?, rootTypes?, rootProperties?, derived?, parts?, properties?,
-xKey?, layout?, weight?, hidden?}`. With a winner already
+xKey?, layout?, weight?, hidden?, selfTyped?}`. With a winner already
 registered it is a pure read — nothing is written, so a reader or guest
 member can resolve an install they could not create — and the reply is
 `installed: false`. That flag means "this call registered the install":
@@ -1090,9 +1090,10 @@ Off, the definition is not an instance: a type OTHER objects carry (a
 wiki, a person) never matches `{"any.types": "<rootId>"}`, refuses its
 own parts (`400 dataset.not_declared`) and holds none of its values.
 Implied for a part naming a reserved module (the general chat — the
-root is the type's sole carrier) and on the tech space (its roots exist
-to host records). Attached on install, or on a later adopt that asks
-for it like a gained root type; never removed.
+root is the type's sole carrier) and on the tech space, where every
+root is self-typed whatever the body says (its roots exist to host
+records). Attached on install, or on a later adopt that asks for it
+like a gained root type; never removed.
 
 - `parts: [...]` (the same draft shape as `POST …/types/:typeId/parts`,
   ≤32 entries) declares parts and the datasets under them. A records
@@ -1139,7 +1140,8 @@ for it like a gained root type; never removed.
   page, a wiki) stays listed.
 
 An install writes the root as **root + up to 3 changes**: one `objects`
-change carrying the types (`__type__`, the root's own id, `rootTypes`),
+change carrying the types (`__type__`, the root's own id when
+`selfTyped`, `rootTypes`),
 `any.name`, the type metadata (`type.xkey` / `layout` / `weight` /
 `hidden`) and the seeded `rootProperties` values; then, after the
 registry row, one `datasets` change when the bundle declares parts and
@@ -1319,8 +1321,8 @@ POST /v1/catalog/:usecaseId/setup   → 200 CatalogSetupResponse
 
 `CatalogUsecase` is the entry as the catalog declares it — `{id, name,
 description?, requires?, bundles: [{id, name, description?, derived?,
-hidden?, type?: {xKey, weight?, layout?, properties?}, miniapp?,
-parts?}]}` — property and part entries in the `POST …/types/:typeId/
+hidden?, selfTyped?, type?: {xKey, weight?, layout?, properties?},
+miniapp?, parts?}]}` — property and part entries in the `POST …/types/:typeId/
 properties` / `…/parts` draft shapes. Usecase ids are slugs and need
 no encoding in the path.
 

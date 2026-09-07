@@ -148,9 +148,9 @@ One call does, in order:
    read, so a reader member gets the ids too; a writer's adopt also
    heals what the root lacks (§ Evolution). Otherwise the server checks
    the handle (§ Handles), creates the root with everything the bundle
-   declares — the type marker plus its own id, the `miniapp` type with
-   its values, the parts and properties, name, xKey, weight, layout,
-   hidden — and registers it. A created root lands as root + up to 3
+   declares — the type marker (plus its own id when `selfTyped`), the
+   `miniapp` type with its values, the parts and properties, name,
+   xKey, weight, layout, hidden — and registers it. A created root lands as root + up to 3
    changes: one `objects` change carrying the types, `any.name`, the
    type metadata and the seeded `rootProperties`; then, after the
    registry row, one `datasets` change when the bundle declares parts

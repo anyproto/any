@@ -424,9 +424,10 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		req.RootProperties = inst.RootProperties
 	} else if req.DeclaresType() {
 		// SDK-minted created root: Ensure creates the object, stamps
-		// it as its own type with the root types and seeded values in
-		// one change, and declares — the only create the tech space
-		// allows, and the same shape everywhere.
+		// it as a type definition (carrying itself when SelfTyped)
+		// with the root types and seeded values in one change, and
+		// declares — the only create the tech space allows, and the
+		// same shape everywhere.
 		req.RootTypes = inst.RootTypes
 		req.RootProperties = inst.RootProperties
 	} else {

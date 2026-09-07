@@ -47,11 +47,12 @@ type BundleEnsureRequest struct {
 	Id string `json:"id"`
 	// Name is the display name, written on install.
 	Name string `json:"name,omitempty"`
-	// RootTypes are attached to the root object at birth, so the
-	// install's datasets are writable on it with no extra call. On a
-	// root that declares a type they ride the root's first change next
-	// to its own type — one object that is both a type and a carrier
-	// of another (the wiki: the type its pages carry and a `miniapp`).
+	// RootTypes are attached to the root object at birth, so their
+	// datasets are writable on it with no extra call. On a root that
+	// declares a type they ride the root's first change next to the
+	// type marker — one object that is both a type definition and a
+	// carrier of another (the wiki: the type its pages carry and a
+	// `miniapp`).
 	RootTypes []string `json:"rootTypes,omitempty"`
 	// RootProperties seeds the root's property values, keyed
 	// typeId → propId → value (same shape as POST /objects), written
@@ -68,12 +69,13 @@ type BundleEnsureRequest struct {
 	// on a created root is adopted rather than migrated. Ask for it
 	// for a space's chat; not for anything a user may remove.
 	Derived bool `json:"derived,omitempty"`
-	// Parts declares the root's parts with their datasets (same shape
-	// as POST …/types/:typeId/parts); the root becomes a type
-	// implementing itself, typeId = rootId, and the records are written
-	// through POST …/upsert / …/modify on the root (dataset = the
-	// computed collection, `<rootId>_<key>` for a namespaced one).
-	// Declared once on install; later evolution goes through the
+	// Parts declares the root type's parts with their datasets (same
+	// shape as POST …/types/:typeId/parts); the root becomes a type
+	// definition, typeId = rootId, and the objects carrying it take
+	// the datasets — records through POST …/upsert / …/modify (dataset
+	// = the computed collection, `<rootId>_<key>` for a namespaced
+	// one). The root itself takes them only when SelfTyped. Declared
+	// once on install; later evolution goes through the
 	// …/types/:rootId/parts routes. Parts or properties are required
 	// on the tech space.
 	Parts []PartDraftRequest `json:"parts,omitempty"`

@@ -1910,16 +1910,17 @@ Implementation slices landed:
     entries). Off, the definition is not an instance: the wiki root
     holds no `parentId`/`pos`/`folder` and is not a node, the person
     root takes no editor body (`400 dataset.not_declared`) and never
-    appears in a people list — so clients no longer need the
-    `__type__` exclusion on type filters (docs/29 § One object, three
-    roles). Implied by the SDK where the model forces it: a part
+    appears in a people list — so a type filter needs no `__type__`
+    exclusion (docs/29 § One object, three roles). Implied by the SDK
+    where the model forces it: a part
     naming a reserved module (the general chat root IS the chat, the
     type's sole carrier) and every tech-space bundle; the catalog
     still states it for general-chat, and the compile gate refuses a
     reserved-module part without it (`catalog.bad_field`), as does
     `selfTyped` without a declaration (pure layer). Attached on install
-    or on an adopt that gains it, never removed — an already-installed
-    wiki keeps the type on its root (no migration; clients may detach).
+    or on an adopt that gains it, never removed. Nothing with the old
+    stamp-everything behaviour ever shipped, so there is no legacy
+    shape.
     Tests: `TestServer_CatalogSetupEveryUsecase` (sets every usecase
     up, pins the carried set per bundle from its declaration alone,
     the write gate both ways), e2e twin

@@ -10,10 +10,11 @@ import (
 )
 
 // favoritesEnsureBody is the canonical favorites/v1 install request
-// from the client contract (docs/25-favorites.md): a CREATED root
-// (Ensure mints and self-types it) carrying the `entries` part; the
-// records live in the namespaced collection `<rootId>_entries`.
-const favoritesEnsureBody = `{"id":"favorites/v1","name":"Favorites","parts":[{"key":"entries","datasets":[{
+// from the client contract (docs/25-favorites.md): a CREATED,
+// hidden, self-typed root (Ensure mints it) carrying the `entries`
+// part; the records live in the namespaced collection
+// `<rootId>_entries`.
+const favoritesEnsureBody = `{"id":"favorites/v1","name":"Favorites","hidden":true,"selfTyped":true,"parts":[{"key":"entries","datasets":[{
 	"key": "entries",
 	"idRule": "user",
 	"idPattern": "^(any://o/.+|f:[A-Za-z0-9_-]{1,64})$",

@@ -49,9 +49,9 @@ never reaches storage. Keying a value by `xKey` is `property.not_found`.
 3. `POST /v1/spaces/:spaceId/objects/query` with
    `{"filter": {"any.types": "miniapp"}}` — the installed apps. Each row
    carries `miniapp.bundle`, the bundle id that installed it. This one
-   query does **not** take the `__type__` exclusion below: a miniapp row
-   is a bundle root, and the roots that also declare a type (wiki,
-   contacts) carry the marker the exclusion would drop.
+   query takes no `__type__` exclusion (§ One object, three roles): a
+   miniapp row is a bundle root, and the roots that also declare a
+   type (wiki, contacts) carry the marker.
 
 Do not install anything at startup. Set a usecase up when the user asks
 for the feature (§ Usecases).
@@ -211,20 +211,20 @@ people list.
 
 The consequence for reads: a type row **does not match a filter for its
 own type** — `{"any.types": "<personTypeId>"}` returns the people and
-not the definition. The one row that self-matches is a `selfTyped`
-root, and that is the row you want (querying the general-chat type
-finds the chat). Still exclude `bin` carriers from an ordinary list —
-a binned object keeps its type membership (§ Content surfaces):
+not the definition, so a list needs no `__type__` clause. Exclude `bin`
+carriers — a binned object keeps its type membership (§ Content
+surfaces):
 
 ```json
 {"$and": [{"any.types": "<typeId>"},
           {"any.types": {"$nin": ["bin"]}}]}
 ```
 
-A type created through `POST …/types` is a definition only — role 2
-without role 3 — so it carries just `__type__` and does not self-match
-either. The `__type__` rows are found by that marker, never through a
-type filter.
+A `selfTyped` root is the one row that self-matches, by design, and it
+is a bundle root: reach it through the registry (`GET …/bundles`), not
+through a type filter. A type created through `POST …/types` is a
+definition only — role 2 without role 3 — so it carries just
+`__type__` and does not self-match either.
 
 ### Timestamps
 

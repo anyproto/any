@@ -501,7 +501,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "parts": {
-                        "description": "Parts declares the root's parts with their datasets (same shape\nas POST …/types/:typeId/parts); the root becomes a type\nimplementing itself, typeId = rootId, and the records are written\nthrough POST …/upsert / …/modify on the root (dataset = the\ncomputed collection, ` + "`" + `\u003crootId\u003e_\u003ckey\u003e` + "`" + ` for a namespaced one).\nDeclared once on install; later evolution goes through the\n…/types/:rootId/parts routes. Parts or properties are required\non the tech space.",
+                        "description": "Parts declares the root type's parts with their datasets (same\nshape as POST …/types/:typeId/parts); the root becomes a type\ndefinition, typeId = rootId, and the objects carrying it take\nthe datasets — records through POST …/upsert / …/modify (dataset\n= the computed collection, ` + "`" + `\u003crootId\u003e_\u003ckey\u003e` + "`" + ` for a namespaced\none). The root itself takes them only when SelfTyped. Declared\nonce on install; later evolution goes through the\n…/types/:rootId/parts routes. Parts or properties are required\non the tech space.",
                         "items": {
                             "$ref": "#/components/schemas/api.PartDraftRequest"
                         },
@@ -525,7 +525,7 @@ const docTemplate = `{
                         "type": "object"
                     },
                     "rootTypes": {
-                        "description": "RootTypes are attached to the root object at birth, so the\ninstall's datasets are writable on it with no extra call. On a\nroot that declares a type they ride the root's first change next\nto its own type — one object that is both a type and a carrier\nof another (the wiki: the type its pages carry and a ` + "`" + `miniapp` + "`" + `).",
+                        "description": "RootTypes are attached to the root object at birth, so their\ndatasets are writable on it with no extra call. On a root that\ndeclares a type they ride the root's first change next to the\ntype marker — one object that is both a type definition and a\ncarrier of another (the wiki: the type its pages carry and a\n` + "`" + `miniapp` + "`" + `).",
                         "items": {
                             "type": "string"
                         },
@@ -635,7 +635,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "parts": {
-                        "description": "Parts declare records datasets on the root (the\nPOST …/types/:typeId/parts draft shape).",
+                        "description": "Parts declare the type's parts and their datasets (the\nPOST …/types/:typeId/parts draft shape) — on the root itself\nonly with ` + "`" + `selfTyped` + "`" + `.",
                         "items": {
                             "$ref": "#/components/schemas/api.PartDraftRequest"
                         },

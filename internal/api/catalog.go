@@ -25,7 +25,8 @@ type CatalogUsecase struct {
 // CatalogBundle is one bundle of a usecase: one created root under a
 // `system:<name>/v<n>` id. What the root IS follows from what it
 // declares — a type objects carry (`type`), the object a client opens
-// (`miniapp`), records on the root (`parts`) — in any combination.
+// (`miniapp`), parts its carriers get (`parts`; on the root itself
+// only with `selfTyped`) — in any combination.
 type CatalogBundle struct {
 	Id          string `json:"id"`
 	Name        string `json:"name"`
@@ -50,8 +51,9 @@ type CatalogBundle struct {
 	// carries: `bundle` is this bundle's id (filled when omitted), any
 	// other key must be a property the built-in declares.
 	Miniapp map[string]any `json:"miniapp,omitempty"`
-	// Parts declare records datasets on the root (the
-	// POST …/types/:typeId/parts draft shape).
+	// Parts declare the type's parts and their datasets (the
+	// POST …/types/:typeId/parts draft shape) — on the root itself
+	// only with `selfTyped`.
 	Parts []PartDraftRequest `json:"parts,omitempty"`
 }
 
