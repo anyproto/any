@@ -1927,8 +1927,8 @@ Implementation slices landed:
     `TestE2E_CatalogEveryUsecaseRootTypes`, SDK
     `TestE2E_BundlesSelfTypedCreatedRoot`. Contract: docs/03-api.md
     § Bundles, docs/28, docs/29, docs/25 (the favourites recipe carries
-    the flag), SDK docs/bundles.md. **SDK prerequisite:** branch
-    cheggaaa/bundle-self-type-opt-in, pseudo-versioned.
+    the flag), SDK docs/bundles.md. **SDK prerequisite:** shipped in
+    `any-sync-sdk v0.3.2`.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
