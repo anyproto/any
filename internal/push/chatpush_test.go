@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/anyproto/any-sync-sdk/space"
 )
 
 // TestChatPayload_HeartWireFormat pins the wire JSON byte-for-byte
@@ -38,6 +40,28 @@ func TestChatPayload_HeartWireFormat(t *testing.T) {
 		`"senderName":"Alice","text":"hi","hasAttachments":true,"attachments":[{"layout":0}]}}`
 	if string(got) != want {
 		t.Errorf("payload JSON drifted from heart's wire format:\n got: %s\nwant: %s", got, want)
+	}
+}
+
+// TestChatPayload_OneToOneKinds pins the enum values a receiver keys
+// its direct-message rendering on (heart's SpaceUxType_OneToOne = 4,
+// SpaceType_SpaceTypeOneToOne = 4); everything else stays 0.
+func TestChatPayload_OneToOneKinds(t *testing.T) {
+	if ux, kind := heartSpaceKinds(space.SpaceTypeOneToOne); ux != 4 || kind != 4 {
+		t.Fatalf("one-to-one kinds = (%d, %d), want (4, 4)", ux, kind)
+	}
+	for _, st := range []string{space.SpaceTypeAny, "", "any.something"} {
+		if ux, kind := heartSpaceKinds(st); ux != 0 || kind != 0 {
+			t.Errorf("kinds(%q) = (%d, %d), want (0, 0)", st, ux, kind)
+		}
+	}
+	ux, kind := heartSpaceKinds(space.SpaceTypeOneToOne)
+	got, err := json.Marshal(Payload{SpaceId: "sp1", SpaceUxType: ux, SpaceType: kind, SenderId: "acc1", Type: ChatMessage})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"spaceId":"sp1","spaceUxType":4,"spaceType":4,"senderId":"acc1","type":1}`; string(got) != want {
+		t.Fatalf("payload = %s, want %s", got, want)
 	}
 }
 
