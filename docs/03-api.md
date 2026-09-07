@@ -2829,17 +2829,35 @@ the collection, and `page` is always among the `owners` of
 `layout`: an object carrying only `page` has no primary type and renders
 by the client's default.
 
-**`miniapp`** — the marker of an object that runs an installed bundle.
-One property, `bundle` (string): the id of the installed bundle
-(§ Bundles — `system:wiki/v1`, a marketplace id, …), which is what a
-client needs to know what to open. No parts. Written through the
-generic `POST …/properties/:objectId/set/miniapp`
-(`{"patch": {"bundle": "<bundleId>"}}`); the object must carry the type.
-Catalog miniapp roots (§ Catalog) carry it from their first change
-with `bundle` set to the bundle id (`system:wiki/v1`,
-`system:collections/v1`, …) plus any other `miniapp` value the catalog
-declares; a value the catalog gains later is healed onto existing
-roots at their next setup.
+**`miniapp`** — the marker of a sidebar entry: an object that runs an
+installed bundle, or an ordinary object the user pinned. The space
+sidebar is the list of carriers — `{"any.types": "miniapp"}` minus
+`bin` carriers and `miniapp.hidden`, sorted on `miniapp.pos`; that
+query keeps `__type__` rows, since a root that is an app and a type
+(the wiki) carries both. Three properties, no parts:
+
+- `bundle` (string) — the id of the installed bundle (§ Bundles —
+  `system:wiki/v1`, a marketplace id, …), which is what a client
+  needs to know what to open. Absent on a pinned object: the client
+  renders it as the object it is. The bundle id is the app's whole
+  identity — a client never guesses from the root's name.
+- `pos` (string) — sidebar position, a lexid the client allocates
+  (the wiki `pos` allocator); the server orders nothing.
+- `hidden` (boolean, `checkbox`) — `true` takes the entry out of the
+  sidebar without uninstalling anything. There is no uninstall of a
+  catalog install yet; hiding is the supported "remove".
+
+Pin = `POST …/properties/:objectId/attach/miniapp`, unpin =
+`…/detach/miniapp`; values through the generic
+`POST …/properties/:objectId/set/miniapp` (`{"patch": {"pos": "a0"}}`),
+the object must carry the type. Catalog miniapp roots (§ Catalog) —
+the wiki, collections, contacts, crm and the general chat — carry it
+from their first change with `bundle` set to the bundle id plus any
+other `miniapp` value the catalog declares; a value the catalog gains
+later is healed onto existing roots at their next setup, the type
+attached first when the root predates it. A client never detaches
+`miniapp` from a catalog root: the install would stay and become
+unreachable.
 
 **`bin`** — the marker of an object moved to the bin. Move to bin is
 `POST …/properties/:objectId/attach/bin`, restore is
@@ -2934,7 +2952,9 @@ POST /v1/catalog/general-chat/setup
 The install is `system:general-chat/v1`: a **derived**, **hidden**
 root that is its own type (handle `general_chat`, `layout
 {"type": "chat"}`) with one shared `chat` part, so it takes
-`chat/messages` writes from the first call. Setup is adopt-or-install
+`chat/messages` writes from the first call, and a `miniapp` carrier
+(`bundle = system:general-chat/v1`), so the chat is a sidebar entry
+like every other app (§ Built-in hidden types). Setup is adopt-or-install
 and idempotent — every client, member and device lands on the same
 object, and because the root is derived its id is a function of the
 space and the bundle id: computed offline, two sides of a 1-1

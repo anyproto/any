@@ -249,11 +249,16 @@ func TestServer_CatalogSetupCollectionsAndChat(t *testing.T) {
 		t.Fatalf("collections root types: %v", types)
 	}
 
-	// general chat: derived, hidden, a chat from the first write.
+	// general chat: derived, hidden, a sidebar entry (miniapp), a chat
+	// from the first write.
 	res = setupUsecase(t, e, "general-chat", sp.Id)
 	chat := res.Bundles[0]
-	if !chat.Bundle.Derived || chat.TypeId != chat.Bundle.RootId || chat.Miniapp != nil {
+	if !chat.Bundle.Derived || chat.TypeId != chat.Bundle.RootId || chat.Miniapp["bundle"] != "system:general-chat/v1" {
 		t.Fatalf("general chat bundle: %+v", chat)
+	}
+	row := objectRow(t, e, sp.Id, chat.Bundle.RootId)
+	if types := rowTypes(row); !slices.Contains(types, "miniapp") {
+		t.Fatalf("general chat root types = %v, want miniapp", types)
 	}
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/"+chat.Bundle.RootId+"/chat/messages", `{"text":"hello"}`)
 	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {

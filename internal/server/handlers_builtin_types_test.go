@@ -190,9 +190,9 @@ func TestServer_PageType(t *testing.T) {
 	}
 }
 
-// TestServer_MiniappType pins the built-in mini-app marker: one string
-// property `bundle`, writable on a carrier through the generic
-// properties surface and refused elsewhere.
+// TestServer_MiniappType pins the built-in mini-app marker: `bundle`
+// (string), `pos` (string) and `hidden` (bool), writable on a carrier
+// through the generic properties surface and refused elsewhere.
 func TestServer_MiniappType(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -203,8 +203,18 @@ func TestServer_MiniappType(t *testing.T) {
 
 	var props api.PropertiesListResponse
 	decodeGet(t, e, base+"/types/"+miniapp.TypeId+"/properties", &props)
-	if len(props.Properties) != 1 || props.Properties[0].Id != miniapp.PropBundle || props.Properties[0].Kind != api.PropertyKindString {
+	kinds := map[string]string{}
+	for _, p := range props.Properties {
+		kinds[p.Id] = string(p.Kind)
+	}
+	want := map[string]string{miniapp.PropBundle: api.PropertyKindString, miniapp.PropPos: api.PropertyKindString, miniapp.PropHidden: api.PropertyKindBoolean}
+	if len(kinds) != len(want) {
 		t.Fatalf("miniapp properties = %+v", props.Properties)
+	}
+	for id, k := range want {
+		if kinds[id] != k {
+			t.Fatalf("miniapp property %s kind = %q, want %q", id, kinds[id], k)
+		}
 	}
 	var parts api.TypePartsListResponse
 	decodeGet(t, e, base+"/types/"+miniapp.TypeId+"/parts", &parts)

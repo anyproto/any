@@ -48,6 +48,7 @@ usecases:
         name: General
         derived: true
         hidden: true
+        miniapp: {}                            # the chat is a sidebar entry like every app
         type: { xKey: general_chat, layout: { type: chat } }
         parts:
           - key: chat

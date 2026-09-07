@@ -46,15 +46,22 @@ never reaches storage. Keying a value by `xKey` is `property.not_found`.
 2. `GET /v1/spaces/:spaceId/types?includeHidden=true` — every type, with
    `xKey`, `weight`, `layout` and the `hidden` / `builtIn` flags. The
    flags are omitted when false, so read an absent key as false.
-3. `POST /v1/spaces/:spaceId/objects/query` with
-   `{"filter": {"any.types": "miniapp"}}` — the installed apps. Each row
-   carries `miniapp.bundle`, the bundle id that installed it. This one
-   query does **not** take the `__type__` exclusion below: a miniapp row
-   is a bundle root, and the roots that also declare a type (wiki,
-   contacts) are exactly the ones the exclusion would drop.
+3. `POST /v1/spaces/:spaceId/objects/query/subscribe` with
+   `{"filter": {"$and": [{"any.types": "miniapp"},
+   {"any.types": {"$nin": ["bin"]}}, {"miniapp.hidden": {"$ne": true}}]},
+   "sort": ["miniapp.pos"]}` — the sidebar. The sidebar lists exactly
+   the `miniapp` carriers: a row with `miniapp.bundle` is an installed
+   app (the wiki, the general chat, contacts, …) and the bundle id says
+   what to run; a row without one is an object the user pinned, rendered
+   as the object it is. This one query does **not** take the `__type__`
+   exclusion below: a miniapp row is a bundle root, and the roots that
+   also declare a type (wiki, contacts) are exactly the ones the
+   exclusion would drop. An empty sidebar is a valid state (a joined
+   space, a space another client made): render it and offer the catalog.
 
-Do not install anything at startup. Set a usecase up when the user asks
-for the feature (§ Usecases).
+Do not install anything on open. The client that **creates** a space
+sets its default usecases up right after `POST /v1/spaces`; every other
+usecase is set up when the user asks for the feature (§ Usecases).
 
 ## Usecases and the catalog
 
@@ -92,8 +99,10 @@ stamps them.
 
 - **`page`** — one part `body` owning the shared `editor_blocks`
   collection. Carry it to make an object a document.
-- **`miniapp`** — one property `bundle`. Marks an object as an installed
-  app's entry point.
+- **`miniapp`** — the sidebar marker: `bundle` (the installed app's
+  id, absent on a pinned object), `pos` (client-allocated lexid order),
+  `hidden` (out of the sidebar, install kept). Pin / unpin =
+  attach / detach the type.
 - **`bin`** — `movedAt` + `movedBy`. Move and restore are
   `POST …/properties/:objectId/attach/bin` and `…/detach/bin`; one change
   carries the type and both stamps, so a row is never half-marked.
@@ -278,7 +287,7 @@ new id under a per-kind key (`objectId`, `typeId`).
 | surface | how |
 |---|---|
 | **Document** | carry `page` (or your own type with an editor part). Blocks: `…/objects/:o/editor/:collection/blocks`; whole body: `GET/PUT/PATCH …/editor/:collection/markdown`. Read with `dataset` set to **the same `:collection`**, sorted on `nav.pos` — `editor_blocks` for the shared part `page` uses, `<typeId>_<key>` for a type that declares its own namespaced editor part. |
-| **Chat** | one per space, the `general-chat` usecase. Writes: `…/objects/:chatRoot/chat/messages`. Read via `dataset=chat_messages` sorted on `_ver.id`. |
+| **Chat** | one per space, the `general-chat` usecase; its root is a `miniapp` carrier, so it sits in the sidebar with the other apps. Writes: `…/objects/:chatRoot/chat/messages`. Read via `dataset=chat_messages` sorted on `_ver.id`. |
 | **Wiki tree** | the `wiki` usecase's three properties on objects that carry it: `parentId` (`""` = top level), `pos` (lexid), `folder`. Children = objects query filtered on the parent property, sorted on the pos property. The server allocates no positions. |
 | **Saved views** | the `dataview` type: `dataviews` (tables on a host) and `views` (views of a table). |
 | **Favourites** | the client-registered `favorites/v1` bundle on the tech space. |
