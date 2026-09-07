@@ -146,8 +146,13 @@ A property definition is `{name, xKey, kind, xFormat?, meta?}`. `kind` is
 required and **pinned on first write** — it is the storage contract
 (`string`, `array`, `number`, `boolean`, `datetime`, `object`). `xFormat`
 is the descriptor: an opaque bag whose interpreted keys are `type`,
-`icon`, `pos`, `options`, `relation`, `config`
-([`27-descriptors.md`](27-descriptors.md)).
+`icon`, `pos`, `options`, `relation`, `config`, `links`
+([`27-descriptors.md`](27-descriptors.md)). A reference property is
+`kind: array` with `xFormat.type: "relation"` and values
+`["any://<objectId>", …]` — that slug is also what puts its values into
+the backlinks index; a property created without it (any pre-descriptor
+definition) indexes nothing until it is patched with
+`{"set": {"xFormat.type": "relation"}}`.
 
 ### Value shapes that bite
 
@@ -292,6 +297,7 @@ new id under a per-kind key (`objectId`, `typeId`).
 | **Saved views** | the `dataview` type: `dataviews` (tables on a host) and `views` (views of a table). |
 | **Favourites** | the client-registered `favorites/v1` bundle on the tech space. |
 | **Bin** | attach / detach the `bin` type. |
+| **Links panel** | what links here and what this links to: `GET …/objects/:o/backlinks` (`{object, parts}`), `GET …/objects/:o/links`, account-wide `GET /v1/backlinks?target=`; refresh on the device bus event `links.updated`. Edges come from editor blocks, chat messages and every property or field whose descriptor carries a link marker (`relation` / `markdown` slug, or `xFormat.links`). Recipe: [`08-clients.md`](08-clients.md) § 15; wire shape: [`03-api.md`](03-api.md) § Links and backlinks. |
 
 The markdown bridge round-trips exactly: re-PUTting what GET returned
 writes nothing. Import normalises (a tight list becomes one record per
