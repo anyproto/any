@@ -23,7 +23,7 @@ message, not in the object row.
 A **usecase** is a set of well-known bundles the server installs on
 request. A **bundle** is one root object under a permanent id
 (`system:person/v1`) that can be a miniapp, a type definition and an
-implementation of that type at the same time (§ Reading data).
+implementation of that type — up to all three at once (§ Reading data).
 Installing is idempotent and convergent: every device that asks lands on
 the same root and the same property ids.
 
@@ -194,11 +194,16 @@ at once:
 3. an **implementation of that type** — it carries the type itself, so it
    holds that type's property values and datasets.
 
-The wiki root is all three: it is the Wiki app, it defines the wiki type,
-and because it implements that type it can sit in the tree like any other
-node. Favourites and contacts use role 3 to host their own records on the
-root; the write gate only lets an object hold a type's datasets if it
-carries that type.
+Role 3 is what lets a root hold its own bundle's data: favourites keeps
+its entries on the favourites root and contacts keeps its layouts on the
+contacts root, and the write gate only admits a type's datasets on an
+object that carries that type.
+
+The self type is attached to **every** root that declares one, whether or
+not the bundle uses role 3. The wiki root, for instance, is the Wiki app
+and the wiki type definition, and it carries the wiki type while holding
+no wiki values of its own — the tree is made of the other objects that
+carry it.
 
 The consequence for reads: a type row **matches a filter for its own
 type**, so `{"any.types": "<personTypeId>"}` returns the Person
