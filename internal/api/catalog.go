@@ -25,7 +25,8 @@ type CatalogUsecase struct {
 // CatalogBundle is one bundle of a usecase: one created root under a
 // `system:<name>/v<n>` id. What the root IS follows from what it
 // declares — a type objects carry (`type`), the object a client opens
-// (`miniapp`), records on the root (`parts`) — in any combination.
+// (`miniapp`), parts its carriers get (`parts`; on the root itself
+// only with `selfTyped`) — in any combination.
 type CatalogBundle struct {
 	Id          string `json:"id"`
 	Name        string `json:"name"`
@@ -37,14 +38,22 @@ type CatalogBundle struct {
 	// primary-type choice; needs `type` or `parts`, and excludes a
 	// `weight`.
 	Hidden bool `json:"hidden,omitempty"`
-	// Type declares the type the root implements.
+	// SelfTyped makes the root also carry the type it declares — a
+	// root that hosts its own bundle's records (contacts layouts). A
+	// type-only bundle (wiki, person) leaves it off: the definition
+	// does not match a query for its type and takes none of its parts.
+	// Implied for a reserved-module part (the general chat); needs
+	// `type` or `parts`.
+	SelfTyped bool `json:"selfTyped,omitempty"`
+	// Type declares the type the root defines.
 	Type *CatalogType `json:"type,omitempty"`
 	// Miniapp is a value map on the built-in `miniapp` type the root
 	// carries: `bundle` is this bundle's id (filled when omitted), any
 	// other key must be a property the built-in declares.
 	Miniapp map[string]any `json:"miniapp,omitempty"`
-	// Parts declare records datasets on the root (the
-	// POST …/types/:typeId/parts draft shape).
+	// Parts declare the type's parts and their datasets (the
+	// POST …/types/:typeId/parts draft shape) — on the root itself
+	// only with `selfTyped`.
 	Parts []PartDraftRequest `json:"parts,omitempty"`
 }
 

@@ -463,7 +463,9 @@ any bundle child   <spaceId> <bundleId> --seed SEED [--type T ...]
 — the id, the root strategy (`derived`) and what the root declares:
 `parts`, `properties` (each property with an `xKey`; the property id
 derives from it) or an `xKey` (the type's handle; alone it declares a
-marker type), plus `layout`, `weight`, `hidden` describing that type.
+marker type), plus `layout`, `weight`, `hidden`, `selfTyped` describing
+that type (`selfTyped` makes the root carry its own type — a records
+host; a type objects carry leaves it off).
 Adopt-or-install: the reply carries the converged row and
 whether THIS call installed it. `get` and `list` are locked on
 registry convergence and report `synced`. `resolve` deletes a losing

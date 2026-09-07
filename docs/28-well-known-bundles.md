@@ -30,8 +30,16 @@ root IS follows from that:
 |---|---|---|
 | `type` | a type object, `typeId = rootId`; `xKey` is its handle | carrying it in `any.types`; values at `<typeId>.<propId>` |
 | `miniapp` | the object a client opens; carries the built-in `miniapp` with `bundle` = the bundle id | opening it; `miniapp.bundle` says what to run |
-| `parts` | a records host — the app's own state lives in records on the root | nothing; a records host asks for `hidden` |
+| `parts` | a type whose carriers get the parts — records datasets, an editor body, a chat | carrying it; a `selfTyped` root is itself the carrier: a records host (the contacts layouts) that asks for `hidden` |
 | `type` + `miniapp` | one object that is both (the wiki: the app, and the type its pages carry) | both |
+
+The root carries `__type__` when it declares a type and `miniapp` when
+it is one. It carries its **own** id only with `selfTyped: true` — the
+root is then an instance of its type: it answers a query for the type,
+holds its values and takes its parts. A type objects carry (wiki,
+person) leaves it off, so its definition is never one of them. Implied
+for a part naming a reserved module — the general chat's root is the
+chat, its type's sole carrier.
 
 `type: {xKey}` alone — no properties, no parts — is a valid **marker
 type**: a flag objects carry, resolvable by handle, with no columns.
@@ -140,9 +148,9 @@ One call does, in order:
    read, so a reader member gets the ids too; a writer's adopt also
    heals what the root lacks (§ Evolution). Otherwise the server checks
    the handle (§ Handles), creates the root with everything the bundle
-   declares — the type marker plus its own id, the `miniapp` type with
-   its values, the parts and properties, name, xKey, weight, layout,
-   hidden — and registers it. A created root lands as root + up to 3
+   declares — the type marker (plus its own id when `selfTyped`), the
+   `miniapp` type with its values, the parts and properties, name,
+   xKey, weight, layout, hidden — and registers it. A created root lands as root + up to 3
    changes: one `objects` change carrying the types, `any.name`, the
    type metadata and the seeded `rootProperties`; then, after the
    registry row, one `datasets` change when the bundle declares parts
@@ -230,8 +238,8 @@ its own handles away from the catalog's.
   refuses `weight` next to `hidden`).
 - Parts and properties of a hidden type still render: a hidden type
   contributes its columns and its parts, only never the layout.
-- A hidden **self-typed root** that is itself the rendered object — the
-  general chat — renders by its own layout (`{"type": "chat"}`),
+- A hidden **`selfTyped` root** that is itself the rendered object —
+  the general chat — renders by its own layout (`{"type": "chat"}`),
   because nothing else is carried.
 - Then every carried type's parts in `pos` order: a `records` part is
   a table over `<typeId>_<key>` on the object, an `editor` part the

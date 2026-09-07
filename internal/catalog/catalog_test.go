@@ -198,6 +198,13 @@ func TestCatalog_Problems(t *testing.T) {
 			code: CodeBadField, path: "usecases[2].bundles[0].hidden",
 		},
 		{
+			name: "selfTyped without a declaration",
+			mutate: func(s string) string {
+				return strings.Replace(s, "        hidden: true\n        parts:\n          - key: settings\n            datasets:\n              - key: settings\n                idRule: user\n                fields: [ { key: pipeline, kind: string, mutableBy: any } ]\n", "        selfTyped: true\n", 1)
+			},
+			code: CodeBadField, path: "usecases[2].bundles[0].selfTyped",
+		},
+		{
 			name: "weight on a hidden type",
 			mutate: func(s string) string {
 				return strings.Replace(s, "          xKey: company\n", "          xKey: company\n          weight: 5\n", 1) + ""

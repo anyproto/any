@@ -56,10 +56,12 @@ func newBundleEnsureCmd() *cobra.Command {
 what the root is: parts (datasets a module serves), properties (a type
 objects carry — every property needs an xKey, its id derives from it),
 xKey (the type's handle; alone it declares a marker type), layout,
-weight and hidden. rootTypes / rootProperties ride a derived root or a
-created root that declares a type.
-  {"id": "notes/v1", "name": "Notes", "hidden": true,
-   "parts": [{"key": "body", "datasets": [{"module": "editor", "shared": true}]}]}
+weight, hidden and selfTyped (the root carries its own type — a records
+host; a type objects carry leaves it off). rootTypes / rootProperties
+ride a derived root or a created root that declares a type.
+  {"id": "notes/v1", "name": "Notes", "hidden": true, "selfTyped": true,
+   "parts": [{"key": "entries", "datasets": [{"key": "entries", "idRule": "user",
+              "fields": [{"key": "title", "kind": "string", "mutableBy": "any"}]}]}]}
   {"id": "wiki/v1", "name": "Wiki", "derived": true, "weight": 1,
    "properties": [{"xKey": "parentId", "name": "Parent", "kind": "string"},
                   {"xKey": "pos", "name": "Position", "kind": "string"}]}

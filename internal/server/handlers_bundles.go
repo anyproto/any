@@ -251,6 +251,11 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 		return inst, writeError(c, http.StatusBadRequest, "request.schema", "hidden must be a boolean", nil), true
 	}
 	inst.Hidden = root.GetBool("hidden")
+	if v := root.Get("selfTyped"); v != nil && v.Type() != fastjson.TypeNull &&
+		v.Type() != fastjson.TypeTrue && v.Type() != fastjson.TypeFalse {
+		return inst, writeError(c, http.StatusBadRequest, "request.schema", "selfTyped must be a boolean", nil), true
+	}
+	inst.SelfTyped = root.GetBool("selfTyped")
 	if v := root.Get("xKey"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeString {
 		return inst, writeError(c, http.StatusBadRequest, "request.schema", "xKey must be a string", nil), true
 	}
@@ -259,9 +264,9 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"xKey too long", map[string]any{"max_bytes": maxTypeXKeyBytes}), true
 	}
-	if !inst.DeclaresType() && (len(inst.Layout) > 0 || inst.Weight != 0 || inst.Hidden) {
+	if !inst.DeclaresType() && (len(inst.Layout) > 0 || inst.Weight != 0 || inst.Hidden || inst.SelfTyped) {
 		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
-			"layout/weight/hidden describe a type — declare parts, properties or an xKey with them", nil), true
+			"layout/weight/hidden/selfTyped describe a type — declare parts, properties or an xKey with them", nil), true
 	}
 	inst.Id = string(root.GetStringBytes("id"))
 	inst.Name = string(root.GetStringBytes("name"))

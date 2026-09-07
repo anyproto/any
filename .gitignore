@@ -40,3 +40,6 @@ website/dist/
 /anydocs
 /configs/
 /datadirs/
+
+# Design drafts and plans (not part of the project surface)
+/docs/plans/

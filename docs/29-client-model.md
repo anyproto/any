@@ -22,8 +22,8 @@ message, not in the object row.
 
 A **usecase** is a set of well-known bundles the server installs on
 request. A **bundle** is one root object under a permanent id
-(`system:person/v1`) that can be a miniapp, a type definition and an
-implementation of that type — up to all three at once (§ Reading data).
+(`system:person/v1`) that can be a miniapp, a type definition and — when
+the bundle says so — an instance of that type (§ Reading data).
 Installing is idempotent and convergent: every device that asks lands on
 the same root and the same property ids.
 
@@ -49,9 +49,9 @@ never reaches storage. Keying a value by `xKey` is `property.not_found`.
 3. `POST /v1/spaces/:spaceId/objects/query` with
    `{"filter": {"any.types": "miniapp"}}` — the installed apps. Each row
    carries `miniapp.bundle`, the bundle id that installed it. This one
-   query does **not** take the `__type__` exclusion below: a miniapp row
-   is a bundle root, and the roots that also declare a type (wiki,
-   contacts) are exactly the ones the exclusion would drop.
+   query takes no `__type__` exclusion (§ One object, three roles): a
+   miniapp row is a bundle root, and the roots that also declare a
+   type (wiki, contacts) carry the marker.
 
 Do not install anything at startup. Set a usecase up when the user asks
 for the feature (§ Usecases).
@@ -191,38 +191,40 @@ at once:
 
 1. the **miniapp** — the app's entry point (`miniapp.bundle`);
 2. the **type definition** — `typeId == rootId`, carrying `__type__`;
-3. an **implementation of that type** — it carries the type itself, so it
-   holds that type's property values and datasets.
+3. an **instance of that type** — it carries the type itself, so it
+   holds that type's property values and takes its parts.
 
-Role 3 is what lets a root hold its own bundle's data: favourites keeps
-its entries on the favourites root and contacts keeps its layouts on the
-contacts root, and the write gate only admits a type's datasets on an
-object that carries that type.
+Role 3 is the bundle's choice (`selfTyped` in the catalog and on
+`POST …/bundles`), and it is what lets a root hold its own bundle's
+data: favourites keeps its entries on the favourites root and contacts
+keeps its layouts on the contacts root, because the write gate only
+admits a type's datasets on an object that carries that type. The
+general chat has it by construction — its root is the chat, the sole
+carrier of its type.
 
-The self type is attached to **every** root that declares one, whether or
-not the bundle uses role 3. The wiki root, for instance, is the Wiki app
-and the wiki type definition, and it carries the wiki type while holding
-no wiki values of its own — the tree is made of the other objects that
-carry it.
+Every other catalog type is roles 1 and 2 only. The wiki root is the
+Wiki app and the wiki type definition; it does not carry the wiki type,
+holds no `parentId` / `pos` / `folder` and is not a node — the tree is
+made of the objects that carry the type. The person root defines Person
+and is not a person: it takes no editor body and never appears in a
+people list.
 
-The consequence for reads: a type row **matches a filter for its own
-type**, so `{"any.types": "<personTypeId>"}` returns the Person
-definition next to the actual people. Exclude the marker:
+The consequence for reads: a type row **does not match a filter for its
+own type** — `{"any.types": "<personTypeId>"}` returns the people and
+not the definition, so a list needs no `__type__` clause. Exclude `bin`
+carriers — a binned object keeps its type membership (§ Content
+surfaces):
 
 ```json
 {"$and": [{"any.types": "<typeId>"},
-          {"any.types": {"$ne": "__type__"}},
           {"any.types": {"$nin": ["bin"]}}]}
 ```
 
-The third clause is the other half: a binned object keeps its type
-membership, so an ordinary list must exclude `bin` carriers too
-(§ Content surfaces).
-
-A type created through `POST …/types` is a definition only — role 2
-without role 3 — so it carries just `__type__` and does not self-match.
-Write the filter this way regardless, so it keeps working when the type
-later ships as a bundle.
+A `selfTyped` root is the one row that self-matches, by design, and it
+is a bundle root: reach it through the registry (`GET …/bundles`), not
+through a type filter. A type created through `POST …/types` is a
+definition only — role 2 without role 3 — so it carries just
+`__type__` and does not self-match either.
 
 ### Timestamps
 

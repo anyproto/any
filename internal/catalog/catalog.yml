@@ -5,8 +5,10 @@
 # A usecase is a set of bundles installed together plus the usecases it
 # requires. Every bundle is a created root under a permanent `system:` id;
 # `type` makes it a type objects carry, `miniapp` the object a client
-# opens, `parts` records on the root. Bundle ids never change — a bundle
-# that changes shape takes a new id.
+# opens, `parts` the datasets its carriers get. A root carries its own
+# type only with `selfTyped: true` — a records host — so a plain type's
+# definition is never an instance of it. Bundle ids never change — a
+# bundle that changes shape takes a new id.
 
 usecases:
 
@@ -48,6 +50,7 @@ usecases:
         name: General
         derived: true
         hidden: true
+        selfTyped: true                        # the root IS the chat: sole carrier of its type
         type: { xKey: general_chat, layout: { type: chat } }
         parts:
           - key: chat
@@ -291,6 +294,7 @@ usecases:
         name: Contacts
         miniapp: {}
         hidden: true
+        selfTyped: true                        # the layouts live on the root
         parts:
           - key: layouts
             datasets:

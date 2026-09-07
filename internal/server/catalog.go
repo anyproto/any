@@ -97,7 +97,7 @@ func compileCatalog(src []byte) (*compiledCatalog, catalog.Problems) {
 			cb := compiledBundle{CatalogBundle: b, usecase: u.Id}
 			inst := bundles.Install{
 				Id: b.Id, Name: b.Name, Derived: b.Derived, Hidden: b.Hidden,
-				SystemInstall: true,
+				SelfTyped: b.SelfTyped, SystemInstall: true,
 			}
 			if b.Type != nil {
 				inst.XKey = b.Type.XKey
@@ -123,6 +123,15 @@ func compileCatalog(src []byte) (*compiledCatalog, catalog.Problems) {
 					continue
 				}
 				inst.Parts = append(inst.Parts, draft)
+				// A reserved module's only carrier is the root, so a
+				// part naming one is a self-typed root by definition —
+				// the SDK implies it; the catalog says so in the source.
+				for di, ds := range draft.Datasets {
+					if reservedModule(ds.Module) && !b.SelfTyped {
+						add(fmt.Sprintf("%s.parts[%d].datasets[%d].module", bp, pi, di), catalog.CodeBadField,
+							"module "+ds.Module+" is reserved — its sole carrier is the root, so the bundle must be selfTyped")
+					}
+				}
 			}
 			if b.Miniapp != nil {
 				values := map[string]any{miniapp.PropBundle: b.Id}

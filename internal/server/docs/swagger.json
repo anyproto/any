@@ -494,7 +494,7 @@
                         "type": "string"
                     },
                     "parts": {
-                        "description": "Parts declares the root's parts with their datasets (same shape\nas POST …/types/:typeId/parts); the root becomes a type\nimplementing itself, typeId = rootId, and the records are written\nthrough POST …/upsert / …/modify on the root (dataset = the\ncomputed collection, `\u003crootId\u003e_\u003ckey\u003e` for a namespaced one).\nDeclared once on install; later evolution goes through the\n…/types/:rootId/parts routes. Parts or properties are required\non the tech space.",
+                        "description": "Parts declares the root type's parts with their datasets (same\nshape as POST …/types/:typeId/parts); the root becomes a type\ndefinition, typeId = rootId, and the objects carrying it take\nthe datasets — records through POST …/upsert / …/modify (dataset\n= the computed collection, `\u003crootId\u003e_\u003ckey\u003e` for a namespaced\none). The root itself takes them only when SelfTyped. Declared\nonce on install; later evolution goes through the\n…/types/:rootId/parts routes. Parts or properties are required\non the tech space.",
                         "items": {
                             "$ref": "#/components/schemas/api.PartDraftRequest"
                         },
@@ -518,12 +518,16 @@
                         "type": "object"
                     },
                     "rootTypes": {
-                        "description": "RootTypes are attached to the root object at birth, so the\ninstall's datasets are writable on it with no extra call. On a\nroot that declares a type they ride the root's first change next\nto its own type — one object that is both a type and a carrier\nof another (the wiki: the type its pages carry and a `miniapp`).",
+                        "description": "RootTypes are attached to the root object at birth, so their\ndatasets are writable on it with no extra call. On a root that\ndeclares a type they ride the root's first change next to the\ntype marker — one object that is both a type definition and a\ncarrier of another (the wiki: the type its pages carry and a\n`miniapp`).",
                         "items": {
                             "type": "string"
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "selfTyped": {
+                        "description": "SelfTyped makes the root also CARRY the type it declares\n(`any.types = [\"__type__\", \"\u003crootId\u003e\"]`): an instance of itself\nthat holds the type's values and takes its datasets — the shape\nof a root that keeps its own bundle's records (favourites\nentries, an app's layouts; pair it with `hidden`). Off, the root\nis the definition only (`[\"__type__\"]`) — a type OTHER objects\ncarry does not match a query for itself, takes none of its own\nparts and holds none of its values. Needs a type declaration;\nimplied for a part naming a reserved module and on the tech\nspace. Attached on install, or on a later adopt that asks for it\n(like a gained root type); never removed.",
+                        "type": "boolean"
                     },
                     "weight": {
                         "type": "integer"
@@ -624,12 +628,16 @@
                         "type": "string"
                     },
                     "parts": {
-                        "description": "Parts declare records datasets on the root (the\nPOST …/types/:typeId/parts draft shape).",
+                        "description": "Parts declare the type's parts and their datasets (the\nPOST …/types/:typeId/parts draft shape) — on the root itself\nonly with `selfTyped`.",
                         "items": {
                             "$ref": "#/components/schemas/api.PartDraftRequest"
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "selfTyped": {
+                        "description": "SelfTyped makes the root also carry the type it declares — a\nroot that hosts its own bundle's records (contacts layouts). A\ntype-only bundle (wiki, person) leaves it off: the definition\ndoes not match a query for its type and takes none of its parts.\nImplied for a reserved-module part (the general chat); needs\n`type` or `parts`.",
+                        "type": "boolean"
                     },
                     "type": {
                         "$ref": "#/components/schemas/api.CatalogType"
@@ -711,7 +719,7 @@
                 "type": "object"
             },
             "api.CatalogType": {
-                "description": "Type declares the type the root implements.",
+                "description": "Type declares the type the root defines.",
                 "properties": {
                     "layout": {
                         "description": "Layout is the rendering slug, `{type, config?}`.",
