@@ -37,7 +37,9 @@ func TestE2E_MultipeerBundles(t *testing.T) {
 		`{"name":"bundles"}`, http.StatusCreated, &sp)
 
 	const bundleId = "notes/v1"
-	var ensureBody = `{"id":"` + bundleId + `","name":"General","parts":` + modulePartsBody("editor") + `}`
+	// The root is the document itself — a self-typed root, so it
+	// carries the type whose part declares the editor body.
+	var ensureBody = `{"id":"` + bundleId + `","name":"General","selfTyped":true,"parts":` + modulePartsBody("editor") + `}`
 
 	var installed api.BundleEnsureResponse
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/bundles",

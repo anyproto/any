@@ -532,6 +532,10 @@ const docTemplate = `{
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "selfTyped": {
+                        "description": "SelfTyped makes the root also CARRY the type it declares\n(` + "`" + `any.types = [\"__type__\", \"\u003crootId\u003e\"]` + "`" + `): an instance of itself\nthat holds the type's values and takes its datasets — the shape\nof a root that keeps its own bundle's records (favourites\nentries, an app's layouts; pair it with ` + "`" + `hidden` + "`" + `). Off, the root\nis the definition only (` + "`" + `[\"__type__\"]` + "`" + `) — a type OTHER objects\ncarry does not match a query for itself, takes none of its own\nparts and holds none of its values. Needs a type declaration;\nimplied for a part naming a reserved module and on the tech\nspace. Attached on install, or on a later adopt that asks for it\n(like a gained root type); never removed.",
+                        "type": "boolean"
+                    },
                     "weight": {
                         "type": "integer"
                     },
@@ -638,6 +642,10 @@ const docTemplate = `{
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "selfTyped": {
+                        "description": "SelfTyped makes the root also carry the type it declares — a\nroot that hosts its own bundle's records (contacts layouts). A\ntype-only bundle (wiki, person) leaves it off: the definition\ndoes not match a query for its type and takes none of its parts.\nImplied for a reserved-module part (the general chat); needs\n` + "`" + `type` + "`" + ` or ` + "`" + `parts` + "`" + `.",
+                        "type": "boolean"
+                    },
                     "type": {
                         "$ref": "#/components/schemas/api.CatalogType"
                     }
@@ -718,7 +726,7 @@ const docTemplate = `{
                 "type": "object"
             },
             "api.CatalogType": {
-                "description": "Type declares the type the root implements.",
+                "description": "Type declares the type the root defines.",
                 "properties": {
                     "layout": {
                         "description": "Layout is the rendering slug, ` + "`" + `{type, config?}` + "`" + `.",

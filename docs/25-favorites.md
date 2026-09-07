@@ -61,7 +61,7 @@ row), with the canonical request:
 
 ```
 POST /v1/spaces/<techSpaceId>/bundles
-{ "id": "favorites/v1", "name": "Favorites", "hidden": true,
+{ "id": "favorites/v1", "name": "Favorites", "hidden": true, "selfTyped": true,
   "parts": [{ "key": "entries", "datasets": [{
     "key": "entries", "idRule": "user", "dynamic": true,
     "idPattern": "^(any://o/.+|f:[A-Za-z0-9_-]{1,64})$", "idMaxLen": 256,
@@ -78,8 +78,9 @@ POST /v1/spaces/<techSpaceId>/bundles
     ] }] }] }
 ```
 
-Idempotent — the first call installs (the server mints and self-types
-the root), later calls adopt. Uninstall = `DELETE
+Idempotent — the first call installs (the server mints the root, and
+`selfTyped` makes it carry its own type so the entries live on it —
+implied on the tech space, stated for the reader), later calls adopt. Uninstall = `DELETE
 /v1/spaces/<tech>/objects/<rootId>`; the id then reads as not
 installed and a later install mints a fresh root.
 

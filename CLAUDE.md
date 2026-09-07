@@ -730,7 +730,7 @@ Implementation slices landed:
     space has ONE chat, installed by `POST /v1/catalog/general-chat/
     setup` (item 50) as the derived, hidden, self-typed root
     `system:general-chat/v1` (handle `general_chat`, one shared `chat`
-    part). The `chat` module is `Reserved` (item 52), so no client
+    part; `selfTyped` because the root IS the chat — see item 53). The `chat` module is `Reserved` (item 52), so no client
     declares a chat part and that root is the type's only carrier.
     History: `SpaceInfo.generalChatObjectId` and the server-derived
     `any/general-chat/v1` object went first (clients registered the
@@ -1221,7 +1221,8 @@ Implementation slices landed:
     canonical declaration in docs/25-favorites.md; no server code, no
     boot ensure, no reserved ids). The tech space accepts both bundle
     root strategies: `derived: true`, or the default CREATED root minted
-    by the SDK's Ensure (self-typed, declaration-carrying) — deletable
+    by the SDK's Ensure (declaration-carrying, self-typed by the tech
+    space's rule) — deletable
     (`DELETE …/objects/:rootId` = uninstall, id reads uninstalled,
     reinstall mints fresh) and forking on concurrent offline installs
     (`…/bundles/:id/resolve` is routed on the tech space). Read-side
@@ -1899,6 +1900,34 @@ Implementation slices landed:
     docs/17-user-datasets.md § Model, docs/bundles.md. **SDK
     prerequisite:** the sole-carrier pre-flight (branch
     cheggaaa/syn-216-reserved-type-carrier, pseudo-versioned).
+53. **Self-typed bundle roots are an opt-in** — a root that declares a
+    type carries `__type__`; it carries its OWN id only when the bundle
+    says so: `selfTyped` on `POST …/bundles` (`api.BundleEnsureRequest`),
+    `bundles.Install.SelfTyped`, catalog.yml `selfTyped: true`, the
+    SDK's `EnsureBundleRequest.SelfTyped`. A self-typed root is an
+    instance of itself — it answers `{"any.types": rootId}`, holds the
+    type's values and takes its parts (contacts layouts, favourites
+    entries). Off, the definition is not an instance: the wiki root
+    holds no `parentId`/`pos`/`folder` and is not a node, the person
+    root takes no editor body (`400 dataset.not_declared`) and never
+    appears in a people list — so clients no longer need the
+    `__type__` exclusion on type filters (docs/29 § One object, three
+    roles). Implied by the SDK where the model forces it: a part
+    naming a reserved module (the general chat root IS the chat, the
+    type's sole carrier) and every tech-space bundle; the catalog
+    still states it for general-chat, and the compile gate refuses a
+    reserved-module part without it (`catalog.bad_field`), as does
+    `selfTyped` without a declaration (pure layer). Attached on install
+    or on an adopt that gains it, never removed — an already-installed
+    wiki keeps the type on its root (no migration; clients may detach).
+    Tests: `TestServer_CatalogSetupEveryUsecase` (sets every usecase
+    up, pins the carried set per bundle from its declaration alone,
+    the write gate both ways), e2e twin
+    `TestE2E_CatalogEveryUsecaseRootTypes`, SDK
+    `TestE2E_BundlesSelfTypedCreatedRoot`. Contract: docs/03-api.md
+    § Bundles, docs/28, docs/29, docs/25 (the favourites recipe carries
+    the flag), SDK docs/bundles.md. **SDK prerequisite:** branch
+    cheggaaa/bundle-self-type-opt-in, pseudo-versioned.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.

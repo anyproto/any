@@ -1075,12 +1075,24 @@ all — and with no peer connected there is nothing to narrow, so the
 wait collapses to its offline bound and the chat appears in seconds.
 
 **Bundle-declared types.** A bundle may declare a full type on its
-root — `parts`, `properties` or an `xKey` make the root implement
-itself as a type (`any.types = ["__type__", "<rootId>"]`, `typeId =
-rootId`, readable through `GET …/types/:rootId` and its `parts` /
-`properties` / `datasets` routes); `layout`, `weight` and `hidden`
+root — `parts`, `properties` or an `xKey` make the root a type
+definition (`any.types = ["__type__"]`, `typeId = rootId`, readable
+through `GET …/types/:rootId` and its `parts` / `properties` /
+`datasets` routes); `layout`, `weight`, `hidden` and `selfTyped`
 describe that type and ride along (alone they are
-`400 request.invalid_field`).
+`400 request.invalid_field`). Whether the root also **carries** the
+type is the bundle's choice: `selfTyped: true` adds the root's own id
+(`["__type__", "<rootId>"]`) and makes the root an instance of itself
+— it holds the type's values, takes its parts and answers a query for
+the type. That is the shape of a root that keeps its own bundle's
+records (favourites entries, an app's layouts; pair it with `hidden`).
+Off, the definition is not an instance: a type OTHER objects carry (a
+wiki, a person) never matches `{"any.types": "<rootId>"}`, refuses its
+own parts (`400 dataset.not_declared`) and holds none of its values.
+Implied for a part naming a reserved module (the general chat — the
+root is the type's sole carrier) and on the tech space (its roots exist
+to host records). Attached on install, or on a later adopt that asks
+for it like a gained root type; never removed.
 
 - `parts: [...]` (the same draft shape as `POST …/types/:typeId/parts`,
   ≤32 entries) declares parts and the datasets under them. A records
@@ -1148,12 +1160,12 @@ weight or hidden flag once stamped. A malformed declaration (unknown
 module, a field on a module dataset, a duplicate key, a property
 without an xKey) fails before the permanent root is derived. The
 declaration combines with `derived: true` or stands alone (a created
-root the server mints and self-types). `rootTypes` / `rootProperties`
+root the server mints and stamps). `rootTypes` / `rootProperties`
 ride every root: a created one with no declaration, a derived one, and
 the created root of a request that declares a type — where they land
-in the root's first change next to its own type, so one object can be
-both a type and a carrier of another (the wiki root: the type its
-pages carry and a `miniapp`).
+in the root's first change next to the type marker, so one object can
+be both a type definition and a carrier of another (the wiki root: the
+type its pages carry and a `miniapp`).
 
 Input is bounded and pre-flighted: `id` ≤256 B, `xKey` ≤256 B, `name` ≤1024 B,
 `rootTypes` ≤32 entries, `rootProperties` ≤64 KiB, `parts` ≤32

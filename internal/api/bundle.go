@@ -105,6 +105,18 @@ type BundleEnsureRequest struct {
 	Layout json.RawMessage `json:"layout,omitempty"`
 	Weight int             `json:"weight,omitempty"`
 	Hidden bool            `json:"hidden,omitempty"`
+	// SelfTyped makes the root also CARRY the type it declares
+	// (`any.types = ["__type__", "<rootId>"]`): an instance of itself
+	// that holds the type's values and takes its datasets — the shape
+	// of a root that keeps its own bundle's records (favourites
+	// entries, an app's layouts; pair it with `hidden`). Off, the root
+	// is the definition only (`["__type__"]`) — a type OTHER objects
+	// carry does not match a query for itself, takes none of its own
+	// parts and holds none of its values. Needs a type declaration;
+	// implied for a part naming a reserved module and on the tech
+	// space. Attached on install, or on a later adopt that asks for it
+	// (like a gained root type); never removed.
+	SelfTyped bool `json:"selfTyped,omitempty"`
 }
 
 // BundleEnsureResponse is the reply to an Ensure call.

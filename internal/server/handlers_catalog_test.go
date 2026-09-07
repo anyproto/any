@@ -137,13 +137,18 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 		t.Fatalf("miniapp values: %+v", b.Miniapp)
 	}
 
-	// The root carries the marker, itself and miniapp, with the bundle id.
+	// The root carries the marker and miniapp, with the bundle id —
+	// and NOT itself: the wiki type is what pages carry, and its
+	// definition is not a page.
 	row := objectRow(t, e, sp.Id, b.TypeId)
 	types := rowTypes(row)
-	for _, want := range []string{"__type__", b.TypeId, "miniapp"} {
+	for _, want := range []string{"__type__", "miniapp"} {
 		if !slices.Contains(types, want) {
 			t.Fatalf("root types %v lack %s", types, want)
 		}
+	}
+	if slices.Contains(types, b.TypeId) {
+		t.Fatalf("wiki root carries its own type: %v", types)
 	}
 	if ma, _ := row["miniapp"].(map[string]any); ma["bundle"] != "system:wiki/v1" {
 		t.Fatalf("miniapp.bundle on the root: %v", row["miniapp"])
@@ -255,6 +260,9 @@ func TestServer_CatalogSetupCollectionsAndChat(t *testing.T) {
 	if !chat.Bundle.Derived || chat.TypeId != chat.Bundle.RootId || chat.Miniapp != nil {
 		t.Fatalf("general chat bundle: %+v", chat)
 	}
+	if types := rowTypes(objectRow(t, e, sp.Id, chat.Bundle.RootId)); !slices.Contains(types, chat.TypeId) {
+		t.Fatalf("the chat root is its type's sole carrier, so it carries it: %v", types)
+	}
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/"+chat.Bundle.RootId+"/chat/messages", `{"text":"hello"}`)
 	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
 		t.Fatalf("chat send on the catalog root: %d %s", rec.Code, rec.Body.String())
@@ -294,8 +302,12 @@ func TestServer_CatalogSetupDependencies(t *testing.T) {
 	if byId["system:person/v1"].Properties["organization"] == "" || byId["system:organization/v1"].Properties["main_contact"] == "" {
 		t.Fatalf("relation properties unresolved: %+v %+v", byId["system:person/v1"].Properties, byId["system:organization/v1"].Properties)
 	}
-	// The app root is hidden and its layouts collection is writable.
+	// The app root is hidden, self-typed (the layouts live on it) and
+	// its layouts collection is writable.
 	app := byId["system:contacts/v1"]
+	if types := rowTypes(objectRow(t, e, sp.Id, app.TypeId)); !slices.Contains(types, app.TypeId) {
+		t.Fatalf("contacts root does not carry itself: %v", types)
+	}
 	var parts api.TypePartsListResponse
 	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+app.TypeId+"/parts", &parts)
 	if len(parts.Parts) != 1 || len(parts.Parts[0].Datasets) != 1 {
@@ -595,6 +607,10 @@ func TestServer_CatalogValidateEmbedded(t *testing.T) {
 	bad := strings.Replace(testCatalogV2, "kind: string }", "kind: string, xFormat: { type: money } }", 1)
 	bad = strings.Replace(bad, "miniapp: {}", "miniapp: { entry: index.html }", 1)
 	bad = strings.Replace(bad, "xKey: seam_tag }", "xKey: page }", 1)
+	// A reserved module's sole carrier is the root: the part needs the
+	// bundle to say selfTyped, and the compile gate knows the module.
+	bad = strings.Replace(bad, "datasets: [ { key: state, idRule: user, fields: [ { key: v, kind: string, mutableBy: any } ] } ]",
+		"datasets: [ { module: chat, shared: true } ]", 1)
 	problems := ValidateCatalog([]byte(bad))
 	var codes []string
 	for _, p := range problems {
@@ -605,6 +621,7 @@ func TestServer_CatalogValidateEmbedded(t *testing.T) {
 		"property.format_invalid@usecases[1].bundles[0].type.properties[0]",
 		"catalog.duplicate@usecases[0].bundles[0].type.xKey",
 		"catalog.bad_miniapp@usecases[2].bundles[0].miniapp.entry",
+		"catalog.bad_field@usecases[2].bundles[0].parts[0].datasets[0].module",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing %s in:\n%s", want, joined)
@@ -657,5 +674,70 @@ func TestServer_CatalogSetupEveryUsecase(t *testing.T) {
 	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/bundles", &bl)
 	if len(bl.Bundles) != len(roots) {
 		t.Fatalf("registry has %d rows, setup touched %d bundles", len(bl.Bundles), len(roots))
+	}
+
+	// What every root carries follows from its declaration alone: the
+	// marker iff it declares a type, `miniapp` iff it is one, and its
+	// OWN id iff the catalog says selfTyped — a type objects carry
+	// (wiki, person) is a definition, not an instance of itself.
+	var selfTyped, typeOnly []string
+	for _, u := range list.Usecases {
+		for _, b := range u.Bundles {
+			types := rowTypes(objectRow(t, e, sp.Id, roots[b.Id]))
+			declares := b.Type != nil || len(b.Parts) > 0
+			if slices.Contains(types, "__type__") != declares {
+				t.Fatalf("%s: types %v, declares=%v", b.Id, types, declares)
+			}
+			if slices.Contains(types, "miniapp") != (b.Miniapp != nil) {
+				t.Fatalf("%s: types %v, miniapp=%v", b.Id, types, b.Miniapp != nil)
+			}
+			if slices.Contains(types, roots[b.Id]) != b.SelfTyped {
+				t.Fatalf("%s: types %v, selfTyped=%v", b.Id, types, b.SelfTyped)
+			}
+			if b.SelfTyped {
+				selfTyped = append(selfTyped, b.Id)
+			} else if declares {
+				typeOnly = append(typeOnly, b.Id)
+			}
+		}
+	}
+	slices.Sort(selfTyped)
+	if !slices.Equal(selfTyped, []string{"system:contacts/v1", "system:general-chat/v1"}) {
+		t.Fatalf("self-typed roots = %v: the chat (sole carrier) and the layouts host, nothing else", selfTyped)
+	}
+	if len(typeOnly) < 10 {
+		t.Fatalf("type-only roots = %v", typeOnly)
+	}
+
+	// A definition is not an instance: querying a type never returns
+	// its root, and the root takes none of the type's parts — the
+	// person type declares an editor body for people, not for itself.
+	for _, id := range typeOnly {
+		rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/query",
+			`{"filter":{"any.types":"`+roots[id]+`"}}`)
+		var q api.QueryResponse
+		_ = json.Unmarshal(rec.Body.Bytes(), &q)
+		if rec.Code != http.StatusOK || len(q.Records) != 0 {
+			t.Fatalf("%s: a query for the type returned its definition: %d %s", id, rec.Code, rec.Body.String())
+		}
+	}
+	person := roots["system:person/v1"]
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/"+person+"/editor/editor_blocks/blocks",
+		`{"type":"paragraph","text":"not a person"}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "dataset.not_declared") {
+		t.Fatalf("editor write on the person definition: %d %s", rec.Code, rec.Body.String())
+	}
+	// A self-typed root is an instance: the chat root takes the chat
+	// part, the contacts root its layouts records.
+	chat := roots["system:general-chat/v1"]
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/"+chat+"/chat/messages", `{"text":"hi"}`)
+	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
+		t.Fatalf("chat send on the chat root: %d %s", rec.Code, rec.Body.String())
+	}
+	contacts := roots["system:contacts/v1"]
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert",
+		`{"objectId":"`+contacts+`","dataset":"`+contacts+`_layouts","records":[{"id":"person","fields":{"blocks":["a"]}}]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upsert layouts on the contacts root: %d %s", rec.Code, rec.Body.String())
 	}
 }

@@ -360,6 +360,9 @@ func (c *Catalog) validate(opts Options) Problems {
 			if b.Hidden && !declares {
 				add(bp+".hidden", CodeBadField, "hidden describes a type object — needs type or parts")
 			}
+			if b.SelfTyped && !declares {
+				add(bp+".selfTyped", CodeBadField, "selfTyped makes the root carry its own type — needs type or parts")
+			}
 			if b.Type != nil {
 				c.validateType(bp+".type", u.Id, b, known, xkeys, add)
 			}
