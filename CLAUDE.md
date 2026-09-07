@@ -1907,8 +1907,11 @@ Implementation slices landed:
     (`handler.PropertyDecl` gained `Description`), and — in the SDK —
     the `any` / `type` / `spaceIndex` property tables (`BuiltInProperty`
     gained `Description` / `XFormat`, threaded through
-    `Types().Properties` and the `objects` dataset schema) plus the
-    eight system datasets. A slug only where the existing vocabulary
+    `Types().Properties`; the `objects` discovery document declares only
+    the derived root fields — the synced `any.*` values are not heads)
+    plus the tech-space system datasets, `bundles` and `payloads`. The
+    chat module's `chat.*` row properties carry descriptions too, though
+    no read path surfaces module property metadata yet. A slug only where the existing vocabulary
     names the value (`text`, `longtext`, `datetime`, `checkbox`);
     markdown text, identities, record ids, icons, `pos`, enums and
     opaque objects are description-only — the markdown slug is a

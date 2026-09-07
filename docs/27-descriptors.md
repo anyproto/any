@@ -569,7 +569,7 @@ is a contract:
   related question of distinguishing bundle-authored from user-authored
   leaves so a bundle upgrade does not clobber a user's rename.
 - **Autonumber, non-date ranges, unit/measure properties.**
-- **Slugs the built-ins still lack.** Every Go-declared field — the
+- **Slugs the built-ins still lack.** Every field served through discovery or a built-in type's properties — the
   module and static datasets (`chat_messages`, `editor_blocks`,
   `dataviews` / `views`), the `objects` row's `any.*` properties, the
   built-in types' properties and the SDK's system datasets — carries a

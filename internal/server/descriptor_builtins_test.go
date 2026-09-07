@@ -29,13 +29,19 @@ func TestServer_BuiltinDescriptors(t *testing.T) {
 	}
 	spaceId := sp.Id
 
-	checkDatasets := func(t *testing.T, path string, wantFields ...string) {
+	// wantSlugs pins descriptors that must be present: the test otherwise
+	// validates only what is declared, so a dropped XFormat would pass.
+	checkDatasets := func(t *testing.T, path string, wantSlugs map[string]string) {
 		rec := doJSON(t, e, http.MethodGet, path, "")
-		seen := map[string]bool{}
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s: %d %s", path, rec.Code, rec.Body.String())
 		}
-		for _, ds := range datasetsIn(t, rec.Body.Bytes()) {
+		var resp api.DatasetsResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("%s: decode: %v", path, err)
+		}
+		slugs := map[string]string{}
+		for _, ds := range resp.Datasets {
 			if isTestSeam(ds.Owners) {
 				continue
 			}
@@ -51,7 +57,7 @@ func TestServer_BuiltinDescriptors(t *testing.T) {
 			}
 			for id, f := range doc.Properties {
 				where := ds.Name + "." + id
-				seen[where] = true
+				slugs[where] = slugOf(f.XFormat)
 				if f.Description == "" {
 					t.Errorf("%s: no description", where)
 				}
@@ -60,18 +66,30 @@ func TestServer_BuiltinDescriptors(t *testing.T) {
 				}
 			}
 		}
-		for _, w := range wantFields {
-			if !seen[w] {
-				t.Errorf("%s: %s not listed", path, w)
+		for field, want := range wantSlugs {
+			if got, ok := slugs[field]; !ok {
+				t.Errorf("%s: %s not listed", path, field)
+			} else if got != want {
+				t.Errorf("%s: %s slug %q, want %q", path, field, got, want)
 			}
 		}
 	}
 	t.Run("space datasets", func(t *testing.T) {
-		checkDatasets(t, "/v1/spaces/"+spaceId+"/datasets",
-			"objects.name", "chat_messages.createdAt", "editor_blocks.text", "views.layout")
+		checkDatasets(t, "/v1/spaces/"+spaceId+"/datasets", map[string]string{
+			"objects.createdAt":       "datetime",
+			"chat_messages.createdAt": "datetime",
+			"chat_messages.unread":    "checkbox",
+			"editor_blocks.text":      "",
+			"views.layout":            "",
+			"dataviews.name":          "text",
+		})
 	})
 	t.Run("system datasets", func(t *testing.T) {
-		checkDatasets(t, "/v1/datasets", "spaces.createdAt", "devices.name")
+		checkDatasets(t, "/v1/datasets", map[string]string{
+			"spaces.createdAt": "datetime",
+			"spaces.derived":   "checkbox",
+			"devices.name":     "text",
+		})
 	})
 
 	t.Run("built-in type properties", func(t *testing.T) {
@@ -84,11 +102,16 @@ func TestServer_BuiltinDescriptors(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatalf("properties of %s: %d %s", id, rec.Code, rec.Body.String())
 			}
-			var defs []api.PropertyDef
-			decodeArrayField(t, rec.Body.Bytes(), &defs)
-			for _, p := range defs {
+			var resp api.PropertiesListResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("properties of %s: decode: %v", id, err)
+			}
+			for _, p := range resp.Properties {
 				seen++
 				where := id + "." + p.Id
+				if id == "any" && p.Id == "name" && slugOf(p.XFormat) != "text" {
+					t.Errorf("%s: slug %q, want text", where, slugOf(p.XFormat))
+				}
 				if p.Description == "" {
 					t.Errorf("%s: no description", where)
 				}
@@ -103,32 +126,13 @@ func TestServer_BuiltinDescriptors(t *testing.T) {
 	})
 }
 
-// datasetsIn extracts the dataset list from a datasets response
-// without binding to the envelope key.
-func datasetsIn(t *testing.T, body []byte) []api.DatasetSchema {
-	t.Helper()
-	var out []api.DatasetSchema
-	decodeArrayField(t, body, &out)
-	return out
-}
-
-// decodeArrayField decodes the one array-valued member of a JSON
-// object envelope into out.
-func decodeArrayField(t *testing.T, body []byte, out any) {
-	t.Helper()
-	var env map[string]json.RawMessage
-	if err := json.Unmarshal(body, &env); err != nil {
-		t.Fatalf("decode envelope: %v\n%s", err, body)
+// slugOf reads the descriptor's type slug ("" when absent).
+func slugOf(raw json.RawMessage) string {
+	var xf struct {
+		Type string `json:"type"`
 	}
-	for _, raw := range env {
-		if len(raw) > 0 && raw[0] == '[' {
-			if err := json.Unmarshal(raw, out); err != nil {
-				t.Fatalf("decode list: %v\n%s", err, raw)
-			}
-			return
-		}
-	}
-	t.Fatalf("no list in envelope: %s", body)
+	_ = json.Unmarshal(raw, &xf)
+	return xf.Type
 }
 
 // isTestSeam skips the extraCatalog fixtures registered by other test

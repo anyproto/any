@@ -746,11 +746,13 @@ classifying the field:
   other members (declarable on property definitions today; dataset
   record fields await the SDK's record-level account transport).
 
-Every declared field also carries `description`, and `x-format` where
-the descriptor vocabulary (docs/27-descriptors.md) names its value —
-`chat_messages.createdAt` is `{"type": "datetime"}`, `unread` is
-`{"type": "checkbox"}`, the `objects` row's `any.name` is `{"type":
-"text"}`. A field with no slug (the markdown `text` bodies, identities,
+Every field the server declares also carries `description`, and
+`x-format` where the descriptor vocabulary (docs/27-descriptors.md)
+names its value — `chat_messages.createdAt` is `{"type": "datetime"}`,
+`unread` is `{"type": "checkbox"}`, the `objects` row's derived
+`createdAt` is `{"type": "datetime"}` (the synced `any.*` values are not
+row-root fields; their slice is on `GET …/types/any/properties`). A
+field with no slug (the markdown `text` bodies, identities,
 record ids, opaque objects) describes itself in `description` alone.
 Built-in and client-declared fields render through one descriptor path.
 

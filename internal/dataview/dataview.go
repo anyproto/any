@@ -230,7 +230,7 @@ func viewsSchema() handler.Schema {
 			{Id: FieldLayout, Name: "Layout", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone,
 				Description: "Rendering layout slug: table, board, …"},
 			{Id: FieldQuery, Name: "Query", Schema: object(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone,
-				Description: "Opaque filter / sort / groupBy in the /query body shapes."},
+				Description: "Opaque view query: type, filter / sort in the /query body shapes, client-side groupBy."},
 			{Id: FieldLayoutSettings, Name: "Layout Settings", Schema: object(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone,
 				Description: "Opaque per-layout settings shared by every member."},
 			{Id: FieldLocalSettings, Name: "Local Settings", Schema: object(), Scope: handler.ScopeLocal, MutableBy: handler.MutableByAnyone,
