@@ -397,6 +397,19 @@ func (w *spaceWorker) collectObject(ctx context.Context, objectId string, cursor
 		return nil
 	}
 	attached := typeSet(row)
+	if attached[index.MetaTypeLabel] {
+		// A type object changed — a property was added, patched or
+		// removed. The chunkers' catalog snapshots must see it before
+		// the values written right after it (same page or the next)
+		// are extracted, or those values wait for the snapshot's TTL
+		// and a later write. Type objects precede their values in the
+		// feed (the SDK parks a value whose definition has not applied).
+		for _, ch := range w.ix.reg.All() {
+			if inv, ok := ch.(index.CatalogInvalidator); ok {
+				inv.Invalidate(w.sp.Id())
+			}
+		}
+	}
 	var links objectLinks
 	for _, ch := range w.ix.reg.All() {
 		if dyn, ok := ch.(index.DynamicChunker); ok {
@@ -654,7 +667,8 @@ func (w *spaceWorker) streamChunks(ctx context.Context, ch index.Chunker, object
 	}); err != nil {
 		return err
 	}
-	planLinks(entries, objectId, ch.Dataset(), false, links)
+	_, whole := ch.(index.WholeCollectionLinks)
+	planLinks(entries, objectId, ch.Dataset(), whole, links)
 	if cursor == 0 {
 		w.plan(entries, nil, objectId, ch.Dataset(), page)
 		return nil
@@ -850,7 +864,11 @@ func (w *spaceWorker) backfillLinks(ctx context.Context) {
 		return
 	}
 	if !needed {
-		w.linksStamped = true
+		// A never-indexed space (cursor 0) carries no stamp yet: its
+		// first landed page writes it. Only an already-stamped row
+		// spares the advance that write.
+		v, verr := w.ix.store.LinksVersion(ctx, spaceId)
+		w.linksStamped = verr == nil && v == linksSchemaVersion
 		return
 	}
 	w.ix.lg.Info("backfilling links", zap.String("spaceId", spaceId))

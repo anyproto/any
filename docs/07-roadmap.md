@@ -228,7 +228,12 @@ pluggable embedders, parallel batched pipelines),
   anybao as the first producer); a dedicated subscribe stream if the
   `links.updated` bus event proves too coarse; a `links.enabled`
   switch independent of `index.enabled`; the whole-line card rule is
-  the web client's promotion rule and moves with it.
+  the web client's promotion rule and moves with it; a continuation
+  or per-group limits on the capped reads (today >500 edges are an
+  arbitrary cut before the object/parts split); a global identity key
+  so "mentions of me" is one read, not one per space; the prop
+  chunker's text docs for a removed property definition (its edges
+  now fall out on the row's next change, the text doc does not).
 - **Local embedder follow-ups.** Multi-sequence batched decode (texts
   currently embed sequentially under one mutex); a packaged
   distribution story for the llama.cpp libs (today: `make llamacpp`

@@ -130,6 +130,26 @@ type TextEvictor interface {
 	EvictText(ctx context.Context, sp space.Space, attached map[string]bool) []string
 }
 
+// CatalogInvalidator is an optional Chunker capability for chunkers
+// holding a per-space catalog snapshot with a TTL (the prop chunker):
+// the worker calls Invalidate when a type object changed in the feed,
+// so a property added a moment ago is in the catalog when the values
+// written right after it are extracted.
+type CatalogInvalidator interface {
+	Invalidate(spaceId string)
+}
+
+// WholeCollectionLinks is an optional Chunker capability for streaming
+// chunkers whose every stream carries the record's complete edge set
+// for the whole collection — the prop chunker emits one entry per
+// catalog property per row, so a property that left the catalog
+// (definition removed) simply stops being emitted. The worker then
+// replaces the collection's edges on every stream instead of only the
+// streamed records', and the removed property's edges fall out.
+type WholeCollectionLinks interface {
+	LinksReplaceCollection()
+}
+
 // Chunker streams the IndexEntry values for one dataset on one object.
 type Chunker interface {
 	// Dataset is the dataset this chunker writes — the middle segment

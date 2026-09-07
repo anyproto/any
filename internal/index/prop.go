@@ -107,7 +107,12 @@ func NewPropChunker(excludeTypeIds ...string) *PropChunker {
 }
 
 func (c *PropChunker) Dataset() string { return DatasetProp }
-func (c *PropChunker) TypeId() string  { return "" } // ungated
+
+// LinksReplaceCollection marks the chunker's streams as complete per
+// row (WholeCollectionLinks): a removed definition's edges are evicted
+// on the row's next stream.
+func (c *PropChunker) LinksReplaceCollection() {}
+func (c *PropChunker) TypeId() string          { return "" } // ungated
 
 // Invalidate drops the space's catalog snapshot (test/ops hook — the
 // next ChunksSince re-resolves immediately instead of waiting out the

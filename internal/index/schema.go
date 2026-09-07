@@ -332,7 +332,10 @@ func (c *SchemaChunker) ChunksSince(ctx context.Context, sp space.Space, objectI
 					e.Data = joinTitleText(title, text)
 				}
 				for field, mode := range ds.linkFields {
-					e.Links = append(e.Links, ValueLinks(sp.Id(), objectId, ds.name, e.RecordId, mode, fieldValue(rec, field))...)
+					for _, l := range ValueLinks(sp.Id(), objectId, ds.name, e.RecordId, mode, fieldValue(rec, field)) {
+						l.Field = field
+						e.Links = append(e.Links, l)
+					}
 				}
 			}
 			return yield(e)

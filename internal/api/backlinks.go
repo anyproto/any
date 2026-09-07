@@ -16,6 +16,10 @@ type LinkSource struct {
 	// TypeId is the type declaring a property value's source (`prop`
 	// edges only): the value lives at record[typeId][recordId].
 	TypeId string `json:"typeId,omitempty"`
+	// Field is the record field the reference was read from, for a
+	// runtime record with link-bearing fields; absent for a block or
+	// message text and for a property value.
+	Field string `json:"field,omitempty"`
 }
 
 // LinkTarget is the canonical any:// target, parsed. Uri is the

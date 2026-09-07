@@ -199,8 +199,13 @@ whose backlinks changed, so a panel showing them re-reads.
 
 ```jsonc
 // type: "links.updated"
-{ "spaceId": "<space id>", "targets": ["any://o/<sp>/<obj>", "any://m/<sp>/<identity>", …] }
+{ "spaceId": "<the space whose edges changed>", "targets": ["any://o/<sp>/<obj>", "any://m/<sp>/<identity>", …] }
 ```
+
+`spaceId` is the **source** space — where the writing records live.
+A target's own space is inside its URI: a block in space B linking an
+object of space A publishes `spaceId: B, targets: ["any://o/A/…"]`, so
+a panel matches on `targets`, never on `spaceId`.
 
 `targets` name objects (whatever part of the object was linked — a
 block link reports the block's object) or, for identities and files,

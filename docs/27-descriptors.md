@@ -138,7 +138,7 @@ slug is checked against that.
 | `options` | enumerated formats | the map **key is the stored value**; the entry is the display slice `{name, color, pos, meta.<k>}`, all strings. `color` is an open string — clients render the palette names they know |
 | `relation` | reference formats | `targetTypes` names types by type xKey (array of strings). `filter` is an additional condition over candidate objects, one JSON-text leaf that must parse as a query condition. |
 | `config` | per format | scalar settings (string / number / boolean), keyed by the vocabulary below |
-| `links` | any | the link-index marker: `link` (the string value is one `any://` reference, kind string), `links` (the array lists references, kind array) or `markdown` (the text is scanned for references, kind string). Implied by the `relation` slug (`links`) and the `markdown` slug (`markdown`); set it explicitly on any other shape that carries references. See docs/13-index.md § Links. |
+| `links` | any | the link-index marker: `link` (the string value is one `any://` reference, kind string), `links` (the array lists references, kind array), `markdown` (the text is scanned for references, kind string) or `none` (never scanned — the off-switch for a `relation` or `markdown` field whose references must stay out of backlinks). Implied by the `relation` slug (`links`) and the `markdown` slug (`markdown`); set it explicitly on any other shape that carries references. See docs/13-index.md § Links. |
 
 Reserved and unwritten: `validate` (a future declarative assertion
 layer — where `required`, `unique` and range rules on a property will

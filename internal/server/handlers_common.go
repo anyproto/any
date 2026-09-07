@@ -339,6 +339,12 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 	if resp, done := unsupportedError(c, err, details); done {
 		return resp
 	}
+	if errors.Is(err, space.ErrRecordDeleted) {
+		// A write addressed a tombstoned record: the id is burned for
+		// good (docs/24-data-views.md), so the rejection is permanent.
+		return writeError(c, http.StatusGone, "record.deleted",
+			"the record was deleted; its id cannot be reused", details)
+	}
 	if errors.Is(err, space.ErrObjectDeleted) {
 		return writeError(c, http.StatusGone, codeObjectDeleted, "object is deleted", details)
 	}

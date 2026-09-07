@@ -264,7 +264,7 @@ func indexDisabled(c echo.Context) error {
 func linkToAPI(spaceId string, doc indexer.LinkDoc) api.Link {
 	t := doc.Target
 	return api.Link{
-		Source: api.LinkSource{SpaceId: spaceId, ObjectId: doc.ObjectId, Dataset: doc.Dataset, RecordId: doc.RecordId, TypeId: doc.TypeId},
+		Source: api.LinkSource{SpaceId: spaceId, ObjectId: doc.ObjectId, Dataset: doc.Dataset, RecordId: doc.RecordId, TypeId: doc.TypeId, Field: doc.Field},
 		Kind:   doc.Kind,
 		Target: api.LinkTarget{
 			Uri:      t.String(),

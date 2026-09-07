@@ -52,6 +52,7 @@ type LinkDoc struct {
 	Dataset  string
 	RecordId string
 	TypeId   string // property-value sources only
+	Field    string // runtime-record sources with several link fields
 	Kind     string
 	Target   anyuri.URI
 	ApplySeq uint64
@@ -77,6 +78,8 @@ func (o *LinkOps) empty() bool {
 func linkDocId(e index.LinkEntry) string {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(e.Kind))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(e.Field))
 	_, _ = h.Write([]byte{0})
 	_, _ = h.Write([]byte(e.Target.String()))
 	return linkRecordPrefix(e.ObjectId, e.Dataset, e.RecordId) + strconv.FormatUint(h.Sum64(), 36)
@@ -248,6 +251,9 @@ func (s *Store) applyLinks(txCtx context.Context, coll anystore.Collection, pref
 			if e.TypeId != "" {
 				doc.Set("typeId", arena.NewString(e.TypeId))
 			}
+			if e.Field != "" {
+				doc.Set("field", arena.NewString(e.Field))
+			}
 			doc.Set("kind", arena.NewString(e.Kind))
 			doc.Set("target", targetValue(arena, e.Target))
 			doc.Set("targetKey", arena.NewString(e.Target.String()))
@@ -302,6 +308,7 @@ func linkDocFrom(v *anyenc.Value) LinkDoc {
 		Dataset:  string(v.GetStringBytes("dataset")),
 		RecordId: string(v.GetStringBytes("recordId")),
 		TypeId:   string(v.GetStringBytes("typeId")),
+		Field:    string(v.GetStringBytes("field")),
 		Kind:     string(v.GetStringBytes("kind")),
 		ApplySeq: uint64(v.GetInt("applySeq")),
 	}

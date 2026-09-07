@@ -852,7 +852,9 @@ Call patterns:
 - **Refresh on `links.updated`.** Subscribe to the device bus
   (`GET /v1/events/subscribe?scope=device&type=links.updated`) and
   re-read when `data.targets` names the entity's object key
-  (`any://o/<sp>/<obj>`), or its own key for an identity or file. The
+  (`any://o/<sp>/<obj>`), or its own key for an identity or file —
+  match on `targets`, never on the event's `spaceId`, which names the
+  space the writing records live in. The
   index lags a write by the indexer's debounce, so read the panel on
   open and on the event, never assume the write is visible in the
   same tick.
@@ -863,9 +865,19 @@ Call patterns:
 - **Write links so the index sees them.** Object references in text
   are markdown links with `any://` destinations; a whole-line
   `[Name](any://o/…)` paragraph is a card; property references go
-  into a `relation` property as bare `any://<objectId>` values. A
-  runtime dataset field that carries references declares
-  `xFormat.links` (`27-descriptors.md`), or the index never reads it.
+  into a `relation` property as bare `any://<objectId>` values — the
+  only form a relation accepts, so a relation never points across
+  spaces or at a block; a text link does. A runtime dataset field
+  that carries references declares `xFormat.links`
+  (`27-descriptors.md`), or the index never reads it; `xFormat.links:
+  "none"` keeps a field out of backlinks on purpose.
+- **Identity targets are per space.** `any://m/<sp>/<identity>` keys
+  mentions in one space; "everywhere I am mentioned" is one
+  `GET /v1/backlinks?target=` per space the client holds.
+- **Above 500 backlinks the reply is a cut, not a page.** `truncated`
+  says so; the order is the index's own (source object, dataset,
+  record), not recency, and there is no continuation — a popular
+  object shows an arbitrary 500. Narrow with `?kind=` or a part.
 
 ## See also
 

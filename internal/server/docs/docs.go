@@ -1867,6 +1867,10 @@ const docTemplate = `{
                     "dataset": {
                         "type": "string"
                     },
+                    "field": {
+                        "description": "Field is the record field the reference was read from, for a\nruntime record with link-bearing fields; absent for a block or\nmessage text and for a property value.",
+                        "type": "string"
+                    },
                     "objectId": {
                         "type": "string"
                     },

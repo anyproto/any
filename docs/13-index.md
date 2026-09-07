@@ -328,10 +328,22 @@ type LinkEntry struct {
 - **What reports edges**, by field descriptor (docs/27-descriptors.md
   § `xFormat`): `xFormat.links` marks a field — `link` (the string is
   one reference), `links` (the array lists references), `markdown` (the
-  text is scanned) — and the `relation` slug implies `links`, the
-  `markdown` slug implies `markdown`. Plain `text` / `longtext` is
-  never scanned. Kinds: a value field yields `relation`; scanned text
-  yields `mention` for an `m` reference and `link` for the rest.
+  text is scanned), `none` (never scanned, the off-switch) — and the
+  `relation` slug implies `links`, the `markdown` slug implies
+  `markdown`. Plain `text` / `longtext` is never scanned; `meta.index:
+  none` keeps a property out of the TEXT index only. Kinds: a value
+  field yields `relation`; scanned text yields `mention` for an `m`
+  reference and `link` for the rest. A runtime record's edge carries
+  the `field` it was read from; a property value's edge its `typeId`.
+- **Catalog freshness.** A type object changing in the feed (a
+  property added, patched or removed) invalidates every chunker's
+  per-space catalog snapshot before the rest of the page is extracted,
+  so a value written right after its definition indexes on that
+  write, not after the snapshot's TTL and a later write. The prop
+  chunker's stream is complete per row (every catalog property, every
+  time), so the worker replaces the whole `prop` collection's edges on
+  each stream and a removed definition's edges fall out on the row's
+  next change.
 - **Per source:**
 
 | Source | Fields | Kinds |

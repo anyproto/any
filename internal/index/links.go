@@ -42,6 +42,11 @@ type LinkEntry struct {
 	// (DatasetProp edges — a value lives at record[typeId][propId]);
 	// empty for record sources.
 	TypeId string
+	// Field names the record field the reference was read from when
+	// the record has several link-bearing fields (runtime datasets);
+	// empty when the source has one text (blocks, messages) or is a
+	// property value.
+	Field  string
 	Kind   string
 	Target anyuri.URI // canonical (URI.Canonical), never a space
 }
@@ -52,23 +57,25 @@ type LinkEntry struct {
 //	link      the string value is one reference
 //	links     the array value lists references
 //	markdown  the text is scanned for references
+//	none      the value is never scanned, whatever the slug implies
 const (
 	XFormatLinksKey = "links"
 
 	LinkModeOne      = "link"
 	LinkModeMany     = "links"
 	LinkModeMarkdown = "markdown"
+	LinkModeNone     = "none"
 
 	slugRelation = "relation"
 	slugMarkdown = "markdown"
 )
 
 // LinkMode resolves a descriptor's link marker: the explicit `links`
-// key wins whatever it holds (an unknown or malformed value disables —
-// the gate refuses those on write, so one only arrives from a vendor
-// or a bypass), else the `relation` slug implies `links` and the
-// `markdown` slug implies `markdown`. Empty when the field carries no
-// links.
+// key wins whatever it holds (`none`, an unknown or a malformed value
+// disable — the gate refuses the latter two on write, so they only
+// arrive from a vendor or a bypass), else the `relation` slug implies
+// `links` and the `markdown` slug implies `markdown`. Empty when the
+// field carries no links.
 func LinkMode(xf map[string]any) string {
 	if xf == nil {
 		return ""
@@ -90,10 +97,10 @@ func LinkMode(xf map[string]any) string {
 	return ""
 }
 
-// ValidLinkMode reports whether s is one of the three marker values.
+// ValidLinkMode reports whether s is one of the marker values.
 func ValidLinkMode(s string) bool {
 	switch s {
-	case LinkModeOne, LinkModeMany, LinkModeMarkdown:
+	case LinkModeOne, LinkModeMany, LinkModeMarkdown, LinkModeNone:
 		return true
 	}
 	return false

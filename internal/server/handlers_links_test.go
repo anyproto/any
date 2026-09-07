@@ -241,6 +241,78 @@ func TestIndexer_Links(t *testing.T) {
 		}
 	}
 
+	// The first advance stamped the layout: a restart must not backfill.
+	if v, err := st.LinksVersion(ctx, spaceId); err != nil || v == 0 {
+		t.Errorf("layout stamp after the first advance = %d (%v)", v, err)
+	}
+	if need, _ := st.LinksBackfillNeeded(ctx, spaceId); need {
+		t.Error("a space indexed in this process needs a backfill")
+	}
+
+	// A property defined a moment ago indexes the value written right
+	// after it: the type change refreshes the catalog snapshot inside
+	// the page, no TTL wait.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types/"+tr.TypeId+"/properties",
+		`{"name":"Also","xKey":"also","kind":"array","xFormat":{"type":"relation","config":{"multiple":true}}}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create prop: %d %s", rec.Code, rec.Body.String())
+	}
+	var pr2 api.AddPropertyResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &pr2)
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/properties/"+doc+"/set/"+tr.TypeId,
+		`{"patch":{"`+pr2.PropId+`":["any://`+target+`"]}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("set new relation: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	if got := linkKeys(getBacklinks(t, e, spaceId, target, "").Object); got["prop/"+pr2.PropId+"→"+targetUri] != api.LinkKindRelation {
+		t.Errorf("value of a just-defined property not indexed: %v", got)
+	}
+	// Removing the definition drops its edges on the row's next change.
+	if rec := doJSON(t, e, http.MethodDelete, "/v1/spaces/"+spaceId+"/types/"+tr.TypeId+"/properties/"+pr2.PropId, ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("remove prop: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/properties/"+doc+"/set/any", `{"patch":{"name":"doc"}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("touch doc: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	if got := linkKeys(getBacklinks(t, e, spaceId, target, "").Object); got["prop/"+pr2.PropId+"→"+targetUri] != "" || got["prop/"+pr.PropId+"→"+targetUri] != api.LinkKindRelation {
+		t.Errorf("after removing the definition: %v", got)
+	}
+	// The off-switch: a relation marked none reports nothing.
+	rec = doJSON(t, e, http.MethodPatch, "/v1/spaces/"+spaceId+"/types/"+tr.TypeId+"/properties/"+pr.PropId, `{"set":{"xFormat.links":"none"}}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("mark none: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/properties/"+doc+"/set/any", `{"patch":{"name":"doc2"}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("touch doc: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	if got := linkKeys(getBacklinks(t, e, spaceId, target, "").Object); got["prop/"+pr.PropId+"→"+targetUri] != "" {
+		t.Errorf("a none-marked relation still reports: %v", got)
+	}
+	if rec := doJSON(t, e, http.MethodPatch, "/v1/spaces/"+spaceId+"/types/"+tr.TypeId+"/properties/"+pr.PropId, `{"unset":["xFormat.links"]}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("unmark: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/properties/"+doc+"/set/any", `{"patch":{"name":"doc3"}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("touch doc: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	if got := linkKeys(getBacklinks(t, e, spaceId, target, "").Object); got["prop/"+pr.PropId+"→"+targetUri] != api.LinkKindRelation {
+		t.Errorf("after unmarking: %v", got)
+	}
+
 	// --- backfill: a db indexed before the sink existed ---------------
 	if err := st.ResetLinks(ctx, spaceId); err != nil {
 		t.Fatal(err)

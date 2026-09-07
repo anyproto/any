@@ -59,8 +59,8 @@ const (
 	xfConfig   = "config"
 	// xfLinks marks a field whose value carries any:// references for
 	// the link index (docs/13-index.md § Links): "link" (one string),
-	// "links" (an array) or "markdown" (text scanned for references).
-	// The relation and markdown slugs imply it.
+	// "links" (an array), "markdown" (text scanned for references) or
+	// "none" (never scanned). The relation and markdown slugs imply it.
 	xfLinks = "links"
 	// Reserved for future contracts; refused today.
 	xfValidate = "validate"
@@ -365,7 +365,7 @@ func checkDescriptorLeaf(segs []string, v *fastjson.Value) (code, reason string)
 			return c, r
 		}
 		if !index.ValidLinkMode(string(v.GetStringBytes())) {
-			return "property.format_invalid", path + " must be one of link, links, markdown"
+			return "property.format_invalid", path + " must be one of link, links, markdown, none"
 		}
 		return "", ""
 	case xfOptions:

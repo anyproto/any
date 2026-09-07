@@ -28,6 +28,7 @@ func TestLinkMode(t *testing.T) {
 		{"explicit overrides slug", map[string]any{"type": "relation", "links": "markdown"}, LinkModeMarkdown},
 		{"bogus explicit disables", map[string]any{"type": "relation", "links": "nope"}, ""},
 		{"non-string explicit disables", map[string]any{"type": "relation", "links": 1}, ""},
+		{"none disables", map[string]any{"type": "relation", "links": "none"}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
