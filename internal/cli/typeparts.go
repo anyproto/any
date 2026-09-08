@@ -180,11 +180,7 @@ Examples:
 				if err != nil {
 					return err
 				}
-				req.Meta = make(map[string]json.RawMessage, len(meta))
-				for k, v := range meta {
-					raw, _ := json.Marshal(v) // nil marshals to null = unset
-					req.Meta[k] = raw
-				}
+				req.Meta = meta // nil value = unset
 			}
 			if req.Name == nil && req.Description == nil && req.IconCID == nil && req.Weight == nil && req.Layout == nil &&
 				req.Hidden == nil && len(req.Meta) == 0 {

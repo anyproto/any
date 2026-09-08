@@ -194,12 +194,9 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "xFormat": {
+                        "additionalProperties": {},
                         "description": "XFormat is the property's descriptor: everything descriptive\nbeyond the kind — the semantic slug, icon, ordering key, option\nset, relation targets, per-format config (docs/27-descriptors.md).\nAn object; the server validates the keys it interprets (type,\nicon, pos, options, relation, config) against the vocabulary and\nthe slug against kind, stores vendor-namespaced keys verbatim,\nand reserves validate / compute. Every path under it is mutable\nvia PATCH.",
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "type": "object"
                     },
                     "xKey": {
                         "description": "XKey is the property's handle — an alias, not a storage key\n(values live under the content-addressed propId). Unique within\nthe type (409 property.xkey_conflict); mutable via PATCH.",
@@ -223,10 +220,8 @@ const docTemplate = `{
                     },
                     "records": {
                         "items": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
+                            "additionalProperties": {},
+                            "type": "object"
                         },
                         "type": "array",
                         "uniqueItems": false
@@ -403,12 +398,6 @@ const docTemplate = `{
             "api.BlockPatchRequest": {
                 "properties": {
                     "set": {
-                        "additionalProperties": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
-                        },
                         "type": "object"
                     },
                     "unset": {
@@ -498,12 +487,9 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "layout": {
+                        "additionalProperties": {},
                         "description": "Layout and Weight seed the root type's rendering slice (same\nshape as POST …/types); Hidden keeps it out of GET …/types. All\nthree are written on install only — an adopt never patches them.\nHidden is explicit: a root that only hosts its bundle's records\nshould ask for it (a listed type is one a client may attach\nelsewhere, granting that object the bundle's collections); a root\nthat is a type objects carry stays listed.",
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "type": "object"
                     },
                     "name": {
                         "description": "Name is the display name, written on install.",
@@ -730,12 +716,9 @@ const docTemplate = `{
                 "description": "Type declares the type the root implements.",
                 "properties": {
                     "layout": {
+                        "additionalProperties": {},
                         "description": "Layout is the rendering slug, ` + "`" + `{type, config?}` + "`" + `.",
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "type": "object"
                     },
                     "properties": {
                         "description": "Properties are the columns (the POST …/types/:typeId/properties\ndraft shape); each carries an xKey, the property id derives from\nit.",
@@ -1031,12 +1014,9 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "xFormat": {
+                        "additionalProperties": {},
                         "description": "XFormat is the field's descriptor as stored; absent when none was\ndeclared.",
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "type": "object"
                     }
                 },
                 "type": "object"
@@ -1077,12 +1057,9 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "xFormat": {
+                        "additionalProperties": {},
                         "description": "XFormat is the field's descriptor — the same object a property\ndefinition carries (AddPropertyRequest.XFormat), validated the\nsame way against the field's kind. Mutable via\nPATCH …/fields/:fieldId.",
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "type": "object"
                     }
                 },
                 "type": "object"
@@ -1090,12 +1067,6 @@ const docTemplate = `{
             "api.DatasetFieldPatchRequest": {
                 "properties": {
                     "set": {
-                        "additionalProperties": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
-                        },
                         "type": "object"
                     },
                     "unset": {
@@ -1129,12 +1100,6 @@ const docTemplate = `{
             "api.DatasetPatchRequest": {
                 "properties": {
                     "set": {
-                        "additionalProperties": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
-                        },
                         "type": "object"
                     },
                     "unset": {
@@ -1165,11 +1130,8 @@ const docTemplate = `{
                         "uniqueItems": false
                     },
                     "schema": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "shared": {
                         "type": "boolean"
@@ -1359,11 +1321,9 @@ const docTemplate = `{
             "api.EventPublishRequest": {
                 "properties": {
                     "data": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "description": "Data is free-form: any JSON value, capped at 64 KiB marshaled.\nThe generated schema can only show the object form — a scalar or\nan array is equally valid on the wire.",
+                        "type": "object"
                     },
                     "scope": {
                         "type": "string"
@@ -1607,18 +1567,13 @@ const docTemplate = `{
             "api.HistoryFieldDiff": {
                 "properties": {
                     "after": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "before": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "description": "Before / After are leaf values — usually a string, number or\nboolean. The generated schema can only show the object form.",
+                        "type": "object"
                     },
                     "path": {
                         "items": {
@@ -1676,11 +1631,8 @@ const docTemplate = `{
                         "type": "boolean"
                     },
                     "record": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "recordId": {
                         "type": "string"
@@ -1716,10 +1668,8 @@ const docTemplate = `{
                     },
                     "records": {
                         "items": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
+                            "additionalProperties": {},
+                            "type": "object"
                         },
                         "type": "array",
                         "uniqueItems": false
@@ -1971,10 +1921,8 @@ const docTemplate = `{
                     },
                     "records": {
                         "items": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
+                            "additionalProperties": {},
+                            "type": "object"
                         },
                         "type": "array",
                         "uniqueItems": false
@@ -2266,11 +2214,8 @@ const docTemplate = `{
             "api.LocalRecordResponse": {
                 "properties": {
                     "record": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     }
                 },
                 "type": "object"
@@ -2302,12 +2247,9 @@ const docTemplate = `{
                         "type": "boolean"
                     },
                     "record": {
+                        "additionalProperties": {},
                         "description": "Record is the document after the update.",
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "type": "object"
                     }
                 },
                 "type": "object"
@@ -2515,6 +2457,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "record": {
+                        "additionalProperties": {},
                         "type": "object"
                     }
                 },
@@ -2655,11 +2598,8 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "ui": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "uses": {
                         "items": {
@@ -2699,12 +2639,9 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "ui": {
+                        "additionalProperties": {},
                         "description": "UI is the widget descriptor — {type, config} in the xFormat shape\n(v1 slugs: document, chat, table, list, board, gallery, chart,\nproperties; open set, an unknown slug renders the module default).\nWritten whole.",
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "type": "object"
                     },
                     "uses": {
                         "description": "Uses names other datasets OF THIS TYPE the part renders without\nowning them (dataset keys).",
@@ -2720,12 +2657,6 @@ const docTemplate = `{
             "api.PartPatchRequest": {
                 "properties": {
                     "set": {
-                        "additionalProperties": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
-                        },
                         "type": "object"
                     },
                     "unset": {
@@ -2890,11 +2821,8 @@ const docTemplate = `{
             "api.PropertiesGetResponse": {
                 "properties": {
                     "record": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     }
                 },
                 "type": "object"
@@ -2963,12 +2891,9 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "xFormat": {
+                        "additionalProperties": {},
                         "description": "XFormat is the descriptor as stored — absent for a property that\nnever declared one, which renders structurally from Kind.",
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "type": "object"
                     },
                     "xKey": {
                         "type": "string"
@@ -2979,12 +2904,6 @@ const docTemplate = `{
             "api.PropertyPatchRequest": {
                 "properties": {
                     "set": {
-                        "additionalProperties": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
-                        },
                         "type": "object"
                     },
                     "unset": {
@@ -3049,10 +2968,8 @@ const docTemplate = `{
                     },
                     "records": {
                         "items": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
+                            "additionalProperties": {},
+                            "type": "object"
                         },
                         "type": "array",
                         "uniqueItems": false
@@ -3714,11 +3631,8 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "layout": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "meta": {
                         "additionalProperties": {},
@@ -3762,19 +3676,11 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "layout": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "meta": {
-                        "additionalProperties": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
-                        },
+                        "additionalProperties": {},
                         "type": "object"
                     },
                     "name": {
@@ -3799,11 +3705,8 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "layout": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "meta": {
                         "additionalProperties": {},

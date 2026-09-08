@@ -94,7 +94,9 @@ type HistoryRecordDiff struct {
 // HistoryFieldDiff is one leaf-level field difference; absent side is
 // omitted. Peer-local bookkeeping (_ver etc.) never appears.
 type HistoryFieldDiff struct {
-	Path   []string        `json:"path"`
+	Path []string `json:"path"`
+	// Before / After are leaf values — usually a string, number or
+	// boolean. The generated schema can only show the object form.
 	Before json.RawMessage `json:"before,omitempty"`
 	After  json.RawMessage `json:"after,omitempty"`
 }

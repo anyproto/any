@@ -381,13 +381,7 @@ func (d *deps) typePatch(c echo.Context) error {
 	}
 	if len(req.Meta) > 0 {
 		patch.Meta = make(map[string]any, len(req.Meta))
-		for k, raw := range req.Meta {
-			var v any
-			if len(raw) > 0 && string(raw) != "null" {
-				if err := json.Unmarshal(raw, &v); err != nil {
-					return writeError(c, http.StatusBadRequest, "request.invalid_field", "meta value is not valid JSON", map[string]any{"path": "meta." + k})
-				}
-			}
+		for k, v := range req.Meta {
 			if code, reason := checkTypeMetaEntry(k, v); code != "" {
 				return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": "meta." + k})
 			}
