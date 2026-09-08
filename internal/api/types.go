@@ -35,7 +35,8 @@ type TypesCreateRequest struct {
 // TypePatchRequest is the body of PATCH /v1/spaces/:spaceId/types/:typeId
 // — a user type's display and rendering metadata. Absent fields keep
 // their value; an empty string clears a text field; `"layout": null`
-// clears the layout. `meta` patches the flag bag per key: a scalar
+// clears the layout (the generated schema shows the object form only —
+// swag cannot express a nullable object). `meta` patches the flag bag per key: a scalar
 // sets the key, `null` unsets it, keys not named are untouched. At
 // least one field is required.
 type TypePatchRequest struct {
@@ -45,7 +46,7 @@ type TypePatchRequest struct {
 	Weight      *int                       `json:"weight,omitempty"`
 	Layout      json.RawMessage            `json:"layout,omitempty"`
 	Hidden      *bool                      `json:"hidden,omitempty"`
-	Meta        map[string]json.RawMessage `json:"meta,omitempty" swaggertype:"object"`
+	Meta        map[string]any             `json:"meta,omitempty"`
 }
 
 // TypesCreateResponse is the body returned by POST /v1/spaces/:spaceId/types.

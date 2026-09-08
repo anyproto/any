@@ -64,11 +64,14 @@ const (
 // server-stamped sender. Strict-bound: unknown top-level keys
 // (including "sender") answer 400 request.unknown_field.
 type EventPublishRequest struct {
-	Type    string          `json:"type"`
-	Scope   string          `json:"scope"`
-	SpaceId string          `json:"spaceId,omitempty"`
-	Target  string          `json:"target,omitempty"`
-	Data    json.RawMessage `json:"data,omitempty"`
+	Type    string `json:"type"`
+	Scope   string `json:"scope"`
+	SpaceId string `json:"spaceId,omitempty"`
+	Target  string `json:"target,omitempty"`
+	// Data is free-form: any JSON value, capped at 64 KiB marshaled.
+	// The generated schema can only show the object form — a scalar or
+	// an array is equally valid on the wire.
+	Data json.RawMessage `json:"data,omitempty"`
 }
 
 // EventPublishResponse is the body of POST /v1/events. Subscribers is

@@ -1322,6 +1322,7 @@ const docTemplate = `{
                 "properties": {
                     "data": {
                         "additionalProperties": {},
+                        "description": "Data is free-form: any JSON value, capped at 64 KiB marshaled.\nThe generated schema can only show the object form — a scalar or\nan array is equally valid on the wire.",
                         "type": "object"
                     },
                     "scope": {
@@ -1571,6 +1572,7 @@ const docTemplate = `{
                     },
                     "before": {
                         "additionalProperties": {},
+                        "description": "Before / After are leaf values — usually a string, number or\nboolean. The generated schema can only show the object form.",
                         "type": "object"
                     },
                     "path": {
@@ -2455,6 +2457,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "record": {
+                        "additionalProperties": {},
                         "type": "object"
                     }
                 },
@@ -3677,6 +3680,7 @@ const docTemplate = `{
                         "type": "object"
                     },
                     "meta": {
+                        "additionalProperties": {},
                         "type": "object"
                     },
                     "name": {

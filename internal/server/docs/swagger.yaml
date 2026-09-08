@@ -1145,6 +1145,10 @@ components:
       properties:
         data:
           additionalProperties: {}
+          description: |-
+            Data is free-form: any JSON value, capped at 64 KiB marshaled.
+            The generated schema can only show the object form — a scalar or
+            an array is equally valid on the wire.
           type: object
         scope:
           type: string
@@ -1326,6 +1330,9 @@ components:
           type: object
         before:
           additionalProperties: {}
+          description: |-
+            Before / After are leaf values — usually a string, number or
+            boolean. The generated schema can only show the object form.
           type: object
         path:
           items:
@@ -1992,6 +1999,7 @@ components:
         objectId:
           type: string
         record:
+          additionalProperties: {}
           type: object
       type: object
     api.ObjectSyncStatusResponse:
@@ -2973,6 +2981,7 @@ components:
           additionalProperties: {}
           type: object
         meta:
+          additionalProperties: {}
           type: object
         name:
           type: string
