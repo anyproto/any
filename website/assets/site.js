@@ -101,3 +101,21 @@
     }
   });
 })();
+(function(){
+  // copy button on every code block. A block written as a terminal session
+  // ("$ cmd" lines followed by output) copies only the commands, prompt
+  // stripped; every other block copies verbatim.
+  if(!navigator.clipboard)return;
+  document.querySelectorAll('.doc pre > code').forEach(function(c){
+    var pre=c.parentNode,b=document.createElement('button');
+    b.type='button';b.className='copy';b.textContent='copy';b.setAttribute('aria-label','Copy to clipboard');
+    b.onclick=function(){
+      var t=c.textContent,cmds=t.split('\n').filter(function(l){return /^\s*\$ /.test(l)});
+      if(cmds.length)t=cmds.map(function(l){return l.replace(/^\s*\$ /,'')}).join('\n');
+      navigator.clipboard.writeText(t.replace(/\n$/,'')).then(function(){
+        b.textContent='copied';b.classList.add('done');
+        setTimeout(function(){b.textContent='copy';b.classList.remove('done')},1500)});
+    };
+    pre.appendChild(b);
+  });
+})();

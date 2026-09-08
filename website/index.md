@@ -37,6 +37,7 @@ event: changes    …live from here, from every device you own</span></code></pr
 <div class="cards">
 <a href="understanding/index.html"><strong>Understanding any</strong><span>Local-first, encryption, CRDT consistency, the invariants.</span></a>
 <a href="quickstart/index.html"><strong>Quickstart</strong><span>Install, first space in curl, CLI, JS, Python, mobile, anyrt.</span></a>
+<a href="tutorial/index.html"><strong>Tutorial</strong><span>Objects, properties, datasets, apps — four parts that build on each other.</span></a>
 <a href="database/index.html"><strong>Database</strong><span>Spaces, objects, types, reading & writing, aggregation, history.</span></a>
 <a href="realtime/index.html"><strong>Realtime</strong><span>Subscribe, sync status, space list, event bus.</span></a>
 <a href="auth/index.html"><strong>Auth & identity</strong><span>Mnemonic accounts, devices, identities directory.</span></a>
