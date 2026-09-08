@@ -31,6 +31,9 @@ coverage.html
 prompt.md
 prompt-*.md
 
+# Implementation plans — scratch, superseded by the docs they produce
+/docs/plans/
+
 # Local staging nodeconf fixture used by the e2e tests (not checked in;
 # copy your own to the repo root). See internal/e2e/e2e_test.go.
 /staging.yml
