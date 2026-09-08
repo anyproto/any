@@ -42,7 +42,7 @@ type BlockCreateRequest struct {
 // atomic record-modify (single DAG change). Empty patch is a no-op
 // that still returns the record's current _ver.
 type BlockPatchRequest struct {
-	Set   map[string]json.RawMessage `json:"set,omitempty"`
+	Set   map[string]json.RawMessage `json:"set,omitempty" swaggertype:"object"`
 	Unset []string                   `json:"unset,omitempty"`
 }
 

@@ -187,12 +187,9 @@
                         "type": "string"
                     },
                     "xFormat": {
+                        "additionalProperties": {},
                         "description": "XFormat is the property's descriptor: everything descriptive\nbeyond the kind — the semantic slug, icon, ordering key, option\nset, relation targets, per-format config (docs/27-descriptors.md).\nAn object; the server validates the keys it interprets (type,\nicon, pos, options, relation, config) against the vocabulary and\nthe slug against kind, stores vendor-namespaced keys verbatim,\nand reserves validate / compute. Every path under it is mutable\nvia PATCH.",
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "type": "object"
                     },
                     "xKey": {
                         "description": "XKey is the property's handle — an alias, not a storage key\n(values live under the content-addressed propId). Unique within\nthe type (409 property.xkey_conflict); mutable via PATCH.",
@@ -216,10 +213,8 @@
                     },
                     "records": {
                         "items": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
+                            "additionalProperties": {},
+                            "type": "object"
                         },
                         "type": "array",
                         "uniqueItems": false
@@ -396,12 +391,6 @@
             "api.BlockPatchRequest": {
                 "properties": {
                     "set": {
-                        "additionalProperties": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
-                        },
                         "type": "object"
                     },
                     "unset": {
@@ -491,12 +480,9 @@
                         "type": "string"
                     },
                     "layout": {
+                        "additionalProperties": {},
                         "description": "Layout and Weight seed the root type's rendering slice (same\nshape as POST …/types); Hidden keeps it out of GET …/types. All\nthree are written on install only — an adopt never patches them.\nHidden is explicit: a root that only hosts its bundle's records\nshould ask for it (a listed type is one a client may attach\nelsewhere, granting that object the bundle's collections); a root\nthat is a type objects carry stays listed.",
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "type": "object"
                     },
                     "name": {
                         "description": "Name is the display name, written on install.",
@@ -723,12 +709,9 @@
                 "description": "Type declares the type the root implements.",
                 "properties": {
                     "layout": {
+                        "additionalProperties": {},
                         "description": "Layout is the rendering slug, `{type, config?}`.",
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "type": "object"
                     },
                     "properties": {
                         "description": "Properties are the columns (the POST …/types/:typeId/properties\ndraft shape); each carries an xKey, the property id derives from\nit.",
@@ -1024,12 +1007,9 @@
                         "type": "string"
                     },
                     "xFormat": {
+                        "additionalProperties": {},
                         "description": "XFormat is the field's descriptor as stored; absent when none was\ndeclared.",
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "type": "object"
                     }
                 },
                 "type": "object"
@@ -1070,12 +1050,9 @@
                         "type": "string"
                     },
                     "xFormat": {
+                        "additionalProperties": {},
                         "description": "XFormat is the field's descriptor — the same object a property\ndefinition carries (AddPropertyRequest.XFormat), validated the\nsame way against the field's kind. Mutable via\nPATCH …/fields/:fieldId.",
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "type": "object"
                     }
                 },
                 "type": "object"
@@ -1083,12 +1060,6 @@
             "api.DatasetFieldPatchRequest": {
                 "properties": {
                     "set": {
-                        "additionalProperties": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
-                        },
                         "type": "object"
                     },
                     "unset": {
@@ -1122,12 +1093,6 @@
             "api.DatasetPatchRequest": {
                 "properties": {
                     "set": {
-                        "additionalProperties": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
-                        },
                         "type": "object"
                     },
                     "unset": {
@@ -1158,11 +1123,8 @@
                         "uniqueItems": false
                     },
                     "schema": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "shared": {
                         "type": "boolean"
@@ -1352,11 +1314,8 @@
             "api.EventPublishRequest": {
                 "properties": {
                     "data": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "scope": {
                         "type": "string"
@@ -1600,18 +1559,12 @@
             "api.HistoryFieldDiff": {
                 "properties": {
                     "after": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "before": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "path": {
                         "items": {
@@ -1669,11 +1622,8 @@
                         "type": "boolean"
                     },
                     "record": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "recordId": {
                         "type": "string"
@@ -1709,10 +1659,8 @@
                     },
                     "records": {
                         "items": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
+                            "additionalProperties": {},
+                            "type": "object"
                         },
                         "type": "array",
                         "uniqueItems": false
@@ -1964,10 +1912,8 @@
                     },
                     "records": {
                         "items": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
+                            "additionalProperties": {},
+                            "type": "object"
                         },
                         "type": "array",
                         "uniqueItems": false
@@ -2259,11 +2205,8 @@
             "api.LocalRecordResponse": {
                 "properties": {
                     "record": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     }
                 },
                 "type": "object"
@@ -2295,12 +2238,9 @@
                         "type": "boolean"
                     },
                     "record": {
+                        "additionalProperties": {},
                         "description": "Record is the document after the update.",
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "type": "object"
                     }
                 },
                 "type": "object"
@@ -2648,11 +2588,8 @@
                         "type": "string"
                     },
                     "ui": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "uses": {
                         "items": {
@@ -2692,12 +2629,9 @@
                         "type": "string"
                     },
                     "ui": {
+                        "additionalProperties": {},
                         "description": "UI is the widget descriptor — {type, config} in the xFormat shape\n(v1 slugs: document, chat, table, list, board, gallery, chart,\nproperties; open set, an unknown slug renders the module default).\nWritten whole.",
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "type": "object"
                     },
                     "uses": {
                         "description": "Uses names other datasets OF THIS TYPE the part renders without\nowning them (dataset keys).",
@@ -2713,12 +2647,6 @@
             "api.PartPatchRequest": {
                 "properties": {
                     "set": {
-                        "additionalProperties": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
-                        },
                         "type": "object"
                     },
                     "unset": {
@@ -2883,11 +2811,8 @@
             "api.PropertiesGetResponse": {
                 "properties": {
                     "record": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     }
                 },
                 "type": "object"
@@ -2956,12 +2881,9 @@
                         "type": "string"
                     },
                     "xFormat": {
+                        "additionalProperties": {},
                         "description": "XFormat is the descriptor as stored — absent for a property that\nnever declared one, which renders structurally from Kind.",
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "type": "object"
                     },
                     "xKey": {
                         "type": "string"
@@ -2972,12 +2894,6 @@
             "api.PropertyPatchRequest": {
                 "properties": {
                     "set": {
-                        "additionalProperties": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
-                        },
                         "type": "object"
                     },
                     "unset": {
@@ -3042,10 +2958,8 @@
                     },
                     "records": {
                         "items": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
+                            "additionalProperties": {},
+                            "type": "object"
                         },
                         "type": "array",
                         "uniqueItems": false
@@ -3707,11 +3621,8 @@
                         "type": "string"
                     },
                     "layout": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "meta": {
                         "additionalProperties": {},
@@ -3755,19 +3666,10 @@
                         "type": "string"
                     },
                     "layout": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "meta": {
-                        "additionalProperties": {
-                            "items": {
-                                "type": "integer"
-                            },
-                            "type": "array"
-                        },
                         "type": "object"
                     },
                     "name": {
@@ -3792,11 +3694,8 @@
                         "type": "string"
                     },
                     "layout": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "meta": {
                         "additionalProperties": {},

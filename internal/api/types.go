@@ -45,7 +45,7 @@ type TypePatchRequest struct {
 	Weight      *int                       `json:"weight,omitempty"`
 	Layout      json.RawMessage            `json:"layout,omitempty"`
 	Hidden      *bool                      `json:"hidden,omitempty"`
-	Meta        map[string]json.RawMessage `json:"meta,omitempty"`
+	Meta        map[string]json.RawMessage `json:"meta,omitempty" swaggertype:"object"`
 }
 
 // TypesCreateResponse is the body returned by POST /v1/spaces/:spaceId/types.
@@ -178,6 +178,6 @@ type PropertiesListResponse struct {
 // properties) are rejected with 400 property.immutable. At least one
 // entry across Set/Unset required.
 type PropertyPatchRequest struct {
-	Set   map[string]json.RawMessage `json:"set,omitempty"`
+	Set   map[string]json.RawMessage `json:"set,omitempty" swaggertype:"object"`
 	Unset []string                   `json:"unset,omitempty"`
 }
