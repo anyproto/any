@@ -50,18 +50,19 @@ shapes (paths, JSON fields, error codes) — copy them from the docs.
 ## Site inventory (folder → pages). Write ONLY your assigned section(s); link to others freely.
 01-understanding/  index, local-first, encryption, crdt-and-consistency, zen-of-any, dev-workflow, best-practices, programs-and-effects
 02-quickstart/     index, install, curl, cli, javascript, python, android, ios, anyrt, networks
-03-database/       index, spaces, objects, types-and-properties, data-types, reading-data, writing-data, indexes, runtime-datasets, upsert, aggregation, version-history, markdown-import-export, system-fields, derived-objects
-04-realtime/       index, subscribe, sync-status, space-list, event-bus
-05-auth/           index, accounts, devices, identities, profile
-06-collaboration/  index, members-and-roles, invites, acl, one-to-one, derived-spaces, bundles
-07-types/          index, chat, editor, page, links
-08-files/          index, uploading, downloading, status-and-durability, cache, deleting
-09-search/         index, full-text, vector, hybrid, indexing, embedders, evaluation
-10-notifications/  index, push, processes
-11-programs/       index, effects, writing-a-program, modules-and-overlays, traces-and-replay, credentials, testing, limits
-12-scheduling/     index, cron, once, event-triggers, device-pins, runs-and-monitoring
-13-agents/         index, conversations, tools, memory, subagents, connectors, agent-data, progress-and-ui, embedding-anyrt
-14-operations/     index, server, configuration, data-dir, networks, security-model, builds-and-ci, debugging
-15-testing/        index, any-e2e, anybao-harness
-16-reference/      index, http-api, cli, events, errors, config, anyrt-cli, effects-catalog, trigger-schema, anybao-toml, glossary
+03-tutorial/       index, objects, properties, datasets, apps
+04-database/       index, spaces, objects, types-and-properties, data-types, reading-data, writing-data, indexes, runtime-datasets, upsert, aggregation, version-history, markdown-import-export, system-fields, derived-objects
+05-realtime/       index, subscribe, sync-status, space-list, event-bus
+06-auth/           index, accounts, devices, identities, profile
+07-collaboration/  index, members-and-roles, invites, acl, one-to-one, derived-spaces, bundles
+08-types/          index, chat, editor, page, links
+09-files/          index, uploading, downloading, status-and-durability, cache, deleting
+10-search/         index, full-text, vector, hybrid, indexing, embedders, evaluation
+11-notifications/  index, push, processes
+12-programs/       index, effects, writing-a-program, modules-and-overlays, traces-and-replay, credentials, testing, limits
+13-scheduling/     index, cron, once, event-triggers, device-pins, runs-and-monitoring
+14-agents/         index, conversations, tools, memory, subagents, connectors, agent-data, progress-and-ui, embedding-anyrt
+15-operations/     index, server, configuration, data-dir, networks, security-model, builds-and-ci, debugging
+16-testing/        index, any-e2e, anybao-harness
+17-reference/      index, http-api, cli, events, errors, config, anyrt-cli, effects-catalog, trigger-schema, anybao-toml, glossary
 roadmap.md (root)

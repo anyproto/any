@@ -121,8 +121,21 @@ func (d *deps) streamStatusSSE(c echo.Context, dropped *atomic.Uint64, pump func
 
 	// writeMu serializes frame writes: emit runs on the pump goroutine
 	// while keepalives come from their own ticker goroutine, and the
-	// ResponseWriter is not safe for concurrent writes.
+	// ResponseWriter is not safe for concurrent writes. done, set under
+	// the lock before the handler returns, fences the keepalive off a
+	// writer net/http has torn down: a tick that won its select while
+	// the handler was returning would otherwise flush the pooled
+	// response (nil bufio.Writer), and a panic on that goroutine is
+	// outside echo's recover — it aborts the process (SYN-158). Taking
+	// the lock in the defer also holds the return until an in-flight
+	// keepalive write has finished.
 	var writeMu sync.Mutex
+	done := false
+	defer func() {
+		writeMu.Lock()
+		done = true
+		writeMu.Unlock()
+	}()
 
 	var lastDropped uint64
 	emit := func(event string, payload any) error {
@@ -144,19 +157,21 @@ func (d *deps) streamStatusSSE(c echo.Context, dropped *atomic.Uint64, pump func
 	}
 
 	// Keepalive: state events are sparse, so an idle stream would
-	// otherwise sit silent indefinitely. Stop alongside the pump.
-	stopKeepalive := make(chan struct{})
+	// otherwise sit silent indefinitely. Exits with the merged context
+	// (cancelWait runs on return) or on the done fence.
 	go func() {
 		t := time.NewTicker(keepaliveInterval)
 		defer t.Stop()
 		for {
 			select {
-			case <-stopKeepalive:
-				return
 			case <-waitCtx.Done():
 				return
 			case <-t.C:
 				writeMu.Lock()
+				if done {
+					writeMu.Unlock()
+					return
+				}
 				_, err := w.Write([]byte(": keepalive\n\n"))
 				if err == nil {
 					flush(w)
@@ -168,7 +183,6 @@ func (d *deps) streamStatusSSE(c echo.Context, dropped *atomic.Uint64, pump func
 			}
 		}
 	}()
-	defer close(stopKeepalive)
 
 	_ = pump(waitCtx, emit)
 

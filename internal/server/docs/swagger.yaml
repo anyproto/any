@@ -138,6 +138,7 @@ components:
             (POST /v1/spaces/:spaceId/properties/:objectId/set/:typeId).
           type: string
         xFormat:
+          additionalProperties: {}
           description: |-
             XFormat is the property's descriptor: everything descriptive
             beyond the kind — the semantic slug, icon, ordering key, option
@@ -147,10 +148,7 @@ components:
             the slug against kind, stores vendor-namespaced keys verbatim,
             and reserves validate / compute. Every path under it is mutable
             via PATCH.
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          type: object
         xKey:
           description: |-
             XKey is the property's handle — an alias, not a storage key
@@ -169,9 +167,8 @@ components:
           type: string
         records:
           items:
-            items:
-              type: integer
-            type: array
+            additionalProperties: {}
+            type: object
           type: array
           uniqueItems: false
       type: object
@@ -324,10 +321,6 @@ components:
     api.BlockPatchRequest:
       properties:
         set:
-          additionalProperties:
-            items:
-              type: integer
-            type: array
           type: object
         unset:
           items:
@@ -422,6 +415,7 @@ components:
           description: Id is the bundle identifier. Required.
           type: string
         layout:
+          additionalProperties: {}
           description: |-
             Layout and Weight seed the root type's rendering slice (same
             shape as POST …/types); Hidden keeps it out of GET …/types. All
@@ -430,10 +424,7 @@ components:
             should ask for it (a listed type is one a client may attach
             elsewhere, granting that object the bundle's collections); a root
             that is a type objects carry stays listed.
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          type: object
         name:
           description: Name is the display name, written on install.
           type: string
@@ -663,11 +654,9 @@ components:
       description: Type declares the type the root implements.
       properties:
         layout:
+          additionalProperties: {}
           description: Layout is the rendering slug, `{type, config?}`.
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          type: object
         properties:
           description: |-
             Properties are the columns (the POST …/types/:typeId/properties
@@ -915,13 +904,11 @@ components:
         stamp:
           type: string
         xFormat:
+          additionalProperties: {}
           description: |-
             XFormat is the field's descriptor as stored; absent when none was
             declared.
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          type: object
       type: object
     api.DatasetFieldDraft:
       properties:
@@ -959,23 +946,17 @@ components:
             apply time, client writes rejected.
           type: string
         xFormat:
+          additionalProperties: {}
           description: |-
             XFormat is the field's descriptor — the same object a property
             definition carries (AddPropertyRequest.XFormat), validated the
             same way against the field's kind. Mutable via
             PATCH …/fields/:fieldId.
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          type: object
       type: object
     api.DatasetFieldPatchRequest:
       properties:
         set:
-          additionalProperties:
-            items:
-              type: integer
-            type: array
           type: object
         unset:
           items:
@@ -1000,10 +981,6 @@ components:
     api.DatasetPatchRequest:
       properties:
         set:
-          additionalProperties:
-            items:
-              type: integer
-            type: array
           type: object
         unset:
           items:
@@ -1033,10 +1010,8 @@ components:
           type: array
           uniqueItems: false
         schema:
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          additionalProperties: {}
+          type: object
         shared:
           type: boolean
       type: object
@@ -1169,10 +1144,12 @@ components:
     api.EventPublishRequest:
       properties:
         data:
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          additionalProperties: {}
+          description: |-
+            Data is free-form: any JSON value, capped at 64 KiB marshaled.
+            The generated schema can only show the object form — a scalar or
+            an array is equally valid on the wire.
+          type: object
         scope:
           type: string
         spaceId:
@@ -1349,15 +1326,14 @@ components:
     api.HistoryFieldDiff:
       properties:
         after:
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          additionalProperties: {}
+          type: object
         before:
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          additionalProperties: {}
+          description: |-
+            Before / After are leaf values — usually a string, number or
+            boolean. The generated schema can only show the object form.
+          type: object
         path:
           items:
             type: string
@@ -1396,10 +1372,8 @@ components:
         exists:
           type: boolean
         record:
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          additionalProperties: {}
+          type: object
         recordId:
           type: string
         version:
@@ -1423,9 +1397,8 @@ components:
           type: string
         records:
           items:
-            items:
-              type: integer
-            type: array
+            additionalProperties: {}
+            type: object
           type: array
           uniqueItems: false
       type: object
@@ -1483,6 +1456,9 @@ components:
             replaced or revoked on another device).
           type: string
         permission:
+          description: |-
+            Permission is "none" for the request-to-join invites v1 mints —
+            the role is chosen at accept time, not carried by the invite.
           type: string
         recordId:
           type: string
@@ -1604,9 +1580,8 @@ components:
           type: string
         records:
           items:
-            items:
-              type: integer
-            type: array
+            additionalProperties: {}
+            type: object
           type: array
           uniqueItems: false
         written:
@@ -1829,10 +1804,8 @@ components:
     api.LocalRecordResponse:
       properties:
         record:
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          additionalProperties: {}
+          type: object
       type: object
     api.LocalUpdateRequest:
       properties:
@@ -1857,11 +1830,9 @@ components:
           description: Modified reports whether the modifier changed the document.
           type: boolean
         record:
+          additionalProperties: {}
           description: Record is the document after the update.
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          type: object
       type: object
     api.MarkdownContent:
       properties:
@@ -2028,6 +1999,7 @@ components:
         objectId:
           type: string
         record:
+          additionalProperties: {}
           type: object
       type: object
     api.ObjectSyncStatusResponse:
@@ -2124,10 +2096,8 @@ components:
         pos:
           type: string
         ui:
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          additionalProperties: {}
+          type: object
         uses:
           items:
             type: string
@@ -2159,15 +2129,13 @@ components:
         pos:
           type: string
         ui:
+          additionalProperties: {}
           description: |-
             UI is the widget descriptor — {type, config} in the xFormat shape
             (v1 slugs: document, chat, table, list, board, gallery, chart,
             properties; open set, an unknown slug renders the module default).
             Written whole.
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          type: object
         uses:
           description: |-
             Uses names other datasets OF THIS TYPE the part renders without
@@ -2180,10 +2148,6 @@ components:
     api.PartPatchRequest:
       properties:
         set:
-          additionalProperties:
-            items:
-              type: integer
-            type: array
           type: object
         unset:
           items:
@@ -2291,10 +2255,8 @@ components:
     api.PropertiesGetResponse:
       properties:
         record:
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          additionalProperties: {}
+          type: object
       type: object
     api.PropertiesListResponse:
       properties:
@@ -2346,23 +2308,17 @@ components:
             read back as "synced".
           type: string
         xFormat:
+          additionalProperties: {}
           description: |-
             XFormat is the descriptor as stored — absent for a property that
             never declared one, which renders structurally from Kind.
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          type: object
         xKey:
           type: string
       type: object
     api.PropertyPatchRequest:
       properties:
         set:
-          additionalProperties:
-            items:
-              type: integer
-            type: array
           type: object
         unset:
           items:
@@ -2405,9 +2361,8 @@ components:
           type: boolean
         records:
           items:
-            items:
-              type: integer
-            type: array
+            additionalProperties: {}
+            type: object
           type: array
           uniqueItems: false
         total:
@@ -3050,10 +3005,8 @@ components:
         id:
           type: string
         layout:
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          additionalProperties: {}
+          type: object
         meta:
           additionalProperties: {}
           type: object
@@ -3089,15 +3042,10 @@ components:
         iconCid:
           type: string
         layout:
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          additionalProperties: {}
+          type: object
         meta:
-          additionalProperties:
-            items:
-              type: integer
-            type: array
+          additionalProperties: {}
           type: object
         name:
           type: string
@@ -3120,10 +3068,8 @@ components:
         iconCid:
           type: string
         layout:
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          additionalProperties: {}
+          type: object
         meta:
           additionalProperties: {}
           type: object

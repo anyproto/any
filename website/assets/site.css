@@ -116,6 +116,15 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 .doc a code{color:var(--cyan)}
 .doc pre{position:relative;font-family:var(--mono);background:var(--bg1);border:0;border-radius:12px;padding:24px 16px;overflow-x:auto;line-height:20px;margin:16px 0 0}
 .doc pre::after{content:attr(data-lang);position:absolute;right:16px;top:10px;font-size:12px;line-height:18px;color:var(--fg3)}
+/* the copy button sits at the far right; the language label moves left of it
+   only when the button exists (no clipboard API = no button, label stays put). */
+.doc pre:has(.copy)::after{right:76px}
+.doc pre .copy{position:absolute;right:12px;top:8px;font:500 12px/18px var(--mono);color:var(--fg3);background:var(--bg3);
+  border:1px solid var(--line);border-radius:4px;padding:1px 8px;cursor:pointer}
+.doc pre .copy:hover{color:var(--fg);border-color:var(--line2)}
+.doc pre .copy.done{color:var(--accent);border-color:var(--accent)}
+/* inline SVG figures follow the theme through the CSS variables they reference */
+.doc svg.figure{display:block;width:100%;height:auto;margin:16px 0 0}
 .doc pre code{background:none;border:0;padding:0;font-size:13px;line-height:20px;color:var(--code-fg)}
 .doc pre code .k{color:var(--code-k)}.doc pre code .c{color:var(--fg3);font-style:italic}.doc pre code .s{color:var(--amber)}.doc pre code .n{color:var(--magenta)}.doc pre code .p{color:var(--code-k);font-weight:600}
 .doc table{border-collapse:collapse;width:100%;margin:16px 0 0;font-size:13px;line-height:18px;display:block;overflow-x:auto}

@@ -11,8 +11,9 @@ import (
 // keepaliveInterval is the gap between SSE comment-frame heartbeats.
 // Idle middleboxes (proxies, load balancers) commonly close streams
 // after 30–60s of silence; 25s keeps us comfortably under that. On
-// loopback v1 it is belt-and-braces — cheap, future-proof.
-const keepaliveInterval = 25 * time.Second
+// loopback v1 it is belt-and-braces — cheap, future-proof. A var so
+// the keepalive race tests can shrink it.
+var keepaliveInterval = 25 * time.Second
 
 // writeSSEEvent emits one SSE frame: an event line, an optional id
 // line, and a single data line carrying the JSON-encoded payload.

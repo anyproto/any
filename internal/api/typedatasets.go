@@ -98,7 +98,7 @@ type AddPartResponse struct {
 // keys). The key is pinned → 400 dataset.immutable. At least one entry
 // across Set/Unset required.
 type PartPatchRequest struct {
-	Set   map[string]json.RawMessage `json:"set,omitempty"`
+	Set   map[string]json.RawMessage `json:"set,omitempty" swaggertype:"object"`
 	Unset []string                   `json:"unset,omitempty"`
 }
 
@@ -329,7 +329,7 @@ type AddDatasetFieldResponse struct {
 // rejected with 400 dataset.immutable. At least one entry across
 // Set/Unset required.
 type DatasetFieldPatchRequest struct {
-	Set   map[string]json.RawMessage `json:"set,omitempty"`
+	Set   map[string]json.RawMessage `json:"set,omitempty" swaggertype:"object"`
 	Unset []string                   `json:"unset,omitempty"`
 }
 
@@ -344,6 +344,6 @@ type DatasetFieldPatchRequest struct {
 // kinds/flags — is pinned and rejected with 400 dataset.immutable. At
 // least one entry across Set/Unset required.
 type DatasetPatchRequest struct {
-	Set   map[string]json.RawMessage `json:"set,omitempty"`
+	Set   map[string]json.RawMessage `json:"set,omitempty" swaggertype:"object"`
 	Unset []string                   `json:"unset,omitempty"`
 }

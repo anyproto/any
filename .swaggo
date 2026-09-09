@@ -1,0 +1,13 @@
+// swag type overrides, read by `make swagger`.
+//
+// json.RawMessage is a []byte, which swag describes as []integer:
+// without this, every descriptor (xFormat, part ui, type layout),
+// every raw record and every records array reaches generated clients
+// as number[]. A per-field swaggertype:"array,object" is not an
+// alternative — it segfaults swag v2 rc5 on []RawMessage.
+//
+// The per-path PATCH `set` maps carry swaggertype:"object" instead,
+// which wins over this: their values are whatever the path takes — a
+// string, a bool, an object — so a map-of-object would reject a legal
+// scalar leaf.
+replace json.RawMessage map[string]interface{}

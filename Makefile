@@ -33,7 +33,7 @@ LLAMACPP_VERSION := b10620
 .PHONY: build test vet tidy clean swagger llamacpp llamacpp-soft any docs docs-serve catalog-validate
 
 swagger:
-	$(SWAG) init --v3.1 -g doc.go -d ./internal/server,./internal/api -o internal/server/docs --parseDependency --parseInternal
+	$(SWAG) init --v3.1 -g doc.go -d ./internal/server,./internal/api -o internal/server/docs --parseDependency --parseInternal --overridesFile $(CURDIR)/.swaggo
 
 build: swagger llamacpp-soft
 	@mkdir -p $(OUT)

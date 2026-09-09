@@ -673,6 +673,13 @@ func bundleErrorWith(c echo.Context, err error, details map[string]any) error {
 	case errors.Is(err, space.ErrBundleRootNotSynced):
 		return writeError(c, http.StatusConflict, api.ErrBundleNotReady,
 			"the bundle root has not synced to this device yet; retry", details)
+	case errors.Is(err, space.ErrObjectNotFound):
+		// A tree this device does not hold yet — a joiner's first call
+		// right after the accept lands. On the bundle paths that is the
+		// same retryable state as an unsynced root, not a missing
+		// object, so the poll-after-join recipe never meets a 404.
+		return writeError(c, http.StatusConflict, api.ErrBundleNotReady,
+			"the bundle's root has not reached this device yet; retry", details)
 	case errors.Is(err, bundles.ErrLoserNotReady), errors.Is(err, space.ErrLoserNotSynced):
 		return writeError(c, http.StatusConflict, api.ErrBundleLoserNotReady,
 			"the losing root is still syncing; retry once it has settled", details)

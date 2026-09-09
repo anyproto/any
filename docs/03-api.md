@@ -443,6 +443,13 @@ state (search index, UI caches) drop it by watching
 `POST /v1/spaces/query/subscribe` and purging on the `removed` frame;
 the server's own search indexer already does this.
 
+**A deleted id still reads `200`.** `GET /v1/spaces/:spaceId` on a
+tombstone returns the row with `status:"deleted"`; only an id the
+account never knew is `404 space.not_found`. Every write and every
+space-scoped surface on a tombstone (objects, search, members, …) is
+`409 space.deleted`. Branch on `status`, not on the status code — a
+client keyed on `200` treats a deleted space as live.
+
 **`GET /v1/spaces/:id` materializes only active spaces.** A non-active
 row (joining / one_to_one_pending / one_to_one_declined / invite
 statuses / deleted) is served straight from the tech-space index —
@@ -3154,9 +3161,14 @@ materializes its own values via `POST …/modify` with
 devices. Filterable like any field: `{"filter":{"unread":true}}`.
 
 `createdAt` and `modifiedAt` are server-stamped instants
-(`{"$date": "<RFC 3339>"}`). They are equal on a never-edited message —
-clients detect edits by comparing them. `text` is markdown; rendering is the client's
-problem (`internal/markdown` exists if anyone wants to round-trip).
+(`{"$date": "<RFC 3339>"}`) taken from the change envelope's clock,
+which is second-resolution — display-only. A message edited within
+the second it was sent carries equal stamps, so an "edited" marker
+comes from `_ver`, not the clock: `_ver.text != _ver.id` means the
+text changed after creation (`_ver.id` is the creation marker, set
+once; `_ver.<path>` advances with every write to that path). `text`
+is markdown; rendering is the client's problem (`internal/markdown`
+exists if anyone wants to round-trip).
 
 `mentions` is server-DERIVED (`x-scope` derived) — never accepted from
 a client: the send route has no such field and a direct `$set` via
@@ -3565,8 +3577,11 @@ Mint:
 ```
 
 `inviteToken` is a base58-packed `(spaceId, invitePrivKey)` produced
-by `space.EncodeInvite`. Owners share this string out-of-band; joiners
-pass it back verbatim:
+by `space.EncodeInvite`. A listed invite's `permission` is `"none"`
+for the request-to-join invites v1 mints — the role is chosen by the
+owner at `/acl/accept`, not carried by the invite; only an
+anyone-can-join invite (deferred) would carry one. Owners share the
+token out-of-band; joiners pass it back verbatim:
 
 ```json
 // POST /v1/spaces/join
