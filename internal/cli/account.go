@@ -31,6 +31,20 @@ func newAccountCmd() *cobra.Command {
 	setMeta.Flags().StringVar(&desc, "description", "", "short bio / description")
 	setMeta.Flags().StringVar(&iconCID, "icon-cid", "", "file CID for the avatar (resolved via the file service)")
 
-	cmd.AddCommand(setMeta)
+	redeem := &cobra.Command{
+		Use:   "redeem <code>",
+		Short: "redeem an alpha invite code to raise this account's limits",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cl := newClient(flags.Timeout)
+			res, err := cl.AccountRedeemAccessCode(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return printJSON(res)
+		},
+	}
+
+	cmd.AddCommand(setMeta, redeem)
 	return cmd
 }

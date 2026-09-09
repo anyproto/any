@@ -114,6 +114,31 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.AccessCodeRequest": {
+                "properties": {
+                    "code": {
+                        "description": "Code is the invite code as typed; compared upper-cased with\nwhitespace removed.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.AccessCodeResponse": {
+                "properties": {
+                    "redemptionId": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "Status is \"accepted\" (limits are being granted) or\n\"already_redeemed\" (this account redeemed a code before).",
+                        "enum": [
+                            "accepted",
+                            "already_redeemed"
+                        ],
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.AccountMetadata": {
                 "properties": {
                     "description": {
@@ -3869,6 +3894,106 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Get account info",
+                "tags": [
+                    "account"
+                ]
+            }
+        },
+        "/account/access-code": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.AccessCodeRequest",
+                                        "summary": "body",
+                                        "description": "The invite code"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The invite code",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AccessCodeResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Too Many Requests"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Gateway"
+                    }
+                },
+                "summary": "Redeem an alpha invite code",
                 "tags": [
                     "account"
                 ]

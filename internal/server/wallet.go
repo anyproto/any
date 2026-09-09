@@ -28,15 +28,25 @@ func OpenWallet(path, passkey, mnemonic string, index uint32) (provider *auth.Fi
 // AccountID returns the anytype account identifier derived from the
 // provider's account key — the string health exposes as "account".
 func AccountID(ctx context.Context, p auth.Provider) (string, error) {
-	raw, err := p.AccountKey(ctx)
+	priv, err := accountKey(ctx, p)
 	if err != nil {
 		return "", err
 	}
+	return priv.GetPublic().Account(), nil
+}
+
+// accountKey returns the provider's account signing key — what the
+// engine keeps to sign on the account's behalf (access codes).
+func accountKey(ctx context.Context, p auth.Provider) (crypto.PrivKey, error) {
+	raw, err := p.AccountKey(ctx)
+	if err != nil {
+		return nil, err
+	}
 	priv, err := crypto.UnmarshalEd25519PrivateKey(raw)
 	if err != nil {
-		return "", fmt.Errorf("unmarshal account key: %w", err)
+		return nil, fmt.Errorf("unmarshal account key: %w", err)
 	}
-	return priv.GetPublic().Account(), nil
+	return priv, nil
 }
 
 // credential opens the keys an engine boots with: the provider the

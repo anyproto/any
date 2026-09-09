@@ -16,6 +16,7 @@ import (
 
 	anysyncsdk "github.com/anyproto/any-sync-sdk"
 	"github.com/anyproto/any-sync-sdk/space"
+	"github.com/anyproto/any-sync/util/crypto"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
@@ -42,6 +43,9 @@ type engine struct {
 	// SDK opens and closes the file.
 	local   *localstore.Store
 	account string
+	// signKey is the account key, kept to sign requests the server makes
+	// on the account's behalf (POST /v1/account/access-code).
+	signKey crypto.PrivKey
 	// dir is the account dir the lock, pid and addr files live in.
 	dir string
 	// derived is the derived-space registry resolved against this
@@ -233,14 +237,16 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 		}
 	}()
 
-	account, err := AccountID(ctx, provider)
+	signKey, err := accountKey(ctx, provider)
 	if err != nil {
 		return nil, fmt.Errorf("derive account id: %w", err)
 	}
+	account := signKey.GetPublic().Account()
 	if id.Account != "" && id.Account != account {
 		return nil, fmt.Errorf("keys under %s are account %s, not %s", id.Dir, account, id.Account)
 	}
 	eng.account = account
+	eng.signKey = signKey
 
 	sdk, err := OpenSDK(ctx, cfg, id.Dir, provider)
 	if err != nil {
@@ -419,6 +425,7 @@ func (d *deps) publishEngine(eng *engine) {
 	d.push = eng.push
 	d.local = eng.local
 	d.account = eng.account
+	d.signKey = eng.signKey
 	d.derived = eng.derived
 	d.shutdownCtx = eng.ctx
 	d.gate.reset()

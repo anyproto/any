@@ -76,6 +76,9 @@ func newTestDepsCfg(t testing.TB, mutate func(*config.Config)) (*deps, func()) {
 	eng := newEngine()
 	eng.sdk = sdk
 	eng.account = account
+	if signKey, err := accountKey(ctx, provider); err == nil {
+		eng.signKey = signKey
+	}
 	eng.chunkers = NewIndexRegistry()
 	// Mirror bootEngine: resolve the derived-space registry against
 	// the account so the /spaces/derived routes resolve. Pure
@@ -110,6 +113,7 @@ func newTestDepsCfg(t testing.TB, mutate func(*config.Config)) (*deps, func()) {
 	d.push = eng.push
 	d.local = eng.local
 	d.account = eng.account
+	d.signKey = eng.signKey
 	d.derived = eng.derived
 	d.shutdownCtx = eng.ctx
 	d.ready.Store(true)
