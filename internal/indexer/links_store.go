@@ -13,6 +13,7 @@ import (
 	"github.com/anyproto/any-store/v2/query"
 
 	"github.com/anyproto/any/anyuri"
+	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/index"
 )
 
@@ -392,6 +393,61 @@ func (s *Store) Links(ctx context.Context, spaceId, prefix string, kinds []strin
 		filter = query.And{filter, kindFilter(kinds)}
 	}
 	return s.collectLinks(ctx, coll, filter, limit)
+}
+
+// relatedObjects is the search join, not the capped links-list response.
+// Read incoming references in the searched space, then outgoing references
+// in the selected object's space. A cross-space edge belongs to its source.
+func (s *Store) relatedObjects(ctx context.Context, spaceId string, ref api.SearchObjectRef) (map[string]bool, error) {
+	out := map[string]bool{}
+	target := anyuri.URI{Kind: anyuri.KindObject, SpaceId: ref.SpaceId, ObjectId: ref.ObjectId}
+	prefix := ref.ObjectId + ":"
+	reads := []struct {
+		space    string
+		incoming bool
+		filter   query.Filter
+	}{
+		{spaceId, true, query.Key{Path: targetObjectPath, Filter: query.NewComp(query.CompOpEq, target.String())}},
+		{ref.SpaceId, false, query.And{
+			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGte, prefix)},
+			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, prefixUpper(prefix))},
+		}},
+	}
+	for _, read := range reads {
+		coll, err := s.linksCollRead(ctx, read.space)
+		if err != nil {
+			return nil, err
+		}
+		if coll == nil {
+			continue
+		}
+		it, err := coll.Find(read.filter).Iter(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for it.Next() {
+			doc, err := it.Doc()
+			if err != nil {
+				_ = it.Close()
+				return nil, err
+			}
+			link := linkDocFrom(doc.Value())
+			if read.incoming {
+				out[link.ObjectId] = true
+			} else if link.Target.SpaceId == spaceId && link.Target.ObjectId != "" {
+				out[link.Target.ObjectId] = true
+			}
+		}
+		err = it.Err()
+		_ = it.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if ref.SpaceId == spaceId {
+		delete(out, ref.ObjectId)
+	}
+	return out, nil
 }
 
 func (s *Store) collectLinks(ctx context.Context, coll anystore.Collection, filter query.Filter, limit int) ([]LinkDoc, bool, error) {

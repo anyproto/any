@@ -883,6 +883,62 @@ Body:
 }
 ```
 
+**Structured search and chip-only browse.** Supplying `filter` opts into
+object/record results, filtered and deduplicated **before** `offset` / `limit`:
+
+```json
+{
+  "query": "quarterly report",
+  "mode": "fts",
+  "filter": {
+    "kinds": ["object"],
+    "typeIds": ["<typeId>"],
+    "creator": "<identity>",
+    "relatedTo": {"spaceId": "<spaceId>", "objectId": "<objectId>"}
+  },
+  "sort": "modified",
+  "offset": 0,
+  "limit": 30
+}
+```
+
+Every filter field is optional; `{}` selects this path without narrowing.
+Dimensions are ANDed, values inside `kinds` / `typeIds` are ORed. Kinds are
+`object` / `record`; `scopes: ["chat"]` with `kinds: ["record"]` selects
+messages. `typeIds` matches the owning object's `any.types`. `creator` is
+the object's `author` for objects and the **record's own creator stamp** for
+records; it never uses the chat/container author's identity. Missing creator
+metadata does not match. Runtime datasets resolve stamps from their schema's
+`x-stamp`; chat uses its compiled creator/time fields.
+
+`relatedTo` selects objects connected to the selected object in **either
+direction**, including links to records and property values. Cross-space
+references count in the result object's space. It excludes the selected
+object itself and joins the link index directly without the links-list caps.
+
+An empty or omitted `query` with `filter` browses live objects / searchable
+dataset records, including messages with empty text. Text search uses the
+existing FTS index, with no pre-filter top-100 cutoff. `basic` / `props` hits
+collapse into one object row; other searchable scopes remain one record row.
+`agent` / `history` and object type-definition rows are excluded from this
+path; records on those container objects can still match. Client-specific
+visibility rules remain the client's responsibility. Files retain the
+existing `/files` filename-list path; they are not indexed or returned here.
+
+Structured requests accept only `fts` (also the default on this path).
+Explicit `hybrid` / `vector` is `400 request.invalid_field`. `sort` is
+`relevance` (default with text), `modified` (default without text), or
+`created`; date sorts descend, missing dates come last, ties use stable
+identities. `offset` is non-negative and advances over the **returned rows**;
+`hasNext` is always present on this path. Both fields require `filter`.
+Offset pages reflect current data, so writes between pages can move rows.
+
+Hits preserve the existing fields and add `kind`, `title`, `typeIds`,
+`creator`, `createdAt` / `modifiedAt` when known (dates use the dataset
+`{"$date":"<RFC3339>"}` form). Object browse hits use `dataset: "objects"`,
+`recordId: objectId`, `scope: "basic"`, and empty `data`. The legacy request
+without `filter` retains its record ranking, modes and required query.
+
 User property values index by default under the dedicated scope
 `props` (self-describing `"<prop name>: <value>"` entries; opt-out per
 property via `meta.index: "none"`). Props docs are FTS-only — they

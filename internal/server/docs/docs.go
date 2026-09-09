@@ -3080,11 +3080,51 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.SearchDate": {
+                "properties": {
+                    "$date": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.SearchFilter": {
+                "description": "Filter opts into object/record results with structured filters applied\nbefore paging. It permits an empty query (browse); FTS mode only.",
+                "properties": {
+                    "creator": {
+                        "type": "string"
+                    },
+                    "kinds": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "relatedTo": {
+                        "$ref": "#/components/schemas/api.SearchObjectRef"
+                    },
+                    "typeIds": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "api.SearchHit": {
                 "properties": {
                     "chunk": {
                         "description": "Chunk is the 0-based chunk of the record this hit shows: long\nrecords are indexed as several docs, and the hit is the record's\nbest-ranked one. One hit per record — no client-side dedupe.",
                         "type": "integer"
+                    },
+                    "createdAt": {
+                        "$ref": "#/components/schemas/api.SearchDate"
+                    },
+                    "creator": {
+                        "type": "string"
                     },
                     "data": {
                         "description": "Data is the hit's indexed text, windowed to MaxData runes around\nthe first matching term. DataOffset is the window's rune offset\ninto the chunk's full indexed text and DataTotal that text's rune\nlength — Data is the whole text iff DataOffset == 0 and\nlen([]rune(Data)) == DataTotal.",
@@ -3098,6 +3138,13 @@ const docTemplate = `{
                     },
                     "dataset": {
                         "type": "string"
+                    },
+                    "kind": {
+                        "description": "Structured search metadata. Absent on the legacy record search path.",
+                        "type": "string"
+                    },
+                    "modifiedAt": {
+                        "$ref": "#/components/schemas/api.SearchDate"
                     },
                     "objectId": {
                         "type": "string"
@@ -3118,6 +3165,27 @@ const docTemplate = `{
                     },
                     "score": {
                         "type": "number"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "typeIds": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.SearchObjectRef": {
+                "properties": {
+                    "objectId": {
+                        "type": "string"
+                    },
+                    "spaceId": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -3151,8 +3219,11 @@ const docTemplate = `{
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "filter": {
+                        "$ref": "#/components/schemas/api.SearchFilter"
+                    },
                     "limit": {
-                        "description": "Limit caps returned records — every hit is a distinct\n(objectId, dataset, recordId). Default 10, max 100.",
+                        "description": "Limit caps returned records (or object/record rows with filter).\nDefault 10, max 100.",
                         "type": "integer"
                     },
                     "maxData": {
@@ -3163,12 +3234,16 @@ const docTemplate = `{
                         "description": "Mode is hybrid (default), fts, or vector. Vector requires an\nembedder configured on the server.",
                         "type": "string"
                     },
+                    "offset": {
+                        "description": "Offset skips matching object/record results. Requires filter.",
+                        "type": "integer"
+                    },
                     "passages": {
                         "description": "Passages asks for up to this many further matching chunks per\nrecord, best first, on hit.passages (0 = none, max 10). They are\nthe record's other chunks that ranked within the search window,\nnot every chunk of the record.",
                         "type": "integer"
                     },
                     "query": {
-                        "description": "Query is the search text. Required.",
+                        "description": "Query is the search text. Required unless filter is supplied (browse).",
                         "type": "string"
                     },
                     "require": {
@@ -3186,12 +3261,20 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "sort": {
+                        "description": "Sort is relevance (default for text), modified (default for browse),\nor created. Requires filter; dates descend with a stable identity tie.",
+                        "type": "string"
                     }
                 },
                 "type": "object"
             },
             "api.SearchResponse": {
                 "properties": {
+                    "hasNext": {
+                        "description": "HasNext is present for structured searches, after all filters and dedupe.",
+                        "type": "boolean"
+                    },
                     "hits": {
                         "items": {
                             "$ref": "#/components/schemas/api.SearchHit"

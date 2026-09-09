@@ -605,6 +605,9 @@ func (ix *Indexer) ftsLeg(ctx context.Context, spaceId string, fq FTSQuery, scop
 // lexical cursor — so no read tx is ever held across the embed wait or
 // another store call.
 func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchRequest) (api.SearchResponse, error) {
+	if req.Filter != nil {
+		return ix.searchFiltered(ctx, spaceId, req)
+	}
 	limit := req.Limit
 	if limit <= 0 {
 		limit = 10

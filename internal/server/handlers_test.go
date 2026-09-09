@@ -38,10 +38,6 @@ func newTestDeps(t testing.TB) (*deps, func()) {
 // config enables.
 func newTestDepsCfg(t testing.TB, mutate func(*config.Config)) (*deps, func()) {
 	t.Helper()
-	if _, err := config.LoadNodeconf(config.Network{NodeconfPath: stagingPath}); err != nil {
-		t.Skipf("staging config not available: %v", err)
-	}
-
 	dataDir := t.TempDir()
 	walletPath := filepath.Join(dataDir, "wallet.key")
 	provider, _, err := OpenWallet(walletPath, "", "", 0)
@@ -54,6 +50,9 @@ func newTestDepsCfg(t testing.TB, mutate func(*config.Config)) (*deps, func()) {
 	cfg.Network.NodeconfPath = stagingPath
 	if mutate != nil {
 		mutate(&cfg)
+	}
+	if _, err := config.LoadNodeconf(cfg.Network); err != nil {
+		t.Skipf("staging config not available: %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

@@ -1,5 +1,7 @@
 package api
 
+import "time"
+
 // Search modes. Hybrid runs both legs and fuses by reciprocal rank;
 // fts / vector run one leg only.
 const (
@@ -12,13 +14,13 @@ const (
 // search runs over the server's local index (see docs/13-index.md) —
 // only content written after indexing started is found.
 type SearchRequest struct {
-	// Query is the search text. Required.
+	// Query is the search text. Required unless filter is supplied (browse).
 	Query string `json:"query"`
 	// Scopes restricts results to the given index scopes (basic, chat,
 	// props, …). Empty = all scopes.
 	Scopes []string `json:"scopes,omitempty"`
-	// Limit caps returned records — every hit is a distinct
-	// (objectId, dataset, recordId). Default 10, max 100.
+	// Limit caps returned records (or object/record rows with filter).
+	// Default 10, max 100.
 	Limit int `json:"limit,omitempty"`
 	// Mode is hybrid (default), fts, or vector. Vector requires an
 	// embedder configured on the server.
@@ -40,6 +42,36 @@ type SearchRequest struct {
 	// the record's other chunks that ranked within the search window,
 	// not every chunk of the record.
 	Passages int `json:"passages,omitempty"`
+	// Filter opts into object/record results with structured filters applied
+	// before paging. It permits an empty query (browse); FTS mode only.
+	Filter *SearchFilter `json:"filter,omitempty"`
+	// Offset skips matching object/record results. Requires filter.
+	Offset int `json:"offset,omitempty"`
+	// Sort is relevance (default for text), modified (default for browse),
+	// or created. Requires filter; dates descend with a stable identity tie.
+	Sort string `json:"sort,omitempty"`
+}
+
+// SearchFilter dimensions are ANDed; values within kinds/typeIds are ORed.
+// A record's typeIds belong to its owning object; creator belongs to the
+// record itself, never its container. Unknown creators do not match.
+type SearchFilter struct {
+	Kinds     []string         `json:"kinds,omitempty"`
+	TypeIds   []string         `json:"typeIds,omitempty"`
+	Creator   string           `json:"creator,omitempty"`
+	RelatedTo *SearchObjectRef `json:"relatedTo,omitempty"`
+}
+
+// SearchObjectRef selects objects connected in either direction, including
+// links to their records/properties. The selected object itself is excluded.
+type SearchObjectRef struct {
+	SpaceId  string `json:"spaceId"`
+	ObjectId string `json:"objectId"`
+}
+
+// SearchDate follows the dataset query wire representation of an instant.
+type SearchDate struct {
+	Date time.Time `json:"$date"`
 }
 
 // MaxSearchPassages caps SearchRequest.Passages.
@@ -56,10 +88,17 @@ const DefaultSearchMaxData = 512
 // for fts, cosine similarity for vector, RRF for hybrid; within one
 // response higher is always better.
 type SearchHit struct {
-	Scope    string `json:"scope"`
-	ObjectId string `json:"objectId"`
-	Dataset  string `json:"dataset"`
-	RecordId string `json:"recordId"`
+	// Structured search metadata. Absent on the legacy record search path.
+	Kind       string      `json:"kind,omitempty"`
+	Title      string      `json:"title,omitempty"`
+	TypeIds    []string    `json:"typeIds,omitempty"`
+	Creator    string      `json:"creator,omitempty"`
+	CreatedAt  *SearchDate `json:"createdAt,omitempty"`
+	ModifiedAt *SearchDate `json:"modifiedAt,omitempty"`
+	Scope      string      `json:"scope"`
+	ObjectId   string      `json:"objectId"`
+	Dataset    string      `json:"dataset"`
+	RecordId   string      `json:"recordId"`
 	// Chunk is the 0-based chunk of the record this hit shows: long
 	// records are indexed as several docs, and the hit is the record's
 	// best-ranked one. One hit per record — no client-side dedupe.
@@ -117,4 +156,6 @@ type SearchResponse struct {
 	// VectorStatus: used | unavailable | disabled | skipped — whether
 	// semantic recall participated in this response and, if not, why.
 	VectorStatus string `json:"vectorStatus"`
+	// HasNext is present for structured searches, after all filters and dedupe.
+	HasNext *bool `json:"hasNext,omitempty"`
 }

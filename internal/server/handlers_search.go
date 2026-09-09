@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 
@@ -39,8 +40,14 @@ func (d *deps) search(c echo.Context) error {
 	if !ok {
 		return nil
 	}
-	if req.Query == "" {
+	if req.Filter == nil && req.Query == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "query required", nil)
+	}
+	if err := validateSearchFilter(req); err != "" {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field", err, nil)
+	}
+	if req.Filter != nil && req.Mode == "" {
+		req.Mode = api.SearchModeFTS
 	}
 	switch req.Mode {
 	case "", api.SearchModeHybrid, api.SearchModeFTS, api.SearchModeVector:
@@ -98,6 +105,45 @@ func (d *deps) search(c echo.Context) error {
 		return writeError(c, http.StatusInternalServerError, "internal", "search failed", nil)
 	}
 	return c.JSON(http.StatusOK, res)
+}
+
+func validateSearchFilter(req *api.SearchRequest) string {
+	if req.Offset < 0 {
+		return "offset must be >= 0"
+	}
+	if req.Filter == nil {
+		if req.Offset != 0 || req.Sort != "" {
+			return "offset and sort require filter"
+		}
+		return ""
+	}
+	if req.Mode != "" && req.Mode != api.SearchModeFTS {
+		return "structured search requires mode fts"
+	}
+	switch req.Sort {
+	case "", "relevance", "modified", "created":
+	default:
+		return "sort must be relevance, modified or created"
+	}
+	for _, kind := range req.Filter.Kinds {
+		if kind != "object" && kind != "record" {
+			return "filter.kinds must contain object or record"
+		}
+	}
+	for _, id := range req.Filter.TypeIds {
+		if strings.TrimSpace(id) == "" {
+			return "filter.typeIds must contain non-empty ids"
+		}
+	}
+	if ref := req.Filter.RelatedTo; ref != nil {
+		if strings.TrimSpace(ref.SpaceId) == "" || strings.TrimSpace(ref.ObjectId) == "" {
+			return "filter.relatedTo requires spaceId and objectId"
+		}
+	}
+	if strings.TrimSpace(req.Query) == "" && (len(req.Require) != 0 || len(req.Exclude) != 0) {
+		return "require and exclude need query text"
+	}
+	return ""
 }
 
 // termFilterUnsupported reports whether the request carries term
