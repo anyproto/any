@@ -29,6 +29,7 @@ type Config struct {
 	Files   Files         `yaml:"files"`
 	Push    Push          `yaml:"push"`
 	Local   Local         `yaml:"local"`
+	Access  Access        `yaml:"access"`
 	WebUI   WebUI         `yaml:"webUI"`
 	Log     logger.Config `yaml:"log"`
 }
@@ -118,6 +119,13 @@ func (p Push) IsEnabled() bool {
 // (bootEngine).
 func (p Push) Active() bool {
 	return p.IsEnabled() && p.PeerId != "" && len(p.Addrs) > 0
+}
+
+// Access is the alpha invite-code service (any-invite). RedeemUrl is
+// the base URL its POST /redeem lives under; empty disables
+// POST /v1/account/access-code (409 access.disabled).
+type Access struct {
+	RedeemUrl string `yaml:"redeemUrl"`
 }
 
 // P2P controls local-network discovery and sync (mDNS + QUIC between

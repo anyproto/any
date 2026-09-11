@@ -91,6 +91,7 @@ either way.
 ```
 any account                                         # GET /v1/account
 any account set-metadata --name "..." [--description "..."] [--icon CID]
+any account redeem <code>                           # POST /v1/account/access-code
 ```
 
 ### Identities (account-global directory)

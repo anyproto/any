@@ -311,6 +311,7 @@ registers this install as a new peer).
 |--------|------------------------------|----------------------------------------|
 | GET    | `/v1/account`                | own id, `techSpaceId`, metadata        |
 | PUT    | `/v1/account/metadata`       | `Account.UpdateMetadata`               |
+| POST   | `/v1/account/access-code`    | redeem an alpha invite code (any-invite) |
 
 `GET /v1/account` also returns `techSpaceId` — the account's tech
 space, the `:spaceId` for account-level bundles (§ Bundles, "Tech-space
@@ -330,6 +331,16 @@ caller is a member of without further per-space writes (read it back
 via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 `description` / `iconCid` must be set; an all-empty body returns
 `400 request.missing_field`.
+
+**Access codes.** `POST /v1/account/access-code {"code": "K7QX-4MDP-…"}`
+signs `{purpose, ownerAnyId, code, ts}` with the account key and posts it to
+the invite service configured as `access.redeemUrl` (docs/05-config.md);
+the key never leaves the server and the client never talks to that
+service. `200 {"status": "accepted", "redemptionId": "…"}` means the
+limits grant is on its way; `"already_redeemed"` means this account
+redeemed a code before (nothing consumed). Refusals are relayed as
+`access.*` errors (docs/06-errors.md) with the service's own code in
+`details.code`; `409 access.disabled` when no `redeemUrl` is configured.
 
 > **Profiles are encrypted.** The bytes pushed to identityRepo are
 > encrypted with an account-derived key that is shared with a contact

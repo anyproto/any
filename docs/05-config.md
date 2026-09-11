@@ -210,6 +210,11 @@ push:
   peerId: ""                          # the push node's peer id
   addrs: []                           # dial addresses, e.g. ["quic://host:port"]
 
+# Alpha invite codes (any-invite). Base URL of the invite service;
+# empty disables POST /v1/account/access-code (409 access.disabled).
+access:
+  redeemUrl: ""
+
 # Logger — passthrough to any-sync/app/logger.Config.
 log:
   defaultLevel: info
@@ -249,6 +254,8 @@ ANY_PUSH_PEER_ID=12D3Koo...           # push.peerId (the push node)
 ANY_PUSH_ADDRS=quic://push:1234       # push.addrs (comma-separated)
 
 ANY_LOCAL_ENABLED=false               # local.enabled
+
+ANY_ACCESS_REDEEM_URL=https://invite.example.org  # access.redeemUrl
 
 ANY_INDEX_ENABLED=false               # index.enabled
 ANY_INDEX_EMBEDDER=ollama             # index.embedder (local|ollama|openai|auto|none)

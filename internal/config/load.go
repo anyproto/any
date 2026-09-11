@@ -129,6 +129,9 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ANY_PUSH_ADDRS"); v != "" {
 		cfg.Push.Addrs = splitNonEmpty(v)
 	}
+	if v := os.Getenv("ANY_ACCESS_REDEEM_URL"); v != "" {
+		cfg.Access.RedeemUrl = v
+	}
 	if v := os.Getenv("ANY_LOCAL_ENABLED"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			cfg.Local.Enabled = b

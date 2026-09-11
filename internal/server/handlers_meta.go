@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	anysyncsdk "github.com/anyproto/any-sync-sdk"
+	"github.com/anyproto/any-sync/util/crypto"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/bundles"
@@ -37,6 +38,8 @@ type deps struct {
 	// most one value; subsequent sends are dropped by the non-blocking send.
 	shutdown chan<- struct{}
 	sdk      *anysyncsdk.SDK
+	// signKey is the booted account's signing key (handlers_access.go).
+	signKey crypto.PrivKey
 	// derived is the derived-space registry resolved against the booted
 	// account (derivedspaces.go) — set with sdk, published by ready.
 	derived []resolvedDerivedSpace

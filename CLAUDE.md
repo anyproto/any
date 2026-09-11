@@ -2024,6 +2024,12 @@ a given slice needed is captured per-item in the Status section above.
 (+ git SSH `insteadOf`) is needed to fetch it directly. To inspect SDK
 behavior, read the module cache
 (`$(go env GOMODCACHE)/github.com/anyproto/any-sync-sdk@<version>/`).
+55. **Alpha access codes** — `POST /v1/account/access-code` / `any account
+   redeem <code>` sign `{purpose, ownerAnyId, code, ts}` with the account
+   key (kept on the engine as `signKey`) and post it to the any-invite
+   service at `access.redeemUrl`; the answer is relayed as
+   `{status, redemptionId}` or an `access.*` error. Disabled without a
+   URL. Contract: docs/03-api.md § Account, errors in docs/06-errors.md.
 
 ## What this project is
 
