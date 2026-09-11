@@ -318,8 +318,15 @@ func (d *deps) identityForAccount(c echo.Context, id string) *Identity {
 
 // authBootError maps engine-boot failures onto the auth error surface.
 func (d *deps) authBootError(c echo.Context, err error) error {
-	var locked *ErrLocked
+	var (
+		locked   *ErrLocked
+		mismatch *ErrNetworkMismatch
+	)
 	switch {
+	case errors.As(err, &mismatch):
+		return writeError(c, http.StatusConflict, "auth.network_mismatch",
+			"this account's data belongs to another any-sync network than the server is configured for — start the server with that network's nodeconf, or keep a separate data dir per network",
+			map[string]any{"pinned": mismatch.Pinned, "configured": mismatch.Configured})
 	case errors.Is(err, errDeviceKeyCorrupt):
 		return writeError(c, http.StatusInternalServerError, "auth.device_key_corrupt",
 			"this account's cached device key is unreadable — remove device.key from its account dir to mint a new device identity (this device then registers as a new peer)", nil)

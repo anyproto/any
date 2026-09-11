@@ -116,6 +116,14 @@ account is standalone-only — a managed login with its phrase lands in
    sdk.crdt_version_newer`) so an older release never writes into data
    shaped by rules it does not know. A lower or absent mark is raised
    to this release's version.
+   Before that, the **network pin**: the network is a per-process
+   setting (`05-config.md`), but an account's data only makes sense on
+   the any-sync network that wrote it. The account dir records that
+   network's id in `network.json` on the first boot, and a server
+   configured for another network refuses to boot the account before
+   opening anything (`any run` exits naming both ids; over HTTP `409
+   auth.network_mismatch`). Keep one data root per network. An account
+   dir without a pin adopts the network it next boots with.
 4. Without an account: start **unauthorized**. Every `/v1` route except
    `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth`
    returns `401 auth.required` until `POST /v1/auth` creates / restores
@@ -233,6 +241,9 @@ on `DELETE /v1/auth` and takes the next account's on a switch.
     ├── device.key               # MANAGED: cached device key (mode 0600, minted
     │                            #   once, never portable — § Modes); the account
     │                            #   key is never written
+    ├── network.json             # id of the any-sync network this account's data
+    │                            #   belongs to — written on first boot; another
+    │                            #   network refuses the boot (§ Startup)
     ├── server.lock              # per-account single-instance lock (OS file lock)
     ├── server.pid               # holder's pid, for error messages only
     ├── server.addr              # holder's bound address — CLI convenience only

@@ -56,6 +56,26 @@ func TestLoadNodeconfInlineWinsOverEmbedded(t *testing.T) {
 	}
 }
 
+// NetworkId reads the id every shipped conf names and refuses a conf
+// that names none — the account network pin needs one to compare.
+func TestNetworkId(t *testing.T) {
+	prod, err := LoadNodeconf(Network{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, err := NetworkId(prod); err != nil || id != prodNetworkId {
+		t.Fatalf("prod networkId = %q, %v", id, err)
+	}
+	if id, err := NetworkId(NodeconfPlaceholder()); err != nil || id == "" || id == prodNetworkId {
+		t.Fatalf("placeholder networkId = %q, %v", id, err)
+	}
+	for _, bad := range []string{"", "nodes: []", "networkId: [1"} {
+		if id, err := NetworkId([]byte(bad)); err == nil {
+			t.Errorf("NetworkId(%q) = %q, want an error", bad, id)
+		}
+	}
+}
+
 // A configured-but-unreadable path is still an error (not silently
 // swallowed by the default).
 func TestLoadNodeconfBadPathStillErrors(t *testing.T) {

@@ -184,7 +184,8 @@ type processHook func(*engine) func(indexer.ProcessUpdate)
 type linksHook func(*engine) func(spaceId string, targets []string)
 
 // bootEngine opens the identity's keys through open and brings up the
-// SDK and the indexer for it. On any failure everything already
+// SDK and the indexer for it, refusing a network the account dir is
+// pinned against (networkpin.go). On any failure everything already
 // opened is torn back down; if THIS call freshly created the account
 // dir, the orphan is removed too — otherwise a half-initialized
 // account (especially a generated one whose phrase was never surfaced
@@ -192,6 +193,18 @@ type linksHook func(*engine) func(spaceId string, targets []string)
 // A pre-existing dir (an account reached under the other custody, or
 // one holding data from an earlier boot) is left untouched.
 func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identity, open credential, onProcess processHook, onLinks linksHook) (_ *engine, err error) {
+	// One read of the nodeconf feeds both the pin and the SDK, so the
+	// pinned network is the one the SDK joins.
+	nodeconf, err := config.LoadNodeconf(cfg.Network)
+	if err != nil {
+		return nil, err
+	}
+	networkId, err := config.NetworkId(nodeconf)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Network = config.Network{Nodeconf: string(nodeconf)}
+
 	_, statErr := os.Stat(id.Dir)
 	dirExisted := statErr == nil
 	if err := os.MkdirAll(id.Dir, 0o700); err != nil {
@@ -203,6 +216,13 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 	// can no-op it at both bootAccount sites; see pidlock_acquire*.go.
 	lock, err := acquirePIDLock(id.Dir)
 	if err != nil {
+		return nil, err
+	}
+	// Checked under the lock and before the keys: a refused network
+	// leaves the dir exactly as it was.
+	pinned, err := checkNetworkPin(id.Dir, networkId)
+	if err != nil {
+		_ = lock.Release()
 		return nil, err
 	}
 
@@ -247,6 +267,13 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 		return nil, fmt.Errorf("open sdk: %w", err)
 	}
 	eng.sdk = sdk
+	// A dir without a pin (new, or from before pins) adopts this network.
+	if !pinned {
+		if err := writeNetworkPin(id.Dir, networkId); err != nil {
+			return nil, fmt.Errorf("pin network: %w", err)
+		}
+		engineLog.Info("account pinned to network", zap.String("networkId", networkId))
+	}
 
 	// Refresh this device's registry row (SYN-165): os/version are
 	// server-stamped so every boot keeps them current; the display name

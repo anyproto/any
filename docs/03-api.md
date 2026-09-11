@@ -303,7 +303,11 @@ disagrees with the supplied phrase/index), `400 auth.passkey_required`
 var, never the request body), `500 auth.device_key_corrupt` (managed:
 the account's cached `device.key` is unreadable; it is never re-minted
 silently — remove the file to mint a new device identity, which
-registers this install as a new peer).
+registers this install as a new peer), `409 auth.network_mismatch` (the
+account's data belongs to another any-sync network than the server is
+configured for; `details.pinned` / `details.configured` carry both
+network ids — start the server with the matching nodeconf, keeping one
+data root per network; `02-server.md` § Startup).
 
 ### Account
 

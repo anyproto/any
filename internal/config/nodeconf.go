@@ -2,9 +2,12 @@ package config
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
+
+	"gopkg.in/yaml.v3"
 )
 
 // nodeconfProd is the packaged default nodeconf — the production
@@ -49,4 +52,18 @@ func LoadNodeconf(cfg Network) ([]byte, error) {
 		return raw, nil
 	}
 	return nodeconfProd, nil
+}
+
+// NetworkId returns the id of the any-sync network a nodeconf names.
+func NetworkId(nodeconf []byte) (string, error) {
+	var nc struct {
+		NetworkId string `yaml:"networkId"`
+	}
+	if err := yaml.Unmarshal(nodeconf, &nc); err != nil {
+		return "", fmt.Errorf("parse nodeconf: %w", err)
+	}
+	if nc.NetworkId == "" {
+		return "", errors.New("nodeconf names no networkId")
+	}
+	return nc.NetworkId, nil
 }

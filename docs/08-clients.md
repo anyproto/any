@@ -818,6 +818,11 @@ auth UI may offer. These rules are normative for every client:
 11. **A second engine for the same account on one device needs its own
     root.** Device identity is cached per `(root, account)`; sharing a
     root means sharing a datastore.
+12. **One data root per network.** An account's data is pinned to the
+    any-sync network that wrote it; `409 auth.network_mismatch` means
+    the root was pointed at another network. A host that can target
+    several networks (staging and production builds) gives each its own
+    root.
 
 Managed hosts, per launch: spawn `run --mode managed --addr
 127.0.0.1:0`, read `LISTENING` and `CONTROL_TOKEN` from stdout (or pass

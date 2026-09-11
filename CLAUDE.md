@@ -1960,6 +1960,20 @@ Implementation slices landed:
     docs/13-index.md § Links, docs/03-api.md § Links and backlinks,
     docs/19-links.md, docs/27-descriptors.md, docs/21-events.md,
     docs/08-clients.md § 15, docs/01-cli.md.
+55. **Per-account network pin** — the network stays a per-process
+    setting, but `bootEngine` reads the nodeconf once, pins its
+    `networkId` in `<account-dir>/network.json` after the first
+    successful SDK open, and refuses a boot under another network
+    under the lock, before the keys open (`networkpin.go`,
+    `config.NetworkId`) — `any run` exits with both ids,
+    `POST /v1/auth` answers `409 auth.network_mismatch`
+    (`details.pinned` / `configured`). An unpinned dir adopts the
+    network it boots with; a corrupt pin refuses the boot and is never
+    rewritten. Tests: `TestNetworkPin`, `TestAuth_NetworkPin`
+    (placeholder nodeconf — runs without staging). Contract:
+    docs/02-server.md § Startup + § Data dir layout, docs/03-api.md
+    § Auth, docs/05-config.md, docs/06-errors.md, docs/08-clients.md
+    § 14.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -2174,6 +2188,7 @@ flat root is the default account — docs/02-server.md § Data dir layout):
 └── <accountId>/
     ├── wallet.key     # standalone: auth.FileProvider wallet (0600)
     ├── device.key     # managed: cached device key (0600, minted once, never portable)
+    ├── network.json   # networkId this account's data belongs to (pinned on first boot)
     ├── server.lock    # single-instance OS file lock (kernel-released)
     ├── server.pid     # holder's pid — error messages only, never proof of life
     ├── server.addr    # holder's bound address — CLI convenience only

@@ -62,6 +62,11 @@ auth:
 # unconfigured binary syncs against production. Point at another network
 # with nodeconfPath, inline nodeconf, or ANY_NETWORK_NODECONF_PATH.
 #
+# The network is a PROCESS setting: every account the server boots joins
+# it. Each account dir is pinned to the network its data was written on
+# (network.json, 02-server.md § Startup) and refuses to boot under
+# another one — keep one data root per network.
+#
 # internal/config/nodeconf-placeholder.yml is the sanitized fixture
 # (real networkId, placeholder nodes) — it boots and serves but joins no
 # network. Tests use it via config.NodeconfPlaceholder(); it is never
