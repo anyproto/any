@@ -1961,16 +1961,24 @@ Implementation slices landed:
     docs/19-links.md, docs/27-descriptors.md, docs/21-events.md,
     docs/08-clients.md § 15, docs/01-cli.md.
 55. **Per-account network pin** — the network stays a per-process
-    setting, but `bootEngine` reads the nodeconf once, pins its
-    `networkId` in `<account-dir>/network.json` after the first
-    successful SDK open, and refuses a boot under another network
-    under the lock, before the keys open (`networkpin.go`,
-    `config.NetworkId`) — `any run` exits with both ids,
-    `POST /v1/auth` answers `409 auth.network_mismatch`
-    (`details.pinned` / `configured`). An unpinned dir adopts the
-    network it boots with; a corrupt pin refuses the boot and is never
-    rewritten. Tests: `TestNetworkPin`, `TestAuth_NetworkPin`
-    (placeholder nodeconf — runs without staging). Contract:
+    setting, but `bootEngine` reads the nodeconf once (the bytes go to
+    `OpenSDK` as an argument), pins its `networkId` in
+    `<account-dir>/network.json` after the first successful SDK open
+    (a failed write only warns), and refuses a boot under another
+    network before touching the dir, re-checked under the lock
+    (`networkpin.go`, `config.NetworkId`) — `any run` exits with both
+    ids, `POST /v1/auth` answers `409 auth.network_mismatch`
+    (`details.pinned` / `configured`); `switchAccount` checks the
+    target before tearing the running account down. An unpinned dir
+    adopts the network it boots with (a wrong adoption is fixed by
+    removing the file); an unreadable pin is `500
+    auth.network_pin_corrupt` and never rewritten. The SDK's own
+    `sdk/anysync/nodeconf/<networkId>.yml` cache cannot serve as the
+    pin: any-sync reads only the configured network's file, writes it
+    only after a coordinator hands a newer conf, and keeps one per
+    network touched. Tests: `TestNetworkPin`, `TestAuth_NetworkPin`,
+    `TestAuth_NetworkPinSwitch`, `TestRun_NetworkPin` (placeholder
+    nodeconf — run without staging). Contract:
     docs/02-server.md § Startup + § Data dir layout, docs/03-api.md
     § Auth, docs/05-config.md, docs/06-errors.md, docs/08-clients.md
     § 14.

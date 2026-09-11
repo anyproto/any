@@ -59,7 +59,11 @@ func newTestDepsCfg(t testing.TB, mutate func(*config.Config)) (*deps, func()) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	sdk, err := OpenSDK(ctx, cfg, dataDir, provider)
+	nodeconf, err := config.LoadNodeconf(cfg.Network)
+	if err != nil {
+		t.Fatalf("LoadNodeconf: %v", err)
+	}
+	sdk, err := OpenSDK(ctx, cfg, nodeconf, dataDir, provider)
 	if err != nil {
 		t.Fatalf("OpenSDK: %v", err)
 	}

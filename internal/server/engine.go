@@ -195,15 +195,14 @@ type linksHook func(*engine) func(spaceId string, targets []string)
 func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identity, open credential, onProcess processHook, onLinks linksHook) (_ *engine, err error) {
 	// One read of the nodeconf feeds both the pin and the SDK, so the
 	// pinned network is the one the SDK joins.
-	nodeconf, err := config.LoadNodeconf(cfg.Network)
+	nodeconf, networkId, err := configuredNetwork(cfg.Network)
 	if err != nil {
 		return nil, err
 	}
-	networkId, err := config.NetworkId(nodeconf)
-	if err != nil {
+	// Refused before the dir, the lock or the keys are touched.
+	if _, err := checkNetworkPin(id.Dir, networkId); err != nil {
 		return nil, err
 	}
-	cfg.Network = config.Network{Nodeconf: string(nodeconf)}
 
 	_, statErr := os.Stat(id.Dir)
 	dirExisted := statErr == nil
@@ -218,8 +217,8 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 	if err != nil {
 		return nil, err
 	}
-	// Checked under the lock and before the keys: a refused network
-	// leaves the dir exactly as it was.
+	// Re-read under the lock: authoritative against a concurrent first
+	// boot of the same account.
 	pinned, err := checkNetworkPin(id.Dir, networkId)
 	if err != nil {
 		_ = lock.Release()
@@ -262,17 +261,20 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 	}
 	eng.account = account
 
-	sdk, err := OpenSDK(ctx, cfg, id.Dir, provider)
+	sdk, err := OpenSDK(ctx, cfg, nodeconf, id.Dir, provider)
 	if err != nil {
 		return nil, fmt.Errorf("open sdk: %w", err)
 	}
 	eng.sdk = sdk
 	// A dir without a pin (new, or from before pins) adopts this network.
+	// The pin guards later boots, so failing to write it never fails this
+	// one.
 	if !pinned {
 		if err := writeNetworkPin(id.Dir, networkId); err != nil {
-			return nil, fmt.Errorf("pin network: %w", err)
+			engineLog.Warn("network pin not written", zap.Error(err))
+		} else {
+			engineLog.Info("account pinned to network", zap.String("networkId", networkId))
 		}
-		engineLog.Info("account pinned to network", zap.String("networkId", networkId))
 	}
 
 	// Refresh this device's registry row (SYN-165): os/version are
@@ -426,6 +428,11 @@ func (d *deps) switchAccount(id *Identity, open credential) (*engine, error) {
 	d.authMu.Lock()
 	defer d.authMu.Unlock()
 	if d.eng != nil && d.eng.account != id.Account {
+		// A target pinned to another network is refused while the
+		// running account is still up.
+		if err := checkConfiguredNetwork(d.cfg.Network, id.Dir); err != nil {
+			return nil, err
+		}
 		engineLog.Info("switching account", zap.String("to", id.Account))
 		d.teardownEngineLocked(engineLog, api.SubscribeClosedDeauthorized)
 	}

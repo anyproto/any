@@ -120,10 +120,15 @@ account is standalone-only — a managed login with its phrase lands in
    setting (`05-config.md`), but an account's data only makes sense on
    the any-sync network that wrote it. The account dir records that
    network's id in `network.json` on the first boot, and a server
-   configured for another network refuses to boot the account before
-   opening anything (`any run` exits naming both ids; over HTTP `409
-   auth.network_mismatch`). Keep one data root per network. An account
-   dir without a pin adopts the network it next boots with.
+   configured for another network refuses the account before touching
+   its dir (`any run` exits naming both ids; over HTTP `409
+   auth.network_mismatch`) — a managed `replace` switch checks it before
+   tearing the running account down. Keep one data root per network.
+   An account dir without a pin — new, or from before pins — adopts the
+   network it next boots with. If that was the wrong network, or the pin
+   is unreadable (`500 auth.network_pin_corrupt`, never rewritten from
+   config), remove `network.json` and start the server on the account's
+   network.
 4. Without an account: start **unauthorized**. Every `/v1` route except
    `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth`
    returns `401 auth.required` until `POST /v1/auth` creates / restores

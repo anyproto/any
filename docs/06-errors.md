@@ -67,6 +67,7 @@ auth.account_in_use              # 409 — another process holds the account's i
 auth.passkey_required            # 400 — wallet encrypted; no or wrong passkey in the configured env
 auth.device_key_corrupt          # 500 — managed: the account's cached device.key is unreadable; never re-minted silently — remove it to mint a new device identity
 auth.network_mismatch            # 409 — the account's data belongs to another any-sync network than the server's config (details.pinned, details.configured); one data root per network
+auth.network_pin_corrupt         # 500 — the account's network.json is unreadable; never rewritten from config — remove it and start on the account's network
 control.forbidden                # 403 — managed server: control token (X-Any-Control-Token) missing or wrong
 shutdown.not_managed             # 403 — standalone server refuses POST /v1/shutdown; use `any stop` or a signal
 

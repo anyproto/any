@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/anyproto/any/internal/config"
 )
 
 // networkPinFile records the any-sync network an account's data belongs
@@ -16,6 +18,7 @@ import (
 const networkPinFile = "network.json"
 
 // networkPinVersion is the envelope version written to network.json.
+// Every version keeps networkId, so any version ≥ 1 is readable.
 const networkPinVersion = 1
 
 type networkPinEnvelope struct {
@@ -41,6 +44,16 @@ var errNetworkPinCorrupt = errors.New("network pin unreadable")
 
 func networkPinPath(dir string) string { return filepath.Join(dir, networkPinFile) }
 
+// configuredNetwork loads the server's nodeconf and the id of the
+// network it names.
+func configuredNetwork(n config.Network) (nodeconf []byte, networkId string, err error) {
+	if nodeconf, err = config.LoadNodeconf(n); err != nil {
+		return nil, "", err
+	}
+	networkId, err = config.NetworkId(nodeconf)
+	return nodeconf, networkId, err
+}
+
 // checkNetworkPin refuses networkId when the dir is pinned to another
 // network. pinned reports whether the dir carries a pin at all; an
 // unpinned dir passes and is pinned by writeNetworkPin once it boots.
@@ -57,13 +70,24 @@ func checkNetworkPin(dir, networkId string) (pinned bool, err error) {
 	if err := json.Unmarshal(raw, &env); err != nil {
 		return false, fmt.Errorf("%w: parse %s: %v", errNetworkPinCorrupt, path, err)
 	}
-	if env.Version != networkPinVersion || env.NetworkId == "" {
-		return false, fmt.Errorf("%w: %s: unsupported version %d or empty networkId", errNetworkPinCorrupt, path, env.Version)
+	if env.Version < 1 || env.NetworkId == "" {
+		return false, fmt.Errorf("%w: %s: version %d, networkId %q", errNetworkPinCorrupt, path, env.Version, env.NetworkId)
 	}
 	if env.NetworkId != networkId {
 		return true, &ErrNetworkMismatch{Pinned: env.NetworkId, Configured: networkId}
 	}
 	return true, nil
+}
+
+// checkConfiguredNetwork is checkNetworkPin against the configured
+// network.
+func checkConfiguredNetwork(n config.Network, dir string) error {
+	_, networkId, err := configuredNetwork(n)
+	if err != nil {
+		return err
+	}
+	_, err = checkNetworkPin(dir, networkId)
+	return err
 }
 
 // writeNetworkPin pins the dir to networkId.

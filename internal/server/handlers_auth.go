@@ -327,6 +327,9 @@ func (d *deps) authBootError(c echo.Context, err error) error {
 		return writeError(c, http.StatusConflict, "auth.network_mismatch",
 			"this account's data belongs to another any-sync network than the server is configured for — start the server with that network's nodeconf, or keep a separate data dir per network",
 			map[string]any{"pinned": mismatch.Pinned, "configured": mismatch.Configured})
+	case errors.Is(err, errNetworkPinCorrupt):
+		return writeError(c, http.StatusInternalServerError, "auth.network_pin_corrupt",
+			"this account's network.json is unreadable — remove it from the account dir and start the server with the account's network, which the next boot pins again", nil)
 	case errors.Is(err, errDeviceKeyCorrupt):
 		return writeError(c, http.StatusInternalServerError, "auth.device_key_corrupt",
 			"this account's cached device key is unreadable — remove device.key from its account dir to mint a new device identity (this device then registers as a new peer)", nil)

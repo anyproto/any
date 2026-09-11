@@ -307,7 +307,11 @@ registers this install as a new peer), `409 auth.network_mismatch` (the
 account's data belongs to another any-sync network than the server is
 configured for; `details.pinned` / `details.configured` carry both
 network ids — start the server with the matching nodeconf, keeping one
-data root per network; `02-server.md` § Startup).
+data root per network; `02-server.md` § Startup — on a `replace` switch
+it is decided before the running account goes down, so that account
+stays up), `500 auth.network_pin_corrupt` (the account's `network.json`
+is unreadable; remove it and start the server on the account's network,
+which the next boot pins again).
 
 ### Account
 
