@@ -58,64 +58,71 @@ usecases:
             ui: { type: document }
             datasets: [ { module: editor, shared: true } ]
 
-  # ── Meetings: transcripts and summaries an agent files into the space. The
-  #    root is the recorder TYPE (one recorder object per transcription source,
-  #    each holding its own `meeting_notes`) plus the sidebar entry. Ingest is
-  #    single-writer by provider id; readers render records, never write them.
+  # ── Meetings: one OBJECT per meeting. The type carries what a meeting IS
+  #    (when, who, how long); its three surfaces are the notes (the common
+  #    editor, shared with page), the transcript (one record per spoken turn)
+  #    and the summary (a second editor of its own). An ingest agent creates
+  #    the objects and writes all three; readers render them.
   - id: meetings
     name: Meetings
-    description: Meeting transcripts, summaries and notes an agent files into the space
+    description: Meetings with their notes, transcript and summary
     bundles:
-      - id: system:meetings/v1
-        name: Meetings
-        hidden: true
-        miniapp: {}
+      - id: system:meeting/v1
+        name: Meeting
         type:
-          xKey: meeting_recorder
+          xKey: meeting
+          weight: 20                             # a meeting renders as itself, not as a plain page
+          layout: { type: page }
+          properties:
+            - { xKey: date,         name: Date,         kind: datetime,
+                xFormat: { type: datetime }, description: When the meeting started }
+            - { xKey: duration,     name: Duration,     kind: number,
+                xFormat: { type: duration }, description: Length in seconds }
+            - { xKey: participants, name: Participants, kind: array,
+                xFormat: { type: choice, options: {}, config: { multiple: true } },
+                description: "Who took part, in the order they are listed" }
+            - { xKey: labels,       name: Type,         kind: array,
+                xFormat: { type: choice, options: {}, config: { multiple: true } },
+                description: "Classification of the meeting (stand-up, 1-1, …)" }
+            - { xKey: words,        name: Words,        kind: number,
+                description: Transcript word count }
+            - { xKey: source,       name: Source,       kind: string,
+                description: "Provenance of the recording, e.g. gmeet:<id>" }
         parts:
-          - key: meetings
+          - key: notes                           # the editable document; shared with page
+            ui: { type: document }
+            datasets: [ { module: editor, shared: true } ]
+          - key: summary                         # a second editor, its own collection
+            ui: { type: document }
+            datasets: [ { key: summary, module: editor } ]
+          - key: transcript                      # the conversation, word for word
             ui: { type: list }
             datasets:
-              - key: meeting_notes
-                displayName: Meeting notes
-                description: One record per meeting, ingested by the recorder
-                idRule: user                   # the provider's meeting id, and the ingest idempotency key
+              - key: transcript
+                displayName: Transcript
+                description: One record per spoken turn, in order
+                idRule: user                     # the provider's segment id, and the ingest idempotency key
                 deleteBy: author
                 skipHistory: true
-                dynamic: true                  # the recorder may carry fields ahead of a server release
-                search: { title: title, text: transcript, scope: meetings }
-                # Nothing required — ingest is garbage-tolerant — and every content
-                # field is author-mutable: a meeting is written while it runs and
-                # revised after (a summary, an end time, a corrected transcript),
-                # and `mutableBy` is pinned first-write. Author-only keeps the
-                # single-writer contract: no member may edit the recorder's rows.
+                dynamic: true                    # the recorder may carry fields ahead of a server release
+                search: { text: text, scope: meetings }
+                # Author-mutable so a turn can be corrected after ingest; a key
+                # nothing here declares carries no author rule.
                 fields:
-                  - { key: title,       name: Title,       kind: string, mutableBy: author }
-                  - { key: startedAt,   name: Started at,  kind: number, mutableBy: author,
-                      description: "Start time in epoch milliseconds — the sort and date-group key" }
-                  - { key: endedAt,     name: Ended at,    kind: number, mutableBy: author,
-                      description: "End time in epoch milliseconds" }
-                  - { key: durationSec, name: Duration,    kind: number, mutableBy: author,
-                      description: Length in seconds }
-                  - { key: words,       name: Words,       kind: number, mutableBy: author,
-                      description: Transcript word count }
-                  - { key: speakers,    name: Speakers,    kind: array,  mutableBy: author,
-                      shape: { kind: array, items: { kind: string } },
-                      description: "Display names, order-preserving" }
-                  - { key: labels,      name: Labels,      kind: array,  mutableBy: author,
-                      shape: { kind: array, items: { kind: string } },
-                      description: Classification tags the recorder maintains }
-                  - { key: summary,     name: Summary,     kind: string, mutableBy: author,
-                      xFormat: { type: markdown } }
-                  - { key: transcript,  name: Transcript,  kind: string, mutableBy: author,
-                      xFormat: { type: markdown } }
-                  - { key: notes,       name: Notes,       kind: string, mutableBy: author,
-                      xFormat: { type: markdown } }
-                  - { key: source,      name: Source,      kind: string, mutableBy: author,
-                      description: "Provenance of the recording, e.g. gmeet:<id>" }
-                  - { key: creator,     name: Creator,     stamp: creator }
-                  - { key: createdAt,   name: Created at,  stamp: createTime }
-                  - { key: modifiedAt,  name: Modified at, stamp: modifyTime }
+                  - { key: startedAt,  name: Started at,  kind: datetime, mutableBy: author,
+                      xFormat: { type: datetime }, description: "Start of the turn — the sort key" }
+                  - { key: speaker,    name: Speaker,     kind: string, mutableBy: author,
+                      description: Display name of who is speaking }
+                  - { key: text,       name: Text,        kind: string, mutableBy: author,
+                      description: What was said }
+                  - { key: creator,    name: Creator,     stamp: creator }
+                  - { key: createdAt,  name: Created at,  stamp: createTime }
+                  - { key: modifiedAt, name: Modified at, stamp: modifyTime }
+
+      - id: system:meetings/v1                   # the sidebar entry
+        name: Meetings
+        miniapp: {}
+
 
   # ── The space's chat. The one derived root: chat content cannot be merged
   #    across objects, and a 1-1 space has no owner to break a tie.

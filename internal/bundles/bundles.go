@@ -347,6 +347,22 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 			}
 			missing = info.XKey == ""
 		}
+		if !missing && inst.SelfTyped {
+			// The same for the self type: an install that predates the
+			// flag carries the marker but not its own id, so its
+			// records are unwritable until the adopt heals it.
+			row, err := sp.Objects().Get(ctx, b.RootId)
+			if err != nil {
+				return true
+			}
+			missing = true
+			for _, t := range row.GetArray("any", "types") {
+				if string(t.GetStringBytes()) == b.RootId {
+					missing = false
+					break
+				}
+			}
+		}
 		if !missing && len(inst.Properties) > 0 {
 			props, err := sp.Types().Properties(ctx, b.RootId)
 			if err != nil {

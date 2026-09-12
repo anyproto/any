@@ -526,15 +526,40 @@ func validateParts(pp string, parts []api.PartDraftRequest, add func(path, code,
 				add(dp+".key", CodeDuplicate, "dataset "+key+" declared twice")
 			}
 			datasetKeys[key] = true
-			if ds.DeleteBy == "author" {
-				creator := false
-				for _, f := range ds.Fields {
-					if f.Stamp == "creator" {
-						creator = true
-					}
+			// Author gates need somebody to compare against: the SDK
+			// refuses a declaration where an author-only delete OR an
+			// author-mutable field has no creator stamp. Catch both here
+			// or the first setup in a real space is where it surfaces.
+			creator, authorMutable := false, ""
+			declared := map[string]bool{}
+			for _, f := range ds.Fields {
+				if f.Stamp == "creator" {
+					creator = true
 				}
-				if !creator {
+				if f.MutableBy == "author" && authorMutable == "" {
+					authorMutable = f.Key
+				}
+				declared[f.Key] = true
+			}
+			if !creator {
+				if ds.DeleteBy == "author" {
 					add(dp+".deleteBy", CodeBadField, "deleteBy author needs a field with stamp creator")
+				}
+				if authorMutable != "" {
+					add(dp+".fields", CodeBadField,
+						"mutableBy author on "+authorMutable+" needs a field with stamp creator")
+				}
+			}
+			// A search mapping that names a field the dataset does not
+			// declare indexes nothing, silently.
+			if ds.Search != nil && len(ds.Fields) > 0 {
+				if t := ds.Search.Title; t != "" && !declared[t] {
+					add(dp+".search.title", CodeBadField, "no field "+t+" on this dataset")
+				}
+				for _, t := range ds.Search.Text {
+					if !declared[t] {
+						add(dp+".search.text", CodeBadField, "no field "+t+" on this dataset")
+					}
 				}
 			}
 		}

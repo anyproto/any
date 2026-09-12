@@ -754,3 +754,38 @@ func TestServer_BundleSelfTypedHostsItsRecords(t *testing.T) {
 		t.Fatalf("selfTyped without a declaration: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// A root installed before its bundle asked for `selfTyped` gains the
+// self type on the next ensure — the adopt heal, without which the
+// records of every existing install stay unwritable.
+func TestServer_BundleSelfTypedHealsOnAdopt(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	sp := createSpaceInfo(t, e, "BundleSelfTypedHeal")
+
+	parts := `"parts":[{"key":"entries","datasets":[{"key":"entries","idRule":"user","fields":[{"key":"t","kind":"string","mutableBy":"any"}]}]}]`
+	first := ensureBundle(t, e, sp.Id, `{"id":"heal-self/v1","name":"Heal",`+parts+`}`)
+	if !first.Installed {
+		t.Fatalf("first ensure: %+v", first)
+	}
+	root := first.Bundle.RootId
+	upsert := func() *httptest.ResponseRecorder {
+		return doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert",
+			`{"objectId":"`+root+`","dataset":"`+root+`_entries","records":[{"id":"one","fields":{"t":"x"}}]}`)
+	}
+	if rec := upsert(); rec.Code != http.StatusBadRequest {
+		t.Fatalf("a definition-only root took its own records: %d %s", rec.Code, rec.Body.String())
+	}
+
+	second := ensureBundle(t, e, sp.Id, `{"id":"heal-self/v1","name":"Heal","selfTyped":true,`+parts+`}`)
+	if second.Installed || second.Bundle.RootId != root {
+		t.Fatalf("second ensure did not adopt: %+v", second)
+	}
+	if types := rowTypes(objectRow(t, e, sp.Id, root)); !slices.Contains(types, root) {
+		t.Fatalf("self type not healed on adopt: %v", types)
+	}
+	if rec := upsert(); rec.Code != http.StatusOK {
+		t.Fatalf("write after the heal: %d %s", rec.Code, rec.Body.String())
+	}
+}

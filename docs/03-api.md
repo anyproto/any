@@ -1438,7 +1438,8 @@ namespace. `:collection` is the collection a type's part declared with
 `editor_blocks` for a shared part — the body every document type
 shares, so an object carrying two such types has one body — or a
 namespaced `<typeId>_<key>` instance for a part that wants its own
-editor (a meeting type's `notes` next to its body). An object holds a
+editor (the catalog's `meeting`: its notes are the shared body, its
+summary a second editor at `<typeId>_summary`). An object holds a
 collection only while it carries a type whose part declares it: a
 write into a collection none of the object's types declare is `400
 dataset.not_declared` (attach the type first — the write never attaches
@@ -2564,9 +2565,10 @@ dataset under it land in one change:
 - `name` / `icon` / `pos` / `hidden` — the display slice; clients sort
   parts by `pos` (lexid) and hide `hidden` ones by default.
 - `ui` — the widget descriptor, an object in the x-format shape
-  (`{type, config}`) with a client-owned vocabulary (`document`,
-  `table`, `board`, `chat`, …); replaced whole; absent = the first
-  dataset's module default.
+  (`{type, config}`) with a client-owned vocabulary (v1: `document`,
+  `chat`, `table`, `list`, `board`, `gallery`, `chart`, `properties`;
+  an open set — an unknown slug renders the module default); replaced
+  whole; absent = the first dataset's module default.
 - `uses` — keys of other datasets **of this type** the part renders
   without owning (a transcript part reading the `speakers` dataset).
 - `datasets` — the initial declarations, each `{key?, module?, shared?,

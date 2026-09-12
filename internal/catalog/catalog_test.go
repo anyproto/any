@@ -49,21 +49,36 @@ func TestCatalog_SidebarAppsDeclareTheirTypes(t *testing.T) {
 	if len(problems) > 0 {
 		t.Fatal(problems)
 	}
-	for id, xKey := range map[string]string{"journal": "journal", "meetings": "meeting_recorder", "wiki": "wiki"} {
+	// The app root and the type it brings, per usecase.
+	for id, xKey := range map[string]string{"journal": "journal", "meetings": "meeting", "wiki": "wiki"} {
 		t.Run(id, func(t *testing.T) {
 			u, ok := cat.Get(id)
-			if !ok || len(u.Bundles) != 1 {
-				t.Fatalf("usecase %s: %+v", id, u)
+			if !ok {
+				t.Fatalf("usecase %s missing", id)
 			}
-			b := u.Bundles[0]
-			if b.Id != "system:"+id+"/v1" || b.Type == nil || b.Type.XKey != xKey ||
-				!b.Hidden || b.Type.Weight != 0 || b.Miniapp == nil || b.SelfTyped {
-				t.Fatalf("%s bundle: %+v", id, b)
+			var typed, sidebar *api.CatalogBundle
+			for i := range u.Bundles {
+				b := &u.Bundles[i]
+				if b.Type != nil && b.Type.XKey == xKey {
+					typed = b
+				}
+				if b.Miniapp != nil {
+					sidebar = b
+				}
+			}
+			if typed == nil || sidebar == nil {
+				t.Fatalf("%s declares no type or no sidebar root: %+v", id, u.Bundles)
+			}
+			if sidebar.Id != "system:"+id+"/v1" {
+				t.Fatalf("%s sidebar root: %s", id, sidebar.Id)
+			}
+			if typed.SelfTyped {
+				t.Fatalf("%s type root carries its own type: %+v", id, typed)
 			}
 		})
 	}
-	// Journal's entry is a dated page; Meetings' recorder holds the
-	// ingest dataset. Both are what the client used to mint itself.
+	// Journal's entry is a dated page; a meeting is an object with three
+	// surfaces. Both are what a client used to mint for itself.
 	journal, _ := cat.Get("journal")
 	if props := journal.Bundles[0].Type.Properties; len(props) != 1 || props[0].XKey != "date" ||
 		props[0].Kind != api.PropertyKindDatetime {
@@ -71,9 +86,27 @@ func TestCatalog_SidebarAppsDeclareTheirTypes(t *testing.T) {
 	}
 	meetings, _ := cat.Get("meetings")
 	parts := meetings.Bundles[0].Parts
-	if len(parts) != 1 || len(parts[0].Datasets) != 1 || parts[0].Datasets[0].Key != "meeting_notes" ||
-		parts[0].Datasets[0].IdRule != "user" {
-		t.Fatalf("meetings parts: %+v", parts)
+	if len(parts) != 3 {
+		t.Fatalf("a meeting has notes, summary and transcript: %+v", parts)
+	}
+	surfaces := map[string]api.DatasetDraftRequest{}
+	for _, p := range parts {
+		if len(p.Datasets) != 1 {
+			t.Fatalf("part %s: %+v", p.Key, p.Datasets)
+		}
+		surfaces[p.Key] = p.Datasets[0]
+	}
+	// The notes are the COMMON editor (shared with page); the summary is a
+	// second editor of its own; the transcript is upserted by segment id.
+	if surfaces["notes"].Module != "editor" || !surfaces["notes"].Shared {
+		t.Fatalf("notes: %+v", surfaces["notes"])
+	}
+	if surfaces["summary"].Module != "editor" || surfaces["summary"].Shared ||
+		surfaces["summary"].Key != "summary" {
+		t.Fatalf("summary: %+v", surfaces["summary"])
+	}
+	if surfaces["transcript"].Key != "transcript" || surfaces["transcript"].IdRule != "user" {
+		t.Fatalf("transcript: %+v", surfaces["transcript"])
 	}
 }
 
@@ -252,6 +285,24 @@ func TestCatalog_Problems(t *testing.T) {
 				return strings.Replace(s, "        hidden: true\n        parts:\n          - key: settings\n            datasets:\n              - key: settings\n                idRule: user\n                fields: [ { key: pipeline, kind: string, mutableBy: any } ]\n", "        hidden: true\n", 1)
 			},
 			code: CodeBadField, path: "usecases[2].bundles[0].hidden",
+		},
+		{
+			name: "mutableBy author without a creator stamp",
+			mutate: func(s string) string {
+				return strings.Replace(s, "{ key: pipeline, kind: string, mutableBy: any }",
+					"{ key: pipeline, kind: string, mutableBy: author }", 1)
+			},
+			code: CodeBadField, path: "usecases[2].bundles[0].parts[0].datasets[0].fields",
+			contains: "stamp creator",
+		},
+		{
+			name: "search mapping names an undeclared field",
+			mutate: func(s string) string {
+				return strings.Replace(s, "                idRule: user\n",
+					"                idRule: user\n                search: { title: pipelien }\n", 1)
+			},
+			code: CodeBadField, path: "usecases[2].bundles[0].parts[0].datasets[0].search.title",
+			contains: "no field pipelien",
 		},
 		{
 			name: "selfTyped without a declaration",

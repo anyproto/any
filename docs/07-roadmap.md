@@ -379,8 +379,9 @@ pluggable embedders, parallel batched pipelines),
   `409 type.xkey_conflict` on the install path when a type in the
   space holds the handle; a writer's adopt heals missing properties by
   handle and missing `miniapp` values. Ships `wiki`, `collections`,
-  `journal` (the dated-page type), `meetings` (the recorder type and
-  its `meeting_notes` ingest dataset), `general-chat`, `people`,
+  `journal` (the dated-page type), `meetings` (the `meeting` type —
+  notes on the shared editor, a second editor for the summary, a
+  transcript dataset — plus the sidebar root), `general-chat`, `people`,
   `contact`, six roles, `contacts`, `crm` — an app that brings a type
   declares it here, the catalog being the source of truth for every
   well-known type. `POST …/bundles` gains `xKey` and `selfTyped` (the

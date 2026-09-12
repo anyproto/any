@@ -1829,12 +1829,15 @@ Implementation slices landed:
     declares the miniapp root AND the types/properties/datasets its
     content uses, so no client mints one by xKey. Shipped usecases:
     `wiki`, `collections`, `journal` (hidden type `journal`, one
-    `date`, shared editor `body`), `meetings` (hidden recorder type
-    `meeting_recorder` + the `meeting_notes` ingest dataset — `idRule: user`,
-    author-only, dynamic, search `title`/`transcript` under scope
-    `meetings`), `general-chat`, `people` (person + organization),
+    `date`, shared editor `body`), `meetings` (the `meeting` type —
+    weight 20, layout page; notes on the SHARED editor collection, a
+    second namespaced editor for the summary, and a `transcript`
+    records dataset of one turn per record: `idRule: user`,
+    author-mutable, dynamic, search `text` under scope `meetings` —
+    plus the `system:meetings/v1` sidebar root),
+    `general-chat`, `people` (person + organization),
     `contact`, six roles (`investor`, `customer`, `partner`, `vendor`,
-    `cofounder`, `candidate`), `contacts`, `crm` — 15 usecases, 17
+    `cofounder`, `candidate`), `contacts`, `crm` — 15 usecases, 18
     bundles, 14 types. Bundle roots are type DEFINITIONS unless the
     yaml says `selfTyped: true` (SDK v0.3.3 made self-typing opt-in):
     `contacts` needs it — its `layouts` records live on the root —

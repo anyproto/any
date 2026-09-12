@@ -123,12 +123,17 @@ func TestServer_CatalogSetupSidebarState(t *testing.T) {
 	for _, id := range []string{"journal", "meetings"} {
 		t.Run(id, func(t *testing.T) {
 			res := setupUsecase(t, e, id, sp.Id)
-			if res.Usecase != id || len(res.Bundles) != 1 {
+			if res.Usecase != id {
 				t.Fatalf("setup reply: %+v", res)
 			}
-			b := res.Bundles[0]
 			bundleId := "system:" + id + "/v1"
-			if !b.Installed || b.Id != bundleId || b.Bundle.Derived || b.Miniapp["bundle"] != bundleId {
+			var b api.CatalogSetupBundle
+			for _, entry := range res.Bundles {
+				if entry.Id == bundleId {
+					b = entry
+				}
+			}
+			if !b.Installed || b.Bundle.Derived || b.Miniapp["bundle"] != bundleId {
 				t.Fatalf("app bundle: %+v", b)
 			}
 			row := objectRow(t, e, sp.Id, b.Bundle.RootId)
@@ -145,9 +150,13 @@ func TestServer_CatalogSetupSidebarState(t *testing.T) {
 				t.Fatalf("set sidebar state: %d %s", rec.Code, rec.Body.String())
 			}
 			for range 2 {
-				again := setupUsecase(t, e, id, sp.Id)
-				if len(again.Bundles) != 1 || again.Bundles[0].Installed || again.Bundles[0].Bundle.RootId != b.Bundle.RootId {
-					t.Fatalf("repeated setup did not adopt: %+v", again)
+				for _, entry := range setupUsecase(t, e, id, sp.Id).Bundles {
+					if entry.Installed {
+						t.Fatalf("repeated setup re-installed %s: %+v", entry.Id, entry)
+					}
+					if entry.Id == bundleId && entry.Bundle.RootId != b.Bundle.RootId {
+						t.Fatalf("repeated setup moved the app root: %+v", entry)
+					}
 				}
 			}
 			row = objectRow(t, e, sp.Id, b.Bundle.RootId)
@@ -214,75 +223,95 @@ func TestServer_CatalogSetupJournal(t *testing.T) {
 	}
 }
 
-// Meetings brings the recorder type and its ingest dataset: records
-// live on the recorder OBJECTS that carry the type, keyed by the
-// provider's meeting id, and nothing else may write the collection.
+// A meeting is one OBJECT: the type says what it is, and its three
+// surfaces are the notes (the common editor), a second editor for the
+// summary and a transcript of one record per spoken turn.
 func TestServer_CatalogSetupMeetings(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
 	e := buildEcho(d)
 	sp := createSpaceInfo(t, e, "CatalogMeetings")
 
-	b := setupUsecase(t, e, "meetings", sp.Id).Bundles[0]
-	if b.TypeId != b.Bundle.RootId {
-		t.Fatalf("meetings bundle: %+v", b)
+	res := setupUsecase(t, e, "meetings", sp.Id)
+	byId := map[string]api.CatalogSetupBundle{}
+	for _, b := range res.Bundles {
+		byId[b.Id] = b
 	}
+	meeting, app := byId["system:meeting/v1"], byId["system:meetings/v1"]
+	if meeting.TypeId != meeting.Bundle.RootId || app.Miniapp["bundle"] != "system:meetings/v1" {
+		t.Fatalf("meetings usecase: %+v", res.Bundles)
+	}
+	// The type is a content type users see, not a hidden marker.
 	var info api.TypeInfo
-	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+b.TypeId, &info)
-	if info.XKey != "meeting_recorder" || !info.Hidden {
-		t.Fatalf("recorder type info: %+v", info)
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+meeting.TypeId, &info)
+	if info.XKey != "meeting" || info.Hidden || info.Weight != 20 {
+		t.Fatalf("meeting type info: %+v", info)
 	}
-	var parts api.TypePartsListResponse
-	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+b.TypeId+"/parts", &parts)
-	if len(parts.Parts) != 1 || parts.Parts[0].Key != "meetings" || len(parts.Parts[0].Datasets) != 1 {
-		t.Fatalf("meetings parts: %+v", parts)
-	}
-	ds := parts.Parts[0].Datasets[0]
-	if ds.Key != "meeting_notes" || ds.Collection != b.TypeId+"_meeting_notes" {
-		t.Fatalf("meeting_notes dataset: %+v", ds)
-	}
-
-	// The recorder is an ordinary object carrying the type; the agent
-	// upserts by provider id, so a re-ingest is one record.
-	recorder := mustCreateObject(t, e, sp.Id, `{"types":["`+b.TypeId+`"],"initialProperties":{"any":{"name":"Meet"}}}`)
-	notes := `{"objectId":"` + recorder + `","dataset":"` + ds.Collection + `","records":[{"id":"gmeet:abc","fields":` +
-		`{"title":"Standup","startedAt":1757600000000,"speakers":["Ann","Bo"],"transcript":"# notes"}}]}`
-	for range 2 {
-		if rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert", notes); rec.Code != http.StatusOK {
-			t.Fatalf("upsert meeting: %d %s", rec.Code, rec.Body.String())
+	for _, xk := range []string{"date", "duration", "participants", "labels", "words", "source"} {
+		if meeting.Properties[xk] == "" {
+			t.Fatalf("property %s unresolved: %+v", xk, meeting.Properties)
 		}
 	}
-	// A meeting is written while it runs and revised after: the content
-	// fields are author-mutable, so the end time and a corrected title
-	// land on the same record.
-	revision := `{"objectId":"` + recorder + `","dataset":"` + ds.Collection +
-		`","records":[{"id":"gmeet:abc","fields":{"title":"Standup (Mon)","endedAt":1757603600000}}]}`
-	if rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert", revision); rec.Code != http.StatusOK ||
-		strings.Contains(rec.Body.String(), "rejections") {
-		t.Fatalf("revise the meeting: %d %s", rec.Code, rec.Body.String())
+
+	var parts api.TypePartsListResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+meeting.TypeId+"/parts", &parts)
+	collections := map[string]string{}
+	for _, p := range parts.Parts {
+		if len(p.Datasets) != 1 {
+			t.Fatalf("part %s datasets: %+v", p.Key, p.Datasets)
+		}
+		collections[p.Key] = p.Datasets[0].Collection
 	}
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/query",
-		`{"objectId":"`+recorder+`","dataset":"`+ds.Collection+`","sort":["-startedAt"]}`)
-	var q api.QueryResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &q); err != nil || len(q.Records) != 1 {
-		t.Fatalf("read the meeting: %d %s (%v)", rec.Code, rec.Body.String(), err)
-	}
-	var note struct {
-		Id      string  `json:"id"`
-		Title   string  `json:"title"`
-		EndedAt float64 `json:"endedAt"`
-	}
-	if err := json.Unmarshal(q.Records[0], &note); err != nil {
-		t.Fatalf("decode the meeting: %v", err)
-	}
-	if note.Id != "gmeet:abc" || note.Title != "Standup (Mon)" || note.EndedAt != 1757603600000 {
-		t.Fatalf("revision did not land: %+v", note)
+	// The notes share the editor's canonical collection (so a meeting and a
+	// page have one body); the summary is a SECOND editor of its own.
+	if collections["notes"] != "editor_blocks" ||
+		collections["summary"] != meeting.TypeId+"_summary" ||
+		collections["transcript"] != meeting.TypeId+"_transcript" {
+		t.Fatalf("meeting surfaces: %v", collections)
 	}
 
-	// An object that does not carry the recorder type holds no notes.
+	obj := mustCreateObject(t, e, sp.Id, `{"types":["`+meeting.TypeId+`"],"initialProperties":{"any":{"name":"Weekly sync"},"`+
+		meeting.TypeId+`":{"`+meeting.Properties["date"]+`":{"$date":"2026-09-11T09:00:00.000Z"},"`+
+		meeting.Properties["participants"]+`":["Ann","Bo"]}}}`)
+	for _, coll := range []string{"editor_blocks", collections["summary"]} {
+		rec := doJSON(t, e, http.MethodPut, "/v1/spaces/"+sp.Id+"/objects/"+obj+"/editor/"+coll+"/markdown",
+			`{"content":"# `+coll+`"}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("write %s: %d %s", coll, rec.Code, rec.Body.String())
+		}
+	}
+
+	// The transcript is upserted by the provider's segment id, so a
+	// re-ingest of the same turn is one record, and it reads back in order.
+	turns := `{"objectId":"` + obj + `","dataset":"` + collections["transcript"] + `","records":[` +
+		`{"id":"seg-2","fields":{"startedAt":{"$date":"2026-09-11T09:00:20.000Z"},"speaker":"Bo","text":"morning"}},` +
+		`{"id":"seg-1","fields":{"startedAt":{"$date":"2026-09-11T09:00:05.000Z"},"speaker":"Ann","text":"hello"}}]}`
+	for range 2 {
+		if rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert", turns); rec.Code != http.StatusOK {
+			t.Fatalf("ingest the transcript: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/query",
+		`{"objectId":"`+obj+`","dataset":"`+collections["transcript"]+`","sort":["startedAt"]}`)
+	var q api.QueryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &q); err != nil || len(q.Records) != 2 {
+		t.Fatalf("read the transcript: %d %s (%v)", rec.Code, rec.Body.String(), err)
+	}
+	var turn struct {
+		Id      string `json:"id"`
+		Speaker string `json:"speaker"`
+	}
+	if err := json.Unmarshal(q.Records[0], &turn); err != nil {
+		t.Fatalf("decode a turn: %v", err)
+	}
+	if turn.Id != "seg-1" || turn.Speaker != "Ann" {
+		t.Fatalf("transcript out of order: %+v", turn)
+	}
+
+	// An object that does not carry the type holds none of the surfaces.
 	other := mustCreateObject(t, e, sp.Id, `{}`)
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert",
-		`{"objectId":"`+other+`","dataset":"`+ds.Collection+`","records":[{"id":"gmeet:x","fields":{"title":"No"}}]}`)
+		`{"objectId":"`+other+`","dataset":"`+collections["transcript"]+`","records":[{"id":"x","fields":{"text":"no"}}]}`)
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "dataset.not_declared") {
 		t.Fatalf("write without the type: %d %s", rec.Code, rec.Body.String())
 	}
