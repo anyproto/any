@@ -437,6 +437,10 @@ placeholders — and every declared field is `mutableBy: author`, so the
 agent revises what it wrote while no other member may touch those
 keys. Times are instants (`{"$date": …}`) like every other timestamp,
 so date filters and the aggregation date operators work on them.
+`participants` and `labels` are `choice`, so their values are option
+KEYS: an ingest writes the key (minting the option on the definition
+where it needs a new one), and a reader prints
+`xFormat.options.<key>.name`, falling back to the key.
 
 ## Validation
 
