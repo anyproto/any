@@ -38,6 +38,92 @@ usecases:
         name: Collections
         miniapp: {}
 
+  # ── Journal: one page per day. The app creates the entries, so the type is
+  #    hidden and carries no weight; its body is the shared editor collection,
+  #    which is why an entry needs no second type.
+  - id: journal
+    name: Journal
+    description: One page per day, keyed by date
+    bundles:
+      - id: system:journal/v1
+        name: Journal
+        hidden: true
+        miniapp: {}
+        type:
+          xKey: journal
+          properties:
+            - { xKey: date, name: Date, kind: datetime, xFormat: { type: date } }
+        parts:
+          - key: body                                  # the entry itself; shared with page
+            ui: { type: document }
+            datasets: [ { module: editor, shared: true } ]
+
+  # ── Meetings: one OBJECT per meeting. The type carries what a meeting IS
+  #    (when, who, how long); its three surfaces are the notes (the common
+  #    editor, shared with page), the transcript (one record per spoken turn)
+  #    and the summary (a second editor of its own). An ingest agent creates
+  #    the objects and writes all three; readers render them.
+  - id: meetings
+    name: Meetings
+    description: Meetings with their notes, transcript and summary
+    bundles:
+      - id: system:meeting/v1
+        name: Meeting
+        type:
+          xKey: meeting
+          weight: 20                             # a meeting renders as itself, not as a plain page
+          layout: { type: page }
+          properties:
+            - { xKey: date,         name: Date,         kind: datetime,
+                xFormat: { type: datetime }, description: When the meeting started }
+            - { xKey: duration,     name: Duration,     kind: number,
+                xFormat: { type: duration }, description: Length in seconds }
+            - { xKey: participants, name: Participants, kind: array,
+                xFormat: { type: choice, options: {}, config: { multiple: true } },
+                description: "Who took part, in the order they are listed" }
+            - { xKey: labels,       name: Type,         kind: array,
+                xFormat: { type: choice, options: {}, config: { multiple: true } },
+                description: "Classification of the meeting (stand-up, 1-1, …)" }
+            - { xKey: words,        name: Words,        kind: number,
+                description: Transcript word count }
+            - { xKey: source,       name: Source,       kind: string,
+                description: "Provenance of the recording, e.g. gmeet:<id>" }
+        parts:
+          - key: notes                           # the editable document; shared with page
+            ui: { type: document }
+            datasets: [ { module: editor, shared: true } ]
+          - key: summary                         # a second editor, its own collection
+            ui: { type: document }
+            datasets: [ { key: summary, module: editor } ]
+          - key: transcript                      # the conversation, word for word
+            ui: { type: list }
+            datasets:
+              - key: transcript
+                displayName: Transcript
+                description: One record per spoken turn, in order
+                idRule: user                     # the provider's segment id, and the ingest idempotency key
+                deleteBy: author
+                skipHistory: true
+                dynamic: true                    # the recorder may carry fields ahead of a server release
+                search: { text: text, scope: meetings }
+                # Author-mutable so a turn can be corrected after ingest; a key
+                # nothing here declares carries no author rule.
+                fields:
+                  - { key: startedAt,  name: Started at,  kind: datetime, mutableBy: author,
+                      xFormat: { type: datetime }, description: "Start of the turn — the sort key" }
+                  - { key: speaker,    name: Speaker,     kind: string, mutableBy: author,
+                      description: Display name of who is speaking }
+                  - { key: text,       name: Text,        kind: string, mutableBy: author,
+                      description: What was said }
+                  - { key: creator,    name: Creator,     stamp: creator }
+                  - { key: createdAt,  name: Created at,  stamp: createTime }
+                  - { key: modifiedAt, name: Modified at, stamp: modifyTime }
+
+      - id: system:meetings/v1                   # the sidebar entry
+        name: Meetings
+        miniapp: {}
+
+
   # ── The space's chat. The one derived root: chat content cannot be merged
   #    across objects, and a 1-1 space has no owner to break a tie.
   - id: general-chat
@@ -292,6 +378,7 @@ usecases:
         name: Contacts
         miniapp: {}
         hidden: true
+        selfTyped: true                                # the layouts live ON the app root
         parts:
           - key: layouts
             datasets:

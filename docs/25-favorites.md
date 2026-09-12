@@ -78,8 +78,12 @@ POST /v1/spaces/<techSpaceId>/bundles
     ] }] }] }
 ```
 
-Idempotent — the first call installs (the server mints and self-types
-the root), later calls adopt. Uninstall = `DELETE
+Idempotent — the first call installs, later calls adopt. The root
+CARRIES the type it declares, so the entries live on it: on the tech
+space that is implied and needs no flag; the same bundle in an
+ordinary space would have to ask for it with `"selfTyped": true`
+(`03-api.md` § Bundles), or every write to `<rootId>_entries` would be
+`400 dataset.not_declared`. Uninstall = `DELETE
 /v1/spaces/<tech>/objects/<rootId>`; the id then reads as not
 installed and a later install mints a fresh root.
 

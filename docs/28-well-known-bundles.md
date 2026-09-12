@@ -9,11 +9,26 @@ HTTP, validated at build time; the registry mechanics underneath are
 the ordinary bundles surface (`03-api.md` § Bundles). Nothing is set up
 unless a client asks.
 
+**The catalog is the source of truth for every well-known app and
+type.** An app that ships in a client — a sidebar entry, a built-in
+surface, an agent's ingest target — declares in its bundle everything
+it needs: the miniapp root AND the types, properties and datasets its
+content uses. A client must never mint a type of its own for one of
+these: two clients (or the same client on two devices, or an agent)
+minting by xKey converge only by luck, race on `409
+type.xkey_conflict`, and leave a space where one device's entries are
+invisible to the other. Resolve the type from the setup reply or the
+registry instead (§ What a client does with the reply). Only a type a
+USER creates in their own space is a client-minted type; if it is part
+of a shipped app, it belongs here — open a PR against
+`internal/catalog/catalog.yml`.
+
 ## Model
 
 ```
 usecase  = { id, name, description?, requires: [usecase id], bundles: [bundle] }
-bundle   = { id: "system:<name>/v<n>", name, description?, derived?, hidden?, type?, miniapp?, parts? }
+bundle   = { id: "system:<name>/v<n>", name, description?, derived?, hidden?,
+             selfTyped?, type?, miniapp?, parts? }
 type     = { xKey, weight?, layout?, properties: [property draft with xKey] }
 miniapp  = { bundle?, <any other property of the built-in miniapp type> }
 parts    = [ part draft ]                     # the POST …/types/:typeId/parts shape
@@ -30,11 +45,26 @@ root IS follows from that:
 |---|---|---|
 | `type` | a type object, `typeId = rootId`; `xKey` is its handle | carrying it in `any.types`; values at `<typeId>.<propId>` |
 | `miniapp` | the object a client opens; carries the built-in `miniapp` with `bundle` = the bundle id | opening it; `miniapp.bundle` says what to run |
-| `parts` | a records host — the app's own state lives in records on the root | nothing; a records host asks for `hidden` |
+| `parts` | a type with datasets; the records live on the objects carrying it — on the root itself only with `selfTyped` | carrying it; records in `<typeId>_<key>` |
 | `type` + `miniapp` | one object that is both (the wiki: the app, and the type its pages carry) | both |
 
 `type: {xKey}` alone — no properties, no parts — is a valid **marker
 type**: a flag objects carry, resolvable by handle, with no columns.
+
+**`selfTyped` decides who carries the type.** By default a
+type-declaring root is the DEFINITION and nothing else: it matches no
+`{"any.types": <typeId>}` query, holds none of the type's values and
+takes none of its collections. That is what a type OTHER objects carry
+wants — a wiki (its root is the app, not a page in its own tree), a
+journal (its root is not an entry), a recorder type (the recorders are
+the agent's objects). `selfTyped: true` makes the root carry the type
+as well, which is what a root that keeps its OWN bundle's records
+needs — the contacts app and its per-type layouts. Get it wrong in
+that direction and every write to the root's collection is `400
+dataset.not_declared`. It is implied, never declared, for a part
+naming a reserved module (the general chat's root is its type's sole
+carrier) and for tech-space bundles. An adopt adds the self type to a
+root that lacks it; nothing ever removes it.
 
 **Created roots, one exception.** Every catalog root is a created
 root: deletable (`DELETE …/objects/:rootId` uninstalls it), forking
@@ -189,12 +219,26 @@ adopts or is refused by permission, never by handle), and a root ever
 claimed for this same bundle id is never a conflict with itself — a
 leftover loser holding the handle is the registry's to settle.
 
-The case that bites: a user type minted before the catalog knew the
-handle (`contact`, `person`, …). It blocks that usecase in that space
-until the type is gone. There is no rename or delete of a type over
-HTTP in v1, so this is an open item (`07-roadmap.md`); until then a
-client sets the usecase up before offering a type picker, or steers
-its own handles away from the catalog's.
+The case that bites: a type minted before the catalog knew the handle
+— a user's own `contact`, or a client that used to mint the app type
+itself (`journal`). It blocks that usecase in that space for good: a
+type cannot be deleted over HTTP in v1. The space keeps whatever the
+client did before, and nothing migrates — which is why an app's types
+belong in the catalog from its first release, not after one.
+
+A client that must clear the way can free the handle: the type's
+`xkey` is an ordinary value in the meta-type's namespace, so
+`POST …/properties/<typeId>/set/type` with
+`{"patch": {"xkey": "journal_legacy"}}` renames it and the next setup
+proceeds. That write is unguarded — the uniqueness check lives on
+`POST …/types` — so a client doing it owns the outcome, including
+re-stamping the objects that carried the old type onto the new one.
+Note that the guard runs on the INSTALL path only: in a space whose
+app root was installed before the catalog declared the type, the next
+setup adopts that root and heals the handle onto it without checking,
+which can leave two types holding one handle. Harmless (catalog types
+resolve through the registry, never by scanning handles) but visible
+in `GET …/types?includeHidden=true`.
 
 ## What a client does with the reply
 
@@ -302,6 +346,9 @@ leaves their values orphaned (readable, no schema).
 |---|---|---|---|
 | `wiki` | — | `system:wiki/v1` | type `wiki` (hidden; `parentId`, `pos` — both kept out of the search index — and `folder`, a checkbox) + miniapp |
 | `collections` | — | `system:collections/v1` | miniapp only — a feature switch: installing it turns the types feature on in clients |
+| `journal` | — | `system:journal/v1` | type `journal` (hidden; one `date`, a `date`-slug datetime) + shared editor `body` part + miniapp — one dated page per day |
+| `meetings` | — | `system:meeting/v1` | type `meeting` (weight 20, layout `page`; date, duration, participants, labels, words, source) with three surfaces — `notes` (the shared editor body), `summary` (a second, namespaced editor) and `transcript` (records, `idRule: user`, author-mutable and author-deletable, `skipHistory`, dynamic, search `text` under scope `meetings`) |
+| | | `system:meetings/v1` | miniapp only — the sidebar entry that opens the meetings list |
 | `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one shared `chat` part — the reserved module's only declaration, the root its only carrier — + miniapp, so the chat is a sidebar entry |
 | `people` | — | `system:person/v1` | type `person` (weight 10, layout `profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags) + shared editor `body` part |
 | | | `system:organization/v1` | type `organization` (weight 10, layout `profile`; kind, domain, categories, location, size, linkedin, main_contact → `person`) + shared editor `body` part |
@@ -312,11 +359,11 @@ leaves their values orphaned (readable, no schema).
 | `vendor` | `people` | `system:vendor/v1` | type `vendor` (weight 5; services, vendor_status, contract_value, renewal_date) |
 | `cofounder` | `people` | `system:cofounder/v1` | type `cofounder` (weight 5; founded → `organization`, since, responsibilities, equity) |
 | `candidate` | `people` | `system:candidate/v1` | type `candidate` (weight 5; role, candidate_stage, next_interview, resume) |
-| `contacts` | `people`, `contact` | `system:contacts/v1` | miniapp, hidden; records part `layouts` (dataset `layouts`, `idRule: user` — the id is an identity type's xKey; field `blocks`, array) |
+| `contacts` | `people`, `contact` | `system:contacts/v1` | miniapp, hidden, **selfTyped**; records part `layouts` (dataset `layouts`, `idRule: user` — the id is an identity type's xKey; field `blocks`, array) — the layouts live on the app root, so it carries its own type |
 | `crm` | `contacts` | `system:deal/v1` | type `deal` (weight 10, layout `profile`; stage, owner → `person`, organization → `organization`, amount, close_date) + shared editor `body` part |
 | | | `system:crm/v1` | miniapp only |
 
-Thirteen usecases, fifteen bundles, twelve types. The two identities
+Fifteen usecases, eighteen bundles, fourteen types. The two identities
 are one usecase because `person.organization` and
 `organization.main_contact` reference each other and the `requires`
 graph must stay acyclic; the roles are one usecase each so a role
@@ -327,6 +374,73 @@ properties are `kind: array` even when single-valued; an amount is
 `GET /v1/catalog` returns it with one normalization — a `miniapp` map
 always carries `bundle` = the bundle id, filled in where the yaml
 omits it.
+
+**The sidebar state of every app root.** A root carrying `miniapp` is
+a sidebar entry: the shared order is `miniapp.pos` (a client-allocated
+lexid) and the shared visibility `miniapp.hidden`, both written as
+ordinary property values —
+`POST /v1/spaces/:spaceId/properties/:rootId/set/miniapp` with
+`{"patch": {"pos": "a0"}}`. Setup writes neither, and never resets
+them: it seeds only what the catalog declares, so a later setup
+adopting an existing root leaves the reader's order and hides alone.
+Catalog roots are created roots, so the ordinary permission,
+convergence and fork rules apply; a client renders the registry's
+winner if two offline installs converge (§ Forks). Deriving these
+roots just to avoid that case would make them permanently
+uninstallable, which is the worse trade for an app a user may remove.
+
+**Journal** is one dated page per day: an entry carries the `journal`
+type with a `date` value (a `date` slug on `kind: datetime` — midnight
+UTC, `{"$date": …}`), and the type's `body` part shares the editor
+collection, so the entry needs no second type to have a document (a
+client that also attaches `page` gets the same body). The type is
+hidden and weightless: the app creates entries, nothing picks the type
+from a picker.
+
+The catalog converges the TYPE, not the entries: an entry is an
+ordinary object create, so two devices opening the same day while
+apart write two pages for it. The rule clients share is **lowest id
+wins per day** — read a day with `{"any.types": <typeId>,
+"<typeId>.<datePropId>": {"$date": "<day>T00:00:00.000Z"}}`, render
+the lowest id, and leave the loser reachable rather than deleting
+somebody's writing.
+
+**A meeting is one object.** The `meeting` type says what it IS — when
+it started, how long it ran, who took part, how it is classified — and
+its three parts are the surfaces a client renders:
+
+- **notes**, the editable document, on the editor's SHARED collection,
+  so a meeting's body is the same body a page has
+  (`…/editor/editor_blocks/**` on the meeting object);
+- **summary**, a SECOND editor with a collection of its own
+  (`<typeId>_summary`), because the condensed takeaways are a separate
+  document from the notes somebody types during the call;
+- **transcript**, one record per spoken turn (`startedAt`, `speaker`,
+  `text`), read sorted on `startedAt`.
+
+An ingest agent creates the object and writes all three; a reader
+renders them and edits only the notes. `idRule: user` makes a
+transcript record's id the provider's segment id, so re-ingesting a
+turn is an upsert rather than a duplicate. Two consequences worth
+knowing before writing an ingest:
+
+- `dynamic` leaves a free keyspace beside the declared fields so the
+  agent can carry one ahead of a server release — and an undeclared
+  key has no author rule, so any writer of the space may set it.
+- A deleted record's id is **burned** (`03-api.md` § Upsert): deleting
+  a turn and re-ingesting the same segment id answers `200` with a
+  `record_deleted` rejection and writes nothing. An ingest reads
+  `rejections`, never the status code alone.
+
+Nothing is required — ingest is garbage-tolerant and readers render
+placeholders — and every declared field is `mutableBy: author`, so the
+agent revises what it wrote while no other member may touch those
+keys. Times are instants (`{"$date": …}`) like every other timestamp,
+so date filters and the aggregation date operators work on them.
+`participants` and `labels` are `choice`, so their values are option
+KEYS: an ingest writes the key (minting the option on the definition
+where it needs a new one), and a reader prints
+`xFormat.options.<key>.name`, falling back to the key.
 
 ## Validation
 

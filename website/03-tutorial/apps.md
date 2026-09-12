@@ -159,8 +159,12 @@ Every catalog entry is the same construction you just built by hand, and each sh
 |---------|-------------|
 | `wiki` | an app **and** a type: the sidebar entry, and the hidden type whose `parentId` / `pos` / `folder` place every page in the tree |
 | `collections` | an app only — an empty `miniapp` root whose presence switches the types feature on in the client |
+| `journal` | an app **and** a type, like the wiki: the sidebar entry, and the hidden type whose one `date` property makes an object that day's page |
+| `meetings` | an app **and** a content type: a meeting is one object whose three parts are its notes (the shared editor), a second editor for the summary, and a transcript dataset an agent fills |
 | `general-chat` | the space's one chat: a **derived** root both sides of a partition compute, so it can never fork, carrying the reserved `chat` module |
 | `people`, `contact`, `contacts`, `crm` | a set: `crm` requires `contacts`, which requires `people` and `contact`; setup resolves the closure in order and the reply lists every bundle it touched |
+
+Every app that ships with a client belongs here, types included: the catalog is the one place a well-known type is declared, so two clients — or a client and an agent — resolve the same ids instead of each minting a type by name and hoping they match.
 
 Setup is idempotent — run it on every device that needs the feature and each adopts the same roots with byte-identical property ids. A space where the wiki was never set up has no wiki type in it at all: nothing from a usecase you do not use lands in your space.
 

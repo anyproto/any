@@ -97,7 +97,7 @@ func compileCatalog(src []byte) (*compiledCatalog, catalog.Problems) {
 			cb := compiledBundle{CatalogBundle: b, usecase: u.Id}
 			inst := bundles.Install{
 				Id: b.Id, Name: b.Name, Derived: b.Derived, Hidden: b.Hidden,
-				SystemInstall: true,
+				SelfTyped: b.SelfTyped, SystemInstall: true,
 			}
 			if b.Type != nil {
 				inst.XKey = b.Type.XKey

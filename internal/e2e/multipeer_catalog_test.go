@@ -97,4 +97,39 @@ func TestE2E_MultipeerCatalog(t *testing.T) {
 	}) {
 		t.Fatalf("the joiner's person did not reach the owner")
 	}
+
+	// A sidebar app that brings a type converges the same way: the
+	// journal type and its `date` column come from the install, so an
+	// entry one peer writes is a journal entry on the other — which is
+	// what a client-minted type per device could never guarantee.
+	var ownerJournal api.CatalogSetupResponse
+	mustJSON(t, http.MethodPost, owner.base+"/v1/catalog/journal/setup", setupBody, http.StatusOK, &ownerJournal)
+	oj := ownerJournal.Bundles[0]
+	if oj.TypeId == "" || oj.Properties["date"] == "" {
+		t.Fatalf("owner journal setup: %+v", oj)
+	}
+	var joinerJournal api.CatalogSetupResponse
+	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
+		joinerJournal = api.CatalogSetupResponse{}
+		code := tryJSON(t, http.MethodPost, joiner.base+"/v1/catalog/journal/setup", setupBody, &joinerJournal)
+		return code == http.StatusOK && len(joinerJournal.Bundles) == 1 && !joinerJournal.Bundles[0].Installed
+	}) {
+		t.Fatalf("joiner never adopted the journal install: %+v", joinerJournal)
+	}
+	jj := joinerJournal.Bundles[0]
+	if jj.TypeId != oj.TypeId || jj.Properties["date"] != oj.Properties["date"] {
+		t.Fatalf("journal type diverged: owner=%+v joiner=%+v", oj, jj)
+	}
+	day := `{"$date":"2026-09-12T00:00:00.000Z"}`
+	var entry api.ObjectsCreateResponse
+	mustJSON(t, http.MethodPost, joiner.base+"/v1/spaces/"+sp.Id+"/objects",
+		`{"types":["`+jj.TypeId+`"],"initialProperties":{"`+jj.TypeId+`":{"`+jj.Properties["date"]+`":`+day+`}}}`,
+		http.StatusCreated, &entry)
+	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
+		resp, raw := doRequest(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects/query",
+			`{"filter":{"any.types":"`+oj.TypeId+`","`+oj.TypeId+`.`+oj.Properties["date"]+`":`+day+`}}`)
+		return resp.StatusCode == http.StatusOK && strings.Contains(string(raw), entry.ObjectId)
+	}) {
+		t.Fatalf("the joiner's journal entry did not reach the owner's day query")
+	}
 }

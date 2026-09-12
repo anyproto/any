@@ -1823,11 +1823,26 @@ Implementation slices landed:
     `internal/bundles` `TestSetupWaitsOnce`; e2e
     `internal/e2e/multipeer_catalog_test.go` (the owner sets `crm` up,
     the joiner's setup adopts every root with the same property ids
-    and writes a person the owner reads). Shipped usecases: `wiki`,
-    `collections`, `general-chat`, `people` (person + organization),
+    and writes a person the owner reads; the same walk for `journal`,
+    whose entry crosses under one converged type). **The catalog is
+    the source of truth for every well-known app's types** — a bundle
+    declares the miniapp root AND the types/properties/datasets its
+    content uses, so no client mints one by xKey. Shipped usecases:
+    `wiki`, `collections`, `journal` (hidden type `journal`, one
+    `date`, shared editor `body`), `meetings` (the `meeting` type —
+    weight 20, layout page; notes on the SHARED editor collection, a
+    second namespaced editor for the summary, and a `transcript`
+    records dataset of one turn per record: `idRule: user`,
+    author-mutable, dynamic, search `text` under scope `meetings` —
+    plus the `system:meetings/v1` sidebar root),
+    `general-chat`, `people` (person + organization),
     `contact`, six roles (`investor`, `customer`, `partner`, `vendor`,
-    `cofounder`, `candidate`), `contacts`, `crm` — 13 usecases, 15
-    bundles, 12 types. Test seam: `deps.catalog` overrides the compiled
+    `cofounder`, `candidate`), `contacts`, `crm` — 15 usecases, 18
+    bundles, 14 types. Bundle roots are type DEFINITIONS unless the
+    yaml says `selfTyped: true` (SDK v0.3.3 made self-typing opt-in):
+    `contacts` needs it — its `layouts` records live on the root —
+    while wiki / journal / meetings must not have it, or the app root
+    would read as one of its own entries. Test seam: `deps.catalog` overrides the compiled
     embedded catalog (`catalogForTest`). CLI: `any catalog
     list/get/setup` (`internal/cli/catalog.go`,
     `internal/client/catalog.go`). **SDK prerequisite (branch,
