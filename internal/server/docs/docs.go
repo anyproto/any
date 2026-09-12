@@ -552,6 +552,10 @@ const docTemplate = `{
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "selfTyped": {
+                        "description": "SelfTyped makes the root CARRY the type it declares, so it holds\nthat type's property values and its datasets — what a root that\nkeeps its own bundle's records needs (an app's layouts). Off, the\nroot is the type definition and nothing else: it matches no query\nfor the type and takes none of its collections, which is what a\ntype OTHER objects carry wants (a wiki, a person). Needs a type\ndeclaration; implied for a part declaring a reserved module and\non the tech space.",
+                        "type": "boolean"
+                    },
                     "weight": {
                         "type": "integer"
                     },
@@ -657,6 +661,10 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "selfTyped": {
+                        "description": "SelfTyped makes the root carry the type it declares — the shape\nof a root that hosts its own bundle's records (the contacts\nlayouts). Off, the root is the type definition only: it matches\nno query for the type and takes none of its collections, which\nis what a type other objects carry needs (the wiki, a person).\nNeeds a type declaration.",
+                        "type": "boolean"
                     },
                     "type": {
                         "$ref": "#/components/schemas/api.CatalogType"

@@ -324,10 +324,13 @@ pluggable embedders, parallel batched pipelines),
   needs it.
 - **A user type holding a catalog handle.** A type minted with a
   catalog xKey before the catalog knew it blocks that usecase in that
-  space (`409 type.xkey_conflict`), and there is no type xKey rename
-  and no type delete over HTTP. Wanted: one of those — or a naming
-  convention for catalog handles that early user types are unlikely to
-  have chosen.
+  space (`409 type.xkey_conflict`) and nothing migrates. A handle can
+  be freed — `type.xkey` is an ordinary meta-type value, so
+  `POST …/properties/<typeId>/set/type {"patch": {"xkey": "…"}}`
+  renames it — but that path is unguarded (the uniqueness check lives
+  on `POST …/types`) and re-stamping the objects that carried the old
+  type is the client's. Wanted: a guarded rename (`xKey` on
+  `PATCH …/types/:typeId`) or a type delete.
 - **Setup objects beyond the root.** A usecase cannot declare a "Home"
   page, a default dataview, sample rows or a template; the per-bundle
   `children` endpoint derives setup objects, but nothing in the
@@ -376,11 +379,15 @@ pluggable embedders, parallel batched pipelines),
   `409 type.xkey_conflict` on the install path when a type in the
   space holds the handle; a writer's adopt heals missing properties by
   handle and missing `miniapp` values. Ships `wiki`, `collections`,
-  `journal` and `meetings` (navigation roots; content stays client-owned),
-  `general-chat`, `people`, `contact`, six roles, `contacts`, `crm`.
-  `POST …/bundles` gains `xKey`; root types ride created roots that
-  declare a type; an install is root + up to 3 changes. Contract:
-  docs/28-well-known-bundles.md, docs/03-api.md § Catalog + § Bundles.
+  `journal` (the dated-page type), `meetings` (the recorder type and
+  its `meeting_notes` ingest dataset), `general-chat`, `people`,
+  `contact`, six roles, `contacts`, `crm` — an app that brings a type
+  declares it here, the catalog being the source of truth for every
+  well-known type. `POST …/bundles` gains `xKey` and `selfTyped` (the
+  root carries the type it declares — a records host asks for it);
+  root types ride created roots that declare a type; an install is
+  root + up to 3 changes. Contract: docs/28-well-known-bundles.md,
+  docs/03-api.md § Catalog + § Bundles.
 - **`dataview`: many dataviews, each with many views (SYN-217)** — the
   built-in `data_view` / `data_views` became the hidden `dataview` type
   with one part `views` owning two records datasets: `dataviews` (one

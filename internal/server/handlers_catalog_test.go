@@ -111,13 +111,14 @@ func TestServer_CatalogListAndGet(t *testing.T) {
 	}
 }
 
-// Journal and Meetings have real sidebar records without declaring or
-// migrating their content. Re-running setup preserves shared user state.
-func TestServer_CatalogSetupNavigationApps(t *testing.T) {
+// The sidebar contract every app root shares: one root per bundle, the
+// shared `pos` / `hidden` written as ordinary property values, and a
+// re-setup that adopts without resetting either.
+func TestServer_CatalogSetupSidebarState(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
 	e := buildEcho(d)
-	sp := createSpaceInfo(t, e, "CatalogNavigation")
+	sp := createSpaceInfo(t, e, "CatalogSidebar")
 
 	for _, id := range []string{"journal", "meetings"} {
 		t.Run(id, func(t *testing.T) {
@@ -127,17 +128,13 @@ func TestServer_CatalogSetupNavigationApps(t *testing.T) {
 			}
 			b := res.Bundles[0]
 			bundleId := "system:" + id + "/v1"
-			if !b.Installed || b.Id != bundleId || b.TypeId != "" || b.Properties != nil ||
-				b.Bundle.Derived || b.Miniapp["bundle"] != bundleId {
-				t.Fatalf("navigation bundle: %+v", b)
+			if !b.Installed || b.Id != bundleId || b.Bundle.Derived || b.Miniapp["bundle"] != bundleId {
+				t.Fatalf("app bundle: %+v", b)
 			}
 			row := objectRow(t, e, sp.Id, b.Bundle.RootId)
-			if got := rowTypes(row); !slices.Equal(got, []string{"miniapp"}) {
-				t.Fatalf("navigation root types = %v", got)
-			}
 			ma, _ := row["miniapp"].(map[string]any)
 			if ma["bundle"] != bundleId || ma["pos"] != nil || ma["hidden"] != nil {
-				t.Fatalf("initial navigation state: %v", ma)
+				t.Fatalf("initial sidebar state: %v", ma)
 			}
 
 			// Ordinary property writes carry both ordering and hiding; setup
@@ -165,9 +162,129 @@ func TestServer_CatalogSetupNavigationApps(t *testing.T) {
 			}
 			var q api.QueryResponse
 			if err := json.Unmarshal(rec.Body.Bytes(), &q); err != nil || len(q.Records) != 1 {
-				t.Fatalf("expected one navigation root: %s (%v)", rec.Body.String(), err)
+				t.Fatalf("expected one app root: %s (%v)", rec.Body.String(), err)
 			}
 		})
+	}
+}
+
+// Journal brings its type: one root that is the sidebar entry AND the
+// hidden `journal` type, whose entries are dated pages in the shared
+// editor collection.
+func TestServer_CatalogSetupJournal(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	sp := createSpaceInfo(t, e, "CatalogJournal")
+
+	b := setupUsecase(t, e, "journal", sp.Id).Bundles[0]
+	if b.TypeId != b.Bundle.RootId || b.Properties["date"] == "" {
+		t.Fatalf("journal bundle: %+v", b)
+	}
+	// The root is the type DEFINITION plus the sidebar entry — it must
+	// not carry the type, or the app itself would read as an entry.
+	types := rowTypes(objectRow(t, e, sp.Id, b.TypeId))
+	if !slices.Contains(types, "__type__") || !slices.Contains(types, "miniapp") || slices.Contains(types, b.TypeId) {
+		t.Fatalf("journal root types = %v", types)
+	}
+	var info api.TypeInfo
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+b.TypeId, &info)
+	if info.XKey != "journal" || !info.Hidden || info.Weight != 0 {
+		t.Fatalf("journal type info: %+v", info)
+	}
+
+	// An entry is one object: the type carries the day, and its part
+	// shares the editor collection, so the body needs no second type.
+	day := `{"$date":"2026-09-12T00:00:00.000Z"}`
+	entry := mustCreateObject(t, e, sp.Id, `{"types":["`+b.TypeId+`"],"initialProperties":{"`+
+		b.TypeId+`":{"`+b.Properties["date"]+`":`+day+`}}}`)
+	rec := doJSON(t, e, http.MethodPost,
+		"/v1/spaces/"+sp.Id+"/objects/"+entry+"/editor/editor_blocks/blocks",
+		`{"type":"paragraph","text":"woke up"}`)
+	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
+		t.Fatalf("write the entry's body: %d %s", rec.Code, rec.Body.String())
+	}
+	// The day is the query key the Journal surface reads by.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/query",
+		`{"filter":{"any.types":"`+b.TypeId+`","`+b.TypeId+`.`+b.Properties["date"]+`":`+day+`}}`)
+	var q api.QueryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &q); err != nil || len(q.Records) != 1 ||
+		!strings.Contains(string(q.Records[0]), entry) {
+		t.Fatalf("query the day: %d %s (%v)", rec.Code, rec.Body.String(), err)
+	}
+}
+
+// Meetings brings the recorder type and its ingest dataset: records
+// live on the recorder OBJECTS that carry the type, keyed by the
+// provider's meeting id, and nothing else may write the collection.
+func TestServer_CatalogSetupMeetings(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	sp := createSpaceInfo(t, e, "CatalogMeetings")
+
+	b := setupUsecase(t, e, "meetings", sp.Id).Bundles[0]
+	if b.TypeId != b.Bundle.RootId {
+		t.Fatalf("meetings bundle: %+v", b)
+	}
+	var info api.TypeInfo
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+b.TypeId, &info)
+	if info.XKey != "anyscribe" || !info.Hidden {
+		t.Fatalf("recorder type info: %+v", info)
+	}
+	var parts api.TypePartsListResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+b.TypeId+"/parts", &parts)
+	if len(parts.Parts) != 1 || parts.Parts[0].Key != "meetings" || len(parts.Parts[0].Datasets) != 1 {
+		t.Fatalf("meetings parts: %+v", parts)
+	}
+	ds := parts.Parts[0].Datasets[0]
+	if ds.Key != "meeting_notes" || ds.Collection != b.TypeId+"_meeting_notes" {
+		t.Fatalf("meeting_notes dataset: %+v", ds)
+	}
+
+	// The recorder is an ordinary object carrying the type; the agent
+	// upserts by provider id, so a re-ingest is one record.
+	recorder := mustCreateObject(t, e, sp.Id, `{"types":["`+b.TypeId+`"],"initialProperties":{"any":{"name":"Meet"}}}`)
+	notes := `{"objectId":"` + recorder + `","dataset":"` + ds.Collection + `","records":[{"id":"gmeet:abc","fields":` +
+		`{"title":"Standup","startedAt":1757600000000,"speakers":["Ann","Bo"],"transcript":"# notes"}}]}`
+	for range 2 {
+		if rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert", notes); rec.Code != http.StatusOK {
+			t.Fatalf("upsert meeting: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+	// A meeting is written while it runs and revised after: the content
+	// fields are author-mutable, so the end time and a corrected title
+	// land on the same record.
+	revision := `{"objectId":"` + recorder + `","dataset":"` + ds.Collection +
+		`","records":[{"id":"gmeet:abc","fields":{"title":"Standup (Mon)","endedAt":1757603600000}}]}`
+	if rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert", revision); rec.Code != http.StatusOK ||
+		strings.Contains(rec.Body.String(), "rejections") {
+		t.Fatalf("revise the meeting: %d %s", rec.Code, rec.Body.String())
+	}
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/query",
+		`{"objectId":"`+recorder+`","dataset":"`+ds.Collection+`","sort":["-startedAt"]}`)
+	var q api.QueryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &q); err != nil || len(q.Records) != 1 {
+		t.Fatalf("read the meeting: %d %s (%v)", rec.Code, rec.Body.String(), err)
+	}
+	var note struct {
+		Id      string  `json:"id"`
+		Title   string  `json:"title"`
+		EndedAt float64 `json:"endedAt"`
+	}
+	if err := json.Unmarshal(q.Records[0], &note); err != nil {
+		t.Fatalf("decode the meeting: %v", err)
+	}
+	if note.Id != "gmeet:abc" || note.Title != "Standup (Mon)" || note.EndedAt != 1757603600000 {
+		t.Fatalf("revision did not land: %+v", note)
+	}
+
+	// An object that does not carry the recorder type holds no notes.
+	other := mustCreateObject(t, e, sp.Id, `{}`)
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert",
+		`{"objectId":"`+other+`","dataset":"`+ds.Collection+`","records":[{"id":"gmeet:x","fields":{"title":"No"}}]}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "dataset.not_declared") {
+		t.Fatalf("write without the type: %d %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -197,13 +314,18 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 		t.Fatalf("miniapp values: %+v", b.Miniapp)
 	}
 
-	// The root carries the marker, itself and miniapp, with the bundle id.
+	// The root carries the marker and miniapp, with the bundle id — and
+	// NOT its own type: a self-typed wiki root would be a page in its
+	// own tree, sorted among the pages it is the app for.
 	row := objectRow(t, e, sp.Id, b.TypeId)
 	types := rowTypes(row)
-	for _, want := range []string{"__type__", b.TypeId, "miniapp"} {
+	for _, want := range []string{"__type__", "miniapp"} {
 		if !slices.Contains(types, want) {
 			t.Fatalf("root types %v lack %s", types, want)
 		}
+	}
+	if slices.Contains(types, b.TypeId) {
+		t.Fatalf("wiki root carries its own type: %v", types)
 	}
 	if ma, _ := row["miniapp"].(map[string]any); ma["bundle"] != "system:wiki/v1" {
 		t.Fatalf("miniapp.bundle on the root: %v", row["miniapp"])

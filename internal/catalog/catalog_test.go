@@ -3,6 +3,8 @@ package catalog
 import (
 	"strings"
 	"testing"
+
+	"github.com/anyproto/any/internal/api"
 )
 
 var knownTypes = Options{KnownTypeIds: []string{"page", "miniapp", "bin", "dataview"}}
@@ -21,25 +23,57 @@ func TestCatalog_EmbeddedLoads(t *testing.T) {
 	}
 }
 
-// Navigation-only usecases must not introduce types or move the content
-// owned by the existing client views. Created roots can still be uninstalled.
-func TestCatalog_NavigationOnlyApps(t *testing.T) {
+// Collections is the one navigation-only app: a feature switch with no
+// type of its own. An app that brings a type declares it here — the
+// catalog is where every client resolves it from.
+func TestCatalog_CollectionsIsNavigationOnly(t *testing.T) {
 	cat, problems := Load(Embedded(), knownTypes)
 	if len(problems) > 0 {
 		t.Fatal(problems)
 	}
-	for _, id := range []string{"collections", "journal", "meetings"} {
+	u, ok := cat.Get("collections")
+	if !ok || len(u.Requires) != 0 || len(u.Bundles) != 1 {
+		t.Fatalf("collections usecase: %+v", u)
+	}
+	b := u.Bundles[0]
+	if b.Id != "system:collections/v1" || b.Miniapp == nil || len(b.Miniapp) != 0 ||
+		b.Type != nil || len(b.Parts) != 0 || b.Derived || b.Hidden {
+		t.Fatalf("navigation-only bundle: %+v", b)
+	}
+}
+
+// Every sidebar app whose client mints types has them in the catalog:
+// one bundle, hidden type, the handles clients resolve by.
+func TestCatalog_SidebarAppsDeclareTheirTypes(t *testing.T) {
+	cat, problems := Load(Embedded(), knownTypes)
+	if len(problems) > 0 {
+		t.Fatal(problems)
+	}
+	for id, xKey := range map[string]string{"journal": "journal", "meetings": "anyscribe", "wiki": "wiki"} {
 		t.Run(id, func(t *testing.T) {
 			u, ok := cat.Get(id)
-			if !ok || len(u.Requires) != 0 || len(u.Bundles) != 1 {
-				t.Fatalf("navigation usecase: %+v", u)
+			if !ok || len(u.Bundles) != 1 {
+				t.Fatalf("usecase %s: %+v", id, u)
 			}
 			b := u.Bundles[0]
-			if b.Id != "system:"+id+"/v1" || b.Miniapp == nil || len(b.Miniapp) != 0 ||
-				b.Type != nil || len(b.Parts) != 0 || b.Derived || b.Hidden {
-				t.Fatalf("navigation-only bundle: %+v", b)
+			if b.Id != "system:"+id+"/v1" || b.Type == nil || b.Type.XKey != xKey ||
+				!b.Hidden || b.Type.Weight != 0 || b.Miniapp == nil || b.SelfTyped {
+				t.Fatalf("%s bundle: %+v", id, b)
 			}
 		})
+	}
+	// Journal's entry is a dated page; Meetings' recorder holds the
+	// ingest dataset. Both are what the client used to mint itself.
+	journal, _ := cat.Get("journal")
+	if props := journal.Bundles[0].Type.Properties; len(props) != 1 || props[0].XKey != "date" ||
+		props[0].Kind != api.PropertyKindDatetime {
+		t.Fatalf("journal properties: %+v", journal.Bundles[0].Type.Properties)
+	}
+	meetings, _ := cat.Get("meetings")
+	parts := meetings.Bundles[0].Parts
+	if len(parts) != 1 || len(parts[0].Datasets) != 1 || parts[0].Datasets[0].Key != "meeting_notes" ||
+		parts[0].Datasets[0].IdRule != "user" {
+		t.Fatalf("meetings parts: %+v", parts)
 	}
 }
 
@@ -218,6 +252,13 @@ func TestCatalog_Problems(t *testing.T) {
 				return strings.Replace(s, "        hidden: true\n        parts:\n          - key: settings\n            datasets:\n              - key: settings\n                idRule: user\n                fields: [ { key: pipeline, kind: string, mutableBy: any } ]\n", "        hidden: true\n", 1)
 			},
 			code: CodeBadField, path: "usecases[2].bundles[0].hidden",
+		},
+		{
+			name: "selfTyped without a declaration",
+			mutate: func(s string) string {
+				return strings.Replace(s, "        hidden: true\n        parts:\n          - key: settings\n            datasets:\n              - key: settings\n                idRule: user\n                fields: [ { key: pipeline, kind: string, mutableBy: any } ]\n", "        selfTyped: true\n", 1)
+			},
+			code: CodeBadField, path: "usecases[2].bundles[0].selfTyped",
 		},
 		{
 			name: "weight on a hidden type",

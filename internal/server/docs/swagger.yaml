@@ -497,6 +497,17 @@ components:
             type: string
           type: array
           uniqueItems: false
+        selfTyped:
+          description: |-
+            SelfTyped makes the root CARRY the type it declares, so it holds
+            that type's property values and its datasets — what a root that
+            keeps its own bundle's records needs (an app's layouts). Off, the
+            root is the type definition and nothing else: it matches no query
+            for the type and takes none of its collections, which is what a
+            type OTHER objects carry wants (a wiki, a person). Needs a type
+            declaration; implied for a part declaring a reserved module and
+            on the tech space.
+          type: boolean
         weight:
           type: integer
         xKey:
@@ -609,6 +620,15 @@ components:
             $ref: '#/components/schemas/api.PartDraftRequest'
           type: array
           uniqueItems: false
+        selfTyped:
+          description: |-
+            SelfTyped makes the root carry the type it declares — the shape
+            of a root that hosts its own bundle's records (the contacts
+            layouts). Off, the root is the type definition only: it matches
+            no query for the type and takes none of its collections, which
+            is what a type other objects carry needs (the wiki, a person).
+            Needs a type declaration.
+          type: boolean
         type:
           $ref: '#/components/schemas/api.CatalogType'
       type: object

@@ -1018,7 +1018,7 @@ reclaimed). In a path segment the slash is percent-encoded:
 
 **Ensure** (`POST …/bundles`) is adopt-or-install:
 `{id, name?, rootTypes?, rootProperties?, derived?, parts?, properties?,
-xKey?, layout?, weight?, hidden?}`. With a winner already
+xKey?, layout?, weight?, hidden?, selfTyped?}`. With a winner already
 registered it is a pure read — nothing is written, so a reader or guest
 member can resolve an install they could not create — and the reply is
 `installed: false`. That flag means "this call registered the install":
@@ -1103,10 +1103,10 @@ all — and with no peer connected there is nothing to narrow, so the
 wait collapses to its offline bound and the chat appears in seconds.
 
 **Bundle-declared types.** A bundle may declare a full type on its
-root — `parts`, `properties` or an `xKey` make the root implement
-itself as a type (`any.types = ["__type__", "<rootId>"]`, `typeId =
-rootId`, readable through `GET …/types/:rootId` and its `parts` /
-`properties` / `datasets` routes); `layout`, `weight` and `hidden`
+root — `parts`, `properties` or an `xKey` make the root a type
+definition (`any.types` carries `"__type__"`, `typeId = rootId`,
+readable through `GET …/types/:rootId` and its `parts` / `properties`
+/ `datasets` routes); `layout`, `weight`, `hidden` and `selfTyped`
 describe that type and ride along (alone they are
 `400 request.invalid_field`).
 
@@ -1153,9 +1153,23 @@ describe that type and ride along (alone they are
   offers for attachment elsewhere, which would grant that object the
   bundle's collections — while a root that is a type objects carry (a
   page, a wiki) stays listed.
+- `selfTyped` makes the root CARRY the type it declares (`any.types`
+  gains the root's own id), so the root holds that type's property
+  values and its datasets — what a root keeping its own bundle's
+  records needs (favourites entries, an app's layouts). Off (the
+  default), the root is the definition only: it matches no
+  `{"any.types": "<rootId>"}` query, holds none of the type's values
+  and takes none of its collections — the shape of a type OTHER
+  objects carry (a wiki, a journal, a person). Writing the root's
+  collection without it is `400 dataset.not_declared`. Implied, never
+  declared, for a part naming a reserved module (the root is that
+  type's sole carrier) and for every tech-space bundle. A writer's
+  adopt adds the self type to a root that lacks it; nothing removes
+  it.
 
 An install writes the root as **root + up to 3 changes**: one `objects`
-change carrying the types (`__type__`, the root's own id, `rootTypes`),
+change carrying the types (`__type__`, `rootTypes`, and the root's own
+id when `selfTyped`),
 `any.name`, the type metadata (`type.xkey` / `layout` / `weight` /
 `hidden`) and the seeded `rootProperties` values; then, after the
 registry row, one `datasets` change when the bundle declares parts and
@@ -1176,12 +1190,12 @@ weight or hidden flag once stamped. A malformed declaration (unknown
 module, a field on a module dataset, a duplicate key, a property
 without an xKey) fails before the permanent root is derived. The
 declaration combines with `derived: true` or stands alone (a created
-root the server mints and self-types). `rootTypes` / `rootProperties`
+root the server mints). `rootTypes` / `rootProperties`
 ride every root: a created one with no declaration, a derived one, and
 the created root of a request that declares a type — where they land
-in the root's first change next to its own type, so one object can be
-both a type and a carrier of another (the wiki root: the type its
-pages carry and a `miniapp`).
+in the root's first change next to the type marker, so one object can
+be both a type definition and a carrier of another (the wiki root: the
+type its pages carry, and a `miniapp`).
 
 Input is bounded and pre-flighted: `id` ≤256 B, `xKey` ≤256 B, `name` ≤1024 B,
 `rootTypes` ≤32 entries, `rootProperties` ≤64 KiB, `parts` ≤32
@@ -1324,6 +1338,15 @@ nothing unless a client asks. Full client contract — model, setup
 semantics, handles, rendering, forks, evolution, the shipped entries —
 in `docs/28-well-known-bundles.md`.
 
+**The catalog is the source of truth for a well-known app's types.** A
+bundle declares everything its app needs — the miniapp root and the
+types, properties and datasets its content uses — so every client,
+device and agent that sets the usecase up resolves the same ids. A
+client must not mint its own type for an app that ships with the
+product: minting by xKey converges only by luck and races on
+`409 type.xkey_conflict`. Resolve from the setup reply or the bundle
+registry instead.
+
 Account-scoped, behind the auth guard, outside the space group:
 
 ```
@@ -1335,9 +1358,9 @@ POST /v1/catalog/:usecaseId/setup   → 200 CatalogSetupResponse
 
 `CatalogUsecase` is the entry as the catalog declares it — `{id, name,
 description?, requires?, bundles: [{id, name, description?, derived?,
-hidden?, type?: {xKey, weight?, layout?, properties?}, miniapp?,
-parts?}]}` — property and part entries in the `POST …/types/:typeId/
-properties` / `…/parts` draft shapes. Usecase ids are slugs and need
+hidden?, selfTyped?, type?: {xKey, weight?, layout?, properties?},
+miniapp?, parts?}]}` — property and part entries in the `POST
+…/types/:typeId/properties` / `…/parts` draft shapes. Usecase ids are slugs and need
 no encoding in the path.
 
 **Setup** resolves the usecase's transitive dependency closure

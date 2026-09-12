@@ -83,6 +83,15 @@ Evolution is additive. A catalog release that adds a property or a choice
 option heals it onto an existing install on the next setup; it never
 removes or renames what a space already has.
 
+**Anything your product ships belongs in the catalog, types included.**
+A well-known app declares the miniapp root AND the types, properties and
+datasets its content uses, so the journal on a phone and the journal on
+a desktop are the same type with the same ids, and an ingest agent
+writes where the reader reads. Minting the type client-side instead
+converges only by luck, races on `409 type.xkey_conflict`, and can end
+with one device's entries invisible on the other — and nothing migrates
+it afterwards, because a type cannot be deleted.
+
 Full contract: [`28-well-known-bundles.md`](28-well-known-bundles.md).
 Clients register their own bundles the same way through
 `POST /v1/spaces/:spaceId/bundles` — favourites is the worked example
@@ -136,9 +145,10 @@ name; it must survive renames). A collision with an existing type's
 registered, not created here, and every write on them is
 `400 type.registered`.
 
-Prefer a catalog usecase over minting your own type for anything other
-clients also model — that is what makes two clients converge on one
-`person` instead of two.
+Mint a type here only for what a USER creates in their own space. A type
+your app depends on goes in the catalog instead (§ Usecases and the
+catalog) — that is what makes two clients converge on one `person`
+instead of two.
 
 ## Properties
 
