@@ -159,6 +159,7 @@ Every catalog entry is the same construction you just built by hand, and each sh
 |---------|-------------|
 | `wiki` | an app **and** a type: the sidebar entry, and the hidden type whose `parentId` / `pos` / `folder` place every page in the tree |
 | `collections` | an app only — an empty `miniapp` root whose presence switches the types feature on in the client |
+| `journal`, `meetings` | navigation entries only — `miniapp` roots store the shared sidebar position; each client's existing content stays in place |
 | `general-chat` | the space's one chat: a **derived** root both sides of a partition compute, so it can never fork, carrying the reserved `chat` module |
 | `people`, `contact`, `contacts`, `crm` | a set: `crm` requires `contacts`, which requires `people` and `contact`; setup resolves the closure in order and the reply lists every bundle it touched |
 

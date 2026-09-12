@@ -2912,9 +2912,9 @@ Pin = `POST …/properties/:objectId/attach/miniapp`, unpin =
 `…/detach/miniapp`; values through the generic
 `POST …/properties/:objectId/set/miniapp` (`{"patch": {"pos": "a0"}}`),
 the object must carry the type. Catalog miniapp roots (§ Catalog) —
-the wiki, collections, contacts, crm and the general chat — carry it
-from their first change with `bundle` set to the bundle id plus any
-other `miniapp` value the catalog declares; a value the catalog gains
+the wiki, collections, journal, meetings, contacts, crm and the general
+chat — carry it from their first change with `bundle` set to the bundle
+id plus any other `miniapp` value the catalog declares; a value the catalog gains
 later is healed onto existing roots at their next setup, the type
 attached first when the root predates it. A client never detaches
 `miniapp` from a catalog root: the install would stay and become

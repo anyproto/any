@@ -1824,9 +1824,10 @@ Implementation slices landed:
     `internal/e2e/multipeer_catalog_test.go` (the owner sets `crm` up,
     the joiner's setup adopts every root with the same property ids
     and writes a person the owner reads). Shipped usecases: `wiki`,
-    `collections`, `general-chat`, `people` (person + organization),
+    `collections`, `journal`, `meetings` (navigation roots; no content
+    schema), `general-chat`, `people` (person + organization),
     `contact`, six roles (`investor`, `customer`, `partner`, `vendor`,
-    `cofounder`, `candidate`), `contacts`, `crm` — 13 usecases, 15
+    `cofounder`, `candidate`), `contacts`, `crm` — 15 usecases, 17
     bundles, 12 types. Test seam: `deps.catalog` overrides the compiled
     embedded catalog (`catalogForTest`). CLI: `any catalog
     list/get/setup` (`internal/cli/catalog.go`,

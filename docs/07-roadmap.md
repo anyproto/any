@@ -376,6 +376,7 @@ pluggable embedders, parallel batched pipelines),
   `409 type.xkey_conflict` on the install path when a type in the
   space holds the handle; a writer's adopt heals missing properties by
   handle and missing `miniapp` values. Ships `wiki`, `collections`,
+  `journal` and `meetings` (navigation roots; content stays client-owned),
   `general-chat`, `people`, `contact`, six roles, `contacts`, `crm`.
   `POST …/bundles` gains `xKey`; root types ride created roots that
   declare a type; an install is root + up to 3 changes. Contract:

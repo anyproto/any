@@ -81,7 +81,7 @@ func TestServer_CatalogListAndGet(t *testing.T) {
 	for _, u := range list.Usecases {
 		ids[u.Id] = u
 	}
-	for _, want := range []string{"wiki", "collections", "general-chat", "people", "contact", "contacts", "crm"} {
+	for _, want := range []string{"wiki", "collections", "journal", "meetings", "general-chat", "people", "contact", "contacts", "crm"} {
 		if _, ok := ids[want]; !ok {
 			t.Fatalf("usecase %s missing from the list", want)
 		}
@@ -108,6 +108,66 @@ func TestServer_CatalogListAndGet(t *testing.T) {
 	rec := doJSON(t, e, http.MethodGet, "/v1/catalog/nope", "")
 	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), api.ErrCatalogNotFound) {
 		t.Fatalf("unknown usecase: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Journal and Meetings have real sidebar records without declaring or
+// migrating their content. Re-running setup preserves shared user state.
+func TestServer_CatalogSetupNavigationApps(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	sp := createSpaceInfo(t, e, "CatalogNavigation")
+
+	for _, id := range []string{"journal", "meetings"} {
+		t.Run(id, func(t *testing.T) {
+			res := setupUsecase(t, e, id, sp.Id)
+			if res.Usecase != id || len(res.Bundles) != 1 {
+				t.Fatalf("setup reply: %+v", res)
+			}
+			b := res.Bundles[0]
+			bundleId := "system:" + id + "/v1"
+			if !b.Installed || b.Id != bundleId || b.TypeId != "" || b.Properties != nil ||
+				b.Bundle.Derived || b.Miniapp["bundle"] != bundleId {
+				t.Fatalf("navigation bundle: %+v", b)
+			}
+			row := objectRow(t, e, sp.Id, b.Bundle.RootId)
+			if got := rowTypes(row); !slices.Equal(got, []string{"miniapp"}) {
+				t.Fatalf("navigation root types = %v", got)
+			}
+			ma, _ := row["miniapp"].(map[string]any)
+			if ma["bundle"] != bundleId || ma["pos"] != nil || ma["hidden"] != nil {
+				t.Fatalf("initial navigation state: %v", ma)
+			}
+
+			// Ordinary property writes carry both ordering and hiding; setup
+			// must neither reset the values nor mint another sidebar entry.
+			rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/properties/"+b.Bundle.RootId+"/set/miniapp",
+				`{"patch":{"pos":"a1","hidden":true}}`)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("set sidebar state: %d %s", rec.Code, rec.Body.String())
+			}
+			for range 2 {
+				again := setupUsecase(t, e, id, sp.Id)
+				if len(again.Bundles) != 1 || again.Bundles[0].Installed || again.Bundles[0].Bundle.RootId != b.Bundle.RootId {
+					t.Fatalf("repeated setup did not adopt: %+v", again)
+				}
+			}
+			row = objectRow(t, e, sp.Id, b.Bundle.RootId)
+			ma, _ = row["miniapp"].(map[string]any)
+			if ma["pos"] != "a1" || ma["hidden"] != true || ma["bundle"] != bundleId {
+				t.Fatalf("setup changed shared sidebar state: %v", ma)
+			}
+			rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/query",
+				`{"filter":{"miniapp.bundle":"`+bundleId+`"}}`)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("query roots: %d %s", rec.Code, rec.Body.String())
+			}
+			var q api.QueryResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &q); err != nil || len(q.Records) != 1 {
+				t.Fatalf("expected one navigation root: %s (%v)", rec.Body.String(), err)
+			}
+		})
 	}
 }
 

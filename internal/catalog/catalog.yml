@@ -38,6 +38,25 @@ usecases:
         name: Collections
         miniapp: {}
 
+  # ── Navigation entries for the clients' existing Journal and Meetings
+  #    views. Shared sidebar state lives on these roots; content keeps its
+  #    existing schema and location, so no type or records part is declared.
+  - id: journal
+    name: Journal
+    description: Open the journal with a shared sidebar entry
+    bundles:
+      - id: system:journal/v1
+        name: Journal
+        miniapp: {}
+
+  - id: meetings
+    name: Meetings
+    description: Open meetings with a shared sidebar entry
+    bundles:
+      - id: system:meetings/v1
+        name: Meetings
+        miniapp: {}
+
   # ── The space's chat. The one derived root: chat content cannot be merged
   #    across objects, and a 1-1 space has no owner to break a tie.
   - id: general-chat

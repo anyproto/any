@@ -14,10 +14,32 @@ func TestCatalog_EmbeddedLoads(t *testing.T) {
 	if len(problems) > 0 {
 		t.Fatalf("embedded catalog: %v", problems)
 	}
-	for _, id := range []string{"wiki", "collections", "general-chat", "people", "contact", "contacts", "crm"} {
+	for _, id := range []string{"wiki", "collections", "journal", "meetings", "general-chat", "people", "contact", "contacts", "crm"} {
 		if _, ok := cat.Get(id); !ok {
 			t.Errorf("usecase %s missing", id)
 		}
+	}
+}
+
+// Navigation-only usecases must not introduce types or move the content
+// owned by the existing client views. Created roots can still be uninstalled.
+func TestCatalog_NavigationOnlyApps(t *testing.T) {
+	cat, problems := Load(Embedded(), knownTypes)
+	if len(problems) > 0 {
+		t.Fatal(problems)
+	}
+	for _, id := range []string{"collections", "journal", "meetings"} {
+		t.Run(id, func(t *testing.T) {
+			u, ok := cat.Get(id)
+			if !ok || len(u.Requires) != 0 || len(u.Bundles) != 1 {
+				t.Fatalf("navigation usecase: %+v", u)
+			}
+			b := u.Bundles[0]
+			if b.Id != "system:"+id+"/v1" || b.Miniapp == nil || len(b.Miniapp) != 0 ||
+				b.Type != nil || len(b.Parts) != 0 || b.Derived || b.Hidden {
+				t.Fatalf("navigation-only bundle: %+v", b)
+			}
+		})
 	}
 }
 

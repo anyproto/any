@@ -302,6 +302,8 @@ leaves their values orphaned (readable, no schema).
 |---|---|---|---|
 | `wiki` | — | `system:wiki/v1` | type `wiki` (hidden; `parentId`, `pos` — both kept out of the search index — and `folder`, a checkbox) + miniapp |
 | `collections` | — | `system:collections/v1` | miniapp only — a feature switch: installing it turns the types feature on in clients |
+| `journal` | — | `system:journal/v1` | miniapp only — navigation and shared sidebar state for the client's existing Journal view |
+| `meetings` | — | `system:meetings/v1` | miniapp only — navigation and shared sidebar state for the client's existing Meetings view |
 | `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one shared `chat` part — the reserved module's only declaration, the root its only carrier — + miniapp, so the chat is a sidebar entry |
 | `people` | — | `system:person/v1` | type `person` (weight 10, layout `profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags) + shared editor `body` part |
 | | | `system:organization/v1` | type `organization` (weight 10, layout `profile`; kind, domain, categories, location, size, linkedin, main_contact → `person`) + shared editor `body` part |
@@ -316,7 +318,7 @@ leaves their values orphaned (readable, no schema).
 | `crm` | `contacts` | `system:deal/v1` | type `deal` (weight 10, layout `profile`; stage, owner → `person`, organization → `organization`, amount, close_date) + shared editor `body` part |
 | | | `system:crm/v1` | miniapp only |
 
-Thirteen usecases, fifteen bundles, twelve types. The two identities
+Fifteen usecases, seventeen bundles, twelve types. The two identities
 are one usecase because `person.organization` and
 `organization.main_contact` reference each other and the `requires`
 graph must stay acyclic; the roles are one usecase each so a role
@@ -327,6 +329,18 @@ properties are `kind: array` even when single-valued; an amount is
 `GET /v1/catalog` returns it with one normalization — a `miniapp` map
 always carries `bundle` = the bundle id, filled in where the yaml
 omits it.
+
+Journal and Meetings install only navigation roots, like Collections:
+no type, properties or records part is declared and existing content
+stays where the client already stores it. The root initially carries
+only `miniapp.bundle`; the client writes the shared order through
+`POST /v1/spaces/:spaceId/properties/:rootId/set/miniapp` with
+`{"patch":{"pos":"a0"}}`. Setup never seeds or resets `miniapp.pos`
+or `miniapp.hidden`, including when a writer adopts an existing root.
+These are created roots, so the ordinary setup permission, convergence
+and fork rules apply. Clients render the bundle registry's winner if
+two offline installs later converge; choosing derived roots just to
+avoid that case would permanently prevent uninstalling these apps.
 
 ## Validation
 
