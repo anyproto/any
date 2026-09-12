@@ -49,7 +49,7 @@ func TestCatalog_SidebarAppsDeclareTheirTypes(t *testing.T) {
 	if len(problems) > 0 {
 		t.Fatal(problems)
 	}
-	for id, xKey := range map[string]string{"journal": "journal", "meetings": "anyscribe", "wiki": "wiki"} {
+	for id, xKey := range map[string]string{"journal": "journal", "meetings": "meeting_recorder", "wiki": "wiki"} {
 		t.Run(id, func(t *testing.T) {
 			u, ok := cat.Get(id)
 			if !ok || len(u.Bundles) != 1 {

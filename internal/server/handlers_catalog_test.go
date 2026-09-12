@@ -229,7 +229,7 @@ func TestServer_CatalogSetupMeetings(t *testing.T) {
 	}
 	var info api.TypeInfo
 	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+b.TypeId, &info)
-	if info.XKey != "anyscribe" || !info.Hidden {
+	if info.XKey != "meeting_recorder" || !info.Hidden {
 		t.Fatalf("recorder type info: %+v", info)
 	}
 	var parts api.TypePartsListResponse

@@ -347,7 +347,7 @@ leaves their values orphaned (readable, no schema).
 | `wiki` | — | `system:wiki/v1` | type `wiki` (hidden; `parentId`, `pos` — both kept out of the search index — and `folder`, a checkbox) + miniapp |
 | `collections` | — | `system:collections/v1` | miniapp only — a feature switch: installing it turns the types feature on in clients |
 | `journal` | — | `system:journal/v1` | type `journal` (hidden; one `date`, a `date`-slug datetime) + shared editor `body` part + miniapp — one dated page per day |
-| `meetings` | — | `system:meetings/v1` | type `anyscribe` (hidden) + records part `meetings` (dataset `meeting_notes`, `idRule: user`, author-mutable and author-deletable, `skipHistory`, dynamic, search `title`/`transcript` under scope `meetings`) + miniapp — the recorder type an ingest agent attaches to its recorder objects |
+| `meetings` | — | `system:meetings/v1` | type `meeting_recorder` (hidden) + records part `meetings` (dataset `meeting_notes`, `idRule: user`, author-mutable and author-deletable, `skipHistory`, dynamic, search `title`/`transcript` under scope `meetings`) + miniapp — the recorder type an ingest agent attaches to its recorder objects |
 | `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one shared `chat` part — the reserved module's only declaration, the root its only carrier — + miniapp, so the chat is a sidebar entry |
 | `people` | — | `system:person/v1` | type `person` (weight 10, layout `profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags) + shared editor `body` part |
 | | | `system:organization/v1` | type `organization` (weight 10, layout `profile`; kind, domain, categories, location, size, linkedin, main_contact → `person`) + shared editor `body` part |
@@ -396,8 +396,8 @@ client that also attaches `page` gets the same body). The type is
 hidden and weightless: the app creates entries, nothing picks the type
 from a picker.
 
-**Meetings** is agent-ingested data: the root is the `anyscribe`
-recorder type, and each recorder object the ingest agent creates
+**Meetings** is agent-ingested data: the root is the `meeting_recorder`
+type, and each recorder object the ingest agent creates
 carries it and holds that recorder's `meeting_notes` records in
 `<typeId>_meeting_notes`. `idRule: user` makes the record id the
 provider's meeting id, so re-ingest is an upsert; every content field

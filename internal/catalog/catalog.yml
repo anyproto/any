@@ -71,7 +71,7 @@ usecases:
         hidden: true
         miniapp: {}
         type:
-          xKey: anyscribe
+          xKey: meeting_recorder
         parts:
           - key: meetings
             ui: { type: list }

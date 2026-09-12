@@ -1830,7 +1830,7 @@ Implementation slices landed:
     content uses, so no client mints one by xKey. Shipped usecases:
     `wiki`, `collections`, `journal` (hidden type `journal`, one
     `date`, shared editor `body`), `meetings` (hidden recorder type
-    `anyscribe` + the `meeting_notes` ingest dataset — `idRule: user`,
+    `meeting_recorder` + the `meeting_notes` ingest dataset — `idRule: user`,
     author-only, dynamic, search `title`/`transcript` under scope
     `meetings`), `general-chat`, `people` (person + organization),
     `contact`, six roles (`investor`, `customer`, `partner`, `vendor`,
