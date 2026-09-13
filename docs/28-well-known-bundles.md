@@ -349,6 +349,10 @@ leaves their values orphaned (readable, no schema).
 | `journal` | — | `system:journal/v1` | type `journal` (hidden; one `date`, a `date`-slug datetime) + shared editor `body` part + miniapp — one dated page per day |
 | `meetings` | — | `system:meeting/v1` | type `meeting` (weight 20, layout `page`; date, duration, participants, labels, words, source) with three surfaces — `notes` (the shared editor body), `summary` (a second, namespaced editor) and `transcript` (records, `idRule: user`, author-mutable and author-deletable, `skipHistory`, dynamic, search `text` under scope `meetings`) |
 | | | `system:meetings/v1` | miniapp only — the sidebar entry that opens the meetings list |
+| `tasks` | — | `system:task/v1` | type `task` (`notes`, `parent` → `project` / `area`, `planning` — a `choice` of inbox / anytime / someday, `planned` and `deadline` — `date` days, `completed`, `completedAt`, `position` — a rank kept out of the index) |
+| | | `system:project/v1` | type `project` (`notes`, `parent` → `area`, `completed`, `completedAt`, `position`) |
+| | | `system:area/v1` | marker type `area` — an area is a name and an icon; all three are listed, weightless types the planner creates and a table may show |
+| | | `system:tasks/v1` | miniapp only — the sidebar entry that opens the planner |
 | `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one shared `chat` part — the reserved module's only declaration, the root its only carrier — + miniapp, so the chat is a sidebar entry |
 | `people` | — | `system:person/v1` | type `person` (weight 10, layout `profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags) + shared editor `body` part |
 | | | `system:organization/v1` | type `organization` (weight 10, layout `profile`; kind, domain, categories, location, size, linkedin, main_contact → `person`) + shared editor `body` part |
@@ -363,7 +367,7 @@ leaves their values orphaned (readable, no schema).
 | `crm` | `contacts` | `system:deal/v1` | type `deal` (weight 10, layout `profile`; stage, owner → `person`, organization → `organization`, amount, close_date) + shared editor `body` part |
 | | | `system:crm/v1` | miniapp only |
 
-Fifteen usecases, eighteen bundles, fourteen types. The two identities
+Sixteen usecases, twenty-two bundles, seventeen types. The two identities
 are one usecase because `person.organization` and
 `organization.main_contact` reference each other and the `requires`
 graph must stay acyclic; the roles are one usecase each so a role

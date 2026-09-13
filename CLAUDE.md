@@ -1837,8 +1837,10 @@ Implementation slices landed:
     plus the `system:meetings/v1` sidebar root),
     `general-chat`, `people` (person + organization),
     `contact`, six roles (`investor`, `customer`, `partner`, `vendor`,
-    `cofounder`, `candidate`), `contacts`, `crm` — 15 usecases, 18
-    bundles, 14 types. Bundle roots are type DEFINITIONS unless the
+    `cofounder`, `candidate`), `contacts`, `crm`, `tasks` (listed,
+    weightless `task` / `project` / `area` types for the Things-style planner plus
+    the `system:tasks/v1` sidebar root) — 16 usecases, 22 bundles, 17
+    types. Bundle roots are type DEFINITIONS unless the
     yaml says `selfTyped: true` (SDK v0.3.3 made self-typing opt-in):
     `contacts` needs it — its `layouts` records live on the root —
     while wiki / journal / meetings must not have it, or the app root
