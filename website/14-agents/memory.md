@@ -9,9 +9,9 @@ The agent's memory is two channels with different jobs. **History** (turns and c
 
 ## Memory items
 
-A memory item is a record in the `agent_memory_items` dataset on the space's brain object. Required at save time: `category` (an open slug set — preference, decision, lesson, fact, …) and `context` (a one-line fact). Optional: `body`, `confidence` (1–10; user-stated facts outrank inferred ones), `importance`, `tags`, `entities`, `keywords`, `edges` (typed links to other objects), `validFrom`.
+A memory item is a record in the `agent_memory_items` dataset on the brain object of the bao space — memory has one home, and a fact about another space names that space in its `context` or `tags`. Required at save time: `category` (an open slug set — preference, decision, lesson, fact, …) and `context` (a one-line fact). Optional: `body`, `confidence` (user-stated facts outrank inferred ones), `importance`, `tags`, `entities`, `keywords`, `edges` (typed links to other objects), `validFrom`.
 
-Save policy, taught by the `_memory` skill and enforced by the write path:
+Save policy, taught by the `_memory` skill (the write path enforces the required fields and value ranges):
 
 | Save | Skip |
 |---|---|
@@ -25,27 +25,27 @@ Budget is ~1–2 saves per turn. Episodes and session summaries never become mem
 ```python
 c = use("agent:any@v1")
 r = use("agent:recall@v1").recall(c, space)
-m = use("agent:memory@v1").memory(c, space)
+m = use("agent:memory@v1").memory(c)       # no space: the brain is the bao space's
 m.save_with_dedup({"category": "decision",
                    "context": "picked sqlite for the importer: simpler ops",
                    "confidence": 8}, recall=r)
-# → {id, ...}  or  {deduplicated: true, mergedInto: "<id>"}
+# → {itemId, action}  or  {deduplicated: true, mergedInto: "<id>", action: "merge"}
 ```
 
 ### Dedup on save
 
-Every save first runs recall over scope `agent`, then a cheap classify-tier judge decides *same fact?* → **merge** (evolve the existing item), **supersede** (new item plus a `supersedes` edge) or **create**. A `{deduplicated: true}` reply is a success. Merges are humble: a machine-sourced candidate never overwrites user-stated text, never lowers confidence, and unions tags and edges. There is no similarity threshold — the judge decides.
+Every save first runs recall over scope `agent`, then a cheap classify-tier judge decides *same fact?* → **merge** (evolve the existing item), **supersede** (new item plus a `supersedes` edge) or **create**. A `{deduplicated: true}` reply is a success. Merges are humble: a machine-sourced candidate never overwrites stored text, never lowers confidence, and unions tags and edges. There is no similarity threshold — the judge decides.
 
 ## Recall: one surface, three axes
 
-`recall@v1` is read-only and binds to one space:
+`recall@v1` is read-only and binds to one space; its memory source is always the bao space's brain:
 
 - **Semantic** — `r.search(q, scopes=["agent", "history", "basic", "email"])` over the [search index](../search/index.html); `r.hydrate(hits)` turns hits into full records in one read.
-- **Temporal** — `r.by_period(from, to)` merges memory items (`validFrom`), turns (`createdAt`) and chunks (`periodStart`).
-- **Graph** — `r.neighbors(id)` walks forward link properties plus server backlinks, names resolved.
+- **Temporal** — `r.by_period(from, to)` merges memory items (`validFrom`), turns (`createdAt`) and chunks overlapping the range.
+- **Graph** — `r.neighbors(id)` walks forward relation properties plus the server's backlinks, types and properties named by xKey.
 - **Drill-down** — a chunk expands to its children (chunks or raw turns); a turn's `traceRef` opens the run.
 
-Every recall bumps the item's `accessCount`, so the store measures its own usefulness.
+Every memory item auto-recall injects gets its `accessCount` bumped, and so does an item a deliberate dig actually uses (`m.bump_access`), so the store measures its own usefulness.
 
 ## Auto-recall
 
@@ -55,7 +55,7 @@ The injection is framed as a synthetic `run_cell` call whose code is the literal
 
 ## History: turns and the chunk pyramid
 
-Turns are append-only records on the chat's log child. `rollup@v1` (a cron trigger) summarises complete batches of ten turns into level-1 chunks, ten level-1 chunks into a level-2 chunk, and so on — level-2+ summaries are built from child summaries only.
+Turns are append-only records on the chat's log child. `rollup@v1` (an hourly cron) summarises complete batches of ten turns into level-1 chunks and ten level-1 chunks into a level-2 chunk — level-2 summaries are built from child summaries only.
 
 ```jsonc
 {"seq": 12, "level": 1, "fromSeq": 40, "toSeq": 49,
@@ -66,16 +66,16 @@ Same-level chunks are contiguous and non-overlapping, and every summary keeps ex
 
 ## Background jobs
 
-All maintenance runs as [triggers](../scheduling/index.html) with per-run observability; when the bird's-eye view is stale, a run log says why.
+All maintenance runs as standing [triggers](../scheduling/index.html) on the election-active device, each fire a traced run with an `agent_runs` summary; when the bird's-eye view is stale, a run says why.
 
 | Program | Schedule | State |
 |---|---|---|
-| `extraction@v1` | cron over newly persisted turns | on — proposes only stable-fact shapes, through the dedup judge, provenance `fromSeq`, confidence capped at 6 |
-| `rollup@v1` | cron | on — the chunk pyramid |
+| `extraction@v1` | every 15 minutes, over newly persisted turns | on — proposes only stable-fact shapes, through the dedup judge, provenance `fromSeq`, confidence capped at 6 |
+| `rollup@v1` | hourly | on — the chunk pyramid |
 | `linkgen@v1` | hourly | on — seed-search neighbours, classify-tier proposes typed links from the curated vocabulary (`relates_to`, `caused_by`, `supersedes`, `decided_in`, `part_of`, `owned_by`, `discussed_in`); never invents edge types |
-| `evolution@v1` | cron | ships disabled — refreshes `context`/`tags` from linked neighbours |
-| `reflection@v1` | cron | ships disabled — synthesises never-recalled clusters into insights, flags contradictions |
-| `decay@v1` | cron | ships disabled — salience halves per idle half-life, never deletes |
+| `evolution@v1` | every 6 hours | ships disabled — refreshes `context`/`tags` from linked neighbours |
+| `reflection@v1` | daily | ships disabled — synthesises never-recalled clusters into insights, flags contradictions |
+| `decay@v1` | daily | ships disabled — salience halves per idle half-life, never deletes |
 
 Disabled jobs ship their mechanism and activate one at a time behind an eval; scoring fields are recorded before they are consumed.
 

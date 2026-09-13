@@ -31,18 +31,13 @@ const space = await call("POST", "/spaces", { name: "Notebook" });
 const SPACE = space.id;                              // "bafyreig…"
 ```
 
-## 2. Create a page type, then an object
+## 2. Create an object
 
 A document is an object carrying a type whose part declares the `editor` module — the built-in `page` for a plain body, or a document type of your own (registered as a bundle so every device agrees on one).
 
 ```js
-const { typeId: PAGE } = await call("POST", `/spaces/${SPACE}/types`,
-  { name: "Page", xKey: "page", weight: 10, layout: { type: "page" } });
-await call("POST", `/spaces/${SPACE}/types/${PAGE}/parts`,
-  { key: "body", datasets: [{ module: "editor", shared: true }] });
-
 const { objectId } = await call("POST", `/spaces/${SPACE}/objects`, {
-  types: [PAGE],
+  types: ["page"],
   initialProperties: { any: { name: "Reading list" } },
 });
 ```
@@ -51,7 +46,7 @@ const { objectId } = await call("POST", `/spaces/${SPACE}/objects`, {
 
 ```js
 const page = await call("POST", `/spaces/${SPACE}/objects/query`, {
-  filter: { "any.types": PAGE },
+  filter: { "any.types": "page" },
   sort: ["-modifiedAt"],
   limit: 20,
   includeTotal: true,
@@ -93,17 +88,17 @@ async function* sse(path, body, signal) {
 }
 
 const ctl = new AbortController();
-const window = new Map();                            // id → record: hold a window, not a database
+const view = new Map();                              // id → record: hold a window, not a database
 
 for await (const { event, data } of sse(`/spaces/${SPACE}/objects/query/subscribe`,
-    { filter: { "any.types": PAGE }, sort: ["-modifiedAt"], limit: 20 }, ctl.signal)) {
+    { filter: { "any.types": "page" }, sort: ["-modifiedAt"], limit: 20 }, ctl.signal)) {
   if (event === "ready") continue;                   // stream is live after this
-  if (event === "snapshot") { for (const r of data.records) window.set(r.id, r); render(); }
+  if (event === "snapshot") { for (const r of data.records) view.set(r.id, r); render(); }
   if (event === "changes") {
-    for (const ch of data) {
-      for (const r of ch.added)   window.set(r.id, r.doc);
-      for (const r of ch.updated) window.set(r.id, r.doc);
-      for (const r of ch.removed) window.delete(r.id);
+    for (const ch of data) {                         // a batch omits the lists it has nothing for
+      for (const r of ch.added ?? [])   view.set(r.id, r.doc);
+      for (const r of ch.updated ?? []) view.set(r.id, r.doc);
+      for (const r of ch.removed ?? []) view.delete(r.id);
     }
     render();
   }
@@ -114,18 +109,22 @@ for await (const { event, data } of sse(`/spaces/${SPACE}/objects/query/subscrib
 Rename the object from another tab or with `curl` and watch an `updated` entry arrive:
 
 ```js
-await call("POST", `/spaces/${SPACE}/properties/${objectId}/set/any`, { name: "Reading list 2026" });
+await call("POST", `/spaces/${SPACE}/properties/${objectId}/set/any`, { patch: { name: "Reading list 2026" } });
 ```
 
 ## Recovery
 
-`closed` carries a reason — `server_shutdown`, `sdk_closed`, `overflow` (you drained too slowly), `drifted` (too much of the window left). All four mean the same thing: open a new POST and replace your window with the new `snapshot`. There is no replay and nothing to reconcile ([Subscriptions](../realtime/subscribe.html)).
+`closed` carries a reason — `server_shutdown`, `sdk_closed`, `overflow` (you drained too slowly), `drifted` (too much of the window left), `deauthorized` (the account was signed out or switched; read `GET /v1/auth` first). Each means the same thing for the stream: open a new POST and replace your window with the new `snapshot`. There is no replay and nothing to reconcile ([Subscriptions](../realtime/subscribe.html)).
 
 ## Writing and reading back
 
 Writes return `{versionId, changeId, recordIds}` and never the record. Read it back through a query, or let the open subscription deliver it — stamp `versionId` on what you wrote if you need to recognise your own change on the stream ([Best practices](../understanding/best-practices.html)).
 
 ```js
+// the space's one chat: the general-chat usecase's root
+const setup = await call("POST", "/catalog/general-chat/setup", { spaceId: SPACE });
+const chatId = setup.bundles[0].bundle.rootId;
+
 const r = await call("POST", `/spaces/${SPACE}/objects/${chatId}/chat/messages`, { text: "hello" });
 r.recordIds[0];                                     // the new message id
 ```

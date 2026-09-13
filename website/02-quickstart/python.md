@@ -31,18 +31,13 @@ space = call("POST", "/spaces", {"name": "Notebook"})
 SPACE = space["id"]                                # "bafyreig…"
 ```
 
-## 2. Create a page type, then an object
+## 2. Create an object
 
 A document is an object carrying a type whose part declares the `editor` module — the built-in `page` for a plain body, or a document type of your own (registered as a bundle so every device agrees on one).
 
 ```python
-PAGE = call("POST", f"/spaces/{SPACE}/types",
-            {"name": "Page", "xKey": "page", "weight": 10, "layout": {"type": "page"}})["typeId"]
-call("POST", f"/spaces/{SPACE}/types/{PAGE}/parts",
-     {"key": "body", "datasets": [{"module": "editor", "shared": True}]})
-
 obj = call("POST", f"/spaces/{SPACE}/objects", {
-    "types": [PAGE],
+    "types": ["page"],
     "initialProperties": {"any": {"name": "Reading list"}},
 })
 OBJ = obj["objectId"]
@@ -52,7 +47,7 @@ OBJ = obj["objectId"]
 
 ```python
 page = call("POST", f"/spaces/{SPACE}/objects/query", {
-    "filter": {"any.types": PAGE},
+    "filter": {"any.types": "page"},
     "sort": ["-modifiedAt"],
     "limit": 20,
     "includeTotal": True,
@@ -93,16 +88,16 @@ def sse(path, body):
 window = {}                                           # id → record
 
 for event, data in sse(f"/spaces/{SPACE}/objects/query/subscribe",
-                       {"filter": {"any.types": PAGE}, "sort": ["-modifiedAt"], "limit": 20}):
+                       {"filter": {"any.types": "page"}, "sort": ["-modifiedAt"], "limit": 20}):
     if event == "ready":
         continue
     if event == "snapshot":
         window = {r["id"]: r for r in data["records"]}
     elif event == "changes":
-        for ch in data:
-            for r in ch["added"] + ch["updated"]:
+        for ch in data:                               # a batch omits the lists it has nothing for
+            for r in ch.get("added", []) + ch.get("updated", []):
                 window[r["id"]] = r["doc"]
-            for r in ch["removed"]:
+            for r in ch.get("removed", []):
                 window.pop(r["id"], None)
     elif event == "closed":
         print("closed:", data["reason"])              # reopen for a fresh snapshot
@@ -114,14 +109,17 @@ Rename the object from another shell and the loop prints the new name:
 
 ```bash
 curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/any \
-  -H 'content-type: application/json' -d '{"name":"Reading list 2026"}'
+  -H 'content-type: application/json' -d '{"patch":{"name":"Reading list 2026"}}'
 ```
 
 ## Per-object datasets
 
-The same body shape reads any dataset of one object — chat messages, editor blocks, a runtime dataset you declared — via the sibling per-object path:
+The same body shape reads any dataset of one object — chat messages, editor blocks, a runtime dataset you declared — via the sibling per-object path. The space's one chat is the root of the `general-chat` usecase:
 
 ```python
+setup = call("POST", "/catalog/general-chat/setup", {"spaceId": SPACE})
+CHAT = setup["bundles"][0]["bundle"]["rootId"]
+
 msgs = call("POST", f"/spaces/{SPACE}/query", {
     "objectId": CHAT, "dataset": "chat_messages",
     "sort": ["-_ver.id"], "limit": 50,

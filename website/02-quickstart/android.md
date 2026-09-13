@@ -32,6 +32,7 @@ The binding is deliberately flat — top-level functions, strings and errors onl
 |----------|---------|
 | `Mobile.start(dataDir, listenAddr, nodeconfYAML)` | Boot the server. Returns once the listener is bound; throws on wallet / SDK / listener failure with the underlying message. A second call while running throws. |
 | `Mobile.startWithPush(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs)` | Same, plus the push-notification node (`pushAddrs` comma-separated). Empty strings = no push. |
+| `Mobile.startWithMode(…, mode, controlToken)` | `startWithPush` plus the ownership mode. `"managed"` makes the app the owner: the account arrives over `POST /v1/auth` on every launch, keys never touch disk, and sign-out / switch / shutdown need `controlToken` (`X-Any-Control-Token`). `""` or `"standalone"` is the `start` behavior; `"managed"` without a token throws. |
 | `Mobile.address()` | The actually bound `host:port`. Differs from `listenAddr` when you passed `:0`. Empty when not running. |
 | `Mobile.stop()` | Graceful shutdown; waits for the server to exit. Safe when not running. |
 | `Mobile.stopNow()` | Hard stop, returns promptly — for a deadline-bounded teardown. |
@@ -72,14 +73,14 @@ POST http://$addr/v1/auth      {}
 POST http://$addr/v1/auth      { "mnemonic": "w1 … w12" }
 ```
 
-Until then every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json`, `/v1/auth` answers `401 auth.required`. On later launches the wallet in `filesDir` is found and the engine boots on `start` ([Accounts](../auth/accounts.html)).
+Until then every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json`, `/v1/auth` answers `401 auth.required`. On later launches a standalone server finds the wallet in `filesDir` and boots the engine on `start`; a managed one waits for `POST /v1/auth` again ([Accounts](../auth/accounts.html)).
 
 ## Then it is just HTTP
 
 ```kotlin
 val client = OkHttpClient()
-// pageType: a type whose part declares the editor module (Types → Page)
-val body = """{"types":["$pageType"],"initialProperties":{"any":{"name":"From Android"}}}"""
+// "page": the built-in document type
+val body = """{"types":["page"],"initialProperties":{"any":{"name":"From Android"}}}"""
 val req = Request.Builder()
     .url("${AnyClient.baseUrl}/spaces/$space/objects")
     .post(body.toRequestBody("application/json".toMediaType()))

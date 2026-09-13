@@ -9,42 +9,41 @@ anybao is the agent, **anyrt** is its runtime. Programs are Python modules store
 
 ## Programs live in spaces
 
-A program is a `name@vN` module deployed to a space with `anyrt deploy`. The runtime loads code from spaces, never from the filesystem: the shipped agent comes from a read-only *overlay* space, your own working space can shadow any module by name, and a running `anyrt serve` picks up a redeploy on its next conversation without a restart.
+A program is a `name@vN` module deployed to a space with `anyrt deploy`. `anyrt serve` loads code only from spaces: the shipped agent comes from a read-only *overlay* space reached through its alias (`agent:name@vN`), your working space holds your own programs and skills (a skill there overrides a shipped one by name), and a running serve picks up a redeploy on its next conversation without a restart.
 
 ```python
 # programs/hello@v1.py  — a guest program
 def main(args):
-    c = use("any@v1")                       # the any HTTP client, itself a guest module
+    c = use("agent:any@v1")                 # the any HTTP client, itself a guest module
     return c.chat_send(args["space"], args["chatId"],
                        {"text": f"hello from a program, {args.get('name','world')}",
                         "agent": {"name": "bao", "done": True}})
 ```
 
 ```bash
-anyrt run hello@v1 --args '{"space":"bao","chatId":"…","name":"you"}'   # offline dev
-anyrt deploy --source ./repo --target bao                              # publish
+anyrt deploy --source ./repo --target bao                                          # publish
+anyrt run hello@v1 --from-space bao --args '{"space":"bao","chatId":"…","name":"you"}'   # run the deployed copy
 ```
 
-`use("name@vN")` is the import. Resolution is itself recorded, so the trace of a run names the exact versions that ran ([Modules and overlays](../programs/modules-and-overlays.html)).
+`use("name@vN")` is the import: unqualified it resolves in the current space, `alias:name@vN` in the overlay behind the alias. Resolution is itself recorded, so the trace of a run names the exact versions that ran ([Modules and overlays](../programs/modules-and-overlays.html)).
 
 ## The effect boundary
 
-The cell namespace is deny-by-default: curated pure builtins, an allowlist of pure stdlib (`json`, `re`, `math`, `datetime` arithmetic, …), and **shims** for everything that carries ambient authority. `now()`, `rand()`, `env(...)`, `http.get(...)`, `datetime.now()`, `time.sleep()` are effects; `open`, `socket`, `eval`, raw `__import__` do not exist. Every effect call flows through one pipeline on the host:
+The cell namespace is deny-by-default: curated pure builtins, an allowlist of pure stdlib (`json`, `re`, `math`, `datetime` arithmetic, …), and **shims** for everything that carries ambient authority. `now()`, `uuid4()`, `env(...)`, `http.get(...)`, `datetime.now()`, `time.sleep()` are effects (`rand()` draws from a per-run seeded stream); `open`, `socket`, `eval`, raw `__import__` do not exist. Every effect call flows through one pipeline on the host:
 
 ```
 normalize → key → capability check → replay/mock consult → execute → record → return
 ```
 
-- Effects declare `kind="read"` or `"mutate"` — never guessed from a name.
-- Inputs and outputs are JSON; sensitive paths (`headers.authorization`) are redacted *before* the record is written, so a secret structurally cannot enter a trace.
-- Secrets are resolved host-side by reference (`llm.key.anthropic`) and injected after the payload is recorded; key bytes never enter guest memory.
+- Every effect record is classed as a read or a mutation by the host — per syscall, and for HTTP by method and URL — never guessed from a name.
+- Inputs and outputs are JSON. Credentials are named by reference in the payload (`llm.key.anthropic`) and injected host-side after the payload is recorded, so a key never enters a trace or guest memory.
 - Denials, errors, and mocks are recorded too. If it is not in the trace, it did not happen.
 
-`print()` is the model-facing output channel — traced as a structured value, the primary input to the run digest ([Effects](../programs/effects.html), [Effects catalog](../reference/effects-catalog.html)).
+`print()` is the model-facing output channel — traced as a structured value, the primary input to the cell digest the model sees ([Effects](../programs/effects.html), [Effects catalog](../reference/effects-catalog.html)).
 
 ## Replay
 
-Because every nondeterministic input is an effect record, a trace replays bit-exact: the broker answers each effect from the recorded value instead of executing it, and the program takes the same path. `anyrt trace show <run_id>` renders turns, cells, and effects; a trace diff shows only the *new* effects a code change introduced ([Traces and replay](../programs/traces-and-replay.html)).
+Because every nondeterministic input is an effect record, a trace replays bit-exact: the broker answers each effect from the recorded value instead of executing it, and the program takes the same path. `anyrt trace show <run_id>` renders turns, cells, and effects ([Traces and replay](../programs/traces-and-replay.html)).
 
 ## Triggers are data
 
@@ -53,10 +52,10 @@ A schedule is a record in the `agent_triggers` dataset of the working space, not
 ```json
 { "name": "morning digest", "kind": "cron", "spec": {"cron": "0 8 * * *"},
   "program": "agent:digest@v1", "args": {"space": "bao"},
-  "enabled": true, "limits": {"timeoutS": 120} }
+  "enabled": true }
 ```
 
-`kind` is `cron` (`{"cron": expr}` or `{"every_s": n}`), `once` (`{"at": epoch}` — fires once, then self-disables and stays as its own audit trail), or `event` (`{dataset, objectId?, filter?}`). Every running device converges its scheduler on the dataset each tick: `owner` pins a trigger to a device's peer id; an unowned trigger goes to the elected active device. Each run appends to `agent_trigger_runs` with status, duration, fuel, cost, and a trace ref, and the definition carries the rollup (`lastRunAt` / `lastStatus` / `runCount` / `consecutiveFailures`). Three consecutive failures auto-disable it ([Scheduling](../scheduling/index.html)).
+`kind` is `cron` (`{"cron": expr}` in UTC, or `{"every_s": n}`), `once` (`{"at": epoch}` — fires once, then self-disables and stays as its own audit trail), or `event` (`{"dataset": "chat_messages", "objectId": chatId, "spaceId"?}` — new messages in one chat). Every running device converges its scheduler on the dataset each tick: `owner` pins a trigger to a device's peer id; an unowned trigger goes to the elected active device. Each run publishes a synced summary to `agent_runs` (status, duration, cost, tokens, trace ref, `triggerId`), and the record keeps only scheduler state (`lastRunAt` / `lastStatus` / `consecutiveFailures`). Three consecutive failures auto-disable it ([Scheduling](../scheduling/index.html)).
 
 Because the trigger is a synced record, the agent creates reminders by writing one, the UI edits one to repin it, and "did it run?" is a query.
 

@@ -9,7 +9,7 @@ A bundle is one thing installed into a space — a chat, an app's setup, a marke
 
 ## Why a registry
 
-Clients that each `create a chat object if none exists` leave a space with two or three parallel chats, most visibly in a one-to-one. The registry (the `bundles` dataset on the space's index object) is the convergence point: clients register their own bundles and the server installs nothing on a client's behalf; what it owns is picking the winner when two devices install concurrently, refusing to delete a losing root before it has stopped arriving, and one id namespace — ids under `system:` are the server's, installed only through its embedded catalog (`409 bundle.reserved` on a client ensure).
+Clients that each `create a chat object if none exists` leave a space with two or three parallel chats, most visibly in a one-to-one. The registry (the `bundles` dataset on the space's index object) is the convergence point: when two devices install concurrently it converges on one deterministic winner and lists the rest as losers. Clients register their own bundles; the server enforces the timing of deleting a losing root, and owns one id namespace — ids under `system:` are installed only through its embedded [catalog](#the-usecase-catalog) (`409 bundle.reserved` on a client ensure).
 
 ## Endpoints
 
@@ -21,7 +21,7 @@ POST   /v1/spaces/:spaceId/bundles/:bundleId/resolve      → 204
 POST   /v1/spaces/:spaceId/bundles/:bundleId/children     → 200 { objectId }
 ```
 
-`synced: true` means an absent bundle is definitively not installed.
+Reads answer after the registry's convergence wait (below); `synced: true` means it converged, so an absent bundle is definitively not installed, and `false` (a cold offline device) means absence is provisional.
 
 Bundle ids carry a slash — the version suffix is part of the id (`favorites/v1`), and ids are permanent, so a successor install takes a new one. In a path segment the slash is percent-encoded: `/bundles/favorites%2Fv1`. Request bodies take the id verbatim.
 
@@ -29,7 +29,8 @@ Bundle ids carry a slash — the version suffix is part of the id (`favorites/v1
 
 ```bash
 curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles \
-  -d '{"id": "notes/v1", "name": "Notes", "hidden": true, "parts": [{"key": "body", "datasets": [{"module": "editor", "shared": true}]}]}'
+  -d '{"id": "notes/v1", "name": "Notes", "hidden": true, "selfTyped": true,
+       "parts": [{"key": "body", "datasets": [{"module": "editor", "shared": true}]}]}'
 ```
 
 ```json
@@ -42,17 +43,18 @@ curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles \
 | `id` | the whole identity — an app slug, a marketplace id, a versioned convention; ≤256 B |
 | `name` | stamped as `any.name` on the root; ≤1024 B |
 | `rootTypes` | types attached to the root; must exist in the space; ≤32 |
-| `rootProperties` | initial property values, validated against their formats; ≤64 KiB |
-| `parts` | parts declared on the root, which then implements itself as a type (`typeId = rootId`) — the [modules](../types/index.html) it holds and its records datasets (`<rootId>_<key>`); ≤32; the same draft shape as `POST …/types/:typeId/parts` |
-| `properties` | property definitions on the root type; ≤64; the same draft shape as `POST …/types/:typeId/properties` |
+| `rootProperties` | initial property values, validated against their descriptors; ≤64 KiB |
+| `parts` | parts of the root type (`typeId = rootId`) — the [modules](../types/index.html) and records datasets (`<rootId>_<key>`) its carriers hold; ≤32; the same draft shape as `POST …/types/:typeId/parts` |
+| `properties` | property definitions on the root type, each with an `xKey` its id derives from — two devices installing apart mint one column per handle; ≤64; the same draft shape as `POST …/types/:typeId/properties` |
 | `xKey` | the root type's handle, unique among the space's types; `409 type.xkey_conflict` |
 | `layout` / `weight` | the root type's rendering slice, as on `POST …/types` |
-| `hidden` | keeps the root type out of `GET …/types` |
+| `hidden` | keeps the root type out of `GET …/types` — ask for it when the root only hosts its bundle's own records |
+| `selfTyped` | the root carries the type it declares, so it holds that type's values and collections (an app keeping records on its root); off, the root is the type definition only and writing its collections is `400 dataset.not_declared` |
 | `derived` | install on the root derived from the bundle id (below) |
 
-A bundle may declare a full type on its root — parts, properties, a handle, layout, weight, hidden. Ids under `system:` are the server's: `409 bundle.reserved` on a client ensure.
+A bundle may declare a full type on its root — `parts`, `properties` or an `xKey` make the root a type definition; `layout`, `weight`, `hidden` and `selfTyped` describe that type and are `400 request.invalid_field` without one. A part naming a module reserved to the server (`chat`) is `400 dataset.module_reserved`.
 
-With a winner already registered, Ensure is a **pure read** — nothing is written, a reader or guest can resolve an install they could not create, and `installed` is `false`. Otherwise the server creates the root with the requested types and properties, registers it in one change, and replies `installed: true`. That path is a write, so a member without write permission gets `403`; use `GET …/bundles/:bundleId` instead. Type existence and property formats are checked *before* the root is created, so a rejected request (`400 type.not_found`, `400 property.format_violation`) never leaves an orphan.
+With a winner already registered, Ensure **adopts** it and `installed` is `false`. For a reader or guest that is a pure read, so they resolve an install they could not create; a writer's adopt also fills in declarations the root lacks (a property handle, the self type), never patching what it has. Otherwise the server creates the root with the requested types and properties, registers it, and replies `installed: true`. That path is a write, so a member without write permission gets `403`; use `GET …/bundles/:bundleId` instead. Type existence and property formats are checked *before* the root is created, so a rejected request (`400 type.not_found`, `400 property.format_violation`) never leaves an orphan.
 
 ### The convergence gate
 
@@ -77,7 +79,19 @@ If a created and a derived root are both claimed for one id, the derived one win
 
 > **Why it matters.** A hosted chat service allocates one channel id and everyone uses it. Two encrypted peers that have never spoken cannot ask anyone for an id — but they can both compute one. Derivation replaces the allocator.
 
-## The general chat
+## The usecase catalog
+
+The well-known apps that ship with the product — the wiki, collections, journal, meetings, people, CRM, the general chat — are bundles in a catalog embedded in the server, under `system:<name>/v<n>` ids. A **usecase** is a set of those bundles plus the usecases it `requires`. The catalog declares every type, property and dataset its apps use, so each client, device and agent that sets a usecase up resolves the same ids instead of minting its own.
+
+```
+GET  /v1/catalog                    → 200 { usecases: [...] }
+GET  /v1/catalog/:usecaseId         → 200 usecase             404 catalog.not_found
+POST /v1/catalog/:usecaseId/setup   → 200 { usecase, bundles: [...] }      body { spaceId }
+```
+
+Setup walks the dependency closure (dependencies first) against one convergence wait and runs Ensure's adopt-or-install per bundle; it is idempotent, and a failure names the step in `details.bundleId` while the steps before it stand, so the next call resumes. Each reply entry carries the registry row (`bundle`), `installed`, and — for a bundle that declares a type — `typeId` (the root id) and `properties` (xKey → property id). An install whose `xKey` a type in the space already holds is `409 type.xkey_conflict` with `details.existingTypeId`. Which usecases a space has reads off `GET …/bundles`. CLI: `any catalog list | get | setup`.
+
+### The general chat
 
 A space's chat is the server's: the `chat` module is reserved, so no client bundle may declare a chat part (`400 dataset.module_reserved`). The catalog's `general-chat` usecase installs the one chat, a derived root:
 
@@ -86,7 +100,7 @@ curl -s -X POST http://127.0.0.1:7001/v1/catalog/general-chat/setup \
   -d '{"spaceId": "'$SPACE'"}'
 ```
 
-Use the returned `rootId` as the [chat](../types/chat.html) object. Every client that runs the setup lands on the same root, on both sides of a 1-1 too, and no other object may carry its type.
+Use the entry's `bundle.rootId` as the [chat](../types/chat.html) object. Every client that runs the setup lands on the same root, on both sides of a 1-1 too, and no other object may carry its type.
 
 ## Children
 
@@ -125,8 +139,11 @@ The server never merges; it enforces timing. A losing root arrives change by cha
 | 409 | `bundle.loser_not_ready` | loser not fully synced, or within the grace period — retry |
 | 409 | `bundle.not_loser` | the winner, or a root never claimed for this bundle |
 | 404 | `bundle.not_found` | unknown bundle id on GET / resolve / children |
+| 409 | `bundle.reserved` | a client ensure with a `system:` id |
+| 409 | `type.xkey_conflict` | an install whose `xKey` another type in the space already holds (`details.existingTypeId`) |
+| 400 | `dataset.module_reserved` | a part naming a module reserved to the server |
 | 400 | `type.not_found` | a `rootTypes` entry does not exist in the space |
-| 400 | `property.format_violation` | a `rootProperties` value fails its declared format |
+| 400 | `property.format_violation` | a `rootProperties` value does not fit its property's descriptor |
 
 Resolving an already-resolved root returns 204 — the call is idempotent.
 
@@ -134,4 +151,8 @@ Resolving an already-resolved root returns 204 — the call is idempotent.
 
 Nothing stops two members from ensuring the same bundle; the registry converges and reports a loser. To avoid the conflict entirely, either agree on one installer out of band, or ask for a `derived` root — the id both would compute anyway. Bundle records are permanent and `roots` only grows, so treat ids as a small fixed vocabulary, not a scratch namespace.
 
-On boot the server converges the space list and projects the index of the account's well-known [derived spaces](derived-spaces.html), so a client ensuring right after a restore meets the converged registry instead of an empty one. It installs nothing and deletes nothing itself.
+On boot, for each well-known [derived space](derived-spaces.html) the account has, the server waits for the space list and that space's index to converge and reads its registry, so a client ensuring right after a restore meets the converged registry instead of an empty one. It installs nothing and deletes nothing itself.
+
+## Account-level bundles
+
+Account-private data — favourites, pinned items, personal settings — lives in bundles on the account's **tech space**, whose id `GET /v1/account` returns as `techSpaceId`. Ensure, list, get and resolve work there with two differences: the bundle must declare a type (`parts`, `properties` or an `xKey`), and `rootTypes`, `rootProperties` and children are refused. The records live on the self-typed root and go through `query`, `modify` and `upsert` like in any space; `DELETE /v1/spaces/:techSpaceId/objects/:rootId` uninstalls a created root. Everything else on the tech space answers `405 space.unsupported`.

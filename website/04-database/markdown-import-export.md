@@ -14,7 +14,7 @@ PATCH /v1/spaces/:spaceId/objects/:objectId/editor/editor_blocks/markdown       
 POST  /v1/spaces/:spaceId/objects/:objectId/editor/editor_blocks/markdown/append   append at tail, no read or diff
 ```
 
-All four write through the same block write path a per-block edit would, so the same live events fire on the collection and other clients update in place.
+All four write through the same block write path a per-block edit would, so the same live events fire on the collection and other clients update in place. The object must carry a type whose part declares the collection (`page` declares `editor_blocks`) — a write otherwise is `400 dataset.not_declared` — and a `:collection` the space does not serve is `404 dataset.not_found`.
 
 ## Export — `GET`
 
@@ -49,6 +49,7 @@ curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/editor/editor_
 
 any editor edit $SPACE $OBJ --old '- [ ] Children of Time' --new '- [x] Children of Time'
 any editor edit $SPACE $OBJ --edits @edits.json
+any editor edit $SPACE $OBJ --collection "${TYPE}_summary" --old 'draft' --new 'final'
 ```
 
 The server renders the current canonical markdown (the exact bytes `GET` returns), resolves every edit against it, splices, and feeds the result through `PUT`'s diff. A checkbox tick therefore lands as a single `$set style.checked` on one block; ids and untouched blocks stay stable; the reply is `PUT`'s shape.
@@ -97,5 +98,5 @@ An empty paragraph is a real block — a `paragraph` record with `text: ""` — 
 The markdown routes are a transform, not a read path. Block records themselves are read through the per-object query surface with `dataset: "editor_blocks"`, sorted by `nav.pos`, and watched through [subscribe](../realtime/subscribe.html):
 
 ```sh
-any query $SPACE $OBJ editor_blocks --sort nav.pos
+any query-subscribe $SPACE $OBJ --dataset editor_blocks --sort nav.pos --limit 500
 ```

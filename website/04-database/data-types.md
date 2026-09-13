@@ -54,17 +54,18 @@ Instants are what the aggregation date operators (`$year`, `$dateTrunc`, `$dateD
 }
 ```
 
-Those six keys are the ones the server interprets; any other top-level key is a vendor namespace stored verbatim. `validate` and `compute` are reserved. The slug set is open — an unknown `type` renders structurally from `kind` and gets no value checks — and this is the documented vocabulary:
+Those six keys and `links` are the ones the server interprets; any other top-level key is a vendor namespace stored verbatim. `links` marks a value the [link index](../types/links.html) scans for `any://` references — `link` (one string), `links` (an array), `markdown` (text) or `none` (never scanned); the `relation` and `markdown` slugs imply it. `validate` and `compute` are reserved. The slug set is open — an unknown `type` renders structurally from `kind` and gets no value checks — and this is the documented vocabulary:
 
 | `type` | `kind` | Value the server accepts | Extras |
 |--------|--------|--------------------------|--------|
 | `text`, `longtext`, `phone` | `string` | Any string. | |
+| `markdown` | `string` | Any string — inline markdown. | Scanned for `any://` references by the link index. |
 | `url` | `string` | An absolute URL with a scheme. | |
 | `email` | `string` | One `local@domain`. | |
 | `choice` | `array` | Option keys — one unless `config.multiple`. | `options.<key>` = `{name, color, pos, meta?}`; the key is the stored value. |
 | `relation` | `array` | Plain `any://<objectId>` URIs — no space segment, no fragment; one unless `config.multiple`. | `relation.targetTypes` (type xKeys), `relation.filter` (a query condition as JSON text). |
 | `number`, `currency`, `percent`, `duration` | `number` | A number. | `config` display settings (`decimals`, `currency`, `unit`, …). |
-| `rating` | `number` | A number within `0..config.max`. | |
+| `rating` | `number` | A number; within `0..config.max` when `max` is set. | |
 | `checkbox` | `boolean` | A boolean. | |
 | `date` | `datetime` | An instant at midnight UTC. | |
 | `datetime` | `datetime` | Any instant. | |
@@ -79,7 +80,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/properties \
   -H 'Content-Type: application/json' \
   -d '{"name": "Related", "xKey": "related", "kind": "array",
        "xFormat": {"type": "relation", "config": {"multiple": true},
-                   "relation": {"targetTypes": ["<pageTypeId>"]}}}'
+                   "relation": {"targetTypes": ["book"]}}}'
 ```
 
 ## Scopes
@@ -101,7 +102,7 @@ Chat's read-tracking flags (`unread`, `unreadMention`, `unreadReactions`) are th
 
 ## Dataset schemas and `x-scope`
 
-The scope of every dataset field is discoverable. `GET /v1/spaces/:spaceId/datasets` returns one JSON Schema document per dataset the space hosts; `GET /v1/datasets` covers the account-level `spaces` and `profile` datasets.
+The scope of every dataset field is discoverable. `GET /v1/spaces/:spaceId/datasets` returns one JSON Schema document per dataset the space hosts; `GET /v1/datasets` covers the account-level system datasets (`spaces`, `profile`, `devices`, …).
 
 ```bash
 curl http://127.0.0.1:7001/v1/spaces/$SPACE/datasets
@@ -119,7 +120,8 @@ any datasets $SPACE
 
 - `x-scope` — `synced` / `derived` / `local` / `account`, per field.
 - `additionalProperties: true` — a dynamic dataset: undeclared keys are permitted and default to synced (the `objects` collection, chat and editor).
-- `typeId` — the owning type for type-bound datasets; records exist only on objects carrying it.
+- `owners` — the types whose parts declare the collection; records exist only on objects carrying one of them. `module` names the serving module (`records`, `editor`, `chat`) and `shared` marks a module's canonical collection.
+- `description` and `x-format` — the descriptive slice of each field, in the same vocabulary as a property's `xFormat`.
 - Runtime datasets add `required`, `x-mutable-by`, `x-stamp`, `x-delete-by`, `x-id` and `x-search` — see [Runtime datasets](runtime-datasets.html).
 
 ## Related

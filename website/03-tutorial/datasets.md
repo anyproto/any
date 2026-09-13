@@ -69,7 +69,7 @@ What the declaration says:
 | Piece | Meaning |
 |-------|---------|
 | `key: messages` | The dataset's slug inside the type. Its records live in the collection **`<typeId>_messages`** — namespaced to the type, so another type's `messages` never collides. |
-| `idRule: user` | You supply record ids (the mail server's message id). The alternative, `auto`, derives ids from the change. |
+| `idRule: user` | You supply record ids — here the mailbox's IMAP uid. Ids match `[A-Za-z0-9._:-]+` up to 128 bytes unless the declaration sets `idPattern` / `idMaxLen`. The alternative, `auto`, derives ids from the change. |
 | `required` | Must be present on create; an email without a subject is rejected on every peer. |
 | `mutableBy: any` | `read` and `labels` can be edited after creation. A field without it is **write-once** — subject, sender and body are immutable once imported. |
 | `stamp: createTime` | Filled in by the server at apply; a client that sets it is rejected. |
@@ -89,35 +89,35 @@ DS=${MAILBOX}_messages
 
 ## Import ten thousand emails
 
-`/upsert` is the ingest path for a dataset with user ids. Every record is keyed by the id you give it: absent ids are created, present ones are diffed field by field, identical ones are skipped. Re-running the same batch writes nothing, so an import job can run on a schedule without ever duplicating a message.
+`/upsert` is the ingest path for a dataset with user ids. Every record is keyed by the id you give it: absent ids are created, present ones are diffed field by field, identical ones are skipped. Re-running the same batch writes nothing, so an import job can run on a schedule without ever duplicating a message. A request body is capped at 1 MB, so the importer sends the mailbox in batches that fit:
 
 ```bash
 curl -s -X POST $API/spaces/$SPACE/upsert -H 'content-type: application/json' -d '{
   "objectId": "'$INBOX'", "dataset": "'$DS'", "pageSize": 500,
   "records": [
-    {"id": "<msg-1@example.com>", "fields": {
+    {"id": "imap:INBOX:4201", "fields": {
        "subject": "Invoice 2026-09", "from": "billing@example.com",
        "body": "Please find attached…", "receivedAt": {"$date": "2026-09-08T09:12:00Z"},
        "read": false, "labels": ["finance"]}},
-    {"id": "<msg-2@example.com>", "fields": {"…": "…"}}
+    {"id": "imap:INBOX:4202", "fields": {"…": "…"}}
   ] }'
 ```
 
 ```json
-{ "pages": [ {"versionId": "…", "changeId": "…", "recordIds": []}, … ],
-  "created": 10000, "updated": 0, "skipped": 0, "rejections": [] }
+{ "pages": [ {"versionId": "…", "changeId": "…", "recordIds": ["imap:INBOX:4201", "…"]} ],
+  "created": 500, "updated": 0, "skipped": 0 }
 ```
 
 ```bash
 any upsert $SPACE $INBOX --dataset $DS --records @batch.json
 ```
 
-Ten thousand records at the default page size is twenty CRDT changes. A record that breaks the schema — no subject, a string where an instant belongs, a write to `importedAt` — comes back in `rejections` with a code and a reason while the rest of the batch lands ([Upsert](../database/upsert.html)). Mark a message read later with the ordinary record write:
+Each call writes one CRDT change per `pageSize` records (500 by default), not one per email. A record that breaks the schema — no subject, a string where an instant belongs, a write to `importedAt` — comes back in `rejections` with a code and a reason while the rest of the batch lands; a clean batch has no `rejections` key ([Upsert](../database/upsert.html)). Mark a message read later with the ordinary record write:
 
 ```bash
 curl -s -X POST $API/spaces/$SPACE/modify -H 'content-type: application/json' -d '{
   "objectId": "'$INBOX'", "dataset": "'$DS'",
-  "records": [{"id": "<msg-1@example.com>",
+  "records": [{"id": "imap:INBOX:4201",
                "ops": [{"type": "$set", "path": "read", "value": true}]}]}'
 ```
 
@@ -140,7 +140,7 @@ curl -s -X POST $API/spaces/$SPACE/query -H 'content-type: application/json' -d 
 
 ## Search it
 
-The `search` mapping in the declaration put every message into the space's search index under its subject, sender and body. Search is a separate call, lexical by default with an optional local semantic leg:
+The `search` mapping in the declaration put every message into the space's search index under its subject, sender and body. Search is a separate call, hybrid by default — full-text plus a semantic leg that joins whenever an embedder is available:
 
 ```bash
 curl -s -X POST $API/spaces/$SPACE/search -H 'content-type: application/json' \

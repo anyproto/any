@@ -5,7 +5,7 @@ order: 60
 ---
 # Writing data
 
-Writes are purpose-built endpoints, not a generic document PUT: property values go through the type-scoped `set`, dataset records through `/modify`, and built-in types through their own handlers. Every one of them returns the same receipt.
+Writes are purpose-built endpoints, not a generic document PUT: property values go through the type-scoped `set`, dataset records through `/modify`, and the chat and editor modules through their own handlers. Every one of them returns the same receipt.
 
 ## The write receipt
 
@@ -39,7 +39,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/$TYPE \
 
 - **Key by `propId`, never by `xKey`.** The server never sees xKeys; a patch keyed by one fails with `property.not_found`. Resolve `xKey → propId` from `GET …/types/:typeId/properties` first.
 - The endpoint auto-routes by the property's declared [scope](data-types.html). Every propId in one patch must resolve to the same scope — mixed-scope or unknown keys are rejected.
-- Values are shape-checked against the property's format (`400 property.format_violation`). Kind mismatches on format-less properties are not enforced; validate against the definition client-side.
+- A value whose kind differs from the declared `kind` is `400 property.kind_mismatch`; a value that does not fit the property's `xFormat` slug is `400 property.format_violation`.
 - Built-in paths use literal keys: `…/set/any` with `{"patch": {"name": "Dune"}}`. A tree move is this route on the wiki type — `…/set/<wikiTypeId>` with `{"patch": {"<parentIdPropId>": "…", "<posPropId>": "…"}}` ([Objects](objects.html)).
 
 Initial values ride object create instead — `initialProperties` keyed the same way (see [Objects](objects.html)).
@@ -53,7 +53,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/modify \
   -H 'Content-Type: application/json' \
   -d '{
     "objectId": "'$OBJ'",
-    "dataset":  "notes",
+    "dataset":  "'$TYPE'_notes",
     "records": [
       { "id": "", "upsert": true,
         "ops": [
@@ -96,10 +96,10 @@ Constraints (`400 request.schema`): explicit record ids, no `upsert` (local fiel
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/delete-records \
   -H 'Content-Type: application/json' \
-  -d '{"objectId": "'$OBJ'", "dataset": "notes", "recordIds": ["note_7"]}'
+  -d '{"objectId": "'$OBJ'", "dataset": "'$TYPE'_notes", "recordIds": ["note_7"]}'
 ```
 
-A record delete is a sticky tombstone — the id can never be re-created. Subscribers see the id in `removed`.
+A record delete is a sticky tombstone — the id can never be re-created. A later `/modify` addressing it still answers `200`, with a whole-record `rejections` entry (`opIndex: -1`) and nothing stored, so an ensure-by-fixed-id always inspects `rejections`. Subscribers see the id in `removed`.
 
 ## Idempotency
 

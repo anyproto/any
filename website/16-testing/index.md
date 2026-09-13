@@ -15,7 +15,7 @@ go test ./internal/e2e -run TestE2E_FullFlow # boot the binary, drive every endp
 go test ./internal/e2e -run Multipeer        # two peers, invite/join, CRDT convergence
 ```
 
-- Unit tests live next to the code; the search index legs are behind build tags, so `make test` (not bare `go test`) runs the full suite.
+- Unit tests live next to the code; the search index legs are behind build tags, so `make test` (not bare `go test`) runs the full suite. It is also a PR check.
 - End-to-end tests build the binary, run `any run` against a temporary data dir on an ephemeral port, and talk JSON over real TCP. They need a **staging** node configuration and skip without one — a test must never join production.
 - Multi-peer tests start two servers with distinct accounts (or the same mnemonic on two device keys) and prove what a single process cannot: invites, membership, cross-replica convergence, LAN discovery.
 
@@ -40,7 +40,9 @@ make test-integration                           # opt-in, against a live any ser
 |---|---|
 | a server handler or SDK wrapper | a unit test in the package; an e2e subtest if the wire shape changed |
 | anything that crosses replicas (ACL, sync, derived objects, bundles) | a multi-peer e2e test |
-| an error code or an OpenAPI-visible shape | regenerate the spec (`make swagger`) — the PR check diffs it |
+| an OpenAPI-visible shape | regenerate the spec (`make swagger`) — the PR check diffs it |
+| an error code | a test pinning the sentinel-to-code mapping — the spec carries status codes, not `error.code` strings |
+| the usecase catalog | `make catalog-validate` — the PR check and the release build both run it |
 | a guest program or module | a kernel-fidelity pytest with fake effects |
 | a new effect | a broker registration, a catalog entry and a read/mutate classification test |
 | an LLM adapter | one recorded provider fixture; the loop itself replays from traces |

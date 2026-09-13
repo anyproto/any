@@ -63,6 +63,7 @@ any events publish --type presence.typing --scope space --space SPACE --target C
 | `400 request.unknown_field` | unknown top-level key, including `sender` |
 | `400 events.payload_too_large` | `data` over 64 KiB |
 | `409 events.no_read_key` | network scope without full membership (guest / public access) |
+| `403 events.topic_not_owned` | the type maps into another account's self-owned topic namespace |
 | `404` / `409 space.*` | space resolution errors for `scope: space` |
 
 ## Subscribe
@@ -110,11 +111,11 @@ event: closed
 data: {"reason":"overflow"}
 ```
 
-`ready` is emitted once on connect and **no snapshot follows** — there is nothing to snapshot. `closed` reasons are `server_shutdown` and `overflow` (the subscriber's 16-deep buffer filled and it was dropped): reconnect for a fresh stream. Reason strings are shared with every other stream.
+`ready` is emitted once on connect and **no snapshot follows** — there is nothing to snapshot. `closed` reasons are `overflow` (the subscriber's 16-deep buffer filled and it was dropped), `server_shutdown` and `deauthorized`: reconnect for a fresh stream. Reason strings are shared with every other stream.
 
 Two extra rules for network scopes:
 
-- An explicit `scope=space` subscription must name at least one `spaceId` (`400 request.missing_field`) — interest is per space; there is no "all spaces". A catch-all with no `scope` param covers device + account plus any space listed in a `spaceId` filter. A `spaceId` filter admits space-scope events only, so pairing it with a scope list that excludes `space` is `400 request.invalid_field`.
+- An explicit `scope=space` subscription must name at least one `spaceId` (`400 request.missing_field`) — interest is per space; there is no "all spaces". With no `scope` and no `spaceId` param a subscription covers device and account events. A `spaceId` filter admits space-scope events only — with no `scope` param it subscribes to exactly those spaces, and pairing it with a scope list that excludes `space` is `400 request.invalid_field`.
 - Each space has a budget of 100 pub/sub interest patterns shared across the process; exhausting it answers `409 events.too_many_patterns`. Identical filters share one interest, so narrow or share type filters.
 
 ## At-most-once, by design
@@ -128,6 +129,7 @@ A persisted event log would replay its history to every reconnecting subscriber 
 | `ui.open_space` | device | `{spaceId, source?}` — `spaceId` is the space to open, independent of the envelope's routing `spaceId` |
 | `ui.open_object` | device | `{spaceId, objectId, source?}` |
 | `process.started` / `progress` / `done` / `failed` / `cancelled` / `cancel` | any | the [process convention](../notifications/processes.html); envelope `target` is the process id |
+| `links.updated` | device | `{spaceId, targets, truncated?}` — canonical `any://` targets whose backlinks changed after the link index landed edges from `spaceId`; match on `targets`, re-read the backlinks. See [Links](../types/links.html) |
 | `editor.cursor` | space | presence; a **self-owned** type that maps into the pub/sub namespace only the sender's account can publish to, making it spoof-proof at publisher, relay and receiver |
 
 A UI window mounts one `EventSource('/v1/events/subscribe?scope=device&type=ui.*')` and dispatches into navigation; unknown `ui.*` types are ignored.

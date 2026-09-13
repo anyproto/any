@@ -21,11 +21,11 @@ account
 
 - A **space** is the unit of sharing and encryption. Every member holds the same data; every write is a change in a per-object DAG that syncs to everyone.
 - An **object** is a document. It carries a list of **types** in `any.types`, property values keyed by `<typeId>.<propId>`, and any number of per-object **datasets** (collections of records that belong to that object — chat messages, editor blocks, or a runtime dataset you declare).
-- A **type** declares properties (kind, format, scope) and **parts** — display units owning datasets a module serves: `records` (a runtime schema), `editor` (a block body), `chat` (a conversation). Built-in types (the hidden `dataview` / `page` / `miniapp` / `bin`) exist in every space; your own document types are registered as bundles, and the space's chat is installed by the server's catalog.
+- A **type** declares properties (kind, descriptor, scope) and **parts** — display units owning datasets a module serves: `records` (a runtime schema), `editor` (a block body), `chat` (a conversation). Built-in types (the hidden `dataview` / `page` / `miniapp` / `bin`) exist in every space; your own document types are registered as bundles, and the space's chat is installed by the server's catalog.
 
 ## One read path, many write paths
 
-Reads always go through the windowed query primitive: `POST /v1/spaces/:spaceId/objects/query` for the cross-object collection and `POST /v1/spaces/:spaceId/query` for one object's dataset. Each has a `/subscribe` twin that returns the same snapshot plus a live stream of changes (see [Subscribe](../realtime/subscribe.html)). Writes go through purpose-built endpoints — object create, property set, generic `/modify`, and the modules' own handlers — and every one of them returns the same `{versionId, changeId, recordIds}` receipt.
+Reads always go through the windowed query primitive: `POST /v1/spaces/:spaceId/objects/query` for the cross-object collection and `POST /v1/spaces/:spaceId/query` for one object's dataset. Each has a `/subscribe` twin that returns the same snapshot plus a live stream of changes (see [Subscribe](../realtime/subscribe.html)). Writes go through purpose-built endpoints — property set, generic `/modify`, and the modules' own handlers — and each returns the same `{versionId, changeId, recordIds}` receipt; object create answers with the new `objectId`.
 
 > **Why it matters.** There is no server between you and your data. Queries run against a local any-store database, so a read is a local disk read, a write is immediately visible, and both work offline. Sync and merge happen underneath — the query you ran a second ago keeps answering while peers catch up.
 

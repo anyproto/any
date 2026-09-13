@@ -30,7 +30,7 @@ def test_remind_posts_to_chat():
     assert sent[0][2]["agent"] == {"name": "bao", "done": True}
 ```
 
-`load_kernel(effect=None, any_client=None, llm_chat=None, programs_dir=None, module_source=None)` returns a fresh kernel app module; `app.use("name@vN")` loads real sources from `repos/_agent/programs` with the runtime's own resolution order (`<spec>.py`, then `<spec>/program.py`).
+`load_kernel(effect=None, any_client=None, llm_chat=None, programs_dir=None, module_source=None, shell=None)` returns a fresh kernel app module; `app.use("name@vN")` loads real sources from `repos/_agent/programs` with the runtime's own resolution order (`<spec>.py`, then `<spec>/program.py`).
 
 | Parameter | What it fakes |
 |---|---|
@@ -38,7 +38,8 @@ def test_remind_posts_to_chat():
 | `llm_chat` | `use("llm@v1").chat(...)` crosses as `test.llm` and calls your function |
 | `effect(name, payload)` | everything else — `http.*`, `config.get`, `time.now`, … |
 | `programs_dir` | another repo's `programs/` (the connectors repo tests its own) |
-| `module_source(spec)` | consulted first; return source text or `{"source", "marker"}` — bump the marker to model an edited program and exercise the probe cache |
+| `module_source(spec)` | consulted first; return source text or `{"source", "marker"}` — bump the marker to model an edited program and exercise the module cache |
+| `shell` | what `runtime.get("shell")` answers; set it to model a runtime built with the `shell` feature, so `sh` / `fs` are bound in cells |
 
 Alias-qualified specs (`agent:any@v1`) shim identically. `span.begin/end` are absorbed. An unknown effect raises loudly, so a test cannot silently pass over a call it never expected.
 
@@ -52,18 +53,20 @@ Connectors are tested by recording live replies once and replaying them from fix
 import json
 from pathlib import Path
 
-FIX = json.loads(Path("tests/fixtures/github_repo.json").read_text())
+FIX = {"login": "octocat", "id": 1, "name": "The Octocat",
+       "html_url": "https://github.com/octocat"}
 
 def fake_effect(name, payload):
     if name == "http.get":
-        return {"status": 200, "headers": {}, "body": json.dumps(FIX)}
+        return {"status": 200, "headers": {}, "body": json.dumps(FIX),
+                "url": payload["url"]}
     if name == "time.now":
-        return 1_700_000_000.0
+        return {"epoch": 1_700_000_000.0, "offset_s": 0}
     raise AssertionError(f"unexpected effect {name}")
 
-app = load_kernel(effect=fake_effect)
+app = load_kernel(effect=fake_effect, programs_dir=Path("repos/_connectors/programs"))
 gh = app.use("github@v1")
-assert gh.repo("anyproto", "any")["full_name"] == "anyproto/any"
+assert gh.whoami()["login"] == "octocat"
 ```
 
 Fixtures under `tests/fixtures/*.jsonl` are JSONL — one record per line is the parse contract; view them with `jq .` and never reformat the file.
@@ -78,11 +81,11 @@ anyrt run remind@v1 --from-space bao --args '{…}'        # the deployed source
 anyrt run mytool@v1 --secrets-file ./.connectors.env       # seeds for this run only
 ```
 
-Both print `{status, value, error, traceRef, durationMs, fuelUsed}` and write a trace. A running `anyrt serve` offers the same through its loopback control API — `POST http://127.0.0.1:7010/run` with `{program, args?}` for a deployed program or `{source, args?, program?}` for inline text (the source is served from the request body; its `use()` imports still resolve through the space).
+Both print `{status, value, error, traceRef, durationMs, fuelUsed}` and write a trace. A `--from-space` run also reads and writes that space's agent config the way serve does. A running `anyrt serve` offers the same through its loopback control API — `POST http://127.0.0.1:7010/run` with `{program, args?}` for a deployed program or `{source, args?, program?}` for inline text (the source is served from the request body; its `use()` imports still resolve through the space).
 
 ## Golden replay
 
-A recorded trace is a test asset. In strict mode the runtime consumes the log as a cursor: the next effect call must match the next record's effect and key, cell and span records are checkpoints, and any drift is a divergence error naming the expected record. Record once, assert forever — no server, no keys. The mechanics and the loose `mock` variant are on [Traces and replay](traces-and-replay.html).
+A recorded trace is a test asset. In strict mode the broker consumes the log as a cursor: the next effect call must match the next record's effect and key, cell and span records are checkpoints, and any drift is a divergence error naming the expected record. Record once, assert forever — no server, no keys. The mechanics and the loose `mock` variant are on [Traces and replay](traces-and-replay.html).
 
 ## Running the suite
 

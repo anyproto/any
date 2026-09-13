@@ -1,5 +1,23 @@
 # any
 
+> [!WARNING]
+> **Alpha software. Do not use it in production or with an account holding
+> anything you cannot afford to lose — use a dedicated mnemonic for experiments.**
+>
+> - **No local auth.** The HTTP server on `127.0.0.1` trusts every local
+>   process: anything running as your user can call the API as you, and can
+>   read the seed phrase from `wallet.key` in the data dir unless the wallet is
+>   encrypted with a passkey (`ANY_WALLET_PASSKEY`).
+> - **Search embeds online by default.** The default `index.embedder: auto`
+>   sends indexed text and search queries to an online embedding API; set
+>   `index.embedder: local` (or `none`) to keep them on the device.
+> - **Under active development.** Data formats, bundle ids and APIs change
+>   without migration; data written by an older build can become unreadable
+>   after an upgrade.
+> - **Never copy `wallet.key` between machines.** It carries the device key, so
+>   a copy clones the peer id and breaks realtime sync. Restore a second device
+>   from the mnemonic (`any init --mnemonic-stdin`).
+
 All-in-one binary that wraps [`any-sync-sdk`](../any-sync-sdk) with a JSON
 HTTP API plus a CLI client.
 
@@ -36,9 +54,9 @@ any status    # in another shell — GET /v1/health
 any stop      # signal the server holding the account lock
 ```
 
-`any init` is optional — `any run` will create the wallet on first
-boot too. Run `init` first if you want a moment to copy the mnemonic
-before the server starts binding.
+Without an account, `any run` starts unauthorized and every data route
+answers `401 auth.required` until `any auth login` (or `POST /v1/auth`)
+creates or restores one.
 
 ## Why / what's this for in v1
 
@@ -48,7 +66,7 @@ which are painful, and what to prioritise next. It is also the home for
 the initial auth flow (wallet creation).
 
 Narrowly in v1:
-- Start the server; auto-generate a wallet on first run.
+- Start the server; create or restore an account over `any init` or `POST /v1/auth`.
 - Cover the core SDK ops over HTTP: spaces, objects, query, modify, types,
   properties.
 - CLI subcommands that call those endpoints.

@@ -16,6 +16,8 @@ Built-in datasets declare indexes for their hot paths:
 | `editor_blocks` | `(nav.parentId, nav.pos)` | Listing a document's blocks in order; finding the tail position for appends. |
 | `chat_messages` | `(_ver.id)` | Chronological paging — `sort: ["-_ver.id"]` with a `_ver.id` cursor. |
 | `chat_messages` | `idx_mentions` (sparse, multikey) | `{"mentions": "<identity>"}` filters. |
+| `chat_messages` | `unread`, `unreadMention`, `unreadReactions` (sparse, each with `_ver.id`) | Unread lists and badges — only currently-flagged messages carry an entry. |
+| `dataviews`, `views` | `pos`; on `views` also `(dataview, pos)` | A host's tables and one table's views, in order. |
 | `objects` | `modifiedAt` (dense) | `sort: ["-modifiedAt"]` recency lists and range filters on it. |
 | `objects` | `any.types` (sparse) | `{"any.types": "<typeId>"}` — the scope every cross-object query should carry. |
 
@@ -60,7 +62,7 @@ A [runtime dataset](runtime-datasets.html) declared on a user type is a per-obje
 
 `POST /v1/spaces/:spaceId/search` queries a consumer-side index (BM25 full-text plus an optional vector leg) built from the change feed. It covers editor text, chat text and property values by default, and stays eventually consistent with the query engine — a hit can outlive its object briefly. Use it for "find text anywhere"; use `/query` for exact filters. See [Search](../search/index.html).
 
-> **Why it matters.** Both the query engine and the search index are on-device. Indexing your own data never sends it anywhere: the embedder can run in-process, and the FTS tables live next to the encrypted store in your data directory.
+> **Why it matters.** Both the query engine and the search index are on-device. The FTS tables and vectors live next to the encrypted store in your data directory, and with `index.embedder: local` no indexed text leaves the device — the embedder runs as a child process of the server ([Embedders](../search/embedders.html)).
 
 ## Related
 

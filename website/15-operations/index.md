@@ -11,13 +11,14 @@ order: 0
 
 ```
 any run                      foreground, 127.0.0.1:7001
-  ├── engine                 instance lock → wallet → SDK → indexer
+  ├── engine                 instance lock → keys → SDK → indexer (torn down in place on a managed sign-out)
   │     └── boot pass        eager space loading + offline catch-up (background)
   ├── HTTP listener          /v1/… — REST + SSE
   └── background workers     search indexer, push, file-cache GC (opt-in)
 ```
 
-- One server serves **one account**. Two accounts are two processes on two ports; they may share a data-dir root.
+- One server serves **one account** at a time. Two accounts are two processes on two ports; they may share a data-dir root.
+- `--mode` says who owns the process: `standalone` (the user — keys on disk) or `managed` (a host app that supplies the account on every launch and holds a control token for sign-out, switching and shutdown).
 - The server binds **loopback only** and refuses anything else. There is no auth on the socket; the encrypted data and the account keys are the real boundary — see [Security model](security-model.html).
 - Everything is under `/v1/`. `GET /v1/health` answers even before an account is booted.
 
@@ -38,10 +39,11 @@ curl -s http://127.0.0.1:7001/v1/health
 ```json
 {
   "status": "ok",
-  "version": "any v0.1.0 (sdk v0.0.0)",
-  "startedAt": "2026-04-23T18:12:00Z",
+  "version": "any v0.1.2 (commit 1a2b3c4, built 2026-09-09)",
+  "startedAt": "2026-09-10T08:12:00Z",
   "account": "A3…",
-  "bootstrapping": false
+  "bootstrapping": false,
+  "crdtVersion": { "supported": 1, "stored": 1, "newer": false }
 }
 ```
 
@@ -51,9 +53,9 @@ curl -s http://127.0.0.1:7001/v1/health
 
 | Concern | Page |
 |---|---|
-| start, boot pass, shutdown, instance lock, listen address | [Server](server.html) |
+| ownership modes, start, boot pass, shutdown, instance lock, listen address | [Server](server.html) |
 | YAML file, `ANY_*` env vars, flags, precedence, every key | [Configuration](configuration.html) |
-| accounts, wallets, `sdk/`, `files/`, `index/`, `models/`, backups | [Data directory](data-dir.html) |
+| accounts, wallets and device keys, `sdk/`, `files/`, `index/`, `models/`, backups | [Data directory](data-dir.html) |
 | production default, staging and local nodeconfs, LAN p2p | [Networks](networks.html) |
 | loopback trust, CORS allowlist, E2E encryption, what is deferred | [Security model](security-model.html) |
 | `make build`, build tags, release tarballs, mobile artifacts, CI | [Builds and CI](builds-and-ci.html) |

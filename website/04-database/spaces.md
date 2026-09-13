@@ -27,7 +27,7 @@ Every single-space response (`POST /v1/spaces`, `GET /v1/spaces/:spaceId`) retur
 | `spaceType` | App-level classification: `any.space` for a created space, `any.onetoone` for a direct space. |
 | `author` | The owner's account identity, resolved from the ACL (omitted when not loadable). |
 | `name`, `description`, `iconCid` | Member-replicated metadata. |
-| `status` | `active`, `deleted`, `joining`, `one_to_one_pending`, `one_to_one_declined`, `invite_pending`, `invite_declined`. |
+| `status` | `active`, `deleted`, `joining`, `one_to_one_pending`, `one_to_one_declined`, `invite_pending`, `invite_declined`, `guest_revoked`. |
 | `ownRole` | Your role: `owner` / `admin` / `writer` / `reader` / `guest` / `none`. `none` also means "not mirrored yet" — `GET …/members/me` is the authoritative read. |
 | `createdAt` | RFC 3339 added-to-account time (create for the author, join for a joiner). The zero time means unknown. |
 | `spaceIndexObjectId` | The deterministic id of the in-space object that owns the metadata — subscribe to it for live name/icon updates. |
@@ -107,7 +107,7 @@ any space delete $SPACE --yes
 
 Deletion is offline-first. The call returns as soon as the local half is done: a synced `deleted` tombstone is written, all local storage for the space is dropped (disk reclaimed even offline), and a background reconciler sends the signed network delete when it can. Only the owner deletes on the network side; a member deleting a space they joined offloads it locally.
 
-The row stays in the account's list with `status: "deleted"` as a sticky tombstone, which is why the default list filters to active. Derived spaces refuse deletion with `409 space.derived_undeletable`; an unknown id is `404 space.not_found`.
+The row stays in the account's list with `status: "deleted"` as a sticky tombstone, which is why the default list filters to active. `GET /v1/spaces/:spaceId` on it still answers `200` with that status, while every write and space-scoped read is `409 space.deleted` — branch on `status`, not on the status code. Derived spaces refuse deletion with `409 space.derived_undeletable`; an unknown id is `404 space.not_found`. On a `joining` row the call withdraws the join request instead: the row reads `deleted` and stays re-joinable.
 
 ## Related
 

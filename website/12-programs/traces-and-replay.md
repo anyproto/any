@@ -1,83 +1,94 @@
 ---
 title: Traces and replay
-description: The append-only JSONL run log — record kinds, canonical keys, spans, blob spills — and the strict and loose replay modes built on it.
+description: The append-only run log — where it is stored, record kinds, canonical keys, spans, blob spills — and the strict and loose replay modes built on it.
 order: 40
 ---
 # Traces and replay
 
-Every run writes a trace: an append-only, ordered JSONL log with one record per effect call, streamed to disk as it happens. The trace is the replay oracle, the mock source, the debug record and the trigger run log — one format, one toolchain.
+Every run writes a trace: an append-only, ordered log with one record per effect call, streamed as it happens. The trace is the replay oracle, the mock source, the debug record and the run log behind every trigger fire — one format, one toolchain.
 
 ## Where traces live
 
-Traces are **device-local**: `traces/run_<id>.jsonl` (the `[paths].traces` directory), plus a `.blobs` sidecar when values spill. They are never synced as objects — a trace is big and rarely read. What syncs is the lean layer: a chat reply's `agent_turns` record and a trigger's run record each carry a `traceRef` naming the local file.
+Trace **bodies are device-local**. `anyrt serve` writes them into the any server's local store, as three never-synced collections of the agent's working space: `trace_records` (one document per record), `trace_blobs` (spilled values) and `trace_runs` (one summary per run). `anyrt run`, and a serve configured with `[traces] backend = "file"`, write `traces/run_<id>.jsonl` plus a `.blobs` sidecar in the `[paths].traces` directory instead. Raw bytes a run fetched or built sit beside either backend as files under `<traces dir>/blobs/`.
 
-The writer streams: the header lands at run start, every record appends as it commits. `tail -f` works on a live run, and a crashed run leaves a partial trace that `trace show` reports as `status: incomplete`.
+What syncs is the lean layer. Every run publishes one `agent_runs` summary — `{runId, program, device, startedAt, endedAt, durationMs, status, errorType, turns, cells, effects, mutations, tokens, costUsd, model, title, triggerId}` — so every device of the account can find every device's runs, and a chat reply's `agent_turns` record carries `traceRef`, the run id. The body stays on the device that ran it.
+
+The writer streams: the header lands at run start and records flush as spans and cells close, so a live run is readable and a crashed run leaves a partial trace that `trace show` reports as `status: incomplete`. A serve expires bodies after `[traces] retain_conversations` (chat runs, default `60d`) and `retain_jobs` (every other program, default `30d`); `"never"` keeps them. Summaries are kept forever.
 
 ## Record kinds
 
 ```jsonc
-// header (line 1)
-{"kind": "header", "schema": 2, "run": {"id": "…", "program": "remind@v1",
- "programHash": "…", "args": {…}, "instance": "…", "startedAt": …}}
+// header (first record)
+{"kind": "header", "schema": 2, "run": {"id": "run_…", "program": "remind@v1",
+ "host": "rust", "startedAt": 1756108800.4, "seed": "<64 hex>"}}
 
 // effect — one per syscall crossing
-{"kind": "effect", "seq": 17, "effect": "http.get", "cell": "toolu_abc",
- "input": {…}, "key": "sha256:…", "output": …,
- "error": {"type": "…", "message": "…"},
- "meta": {"t": 1234.5, "durMs": 88, "mocked": false, "class": "read", "usage": {…}}}
+{"kind": "effect", "seq": 17, "effect": "http.get", "cell": "main",
+ "input": {…}, "key": "sha256:…", "output": …, "error": null,
+ "meta": {"durMs": 88, "mocked": false, "class": "read"}}
 
 // span — guest-declared grouping of a facade call
 {"kind": "span", "seq": 24, "phase": "begin", "span": "s1", "parent": null,
- "name": "any.create_object", "cell": "toolu_abc", "input": {…}, "key": "sha256:…"}
+ "name": "any.create_object", "cell": "main", "input": {…}, "key": "sha256:…"}
 {"kind": "span", "seq": 31, "phase": "end", "span": "s1", "name": "any.create_object",
  "ok": true, "output": {…}, "meta": {"durMs": 88, "effects": 3, "mutations": 1, "kind": "mutator"}}
 
-// cell — the host verdict at cell end
-{"kind": "cell", "seq": 23, "cell": "toolu_abc", "ok": true, "interrupted": false,
- "metrics": {"fuel_used": 184223, "mem_pages": 512, "duration_ms": 240,
-             "value_store": {"entries": 7, "bytes": 91234}}}
+// cell — the host verdict at run end
+{"kind": "cell", "seq": 23, "cell": "main", "ok": true, "error": null, "interrupted": false,
+ "metrics": {"fuel_used": 184223, "duration_ms": 240}}
 ```
 
 | Field | Meaning |
 |---|---|
 | `seq` | the record's stable address — cited by errors, `--seq`, and `traceRef` anchors; replay never reads it |
-| `key` | sha256 of the canonical input (sorted keys, explicit defaults) — the mock-match identity |
+| `key` | sha256 over the effect name and the canonical input (sorted keys) — the mock-match identity |
 | `meta.class` | `read` or `mutate`, declared at the boundary |
+| `meta.hosted` | set on records the host emits itself, such as an `oauth.refresh` ahead of the request it serves |
 | `span` | id of the innermost open span; absent outside spans |
-| `meta.usage` | LLM tokens etc. — cost accounting is aggregation over this |
+| `startedAt` / `seed` | the run's frozen wall clock and entropy seed — replay re-derives every random value from them |
 
-Effects between a span's begin and end carry `"span": "s1"`. A span is a view-level collapse, never a recording-level one: the inner records stay canonical and are what replay consumes. A cell that traps mid-span gets its spans force-closed (`error.type: "unclosed_span"`) so the log stays well-nested.
+Effects between a span's begin and end carry `"span": "s1"`. A span is a view-level collapse, never a recording-level one: the inner records stay canonical and are what replay consumes. Model turns are `llm.chat` spans (their output carries the token usage cost accounting sums), and each model cell is a `cell` span. A run that traps mid-span gets its spans force-closed (`error.type: "unclosed_span"`) so the log stays well-nested.
 
-Outputs larger than ~64 KB are replaced by `{"__blob": "sha256:…", "bytes": N}` and stored in the sidecar; replay and the viewers resolve them transparently.
+Values larger than 64 KB are replaced by `{"__blob": "sha256:…", "bytes": N}` and stored with the trace; raw bytes are referenced as `{"__blob", "bytes", "mime"}`. Replay and the viewers resolve both transparently.
 
 ## Reading a run
 
+Every `trace` subcommand reads a server's local store with `--addr <any url> [--space bao]`, or a jsonl directory or file without it:
+
 ```sh
-anyrt trace ls                          # 30 newest runs, all programs
-anyrt trace ls --program toolcaller     # conversations only (cron runs outnumber them ~25:1)
-anyrt trace show run_<id>               # chronological render: turns, cells, effects (* = mutate)
-anyrt trace show run_<id> --full        # lift every clip
-anyrt trace show run_<id> --system      # + the system prompt
-anyrt trace show run_<id> --boot        # + the boot window verbatim
-anyrt trace show run_<id> --stats       # per-turn tokens / cache / cost table
-anyrt trace show run_<id> --seq 42      # one record, blob-resolved
-anyrt trace follow                      # live-render the newest run as records land
-anyrt trace stats traces/               # p50/p95 fuel, duration, tokens over a directory
+anyrt trace ls --addr http://127.0.0.1:7001                        # 30 newest runs, all programs
+anyrt trace ls --addr http://127.0.0.1:7001 --program toolcaller   # conversations only (cron runs outnumber them)
+anyrt trace show --addr http://127.0.0.1:7001 run_<id>             # chronological render: turns, cells, effects (* = mutate)
+anyrt trace show … run_<id> --full      # lift every clip
+anyrt trace show … run_<id> --system    # + the system prompt
+anyrt trace show … run_<id> --boot      # + the boot window verbatim
+anyrt trace show … run_<id> --stats     # per-turn tokens / cache / cost table
+anyrt trace show … run_<id> --seq 42    # one record, blob-resolved
+anyrt trace follow --addr …             # live-render the newest run as records land
+anyrt trace stats --addr …              # p50/p95 fuel, duration, tokens over every run
+anyrt trace blob sha256:<hex> -o out.png   # one raw blob's bytes
+anyrt trace ls traces/                  # a jsonl directory instead
 ```
 
-Clipped lines are locators: a clip ends `… (+N chars — --full)`, every effect line prints its `#seq`, and result blocks name the record they were mined from. The raw file is plain JSONL — never pretty-print the file itself:
+Clipped lines are locators: a clip ends `… (+N chars — --full)`, every effect line prints its `#seq`, and result blocks name the record they were mined from. A jsonl trace is one record per line — never pretty-print the file itself:
 
 ```sh
 jq 'select(.kind=="effect" and .meta.class=="mutate")' traces/run_<id>.jsonl
 jq 'select(.kind=="span" and .phase=="begin")' traces/run_<id>.jsonl
 ```
 
-From a chat reply to its trace:
+Cross-run questions — which run created an object, what wrote this week, which runs failed — are aggregation pipelines over `trace_records` and `trace_runs` through `POST /v1/local/aggregate`, the same queries a program runs with `effects.query`.
+
+From a chat reply to its trace: the turn log is the `bao/log/v1` child of the general chat's bundle, and its turns live in the `<typeId>_agent_turns` collection.
 
 ```sh
+LOG=$(curl -s -X POST "http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/system%3Ageneral-chat%2Fv1/children" \
+  -H 'Content-Type: application/json' -d '{"seed": "bao/log/v1"}' | jq -r .objectId)
+TURNS=$(curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/datasets \
+  | jq -r '.datasets[].name | select(endswith("_agent_turns"))')
 curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
-  -d "{\"objectId\": \"$CHAT\", \"dataset\": \"agent_turns\", \"sort\": [\"-seq\"], \"limit\": 1}" \
+  -d "{\"objectId\": \"$LOG\", \"dataset\": \"$TURNS\", \"sort\": [\"-seq\"], \"limit\": 1}" \
   | jq -r '.records[0].traceRef'
 ```
 
@@ -93,7 +104,3 @@ A mismatch in strict mode is a **divergence error** carrying both expected and a
 Replay never needs a secret: credentials are resolved after the canonical input is recorded, so nothing sensitive is in the log to begin with, and mocked calls don't execute.
 
 > **Why it matters.** Golden replay tests record once and assert forever, with no server and no API keys. Because `module.resolve` records carry the source bytes, a trace is self-contained — it replays after the program was edited, redeployed or deleted.
-
-## Promoting a run
-
-Traces stay local by default. The designed escape hatch is an on-demand promote — uploading one trace as an object with file attachments — opt-in per trace, never automatic.

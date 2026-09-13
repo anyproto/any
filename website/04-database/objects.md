@@ -13,7 +13,7 @@ An object is a document in a space: a set of attached types, property values key
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
   -H 'Content-Type: application/json' \
   -d '{
-    "types": ["<pageTypeId>"],
+    "types": ["page"],
     "initialProperties": { "any": { "name": "Dune" } }
   }'
 # → 201 {"objectId": "bafy…"}
@@ -28,7 +28,7 @@ The create body has exactly two keys:
 
 Any other top-level key answers `400 request.unknown_field` naming the accepted set; a wrong shape (a string where an object is expected) is `400 request.schema`. Nothing is silently dropped. Values under `initialProperties` are checked against each property's declared format (`400 property.format_violation`).
 
-Bind types at create time, or later through `POST …/properties/:objectId/attach/:typeId`. A module collection — chat messages, editor blocks, a runtime dataset — lives on an object only while it carries a type whose part declares it ([modules](../types/index.html)); a write without one is rejected with `400 dataset.not_declared`, and no write attaches a type for you.
+Bind types at create time, or later through `POST …/properties/:objectId/attach/:typeId`. A module collection — chat messages, editor blocks, a runtime dataset — lives on an object only while it carries a type whose part declares it ([modules](../types/index.html)); a write without one is rejected with `400 dataset.not_declared`, and no write attaches a type for you. A type whose part declares a reserved module — the general chat's — is carried only by its own root; naming it in `types` or attaching it is `400 type.reserved_carrier`.
 
 ## The object row
 
@@ -43,7 +43,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
 ```json
 { "records": [ {
   "id": "bafy…",
-  "any": { "types": ["<pageTypeId>"], "name": "Dune" },
+  "any": { "types": ["page"], "name": "Dune" },
   "author": "A5…", "spaceId": "bafy…",
   "createdAt":  { "$date": "2026-08-05T17:00:00.000Z" },
   "modifiedAt": { "$date": "2026-08-05T17:00:00.000Z" },
@@ -54,7 +54,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
 
 `author`, `spaceId`, `createdAt`, `modifiedAt` and `modifiedBy` are derived by the SDK and read-only; `modifiedAt` bumps on every synced write to the object and converges across peers on DAG order, and `modifiedBy` names the identity that signed that same change (`author` stays the creator). `modifiedAt` is the author's clock — good for `{"sort": ["-modifiedAt"]}`, never a fencing token. Full list in [System fields](system-fields.html).
 
-`GET /v1/spaces/:spaceId/properties/:objectId` returns the same row as `{"record": {…}}` when you already hold the id.
+`GET /v1/spaces/:spaceId/objects/:objectId` returns the same row as `{"objectId": "…", "record": {…}}` when you already hold the id — `404 object.not_found` for an id the space never had, `410 object.deleted` for a deleted one.
 
 ## The wiki tree
 
@@ -137,6 +137,8 @@ An edge is `{"source": {spaceId, objectId, dataset, recordId, typeId?}, "kind": 
 ```bash
 curl -X DELETE http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ   # → 204
 ```
+
+An unknown or already-deleted id is `404 sdk.not_found`, a reader or guest gets `403 space.read_only`, and a derived object — a bundle root installed with `derived: true`, such as the general chat — is permanent: `409 object.derived_undeletable`.
 
 The row receives a record-level tombstone, disappears from every `objects/query`, and a `removed` entry reaches subscribers of the cross-object stream. Per-object reads of a deleted id (`/query` with `objectId`, editor, history routes) answer `404 object.not_found`; the cross-object query has no such failure — a filter on a dead id returns zero rows.
 

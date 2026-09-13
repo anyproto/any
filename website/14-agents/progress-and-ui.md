@@ -29,6 +29,7 @@ any chat send $SPACE $CHAT "Looking at the last 20 issues…" --agent-name bao -
 | `name` | required, non-empty, ≤ 256 bytes — the display label |
 | `debugLink` | optional, ≤ 2 KiB; by convention `any://<spaceId>/<objectId>#turn_<n>` so a UI can deep-link from a message to the turn that produced it |
 | `done` | required boolean — `false` while the run is still going |
+| `outcome` | optional, ≤ 64 bytes — how a run that did not end normally ended; the runtime's terminal bubbles use `interrupted` and `error`, with the run id as `debugLink` |
 
 The group is a UI hint, not a signature: `creator` is still the change signer. It is immutable post-create and rejected with `400 chat.agent_invalid` on violations.
 
@@ -37,7 +38,7 @@ Two client conventions follow from `done`:
 - **Typing indicator** — cycle one while the *last* message in the chat is an agent message with `done: false`. Every run ends with a `done: true` message, including a run the host interrupted.
 - **Self-filtering** — an agent subscribed to `chat_messages` responds only to messages where `agent` is absent (typed by a human) or posted under another agent name.
 
-Interim assistant text before a tool call posts as a `done: false` bubble; the final reply posts with `done: true`. Markdown links in a reply whose destination is an `any://` URL become chat attachments automatically, so the UI shows object chips without a hand-built map. Details of the message shape: [Chat](../types/chat.html).
+Interim assistant text before a tool call posts as a `done: false` bubble; the final reply posts with `done: true`. Markdown links in a reply whose destination is an `any://` object or file URL become chat attachments automatically, so the UI shows chips without a hand-built map. Details of the message shape: [Chat](../types/chat.html).
 
 ## Progress bars
 
@@ -69,13 +70,17 @@ Callers own the throttle: tick per work chunk or percentage step, and at least e
 
 > **Note.** The registry is a live view with staleness expiry, not a log. A client that reconnects after a bar finished sees nothing; use the notify message or the job's own state object for history.
 
+## Presence and status line
+
+A running serve publishes a `bao.status` event on the account's [event bus](../realtime/event-bus.html) every 10 seconds and on every change: `state` (`boot`, `idle`, `working`, `shutdown`), the live run's title and tool-call count, and an optional prose `line`. The agent sets that line with `status@v1.set("reindexing the email corpus")`; it decays 90 seconds after the last set, and a client falls back to the run's title. Clients treat three missed beats as offline.
+
 ## UI context
 
-A client keeps a `ui_context` pointer object in the agent space describing what the user is looking at (space, object). The loop reads it through `any@v1.get_ui_context` and appends it to the current user message as a suffix, so "add this to the page" resolves without the user naming the page. A missing pointer degrades the suffix to timestamp-only. The suffix rides the model message only — the persisted turn keeps the raw `userText`.
+A client stamps a create-only `context` group on each chat message it sends — `{spaceId, objectId?, view?}`, what the user had open. The runtime hands it to the loop, which appends it to the user message as a `[now: … | user's view — …]` suffix and binds it in the kernel as `currentUserSpace`, so "add this to the page" resolves without the user naming the page. A message without a context degrades the suffix to timestamp-only. The suffix rides the model message only — the persisted turn keeps the raw `userText`.
 
 ## Space-resident UI helpers
 
-`anyrt serve` exposes a loopback control API with `POST /run`: `{program, args?}` runs a deployed program through the serve resolver; `{source, args?, program?}` runs caller-provided program text with nothing written to a space or disk (the debugging escape hatch). Either form returns `{status, value, error, traceRef, durationMs, fuelUsed}`, and the trace lands in the traces directory like any run.
+`anyrt serve` exposes a loopback control API with `POST /run`: `{program, args?}` runs a deployed program through the serve resolver; `{source, args?, program?}` runs caller-provided program text without deploying it (the debugging escape hatch). Either form returns `{status, value, error, traceRef, durationMs, fuelUsed}`, and the run leaves a trace and an `agent_runs` summary like any other.
 
 The first consumer is `ui@v1` — UI backend helpers dispatched on `args["method"]`. `emailSummary` fills one `email_messages` record's summary via the cheap model tier and returns `{ok, summary, cached?}`, writing nothing on failure. Because the helper is a program in the agent overlay, updating it is a deploy, not a client release.
 

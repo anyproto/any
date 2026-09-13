@@ -20,7 +20,7 @@ Both are POST because a filter does not fit a query string. Both have a `/subscr
 # every page in the space, newest edits first
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
   -H 'Content-Type: application/json' \
-  -d '{"filter": {"any.types": "<pageTypeId>"}, "sort": ["-modifiedAt"], "limit": 20}'
+  -d '{"filter": {"any.types": "page"}, "sort": ["-modifiedAt"], "limit": 20}'
 
 # the blocks of one document, in order
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
@@ -38,7 +38,9 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
   "sort":         ["-_ver.id"],
   "limit":        50,
   "offset":       0,
-  "includeTotal": true              // adds total + hasNext
+  "includeTotal": true,             // adds total + hasNext
+  "includeDeleted": false,          // per-object snapshot only: tombstones too
+  "projection":   { "any": 1 }      // field paths → 1 include / -1 exclude
 }
 ```
 
@@ -64,7 +66,7 @@ Multiple keys in one filter object are AND-ed. A bare value means `$eq`.
 | Sets | `$in`, `$nin`, `$all` |
 | Existence / shape | `$exists`, `$size`, `$type` |
 | Logical | `$and`, `$or`, `$nor`, `$not` |
-| Strings | `$regex` |
+| Strings | `$regex` (with `$options`) |
 
 ```json
 { "<typeId>.<propId>": "Casablanca" }
@@ -73,7 +75,7 @@ Multiple keys in one filter object are AND-ed. A bare value means `$eq`.
 { "$or": [ { "<t>.a": 1 }, { "<t>.b": "x" } ] }
 ```
 
-An operator outside this set is `400 filter.unknown_operator`, with the token in `details.operator` and the supported list in the message.
+An operator outside this set is `400 filter.unknown_operator`, with the token in `details.operator` and the supported list in the message; any other malformed filter is `400 filter.invalid`, located by `details.path`.
 
 ### Arrays
 
@@ -128,9 +130,13 @@ A type's `xKey` is a client-side label, never a server path.
   "sort": ["-_ver.id"], "limit": 50 }
 ```
 
-`includeTotal` is page-bounded: the SDK applies `limit` to the count, so with `limit: 50` you get `total ≤ 50`. For an exact count query without a limit, or use a `$count` [aggregation](aggregation.html).
+`includeTotal` counts every filter match, ignoring `limit` and `offset`, from the same read as the page; `hasNext` is `offset + len(records) < total`. For counts per group, use a `$count` / `$group` [aggregation](aggregation.html).
 
 > **Why it matters.** Every query runs against a local database, so the cost of a read is disk, not network. Always set a `limit` anyway: an unbounded read builds a huge snapshot, and on a subscription it can overflow the mailbox.
+
+## Tombstones
+
+A deleted record is a tombstone: its content is wiped, its id is burned, and every read skips it. A per-object `/query` snapshot with `"includeDeleted": true` returns tombstones next to live rows, told apart by `_deletedAt` — the probe a writer of caller-supplied ids uses to find the highest id ever used (`"sort": ["-id"], "limit": 1`). The flag is refused on `/subscribe` (`400 request.invalid_field`) and unknown on `objects/query` (`400 request.unknown_field`), where a deleted object leaves no row.
 
 ## CLI
 
@@ -138,7 +144,7 @@ A type's `xKey` is a client-side label, never a server path.
 
 ```bash
 any query-subscribe $SPACE $OBJ --dataset editor_blocks --sort nav.pos --limit 50
-any query-subscribe $SPACE --properties --filter '{"any.types": "'$PAGE'"}' --sort -modifiedAt --limit 20
+any query-subscribe $SPACE --properties --filter '{"any.types": "page"}' --sort -modifiedAt --limit 20
 ```
 
 ## Related

@@ -1,6 +1,6 @@
 ---
 title: Links
-description: The canonical any:// link grammar — one self-describing URI for objects, dataset records, mentions, spaces, property values and files.
+description: The canonical any:// link grammar — one self-describing URI for objects, dataset records, mentions, spaces, property values and files — and the link index behind backlinks.
 order: 40
 ---
 # Links
@@ -98,8 +98,20 @@ any://<spaceId>/<objectId>    global object reference
 
 Relation property values use the one-segment form, and agent `debugLink` fields on chat messages use `any://<spaceId>/<objectId>#turn_<n>`. Parsers accept both as kind `o`; the link index canonicalises every written form to `any://o/<spaceId>/<objectId>` before keying backlinks on it; new typed references (mentions, files, citations, records) always use the explicit-kind form. No stored value is rewritten.
 
+## The link index
+
+The server scans the data it indexes for `any://` references and keeps every one as an edge — source place, kind, canonical target — next to its search index, so "what links here" is a read, not a scan:
+
+| Source | What is scanned | Edge kinds |
+|--------|-----------------|------------|
+| editor blocks | block `text` | `link`, `mention`; `card` for a paragraph that is exactly one `[…](any://o/…)` or `[…](any://f/…)` link; `embed` for a synced-block reference in an `html` block |
+| chat messages | `text`, each attachment's `link`, `agent.debugLink` | `link`, `mention` |
+| property values and runtime-dataset fields | fields whose descriptor carries `xFormat.links` | `relation` for a `link` / `links` field; `link`, `mention` for a `markdown` field |
+
+`xFormat.links` is the marker: `link` (the string is one reference), `links` (the array lists references), `markdown` (the text is scanned) or `none` (never scanned). The `relation` slug implies `links` and the `markdown` slug implies `markdown`; plain `text` and `longtext` are never scanned. Canonical targets keep a record path a record path, drop params and fragments, and drop a link from an object to itself. Read the index with `GET …/objects/:objectId/backlinks`, `GET …/objects/:objectId/links` and the account-wide `GET /v1/backlinks?target=<uri>` — see [objects](../database/objects.html#links-and-backlinks) — and refresh an open panel on the device-scope `links.updated` [event](../realtime/event-bus.html).
+
 ## Use the package, not a regex
 
 The grammar ships as the public Go package `github.com/anyproto/any/anyuri` — builders (`BuildObject`, `BuildMention`, …), `Parse`, `IsValid`, `IsPropertyValueRef`, `ExtractLinks` (the sanctioned scanner the server's link index uses, with `Canonical` for the index-key form) and `ExtractMentions`, its filter the server uses to derive chat mentions. `Parse` distinguishes an unknown kind (`ErrKindUnknown`, degrade) from a malformed URI (`ErrInvalid`, reject); classify with `errors.Is`. Clients and agents import the rule rather than reimplementing it.
 
-> **Note.** Invite deep links (`i`) are reserved but not implemented — invites are shared as raw text tokens today (see [invites](../collaboration/invites.html)). Inline transclusion of a live value is not a link either; a future embed block will *contain* an `any://` target rather than be one.
+> **Note.** Invite deep links (`i`) are reserved but not implemented — invites are shared as raw text tokens (see [invites](../collaboration/invites.html)). Transclusion is not a link either: a synced block is an `html` block that *contains* an `any://` target rather than being one.

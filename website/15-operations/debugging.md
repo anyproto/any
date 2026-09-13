@@ -15,8 +15,9 @@ curl -s http://127.0.0.1:7001/v1/health
 ```
 
 ```json
-{ "status": "ok", "version": "any v0.1.0 (sdk v0.0.0)",
-  "startedAt": "2026-04-23T18:12:00Z", "account": "A3…", "bootstrapping": false }
+{ "status": "ok", "version": "any v0.1.2 (commit 1a2b3c4, built 2026-09-09)",
+  "startedAt": "2026-09-10T08:12:00Z", "account": "A3…", "bootstrapping": false,
+  "crdtVersion": { "supported": 1, "stored": 1, "newer": false } }
 ```
 
 | Symptom | Read |
@@ -25,8 +26,10 @@ curl -s http://127.0.0.1:7001/v1/health
 | `"account": ""` and `401 auth.required` everywhere | server is unauthorized — `any auth login` or `POST /v1/auth` ([Accounts](../auth/accounts.html)) |
 | `"bootstrapping": true` | the background boot pass is still loading spaces; reads may serve pre-offline state |
 | `409 auth.account_in_use` on auth | another process holds this account's instance lock |
+| `"crdtVersion": {"newer": true}` and `409 sdk.crdt_version_newer` on writes | another device raised the account's data version — upgrade this server; reads keep working |
+| `403 control.forbidden` | a managed server's auth or shutdown call without its control token (`ANY_CONTROL_TOKEN` for the CLI) |
 
-Add `--verbose` to any CLI command to see the HTTP exchange on stderr.
+Add `--verbose` to any CLI command to see the HTTP exchange on stderr. Without `--addr` the CLI connects to the address the account's running server recorded in `server.addr`, so a server on an ephemeral port is found too; with several servers under one root, pass `--addr`.
 
 ## Has this space converged?
 
@@ -77,7 +80,7 @@ Long-running index work shows up in the process view:
 any process list                       # GET /v1/processes
 ```
 
-`index.fts.<spaceId>` is the chunk backlog, `index.embed.<spaceId>` the vector drain with done/total, `index.model_download` the model fetch in bytes. Indexing announces itself only past three seconds of work, so ordinary edits never appear. On a search reply, `vectorStatus: "unavailable"` means the embedder is down or the model is still downloading; `disabled` means this server has none ([Hybrid ranking](../search/hybrid.html)). Content older than the index on this device is not in it — "index from the next change" ([How indexing works](../search/indexing.html)). If boot fails with an index schema-version or dimension mismatch, remove `<account-dir>/index/` and restart.
+`index.fts.<spaceId>` is the change backlog (done counts changes, total unknown), `index.embed.<spaceId>` the vector drain with done/total, `index.links_backfill.<spaceId>` a rebuild of the link index, `index.model_download` the model fetch in bytes. Indexing announces itself only past three seconds of work, so ordinary edits never appear. On a search reply, `vectorStatus: "unavailable"` means the embedder is down or the model is still downloading; `disabled` means this server has none ([Hybrid ranking](../search/hybrid.html)). If boot fails with an index schema-version or dimension mismatch, remove `<account-dir>/index/` and restart: every space then re-indexes from the beginning, visible as the processes above ([How indexing works](../search/indexing.html)).
 
 ## Reading an error
 
@@ -97,7 +100,8 @@ Every non-2xx response has one shape:
 | 400 | `filter.unknown_operator` / `filter.invalid` | the query filter did not parse; `details.path` points at it |
 | 401 | `auth.required` | unauthorized server |
 | 404 | `space.not_found` / `object.not_found` / `type.not_found` | the target id is unknown or deleted |
-| 409 | `index.disabled` / `push.disabled` | the feature is off on this server |
+| 405 | `space.unsupported` | the route does not apply to the tech space |
+| 409 | `index.disabled` / `push.disabled` / `local.disabled` / `access.disabled` | the feature is off on this server |
 | 500 | `internal` | unexpected failure — the server log has the stack |
 | 503 | `server.unavailable` / `index.embedder_unavailable` | shutting down / embedder outage; retry |
 
@@ -115,8 +119,8 @@ ANY_LOG_LEVEL=debug any run
 ```yaml
 log:
   defaultLevel: debug
-  format: json               # colorized | plaintext | json
-  addOutputPaths: ["~/.any/server.log"]
+  format: 2                  # 0 colorized | 1 plaintext | 2 json
+  outputPaths: ["/var/log/any/server.log"]   # absolute; ~ is not expanded
 ```
 
 5xx responses log at `error` with the full stack; panics are converted to `500 internal` with a generic message and the trace goes to the log. A startup warning that the binary was "built without the fts/vector tags" means search will return nothing — rebuild with `make build` ([Builds and CI](builds-and-ci.html)).
@@ -126,12 +130,12 @@ log:
 Every subscription is SSE, and the CLI prints one JSON object per frame, so the fastest way to see what a client sees is to attach the same stream:
 
 ```bash
-any query-subscribe $SPACE --dataset chat_messages --limit 20
+any query-subscribe $SPACE $CHAT --dataset chat_messages --sort=-_ver.id --limit 20
 any events subscribe --scope space --space $SPACE
 any sync-status subscribe
 ```
 
-Streams end with `closed{reason}` — `server_shutdown`, `sdk_closed`, `overflow`, `drifted` — and recovery is always "reconnect for a fresh snapshot" ([Subscribe](../realtime/subscribe.html)).
+Streams end with `closed{reason}` — `server_shutdown`, `deauthorized`, `sdk_closed`, `overflow`, `drifted` — and recovery is always "reconnect for a fresh snapshot"; after `deauthorized`, re-read `GET /v1/auth` first ([Subscribe](../realtime/subscribe.html)).
 
 ## The embedded UI
 

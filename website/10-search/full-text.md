@@ -21,7 +21,7 @@ curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/search \
 any search $SPACE "index.embedder_unavailable" --mode fts
 ```
 
-The reply's `vectorStatus` is `skipped` — the echo of your own choice — and `score` is the BM25 score.
+The reply's `vectorStatus` is `skipped` — the echo of your own choice (`disabled` on a server with no embedder) — and `score` is the BM25 score.
 
 ## Query operators
 
@@ -81,7 +81,7 @@ Three engine dials are exposed under `index.search.*`; all default to 0, meaning
 | `bm25K1` | term-frequency saturation | 1.2 |
 | `titleWeight` | BM25F boost for the title field (runtime datasets with an `x-search.title`) | 1.0 |
 
-The measured sweep found no non-zero value that helped on the reference corpus, so the knobs stay neutral; see [Evaluation](evaluation.html).
+`bm25B` and `bm25K1` are fixed when a space's index is created, and so is whether it has a title field at all, so setting them — or taking `titleWeight` from 0 to a value — takes a rebuild (remove the index directory); changing one non-zero `titleWeight` to another applies at query time. The measured sweep found no non-zero value that helped on the reference corpus, so the knobs stay neutral; see [Evaluation](evaluation.html).
 
 ## Reading the scores
 
@@ -92,6 +92,7 @@ BM25 scores are comparable only within one response, and never with the cosine o
 | Status | Code | When |
 |---|---|---|
 | 409 | `index.disabled` | the server runs with `index.enabled: false` |
+| 409 | `index.terms_unsupported` | `require` / `exclude` on a build without the full-text index, which is what enforces them |
 | 400 | `search.bad_mode` | `mode` is not `hybrid`, `fts` or `vector` |
 | 400 | `search.bad_scope` | a scope slug is malformed |
 

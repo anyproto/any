@@ -121,7 +121,8 @@ If the engine fails to boot after this call created the account dir, the half-cr
 | 409 | `auth.account_mismatch` | managed server runs another account; pass `replace: true` to switch |
 | 409 | `auth.mnemonic_mismatch` | the wallet on disk disagrees with the supplied phrase / index |
 | 409 | `auth.already_authorized` | `{}` while an account runs — a fresh account is never minted in place |
-| 400 | `auth.passkey_required` | encrypted wallet; the passkey comes from the configured env var, never the body |
+| 400 | `auth.passkey_required` | encrypted wallet with a missing or wrong passkey; the passkey comes from the configured env var, never the body |
+| 409 | `sdk.crdt_version_newer` | the account's data was written by a newer release; upgrade before opening it |
 | 500 | `auth.device_key_corrupt` | managed: the cached `device.key` is unreadable; remove it to mint a new device identity (this install then registers as a new peer) |
 
 ## One server, one account

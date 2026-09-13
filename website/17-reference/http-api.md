@@ -5,7 +5,7 @@ order: 10
 ---
 # HTTP API
 
-The any server listens on `127.0.0.1:7001` and exposes one JSON API under `/v1/`. Every endpoint below maps onto one SDK call (the two exceptions — `/search` and `/backlinks` — are marked), reads always go through `/query`, and every write returns the same result shape.
+The any server listens on `127.0.0.1:7001` and exposes one JSON API under `/v1/`. Endpoints map onto one SDK call each — the consumer-side features built next to the SDK (search, links and backlinks, the event bus, processes, the local store) are marked — reads always go through `/query`, and every write returns the same result shape.
 
 ## Conventions
 
@@ -15,6 +15,7 @@ The any server listens on `127.0.0.1:7001` and exposes one JSON API under `/v1/`
 - **Body limit** 1 MB on every route except file attach.
 - **Strict bodies**: endpoints whose OpenAPI schema carries `additionalProperties: false` answer `400 request.unknown_field` for any unknown top-level key. `GET /v1/openapi.json` is the authoritative list.
 - **Unauthorized server**: until an account is booted, every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth` answers `401 auth.required`.
+- **Tech space**: `GET /v1/account` returns its id as `techSpaceId`. It is a valid `:spaceId` for bundles, for types and records on bundle roots, and for the space read, sync-status, debug and sync routes; every other space-scoped route there answers `405 space.unsupported`.
 
 ### Write result
 
@@ -47,7 +48,7 @@ curl http://127.0.0.1:7001/v1/health        # any status
 | POST | `/v1/auth` | `{}` \| `{mnemonic, index?, replace?}` \| `{accountId}` (+ header `X-Any-Control-Token` on managed) | `{accountId, created, mnemonic?, alreadyAuthorized?}` | generates / restores / selects an account and boots the engine in place; the running account answers `200 {alreadyAuthorized: true}`; `replace: true` switches a managed server in place; `mnemonic` returned once, only when generated |
 | DELETE | `/v1/auth` | header `X-Any-Control-Token` | 204 | managed only: tears the account down in place, the server stays up unauthorized (`403 auth.not_managed` on standalone) |
 
-Errors: `400 auth.bad_mnemonic`, `400 request.invalid_field` (mnemonic + accountId together, `index` without `mnemonic`, `replace` without a credential, `accountId` on a managed server), `403 control.forbidden`, `403 auth.not_managed`, `404 auth.account_not_found`, `409 auth.account_in_use`, `409 auth.account_mismatch`, `409 auth.mnemonic_mismatch`, `409 auth.already_authorized`, `400 auth.passkey_required`, `500 auth.device_key_corrupt`. Details and the decision table: [Accounts](../auth/accounts.html).
+Errors: `400 auth.bad_mnemonic`, `400 request.invalid_field` (mnemonic + accountId together, `index` without `mnemonic`, `replace` without a credential, `accountId` on a managed server), `403 control.forbidden`, `403 auth.not_managed`, `404 auth.account_not_found`, `409 auth.account_in_use`, `409 auth.account_mismatch`, `409 auth.mnemonic_mismatch`, `409 auth.already_authorized`, `400 auth.passkey_required`, `409 sdk.crdt_version_newer`, `500 auth.device_key_corrupt`. Details and the decision table: [Accounts](../auth/accounts.html).
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/auth -d '{}'      # any auth login
@@ -57,8 +58,9 @@ curl -X POST http://127.0.0.1:7001/v1/auth -d '{}'      # any auth login
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| GET | `/v1/account` | — | own id + metadata | |
+| GET | `/v1/account` | — | `{id, metadata?, techSpaceId}` | |
 | PUT | `/v1/account/metadata` | `{name?, description?, iconCid?}` | 204 | at least one field (`400 request.missing_field`); the profile is encrypted — contacts see it only after a shared-space or 1-1 key exchange |
+| POST | `/v1/account/access-code` | `{code}` | `{status: accepted\|already_redeemed, redemptionId?}` | signs the code with the account key and relays it to the invite service at `access.redeemUrl`; `409 access.disabled` without one; refusals are `access.*` with the service's code in `details.code` |
 | GET | `/v1/identities` | — | `{identities: [IdentityInfo]}` | account-global directory of every identity encountered; carries no rights |
 | GET | `/v1/identities/:identity` | — | `IdentityInfo` | `404 identity.not_found` |
 | GET | `/v1/identities/subscribe` | — | SSE `identities` frames | see [Events](events.html) |
@@ -69,21 +71,21 @@ curl -X POST http://127.0.0.1:7001/v1/auth -d '{}'      # any auth login
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| POST | `/v1/spaces` | `{name, …}` | 201 `SpaceInfo` | |
-| GET | `/v1/spaces` | `?status=all\|<status>` | `[]SpaceInfo` | active-only by default; deleted rows are sticky tombstones |
+| POST | `/v1/spaces` | `{name?, description?, iconCid?, spaceType?}` | 201 `SpaceInfo` | |
+| GET | `/v1/spaces` | `?status=all\|<status>` | `{spaces: [SpaceInfo]}` | active-only by default; deleted rows are sticky tombstones |
 | POST | `/v1/spaces/query` | snapshot body + `dataset?` (`spaces` \| `profile`) | `{records, total?, hasNext?}` | raw tech-space rows; other datasets `400 request.invalid_field` |
 | POST | `/v1/spaces/query/subscribe` | same | SSE | see [Space list](../realtime/space-list.html) |
-| GET | `/v1/spaces/:spaceId` | — | `SpaceInfo` | non-active rows are served from the index without loading the space |
+| GET | `/v1/spaces/:spaceId` | — | `SpaceInfo` | non-active rows are served from the index without loading the space; a deleted id reads `200` with `status: "deleted"` |
 | PATCH | `/v1/spaces/:spaceId` | `{name?, description?, iconCid?}` | 204 | absent = keep, `""` = clear; at least one field; mirror is async |
 | PATCH | `/v1/spaces/:spaceId/settings` | `{set: {k: scalar}, unset: [k]}` | 204 | account-private per-space settings; `notifyMode` = `all\|mentions\|none` |
 | POST | `/v1/spaces/:spaceId/sync` | — | 204 | forces one head-sync round; blocks until done |
-| DELETE | `/v1/spaces/:spaceId` | — | 204 | real offline-first deletion; `409 space.derived_undeletable`, `404 space.not_found` |
-| POST | `/v1/spaces/join` | `{inviteToken, metadata?}` | 202 `SpaceInfo` | request-to-join (status `joining`); guest tokens auto-detected; `400 invite.invalid`; `409 space.deleted` on a space this account deleted |
+| DELETE | `/v1/spaces/:spaceId` | — | 204 | real offline-first deletion; on a `joining` row it withdraws the request; `409 space.derived_undeletable`, `404 space.not_found` |
+| POST | `/v1/spaces/join` | `{inviteToken, metadata?}` | 201 \| 202 `SpaceInfo` | 202 while the request awaits approval (status `joining`); guest tokens auto-detected (201 once loaded, 202 while loading); `400 invite.invalid`; `409 space.deleted` on a space this account deleted; `409 space.already_member` for a guest token of a space already tracked |
 | GET | `/v1/spaces/derived` | — | `{spaces: [{name, spaceId, created, status?}]}` | resolves, never creates |
 | POST | `/v1/spaces/derived/:name` | — | 201 `SpaceInfo` | idempotent; `404 space.derived_unknown`, `409 space.deleted` |
 | GET | `/v1/spaces/:spaceId/datasets` | — | `{datasets: [{name, schema, owners?, module, shared?}]}` | JSON Schema with `x-scope` per field; `owners` = the types whose parts declare the collection |
 | GET | `/v1/datasets` | — | `{datasets: [{name, schema}]}` | tech-space system datasets |
-| POST | `/v1/spaces/:spaceId/search` | `{query, scopes?, limit?, mode?, require?, exclude?}` | `{hits, mode, vectorStatus}` | local index, not an SDK method; `409 index.disabled`, `400 index.no_embedder`, `503 index.embedder_unavailable`, `400 search.bad_mode`, `400 search.bad_scope` |
+| POST | `/v1/spaces/:spaceId/search` | `{query, scopes?, limit?, mode?, require?, exclude?, maxData?, passages?}` | `{hits, mode, vectorStatus}` | local index, not an SDK method; `limit` counts records (default 10), `passages` ≤ 10; `409 index.disabled`, `400 index.no_embedder`, `503 index.embedder_unavailable`, `409 index.terms_unsupported`, `400 search.bad_mode`, `400 search.bad_scope` |
 
 `SpaceInfo` fields worth knowing: `spaceIndexObjectId`, `createdAt`, `spaceType` (`any.space` \| `any.onetoone`), `author`, `ownRole` (`owner\|admin\|writer\|reader\|guest\|none`), `settings`, `push`, `derived`, `status`.
 
@@ -109,9 +111,9 @@ Pending rows are discovered through `GET /v1/spaces?status=one_to_one_pending` /
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| POST | `/v1/spaces/:spaceId/bundles` | `{id, name?, rootTypes?, rootProperties?, derived?, parts?, properties?, xKey?, layout?, weight?, hidden?}` | `{bundle, installed}` | adopt-or-install; a bundle may declare a full type on its root (`parts` its modules and datasets, `properties`, `xKey`, `layout`, `weight`, `hidden`); `409 bundle.not_ready`, `400 type.not_found`, `400 property.format_violation`, `409 type.xkey_conflict`, `409 bundle.reserved` for a `system:` id |
-| GET | `/v1/spaces/:spaceId/bundles` | — | `{bundles: [Bundle]}` | |
-| GET | `/v1/spaces/:spaceId/bundles/:bundleId` | — | `Bundle` | `404 bundle.not_found` |
+| POST | `/v1/spaces/:spaceId/bundles` | `{id, name?, rootTypes?, rootProperties?, derived?, parts?, properties?, xKey?, layout?, weight?, hidden?, selfTyped?}` | `{bundle, installed}` | adopt-or-install; a bundle may declare a full type on its root (`parts` its modules and datasets, `properties`, `xKey`, `layout`, `weight`, `hidden`; `selfTyped` makes the root carry that type); `409 bundle.not_ready`, `400 type.not_found`, `400 property.format_violation`, `409 type.xkey_conflict`, `400 dataset.module_reserved`, `409 bundle.reserved` for a `system:` id |
+| GET | `/v1/spaces/:spaceId/bundles` | — | `{bundles: [Bundle], synced}` | answers after the registry convergence wait; `synced: true` means an absent bundle is definitively not installed |
+| GET | `/v1/spaces/:spaceId/bundles/:bundleId` | — | `{bundle, synced}` | `404 bundle.not_found` |
 | POST | `/v1/spaces/:spaceId/bundles/:bundleId/resolve` | `{loserRootId}` | 204 | `409 bundle.loser_not_ready`, `409 bundle.not_loser` |
 | POST | `/v1/spaces/:spaceId/bundles/:bundleId/children` | `{seed, types?}` | `{objectId}` | deterministic child; `409 bundle.not_ready` |
 
@@ -136,12 +138,12 @@ Full semantics in [Bundles](../collaboration/bundles.html).
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| POST | `/v1/spaces/:spaceId/objects` | `{types?, initialProperties?}` | 201 `{objectId}` | closed vocabulary (`400 request.unknown_field`); nothing appended server-side — the tree is the wiki usecase's type ([Objects](../database/objects.html)) |
+| POST | `/v1/spaces/:spaceId/objects` | `{types?, initialProperties?}` | 201 `{objectId}` | closed vocabulary (`400 request.unknown_field`); nothing appended server-side — the tree is the wiki usecase's type ([Objects](../database/objects.html)); `400 type.reserved_carrier` for a type only its own root may carry |
 | POST | `/v1/spaces/:spaceId/objects/query` | snapshot body | `{records, total?, hasNext?}` | cross-object `objects` collection |
 | POST | `/v1/spaces/:spaceId/objects/query/subscribe` | snapshot body | SSE | |
 | POST | `/v1/spaces/:spaceId/objects/aggregate` | `{pipeline, groupLimit?, accumArrayLimit?, memoryLimitBytes?, explain?}` | `{records}` \| `{plan}` | `400 aggregate.bad_pipeline`, `400 aggregate.limit_exceeded` |
-| DELETE | `/v1/spaces/:spaceId/objects/:objectId` | — | 204 | tombstones the row, then tears down the tree; `404 sdk.not_found` |
-| GET | `/v1/spaces/:spaceId/objects/:objectId/backlinks` | — | `{backlinks: [{objectId, typeId, propId}]}` | reverse lookup over `links` properties; not an SDK method; unknown id ⇒ `[]` |
+| GET | `/v1/spaces/:spaceId/objects/:objectId` | — | `{objectId, record}` | the raw `objects` row; `404 object.not_found`, `410 object.deleted` |
+| DELETE | `/v1/spaces/:spaceId/objects/:objectId` | — | 204 | tombstones the row, then tears down the tree; `404 sdk.not_found`, `409 object.derived_undeletable`, `403 space.read_only` |
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects \
@@ -152,17 +154,29 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/query \
 
 Every `objects` row carries derived `author`, `createdAt`, `spaceId`, `modifiedAt`, `modifiedBy` (instants as `{"$date": …}`; `modifiedBy` is the identity that signed the change `modifiedAt` names). See [Objects](../database/objects.html) and [System fields](../database/system-fields.html).
 
+### Links and backlinks
+
+Reads over the link index the search indexer maintains — not SDK methods. All answer `409 index.disabled` when the index is off and reflect a write after the indexer's debounce.
+
+| Method | Path | Body/params | Returns | Notes |
+|---|---|---|---|---|
+| GET | `…/objects/:objectId/backlinks` | `?record&dataset` \| `?prop`, `?kind` (repeatable), `?limit` | `{object: [Link], parts: [Link], truncated?}` | edges pointing at the object itself vs one of its records or property values; `limit` default and max 500; unknown ids answer empty lists |
+| GET | `…/objects/:objectId/links` | same narrowing, `?dataset` alone | `{links: [Link], truncated?}` | edges whose source is the object |
+| GET | `/v1/backlinks` | `?target=<global any:// uri>`, `?kind`, `?limit` | `{spaces: [{spaceId, object, parts, truncated?}]}` | across every indexed space; a bare in-space URI is `400 request.invalid_field` |
+
+`Link` = `{source: {spaceId, objectId, dataset, recordId, typeId?}, kind, target: {uri, kind, spaceId, objectId?, dataset?, recordId?, propId?, identity?, fileId?}}`; `kind` is `mention`, `link`, `card`, `embed` or `relation`. A change publishes a device-scope `links.updated` event naming the moved targets. See [Links](../types/links.html).
+
 ### Editor (blocks and markdown)
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| GET | `…/objects/:objectId/editor/:collection/markdown` | — | markdown text | render transform over the editor collection (`editor_blocks` or `<typeId>_<key>`); `404 dataset.not_found` off-catalog, `400 dataset.not_declared` when no carried type declares it |
-| PUT | `…/objects/:objectId/editor/:collection/markdown` | `{content}` | `{inserted, updated, deleted, unchanged}` | parse → diff → per-block ops |
+| GET | `…/objects/:objectId/editor/:collection/markdown` | — | `{content}` | render transform over the editor collection (`editor_blocks` or `<typeId>_<key>`); `404 dataset.not_found` when no editor part in the space declares `:collection` |
+| PUT | `…/objects/:objectId/editor/:collection/markdown` | `{content}` | `{inserted, updated, deleted, unchanged}` | parse → diff → per-block ops; every editor write answers `400 dataset.not_declared` when none of the object's types declares the collection |
 | PATCH | `…/objects/:objectId/editor/:collection/markdown` | `{edits: [{oldText, newText, replaceAll?}]}` | PUT shape | all-or-nothing; `400 markdown.no_match`, `markdown.ambiguous_match`, `markdown.overlapping_edits` |
 | POST | `…/objects/:objectId/editor/:collection/markdown/append` | `{content}` | PUT shape (`inserted` only) | O(fragment), no diff |
-| POST | `…/objects/:objectId/editor/:collection/blocks` | `{type, style?, text?, nav?}` | 201 write result | `recordIds[0]` is the block id |
-| PATCH | `…/objects/:objectId/editor/:collection/blocks/:blockId` | `{set: {"dotted.path": v}, unset: [path]}` | write result | required fields cannot be unset |
-| DELETE | `…/objects/:objectId/editor/:collection/blocks/:blockId` | — | write result | no cascade to children |
+| POST | `…/objects/:objectId/editor/:collection/blocks` | `{type, style?, text?, nav?}` | 201 write result | `recordIds[0]` is the block id; `400 blocks.type_required` |
+| PATCH | `…/objects/:objectId/editor/:collection/blocks/:blockId` | `{set: {"dotted.path": v}, unset: [path]}` | write result | required fields cannot be unset; `404 blocks.not_found` |
+| DELETE | `…/objects/:objectId/editor/:collection/blocks/:blockId` | — | write result | no cascade to children; `404 blocks.not_found` |
 
 Reads: `POST /v1/spaces/:spaceId/query` with `{"objectId", "dataset": "editor_blocks", "sort": ["nav.pos"]}`. See [Editor](../types/editor.html) and [Markdown import/export](../database/markdown-import-export.html).
 
@@ -173,7 +187,7 @@ Reads: `POST /v1/spaces/:spaceId/query` with `{"objectId", "dataset": "editor_bl
 | POST | `/v1/spaces/:spaceId/query` | snapshot body + `objectId`, `dataset` | `{records, total?, hasNext?}` | per-object dataset; `404 object.not_found` |
 | POST | `/v1/spaces/:spaceId/query/subscribe` | same + `mailboxCapacity?`, `driftBudgetPercent?` | SSE | frames in [Events](events.html) |
 | POST | `/v1/spaces/:spaceId/aggregate` | `{objectId, dataset, pipeline, …}` | `{records}` \| `{plan}` | snapshot-only |
-| POST | `/v1/spaces/:spaceId/modify` | `{objectId, dataset, records: [{id, upsert?, ops}], traceIds?, scope?}` | write result | `scope: "local"` for device-local fields only |
+| POST | `/v1/spaces/:spaceId/modify` | `{objectId, dataset, records: [{id, upsert?, ops}], traceIds?, scope?}` | write result | `scope: "local"` for device-local fields only; a write onto a tombstoned record comes back as a `rejections` entry; `400 dataset.unknown`, `400 dataset.not_declared` |
 | POST | `/v1/spaces/:spaceId/upsert` | `{objectId, dataset, records: [{id, fields}], pageSize?, traceIds?}` | `{pages, created, updated, skipped, rejections}` | idempotent; `400 upsert.requires_user_ids`, `400 dataset.unknown`, `400 dataset.not_declared` |
 | POST | `/v1/spaces/:spaceId/delete-records` | `{objectId, dataset, recordIds}` | write result | |
 
@@ -182,10 +196,11 @@ Snapshot body (closed field set — unknown keys `400 request.unknown_field`):
 ```json
 { "objectId": "obj", "dataset": "chat_messages",
   "filter": {"unread": true}, "sort": ["-_ver.id"],
-  "limit": 50, "offset": 0, "includeTotal": true }
+  "limit": 50, "offset": 0, "includeTotal": true,
+  "projection": {"text": 1, "creator": 1} }
 ```
 
-Filter faults: `400 filter.unknown_operator`, `400 filter.invalid`. A serialized-nil `objectId` is `400 object.id_required`. Grammar in [Reading data](../database/reading-data.html); pipelines in [Aggregation](../database/aggregation.html).
+`projection` (dotted paths → `1` include / `-1` exclude; `id` always ships, `_ver` narrows to match) shapes snapshot rows and every record in `changes` frames. `includeDeleted: true` (snapshot `…/query` only) returns record tombstones next to live rows. Filter faults: `400 filter.unknown_operator`, `400 filter.invalid`. A serialized-nil `objectId` is `400 object.id_required`. Grammar in [Reading data](../database/reading-data.html); pipelines in [Aggregation](../database/aggregation.html).
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/modify -d '{
@@ -209,16 +224,16 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
 | GET | `/v1/spaces/:spaceId/types` | `includeHidden?` | `{types}` | built-ins `any`, `spaceIndex`, `type` first, then registered (the hidden `dataview` / `page` / `miniapp` / `bin`), then user types; hidden types (bundle roots and hidden built-ins) only with `includeHidden=true` |
-| POST | `/v1/spaces/:spaceId/types` | `{name?, description?, iconCid?, xKey}` | 201 `TypeInfo` | `400 type.xkey_required`, `409 type.xkey_conflict` |
+| POST | `/v1/spaces/:spaceId/types` | `{name?, description?, iconCid?, xKey, weight?, layout?, hidden?, meta?}` | 201 `{typeId}` | `400 type.xkey_required`, `409 type.xkey_conflict`; properties and parts are added through their own routes |
 | GET | `/v1/spaces/:spaceId/types/:typeId` | — | `TypeInfo` | `404 type.not_found` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId` | — | — | `501 sdk.not_implemented` |
 | GET | `…/types/:typeId/properties` | — | `{properties: [PropertyDef]}` | `404 type.not_found`; `200 []` means "no properties yet" |
-| POST | `…/types/:typeId/properties` | `{name, kind?, xKey?, format?, meta?, scope?}` | 201 | `400 property.format_invalid`, `400 type.registered` |
-| PATCH | `…/types/:typeId/properties/:propId` | `{set, unset}` | 204 | `400 property.immutable`, `400 property.format_invalid`, `404 sdk.not_found` |
+| POST | `…/types/:typeId/properties` | `{name?, description?, kind, xKey?, xFormat?, meta?, scope?}` | 201 `{propId}` | `kind` required and pinned (`string`, `number`, `boolean`, `array`, `object`, `datetime`); `xFormat` is the descriptor ([Types and properties](../database/types-and-properties.html)); `meta` takes only `index`; `400 property.format_invalid`, `409 property.xkey_conflict`, `400 type.registered` |
+| PATCH | `…/types/:typeId/properties/:propId` | `{set, unset}` | 204 | `name`, `description`, `xKey`, `meta.index`, `xFormat.*` leaves; `400 property.immutable`, `400 property.format_invalid`, `409 property.xkey_conflict`, `404 sdk.not_found` |
 | DELETE | `…/types/:typeId/properties/:propId` | — | 204 | tombstone; values not cleaned up |
-| PATCH | `…/types/:typeId` | `{name?, description?, iconCid?, weight?, layout?, hidden?, meta?}` | 204 | rendering slice, the hidden flag and the per-key meta bag (`null` unsets a key); `400 type.registered` |
+| PATCH | `…/types/:typeId` | `{name?, description?, iconCid?, weight?, layout?, hidden?, meta?}` | 204 | rendering slice, the hidden flag and the per-key meta bag (`null` unsets a key); `400 type.registered`, `404 type.not_found` |
 | GET | `…/types/:typeId/parts` | — | `{parts: [{id, key, name?, icon?, pos?, hidden?, ui?, uses?, datasets: [DatasetDef]}]}` | |
-| POST | `…/types/:typeId/parts` | `{key, name?, icon?, pos?, hidden?, ui?, uses?, datasets?: [dataset draft]}` | 201 `{partId}` | one change; `409 dataset.key_conflict`, `400 dataset.module_unknown`, `400 dataset.shared_conflict`, `409 dataset.module_owned` |
+| POST | `…/types/:typeId/parts` | `{key, name?, icon?, pos?, hidden?, ui?, uses?, datasets?: [dataset draft]}` | 201 `{partId}` | one change; `409 dataset.key_conflict`, `400 dataset.module_unknown`, `400 dataset.module_reserved`, `400 dataset.shared_conflict`, `409 dataset.module_owned` |
 | PATCH | `…/types/:typeId/parts/:partId` | `{set, unset}` | 204 | `name`, `icon`, `pos`, `hidden`, `ui`, `uses`; `400 dataset.immutable` |
 | DELETE | `…/types/:typeId/parts/:partId` | — | 204 | removes the part and its datasets |
 | POST | `…/types/:typeId/parts/:partId/datasets` | `{key?, module?, shared?, displayName?, idRule?, deleteBy?, search?, fields, …}` | 201 `{datasetDefId, collection}` | collection = `<typeId>_<key>` (or the module's canonical when shared); `409 dataset.key_conflict`, `400 dataset.decl_invalid` |
@@ -226,11 +241,12 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 | PATCH | `…/types/:typeId/datasets/:defId` | `{set, unset}` | 204 | display leaves only; `400 dataset.immutable` |
 | DELETE | `…/types/:typeId/datasets/:defId` | — | 204 | |
 | POST | `…/types/:typeId/datasets/:defId/fields` | field def | 201 `{fieldDefId}` | never `required` |
+| PATCH | `…/types/:typeId/datasets/:defId/fields/:fieldId` | `{set, unset}` | 204 | `name`, `description`, `xFormat.*`; `400 dataset.immutable` |
 | DELETE | `…/types/:typeId/datasets/:defId/fields/:fieldId` | — | 204 | |
-| GET | `/v1/spaces/:spaceId/properties/:objectId` | — | `{record}` | raw row |
+| GET | `/v1/spaces/:spaceId/properties/:objectId` | — | `{record}` | raw `objects` row |
 | POST | `/v1/spaces/:spaceId/properties/:objectId/set/:typeId` | `{patch: {propId: value}}` | write result | routes by the props' declared scope; `400 property.format_violation`, `property.kind_mismatch`, `property.not_found` |
-| POST | `…/properties/:objectId/attach/:typeId` | — | — | `501 sdk.not_implemented` — bind types at create |
-| POST | `…/properties/:objectId/detach/:typeId` | — | — | `501 sdk.not_implemented` |
+| POST | `…/properties/:objectId/attach/:typeId` | — | write result | idempotent `$addToSet any.types`; checks both ids (`404 object.not_found`, `404 type.not_found`); `400 type.reserved_carrier`; `attach/bin` also stamps `bin.movedAt` / `bin.movedBy` |
+| POST | `…/properties/:objectId/detach/:typeId` | — | write result | idempotent `$pull`; checks neither id (the repair path); values and records stay as orphan data; `detach/bin` clears the stamps |
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/types -d '{"name":"Book","xKey":"book"}'
@@ -244,10 +260,10 @@ Values are keyed by `propId`, never `xKey`. See [Types and properties](../databa
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| POST | `…/objects/:objectId/chat/messages` | `{text?, replyToMessageId?, agent?, attachments?}` | 201 write result | `400 chat.text_required`, `400 chat.agent_invalid`; text ≤ 32 KiB |
+| POST | `…/objects/:objectId/chat/messages` | `{text?, replyToMessageId?, agent?, attachments?, context?, control?}` | 201 write result | text required unless `attachments` or `control` is set (`400 chat.text_required`); text ≤ 32 KiB (`400 chat.text_too_long`); `400 chat.reply_id_invalid`, `chat.agent_invalid`, `chat.attachments_invalid`, `chat.context_invalid`, `chat.control_invalid` |
 | PATCH | `…/chat/messages/:msgId` | `{text}` | write result | `403 chat.not_author`, `404 chat.not_found` |
 | DELETE | `…/chat/messages/:msgId` | — | write result | own only |
-| POST | `…/chat/messages/:msgId/reactions/:emoji` | — | write result | toggle |
+| POST | `…/chat/messages/:msgId/reactions/:emoji` | — | write result | toggle; `400 chat.emoji_invalid` (empty or > 64 bytes) |
 | POST | `…/chat/read-all` | — | 204 | |
 | POST | `…/chat/messages/:msgId/read` | — | 204 | marks this and everything before it |
 | POST | `…/chat/messages/:msgId/reactions-read` | — | 204 | |
@@ -259,7 +275,7 @@ Reads: `POST /v1/spaces/:spaceId/query` with `dataset: "chat_messages"`, `sort: 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
 | POST | `…/objects/:objectId/files` | raw body; `Content-Type`; `?name&variant&variantOf` | 201 `FileInfo` | body-limit exempt; `400 file.variant_invalid` |
-| POST | `…/objects/:objectId/files/query` | snapshot body | `{records}` | cleartext payload rows; `404 file.not_found` before first attach |
+| POST | `…/objects/:objectId/files/query` | snapshot body | `{records, total?, hasNext?}` | cleartext payload rows; `404 file.not_found` before first attach |
 | POST | `…/objects/:objectId/files/query/subscribe` | snapshot body | SSE | |
 | GET | `/v1/spaces/:spaceId/files` | `?objectId&limit` | `{files}` | |
 | GET | `/v1/spaces/:spaceId/files/stats` | — | durability counts | |
@@ -271,7 +287,7 @@ Reads: `POST /v1/spaces/:spaceId/query` with `dataset: "chat_messages"`, `sort: 
 | POST | `/v1/spaces/:spaceId/files/:fileId/retry` | — | 204 | |
 | POST | `/v1/spaces/:spaceId/files/:fileId/offload` | — | 204 | `409 file.not_durable` |
 | DELETE | `/v1/spaces/:spaceId/files/:fileId` | — | 204 | variants cascade |
-| GET | `/v1/files/cache` | — | size | all spaces |
+| GET | `/v1/files/cache` | — | `{size}` | all spaces |
 | POST | `/v1/files/cache/free` | `{bytes}` | `{freed}` | LRU, never the only copy |
 | POST | `/v1/files/cache/sweep` | — | 204 | |
 
@@ -288,16 +304,16 @@ See [Files](../files/index.html).
 |---|---|---|---|---|
 | GET | `/v1/spaces/:spaceId/members` | — | `{members: [Member]}` | authoritative roster with `permission` |
 | GET | `/v1/spaces/:spaceId/members/me` | — | `Member` | |
-| GET | `/v1/spaces/:spaceId/members/requests` | — | pending join requests | rows carry `requestRecordId` |
+| GET | `/v1/spaces/:spaceId/members/requests` | — | `{requests: [{recordId, identity, name?, description?, iconCid?}]}` | pass `recordId` as `requestRecordId` to `acl/accept` |
 | GET | `/v1/spaces/:spaceId/members/subscribe` | — | SSE `member` frames | |
 | GET | `/v1/spaces/:spaceId/members/:identity` | — | `Member` | |
-| POST | `/v1/spaces/:spaceId/invites` | — | 201 `{spaceId, inviteToken}` | replaces any prior invite |
+| POST | `/v1/spaces/:spaceId/invites` | — | 201 `{spaceId, inviteToken}` | replaces any prior invite; `409 invite.duplicate` when the engine refuses a second one |
 | GET | `/v1/spaces/:spaceId/invites` | — | `{invites: [{recordId, permission, inviteToken?}]}` | token only on the minting account's devices |
 | GET | `/v1/spaces/:spaceId/invites/:recordId` | — | one invite | `404 invite.not_found` |
 | DELETE | `/v1/spaces/:spaceId/invites` | — | 204 | revoke all |
 | DELETE | `/v1/spaces/:spaceId/invites/:recordId` | — | 204 | |
-| POST | `/v1/spaces/:spaceId/guest-key` | — | `{spaceId, inviteToken}` | public read-only token; owner only, idempotent |
-| DELETE | `/v1/spaces/:spaceId/guest-key` | — | 204 | rotates the read key |
+| POST | `/v1/spaces/:spaceId/guest-key` | — | 201 `{spaceId, inviteToken}` | public read-only token; owner only, idempotent |
+| DELETE | `/v1/spaces/:spaceId/guest-key` | — | 204 | rotates the read key; `404 guest_key.not_found` |
 | POST | `/v1/spaces/:spaceId/acl/accept` | `{requestRecordId, permission}` | 204 | |
 | POST | `/v1/spaces/:spaceId/acl/decline` | `{identity}` | 204 | |
 | POST | `/v1/spaces/:spaceId/acl/permissions` | `{changes: [{identity, permission}]}` | 204 | |
@@ -308,7 +324,7 @@ See [Files](../files/index.html).
 | POST | `/v1/spaces/:spaceId/acl/cancel-join` | — | 204 | joiner row reads `deleted`, re-request via `/v1/spaces/join`; `404 space.not_found`, `409 space.join_not_pending` |
 | POST | `/v1/spaces/:spaceId/acl/stop-sharing` | — | 204 | drops everyone |
 
-Permissions: `none`, `reader`, `guest`, `writer`, `admin`, `owner`. Member statuses: `unknown`, `joining`, `active`, `removed`, `declined`, `removing`, `canceled`. Guests writing get `403 space.read_only`. See [Collaboration](../collaboration/index.html).
+Permissions: `none`, `reader`, `guest`, `writer`, `admin`, `owner`. Member statuses: `unknown`, `joining`, `active`, `removed`, `declined`, `removing`, `canceled`. Guests writing get `403 space.read_only`; an ACL operation the caller's role does not allow is `403 acl.forbidden`, one naming an unknown request record `404 acl.record_not_found`. See [Collaboration](../collaboration/index.html).
 
 ## Sync status and debug
 
@@ -351,8 +367,8 @@ See [Event bus](../realtime/event-bus.html) and [Processes](../notifications/pro
 | GET | `/v1/devices` | — | `{devices, active: {slug: peerId}, self}` | election pre-resolved |
 | POST | `/v1/devices/query` | snapshot body | `{records}` | raw `devices` rows |
 | POST | `/v1/devices/query/subscribe` | snapshot body | SSE | |
-| PUT | `/v1/devices/me` | `{name?, apps?}` | — | `"apps": {"slug": null}` uninstalls; `409 device.pruned` |
-| POST | `/v1/devices/activate` | `{app}` | — | claim the active role on this device |
+| PUT | `/v1/devices/me` | `{name?, apps?}` | 204 | `"apps": {"slug": null}` uninstalls; `409 device.pruned` |
+| POST | `/v1/devices/activate` | `{app}` | 204 | claim the active role on this device |
 | DELETE | `/v1/devices/:peerId` | — | 204 | sticky tombstone; `404 device.not_found`, `400 device.self_delete` |
 | POST | `/v1/push/token` | `{platform: ios\|android, token}` | 204 | `409 push.disabled` without a push node |
 | GET | `/v1/push/token` | — | `{registered, platform}` | local state |
@@ -361,4 +377,25 @@ See [Event bus](../realtime/event-bus.html) and [Processes](../notifications/pro
 
 See [Devices](../auth/devices.html) and [Push](../notifications/push.html).
 
-> **Note.** POSTs are not idempotent — each one produces a new DAG change. The single exception is `/upsert`, where the caller-supplied record id is the idempotency key. Pagination is offset-based on every list.
+## Local store
+
+Device-local, non-CRDT collections that never sync — query, modifiers, indexes and aggregation for scratch sets, ingest staging and per-device caches. Not an SDK dataset: no type, no `_ver`, no subscribe, not search-indexed, and a space-scoped collection outlives its space. Every route answers `409 local.disabled` when `local.enabled` is false.
+
+| Method | Path | Body/params | Returns | Notes |
+|---|---|---|---|---|
+| GET | `/v1/local/meta` | — | `{stages, accumulators}` | the pipeline vocabulary |
+| GET | `/v1/local/collections` | `?scope=account\|space&spaceId` | `{collections: [{scope, spaceId?, name, storageName, count, indexes}]}` | |
+| PUT | `/v1/local/collections` | `{scope, spaceId?, name, indexes?}` | 201 \| 200 `{collection, created}` | ensure; `400 local.bad_index` leaves nothing behind |
+| DELETE | `/v1/local/collections` | `?scope&spaceId&name` | 204 | drop; no space pre-flight |
+| POST | `/v1/local/insert` | `{coll, docs}` | `{ids}` | missing `id` minted; `409 local.duplicate_id`; ≤ 1000 docs (`400 local.too_many_docs`) |
+| POST | `/v1/local/upsert` | `{coll, docs}` | `{ids}` | whole-document replace-or-insert |
+| POST | `/v1/local/update` | `{coll, id, modifier, upsert?}` | `{modified, record}` | `404 local.doc_not_found` without `upsert` |
+| POST | `/v1/local/delete` | `{coll, ids}` \| `{coll, filter}` | `{deleted}` | by filter is not atomic per call |
+| POST | `/v1/local/get` | `{coll, id}` | `{record}` | `404 local.doc_not_found` |
+| POST | `/v1/local/query` | `{coll, filter?, sort?, limit?, offset?, includeTotal?, projection?}` | `{records, total?, hasNext?}` | `limit` default 100, cap 1000 |
+| POST | `/v1/local/aggregate` | `{coll, pipeline, groupLimit?, accumArrayLimit?, memoryLimitBytes?, explain?}` | `{records}` \| `{plan}` \| `{written}` | `$out` / `$merge` / `$lookup` name local collections by `storageName` only (`400 local.bad_sink_target`) |
+| POST | `/v1/local/indexes` | `{coll, ensure?: [{name?, fields, unique?, sparse?}], drop?: [name]}` | `{indexes}` | |
+
+`coll` is `{scope: "account" | "space", spaceId?, name}`, `name` matching `^[a-z0-9][a-z0-9_-]{0,63}$` (`400 local.bad_name`). An op on a collection never ensured is `404 local.collection_not_found`; a space-scoped op answers `404 space.not_found` / `409 space.deleted` for its space.
+
+> **Note.** Synced writes are not idempotent — each POST produces a new DAG change. The exceptions are `/upsert`, where the caller-supplied record id is the idempotency key, and the adopt-or-install routes (`…/bundles`, `/v1/catalog/:usecaseId/setup`), where a second call adopts. Pagination is offset-based on every list.

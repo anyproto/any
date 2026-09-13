@@ -25,7 +25,7 @@ Browsers enforce CORS on top of the socket. The server allows exactly the origin
 | `http://tauri.localhost` | the same on Windows |
 | `http://localhost:5173`, `http://127.0.0.1:5173` | the desktop app's dev server |
 
-Custom schemes are unclaimable by web content and `.localhost` is pinned to loopback, so no remote web page can present these origins. Allowed headers are `Content-Type`, `Accept` and `Range` (ranged file downloads). Requests without an `Origin` header — curl, the CLI, same-origin — are unaffected. The allowlist does not widen the trust model: local processes were never gated by CORS in the first place.
+Custom schemes are unclaimable by web content and `.localhost` is pinned to loopback, so no remote web page can present these origins. Allowed headers are `Content-Type`, `Accept`, `Range` (ranged file downloads) and `X-Any-Control-Token` (the webview logging in a managed server). Requests without an `Origin` header — curl, the CLI, same-origin — are unaffected. The allowlist does not widen the trust model: local processes were never gated by CORS in the first place.
 
 ## The data: end-to-end encryption
 
@@ -42,7 +42,9 @@ What the network can observe: which peer ids sync which space ids, timing and si
 | Secret | Where | Notes |
 |---|---|---|
 | mnemonic | printed once by `any init`, never stored | back it up; it is the account |
-| `wallet.key` | `<account-dir>/wallet.key`, mode 0600 | optionally encrypted with a passkey (`ANY_WALLET_PASSKEY` or `--passkey-stdin`, never an interactive prompt) |
+| `wallet.key` | `<account-dir>/wallet.key`, mode 0600 | standalone; optionally encrypted with a passkey (`ANY_WALLET_PASSKEY` or `--passkey-stdin`, never an interactive prompt) |
+| `device.key` | `<account-dir>/device.key`, mode 0600 | managed; the device key only — the host supplies the account key on each boot and the server holds it in memory |
+| control token | printed once as `CONTROL_TOKEN <hex>` to the spawning host, or passed in-process | managed; never logged, never on disk; the CLI takes it from `ANY_CONTROL_TOKEN` |
 | embedder API key | `index.openai.apiKey` | sent as a Bearer header, never logged |
 | data on disk | `sdk/`, `files/`, `index/` | plaintext-readable with the wallet — protect the directory like a key store ([Data directory](data-dir.html)) |
 
