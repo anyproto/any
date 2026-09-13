@@ -43,6 +43,16 @@ func TestRewriteMarkdownLinks(t *testing.T) {
 [reference]: guide.html "Guide"
 <a href="guide.html#raw">Double</a>
 <a href='guide.html?raw=1'>Single</a>
+<https://docs.any.org/guide.html>
+<https://example.com/guide.html>
+
+- Nested list
+    [nested](guide.html)
+
+After the list.
+
+    [indented code](indented.html)
+    <https://docs.any.org/indented.html>
 
 ` + "`[inline code](inline.html)`" + `
 
@@ -67,6 +77,16 @@ func TestRewriteMarkdownLinks(t *testing.T) {
 [reference]: guide.md "Guide"
 <a href="guide.md#raw">Double</a>
 <a href='guide.md?raw=1'>Single</a>
+<https://docs.any.org/guide.md>
+<https://example.com/guide.html>
+
+- Nested list
+    [nested](guide.md)
+
+After the list.
+
+    [indented code](indented.html)
+    <https://docs.any.org/indented.html>
 
 ` + "`[inline code](inline.html)`" + `
 

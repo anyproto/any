@@ -4,11 +4,12 @@ import sys
 from urllib.parse import unquote, urlsplit
 
 
-ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist")
+ROOT = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist"))
 DOCS_HOST = "docs.any.org"
 HTML_LINK_RE = re.compile(r'href=["\']([^"\']+)')
 MARKDOWN_LINK_RE = re.compile(r"\]\(\s*<?([^\s)>]+)>?")
 REFERENCE_LINK_RE = re.compile(r"^\s*\[[^]]+\]:\s*<?([^\s>]+)", re.MULTILINE)
+AUTOLINK_RE = re.compile(r"<(https?://[^>\s]+)>")
 FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 INLINE_CODE_RE = re.compile(r"(?P<ticks>`+).*?(?P=ticks)")
 
@@ -26,6 +27,8 @@ def generated_files(extension):
 def markdown_without_code(markdown):
     visible = []
     fence = None
+    indented_code = False
+    previous_blank = True
     for line in markdown.splitlines():
         match = FENCE_RE.match(line)
         if fence is not None:
@@ -35,7 +38,19 @@ def markdown_without_code(markdown):
         if match:
             fence = match.group(1)
             continue
+        blank = not line.strip()
+        indented = line.startswith("    ") or line.startswith("\t")
+        if indented_code:
+            if blank or indented:
+                previous_blank = blank
+                continue
+            indented_code = False
+        if indented and previous_blank:
+            indented_code = True
+            previous_blank = False
+            continue
         visible.append(INLINE_CODE_RE.sub("", line))
+        previous_blank = blank
     return "\n".join(visible)
 
 
@@ -48,6 +63,7 @@ def links_in(path):
     return (
         MARKDOWN_LINK_RE.findall(markdown)
         + REFERENCE_LINK_RE.findall(markdown)
+        + AUTOLINK_RE.findall(markdown)
         + HTML_LINK_RE.findall(markdown)
     )
 
@@ -62,12 +78,15 @@ def local_target(source, target):
     if not path:
         return None
     if path.startswith("/") or parsed.hostname == DOCS_HOST:
-        return os.path.normpath(os.path.join(ROOT, path.lstrip("/")))
-    return os.path.normpath(os.path.join(os.path.dirname(source), path))
+        return os.path.realpath(os.path.join(ROOT, path.lstrip("/")))
+    return os.path.realpath(os.path.join(os.path.dirname(source), path))
 
 
 def check_link(source, target):
     resolved = local_target(source, target)
+    if resolved is not None and os.path.commonpath((ROOT, resolved)) != ROOT:
+        print("LINK OUTSIDE SITE", os.path.relpath(source, ROOT), "->", target)
+        return False
     if (
         resolved is not None
         and (source.endswith(".md") or source.endswith("llms.txt"))

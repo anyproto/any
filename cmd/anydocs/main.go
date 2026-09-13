@@ -22,9 +22,11 @@ import (
 	"strings"
 
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
 	"gopkg.in/yaml.v3"
 )
 
@@ -71,6 +73,7 @@ var (
 	wsRe            = regexp.MustCompile(`\s+`)
 	markdownLinkRe  = regexp.MustCompile(`(\]\(\s*<?)([^\s)>]+)(>?)`)
 	referenceLinkRe = regexp.MustCompile(`(?m)^(\s*\[[^]]+\]:\s*<?)([^\s>]+)(>?(?:\s+.*)?)$`)
+	autolinkRe      = regexp.MustCompile(`<(https?://[^>\s]+)>`)
 	htmlHrefRe      = regexp.MustCompile(`(?i)(\bhref\s*=\s*)(["'])([^"']+)(["'])`)
 )
 
@@ -327,10 +330,18 @@ func renderMarkdown(p *page) ([]byte, error) {
 // directly previewable; generated markdown links to the corresponding .md twin.
 func rewriteMarkdownLinks(body []byte) []byte {
 	lines := strings.SplitAfter(string(body), "\n")
+	indentedCodeLines := indentedCodeLineStarts(body)
 	var out strings.Builder
 	var fence byte
 	var fenceLen int
+	offset := 0
 	for _, line := range lines {
+		lineStart := offset
+		offset += len(line)
+		if _, isCode := indentedCodeLines[lineStart]; isCode {
+			out.WriteString(line)
+			continue
+		}
 		marker, length := markdownFence(line)
 		if fence != 0 {
 			out.WriteString(line)
@@ -349,6 +360,26 @@ func rewriteMarkdownLinks(body []byte) []byte {
 		out.WriteString(rewriteMarkdownLine(line))
 	}
 	return []byte(out.String())
+}
+
+func indentedCodeLineStarts(body []byte) map[int]struct{} {
+	starts := map[int]struct{}{}
+	document := goldmark.DefaultParser().Parse(text.NewReader(body))
+	_ = ast.Walk(document, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering || node.Kind() != ast.KindCodeBlock {
+			return ast.WalkContinue, nil
+		}
+		lines := node.Lines()
+		for i := 0; i < lines.Len(); i++ {
+			start := lines.At(i).Start
+			for start > 0 && body[start-1] != '\n' {
+				start--
+			}
+			starts[start] = struct{}{}
+		}
+		return ast.WalkSkipChildren, nil
+	})
+	return starts
 }
 
 func markdownFence(line string) (byte, int) {
@@ -408,6 +439,10 @@ func rewriteLinkDestinations(s string) string {
 	s = referenceLinkRe.ReplaceAllStringFunc(s, func(match string) string {
 		parts := referenceLinkRe.FindStringSubmatch(match)
 		return parts[1] + rewriteDocTarget(parts[2]) + parts[3]
+	})
+	s = autolinkRe.ReplaceAllStringFunc(s, func(match string) string {
+		parts := autolinkRe.FindStringSubmatch(match)
+		return "<" + rewriteDocTarget(parts[1]) + ">"
 	})
 	return htmlHrefRe.ReplaceAllStringFunc(s, func(match string) string {
 		parts := htmlHrefRe.FindStringSubmatch(match)
