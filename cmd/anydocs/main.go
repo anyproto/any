@@ -1,6 +1,7 @@
-// Command anydocs renders the website/ markdown tree into a static HTML
-// site. No config: folder order comes from the NN- filename prefix, page
-// order from `order:` front-matter (then filename), titles from `title:`.
+// Command anydocs renders the website/ markdown tree into static HTML and
+// agent-readable Markdown. No config: folder order comes from the NN- filename
+// prefix, page order from `order:` front-matter (then filename), titles from
+// `title:`.
 //
 //	anydocs [-src website] [-out website/dist]
 package main
@@ -12,6 +13,7 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -20,9 +22,11 @@ import (
 	"strings"
 
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
 	"gopkg.in/yaml.v3"
 )
 
@@ -34,14 +38,23 @@ type front struct {
 
 type page struct {
 	front
-	Section *section
-	Src     string // relative source path
-	URL     string // absolute site path, e.g. /database/objects.html
-	Body    template.HTML
-	Text    string // plain-ish text for the search index
-	Prev    *page
-	Next    *page
-	IsIndex bool
+	Section      *section
+	Src          string // relative source path
+	URL          string // absolute site path, e.g. /database/objects.html
+	MarkdownURL  string // absolute site path, e.g. /database/objects.md
+	MarkdownBody []byte // source markdown with author front-matter removed
+	Body         template.HTML
+	Text         string // plain-ish text for the search index
+	Prev         *page
+	Next         *page
+	IsIndex      bool
+}
+
+type markdownFront struct {
+	Title              string `yaml:"title"`
+	Description        string `yaml:"description"`
+	CanonicalURL       string `yaml:"canonical_url"`
+	DocumentationIndex string `yaml:"documentation_index"`
 }
 
 type section struct {
@@ -55,9 +68,12 @@ type section struct {
 }
 
 var (
-	prefixRe = regexp.MustCompile(`^(\d+)-(.*)$`)
-	tagRe    = regexp.MustCompile(`<[^>]*>`)
-	wsRe     = regexp.MustCompile(`\s+`)
+	prefixRe        = regexp.MustCompile(`^(\d+)-(.*)$`)
+	tagRe           = regexp.MustCompile(`<[^>]*>`)
+	wsRe            = regexp.MustCompile(`\s+`)
+	markdownLinkRe  = regexp.MustCompile(`(\]\(\s*<?)([^\s)>]+)(>?)`)
+	referenceLinkRe = regexp.MustCompile(`(?m)^(\s*\[[^]]+\]:\s*<?)([^\s>]+)(>?(?:\s+.*)?)$`)
+	htmlHrefRe      = regexp.MustCompile(`(?i)(\bhref\s*=\s*)(["'])([^"']+)(["'])`)
 )
 
 func main() {
@@ -120,7 +136,13 @@ func run(src, out string) error {
 		if err := md.Convert(body, &buf); err != nil {
 			return fmt.Errorf("%s: %w", rel, err)
 		}
-		pg := &page{front: fm, Src: rel, Body: template.HTML(buf.String()), Text: plain(buf.String())}
+		pg := &page{
+			front:        fm,
+			Src:          rel,
+			MarkdownBody: append([]byte(nil), body...),
+			Body:         template.HTML(buf.String()),
+			Text:         plain(buf.String()),
+		}
 		if pg.Title == "" {
 			pg.Title = firstHeading(body, humanize(strings.TrimSuffix(d.Name(), ".md")))
 		}
@@ -184,6 +206,7 @@ func run(src, out string) error {
 		all = append(all, s.Pages...)
 	}
 	for i, p := range all {
+		p.MarkdownURL = strings.TrimSuffix(p.URL, ".html") + ".md"
 		if i > 0 {
 			p.Prev = all[i-1]
 		}
@@ -193,6 +216,9 @@ func run(src, out string) error {
 	}
 
 	if err := os.RemoveAll(out); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
 		return err
 	}
 	// assets
@@ -206,17 +232,30 @@ func run(src, out string) error {
 	var index []idx
 	var llms strings.Builder
 	llms.WriteString("# any docs\n\n")
+	if home.Description != "" {
+		fmt.Fprintf(&llms, "> %s\n\n", home.Description)
+	}
 	for _, p := range all {
 		sec := ""
 		if p.Section != nil {
 			sec = p.Section.Title
 		}
 		index = append(index, idx{p.Title, p.URL, sec, truncate(p.Text, 4000)})
-		fmt.Fprintf(&llms, "- [%s](%s)", p.Title, p.URL)
-		if p.Description != "" {
-			fmt.Fprintf(&llms, ": %s", p.Description)
+	}
+	llms.WriteString("## Start\n\n")
+	writeLLMSLink(&llms, home, home.Title)
+	for _, s := range sections {
+		if len(s.Pages) == 0 {
+			continue
 		}
-		llms.WriteString("\n")
+		fmt.Fprintf(&llms, "\n## %s\n\n", s.Title)
+		for _, p := range s.Pages {
+			label := p.Title
+			if p.IsIndex {
+				label = "Overview"
+			}
+			writeLLMSLink(&llms, p, label)
+		}
 	}
 	ij, _ := json.Marshal(index)
 	if err := os.WriteFile(filepath.Join(out, "search.json"), ij, 0o644); err != nil {
@@ -243,9 +282,180 @@ func run(src, out string) error {
 		if err := os.WriteFile(dst, buf.Bytes(), 0o644); err != nil {
 			return err
 		}
+
+		markdown, err := renderMarkdown(p)
+		if err != nil {
+			return fmt.Errorf("%s: %w", p.Src, err)
+		}
+		markdownDst := filepath.Join(out, filepath.FromSlash(strings.TrimPrefix(p.MarkdownURL, "/")))
+		if err := os.WriteFile(markdownDst, markdown, 0o644); err != nil {
+			return err
+		}
 	}
 	fmt.Printf("anydocs: %d pages → %s\n", len(all), out)
 	return nil
+}
+
+func writeLLMSLink(b *strings.Builder, p *page, label string) {
+	fmt.Fprintf(b, "- [%s](%s)", label, p.MarkdownURL)
+	if p.Description != "" {
+		fmt.Fprintf(b, ": %s", p.Description)
+	}
+	b.WriteString("\n")
+}
+
+func renderMarkdown(p *page) ([]byte, error) {
+	frontMatter, err := yaml.Marshal(markdownFront{
+		Title:              p.Title,
+		Description:        p.Description,
+		CanonicalURL:       p.URL,
+		DocumentationIndex: "/llms.txt",
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out bytes.Buffer
+	out.WriteString("---\n")
+	out.Write(frontMatter)
+	out.WriteString("---\n\n")
+	out.Write(rewriteMarkdownLinks(p.MarkdownBody))
+	return out.Bytes(), nil
+}
+
+// rewriteMarkdownLinks keeps the authored markdown intact except for internal
+// documentation link destinations. Sources use .html so the HTML rendering is
+// directly previewable; generated markdown links to the corresponding .md twin.
+func rewriteMarkdownLinks(body []byte) []byte {
+	lines := strings.SplitAfter(string(body), "\n")
+	indentedCodeLines := indentedCodeLineStarts(body)
+	var out strings.Builder
+	var fence byte
+	var fenceLen int
+	offset := 0
+	for _, line := range lines {
+		lineStart := offset
+		offset += len(line)
+		if _, isCode := indentedCodeLines[lineStart]; isCode {
+			out.WriteString(line)
+			continue
+		}
+		marker, length := markdownFence(line)
+		if fence != 0 {
+			out.WriteString(line)
+			if marker == fence && length >= fenceLen && isClosingMarkdownFence(line, marker, length) {
+				fence = 0
+				fenceLen = 0
+			}
+			continue
+		}
+		if marker != 0 {
+			fence = marker
+			fenceLen = length
+			out.WriteString(line)
+			continue
+		}
+		out.WriteString(rewriteMarkdownLine(line))
+	}
+	return []byte(out.String())
+}
+
+func indentedCodeLineStarts(body []byte) map[int]struct{} {
+	starts := map[int]struct{}{}
+	document := goldmark.DefaultParser().Parse(text.NewReader(body))
+	_ = ast.Walk(document, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering || node.Kind() != ast.KindCodeBlock {
+			return ast.WalkContinue, nil
+		}
+		lines := node.Lines()
+		for i := 0; i < lines.Len(); i++ {
+			start := lines.At(i).Start
+			for start > 0 && body[start-1] != '\n' {
+				start--
+			}
+			starts[start] = struct{}{}
+		}
+		return ast.WalkSkipChildren, nil
+	})
+	return starts
+}
+
+func markdownFence(line string) (byte, int) {
+	trimmed := strings.TrimLeft(line, " ")
+	if len(line)-len(trimmed) > 3 || len(trimmed) < 3 || (trimmed[0] != '`' && trimmed[0] != '~') {
+		return 0, 0
+	}
+	marker := trimmed[0]
+	i := 0
+	for i < len(trimmed) && trimmed[i] == marker {
+		i++
+	}
+	if i < 3 {
+		return 0, 0
+	}
+	return marker, i
+}
+
+func isClosingMarkdownFence(line string, marker byte, length int) bool {
+	trimmed := strings.TrimLeft(line, " ")
+	if len(trimmed) < length || trimmed[0] != marker {
+		return false
+	}
+	return strings.TrimSpace(trimmed[length:]) == ""
+}
+
+func rewriteMarkdownLine(line string) string {
+	var out strings.Builder
+	for len(line) > 0 {
+		start := strings.IndexByte(line, '`')
+		if start < 0 {
+			out.WriteString(rewriteLinkDestinations(line))
+			break
+		}
+		out.WriteString(rewriteLinkDestinations(line[:start]))
+		run := 1
+		for start+run < len(line) && line[start+run] == '`' {
+			run++
+		}
+		closing := strings.Index(line[start+run:], strings.Repeat("`", run))
+		if closing < 0 {
+			out.WriteString(line[start:])
+			break
+		}
+		end := start + run + closing + run
+		out.WriteString(line[start:end])
+		line = line[end:]
+	}
+	return out.String()
+}
+
+func rewriteLinkDestinations(s string) string {
+	s = markdownLinkRe.ReplaceAllStringFunc(s, func(match string) string {
+		parts := markdownLinkRe.FindStringSubmatch(match)
+		return parts[1] + rewriteDocTarget(parts[2]) + parts[3]
+	})
+	s = referenceLinkRe.ReplaceAllStringFunc(s, func(match string) string {
+		parts := referenceLinkRe.FindStringSubmatch(match)
+		return parts[1] + rewriteDocTarget(parts[2]) + parts[3]
+	})
+	return htmlHrefRe.ReplaceAllStringFunc(s, func(match string) string {
+		parts := htmlHrefRe.FindStringSubmatch(match)
+		return parts[1] + parts[2] + rewriteDocTarget(parts[3]) + parts[4]
+	})
+}
+
+func rewriteDocTarget(target string) string {
+	u, err := url.Parse(target)
+	if err != nil {
+		return target
+	}
+	if u.IsAbs() || u.Host != "" {
+		return target
+	}
+	if !strings.HasSuffix(u.Path, ".html") {
+		return target
+	}
+	u.Path = strings.TrimSuffix(u.Path, ".html") + ".md"
+	return u.String()
 }
 
 func rootPrefix(url string) string {
@@ -326,6 +536,8 @@ const pageTpl = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Page.Title}} · any docs</title>
 {{if .Page.Description}}<meta name="description" content="{{.Page.Description}}">{{end}}
+<link rel="alternate" type="text/markdown" href="{{.Root}}{{.Page.MarkdownURL}}">
+<link rel="describedby" type="text/plain" href="{{.Root}}/llms.txt">
 <link rel="stylesheet" href="{{.Root}}/assets/site.css">
 <link rel="icon" href="{{.Root}}/assets/favicon.svg">
 </head>
