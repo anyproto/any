@@ -19,7 +19,7 @@ curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/search \
 any search $SPACE "what did we decide about the reranker?" --mode vector
 ```
 
-`score` is the cosine similarity. Unlike `hybrid`, pure `vector` mode does not degrade: without an embedder configured it answers `400 index.no_embedder`, and while a configured embedder is unreachable it answers `503 index.embedder_unavailable` — retryable. Full-text operators (`"phrases"`, `prefix*`, `require`, `exclude`) are ignored in this mode.
+`score` is the cosine similarity. Unlike `hybrid`, pure `vector` mode does not degrade: without an embedder configured it answers `400 index.no_embedder`, and while a configured embedder is unreachable — or does not embed the query within `index.search.queryEmbedTimeout`, default 5 s — it answers `503 index.embedder_unavailable`, retryable. The vector leg embeds the whole `query` verbatim, so `"phrases"` and `prefix*` have no effect here; `require` and `exclude` still bind every hit, because vector hits are post-filtered against the full-text index.
 
 ## How documents get vectors
 
@@ -62,14 +62,14 @@ The vector dimension is learned from the first successful embedding batch (or fi
 
 ## Long records
 
-The local embedder clamps input to `index.local.contextSize` tokens (default 2048, end-of-sequence token preserved because the model uses last-token pooling). Only the head of a very long record carries vector recall; full-text still covers all of it. Chat messages and editor windows are far smaller than the bound in practice.
+A record longer than about 2000 runes is indexed as several chunk documents, and each chunk is embedded whole, so vector recall covers the entire record; the hit shows the record's best-ranked chunk, and `passages` returns its other matching chunks. The local embedder clamps each text to `index.local.contextSize / index.local.batchDocs` tokens (default 2048 / 1, end-of-sequence token preserved because the model uses last-token pooling) — well above a prose chunk, though a chunk of dense code or CJK text can exceed it and embed head-only. Full-text covers every chunk in full regardless.
 
 ## Errors
 
 | Status | Code | When |
 |---|---|---|
 | 400 | `index.no_embedder` | `mode: vector` on a server with `index.embedder: none` (or a build without the vector leg) |
-| 503 | `index.embedder_unavailable` | `mode: vector` while the embedder is down or the model is still downloading; retry |
+| 503 | `index.embedder_unavailable` | `mode: vector` while the embedder is down, the model is still downloading, or the query embedding exceeds `queryEmbedTimeout`; retry |
 | 409 | `index.disabled` | indexer off (`index.enabled: false`) |
 
 Which embedders exist, and what happens when one is unreachable, is on [Embedders](embedders.html).

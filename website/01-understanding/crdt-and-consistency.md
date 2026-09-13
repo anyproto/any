@@ -58,7 +58,7 @@ Creates are upserts: two concurrent creates of the same id merge per field, and 
 
 | Property | Transactional DB (Postgres, a hosted backend) | any |
 |----------|-----------------------------------------------|-----|
-| A write can fail because of another writer | Yes — serialization failure, OCC version mismatch, unique violation | No. Writes always commit locally. Only *validation* (schema, handler rules, tombstone) rejects. |
+| A write can fail because of another writer | Yes — serialization failure, OCC version mismatch, unique violation | No. Writes always commit locally. Only *validation* (schema, handler rules, a collection none of the object's types declare, tombstone) rejects. |
 | Read-your-writes | Yes | Yes, on the writing device. |
 | Cross-record atomicity | Yes — a transaction spans rows and tables | One change spans the records of one object's dataset batch and applies atomically on each peer. Nothing spans objects. |
 | Invariants like "balance ≥ 0" | Enforced by the DB under contention | Cannot be enforced across concurrent writers. Model it as a counter (`$inc`) if it must converge, or accept that two offline decrements both apply. |

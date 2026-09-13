@@ -5,7 +5,7 @@ order: 40
 ---
 # Subagents
 
-`subagent@v1.delegate(space, task)` runs the same conversation loop in **quiet mode**: no chat bubbles, no boot window, no auto-recall, no persisted turn, and the parent's mailbox is left alone. The child's final reply returns to the calling cell as a value.
+`subagent@v1.delegate(space, task, opts=None)` runs the same conversation loop in **quiet mode**: no chat bubbles, no boot window, no auto-recall, no persisted turn, and the parent's mailbox is left alone. The child's final reply returns to the calling cell as a value.
 
 ## When to delegate
 
@@ -27,10 +27,10 @@ out["turns"], out["tokens"]
 | Aspect | Child loop |
 |---|---|
 | Space | the same space as the parent — same types, objects, programs |
-| Tools | the full tool surface; system prompt composed from the same skills, plus one line saying it is a subagent whose reply returns to the delegating agent |
+| Tools | the full tool surface; system prompt composed from the same skills without the `_soul` identity, plus a section saying it is a subagent whose reply returns to the delegating agent |
 | Context | only the task text — no chat history, no memory injection |
 | Chat | cannot post; interim text is not surfaced |
-| Ceilings | bounded like any run (`_MAX_TURNS = 30` for a delegated subtask) |
+| Ceilings | bounded like any run — `maxTurns` 30 by default; `opts` takes `maxTurns`, `maxTokensTotal`, `tier`, `agentName` |
 | Persistence | no `agent_turns` record, no ROI log |
 | Trace | the child's model calls and cells nest inside the parent's trace under the `subagent.delegate` span |
 

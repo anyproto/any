@@ -21,7 +21,7 @@ A cron expression that yields no next occurrence is an inert definition: the hea
 ```sh
 curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/upsert \
   -H 'Content-Type: application/json' \
-  -d "{\"objectId\": \"$ANCHOR\", \"dataset\": \"agent_triggers\",
+  -d "{\"objectId\": \"$ANCHOR\", \"dataset\": \"$TRIGGERS\",
        \"records\": [{\"id\": \"inbox-watch\", \"fields\": {
          \"name\": \"inbox watch\", \"kind\": \"cron\", \"spec\": {\"every_s\": 900},
          \"program\": \"mailWatch@v1\",
@@ -29,10 +29,10 @@ curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/upsert \
          \"enabled\": true, \"maxConsecutiveFailures\": 3}}]}"
 ```
 
-`$ANCHOR` is the trigger anchor from [Scheduling](index.html). From a program the same write is one call on the any client:
+`$ANCHOR` and `$TRIGGERS` (the anchor id and its collection name) come from [Scheduling](index.html). From a program the same write is one call on the any client, which takes the store key:
 
 ```python
-c = use("any@v1")
+c = use("agent:any@v1")
 anchor = c.bundle_child(space, "bao/v1", "bao/triggers/v1")["objectId"]
 c.upsert_record(space, anchor, "agent_triggers", "inbox-watch", {
     "name": "inbox watch", "kind": "cron", "spec": {"every_s": 900},
@@ -55,7 +55,7 @@ __any_tool__ = False
 
 
 def main(args):
-    c = use("any@v1")
+    c = use("agent:any@v1")
     gmail = use("connectors:gmail@v1")     # a connector from the connectors overlay
     new = fetch_new(gmail)                 # your own helper: pages the connector,
                                            # keeps a cursor in the space
@@ -68,7 +68,7 @@ def main(args):
 
 ## Missed occurrences do not exist
 
-The scheduler computes the next due time from *now* — when the owning device adopts the record, after each fire, whenever the definition is edited, and on an election takeover. A device that was off for a night fires the 8:00 digest tomorrow, not eight times on wake. This is a deliberate guard against the wake-and-replay burst, and it is the opposite of the [once](once.html) rule.
+The scheduler computes the next due time from *now* — when the owning device adopts the record, after each fire, whenever the definition is edited, and, for the standing jobs, on an election takeover. A device that was off for a night fires the 8:00 digest tomorrow, not eight times on wake. This is a deliberate guard against the wake-and-replay burst, and it is the opposite of the [once](once.html) rule.
 
 Consequences:
 
@@ -76,7 +76,7 @@ Consequences:
 - Flipping `enabled` false → true resets the circuit breaker and re-arms forward; other `enabled` edits are honored in place.
 - `every_s` counts from the previous fire, so a job that takes a while drifts; use a `cron` expression when the wall-clock time matters.
 
-> **Note.** During the ≤ one-poll window of an election handover, two devices can both believe they are active and double-fire a floating cron. Pin a job to one device (see [Device pins](device-pins.html)) if a duplicate run would be harmful, or make the program idempotent — most jobs that write through `upsert` already are.
+> **Note.** A claimed cron runs only on its owner, so an election handover never double-fires it. The exposure is the ≤ one-poll window in which two devices both believe they are active: both may claim a brand-new unassigned record before the record converges on one owner, and the standing jobs can overlap. Make programs idempotent where a duplicate run would hurt — most jobs that write through `upsert` already are. See [Device pins](device-pins.html).
 
 ## Pause, edit, delete
 
@@ -84,4 +84,13 @@ Pausing is `enabled: false` on the record; deleting the record evicts it from th
 
 ## The standing jobs
 
-The shipped agent runs a small set of built-in crons — history rollup hourly, memory extraction every 15 minutes, and similar maintenance — that are code-owned: they follow the active-instance election rather than a record pin and are never evicted by the reconcile. They appear in the trigger list like any other row.
+The shipped agent runs a small set of built-in crons that are code-owned: they follow the active-instance election rather than a record pin, and the reconcile never adopts, edits or evicts them. The active device writes their records, so they appear in the trigger list like any other row — but edits to those records are ignored, and every boot restores the definitions below.
+
+| id | Program | Every | Ships |
+|---|---|---|---|
+| `rollup` | `agent:rollup@v1` | 1 h | enabled |
+| `extraction` | `agent:extraction@v1` | 15 min | enabled |
+| `linkgen` | `agent:linkgen@v1` | 1 h | enabled |
+| `evolution` | `agent:evolution@v1` | 6 h | disabled |
+| `decay` | `agent:decay@v1` | 24 h | disabled |
+| `reflection` | `agent:reflection@v1` | 24 h | disabled |

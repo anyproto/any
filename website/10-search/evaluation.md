@@ -9,7 +9,7 @@ The search defaults are decisions backed by measurements on labeled benchmarks a
 
 ## Chunk size: coalesced editor windows
 
-The first index emitted one document per editor block. Blocks are tiny — mean ~98 characters, about half under 50 — which hurts vector recall (little to embed) and BM25 length normalization (short docs win on field length). Coalescing consecutive blocks into ~1.5 KB windows broken before headings fixed both.
+One document per editor block would index tiny chunks — blocks average ~98 characters, about half under 50 — which hurts vector recall (little to embed) and BM25 length normalization (short docs win on field length). Coalescing consecutive blocks into ~1.5 KB windows broken before headings fixes both, measured on a live index:
 
 | `editor_blocks` | mean | p50 | p90 | % < 50 chars |
 |---|---|---|---|---|
@@ -107,6 +107,8 @@ A SciFact FTS sweep showed a title boost and `b = 0.4` both slightly hurt (its t
 
 The local CPU model embeds at ~76 texts/s — the pipeline's bottleneck by orders of magnitude (any vector index inserts at thousands per second), which is why embedding lives off the indexing path. Parallel batches (`embedConcurrency`) are the online win: SciFact went from ~35 minutes serial-local to ~30 s. Batch size 64 reaches ≥97% of peak throughput at half the per-call latency of 128.
 
+Packing several documents into one local decode (`index.local.batchDocs`) buys nothing once each text keeps the same token bound: on a mixed record stream a GTX 1080 over Vulkan embedded 10.1 docs/s at one document per decode against 9.2 at four, and a 32-core CPU 2.16 against 2.14. Wider packing only looks faster because it splits the context between the texts and embeds less of each, so the default is one.
+
 ## Defaults at a glance
 
 | Knob | Default | Decided by |
@@ -120,6 +122,7 @@ The local CPU model embeds at ~76 texts/s — the pipeline's bottleneck by order
 | `minVectorSim` | 0 | floor cannot separate signal from noise |
 | `bm25B` / `bm25K1` / `titleWeight` | engine defaults | sweep showed no gain |
 | `embedBatch` / `embedConcurrency` | 64 / 1 local, 4 online | throughput curve |
+| `local.batchDocs` | 1 | packing gains nothing at an equal token bound |
 
 ## Reproducing
 

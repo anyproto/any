@@ -14,16 +14,16 @@ Releases ship one tarball per platform:
 | Artifact | Platform |
 |----------|----------|
 | `any-<version>-darwin-arm64.tar.gz` | macOS Apple Silicon |
-| `any-<version>-darwin-x64.tar.gz` | macOS Intel |
+| `any-<version>-darwin-x86_64.tar.gz` | macOS Intel |
 | `any-<version>-linux-x86_64.tar.gz` | Linux |
 | `any-<version>-windows-x86_64.tar.gz` | Windows |
-| `any-<version>-darwin-{arm64,x64}-sandbox.tar.gz` | macOS, for App-Sandboxed host apps ([Builds and CI](../operations/builds-and-ci.html)) |
+| `any-<version>-darwin-{arm64,x86_64}-sandbox.tar.gz` | macOS, for App-Sandboxed host apps ([Builds and CI](../operations/builds-and-ci.html)) |
 
 Each tarball contains:
 
 ```
 any[.exe]        # the server + CLI (built with the full-text and vector search legs)
-llamacpp/        # prebuilt llama.cpp shared libs for the in-process embedder
+llamacpp/        # prebuilt llama.cpp shared libs for the local embedder
 manifest.json    # { version, os, arch, llamacpp_version, sha256: {path: hash} }
 ```
 
@@ -42,11 +42,11 @@ Requires Go 1.26 and `make`.
 ```bash
 git clone https://github.com/anyproto/any
 cd any
-make build              # → ./any  (also fetches bin/llamacpp)
-./any version
+make build              # → bin/any  (also fetches bin/llamacpp)
+bin/any version
 ```
 
-Use `make build`, not `go build ./cmd/any`: the search index is behind build tags that the Makefile passes. A tag-less binary serves `/search` with zero hits and warns only once at boot. On NixOS (or any system without `libffi.so.8` on the loader path) run both the build and the binary through the repo's dev shell: `nix develop -c make build`, `nix develop -c ./any run`.
+Use `make build`, not `go build ./cmd/any`: the search index is behind build tags that the Makefile passes. A tag-less binary serves `/search` with zero hits and warns only once at boot. On NixOS (or any system without `libffi.so.8` on the loader path) run both the build and the binary through the repo's dev shell: `nix develop -c make build`, `nix develop -c bin/any run`.
 
 ## Create an account
 
@@ -54,11 +54,16 @@ Use `make build`, not `go build ./cmd/any`: the search index is behind build tag
 any init
 ```
 
+The recovery phrase prints to stderr, once, between two rules; stdout carries the result:
+
+```json
+{
+  "accountId": "A8tR…",
+  "created": true
+}
 ```
-account A8tR…  created at ~/.any/A8tR…/wallet.key
-mnemonic (write it down, it is shown once):
-  word1 word2 … word12
-```
+
+The wallet lands at `~/.any/<accountId>/wallet.key`. A second `any init` on the same data dir changes nothing and lists the accounts it holds (`--new` adds another).
 
 The mnemonic is the only way to restore the account on another device; there is no server-side recovery ([Encryption](../understanding/encryption.html)). To add a second device later:
 
@@ -83,7 +88,14 @@ any status
 ```
 
 ```json
-{ "status": "ok", "version": "any v0.3.0 (sdk v0.2.4)", "account": "A8tR…", "bootstrapping": false }
+{
+  "status": "ok",
+  "version": "any v0.1.2 (commit 1a2b3c4, built 2026-09-09T10:00:00Z)",
+  "startedAt": "2026-09-10T08:00:00Z",
+  "account": "A8tR…",
+  "bootstrapping": false,
+  "crdtVersion": { "supported": 1, "stored": 1, "newer": false }
+}
 ```
 
 The server serves as soon as it prints `LISTENING`; `bootstrapping` flips to `false` once the background space-loading pass finishes.

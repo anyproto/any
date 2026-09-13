@@ -35,8 +35,15 @@ curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/members
 | `identity` | account id |
 | `permission` | the role — see the table below |
 | `status` | the member's ACL state |
-| `name`, `iconCid` | profile, resolved from the same cache that feeds the [identities directory](../auth/identities.html); join-time metadata is the always-present baseline |
-| `requestRecordId` | present only on a pending-request entry — pass it to `POST …/acl/accept` |
+| `name`, `description`, `iconCid` | profile, resolved from the same cache that feeds the [identities directory](../auth/identities.html); join-time metadata is the baseline |
+| `requestRecordId` | present only on a member whose join request is pending — pass it to `POST …/acl/accept` |
+
+`GET …/members/requests` lists the pending join requests in their own shape — the `recordId` is what `POST …/acl/accept` takes as `requestRecordId`:
+
+```json
+{ "requests": [
+    { "recordId": "bafyrei…", "identity": "B7qz…", "name": "Bob" } ] }
+```
 
 ```bash
 any members list     <spaceId>
@@ -57,6 +64,8 @@ any members subscribe <spaceId>
 | `admin` | writer plus member management |
 | `owner` | everything, including ownership transfer and stop-sharing |
 
+An unknown permission string in an ACL body returns `400 request.schema`.
+
 ## Status strings
 
 | Wire string | Meaning |
@@ -68,8 +77,6 @@ any members subscribe <spaceId>
 | `declined` | join request declined |
 | `removing` | self-removal requested |
 | `canceled` | join request canceled by the requester |
-
-Unknown values sent on the wire (for example in an ACL body) return `400 request.schema`.
 
 ## Your own role from the space list
 
@@ -97,7 +104,7 @@ event: closed
 data: { "reason": "server_shutdown" }
 ```
 
-`member` always carries the full post-event row (same shape as `GET …/members/:identity`); `previous` is null on `added`. The forwarder is a small buffered channel — on `lagged`, re-`GET` the roster. The envelope and `closed` reasons are shared with the other [callback streams](../realtime/subscribe.html).
+`member` always carries the full post-event row (same shape as `GET …/members/:identity`); `previous` is null on `added`. The forwarder is a small buffered channel — on `lagged`, re-`GET` the roster. The envelope and `closed` reasons are shared with the other [callback streams](../realtime/index.html).
 
 ## Roster vs directory
 

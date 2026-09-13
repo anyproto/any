@@ -41,7 +41,7 @@ curl -s http://127.0.0.1:7001/v1/spaces/derived
 | `name` | registry name |
 | `spaceId` | the derived id — computed once at engine boot, never created by this call |
 | `created` | a usable space row exists, materialized here or on any of the account's devices (rows sync) |
-| `status` | the raw row status when a row exists; a tombstoned row reports `created: false` |
+| `status` | the row's status (the `SpaceInfo.status` strings) when a row exists; a tombstoned row reports `created: false` |
 
 ```bash
 curl -s -X POST http://127.0.0.1:7001/v1/spaces/derived/bao
@@ -73,9 +73,9 @@ any space derived create bao    # materialize
 
 > **Note.** A derived space is an ordinary space in every other respect — `spaceType: "any.space"`, members, [invites](invites.html), datasets, search. Only its id and its permanence are special.
 
-## Migrating from an ad-hoc space
+## Alongside an ad-hoc space
 
-An account that already carries a client-created space serving the same purpose (for example a space named "bao" minted by an older runtime) gets a second, derived space from the registry. The registry id is the convergence point going forward: move or re-import content from the legacy space; do not alternate between them.
+An account that also carries a client-created space serving the same purpose (for example a space named "bao" that a runtime created itself) gets a second, derived space from the registry. The registry id is the convergence point: move or re-import content from the ad-hoc space; do not alternate between them.
 
 ## Related
 

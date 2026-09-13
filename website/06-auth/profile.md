@@ -1,6 +1,6 @@
 ---
 title: Profile
-description: Read your own account id and metadata, and publish the encrypted name, description and icon other members see.
+description: Read your own account id and metadata, publish the encrypted name, description and icon other members see, and redeem an alpha access code.
 order: 40
 ---
 # Profile
@@ -15,17 +15,15 @@ curl -s http://127.0.0.1:7001/v1/account
 
 ```json
 { "id": "A8g1…",
+  "techSpaceId": "bafyrei…",
   "metadata": { "name": "Alice", "description": "writer, reader", "iconCid": "bafy…" } }
 ```
 
 | Field | Meaning |
 |-------|---------|
 | `id` | the account identity — what other people put into ACL grants, mentions and one-to-one derivations |
-| `metadata` | the profile as stored locally; omitted when never set |
-
-```bash
-any account
-```
+| `techSpaceId` | the account's private tech space — the `:spaceId` for account-level [bundles](../collaboration/bundles.html); it never appears in `GET /v1/spaces` |
+| `metadata` | the profile as stored locally; omitted when never set on this device |
 
 `id` is the value you exchange out of band — via a link, a QR code, or a shared space's member list — so that someone can [add you by identity](../collaboration/acl.html) or [open a direct chat](../collaboration/one-to-one.html) with you.
 
@@ -38,7 +36,7 @@ curl -s -X PUT http://127.0.0.1:7001/v1/account/metadata \
 ```
 
 ```bash
-any account set-metadata --name "Alice" [--description "..."] [--icon CID]
+any account set-metadata --name "Alice" [--description "..."] [--icon-cid CID]
 ```
 
 At least one of `name` / `description` / `iconCid` must be set; an all-empty body returns `400 request.missing_field`. The SDK persists the bytes to the local tech space and pushes them to the identity repository, so the new profile reaches every space you are a member of. Read it back from a space's roster with `GET /v1/spaces/:id/members/me`.
@@ -59,6 +57,29 @@ On the receiving side this shows up in two places, both of which must tolerate a
 | `GET /v1/identities` | the account-global [directory](identities.html); rows surface id-only until resolved |
 
 > **Note.** Profile writes are account-wide, not per space. There is no per-space display name; the join-time `metadata` passed to `POST /v1/spaces/join` seeds what members see before your profile key resolves, and is superseded once it does.
+
+## Redeeming an access code
+
+An alpha invite code raises the account's limits. The server signs `{purpose, ownerAnyId, code, ts}` with the account key and posts it to the invite service configured as `access.redeemUrl`, so the key never leaves the server and the client never talks to that service:
+
+```bash
+curl -s -X POST http://127.0.0.1:7001/v1/account/access-code -d '{"code": "K7QX-4MDP-…"}'
+# → {"status": "accepted", "redemptionId": "…"}
+
+any account redeem K7QX-4MDP-…
+```
+
+`status` is `accepted` (the limits grant is on its way) or `already_redeemed` (this account redeemed a code before; nothing is consumed). The code is compared upper-cased with whitespace removed.
+
+| Status | Code | When |
+|--------|------|------|
+| 409 | `access.disabled` | no `access.redeemUrl` configured |
+| 404 | `access.code_not_found` | unknown code |
+| 409 | `access.code_unusable` | disabled, expired or exhausted code (`details.code`) |
+| 400 | `access.request_rejected` | the service refused the request (`details.code`) |
+| 401 | `access.signature_rejected` | the service could not verify the account's signature |
+| 429 | `access.rate_limited` | the service is throttling this client |
+| 502 | `access.unavailable` | the service is unreachable or answered unexpectedly |
 
 ## Related
 

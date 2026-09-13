@@ -12,10 +12,10 @@ Everything that leaves a device is encrypted under keys that only space members 
 | Key | Where it comes from | What it does |
 |-----|---------------------|--------------|
 | **Account key** (Ed25519) | Derived from the BIP-39 mnemonic (SLIP-10 / SLIP-21). The mnemonic is shown once at `any init` / `POST /v1/auth`. | Your identity. Signs every change you write and every ACL record. |
-| **Device key** | Generated fresh on every `any init --mnemonic` restore. | Identifies this peer on the network. Never copy `wallet.key` between machines — two devices with one device key fight over one network identity. |
-| **Space read key** (symmetric) | Created with the space; delivered to each member through the ACL, encrypted to their account key. Rotates when the ACL changes. | Encrypts the payload of every change in the space. |
+| **Device key** | Generated per device: fresh on every `any init --mnemonic` restore, and minted once per account as `device.key` on a managed server. | Identifies this peer on the network. Never copy `wallet.key` between machines — two devices with one device key fight over one network identity. |
+| **Space read key** (symmetric) | Created with the space; delivered to each member through the ACL, encrypted to their account key. Rotates when a member is removed. | Encrypts the payload of every change in the space. |
 | **Profile key** (symmetric) | Account-derived. Shared with a contact only through a shared space's ACL metadata or a 1-1 invite. | Encrypts your name / description / icon in the identity repository. |
-| **Push keys** | Derived on demand from ACL state — the space push key from the ACL's first metadata key, the payload key from the current read key. Never stored. | Sign push topics; encrypt push payloads. |
+| **Push keys** | Derived from ACL state — the space push key from the ACL's first metadata key, the payload key from the current read key. Never synced; each device mirrors them onto its own space-list row as `SpaceInfo.push`. | Sign push topics; encrypt push payloads. |
 
 The mnemonic is the root of all of it. Restoring an account on a second device with the same phrase yields the same account key and, through the ACLs, the same read keys.
 
@@ -23,13 +23,14 @@ The mnemonic is the root of all of it. Restoring an account on a second device w
 
 ```
 TreeChange {
-  prevIds:     [ …heads this change was built on… ]   ← cleartext (DAG structure)
+  treeHeadIds: [ …heads this change was built on… ]   ← cleartext (DAG structure)
   aclHeadId:   …                                      ← cleartext (which ACL state applies)
   readKeyId:   …                                      ← cleartext (which read key decrypts it)
+  timestamp:   …                                      ← cleartext (author's clock)
   identity:    <account public key>                   ← cleartext
-  signature:   sign(accountKey, …)                    ← cleartext
-  data:        encrypt(readKey, CRDT ops)             ← CIPHERTEXT
+  changesData: encrypt(readKey, CRDT ops)             ← CIPHERTEXT
 }
+signature: sign(accountKey, change)                   ← cleartext, on the raw change
 ```
 
 Nodes verify the signature and the DAG links; they never hold a read key, so `data` is opaque to them.
@@ -52,7 +53,7 @@ Space name and description are not exempt: they are stored in a derived in-space
 
 **Pending spaces are not downloaded.** `GET /v1/spaces/:id` on a pending join or incoming 1-1 serves the tech-space row only; the server refuses to pull a space's ciphertext ahead of acceptance.
 
-**Removing a member rotates the key.** any-sync re-encrypts under a new read key when the ACL changes; changes written afterwards are unreadable to the removed identity. Old changes they already received stay readable to them — encryption is forward-looking.
+**Removing a member rotates the key.** any-sync switches the space to a new read key when a member is removed; changes written afterwards are unreadable to the removed identity. Old changes they already received stay readable to them — encryption is forward-looking.
 
 **Files are space data.** Inline files (< 4096 B) ride the CRDT; larger files become an encrypted UnixFS DAG. The cleartext part of a file row is `rootCid`, `size`, `objectId`, and the broker's custody receipt; name, mime, and key are one sealed member-only blob ([Files](../files/index.html)).
 
@@ -62,6 +63,6 @@ Space name and description are not exempt: they are stored in a derived in-space
 
 ## The local boundary
 
-Encryption protects data *between* devices. On the device itself the server is plaintext behind `127.0.0.1` — the trust boundary is the loopback interface, and anyone with a shell on the machine can call the API ([Security model](../operations/security-model.html)). The wallet file can additionally be encrypted with a passkey supplied via `ANY_WALLET_PASSKEY` or `--passkey-stdin`; the server never prompts for it interactively.
+Encryption protects data *between* devices. On the device itself the server is plaintext behind `127.0.0.1` — the trust boundary is the loopback interface, and anyone with a shell on the machine can call the API ([Security model](../operations/security-model.html)). The wallet file can additionally be encrypted with a passkey supplied via `ANY_WALLET_PASSKEY` or `--passkey-stdin`; the server never prompts for it interactively. A server started with `--mode managed` keeps no account key on disk at all: its host supplies the phrase over `POST /v1/auth` on every launch ([Accounts](../auth/accounts.html)).
 
 > **Note.** There is no key escrow and no recovery flow. Lose the mnemonic and every device key derived from it, and the data is unrecoverable by design. Back the phrase up when `any init` prints it.

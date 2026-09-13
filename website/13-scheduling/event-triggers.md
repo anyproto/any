@@ -1,42 +1,56 @@
 ---
 title: Event triggers
-description: The event kind — reserved in the trigger shape today, with a proposed design that fires programs on new chat messages and makes the chat responder itself a trigger.
+description: The event kind — fire a program on every new message in a chat, and the chat responder record that decides which device answers.
 order: 30
 ---
 # Event triggers
 
-`kind: "event"` is part of the trigger record shape, but no evaluator ships for it yet: an enabled event trigger is stamped `lastStatus: "unsupported_kind"` by the health pass rather than left silently inert. This page documents the reserved shape and the **proposed** design for the first event source. Everything under "Proposed" describes intent, not current behavior.
+An `event` trigger runs a program each time a new message lands in a chat. The owning device keeps one live subscription per watched chat next to its ticker, and every fire is a normal program run with a summary, a trace and the circuit breaker. The same mechanism carries the agent's own chat responder, so "which device answers" is a record you can read, pause and repin.
 
-## Today
-
-| Spec | Behavior |
-|---|---|
-| `{"dataset": "…", "objectId": "…", "filter": …}` | parsed and accepted; never fires; record carries `unsupported_kind` until the kind ships |
-
-A record with an unknown `kind` (anything other than `cron`, `once`, `event`) is skipped loudly by the reconcile and never enters the registry.
-
-If you need "react to a change" now, the working patterns are a short-interval [cron](cron.html) that reads its own cursor from the space, or the visible nudge: a program posts a message under a `trigger:<job>` agent identity and the chat loop answers it like user input.
-
-## Proposed: chat-message sources
-
-The design narrows the spec to one source in its first version:
+## Spec
 
 ```json
 {
   "name": "triage",
   "kind": "event",
-  "spec": {"dataset": "chat_messages", "objectId": "<chat object id>"},
+  "spec": {"dataset": "chat_messages", "objectId": "<chat object id>", "spaceId": "<space id>"},
   "program": "triage@v1",
-  "args": {"space": "bao"},
+  "args": {"label": "inbox"},
   "owner": "",
   "enabled": true
 }
 ```
 
-- **One source**: `dataset: "chat_messages"` with `objectId` a chat object in the agent space. Any other dataset parses fine and is marked `unsupported_source` by the health pass. `filter` is reserved and ignored.
-- **Delivery**: the owning device — the pin, or the active device for a floating record — keeps one SSE subscription per distinct chat across its enabled event triggers, alongside the ticker. A new message fires `main(args ∪ {"event": {"space", "objectId", "messageId", "text", "agent"?}})`. The agent's own messages never fire a trigger.
-- **Missed occurrences are live-only**, mirroring cron: a message that arrives while the owner is down does not fire the trigger later. No replay, no backlog.
-- **Bookkeeping is unchanged**: each fire is a normal run with a run record, rollup, circuit breaker and limits. A hot chat wearing out the breaker is the breaker doing its job.
+| Spec field | Meaning |
+|---|---|
+| `dataset` | the event source; `chat_messages` is the one delivered source |
+| `objectId` | the chat object to watch |
+| `spaceId` | the space the chat lives in; absent or empty means the agent space |
+| `filter` | reserved, ignored |
+
+Always set `spaceId` for a chat outside the agent space. A subscription on an object the space does not hold answers with an empty feed rather than an error, so a chat looked up in the wrong space is a watch that connects and never fires.
+
+| Marker | Cause |
+|---|---|
+| `invalid_spec` | `dataset` or `objectId` missing or empty |
+| `unsupported_source` | a `dataset` other than `chat_messages` |
+
+## Delivery
+
+- **One watch per chat.** The owning device subscribes once per distinct `(spaceId, objectId)` across its enabled event triggers, and stops the subscription when no trigger needs it — disabled, repinned away, deleted or tripped.
+- **New messages only.** An added message fires; a reaction toggle or a text edit on an existing message never does.
+- **Never its own output.** A message whose `agent.name` is this agent's name, or an agent message with no name, does not fire. A message from another agent identity (a `trigger:<job>` nudge, a peer agent) does.
+- **Live only**, mirroring cron: the subscription snapshot on connect only marks what already exists as seen, so a message that arrived while the owner was down or disconnected never fires later. An event that lands while the agent is still waiting for its overlays to sync is dropped, not queued.
+
+The program receives the record's `args` plus an `event` object:
+
+```json
+{"label": "inbox",
+ "event": {"space": "<space id>", "objectId": "<chat id>", "messageId": "<message id>",
+           "text": "can someone look at the build?", "agent": {…}, "attachments": {…}}}
+```
+
+`agent` and `attachments` are present only when the message carries them.
 
 ```python
 """Route incoming requests: label the message and post a short ack."""
@@ -48,33 +62,32 @@ def main(args):
     ev = args["event"]
     if ev.get("agent"):
         return {"ok": True, "skipped": "agent message"}
-    c = use("any@v1")
+    c = use("agent:any@v1")
     label = classify(ev["text"])
     c.chat_send(ev["space"], ev["objectId"],
                 {"text": f"filed under {label}", "agent": {"name": "triage", "done": True}})
     return {"ok": True, "label": label}
 ```
 
-## Proposed: the chat responder is a trigger
+Each fire is a normal run: an `agent_runs` summary with `triggerId`, the `lastRunAt` / `lastStatus` stamp, and the circuit breaker. A hot chat wearing out the breaker is the breaker doing its job. The example posts under `triage`, not the serving agent's name, so its own ack fires every trigger on that chat — this one included; the `agent` check is what keeps it from looping.
 
-The biggest background behavior of the agent — watching the general chat and answering — is proposed to become a reserved event-trigger record, `chat-watch` ("Chat responder"), seeded at boot:
+## The chat responder is a trigger
+
+Serve boot seeds one reserved record, `chat-watch` ("Chat responder"), on the trigger anchor:
 
 ```json
-{"kind": "event", "spec": {"dataset": "chat_messages", "objectId": "<general chat>"},
+{"name": "Chat responder", "kind": "event",
+ "spec": {"dataset": "chat_messages", "objectId": "<general chat>"},
  "program": "internal:chat-watch", "enabled": true, "owner": ""}
 ```
 
-- `program` is informational; the runtime recognizes the reserved id and routes fires through its existing conversation watcher — dedup, inject-into-live-conversation, deferred-while-not-ready, snapshot backlog — instead of a program run. Conversations are already logged as `agent_turns`, so no per-message run records; the rollup counts conversation starts.
-- Floating by default, so the election-active device answers. **Repinning it moves where the agent answers.**
-- `enabled: false` pauses answering everywhere — legal, visible in the UI, reversible. Pinned to an offline device means nobody answers, by design.
-- Boot re-seeds it if deleted.
+- `program` is informational. The runtime recognizes the reserved id and routes messages through its conversation watcher — dedup, injecting into a live conversation, deferring while overlays sync, and the reconnect snapshot backlog — instead of a program run. The backlog is the one exception to live-only: messages that arrived while nobody was answering get answered late. A message that lands during a live conversation is injected into it rather than starting a run; each conversation run publishes its `agent_runs` summary under the responder's id, and the record's `lastRunAt` marks the latest conversation start.
+- A device watches the chat **only while it owns the enabled `chat-watch` record**. The election-active device claims it and re-stamps it on a takeover; a device that stands down clears the owner on the record. Repinning it moves where the agent answers.
+- `enabled: false` pauses answering on every device — legal, visible and reversible. Pinned to an offline device, nobody answers, by design.
+- Boot seeds it only when no `chat-watch` record exists. Because a deleted id stays tombstoned, a reseed after a delete uses a generation id (`chat-watch-g2`, …), recognized as the same reserved record.
 
-> **Why it matters.** With this in place every background behavior of the agent is one mechanism — a record with an owner — and a remote runner (an always-on box, a VM) inherits all of it by holding pins. "Which device is the agent right now" becomes visible, queryable state instead of an invisible election verdict.
+> **Why it matters.** Every background behavior of the agent is one mechanism — a record with an owner — so a remote runner (an always-on box, a VM) inherits all of it by holding pins, and "which device is the agent right now" is queryable state instead of an invisible verdict.
 
-## Proposed: floating means floating
+## Not delivered
 
-Alongside the event kind, the ownership semantics tighten: an ownerless record (`owner: ""`) is run by the election-active device and **never stamped** with its peer id, so when the election moves, the trigger moves. A peer id is written only by an explicit act — a repin in the UI or a write from a program. See [Device pins](device-pins.html) for the current behavior this amends.
-
-## Out of scope in the first version
-
-Non-chat dataset sources, the `filter` field, cross-space sources, an event-creation UI (records come from the agent or programs; the UI renders and manages them), and liveness-based failover for pinned triggers — pins are the substrate for remote runners, and consensus without a coordinator is not on offer.
+Non-chat dataset sources, the `filter` field, and liveness-based failover for pinned triggers: pins are the substrate for remote runners, and consensus without a coordinator is not on offer. Where you need to react to other changes, use a short-interval [cron](cron.html) that reads its own cursor from the space. Ownership and claiming are on [Device pins](device-pins.html).

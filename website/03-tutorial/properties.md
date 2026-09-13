@@ -61,7 +61,7 @@ You now hold three different identifiers, and they are never interchangeable:
 | `xKey` (`site`) | the stable handle you declared | your own code |
 | `propId` (`$SITE`) | the content-addressed id of a property — **the write key** | `GET …/types/:typeId/properties` |
 
-Values are stored and written by `propId`. The server never sees an xKey: a write keyed by one fails with `property.not_found`. A client resolves `xKey → propId` once from the property list and caches the map:
+Values are stored and written by `propId`, never by xKey: a write keyed by an xKey fails with `property.not_found`. A client resolves `xKey → propId` once from the property list and caches the map:
 
 ```bash
 curl -s $API/spaces/$SPACE/types/$CRED/properties
@@ -103,6 +103,7 @@ Property paths on the wire are `<typeId>.<propId>`. Filter and sort on them like
 curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/json' -d '{
   "filter": {"$and": [{"any.types": "'$CRED'"},
                       {"any.types": {"$ne": "__type__"}},
+                      {"any.types": {"$nin": ["bin"]}},
                       {"'$CRED.$CATEGORY'": "work"}]},
   "sort": ["'$CRED.$ROTATED'"], "limit": 50}'
 ```
@@ -113,7 +114,7 @@ curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/j
   "filter": {"'$CRED.$ROTATED'": {"$lt": {"$date": "2026-06-10T00:00:00Z"}}}}'
 ```
 
-Two things to notice. `{"any.types": "<typeId>"}` is "objects carrying this type". And the `__type__` exclusion: a type definition is itself an object row in the space, and it matches a filter for its own type, so a plain type filter would return the Credential definition among the credentials. Excluding the marker is the idiom; write it every time ([Reading data](../database/reading-data.html)).
+Two things to notice. `{"any.types": "<typeId>"}` is "objects carrying this type". And the two exclusions. A type definition is itself an object row, marked `__type__`; the Credential type created above carries only the marker, but a type installed as a self-typed [bundle](apps.html) also carries its own id and would come back among its own objects. A binned object keeps its types, so an ordinary list leaves out `bin` carriers too. Write both clauses every time, and the query keeps working when the type later ships as a bundle ([Reading data](../database/reading-data.html)).
 
 The same body against `…/objects/query/subscribe` is a live list — the vault view of your password manager updates as entries change on any device.
 

@@ -7,7 +7,7 @@ order: 20
 
 The `editor` module stores an object's body as a tree of atomic blocks: one CRDT record per block, ordered by a lexicographic position, nested by parent id. Two members editing different paragraphs merge cleanly; an offline edit lands as a per-block change when the device reconnects. On top of the block collection sits a markdown bridge, so tools that think in text — exporters, importers, LLM agents — never have to walk the tree.
 
-An object holds an editor collection while it carries a type whose part declares the module ([modules](index.html)). Every editor route names the collection: `editor_blocks`, the canonical collection a shared part declares — the body every document type contributes to — or `<typeId>_<key>` for a part that wants an editor of its own (a meeting type's `notes` next to its body). A write into a collection none of the object's types declare is `400 dataset.not_declared`; a collection no editor part in the space declares is `404 dataset.not_found`. The examples below use `editor_blocks`.
+An object holds an editor collection while it carries a type whose part declares the module ([modules](index.html)). Every editor route names the collection: `editor_blocks`, the canonical collection a shared part declares — the body every document type contributes to — or `<typeId>_<key>` for a part that wants an editor of its own (a meeting's `summary` next to its shared notes). A write into a collection none of the object's types declare is `400 dataset.not_declared`; a collection no editor part in the space declares is `404 dataset.not_found`. The examples below use `editor_blocks`.
 
 ## Blocks
 
@@ -26,9 +26,9 @@ One record per block in the object's editor collection:
 
 | Field | Meaning |
 |-------|---------|
-| `type` | Required, ≤ 64 bytes. `paragraph`, `heading`, `list_item`, `check_list_item`, `code`, `quote`, `divider`, `html`, `table`, `image`. |
+| `type` | Required, ≤ 64 bytes. Known values: `paragraph`, `heading`, `list_item`, `check_list_item`, `code`, `quote`, `divider`, `html`, `table`, `image`; any other non-empty string is accepted, so clients can add block kinds. |
 | `style` | Open-ended object. Known keys: `level` (heading, 1–6), `ordered` (list_item), `checked` (check_list_item), `lang` (code). |
-| `text` | **Inline** markdown only — bold, italic, inline code, links, strikethrough. |
+| `text` | **Inline** markdown only — bold, italic, inline code, links, strikethrough. ≤ 64 KiB per block. |
 | `nav.parentId` | Parent block id; `""` for top-level. |
 | `nav.pos` | Lexid ordering siblings. |
 
@@ -72,14 +72,14 @@ curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blo
 curl -X DELETE http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/blocks/$BLK
 ```
 
-CLI equivalents: `any editor blocks create $SP $OBJ --type paragraph --text "…" [--style JSON] [--parent ID] [--pos LEXID]`, `any editor blocks patch … --set JSON --unset PATH`, `any editor blocks delete …`.
+CLI equivalents: `any editor blocks create $SP $OBJ --type paragraph --text "…" [--style JSON] [--parent ID] [--pos LEXID]`, `any editor blocks patch … --set JSON --unset PATH`, `any editor blocks delete …`. Every editor command takes `--collection` (default `editor_blocks`) to write a namespaced editor instead.
 
 Patch semantics worth knowing:
 
 - All ops in one PATCH land in a single change (one `versionId`). An empty patch is a no-op with an empty `versionId`.
 - Dotted keys are field **paths**: `"style.level": 2` touches one sub-field; `"style": {"level": 2}` replaces the whole `style` object.
 - Required fields (`type`, `nav.parentId`, `nav.pos`) cannot be unset — the handler rejects those ops while still applying the rest of the batch.
-- Delete tombstones the record (sticky — the id cannot be re-created) and does **not** cascade to children; delete descendants explicitly or rewrite the body through the markdown PUT.
+- Delete tombstones the record (sticky — the id cannot be re-created) and does **not** cascade to children; delete descendants explicitly or rewrite the body through the markdown PUT. An unknown block id is `404 blocks.not_found`.
 
 > **Why it matters.** Because each field of each block is its own CRDT path, "tick this checkbox" is a single `$set style.checked` that merges with anyone else's edit to the same document — including a concurrent rename of the same block's text. No document-level lock, no last-writer-wins over the whole body.
 
@@ -94,11 +94,12 @@ The `…/editor/editor_blocks/markdown` routes are a lossless import/export laye
 | PATCH | `…/editor/editor_blocks/markdown` | targeted `oldText → newText` replacements |
 | POST | `…/editor/editor_blocks/markdown/append` | append a fragment at the tail without reading the document |
 
-**GET** reads every top-level block, renders each to its canonical bytes and joins them with `\n\n`. **PUT** parses the incoming markdown, diffs it against the current tree by (type + position + text), and emits per-block create / update / delete ops through the same write path a block PATCH uses — so the same subscribe events fire, untouched blocks keep their ids, and the reply lists what changed:
+**GET** reads every top-level block, renders each to its canonical bytes, joins them with `\n\n` and returns `{"content": "<markdown>"}`. **PUT** takes the same `{"content": …}` body, parses the markdown, diffs it against the current tree by (type + position + text), and emits per-block create / update / delete ops through the same write path a block PATCH uses — so the same subscribe events fire, untouched blocks keep their ids, and the reply lists what changed:
 
 ```bash
 curl -X PUT http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/markdown \
-  -H 'Content-Type: text/markdown' --data-binary @notes.md
+  -H 'Content-Type: application/json' \
+  -d "$(jq -Rs '{content: .}' notes.md)"
 # → { "inserted": ["…"], "updated": ["…"], "deleted": [], "unchanged": 12 }
 ```
 

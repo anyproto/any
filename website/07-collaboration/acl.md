@@ -18,14 +18,14 @@ Every membership change is a signed record appended to the space's access-contro
 | POST | `/v1/spaces/:spaceId/acl/add` | add accounts by identity |
 | POST | `/v1/spaces/:spaceId/acl/ownership` | transfer ownership |
 | POST | `/v1/spaces/:spaceId/acl/self-remove` | leave the space |
-| POST | `/v1/spaces/:spaceId/acl/cancel-join` | withdraw your own join request |
+| POST | `/v1/spaces/:spaceId/acl/cancel-join` | withdraw your own pending join request |
 | POST | `/v1/spaces/:spaceId/acl/stop-sharing` | drop everyone and rotate the key |
 
 Every successful operation returns `204 No Content`. `self-remove`, `cancel-join` and `stop-sharing` take no body. Unknown permission strings return `400 request.schema`.
 
 ## Accepting a join request
 
-Pending requests appear on `GET /v1/spaces/:spaceId/members/requests`; each row carries a `requestRecordId`.
+Pending requests appear on `GET /v1/spaces/:spaceId/members/requests`; pass a row's `recordId` as `requestRecordId`.
 
 ```bash
 curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/acl/accept \
@@ -36,11 +36,11 @@ curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/acl/decline \
 ```
 
 ```bash
-any acl accept  <spaceId>
-any acl decline <spaceId>
+any acl accept  <spaceId> --record <recordId> [--permission writer]
+any acl decline <spaceId> --identity <identity>
 ```
 
-On the joiner's side the members row flips from `joining` to `active` (or `declined`).
+On the joiner's side the space row flips from `joining` to `active`, or to `deleted` on a decline; the owner's members list shows `active` or `declined`.
 
 ## Changing permissions
 
@@ -114,7 +114,7 @@ curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/acl/stop-sharing
 ```
 
 ```bash
-any acl ownership    <spaceId>
+any acl ownership    <spaceId> --new-owner <identity> [--old-owner-perm admin]
 any acl self-remove  <spaceId>
 any acl cancel-join  <spaceId>
 any acl stop-sharing <spaceId>
@@ -124,7 +124,9 @@ any acl stop-sharing <spaceId>
 |-----------|--------|
 | `ownership` | hands the owner role to `newOwner`; the previous owner keeps `oldOwnerPerm` |
 | `self-remove` | requests your own removal; your row shows `removing` until applied |
-| `cancel-join` | withdraws your own pending join request: the owner's members row shows `canceled`, your space row reads `deleted`, and a fresh `POST /v1/spaces/join` re-requests |
+| `cancel-join` | withdraws your own pending join request: the owner's members row shows `canceled`, your space row reads `deleted` on every device of the account, and a fresh `POST /v1/spaces/join` re-requests |
 | `stop-sharing` | drops every other member and rotates the read key — the space becomes private to the owner again |
+
+`cancel-join` is the one operation that never loads the space — a pending join is never materialized — so it works from any device of the account. It answers `404 space.not_found` for a space the account has no row for, and `409 space.join_not_pending` when the row is not `joining` or the owner accepted first; a request already gone from the chain with no membership behind it is settled by the call (`204`, row `deleted`).
 
 > **Note.** A one-to-one space has an immutable two-writer ACL, so none of these operations apply to it. "Accepting" a direct chat is a device-local decision, described on [One-to-one](one-to-one.html).

@@ -12,22 +12,22 @@ any is five layers, each with one job: an embedded document database, a peer-to-
 | Layer | What it owns |
 |-------|--------------|
 | **Clients** | Web UI, CLI, JS / Python / mobile bindings, anyrt (programs and agents) — all speak HTTP/JSON + SSE. |
-| **any** | HTTP façade on `127.0.0.1:7001`, CLI client, search index, event bus, markdown bridge, bundles engine. |
+| **any** | HTTP façade on `127.0.0.1:7001`, CLI client, search and link index, event bus, markdown bridge, bundles engine and usecase catalog, local store. |
 | **any-sync-sdk** | Space / Object / record CRDT, types and properties, datasets and handlers, tech space, queries and subscribe. |
-| **any-sync** | The protocol: spaces, ACLs, object trees (signed + encrypted change DAGs), head-sync, files, nodeconf, mDNS p2p. |
-| **any-store** | Embedded document DB: collections, Mongo filters, modifiers, indexes, transactions, FTS + vector indexes. |
+| **[any-sync](https://github.com/anyproto/any-sync)** | The protocol: spaces, ACLs, object trees (signed + encrypted change DAGs), head-sync, files, nodeconf, mDNS p2p. |
+| **[any-store](https://github.com/anyproto/any-store)** | Embedded document DB: collections, Mongo filters, modifiers, indexes, transactions, FTS + vector indexes. |
 
 Everything above the any-sync layer runs inside one process on your machine. Below it sits the network — and, as the next sections show, the network holds only ciphertext.
 
 ## any-store — the database
 
-any-store is an embedded document database. It stores anyenc documents (a binary JSON-like encoding) in collections, filters them with a MongoDB-style query language (`$eq`, `$in`, `$gt`, `$elemMatch`, `$regex`, `$and`/`$or`, …), mutates them with modifiers (`$set`, `$unset`, `$inc`, …), and picks indexes with a cost-based planner. It provides ACID transactions with a single writer and snapshot-isolated reads, plus BM25 full-text and vector indexes that the [search index](../search/index.html) is built on.
+[any-store](https://github.com/anyproto/any-store) is an embedded document database. It stores anyenc documents (a binary JSON-like encoding) in collections, filters them with a MongoDB-style query language (`$eq`, `$in`, `$gt`, `$elemMatch`, `$regex`, `$and`/`$or`, …), mutates them with modifiers (`$set`, `$unset`, `$inc`, …), and picks indexes with a cost-based planner. It provides ACID transactions with a single writer and snapshot-isolated reads, plus BM25 full-text and vector indexes that the [search index](../search/index.html) is built on.
 
 It has no notion of sync, peers, encryption or subscriptions. Every layer above it is what turns a local file into a shared database.
 
 ## any-sync — the protocol
 
-any-sync is the open protocol for end-to-end-encrypted, local-first collaboration. Its unit of sharing is a **space**: a collection of objects with an access control list. Its unit of data is an **object tree**: a content-addressed DAG of changes, each one signed by its author and encrypted with the space's read key. Devices exchange changes; nobody exchanges "state". [Spaces and trees](spaces-and-trees.html) covers the mechanics; here is the map.
+[any-sync](https://github.com/anyproto/any-sync) is the open protocol for end-to-end-encrypted, local-first collaboration. Its unit of sharing is a **space**: a collection of objects with an access control list. Its unit of data is an **object tree**: a content-addressed DAG of changes, each one signed by its author and encrypted with the space's read key. Devices exchange changes; nobody exchanges "state". [Spaces and trees](spaces-and-trees.html) covers the mechanics; here is the map.
 
 ### Nodes and their roles
 
@@ -66,7 +66,7 @@ any-sync stores and delivers encrypted blobs; it does not know what is in them. 
 - **Objects** with many datasets each; the DAG itself is hidden — callers see `Modify` / `Delete` / `Query`.
 - **The record CRDT** — per-path last-writer-wins on DAG order, upsert, sticky tombstones, content-addressed record ids ([Record CRDT](record-crdt.html)).
 - **Types and properties** — the `objects` collection with one row per object, property definitions as records on type objects, scopes on declarations.
-- **Dataset handlers** — compiled-in (chat, editor, spaceIndex, …) and runtime-declared schemas, run identically on every peer at apply time.
+- **Dataset handlers** — the SDK's own (spaceIndex, bundles, files, …), modules the host registers (any's chat and editor), and runtime-declared schemas — run identically on every peer at apply time.
 - **The tech space** — the account's private space holding the space list, devices, profile and account-scoped values ([Tech space](tech-space.html)).
 - **Versioning** — the version-driven re-index that rebuilds rows from the DAG when handler logic changes ([Versioning and re-index](versioning-and-reindex.html)).
 
@@ -74,14 +74,14 @@ Where encryption happens: here. The SDK's auth module derives account keys from 
 
 ## any — the local server
 
-any wraps the SDK in a single binary: `any run` opens the SDK and serves HTTP/JSON on `127.0.0.1:7001`; every other `any <cmd>` is an HTTP client for that server. Endpoints map 1:1 onto SDK methods, and the server adds only what the SDK deliberately leaves to consumers: the search index over the change feed, the ephemeral event bus, the markdown bridge, the bundles engine, process reporting. The rules it holds itself to are on [The zen of any](zen-of-any.html).
+any wraps the SDK in a single binary: `any run` opens the SDK and serves HTTP/JSON on `127.0.0.1:7001`; every other `any <cmd>` is an HTTP client for that server. Endpoints map 1:1 onto SDK methods, and the server adds only what the SDK deliberately leaves to consumers: the search and link index over the change feed, the ephemeral event bus, the markdown bridge, the bundles engine and usecase catalog, the device-local store, process reporting. The rules it holds itself to are on [The zen of any](zen-of-any.html).
 
 ```bash
 curl http://127.0.0.1:7001/v1/health
-# { "status": "ok", "version": "any v0.3.0 (sdk v0.2.4)", "account": "A8tR…", "bootstrapping": false }
+# { "status": "ok", "version": "any v0.1.2 (commit 1a2b3c4, built 2026-09-09)", "account": "A8tR…", "bootstrapping": false, … }
 ```
 
-The loopback address is the trust boundary: no TLS, no auth middleware, and a refusal to bind anything else ([Security model](../operations/security-model.html)).
+The loopback address is the trust boundary: no TLS, no per-client authentication, and a refusal to bind anything else. A server a host app spawns in managed mode additionally gates logout, account switch and shutdown behind a control token ([Security model](../operations/security-model.html)).
 
 ## Clients and anyrt
 

@@ -17,9 +17,11 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types \
 any type create $SPACE --name Book --xkey book
 ```
 
-Body: `{name?, description?, iconCid?, xKey}`. **`xKey` is required** — it is the stable programmatic handle a type resolves by; the display `name` is not a resolution key and may be renamed freely. Clients derive it as a slug of the name. An empty xKey is `400 type.xkey_required`; one that collides with another type's xKey *or id* in the same space is `409 type.xkey_conflict` (`details: {xKey, existingTypeId}`).
+Body: `{name?, description?, iconCid?, xKey, weight?, layout?, hidden?, meta?}`. **`xKey` is required** — it is the stable programmatic handle a type resolves by; the display `name` is not a resolution key and may be renamed freely. Clients derive it as a slug of the name. An empty xKey is `400 type.xkey_required`; one that collides with another type's xKey *or id* in the same space is `409 type.xkey_conflict` (`details: {xKey, existingTypeId}`).
 
-Property definitions are not part of the create body. Create the type, then add properties one by one.
+Property definitions are not part of the create body — a `properties` key, like any unknown key, is `400 request.unknown_field`. Create the type, then add properties one by one.
+
+Well-known types — the wiki, person, meeting, journal — are not created here: the server's usecase catalog installs them (`POST /v1/catalog/:usecaseId/setup`) so every client and member lands on one definition ([Bundles](../collaboration/bundles.html)). A type you create under a handle the catalog later installs blocks that install with `409 type.xkey_conflict`.
 
 ## List and read types
 
@@ -34,9 +36,9 @@ Each row is `{id, name, description?, iconCid?, xKey, builtIn, weight?, layout?,
 
 ### Parts, weight and layout
 
-A type is more than its columns. Its **parts** are the display units a client renders for an object of the type — a body, a transcript, a task list — each owning datasets a module serves (`POST …/types/:typeId/parts`; see [Modules](../types/index.html) and [Runtime datasets](runtime-datasets.html)). Its **weight** decides which of an object's types is primary (the highest wins) and its **layout** is the descriptor a client renders for that primary type; both are set at create or through `PATCH …/types/:typeId` (`{name?, description?, iconCid?, weight?, layout?}`). A document type is the built-in `page` (hidden, one editor part, no properties) or a user type with an editor part, registered as a bundle so every device agrees on one. See [Page](../types/page.html). `bin` is move-to-bin: `POST …/properties/:objectId/attach/bin` stamps `bin.movedAt` / `bin.movedBy`, `detach/bin` restores and clears them; lists exclude carriers with `{"any.types": {"$nin": ["bin"]}}`.
+A type is more than its columns. Its **parts** are the display units a client renders for an object of the type — a body, a transcript, a task list — each owning datasets a module serves (`POST …/types/:typeId/parts`; see [Modules](../types/index.html) and [Runtime datasets](runtime-datasets.html)). Its **weight** decides which of an object's types is primary (the highest wins) and its **layout** is the descriptor a client renders for that primary type; both are set at create or through `PATCH …/types/:typeId` (`{name?, description?, iconCid?, weight?, layout?, hidden?, meta?}` — absent keeps, `"layout": null` clears; `400 type.registered` on a built-in). A document type is the built-in `page` (hidden, one editor part, no properties) or a user type with an editor part, registered as a bundle so every device agrees on one. See [Page](../types/page.html). `bin` is move-to-bin: `POST …/properties/:objectId/attach/bin` stamps `bin.movedAt` / `bin.movedBy`, `detach/bin` restores and clears them; lists exclude carriers with `{"any.types": {"$nin": ["bin"]}}`.
 
-Two more flags live on the type: `hidden` keeps it out of `GET …/types` (pass `includeHidden=true` to see it; `GET …/types/:typeId` always resolves it) — a bundle's self-typed root is hidden by construction — and `meta` is an open bag of consumer flags, one string, bool or number per key, patched per key through `PATCH …/types/:typeId` (`null` unsets) so devices touching different keys merge. The server interprets none of the keys.
+Two more flags live on the type: `hidden` keeps it out of `GET …/types` (pass `includeHidden=true` to see it; `GET …/types/:typeId` always resolves it) — a bundle root is hidden when its install asks for it — and `meta` is an open bag of consumer flags, one string, bool or number per key, patched per key through `PATCH …/types/:typeId` (`null` unsets) so devices touching different keys merge. The server interprets none of the keys.
 
 ## Add a property
 

@@ -9,13 +9,13 @@ None of these are new endpoints. They are the patterns that make a client correc
 
 ## 1. Writes go through the module's handler
 
-Chat and editor collections are written only through `…/chat/messages` and `…/editor/:collection/blocks` — the handler stamps `creator` / `createdAt` / `modifiedAt`, enforces author-only edit/delete, and keys reactions per identity. For documents pick the route by change shape: targeted edit → `PATCH …/editor/editor_blocks/markdown` with `{edits:[{oldText,newText}]}` (a stale quote fails with `markdown.no_match` instead of clobbering concurrent edits); full rewrite → `PUT`; tail growth → `POST …/append`. Never `GET → string-replace → PUT`.
+Chat and editor collections are written only through `…/chat/messages` and `…/editor/:collection/blocks` — the handler stamps `creator` / `createdAt` / `modifiedAt`, enforces author-only edit/delete, and keys reactions per identity. For documents pick the route by change shape: targeted edit → `PATCH …/editor/editor_blocks/markdown` with `{edits:[{oldText,newText}]}` (a stale quote fails with `markdown.no_match` instead of clobbering concurrent edits); full rewrite → `PUT`; tail growth → `POST …/markdown/append`. Never `GET → string-replace → PUT`.
 
 Every write returns `{versionId, changeId, recordIds}`, never the record. Stamp `versionId` on the paths you touched so you recognise your own change when it arrives on the stream.
 
 ## 2. Preflight-validate against the bound types
 
-An object's `any.types` decides which datasets it accepts: a `chat_messages` write to an object without `chat` bound is `400 dataset.validation`. Bind types at create (`{"types":["chat"]}`) and check before writing. Property values on user types are free-form on the server — read `GET …/types/:id/properties` and validate `kind` / `required` client-side; a malformed write succeeds now and bites later.
+An object's `any.types` decides which collections it accepts: a collection lives on an object only while one of its types has a part declaring it, so an `editor_blocks` write to an object carrying no document type is `400 dataset.not_declared` — and no write attaches a type for you. Bind types deliberately, at create (`{"types":["page"]}`) or with `POST …/properties/:objectId/attach/:typeId`, and check the row before writing; `GET /v1/spaces/:id/datasets` lists each collection's declaring `owners`. Property values are checked against the declared `kind` (`400 property.kind_mismatch`) and the `xFormat` slug (`400 property.format_violation`); read `GET …/types/:id/properties` once and validate before you write rather than after a 400.
 
 ## 3. Reads go through query / subscribe
 
@@ -28,7 +28,7 @@ An object's `any.types` decides which datasets it accepts: a `chat_messages` wri
 
 ## 4. Chat: newest-first, subscribe first
 
-Find the chat through the catalog (`POST /v1/catalog/general-chat/setup`) so every client lands on the one object. Open the view with a **subscribe** — its `snapshot` *is* the initial load; a separate query first opens a gap/dup race. Sort `-_ver.id` everywhere: the window holds the top of the sort, so descending is the only direction where new messages enter it. Page history with `{"_ver.id": {"$lt": oldest}}` ([Chat](../types/chat.html)).
+Find the chat through the catalog (`POST /v1/catalog/general-chat/setup`, the chat is the returned `bundle.rootId`) so every client lands on the one object. Open the view with a **subscribe** — its `snapshot` *is* the initial load; a separate query first opens a gap/dup race. Sort `-_ver.id` everywhere: the window holds the top of the sort, so descending is the only direction where new messages enter it. Page history with `{"_ver.id": {"$lt": oldest}}` ([Chat](../types/chat.html)).
 
 ## 5. Hold a window; recover by resubscribing
 
