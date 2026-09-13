@@ -124,6 +124,60 @@ usecases:
         miniapp: {}
 
 
+  # ── Tasks: a Things-style personal planner. A task is the unit of work; a
+  #    project a finishable outcome that groups tasks; an area an ongoing
+  #    responsibility that groups projects and tasks. The three types are
+  #    listed — a task is an ordinary object a user may also meet in a table
+  #    or a picker — and weightless; the fourth bundle is the sidebar entry.
+  #    The lists (inbox, today, upcoming, anytime, someday,
+  #    logbook) are derived by clients from `planning`, `planned`, `deadline`
+  #    and `completed`; `position` is a fractional rank shared by every list,
+  #    kept out of the search index like the wiki's `pos`.
+  - id: tasks
+    name: Tasks
+    description: Personal tasks in projects and areas — inbox, today, upcoming, anytime, someday and a logbook
+    bundles:
+      - id: system:task/v1
+        name: Task
+        type:
+          xKey: task
+          properties:
+            - { xKey: notes,       name: Notes,           kind: string,   xFormat: { type: longtext } }
+            - { xKey: parent,      name: Project or area, kind: array,
+                xFormat: { type: relation, config: { multiple: false },
+                           relation: { targetTypes: [ project, area ] } } }
+            - { xKey: planning,    name: Planning,        kind: array,
+                xFormat: { type: choice, config: { multiple: false }, options: {
+                  inbox:   { name: Inbox,   pos: a0 },
+                  anytime: { name: Anytime, pos: a1 },
+                  someday: { name: Someday, pos: a2 } } },
+                description: "Where an unscheduled task sits: captured, ready, or parked for later" }
+            - { xKey: planned,     name: Planned day,     kind: datetime, xFormat: { type: date },
+                description: "The day the task is planned for; today or earlier puts it in Today" }
+            - { xKey: deadline,    name: Deadline,        kind: datetime, xFormat: { type: date } }
+            - { xKey: completed,   name: Completed,       kind: boolean,  xFormat: { type: checkbox } }
+            - { xKey: completedAt, name: Completed at,    kind: datetime, xFormat: { type: datetime } }
+            - { xKey: position,    name: Order,           kind: number,   meta: { index: none },
+                description: Fractional rank shared by every list }
+      - id: system:project/v1
+        name: Project
+        type:
+          xKey: project
+          properties:
+            - { xKey: notes,       name: Notes,        kind: string,   xFormat: { type: longtext } }
+            - { xKey: parent,      name: Area,         kind: array,
+                xFormat: { type: relation, config: { multiple: false },
+                           relation: { targetTypes: [ area ] } } }
+            - { xKey: completed,   name: Completed,    kind: boolean,  xFormat: { type: checkbox } }
+            - { xKey: completedAt, name: Completed at, kind: datetime, xFormat: { type: datetime } }
+            - { xKey: position,    name: Order,        kind: number,   meta: { index: none } }
+      - id: system:area/v1
+        name: Area
+        type: { xKey: area }                     # a marker: name and icon are all an area has
+      - id: system:tasks/v1                      # the sidebar entry
+        name: Tasks
+        miniapp: {}
+
   # ── The space's chat. The one derived root: chat content cannot be merged
   #    across objects, and a 1-1 space has no owner to break a tie.
   - id: general-chat
