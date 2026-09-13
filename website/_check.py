@@ -5,11 +5,9 @@ from urllib.parse import unquote, urlsplit
 
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist"))
-DOCS_HOST = "docs.any.org"
 HTML_LINK_RE = re.compile(r'href=["\']([^"\']+)')
 MARKDOWN_LINK_RE = re.compile(r"\]\(\s*<?([^\s)>]+)>?")
 REFERENCE_LINK_RE = re.compile(r"^\s*\[[^]]+\]:\s*<?([^\s>]+)", re.MULTILINE)
-AUTOLINK_RE = re.compile(r"<(https?://[^>\s]+)>")
 FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 INLINE_CODE_RE = re.compile(r"(?P<ticks>`+).*?(?P=ticks)")
 
@@ -63,21 +61,18 @@ def links_in(path):
     return (
         MARKDOWN_LINK_RE.findall(markdown)
         + REFERENCE_LINK_RE.findall(markdown)
-        + AUTOLINK_RE.findall(markdown)
         + HTML_LINK_RE.findall(markdown)
     )
 
 
 def local_target(source, target):
     parsed = urlsplit(target)
-    if parsed.netloc and parsed.hostname != DOCS_HOST:
-        return None
-    if parsed.scheme and parsed.scheme not in ("http", "https"):
+    if parsed.netloc or parsed.scheme:
         return None
     path = unquote(parsed.path)
     if not path:
         return None
-    if path.startswith("/") or parsed.hostname == DOCS_HOST:
+    if path.startswith("/"):
         return os.path.realpath(os.path.join(ROOT, path.lstrip("/")))
     return os.path.realpath(os.path.join(os.path.dirname(source), path))
 

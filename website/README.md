@@ -27,9 +27,10 @@ Markdown; source files and human navigation continue to use `.html`.
 
 Generated Markdown replaces the author front-matter with exactly `title`,
 `description`, `canonical_url` (the human HTML page), and
-`documentation_index` (`https://docs.any.org/llms.txt`). These generated URL
-fields do not belong in source files. `llms.txt` groups every Markdown page by
-section and is the global navigation entry point for agents.
+`documentation_index` (`/llms.txt`). These generated root-relative URL fields
+do not belong in source files. `llms.txt` groups every Markdown page by section,
+uses root-relative `.md` links, and is the global navigation entry point for
+agents.
 
 Writing style: present tense, describe current behavior only, one idea
 per paragraph, a runnable `curl`/CLI example per feature, a "Why this

@@ -73,11 +73,8 @@ var (
 	wsRe            = regexp.MustCompile(`\s+`)
 	markdownLinkRe  = regexp.MustCompile(`(\]\(\s*<?)([^\s)>]+)(>?)`)
 	referenceLinkRe = regexp.MustCompile(`(?m)^(\s*\[[^]]+\]:\s*<?)([^\s>]+)(>?(?:\s+.*)?)$`)
-	autolinkRe      = regexp.MustCompile(`<(https?://[^>\s]+)>`)
 	htmlHrefRe      = regexp.MustCompile(`(?i)(\bhref\s*=\s*)(["'])([^"']+)(["'])`)
 )
-
-const siteBaseURL = "https://docs.any.org"
 
 func main() {
 	src := flag.String("src", "website", "source dir")
@@ -300,7 +297,7 @@ func run(src, out string) error {
 }
 
 func writeLLMSLink(b *strings.Builder, p *page, label string) {
-	fmt.Fprintf(b, "- [%s](%s%s)", label, siteBaseURL, p.MarkdownURL)
+	fmt.Fprintf(b, "- [%s](%s)", label, p.MarkdownURL)
 	if p.Description != "" {
 		fmt.Fprintf(b, ": %s", p.Description)
 	}
@@ -311,8 +308,8 @@ func renderMarkdown(p *page) ([]byte, error) {
 	frontMatter, err := yaml.Marshal(markdownFront{
 		Title:              p.Title,
 		Description:        p.Description,
-		CanonicalURL:       siteBaseURL + p.URL,
-		DocumentationIndex: siteBaseURL + "/llms.txt",
+		CanonicalURL:       p.URL,
+		DocumentationIndex: "/llms.txt",
 	})
 	if err != nil {
 		return nil, err
@@ -440,10 +437,6 @@ func rewriteLinkDestinations(s string) string {
 		parts := referenceLinkRe.FindStringSubmatch(match)
 		return parts[1] + rewriteDocTarget(parts[2]) + parts[3]
 	})
-	s = autolinkRe.ReplaceAllStringFunc(s, func(match string) string {
-		parts := autolinkRe.FindStringSubmatch(match)
-		return "<" + rewriteDocTarget(parts[1]) + ">"
-	})
 	return htmlHrefRe.ReplaceAllStringFunc(s, func(match string) string {
 		parts := htmlHrefRe.FindStringSubmatch(match)
 		return parts[1] + parts[2] + rewriteDocTarget(parts[3]) + parts[4]
@@ -456,10 +449,7 @@ func rewriteDocTarget(target string) string {
 		return target
 	}
 	if u.IsAbs() || u.Host != "" {
-		allowedScheme := u.Scheme == "" || strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")
-		if !strings.EqualFold(u.Hostname(), "docs.any.org") || !allowedScheme {
-			return target
-		}
+		return target
 	}
 	if !strings.HasSuffix(u.Path, ".html") {
 		return target

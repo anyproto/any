@@ -15,8 +15,8 @@ func TestRewriteDocTarget(t *testing.T) {
 		"guide.html":                                  "guide.md",
 		"../database/objects.html#shape":              "../database/objects.md#shape",
 		"/reference/http-api.html?view=full#endpoint": "/reference/http-api.md?view=full#endpoint",
-		"https://docs.any.org/guide.html":             "https://docs.any.org/guide.md",
-		"//docs.any.org/guide.html":                   "//docs.any.org/guide.md",
+		"https://docs.example.test/guide.html":        "https://docs.example.test/guide.html",
+		"//docs.example.test/guide.html":              "//docs.example.test/guide.html",
 		"https://example.com/guide.html":              "https://example.com/guide.html",
 		"mailto:docs@example.com":                     "mailto:docs@example.com",
 		"guide.md":                                    "guide.md",
@@ -36,14 +36,14 @@ func TestRewriteMarkdownLinks(t *testing.T) {
 
 [relative](../database/objects.html#shape)
 [root](/reference/http-api.html?view=full#endpoint)
-[same origin](https://docs.any.org/understanding/local-first.html)
+[absolute](https://docs.example.test/understanding/local-first.html)
 [external](https://example.com/reference.html)
 [with title](guide.html "Guide")
 [angle](<guide.html>)
 [reference]: guide.html "Guide"
 <a href="guide.html#raw">Double</a>
 <a href='guide.html?raw=1'>Single</a>
-<https://docs.any.org/guide.html>
+<https://docs.example.test/guide.html>
 <https://example.com/guide.html>
 
 - Nested list
@@ -52,7 +52,7 @@ func TestRewriteMarkdownLinks(t *testing.T) {
 After the list.
 
     [indented code](indented.html)
-    <https://docs.any.org/indented.html>
+    <https://docs.example.test/indented.html>
 
 ` + "`[inline code](inline.html)`" + `
 
@@ -70,14 +70,14 @@ After the list.
 
 [relative](../database/objects.md#shape)
 [root](/reference/http-api.md?view=full#endpoint)
-[same origin](https://docs.any.org/understanding/local-first.md)
+[absolute](https://docs.example.test/understanding/local-first.html)
 [external](https://example.com/reference.html)
 [with title](guide.md "Guide")
 [angle](<guide.md>)
 [reference]: guide.md "Guide"
 <a href="guide.md#raw">Double</a>
 <a href='guide.md?raw=1'>Single</a>
-<https://docs.any.org/guide.md>
+<https://docs.example.test/guide.html>
 <https://example.com/guide.html>
 
 - Nested list
@@ -86,7 +86,7 @@ After the list.
 After the list.
 
     [indented code](indented.html)
-    <https://docs.any.org/indented.html>
+    <https://docs.example.test/indented.html>
 
 ` + "`[inline code](inline.html)`" + `
 
@@ -144,8 +144,8 @@ Return [home](../index.html).
 	wantMetadata := map[string]string{
 		"title":               "Topic",
 		"description":         "A focused topic.",
-		"canonical_url":       "https://docs.any.org/guide/topic.html",
-		"documentation_index": "https://docs.any.org/llms.txt",
+		"canonical_url":       "/guide/topic.html",
+		"documentation_index": "/llms.txt",
 	}
 	if len(metadata) != len(wantMetadata) {
 		t.Fatalf("generated metadata has keys %v, want exactly %v", metadata, wantMetadata)
@@ -178,10 +178,10 @@ Return [home](../index.html).
 	llms := string(readTestFile(t, filepath.Join(out, "llms.txt")))
 	for _, want := range []string{
 		"## Start",
-		"[Home](https://docs.any.org/index.md)",
+		"[Home](/index.md)",
 		"## Guide",
-		"[Overview](https://docs.any.org/guide/index.md)",
-		"[Topic](https://docs.any.org/guide/topic.md)",
+		"[Overview](/guide/index.md)",
+		"[Topic](/guide/topic.md)",
 	} {
 		if !strings.Contains(llms, want) {
 			t.Errorf("llms.txt missing %q:\n%s", want, llms)
