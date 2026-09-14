@@ -9,7 +9,7 @@ type HealthResponse struct {
 	// NetworkId is the any-sync network this server joins: the networkId
 	// of the nodeconf it started with. Set whether or not an account is
 	// authorized. The server names no networks; clients map well-known
-	// ids (production, staging) themselves.
+	// ids to names themselves.
 	NetworkId string `json:"networkId"`
 	Account   string `json:"account"`
 	// Bootstrapping is true while the booted SDK's background boot pass

@@ -87,7 +87,7 @@ func TestBootAndServe(t *testing.T) {
 	if h.StartedAt.IsZero() {
 		t.Error("health startedAt is zero, want a boot timestamp")
 	}
-	// The placeholder conf carries the Anytype stage networkId.
+	// The networkId nodeconf-placeholder.yml carries.
 	if want := "N9DU6hLkTAbvcpji3TCKPPd3UQWKGyzUxGmgJEyvhByqAjfD"; h.NetworkId != want {
 		t.Errorf("unauthorized health networkId = %q, want %q", h.NetworkId, want)
 	}

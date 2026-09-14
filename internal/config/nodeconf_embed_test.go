@@ -66,8 +66,8 @@ func TestLoadNodeconfBadPathStillErrors(t *testing.T) {
 }
 
 func TestNodeconfNetworkId(t *testing.T) {
-	if id, err := NodeconfNetworkId(nodeconfProd); err != nil || id != prodNetworkId {
-		t.Errorf("embedded default = %q, %v; want %q", id, err, prodNetworkId)
+	if id, err := NodeconfNetworkId([]byte("id: x\nnetworkId: net-1\nnodes: []")); err != nil || id != "net-1" {
+		t.Errorf("got %q, %v; want net-1", id, err)
 	}
 	if id, err := NodeconfNetworkId(NodeconfPlaceholder()); err != nil || id == "" {
 		t.Errorf("placeholder = %q, %v; want its networkId", id, err)

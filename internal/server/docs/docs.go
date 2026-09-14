@@ -1514,7 +1514,7 @@ const docTemplate = `{
                         "$ref": "#/components/schemas/api.CRDTVersionState"
                     },
                     "networkId": {
-                        "description": "NetworkId is the any-sync network this server joins: the networkId\nof the nodeconf it started with. Set whether or not an account is\nauthorized. The server names no networks; clients map well-known\nids (production, staging) themselves.",
+                        "description": "NetworkId is the any-sync network this server joins: the networkId\nof the nodeconf it started with. Set whether or not an account is\nauthorized. The server names no networks; clients map well-known\nids to names themselves.",
                         "type": "string"
                     },
                     "startedAt": {

@@ -266,7 +266,7 @@ func TestAssembleConfigMode(t *testing.T) {
 }
 
 // A host conf naming no network is the host's input error, refused
-// before boot; an empty conf selects the production default.
+// before boot; an empty conf selects the embedded default.
 func TestValidateOptionsNodeconf(t *testing.T) {
 	for in, wantErr := range map[string]bool{
 		"":                false,

@@ -2055,8 +2055,8 @@ behavior, read the module cache
    network `GET /v1/health` reports as `networkId`, authorized or not.
    A conf that isn't YAML or names no networkId fails startup
    (`embedded.ErrBadOptions` for a host conf). The server returns the id
-   only; clients map well-known ids (Anytype production / stage, listed
-   in docs/02-server.md § Health) to names. No SDK accessor needed.
+   only; clients map well-known ids (listed in docs/02-server.md
+   § Health) to names. No SDK accessor needed.
    Contract: docs/02-server.md § Startup + § Health, docs/03-api.md
    § Meta.
 
