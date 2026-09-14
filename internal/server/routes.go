@@ -213,7 +213,7 @@ func buildEcho(d *deps) *echo.Echo {
 
 	// The /ui debug harness is mounted only when enabled (default on).
 	// App-embedded boots run headless (embedded.Start sets this false),
-	// so /ui and /ui/ 404 there. See docs/05-config.md § webUI, IOS-116.
+	// so /ui and /ui/ 404 there. See `webUI` in docs/05-config.md.
 	if d.cfg.WebUI.Enabled {
 		registerUIRoutes(e)
 	}

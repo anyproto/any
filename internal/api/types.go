@@ -75,7 +75,7 @@ type AddPropertyRequest struct {
 	// beyond the kind — the semantic slug, icon, ordering key, option
 	// set, relation targets, per-format config (docs/27-descriptors.md).
 	// An object; the server validates the keys it interprets (type,
-	// icon, pos, options, relation, config) against the vocabulary and
+	// icon, pos, options, relation, config, links) against the vocabulary and
 	// the slug against kind, stores vendor-namespaced keys verbatim,
 	// and reserves validate / compute. Every path under it is mutable
 	// via PATCH.

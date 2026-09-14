@@ -36,8 +36,8 @@ import (
 //     when it does not fit. A write-boundary check, never a promise
 //     about what is stored.
 //
-// Known gap: raw POST /modify on the `properties` dataset bypasses
-// value validation (op paths would need parsing) — docs/03-api.md.
+// Known gap: raw POST /modify on the `objects` dataset bypasses value
+// validation (op paths would need parsing) — docs/03-api.md.
 
 // Storage field names whose wire spelling differs. The SDK's typetype
 // package is internal (not importable), so the wire→storage mapping

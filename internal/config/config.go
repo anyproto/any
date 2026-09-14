@@ -310,7 +310,8 @@ type IndexLocal struct {
 }
 
 type IndexVector struct {
-	// Dim is the embedding dimension; 0 = probe the embedder at boot.
+	// Dim is the embedding dimension; 0 = learn it from the first
+	// successful embed batch.
 	Dim int `yaml:"dim"`
 	// Mode selects the ANN index strategy: "" / "ivfsq" (default —
 	// cheap near-flat ingest + physical deletes, ~3–4 recall@10 below

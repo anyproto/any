@@ -118,8 +118,8 @@ func (d *deps) bundleEnsure(c echo.Context) error {
 	}
 
 	// The tech-space rules fail fast, BEFORE the space resolve and the
-	// registry-convergence wait the resolver runs: derived-only,
-	// parts or properties required, no root types or properties (the
+	// registry-convergence wait the resolver runs: a type declaration
+	// required, no root types or properties (the
 	// SDK enforces the same; this spares an invalid request the wait).
 	if d.isTechSpace(c.Param("spaceId")) {
 		switch {

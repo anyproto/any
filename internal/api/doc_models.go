@@ -49,8 +49,8 @@ type QueryBodyParams struct {
 	Limit int `json:"limit,omitempty"`
 	// Offset skips past the first N matches of the sorted result.
 	Offset int `json:"offset,omitempty"`
-	// IncludeTotal populates `total` + `hasNext` in the snapshot reply.
-	// Page-bounded in the current SDK — see docs/09-query.md caveat.
+	// IncludeTotal populates `total` (every match, regardless of
+	// limit/offset) + `hasNext` in the snapshot reply.
 	IncludeTotal bool `json:"includeTotal,omitempty"`
 	// MailboxCapacity (subscribe only) sizes the event mailbox before
 	// the stream closes with reason "overflow". Default 256, min 16.

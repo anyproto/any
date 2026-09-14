@@ -22,7 +22,7 @@ SWAG := go tool github.com/swaggo/swag/v2/cmd/swag
 INDEX_TAGS := fts vector
 
 # llama.cpp release pin for the local embedder's shared libs
-# (docs/13-index.md § local embedder). Bump together with the yzma
+# (docs/13-index.md § GPU offload). Bump together with the yzma
 # dependency — yzma tracks llama.cpp releases, and only a matching pair
 # works: too old a build fails to load ("undefined symbol"), too new a
 # one loads but reads shifted struct fields (llama_model_n_embd comes

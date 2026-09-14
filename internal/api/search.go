@@ -9,8 +9,7 @@ const (
 )
 
 // SearchRequest is the body of POST /v1/spaces/:spaceId/search. The
-// search runs over the server's local index (see docs/13-index.md) —
-// only content written after indexing started is found.
+// search runs over the server's local index (see docs/13-index.md).
 type SearchRequest struct {
 	// Query is the search text. Required.
 	Query string `json:"query"`
