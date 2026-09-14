@@ -64,17 +64,13 @@ func pinNodeconf(cfg *config.Config) (string, error) {
 }
 
 // OpenSDK boots the SDK against the wallet provider and the project
-// config. Storage lives under <dataDir>/sdk so the SDK's any-store and
+// config, joining the network nodeconf names (resolved by the caller,
+// which pins it). Storage lives under <dataDir>/sdk so the SDK's any-store and
 // any-sync state are isolated from other process state in the data dir.
 //
 // Topology defaults to Shared; only "shared" is supported in v1
 // (per-space topology is on the SDK side but not yet exercised here).
-func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider auth.Provider) (*anysyncsdk.SDK, error) {
-	nodeconfYAML, err := config.LoadNodeconf(cfg.Network)
-	if err != nil {
-		return nil, err
-	}
-
+func OpenSDK(ctx context.Context, cfg config.Config, nodeconf []byte, dataDir string, provider auth.Provider) (*anysyncsdk.SDK, error) {
 	topology := sdkconfig.StorageShared
 	switch cfg.Storage.Topology {
 	case "", "shared":
@@ -92,7 +88,7 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 			DataDir:  filepath.Join(dataDir, "sdk"),
 			Topology: topology,
 		},
-		Network: sdkconfig.Network{NodeConfYAML: nodeconfYAML},
+		Network: sdkconfig.Network{NodeConfYAML: nodeconf},
 		Sync:    sdkconfig.Sync{ChangeBatchSize: cfg.Sync.ChangeBatchSize},
 		P2P:     sdkconfig.P2P{Enabled: cfg.P2P.Enabled, Port: cfg.P2P.Port, ServiceName: cfg.P2P.ServiceName},
 		Types:   serverTypes(),

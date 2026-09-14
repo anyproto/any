@@ -65,6 +65,11 @@ auth:
 # that isn't YAML or names no networkId fails startup, the rest of it is
 # checked when the SDK opens. GET /v1/health reports it as `networkId`.
 #
+# The network is a PROCESS setting: every account the server boots joins
+# it. Each account dir is pinned to the network its data was written on
+# (network.json, 02-server.md § Startup) and refuses to boot under
+# another one — keep one data root per network.
+#
 # internal/config/nodeconf-placeholder.yml is the sanitized fixture
 # (Anytype stage networkId, placeholder nodes) — it boots and serves but joins no
 # network. Tests use it via config.NodeconfPlaceholder(); it is never
