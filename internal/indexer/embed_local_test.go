@@ -182,6 +182,23 @@ func norm(vec []float32) float64 {
 	return math.Sqrt(s)
 }
 
+// TestLoadLlamaRuntime loads a llama.cpp release from its lib dir, the
+// way the embedder child does, and requires a backend to register. Set
+// ANY_TEST_LLAMACPP_LIBDIR to run it: the Windows CI job does, since a
+// DLL that cannot resolve its imports fails only at load time.
+func TestLoadLlamaRuntime(t *testing.T) {
+	dir := os.Getenv("ANY_TEST_LLAMACPP_LIBDIR")
+	if dir == "" {
+		t.Skip("set ANY_TEST_LLAMACPP_LIBDIR to a llama.cpp lib dir")
+	}
+	if err := loadLlamaRuntime(dir); err != nil {
+		t.Fatal(err)
+	}
+	if n := llama.GGMLBackendRegCount(); n == 0 {
+		t.Fatal("llama.cpp loaded but registered no backend")
+	}
+}
+
 // Real-model integration: ANY_TEST_LOCAL_EMBEDDER=1 plus llama.cpp libs
 // (bin/llamacpp via `make llamacpp`, or YZMA_LIB) and the model
 // (ANY_INDEX_LOCAL_MODEL_PATH, or already downloaded into the default
