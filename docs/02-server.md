@@ -88,7 +88,8 @@ account is standalone-only — a managed login with its phrase lands in
    Resolve the nodeconf once and keep its bytes for the process: every
    engine the process boots joins that network, and `GET /v1/health`
    reports its `networkId` from the start. A conf that is unreadable,
-   doesn't parse or names no `networkId` fails startup.
+   isn't YAML or names no `networkId` fails startup; the rest of it is
+   checked when the SDK opens.
 2. **Managed**: skip account resolution entirely — start unauthorized
    (step 4) and wait for the host's `POST /v1/auth`.
    **Standalone**: resolve the data-dir ROOT (default `~/.any/`) and

@@ -2049,13 +2049,16 @@ behavior, read the module cache
    URL. Contract: docs/03-api.md § Account, errors in docs/06-errors.md.
 56. **Network id on health** — `RunWith` resolves the nodeconf once
    (`pinNodeconf`, sdk.go): it reads `networkId`
-   (`config.NodeconfNetworkId`, the SDK's parse) and pins the bytes
-   inline on `cfg.Network.Nodeconf`, so every engine the process boots
-   joins the network `GET /v1/health` reports as `networkId`, authorized
-   or not. A conf without a networkId fails startup. The server returns
-   the id only; clients map well-known ids to names. No SDK accessor
-   needed. Contract: docs/02-server.md § Startup + § Health,
-   docs/03-api.md § Meta.
+   (`config.NodeconfNetworkId`, a one-key decode — the SDK's full parse
+   still runs at Open) and pins the bytes inline on
+   `cfg.Network.Nodeconf`, so every engine the process boots joins the
+   network `GET /v1/health` reports as `networkId`, authorized or not.
+   A conf that isn't YAML or names no networkId fails startup
+   (`embedded.ErrBadOptions` for a host conf). The server returns the id
+   only; clients map well-known ids (Anytype production / stage, listed
+   in docs/02-server.md § Health) to names. No SDK accessor needed.
+   Contract: docs/02-server.md § Startup + § Health, docs/03-api.md
+   § Meta.
 
 ## What this project is
 

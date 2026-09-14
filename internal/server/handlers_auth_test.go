@@ -766,6 +766,9 @@ func TestHealth_BootstrappingFalseAfterBootPass(t *testing.T) {
 	if h.Account == "" {
 		t.Error("authorized health must report the account id")
 	}
+	if h.NetworkId == "" || h.NetworkId != d.networkId {
+		t.Errorf("authorized health networkId = %q, want the pinned %q", h.NetworkId, d.networkId)
+	}
 	// The account's CRDT version mark: stamped by this SDK on first
 	// open, equal to what it supports, not newer.
 	if h.CRDTVersion == nil || h.CRDTVersion.Supported == 0 || h.CRDTVersion.Stored != h.CRDTVersion.Supported || h.CRDTVersion.Newer {

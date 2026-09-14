@@ -41,7 +41,8 @@ var logConfigOnce sync.Once
 // pinNodeconf resolves the nodeconf once at startup and pins the bytes
 // inline on cfg, so every engine the process boots joins the network
 // GET /v1/health reports, even if the configured file changes later.
-// Returns the conf's networkId.
+// Returns the conf's networkId. Runs after config load, so the push
+// defaults already saw whether the conf was the embedded one.
 func pinNodeconf(cfg *config.Config) (string, error) {
 	raw, err := config.LoadNodeconf(cfg.Network)
 	if err != nil {
@@ -49,7 +50,14 @@ func pinNodeconf(cfg *config.Config) (string, error) {
 	}
 	networkId, err := config.NodeconfNetworkId(raw)
 	if err != nil {
-		return "", err
+		source := "embedded nodeconf"
+		switch {
+		case cfg.Network.Nodeconf != "":
+			source = "network.nodeconf"
+		case cfg.Network.NodeconfPath != "":
+			source = config.ExpandTilde(cfg.Network.NodeconfPath)
+		}
+		return "", fmt.Errorf("%s: %w", source, err)
 	}
 	cfg.Network.Nodeconf = string(raw)
 	return networkId, nil

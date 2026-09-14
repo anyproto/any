@@ -19,8 +19,8 @@ import (
 //go:embed nodeconf-prod.yml
 var nodeconfProd []byte
 
-// nodeconfPlaceholder is the sanitized fixture — a real networkId with
-// placeholder peer IDs and hosts, so a server boots and serves but joins
+// nodeconfPlaceholder is the sanitized fixture — the Anytype stage
+// networkId with placeholder peer IDs and hosts, so a server boots and serves but joins
 // no network. Tests that need a bootable conf without network traffic
 // use it through NodeconfPlaceholder; nothing selects it at runtime.
 //

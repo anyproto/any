@@ -33,8 +33,9 @@ import (
 //     meta route served in UNAUTHORIZED mode (no account booted on a fresh
 //     data dir), so it needs no staging peers and runs fully offline — the
 //     point is that the HTTP engine serves after boot. Unauthorized health
-//     reports an empty account and a non-zero startedAt; fields that need
-//     network are not asserted.
+//     reports an empty account, a non-zero startedAt and the networkId of
+//     the conf it was given; fields that need a live network are not
+//     asserted.
 func TestBootAndServe(t *testing.T) {
 	resetState(t)
 	defer resetState(t)
@@ -86,7 +87,8 @@ func TestBootAndServe(t *testing.T) {
 	if h.StartedAt.IsZero() {
 		t.Error("health startedAt is zero, want a boot timestamp")
 	}
-	if want, _ := config.NodeconfNetworkId([]byte(nodeconfFixture(t))); h.NetworkId != want {
+	// The placeholder conf carries the Anytype stage networkId.
+	if want := "N9DU6hLkTAbvcpji3TCKPPd3UQWKGyzUxGmgJEyvhByqAjfD"; h.NetworkId != want {
 		t.Errorf("unauthorized health networkId = %q, want %q", h.NetworkId, want)
 	}
 

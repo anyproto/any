@@ -40,7 +40,7 @@ The server returns the id only. Clients recognise the well-known ids and show an
 | `N83gJpVd9MuNRZAuJLZ7LiMntTThhPc6DtzWWVjb1M3PouVU` | Anytype production (the embedded default) |
 | `N9DU6hLkTAbvcpji3TCKPPd3UQWKGyzUxGmgJEyvhByqAjfD` | Anytype stage |
 
-> **Note.** Because the default is production, anything that must not touch real infrastructure — tests, CI, scratch rigs — has to set a nodeconf explicitly. The repository ships a sanitized **placeholder** configuration (the real network id with placeholder nodes) that boots and serves but joins no network; tests use it, and it is never selected at runtime.
+> **Note.** Because the default is production, anything that must not touch real infrastructure — tests, CI, scratch rigs — has to set a nodeconf explicitly. The repository ships a sanitized **placeholder** configuration (the Anytype stage network id with placeholder nodes) that boots and serves but joins no network; tests use it, and it is never selected at runtime.
 
 ## What the network provides
 

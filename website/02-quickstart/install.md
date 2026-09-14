@@ -92,6 +92,7 @@ any status
   "status": "ok",
   "version": "any v0.1.2 (commit 1a2b3c4, built 2026-09-09T10:00:00Z)",
   "startedAt": "2026-09-10T08:00:00Z",
+  "networkId": "N83gJpVd9MuNRZAuJLZ7LiMntTThhPc6DtzWWVjb1M3PouVU",
   "account": "A8tR…",
   "bootstrapping": false,
   "crdtVersion": { "supported": 1, "stored": 1, "newer": false }

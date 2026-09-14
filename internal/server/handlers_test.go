@@ -55,6 +55,11 @@ func newTestDepsCfg(t testing.TB, mutate func(*config.Config)) (*deps, func()) {
 	if mutate != nil {
 		mutate(&cfg)
 	}
+	// Mirror RunWith: the nodeconf is pinned before any engine boots.
+	networkId, err := pinNodeconf(&cfg)
+	if err != nil {
+		t.Fatalf("pinNodeconf: %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -100,6 +105,7 @@ func newTestDepsCfg(t testing.TB, mutate func(*config.Config)) (*deps, func()) {
 	}
 	d := &deps{
 		startedAt: time.Now().UTC(),
+		networkId: networkId,
 		shutdown:  make(chan struct{}, 1),
 		root:      dataDir,
 		cfg:       cfg,

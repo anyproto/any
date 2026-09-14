@@ -47,11 +47,11 @@ any status                                  # GET /v1/health
 
 ```json
 { "status": "ok", "version": "any v0.1.2 (commit 1a2b3c4, built 2026-09-09)",
-  "startedAt": "2026-08-24T09:00:00Z",
+  "startedAt": "2026-08-24T09:00:00Z", "networkId": "N83gJpVd…",
   "account": "A8tR…", "bootstrapping": false }
 ```
 
-`bootstrapping: true` means the background space-loading pass is still running; the server is serving already. `crdtVersion` (`{supported, stored, newer}`) is the account's data-model version: every release stamps its own on first open and the mark only rises, so a release older than the data refuses to boot (`409 sdk.crdt_version_newer`) or, when the raise arrives from another device while running, turns read-only — `newer: true` is the client's "upgrade required" signal.
+`networkId` is the any-sync network the server joined ([Networks](../operations/networks.html)). `bootstrapping: true` means the background space-loading pass is still running; the server is serving already. `crdtVersion` (`{supported, stored, newer}`) is the account's data-model version: every release stamps its own on first open and the mark only rises, so a release older than the data refuses to boot (`409 sdk.crdt_version_newer`) or, when the raise arrives from another device while running, turns read-only — `newer: true` is the client's "upgrade required" signal.
 
 ## 4. Call it
 

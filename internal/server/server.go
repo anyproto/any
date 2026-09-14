@@ -189,7 +189,7 @@ func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 		// so nobody else can read the token. Never logged.
 		fmt.Printf("CONTROL_TOKEN %s\n", controlToken)
 	}
-	lg.Info("listening", zap.String("addr", boundAddr), zap.String("account", deps.accountID()), zap.String("mode", cfg.Mode))
+	lg.Info("listening", zap.String("addr", boundAddr), zap.String("account", deps.accountID()), zap.String("mode", cfg.Mode), zap.String("networkId", networkId))
 	// Gated by the same flag as the /ui route mount (routes.go), so the
 	// advertised URL never outlives the handler. Silent on headless
 	// (app-embedded) boots — IOS-116.
