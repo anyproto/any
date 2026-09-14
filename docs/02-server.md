@@ -151,7 +151,8 @@ space requests and surfaces each as a `one_to_one_pending` row in the
 space list — no server-side wiring or config knob. With no coordinator
 the notifier is simply off and incoming 1-1s arrive only via the
 out-of-band `POST /v1/spaces/one-to-one/register-incoming` path. See
-`03-api.md` § Spaces and the SDK's `docs/13-one-to-one-spaces.md`.
+`03-api.md` § Spaces and the SDK's
+[`docs/13-one-to-one-spaces.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/13-one-to-one-spaces.md).
 
 ## Listen address
 

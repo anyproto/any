@@ -69,7 +69,8 @@ any            (this repo)        — HTTP server + CLI
           any-sync, any-store     — sync engine, document store
 ```
 
-The SDK's `docs/00-common-context.md` describes the full stack.
+The SDK's [`docs/00-common-context.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/00-common-context.md)
+describes the full stack.
 
 ## Docs
 

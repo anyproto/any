@@ -97,7 +97,7 @@ consumer):
 | Manual switch | user via UI → `activate` **on the target device** | newest claim wins by `seq` |
 | Concurrent claims | every reader, same rule | `(seq, at, peerId)` tiebreak; the loser observes via subscribe and stands down |
 | Un-claiming another device | nobody | never happens — only claims and row/app removal move the role |
-| Claim minted on a stale replica | claimer, after sync | a not-yet-synced replica computes `seq` without the newest claims, so its claim can lose once heads converge (SDK `docs/02-tech-space.md` § Devices registry) — observe `active.S` after sync and re-claim if the role didn't land |
+| Claim minted on a stale replica | claimer, after sync | a not-yet-synced replica computes `seq` without the newest claims, so its claim can lose once heads converge (SDK [`docs/02-tech-space.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/02-tech-space.md) § Devices registry) — observe `active.S` after sync and re-claim if the role didn't land |
 
 The runtime's loop: upsert self (`apps.S`) → read `active.S` +
 `self` from `GET /v1/devices` → claim or stand by → watch

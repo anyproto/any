@@ -23,7 +23,7 @@ decryption is a mobile-client concern (iOS NSE / Android extension) —
 Both keys are **derived from ACL state** — the SDK re-derives them on
 demand, and the only copy it keeps is the receiver mirror on the
 space row (§ Receiver-side keys; see the `PushAPI` doc comments in the
-SDK's `space/push.go`):
+SDK's [`space/push.go`](https://github.com/anyproto/any-sync-sdk/blob/main/space/push.go)):
 
 | Key | Derivation | Properties |
 |---|---|---|
@@ -425,5 +425,6 @@ or `ANY_PUSH_PEER_ID` / `ANY_PUSH_ADDRS`.
   kick on a `chat` property set; `engine.go` / `sdk.go` — wiring
   (service constructed and the node threaded into the SDK only when
   `config.Push.Active()`).
-- SDK: `space/push.go` (`PushAPI`), `internal/pushclient/` (crypto +
+- SDK: [`space/push.go`](https://github.com/anyproto/any-sync-sdk/blob/main/space/push.go) (`PushAPI`),
+  [`internal/pushclient/`](https://github.com/anyproto/any-sync-sdk/tree/main/internal/pushclient) (crypto +
   DRPC transport), config threading via the SDK `config.Push`.

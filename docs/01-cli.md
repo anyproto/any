@@ -233,7 +233,7 @@ either discovers it automatically (coordinator inbox → a
 app `register` it out-of-band, then `accept` / `decline` it. `decline` is
 synced + sticky account-wide; a later `start <peer>` un-declines.
 Endpoints + state machine: `docs/03-api.md` § Spaces (and the SDK's
-`docs/13-one-to-one-spaces.md`). Aliases: `any 1-1`, `any direct`.
+[`docs/13-one-to-one-spaces.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/13-one-to-one-spaces.md)). Aliases: `any 1-1`, `any direct`.
 
 ### Aggregate
 

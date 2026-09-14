@@ -588,7 +588,7 @@ spaceId (order-independent), the same immutable ACL (both as writers), the
 same read key — there is **no owner/invite handshake** at the crypto
 layer. The peer's account identity is the `id` from their `GET
 /v1/account`, exchanged out-of-band. Authoritative SDK contract:
-`any-sync-sdk/docs/13-one-to-one-spaces.md`.
+[`docs/13-one-to-one-spaces.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/13-one-to-one-spaces.md).
 
 ```
 POST /v1/spaces/one-to-one                  { otherIdentity }              → 201 SpaceInfo
@@ -651,7 +651,7 @@ coordinator inbox, durably retried), the space surfaces here as a
 **synced** pending row. The account is already a full ACL member; like
 the 1-1 gate, approval only governs whether the space is materialized —
 nothing is downloaded until accepted. Authoritative SDK contract:
-`any-sync-sdk/docs/15-direct-add-invites.md`.
+[`docs/15-direct-add-invites.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/15-direct-add-invites.md).
 
 ```
 POST /v1/spaces/:spaceId/invite/accept    → 200 SpaceInfo | 202 SpaceInfo
@@ -979,7 +979,7 @@ nothing).
 A **bundle** is one thing installed into a space — a chat, a
 marketplace bundle, an app's setup. It is one root object registered in
 the space's registry (the `bundles` dataset on the spaceIndex object;
-design in the SDK's `docs/bundles.md`), with every setup object derived
+design in the SDK's [`docs/bundles.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/bundles.md)), with every setup object derived
 from that root, so one converged id names the whole install.
 
 Clients register their own; the server installs nothing on a client's
@@ -2683,7 +2683,7 @@ stamps, user-supplied record ids, search extraction. This is the
 built-in types (`dataview`, `page`, …) refuse (`400 type.registered`) —
 their datasets are statically declared. SDK contract (vocabulary,
 convergence rules, storage model, runtime registration): the SDK's
-`docs/17-user-datasets.md`.
+[`docs/17-user-datasets.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/17-user-datasets.md).
 
 `POST …/types/:typeId/parts/:partId/datasets` → `201 {datasetDefId,
 collection}` (or inline in the part's `datasets` on `POST …/parts`):
@@ -2848,7 +2848,7 @@ batch is a no-op. One CRDT change per page (`pageSize` default 500). Not
 transactional against concurrent writers; the intended deployment is a
 single ingest writer per dataset (concurrent creates of the same id by
 different members are outside the convergence contract — the SDK's
-`docs/17-user-datasets.md` § The IdRule: user contract).
+[`docs/17-user-datasets.md` § The IdRule: user contract](https://github.com/anyproto/any-sync-sdk/blob/main/docs/17-user-datasets.md#the-idrule-user-contract)).
 
 Response (200 even with rejections — the `/modify` partial-success
 stance):

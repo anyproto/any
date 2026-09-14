@@ -8,7 +8,7 @@ stores **opaquely** — it is a client-facing contract, validated only by
 
 Endpoints and error codes: `03-api.md` § Types, § Runtime dataset
 schemas, `06-errors.md`. SDK storage model: the SDK's
-`docs/06-data-structure.md` § The `x-format` descriptor.
+[`docs/06-data-structure.md` § The `x-format` descriptor](https://github.com/anyproto/any-sync-sdk/blob/main/docs/06-data-structure.md#the-x-format-descriptor).
 
 Spelling: the HTTP wire and PATCH paths use `xKey` / `xFormat`; the
 stored record fields are `x-key` / `x-format` (visible in raw dataset

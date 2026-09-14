@@ -210,4 +210,5 @@ backup or export.
 place the tag is applied), `internal/server/handlers_local.go` (wire),
 `internal/api/local.go` (bodies), `internal/client/local.go`,
 `internal/cli/local.go`. SDK side: `SDK.Store()` and the consumer
-contract in the SDK's docs/03-space.md § Space Lifecycle.
+contract in the SDK's
+[`docs/03-space.md` § Space Lifecycle](https://github.com/anyproto/any-sync-sdk/blob/main/docs/03-space.md#space-lifecycle).
