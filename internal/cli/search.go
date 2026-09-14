@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -21,6 +22,7 @@ func newSearchCmd() *cobra.Command {
 		exclude  []string
 		maxData  int
 		passages int
+		filter   string
 	)
 	cmd := &cobra.Command{
 		Use:   "search <spaceId> <query>",
@@ -40,6 +42,11 @@ func newSearchCmd() *cobra.Command {
 			if scopes != "" {
 				req.Scopes = strings.Split(scopes, ",")
 			}
+			if filter != "" {
+				if err := readJSONBody(filter, &req.Filter); err != nil {
+					return fmt.Errorf("--filter: %w", err)
+				}
+			}
 			out, err := cl.Search(cmd.Context(), args[0], req)
 			if err != nil {
 				return err
@@ -54,5 +61,6 @@ func newSearchCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&exclude, "exclude", nil, "must-not term, enforced in every mode (repeatable; phrase/prefix ok)")
 	cmd.Flags().IntVar(&maxData, "max-data", 0, "max runes of data per hit around the first match (default 512; -1 = whole chunk)")
 	cmd.Flags().IntVar(&passages, "passages", 0, "extra matching chunks per record, best first (default 0, max 10)")
+	cmd.Flags().StringVar(&filter, "filter", "", "keep hits whose object matches this /objects/query filter, in every mode (inline JSON, @FILE, or - for stdin)")
 	return cmd
 }

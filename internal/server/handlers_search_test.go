@@ -364,3 +364,111 @@ func TestSearch_WorkerPath(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// TestSearch_Filter: `filter` binds every hit to its host object's row in
+// the /objects/query grammar, in every mode — the bin exclusion being the
+// everyday shape — and a bad filter is the same 400 the query endpoints
+// give.
+func TestSearch_Filter(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	ctx := context.Background()
+	ix := newTestIndexer(t, d, fakeEmbedder{dim: 16})
+	defer func() { _ = ix.Close() }()
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", `{"name":"SearchFilter"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create space: %d %s", rec.Code, rec.Body.String())
+	}
+	var sp api.SpaceInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &sp); err != nil {
+		t.Fatal(err)
+	}
+	spaceId := sp.Id
+	base := "/v1/spaces/" + spaceId
+	editorType := installModuleType(t, e, spaceId, "editor")
+
+	objA := mustCreateModuleObject(t, e, spaceId, "editor")
+	objB := mustCreateModuleObject(t, e, spaceId, "editor")
+	for _, o := range []string{objA, objB} {
+		mustModify(t, e, http.MethodPost, base+"/objects/"+o+"/editor/editor_blocks/blocks",
+			`{"type":"paragraph","text":"budget review notes"}`, http.StatusCreated)
+	}
+	// B goes to the bin: the filter reads the live row, no re-index needed.
+	mustModify(t, e, http.MethodPost, base+"/properties/"+objB+"/attach/bin", "", http.StatusOK)
+
+	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+
+	search := func(body string) api.SearchResponse {
+		t.Helper()
+		rec := doJSON(t, e, http.MethodPost, base+"/search", body)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("search %s: %d %s", body, rec.Code, rec.Body.String())
+		}
+		var res api.SearchResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	objects := func(res api.SearchResponse) map[string]bool {
+		out := map[string]bool{}
+		for _, h := range res.Hits {
+			out[h.ObjectId] = true
+		}
+		return out
+	}
+
+	res := search(`{"query":"budget","mode":"fts"}`)
+	if got := objects(res); len(got) != 2 {
+		t.Fatalf("unfiltered: %v", got)
+	}
+	for _, mode := range []string{"fts", "vector", "hybrid"} {
+		res = search(`{"query":"budget review","mode":"` + mode + `","filter":{"any.types":{"$nin":["bin"]}}}`)
+		if got := objects(res); len(got) != 1 || !got[objA] {
+			t.Fatalf("%s not-in-bin: %v, want only %s", mode, got, objA)
+		}
+		if res.Truncated {
+			t.Fatalf("%s: truncated on a two-object space", mode)
+		}
+	}
+	res = search(`{"query":"budget","mode":"fts","filter":{"any.types":"bin"}}`)
+	if got := objects(res); len(got) != 1 || !got[objB] {
+		t.Fatalf("in-bin: %v, want only %s", got, objB)
+	}
+	res = search(`{"query":"budget","mode":"fts","filter":{"$and":[{"any.types":"` + editorType + `"},{"any.types":{"$ne":"bin"}}]}}`)
+	if got := objects(res); len(got) != 1 || !got[objA] {
+		t.Fatalf("type and not bin: %v, want only %s", got, objA)
+	}
+	res = search(`{"query":"budget","mode":"fts","filter":{"any.name":"no such object"}}`)
+	if len(res.Hits) != 0 || res.Truncated {
+		t.Fatalf("empty filter: hits=%d truncated=%v", len(res.Hits), res.Truncated)
+	}
+	res = search(`{"query":"budget","mode":"fts","filter":null}`)
+	if got := objects(res); len(got) != 2 {
+		t.Fatalf("null filter must mean no filter: %v", got)
+	}
+	rawRec := doJSON(t, e, http.MethodPost, base+"/search", `{"query":"budget","mode":"fts","filter":{"any.types":{"$nin":["bin"]}}}`)
+	if strings.Contains(rawRec.Body.String(), `"truncated"`) {
+		t.Fatalf("truncated must be absent when false: %s", rawRec.Body.String())
+	}
+
+	// The filter grammar's own 400s, before any space lookup.
+	for body, code := range map[string]string{
+		`{"query":"x","filter":{"any.types":{"$nope":1}}}`: "filter.unknown_operator",
+		`{"query":"x","filter":{"$and":5}}`:                "filter.invalid",
+		`{"query":"x","filter":"any.types"}`:               "filter.invalid",
+	} {
+		rec := doJSON(t, e, http.MethodPost, base+"/search", body)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"`+code+`"`) {
+			t.Fatalf("%s: %d %s, want 400 %s", body, rec.Code, rec.Body.String(), code)
+		}
+	}
+}

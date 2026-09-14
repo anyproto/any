@@ -280,7 +280,7 @@ func benchCutoffSearch(b *testing.B, st *Store) {
 		b.Run("search/"+mode+"/limit=10", func(b *testing.B) {
 			var hits, records int
 			for i := 0; i < b.N; i++ {
-				res, err := ix.Search(ctx, cutoffSpace, api.SearchRequest{Query: "reranker", Mode: mode, Limit: 10})
+				res, err := ix.Search(ctx, cutoffSpace, api.SearchRequest{Query: "reranker", Mode: mode, Limit: 10}, nil)
 				if err != nil {
 					b.Fatal(err)
 				}

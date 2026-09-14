@@ -896,7 +896,8 @@ Body:
   "require": ["1937"],                // optional must-have terms (phrase/prefix ok); enforced in every mode
   "exclude": ["fiction"],             // optional must-not terms
   "maxData": 512,                     // optional: runes of `data` per hit around the first match (default 512; -1 = whole chunk)
-  "passages": 3                       // optional: further matching chunks per record on hit.passages (default 0, max 10)
+  "passages": 3,                      // optional: further matching chunks per record on hit.passages (default 0, max 10)
+  "filter": {"any.types": {"$nin": ["bin"]}}  // optional: keep hits whose HOST OBJECT row matches (the /objects/query filter grammar); every mode
 }
 ```
 
@@ -949,6 +950,23 @@ equals `dataTotal`. `maxData: -1` returns the whole chunk; `maxData <
 (1 + passages) × maxData` runes of text (chunk size, ~2000 runes, in
 place of `maxData` when it is -1). The full record is one
 dataset query away (`docs/08-clients.md` § 6).
+
+**`filter` binds every hit to its host object.** The condition is the
+`/objects/query` filter grammar verbatim — `any.types`,
+`<typeId>.<propId>`, `modifiedAt`, `id`, `$and` / `$or` / `$nin` … — and
+a hit is kept only if its object's `objects` row matches, in every mode;
+`limit` still counts matching records. The row is read live, so a
+property write (a bin move: `{"any.types": {"$nin": ["bin"]}}`) is
+honored by the next search with no re-index. Record fields of the hit's
+own dataset (a message's `creator`, a block's `type`) are not
+filterable. `null` means no filter; a bad one is the query endpoints'
+own `400 filter.invalid` / `filter.unknown_operator`. The reply carries
+`truncated: true` (absent otherwise) when the server's read budget
+under the filter ended before `limit` matching records were found — a
+narrow filter over a query that matches most of the index; the page may
+be shorter than the index could fill. How the server chooses between
+restricting the legs and post-filtering them, and the budgets:
+`docs/13-index.md` § Filtering by object.
 
 `require` / `exclude` are a contract on every returned hit, whatever
 the mode: the FTS leg matches on them, and vector hits (hybrid and pure

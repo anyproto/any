@@ -71,6 +71,19 @@ noted):
   at growing K, the endpoint end to end on a corpus with 17-chunk records)
   and that an early-closed iterator leaks nothing; the numbers behind
   `limit` counting records (`13-index.md` § Tuning).
+- **`filter_modes_bench_test.go`** — the search `filter`'s two paths
+  (`13-index.md` § Filtering by object): resolving the ids and handing
+  the legs a residual `objectId $in` — with and without the `objectId`
+  index, so any-store's `$text` / `$knn` probe plans can fire — against
+  post-filtering each leg's window through batched objects lookups,
+  over corpus size, chunks per object, match count and filter
+  selectivity, plus the cost of the estimation primitives (capped
+  counts, `Explain`). Synthetic grid (`ANY_FILTER_BENCH=1`, ~10 min) and
+  a real-data mode over COPIES of a space's `index.db` + `sdk.db`
+  (`ANY_FILTER_BENCH_REAL_*`, incl. end-to-end hybrid requests with
+  real query embeddings; the harness refuses a path inside a live data
+  dir, and it writes the `objectId` index into the copy). Copy a
+  store's `-wal` sibling with it: an index drop can live there.
 
 ### Reproduce
 

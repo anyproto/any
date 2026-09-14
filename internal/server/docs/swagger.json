@@ -3099,6 +3099,11 @@
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "filter": {
+                        "additionalProperties": {},
+                        "description": "Filter keeps only hits whose host object matches this condition,\nin the /objects/query filter grammar verbatim (any.types,\n\u003ctypeId\u003e.\u003cpropId\u003e, modifiedAt, …), in every mode — like Require /\nExclude. The object's live row is checked, so a property write is\nhonored at once. Limit still counts matching records. An object\nwith no row never matches.",
+                        "type": "object"
+                    },
                     "limit": {
                         "description": "Limit caps returned records — every hit is a distinct\n(objectId, dataset, recordId). Default 10, max 100.",
                         "type": "integer"
@@ -3149,6 +3154,10 @@
                     },
                     "mode": {
                         "type": "string"
+                    },
+                    "truncated": {
+                        "description": "Truncated is set when the lexical leg's read budget under Filter\nended before Limit matching records were found: the page may be\nshorter than the index could fill. Absent without a filter.",
+                        "type": "boolean"
                     },
                     "vectorStatus": {
                         "description": "VectorStatus: used | unavailable | disabled | skipped — whether\nsemantic recall participated in this response and, if not, why.",

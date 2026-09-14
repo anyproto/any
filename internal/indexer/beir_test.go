@@ -87,7 +87,7 @@ func TestSearchEvalBEIR(t *testing.T) {
 	eval := func(ix *Indexer, mode string) metrics {
 		var sum metrics
 		for _, qq := range qs {
-			resp, err := ix.Search(ctx, beirSpace, api.SearchRequest{Query: qq.text, Mode: mode, Limit: k})
+			resp, err := ix.Search(ctx, beirSpace, api.SearchRequest{Query: qq.text, Mode: mode, Limit: k}, nil)
 			if err != nil {
 				t.Fatalf("search %q: %v", qq.id, err)
 			}
@@ -133,7 +133,7 @@ func TestSearchEvalBEIR(t *testing.T) {
 			exact := cosineTopK(l2norm(qv), docVecs, fetch)
 			mv := evalOne(exact[:min(k, len(exact))], qq.rel, k)
 			// Exact-hybrid: fuse the FTS leg with the exact vector leg.
-			ftsResp, err := ix.Search(ctx, beirSpace, api.SearchRequest{Query: qq.text, Mode: api.SearchModeFTS, Limit: fetch})
+			ftsResp, err := ix.Search(ctx, beirSpace, api.SearchRequest{Query: qq.text, Mode: api.SearchModeFTS, Limit: fetch}, nil)
 			if err != nil {
 				t.Fatalf("fts %q: %v", qq.id, err)
 			}

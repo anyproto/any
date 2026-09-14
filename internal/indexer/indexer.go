@@ -500,6 +500,9 @@ func (ix *Indexer) SyncSpace(ctx context.Context, sp space.Space) error {
 // out of the reply — never more than maxLegFetch.
 type legCover struct {
 	fetch, groups int
+	// page is the request's limit — the records a filtered leg must
+	// reach before its read budget ends, or the reply is truncated.
+	page int
 }
 
 // covered reports whether hits satisfies the cover.
@@ -520,24 +523,42 @@ const maxLegFetch = 1000
 // vectorLeg runs the ANN leg and enforces require / exclude on it:
 // they are a contract on the hit, not on the leg, so vector hits are
 // post-filtered against the FTS index and fusion can't re-admit a doc
-// the lexical leg would have refused (SYN-187). any-store won't take
+// the lexical leg would have refused. any-store won't take
 // $knn and $text in one query, and $knn has no cursor past K, so the
 // leg re-queries with K ×4 (up to maxLegFetch) until vectorStop says
-// the window is covered or nothing further is reachable.
-func (ix *Indexer) vectorLeg(ctx context.Context, spaceId string, qv []float32, req api.SearchRequest, cover legCover) ([]Hit, error) {
+// the window is covered or nothing further is reachable. The object
+// filter binds the hit the same way: a small set rides the query as a
+// residual (any-store then probes the objectId index or widens its
+// candidate beam), a large one is applied per round through hs.keep.
+func (ix *Indexer) vectorLeg(ctx context.Context, spaceId string, qv []float32, req api.SearchRequest, cover legCover, hs *hostSet) ([]Hit, error) {
+	residual := hs.residual()
 	k, prevN := cover.fetch, -1
+	read := 0
 	for {
-		raw, n, err := ix.store.searchVector(ctx, spaceId, qv, req.Scopes, k, ix.opts.MinVectorSim)
+		raw, n, err := ix.store.searchVector(ctx, spaceId, qv, req.Scopes, k, ix.opts.MinVectorSim, residual)
 		if err != nil {
 			return nil, err
 		}
+		read += n
 		kept := raw
 		if len(req.Require) > 0 || len(req.Exclude) > 0 {
 			if kept, err = ix.store.FilterTerms(ctx, spaceId, raw, req.Require, req.Exclude); err != nil {
 				return nil, err
 			}
 		}
-		if vectorStop(cover, kept, n, k, prevN, len(raw) < n, len(req.Scopes) > 0) {
+		if hs.lazy() {
+			if read > filterScanRows {
+				if err := hs.materialize(ctx); err != nil {
+					return nil, err
+				}
+			}
+			if kept, err = hs.keep(ctx, kept); err != nil {
+				return nil, err
+			}
+		}
+		// A residual makes any-store size the candidate beam from K, the
+		// same way a scope does — so the short-round rule applies.
+		if vectorStop(cover, kept, n, k, prevN, len(raw) < n, len(req.Scopes) > 0 || residual != nil) {
 			return kept, nil
 		}
 		k, prevN = min(k*4, maxLegFetch), n
@@ -568,31 +589,93 @@ func vectorStop(cover legCover, kept []Hit, n, k, prevN int, floorDropped, scope
 // ftsLeg runs the lexical leg: one cursor, pulled until the window is
 // covered or the leg is exhausted, closed before returning. any-store
 // does not check ctx between rows, so the loop does.
-func (ix *Indexer) ftsLeg(ctx context.Context, spaceId string, fq FTSQuery, scopes []string, cover legCover) ([]Hit, error) {
-	cur, err := ix.store.openFTS(ctx, spaceId, fq, scopes)
+//
+// Under an object filter a small set rides the query as a residual and
+// every row counts. A large set post-filters: rows are pulled
+// filterBatch at a time and judged in one lookup (hs.keep) before they
+// count towards the cover — the cursor stays open across that lookup,
+// which reads the SDK's store, never this one. A page still short after
+// filterScanRows rows means the filter is narrow relative to the
+// corpus: the set is materialized once and the same cursor continues
+// with in-process membership, up to filterScanRowsMax, past which the
+// leg reports truncation.
+func (ix *Indexer) ftsLeg(ctx context.Context, spaceId string, fq FTSQuery, scopes []string, cover legCover, hs *hostSet) (hits []Hit, truncated bool, err error) {
+	cur, err := ix.store.openFTS(ctx, spaceId, fq, scopes, hs.residual())
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer cur.Close()
-	var hits []Hit
+	lazy := hs.lazy()
 	seen := map[string]struct{}{}
-	for len(hits) < maxLegFetch && !(len(hits) >= cover.fetch && len(seen) >= cover.groups) {
-		if len(hits)%64 == 0 {
+	covered := func() bool {
+		return len(hits) >= maxLegFetch || (len(hits) >= cover.fetch && len(seen) >= cover.groups)
+	}
+	var batch []Hit
+	flush := func() error {
+		kept := batch
+		if lazy {
+			if kept, err = hs.keep(ctx, batch); err != nil {
+				return err
+			}
+		}
+		for _, h := range kept {
+			hits = append(hits, h)
+			seen[groupKey(h)] = struct{}{}
+		}
+		batch = batch[:0]
+		return nil
+	}
+	read, budgetOut := 0, false
+	for !covered() {
+		if lazy {
+			if read >= filterScanRowsMax {
+				budgetOut = true
+				break
+			}
+			if read == filterScanRows && !hs.exact {
+				if err := flush(); err != nil {
+					return nil, false, err
+				}
+				if err := hs.materialize(ctx); err != nil {
+					return nil, false, err
+				}
+			}
+		} else if read >= maxLegFetch {
+			break
+		}
+		if read%64 == 0 {
 			if err := ctx.Err(); err != nil {
-				return nil, err
+				return nil, false, err
 			}
 		}
 		h, ok, err := cur.Next()
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if !ok {
 			break
 		}
-		hits = append(hits, h)
-		seen[groupKey(h)] = struct{}{}
+		read++
+		batch = append(batch, h)
+		// Only a lazy, not yet materialized set needs the batch — every
+		// other membership check is in-process, so the cover is
+		// checked per row.
+		if !lazy || hs.exact || len(batch) >= filterBatch {
+			if err := flush(); err != nil {
+				return nil, false, err
+			}
+		}
 	}
-	return hits, nil
+	if err := flush(); err != nil {
+		return nil, false, err
+	}
+	if len(hits) > maxLegFetch {
+		hits = hits[:maxLegFetch]
+	}
+	// Out of budget with the page still short: rows past the budget
+	// may hold matches the reply cannot show.
+	truncated = budgetOut && len(seen) < cover.page
+	return hits, truncated, nil
 }
 
 // Search runs the requested mode over the space's local index. The
@@ -603,8 +686,14 @@ func (ix *Indexer) ftsLeg(ctx context.Context, spaceId string, fq FTSQuery, scop
 // chunk, and groupHits collapses chunks into records. Order of work:
 // query embedding, then the vector leg (eager, may re-query), then the
 // lexical cursor — so no read tx is ever held across the embed wait or
-// another store call.
-func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchRequest) (api.SearchResponse, error) {
+// another store call. host, when non-nil, is the request's object
+// filter: it is probed once (newHostSet) and both legs keep only hits
+// whose object it admits, so limit counts MATCHING records.
+func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchRequest, host HostFilter) (api.SearchResponse, error) {
+	hs, err := newHostSet(ctx, host)
+	if err != nil {
+		return api.SearchResponse{}, err
+	}
 	limit := req.Limit
 	if limit <= 0 {
 		limit = 10
@@ -613,8 +702,8 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 	fetch := min(max(limit*3, 30), 100)
 	// The lexical leg covers twice the records for the price of a few
 	// µs per row; the ANN leg re-pays its search per widening round.
-	ftsCover := legCover{fetch: fetch, groups: 2 * limit}
-	vecCover := legCover{fetch: fetch, groups: limit}
+	ftsCover := legCover{fetch: fetch, groups: 2 * limit, page: limit}
+	vecCover := legCover{fetch: fetch, groups: limit, page: limit}
 
 	mode := req.Mode
 	if mode == "" {
@@ -622,7 +711,7 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 	}
 
 	var ftsHits, vecHits []Hit
-	var err error
+	truncated := false
 
 	// vectorStatus tells the consumer whether semantic recall took part
 	// and, if not, why — an agent can decide to retry, warn, or trust
@@ -665,7 +754,7 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 				mode = api.SearchModeFTS
 				vectorStatus = api.VectorStatusUnavailable
 			} else {
-				vecHits, err = ix.vectorLeg(ctx, spaceId, qv, req, vecCover)
+				vecHits, err = ix.vectorLeg(ctx, spaceId, qv, req, vecCover, hs)
 				if err != nil {
 					return api.SearchResponse{}, err
 				}
@@ -686,12 +775,12 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 		if ix.opts.StopWords && !strings.Contains(ftsQuery, `"`) {
 			ftsQuery = stripStopWords(ftsQuery)
 		}
-		ftsHits, err = ix.ftsLeg(ctx, spaceId, FTSQuery{
+		ftsHits, truncated, err = ix.ftsLeg(ctx, spaceId, FTSQuery{
 			Query:      ftsQuery,
 			DefaultAnd: ix.opts.FTSDefaultAnd,
 			Require:    req.Require,
 			Exclude:    req.Exclude,
-		}, req.Scopes, ftsCover)
+		}, req.Scopes, ftsCover, hs)
 		if err != nil {
 			return api.SearchResponse{}, err
 		}
@@ -722,7 +811,7 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 	}
 	terms := foldTerms(snippetTerms(req.Query, req.Require))
 	window := func(h Hit) (string, int, int) { return snippet(h.Data, terms, maxData) }
-	out := api.SearchResponse{Hits: make([]api.SearchHit, 0, len(groups)), Mode: mode, VectorStatus: vectorStatus}
+	out := api.SearchResponse{Hits: make([]api.SearchHit, 0, len(groups)), Mode: mode, VectorStatus: vectorStatus, Truncated: truncated}
 	for _, g := range groups {
 		data, offset, total := window(g.Hit)
 		hit := api.SearchHit{

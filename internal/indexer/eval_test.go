@@ -367,7 +367,7 @@ func runStrategy(t *testing.T, emb Embedder, chunk func(evalObject) []index.Inde
 		for _, mode := range modes {
 			resp, err := ix.Search(context.Background(), "eval", api.SearchRequest{
 				Query: eq.q, Mode: mode, Limit: k,
-			})
+			}, nil)
 			if err != nil {
 				t.Fatalf("search %q mode=%s: %v", eq.q, mode, err)
 			}

@@ -2488,6 +2488,16 @@ components:
             type: string
           type: array
           uniqueItems: false
+        filter:
+          additionalProperties: {}
+          description: |-
+            Filter keeps only hits whose host object matches this condition,
+            in the /objects/query filter grammar verbatim (any.types,
+            <typeId>.<propId>, modifiedAt, …), in every mode — like Require /
+            Exclude. The object's live row is checked, so a property write is
+            honored at once. Limit still counts matching records. An object
+            with no row never matches.
+          type: object
         limit:
           description: |-
             Limit caps returned records — every hit is a distinct
@@ -2544,6 +2554,12 @@ components:
           uniqueItems: false
         mode:
           type: string
+        truncated:
+          description: |-
+            Truncated is set when the lexical leg's read budget under Filter
+            ended before Limit matching records were found: the page may be
+            shorter than the index could fill. Absent without a filter.
+          type: boolean
         vectorStatus:
           description: |-
             VectorStatus: used | unavailable | disabled | skipped — whether

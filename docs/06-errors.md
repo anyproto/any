@@ -130,7 +130,7 @@ upsert.requires_user_ids         # 400 — upsert on a dataset not declared idRu
 #   upsert.immutable_field / upsert.not_author / upsert.record_deleted / upsert.rejected
 
 filter.unknown_operator          # 400 — filter names an operator outside the grammar (details.operator, details.path); message lists the supported set
-filter.invalid                   # 400 — any other filter-grammar violation (wrong operand type, malformed $and/$or array, bad $regex, …); message carries the parser's path + reason (details.path, details.operator). Filters parse at the request boundary, so these never surface mid-subscribe
+filter.invalid                   # 400 — any other filter-grammar violation (wrong operand type, malformed $and/$or array, bad $regex, …); message carries the parser's path + reason (details.path, details.operator). Filters parse at the request boundary, so these never surface mid-subscribe. Both codes also answer a bad `filter` on POST /v1/spaces/:id/search
 
 type.not_found                   # 404 — unknown typeId on GET …/types/:typeId and GET …/types/:typeId/properties (existence-checked: a real type with no properties answers 200 [], an unknown id never does); 400 when a bundle ensure's rootTypes / rootProperties names an unknown type
 type.xkey_required               # 400 — create without an xKey (a type needs a stable handle)

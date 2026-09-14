@@ -1,5 +1,7 @@
 package api
 
+import "encoding/json"
+
 // Search modes. Hybrid runs both legs and fuses by reciprocal rank;
 // fts / vector run one leg only.
 const (
@@ -39,6 +41,13 @@ type SearchRequest struct {
 	// the record's other chunks that ranked within the search window,
 	// not every chunk of the record.
 	Passages int `json:"passages,omitempty"`
+	// Filter keeps only hits whose host object matches this condition,
+	// in the /objects/query filter grammar verbatim (any.types,
+	// <typeId>.<propId>, modifiedAt, …), in every mode — like Require /
+	// Exclude. The object's live row is checked, so a property write is
+	// honored at once. Limit still counts matching records. An object
+	// with no row never matches.
+	Filter json.RawMessage `json:"filter,omitempty"`
 }
 
 // MaxSearchPassages caps SearchRequest.Passages.
@@ -116,4 +125,8 @@ type SearchResponse struct {
 	// VectorStatus: used | unavailable | disabled | skipped — whether
 	// semantic recall participated in this response and, if not, why.
 	VectorStatus string `json:"vectorStatus"`
+	// Truncated is set when the lexical leg's read budget under Filter
+	// ended before Limit matching records were found: the page may be
+	// shorter than the index could fill. Absent without a filter.
+	Truncated bool `json:"truncated,omitempty"`
 }

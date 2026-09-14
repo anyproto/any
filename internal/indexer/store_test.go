@@ -713,3 +713,51 @@ func withData(e index.IndexEntry, data string) index.IndexEntry {
 	e.Data = data
 	return e
 }
+
+// The per-space collection carries an objectId index (the search
+// filter's residual seeks it), and a residual handed to openFTS
+// restricts the lexical leg to those objects.
+func TestStore_ObjectIdResidual(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 0)
+	const sp = "sp1"
+	if err := st.Apply(ctx, sp, []DocUpsert{
+		{Entry: entry("basic", "o1", "editor_blocks", "r", "needle one", 1)},
+		{Entry: entry("basic", "o2", "editor_blocks", "r", "needle two", 2)},
+		{Entry: entry("basic", "o3", "editor_blocks", "r", "needle three", 3)},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	coll, err := st.spaceColl(ctx, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, ix := range coll.GetIndexes() {
+		if ix.Info().Name == "objectId" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("objectId index missing on the space collection")
+	}
+	cur, err := st.openFTS(ctx, sp, FTSQuery{Query: "needle"}, nil, objectIdIn([]string{"o1", "o3"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cur.Close()
+	got := map[string]bool{}
+	for {
+		h, ok, err := cur.Next()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok {
+			break
+		}
+		got[h.ObjectId] = true
+	}
+	if len(got) != 2 || !got["o1"] || !got["o3"] {
+		t.Fatalf("residual leg objects = %v, want o1+o3", got)
+	}
+}
