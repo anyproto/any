@@ -365,7 +365,8 @@ redeemed a code before (nothing consumed). Refusals are relayed as
 > **Profiles are encrypted.** The bytes pushed to identityRepo are
 > encrypted with an account-derived key that is shared with a contact
 > only through an already-encrypted channel — a shared space's ACL
-> metadata or a 1-1 invite. A peer who has not yet received the key sees
+> metadata, a 1-1 invite, or the key rows the two participants of a 1-1
+> write inside their space. A peer who has not yet received the key sees
 > the account **id only**, with `name` / `description` / `iconCid` empty,
 > until the key arrives and the SDK's background fetch resolves the
 > profile. Clients must tolerate an empty name everywhere a contact
@@ -397,7 +398,11 @@ Each row carries the last resolved profile (`name` / `description` /
 `iconCid`, omitted until resolved — see the encryption note above) and
 `spaceIds`, the set of spaces where the identity is currently seen
 (pruned when you leave/offload a space). The synced decryption key behind
-each row is **never** exposed.
+each row is **never** exposed: the directory strips it, and the SDK's
+`identityKeys` rows on a 1-1's index object — where the two participants
+publish theirs — are refused on every per-object read (`/query`,
+`/query/subscribe`, `/aggregate`, `/history`) with
+`400 request.invalid_field`.
 
 **The directory carries no rights.** Roles
 (`owner`/`admin`/`writer`/`reader`) are per-space and live on the members
@@ -644,17 +649,21 @@ values, not ACL operations:
   it never auto-resurfaces. A later explicit `POST /v1/spaces/one-to-one`
   overrides it. Returns 204.
 
-**The friend's name resolves on both sides.** Identity profiles are
-encrypted with a per-account metadata key. For a 1-1 the inbox invite
-carries the initiator's key to the receiver (so a pending row can show
-"Alice wants to chat"), and once the space is active on both sides each
-participant publishes its own key inside the space (the SDK's
-`identityKeys` rows on the space's index object), so the acceptor's name
-resolves for the initiator as well — without any other shared space and
-without the inbox. Until then a side sees the peer id-only
-(`GET /v1/identities/:identity` with an empty `name`), which clients must
-tolerate as they do for any contact. The exchange is 1-1 only; a regular
-space distributes the key through its ACL.
+**The friend's profile becomes decryptable on both sides.** Identity
+profiles are encrypted with a per-account metadata key. For a 1-1 the
+inbox invite carries the initiator's key to the receiver (so a pending
+row can show "Alice wants to chat"), and each participant publishes its
+own key inside the space on its first load of the 1-1 (the SDK's
+`identityKeys` rows on the space's index object); the rows cross once
+both sides have materialized the space, so the acceptor's profile is
+decryptable for the initiator too — without any other shared space and
+without the inbox. The name itself appears once the SDK's background
+identityRepo fetch lands, which needs the coordinator reachable. Until
+then a side sees the peer id-only (`GET /v1/identities/:identity` with an
+empty `name`), which clients must tolerate as they do for any contact. The
+rows are SDK-internal: no read route serves them (§ Identities). The
+exchange is 1-1 only; a regular space distributes the key through its
+ACL.
 
 **Discovery has no bespoke endpoint** — incoming requests are the space
 list filtered on the status: `GET

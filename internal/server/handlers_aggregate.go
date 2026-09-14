@@ -59,6 +59,9 @@ func (d *deps) spaceAggregate(c echo.Context) error {
 	if done {
 		return errResp
 	}
+	if errResp, done := identityKeysReadRefused(c, objectId, dataset); done {
+		return errResp
+	}
 	// Aggregation output is caller-shaped, so withheld fields cannot
 	// be stripped from it: a dataset with a strip list (spaces) is
 	// query-only on the index object.

@@ -2081,6 +2081,27 @@ To inspect SDK behavior at the pinned version, read the module cache
     docs/02-server.md § Startup + § Data dir layout, docs/03-api.md
     § Auth, docs/05-config.md, docs/06-errors.md, docs/08-clients.md
     § 14.
+58. **1-1 profile names resolve both ways** — an SDK bump plus a read
+    fence. A 1-1's ACL is immutable and the coordinator inbox carries
+    the initiator's identity metadata symkey one way only, so the
+    initiator could never decrypt the acceptor's profile. Each
+    participant publishes its own symkey as a row of the SDK-internal
+    `identityKeys` dataset on the 1-1's derived spaceIndex object (row
+    id = its own identity, admitted only from that signer, deletes
+    refused), and a per-space SDK watcher folds the peer's row into the
+    identities directory and kicks the identityRepo fetch. `any` side:
+    `identityKeysReadRefused` (identitykeys_fence.go) answers `400
+    request.invalid_field` on every per-object read that names the
+    dataset — `/query`, `/query/subscribe` (`perObjectReadVet` composes
+    it with the tech-index vet), `/aggregate`, `/history` (views and
+    diffs skip the dataset) — because the raw key is non-revocable,
+    outlives the space and the HTTP client is a lower trust tier than
+    the SDK consumer; writes were already refused by the SDK's
+    public-dataset fence (`400 dataset.unknown`). Discovery never
+    listed it (registered like `bundles` / `payloads`). e2e:
+    `internal/e2e/multipeer_onetoone_names_test.go`. Contract:
+    docs/03-api.md § Spaces (one-to-one) + § Identities,
+    docs/08-clients.md § 7.
 
 ## What this project is
 

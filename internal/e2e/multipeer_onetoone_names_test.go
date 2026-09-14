@@ -8,8 +8,8 @@
 // resolves the peer's profile name.
 //
 // The Alice→Bob direction has no path other than those rows. Bob→Alice
-// could also ride the inbox, so this test deliberately does NOT use the
-// inbox (Bob learns of the request out-of-band via register-incoming)
+// could also ride the inbox; this test does not depend on the inbox for
+// discovery (Bob learns of the request out-of-band via register-incoming)
 // and asserts both directions.
 //
 // Mirrors TestE2E_MultipeerOneToOne: gated on the staging fixture +
@@ -104,14 +104,17 @@ func TestE2E_MultipeerOneToOneNames(t *testing.T) {
 	// Both sides are active, so both have published their symkey row on
 	// the space's index object. Poll until each directory carries the
 	// other's NAME — that needs the key row to cross AND the identityRepo
-	// profile fetch to land. Head-sync is forced on both peers each tick
-	// so the key rows don't wait on any-sync's ~30s periodic poll.
+	// profile fetch to land. Plain polling: the rows live on the derived
+	// spaceIndex object, where a forced head-sync must not be used (see
+	// pollUntilSynced). Three minutes covers several periodic rounds; a
+	// failure here is the background identityRepo fetch, not a broken
+	// exchange — the rows are CRDT state and cannot be lost.
 	start := time.Now()
 	var (
 		aliceSeesBob, bobSeesAlice     api.IdentityInfo
 		aliceSeesBobAt, bobSeesAliceAt time.Duration
 	)
-	resolved := pollUntilSynced(t, 120*time.Second, aliceSpace.Id, []*peer{alice, bob}, func() bool {
+	resolved := pollUntil(3*time.Minute, func() bool {
 		if aliceSeesBobAt == 0 {
 			if e, ok := identityByID(t, alice, accB.Id); ok && e.Name != "" {
 				aliceSeesBob, aliceSeesBobAt = e, time.Since(start)
@@ -176,9 +179,9 @@ func checkRow(t *testing.T, p *peer, spaceID, wantName, wantAuthor string) {
 }
 
 // identityByID reads one entry off a peer's identities directory through
-// GET /v1/identities/:identity. ok=false on 404 identity.not_found — the
-// "encountered but unknown" answer the directory gives before a peer's
-// key has arrived.
+// GET /v1/identities/:identity. ok=false on 404 identity.not_found — no
+// directory row at all; once the 1-1 records the sighting the peer reads
+// 200 with an empty name until the key and the profile arrive.
 func identityByID(t *testing.T, p *peer, identity string) (api.IdentityInfo, bool) {
 	t.Helper()
 	resp, raw := doRequest(t, http.MethodGet, p.base+"/v1/identities/"+identity, "")
