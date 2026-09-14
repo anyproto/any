@@ -515,7 +515,7 @@ func (c legCover) covered(hits []Hit) bool {
 // about this many at 60k docs. Both legs at the ceiling hold up to
 // 2000 chunk texts (~16 MB) for the duration of one search — the
 // price of the pathological corpus only.
-const maxLegFetch = 1000
+var maxLegFetch = 1000
 
 // vectorLeg runs the ANN leg and enforces require / exclude on it:
 // they are a contract on the hit, not on the leg, so vector hits are
@@ -550,7 +550,7 @@ func (ix *Indexer) vectorLeg(ctx context.Context, spaceId string, qv []float32, 
 				return nil, false, err
 			}
 		}
-		if hs.lazy() {
+		if residual == nil && hs != nil {
 			// One lookup per round, at most K ids; the cache makes the
 			// re-queried head of a wider round free.
 			if kept, err = hs.keep(ctx, kept); err != nil {
@@ -562,7 +562,7 @@ func (ix *Indexer) vectorLeg(ctx context.Context, spaceId string, qv []float32, 
 		if vectorStop(cover, kept, n, k, prevN, len(raw) < n, len(req.Scopes) > 0 || residual != nil) {
 			// The K ceiling is the leg's read budget: under a lazy set a
 			// page still short there may have matches out of reach.
-			return kept, hs.lazy() && k >= maxLegFetch && !cover.covered(kept), nil
+			return kept, residual == nil && hs != nil && k >= maxLegFetch && !cover.covered(kept), nil
 		}
 		k, prevN = min(k*4, maxLegFetch), n
 	}
@@ -609,6 +609,8 @@ func (ix *Indexer) ftsLeg(ctx context.Context, spaceId string, fq FTSQuery, scop
 		return nil, false, err
 	}
 	defer cur.Close()
+	// Captured once: the rescue may make the set exact mid-leg, but the
+	// read budget stays on — keep is then an in-process check.
 	lazy := hs.lazy()
 	seen := map[string]struct{}{}
 	// Without a filter every row is kept, so the maxLegFetch clause is

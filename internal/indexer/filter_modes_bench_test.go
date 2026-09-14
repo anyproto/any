@@ -49,6 +49,9 @@ import (
 	"github.com/anyproto/any-store/v2/anyenc"
 	"github.com/anyproto/any-store/v2/query"
 
+	"github.com/anyproto/any-sync/app/logger"
+
+	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/index"
 )
@@ -1492,7 +1495,7 @@ func TestFilterModesBenchReal(t *testing.T) {
 		"corpus", "query", "filter", "limit", "mode", "strategy",
 		"p50 ms", "p95 ms", "rows", "objQ", "idsChecked", "records", "capped",
 		"idSet", "resolve ms", "fts hits", "vec hits", "from fts", "from vec", "from both",
-		"fts plan", "vec plan",
+		"fts plan", "vec plan", "truncated", "probe",
 	}}
 
 	coll, err := f.st.spaceColl(ctx, f.space)
@@ -1576,9 +1579,10 @@ func TestFilterModesBenchReal(t *testing.T) {
 //	none    — no filter at all: the baseline every filtered number is
 //	  read against.
 const (
-	fbStratPre  = "pre_idx"
-	fbStratPost = "post"
-	fbStratNone = "none"
+	fbStratPre     = "pre_idx"
+	fbStratPost    = "post"
+	fbStratNone    = "none"
+	fbStratProduct = "product"
 	// fbE2EStopWords mirrors the server default (cfg.Search.StopWords
 	// nil ⇒ on): the lexical leg strips stop words unless the query
 	// carries a quote.
@@ -1589,8 +1593,11 @@ const (
 // the reply was made of.
 type fbE2ERun struct {
 	fbRun
-	ftsHits, vecHits           int // rows each leg kept (post: after verdicts)
-	fromFts, fromVec, fromBoth int // which leg produced each returned record
+	ftsHits, vecHits           int  // rows each leg kept (post: after verdicts)
+	fromFts, fromVec, fromBoth int  // which leg produced each returned record
+	truncated                  bool // product path: the reply's own flag
+	probeIds                   int  // product path: ids the probe found
+	probeMore                  bool // product path: the set continued past the probe bound
 }
 
 // fbFtsLegE2E is ftsLeg's cover loop with a filter strategy bolted on:
@@ -1905,6 +1912,14 @@ func fbEmbedQueries(tb testing.TB, ctx context.Context, f *fbFixture, runs int) 
 // objectId index to exist already — pre_idx is the only mode-1 variant
 // here, and it is the one a request-time implementation would use.
 func fbE2EGrid(t *testing.T, ctx context.Context, f *fbFixture, coll anystore.Collection, tbl *fbTable, runs int, limits []int, modes []string) {
+	// The shipped algorithm, over the same Store: StopWords matches the
+	// server's default (withDefaults leaves it off), the embedder hands
+	// back the vectors cached before any timing.
+	ix := &Indexer{store: f.st, lg: logger.NewNamed("indexer.bench"), opts: Options{
+		Embedder:      fbCachedEmbedder{vecs: fbTextVectors(f), dim: f.st.Dim()},
+		StopWords:     fbE2EStopWords,
+		AnnounceAfter: -1,
+	}.withDefaults()}
 	explain := func(q fbQuery, mode string, ids []string, limit int) (string, string) {
 		var ftsPlan, vecPlan string
 		fetch := min(max(limit*3, 30), 100)
@@ -1939,12 +1954,19 @@ func fbE2EGrid(t *testing.T, ctx context.Context, f *fbFixture, coll anystore.Co
 		return ftsPlan, vecPlan
 	}
 	row := func(q fbQuery, filterName, mode, strat string, limit int, s fbStat, e fbE2ERun, ftsPlan, vecPlan string) {
+		probe := ""
+		if strat == fbStratProduct && filterName != "-" {
+			probe = strconv.Itoa(e.probeIds)
+			if e.probeMore {
+				probe += "+" // the set continued past the probe bound: the lazy path
+			}
+		}
 		tbl.add(f.name(), q.name, filterName, strconv.Itoa(limit), mode, strat,
 			ms(s.p50), ms(s.p95), strconv.Itoa(e.rows), strconv.Itoa(e.objQueries),
 			strconv.Itoa(e.idsChecked), strconv.Itoa(e.records), strconv.FormatBool(e.capped),
 			strconv.Itoa(e.idSet), ms(e.resolve), strconv.Itoa(e.ftsHits), strconv.Itoa(e.vecHits),
 			strconv.Itoa(e.fromFts), strconv.Itoa(e.fromVec), strconv.Itoa(e.fromBoth),
-			ftsPlan, vecPlan)
+			ftsPlan, vecPlan, strconv.FormatBool(e.truncated), probe)
 	}
 	measure := func(fn func() (fbE2ERun, error)) (fbStat, fbE2ERun) {
 		var last fbE2ERun
@@ -1972,6 +1994,11 @@ func fbE2EGrid(t *testing.T, ctx context.Context, f *fbFixture, coll anystore.Co
 					return fbE2ESearch(ctx, f, q, nil, mode, fbStratNone, limit)
 				})
 				row(q, "-", mode, fbStratNone, limit, st, last, ftsPlan, vecPlan)
+
+				st, last = measure(func() (fbE2ERun, error) {
+					return fbProductSearch(ctx, ix, f, q, nil, mode, limit)
+				})
+				row(q, "-", mode, fbStratProduct, limit, st, last, ftsPlan, vecPlan)
 			}
 		}
 		for _, flt := range f.filters {
@@ -1996,6 +2023,17 @@ func fbE2EGrid(t *testing.T, ctx context.Context, f *fbFixture, coll anystore.Co
 						return fbE2ESearch(ctx, f, q, filter, mode, fbStratPost, limit)
 					})
 					row(q, flt.name, mode, fbStratPost, limit, st, last, ftsPlanPost, vecPlanPost)
+
+					host := &fbHostFilter{coll: f.objColl, cond: filter}
+					probeIds, probeMore, err := fbProbe(ctx, host)
+					if err != nil {
+						t.Fatal(err)
+					}
+					st, last = measure(func() (fbE2ERun, error) {
+						return fbProductSearch(ctx, ix, f, q, host, mode, limit)
+					})
+					last.probeIds, last.probeMore = probeIds, probeMore
+					row(q, flt.name, mode, fbStratProduct, limit, st, last, "", "")
 				}
 			}
 		}
@@ -2006,4 +2044,154 @@ func fbE2EGrid(t *testing.T, ctx context.Context, f *fbFixture, coll anystore.Co
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+// --- the product path ---------------------------------------------------
+
+// Strategy `product` calls the shipped algorithm — Indexer.Search with a
+// HostFilter (host_filter.go) — so the grid prices what the server will
+// actually run next to the two hand-rolled strategies. The Indexer is
+// built over the same opened Store the way the unit tests build theirs;
+// the embedder is a fixed one handing back the query vector cached by
+// fbEmbedQueries, so the product's embed step costs nothing measurable
+// and every mode's number stays embed-free (add the embed-queries p50
+// for a real request).
+//
+// StopWords is set explicitly: withDefaults leaves it false, while the
+// server (and the other strategies here) strip stop words on the lexical
+// leg.
+
+// fbCachedEmbedder answers from the fixture's cache — the query vectors
+// were embedded once, before any timing.
+type fbCachedEmbedder struct {
+	vecs map[string][]float32
+	dim  int
+}
+
+func (e fbCachedEmbedder) EmbedDocs(context.Context, []string) ([][]float32, error) {
+	return nil, fmt.Errorf("bench embedder: docs are already embedded")
+}
+
+func (e fbCachedEmbedder) EmbedQuery(_ context.Context, text string) ([]float32, error) {
+	if v, ok := e.vecs[text]; ok {
+		return v, nil
+	}
+	return nil, fmt.Errorf("bench embedder: no cached vector for %q", text)
+}
+
+func (e fbCachedEmbedder) Dim(context.Context) (int, error) { return e.dim, nil }
+
+// fbTextVectors keys the cached embeddings by query TEXT, which is what
+// Indexer.Search hands the embedder.
+func fbTextVectors(f *fbFixture) map[string][]float32 {
+	out := make(map[string][]float32, len(f.queries))
+	for _, q := range f.queries {
+		if v := f.vectors[q.name]; v != nil {
+			out[q.text] = v
+		}
+	}
+	return out
+}
+
+// fbHostFilter is the harness's HostFilter over the copy's objects
+// collection: the two reads the product asks for. Tombstones are
+// skipped (a row with `_deletedAt` is gone for readers), which is the
+// one semantic the server's implementation must also carry.
+type fbHostFilter struct {
+	coll anystore.Collection
+	cond query.Filter
+	// counters, read after a run: how the product used the filter.
+	resolves, matches, idsAsked int
+}
+
+func (f *fbHostFilter) Resolve(ctx context.Context, max int) (ids []string, more bool, err error) {
+	f.resolves++
+	iter, err := f.coll.Find(f.cond).Iter(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	defer iter.Close()
+	for iter.Next() {
+		doc, err := iter.Doc()
+		if err != nil {
+			return nil, false, err
+		}
+		v := doc.Value()
+		if v.Get("_deletedAt") != nil {
+			continue
+		}
+		if max > 0 && len(ids) == max {
+			return ids, true, iter.Err()
+		}
+		ids = append(ids, string(v.GetStringBytes("id")))
+	}
+	return ids, false, iter.Err()
+}
+
+func (f *fbHostFilter) Match(ctx context.Context, ids []string) (map[string]bool, error) {
+	f.matches++
+	f.idsAsked += len(ids)
+	arena := &anyenc.Arena{}
+	vals := make([]*anyenc.Value, len(ids))
+	for i, id := range ids {
+		vals[i] = arena.NewString(id)
+	}
+	iter, err := f.coll.Find(query.And{
+		query.Key{Path: idPath, Filter: query.NewInValue(vals...)},
+		f.cond,
+	}).Iter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+	out := make(map[string]bool, len(ids))
+	for iter.Next() {
+		doc, err := iter.Doc()
+		if err != nil {
+			return nil, err
+		}
+		v := doc.Value()
+		if v.Get("_deletedAt") != nil {
+			continue
+		}
+		out[string(v.GetStringBytes("id"))] = true
+	}
+	return out, iter.Err()
+}
+
+// fbProbe re-runs the product's own probe (Resolve at filterIdsMax) so
+// the table can report the id set it found without reaching inside
+// hostSet: the size, and whether the set continued past the bound (the
+// lazy path).
+func fbProbe(ctx context.Context, host *fbHostFilter) (int, bool, error) {
+	if host == nil {
+		return 0, false, nil
+	}
+	ids, more, err := host.Resolve(ctx, filterIdsMax)
+	return len(ids), more, err
+}
+
+// fbProductSearch runs one request through the shipped Search and
+// reports it in the harness's accounting: records is the page the
+// caller gets, objQ / idsChecked are how the product used the filter,
+// and truncated is the reply's own flag.
+func fbProductSearch(ctx context.Context, ix *Indexer, f *fbFixture, q fbQuery, host *fbHostFilter, mode string, limit int) (fbE2ERun, error) {
+	var r fbE2ERun
+	var hf HostFilter
+	if host != nil {
+		host.resolves, host.matches, host.idsAsked = 0, 0, 0
+		hf = host
+	}
+	res, err := ix.Search(ctx, f.space, api.SearchRequest{
+		Query: q.text, Mode: mode, Limit: limit,
+	}, hf)
+	if err != nil {
+		return r, err
+	}
+	r.records = len(res.Hits)
+	r.truncated = res.Truncated
+	if host != nil {
+		r.objQueries, r.idsChecked = host.resolves+host.matches, host.idsAsked
+	}
+	return r, nil
 }

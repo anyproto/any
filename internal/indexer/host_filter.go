@@ -61,10 +61,15 @@ var (
 type hostSet struct {
 	filter HostFilter
 	// ids is the complete set once exact; list keeps it in resolve
-	// order for the residual.
+	// order and res is the residual built from it once — nil past
+	// filterResidualMax.
 	ids   map[string]struct{}
 	list  []string
+	res   query.Filter
 	exact bool
+	// triedMax is the largest bound a resolve came back short of; a
+	// materialize within it is known to fail and is skipped.
+	triedMax int
 	// small is set when the probe found the complete set within
 	// filterIdsMax: few enough docs that probing them one by one is
 	// always cheaper than the ANN's beam — and the only way the beam
@@ -85,7 +90,9 @@ func newHostSet(ctx context.Context, filter HostFilter) (*hostSet, error) {
 		return nil, err
 	}
 	s := &hostSet{filter: filter, known: map[string]bool{}}
-	if !more {
+	if more {
+		s.triedMax = filterIdsMax
+	} else {
 		s.setExact(ids)
 		s.small = true
 	}
@@ -100,27 +107,32 @@ func (s *hostSet) setExact(ids []string) {
 	}
 	s.exact = true
 	s.known = nil
+	if len(ids) <= filterResidualMax {
+		s.res = objectIdIn(ids)
+	}
 }
 
 // residual returns the `objectId $in` clause for an exact set that
 // fits filterResidualMax, nil when the legs must post-filter.
 func (s *hostSet) residual() query.Filter {
-	if s == nil || !s.exact || len(s.list) > filterResidualMax {
+	if s == nil {
 		return nil
 	}
-	return objectIdIn(s.list)
+	return s.res
 }
 
 // hint reports whether a leg should force the store's probe plan over
 // the objectId index: a small set is cheaper to verify doc by doc than
-// to find through the ANN beam, which may never reach it.
+// to find through the ANN beam, which may never reach it. Meaningful
+// because filterIdsMax < filterResidualMax: the probe candidate exists
+// only while the residual yields index bounds.
 func (s *hostSet) hint() bool {
 	return s != nil && s.small
 }
 
 // lazy reports whether the legs post-filter their rows through keep.
 func (s *hostSet) lazy() bool {
-	return s != nil && s.residual() == nil
+	return s != nil && s.res == nil
 }
 
 // empty reports a filter no object satisfies: nothing can match, so a
@@ -130,18 +142,25 @@ func (s *hostSet) empty() bool {
 }
 
 // materialize resolves the complete set when it holds at most max
-// ids; a larger set stays lazy. A no-op once exact.
+// ids; a larger set stays lazy. A no-op once exact, or when a smaller
+// bound already came back short. Each resolve walks the objects
+// collection from the top on its own snapshot: a set left lazy at one
+// bound is re-read up to the next, and a concurrent object write can
+// make it disagree with verdicts already cached — the row is read live,
+// and a search tolerates that.
 func (s *hostSet) materialize(ctx context.Context, max int) error {
-	if s == nil || s.exact {
+	if s == nil || s.exact || max <= s.triedMax {
 		return nil
 	}
 	ids, more, err := s.filter.Resolve(ctx, max)
 	if err != nil {
 		return err
 	}
-	if !more {
-		s.setExact(ids)
+	if more {
+		s.triedMax = max
+		return nil
 	}
+	s.setExact(ids)
 	return nil
 }
 
@@ -164,8 +183,9 @@ func (s *hostSet) keep(ctx context.Context, hits []Hit) ([]Hit, error) {
 			if err != nil {
 				return nil, err
 			}
-			for id, ok := range matched {
-				if ok {
+			// Only the ids asked about, only positive verdicts.
+			for _, id := range ask {
+				if matched[id] {
 					s.known[id] = true
 				}
 			}

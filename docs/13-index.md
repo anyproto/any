@@ -459,7 +459,8 @@ routine per-edit indexing never appears (`Options.OnProcess`, bridged in
   search filter's residual seeks it — § Filtering by object; structural
   deletes never use it, they are primary-key ranges; an existing
   collection backfills it in one write transaction on its first open
-  after the upgrade, ~0.2 s per 100k docs); sparse range on `pending`
+  after the upgrade, ~0.2 s per 100k docs, and every chunk upsert
+  maintains it from then on); sparse range on `pending`
   (the embed queue); and — once at least one embedded doc exists — a
   **cosine vector index** on `vector`, created lazily
   (`Store.EnsureVectorIndex`) because IVF trains from existing docs. The
@@ -911,7 +912,10 @@ the request takes one of two paths (`internal/indexer/host_filter.go`):
    blind to a few vectors among many — 103 objects' ~145 vectors among
    66k returned nothing at every K — while probing them costs one
    distance per doc; the store's own cost model only picks the probe
-   for a handful of docs. A set the probe found EMPTY answers at once —
+   for a handful of docs. The residual path's one cost is that it has
+   no read budget: a residual anti-correlated with a broad query drains
+   the whole posting list before the first row, as an unfiltered search
+   of that query would. A set the probe found EMPTY answers at once —
    no query embedding, no leg.
 3. **Large set.** The vector leg first resolves a lazy set up to
    `filterResidualMax` (9 999 — the `$in` size any-store still derives

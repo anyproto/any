@@ -855,7 +855,7 @@ var (
 // — large enough to win over any beam or posting walk.
 const (
 	objectIdIndex = "objectId"
-	probeBoost    = 1 << 40
+	probeBoost    = 1 << 30
 )
 
 // objectIdIn builds the filter's residual: `objectId $in ids`.

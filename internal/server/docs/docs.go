@@ -3163,7 +3163,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "truncated": {
-                        "description": "Truncated is set when the lexical leg's read budget under Filter\nended before Limit matching records were found: the page may be\nshorter than the index could fill. Absent without a filter.",
+                        "description": "Truncated is set when a leg's read budget under Filter ended and\nthe page holds fewer than Limit records: the index may hold\nmatches the reply cannot show. Absent without a filter. A Filter\nno object satisfies answers empty without running a leg\n(VectorStatus then reads skipped, or disabled without an embedder).",
                         "type": "boolean"
                     },
                     "vectorStatus": {

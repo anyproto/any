@@ -5,6 +5,7 @@ package indexer
 import (
 	"context"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/anyproto/any/internal/api"
@@ -77,13 +78,32 @@ func hitObjects(res api.SearchResponse) []string {
 	return out
 }
 
-func setBudgets(t *testing.T, idsMax, scanRows, scanRowsMax int) {
+// filterBudgets snapshots every tunable the filter paths read.
+type filterBudgets struct{ idsMax, scanRows, scanRowsMax, materializeMax, residualMax, legFetch int }
+
+func getBudgets() filterBudgets {
+	return filterBudgets{filterIdsMax, filterScanRows, filterScanRowsMax, filterMaterializeMax, filterResidualMax, maxLegFetch}
+}
+
+func applyBudgets(b filterBudgets) {
+	filterIdsMax, filterScanRows, filterScanRowsMax, filterMaterializeMax, filterResidualMax, maxLegFetch =
+		b.idsMax, b.scanRows, b.scanRowsMax, b.materializeMax, b.residualMax, b.legFetch
+}
+
+// setBudgets installs b for the test and restores the package values
+// after it.
+func setBudgets(t *testing.T, b filterBudgets) {
 	t.Helper()
-	oi, os, om, oc, orr := filterIdsMax, filterScanRows, filterScanRowsMax, filterMaterializeMax, filterResidualMax
-	filterIdsMax, filterScanRows, filterScanRowsMax = idsMax, scanRows, scanRowsMax
-	t.Cleanup(func() {
-		filterIdsMax, filterScanRows, filterScanRowsMax, filterMaterializeMax, filterResidualMax = oi, os, om, oc, orr
-	})
+	prev := getBudgets()
+	applyBudgets(b)
+	t.Cleanup(func() { applyBudgets(prev) })
+}
+
+// budgets returns the defaults with the given overrides applied.
+func budgets(mod func(*filterBudgets)) filterBudgets {
+	b := filterBudgets{idsMax: 256, scanRows: 5000, scanRowsMax: 100000, materializeMax: 50000, residualMax: 9999, legFetch: 1000}
+	mod(&b)
+	return b
 }
 
 // A set the probe resolves whole rides the query as a residual: the
@@ -123,7 +143,7 @@ func TestIndexer_FilterLargeSetPostFilters(t *testing.T) {
 	st := mustStore(t, 0)
 	ix := &Indexer{store: st, opts: Options{AnnounceAfter: -1}.withDefaults()}
 	const sp = "sp"
-	setBudgets(t, 4, 5000, 100000)
+	setBudgets(t, budgets(func(b *filterBudgets) { b.idsMax = 4 }))
 	ids := filterCorpus(t, st, sp, 200)
 	var even []string
 	for i := 0; i < len(ids); i += 2 {
@@ -161,7 +181,7 @@ func TestIndexer_FilterRescueAndTruncation(t *testing.T) {
 	st := mustStore(t, 0)
 	ix := &Indexer{store: st, opts: Options{AnnounceAfter: -1}.withDefaults()}
 	const sp = "sp"
-	setBudgets(t, 1, 8, 64)
+	setBudgets(t, budgets(func(b *filterBudgets) { b.idsMax, b.scanRows, b.scanRowsMax = 1, 8, 64 }))
 	ids := filterCorpus(t, st, sp, 100)
 	// Three members: the lexical order is BM25 over near-identical
 	// texts, so pick by rank instead of by id.
@@ -194,7 +214,7 @@ func TestIndexer_FilterRescueAndTruncation(t *testing.T) {
 
 	// A set past filterMaterializeMax stays lazy through the rescue: the
 	// members are still found, through lookups.
-	filterMaterializeMax = 2
+	applyBudgets(budgets(func(b *filterBudgets) { b.idsMax, b.scanRows, b.scanRowsMax, b.materializeMax = 1, 8, 64, 2 }))
 	f = newSetFilter(ids, ranked[20], ranked[40], ranked[60])
 	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "needle", Mode: api.SearchModeFTS, Limit: 3}, f)
 	if err != nil {
@@ -206,7 +226,7 @@ func TestIndexer_FilterRescueAndTruncation(t *testing.T) {
 	if len(f.resolves) != 2 || f.resolves[1] != filterMaterializeMax || f.matches < 2 {
 		t.Fatalf("reads: resolves=%v matches=%d, want a capped materialize attempt then more lookups", f.resolves, f.matches)
 	}
-	filterMaterializeMax = 50000
+	applyBudgets(budgets(func(b *filterBudgets) { b.idsMax, b.scanRows, b.scanRowsMax = 1, 8, 64 }))
 
 	// A member ranked past the total budget is out of reach: truncated.
 	f = newSetFilter(ids, ranked[10], ranked[90])
@@ -232,7 +252,7 @@ func TestIndexer_FilterHybridSharesSet(t *testing.T) {
 	ix := &Indexer{store: st, opts: Options{Embedder: axisEmbedder{dim: 4}, AnnounceAfter: -1}.withDefaults()}
 	w := &spaceWorker{ix: ix, sp: staticIdSpace{}}
 	sp := staticIdSpace{}.Id()
-	setBudgets(t, 4, 5000, 100000)
+	setBudgets(t, budgets(func(b *filterBudgets) { b.idsMax = 4 }))
 	ids := filterCorpus(t, st, sp, 60)
 	if err := w.drainPending(ctx); err != nil {
 		t.Fatal(err)
@@ -258,17 +278,26 @@ func TestIndexer_FilterHybridSharesSet(t *testing.T) {
 		t.Fatalf("reads: resolves=%v matches=%d, want the probe, one bounded materialize, no lookup", f.resolves, f.matches)
 	}
 
-	// Past the residual bound the set stays lazy: the vector leg judges
-	// its rounds through lookups, each object once.
-	filterResidualMax = 8
-	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "needle", Limit: 5}, newSetFilter(ids, odd...))
+	// Past the residual bound the set stays lazy: the vector leg's
+	// bounded materialize comes back short, both legs judge their rows
+	// through lookups, each object once.
+	applyBudgets(budgets(func(b *filterBudgets) { b.idsMax, b.residualMax = 4, 8 }))
+	f = newSetFilter(ids, odd...)
+	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "needle", Limit: 5}, f)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Hits) != 5 {
-		t.Fatalf("lazy hybrid: hits=%d", len(res.Hits))
+	if len(res.Hits) != 5 || res.Truncated {
+		t.Fatalf("lazy hybrid: hits=%d truncated=%v", len(res.Hits), res.Truncated)
 	}
-	filterResidualMax = 9999
+	if len(f.resolves) != 2 || f.resolves[1] != 8 || f.matches == 0 {
+		t.Fatalf("reads: resolves=%v matches=%d, want the probe, one short materialize, then lookups", f.resolves, f.matches)
+	}
+	for id, n := range f.asked {
+		if n != 1 {
+			t.Fatalf("object %s asked %d times across the legs, want once", id, n)
+		}
+	}
 
 	small := newSetFilter(ids, ids[1], ids[3])
 	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "needle", Mode: api.SearchModeVector, Limit: 10}, small)
@@ -310,5 +339,61 @@ func TestIndexer_FilterEmptySet(t *testing.T) {
 	}
 	if res.Mode != api.SearchModeHybrid || res.VectorStatus != api.VectorStatusSkipped {
 		t.Fatalf("empty set reply: mode=%s vectorStatus=%s", res.Mode, res.VectorStatus)
+	}
+}
+
+// rankEmbedder ranks docs by their number: doc i sits at angle i·1° from
+// the query axis, so the vector order is the id order, deterministic.
+type rankEmbedder struct{}
+
+func (rankEmbedder) EmbedDocs(_ context.Context, texts []string) ([][]float32, error) {
+	out := make([][]float32, len(texts))
+	for i, text := range texts {
+		var n int
+		if _, err := fmt.Sscanf(text, "needle number %d", &n); err != nil {
+			return nil, err
+		}
+		a := float64(n) * math.Pi / 180
+		out[i] = []float32{float32(math.Cos(a)), float32(math.Sin(a)), 0, 0}
+	}
+	return out, nil
+}
+func (rankEmbedder) EmbedQuery(context.Context, string) ([]float32, error) {
+	return []float32{1, 0, 0, 0}, nil
+}
+func (rankEmbedder) Dim(context.Context) (int, error) { return 4, nil }
+
+// Vector only, lazy set whose members rank past the K ceiling: the
+// page comes back short and truncated; with the ceiling back the same
+// request fills through lookups.
+func TestIndexer_FilterVectorTruncated(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 4)
+	ix := &Indexer{store: st, opts: Options{Embedder: rankEmbedder{}, AnnounceAfter: -1}.withDefaults()}
+	w := &spaceWorker{ix: ix, sp: staticIdSpace{}}
+	sp := staticIdSpace{}.Id()
+	ids := filterCorpus(t, st, sp, 60)
+	if err := w.drainPending(ctx); err != nil {
+		t.Fatal(err)
+	}
+	deep := []string{ids[57], ids[58], ids[59]}
+
+	setBudgets(t, budgets(func(b *filterBudgets) { b.idsMax, b.residualMax, b.legFetch = 1, 2, 32 }))
+	res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "needle", Mode: api.SearchModeVector, Limit: 3}, newSetFilter(ids, deep...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Hits) != 0 || !res.Truncated {
+		t.Fatalf("vector at the ceiling: hits=%d truncated=%v, want an empty truncated page", len(res.Hits), res.Truncated)
+	}
+
+	applyBudgets(budgets(func(b *filterBudgets) { b.idsMax, b.residualMax = 1, 2 }))
+	f := newSetFilter(ids, deep...)
+	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "needle", Mode: api.SearchModeVector, Limit: 3}, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hitObjects(res); len(got) != 3 || res.Truncated || f.matches == 0 {
+		t.Fatalf("vector past the bound: hits=%v truncated=%v matches=%d", got, res.Truncated, f.matches)
 	}
 }

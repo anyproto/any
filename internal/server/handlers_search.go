@@ -167,12 +167,17 @@ func (f objectsHostFilter) Resolve(ctx context.Context, max int) ([]string, bool
 	defer func() { _ = it.Close() }()
 	var ids []string
 	for it.Next() {
+		if max > 0 && len(ids) == max {
+			return ids, true, nil
+		}
+		if len(ids)%256 == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, false, err
+			}
+		}
 		doc, err := it.Doc()
 		if err != nil {
 			return nil, false, err
-		}
-		if max > 0 && len(ids) == max {
-			return ids, true, nil
 		}
 		ids = append(ids, string(doc.GetStringBytes("id")))
 	}

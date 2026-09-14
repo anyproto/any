@@ -8,7 +8,7 @@ import (
 	"hash/fnv"
 	"math"
 	"net/http"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -392,12 +392,6 @@ func TestSearch_FilterResolveSkipsTombstones(t *testing.T) {
 	for range 6 {
 		ids = append(ids, mustCreateModuleObject(t, e, sp.Id, "editor"))
 	}
-	sort.Strings(ids)
-	// Tombstone the primary-key-smallest row: it sits inside every
-	// bounded window.
-	mustModify(t, e, http.MethodPost, base+"/delete-records",
-		`{"objectId":"`+ids[0]+`","dataset":"objects","recordIds":["`+ids[0]+`"]}`, http.StatusOK)
-
 	sdkSpace, err := d.sdk.Spaces().Get(ctx, sp.Id)
 	if err != nil {
 		t.Fatal(err)
@@ -407,6 +401,24 @@ func TestSearch_FilterResolveSkipsTombstones(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := objectsHostFilter{sp: sdkSpace, cond: cond}
+	// Tombstone the first created object in resolve order and pin that
+	// it sits inside the bounded window the test then asks for.
+	before, _, err := f.Resolve(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, at := "", -1
+	for i, id := range before {
+		if slices.Contains(ids, id) {
+			target, at = id, i
+			break
+		}
+	}
+	if at < 0 || at >= 4 {
+		t.Fatalf("no created object within the first 4 resolved rows (%v)", before)
+	}
+	mustModify(t, e, http.MethodPost, base+"/delete-records",
+		`{"objectId":"`+target+`","dataset":"objects","recordIds":["`+target+`"]}`, http.StatusOK)
 	got, more, err := f.Resolve(ctx, 4)
 	if err != nil {
 		t.Fatal(err)
@@ -415,7 +427,7 @@ func TestSearch_FilterResolveSkipsTombstones(t *testing.T) {
 		t.Fatalf("Resolve(4) = %d ids, more=%v; want 4 live ids and more", len(got), more)
 	}
 	for _, id := range got {
-		if id == ids[0] {
+		if id == target {
 			t.Fatalf("resolved a tombstoned row: %s", id)
 		}
 	}
@@ -426,7 +438,7 @@ func TestSearch_FilterResolveSkipsTombstones(t *testing.T) {
 		t.Fatalf("Resolve(0) = %d ids, more=%v, err=%v; want every live row", len(all), more, err)
 	}
 	for _, id := range all {
-		if id == ids[0] {
+		if id == target {
 			t.Fatalf("Resolve(0) listed the tombstoned row %s", id)
 		}
 	}
@@ -434,7 +446,7 @@ func TestSearch_FilterResolveSkipsTombstones(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(matched) != 5 || matched[ids[0]] {
+	if len(matched) != 5 || matched[target] {
 		t.Fatalf("Match = %v, want the 5 live rows", matched)
 	}
 }
@@ -525,9 +537,11 @@ func TestSearch_Filter(t *testing.T) {
 	if len(res.Hits) != 0 || res.Truncated {
 		t.Fatalf("empty filter: hits=%d truncated=%v", len(res.Hits), res.Truncated)
 	}
-	res = search(`{"query":"budget","mode":"fts","filter":null}`)
-	if got := objects(res); len(got) != 2 {
-		t.Fatalf("null filter must mean no filter: %v", got)
+	for _, body := range []string{`{"query":"budget","mode":"fts","filter":null}`, `{"query":"budget","mode":"fts","filter":{}}`} {
+		res = search(body)
+		if got := objects(res); len(got) != 2 {
+			t.Fatalf("%s must mean no filter: %v", body, got)
+		}
 	}
 	rawRec := doJSON(t, e, http.MethodPost, base+"/search", `{"query":"budget","mode":"fts","filter":{"any.types":{"$nin":["bin"]}}}`)
 	if strings.Contains(rawRec.Body.String(), `"truncated"`) {

@@ -2556,9 +2556,11 @@ components:
           type: string
         truncated:
           description: |-
-            Truncated is set when the lexical leg's read budget under Filter
-            ended before Limit matching records were found: the page may be
-            shorter than the index could fill. Absent without a filter.
+            Truncated is set when a leg's read budget under Filter ended and
+            the page holds fewer than Limit records: the index may hold
+            matches the reply cannot show. Absent without a filter. A Filter
+            no object satisfies answers empty without running a leg
+            (VectorStatus then reads skipped, or disabled without an embedder).
           type: boolean
         vectorStatus:
           description: |-
