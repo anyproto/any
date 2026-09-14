@@ -644,6 +644,18 @@ values, not ACL operations:
   it never auto-resurfaces. A later explicit `POST /v1/spaces/one-to-one`
   overrides it. Returns 204.
 
+**The friend's name resolves on both sides.** Identity profiles are
+encrypted with a per-account metadata key. For a 1-1 the inbox invite
+carries the initiator's key to the receiver (so a pending row can show
+"Alice wants to chat"), and once the space is active on both sides each
+participant publishes its own key inside the space (the SDK's
+`identityKeys` rows on the space's index object), so the acceptor's name
+resolves for the initiator as well — without any other shared space and
+without the inbox. Until then a side sees the peer id-only
+(`GET /v1/identities/:identity` with an empty `name`), which clients must
+tolerate as they do for any contact. The exchange is 1-1 only; a regular
+space distributes the key through its ACL.
+
 **Discovery has no bespoke endpoint** — incoming requests are the space
 list filtered on the status: `GET
 /v1/spaces?status=one_to_one_pending` (pending and declined rows are

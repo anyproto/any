@@ -420,6 +420,13 @@ POST /v1/spaces/one-to-one/register-incoming
   "displayHint": { "name": "Alice", "iconCid": "..." } }   // → 204
 ```
 
+**Names.** Each side sees the other by name once the 1-1 is active on
+both sides: the participants exchange their profile keys inside the space,
+so the acceptor's name reaches the initiator too. Render the peer id-only
+until `GET /v1/identities/:identity` (or the members list) carries a
+`name` — the same rule as for every contact (§ 8). The pending row's
+`displayHint` covers the time before that.
+
 Once a 1-1 is active, everything else is identical to a regular space —
 both members are writers, so create objects, send chat
 (`dataset=chat_messages`), and subscribe exactly as in §1–5. Read the two
