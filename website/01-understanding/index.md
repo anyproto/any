@@ -40,7 +40,7 @@ client ──POST /v1/spaces/:id/modify──▶ any server
                                                      their subscriptions see the same delta
 ```
 
-Steps 1–4 happen on your machine, online or not. Step 5 happens whenever a peer is reachable. The reply to a write carries the change's ids, never the record body — you read state back through a query or a subscription, which is also where remote changes arrive.
+Steps 1–4 happen on your machine, online or not. The background leg runs whenever a peer is reachable. The reply to a write carries the change's ids, never the record body — you read state back through a query or a subscription, which is also where remote changes arrive.
 
 ## How a read flows
 
@@ -56,7 +56,8 @@ Reads never leave the device. `POST /v1/spaces/:id/query` runs a filter/sort/lim
 | **Space** | The unit of sharing and permissions: an encrypted container of objects with its own ACL and members. |
 | **Object** | A content-addressed DAG of changes. Holds property values plus zero or more datasets. |
 | **Dataset** | A named collection of records on an object (`chat_messages`, `editor_blocks`, `agent_triggers`, …). |
-| **Type** | A declaration bound to an object via `any.types` — what properties and datasets it carries. |
+| **Type** | A declaration bound to an object via `any.types` — its properties, and the parts whose datasets the object takes. |
+| **Module** | The server code that serves a kind of dataset — `editor` blocks, `chat` messages, generic `records` — for every type whose part declares it. |
 | **Change** | One signed, encrypted write appended to an object's DAG. Its CID is the `changeId`. |
 | **Program** | Python code stored in a space and executed by anyrt inside the effect boundary. |
 | **Trigger** | A record describing when to run a program: cron, once, or on an event. |

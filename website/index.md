@@ -6,7 +6,7 @@ description: Documentation for any — the open source, reactive, local-first, e
 
 # Any
 
-The open source, reactive, **local-first** database. Documents live on your devices, merge as CRDTs, sync end-to-end encrypted, and answer Mongo-style queries with live subscriptions — online or not. Chat and a block editor are built in as first-class CRDT types, and **anyrt** runs sandboxed Python programs, scheduled jobs and agents next to your data instead of on someone else's server.
+The open source, reactive, **local-first** database. Documents live on your devices, merge as CRDTs, sync end-to-end encrypted, and answer Mongo-style queries with live subscriptions — online or not. Chat and a block editor are built in as CRDT modules, and **anyrt** runs sandboxed Python programs, scheduled jobs and agents next to your data instead of on someone else's server.
 
 <div class="pills"><span class="pill">local-first</span><span class="pill cyan">e2e encrypted</span><span class="pill amber">crdt</span><span class="pill magenta">mongo queries</span><span class="pill">sse live queries</span><span class="pill cyan">wasm-sandboxed programs</span><span class="pill amber">single go binary</span></div>
 
@@ -21,9 +21,9 @@ $ any run &
 $ curl -s :7001/v1/spaces -d '{"name":"notes"}' | jq -r .id
 <span class="out">bafyrei…7q.1a2b3c</span>
 $ curl -s :7001/v1/spaces/$S/objects -d '{"initialProperties":{"any":{"name":"hello"}}}'
-$ curl -sN :7001/v1/spaces/$S/objects/query/subscribe -d '{"limit":20}'
+$ curl -sN :7001/v1/spaces/$S/objects/query/subscribe -d '{"sort":["-modifiedAt"],"limit":20}'
 <span class="out">event: ready
-event: snapshot   {"records":[{"id":"…","any.name":"hello"}],"total":1}
+event: snapshot   {"records":[{"id":"…","any":{"name":"hello"},…}]}
 event: changes    …live from here, from every device you own</span></code></pre>
 
 <div class="tiers">
@@ -42,7 +42,7 @@ event: changes    …live from here, from every device you own</span></code></pr
 <a href="realtime/index.html"><strong>Realtime</strong><span>Subscribe, sync status, space list, event bus.</span></a>
 <a href="auth/index.html"><strong>Auth & identity</strong><span>Mnemonic accounts, devices, identities directory.</span></a>
 <a href="collaboration/index.html"><strong>Collaboration</strong><span>Members, invites, ACL, one-to-one spaces, bundles.</span></a>
-<a href="types/index.html"><strong>Modules</strong><span>Chat, block editor, page types, any:// links.</span></a>
+<a href="types/index.html"><strong>Modules</strong><span>Chat, block editor, the page type, any:// links and backlinks.</span></a>
 <a href="files/index.html"><strong>Files</strong><span>Encrypted attachments, durability, cache.</span></a>
 <a href="search/index.html"><strong>Search</strong><span>Full-text, vector, hybrid — with a local embedder.</span></a>
 <a href="notifications/index.html"><strong>Notifications</strong><span>E2E push and process progress.</span></a>
@@ -61,7 +61,7 @@ event: changes    …live from here, from every device you own</span></code></pr
 - **Reactive** — every read has a live form: `/query` gives a snapshot, `/query/subscribe` keeps a window of results current.
 - **Mongo-style queries** — `$eq`, `$in`, `$regex`, `$text`, nested paths, array matching, `$group`/`$unwind` pipelines.
 - **CRDT** — concurrent edits from any number of devices merge deterministically; versions are content-addressed changes you can diff and view.
-- **Built-in messenger and editor** — chat messages with reactions, mentions and read tracking; block documents with a markdown bridge.
+- **Built-in messenger and editor** — chat messages with reactions, mentions and read tracking; block documents with a markdown bridge; ready-made apps (wiki, journal, contacts, CRM) installed from a server catalog.
 - **Runtime in your data** — programs, triggers and agent memory are records in your encrypted space, not rows in a vendor's database.
 
 Also available as [`llms.txt`](llms.txt) for language models.

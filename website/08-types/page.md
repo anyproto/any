@@ -20,17 +20,17 @@ That is the whole declaration: `page` is registered, not created, so there is no
 ## Declaring your own type
 
 ```bash
-PAGE=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SP/types \
+DOC=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SP/types \
   -H 'Content-Type: application/json' \
-  -d '{"name": "Page", "xKey": "page", "weight": 10, "layout": {"type": "page"}}' | jq -r .typeId)
+  -d '{"name": "Article", "xKey": "article", "weight": 10, "layout": {"type": "page"}}' | jq -r .typeId)
 
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/types/$PAGE/parts \
+curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/types/$DOC/parts \
   -H 'Content-Type: application/json' \
   -d '{"key": "body", "name": "Body", "ui": {"type": "document"},
        "datasets": [{"module": "editor", "shared": true}]}'
 ```
 
-`"shared": true` puts the body in the module's canonical collection, `editor_blocks` — the one every document type shares, so an object that is both a page and, say, a meeting has one body. `weight` makes the type the object's **primary** type (the highest weight wins) and `layout` is the descriptor a client renders for it; both are opaque client vocabulary. The type carries properties like any other — a status, a priority, a relation — which is what the registered built-in cannot.
+The `xKey` must not collide with another type's handle or with a built-in id — `page`, `miniapp`, `bin` and `dataview` are taken (`409 type.xkey_conflict`). `"shared": true` puts the body in the module's canonical collection, `editor_blocks` — the one every document type shares, so an object that is both a page and, say, a meeting has one body. `weight` makes the type the object's **primary** type (the highest weight wins) and `layout` is the descriptor a client renders for it; both are opaque client vocabulary. The type carries properties like any other — a status, a priority, a relation — which is what the registered built-in cannot.
 
 ## What a page is made of
 
@@ -50,7 +50,7 @@ File a document by creating an object with the type:
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects \
   -H 'Content-Type: application/json' \
-  -d '{"types": ["'$PAGE'"], "initialProperties": {"any": {"name": "Reading list", "tags": ["books"]}}}'
+  -d '{"types": ["'$DOC'"], "initialProperties": {"any": {"name": "Reading list", "tags": ["books"]}}}'
 ```
 
 Then write its body through the editor — the object already holds the collection because it carries the declaring type:
@@ -66,13 +66,13 @@ List a space's documents with a filter on the type, most recently edited first:
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/query \
   -H 'Content-Type: application/json' \
-  -d '{"filter": {"any.types": "'$PAGE'"}, "sort": ["-modifiedAt"], "limit": 50}'
+  -d '{"filter": {"any.types": "'$DOC'"}, "sort": ["-modifiedAt"], "limit": 50}'
 ```
 
 The same body against `…/objects/query/subscribe` gives a live document list. Filter by label with `{"any.tags": "books"}` — array fields match on any element. "Every object with a body, whatever its type" is a filter on every type that shares the editor: the `owners` of `editor_blocks` in `GET /v1/spaces/:spaceId/datasets` (the built-in `page` is always among them), matched with `{"any.types": {"$in": [...]}}`.
 
 ## Built-in or bundle
 
-In a local-first system there is no central moment where "the pages type" gets created. Two members working offline would each create one, and the CRDT would faithfully keep both — real spaces carried several parallel "Pages" types. The built-in `page` avoids that by being registered: it exists everywhere, but its definition is frozen — no properties, no weight, no layout. Registering your own type as a bundle keeps it a plain user type — properties, weight, layout, parts — while the registry converges every device on one id: `POST …/bundles` with the type declared on the root is adopt-or-install, so whoever runs it second adopts the first one's type. Pick `page` for a plain body, a bundle-registered type for a document that is also a record.
+In a local-first system there is no central moment where "the pages type" gets created. Two members working offline would each create one, and the CRDT would faithfully keep both — the space ends up with parallel "Pages" types. The built-in `page` avoids that by being registered: it exists everywhere, but its definition is frozen — no properties, no weight, no layout. Registering your own type as a bundle keeps it a plain user type — properties, weight, layout, parts — while the registry converges every device on one id: `POST …/bundles` with the type declared on the root is adopt-or-install, so whoever runs it second adopts the first one's type. Pick `page` for a plain body, a bundle-registered type for a document that is also a record. Well-known document types — a journal entry, a meeting with its notes, summary and transcript — come ready-made from the server's catalog ([Apps](../tutorial/apps.html)), so a client sets those up rather than declaring its own.
 
 > **Note.** A page's body is not part of the type's row. It is the editor collection on the same object, which is why an object can be a page with no blocks yet (an empty `records` array on the `editor_blocks` query) and why the body is searchable through the editor chunker under the `basic` scope (see [search](../search/index.html)).

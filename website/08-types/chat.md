@@ -7,6 +7,8 @@ order: 10
 
 The `chat` module turns an object into a conversation: one `chat_messages` collection, one record per message, edits and reactions that merge on every peer, and read state the SDK maintains for you. An object holds the collection while it carries a type whose part declares `{"module": "chat", "shared": true}` ([modules](index.html)); chat is shared-only, one conversation per object. You write through a handful of chat endpoints and read everything — including live updates and unread flags — through the ordinary query primitive.
 
+> **Note.** Chat is restricted for now. The `chat` module is reserved to the server: a space has exactly one chat, the general chat that the catalog's `general-chat` usecase installs (`system:general-chat/v1`, a derived root). A client cannot declare its own chat — a part, dataset or bundle body naming `chat` is `400 dataset.module_reserved` — and the chat's type is carried only by its own root: creating or attaching another object with it is `400 type.reserved_carrier`.
+
 ## The model in four sentences
 
 Messages are records on the chat object's `chat_messages` dataset, ordered by `_ver.id` (set at creation, never changed by edits). Writes go through the chat endpoints; all reads and liveness go through `/query` and `/query/subscribe`. Read state is tracked by the SDK, **private to the account** (synced across your devices, never visible to other members — no read receipts, by design) and **forward-only**: a message once read never becomes unread again. Everything a client renders is materialized into ordinary queryable fields — you never compute read state yourself.
@@ -20,10 +22,11 @@ curl -X POST http://127.0.0.1:7001/v1/catalog/general-chat/setup \
   -H 'Content-Type: application/json' \
   -d '{"spaceId": "'$SP'"}'
 # → 200 { "usecase": "general-chat", "bundles": [ { "id": "system:general-chat/v1",
-#          "bundle": { "rootId": "<chat object>", "derived": true, … }, "installed": true|false } ] }
+#          "bundle": { "rootId": "<chat object>", "derived": true, … },
+#          "installed": true|false, "typeId": "<chat object>" } ] }
 ```
 
-The install is a derived, hidden root that is its own type with a chat part, so it accepts messages from the first write. Use its `rootId` as `<objectId>` in every endpoint below. The call is adopt-or-install, and a derived root's id is a pure function of the space and the bundle id — every client, on any device, for any member, online or not, computes the same `rootId`, two sides of a 1-1 included. The `chat` module is reserved to the server: no client declares a chat part, and the general-chat root is the only object that may carry its type (`400 type.reserved_carrier` otherwise), so `POST /objects` never makes a chat and there is no second chat to find. Chat content cannot be merged across objects (`creator` and `createdAt` are stamped from the change envelope, so copying messages re-attributes and re-times them), which is why the one chat is derived and permanent.
+The install is a derived, hidden root that is its own type with a chat part, so it accepts messages from the first write, and carries the `miniapp` marker, so the chat is a sidebar entry like any other app. Use its `rootId` as `<objectId>` in every endpoint below. The call is adopt-or-install, and a derived root's id is a pure function of the space and the bundle id — every client, on any device, for any member, online or not, computes the same `rootId`, two sides of a 1-1 included. `POST /objects` never makes a chat, and there is no second chat to find. Chat content cannot be merged across objects (`creator` and `createdAt` are stamped from the change envelope, so copying messages re-attributes and re-times them), which is why the one chat is derived and permanent.
 
 ## Endpoints
 
@@ -55,22 +58,25 @@ This is what `/query` and `/query/subscribe` return for a `chat_messages` record
   "attachments":      { "a1": { "type": "image", "link": "any://f/<spaceId>/<fileId>" } },
   "reactions":        { "👍": { "<identity1>": {"$date": "2026-05-01T21:00:05.000Z"} } },
   "agent":            { "name": "bao", "debugLink": "any://<spaceId>/<debugObjId>#turn_3", "done": true },
+  "context":          { "spaceId": "<spaceId>", "objectId": "<objectId>", "view": "object" },
   "unread":           true
 }
 ```
 
 | Field | Who writes it | Notes |
 |-------|---------------|-------|
-| `creator`, `createdAt`, `modifiedAt` | server-derived | Instants (`{"$date": …}`). Equal on a never-edited message — detect edits by comparing them. Client attempts to set them are rejected. |
+| `creator`, `createdAt`, `modifiedAt` | server-derived | Instants (`{"$date": …}`) from the change's second-resolution clock — display only. Mark a message edited when `_ver.text` differs from `_ver.id`, not by comparing the stamps. Client attempts to set them are rejected. |
 | `text` | client | Markdown, ≤ 32 KiB. Rendering is the client's job. |
 | `replyToMessageId` | client, create-only | Soft reference (≤ 256 bytes); the target is not validated. |
 | `mentions` | server-derived | Identities mentioned in `text` plus the replied-to author. Never accepted from a client. Absent when nobody is mentioned. |
 | `attachments` | client, create-only | Map of short ids (`[A-Za-z0-9_-]{1,64}`) → `{type, link}`. `type` is open (`link`, `image` known — render unknown types as a plain link); `link` ≤ 2 KiB; ≤ 32 entries. |
 | `reactions` | server-derived leaves | `emoji → {accountId → instant}`; same shape on read and write. |
-| `agent` | client, create-only | Marks an agent-authored message (UI hint, not signature-verified). `name` required (≤ 256 B), `debugLink` optional (≤ 2 KiB), `done` required boolean. |
+| `agent` | client, create-only | Marks an agent-authored message (UI hint, not signature-verified). `name` required (≤ 256 B), `debugLink` optional (≤ 2 KiB), `done` required boolean — `false` while the run is still going, so clients show a typing indicator until a `done: true` message lands; `outcome` optional (≤ 64 B, e.g. `interrupted`, `error`) says how a finished run ended when it did not end normally. |
+| `context` | client, create-only | The sender's view at send time: `spaceId` required, `objectId` and `view` (an open string such as `object`) optional. How an agent reading the chat resolves "this page". |
+| `control` | client, create-only | A signal to the agent serving the chat: `kind` required (open string ≤ 64 B; `break` asks the run in flight to stop), `hard` optional boolean. Rendered as a marker, never as a bubble. |
 | `unread`, `unreadMention`, `unreadReactions` | SDK, local scope | Present (`true`) only while set; never synced to other members. |
 
-`text` is required unless `attachments` is non-empty — an attachment-only send is valid. A message with neither is rejected with `400 chat.text_required`.
+`text` is required unless `attachments` is non-empty or `control` is set — an attachment-only send is valid. A message with none of them is rejected with `400 chat.text_required`. Other send rejections: `chat.text_too_long`, `chat.reply_id_invalid`, `chat.agent_invalid`, `chat.attachments_invalid`, `chat.context_invalid`, `chat.control_invalid` (all `400`).
 
 ## Sending, editing, deleting, reacting
 
@@ -92,7 +98,7 @@ curl -X DELETE http://127.0.0.1:7001/v1/spaces/$SP/objects/$CHAT/chat/messages/$
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/$CHAT/chat/messages/$MSG/reactions/👍
 ```
 
-The same from the CLI: `any chat send $SP $CHAT --text "hello"`, `any chat edit …`, `any chat delete …`, `any chat react $SP $CHAT $MSG 👍`. `--file -` reads message text from stdin.
+The same from the CLI: `any chat send $SP $CHAT --text "hello" [--reply-to MSG] [--agent-name NAME --agent-debug-link L --agent-done=false]`, `any chat edit …`, `any chat delete …`, `any chat react $SP $CHAT $MSG 👍`. `--file -` reads message text from stdin.
 
 Edit replaces `text` and bumps `modifiedAt`; delete tombstones the record. Both answer `403 chat.not_author` for anyone but the author and `404 chat.not_found` for unknown ids — and the handler enforces the same rules on changes arriving from peers, so a forged edit from another device is rejected at apply time, not just at the HTTP door.
 
@@ -168,6 +174,8 @@ Hey [Zarko](any://m/<spaceId>/<identity>), take a look
 
 The server derives `mentions: ["<identity>", …]` on every message at write time from two sources: every `any://m/…` link in the text (deduped, first-occurrence order) and — because a reply is a ping — the replied-to message's creator. Clients never write the array; text is the source of truth, so a spoofed array can neither silent-ping nor suppress a real ping. It is capped at 64 identities, and the reply fold-in always survives the cap. "All my mentions" and "my unread mentions" are the same shapes as the unread queries: `{"mentions": "<myIdentity>"}` sorted `-_ver.id`, and `{"unreadMention": true}` sorted `_ver.id` with `limit: 1`. Self-mentions list you (an objective fact of the message) but never badge you.
 
+Every `any://` reference in a message — text links and mentions, each attachment's `link`, the agent's `debugLink` — also lands in the server's link index, so "which messages mention this member" or "which messages link this page" is a backlinks read (see [objects](../database/objects.html#links-and-backlinks)).
+
 ## Chat list and notifications
 
 Each chat object's row already carries its counters, so a chat list is a plain objects query — `{"sort": ["-chat.unreadCount"]}` sorts unread-first, and a thousand chats cost one query. Do **not** subscribe to every chat to detect new messages. One space-wide objects subscription covers them all:
@@ -180,7 +188,7 @@ The type ids are the `owners` of `chat_messages` in `GET /v1/spaces/:spaceId/dat
 
 Counter went up → new unread in that chat; fetch `{"unread": true}` sorted `-_ver.id` with a small limit and toast only messages above a last-notified `_ver.id` you keep locally. Counter went down → the user read it somewhere (this window, another window, another device) — dismiss that chat's notifications. Total live surface for a desktop client: one objects subscription per space, one `/query/subscribe` for the open chat.
 
-> **Note.** `chat_messages` keeps no [version history](../database/version-history.html): the `/history` endpoints never list chat changes, and there is no per-message edit timeline — clients render live records only (an edit replaces `text`, a delete tombstones).
+`chat_messages` keeps no [version history](../database/version-history.html): the `/history` endpoints never list chat changes, and there is no per-message edit timeline — clients render live records only (an edit replaces `text`, a delete tombstones).
 
 ## Things not to do
 

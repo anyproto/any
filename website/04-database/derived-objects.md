@@ -63,7 +63,7 @@ A derived id names one object for the lifetime of its inputs, so the object cann
 | Attempt | Answer |
 |---|---|
 | `DELETE /v1/spaces/:id` on a derived space | `409 space.derived_undeletable` — layered: server pre-check on the registry ids, SDK refusal on the synced `derived` flag, apply-side drop of remote deletes, reconciler exemption |
-| Uninstalling a bundle on a derived root | not possible — the tree cannot be deleted; the bundle id stays bound for the space's lifetime |
+| Uninstalling a bundle on a derived root | `409 object.derived_undeletable` on `DELETE …/objects/:rootId` — the bundle id stays bound for the space's lifetime |
 | Migrating a created bundle root to a derived one | not done — an existing created install is adopted (`installed: false`, `derived: false`); moving content is the client's decision |
 
 Deleting a **1-1 space** is local-only and re-derivable, and a joiner of someone else's derived space never carries the flag, so leaving stays allowed.

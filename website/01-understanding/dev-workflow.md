@@ -27,9 +27,10 @@ any init --mnemonic-stdin < phrase.txt      # never copy wallet.key between mach
 any run                                     # foreground, 127.0.0.1:7001
 any run --addr 127.0.0.1:0                  # ephemeral port; prints "LISTENING <addr>" on stdout
 any run --account <id>                      # pick one when the data dir holds several
+any run --mode managed                      # a host-owned server: phrase per launch, control token
 ```
 
-`any run` is foreground-only: run it in a terminal, tmux, or a user service. It never creates a wallet — on a fresh data dir it starts *unauthorized* and every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json`, `/v1/auth` answers `401 auth.required` until `POST /v1/auth` (or `any auth login`) boots an account in place ([Accounts](../auth/accounts.html)).
+`any run` is foreground-only: run it in a terminal, tmux, or a user service. It never creates a wallet — on a fresh data dir it starts *unauthorized* and every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json`, `/v1/auth` answers `401 auth.required` until `POST /v1/auth` (or `any auth login`) boots an account in place. The default `standalone` mode is the one to develop against; `managed` is how an app shell embeds the server ([Accounts](../auth/accounts.html)).
 
 Stop it with Ctrl-C or:
 
@@ -45,12 +46,12 @@ any status                                  # GET /v1/health
 ```
 
 ```json
-{ "status": "ok", "version": "any v0.3.0 (sdk v0.2.4)",
-  "startedAt": "2026-08-24T09:00:00Z",
+{ "status": "ok", "version": "any v0.1.2 (commit 1a2b3c4, built 2026-09-09)",
+  "startedAt": "2026-08-24T09:00:00Z", "networkId": "N83gJpVd…",
   "account": "A8tR…", "bootstrapping": false }
 ```
 
-`bootstrapping: true` means the background space-loading pass is still running; the server is serving already. `crdtVersion` (`{supported, stored, newer}`) is the account's data-model version: every release stamps its own on first open and the mark only rises, so a release older than the data refuses to boot (`409 sdk.crdt_version_newer`) or, when the raise arrives from another device while running, turns read-only — `newer: true` is the client's "upgrade required" signal.
+`networkId` is the any-sync network the server joined ([Networks](../operations/networks.html)). `bootstrapping: true` means the background space-loading pass is still running; the server is serving already. `crdtVersion` (`{supported, stored, newer}`) is the account's data-model version: every release stamps its own on first open and the mark only rises, so a release older than the data refuses to boot (`409 sdk.crdt_version_newer`) or, when the raise arrives from another device while running, turns read-only — `newer: true` is the client's "upgrade required" signal.
 
 ## 4. Call it
 
@@ -59,7 +60,7 @@ Everything is `http://127.0.0.1:7001/v1/…` with JSON bodies. Pick whichever cl
 | Client | When |
 |--------|------|
 | `curl` | Exploring; the [curl quickstart](../quickstart/curl.html) creates a space, an object, and a subscription. |
-| `any …` CLI | Scripts and shells — one subcommand per endpoint, pretty JSON on stdout, `jq`-friendly ([CLI quickstart](../quickstart/cli.html)). |
+| `any …` CLI | Scripts and shells — subcommands mirroring the endpoints, pretty JSON on stdout, `jq`-friendly ([CLI quickstart](../quickstart/cli.html)). |
 | Web UI | `http://127.0.0.1:7001/ui` — a debug harness with a space picker, object tree, chat, members, and a network log. Disable with `webUI.enabled: false`. |
 | Your app | Any HTTP client; live updates are SSE over a streaming POST ([JavaScript](../quickstart/javascript.html), [Python](../quickstart/python.html)). |
 
@@ -68,7 +69,7 @@ any --verbose space get $SPACE              # log the HTTP exchange to stderr
 any --addr 127.0.0.1:7002 status            # a second server on another port
 ```
 
-When the server is down the CLI exits 3 with `start it with any run in another terminal`; it never auto-starts one.
+Without `--addr` the CLI finds the server serving the data dir's account through its `server.addr` file, so an ephemeral-port server needs no flag. When the server is down the CLI exits 3 with `start it with any run in another terminal`; it never auto-starts one.
 
 ## 5. Inspect
 
@@ -76,7 +77,7 @@ When the server is down the CLI exits 3 with `start it with any run in another t
 - **Search index** — `any search $SPACE "reranker"`; check `vectorStatus` in the reply.
 - **Raw datasets** — `any query-subscribe $SPACE $OBJ --dataset chat_messages --limit 20 --sort='-_ver.id'` prints one JSON line per SSE frame.
 - **Diagnostics** — `any debug space $SPACE` / `any debug object $SPACE $OBJ` dump head-sync counters and per-object tree state (unstable output, diagnostic only).
-- **Logs** — one stream on stderr through the SDK logger; `--log-level debug` or `ANY_LOG_LEVEL=debug`. Add `log.addOutputPaths: ["~/.any/server.log"]` to tee to a file ([Debugging](../operations/debugging.html)).
+- **Logs** — one stream on stderr through the SDK logger; `--log-level debug` or `ANY_LOG_LEVEL=debug`. Add an absolute file path under `log.outputPaths` in `config.yaml` to tee to a file ([Debugging](../operations/debugging.html)).
 
 ## The data dir
 
@@ -85,22 +86,24 @@ When the server is down the CLI exits 3 with `start it with any run in another t
 ├── config.yaml                 # optional
 ├── models/                     # shared embedder model cache (~600 MB, downloaded once)
 └── <accountId>/
-    ├── wallet.key              # 0600
+    ├── wallet.key              # standalone: account + device keys (0600)
+    ├── device.key              # managed: this device's key only (0600)
     ├── server.lock             # single-instance lock (an OS file lock)
     ├── server.pid              # holder's pid, for error messages only
+    ├── server.addr             # holder's bound address, read by the CLI
     ├── sdk/                    # any-store databases — owned by the SDK
     ├── files/                  # file bytes, one CARv2 per root CID
     └── index/                  # local search index — derived, safe to delete
 ```
 
-Two servers may share a root as long as they serve different accounts on different ports. The `index/` directory is derived state: removing it is safe, but re-indexing covers content changed *after* the removal. Never delete `files/` by hand — a file that has not been backed up yet has its only copy there ([Data dir](../operations/data-dir.html)).
+Two servers may share a root as long as they serve different accounts on different ports. The `index/` directory is derived state: removing it with the server stopped is safe, and the next start re-indexes every space from the change feed. Never delete `files/` by hand — a file that has not been backed up yet has its only copy there ([Data dir](../operations/data-dir.html)).
 
 Config precedence is file → `ANY_*` env → flags; the file is looked up at `--config`, `$XDG_CONFIG_HOME/any/config.yaml`, `~/.config/any/config.yaml`, then `<data-dir>/config.yaml` ([Configuration](../operations/configuration.html)).
 
 ## Building from source
 
 ```bash
-make build                                  # → ./any (+ bin/llamacpp for the local embedder)
+make build                                  # → bin/any (+ bin/llamacpp for the local embedder)
 go test ./...
 ```
 

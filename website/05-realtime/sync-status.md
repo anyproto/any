@@ -39,7 +39,7 @@ any sync-status space SPACE
 
 | Field | Meaning |
 |---|---|
-| `state` | `unknown` / `offline` / `syncing` / `synced` / `error` |
+| `state` | `unknown` / `syncing` / `synced`; `offline` and `error` are reserved in the vocabulary and not emitted |
 | `synced`, `total` | objects converged vs. objects tracked in the space |
 | `networkPeers` | responsible sync nodes with a live connection |
 | `localPeers` | LAN peers sharing this space that are connected right now |
@@ -82,8 +82,8 @@ data: { "reason": "server_shutdown" }
 ```
 
 - `status` carries exactly the shape of the matching GET, one frame per state transition.
-- `lagged` appears only if the per-stream forwarder (16 events deep) dropped transitions; `total` counts the drops since the last successful frame. Re-read the GET to resync — the stream stays open.
-- `closed` uses the [shared reason set](index.html), so one switch handles every stream family.
+- `lagged` appears only if the per-stream forwarder (16 events deep) dropped transitions; it precedes the next delivered frame, and `total` is the cumulative number of drops on this stream. Re-read the GET to resync — the stream stays open.
+- `closed` is written when the engine goes away — `server_shutdown` on exit, `deauthorized` when the account is torn down in place — from the [shared reason set](index.html), so one switch handles every stream family.
 
 The account-wide stream is `GET`, so a browser can use `EventSource` directly:
 

@@ -15,11 +15,11 @@ Every caller — the CLI, the web UI, a language binding, an agent — goes thro
 0  success      1  user error / 4xx      2  server error / 5xx      3  can't reach server
 ```
 
-The server refuses to bind anything but a loopback address and there is no auth middleware — the loopback interface is the trust boundary ([Security model](../operations/security-model.html)).
+The server refuses to bind anything but a loopback address and does not authenticate callers — the loopback interface is the trust boundary. What a server gates is ownership: a host-managed server accepts login, sign-out, account switches and shutdown only with its control token ([Security model](../operations/security-model.html)).
 
 ## 2. Reads go through `/query` and `/query/subscribe`
 
-Every dataset — objects, chat messages, editor blocks, files, devices, the space list — is read through the same two POSTs with the same body (`filter` / `sort` / `limit` / `offset` / `includeTotal`) and the same SSE frame set (`ready` → `snapshot` → `changes` → `closed`). One read path per dataset, one wire shape per snapshot.
+Every dataset — objects, chat messages, editor blocks, files, devices, the space list — is read through the same two POSTs with the same body (`filter` / `sort` / `limit` / `offset` / `includeTotal` / `projection`) and the same SSE frame set (`ready` → `snapshot` → `changes` → `closed`). One read path per dataset, one wire shape per snapshot.
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
@@ -41,7 +41,7 @@ Read the result back through a query; that is also where everyone else's writes 
 
 ## 4. Endpoints map 1:1 onto SDK methods
 
-If the SDK has it, there is an endpoint. If it does not, there is not — the server does not invent aggregating conveniences. The named exceptions are documented as such: `/search` (a consumer-side index over the change feed), the markdown bridge, the ephemeral `/events` bus, and the bundles registry engine. When a route is registered ahead of its SDK method it returns `501 sdk.not_implemented` rather than pretending.
+If the SDK has it, there is an endpoint. If it does not, there is not — the server does not invent aggregating conveniences. The named exceptions are documented as such: `/search` and the link index behind `/backlinks` (consumer-side indexes over the change feed), the markdown bridge, the ephemeral `/events` bus and `/processes`, the device-local `/v1/local` store, and the usecase catalog under `/v1/catalog`. When a route is registered ahead of its SDK method it returns `501 sdk.not_implemented` rather than pretending.
 
 ## 5. Every route lives under `/v1/`
 
@@ -57,7 +57,7 @@ Same body for every non-2xx. `code` is a dotted, machine-readable handle grouped
 
 ## 7. POSTs are not idempotent
 
-Each POST produces a new DAG change; retrying a create makes two objects. The one deliberate exception is `POST /v1/spaces/:id/upsert`, where the caller-supplied record id is the idempotency key and an identical re-run diffs to nothing ([Upsert](../database/upsert.html)).
+Each POST produces a new DAG change; retrying a create makes two objects. The deliberate exceptions address a stable key: `POST /v1/spaces/:id/upsert`, where the caller-supplied record id is the idempotency key and an identical re-run diffs to nothing ([Upsert](../database/upsert.html)), and the adopt-or-install calls — catalog setup, bundle ensure, derived spaces — which land on the same install however often they run ([Bundles](../collaboration/bundles.html)).
 
 ## 8. Bodies are strict, output is pretty JSON
 

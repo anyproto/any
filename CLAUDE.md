@@ -1823,11 +1823,28 @@ Implementation slices landed:
     `internal/bundles` `TestSetupWaitsOnce`; e2e
     `internal/e2e/multipeer_catalog_test.go` (the owner sets `crm` up,
     the joiner's setup adopts every root with the same property ids
-    and writes a person the owner reads). Shipped usecases: `wiki`,
-    `collections`, `general-chat`, `people` (person + organization),
+    and writes a person the owner reads; the same walk for `journal`,
+    whose entry crosses under one converged type). **The catalog is
+    the source of truth for every well-known app's types** — a bundle
+    declares the miniapp root AND the types/properties/datasets its
+    content uses, so no client mints one by xKey. Shipped usecases:
+    `wiki`, `collections`, `journal` (hidden type `journal`, one
+    `date`, shared editor `body`), `meetings` (the `meeting` type —
+    weight 20, layout page; notes on the SHARED editor collection, a
+    second namespaced editor for the summary, and a `transcript`
+    records dataset of one turn per record: `idRule: user`,
+    author-mutable, dynamic, search `text` under scope `meetings` —
+    plus the `system:meetings/v1` sidebar root),
+    `general-chat`, `people` (person + organization),
     `contact`, six roles (`investor`, `customer`, `partner`, `vendor`,
-    `cofounder`, `candidate`), `contacts`, `crm` — 13 usecases, 15
-    bundles, 12 types. Test seam: `deps.catalog` overrides the compiled
+    `cofounder`, `candidate`), `contacts`, `crm`, `tasks` (listed,
+    weightless `task` / `project` / `area` types for the Things-style planner plus
+    the `system:tasks/v1` sidebar root) — 16 usecases, 22 bundles, 17
+    types. Bundle roots are type DEFINITIONS unless the
+    yaml says `selfTyped: true` (SDK v0.3.3 made self-typing opt-in):
+    `contacts` needs it — its `layouts` records live on the root —
+    while wiki / journal / meetings must not have it, or the app root
+    would read as one of its own entries. Test seam: `deps.catalog` overrides the compiled
     embedded catalog (`catalogForTest`). CLI: `any catalog
     list/get/setup` (`internal/cli/catalog.go`,
     `internal/client/catalog.go`). **SDK prerequisite (branch,
@@ -1960,28 +1977,6 @@ Implementation slices landed:
     docs/13-index.md § Links, docs/03-api.md § Links and backlinks,
     docs/19-links.md, docs/27-descriptors.md, docs/21-events.md,
     docs/08-clients.md § 15, docs/01-cli.md.
-55. **Per-account network pin** — the network stays a per-process
-    setting, but `bootEngine` reads the nodeconf once (the bytes go to
-    `OpenSDK` as an argument), pins its `networkId` in
-    `<account-dir>/network.json` after the first successful SDK open
-    (a failed write only warns), and refuses a boot under another
-    network before touching the dir, re-checked under the lock
-    (`networkpin.go`, `config.NetworkId`) — `any run` exits with both
-    ids, `POST /v1/auth` answers `409 auth.network_mismatch`
-    (`details.pinned` / `configured`); `switchAccount` checks the
-    target before tearing the running account down. An unpinned dir
-    adopts the network it boots with (a wrong adoption is fixed by
-    removing the file); an unreadable pin is `500
-    auth.network_pin_corrupt` and never rewritten. The SDK's own
-    `sdk/anysync/nodeconf/<networkId>.yml` cache cannot serve as the
-    pin: any-sync reads only the configured network's file, writes it
-    only after a coordinator hands a newer conf, and keeps one per
-    network touched. Tests: `TestNetworkPin`, `TestAuth_NetworkPin`,
-    `TestAuth_NetworkPinSwitch`, `TestRun_NetworkPin` (placeholder
-    nodeconf — run without staging). Contract:
-    docs/02-server.md § Startup + § Data dir layout, docs/03-api.md
-    § Auth, docs/05-config.md, docs/06-errors.md, docs/08-clients.md
-    § 14.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -2046,6 +2041,46 @@ a given slice needed is captured per-item in the Status section above.
 (+ git SSH `insteadOf`) is needed to fetch it directly. To inspect SDK
 behavior, read the module cache
 (`$(go env GOMODCACHE)/github.com/anyproto/any-sync-sdk@<version>/`).
+55. **Alpha access codes** — `POST /v1/account/access-code` / `any account
+   redeem <code>` sign `{purpose, ownerAnyId, code, ts}` with the account
+   key (kept on the engine as `signKey`) and post it to the any-invite
+   service at `access.redeemUrl`; the answer is relayed as
+   `{status, redemptionId}` or an `access.*` error. Disabled without a
+   URL. Contract: docs/03-api.md § Account, errors in docs/06-errors.md.
+56. **Network id on health** — `RunWith` resolves the nodeconf once
+   (`pinNodeconf`, sdk.go): it reads `networkId`
+   (`config.NodeconfNetworkId`, a one-key decode — the SDK's full parse
+   still runs at Open) and pins the bytes inline on
+   `cfg.Network.Nodeconf`, so every engine the process boots joins the
+   network `GET /v1/health` reports as `networkId`, authorized or not.
+   A conf that isn't YAML or names no networkId fails startup
+   (`embedded.ErrBadOptions` for a host conf). The server returns the id
+   only; clients map well-known ids (listed in docs/02-server.md
+   § Health) to names. No SDK accessor needed.
+   Contract: docs/02-server.md § Startup + § Health, docs/03-api.md
+   § Meta.
+57. **Per-account network pin** — the network stays a per-process
+    setting (item 56), but `bootEngine` hands the pinned nodeconf bytes
+    to `OpenSDK` as an argument, pins its `networkId` in
+    `<account-dir>/network.json` after the first successful SDK open
+    (a failed write only warns), and refuses a boot under another
+    network before touching the dir, re-checked under the lock
+    (`networkpin.go`) — `any run` exits with both
+    ids, `POST /v1/auth` answers `409 auth.network_mismatch`
+    (`details.pinned` / `configured`); `switchAccount` checks the
+    target before tearing the running account down. An unpinned dir
+    adopts the network it boots with (a wrong adoption is fixed by
+    removing the file); an unreadable pin is `500
+    auth.network_pin_corrupt` and never rewritten. The SDK's own
+    `sdk/anysync/nodeconf/<networkId>.yml` cache cannot serve as the
+    pin: any-sync reads only the configured network's file, writes it
+    only after a coordinator hands a newer conf, and keeps one per
+    network touched. Tests: `TestNetworkPin`, `TestAuth_NetworkPin`,
+    `TestAuth_NetworkPinSwitch`, `TestRun_NetworkPin` (placeholder
+    nodeconf — run without staging). Contract:
+    docs/02-server.md § Startup + § Data dir layout, docs/03-api.md
+    § Auth, docs/05-config.md, docs/06-errors.md, docs/08-clients.md
+    § 14.
 
 ## What this project is
 

@@ -14,7 +14,7 @@ This is the surface for imports, syncs from an external system, and any job that
 ```sh
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/upsert \
   -H 'Content-Type: application/json' -d '{
-  "objectId": "'$OBJ'", "dataset": "articles",
+  "objectId": "'$OBJ'", "dataset": "'$TYPE'_articles",
   "records": [
     { "id": "a1", "fields": { "title": "Hello", "body": "First draft" } },
     { "id": "a2", "fields": { "title": "World", "body": "…" } }
@@ -22,13 +22,13 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/upsert \
   "pageSize": 500,
   "traceIds": ["import-42"] }'
 
-any upsert $SPACE $OBJ --dataset articles --records @batch.json
+any upsert $SPACE $OBJ --dataset "${TYPE}_articles" --records @batch.json --page-size 500 --trace-id import-42
 ```
 
 | Field | Meaning |
 |---|---|
 | `objectId` | The object hosting the dataset — it must carry the dataset's owning type. |
-| `dataset` | The runtime dataset's `name`. |
+| `dataset` | The runtime dataset's collection, `<typeId>_<key>` — the `collection` its declaration returned. |
 | `records[]` | `{id, fields}` — `id` must match the dataset's `idPattern` / `idMaxLen`. |
 | `pageSize` | Records per CRDT change, default 500. |
 | `traceIds` | Optional trace ids stamped on every page's change. |
@@ -62,7 +62,7 @@ The call answers `200` even when some records were rejected — the same partial
 | `upsert.record_deleted` | The stored record is a tombstone. |
 | `upsert.rejected` | Creation screening failed — missing required field, id pattern or length violation, undeclared field on a non-dynamic dataset, write to a stamped field. `reason` carries the specific cause. |
 
-Whole-call errors: `400 upsert.requires_user_ids` when the dataset is not declared `idRule: user`, and `400 dataset.unknown` when the name resolves to nothing on that object.
+Whole-call errors: `400 upsert.requires_user_ids` when the dataset is not declared `idRule: user`, `400 dataset.unknown` when the space serves no records collection of that name (module collections such as `chat_messages` are never upsertable), and `400 dataset.not_declared` when the object carries no type declaring it.
 
 ## Concurrency
 

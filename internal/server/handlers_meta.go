@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	anysyncsdk "github.com/anyproto/any-sync-sdk"
+	"github.com/anyproto/any-sync/util/crypto"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/bundles"
@@ -33,10 +34,15 @@ import (
 type deps struct {
 	account   string
 	startedAt time.Time
+	// networkId is the pinned nodeconf's networkId (pinNodeconf), fixed
+	// for the process lifetime.
+	networkId string
 	// shutdown signals server.Run to begin graceful teardown. Receives at
 	// most one value; subsequent sends are dropped by the non-blocking send.
 	shutdown chan<- struct{}
 	sdk      *anysyncsdk.SDK
+	// signKey is the booted account's signing key (handlers_access.go).
+	signKey crypto.PrivKey
 	// derived is the derived-space registry resolved against the booted
 	// account (derivedspaces.go) — set with sdk, published by ready.
 	derived []resolvedDerivedSpace
@@ -174,6 +180,7 @@ func (d *deps) health(c echo.Context) error {
 		Status:        "ok",
 		Version:       version.String(),
 		StartedAt:     d.startedAt,
+		NetworkId:     d.networkId,
 		Account:       d.accountID(),
 		Bootstrapping: d.bootstrapping(),
 		CRDTVersion:   d.crdtVersion(),

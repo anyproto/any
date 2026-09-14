@@ -70,7 +70,7 @@ Contract and client recipe: [Subscribe](../realtime/subscribe.html).
 | `ready` | `{}` |
 | `status` | the same body as the matching GET — `state` ∈ `unknown`, `offline`, `syncing`, `synced`, `error` |
 | `lagged` | `{total}` — the 16-deep forwarder dropped events |
-| `closed` | `{reason}` |
+| `closed` | `{reason: "server_shutdown" \| "deauthorized"}` |
 
 State transitions are sparse, so `lagged` is rare. See [Sync status](../realtime/sync-status.html).
 
@@ -82,6 +82,7 @@ State transitions are sparse, so `lagged` is rare. See [Sync status](../realtime
 |---|---|
 | `member` | `{kind: "added"\|"changed"\|"removed", member: Member, previous: Member \| null}` |
 | `lagged` | `{total}` |
+| `closed` | `{reason: "server_shutdown" \| "deauthorized"}` |
 
 `member` is the full post-event shape; `previous` is null on `added`.
 
@@ -93,6 +94,7 @@ State transitions are sparse, so `lagged` is rare. See [Sync status](../realtime
 |---|---|
 | `identities` | `{added: [IdentityInfo], updated: [IdentityInfo], removed: [identity]}` |
 | `lagged` | `{total}` |
+| `closed` | `{reason: "server_shutdown" \| "deauthorized"}` |
 
 A contact whose profile key arrives later surfaces first in `added` with an empty `name`, then in `updated` once resolved.
 
@@ -104,6 +106,7 @@ A contact whose profile key arrives later surfaces first in `added` with an empt
 |---|---|
 | `status` | `{fileId, objectId, state: "durable"\|"inflight"\|"limited", cached, attempts?, lastErr?}` |
 | `lagged` | `{total}` |
+| `closed` | `{reason: "server_shutdown" \| "deauthorized"}` |
 
 ## Event bus
 
@@ -112,9 +115,17 @@ A contact whose profile key arrives later surfaces first in `added` with an empt
 | Frame | Payload |
 |---|---|
 | `event` | `{type, scope, spaceId?, target?, data?, sender: {identity, self}}` |
-| `closed` | `{reason: "server_shutdown" \| "overflow"}` |
+| `closed` | `{reason: "server_shutdown" \| "deauthorized" \| "overflow"}` |
 
-Filters are repeatable query params — AND across dimensions, OR within one; `type` takes an exact slug or an `x.*` prefix. Process frames (`process.started` / `progress` / `done` / `failed` / `cancelled` / `cancel`) ride this stream: `?type=process.*`. See [Event bus](../realtime/event-bus.html).
+Filters are repeatable query params — AND across dimensions, OR within one; `type` takes an exact slug or an `x.*` prefix; `scope=space` needs at least one `spaceId`. The server's own event types ride this stream too:
+
+| Type | Scope | `data` |
+|---|---|---|
+| `ui.open_space` / `ui.open_object` | device | `{spaceId, objectId?, source?}` — navigation for a UI window |
+| `process.started` / `progress` / `done` / `failed` / `cancelled` / `cancel` | the process's scope | the process descriptor and counters ([Processes](../notifications/processes.html)) |
+| `links.updated` | device | `{spaceId, targets, truncated?}` — canonical targets whose backlinks changed (≤ 200) |
+
+See [Event bus](../realtime/event-bus.html).
 
 ## Streams in the CLI
 

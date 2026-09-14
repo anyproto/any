@@ -18,7 +18,7 @@ object (one any-sync tree)
 
 One change belongs to exactly one dataset and may touch many records. Each record change carries an `id`, an `upsert` flag and an ordered list of ops. Ops address dotted paths; `$set` and `$unset` also have a multi-field form whose payload is an object of `path: value` entries, each applied as its own gated write.
 
-There is no `insert`. A record is created by an `upsert: true` change whose ops populate it; a strict (default) modify on an absent id is a no-op, so a typo cannot conjure a record. Reserved names — `id` and anything starting with `_` — are rejected at validation, before apply ([Writing data](../database/writing-data.html)).
+There is no `insert`. A record is created by an `upsert: true` change whose ops populate it; a strict (default) modify on an absent id is a no-op, so a typo cannot conjure a record. Reserved names — a top-level `id` or `_`-prefixed field — are rejected at validation, before apply ([Writing data](../database/writing-data.html)).
 
 ## Versions and `_ver`
 
@@ -54,17 +54,17 @@ The first empty-id record in a batch takes that value; later ones append `:1`, `
 
 ## Handlers
 
-Every dataset has a **handler** — either a compiled-in one (chat, editor blocks, the `objects` row, spaceIndex, …) or the generic schema handler compiled from a [runtime dataset declaration](../database/runtime-datasets.html). Hooks run inside the apply transaction on every peer, identically:
+Every dataset has a **handler** — a compiled-in one (the `chat` and `editor` module handlers, the `objects` row, spaceIndex, …) or the generic schema handler compiled from a declaration: a [runtime dataset](../database/runtime-datasets.html), or a built-in one with no code of its own such as the `dataview` type's views. Hooks run inside the apply transaction on every peer, identically, for every synced change:
 
 | Hook | Runs | Typical rule |
 |------|------|--------------|
 | `BeforeCreate` | before a record's first materialization | required fields, id rules, stamp `creator` / `createdAt` from the change envelope |
-| `BeforeModify` | per op | field pinned, author-only edit (`ctx.Before.creator == ctx.Change.Creator`), value shape, bump `modifiedAt` |
+| `BeforeModify` | per op on an existing record | field pinned, author-only edit (`ctx.Before.creator == ctx.Change.Creator`), value shape, bump `modifiedAt` |
 | `BeforeDelete` | per record delete | author-only delete |
 
-A handler writes through a **sink**: `Derive` queues a same-record op that lands with the change's own versionId (this is how server-stamped fields exist without a server), `Project` queues a sibling write to another dataset on the same object. Hooks may read only what converges — the change envelope and the record's pre-op state — never replica-local data, so their verdicts are the same everywhere.
+A handler writes through a **sink**: `Derive` queues a same-record op that lands with the change's own versionId (this is how server-stamped fields exist without a server), `Project` queues a sibling write to another dataset on the same object. Hooks may read only what converges — the change envelope, the record's pre-op state, and the create-time fields of records in the change's causal past — never replica-local data, so their verdicts are the same everywhere.
 
-Rejections are **op-granular and never fatal on the apply path**: an op that fails validation is dropped and recorded, the rest of the change still commits, and the writer's own pre-check is the only place a whole change is refused. Which fields a peer may write is also declared, as a **scope** on the field or property: `synced` rides the DAG, `derived` is handler-only, `local` never leaves the device, `account` travels through the [tech space](tech-space.html). An inbound DAG op addressing a local or account path is dropped per-op on every peer.
+Rejections are **op-granular and never fatal on the apply path**: an op that fails validation is dropped and recorded (a failed `BeforeCreate` or `BeforeDelete` drops that record's change), the rest of the change still commits, and the writer's own pre-check is the only place a whole change is refused. Which fields a peer may write is also declared, as a **scope** on the field or property: `synced` rides the DAG, `derived` is handler-only, `local` never leaves the device, `account` travels through the [tech space](tech-space.html). An inbound DAG op addressing a local or account path is dropped per-op on every peer.
 
 ## Merge rules by op
 
@@ -83,24 +83,24 @@ Two concurrent creates of the same id merge per field. A delete on an absent id 
 Devices A and B both hold message `m1` with `_ver.text = "!B2"`, then go offline.
 
 ```
-A:  $set text  = "meet at 10"       → change cA, parents [B2]
-B:  $set pinned = true              → change cB, parents [B2]
+A:  $set text  = "meet at 10"       → change cA, parents [c0]
+B:  $set pinned = true              → change cB, parents [c0]
 ```
 
-A applies its own change first (`cA` → local version `!C3`), then receives `cB` (`!C4`). B does the reverse. Each write touches a different path, so both gates pass on both devices:
+Say DAG order puts `cA` before `cB`. A applies its own change (`!C3`), then receives `cB`, which sorts after it (`!C4`). B applies its own `cB` (`!C3`), then receives `cA` — which sorts *before* `cB`, so B gives it an id below the one it already holds (`!C2z`). Each write touches a different path, so both gates pass on both devices:
 
 ```
 A: text ← "meet at 10" (!C3)    then pinned ← true (!C4)
-B: pinned ← true (!C3)          then text ← "meet at 10" (!C4)
+B: pinned ← true (!C3)          then text ← "meet at 10" (!C2z)
 
 both:  { "text": "meet at 10", "pinned": true }      ✓ identical rows
 ```
 
-The `_ver` strings differ between A and B (they are peer-local), the rows do not. Now suppose B had instead written `$set text = "meet at 11"`. Both changes hit the same path; the DAG order — the same on every peer once both changes are present — picks one, and the other is gone everywhere with no error to either author. Design records so that the fields people edit at the same time are *different* fields ([CRDTs and consistency](crdt-and-consistency.html)).
+The `_ver` strings differ between A and B (they are peer-local); the order they encode and the rows do not. Now suppose B had instead written `$set text = "meet at 11"`. Both changes hit the same path; the DAG order — the same on every peer once both changes are present — picks one, and the other is gone everywhere with no error to either author. Design records so that the fields people edit at the same time are *different* fields ([CRDTs and consistency](crdt-and-consistency.html)).
 
 ## Tombstones and counters
 
-A deleted record stays as a tombstone `{ id, _deletedAt, _ver: { id, "*" } }` so late writes have something to lose against. Queries and subscriptions skip tombstones; the change feed used by indexers can ask for them (`IncludeDeleted`) to evict documents.
+A deleted record stays as a tombstone `{ id, _deletedAt, _ver: { id, "*" } }` so late writes have something to lose against. Queries and subscriptions skip tombstones; indexers read them through the store's find path (`IncludeDeleted`) to evict documents.
 
 Three peer-local counters ride the apply path, each answering one question:
 
@@ -114,12 +114,12 @@ All three are local to a peer. None is a timestamp, and none should be compared 
 
 ## The DataVersion gate
 
-A handler registration stamps a **DataVersion** on every change it writes (`chat_messages-v2`; a runtime dataset stamps its type's schema state). A receiving peer applies a change only if it carries a handler for that dataset at that version; otherwise the change is **parked** — persisted in the tree, kept in a `_detached` collection, invisible to queries — and drained when the registration appears. For runtime datasets that means "schema first, then data" holds in either arrival order: a record written against a field definition you have not yet received waits for the definition instead of being applied wrongly or dropped.
+Every change carries a **DataVersion**: a compiled-in handler stamps an opaque label (`chat_messages-v5`), a runtime dataset stamps the schema state it was written against (`typeId:shortId`). A receiving peer **parks** a change when it has no handler for the change's dataset, or when the change names schema state it has not applied yet — the change is persisted in the tree, kept in a `_detached` collection, invisible to queries — and drains it when the registration appears. An opaque label is carried but not compared. For runtime datasets that means "schema first, then data" holds in either arrival order: a record written against a field definition you have not yet received waits for the definition instead of being applied wrongly or dropped.
 
 ## Why there is no rollback and no total order
 
 - **No total order.** Concurrent branches have no "before" and "after" until they meet; DAG order gives every peer the same tie-break, not a wall clock. Version history is therefore a walk over a DAG with a cursor, and `timestamp` is display-only ([Version history](../database/version-history.html)).
 - **No rollback.** A change that entered the tree is signed and content-addressed; other peers may already have built on it. Correction is another change. Validation drops ops on apply rather than refusing the change, precisely so a tree can always be replayed to the same state.
-- **No conflict surface.** Every merge is decided by rule. The one thing reported back is a tombstone rejection — a write that was dropped whole — and even that is not a conflict, just a fact about a record that no longer exists.
+- **No conflict surface.** Every merge is decided by rule. What a local writer gets back is validation — a handler rejection or a tombstone rejection in `rejections` — never a conflict: a tombstone rejection is just a fact about a record that no longer exists.
 
 > **Why it matters.** The CRDT is deliberately narrow: per-path LWW plus a few commutative ops. That is enough to make "apply this set of changes in any order" a pure function — which is what lets a device be offline for a week, a handler be re-run over history to rebuild rows ([Versioning and re-index](versioning-and-reindex.html)), and a second device restore an account from the DAG alone.

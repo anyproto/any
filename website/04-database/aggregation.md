@@ -102,7 +102,7 @@ Expressions take field references (`"$a.b.c"`, including the search virtuals `"$
 | comparison | `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$cmp` |
 | dates | `$dateAdd`, `$dateDiff`, `$dateTrunc`, `$year`, `$week` |
 
-Anything absent is rejected: no type conversions (`$toDate`, `$toInt`), no array operators (`$map`, `$filter`, `$reduce`). Date operators work on every instant — system stamps and `date`/`datetime` properties — and return instants in the same `{"$date": …}` wire shape (see [Data types](data-types.html)). A date property declared `kind: "string"` stays an ISO-8601 string and returns `null` from every date operator; kind is pinned at first write, so such a property needs a successor to gain date arithmetic.
+Anything absent is rejected: no type conversions (`$toDate`, `$toInt`), no array operators (`$map`, `$filter`, `$reduce`). Date operators work on every instant — system stamps and `date`/`datetime` properties — and return instants in the same `{"$date": …}` wire shape (see [Data types](data-types.html)). An ISO-8601 string in a `string`-kind property is not an instant and returns `null` from every date operator; kind is pinned at first write, so date arithmetic needs a `datetime` property.
 
 ## Pushdown — put `$match` first
 

@@ -34,8 +34,9 @@ The body is the same one `…/query` takes, plus two stream-only knobs:
 | Field | Notes |
 |---|---|
 | `objectId`, `dataset` | per-object variant only |
-| `filter`, `sort`, `limit`, `offset` | as in a snapshot query; `sort` is required when `limit > 0` |
+| `filter`, `sort`, `limit`, `offset` | as in a snapshot query; `limit > 0` without `sort` is `400 request.invalid_field` — a live window has to be ordered |
 | `includeTotal` | populates `total` and `hasNext` in the snapshot frame |
+| `projection` | shapes the snapshot and every later `changes` record — see [Reading data](../database/reading-data.html) |
 | `mailboxCapacity` | per-subscriber event mailbox; default 256, minimum 16 |
 | `driftBudgetPercent` | how much of the window may leave unreplaced before the stream closes; default 30 |
 
@@ -64,7 +65,7 @@ data: {"reason":"overflow"}
 
 1. **`ready`** — sent once the subscription is registered. Wait for it before treating the stream as live.
 2. **`snapshot`** — sent once, right after `ready`. `records` is the materialized window; `total` / `hasNext` appear only with `includeTotal`. The snapshot and the first event sit at adjacent versions with nothing missed in between, so integrate the snapshot first, then apply changes in order.
-3. **`changes`** — a JSON array of one or more events, each `{versionId, added, updated, removed}`. `added` and `updated` carry the full post-apply `doc` plus the `$set` / `$unset` `ops` of the triggering change. Most clients overwrite their local entry with `doc`; clients that want atomic field merges apply `ops` (`path: []` with an object payload is a multi-field set at the record root). `$inc`, `$addToSet` and `$pull` are never emitted — the engine collapses them to the merged `$set` before delivery, so non-Go clients never reimplement CRDT merge rules.
+3. **`changes`** — a JSON array of one or more events, each `{versionId, added?, updated?, removed?}` (an empty list is omitted). `added` and `updated` carry the full post-apply `doc` plus the `$set` / `$unset` `ops` of the triggering change. Most clients overwrite their local entry with `doc`; clients that want atomic field merges apply `ops` (`path: []` with an object payload is a multi-field set at the record root). `$inc`, `$addToSet` and `$pull` are never emitted — the engine collapses them to the merged `$set` before delivery, so non-Go clients never reimplement CRDT merge rules.
 4. **`: keepalive`** — a comment every ~25 s while idle, defeating idle proxy timeouts.
 5. **`closed`** — terminal.
 
@@ -84,7 +85,7 @@ Only `deleted` means the object is gone. For the other two, a fresh snapshot wou
 
 | Reason | Cause |
 |---|---|
-| `server_shutdown` | the server received a signal or `POST /v1/shutdown`; in-flight streams emit this frame before the listener goes down (10 s deadline) |
+| `server_shutdown` | the server received a signal (or, on a managed server, `POST /v1/shutdown`); in-flight streams emit this frame before the listener goes down (10 s deadline) |
 | `deauthorized` | the account behind the stream was torn down in place (`DELETE /v1/auth`, or a switch to another account) while the server stays up — re-read `GET /v1/auth` before resubscribing |
 | `sdk_closed` | the space or the engine was closed |
 | `overflow` | events arrived faster than the client drained them and the mailbox (`mailboxCapacity`) filled; the engine closes the stream rather than drop events |
@@ -133,10 +134,10 @@ function run() {
     { objectId: "CHAT", dataset: "chat_messages", sort: ["-_ver.id"], limit: 50 },
     (event, data) => {
       if (event === "snapshot") for (const r of data.records) window.set(r.id, r);
-      if (event === "changes") for (const ev of data) {
-        for (const r of ev.added)   window.set(r.id, r.doc);
-        for (const r of ev.updated) window.set(r.id, r.doc);
-        for (const r of ev.removed) window.delete(r.id);
+      if (event === "changes") for (const ev of data) {   // empty lists are omitted
+        for (const r of ev.added ?? [])   window.set(r.id, r.doc);
+        for (const r of ev.updated ?? []) window.set(r.id, r.doc);
+        for (const r of ev.removed ?? []) window.delete(r.id);
       }
       if (event === "closed") setTimeout(run, 500);   // every reason: resubscribe
     }).catch(() => setTimeout(run, 2000));
@@ -144,14 +145,14 @@ function run() {
 run();
 ```
 
-From the shell, `curl -N` shows the raw frames, and the CLI prints one JSON object per frame (`{"event": …, "data": …}`) so the stream pipes through `jq`:
+From the shell, `curl -N` shows the raw frames, and the CLI prints one JSON object per frame (`{"event": …, "data": …}`) so the stream pipes through `jq`. `--properties` opens the cross-object stream; an object id plus `--dataset` opens a per-object one:
 
 ```bash
 curl -N http://127.0.0.1:7001/v1/spaces/SPACE/objects/query/subscribe \
   -H 'Content-Type: application/json' \
   -d '{"filter":{"any.types":"page"},"sort":["-modifiedAt"],"limit":20}'
 
-any query-subscribe SPACE --filter '{"any.types":"page"}' --sort -modifiedAt --limit 20
+any query-subscribe SPACE --properties --filter '{"any.types":"page"}' --sort -modifiedAt --limit 20
 any query-subscribe SPACE CHAT --dataset chat_messages --sort -_ver.id --limit 50 --total \
   | jq 'select(.event=="changes") | .data[]'
 ```

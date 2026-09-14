@@ -14,14 +14,15 @@ any space "bao"  (derived per account, encrypted, synced)
  ├── general chat           the conversation — humans and the agent post here
  │    └── bao/log/v1        agent_turns + agent_chunks (history)
  ├── bao/brain/v1           agent_memory_items (long-term memory)
- ├── bao/config/v1          agent_config  (llm tiers, overlays)
- ├── bao/secrets/v1         agent_secrets (device-local, never synced)
- └── bao/triggers/v1        agent_triggers + agent_trigger_runs (cron/once/event)
+ ├── bao/config/v1          agent_config  (llm tiers, search providers)
+ ├── bao/secrets/v1         agent_secrets (API keys, never guest-readable)
+ ├── bao/triggers/v1        agent_triggers (cron/once/event)
+ └── bao/runs/v1            agent_runs (one summary per run)
 
 overlay space "agent"       the agent's code: programs/ + skills/ (joined read-only)
 overlay space "connectors"  linear, github, gmail, … (programs)
 
-your device                 traces/ — one JSONL trace per run, device-local
+each device                 trace bodies in its any server's local store, never synced
 ```
 
 Everything the agent knows or does is ordinary data that you can query, subscribe to, export and delete with the same HTTP surface as the rest of your space. The agent has no server of its own.
@@ -31,12 +32,12 @@ Everything the agent knows or does is ordinary data that you can query, subscrib
 1. A human posts to the space's general chat. `anyrt serve` watches the chat over a subscription.
 2. The runtime invokes the guest program `toolcaller@v1` with `{space, chatId, userText}`.
 3. The program composes the system prompt from skills and tool docstrings, renders the **boot window** (recent turns plus summarised history), runs **auto-recall** over the memory index, and calls the model.
-4. The model has one tool: `run_cell(code)`. Each call runs a Python cell in a persistent kernel; the cell's prints, last value and side effects come back as a digest.
+4. The model's tool is `run_cell(code)` (plus `bash` in a shell-enabled build). Each call runs a Python cell in a persistent kernel; the cell's prints, last value and side effects come back as a digest.
 5. Interim text posts as chat bubbles with `agent.done: false`; the final reply posts with `done: true`, and the turn is appended to `agent_turns` with a `traceRef` pointing at the run.
 
 Every HTTP call, model call, clock read and random number the loop makes crosses the effect boundary and lands in the trace — so the whole exchange can be replayed offline without the network, and inspected turn by turn with `anyrt trace show`.
 
-> **Why it matters.** Hosted agent frameworks keep threads, messages, usage and a "playground" on their servers. Here the thread *is* your chat, the usage counters are fields on the turn record, and the playground is the trace on your disk — end-to-end encrypted where it syncs, and yours to delete.
+> **Why it matters.** Hosted agent frameworks keep threads, messages, usage and a "playground" on their servers. Here the thread *is* your chat, the usage counters are fields on the turn record, and the playground is the trace on your own device — end-to-end encrypted where it syncs, and yours to delete.
 
 ## Two ways to run it
 

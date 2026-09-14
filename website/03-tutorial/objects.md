@@ -88,13 +88,12 @@ The stream prints the delta:
 
 ```
 event: changes
-data: [{"versionId":"…","added":[],
+data: [{"versionId":"…",
         "updated":[{"id":"bafyreib…","doc":{…},
-                    "ops":[{"type":"$set","path":["any","name"],"payload":"Groceries (Saturday)"}]}],
-        "removed":[]}]
+                    "ops":[{"type":"$set","path":["any","name"],"payload":"Groceries (Saturday)"}]}]}]
 ```
 
-That is the whole reactive model: a snapshot, then `added` / `updated` / `removed` entries for as long as the connection is open. Renames from your other devices, and from every member of the space, arrive on the same stream ([Subscribe](../realtime/subscribe.html)).
+That is the whole reactive model: a snapshot, then `added` / `updated` / `removed` entries for as long as the connection is open — each batch carries only the lists that have something in them. Renames from your other devices, and from every member of the space, arrive on the same stream ([Subscribe](../realtime/subscribe.html)).
 
 > **Why it matters.** The write above returned before any network traffic happened. It landed in the object's change log on this device, the query saw it immediately, and sync to other devices runs in the background whenever a peer is reachable ([Local-first](../understanding/local-first.html)). Nothing in this part changes when you are offline.
 
@@ -114,7 +113,7 @@ No write echoes the record. Every one returns the same small receipt:
 curl -s -X DELETE $API/spaces/$SPACE/objects/$OBJ     # → 204
 ```
 
-The row receives a tombstone, disappears from every query, and open subscriptions see the id under `removed`.
+The row disappears from every query, and open subscriptions see the id under `removed` with `"reason": "deleted"`.
 
 ## Where this level ends
 

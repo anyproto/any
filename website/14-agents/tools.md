@@ -5,11 +5,11 @@ order: 20
 ---
 # Tools
 
-The agent has one declared tool, `run_cell`. Everything else it can do is a **program** the cell code imports with `use("name@vN")`. A program marked `__any_tool__ = True` is a tool: its docstring and method list enter the system prompt, and it is callable from any cell.
+The agent's declared tool is `run_cell` (plus `bash` in a shell-enabled build). Everything else it can do is a **program** the cell code loads with `use("name@vN")`. A program marked `__any_tool__ = True` is a tool: its docstring and method list enter the system prompt, and it is callable from any cell.
 
 ## How the model discovers a tool
 
-A tool is a `programs/<name>@v1/` folder (or a single `.py` file) with a module docstring. The first line of the docstring is the one-line summary the inventory shows; `help(tool)` renders the full docs on demand. Methods appear in the discovery surface only when documented; undocumented and `_`-prefixed methods stay callable but hidden. Each method line shows its kind — `getter` (read), `mutator` (write / side-effecting), `setup` (a binder) — at the point of choice.
+A tool is a `programs/<name>@v1/` folder (or a single `.py` file) with a module docstring. The system prompt renders each tool the way `help(tool)` does: the module docstring, an `Import:` line, then one `name(signature) [kind] — summary` line per public method, the summary being the first line of the method's docstring. `_`-prefixed methods and `main` stay callable but are not listed. Each method line shows its kind — `getter` (read), `mutator` (write / side-effecting), `setup` (a binder) — at the point of choice; `help(mod.method)` shows the full method doc.
 
 ```python
 c = use("agent:any@v1")           # overlay-qualified: the agent repo
@@ -24,8 +24,9 @@ Programs resolve from **spaces, not the filesystem**: the agent's own code lives
 | Program | Tool | Summary |
 |---|---|---|
 | `any@v1` | yes | The `any` server client — read and write everything in a space. Types and properties are named by xKey, never by raw content id. |
-| `llm@v1` | yes | Model calls in the neutral message shape — for one-off structured judgments inside a cell. |
-| `memory@v1` | yes | The memory write facade over a space's brain — `save_with_dedup`. |
+| `llm@v1` | yes | Model calls in the neutral message shape — for one-off structured judgments inside a cell, and `read(file, prompt)` for images and PDFs. |
+| `config@v1` | yes | The agent config store — the model behind each LLM tier and search tool. |
+| `memory@v1` | yes | The memory write facade over the brain — `save_with_dedup`. |
 | `recall@v1` | yes | Recall over one space — semantic search, `by_period`, graph `neighbors`, `hydrate`. |
 | `history@v1` | yes | Conversation history reads (turns/chunks) and the boot window. |
 | `subagent@v1` | yes | Delegate a self-contained subtask to a quiet fresh agent loop. |
@@ -35,6 +36,7 @@ Programs resolve from **spaces, not the filesystem**: the agent's own code lives
 | `miniapp@v1` | yes | Author and manage Mini Apps — embeddable HTML/JS apps in the space. |
 | `programs@v1` | yes | Write, edit and delete programs in a working space — live on the next `use()`. |
 | `progress@v1` | yes | Progress bars for long jobs — start/tick/done/fail, one bar per (space, job). |
+| `status@v1` | yes | The agent's status line in the user's status bar — one short phrase of prose. |
 | `toolcaller@v1` | no | The conversation loop as a guest program. |
 | `autorecall@v1` | no | Auto-recall injection — loop plumbing. |
 | `extraction@v1` | no | Background memory extraction from conversations (cron). |
@@ -52,7 +54,7 @@ Service connectors (Linear, GitHub, Gmail, …) are tools too, deployed to a sec
 
 Skills are markdown documents deployed next to programs. Two tiers:
 
-- **System skills** (`_`-prefixed: `_core`, `_any`, `_memory`, `_soul`, `_space_context`, `_meta_skill`, `_gmailSync`) are composed into every system prompt. They teach how `run_cell` works, the object-first rule for the space, the memory save policy, the agent's voice, and the space-context README convention.
+- **System skills** (`_`-prefixed: `_core`, `_any`, `_coding`, `_memory`, `_space_context`, `_meta_skill`, `_gmailSync`, `_soul`) are composed into every system prompt. `_soul` is the agent's identity and opens the system block verbatim; the rest teach how the tools work, the object-first rule for the space, the memory save policy and the space-context README convention. `_coding` is composed only when the runtime has shell effects. A working-space skill of the same name shadows the shipped one.
 - **User skills** are `agent_skill` objects the user curates as playbooks. Only title, one-line description and id are injected; the agent fetches a body with `c.get_markdown(space, skill_id)` when the turn matches, and can author or edit skills itself when asked to capture a workflow.
 
 ## Agent-authored programs

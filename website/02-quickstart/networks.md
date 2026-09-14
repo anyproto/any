@@ -26,9 +26,9 @@ nodes:
 | Node type | Role |
 |-----------|------|
 | `coordinator` | Space registry, ACL/invite coordination, deletion, the 1-1 inbox |
-| `tree` | Stores and relays encrypted object-tree changes; the peers head-sync talks to |
+| `consensus` | Orders each space's ACL log — membership, invites, permissions |
+| `tree` | Stores and relays encrypted object-tree changes; the peers head-sync talks to. Tree nodes that run the pub/sub relay also carry account- and space-scope [events](../realtime/event-bus.html) |
 | `file` / `fileV2` | File byte storage. Durable file backup needs `fileV2` nodes; without them attaches stay `inflight` |
-| `pubsubrelay` | Account/space-scope event bus relay |
 
 The `networkId` is part of every space's identity — a space created on one network cannot be moved to another.
 
@@ -53,14 +53,14 @@ ANY_NETWORK_NODECONF_PATH=/etc/any/staging.yaml any run
 |----------|----|
 | **Production** — real data, real peers, other devices of your account | Configure nothing. The production nodeconf is compiled into the binary, so a packaged install boots from any working directory. |
 | **Staging** — the same topology on throwaway infrastructure | Point `network.nodeconfPath` / `ANY_NETWORK_NODECONF_PATH` at the staging nodeconf. |
-| **Local infra** — your own any-sync nodes on a LAN or in containers | Same knob, your own YAML. Everything works offline-first regardless, so partial deployments (no `fileV2`, no `pubsubrelay`) degrade feature by feature, never at boot. |
+| **Local infra** — your own any-sync nodes on a LAN or in containers | Same knob, your own YAML. Everything works offline-first regardless, so partial deployments (no `fileV2`, no event relay) degrade feature by feature, never at boot. |
 | **No network at all** — tests, demos, a single machine | Use the sanitized **placeholder** below. |
 
 > **Note.** The production default is a convenience for installs, and a trap for experiments: a test script that forgets to set the env var creates real spaces on the real network under your real account. Set `ANY_NETWORK_NODECONF_PATH` in the shell you develop in, or put `network.nodeconfPath` in a per-experiment `config.yaml` passed with `--config`.
 
 ## The placeholder: boots, serves, joins nothing
 
-The repo ships `internal/config/nodeconf-placeholder.yml`: the real `networkId` with fake node addresses. A server started on it binds, serves every endpoint, and stores everything locally — but no peer is reachable, so nothing ever syncs and `/sync-status` stays `offline`. Tests use it (`config.NodeconfPlaceholder()`), and it is never selected at runtime by itself:
+The repo ships `internal/config/nodeconf-placeholder.yml`: a real `networkId` with fake peer ids and node addresses. A server started on it binds, serves every endpoint, and stores everything locally — but no peer is reachable, so nothing ever syncs and `/sync-status` stays `offline`. Tests use it (`config.NodeconfPlaceholder()`), and it is never selected at runtime by itself:
 
 ```bash
 ANY_NETWORK_NODECONF_PATH=$PWD/internal/config/nodeconf-placeholder.yml \

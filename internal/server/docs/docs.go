@@ -114,6 +114,31 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.AccessCodeRequest": {
+                "properties": {
+                    "code": {
+                        "description": "Code is the invite code as typed; compared upper-cased with\nwhitespace removed.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.AccessCodeResponse": {
+                "properties": {
+                    "redemptionId": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "Status is \"accepted\" (limits are being granted) or\n\"already_redeemed\" (this account redeemed a code before).",
+                        "enum": [
+                            "accepted",
+                            "already_redeemed"
+                        ],
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.AccountMetadata": {
                 "properties": {
                     "description": {
@@ -527,6 +552,10 @@ const docTemplate = `{
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "selfTyped": {
+                        "description": "SelfTyped makes the root CARRY the type it declares, so it holds\nthat type's property values and its datasets — what a root that\nkeeps its own bundle's records needs (an app's layouts). Off, the\nroot is the type definition and nothing else: it matches no query\nfor the type and takes none of its collections, which is what a\ntype OTHER objects carry wants (a wiki, a person). Needs a type\ndeclaration; implied for a part declaring a reserved module and\non the tech space.",
+                        "type": "boolean"
+                    },
                     "weight": {
                         "type": "integer"
                     },
@@ -632,6 +661,10 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "selfTyped": {
+                        "description": "SelfTyped makes the root carry the type it declares — the shape\nof a root that hosts its own bundle's records (the contacts\nlayouts). Off, the root is the type definition only: it matches\nno query for the type and takes none of its collections, which\nis what a type other objects carry needs (the wiki, a person).\nNeeds a type declaration.",
+                        "type": "boolean"
                     },
                     "type": {
                         "$ref": "#/components/schemas/api.CatalogType"
@@ -1479,6 +1512,10 @@ const docTemplate = `{
                     },
                     "crdtVersion": {
                         "$ref": "#/components/schemas/api.CRDTVersionState"
+                    },
+                    "networkId": {
+                        "description": "NetworkId is the any-sync network this server joins: the networkId\nof the nodeconf it started with. Set whether or not an account is\nauthorized. The server names no networks; clients map well-known\nids to names themselves.",
+                        "type": "string"
                     },
                     "startedAt": {
                         "type": "string"
@@ -3869,6 +3906,106 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Get account info",
+                "tags": [
+                    "account"
+                ]
+            }
+        },
+        "/account/access-code": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.AccessCodeRequest",
+                                        "summary": "body",
+                                        "description": "The invite code"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The invite code",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AccessCodeResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Too Many Requests"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Gateway"
+                    }
+                },
+                "summary": "Redeem an alpha invite code",
                 "tags": [
                     "account"
                 ]

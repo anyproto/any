@@ -85,6 +85,11 @@ account is standalone-only — a managed login with its phrase lands in
 ## Startup
 
 1. Load config (file → env var overrides → flags). See `05-config.md`.
+   Resolve the nodeconf once and keep its bytes for the process: every
+   engine the process boots joins that network, and `GET /v1/health`
+   reports its `networkId` from the start. A conf that is unreadable,
+   isn't YAML or names no `networkId` fails startup; the rest of it is
+   checked when the SDK opens.
 2. **Managed**: skip account resolution entirely — start unauthorized
    (step 4) and wait for the host's `POST /v1/auth`.
    **Standalone**: resolve the data-dir ROOT (default `~/.any/`) and
@@ -302,6 +307,7 @@ the whole process.
   "status":        "ok",
   "version":       "any v0.1.0 (sdk v0.0.0)",
   "startedAt":     "2026-04-23T18:12:00Z",
+  "networkId":     "N83gJpVd9MuNRZAuJLZ7LiMntTThhPc6DtzWWVjb1M3PouVU",
   "account":       "A3...accountId...",
   "bootstrapping": false,
   "crdtVersion":   { "supported": 1, "stored": 1, "newer": false }
@@ -311,6 +317,21 @@ the whole process.
 Does not require SDK state — on an unauthorized server `account` is
 `""` and everything else is live. Used by `any status` and by
 supervisors once we add install/service files.
+
+`networkId` is the any-sync network this server joins: the `networkId`
+of the nodeconf resolved at startup (§ Startup), present authorized or
+not. The same account and space ids exist independently on every
+network, so two devices listing different spaces for one account
+compare this first. The server names no networks — clients map
+well-known ids to labels and show any other id shortened:
+
+| `networkId` | Network |
+|---|---|
+| `N83gJpVd9MuNRZAuJLZ7LiMntTThhPc6DtzWWVjb1M3PouVU` | Anytype production (the embedded default) |
+| `N9DU6hLkTAbvcpji3TCKPPd3UQWKGyzUxGmgJEyvhByqAjfD` | Anytype stage |
+
+The test placeholder conf carries the stage id with placeholder nodes,
+so a test server reports stage while joining nothing.
 
 `bootstrapping` is `true` while a booted engine's SDK background boot
 pass (eager space loading + offline catch-up) is still running: the

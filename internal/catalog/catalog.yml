@@ -38,6 +38,146 @@ usecases:
         name: Collections
         miniapp: {}
 
+  # ── Journal: one page per day. The app creates the entries, so the type is
+  #    hidden and carries no weight; its body is the shared editor collection,
+  #    which is why an entry needs no second type.
+  - id: journal
+    name: Journal
+    description: One page per day, keyed by date
+    bundles:
+      - id: system:journal/v1
+        name: Journal
+        hidden: true
+        miniapp: {}
+        type:
+          xKey: journal
+          properties:
+            - { xKey: date, name: Date, kind: datetime, xFormat: { type: date } }
+        parts:
+          - key: body                                  # the entry itself; shared with page
+            ui: { type: document }
+            datasets: [ { module: editor, shared: true } ]
+
+  # ── Meetings: one OBJECT per meeting. The type carries what a meeting IS
+  #    (when, who, how long); its three surfaces are the notes (the common
+  #    editor, shared with page), the transcript (one record per spoken turn)
+  #    and the summary (a second editor of its own). An ingest agent creates
+  #    the objects and writes all three; readers render them.
+  - id: meetings
+    name: Meetings
+    description: Meetings with their notes, transcript and summary
+    bundles:
+      - id: system:meeting/v1
+        name: Meeting
+        type:
+          xKey: meeting
+          weight: 20                             # a meeting renders as itself, not as a plain page
+          layout: { type: page }
+          properties:
+            - { xKey: date,         name: Date,         kind: datetime,
+                xFormat: { type: datetime }, description: When the meeting started }
+            - { xKey: duration,     name: Duration,     kind: number,
+                xFormat: { type: duration }, description: Length in seconds }
+            - { xKey: participants, name: Participants, kind: array,
+                xFormat: { type: choice, options: {}, config: { multiple: true } },
+                description: "Who took part, in the order they are listed" }
+            - { xKey: labels,       name: Type,         kind: array,
+                xFormat: { type: choice, options: {}, config: { multiple: true } },
+                description: "Classification of the meeting (stand-up, 1-1, …)" }
+            - { xKey: words,        name: Words,        kind: number,
+                description: Transcript word count }
+            - { xKey: source,       name: Source,       kind: string,
+                description: "Provenance of the recording, e.g. gmeet:<id>" }
+        parts:
+          - key: notes                           # the editable document; shared with page
+            ui: { type: document }
+            datasets: [ { module: editor, shared: true } ]
+          - key: summary                         # a second editor, its own collection
+            ui: { type: document }
+            datasets: [ { key: summary, module: editor } ]
+          - key: transcript                      # the conversation, word for word
+            ui: { type: list }
+            datasets:
+              - key: transcript
+                displayName: Transcript
+                description: One record per spoken turn, in order
+                idRule: user                     # the provider's segment id, and the ingest idempotency key
+                deleteBy: author
+                skipHistory: true
+                dynamic: true                    # the recorder may carry fields ahead of a server release
+                search: { text: text, scope: meetings }
+                # Author-mutable so a turn can be corrected after ingest; a key
+                # nothing here declares carries no author rule.
+                fields:
+                  - { key: startedAt,  name: Started at,  kind: datetime, mutableBy: author,
+                      xFormat: { type: datetime }, description: "Start of the turn — the sort key" }
+                  - { key: speaker,    name: Speaker,     kind: string, mutableBy: author,
+                      description: Display name of who is speaking }
+                  - { key: text,       name: Text,        kind: string, mutableBy: author,
+                      description: What was said }
+                  - { key: creator,    name: Creator,     stamp: creator }
+                  - { key: createdAt,  name: Created at,  stamp: createTime }
+                  - { key: modifiedAt, name: Modified at, stamp: modifyTime }
+
+      - id: system:meetings/v1                   # the sidebar entry
+        name: Meetings
+        miniapp: {}
+
+
+  # ── Tasks: a Things-style personal planner. A task is the unit of work; a
+  #    project a finishable outcome that groups tasks; an area an ongoing
+  #    responsibility that groups projects and tasks. The three types are
+  #    listed — a task is an ordinary object a user may also meet in a table
+  #    or a picker — and weightless; the fourth bundle is the sidebar entry.
+  #    The lists (inbox, today, upcoming, anytime, someday,
+  #    logbook) are derived by clients from `planning`, `planned`, `deadline`
+  #    and `completed`; `position` is a fractional rank shared by every list,
+  #    kept out of the search index like the wiki's `pos`.
+  - id: tasks
+    name: Tasks
+    description: Personal tasks in projects and areas — inbox, today, upcoming, anytime, someday and a logbook
+    bundles:
+      - id: system:task/v1
+        name: Task
+        type:
+          xKey: task
+          properties:
+            - { xKey: notes,       name: Notes,           kind: string,   xFormat: { type: longtext } }
+            - { xKey: parent,      name: Project or area, kind: array,
+                xFormat: { type: relation, config: { multiple: false },
+                           relation: { targetTypes: [ project, area ] } } }
+            - { xKey: planning,    name: Planning,        kind: array,
+                xFormat: { type: choice, config: { multiple: false }, options: {
+                  inbox:   { name: Inbox,   pos: a0 },
+                  anytime: { name: Anytime, pos: a1 },
+                  someday: { name: Someday, pos: a2 } } },
+                description: "Where an unscheduled task sits: captured, ready, or parked for later" }
+            - { xKey: planned,     name: Planned day,     kind: datetime, xFormat: { type: date },
+                description: "The day the task is planned for; today or earlier puts it in Today" }
+            - { xKey: deadline,    name: Deadline,        kind: datetime, xFormat: { type: date } }
+            - { xKey: completed,   name: Completed,       kind: boolean,  xFormat: { type: checkbox } }
+            - { xKey: completedAt, name: Completed at,    kind: datetime, xFormat: { type: datetime } }
+            - { xKey: position,    name: Order,           kind: number,   meta: { index: none },
+                description: Fractional rank shared by every list }
+      - id: system:project/v1
+        name: Project
+        type:
+          xKey: project
+          properties:
+            - { xKey: notes,       name: Notes,        kind: string,   xFormat: { type: longtext } }
+            - { xKey: parent,      name: Area,         kind: array,
+                xFormat: { type: relation, config: { multiple: false },
+                           relation: { targetTypes: [ area ] } } }
+            - { xKey: completed,   name: Completed,    kind: boolean,  xFormat: { type: checkbox } }
+            - { xKey: completedAt, name: Completed at, kind: datetime, xFormat: { type: datetime } }
+            - { xKey: position,    name: Order,        kind: number,   meta: { index: none } }
+      - id: system:area/v1
+        name: Area
+        type: { xKey: area }                     # a marker: name and icon are all an area has
+      - id: system:tasks/v1                      # the sidebar entry
+        name: Tasks
+        miniapp: {}
+
   # ── The space's chat. The one derived root: chat content cannot be merged
   #    across objects, and a 1-1 space has no owner to break a tie.
   - id: general-chat
@@ -292,6 +432,7 @@ usecases:
         name: Contacts
         miniapp: {}
         hidden: true
+        selfTyped: true                                # the layouts live ON the app root
         parts:
           - key: layouts
             datasets:

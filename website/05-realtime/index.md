@@ -24,11 +24,13 @@ Every stream opens with `event: ready`, emits `: keepalive` comments every ~25 s
 
 | Reason | Meaning |
 |---|---|
-| `server_shutdown` | the server is exiting (signal or `POST /v1/shutdown`) |
+| `server_shutdown` | the server is exiting (a signal, or `POST /v1/shutdown` on a managed server) |
 | `deauthorized` | the account was torn down in place (`DELETE /v1/auth` or an account switch); the server stays up — re-read `GET /v1/auth` first |
-| `sdk_closed` | the underlying subscription was released (space or engine closed) |
-| `overflow` | the subscriber fell behind and its mailbox filled |
+| `sdk_closed` | the underlying subscription was released (space or engine closed; query/subscribe only) |
+| `overflow` | the subscriber fell behind and its buffer filled (query/subscribe and the event bus) |
 | `drifted` | too much of the held window left without replacement (query/subscribe only) |
+
+The callback streams (sync status, members, identities, file status) never drop the subscriber: when their 16-deep forwarder overflows they emit an `event: lagged` frame before the next delivery and keep the stream open — re-read the matching GET to resync.
 
 All reasons mean the same thing for the client: the stream is over — open a fresh request. There is no replay and no resume cursor; the new snapshot already reflects current state, which is cheaper than shipping the gap.
 

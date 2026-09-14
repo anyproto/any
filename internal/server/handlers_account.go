@@ -13,6 +13,7 @@ import (
 func registerAccountRoutes(g *echo.Group, d *deps) {
 	g.GET("/account", d.accountGet)
 	g.PUT("/account/metadata", d.accountUpdateMetadata)
+	g.POST("/account/access-code", d.accountRedeemAccessCode)
 }
 
 // accountGet handles GET /v1/account.

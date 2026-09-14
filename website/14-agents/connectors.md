@@ -5,7 +5,7 @@ order: 50
 ---
 # Connectors
 
-A connector is a tool program in the `connectors` overlay space that wraps one external API. The API key never enters guest code: every request names a **credential ref**, and the runtime injects the header after the request is recorded, so the key is absent from the trace, the model context and the space.
+A connector is a tool program in the `connectors` overlay space that wraps one external API. The API key never enters guest code: every request names a **credential ref**, and the runtime injects the header after the request is recorded, so the key is absent from the trace and the model context.
 
 ## The connectors
 
@@ -30,12 +30,12 @@ Every method returns `{ok, ...}` or `{ok: False, error}` with an actionable mess
 ln = use("connectors:linear@v1")
 ln.my_issues()                       # {ok, issues: [...]}
 gh = use("connectors:github@v1")
-gh.get_issue("anyproto/any", 42)
+gh.get_issue("anyproto", "any", 42)
 ```
 
 ## Credentials
 
-A connector's requests carry `credential: {ref, header, prefix}`; the host resolves `ref` against the device-local secret store at request time.
+A connector's requests carry `credential: {ref, header, prefix, about}` — `about` describes the key (label, the hosts it is sent to, where to get one); the host resolves `ref` against the agent's secret store at request time.
 
 | Ref kind | Shape | Resolution |
 |---|---|---|
@@ -51,9 +51,11 @@ connector.key.github=github_pat_…
 connector.key.granola=            # empty value deletes the stored secret
 ```
 
-On every serve start each ref in the file is written through to the store — missing becomes `bootstrapped`, different becomes `rotated`, empty becomes `removed`; refs absent from the file are untouched. The ref set is open, so a new connector needs no runtime change. In the desktop app the same mechanism is fed from memory via Help → Import connector keys.
+On every serve start each ref in the file is written through to the store — missing becomes `bootstrapped`, different becomes `rotated`, empty becomes `removed`; refs absent from the file are untouched. The ref set is open, so a new connector needs no runtime change. In the desktop app, Help → Import connector keys writes the same rows without a restart.
 
-Stored values live as never-synced local fields in the `agent_secrets` dataset; the synced part of a record is only `{key, secret: true}`. Guest reads of that dataset are refused before execution, so the refusal is the recorded fact and no secret ever reaches a trace. Full detail: [Credentials](../programs/credentials.html).
+A key that is missing — or that the destination rejects — needs no file at all: the runtime posts a credential request into the chat (a `credential_request` attachment naming the ref), the client renders a password field for it, and saving the key lets the agent carry on. The request comes from the host, never from the model.
+
+Each secret is a row in the `agent_secrets` dataset of the agent space; its `value` syncs end-to-end encrypted to the account's own devices, so a key entered on a phone reaches the device running the agent. Guest reads of that dataset are refused before execution, so the refusal is the recorded fact and no secret ever reaches a trace. Full detail: [Credentials](../programs/credentials.html).
 
 ## OAuth: Google without tokens in guest code
 
@@ -67,16 +69,9 @@ ga.status()       # → {connected, pending, scopes, account, expiresAt}
 ga.disconnect()   # revokes at Google AND deletes the local grant
 ```
 
-Bring your own OAuth client (Google Cloud Console → Credentials → OAuth client ID → Desktop app) and seed it through the same file:
+`googleAuth@v1` ships its own OAuth client — a Google desktop-app client is public by design, so PKCE and the loopback redirect are the protection; a `connector.oauth.google.client_id` row in the secret store overrides it with a self-hosted one. The host runs authorization-code + PKCE over a loopback listener, keeps the refresh token as `connector.oauth.google.refresh` in the secret store, and the four Google connectors share the one `connector.oauth.google` ref. `connect` is for user-facing turns only, never cron; after a `consent_timeout` the consent window stays open a few minutes — poll `status()`. Provider descriptors (authorize/token/revoke URLs, default scopes, auth params) are a host-side table, so adding another provider is a table row.
 
-```
-connector.oauth.google.client_id=…
-connector.oauth.google.client_secret=…
-```
-
-The host runs authorization-code + PKCE over a loopback listener, stores the refresh token as `connector.oauth.google.refresh` (device-local), and the four Google connectors share the one `connector.oauth.google` ref. `connect` is for user-facing turns only, never cron; after a `consent_timeout` the consent window stays open a few minutes — poll `status()`. Provider descriptors (authorize/token/revoke URLs, default scopes, auth params) are a host-side table, so adding another provider is a table row.
-
-> **Note.** An empty `connector.oauth.google.refresh=` in the seed file deletes the token locally only — the grant stays live at Google until `disconnect()` revokes it.
+> **Note.** An empty `connector.oauth.google.refresh=` in the seed file deletes the stored token only — the grant stays live at Google until `disconnect()` revokes it.
 
 ## Gmail sync
 

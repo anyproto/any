@@ -1,6 +1,6 @@
 ---
 title: iOS
-description: Embed the any server in an iOS app with any.xcframework — a C-archive with four exported functions — then talk HTTP to it on loopback.
+description: Embed the any server in an iOS app with any.xcframework — a C-archive with five exported functions — then talk HTTP to it on loopback.
 order: 70
 ---
 # iOS
@@ -48,6 +48,7 @@ Both buffers are always NUL-terminated, so a long message loses its tail rather 
 | `2` | Bad data dir: empty, or not creatable. |
 | `3` | Boot failed. `message` says why. |
 | `4` | The on-disk search index can't be opened by this build and must be deleted to rebuild. Offer the user a "reset local data" path, not a plain retry — the index is a derived cache, so deleting it is the whole fix. |
+| `5` | Bad options: an unknown `mode`, or `"managed"` without a `controlToken`. A host bug — never retryable. |
 
 `nodeconfYAML` selects the network: an empty string means the production any-sync network embedded in the archive; pass a nodeconf's YAML text to join another ([Networks](networks.html)). `pushPeerId` / `pushAddrs` configure the push node — empty strings keep push off ([Push](../notifications/push.html)).
 
@@ -93,13 +94,13 @@ final class AnyBackend {
 
 Build the URL from `address` rather than interpolating a port — that is the address the listener actually bound.
 
-Code `4` deserves its own branch: it means the on-disk search index can't be read by this build (typically after an app update bumped the index schema). Offer "reset local data and retry" rather than a plain retry — the index is a derived cache, so deleting `<dataDir>/index` is the whole fix and nothing syncable is lost.
+Code `4` deserves its own branch: it means the on-disk search index can't be read by this build (typically after an app update bumped the index schema). Offer "reset local data and retry" rather than a plain retry — the index is a derived cache, so deleting the account's index directory (`<dataDir>/<accountId>/index`, named in `message`) is the whole fix and nothing syncable is lost.
 
 Use Application Support (excluded from iCloud backup if you prefer) as the data dir; it holds the wallet, databases, files, and index for the account ([Data dir](../operations/data-dir.html)).
 
 ## Create or restore the account
 
-A fresh data dir boots *unauthorized*. Onboard over HTTP — `POST /v1/auth` with `{}` generates an account and returns the mnemonic **once**; with `{"mnemonic": "…"}` it restores one (same account id, fresh device key):
+A fresh data dir boots *unauthorized* — and a managed start boots unauthorized on every launch. Onboard over HTTP — `POST /v1/auth` with `{}` generates an account and returns the mnemonic **once**; with `{"mnemonic": "…"}` it restores one (same account id, fresh device key):
 
 ```swift
 var req = URLRequest(url: AnyBackend.shared.baseURL.appendingPathComponent("auth"))
@@ -120,8 +121,8 @@ struct Create: Encodable { let types: [String]; let initialProperties: [String: 
 var req = URLRequest(url: base.appendingPathComponent("spaces/\(space)/objects"))
 req.httpMethod = "POST"
 req.setValue("application/json", forHTTPHeaderField: "content-type")
-// pageType: a type whose part declares the editor module (Types → Page)
-req.httpBody = try JSONEncoder().encode(Create(types: [pageType], initialProperties: ["any": ["name": "From iOS"]]))
+// "page": the built-in document type
+req.httpBody = try JSONEncoder().encode(Create(types: ["page"], initialProperties: ["any": ["name": "From iOS"]]))
 let (data, _) = try await URLSession.shared.data(for: req)   // {"objectId":"bafy…"}
 ```
 

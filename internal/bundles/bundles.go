@@ -87,7 +87,9 @@ type Install struct {
 	// no parts). Written on install; adopt never patches it.
 	XKey string
 	// Parts are declared on the root at install (derived or created);
-	// the root then implements itself as a type (typeId = rootId).
+	// the root is then a type definition (typeId = rootId), carried by
+	// the objects that attach it — and by the root itself only when
+	// SelfTyped.
 	Parts []space.PartDraft
 	// Properties are declared on the root at install with ids derived
 	// from (root, xKey), so concurrent installs mint one column per
@@ -99,6 +101,12 @@ type Install struct {
 	Layout map[string]any
 	Weight int
 	Hidden bool
+	// SelfTyped makes the root carry the type it declares, so the
+	// bundle's own records live ON the root and its property values
+	// with them. Off, the root is the definition only — the shape of a
+	// type other objects carry. Implied by the SDK for a part
+	// declaring a reserved module and on the tech space.
+	SelfTyped bool
 	// SystemInstall marks the server's own catalog install: it lifts the
 	// reserved-module refusal (the SDK's SystemInstall ensure option).
 	// Never set from client input.
@@ -339,6 +347,22 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 			}
 			missing = info.XKey == ""
 		}
+		if !missing && inst.SelfTyped {
+			// The same for the self type: an install that predates the
+			// flag carries the marker but not its own id, so its
+			// records are unwritable until the adopt heals it.
+			row, err := sp.Objects().Get(ctx, b.RootId)
+			if err != nil {
+				return true
+			}
+			missing = true
+			for _, t := range row.GetArray("any", "types") {
+				if string(t.GetStringBytes()) == b.RootId {
+					missing = false
+					break
+				}
+			}
+		}
 		if !missing && len(inst.Properties) > 0 {
 			props, err := sp.Types().Properties(ctx, b.RootId)
 			if err != nil {
@@ -400,6 +424,7 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		Id: inst.Id, Name: inst.Name, XKey: inst.XKey,
 		Parts: inst.Parts, Properties: inst.Properties,
 		Layout: inst.Layout, Weight: inst.Weight, Hidden: inst.Hidden,
+		SelfTyped: inst.SelfTyped,
 	}
 	var opts []space.EnsureOption
 	if inst.SystemInstall {
@@ -411,10 +436,11 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		req.RootTypes = inst.RootTypes
 		req.RootProperties = inst.RootProperties
 	} else if req.DeclaresType() {
-		// SDK-minted created root: Ensure creates the object, stamps
-		// it as its own type with the root types and seeded values in
-		// one change, and declares — the only create the tech space
-		// allows, and the same shape everywhere.
+		// SDK-minted created root: Ensure creates the object, marks it
+		// a type with the root types and seeded values in one change
+		// (its own type among them only when SelfTyped), and declares
+		// — the only create the tech space allows, and the same shape
+		// everywhere.
 		req.RootTypes = inst.RootTypes
 		req.RootProperties = inst.RootProperties
 	} else {

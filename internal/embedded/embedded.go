@@ -65,7 +65,8 @@ var (
 	// resolved / created (bad path, unwritable parent).
 	ErrBadDataDir = errors.New("embedded: bad data directory")
 	// ErrBadOptions: an Options field the host controls is invalid — an
-	// unknown Mode, or managed mode without a ControlToken.
+	// unknown Mode, managed mode without a ControlToken, or a NodeconfYAML
+	// that isn't YAML or names no networkId.
 	ErrBadOptions = errors.New("embedded: bad options")
 )
 
@@ -170,6 +171,11 @@ func validateOptions(opts Options) error {
 	}
 	if mode == config.ModeManaged && strings.TrimSpace(opts.ControlToken) == "" {
 		return fmt.Errorf("%w: managed mode requires ControlToken", ErrBadOptions)
+	}
+	if nc := strings.TrimSpace(opts.NodeconfYAML); nc != "" {
+		if _, err := config.NodeconfNetworkId([]byte(nc)); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadOptions, err)
+		}
 	}
 	return nil
 }

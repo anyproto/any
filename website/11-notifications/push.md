@@ -59,7 +59,7 @@ Two account-private knobs, each `all` / `mentions` / `none`, resolved as **`chat
 | Knob | Write | Read |
 |---|---|---|
 | per-space default | `PATCH /v1/spaces/:spaceId/settings` | `SpaceInfo.settings` on `GET /v1/spaces[/:id]`; live on the [space list stream](../realtime/space-list.html) |
-| per-chat override | `POST /v1/spaces/:s/properties/:chatObjectId/set/chat` with `{"notifyMode": "none"}` | the chat object's row from `/query` |
+| per-chat override | `POST /v1/spaces/:s/properties/:chatObjectId/set/chat` with `{"patch": {"notifyMode": "none"}}` | `chat.notifyMode` on the chat object's row from `/objects/query` |
 
 ```bash
 curl -X PATCH http://127.0.0.1:7001/v1/spaces/SPACE/settings \

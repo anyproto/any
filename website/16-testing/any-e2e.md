@@ -14,7 +14,7 @@ make test        # go test -tags 'fts vector' ./...
 make vet
 ```
 
-The search legs are compile-time tags, and tests covering either leg are tagged to match — a bare `go test ./...` compiles but skips them. In-process handler tests boot a real SDK against a sanitized **placeholder** node configuration that serves but joins no network; they cover the chat, editor, search, bundles, modify-scope and property surfaces without a binary or a socket.
+The search legs are compile-time tags, and tests covering either leg are tagged to match — a bare `go test ./...` compiles but skips them. In-process handler tests boot a real SDK and the handlers without a binary or a socket — chat, editor, search, links, bundles, the catalog, local store, modify-scope and property surfaces — against the same staging fixture as the e2e suite, and skip without it. Tests that only need a server to boot and serve (the embedded host, the desktop-shell and managed-lifecycle contracts) use the sanitized **placeholder** node configuration instead, which joins no network.
 
 ## The staging fixture rule
 
@@ -28,7 +28,7 @@ End-to-end tests boot against the **staging** network. The fixture is a `staging
 go test ./internal/e2e -run TestE2E_FullFlow -v
 ```
 
-`TestE2E_FullFlow` boots the binary and walks the endpoint catalog: health, auth, spaces (create/list/get/update/delete/derived), objects, the data plane (query, modify, subscribe), types and properties, chat, editor blocks and the markdown bridge, files, members and invites, sync status, debug — each as a subtest, so a failure names the surface. Focused single-binary tests sit beside it: chat, editor blocks, files (raw-body attach, Range downloads, pin/retry/offload), runtime dataset schemas and upsert, property PATCH and validation, derived spaces, the `modifiedAt` / `modifiedBy` stamps, and the desktop-shell contract (`--addr 127.0.0.1:0` printing `LISTENING <addr>` from an arbitrary working directory).
+`TestE2E_FullFlow` boots the binary and walks the endpoint catalog: health, auth, spaces (create/list/get/update/delete/derived), objects, the data plane (query, modify, subscribe), types and properties, chat, editor blocks and the markdown bridge, files, members and invites, sync status, debug — each as a subtest, so a failure names the surface. Focused single-binary tests sit beside it: auth and `any status`, chat, editor blocks, files (raw-body attach, Range downloads, pin/retry/offload), modules and parts, runtime dataset schemas and upsert, property PATCH and validation, derived spaces, the local store, the `modifiedAt` / `modifiedBy` stamps, the managed lifecycle (token-gated login, switch, sign-out, shutdown) and the desktop-shell contract (`run --mode managed --addr 127.0.0.1:0` printing `LISTENING <addr>` then `CONTROL_TOKEN <hex>` from an arbitrary working directory).
 
 | Env var | Effect |
 |---|---|
@@ -64,7 +64,12 @@ go test ./internal/e2e -run 'TestE2E_Multipeer' -v -timeout 30m
 | `multipeer_identities` | the identities directory populates once peers share a space |
 | `multipeer_markdown`, `multipeer_realtime` | joiner-side writes and write→visible latency without forced sync |
 | `multipeer_modified_by` | both peers converge on the signer of the object's latest change, whichever member wrote it |
-| `multidevice_techspace`, `multipeer_devices` | two devices on **one** mnemonic: tech-space convergence, device registry, active-app election |
+| `multipeer_catalog` | the joiner's catalog setup adopts every root the owner installed, with the same property ids |
+| `multipeer_links` | each peer builds its own link index: a block link the owner writes appears in the joiner's backlinks and leaves when the block is deleted |
+| `multipeer_dataview`, `multipeer_bin` | shared view records sync both ways while `localSettings` stays on its device; a bin move and its stamps travel in one change, and a restore clears them everywhere |
+| `multipeer_bundle_type` | a bundle-declared type installed on both peers while apart converges on one definition per property handle |
+| `multipeer_cancel_join` | the joiner withdraws a request, the row reads `deleted`, and the same token re-requests |
+| `multidevice_techspace`, `multidevice_techbundle`, `multipeer_devices` | two devices on **one** mnemonic: tech-space convergence, account-level bundles, device registry, active-app election |
 
 ## Gated tests
 
@@ -75,7 +80,7 @@ Some suites need infrastructure a laptop does not have, and gate on an environme
 | `ANY_E2E_P2P=1` | real-mDNS discovery between two servers on this host (needs a multicast-capable interface) |
 | `ANY_PUSH_E2E_PEER_ID` + `ANY_PUSH_E2E_ADDRS` | push-notification flow against a reachable push node |
 | `ANY_E2E_FILES_NODECONF` (+ `ANY_E2E_FILES_SIZES`) | Alice→Bob file latency over a local network with a real object store |
-| `ANY_TEST_LOCAL_EMBEDDER=1` + `ANY_INDEX_LOCAL_MODEL_PATH` | the in-process embedder against the real model |
+| `ANY_TEST_LOCAL_EMBEDDER=1` + `ANY_INDEX_LOCAL_MODEL_PATH` | the local llama.cpp embedder against the real model (needs `make llamacpp`) |
 | `ANY_EVAL_*`, `ANY_BEIR_DIR`, `ANY_VEC_BENCH=1` | search evaluation harnesses ([Evaluation](../search/evaluation.html)) |
 
 ## Contract checks
@@ -83,16 +88,17 @@ Some suites need infrastructure a laptop does not have, and gate on an environme
 - **OpenAPI drift.** `make swagger` regenerates `/v1/openapi.json` from handler annotations; the PR check fails if the committed spec differs. The runtime's own drift check pins against the published spec, so a shape change is visible on both sides.
 - **Error mapping.** The spec carries routes, shapes and status codes but not `error.code` strings; dedicated tests pin the mapping from SDK sentinels to codes (files, history, datasets) so a code rename cannot slip through unnoticed.
 - **Golden wire shapes.** Push topics and payloads are pinned by golden tests for byte-compatibility with the mobile clients.
+- **Catalog.** `make catalog-validate` compiles the embedded usecase catalog through the server's own gate and prints every problem with its YAML path; the PR check and the release build fail on any.
 
 ## Running a scratch server by hand
 
 For a manual pass the same rule applies — a temp root, an explicit network, an unused port:
 
 ```bash
-ANY_DATA_DIR=/tmp/any-scratch ./any init
+ANY_DATA_DIR=/tmp/any-scratch bin/any init
 ANY_DATA_DIR=/tmp/any-scratch ANY_NETWORK_NODECONF_PATH=./staging.yml \
-  ./any run --addr 127.0.0.1:7009
-./any --addr 127.0.0.1:7009 status
+  bin/any run --addr 127.0.0.1:7009
+bin/any --addr 127.0.0.1:7009 status
 ```
 
-Build the binary with `make build` first (and through `nix develop -c` where the flake shell is available) so the search legs are compiled in — see [Builds and CI](../operations/builds-and-ci.html).
+Build the binary with `make build` first — it writes `bin/any` — and run it through `nix develop -c` where the flake shell is available, so the search legs are compiled in — see [Builds and CI](../operations/builds-and-ci.html).

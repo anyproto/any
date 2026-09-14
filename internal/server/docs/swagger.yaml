@@ -69,6 +69,27 @@ components:
         message:
           type: string
       type: object
+    api.AccessCodeRequest:
+      properties:
+        code:
+          description: |-
+            Code is the invite code as typed; compared upper-cased with
+            whitespace removed.
+          type: string
+      type: object
+    api.AccessCodeResponse:
+      properties:
+        redemptionId:
+          type: string
+        status:
+          description: |-
+            Status is "accepted" (limits are being granted) or
+            "already_redeemed" (this account redeemed a code before).
+          enum:
+          - accepted
+          - already_redeemed
+          type: string
+      type: object
     api.AccountMetadata:
       properties:
         description:
@@ -476,6 +497,17 @@ components:
             type: string
           type: array
           uniqueItems: false
+        selfTyped:
+          description: |-
+            SelfTyped makes the root CARRY the type it declares, so it holds
+            that type's property values and its datasets — what a root that
+            keeps its own bundle's records needs (an app's layouts). Off, the
+            root is the type definition and nothing else: it matches no query
+            for the type and takes none of its collections, which is what a
+            type OTHER objects carry wants (a wiki, a person). Needs a type
+            declaration; implied for a part declaring a reserved module and
+            on the tech space.
+          type: boolean
         weight:
           type: integer
         xKey:
@@ -588,6 +620,15 @@ components:
             $ref: '#/components/schemas/api.PartDraftRequest'
           type: array
           uniqueItems: false
+        selfTyped:
+          description: |-
+            SelfTyped makes the root carry the type it declares — the shape
+            of a root that hosts its own bundle's records (the contacts
+            layouts). Off, the root is the type definition only: it matches
+            no query for the type and takes none of its collections, which
+            is what a type other objects carry needs (the wiki, a person).
+            Needs a type declaration.
+          type: boolean
         type:
           $ref: '#/components/schemas/api.CatalogType'
       type: object
@@ -1264,6 +1305,13 @@ components:
           type: boolean
         crdtVersion:
           $ref: '#/components/schemas/api.CRDTVersionState'
+        networkId:
+          description: |-
+            NetworkId is the any-sync network this server joins: the networkId
+            of the nodeconf it started with. Set whether or not an account is
+            authorized. The server names no networks; clients map well-known
+            ids to names themselves.
+          type: string
         startedAt:
           type: string
         status:
@@ -3126,6 +3174,65 @@ paths:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Internal Server Error
       summary: Get account info
+      tags:
+      - account
+  /account/access-code:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.AccessCodeRequest'
+                description: The invite code
+                summary: body
+        description: The invite code
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.AccessCodeResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Conflict
+        "429":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Too Many Requests
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Gateway
+      summary: Redeem an alpha invite code
       tags:
       - account
   /account/metadata:

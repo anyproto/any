@@ -25,13 +25,13 @@ The reply is `201` with the new object's id. It will sync later; nothing about t
 A change is a signed, encrypted node in a per-object DAG (a git-like history: each change lists the heads it was built on). Sync is the exchange of DAG changes between peers:
 
 - **Network sync** — the space's responsible any-sync nodes store ciphertext changes and relay them. A device that comes online pulls what it missed and pushes what it wrote.
-- **Local-network sync** — devices of the same account on one LAN discover each other over mDNS and exchange changes directly, including while the nodes are unreachable (config `p2p.enabled`, on by default).
+- **Local-network sync** — devices on one LAN discover each other over mDNS and exchange changes directly for the spaces they share, including while the nodes are unreachable (config `p2p.enabled`, on by default).
 
 Both paths deliver the same changes; a space can be fully `synced` with `networkPeers: 0` when everything converged over the LAN.
 
 ## Head-sync and convergence
 
-Peers compare *heads* — the tips of each object's DAG. If two peers have the same heads for every object, they hold the same state. A **head-sync round** diffs the head sets against the responsible nodes and exchanges the missing changes. It runs on a periodic timer (~30 s) and on every local write; you can force one:
+Peers compare *heads* — the tips of each object's DAG. If two peers have the same heads for every object, they hold the same state. A local write goes out at once, streamed as a head update to the connected nodes and peers. A **head-sync round** is the catch-up for anything a stream missed: it diffs the head sets against the responsible nodes and exchanges the missing changes. It runs on a periodic timer (~30 s); you can force one:
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/sync        # → 204 when the round completes
@@ -59,9 +59,11 @@ curl http://127.0.0.1:7001/v1/spaces/$SPACE/sync-status
 |---------|---------|
 | `synced` | Every object's heads match the responsible peers. |
 | `syncing` | Changes are in flight in one direction or the other. |
-| `offline` | No peer reachable; local reads and writes continue. |
 | `unknown` | Space not loaded yet on this device (or an object id nobody has seen). |
-| `error` | The last round failed; the next timer retries. |
+| `offline` | No responsible node reachable; local reads and writes continue. |
+| `error` | The network is incompatible with this build. |
+
+The rollup reports `synced`, `syncing` and `unknown`; `offline` and `error` are reserved in the vocabulary for reachability and network-compatibility signals, so render them rather than failing on them.
 
 Per-object state lives at `…/sync-status/objects/:objectId`, and both levels stream transitions over SSE ([Sync status](../realtime/sync-status.html)).
 
@@ -76,6 +78,6 @@ When the server starts, it binds the listener first and runs the space loading +
 - **Local-scope fields** — dataset fields declared `local` (chat's `unread` flags, for example) are device-only; they never enter the DAG ([System fields](../database/system-fields.html)).
 - **Account-scope settings** — per-space `settings` sync across the account's own devices through the tech space, never to other members.
 - **The search index** — derived state, rebuilt locally from the change feed ([Indexing](../search/indexing.html)).
-- **Secrets** stored by anyrt — device-local values, never synced ([Credentials](../programs/credentials.html)).
+- **Run traces** kept by anyrt — trace bodies live in the server's device-local store; only a per-run summary syncs ([Traces and replay](../programs/traces-and-replay.html)).
 
 > **Note.** Timestamps such as `modifiedAt` are the *author's* clock. They converge (every peer ends up with the same value), but they are display and sort quality only — never use them as a fence for "has this synced yet". Use `/sync-status` for that.

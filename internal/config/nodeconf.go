@@ -36,9 +36,7 @@ func NodeconfPlaceholder() []byte { return slices.Clone(nodeconfPlaceholder) }
 // LoadNodeconf returns the YAML bytes any-sync needs to bootstrap.
 // Precedence: inline network.nodeconf → network.nodeconfPath → the
 // embedded production default. Errors only when an explicitly configured
-// path is unreadable. The SDK logs the applied networkId at boot
-// (common.nodeconf "net configuration applied"), so the chosen source
-// is diagnosable from the log stream without extra plumbing here.
+// path is unreadable.
 func LoadNodeconf(cfg Network) ([]byte, error) {
 	if cfg.Nodeconf != "" {
 		return []byte(cfg.Nodeconf), nil
@@ -54,16 +52,18 @@ func LoadNodeconf(cfg Network) ([]byte, error) {
 	return nodeconfProd, nil
 }
 
-// NetworkId returns the id of the any-sync network a nodeconf names.
-func NetworkId(nodeconf []byte) (string, error) {
-	var nc struct {
+// NodeconfNetworkId returns the networkId a nodeconf names: the any-sync
+// network a server booted with it joins. A conf that doesn't parse or
+// names no network is an error.
+func NodeconfNetworkId(raw []byte) (string, error) {
+	var doc struct {
 		NetworkId string `yaml:"networkId"`
 	}
-	if err := yaml.Unmarshal(nodeconf, &nc); err != nil {
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return "", fmt.Errorf("parse nodeconf: %w", err)
 	}
-	if nc.NetworkId == "" {
-		return "", errors.New("nodeconf names no networkId")
+	if doc.NetworkId == "" {
+		return "", errors.New("nodeconf has no networkId")
 	}
-	return nc.NetworkId, nil
+	return doc.NetworkId, nil
 }

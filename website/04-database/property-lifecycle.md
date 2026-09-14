@@ -19,9 +19,9 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$MOVIE/properties \
 any type property add $SPACE $MOVIE --name Year --xkey year --kind number
 ```
 
-The `propId` is derived from the change that created the record (`base58(xxh3-64(changeId))`, up to 11 chars) — the same id on every peer, and the field key under which values are stored. Built-in properties on `any` use readable ids (`name`, `description`, `icon`, `tags`) that an 11-char base58 string can never collide with.
+The `propId` is derived from the change that created the record (`base58(xxh3-64(changeId))`, up to 11 chars) — the same id on every peer, and the field key under which values are stored. Built-in properties on `any` use readable ids (`name`, `description`, `icon`, `tags`) that an 11-char base58 string can never collide with. A property a bundle or catalog install declares takes an id derived from the root and its `xKey` instead, so two devices installing apart mint one column, not two.
 
-`xKey` is your stable code-side handle: clients resolve `xKey → propId` from `GET …/properties` and write by `propId`. It is metadata — unique within the type by a read-then-create preflight (`409 property.xkey_conflict`), never seen by storage, mutable — and `GET …/types` requires a type-level `xKey` for the same reason (types resolve by handle, not by display name).
+`xKey` is your stable code-side handle: clients resolve `xKey → propId` from `GET …/properties` and write by `propId`. It is metadata — unique within the type by a read-then-create preflight (`409 property.xkey_conflict`), never seen by storage, mutable — and `POST …/types` requires a type-level `xKey` for the same reason (types resolve by handle, not by display name).
 
 ## 2. What the first write pins
 
@@ -46,12 +46,12 @@ Values live on objects at `{typeId}.{propId}`, written through the typed set rou
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/$MOVIE \
   -H 'Content-Type: application/json' \
-  -d '{"EwyHGrtTdxB": 1995}'
+  -d '{"patch": {"EwyHGrtTdxB": 1995}}'
 ```
 
 Three rules connect values to definitions:
 
-- **The server validates shape, not membership.** A number for a `number` kind, a well-formed `{"$date": …}` for an instant, a plain `any://<objectId>` for a relation, a `period` / `money` / `geo` compound in its exact shape — against the property's *current* slug (`400 property.format_violation` otherwise). A `choice` value is *not* checked against `xFormat.options` — options are dangling-tolerant by design.
+- **The server validates shape, not membership.** Every peer checks the value's kind against the pinned `kind` (`400 property.kind_mismatch` on a local write). The server checks the rest against the property's *current* slug — a well-formed `{"$date": …}` for a date, a plain `any://<objectId>` for a relation, a `period` / `money` / `geo` compound in its exact shape (`400 property.format_violation` otherwise). A `choice` value is *not* checked against `xFormat.options` — options are dangling-tolerant by design.
 - **Read tolerance.** A value that violates the current definition, or sits under an unknown propId, is returned as-is. There is no `valid` flag and no re-validation cascade; clients decide how to render out-of-spec data.
 - **Same-name properties are not a conflict.** Two peers concurrently adding "Rating" produce two ids, both fully real. Consolidating is a user or agent decision, never a merge rule.
 

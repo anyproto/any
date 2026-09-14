@@ -154,6 +154,14 @@ local.collection_not_found       # 404 — collection not ensured yet (PUT /v1/l
 local.bad_index                  # 400 — an index in ensure/indexes was rejected (same name, different definition; invalid name); ensure leaves no collection behind
 local.bad_name                   # 400 — scope / spaceId / name failed validation (name: ^[a-z0-9][a-z0-9_-]{0,63}$)
 local.bad_sink_target            # 400 — a pipeline $out / $merge into / $lookup from names a collection outside the local store
+
+access.disabled                  # 409 — no access.redeemUrl configured
+access.request_rejected          # 400 — the invite service refused the request (details.code)
+access.signature_rejected        # 401 — the invite service could not verify this account's signature
+access.code_not_found            # 404 — unknown invite code
+access.code_unusable             # 409 — disabled, expired or exhausted code (details.code)
+access.rate_limited              # 429 — the invite service is throttling this client
+access.unavailable               # 502 — the invite service is unreachable or answered unexpectedly
 local.doc_not_found              # 404 — get / update (without upsert) of an unknown id
 local.duplicate_id               # 409 — insert of an id that already exists
 local.unique_violation           # 409 — a unique index rejected the write

@@ -55,6 +55,11 @@ func newTestDepsCfg(t testing.TB, mutate func(*config.Config)) (*deps, func()) {
 	if mutate != nil {
 		mutate(&cfg)
 	}
+	// Mirror RunWith: the nodeconf is pinned before any engine boots.
+	networkId, err := pinNodeconf(&cfg)
+	if err != nil {
+		t.Fatalf("pinNodeconf: %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -80,6 +85,9 @@ func newTestDepsCfg(t testing.TB, mutate func(*config.Config)) (*deps, func()) {
 	eng := newEngine()
 	eng.sdk = sdk
 	eng.account = account
+	if signKey, err := accountKey(ctx, provider); err == nil {
+		eng.signKey = signKey
+	}
 	eng.chunkers = NewIndexRegistry()
 	// Mirror bootEngine: resolve the derived-space registry against
 	// the account so the /spaces/derived routes resolve. Pure
@@ -101,6 +109,7 @@ func newTestDepsCfg(t testing.TB, mutate func(*config.Config)) (*deps, func()) {
 	}
 	d := &deps{
 		startedAt: time.Now().UTC(),
+		networkId: networkId,
 		shutdown:  make(chan struct{}, 1),
 		root:      dataDir,
 		cfg:       cfg,
@@ -114,6 +123,7 @@ func newTestDepsCfg(t testing.TB, mutate func(*config.Config)) (*deps, func()) {
 	d.push = eng.push
 	d.local = eng.local
 	d.account = eng.account
+	d.signKey = eng.signKey
 	d.derived = eng.derived
 	d.shutdownCtx = eng.ctx
 	d.ready.Store(true)

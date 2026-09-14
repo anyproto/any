@@ -19,3 +19,18 @@ type AccountMetadata struct {
 	Description string `json:"description,omitempty"`
 	IconCID     string `json:"iconCid,omitempty"`
 }
+
+// AccessCodeRequest is the body of POST /v1/account/access-code.
+type AccessCodeRequest struct {
+	// Code is the invite code as typed; compared upper-cased with
+	// whitespace removed.
+	Code string `json:"code"`
+}
+
+// AccessCodeResponse relays the invite service's answer.
+type AccessCodeResponse struct {
+	// Status is "accepted" (limits are being granted) or
+	// "already_redeemed" (this account redeemed a code before).
+	Status       string `json:"status" enums:"accepted,already_redeemed"`
+	RedemptionId string `json:"redemptionId,omitempty"`
+}

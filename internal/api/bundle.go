@@ -105,6 +105,15 @@ type BundleEnsureRequest struct {
 	Layout json.RawMessage `json:"layout,omitempty"`
 	Weight int             `json:"weight,omitempty"`
 	Hidden bool            `json:"hidden,omitempty"`
+	// SelfTyped makes the root CARRY the type it declares, so it holds
+	// that type's property values and its datasets — what a root that
+	// keeps its own bundle's records needs (an app's layouts). Off, the
+	// root is the type definition and nothing else: it matches no query
+	// for the type and takes none of its collections, which is what a
+	// type OTHER objects carry wants (a wiki, a person). Needs a type
+	// declaration; implied for a part declaring a reserved module and
+	// on the tech space.
+	SelfTyped bool `json:"selfTyped,omitempty"`
 }
 
 // BundleEnsureResponse is the reply to an Ensure call.

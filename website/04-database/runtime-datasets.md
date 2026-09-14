@@ -34,14 +34,14 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/parts/$PART/data
   ] }'
 # → 201 {"datasetDefId": "…", "collection": "<typeId>_articles"}
 
-any type part add    $SPACE $TYPE --draft '{"key":"articles","name":"Articles"}'
-any type dataset add $SPACE $TYPE $PART --draft @articles.json
+any type part add         $SPACE $TYPE --draft '{"key":"articles","name":"Articles"}'
+any type part dataset add $SPACE $TYPE $PART --draft @articles.json
 ```
 
 | Field | Meaning |
 |---|---|
 | `key` | The dataset's slug inside the type (`[a-z][a-z0-9_]*`), pinned, unique among the type's parts and datasets → `409 dataset.key_conflict`. The collection is `<typeId>_<key>`. |
-| `module` | The serving module; absent = `records`. `editor` / `chat` datasets carry no `fields` (the module owns the schema — `409 dataset.module_owned`); an unknown module is `400 dataset.module_unknown`. |
+| `module` | The serving module; absent = `records`. An `editor` dataset carries no `fields` (the module owns the schema — `409 dataset.module_owned`); `chat` is reserved to the server's catalog install (`400 dataset.module_reserved`); an unknown module is `400 dataset.module_unknown`. |
 | `shared` | Use the module's canonical collection instead of a namespaced one (`editor_blocks`, `chat_messages`); never for `records` → `400 dataset.shared_conflict`. |
 | `idRule` | `auto` (default: ids derived from the change, explicit client ids rejected) or `user` (caller-supplied, matched against `idPattern` / `idMaxLen`, defaults `[A-Za-z0-9._:-]+` / 128). |
 | `deleteBy` | `anyone` (default) or `author` — requires a `stamp: creator` field; deletes by anyone else are dropped at apply. |
@@ -53,7 +53,9 @@ Per field:
 
 | Field | Meaning |
 |---|---|
-| `key`, `kind` | Field name and leaf kind. `kind` may be omitted on stamped fields (creator ⇒ string, times ⇒ datetime instant). |
+| `key`, `kind` | Field name and leaf kind. `kind` may be omitted on stamped fields (creator ⇒ string, times ⇒ datetime instant). `shape` (`{kind, items?, properties?}`) declares a nested shape instead. |
+| `name`, `description`, `xFormat` | The descriptive slice — the same descriptor a property carries ([Data types](data-types.html)), checked against the field's kind. |
+| `scope` | The field's [scope](data-types.html); default `synced`. |
 | `required` | Must be present on create. Declarable only at creation; incompatible with `stamp`. |
 | `mutableBy` | Absent = write-once (writable only in the creating change). `author` (needs a creator stamp) or `any` allow later edits. Each allowed edit bumps `modifyTime` when declared. |
 | `stamp` | `creator` / `createTime` / `modifyTime` — derived at apply, client writes rejected. |
@@ -70,7 +72,13 @@ Display parts patch through `PATCH …/datasets/:defId` with the same `{set, uns
 curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/datasets/$DEF \
   -d '{"set": {"displayName": "Posts", "search.text": ["body", "notes"]}}'
 
-any type dataset patch $SPACE $TYPE $DEF --set '{"displayName":"Posts"}'
+any type part dataset patch $SPACE $TYPE $DEF --set '{"displayName":"Posts"}'
+```
+
+A field's display slice — `name`, `description` and every path under `xFormat` — patches through `PATCH …/datasets/:defId/fields/:fieldId` under the property PATCH rules (a `set` targets a leaf); its behavioral declaration stays pinned:
+
+```sh
+any type part dataset field patch $SPACE $TYPE $DEF $FIELD --set '{"xFormat.type":"longtext"}'
 ```
 
 A pinned path → `400 dataset.immutable`; an unknown `defId` → `404 sdk.not_found`. A search-mapping patch applies as records re-index; already-indexed docs keep their extracted text until their object is next written.
@@ -82,9 +90,9 @@ A pinned path → `400 dataset.immutable`; an unknown `defId` → `404 sdk.not_f
 - `DELETE …/datasets/:defId` tombstones the definition. Existing data is not cleaned up; subsequent writes drop once peers apply the removal; the search index evicts lazily.
 
 ```sh
-any type dataset field add    $SPACE $TYPE $DEF --field '{"key":"notes","kind":"string","mutableBy":"any"}'
-any type dataset field remove $SPACE $TYPE $DEF $FIELD
-any type dataset remove       $SPACE $TYPE $DEF
+any type part dataset field add    $SPACE $TYPE $DEF --field '{"key":"notes","kind":"string","mutableBy":"any"}'
+any type part dataset field remove $SPACE $TYPE $DEF $FIELD
+any type part dataset remove       $SPACE $TYPE $DEF
 ```
 
 ## Reading the definition back

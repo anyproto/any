@@ -50,7 +50,7 @@ func configuredNetwork(n config.Network) (nodeconf []byte, networkId string, err
 	if nodeconf, err = config.LoadNodeconf(n); err != nil {
 		return nil, "", err
 	}
-	networkId, err = config.NetworkId(nodeconf)
+	networkId, err = config.NodeconfNetworkId(nodeconf)
 	return nodeconf, networkId, err
 }
 

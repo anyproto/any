@@ -37,6 +37,13 @@ type CatalogBundle struct {
 	// primary-type choice; needs `type` or `parts`, and excludes a
 	// `weight`.
 	Hidden bool `json:"hidden,omitempty"`
+	// SelfTyped makes the root carry the type it declares — the shape
+	// of a root that hosts its own bundle's records (the contacts
+	// layouts). Off, the root is the type definition only: it matches
+	// no query for the type and takes none of its collections, which
+	// is what a type other objects carry needs (the wiki, a person).
+	// Needs a type declaration.
+	SelfTyped bool `json:"selfTyped,omitempty"`
 	// Type declares the type the root implements.
 	Type *CatalogType `json:"type,omitempty"`
 	// Miniapp is a value map on the built-in `miniapp` type the root

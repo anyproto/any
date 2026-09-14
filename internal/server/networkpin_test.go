@@ -26,7 +26,7 @@ var otherNetwork = config.Network{Nodeconf: "networkId: Nother"}
 func placeholderNetwork(t *testing.T) (config.Network, string) {
 	t.Helper()
 	raw := config.NodeconfPlaceholder()
-	id, err := config.NetworkId(raw)
+	id, err := config.NodeconfNetworkId(raw)
 	if err != nil {
 		t.Fatal(err)
 	}

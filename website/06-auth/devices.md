@@ -9,7 +9,7 @@ Every install of `any` that authorizes the same account is a **device**, identif
 
 ## The registry
 
-The `devices` dataset lives in the account's tech space — the same place the space list lives — with one row per device, row id = peer id. All fields are synced, so the registry replicates to every device of the account and is invisible to other accounts.
+The `devices` dataset lives in the account's tech space — the same place the space list lives — with one row per device, row id = peer id. All fields are synced, so the registry replicates to every device of the account and is invisible to other accounts. A raw row, as `POST /v1/devices/query` returns it:
 
 ```json
 {
@@ -53,12 +53,12 @@ Account-scoped, behind the `/v1` auth guard.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/v1/devices` | mapped rows + `active` (per-slug winner) + `self` (this server's peer id) |
+| GET | `/v1/devices` | mapped rows (the row id as `peerId`) + `active` (per-slug winner) + `self` (this server's peer id) |
 | POST | `/v1/devices/query` | raw windowed snapshot, standard [query body](../database/reading-data.html) |
 | POST | `/v1/devices/query/subscribe` | raw live view over SSE, standard [frames](../realtime/subscribe.html) |
-| PUT | `/v1/devices/me` | self row only: `{name?, apps?}`; `"apps": {"slug": null}` uninstalls |
-| POST | `/v1/devices/activate` | `{app}` — claim the slug on this device; also self-heals `apps.<app>` |
-| DELETE | `/v1/devices/:peerId` | prune a row |
+| PUT | `/v1/devices/me` | self row only: `{name?, apps?}`; `"apps": {"slug": null}` uninstalls → `204` |
+| POST | `/v1/devices/activate` | `{app}` — claim the slug on this device; also self-heals `apps.<app>` → `204` |
+| DELETE | `/v1/devices/:peerId` | prune a row → `204` |
 
 ```bash
 curl -s -X PUT http://127.0.0.1:7001/v1/devices/me \
@@ -70,7 +70,7 @@ curl -s http://127.0.0.1:7001/v1/devices
 ```
 
 ```json
-{ "devices": [ { "id": "12D3KooW…", "name": "laptop", "apps": { "bao": { "version": "1.2" } }, "…": "…" } ],
+{ "devices": [ { "peerId": "12D3KooW…", "name": "laptop", "apps": { "bao": { "version": "1.2" } }, "…": "…" } ],
   "active": { "bao": "12D3KooW…" },
   "self": "12D3KooW…" }
 ```
@@ -102,7 +102,7 @@ Upsert self (`apps.S`) → read `active.S` and `self` → claim or stand by → 
 
 ## Pruning is permanent
 
-Record tombstones are sticky: a pruned peer id can never re-register. A device that comes back stays unlisted until it derives fresh peer keys with a new `any init`. Prune dead devices, not resting ones — and prune from another device: the SDK refuses to delete its own row.
+Record tombstones are sticky: a pruned peer id can never re-register. A device that comes back stays unlisted until it runs with a fresh device key — a new `any init` on a standalone server, a removed `device.key` on a managed one. Prune dead devices, not resting ones — and prune from another device: the SDK refuses to delete its own row.
 
 | Status | Code | When |
 |--------|------|------|

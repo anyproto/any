@@ -11,7 +11,7 @@ Every account has exactly one **tech space**: a space derived from the account k
 
 - **Derived.** Its id is a pure function of the account key; every device of the account computes the same id and re-creates it on first login. Its header carries `spaceType: any.techspace`.
 - **Owner-only.** The ACL has one member and the network refuses any further ACL record. Nothing in it can be shared; there is no such thing as a shared account.
-- **Hidden.** It is not a `Space` in the API — no `/v1/spaces/<techId>` — but its datasets are read through dedicated endpoints, and it uses the same [record CRDT](record-crdt.html) as every other space, so writes to it sync, merge and converge like any other data.
+- **Unlisted.** It never appears in `GET /v1/spaces`, and its datasets are read through dedicated endpoints. Its id (`techSpaceId` on `GET /v1/account`) is a `:spaceId` only on a closed set of per-space routes — account-level bundles and the records and types on their roots; every other per-space route answers `405 space.unsupported`. It uses the same [record CRDT](record-crdt.html) as every other space, so writes to it sync, merge and converge like any other data.
 - **First.** It loads before regular spaces at boot, because the space list comes from it.
 
 ## What it holds
@@ -23,21 +23,22 @@ The tech space carries one derived **index object** whose datasets are the accou
 | `spaces` | space the account participates in | `GET /v1/spaces`, `POST /v1/spaces/query[/subscribe]` | the SDK on create / join / delete, and the mirrors below |
 | `profile` | the account | `GET /v1/account`, `POST /v1/spaces/query` with `"dataset": "profile"` | `PUT /v1/account/metadata` |
 | `devices` | device (row id = peer id) | `GET /v1/devices`, `POST /v1/devices/query[/subscribe]` | `PUT /v1/devices/me`, `POST /v1/devices/activate`, engine boot |
-| `identities` | account identity ever encountered | `GET /v1/identities[/…]` | the SDK's identity-repository fetcher |
-| `inboxCursor` | the account | — | the one-to-one inbox notifier |
-| `bundles`, `account_values`, … | see below | | |
+| `identities` | account identity ever encountered | `GET /v1/identities[/…]` | the SDK, from ACL records, one-to-one invites and the identity repository |
+| `inboxCursor` | the account | — | the coordinator-inbox receiver (one-to-one and direct-add invites) |
+| `crdtVersion` | the account | `GET /v1/health` (`crdtVersion`) | every release, on open ([Versioning](versioning-and-reindex.html)) |
+| `bundles` | account-level bundle, such as favourites | `GET /v1/spaces/<techSpaceId>/bundles` | `POST /v1/spaces/<techSpaceId>/bundles` ([Bundles](../collaboration/bundles.html)) |
 
 A `spaces` row is the account's view of a space:
 
 ```json
 { "id": "bafy…", "type": "any.space", "name": "Team", "icon": "…",
-  "localStatus": "ok", "remoteStatus": "ok",
+  "remoteStatus": "active",
   "createdAt": { "$date": "2026-08-01T09:00:00.000Z" },
   "ownRole": "writer", "push": { "spaceKey": "…", "encKey": "…", "encKeyId": "…" },
   "settings": { "notifyMode": "mentions" }, "derived": false }
 ```
 
-Fields mix scopes on purpose: `type`, `remoteStatus`, `createdAt`, `settings`, `derived` are **synced** across the account's devices; `localStatus`, `ownRole` and `push` are **local** — each device derives them from the same converged inputs, so replicating them would only add lag.
+Fields mix scopes on purpose: `type`, `name`, `description`, `icon`, `remoteStatus`, `settings`, `derived` are **synced** across the account's devices, so a join pending (`joining`), a decline or a delete observed on one device converges the rest; `createdAt` is **derived** — stamped from the change that added the row (create for the author, join for a joiner), the same on every device; `ownRole` and `push` are **local** — each device derives them from the same converged inputs, so replicating them would only add lag — and so is `localStatus` (absent while the space is simply active), because a space offloaded on one device must stay loaded on another. Raw rows withhold private guest and invite keys.
 
 ## The space list is a view
 
@@ -58,19 +59,18 @@ Several row fields are **derived from other places** and mirrored in by SDK watc
 
 | Field | Source of truth | Mirror |
 |-------|-----------------|--------|
-| `name`, `description`, `icon` | the target space's own `spaceIndex` object — encrypted in-space CRDT data, so every member sees a rename | each device's indexer hook copies the converged value into its local row after `PATCH /v1/spaces/:id` or a peer's edit |
+| `name`, `description`, `icon` | the target space's own `spaceIndex` object — encrypted in-space CRDT data, so every member sees a rename | each device's indexer hook writes the converged value onto the account's row after `PATCH /v1/spaces/:id` or a peer's edit, skipped when already equal |
 | `ownRole` | the space's ACL | the ACL mirror watcher, once at space load and once per applied ACL record |
 | `push.{spaceKey,encKey,encKeyId}` | ACL key material | the same watcher; `encKey` rotates with the read key |
 | `type` | the space header | backfilled once, set-once, on the first successful load of a row registered before the header was readable |
-| `createdAt` | the creating change's timestamp | stamped at row creation: create for the author, join for a joiner |
 
 A mirror is asynchronous, which shows up in one place: an immediate re-read after `PATCH /v1/spaces/:id` can briefly return the old name. Subscribe to the space list or to the `spaceIndex` object if you need the moment it lands.
 
 ## Account-scoped values
 
-A property or dataset field declared `scope: account` is **shared across the account's devices but invisible to other members** — a personal "favourite" flag on a shared object, a per-account read marker on a chat. The tech space is its transport: for every target space the account is in, it holds one derived **carrier object** (`account_values` dataset, one record per `(objectId, dataset, recordId)`), and a per-device mirror replays converged carrier values into the target rows at their normal paths, stamped with the tech tree's versions.
+A property declared `scope: account` is **shared across the account's devices but invisible to other members** — a personal flag on a shared object, or a chat's `notifyMode`. The tech space is its transport: for every target space the account is in, it holds one derived **carrier object** (`account_values` dataset, one record per `(objectId, dataset, recordId)`), and a per-device mirror replays converged carrier values into the target rows at their normal paths, stamped with the tech tree's versions.
 
-The write path is the ordinary one — `POST …/types/:t/properties` with `"scope": "account"`, then a value write — and reads see the value at its usual path. Deleting the object tombstones its carrier records; leaving or deleting the space drops the carrier ([System fields](../database/system-fields.html)). Values of `scope: local` take the shorter route: written straight into the device's row, no DAG, no tech space.
+The write path is the ordinary one — `POST …/types/:t/properties` with `"scope": "account"`, then a value write — and reads see the value at its usual path. Deleting the object tombstones its carrier records; leaving or deleting the space drops the carrier ([System fields](../database/system-fields.html)). Values of `scope: local` take the shorter route: written straight into the device's row, no DAG, no tech space. Dataset record fields can declare `account` but are not writable at that scope.
 
 ## Devices and the account's own state
 

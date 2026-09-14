@@ -61,6 +61,9 @@ auth:
 # working directory — that default is the PRODUCTION network, so an
 # unconfigured binary syncs against production. Point at another network
 # with nodeconfPath, inline nodeconf, or ANY_NETWORK_NODECONF_PATH.
+# The conf is read once at startup (a change applies on restart); a conf
+# that isn't YAML or names no networkId fails startup, the rest of it is
+# checked when the SDK opens. GET /v1/health reports it as `networkId`.
 #
 # The network is a PROCESS setting: every account the server boots joins
 # it. Each account dir is pinned to the network its data was written on
@@ -68,7 +71,7 @@ auth:
 # another one — keep one data root per network.
 #
 # internal/config/nodeconf-placeholder.yml is the sanitized fixture
-# (real networkId, placeholder nodes) — it boots and serves but joins no
+# (Anytype stage networkId, placeholder nodes) — it boots and serves but joins no
 # network. Tests use it via config.NodeconfPlaceholder(); it is never
 # selected at runtime.
 #
@@ -215,6 +218,11 @@ push:
   peerId: ""                          # the push node's peer id
   addrs: []                           # dial addresses, e.g. ["quic://host:port"]
 
+# Alpha invite codes (any-invite). Base URL of the invite service;
+# empty disables POST /v1/account/access-code (409 access.disabled).
+access:
+  redeemUrl: ""
+
 # Logger — passthrough to any-sync/app/logger.Config.
 log:
   defaultLevel: info
@@ -254,6 +262,8 @@ ANY_PUSH_PEER_ID=12D3Koo...           # push.peerId (the push node)
 ANY_PUSH_ADDRS=quic://push:1234       # push.addrs (comma-separated)
 
 ANY_LOCAL_ENABLED=false               # local.enabled
+
+ANY_ACCESS_REDEEM_URL=https://invite.example.org  # access.redeemUrl
 
 ANY_INDEX_ENABLED=false               # index.enabled
 ANY_INDEX_EMBEDDER=ollama             # index.embedder (local|ollama|openai|auto|none)

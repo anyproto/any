@@ -66,7 +66,7 @@ A **bundle** fixes that. It is one root object registered in the space under a p
 
 ```bash
 curl -s -X POST $API/spaces/$SPACE/bundles -H 'content-type: application/json' -d '{
-  "id": "mail/v1", "name": "Mail", "xKey": "mail", "weight": 10, "layout": {"type": "table"},
+  "id": "mail/v1", "name": "Mail", "xKey": "mail", "weight": 10, "layout": {"type": "table"}, "selfTyped": true,
   "properties": [ {"xKey": "address", "name": "Address", "kind": "string", "xFormat": {"type": "email"}} ],
   "parts": [
     {"key": "messages", "ui": {"type": "table"},
@@ -95,7 +95,7 @@ any bundle ensure $SPACE --body @mail-bundle.json
 The reply's `rootId` is three things at once:
 
 1. **the type** — `typeId == rootId`; `GET …/types/<rootId>/properties` gives the `xKey → propId` map you cache;
-2. **an object of that type** — the root carries itself, so it can hold the mailbox's own records: `"objectId": "<rootId>", "dataset": "<rootId>_messages"` on `/upsert` and `/query` is the inbox;
+2. **an object of that type** — `selfTyped: true` makes the root carry its own type, so it can hold the mailbox's own records: `"objectId": "<rootId>", "dataset": "<rootId>_messages"` on `/upsert` and `/query` is the inbox. Without it the root is the definition only, the shape a type that *other* objects carry wants;
 3. **the app** — `rootTypes` attached the built-in `miniapp` type and `rootProperties` set its `bundle`, so the root is a sidebar entry (next section).
 
 Run the same call on the second device and it answers `installed: false` with the same `rootId`: an adopt, a pure read, safe for a member who could not create anything. Two devices that install while genuinely apart each register a root; after sync the registry names one winner and lists the other under `losers`, and the client merges and resolves ([Bundles](../collaboration/bundles.html)).
@@ -148,7 +148,9 @@ any catalog setup wiki $SPACE
 
 ```json
 { "usecase": "wiki",
-  "bundles": [ { "id": "system:wiki/v1", "installed": true, "typeId": "<rootId>",
+  "bundles": [ { "usecase": "wiki", "id": "system:wiki/v1",
+                 "bundle": {"id": "system:wiki/v1", "rootId": "<rootId>", …},
+                 "installed": true, "typeId": "<rootId>",
                  "properties": {"parentId": "…", "pos": "…", "folder": "…"},
                  "miniapp": {"bundle": "system:wiki/v1"} } ] }
 ```
@@ -159,14 +161,18 @@ Every catalog entry is the same construction you just built by hand, and each sh
 |---------|-------------|
 | `wiki` | an app **and** a type: the sidebar entry, and the hidden type whose `parentId` / `pos` / `folder` place every page in the tree |
 | `collections` | an app only — an empty `miniapp` root whose presence switches the types feature on in the client |
+| `journal` | an app **and** a type, like the wiki: the sidebar entry, and the hidden type whose one `date` property makes an object that day's page |
+| `meetings` | an app **and** a content type: a meeting is one object whose three parts are its notes (the shared editor), a second editor for the summary, and a transcript dataset an agent fills |
 | `general-chat` | the space's one chat: a **derived** root both sides of a partition compute, so it can never fork, carrying the reserved `chat` module |
 | `people`, `contact`, `contacts`, `crm` | a set: `crm` requires `contacts`, which requires `people` and `contact`; setup resolves the closure in order and the reply lists every bundle it touched |
+
+Every app that ships with a client belongs here, types included: the catalog is the one place a well-known type is declared, so two clients — or a client and an agent — resolve the same ids instead of each minting a type by name and hoping they match.
 
 Setup is idempotent — run it on every device that needs the feature and each adopts the same roots with byte-identical property ids. A space where the wiki was never set up has no wiki type in it at all: nothing from a usecase you do not use lands in your space.
 
 The types a usecase installs are ordinary user types. `person` and `organization` reference each other through relation properties; `contact` is a second, lighter type attached to a person you actively manage, with a lower weight so the person's profile keeps rendering. Splitting a base type into its own bundle is how several usecases share it: `people` is required by every role, and installing a role installs it ([Well-known bundles](../collaboration/bundles.html)).
 
-> **Note.** Nothing here stops a user from opening the `person` type and deleting its properties. The catalog heals what a root lacks on the next setup — a missing property or option is written back under its deterministic id — but it never overwrites what the space changed on purpose.
+> **Note.** Nothing here stops a user from opening the `person` type and editing it. Setup is additive: the next run writes what a later catalog added and the root lacks — a property under its deterministic id, an option key, a `miniapp` value — and leaves what the definition carries as the space has it, renamed or recoloured. A property the user removed stays removed; an option key the user deleted is absent, so setup writes it again ([Bundles](../collaboration/bundles.html)).
 
 ## Where this ends
 

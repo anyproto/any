@@ -3,6 +3,8 @@ package catalog
 import (
 	"strings"
 	"testing"
+
+	"github.com/anyproto/any/internal/api"
 )
 
 var knownTypes = Options{KnownTypeIds: []string{"page", "miniapp", "bin", "dataview"}}
@@ -14,10 +16,97 @@ func TestCatalog_EmbeddedLoads(t *testing.T) {
 	if len(problems) > 0 {
 		t.Fatalf("embedded catalog: %v", problems)
 	}
-	for _, id := range []string{"wiki", "collections", "general-chat", "people", "contact", "contacts", "crm"} {
+	for _, id := range []string{"wiki", "collections", "journal", "meetings", "general-chat", "people", "contact", "contacts", "crm"} {
 		if _, ok := cat.Get(id); !ok {
 			t.Errorf("usecase %s missing", id)
 		}
+	}
+}
+
+// Collections is the one navigation-only app: a feature switch with no
+// type of its own. An app that brings a type declares it here — the
+// catalog is where every client resolves it from.
+func TestCatalog_CollectionsIsNavigationOnly(t *testing.T) {
+	cat, problems := Load(Embedded(), knownTypes)
+	if len(problems) > 0 {
+		t.Fatal(problems)
+	}
+	u, ok := cat.Get("collections")
+	if !ok || len(u.Requires) != 0 || len(u.Bundles) != 1 {
+		t.Fatalf("collections usecase: %+v", u)
+	}
+	b := u.Bundles[0]
+	if b.Id != "system:collections/v1" || b.Miniapp == nil || len(b.Miniapp) != 0 ||
+		b.Type != nil || len(b.Parts) != 0 || b.Derived || b.Hidden {
+		t.Fatalf("navigation-only bundle: %+v", b)
+	}
+}
+
+// Every sidebar app whose client mints types has them in the catalog:
+// one bundle, hidden type, the handles clients resolve by.
+func TestCatalog_SidebarAppsDeclareTheirTypes(t *testing.T) {
+	cat, problems := Load(Embedded(), knownTypes)
+	if len(problems) > 0 {
+		t.Fatal(problems)
+	}
+	// The app root and the type it brings, per usecase.
+	for id, xKey := range map[string]string{"journal": "journal", "meetings": "meeting", "wiki": "wiki"} {
+		t.Run(id, func(t *testing.T) {
+			u, ok := cat.Get(id)
+			if !ok {
+				t.Fatalf("usecase %s missing", id)
+			}
+			var typed, sidebar *api.CatalogBundle
+			for i := range u.Bundles {
+				b := &u.Bundles[i]
+				if b.Type != nil && b.Type.XKey == xKey {
+					typed = b
+				}
+				if b.Miniapp != nil {
+					sidebar = b
+				}
+			}
+			if typed == nil || sidebar == nil {
+				t.Fatalf("%s declares no type or no sidebar root: %+v", id, u.Bundles)
+			}
+			if sidebar.Id != "system:"+id+"/v1" {
+				t.Fatalf("%s sidebar root: %s", id, sidebar.Id)
+			}
+			if typed.SelfTyped {
+				t.Fatalf("%s type root carries its own type: %+v", id, typed)
+			}
+		})
+	}
+	// Journal's entry is a dated page; a meeting is an object with three
+	// surfaces. Both are what a client used to mint for itself.
+	journal, _ := cat.Get("journal")
+	if props := journal.Bundles[0].Type.Properties; len(props) != 1 || props[0].XKey != "date" ||
+		props[0].Kind != api.PropertyKindDatetime {
+		t.Fatalf("journal properties: %+v", journal.Bundles[0].Type.Properties)
+	}
+	meetings, _ := cat.Get("meetings")
+	parts := meetings.Bundles[0].Parts
+	if len(parts) != 3 {
+		t.Fatalf("a meeting has notes, summary and transcript: %+v", parts)
+	}
+	surfaces := map[string]api.DatasetDraftRequest{}
+	for _, p := range parts {
+		if len(p.Datasets) != 1 {
+			t.Fatalf("part %s: %+v", p.Key, p.Datasets)
+		}
+		surfaces[p.Key] = p.Datasets[0]
+	}
+	// The notes are the COMMON editor (shared with page); the summary is a
+	// second editor of its own; the transcript is upserted by segment id.
+	if surfaces["notes"].Module != "editor" || !surfaces["notes"].Shared {
+		t.Fatalf("notes: %+v", surfaces["notes"])
+	}
+	if surfaces["summary"].Module != "editor" || surfaces["summary"].Shared ||
+		surfaces["summary"].Key != "summary" {
+		t.Fatalf("summary: %+v", surfaces["summary"])
+	}
+	if surfaces["transcript"].Key != "transcript" || surfaces["transcript"].IdRule != "user" {
+		t.Fatalf("transcript: %+v", surfaces["transcript"])
 	}
 }
 
@@ -196,6 +285,31 @@ func TestCatalog_Problems(t *testing.T) {
 				return strings.Replace(s, "        hidden: true\n        parts:\n          - key: settings\n            datasets:\n              - key: settings\n                idRule: user\n                fields: [ { key: pipeline, kind: string, mutableBy: any } ]\n", "        hidden: true\n", 1)
 			},
 			code: CodeBadField, path: "usecases[2].bundles[0].hidden",
+		},
+		{
+			name: "mutableBy author without a creator stamp",
+			mutate: func(s string) string {
+				return strings.Replace(s, "{ key: pipeline, kind: string, mutableBy: any }",
+					"{ key: pipeline, kind: string, mutableBy: author }", 1)
+			},
+			code: CodeBadField, path: "usecases[2].bundles[0].parts[0].datasets[0].fields",
+			contains: "stamp creator",
+		},
+		{
+			name: "search mapping names an undeclared field",
+			mutate: func(s string) string {
+				return strings.Replace(s, "                idRule: user\n",
+					"                idRule: user\n                search: { title: pipelien }\n", 1)
+			},
+			code: CodeBadField, path: "usecases[2].bundles[0].parts[0].datasets[0].search.title",
+			contains: "no field pipelien",
+		},
+		{
+			name: "selfTyped without a declaration",
+			mutate: func(s string) string {
+				return strings.Replace(s, "        hidden: true\n        parts:\n          - key: settings\n            datasets:\n              - key: settings\n                idRule: user\n                fields: [ { key: pipeline, kind: string, mutableBy: any } ]\n", "        selfTyped: true\n", 1)
+			},
+			code: CodeBadField, path: "usecases[2].bundles[0].selfTyped",
 		},
 		{
 			name: "weight on a hidden type",

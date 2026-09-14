@@ -10,9 +10,10 @@ order: 30
 ## Global flags and exit codes
 
 ```
---addr <host:port>     # default 127.0.0.1:7001
+--addr <host:port>     # default: the address the account's running server recorded, else 127.0.0.1:7001
 --timeout <duration>   # default 30s (ignored for streams)
 --verbose              # print the HTTP exchange to stderr
+--control-token <tok>  # managed servers only; prefer ANY_CONTROL_TOKEN
 ```
 
 | Exit | Meaning |
@@ -57,17 +58,14 @@ SPACE=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces \
 Object creation and the generic snapshot query are likewise `curl` calls; the CLI's read surface is the live one:
 
 ```bash
-# a page type: a user type whose part declares the editor module
-PAGE=$(any type create $SPACE --name Page --xkey page --weight 10 | jq -r .typeId)
-any type part add $SPACE $PAGE --draft '{"key":"body","datasets":[{"module":"editor","shared":true}]}'
-
+# a document: an object carrying the built-in page type
 OBJ=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
   -H 'content-type: application/json' \
-  -d '{"types":["'$PAGE'"],"initialProperties":{"any":{"name":"Reading list"}}}' | jq -r .objectId)
+  -d '{"types":["page"],"initialProperties":{"any":{"name":"Reading list"}}}' | jq -r .objectId)
 
 # cross-object live window: the space's objects collection
 any query-subscribe $SPACE --properties \
-  --filter '{"any.types":"'$PAGE'"}' --sort='-modifiedAt' --limit 20 --total
+  --filter '{"any.types":"page"}' --sort='-modifiedAt' --limit 20 --total
 
 # per-object dataset: the blocks of one document
 any query-subscribe $SPACE $OBJ --dataset editor_blocks --sort nav.pos --limit 200
@@ -77,18 +75,20 @@ Output is one JSON object per SSE frame — `{"event": "...", "data": ...}` — 
 
 ```bash
 any query-subscribe $SPACE --properties --sort='-modifiedAt' --limit 20 \
-  | jq -c 'select(.event=="changes") | .data[] | {added: [.added[].id], updated: [.updated[].id]}'
+  | jq -c 'select(.event=="changes") | .data[] | {added: [.added[]?.id], updated: [.updated[]?.id]}'
 ```
 
-Cancel with Ctrl-C; `--timeout` does not apply to streams.
+A `changes` batch omits the lists it has nothing for, hence the `?`. Cancel with Ctrl-C; `--timeout` does not apply to streams.
 
-## Built-in types
+## Editor and chat
 
-The chat and editor handlers have full CLI coverage:
+The `editor` and `chat` modules have full CLI coverage. The space's one chat is the `general-chat` usecase's root, set up once per space:
 
 ```bash
 any editor edit $SPACE $OBJ --old '- [ ] Dune' --new '- [x] Dune'   # PATCH …/editor/editor_blocks/markdown
 any editor blocks create $SPACE $OBJ --type paragraph --text 'hello'
+
+CHAT=$(any catalog setup general-chat $SPACE | jq -r '.bundles[0].bundle.rootId')
 any chat send $SPACE $CHAT --text 'hi there'
 any query-subscribe $SPACE $CHAT --dataset chat_messages --sort='-_ver.id' --limit 50
 any chat react $SPACE $CHAT $MSG 👍
@@ -98,10 +98,11 @@ any chat react $SPACE $CHAT $MSG 👍
 
 | Group | Commands |
 |-------|----------|
-| Types | `any type create/list`, `any type property list/add/patch/remove`, `any type dataset …` |
-| Data | `any aggregate`, `any upsert`, `any datasets`, `any search` |
-| Sharing | `any members …`, `any invite …`, `any join`, `any acl …`, `any one-to-one …` |
-| Account | `any account`, `any identities …`, `any devices …` |
+| Types | `any type create/list/update`, `any type property list/add/patch/remove/option`, `any type part list/add/patch/remove`, `any type part dataset …` |
+| Apps | `any catalog list/get/setup`, `any bundle ensure/list/get/resolve/child` |
+| Data | `any aggregate`, `any upsert`, `any datasets`, `any search`, `any backlinks`, `any links`, `any local …` |
+| Sharing | `any members …`, `any invite …`, `any join --token …`, `any acl …`, `any one-to-one …` |
+| Account | `any auth login/logout/status`, `any account set-metadata/redeem`, `any identities …`, `any devices …`, `any push …` |
 | Files | `any file attach/list/get/download/status/…` |
 | Live | `any sync-status …`, `any events publish/subscribe`, `any process list/cancel` |
 | Diagnostics | `any debug space/object/p2p` |

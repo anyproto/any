@@ -11,21 +11,20 @@ An object is not one document. It is a set of **types** it implements and a set 
 
 ```
 Space
- ├─ types                      user types + built-ins (any, page, chat, editor, type, …)
+ ├─ types                      user types + built-ins (any, type, and the hidden page / dataview / miniapp / bin)
  ├─ objects  (one collection)  one row per object: property values keyed <typeId>.<propId>
  └─ Object
-     ├─ any.types = [pageTypeId, chatTypeId, movieTypeId, …]   N types, no inheritance
-     └─ datasets                                                N collections
-          ├─ chat_messages    ← contributed by the built-in `chat` type
-          ├─ editor_blocks    ← contributed by the built-in `editor` type
-          ├─ reviews          ← a runtime dataset declared on the user type `movie`
-          └─ payloads         ← files attached to this object
+     ├─ any.types = ["page", wikiTypeId, movieTypeId, …]   N types, no inheritance
+     └─ datasets                                            N collections
+          ├─ editor_blocks        ← the `editor` module, declared by `page`'s body part
+          ├─ <movieTypeId>_reviews ← a runtime dataset (the `records` module) on the user type `movie`
+          └─ payloads             ← files attached to this object (on a derived child object)
 ```
 
 Two consequences fall out of this shape:
 
-- **Types coexist.** An object can be a `page` *and* a `chat` *and* a `movie` at once. Adopting a type appends its id to `any.types`; each type brings its property namespace and, if it declares any, its datasets. There is no inheritance and no "primary" type.
-- **Collections are per object.** A chat's messages are a collection *on that chat object*, not rows in a space-wide messages table. The space-wide collection is `objects` only — the row per object that holds property values and the system stamps.
+- **Types coexist.** An object can be a `page` *and* a wiki entry *and* a `movie` at once. Adopting a type appends its id to `any.types`; each type brings its property namespace and, through its parts, its datasets. There is no inheritance: the carried type with the highest `weight` is the one whose layout a client renders.
+- **Collections are per object.** A document's blocks are a collection *on that object*, not rows in a space-wide blocks table. The space-wide collection is `objects` only — the row per object that holds property values and the system stamps.
 
 > **Why it matters.** In a hosted document database you model "a document with comments" as two tables joined by a foreign key, and the server owns both. Here the object *is* the unit of sync and access: its datasets travel with it, merge as CRDTs with it, and are encrypted with the space it belongs to. There is nothing to join across.
 
@@ -36,7 +35,7 @@ Every regular object has exactly one row here, `id` = the object id. Values sit 
 ```json
 {
   "id": "bafy…obj",
-  "any":            { "name": "Heat", "types": ["page", "bafy…movie"] },
+  "any":            { "name": "Heat", "types": ["page", "bafy…wiki", "bafy…movie"] },
   "bafy…movie":     { "Y9Hxx5xmYmF": ["personA", "personB"], "EwyHGrtTdxB": 1995 },
   "bafy…wiki":      { "Qp3RkT2vLm9": "", "Hs8WnZ4cXb1": "a0", "Fd6JyM7tRe2": false },
   "author":         "A5k…",
@@ -54,9 +53,9 @@ A dataset is a Mongo-like record collection scoped to one object. Where it comes
 
 | Dataset | Contributed by | Schema owner | Write path |
 |---|---|---|---|
-| `chat_messages` | a type's part declaring the `chat` module (shared) | the server's chat module | `POST …/objects/:o/chat/messages` and friends — [Chat](../types/chat.html) |
+| `chat_messages` | the space's general-chat root — the `chat` module is reserved to the server's catalog install, so a space has one chat | the server's chat module | `POST …/objects/:o/chat/messages` and friends — [Chat](../types/chat.html) |
 | `editor_blocks`, `<typeId>_<key>` | a type's part declaring the `editor` module (shared, or namespaced to the type) | the server's editor module | `POST …/objects/:o/editor/:collection/blocks`, the markdown bridge — [Editor](../types/editor.html) |
-| `payloads` | files | the SDK | `POST …/objects/:o/files` — [Files](../files/index.html) |
+| `payloads` | files, on a derived child of the object | the SDK | `POST …/objects/:o/files`; rows read through `POST …/objects/:o/files/query` — [Files](../files/index.html) |
 | `<typeId>_<key>` | a runtime dataset declared under a part of a user type (the `records` module) | you, via the declaration | generic `POST …/modify` and `POST …/upsert` — [Runtime datasets](runtime-datasets.html) |
 
 A collection lives on an object only while the object carries a type whose part declares it (`400 dataset.not_declared` otherwise — no write attaches a type), so attach types at create:
@@ -64,26 +63,26 @@ A collection lives on an object only while the object carries a type whose part 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
   -H 'Content-Type: application/json' \
-  -d '{"types": ["'$PAGE'", "'$CHAT'", "'$MOVIE'"], "initialProperties": {"any": {"name": "Heat"}}}'
+  -d '{"types": ["page", "'$MOVIE'"], "initialProperties": {"any": {"name": "Heat"}}}'
 ```
 
-That single object now renders as a document, hosts a discussion, and carries `movie` properties — and each concern is a separate collection with separate ordering, indexes and handlers.
+That single object now renders as a document, carries `movie` properties and holds the movie's reviews — and each concern is a separate collection with separate ordering, indexes and handlers. A type whose part declares a reserved module (the general chat) is carried only by its own root: naming it in `types` is `400 type.reserved_carrier`.
 
 ## One read path for every dataset
 
-Whatever produced a dataset, it is read the same way: the per-object query with a `dataset` name, and its `/subscribe` twin for liveness.
+Whatever produced a dataset, it is read the same way: the per-object query with a `dataset` name, and its `/subscribe` twin for liveness. File rows are the one exception — they sit on a derived child whose id clients never see, so they have their own `…/files/query`.
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
-  -d '{"objectId": "'$OBJ'", "dataset": "chat_messages", "sort": ["-_ver.id"], "limit": 50}'
+  -d '{"objectId": "'$CHAT'", "dataset": "chat_messages", "sort": ["-_ver.id"], "limit": 50}'
 
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
-  -d '{"objectId": "'$OBJ'", "dataset": "reviews", "filter": {"score": {"$gte": 8}}}'
+  -d '{"objectId": "'$OBJ'", "dataset": "'$MOVIE'_reviews", "filter": {"score": {"$gte": 8}}}'
 ```
 
-`any query $SPACE $OBJ chat_messages` is the CLI form. Aggregation pipelines run over a dataset the same way — [Aggregation](aggregation.html).
+`any query-subscribe $SPACE $CHAT --dataset chat_messages --sort=-_ver.id --limit 50` is the CLI form (its first `snapshot` frame is the read). Aggregation pipelines run over a dataset the same way — [Aggregation](aggregation.html).
 
 ## Schemas and scopes
 
@@ -91,7 +90,7 @@ Every dataset the space hosts is discoverable with its JSON Schema:
 
 ```bash
 curl http://127.0.0.1:7001/v1/spaces/$SPACE/datasets
-# → { "datasets": [ { "name": "chat_messages", "typeId": "chat", "schema": {…} }, … ] }
+# → { "datasets": [ { "name": "chat_messages", "module": "chat", "shared": true, "owners": ["<chatRootId>"], "schema": {…} }, … ] }
 any datasets $SPACE
 ```
 
@@ -117,11 +116,11 @@ The `x-scope` keyword says who writes a field and how far it travels:
 | `local` | this device, through the local-scope `modify` route; never enters the DAG | nowhere |
 | `account` | this account, through the private tech space | this account's other devices only |
 
-`additionalProperties: true` marks a dynamic dataset: undeclared keys are allowed and default to `synced`. Runtime datasets add behavioral keywords on top — `required`, `x-mutable-by`, `x-stamp`, `x-delete-by`, `x-id`, `x-search` — described in [Runtime datasets](runtime-datasets.html). `typeId` on an entry names the owning type: records exist only on objects carrying it, which is also what the search indexer keys eviction on.
+`additionalProperties: true` marks a dynamic dataset: undeclared keys are allowed and default to `synced`. Runtime datasets add behavioral keywords on top — `required`, `x-mutable-by`, `x-stamp`, `x-delete-by`, `x-id`, `x-search` — described in [Runtime datasets](runtime-datasets.html). `owners` on an entry lists the types whose parts declare the collection — records exist only on objects carrying one of them, which is also what the search indexer keys eviction on; `module` names the serving module (`records`, `editor`, `chat`) and `shared` marks a module's canonical collection. The SDK's own datasets (`objects`) carry no owners.
 
-Account-wide, `GET /v1/datasets` lists the tech-space system datasets (`spaces`, `profile`) behind the [space list](../realtime/space-list.html).
+Account-wide, `GET /v1/datasets` lists the tech-space system datasets (`spaces`, `profile`, `devices`, …); `spaces` and `profile` are the two the [space list](../realtime/space-list.html) query reads.
 
-> **Note.** Type objects are themselves rows with the `__type__` marker in `any.types`; they carry the `properties` and `datasets` datasets that hold your definitions. You never write those directly — the types API does — but they follow the same model, which is why a definition change is a CRDT write that every member converges on.
+> **Note.** Type objects are themselves rows with the `__type__` marker in `any.types`; they carry the `properties` and `datasets` datasets that hold your definitions. You never write those directly — the types API does — but they follow the same model, which is why a definition change is a CRDT write that every member converges on. A bundle root that declares a type is such a definition row: it carries its own type only when the bundle is self-typed (a root holding its own records, the general chat), so an ordinary type's root never matches `{"any.types": "<typeId>"}`.
 
 ## Related
 

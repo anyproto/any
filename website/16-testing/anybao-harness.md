@@ -18,14 +18,14 @@ anybao's verification follows one principle: **everything nondeterministic is an
 | **L5** live evals | golden recall eval against a live index; ROI metrics review | opt-in | retrieval quality regressed |
 | **L6** gate walk | the cutover checklist, side by side with the previous agent | manual, once per cutover | human sign-off |
 
-Conventions: offline by default (`addopts = -m 'not integration'`); fixtures are JSONL, one record per line; `UPDATE_GOLDEN=1` regenerates cargo golden fixtures (review the diff); integration tests poll-then-skip on asynchronous indexer timing but assert firmly on direct reads.
+Conventions: offline by default (`addopts = -m 'not integration'`); fixtures are JSONL, one record per line; integration tests poll-then-skip on asynchronous indexer timing but assert firmly on direct reads.
 
 ## The kernel-fidelity harness
 
 The L2 harness imports the **real guest kernel** host-side with the wasm host interface stubbed, so program tests run under the kernel's actual semantics — curated builtins, the import allowlist, span machinery, and `use()` module loading — instead of plain host CPython. A stray `import contextlib` fails in the test exactly as it fails in the wasm guest. The only fake is the effect boundary itself.
 
 ```python
-from tests.kernelenv import load_kernel
+from kernelenv import load_kernel
 
 app = load_kernel(effect=fake_effect, any_client=fake_any, llm_chat=fake_llm)
 mod = app.use("history@v1")          # real source from repos/_agent/programs
@@ -85,20 +85,23 @@ There is no `/run` endpoint on the any server — it stores program source and n
 
 ```bash
 anyrt run 'webSearch@v1' --from-space bao --args '{"query": "local-first sync"}'
-anyrt trace ls --program toolcaller
-anyrt trace show run_<id> --stats
+anyrt trace ls                                                  # anyrt run writes jsonl traces to ./traces
+anyrt trace ls --addr http://127.0.0.1:7001 --program toolcaller   # serve's runs, in the server's local store
+anyrt trace show --addr http://127.0.0.1:7001 run_<id> --stats
 ```
+
+`anyrt run` records into a traces directory (`--traces-dir`, default `traces`). `anyrt serve` records into the any server's local store by default (`[traces] backend = "any"`), so its runs are read with `--addr`; `backend = "file"` sends them to `paths.traces` instead.
 
 `--from-space` is production: a tool-calling run posts its reply into the real chat. Point it at a scratch space when that matters — see [Traces and replay](../programs/traces-and-replay.html).
 
 ## The scratch rig
 
-For exercising agent changes with a real chat and UI without touching the real install, keep a persistent scratch stack on non-default ports: its own `any` server (`--data-dir ~/any/any-test-7009 --addr 127.0.0.1:7009`, with an explicit `--config` so it joins the right network), a separate serve control port, an overlay repo space for programs and skills, a working space the agent recreates on start, and a separate traces directory named in a gitignored `anybao.test.toml`.
+For exercising agent changes with a real chat and UI without touching the real install, keep a persistent scratch stack on non-default ports: its own `any` server (`--data-dir <scratch-data-dir> --addr 127.0.0.1:7009`, with an explicit `--config` so it joins the right network), a separate serve control port, an overlay repo space for programs and skills, and a working space the agent recreates on start — all named in a gitignored `anybao.test.toml`. Its traces stay apart by construction: they land in the scratch server's local store.
 
 ```bash
 anyrt deploy --source . --target agent --config-file anybao.test.toml   # hash-gated publish
 anyrt serve --config-file anybao.test.toml
-anyrt trace ls traces-test --program toolcaller
+anyrt trace ls --addr http://127.0.0.1:7009 --program toolcaller
 ```
 
 Deploy is the only publish step — a running serve picks changes up on its next conversation. Reset agent state by deleting the working space (`any --addr 127.0.0.1:7009 space delete --yes <id>`); the account itself persists.
