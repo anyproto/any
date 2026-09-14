@@ -858,6 +858,23 @@ is a derived cache, so deleting it is always the whole fix.
 
 ### Search
 
+Structured search (`filter` on the existing `/search` request) joins the
+existing lexical cursor to live SDK object/dataset metadata. It exhausts and
+closes the lexical cursor before reading datasets, batches record reads by
+`(objectId, dataset)`, and applies kind/type/creator/related filters plus
+object deduplication before paging. There is no duplicated persisted metadata
+and no top-100 candidate truncation before filtering. The related-object
+join reads the existing forward/reverse link indexes without the public
+links-list caps. Textless browse reads live objects and schema-declared
+searchable datasets; a message need not have indexed text to appear there.
+
+This path is FTS-only and snapshot-only. Full matching text hits and matching
+metadata are materialized for filtering/sorting, so cost grows with the space
+and match count; it does not open an SDK dataset per hit. Offset/limit are
+applied to the final object/record rows. HTTP fields and examples are in
+`03-api.md` § POST /v1/spaces/:spaceId/search. The no-filter hybrid/vector path
+and its bounded record windows below retain their existing behavior.
+
 `POST /v1/spaces/:spaceId/search` `{query, scopes?, limit?, mode?,
 require?, exclude?, maxData?, passages?}` →
 `{hits: [{scope, objectId, dataset, recordId, chunk?, data,
