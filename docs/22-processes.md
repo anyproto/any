@@ -9,16 +9,17 @@ persistence. Cancel is an event addressed at the owner, who reacts
 and emits the terminal event.
 
 **No new transport, no persistence.** Everything rides the bus's
-at-most-once delivery; a server restart forgets every process by
-design — owners simply re-register and keep heartbeating.
+at-most-once delivery; a server restart (or an account logout /
+switch) forgets every process — owners re-register and keep
+heartbeating.
 
 ## Identity
 
 Processes are keyed **`(sender.identity, id)`** — id uniqueness is
-publisher-local. `sender.identity` is server-stamped (and
-signature-verified on network scopes, doc 21 § Sender), so a remote
-account can neither collide with nor spoof another publisher's
-process. Cancel targets the composite key.
+publisher-local. `sender.identity` is server-stamped (and taken from
+the message signature on network scopes, `21-events.md` § Sender,
+loopback, delivery), so a remote account can neither collide with nor
+spoof another publisher's process. Cancel targets the composite key.
 
 The devices of ONE account share an identity: coordinating id
 uniqueness across them is the account's own job (put a run/device
@@ -44,13 +45,13 @@ process id** (the id therefore follows the event-target grammar
   device that missed `process.started`.
 - `data.target` is the process's *subject* (objectId, runId, …) —
   distinct from the envelope target, which carries the process id.
-- `done`/`total` are free-unit counters (`total` absent = unknown);
+- `done`/`total` are free-unit counters (`total` 0 = unknown);
   `message` is a short status line (≤ 1024 bytes).
-- Frames from non-`any` publishers are sanitized before entering the
-  view: grammar-violating `kind`/`target` are dropped, oversized
-  `title`/`message` clipped, negative counters clamped to 0 — the
-  helper endpoints re-emit stored values, so nothing invalid is ever
-  stored or relayed.
+- Every frame is sanitized before entering the view: grammar-violating
+  `kind`/`target` are dropped, oversized `title`/`message`/error
+  message clipped, negative counters clamped to 0 — the helper
+  endpoints re-emit stored values, so nothing invalid is ever stored
+  or relayed. A frame without a sender or envelope target is ignored.
 - Counters fold on **every** state frame that carries them (started
   and terminal included — internal producers stamp the pending total
   on started and the final count on done), with absent-means-keep
@@ -101,34 +102,36 @@ processes of other publishers are unaffected.
 ## Endpoints
 
 Account-scoped, outside the `/v1/spaces/:spaceId` group, behind the
-`/v1` auth guard — same placement as `/v1/events`. All POSTs answer
-the bus publish reply `{"subscribers": n}` (local matches;
+`/v1` auth guard — same placement as `/v1/events`. Bodies are
+strict-bound (`400 request.unknown_field` on an unknown key). All POSTs
+answer the bus publish reply `{"subscribers": n}` (local matches;
 fire-and-forget, doc 21).
 
 ### `POST /v1/processes` — register
 
 Body `{id, kind, title, scope, spaceId?, target?}`; emits
 `process.started` on `scope` (device/account/space — same
-scope/spaceId validation as event publish). `kind` is a short
-vocabulary token, `title` the human display line (≤ 256 bytes),
-`target` the optional subject. Re-registering an id restarts the view
-row — the supported owner-restart path.
+scope/spaceId validation as event publish). `id`, `kind` and `title`
+are required; `id`, `kind` and `target` follow the event-target
+grammar; `title` is the human display line (≤ 256 bytes). Re-registering
+an id restarts the view row — the supported owner-restart path.
 
 ### `POST /v1/processes/:id/progress` — progress / heartbeat
 
 Body `{done?, total?, message?}` — every field optional, absent =
 keep current value, explicit = set (so `{}` is a pure heartbeat and a
-partial update never wipes the rest). The fold happens atomically
-under the registry lock, so concurrent progress POSTs serialize
-instead of reverting each other. Requires the process live in the
-view under this account's identity, else `404 process.not_found`
-(register first). The emitted frame carries the folded full picture.
+partial update never wipes the rest). `done`/`total` must be
+non-negative. The fold happens atomically under the registry lock, so
+concurrent progress POSTs serialize instead of reverting each other.
+Requires the process live in the view under this account's identity,
+else `404 process.not_found` (register first). The emitted frame
+carries the folded full picture.
 
 ### `POST /v1/processes/:id/finish` — terminal event
 
 Body `{status: done|failed|cancelled, error?}`; `error {code?,
-message}` is required iff `failed` and rejected otherwise. Same
-local-liveness requirement as progress.
+message}` (message ≤ 1024 bytes) is required iff `failed` and rejected
+otherwise. Same local-liveness requirement as progress.
 
 ### `POST /v1/processes/:id/cancel` — request cancellation
 
@@ -143,8 +146,9 @@ Emits `process.cancel` on the process's own scope.
 `{"processes": [...]}`, expired rows swept, ordered by first-seen
 time. Row shape (`api.Process`): `{identity, self, id, kind, title,
 scope, spaceId?, target?, state, done, total?, message?, error?,
-startedAt, updatedAt}` — `startedAt`/`updatedAt` are unix seconds of
-**local observation** (this device's clock). There is no
+startedAt, updatedAt}` — `state` is `running` / `done` / `failed` /
+`cancelled`; `startedAt`/`updatedAt` are unix seconds of **local
+observation** (this device's clock). There is no
 `/processes/subscribe` — watch the raw frames instead:
 `GET /v1/events/subscribe?type=process.*`.
 
@@ -172,45 +176,41 @@ startedAt, updatedAt}` — `startedAt`/`updatedAt` are unix seconds of
 `any` itself reports through the same registry (device scope — each
 device indexes its own copy, other peers don't care; via the
 in-process hub, no HTTP). This is how clients answer "why is search
-incomplete right now" (SYN-155): watch
-`any events subscribe --type 'index.*'`-shaped filters or poll
-`GET /v1/processes`. Wired today, all under the `index.*` kinds:
+incomplete right now": poll `GET /v1/processes`, or watch
+`any events subscribe --type 'process.*'` and pick the `index.*`
+kinds. The producers:
 
-Usual indexing never appears: the fts and embed producers **announce
-only once the pass has been running past `AnnounceAfter` (default
-3s)** — a threshold in elapsed time, not queue size, because cost per
-doc varies ~50× with text length and hardware (measured on a CPU-only
-local model: ~13 short chat docs/s vs ~2 long editor windows/s, so
-any fixed count would be wrong in one direction or the other). One
-message or edit finishes in well under a second and stays silent; a
-cold (re)index or big catch-up crosses the gate and shows up, with
+Usual indexing never appears: the fts, embed and links-backfill
+producers **announce only once the pass has been running past
+`AnnounceAfter` (default 3s)** — a threshold in elapsed time, not queue
+size, because cost per doc varies ~50× with text length and hardware.
+One message or edit finishes in well under a second and stays silent;
+a cold (re)index or big catch-up crosses the gate and shows up, with
 the row's counters already carrying the work done so far.
 
-All three run on one shared reporter (`procReporter`,
+All four run on one shared reporter (`procReporter`,
 `internal/indexer/process_report.go`): a 500ms ticker re-checks the
 gate mid-operation (a single long embed call or chunker page
-announces ~on time) and doubles as a 10s heartbeat, so an announced
-row never staleness-expires while work genuinely runs; the terminal
-frame is emitted only after the ticker is joined, so no late
-heartbeat can resurrect a finished row.
+announces on time) and emits a heartbeat after 10s without a frame, so
+an announced row never staleness-expires while work genuinely runs;
+the terminal frame is emitted only after the ticker is joined, so no
+late heartbeat can resurrect a finished row. Work stopped mid-pass
+(space dropped, shutdown) finishes as `cancelled`.
 
 - **Embedding (vector) drain** — id `index.embed.<spaceId>`, kind
   `index.embed`, target the spaceId. Once announced: progress per
   landed batch → done/failed/cancelled. `done`/`total` count docs:
   the total comes from the pending count, re-read every round, so
-  late-arriving docs extend the bar instead of overflowing it; a
-  worker stopped mid-drain (space dropped, shutdown) finishes as
-  `cancelled` rather than leaving a ghost running row.
+  late-arriving docs extend the bar instead of overflowing it.
 - **FTS / chunking pass** — id `index.fts.<spaceId>`, kind
   `index.fts`, target the spaceId. `done` counts processed changes;
   `total` unknown (the change feed has no backlog count).
 - **Link-index backfill** — id `index.links_backfill.<spaceId>`, kind
   `index.links_backfill`, target the spaceId. A space whose edges
-  predate the link sink's layout (a db indexed before backlinks
-  existed, or a layout bump) is re-extracted once by its worker
-  before it advances (docs/13-index.md § Links). Announced past
-  `AnnounceAfter` like the fts pass; `done` counts objects, `total`
-  unknown; terminal `done` / `failed` (retried on the next start).
+  predate the link sink's layout is re-extracted once by its worker
+  before it advances (docs/13-index.md § Links). `done` counts
+  objects, `total` unknown; a failed backfill retries on the next
+  start.
 - **Embedding-model download** — id `index.model_download`, kind
   `index.model_download`, target the model file name. Always
   announces, at download start — even fully offline (a download is
@@ -222,23 +222,27 @@ heartbeat can resurrect a finished row.
   through the backoff; the only terminals are `done` and (on
   shutdown) `cancelled`. A `.part` interrupted between the last byte
   and the rename installs on the next boot with no network
-  round-trip. This surfaces the otherwise-invisible "semantic search
-  is empty because the model is still downloading" state.
+  round-trip. This surfaces the "semantic search is empty because the
+  model is still downloading" state.
 
-Common rules: failure messages are generic — indexer errors carry
-filesystem paths and upstream response bodies, which never go on the
-wire; the detail is in the server log. Cancel requests are ignored by
-all three producers (a cancelled drain/pass would just restart on the
-next tick; the download must finish for search to work).
+Common rules: failure messages are generic (`error.code` is
+`<kind>_failed`) — indexer errors carry filesystem paths and upstream
+response bodies, which never go on the wire; the detail is in the
+server log. Cancel requests are ignored by all four producers (a
+cancelled drain/pass would just restart on the next tick; the download
+must finish for search to work).
 
 ## Errors
 
+- `400 request.missing_field` / `request.invalid_field` — a required
+  field absent, or a grammar / length / scope violation.
 - `404 process.not_found` — progress/finish on a process not live
   under this account, or cancel with no live match.
 - `409 process.ambiguous` — cancel matched several identities;
   `details.identities` lists them, pass `identity` to pick one.
 - The emit paths reuse the events codes (doc 21): space resolution
-  errors and `409 events.no_read_key` on `scope: space`.
+  errors on `scope: space` and the pub/sub codes (`409
+  events.no_read_key`, …) on the network scopes.
 
 ## Server implementation
 
@@ -246,7 +250,8 @@ next tick; the download must finish for search to work).
   last-event-wins view: keyed map + lazy sweep (no janitor
   goroutine), fed by a synchronous construction-time hub tap so it
   observes every publish loss-free — local emits and bridged network
-  broadcasts alike. Created in the same once as the hub.
+  broadcasts alike. Created in the same once as the hub; reset on
+  engine teardown.
 - `internal/server/handlers_processes.go` — the five handlers over
   the shared bus emit path (`publishScoped` /
   `publishNetworkEvent` in handlers_events.go). Every network-scope
@@ -256,10 +261,10 @@ next tick; the download must finish for search to work).
   topic, and the local view must not depend on interests (the tap
   upsert is idempotent, double-apply is harmless).
 - `internal/server/engine.go` — the standing account interest
-  (acquired at boot with backoff-retry, released on engine close;
-  the bridge additionally retries a failed re-subscribe so the
-  interest survives pattern-cover churn) and `indexEmbedProcess`,
-  the indexer bridge (`indexer.Options.OnProcess`).
+  (`holdProcessInterest`: acquired at boot with backoff-retry, released
+  on engine close; the bridge additionally retries a failed
+  re-subscribe so the interest survives pattern-cover churn) and
+  `indexerProcessFor`, the indexer bridge (`indexer.Options.OnProcess`).
 - `internal/api/process.go` — wire types + state/event-type consts.
 - Routes in `internal/server/routes.go`.
 
@@ -274,13 +279,12 @@ Watching frames: `any events subscribe --type 'process.*'`.
 Registration/progress/finish are owner API calls, not human commands
 — agents use the HTTP endpoints directly.
 
-## Limits / future
+## Limits
 
 - Everything doc 21 says: at-most-once, no replay, 64 KiB payloads,
-  ~30 msg/s per-peer network budget — heartbeat at 15s costs nothing,
+  30 msg/s per-peer network budget — heartbeat at 15s costs nothing,
   but coalesce sub-second progress ticks.
 - The view is per-device and eventually consistent; `subscribers`
   counts local matches only.
-- No `/processes/subscribe` (raw frames cover it) and no
-  process-scoped ACL: any space member may cancel — the owner is free
-  to ignore.
+- No process-scoped ACL: any space member may cancel — the owner is
+  free to ignore.

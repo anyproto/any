@@ -376,7 +376,7 @@ Implementation slices landed:
       preserved for last-pooling — explicit decision, docs/13-index.md
       § Known limits); Linux needs system libffi (NixOS: `nix develop`,
       see flake.nix). Config `index.*` (`internal/config.Index`, env
-      `ANY_INDEX_*`); `embedder` defaults to `local`, `none` opts out
+      `ANY_INDEX_*`); `embedder` defaults to `auto` (online primary + local fallback), `none` opts out
       (FTS-only). **An unavailable embedder never breaks the
       pipeline**: no boot probe — pending is marked whenever an
       embedder is configured, an outage freezes only the vector side
@@ -950,9 +950,7 @@ Implementation slices landed:
     catalog TTL (the SDK snapshot refreshes synchronously on defs
     apply); `prop`/`schema` names reserved at the creation API. Error
     mapping in `datasetWriteError` (sentinels + STOPGAP string-matched
-    decl errors — SDK sentinel follow-up in docs/07-roadmap.md, along
-    with the dogfood handler-collapse audit and the removed-def index
-    sweep). CLI: `any type part dataset …`, `any upsert`. Contract:
+    decl errors). CLI: `any type part dataset …`, `any upsert`. Contract:
     docs/03-api.md § Runtime dataset schemas + § Upsert records,
     docs/13-index.md § Schema chunker, docs/06-errors.md, and the SDK's
     docs/17-user-datasets.md (vocabulary, convergence rules, storage
@@ -1296,7 +1294,7 @@ Implementation slices landed:
     any-sync-sdk#111) under a name tag — `l_a_<name>` /
     `l_s_<spaceId>_<name>` — because a DB-wide read tx is what makes
     local↔synced `$lookup` and `$out`/`$merge` rollups possible
-    (both gated upstream today; docs/07-roadmap.md); the SDK's orphan
+    (both gated upstream today); the SDK's orphan
     sweep classifies the `l` prefix as a fixed collection and never
     touches it. `localstore.ParseRef` is the single fence: every name
     reaching any-store — wire refs, drop, and the raw `$out`/`$merge
@@ -1408,8 +1406,7 @@ Implementation slices landed:
     2 allocs → 306 ns / 195 B / 0 allocs for `{"any":1,"nav":1,
     "_ver":-1}`; end-to-end through the handler 2.0× faster and 5.2×
     less wire. Exclude-only (`{"_ver":-1}`) is 1.2× — it still pays the
-    full decode, which is why the store-side push-down stays in
-    docs/07-roadmap.md. CLI: `--projection 'any,<typeId>'` / `'-_ver'` on
+    full decode (no store-side push-down). CLI: `--projection 'any,<typeId>'` / `'-_ver'` on
     every windowed command. Contract: docs/09-query.md § Projection,
     docs/03-api.md, docs/04-events.md.
 43. **Auth ownership model (SYN-169)** — `mode` (`--mode` / `ANY_MODE` /
@@ -1565,8 +1562,8 @@ Implementation slices landed:
     <spaceId> <typeId> <partId>`, `--collection` on every editor
     command. Contract: docs/03-api.md § Parts and modules + § Objects
     + § Chat, docs/06-errors.md, docs/13-index.md, docs/16-chat.md,
-    docs/25-favorites.md; SDK docs/17-user-datasets.md. Deferred
-    (docs/07-roadmap.md): namespaced chat and `dataview` as a module;
+    docs/25-favorites.md; SDK docs/17-user-datasets.md. Not supported:
+    namespaced chat and `dataview` as a module;
     since shipped: the server catalog (`GET/POST /v1/catalog…`, item
     50) that installs the well-known `system:` bundles, `nav` → `wiki`
     on top of it (item 51), `page` / `miniapp` / `bin` (item 46),
@@ -1694,7 +1691,7 @@ Implementation slices landed:
     ids are one namespace per host, convention `<dataviewId>.<key>`
     for a non-default dataview's views. Indexes: `dataviews.idx_pos`,
     `views.idx_dataview_pos` (the documented per-dataview read) +
-    `idx_pos`. No `dataview` module (roadmap). Tests:
+    `idx_pos`. No `dataview` module. Tests:
     handlers_dataview_test.go (`setupViewFixture` attaches the type AND
     ensures the `default` dataview; `ensureDataview` / `listDataviews`
     / `queryViews`; `TestServer_DataView_ManyDataviews` pins filter,
@@ -1864,7 +1861,7 @@ Implementation slices landed:
     docs/28-well-known-bundles.md, docs/03-api.md § Catalog + § Bundles
     (`xKey`, root types on created roots, root + up to 3) + § Types →
     Built-in hidden types (`miniapp`), docs/01-cli.md § Catalog,
-    docs/06-errors.md, docs/18-ci.md § PR checks, docs/07-roadmap.md.
+    docs/06-errors.md, docs/18-ci.md § PR checks.
 51. **`nav` removed — the tree is the `wiki` usecase** — `internal/nav`
     is deleted, `injectNavDefaults` and the `nav` create-body field are
     gone (`400 request.unknown_field`), nothing is appended to `types`
@@ -1883,8 +1880,7 @@ Implementation slices landed:
     lexid. No back-compat — `nav.*` on old rows is inert. Editor block
     records keep their own `nav.parentId` / `nav.pos` (the block
     module's schema, item 7). Contract: docs/03-api.md § The wiki tree,
-    docs/09-query.md § Paths, docs/28-well-known-bundles.md § What
-    clients delete.
+    docs/09-query.md § Paths, docs/28-well-known-bundles.md.
 52. **General chat under the reserved `chat` module (SYN-216)** —
     `chat.NewModule()` sets `Reserved: true`: a client part, part
     dataset or bundle body naming `chat` is `400
@@ -1970,7 +1966,7 @@ Implementation slices landed:
     `409 index.disabled` without the indexer. Liveness: `Options.OnLinks`
     → device-scope bus event `links.updated {spaceId, targets}`. CLI:
     `any backlinks` / `any links`. SDK untouched. Not in v1: evidence
-    edges, a subscribe stream, `links.enabled` (docs/07-roadmap.md).
+    edges, a subscribe stream, `links.enabled`.
     Tests: anyuri/links_test, index/links_test, editor/links_test,
     chat/links_test, indexer/links_store_test (untagged),
     server/handlers_links_test, e2e multipeer_links_test. Contract:
@@ -2076,8 +2072,7 @@ any            (this repo)  — HTTP server + CLI
 The full stack context lives in the SDK's `docs/00-common-context.md` (in the
 module cache). When an SDK
 method is missing or awkward, raise it on the SDK repo rather than working around
-it here — several v1 endpoints are explicitly blocked on SDK work (see
-`docs/07-roadmap.md` § SDK-side prerequisites).
+it here.
 
 **Property `xKey` is client-side only — the SDK never sees it.** Property
 values are stored and validated at `record[typeId][propId]`; writes MUST key
@@ -2234,7 +2229,6 @@ auto-start.
 | `docs/04-events.md` | subscriptions (SSE) — contract, lifecycle, tradeoffs |
 | `docs/05-config.md` | config file schema, env vars, flags, first-run flow |
 | `docs/06-errors.md` | error response shape, HTTP codes, code namespace |
-| `docs/07-roadmap.md` | v1.x / v2 plans, open questions, SDK prerequisites |
 | `docs/08-clients.md` | client call-pattern recommendations (writes via handlers, reads via query/subscribe, chat newest-first paging) |
 | `docs/09-query.md` | any-store query guide — filter operators, array matching, sort, paging, indexes, xKey paths |
 | `docs/11-agent-memory.md` | agent data — harness-owned userspace runtime datasets; pointer to the anybao repo |
@@ -2256,5 +2250,3 @@ auto-start.
 | `docs/29-client-model.md` | the client-facing object model — types / usecases / properties in the order a client needs them: startup sequence, catalog setup, the three ids (typeId / xKey / propId), descriptor value shapes, the `__type__` query trap, write gate, content surfaces |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
-Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or
-strike cut scope; add new open questions as they surface during implementation.

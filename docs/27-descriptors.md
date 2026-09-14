@@ -10,13 +10,6 @@ Endpoints and error codes: `03-api.md` § Types, § Runtime dataset
 schemas, `06-errors.md`. SDK storage model: the SDK's
 `docs/06-data-structure.md` § The `x-format` descriptor.
 
-**Migration: none. Definitions written before this are not converted.**
-A property created under the former `format` object reads by `kind`
-alone — a date renders as a bare instant, a URL as text, a select as an
-array of opaque keys, because its labels and colours sit under a key
-nothing looks at any more. Spaces predating this are recreated, not
-upgraded.
-
 Spelling: the HTTP wire and PATCH paths use `xKey` / `xFormat`; the
 stored record fields are `x-key` / `x-format` (visible in raw dataset
 reads of a type object and in the SDK's Go API).
@@ -33,21 +26,21 @@ between the two surfaces.
 | **type property values** | the top-level `kind`, and nothing else |
 | **dataset record fields** | `kind` recursively through `items` / `properties`, plus `required`, `mutableBy`, `stamp`, `idRule`, `deleteBy` |
 
-The asymmetry is real and load-bearing. A property value is checked
-against its declared `kind` at the top level only — the recursive
-validator exists but is not wired to the property path — so a
-property's `items` / `properties` are **declarative**. A dataset field's
-sub-shape is resolved and enforced.
+A property value is checked against its declared `kind` at the top
+level only, so a property's `items` / `properties` are **declarative**.
+A dataset field's sub-shape is resolved and enforced.
 
 `required` exists only on dataset fields, where it is enforced on record
-create. A type property carries no `required`: "the user must fill this
-in" is a validation rule, and belongs in `xFormat.validate` when that
-lands.
+create. A type property has no `required` rule.
 
-`kind`, `items`, `properties` and `scope` are **pinned**: immutable for
-the field's life. Everything else is mutable — including all of
-`xFormat` **at the top level**. A nested descriptor under `properties` /
-`items` is pinned with its parent, `xFormat` included (see Composites).
+**Pinned** paths are immutable for the definition's life. On a property:
+`id`, `kind`, `items`, `properties`, `scope` (`400 property.immutable`).
+On a dataset field: the whole behavioral declaration — `key`, `kind`,
+`shape`, `scope`, `required`, `mutableBy`, `stamp`
+(`400 dataset.immutable`). Mutable on both: `name`, `description` and
+every path under a top-level `xFormat`; on a property also `xKey` and
+`meta.index`. A nested descriptor under `properties` / `items` is pinned
+with its parent, `xFormat` included (see Composites).
 
 Nothing in `xFormat` is enforced by the SDK. `any` validates **every
 property write** against the current slug's shape — a compound's
@@ -80,11 +73,11 @@ fact.
 |---|---|---|
 | `id` | pinned | content-addressed record id. Values live at `record[typeId][id]`, so this is the storage key. |
 | `xKey` | **mutable** | the handle. An alias, not a storage key — renaming rewrites no data. Unique **within one type**; see Handles below. |
-| `kind` | **pinned** | `string` · `number` · `boolean` · `array` · `object` · `datetime`. Always explicit — nothing is defaulted from the descriptor. (`null` is accepted by the SDK but has no descriptor use.) |
-| `items` / `properties` | **pinned** | recursive sub-shape — `items` on `array`, `properties` on `object`. Declarative on properties, where v1 does not expose them over HTTP; enforced on dataset fields, which declare them as `shape` (`{kind, items?, properties?}`). |
-| `scope` | **pinned** | `synced` · `account` · `local`. On dataset fields, `account` is declarable but not yet writable. |
+| `kind` | **pinned** | `string` · `number` · `boolean` · `array` · `object` · `datetime`. Required on create (`400 request.schema` when absent) — nothing is defaulted from the descriptor. (`null` is accepted but has no descriptor use.) |
+| `items` / `properties` | **pinned** | recursive sub-shape — `items` on `array`, `properties` on `object`. Declarative on properties, and not settable over HTTP; enforced on dataset fields, which declare them as `shape` (`{kind, items?, properties?}`). |
+| `scope` | **pinned** | `synced` · `account` · `local`. On dataset fields, `account` is declarable but not writable. |
 | `name` / `description` | mutable | display |
-| `meta` | mutable | consumer flags — `meta.index` (search scope) only. No longer an open bag; any other key is rejected. That role moved to `xFormat`. |
+| `meta` | mutable | consumer flags — `meta.index` (search scope) only; any other key is `400 request.invalid_field`. Descriptive keys live in `xFormat`. |
 | `xFormat` | mutable | everything descriptive |
 
 ### Dataset field
@@ -102,7 +95,6 @@ Identical descriptor plus the record-write rules:
 
   "required":  true,
   "mutableBy": "author",
-  "stamp":     "createTime",
 
   "xFormat": { … }
 }
@@ -113,9 +105,13 @@ Identical descriptor plus the record-write rules:
 their values share one row with every other type's values. A field's
 `shape` (`{kind, items?, properties?}`) reads back whole; `name`,
 `description` and `xFormat` mutate through
-`PATCH …/datasets/:defId/fields/:fieldId`. A stamped field's kind is
-the one the stamp implies (creator ⇒ string, times ⇒ datetime), and its
-slug is checked against that.
+`PATCH …/datasets/:defId/fields/:fieldId`.
+
+A stamped field (`"stamp": "creator" | "createTime" | "modifyTime"`) is
+written by the handler: no `required`, no `mutableBy`, and
+`mutableBy: "author"` anywhere in the dataset needs a `creator` stamp.
+Its kind is the one the stamp implies (creator ⇒ string, times ⇒
+datetime), and its slug is checked against that.
 
 ## `xFormat`
 
@@ -140,10 +136,8 @@ slug is checked against that.
 | `config` | per format | scalar settings (string / number / boolean), keyed by the vocabulary below |
 | `links` | any | the link-index marker: `link` (the string value is one `any://` reference, kind string), `links` (the array lists references, kind array), `markdown` (the text is scanned for references, kind string) or `none` (never scanned — the off-switch for a `relation` or `markdown` field whose references must stay out of backlinks). Implied by the `relation` slug (`links`) and the `markdown` slug (`markdown`); set it explicitly on any other shape that carries references. See docs/13-index.md § Links. |
 
-Reserved and unwritten: `validate` (a future declarative assertion
-layer — where `required`, `unique` and range rules on a property will
-live) and `compute` (a future read-time computed value). Both answer
-`400 property.format_invalid` today.
+Reserved: `validate` and `compute`. Both answer
+`400 property.format_invalid` on create and on a PATCH set.
 
 These seven are the keys `any` interprets — their leaves are typed on
 write. **Any other top-level key is a vendor namespace** (`acme`),
@@ -177,8 +171,8 @@ entry with a name from each; and `relation.filter` may outlive the
 `targetTypes` it was written for — a filter naming an unknown property
 is inactive, not an error.
 
-A future compound setting whose parts must change together goes in as
-one JSON-text leaf, never a nested object.
+A setting whose parts must change together is one JSON-text leaf, never
+a nested object.
 
 ### Editing: leaves only
 
@@ -224,12 +218,12 @@ prefix, and own their `config` keys.
 | `money` | object | | | | `{amount: number, currency: string}` exactly |
 | `geo` | object | | | | `{lat, lng}` in range exactly |
 
-`tags` is reserved for a future space-level shared tag table.
+`tags` is reserved: as a slug it is `400 property.format_invalid`.
 
-The date display vocabulary — format sets, zone policy, relative
-rendering — is being settled with the product side; `datePattern` /
-`timePattern` / `zone` are placeholders for it. `optionSort` values are
-likewise open (`manual` shown).
+The server types `config` leaves only as scalars; of the keys above,
+only `multiple` and `max` affect its value checks. `datePattern` /
+`timePattern` / `zone` have no defined value vocabulary; `optionSort`
+values are open (`manual` shown).
 
 ### One or many
 
@@ -244,16 +238,15 @@ pinned.
 
 Turning `multiple` off keeps every stored value. A client shows the
 first with a count and writes a one-element array on the next edit;
-dropping the rest silently would be a migration.
+never drop the rest silently.
 
 ### Dates
 
 Both date slugs are `kind: datetime` — an instant,
 `{"$date": "<RFC 3339>"}` in both directions (writes also accept
 `{"$date": <unix millis>}`). Date operators (`$year`, `$dateTrunc`,
-`$dateDiff`) therefore work on every date property. The former
-ISO-string variant (`kind: string` with a date format) is gone: a date
-slug on a string kind is rejected at create.
+`$dateDiff`) therefore work on every date property. A date slug on a
+`string` kind is `400 property.format_invalid`.
 
 `date` is a **calendar day**, encoded as midnight UTC. **Format it in
 UTC, never in local time** — a local-time render shows the previous day
@@ -331,10 +324,10 @@ and differ per space, so a `filter` shipped in a bundle is inert on
 arrival. Only `targetTypes` travels; a bundle should ship the type
 restriction and leave the filter to the installing space.
 
-**`targetTypes` can also be ambiguous today.** Type xKey is not
-convergently unique — the uniqueness check is a read-then-create
-preflight — so a duplicate handle leaves a live reference resolving to
-either type. This is a v1 limitation of `relation`, not future work.
+**`targetTypes` can be ambiguous.** Type xKey is not convergently
+unique — the uniqueness check (`409 type.xkey_conflict`) is a
+read-then-create preflight — so two types created apart can share a
+handle, and a reference naming it resolves to either.
 
 ## Composites
 
@@ -355,13 +348,13 @@ POST …/properties/:objectId/set/:typeId
                            "to":   {"$date":"2026-08-18T00:00:00.000Z"} } } }
 ```
 
-Property writes are keyed by propId with no sub-paths, so no `_ver`
-entry can ever exist below `typeId.propId` and this `$set` is a **true
-replace**. Two useful consequences: an open-ended value is the same
-write with the key omitted (`{"from": …}` clears `to` — there is no
-sub-path unset), and cross-part invariants like *end on or after start*
-are enforceable at write time, because one client writes both parts in
-one op — and `any` enforces exactly those (§ v1 vocabulary).
+`/set` keys a value by propId with no sub-paths, so this is one `$set` of
+the whole value and it **replaces** what was there. Two useful
+consequences: an open-ended value is the same write with the key omitted
+(`{"from": …}` clears `to` — `/set` has no sub-path unset), and
+cross-part invariants like *end on or after start* are enforceable at
+write time, because one client writes both parts in one op — and `any`
+enforces exactly those (§ v1 vocabulary).
 
 Concurrent whole-value writes resolve last-writer-wins — the right rule
 for one value, and the reason to prefer a compound over two linked
@@ -380,16 +373,11 @@ that is a new property, exactly as Text cannot become Number. Offer
 "Date range" as its own entry in the picker rather than an "add an end"
 toggle.
 
-**This is a trade, made deliberately.** Storing a date as `kind: array`
-of instants — `[start]` or `[start, end]` — would make the range a
-mutable flag, consistent with `choice` and `relation`. It is rejected
-because it forfeits date operators: `$dateTrunc` and `$year` over an
-array return **null** in any-store and **error** in MongoDB, so grouping
-a date column by day, week, month or year stops working. Range filters
-degrade too — array matching is per element, so "due after X" matches
-any range whose *end* is after X. The toggle is traded for date grouping
-and scalar comparison; the picker consequence follows from that, and is
-not an oversight.
+A range is an object rather than an array of instants because the date
+operators need a scalar: `$dateTrunc` and `$year` over an array return
+**null**, so a date column could not be grouped by day, week, month or
+year, and array matching is per element, so "due after X" would match
+any range whose *end* is after X.
 
 ## Client rules
 
@@ -415,9 +403,7 @@ raw `/modify` route. The rule for a client is therefore *never silently
 rewrite* — refusing to save and surfacing the error is correct;
 normalising the value to make it pass is not.
 
-Editing `xFormat` writes the specific leaf only. Never rewrite the whole
-bag — the server refuses it, and it would drop keys another client
-added.
+Edit `xFormat` leaf by leaf (§ Editing: leaves only).
 
 ### Values a client must tolerate
 
@@ -441,7 +427,7 @@ one kind**:
 
 | `kind` | moves between | effect |
 |---|---|---|
-| `string` | text · longtext · url · email · phone | harmless — the values are all lines of text |
+| `string` | text · longtext · markdown · url · email · phone | harmless — the values are all lines of text |
 | `number` | number · currency · percent · rating · duration | harmless, display only |
 | `datetime` | date · datetime | changes the render zone; see Dates |
 | `object` | period · money · geo | shape is pinned, so values survive an incoherent slug |
@@ -503,88 +489,67 @@ another. Per-viewer preferences are one setting per viewer, not one per
 property, and they are not a `scope` on the definition: `scope` is a
 value write route, not a home for definition metadata.
 
-## What clients delete
-
-- the kind-resolution ladder (`format.type` → `kind` → `xKind` → legacy `xKey`)
-- the legacy marker-xKey set and any denylist built from it
-- all reads and writes of `xKind`, `format` and `format.ui`
-- `meta.pos` and `meta.icon` — now `xFormat.pos` / `xFormat.icon`
-- the raw-id reference convention — object refs are `relation` with `any://` values
-- device-local number-display storage — now `xFormat.config`
-- handling for the ISO-string variant of `date`
-- omitting `kind` on create — it is required
-
 ## What the server enforces
 
 Everything the SDK does not: the SDK stores `x-format` as one object
 created whole, lets every path under it mutate, and enforces `kind`
 alone.
 
-- **On create** (`POST …/properties`, dataset field drafts): the six
-  interpreted keys are typed, the slug is checked against the pinned
-  `kind` for the v1 vocabulary, `tags` / `validate` / `compute` are
-  refused, vendor keys pass verbatim. `400 request.invalid_field` for a
-  shape problem, `400 property.format_invalid` for a vocabulary one.
+- **On create** (`POST …/properties`, bundle `properties`, dataset
+  field drafts): the seven interpreted keys are typed, the slug and the
+  `links` marker are checked against the pinned `kind`, `tags` /
+  `validate` / `compute` are refused, vendor keys pass verbatim.
+  `400 request.invalid_field` for a shape problem,
+  `400 property.format_invalid` for a vocabulary one.
 - **`xKey` uniqueness** within the type on add and on rename —
   `409 property.xkey_conflict`.
 - **On PATCH** (properties and dataset fields): the leaf-only rule; the
-  same leaf typing; a slug move checked against the kind.
+  same leaf typing; a slug or `links` move checked against the kind;
+  pinned paths `400 property.immutable` / `400 dataset.immutable`.
 - **On every property write** (`/set`, object-create `initialProperties`,
   bundle `rootProperties`): the value against the current slug —
   `400 property.format_violation` with `details.{propId, format, reason}`.
+  Raw `POST …/modify` on the `objects` dataset is not checked.
 - **The link index** reads references off every property and field
-  whose descriptor carries a `links` marker, implied or explicit; a
-  marker nested in a composite is invisible to it. The marker is paired
-  with the kind on create and on PATCH (`400 property.format_invalid`).
+  whose top-level descriptor carries a `links` marker, implied or
+  explicit. A `relation` slug or `links` marker nested in a composite is
+  legal but invisible to it.
 - `meta` narrowed to `index`.
 
-## Not covered yet
+## Not covered
 
-Named so clients do not model them as `xFormat` extensions before there
-is a contract:
+Named so clients do not model them as `xFormat` extensions without a
+contract:
 
 - **File / image values.** A file is `any://f/<spaceId>/<fileId>` — a
   different URI kind, and files are not objects, so
-  `relation.targetTypes` has nothing to bind to. Needs a slug plus a
-  file-target member.
+  `relation.targetTypes` has nothing to bind to. No slug covers them.
 - **Person / identity values.** A `relation` pointing at objects of a
-  user-defined "Person" type works in v1 — that is an ordinary object
-  reference. What does **not** work is pointing at a *space member*:
-  identities are not objects, `any://m/<spaceId>/<identity>` exists for
-  mentions but is not wired to `relation`, and `targetTypes` has no way
-  to name them. An "Assignee" that means a member rather than a contact
-  record is unsupported.
+  user-defined "Person" type is an ordinary object reference. Pointing
+  at a *space member* is not supported: identities are not objects,
+  `any://m/<spaceId>/<identity>` exists for mentions but is not wired to
+  `relation`, and `targetTypes` has no way to name them. An "Assignee"
+  that means a member rather than a contact record is unsupported.
 - **Computed values** — formula, rollup, lookup. Not expressible: a
   handler may read only its own object's datasets, and only fields
   immutable post-create, so a stored derived value cannot depend on an
-  edited one. Read-time evaluation is the direction; `compute` is
-  reserved.
-- **Declarative assertions.** Until `validate` lands, a third-party or
-  agent-authored format renders correctly but cannot enforce invariants
-  — `kind`, plus whatever `any` checks for the vocabulary above. When it
-  lands it is one JSON-text leaf (an assertion set is interdependent)
-  enforced at the write boundary only; a stored value that violates it
-  is tolerated, never rewritten.
+  edited one. `compute` is reserved.
+- **Declarative assertions.** `validate` is reserved: a third-party or
+  agent-authored format renders correctly but enforces nothing beyond
+  `kind` and the vocabulary checks above.
 - **Paired / inverse relations, cardinality.** Declarable as advisory
   keys; maintaining the pair means writing a second object, which no
   handler can do.
-- **Localisation of `name` / `description` / option labels**, and the
-  related question of distinguishing bundle-authored from user-authored
-  leaves so a bundle upgrade does not clobber a user's rename.
+- **Localisation of `name` / `description` / option labels.**
 - **Autonumber, non-date ranges, unit/measure properties.**
-- **Slugs the built-ins still lack.** Every field served through discovery or a built-in type's properties — the
-  module and static datasets (`chat_messages`, `editor_blocks`,
-  `dataviews` / `views`), the `objects` row's `any.*` properties, the
-  built-in types' properties and the SDK's system datasets — carries a
-  `description`, and an `xFormat` where the vocabulary above names its
-  value (`text`, `longtext`, `markdown`, `datetime`, `checkbox`). Two
-  value shapes those fields are made of have no slug yet and ship
-  description-only: account identities (the "Person / identity values"
-  item above) and record ids (`replyToMessageId`, `views.dataview`).
-  Icon values, lexid `pos`, enum strings and opaque objects are system
-  values and stay undecorated by design.
-
-One behaviour worth knowing while these are open: a `relation` slug or
-a `links` marker is legal in a nested descriptor, but the link index
-inspects only top-level definitions, so a link inside a composite is
-invisible to it.
+- **Slugs for built-in system values.** Every field served through
+  discovery or a built-in type's properties — the module and static
+  datasets (`chat_messages`, `editor_blocks`, `dataviews` / `views`),
+  the `objects` row's `any.*` properties, the built-in types' properties
+  and the SDK's system datasets — carries a `description`, and an
+  `xFormat` where the vocabulary above names its value (`text`,
+  `longtext`, `markdown`, `datetime`, `checkbox`). Two value shapes
+  have no slug and ship description-only: account identities (the
+  "Person / identity values" item above) and record ids
+  (`replyToMessageId`, `views.dataview`). Icon values, lexid `pos`, enum
+  strings and opaque objects are system values and carry no slug.

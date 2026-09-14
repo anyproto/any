@@ -2,12 +2,10 @@
 
 ## HTTP framework
 
-Use **[`github.com/labstack/echo`](https://echo.labstack.com/)** (v4).
-Middleware stack, routing groups, and binding helpers line up well with
-the endpoint catalog. No other framework should be introduced without a
-reason.
+**[`github.com/labstack/echo`](https://echo.labstack.com/)** (v4). No
+other router.
 
-Grouping routes per SDK section uses `echo.Group`:
+Routes group per SDK section with `echo.Group`:
 
 ```
 e := echo.New()
@@ -20,13 +18,16 @@ spaces.GET("/:spaceId", ...)
 // ...
 ```
 
-The `/v1` prefix is **not** optional in v1 — every route ships under
-it from day one so the next iteration doesn't have to break paths.
+Every API route lives under `/v1`, health and shutdown included; the
+next iteration bumps the prefix instead of breaking paths. The `/ui`
+debug harness (`webUI.enabled`, `05-config.md`) is the one route
+outside it.
 
 ## Command
 
 ```
-any run [--config PATH] [--mode standalone|managed]
+any run [--config PATH] [--data-dir DIR] [--mode standalone|managed]
+        [--account ID] [--wallet PATH] [--addr HOST:PORT] [--log-level LEVEL]
 ```
 
 Foreground process. Stops on Ctrl-C (SIGINT), `any stop` (a signal —
@@ -51,8 +52,9 @@ logout and shutdown rights follow from it:
 
 Mode is fixed at launch and **unreachable over HTTP** — that is what
 makes the standalone refusals enforceable rather than advisory. A
-managed server refuses the standalone-only inputs (`account:`,
-`auth.walletPath`) at config load. Clients never branch on the mode
+managed server refuses the standalone-only inputs (`account` /
+`--account` / `ANY_ACCOUNT`, `auth.walletPath` / `--wallet`) at config
+load. Clients never branch on the mode
 string: `GET /v1/auth` reports the operations the server accepts as
 `capabilities` bits (`03-api.md` § Auth).
 
@@ -90,19 +92,22 @@ account is standalone-only — a managed login with its phrase lands in
    **Standalone**: resolve the data-dir ROOT (default `~/.any/`) and
    pick the account to boot (`internal/server/identity.go`):
    - `auth.walletPath` / `--wallet` set → that wallet, data flat at the
-     root (manual mode).
+     root (manual mode). A wallet file that does not exist yet is
+     generated.
    - `account:` / `ANY_ACCOUNT` / `--account` set → `<root>/<id>/` if
      present, else the root `wallet.key` (the derived id must match,
-     verified after opening).
+     verified after opening), else `any run` exits with an error.
    - No selector: a root `wallet.key` (legacy flat layout) is the
      default account; else a sole `<root>/<id>/` dir; else **no
-     account**.
+     account** (none, or several).
+
+   The embedded usecase catalog is validated next; a broken catalog
+   refuses to start (`28-well-known-bundles.md` § Validation).
 3. With an account: boot its engine — take the instance lock in the
-   account dir, open
-   the wallet, derive the account id, open the SDK and the indexer —
-   before the listener binds, so boot FAILURES surface immediately.
-   `run` does NOT auto-generate a wallet anymore; create accounts with
-   `any init` or over HTTP.
+   account dir, open the wallet, derive the account id, open the SDK
+   and the indexer — before the listener binds, so boot failures
+   surface immediately. Outside the `--wallet` path `run` never
+   generates a wallet; create accounts with `any init` or over HTTP.
    SDK `Open` returns after local wiring only: eager space loading and
    offline catch-up replay run on one SDK-owned serial background pass,
    so the server serves as soon as the listener binds. Until a space's
@@ -160,10 +165,9 @@ out-of-band `POST /v1/spaces/one-to-one/register-incoming` path. See
   either line's shape. The address is also recorded in the account
   dir's `server.addr`, which the CLI reads when `--addr` is not given.
 - **Configurable**: `listen.addr` in config or `--addr host:port` flag.
-- The server refuses to bind anything other than a loopback address in
-  v1. If you pass `--addr 0.0.0.0:7001` it errors out clearly with
-  "remote access is not supported in v1". (Keeps the security model
-  honest.)
+- The server refuses to bind anything other than a loopback IP literal:
+  `--addr 0.0.0.0:7001` (or a host name, `localhost` included) exits
+  with "remote access is not supported in v1".
 
 ## Shutdown
 
@@ -214,7 +218,9 @@ the files only for the holder it found.
 One lock per ACCOUNT: two servers may share a root as long as they
 serve different accounts (on different ports). An unauthorized server
 holds no lock until it boots an account; a managed server releases it
-on `DELETE /v1/auth` and takes the next account's on a switch.
+on `DELETE /v1/auth` and takes the next account's on a switch. A
+build with `-tags mobile` (the iOS xcframework: one in-process
+instance) takes no lock.
 
 ## Data dir layout
 
@@ -225,10 +231,10 @@ on `DELETE /v1/auth` and takes the next account's on a switch.
 ├── config.yaml                  # optional, if not passed via --config
 ├── models/                      # shared embedder model cache (all accounts)
 ├── wallet.key                   # LEGACY flat layout = the DEFAULT account;
-├── server.lock                  #   its data stays directly at the root
-├── server.pid                   #   exactly as before (no migration)
-├── sdk/  index/
-└── <accountId>/                 # every account created since
+├── server.lock  server.pid      #   its files and data sit directly at the
+├── server.addr                  #   root, same names as in an account dir
+├── sdk/  files/  index/
+└── <accountId>/                 # one dir per account
     ├── wallet.key               # STANDALONE: auth.FileProvider wallet (mode 0600)
     ├── device.key               # MANAGED: cached device key (mode 0600, minted
     │                            #   once, never portable — § Modes); the account
@@ -236,6 +242,7 @@ on `DELETE /v1/auth` and takes the next account's on a switch.
     ├── server.lock              # per-account single-instance lock (OS file lock)
     ├── server.pid               # holder's pid, for error messages only
     ├── server.addr              # holder's bound address — CLI convenience only
+    ├── push-token.json          # this device's push token (when push is active)
     ├── sdk/                     # any-store DB(s) — owned by the SDK; sdk.db ALSO
     │                            #   holds the local store's l_* collections
     ├── files/                   # file content (one CARv2 per rootCid) — owned
@@ -243,13 +250,10 @@ on `DELETE /v1/auth` and takes the next account's on a switch.
     └── index/                   # local search index (index.db) — owned by the indexer
 ```
 
-**Upgrading is one-way.** any-store v2.0.0 renamed the database header
-magic; it still reads databases written by earlier v2 builds, but once a
-v2.0.0-era server has opened a data dir the header carries the new magic
-and a build pinned to an older any-store refuses it outright
-(`btree: database is corrupt` — the data is intact, the old code just
-doesn't recognize the file). Verified by rolling a server back after an
-upgrade. Keep a copy of the data dir if you need the option to downgrade.
+**Upgrading is one-way.** A data dir opened by this build is refused by
+builds pinned to an any-store older than v2.0.0 (`btree: database is
+corrupt` — the data is intact; the older code does not recognize the
+header). Keep a copy of the data dir to keep the option to downgrade.
 
 The SDK's `config.Storage.DataDir` points at `<account-dir>/sdk/`; the
 SDK derives `<account-dir>/files/` next to it for file bytes. A durable
@@ -262,11 +266,11 @@ device-local data with no DAG behind them and no backup. The SDK's
 own re-index paths rebuild only CRDT collections and leave them alone,
 but removing `sdk/` by hand loses them.
 The search index (`docs/13-index.md`) is derived state: removing
-`<account-dir>/index/` is safe but re-indexes only content changed
-afterwards ("index from the next change"). The embedder model cache is
-shared at `<root>/models/` — one ~600MB download per root, not per
-account (a model already sitting in a legacy `<account-dir>/index/models/`
-keeps being used from there).
+`<account-dir>/index/` is safe — its cursors go with it, so the next
+boot re-indexes from the change feed's start and re-embeds. The
+embedder model cache is shared at `<root>/models/` — one ~600MB
+download per root, not per account (a model already sitting in
+`<account-dir>/index/models/` keeps being used from there).
 
 ## Logging
 
@@ -274,8 +278,11 @@ Uses `any-sync/app/logger`. The config's `log` block is applied
 globally at startup. Default level `info`; colorized output to stderr.
 Each major package pulls a named logger (e.g. `logger.NewNamed("http")`).
 
-Echo's own logger is wired to the same backend — one log stream for
-the whole process.
+HTTP requests log through the same backend — one log stream for the
+whole process: one `info` line per request (method, path, status,
+duration, request id) under the `http` logger. Request and response
+bodies are never logged. A handler error logs at `error`; a recovered
+panic logs at `error` with its stack.
 
 ## Health
 
@@ -284,7 +291,7 @@ the whole process.
 ```json
 {
   "status":        "ok",
-  "version":       "any v0.1.0 (sdk v0.0.0)",
+  "version":       "any v0.1.0 (commit 1a2b3c4, built 2026-04-23T18:00:00Z)",
   "startedAt":     "2026-04-23T18:12:00Z",
   "account":       "A3...accountId...",
   "bootstrapping": false,
@@ -293,8 +300,7 @@ the whole process.
 ```
 
 Does not require SDK state — on an unauthorized server `account` is
-`""` and everything else is live. Used by `any status` and by
-supervisors once we add install/service files.
+`""` and everything else is live. `any status` prints it.
 
 `bootstrapping` is `true` while a booted engine's SDK background boot
 pass (eager space loading + offline catch-up) is still running: the
@@ -308,9 +314,8 @@ when unauthorized): `supported` is what this server's SDK writes,
 stored one is ahead. `newer` flips at runtime when another device on a
 newer release raises the mark: the server keeps serving reads and
 refuses every synced write with `409 sdk.crdt_version_newer` until it
-is upgraded — the signal for a client's "upgrade required" state. The
-mark exists from this release on, so only releases carrying it refuse
-each other; an older release without the check runs unguarded.
+is upgraded — the signal for a client's "upgrade required" state. A
+release built without the check does not refuse.
 
 ## One server = one account
 
@@ -321,4 +326,5 @@ account of a RUNNING server is an ownership right (§ Modes): a managed
 server's host switches in place with `POST /v1/auth {…, "replace":
 true}` or signs out with `DELETE /v1/auth`; a standalone server refuses
 both — stop it and start with `--account <id>`, or let `POST /v1/auth`
-pick on an unauthorized one. Multi-account per process is deferred.
+pick on an unauthorized one. Serving several accounts from one process
+is not supported.

@@ -1,10 +1,9 @@
 # Saved views (built-in `dataview` type)
 
 A **view** is a saved way of looking at a set of objects: a name, an
-icon, a layout, a filter/sort/groupBy, and column settings. Views give
-that a home in the space so a view saved in one client is the same view
-in the next — instead of each client keeping its own per-device copy in
-browser storage.
+icon, a layout, a filter/sort/groupBy, and column settings. Views live
+in the space, so a view saved in one client is the same view in the
+next.
 
 Views come in two levels. A **dataview** is a named, ordered table on
 the host object — "Tasks", "Reading list" — and every view belongs to
@@ -13,22 +12,10 @@ with its own views, which is what lets a page hold a task board and a
 reading list side by side without their views bleeding into each other.
 
 `dataview` is a **registered built-in type**, not a type a client
-creates. Two clients (or two devices of one client) that each
-check-then-create a "views" type both pass their local check and then
-merge, leaving the space with parallel type definitions — the
-proliferation a client-registered bundle solves for document types
-(`03-api.md` § Bundles). A registered type exists in every space by
-construction. It is `hidden`: a capability an object opts into, not a
-class a user picks (`GET …/types` lists it only with
-`?includeHidden=true`).
-
-It replaces the earlier `data_view` type and its `data_views` dataset
-with no back-compat: on an upgraded space the old collection and its
-rows stay on disk unreachable (an unregistered dataset), `data_view`
-lingers in `any.types` while `GET …/types/data_view` answers 404, and
-an old change that arrives late parks for good. Existing installs are
-abandoned in place; a client detaches `data_view` from its hosts and
-ensures the new defaults.
+creates: it exists in every space by construction, so clients never
+race parallel "views" types into one space. It is `hidden`: a
+capability an object opts into, not a class a user picks
+(`GET …/types` lists it only with `?includeHidden=true`).
 
 ## Data model
 
@@ -42,8 +29,8 @@ are "of":
 | a type's objects     | the **type object** (`typeId` is an object id) |
 | a document / board   | that object                          |
 
-Attaching to a type object is deliberate — `AttachType` has no
-meta-type guard, so "views on a type" needs no special mechanism.
+Attach works on a type object like on any other object, so views on a
+type need no special mechanism.
 
 A dataview record:
 
@@ -108,9 +95,7 @@ deletes them with the dataview, or re-parents them with one path write
 dataview deleted on one device turn every view write on another into a
 failure.
 
-`query.type` is `"plain"` today. The discriminator exists so an
-aggregation-backed view (chart, rollup) can land later without
-migrating existing records.
+`query.type` is `"plain"`: a discriminator naming the query shape.
 
 ### Field rules
 
@@ -145,8 +130,8 @@ well-known id.
 record on every peer.
 
 Read the rules from `GET /v1/spaces/:spaceId/datasets` (`x-scope`,
-`x-mutable-by`, `x-stamp`, `x-id`) rather than hardcoding them; the
-part and its two collections come back from
+`x-mutable-by`, `x-stamp`, `x-id`, `x-delete-by`) rather than
+hardcoding them; the part and its two collections come back from
 `GET …/types/dataview/parts`.
 
 `createdAt` / `modifiedAt` are **instants**, not numbers — they read and
@@ -320,9 +305,10 @@ a user cleared still needs a fallback (`["-modifiedAt"]`).
 not error, it answers empty: ordering comparisons are bracketed by
 type, so a number or string literal never matches an instant.
 
-**Paging:** `limit` / `offset` for a table page. `includeTotal` is
-page-bounded — with `limit: 50` you get `total ≤ 50` — so a row count
-for the footer needs its own `$count` pipeline, not `includeTotal`.
+**Paging:** `limit` / `offset` for a table page. `includeTotal` adds
+`total` (the filter-matching count, independent of `limit` / `offset`)
+and `hasNext` to the snapshot; the count is taken once and not updated
+by `changes` frames, so a live footer re-reads it with a snapshot.
 
 ### Reconciling a stale query
 
@@ -361,21 +347,20 @@ query/subscribe per group**, and only for the groups actually on
 screen. There is no single "grouped query": the server returns rows, and
 the grouping is assembled client-side from N windows.
 
-Budget the preflight twice. `groupLimit` (200 above) is the server-side
-backstop that turns a runaway grouping into a `400`; the number of
-columns a UI can actually show is far smaller, so apply your own cap —
-somewhere around a few dozen — and treat exceeding it as "not
+Budget the preflight twice. `groupLimit` (200 in the request below) is
+the server-side backstop that turns a runaway grouping into a `400`; the
+number of columns a UI can actually show is far smaller, so apply your
+own cap — somewhere around a few dozen — and treat exceeding it as "not
 groupable" even when the aggregate succeeds. The preflight is one
 snapshot request; the cost that matters is the N live windows it
 authorises.
 
-**v1 groups by `choice` only.** That is the slug with a bounded, named,
-ordered value set — the option catalog gives columns a name, a colour,
-an order, and an empty column for an option nothing uses yet. A
-free-text or number property has no catalog, so its "columns" would be
-whatever values happen to exist; offer grouping on those only once you
-have a product answer for how many columns is too many. Dates are out
-for a different reason (below).
+**Group by `choice`.** That is the slug with a bounded, named, ordered
+value set — the option catalog gives columns a name, a colour, an
+order, and an empty column for an option nothing uses yet. A free-text,
+number or date property has no catalog, so its "columns" are whatever
+values happen to exist, and a column budget decides how many is too
+many. Dates bucket by calendar period (§ Date grouping).
 
 **1. Ask for the distinct values, with counts.** `/aggregate` is the
 only surface that answers "what values does this property take":
@@ -481,7 +466,9 @@ POST /v1/spaces/:spaceId/query/subscribe
 Hold that one stream while a grouped view is open and a new option — or
 a rename, a recolour, a reorder — arrives live, so a newly added option
 becomes a new empty column with no polling at all. This is the whole
-column set for choice grouping.
+column set for choice grouping. Rows are the raw stored definitions, so
+the descriptor reads as `x-format` (options under `x-format.options`),
+not the wire `xFormat`.
 
 **Counts do not.** Only the aggregate knows how many rows sit in each
 group, and which option keys are dangling. Re-run the preflight:
@@ -500,53 +487,40 @@ Stop the timer when the view is hidden or closed. A count that is a
 minute stale is invisible to users; a poll loop running behind a
 background tab is not.
 
-Grouping on an **open value set** (not offered in v1) has no catalog to
-stream, so there the timer is the *only* way a new group is ever
-discovered — one more reason v1 stays on `choice`.
+Grouping on an **open value set** has no catalog to stream, so there
+the timer is the *only* way a new group is ever discovered.
 
-### Date grouping is out of this iteration
+### Date grouping
 
-Grouping by calendar period is **not offered yet**. The date operators
-(`$dateTrunc`, `$year`, `$week`) reach through `/aggregate` but are
-inert on what `any` stores — system stamps are unix-second numbers,
-user date properties are ISO strings, and both return null; there is no
-`$toDate` to bridge them. Grouping a raw timestamp gives one group per
-distinct second.
+The date operators compute on instants — the `createdAt` / `modifiedAt`
+stamps and properties with the `date` / `datetime` slug — so a calendar
+bucket is a `$dateTrunc` group key:
 
-Arithmetic bucketing (`{"$round": [{"$divide": ["$modifiedAt", 86400]}, 0]}`)
-is reachable, but `$round` is nearest rather than floor, so day
-boundaries land at midday — wrong enough to mislead. Real calendar
-grouping waits on native datetime values (SYN-136); see
-`14-aggregation.md`.
+```json
+{"$group": {"_id": {"$dateTrunc": {"date": "$<typeId>.<propId>", "unit": "month"}},
+            "count": {"$count": {}}}}
+```
+
+`unit` is one of `year`, `quarter`, `month`, `week`, `day`, `hour`,
+`minute`, `second`, `millisecond`; `timezone` and `startOfWeek` are
+accepted. A `date` property is a calendar day encoded as midnight UTC
+(`27-descriptors.md` § Dates), so truncate it in UTC. Objects without
+the property land in the `id: null` group. A date is an open value set:
+the aggregate is the only source of its columns.
 
 ## Scope tiers
 
-Views come in three tiers. **Only the shared tier ships here.**
-
-| Tier | Visible to | Status |
-|------|-----------|--------|
-| shared | everyone with space access | **live** |
-| account-private | this account's devices | needs scoped datasets (SYN-174) |
-| device-private | this device | needs scoped datasets + the local sidecar |
-
-The private tiers need scoped **datasets** — records that only exist for
-me — not scoped fields. The SDK scopes fields, and its account mirror
-covers the `objects` rows only. When they land they are parallel
-datasets — a `_account` / `_device` twin of `views`, and of
-`dataviews` if a private table is ever wanted — not a per-record scope
-flag: one dataset is one version domain, and mixing DAG, tech-tree and
-local-lexid versions in one dataset breaks versionId ordering and
-subscribe dedup.
-
-Because ids are namespaced per `(objectId, dataset, recordId)`,
-promoting a private view to shared is a dataset move that can preserve
-the id, and a link of the form `any://o/<space>/<obj>#view_<viewId>`
-resolves across all three tiers.
+Views are **shared**: one set of dataviews and views, visible to
+everyone with space access. Account-private and device-private views
+are not supported — they need scoped *datasets* (records that exist only
+for one account or device), and the SDK scopes fields, with an account
+mirror that covers `objects` rows only. The one device-private tier is
+the `localSettings` field (§ `layoutSettings` vs `localSettings`).
 
 ## Related
 
 - `08-clients.md` § 13 — the client call patterns: ensure, autosave
-  debounce, live-surface budget, migration off per-device storage
+  debounce, live-surface budget, grouping
 - `03-api.md` § Types → Built-in `dataview` type, § Properties
 - `09-query.md` — the filter/sort grammar a view's `query` embeds
 - `14-aggregation.md` — the pipeline surface grouping depends on

@@ -14,8 +14,8 @@ on concurrent offline installs (see § Forks). One part, `entries`, with
 one records dataset of the same key — its collection is the namespaced
 **`<rootId>_entries`** (`03-api.md` § Parts and modules), the `dataset`
 value in every read and write below; read it off the parts list rather
-than composing it. One record per entry, the
-record id deterministic from what the entry IS —
+than composing it. One record per entry, the record id deterministic
+from what the entry IS —
 
 | entry | record id |
 |---|---|
@@ -32,10 +32,10 @@ each dataset carrying its `collection`):
 | field | | |
 |---|---|---|
 | `parentId` | required | `""` = top level, else a folder's record id |
-| `pos` | required | lexid; orders siblings (lexid allocator params: `CharsAllNoEscape`, 4, 100 — any-ui's `lib/lexid` port matches) |
+| `pos` | required | lexid; orders siblings (allocator: `CharsAllNoEscape`, block 4, step 100) |
 | `removed` | | `true` = soft-deleted; absent/false = live |
 | `name` | | folder name \| mirrored target `any.name` |
-| `iconCid` | | mirrored target `any.iconCid` (folders: optional) |
+| `iconCid` | | mirrored target `any.icon` (folders: optional) |
 | `types` | | mirrored target `any.types` (type-default icon fallback) |
 | `creator`, `createdAt`, `modifiedAt` | stamped | server-derived; client writes rejected |
 
@@ -94,9 +94,9 @@ sync) install two roots; the registry converges on one winner, the
 other lands in the bundle's `losers`. The client that observes a loser
 merges its `entries` into the winner — upsert each live record through
 this schema (link ids merge into the same record; folders re-mint) —
-then calls `POST …/bundles/favorites%2Fv1/resolve` with the loser root
-id. Ensuring lazily (first write, not startup) is what keeps this
-rare.
+then calls `POST …/bundles/favorites%2Fv1/resolve` with
+`{"loserRootId": "<loser root>"}`. Ensuring lazily (first write, not
+startup) is what keeps this rare.
 
 ## Writes
 
@@ -107,7 +107,7 @@ POST /v1/spaces/<tech>/upsert
 { "objectId": "<root>", "dataset": "<rootId>_entries", "records": [
   { "id": "any://o/<spaceId>/<objectId>",
     "fields": { "parentId": "", "pos": "<lexid>",
-                "name": "<target any.name>", "iconCid": "<target any.iconCid>",
+                "name": "<target any.name>", "iconCid": "<target any.icon>",
                 "types": ["<target any.types…>"], "removed": false } } ] }
 ```
 
@@ -167,7 +167,7 @@ POST /v1/spaces/<spaceId>/objects/query/subscribe
   the windowed contract's recovery rule; there is no in-place filter
   update.
 - Interpret deltas: `added`/`updated` rows carry the live `any.name` /
-  `any.iconCid` / `any.types` → refresh the mirror **only when a value
+  `any.icon` / `any.types` → refresh the mirror **only when a value
   differs** (after the first device writes, the others see the updated
   entry and skip — no ping-pong). A `removed` entry is definitive ONLY
   with `reason: "deleted"`; `filtered-out` / `displaced` mean the
@@ -178,9 +178,9 @@ POST /v1/spaces/<spaceId>/objects/query/subscribe
   answers `410 object.deleted` when a definitive single check is
   needed.
 
-Plus one account-wide `POST /v1/spaces/query/subscribe` for space
-name / icon / status / `localStatus` — it feeds both the "… in
-<Space>" labels and the space-gone cleanup signal.
+Plus one account-wide `POST /v1/spaces/query/subscribe` for the raw
+space rows — `name` / `icon` / `remoteStatus` / `localStatus` — which
+feeds both the "… in <Space>" labels and the space-gone cleanup signal.
 
 Target state, derived from those subscriptions:
 
@@ -188,13 +188,8 @@ Target state, derived from those subscriptions:
 |---|---|
 | row present | live |
 | `removed { reason: "deleted" }` delta | deleted — definitive |
-| space row status deleted / removed | space gone — definitive |
+| space row `remoteStatus: "deleted"` | space gone — definitive |
 | space not loaded here / row absent from the snapshot | **unavailable — NOT deleted** |
-
-`GET /v1/spaces/<s>/objects/<o>` answers `410 object.deleted` for the
-definitive single-lookup case (an object tombstoned before this device
-ever subscribed never enters a snapshot, so absence alone proves
-nothing).
 
 ## Cleanup
 
@@ -204,27 +199,24 @@ Rules:
 - On a **definitive** signal only, a client may `$set removed: true`.
 - On not-found / unavailable: do nothing. A fresh device or an unloaded
   space looks exactly like a deleted target.
-- Hard deletion of definitively-gone targets is reserved for a future
-  server-side reference-index mechanism; favourites does not wait for it.
 
 ## Tree semantics — client policy, not server rules
 
 Every device must compute the same view from the same records:
 resolution is read-side and deterministic, and no client repairs state
-with writes. Decide and document (product):
+with writes. The policy covers:
 
 - an entry whose folder is `removed` — including one that syncs in
   *after* the folder was removed elsewhere (grey the removed folder with
   its late children, treat them as removed with it, or hoist to root);
 - cycles from concurrent moves (A: F1→F2, B: F2→F1) — render the cycle
   members at top level;
-- a missing parent (only possible after a future hard delete) — render,
-  never hide;
+- a `parentId` with no folder record — render, never hide;
 - "is starred" — decide whether it considers the ancestor chain when
   removal is inherited.
 
 ## See also
 
-- `03-api.md` § Bundles (tech-space bundles, built-in account bundles)
+- `03-api.md` § Bundles → Tech-space bundles
 - `08-clients.md` § 12 (account-level bundles recipe)
 - `09-query.md` (filters, sort, paging), `04-events.md` (subscribe frames)

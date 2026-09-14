@@ -2,64 +2,60 @@
 
 ## Principles
 
-- **Default mode is client.** `any space list` sends a GET to the running
-  server.
+- **Default mode is client.** `any space get <id>` sends a GET to the
+  running server.
 - **Running the server is an explicit subcommand.** `any run`.
-- **One command per SDK call.** If the SDK does it, the CLI has a
-  subcommand. If it doesn't, the CLI doesn't.
+- **Commands map 1:1 onto endpoints.** Not every endpoint has a
+  command; the ones below without one are HTTP-only (`03-api.md`).
 - **Output is JSON.** Pretty-printed (easier for both humans and piping
-  through `jq`). No table rendering in v1 — keep it simple.
+  through `jq`); streams print one JSON object per frame. No table
+  rendering.
 - **Exit codes**: 0 success, 1 user / 4xx error, 2 server / 5xx error,
   3 can't reach server.
 
 ## Command surface
 
-> **v1 status:** Meta, Account, Chat, Editor, Subscribe, Aggregate,
-> Members, Invites, Join, ACL, Debug, Sync-status, Bundles, Catalog, and
-> `any space {get,update}` are wired in `internal/cli/`. Everything else in this doc is the
-> planned 1:1 mirror of the HTTP surface — already callable via
-> `curl`, but no CLI subcommand yet. Sections that are not yet
-> implemented are marked **(planned)** in their headers.
-
 ### Meta
 
 ```
 any init [--mnemonic "w1 … w12"] [--mnemonic-stdin] [--index N] [--new]
+         [--data-dir DIR] [--config PATH] [--wallet PATH] [--passkey-stdin]
                                  # create data dir + account wallet, exit
-any run [--config PATH] [--mode standalone|managed] [--account ID]
-                                 # start the server (foreground)
-any auth login [--mnemonic ...|--mnemonic-stdin|--account ID] [--replace]  # POST /v1/auth
+any run [--config PATH] [--data-dir DIR] [--mode standalone|managed] [--account ID]
+        [--wallet PATH] [--log-level LEVEL]
+                                 # start the server (foreground; --addr is the bind address)
+any auth login [--mnemonic ...|--mnemonic-stdin|--account ID] [--index N] [--replace]  # POST /v1/auth
 any auth logout                  # DELETE /v1/auth (managed servers)
 any auth status                  # GET /v1/auth
 any status                       # GET /v1/health
-any stop [--data-dir DIR] [--account ID]  # signal the server serving the data dir's account
-any version                      # print binary + server versions
+any stop [--data-dir DIR] [--config PATH] [--account ID]
+                                 # signal the server serving the data dir's account
+any version                      # print the binary version, and the server's when one answers
 ```
 
 `any init` is the explicit first-run flow. Bare `init` generates a
-fresh account under `<root>/<accountId>/` and prints the BIP-39
-mnemonic to stderr once; when any account already exists it is a no-op
-that lists them. `--mnemonic` / `--mnemonic-stdin` authorize an
-EXISTING account: the same phrase always derives the same account id
-while the device key is freshly generated — the supported way to add a
-second device (never copy `wallet.key`: that clones the device key and
-the two peers fight over one network identity). Prefer
-`--mnemonic-stdin`; a `--mnemonic` flag value leaks into shell
-history. `--new` forces an additional fresh account; `--index` selects
-the derivation index for `--mnemonic` and defaults to 1 — the `any`
-account index (0 is anytype's, so one phrase serves both products with
-distinct accounts). Restoring an anytype-derived account, or an `any`
-account created before index 1 became the default, needs an explicit
-`--index 0`.
+fresh account under `<root>/<accountId>/`, prints the BIP-39 mnemonic
+to stderr once and `{accountId, created}` to stdout; when any account
+already exists it is a no-op that lists them. `--mnemonic` /
+`--mnemonic-stdin` authorize an EXISTING account: the same phrase
+always derives the same account id while the device key is freshly
+generated — the supported way to add a second device (never copy
+`wallet.key`: that clones the device key and the two peers fight over
+one network identity). Prefer `--mnemonic-stdin`; a `--mnemonic` flag
+value leaks into shell history. `--new` forces an additional fresh
+account; `--index` selects the derivation index for `--mnemonic` and
+defaults to 1 — the `any` account index (0 is anytype's, so one phrase
+serves both products with distinct accounts). Restoring an account
+derived at index 0 needs an explicit `--index 0`.
 
-`any run` does NOT create wallets. With no account resolvable (fresh
-root, or several accounts and no `--account`/`ANY_ACCOUNT` selector)
-the server starts unauthorized and waits; `any auth login` (or any
-client POSTing `/v1/auth`) generates (`no flags`), restores
-(`--mnemonic*`) or selects (`--account`) the account and boots the SDK
-in place. `any auth status` shows the authorization state, the
-ownership mode with its capability bits, and every account found in
-the data dir.
+`any run` does not create wallets (outside an explicit `--wallet` path).
+With no account resolvable (fresh root, or several accounts and no
+`--account`/`ANY_ACCOUNT` selector) the server starts unauthorized and
+waits; `any auth login` (or any client POSTing `/v1/auth`) generates
+(no flags), restores (`--mnemonic*`) or selects (`--account`) the
+account and boots the SDK in place. `any auth status` shows the
+authorization state, the ownership mode with its capability bits, and
+every account found in the data dir.
 
 `--mode managed` starts a host-owned server (`02-server.md` § Modes):
 it never resolves an account from disk, keeps no wallet (the phrase
@@ -68,29 +64,29 @@ per account), and prints its control token as the second stdout line
 (`CONTROL_TOKEN <hex>`). Driving one from the CLI needs that token —
 `--control-token` / `ANY_CONTROL_TOKEN` — on `auth login`, `auth
 logout` and `auth login --replace` (switch to another account in
-place). A standalone server refuses all three operations.
-
-`any stop` sends no HTTP: it finds the server serving the data dir's
-account by its held instance lock, sends it `SIGTERM` and waits for the
-lock to be released — so it works against a wedged server, one on an
-ephemeral port, and a managed one alike. With several accounts running
-under one root pick one with `--account` (`--account default` names
-the legacy flat-root account); an unauthorized standalone server holds
-no account lock — stop it with Ctrl-C. `--addr` is refused on `stop`
-(it resolves by data dir, not address). Not available on Windows,
-which has no signal to send: stop the server with Ctrl-C in its
-terminal. `POST /v1/shutdown` is the managed host's path, refused on a
-standalone server.
+place). A standalone server refuses `auth logout` and `--replace`.
 
 Prefer `ANY_CONTROL_TOKEN` over `--control-token`: a flag value is
 visible in the process list, and it never appears in `--help` output
 either way.
 
+`any stop` sends no HTTP: it finds the server serving the data dir's
+account by its held instance lock, sends it `SIGTERM`, waits for the
+lock to be released and prints `{stopped, account, pid}` — so it works
+against a wedged server, one on an ephemeral port, and a managed one
+alike. With several accounts running under one root pick one with
+`--account` (`--account default` names the legacy flat-root account);
+an unauthorized standalone server holds no account lock — stop it with
+Ctrl-C. `--addr` is refused on `stop` (it resolves by data dir, not
+address). Not available on Windows, which has no signal to send: stop
+the server with Ctrl-C in its terminal. `POST /v1/shutdown` is the
+managed host's path, refused on a standalone server.
+
 ### Account
 
 ```
 any account                                         # GET /v1/account
-any account set-metadata --name "..." [--description "..."] [--icon CID]
+any account set-metadata --name "..." [--description "..."] [--icon-cid CID]
 any account redeem <code>                           # POST /v1/account/access-code
 ```
 
@@ -98,7 +94,7 @@ any account redeem <code>                           # POST /v1/account/access-co
 
 ```
 any identities list                                 # GET /v1/identities
-any identities get <identity>                        # GET /v1/identities/:identity
+any identities get <identity>                       # GET /v1/identities/:identity
 any identities subscribe                            # SSE: added/updated/removed
 ```
 
@@ -118,8 +114,9 @@ any devices register [--name N] [--app slug[=ver]]... [--remove-app slug]...
                                                     # PUT /v1/devices/me (self-row only)
 any devices activate <app>                          # POST /v1/devices/activate — claim on THIS device
 any devices remove <peerId> --yes                   # DELETE /v1/devices/:peerId (permanent for that peer id)
-any devices query [--filter ...] [--sort ...] [--projection ...]   # POST /v1/devices/query — raw rows
-any devices subscribe                               # POST /v1/devices/query/subscribe (SSE)
+any devices query [--filter ...] [--sort ...] [--limit N] [--offset N] [--total] [--projection ...]
+                                                    # POST /v1/devices/query — raw rows
+any devices subscribe [same flags]                  # POST /v1/devices/query/subscribe (SSE)
 ```
 
 The account's device registry (tech-space `devices` dataset): per-app
@@ -132,20 +129,20 @@ peer id can never re-register. Election contract and decision matrix:
 ### Spaces
 
 ```
-any space get    <spaceId>                          # shipped
-any space update <spaceId> [--name ...] [--description ...] [--icon CID]   # shipped (PATCH)
-any space settings <spaceId> [--set k=v]... [--set-bool k=true|false]... [--set-num k=N]... [--unset k]...   # shipped — account-private settings PATCH
-any space delete <spaceId> --yes                    # shipped — delete a space (irreversible)
-any space sync   <spaceId>                          # shipped — force a head-sync round now
-any space derived                                   # shipped — list well-known derived spaces (name, spaceId, created)
-any space derived create <name>                     # shipped — materialize one (idempotent)
-any space query      [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--projection ...] [--dataset spaces|profile]   # shipped — windowed space-list snapshot
-any space subscribe  [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--projection ...] [--dataset spaces|profile]   # shipped — windowed space-list SSE
-any datasets [<spaceId>]                            # shipped — dataset schemas (JSON Schema + x-scope)
-any search <spaceId> <query> [--scopes basic,chat,props] [--limit N] [--mode hybrid|fts|vector] [--require T ...] [--exclude T ...] [--max-data N] [--passages N]   # shipped — local search index
-any backlinks <spaceId> <objectId> [--record ID --dataset NAME | --prop ID] [--kind K ...] [--limit N]   # shipped — what links here (the link index)
-any backlinks --target <any://…> [--kind K ...] [--limit N]         # shipped — across every indexed space
-any links <spaceId> <objectId> [--record ID --dataset NAME | --prop ID] [--kind K ...] [--limit N]       # shipped — what this links to
+any space get    <spaceId>
+any space update <spaceId> [--name ...] [--description ...] [--icon-cid CID]   # PATCH
+any space settings <spaceId> [--set k=v]... [--set-bool k=true|false]... [--set-num k=N]... [--unset k]...
+any space delete <spaceId> --yes                    # delete a space (irreversible)
+any space sync   <spaceId>                          # force a head-sync round now
+any space derived                                   # list well-known derived spaces (name, spaceId, created)
+any space derived create <name>                     # materialize one (idempotent)
+any space query      [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--projection ...] [--dataset spaces|profile]
+any space subscribe  [same flags]                   # windowed space-list SSE
+any datasets [<spaceId>]                            # dataset schemas (JSON Schema + x-scope)
+any search <spaceId> <query> [--scopes basic,chat,props] [--limit N] [--mode hybrid|fts|vector] [--require T ...] [--exclude T ...] [--max-data N] [--passages N]
+any backlinks <spaceId> <objectId> [--record ID --dataset NAME | --prop ID] [--kind K ...] [--limit N]
+any backlinks --target <any://…> [--kind K ...] [--limit N]         # across every indexed space
+any links <spaceId> <objectId> [--record ID --dataset NAME | --prop ID] [--kind K ...] [--limit N]
 ```
 
 `any backlinks` / `any links` wrap `GET …/objects/:id/backlinks`,
@@ -153,7 +150,8 @@ any links <spaceId> <objectId> [--record ID --dataset NAME | --prop ID] [--kind 
 search indexer maintains (`docs/13-index.md` § Links; wire shape in
 `docs/03-api.md` § Links and backlinks). `--record` + `--dataset` or
 `--prop` narrow to one part of the object; `--kind` (repeatable) keeps
-only those edge kinds.
+only those edge kinds (`mention`, `link`, `card`, `embed`, `relation`);
+`--limit` defaults to and caps at 500.
 
 `any search` wraps `POST /v1/spaces/:spaceId/search` — the server's
 local FTS + vector index over chats, editor blocks, and properties
@@ -171,34 +169,22 @@ and `/query/subscribe` (`Service.Query` over the tech-space `spaces`
 dataset): a filterable / sortable snapshot and a live SSE stream of the
 account's space list. `any space subscribe` prints one JSON frame per
 line on stdout, same shape as `any query-subscribe`. Records are the raw
-tech-index rows — `GET /v1/spaces` (no CLI subcommand yet) stays the
-mapped `SpaceInfo` convenience.
+tech-index rows; `GET /v1/spaces` (the mapped `SpaceInfo` list) has no
+command.
 
 `any datasets` dumps dataset schemas as JSON Schema with a per-field
 `x-scope` (synced / derived / local). With a `<spaceId>` it lists every
 dataset the space hosts (`Space.Datasets`); without one it lists the
-account's tech-space system datasets — `spaces` / `profile` —
-(`Service.Datasets`).
+account's tech-space system datasets (`Service.Datasets`).
 
 `any space sync` wraps `Space.SyncHeads`: it forces an immediate
 head-sync (diff) round and blocks until it completes (printing nothing
 on success). Use it to converge on demand instead of waiting for the
-periodic headsync timer — a manual "sync now", or to speed up
-multi-peer e2e tests.
+periodic headsync timer.
 
-Planned (HTTP surface ships; no CLI subcommand yet):
-
-```
-any space create --name "..."
-any space list
-any space join <invite>
-```
-
-(A free-seed `any space derive` was dropped from the plan — raw
-`Service.Derive` is deliberately not exposed over HTTP. `any space
-derived` is the sanctioned surface: the embedded registry of well-known
-derived spaces, resolved and materialized by name; see `docs/03-api.md`
-§ Spaces → Derived spaces.)
+`any space derived` is the registry of well-known derived spaces,
+resolved and materialized by name (`docs/03-api.md` § Spaces → Derived
+spaces).
 
 `any space update` uses cobra's `Changed` semantics: a flag left unset
 leaves the field as-is, a flag set to an empty string clears it.
@@ -221,18 +207,21 @@ is irreversible, so it refuses to run without `--yes`. Deletion is
 offline-first: the server writes the synced `deleted` tombstone and
 reclaims local storage (immediately in the normal case; a partial sweep
 failure keeps the storage file so the next boot retries), then drives
-the signed coordinator delete in the background. The row stays in the space list with
-`status:"deleted"` (sticky tombstone), so a subsequent `any space query`
-still shows it.
+the signed coordinator delete in the background. The row stays in the
+space list with `status:"deleted"` (sticky tombstone), so a subsequent
+`any space query` still shows it.
+
+Creating a space and listing `SpaceInfo` rows have no command
+(`POST /v1/spaces`, `GET /v1/spaces`).
 
 ### One-to-one (direct) spaces
 
 ```
-any one-to-one start    <otherIdentity>                       # shipped — open/accept a 1-1 by peer identity
-any one-to-one accept   <spaceId>                             # shipped — accept an incoming pending 1-1
-any one-to-one decline  <spaceId>                             # shipped — decline an incoming pending 1-1 (sticky)
-any one-to-one register <peerIdentity> [--name ...] [--description ...] [--icon-cid CID]   # shipped — register an out-of-band incoming request
-any one-to-one pending                                        # shipped — list incoming pending requests
+any one-to-one start    <otherIdentity>                       # open/accept a 1-1 by peer identity
+any one-to-one accept   <spaceId>                             # accept an incoming pending 1-1
+any one-to-one decline  <spaceId>                             # decline an incoming pending 1-1 (sticky)
+any one-to-one register <peerIdentity> [--name ...] [--description ...] [--icon-cid CID]   # register an out-of-band incoming request
+any one-to-one pending                                        # list incoming pending requests
 ```
 
 A 1-1 (direct) space is shared by exactly two identities, derived from
@@ -245,22 +234,6 @@ app `register` it out-of-band, then `accept` / `decline` it. `decline` is
 synced + sticky account-wide; a later `start <peer>` un-declines.
 Endpoints + state machine: `docs/03-api.md` § Spaces (and the SDK's
 `docs/13-one-to-one-spaces.md`). Aliases: `any 1-1`, `any direct`.
-
-### Objects (planned)
-
-```
-any object create <spaceId> [--type <typeId>]... [--property <typeId>.<key>=<value>]...
-any object derive <spaceId> --seed <hex> [--type <typeId>]...
-any object delete <spaceId> <objectId>
-```
-
-### Data plane (planned)
-
-```
-any query  <spaceId> <objectId> <dataset> [--filter FILE|-] [--sort ...] [--limit N] [--offset N] [--include-variants] [--include-meta]
-any modify <spaceId> <objectId> <dataset> --file FILE|-
-any delete <spaceId> <objectId> <dataset> <recordId> [<recordId>...]
-```
 
 ### Aggregate
 
@@ -294,9 +267,9 @@ any editor edit          <spaceId> <objectId> --edits JSON|@FILE|- [--collection
 ```
 
 `editor blocks` maps 1:1 onto the atomic block write endpoints
-(reads go through `any query … --dataset <collection>`). Every editor
-command takes `--collection` (default `editor_blocks`, the canonical
-collection a shared editor part declares); pass a namespaced
+(reads go through `any query-subscribe … --dataset <collection>`). Every
+editor command takes `--collection` (default `editor_blocks`, the
+canonical collection a shared editor part declares); pass a namespaced
 `<typeId>_<key>` to address a part's own editor. The object must carry
 a type whose part declares the collection (`dataset.not_declared`
 otherwise — see `03-api.md` § Parts and modules).
@@ -317,9 +290,9 @@ any editor edit $SPID $OBJID --old '- [ ] buy milk' --new '- [x] buy milk'
 ### Chat
 
 ```
-any chat send   <spaceId> <objectId> --text "..." | --file FILE | -  [--reply-to <msgId>]
-any chat list   <spaceId> <objectId> [--before <msgId>] [--after <msgId>] [--limit N]
-any chat edit   <spaceId> <objectId> <msgId> --text "..." | --file FILE | -
+any chat send   <spaceId> <objectId> --text "..." | --file FILE|-  [--reply-to <msgId>]
+                [--agent-name NAME [--agent-debug-link LINK] [--agent-done=false]]
+any chat edit   <spaceId> <objectId> <msgId> --text "..." | --file FILE|-
 any chat delete <spaceId> <objectId> <msgId>
 any chat react  <spaceId> <objectId> <msgId> <emoji>
 ```
@@ -334,16 +307,15 @@ space has.
 pipes in cleanly (`cat msg.md | any chat send … --file -`). Edit and
 delete only work on your own messages (server returns 403 otherwise).
 React is a toggle — adds the emoji on the first call, removes on the
-second.
+second. `--agent-name` marks the message agent-authored under that
+display name; `--agent-debug-link` and `--agent-done` (default true)
+require it (`03-api.md` § Chat).
 
-For tailing live updates, use the existing subscribe primitive:
+Read and tail messages with the windowed subscribe (§ Subscribe):
 
 ```
-any subscribe <spaceId> <objectId> --dataset chat_messages
+any query-subscribe <spaceId> <objectId> --dataset chat_messages --sort=-_ver.id --limit 50
 ```
-
-The SSE stream carries routing tuples; clients re-`list` for the new
-message body when a `changes` frame arrives.
 
 ### Files
 
@@ -383,16 +355,21 @@ original) and refuses to run without `--yes`. `query` /
 ### Subscribe
 
 ```
-any subscribe <spaceId> <objectId> --dataset <name>
-any subscribe <spaceId> --properties
+any query-subscribe <spaceId> <objectId> --dataset <name> [--filter JSON] [--sort K] [--limit N] [--offset N] [--total] [--projection ...]
+any query-subscribe <spaceId> --properties [same flags]
 ```
 
-Streams CRDT apply events over Server-Sent Events. Output is one JSON
-object per SSE frame on stdout — `{"event": "<name>", "data": <payload>}`
-— so the stream pipes cleanly through `jq`:
+Opens the windowed query/subscribe stream — `POST …/query/subscribe`
+over a per-object dataset, or `POST …/objects/query/subscribe` over the
+per-space objects collection with `--properties` — and prints one JSON
+object per SSE frame on stdout, `{"event": "<name>", "data": <payload>}`:
+`ready`, `snapshot`, `changes`, `closed`. The first `snapshot` is the
+query's answer; the stream stays open for live changes. `--sort` is a
+comma-separated key list (`-` prefix = descending) and needs `--limit`;
+`--total` adds the unbounded match count and `hasNext`.
 
 ```bash
-any subscribe $SPID $OBJID --dataset objects \
+any query-subscribe $SPID --properties \
   | jq 'select(.event=="changes") | .data[]'
 ```
 
@@ -403,13 +380,13 @@ Ctrl-C. See `04-events.md` for the contract.
 
 Every windowed query / subscribe command (`any query-subscribe`,
 `any space query|subscribe`, `any devices query|subscribe`,
-`any file query|query-subscribe`) takes `--projection`: a
-comma-separated list of field paths to return, `-` prefixing an
-exclusion the way `--sort` prefixes a descending key.
+`any file query|query-subscribe`, `any local query`) takes
+`--projection`: a comma-separated list of field paths to return, `-`
+prefixing an exclusion the way `--sort` prefixes a descending key.
 
 ```bash
 any query-subscribe $SPID --properties --projection 'any,<typeId>'   # only those subtrees
-any query-subscribe $SPID --properties --projection '-_ver'     # everything but the version map
+any query-subscribe $SPID --properties --projection '-_ver'          # everything but the version map
 ```
 
 `id` always comes back and `_ver` narrows to match the fields you
@@ -427,7 +404,7 @@ any type list   <spaceId> [--include-hidden]
 
 any type property list   <spaceId> <typeId>
 any type property add    <spaceId> <typeId> --name ... --kind string|number|boolean|array|object|datetime
-                         [--xkey ...] [--description ...] [--scope ...]
+                         [--xkey ...] [--description ...] [--scope synced|account|local]
                          [--x-format '<json>|@FILE|-']
 any type property patch  <spaceId> <typeId> <propId> --set '<json>' [--unset <path> ...]
 any type property remove <spaceId> <typeId> <propId>
@@ -460,28 +437,8 @@ any upsert <spaceId> <objectId> --dataset NAME --records '<json>|@FILE|-'
            [--page-size N] [--trace-id ...]
 ```
 
-### Bundles
-
-```
-any bundle ensure  <spaceId> --body '<json>|@FILE|-'
-any bundle list    <spaceId>
-any bundle get     <spaceId> <bundleId>
-any bundle resolve <spaceId> <bundleId> <loserRootId>
-any bundle child   <spaceId> <bundleId> --seed SEED [--type T ...]
-```
-
-`ensure` takes the `BundleEnsureRequest` body (`03-api.md` § Bundles)
-— the id, the root strategy (`derived`) and what the root declares:
-`parts`, `properties` (each property with an `xKey`; the property id
-derives from it) or an `xKey` (the type's handle; alone it declares a
-marker type), plus `layout`, `weight`, `hidden` describing that type.
-Adopt-or-install: the reply carries the converged row and
-whether THIS call installed it. `get` and `list` are locked on
-registry convergence and report `synced`. `resolve` deletes a losing
-root after its content was merged; `child` derives a setup object
-under the winner. Bundle ids are passed verbatim (`favorites/v1`);
-the CLI encodes the path. Ids under `system:` are the server's and are
-refused.
+Aliases: `any type property` = `prop`, `any type part dataset` = `ds`,
+`remove` = `delete` / `rm`.
 
 `type update` patches the display and rendering slice; cobra's
 `Changed` distinguishes an absent flag (keep) from an empty one
@@ -515,19 +472,32 @@ any type property option set S T P high --name High --color red --pos a0
 any type part dataset field patch S T D F --set '{"description":"Headline","xFormat.icon":"title"}'
 ```
 
-Property **value** read/write stays under `any properties …` (values on
-objects), distinct from `any type property …` (the type's definitions):
+Property values on objects, type attach / detach (moving an object to
+the bin included) and object create / delete have no command
+(`03-api.md` § Objects, § Properties (values on objects)).
+
+### Bundles
 
 ```
-any properties get         <spaceId> <objectId>
-any properties set         <spaceId> <objectId> <typeId> --patch FILE|-
-any properties attach      <spaceId> <objectId> <typeId>
-any properties detach      <spaceId> <objectId> <typeId>
+any bundle ensure  <spaceId> --body '<json>|@FILE|-'
+any bundle list    <spaceId>
+any bundle get     <spaceId> <bundleId>
+any bundle resolve <spaceId> <bundleId> <loserRootId>
+any bundle child   <spaceId> <bundleId> --seed SEED [--type T ...]
 ```
 
-`attach … bin` moves an object to the bin and `detach … bin` restores
-it — the server stamps `bin.movedAt` / `bin.movedBy` on the move and
-clears them on restore (03-api.md § Types → Built-in hidden types).
+`ensure` takes the `BundleEnsureRequest` body (`03-api.md` § Bundles)
+— the id, the root strategy (`derived`) and what the root declares:
+`parts`, `properties` (each property with an `xKey`; the property id
+derives from it) or an `xKey` (the type's handle; alone it declares a
+marker type), plus `layout`, `weight`, `hidden` describing that type.
+Adopt-or-install: the reply carries the converged row and
+whether THIS call installed it. `get` and `list` are locked on
+registry convergence and report `synced`. `resolve` deletes a losing
+root after its content was merged; `child` derives a setup object
+under the winner. Bundle ids are passed verbatim (`favorites/v1`);
+the CLI encodes the path. Ids under `system:` are the server's and are
+refused.
 
 ### Catalog
 
@@ -550,14 +520,15 @@ step in the repo, not a CLI command.
 ### Members, invites & ACL
 
 ```
-any members list     <spaceId>
-any members me       <spaceId>
-any members get      <spaceId> <identity>
-any members requests <spaceId>
+any members list      <spaceId>
+any members me        <spaceId>
+any members get       <spaceId> <identity>
+any members requests  <spaceId>
+any members subscribe <spaceId>          # SSE: added/changed/removed
 
 any invite create     <spaceId>
-any invite list       <spaceId>          # rows carry inviteToken on the minting account
-any invite get        <spaceId> <recordId>
+any invite list       <spaceId>
+any invite get        <spaceId> <recordId>   # carries inviteToken on the minting account's devices
 any invite revoke     <spaceId> <recordId>
 any invite revoke-all <spaceId>
 any invite guest-key        <spaceId>    # mint/return the public read-only token (owner)
@@ -566,18 +537,23 @@ any invite pending                       # direct-add invites awaiting approval
 any invite accept     <spaceId>          # accept a direct-add invite (loads the space)
 any invite decline    <spaceId>          # decline (sticky; accept later overrides)
 
-any join <invite>
+any join --token <invite> [--name N] [--description D] [--icon-cid CID]
 
-any acl accept       <spaceId>
-any acl decline      <spaceId>
+any acl accept       <spaceId> --record <requestRecordId> [--permission none|reader|guest|writer|admin]
+any acl decline      <spaceId> --identity <identity>
 any acl grant        <spaceId> <identity> <permission>
 any acl remove       <spaceId> <identity>...
-any acl add          <spaceId> <identity>[,<identity>...] <permission>
-any acl ownership    <spaceId>
+any acl add          <spaceId> <identity>[,<identity>...] <permission> [--name N] [--description D]
+any acl ownership    <spaceId> --new-owner <identity> [--old-owner-perm P]
 any acl self-remove  <spaceId>
 any acl cancel-join  <spaceId>
 any acl stop-sharing <spaceId>
 ```
+
+`any join` takes the token `any invite create` printed; `--name` /
+`--description` / `--icon-cid` ride the join record. `acl accept`
+grants `writer` unless `--permission` says otherwise; `acl ownership`
+leaves the old owner `admin` unless `--old-owner-perm` says otherwise.
 
 `any acl add` adds accounts **by identity** — the whole comma-separated
 batch lands in one ACL record, and each added account is notified through
@@ -585,7 +561,7 @@ the coordinator inbox (durable, retried): on their side the space shows
 up as an `invite_pending` row (`any invite pending`), which they resolve
 with `any invite accept` / `any invite decline`. Decline is synced +
 sticky account-wide but non-terminal — a later accept overrides it; the
-declined account stays on the ACL (no self-remove in v1).
+declined account stays on the ACL.
 
 ### Sync status
 
@@ -596,12 +572,11 @@ any sync-status subscribe                            # account-wide SSE stream
 any sync-status subscribe <spaceId> <objectId>       # per-object SSE stream
 ```
 
-`any sync-status peers` is **not** wired — `/sync-status/peers`
-returns 501 until the SDK lands a stable per-space peer list. Use
-`any debug space <spaceId>` for the diagnostic equivalent today.
+There is no `peers` command: `GET …/sync-status/peers` returns 501.
+`any debug space <spaceId>` reports per-peer headsync counters.
 
 `subscribe` emits one JSON object per SSE frame on stdout — the same
-wrapper as `any subscribe`:
+wrapper as `any query-subscribe`:
 
 ```
 {"event": "ready",   "data": {}}
@@ -627,7 +602,7 @@ the space, both over the SDK pub/sub. `publish` prints the
 success). `subscribe` filter flags are repeatable — AND across
 dimensions, OR within one; `--type` takes an exact type or a `x.*`
 prefix — and it emits one JSON object per SSE frame on stdout, same
-wrapper as `any subscribe`:
+wrapper as `any query-subscribe`:
 
 ```
 {"event": "ready",  "data": {}}
@@ -635,12 +610,12 @@ wrapper as `any subscribe`:
 {"event": "closed", "data": {"reason": "server_shutdown"}}
 ```
 
-UI navigation example (the retired `any ui` surface):
+UI navigation example:
 
 ```
 any events publish --type ui.open_space  --data '{"spaceId":"SPACE"}'
 any events publish --type ui.open_object --data '{"spaceId":"SPACE","objectId":"OBJ"}'
-any events subscribe --type ui.*
+any events subscribe --type 'ui.*'
 ```
 
 ### Processes
@@ -693,14 +668,14 @@ any push subscriptions                                     # GET /v1/push/subscr
 
 Device-token registration and the account's server-held push topic
 subscriptions (full contract: `docs/20-push.md`). All four need a push
-node configured on the server (`push.peerId` / `push.addrs`) —
-otherwise `409 push.disabled` (exit 1). `token set` / `token revoke`
-print nothing on success; `token status` reports the LOCAL persisted
-state (no push-node round trip); `subscriptions` rows are raw
-`{spaceKey, topic}` pairs — `spaceKey` is the base58 space push public
-key, not a spaceId. Notify preferences are set via
-`any space settings <spaceId> --set notifyMode=…` (per-space default)
-and the `chat.notifyMode` property on a chat object (per-chat
+node on the server (`push.peerId` / `push.addrs`, or the production
+default — `05-config.md`) — otherwise `409 push.disabled` (exit 1).
+`token set` / `token revoke` print nothing on success; `token status`
+reports the LOCAL persisted state (no push-node round trip);
+`subscriptions` rows are raw `{spaceKey, topic}` pairs — `spaceKey` is
+the base58 space push public key, not a spaceId. Notify preferences are
+set via `any space settings <spaceId> --set notifyMode=…` (per-space
+default) and the `chat.notifyMode` property on a chat object (per-chat
 override).
 
 ### Debug (diagnostic)
@@ -708,12 +683,13 @@ override).
 ```
 any debug space  <spaceId>                  # per-peer headsync counters (in-memory)
 any debug object <spaceId> <objectId>       # tree + sync snapshot (one-shot; walks the tree)
+any debug p2p                               # GET /v1/debug/p2p — LAN listener, discovery, known peers
 ```
 
-Diagnostic surface; **not stable** — fields may move as the SDK's
-`DebugAPI` evolves. Production callers should prefer `any sync-status`
-once that ships. `any debug object` locks the object tree and walks
-every change, so don't poll it in a tight loop.
+Diagnostic surface; **not stable** — fields move with the SDK's
+`DebugAPI`. Production callers read `any sync-status`. `any debug
+object` locks the object tree and walks every change, so don't poll it
+in a tight loop.
 
 ## Global flags
 
@@ -730,20 +706,18 @@ every change, so don't poll it in a tight loop.
 --verbose              # log HTTP request/response to stderr
 ```
 
-No `--output` flag in v1 — pretty-printed JSON is the only format.
+Pretty-printed JSON is the only output format.
 
 ## Input formats
 
-- `--file FILE` takes a JSON document matching the endpoint's body. `-`
-  means stdin.
-- `--patch FILE` is the JSON patch object for properties setters
-  (keyed by propId — never by xKey).
-- `--filter FILE` is a mongo-style filter object.
+- JSON-valued flags (`--body`, `--draft`, `--field`, `--x-format`,
+  `--records`, `--pipeline`, `--edits`, `--data`, `--doc`, `--modifier`,
+  local `--filter`) take inline JSON, `@FILE`, or `-` for stdin.
+- `--filter` on the windowed query commands, `--set` on the patch
+  commands, `--style` and `--layout` take inline JSON.
 - Scalar flags (`--name`, `--kind`, etc.) set simple fields on the body.
-- `--property typeId.key=value` — a convenience for `object create`'s
-  `InitialProperties`. May appear multiple times. Value is parsed as
-  JSON if it starts with `[`, `{`, or a digit; otherwise taken as a
-  string. (Good enough for v1; typed coercion later if needed.)
+- `--sort` and `--projection` are comma-separated lists; a `-` prefix
+  means descending / exclude.
 
 ## When the server isn't running
 

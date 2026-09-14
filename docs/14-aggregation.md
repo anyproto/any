@@ -1,21 +1,21 @@
 # 14 — Aggregation pipelines
 
-MongoDB-style aggregation over any dataset: an ordered pipeline of
-stages that filters, reshapes, unwinds, groups and sorts records inside
-one snapshot read. Wraps the SDK's `Space.Aggregate` /
+MongoDB-style aggregation over any dataset: an ordered pipeline of stages
+that filters, reshapes, unwinds, groups and sorts records inside one
+snapshot read. Wraps the SDK's `Space.Aggregate` /
 `Space.AggregateObjects` (any-store's aggregation framework underneath).
 Use it when one `/query` isn't enough — counts per group, top-N rollups,
 tag distributions — instead of pulling every record over HTTP and
 reducing client-side.
 
 **Snapshot-only.** There is no `/aggregate/subscribe`; re-run the
-pipeline to refresh. For live windows over raw records, keep using
+pipeline to refresh. For live windows over raw records use
 `/query/subscribe` (`docs/04-events.md`).
 
 ## Endpoints
 
 ```
-POST /v1/spaces/:spaceId/objects/aggregate    cross-object — per-space `objects` collection
+POST /v1/spaces/:spaceId/objects/aggregate    cross-object — the per-space `objects` collection
 POST /v1/spaces/:spaceId/aggregate            per-object dataset (objectId + dataset required)
 ```
 
@@ -40,46 +40,52 @@ doc is `{"<name>": N}` with no id at all. With `explain: true` the
 response is `{ "plan": "..." }` instead — diagnostic only, not a stable
 format.
 
-Deleted records are excluded server-side (a `_deletedAt`-missing
-`$match` is prepended to every pipeline), so aggregates always agree
-with what `/query` returns.
+Deleted records are excluded: the SDK prepends a `_deletedAt`-missing
+`$match` to every pipeline, so aggregates agree with what `/query`
+returns and the skip stays in the index-planned prefix.
 
 ## Stages
 
-`$match` (full `/query` filter language — `docs/09-query.md` — plus
-`$expr`), `$sort`, `$skip`, `$limit`, `$count`, `$project`,
-`$addFields`/`$set`, `$unwind`, `$group`, `$facet`, `$lookup`
-(**self-join only**: `from` must name the aggregated collection or be
-omitted).
+`$match` (the full `/query` filter language — `docs/09-query.md` — plus
+`$expr` for expression predicates), `$sort`, `$skip`, `$limit`, `$count`,
+`$project`, `$addFields` / `$set`, `$unwind`, `$group`, `$facet`,
+`$lookup` (**self-join only**: omit `from`; `foreignField` is `id`, the
+primary key of the aggregated collection).
+
+`$out` and `$merge` are rejected with `aggregate.bad_pipeline` —
+`/aggregate` is a read surface; writes go through the CRDT.
 
 Accumulators in `$group`: `$sum`, `$avg`, `$min`, `$max`, `$count`,
 `$first`, `$last`, `$push`, `$addToSet`.
 
-Expressions (in `$project`/`$addFields` values, `$group` keys and
-accumulator arguments): field references (`"$a.b.c"`, including the
-FTS/vector virtuals `"$_score"` / `"$_distance"`), literals
-(`{"$literal": ...}` escapes a `$`-leading string), and nested
-document/array expressions, and compute operators:
+Expressions (in `$project` / `$addFields` values, `$group` keys,
+accumulator arguments and `$expr`): field references (`"$a.b.c"`),
+literals (`{"$literal": ...}` escapes a `$`-leading string), nested
+document / array expressions, and compute operators:
 
 | family | operators |
 |---|---|
 | arithmetic | `$add`, `$subtract`, `$multiply`, `$divide`, `$abs`, `$round` |
-| strings | `$concat`, `$split`, `$replaceOne`, `$replaceAll`, `$trim`, `$ltrim`, `$rtrim` |
+| strings | `$concat`, `$split`, `$replaceOne`, `$replaceAll`, `$trim`, `$ltrim`, `$rtrim`, `$strLenBytes`, `$strLenCP` |
+| arrays | `$size` |
 | conditional | `$cond`, `$switch`, `$ifNull` |
 | comparison | `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$cmp` |
 | dates | `$dateAdd`, `$dateDiff`, `$dateTrunc`, `$year`, `$week` |
 
-That list is exhaustive — anything absent from it is rejected, so
-there are no type conversions (`$toDate`, `$toInt`, …) and no array
-operators (`$map`, `$filter`, `$reduce`).
+The list is closed — any other operator is rejected, so there are no type
+conversions (`$toDate`, `$toInt`, …) and no `$map` / `$filter` /
+`$reduce`. An operand of the wrong type yields `null` rather than an
+error.
 
-**The date operators compute on instants.** Every timestamp `any`
-stores is one: system stamps (`createdAt`, `modifiedAt`, chat
-`createdAt`, runtime-dataset `createTime`/`modifyTime`) and user
-properties declared with the `date` / `datetime` format. On the wire an
-instant is `{"$date": "2026-08-05T00:00:00.000Z"}` — in pipeline output
-too, so a `$dateTrunc` result reads back in the same shape as the field
-it came from.
+**The date operators compute on instants.** Every timestamp `any` stores
+is one: the objects-row `createdAt` / `modifiedAt`, chat `createdAt` /
+`modifiedAt`, runtime-dataset `createTime` / `modifyTime`, and every
+property of kind `datetime` (the `date` / `datetime` slugs). On the wire
+an instant is `{"$date": "2026-08-05T00:00:00.000Z"}` — in pipeline
+output too, so a `$dateTrunc` result reads back in the same shape as the
+field it came from. `unit`, `timezone`, `startOfWeek` and `binSize` must
+be literals; `timezone` defaults to UTC. A date operator given anything
+that is not an instant — an ISO-8601 string included — returns `null`.
 
 ```sh
 # Objects per calendar month of their last edit.
@@ -90,15 +96,6 @@ curl -s localhost:7001/v1/spaces/$S/objects/aggregate -d '{
     {"$sort": {"id": 1}}
   ]}'
 ```
-
-The exception is a date property declared `kind: "string"` — the
-ISO-8601 convention the date formats carried before instants existed.
-Those still return `null` from every date operator, and no `$toDate`
-exists to bridge them; ISO-8601 sorts lexicographically, so predicates
-(`$lt` / `$gte` against a literal) and `$split`-based bucketing are what
-they support. Kind is pinned at first write, so such a property stays a
-string for life — a client that wants date arithmetic on it defines a
-new property.
 
 ## Examples
 
@@ -149,86 +146,88 @@ any aggregate $S --properties --pipeline '[{"$count": "objects"}]'
 # → {"records": [{"objects": 128}]}
 ```
 
-`$text` prefix driving a grouped rollup (`_score` flows downstream):
+Several rollups over one scan with `$facet`:
 
 ```json
 [
-  {"$match": {"$text": "zeppelin disaster"}},
-  {"$addFields": {"score": "$_score"}},
-  {"$sort": {"score": -1}},
-  {"$limit": 50},
-  {"$group": {"_id": "$author", "n": {"$count": {}}, "best": {"$max": "$score"}}}
+  {"$match": {"any.types": "<typeId>"}},
+  {"$facet": {
+    "total":  [{"$count": "n"}],
+    "recent": [{"$sort": {"modifiedAt": -1}}, {"$limit": 5}]
+  }}
 ]
 ```
 
 ## Pushdown — put `$match` first
 
-The longest pushable prefix — a `$match` chain, then at most one
-`$sort`, `$skip`, `$limit` **in that order** — compiles into a regular
-query and runs through the access planner: secondary indexes, the
-cost-based optimizer, full-text (`$text`) and vector sources all apply.
-Everything after the prefix streams in Go. So:
+The longest pushable prefix — a `$match` chain, then at most one `$sort`,
+`$skip`, `$limit` **in that order** — compiles into a regular query and
+runs through the access planner (secondary indexes, the cost-based
+optimizer). Everything after the prefix streams in Go. So:
 
-- Filter early. `[{"$match": …}, {"$group": …}]` scans an index;
+- Filter early. `[{"$match": …}, {"$group": …}]` can use an index;
   `[{"$group": …}, {"$match": …}]` scans the whole dataset.
-- `$text` and vector clauses are valid **only inside the prefix** — a
-  `$match` containing them after `$group`/`$unwind`/`$skip`/`$limit`
-  fails with `aggregate.bad_pipeline` instead of silently matching
-  everything.
-- An in-pipeline `$sort` directly followed by `$skip`/`$limit` keeps
+- `$expr` never becomes index bounds: in a leading `$match` the ordinary
+  keys push down and the expression runs as a residual filter.
+- An in-pipeline `$sort` directly followed by `$skip` / `$limit` keeps
   only the top `skip+limit` rows (O(K) memory).
+- `$text` and `$knn` clauses need a full-text / vector index, and no
+  space collection carries one: they answer `aggregate.bad_pipeline`.
+  Full-text and semantic search is `POST …/search` (`docs/13-index.md`).
 
-`"explain": true` shows the split (`Pushdown: filter=… sort limit=…` +
+`"explain": true` shows the split (`Pushdown: filter=… sort limit=…` plus
 the in-pipeline stage list).
 
 ## Limits
 
-Blocking stages (`$group`, in-pipeline `$sort`) are bounded; exceeding
-a bound aborts with `400 aggregate.limit_exceeded`
+Blocking stages (`$group`, in-pipeline `$sort`, `$facet` result buffers)
+are bounded; exceeding a bound aborts with `400 aggregate.limit_exceeded`
 (`details.limit` = `group` / `accumArray` / `memory`):
 
 | Bound | Default | Body field |
 |---|---|---|
 | Unique `$group` keys | 50 000 | `groupLimit` |
-| `$push`/`$addToSet` length | 10 000 | `accumArrayLimit` |
+| `$push` / `$addToSet` length | 10 000 | `accumArrayLimit` |
 | Retained bytes (all blocking stages) | 256 MiB | `memoryLimitBytes` |
 
-Negative values mean unlimited and pass through verbatim — the server
-is localhost-only and the caller is trusted. There is no spill-to-disk:
-a pipeline that needs more should filter earlier or raise the limit.
+Negative values mean unlimited and pass through verbatim — the server is
+localhost-only and the caller is trusted. There is no spill-to-disk: a
+pipeline that needs more filters earlier or raises the limit.
 
 ## Where we drift from MongoDB
 
-The pipeline language is deliberately a subset; what exists matches
-Mongo semantics unless listed here. The two most common surprises
-first:
+The pipeline language is a subset; what exists matches Mongo semantics
+unless listed here. The two most common surprises first:
 
 | | MongoDB | here |
 |---|---|---|
-| `$group` output key | `_id` | **`id`** — accepts `_id` or `id` on input, always emits `id` (rows can be re-inserted unchanged) |
-| `$count` result | `{"<name>": N}` | same — but note it arrives inside `records`, as the only document |
-| Compute operators | full library | **the closed set listed under Stages** — no type conversions, no array operators |
-| Date operators | operate on date values | present, but `null` against every timestamp `any` stores — see Stages |
-| `$lookup` | joins any collection | **self-join only** — `from` must name the aggregated collection or be omitted |
+| `$group` output key | `_id` | **`id`** — accepts `_id` or `id` on input, always emits `id` |
+| `$count` result | `{"<name>": N}` | same — it arrives inside `records`, as the only document |
+| Compute operators | full library | **the closed set listed under Stages** — no type conversions, no `$map` / `$filter` / `$reduce` |
+| Runtime type errors | query error | `null` (a non-numeric arithmetic operand, a non-string string operand, division by zero, a non-instant date operand) |
+| Date operator parameters | may be expressions | `unit` / `timezone` / `startOfWeek` / `binSize` must be literals |
+| `$lookup` | joins any collection | **self-join only** — omit `from`; `foreignField` must be `id` |
 | `$bucket` / `$bucketAuto` / `$replaceRoot` / `$sortByCount` / `$unionWith` | yes | not supported |
-| `$out` / `$merge` | write the result into a collection | **not part of this endpoint** — `/aggregate` is a read surface; writes go through the CRDT |
+| `$out` / `$merge` | write the result into a collection | rejected (`aggregate.bad_pipeline`) — `/aggregate` is read-only |
 | `$project` | implicit `_id`, exclusion mode (`{"a": 0}`) | **strictly explicit** — only listed fields appear, `id` included only if listed; exclusion not supported |
-| Numbers | int/long/double/decimal | **IEEE 754 float64 only** — `$sum`/`$avg` are float arithmetic, integer precision ends at 2^53 |
-| `$group` key equality | type-aware, field-order-insensitive documents | **byte equality** of canonical encoding — object keys are field-order-sensitive |
-| `$min`/`$max` | type-aware comparison | anyenc value order across types; null/missing ignored |
+| Numbers | int / long / double / decimal | **IEEE 754 float64 only** — `$sum` / `$avg` are float arithmetic, integer precision ends at 2^53 |
+| `$group` key equality | type-aware, field-order-insensitive documents | **byte equality** of the canonical encoding — object keys are field-order-sensitive |
+| `$min` / `$max`, expression comparisons | BSON cross-type order | anyenc value order (`null < number < string < false < true < array < object < … < dateTime`); `$min` / `$max` ignore null / missing |
 | `$sort` stability | not guaranteed | stable |
 | `$group` output order | unspecified | first-seen scan order — still add `$sort` |
 | Dotted output names (`{"a.b": …}`) | allowed | rejected |
-| `$text` placement | anywhere | pushdown prefix only (same for vector clauses) |
+| `$text` | anywhere | unavailable — no space collection has a full-text index |
 | Memory | spills to disk with `allowDiskUse` | hard budget, `aggregate.limit_exceeded` — no spill |
 
 ## Errors
 
 | code | status | meaning |
 |---|---|---|
-| `request.missing_field` | 400 | no `pipeline` (or missing `objectId`/`dataset` on the per-object variant) |
+| `request.bad_json` | 400 | missing, unreadable or invalid JSON body |
+| `request.missing_field` | 400 | no `pipeline` (or missing `objectId` / `dataset` on the per-object variant) |
 | `request.schema` | 400 | `pipeline` is not a JSON array |
-| `aggregate.bad_pipeline` | 400 | unparseable pipeline, unknown stage/accumulator, `$text`/vector outside the prefix |
+| `request.invalid_field` | 400 | per-object aggregate on the tech space's index object over a dataset other than `profile` / `bundles` |
+| `aggregate.bad_pipeline` | 400 | unparseable pipeline, unknown stage / accumulator / operator, `$text` / `$knn`, `$out` / `$merge` |
 | `aggregate.limit_exceeded` | 400 | a blocking-stage bound blew — `details.limit` says which |
 
 Standard envelope, see `docs/06-errors.md`.

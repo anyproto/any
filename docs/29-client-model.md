@@ -33,7 +33,7 @@ Three ids, never interchangeable:
 |---|---|---|
 | `typeId` | content-addressed type id | `GET …/types`, catalog setup |
 | `xKey` | the type's or property's stable handle (`person`, `email`) | declared; resolved client-side |
-| `propId` | content-addressed property id — **the write key** | `GET …/types/:typeId/properties` |
+| `propId` | content-addressed property id — **the write key** | `GET …/types/:typeId/properties`, catalog setup |
 
 **Writes key by `propId`.** `xKey` is the label you resolve it by; it
 never reaches storage. Keying a value by `xKey` is `property.not_found`.
@@ -61,7 +61,8 @@ never reaches storage. Keying a value by `xKey` is `property.not_found`.
 
 Do not install anything on open. The client that **creates** a space
 sets its default usecases up right after `POST /v1/spaces`; every other
-usecase is set up when the user asks for the feature (§ Usecases).
+usecase is set up when the user asks for the feature (§ Usecases and
+the catalog).
 
 ## Usecases and the catalog
 
@@ -79,18 +80,17 @@ is idempotent: run it again and everything adopts. Run it on every device
 that needs the feature; a second device adopts the first device's roots
 with byte-identical property ids.
 
-Evolution is additive. A catalog release that adds a property or a choice
-option heals it onto an existing install on the next setup; it never
-removes or renames what a space already has.
+Evolution is additive. A catalog release that adds a property, a choice
+option, a miniapp value or a bundle heals it onto an existing install on
+the next setup; it never removes or renames what a space already has.
 
 **Anything your product ships belongs in the catalog, types included.**
 A well-known app declares the miniapp root AND the types, properties and
 datasets its content uses, so the journal on a phone and the journal on
 a desktop are the same type with the same ids, and an ingest agent
-writes where the reader reads. Minting the type client-side instead
-converges only by luck, races on `409 type.xkey_conflict`, and can end
-with one device's entries invisible on the other — and nothing migrates
-it afterwards, because a type cannot be deleted.
+writes where the reader reads. Minting the type client-side races on
+`409 type.xkey_conflict` and can end with one device's entries
+invisible on the other — and a type cannot be deleted.
 
 Full contract: [`28-well-known-bundles.md`](28-well-known-bundles.md).
 Clients register their own bundles the same way through
@@ -140,10 +140,10 @@ the descriptor shape, your vocabulary.
 ### Creating a type
 
 `POST /v1/spaces/:spaceId/types` requires a non-empty `xKey` (slug the
-name; it must survive renames). A collision with an existing type's
-`xKey` **or** id is `409 type.xkey_conflict`. Built-in types are
-registered, not created here, and every write on them is
-`400 type.registered`.
+name; it must survive renames) — without one it is
+`400 type.xkey_required`. A collision with an existing type's `xKey`
+**or** id is `409 type.xkey_conflict`. Built-in types are registered,
+not created here, and every write on them is `400 type.registered`.
 
 Mint a type here only for what a USER creates in their own space. A type
 your app depends on goes in the catalog instead (§ Usecases and the
@@ -152,16 +152,16 @@ instead of two.
 
 ## Properties
 
-A property definition is `{name, xKey, kind, xFormat?, meta?}`. `kind` is
-required and **pinned on first write** — it is the storage contract
-(`string`, `array`, `number`, `boolean`, `datetime`, `object`). `xFormat`
-is the descriptor: an opaque bag whose interpreted keys are `type`,
-`icon`, `pos`, `options`, `relation`, `config`, `links`
-([`27-descriptors.md`](27-descriptors.md)). A reference property is
-`kind: array` with `xFormat.type: "relation"` and values
+A property definition is `{name, description?, xKey, kind, scope?,
+xFormat?, meta?}`. `kind` is required and **pinned on first write** — it
+is the storage contract (`string`, `array`, `number`, `boolean`,
+`datetime`, `object`). `xFormat` is the descriptor: an opaque bag whose
+interpreted keys are `type`, `icon`, `pos`, `options`, `relation`,
+`config`, `links` ([`27-descriptors.md`](27-descriptors.md)). A reference
+property is `kind: array` with `xFormat.type: "relation"` and values
 `["any://<objectId>", …]` — that slug is also what puts its values into
-the backlinks index; a property created without it (any pre-descriptor
-definition) indexes nothing until it is patched with
+the backlinks index; a property with neither that slug nor an
+`xFormat.links` marker indexes no links until it is patched with
 `{"set": {"xFormat.type": "relation"}}`.
 
 ### Value shapes that bite
@@ -178,16 +178,17 @@ before relying on a slug not listed.
 | `number` / `currency` / `percent` | `number` | a number |
 | `checkbox` | `boolean` | a bool |
 
-`xFormat.relation.targetTypes` holds **xKeys**, not type ids — resolve
-them against the space's type list before rendering a picker.
+`xFormat.relation.targetTypes` holds **xKeys**, not type ids — resolve a
+catalog xKey through the bundle registry and a user type's xKey against
+the space's type list before rendering a picker.
 
 Built-in fields render through the same table: `any.name`,
 `chat_messages.createdAt`, a dataview's `name` all come back from
 discovery (`description` / `x-format` on the field node) and
 `GET …/types/:id/properties` (`description` / `xFormat`) with a
-description and, where a slug fits, a descriptor. Where none fits (markdown text bodies,
-identities, record ids) the `description` says what the value is —
-hardcode nothing a descriptor already tells you.
+description and, where a slug fits, a descriptor. Where none fits
+(markdown text bodies, identities, record ids) the `description` says
+what the value is — hardcode nothing a descriptor already tells you.
 
 ### Editing a definition
 
@@ -226,20 +227,21 @@ at once:
 3. an **implementation of that type** — it carries the type itself, so it
    holds that type's property values and datasets.
 
-Role 3 is what lets a root hold its own bundle's data: favourites keeps
-its entries on the favourites root and contacts keeps its layouts on the
-contacts root, and the write gate only admits a type's datasets on an
-object that carries that type.
+Role 3 is what lets a root hold its own bundle's data, and the write
+gate only admits a type's datasets on an object that carries that type.
+A root takes role 3 only when it is **self-typed**: a bundle installed
+with `selfTyped: true` (the contacts root keeps its layouts on itself),
+a bundle whose part names a reserved module (the general chat), and
+every tech-space bundle (favourites keeps its entries on its root). Every
+other type-declaring root is a definition only — the wiki root is the
+Wiki app and the wiki type definition, and the tree is made of the other
+objects that carry the type. A type created through `POST …/types` is a
+definition only too.
 
-The self type is attached to **every** root that declares one, whether or
-not the bundle uses role 3. The wiki root, for instance, is the Wiki app
-and the wiki type definition, and it carries the wiki type while holding
-no wiki values of its own — the tree is made of the other objects that
-carry it.
-
-The consequence for reads: a type row **matches a filter for its own
-type**, so `{"any.types": "<personTypeId>"}` returns the Person
-definition next to the actual people. Exclude the marker:
+The consequence for reads: a self-typed root **matches a filter for its
+own type**, so `{"any.types": "<typeId>"}` returns the root next to the
+objects that carry the type. Exclude the marker in every type-scoped
+list, so the filter holds whichever shape the type has:
 
 ```json
 {"$and": [{"any.types": "<typeId>"},
@@ -250,11 +252,6 @@ definition next to the actual people. Exclude the marker:
 The third clause is the other half: a binned object keeps its type
 membership, so an ordinary list must exclude `bin` carriers too
 (§ Content surfaces).
-
-A type created through `POST …/types` is a definition only — role 2
-without role 3 — so it carries just `__type__` and does not self-match.
-Write the filter this way regardless, so it keeps working when the type
-later ships as a bundle.
 
 ### Timestamps
 
@@ -285,23 +282,24 @@ Query grammar and index guidance: [`09-query.md`](09-query.md).
 Later property writes go through
 `POST …/properties/:objectId/set/:typeId`; arbitrary record writes
 through `POST /v1/spaces/:spaceId/modify`; idempotent batch ingest into an
-`id: user` dataset through `POST /v1/spaces/:spaceId/upsert`.
+`idRule: user` dataset through `POST /v1/spaces/:spaceId/upsert`.
 
 **No write attaches a type.** A module collection lives on an object only
 while the object carries a type whose part declares it; a write without
 one is `400 dataset.not_declared`. Attach deliberately — at create via
 `types`, or `POST …/properties/:objectId/attach/:typeId`.
 
-Record writes (modify, upsert, the chat and block endpoints) return
+Record writes (modify, property set, the chat and block endpoints) return
 `{versionId, changeId, recordIds}`, not the body — read it back through
-query. Object and type creation are the exception: they answer with the
-new id under a per-kind key (`objectId`, `typeId`).
+query. Upsert returns `{pages: [{versionId, changeId, recordIds}],
+created, updated, skipped, rejections?}`. Object and type creation answer
+with the new id under a per-kind key (`objectId`, `typeId`).
 
 ## Content surfaces
 
 | surface | how |
 |---|---|
-| **Document** | carry `page` (or your own type with an editor part). Blocks: `…/objects/:o/editor/:collection/blocks`; whole body: `GET/PUT/PATCH …/editor/:collection/markdown`. Read with `dataset` set to **the same `:collection`**, sorted on `nav.pos` — `editor_blocks` for the shared part `page` uses, `<typeId>_<key>` for a type that declares its own namespaced editor part. |
+| **Document** | carry `page` (or a type with an editor part). Blocks: `…/objects/:o/editor/:collection/blocks`; whole body: `GET/PUT/PATCH …/editor/:collection/markdown`. Read with `dataset` set to **the same `:collection`**, sorted on `nav.pos` — `editor_blocks` for the shared part `page` uses, `<typeId>_<key>` for a type that declares its own namespaced editor part. |
 | **Chat** | one per space, the `general-chat` usecase; its root is a `miniapp` carrier, so it sits in the sidebar with the other apps. Writes: `…/objects/:chatRoot/chat/messages`. Read via `dataset=chat_messages` sorted on `_ver.id`. |
 | **Wiki tree** | the `wiki` usecase's three properties on objects that carry it: `parentId` (`""` = top level), `pos` (lexid), `folder`. Children = objects query filtered on the parent property, sorted on the pos property. The server allocates no positions. |
 | **Saved views** | the `dataview` type: `dataviews` (tables on a host) and `views` (views of a table). |
@@ -329,10 +327,12 @@ compute the same id offline and no install can fork.
   Unknown body fields are rejected and the message names the accepted
   set — read it, it is usually the whole fix. Unknown **query**
   parameters are ignored.
-- Create replies use a per-kind key (`objectId`, `typeId`, `partId`,
-  `fileId`); list replies use `id`.
-- File **attach** is object-scoped; every file read, download, status and
-  delete is space-scoped (`/v1/spaces/:s/files/:fileId/...`).
+- Create replies use a per-kind key (`objectId`, `typeId`, `propId`,
+  `partId`, `fileId`); list replies use `id`.
+- File **attach** and the payload-row query are object-scoped
+  (`/v1/spaces/:s/objects/:o/files[/query]`); every other file read,
+  download, status and delete is space-scoped
+  (`/v1/spaces/:s/files/:fileId/...`).
 - A derived object (any bundle root installed with `derived: true`, such
   as the general chat) is permanent: `DELETE …/objects/:id` answers
   `409 object.derived_undeletable`.

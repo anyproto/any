@@ -2,8 +2,7 @@
 
 The `any` wrap of the SDK's files-v2 subsystem: file payloads stored
 as **space data** — same sync, same ACL, same encryption as every
-other record — instead of the legacy filenode's parallel sync system.
-This doc covers the model and the decisions; the endpoint catalog
+other record. This doc covers the model; the endpoint catalog
 lives in [`03-api.md` § Files](03-api.md#files-files-v2), the SSE
 frames in [`04-events.md`](04-events.md), the CLI in
 [`01-cli.md`](01-cli.md), config in [`05-config.md`](05-config.md),
@@ -28,7 +27,7 @@ and the client recipe in [`08-clients.md`](08-clients.md).
   ride inline in the sealed row (`inline: true`, no `rootCid`, durable
   by construction, no network backup needed). Larger files are
   encrypted, chunked into a UnixFS DAG, stored locally as one CARv2
-  per `rootCid` under `<data-dir>/sdk-sibling files/` (SDK-owned), and
+  per `rootCid` under `<account-dir>/files/` (SDK-owned, next to `sdk/`), and
   backed up to the network's fileV2 broker in the background.
 - **Deduplication is per-space** by content address: attaching the
   same bytes twice in one space shares the CARv2. No cross-space dedup
@@ -55,8 +54,8 @@ inside the attach request — with a reachable broker the reply already
 says `durable: true` and attach latency ≈ the object-store upload —
 and falls back to a persistent background queue (survives restarts)
 when the broker is unreachable or refuses. No fileV2 nodes in the
-nodeconf (or no connectivity) just means files sit `inflight` until
-the network appears.
+nodeconf (or no connectivity) means files sit `inflight` until the
+network appears.
 
 `GET /files/subscribe` streams `FileStatus` on **local** transitions
 only — attach, backup progress/failure, pin completion, manual
@@ -64,9 +63,8 @@ retries. **How a receiver learns a remote file became fetchable**: the
 custody receipt (`networkSign`) is a synced cleartext field on the
 payload row, so the durable flip arrives as an ordinary row-update
 event on `…/files/query/subscribe` (or as `durable: true` on a
-re-GET) — not on the status stream. A synced files event feed is an
-SDK roadmap item (SYN-30 files view). There is likewise **no
-space-wide live rows feed** yet — clients re-list, subscribe per
+re-GET) — not on the status stream. There is no synced file event
+feed and no space-wide live rows feed: clients re-list, subscribe per
 object (`files/query/subscribe`), or ride the status stream.
 
 ## Reads: which endpoint when
@@ -78,7 +76,8 @@ object (`files/query/subscribe`), or ride the status stream.
 2. **Windowed query/subscribe** —
    `POST /objects/:objectId/files/query[/subscribe]`: the generic
    snapshot+SSE primitive over one object's payload rows (cleartext
-   fields only). Use it for live per-object file lists.
+   fields only; `404 file.not_found` until the object's first attach).
+   Use it for live per-object file lists.
 3. **Durability liveness** — `GET /files/subscribe` (status stream)
    and `GET /files/:fileId/status` / `GET /files/stats` (reads).
 
@@ -94,16 +93,17 @@ content stays unset. Full precedence in `docs/03-api.md` § Files.
 regular HTTP resource — stored mime, `Content-Disposition`,
 `Content-Length`, `Range`/206 (the SDK reader is seekable; seeks map
 to DAG offsets, so a video scrub does not download the prefix).
-Content not yet local streams from the network on demand and every
-fetched block persists — reads accrete toward a complete local copy.
-When the bytes are neither local nor fetchable — the file isn't
-durable yet, or the network advertises **no public read base** (the
-SDK's remote fetch is public-read only; presigned GETs and P2P are SDK
-roadmap) — the endpoint returns `409 file.not_available`; retry once
-the row gains `networkSign`. Downloads are plain HTTP responses (not
-SSE): one in flight when the server shuts down is cut by the 10s drain
-deadline; the client just retries with a `Range` from where it
-stopped.
+Content not yet local streams in on demand and every fetched block
+persists — reads accrete toward a complete local copy. The SDK fetches
+from a local-network peer that holds the complete file (`p2p.enabled`,
+on by default) and otherwise from the network's public read base,
+which serves durable files only. When
+neither can serve the bytes — no peer holds them and the file isn't
+durable yet, or the network advertises no public read base — the
+endpoint returns `409 file.not_available`; retry once the row gains
+`networkSign`. Downloads are plain HTTP responses (not SSE): one in
+flight when the server shuts down is cut by the 10s drain deadline;
+the client retries with a `Range` from where it stopped.
 
 ## Cache, offload, pin
 
@@ -123,9 +123,8 @@ Local bytes (CARv2s) are a cache once a file is durable:
   grace, drop stale partials).
 - **No background GC by default.** The sweep runs periodically only
   when `files.gcInterval` is set (`05-config.md`); otherwise
-  reclamation is entirely caller-driven. Deleting a space still
-  offloads all its state including file bytes (the space-delete path,
-  status item 18 in `CLAUDE.md`).
+  reclamation is entirely caller-driven. Deleting a space offloads all
+  its local state including file bytes (`03-api.md` § Spaces).
 
 ## Delete
 
@@ -142,9 +141,8 @@ Content shared with a surviving file via dedup keeps its bytes.
 
 Unknown or already-deleted ids → `404 file.not_found` (delete is not
 idempotent over the wire). The **network copy is not reclaimed** —
-fileprotov2 has no delete RPC yet; the broker's row-driven accounting
-stops counting the rows once the deletion syncs, and network-side GC
-is an SDK/filenode roadmap item.
+fileprotov2 has no delete RPC; the broker's row-driven accounting
+stops counting the rows once the deletion syncs.
 
 ## Variants
 
@@ -165,14 +163,12 @@ The SDK's files-v2 work also ships broker/embedder primitives —
 sync. They exist for the filenode-v2 broker embedding, which links the
 SDK directly and doesn't go through `any`'s HTTP server; for a
 key-holding `any` client the keyless payload view is strictly less
-information than `GET /files`. If a use case surfaces, they're cheap
-1:1 wraps (see `07-roadmap.md`).
+information than `GET /files`.
 
-## Known limits / open items
+## Known limits
 
-- **No synced file event feed / space-wide rows feed** until the SDK's
-  SYN-30 files view.
+- **No synced file event feed / space-wide rows feed** (§ Durability
+  states).
 - **Search**: file content and file names are not indexed (no chunker
-  for the payloads dataset); an attachment-aware chunker is a roadmap
-  question.
-- **Web UI / agent helper**: not wired in this slice.
+  for the payloads dataset). References to a file (`any://f/…`) in
+  text and attachments are link-index edges (`13-index.md` § Links).

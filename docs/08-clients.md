@@ -1,10 +1,9 @@
 # Client recommendations
 
-How a well-behaved client should call this server. These aren't new
-endpoints — they're the call patterns that keep a client correct and cheap
-on top of the contract in `03-api.md` (endpoints + bodies) and
-`04-events.md` (SSE lifecycle). Read those for the wire shapes; read this
-for *how to use them*.
+The call patterns that keep a client correct and cheap on top of the
+contract in `03-api.md` (endpoints + bodies) and `04-events.md` (SSE
+lifecycle). Read those for the wire shapes; read this for *how to use
+them*.
 
 ## 1. Writes go through the module's handler methods
 
@@ -17,9 +16,10 @@ endpoints — never through a generic write path:
   — `:collection` is `editor_blocks` for the shared body, or the
   namespaced `<typeId>_<key>` of a part with its own editor
 
-The handler is what stamps server-owned fields (`creator` / `createdAt` /
-`modifiedAt`), enforces author-only edit/delete, and keys reactions per
-identity. Bypassing it would skip all of that. The write-shaped
+The endpoints build the ops the module's handler accepts — it stamps
+server-owned fields (`creator` / `createdAt` / `modifiedAt`), enforces
+author-only edit/delete and keys reactions per identity — and run the
+write's side effects (a chat send notifies push). The write-shaped
 exceptions are the `…/editor/:collection/markdown` routes, which are
 render/import *transforms* over the editor collection, not dataset
 writes. Pick by change shape:
@@ -58,7 +58,7 @@ create time, or later through `POST …/properties/:objectId/attach/:typeId`:
 
 ```
 POST /v1/spaces/:spaceId/objects
-{ "types": ["<pageTypeId>"], ... }
+{ "types": ["page"], "initialProperties": { "any": { "name": "Notes" } } }
 ```
 
 - **Don't call a dataset write endpoint unless the target object carries
@@ -72,24 +72,26 @@ POST /v1/spaces/:spaceId/objects
   row from the per-space `objects` collection) before writing, or create
   the object with the type bound up front. Don't fire the write and hope.
   A document type is the built-in `page` (plain body, no properties)
-  or a user type of your own — register the latter as a bundle so every
-  client and device converges on one instead of minting a type per
-  client.
+  or any type with an editor part — for a type an app ships, the
+  catalog's (`28-well-known-bundles.md`), so every client and device
+  converges on one.
 
 - **Preflight-validate property values against the bound type's property
-  definitions.** v1 does **not** enforce property schema server-side —
-  property writes are free-form. The client is responsible for keeping values
-  aligned with the type contract. Fetch the type's properties:
+  definitions.** Fetch them once per type:
 
   ```
   GET /v1/spaces/:spaceId/types/:typeId/properties
   ```
 
-  Each entry is a `PropertyDef` (`kind`, `required`, nested `items` /
-  `properties`). Validate kind and required-ness before writing. Don't rely
-  on the server to reject a mismatch today — the SDK-level guards
-  (`property.kind_mismatch`, `property.immutable`) are not wired into
-  the v1 write path, so a malformed write succeeds now and bites later.
+  Each entry is a `PropertyDef` (`kind`, `xFormat`, and for object
+  kinds nested `items` / `properties` / `required`). The server refuses
+  a bad write whole: a value of the wrong `kind` is `400
+  property.kind_mismatch`, an undeclared property id `400
+  property.not_found`, a type the object does not carry `400
+  dataset.validation`, and a value that does not fit the descriptor's
+  current slug `400 property.format_violation` (`27-descriptors.md`).
+  Check the same rules client-side so a form reports the problem
+  before the round trip.
 
 ## 3. Reads go through query / subscribe
 
@@ -99,9 +101,9 @@ collections pass `objectId` + `dataset` — the collection name
 (`chat_messages`, `editor_blocks`, a namespaced `<typeId>_<key>`; read
 them off `GET /v1/spaces/:id/datasets` or the type's `…/parts`); the
 cross-object firehose is `POST /v1/spaces/:id/objects/query[/subscribe]`.
-Body shape (filter / sort / limit / offset / includeTotal / mailboxCapacity /
-driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
-`04-events.md`.
+Body shape (filter / sort / limit / offset / includeTotal / projection /
+mailboxCapacity / driftBudgetPercent) is in `03-api.md`; SSE frame
+lifecycle is in `04-events.md`.
 
 - **Prefer `query` over `subscribe`.** Use the one-shot snapshot whenever you
   don't need live updates. It's cheaper, has no mailbox/drift lifecycle to
@@ -188,8 +190,8 @@ cannot fork even when two sides install while apart (the 1-1 case,
 where neither participant is the owner). The `chat` module is reserved
 to the server: no client declares a chat part, and the general-chat
 root is the only object that may carry its type, so there is no other
-chat to find. Full guidance: `16-chat.md` § Finding the chat object,
-`03-api.md` § Chat.
+chat to find. Full guidance: `16-chat.md` § Finding the chat object for
+a space, `03-api.md` § Chat.
 
 Chat uses `-_ver.id` (descending) **uniformly** — initial view, live tail,
 and history paging all sort the same way. `_ver.id` is the record's
@@ -203,7 +205,7 @@ direction — see the live-tail reasoning below.
 **Open a chat view** — just subscribe. Don't `query` first and then
 subscribe: the subscribe stream's `snapshot` frame *is* your initial
 newest-N load (the windowed engine emits it atomically with registration —
-see `04-events.md` § "snapshot arrives once"). A separate up-front `query`
+see `04-events.md` § Contract that clients must respect). A separate up-front `query`
 refetches the same rows and opens a gap/dup race against the first
 `changes` frame. Use a one-shot `query` (below) only when you *don't* want
 live updates.
@@ -266,7 +268,7 @@ accumulate. Treat it as one and the lifecycle stays simple.
 
 - **Recover from a `closed` stream by resubscribing, not reconciling.** Every
   `closed` reason is terminal and means "open a fresh POST" (see `04-events.md`
-  § "`closed` is terminal"). For the two load-shedding reasons, the reopened
+  § Contract that clients must respect). For the two load-shedding reasons, the reopened
   snapshot *already* reflects current state — rebuilding it from a giant delta
   is the expensive path the engine is deliberately refusing:
   - `drifted` — more than `driftBudgetPercent` of the window left *without
@@ -285,11 +287,9 @@ accumulate. Treat it as one and the lifecycle stays simple.
 - **Window size is free on the server; the cost is the client's.** The server
   streams the window straight from the indexed DB and is indifferent to
   whether it holds 50 rows or 50,000 — size the window for the UI, not the
-  server. The real cost of a large window is client memory. Optimise for
-  correctness and stability first; a windowed read slower than ~100ms is
-  by-design wrong and worth a bug report.
+  server. The real cost of a large window is client memory.
 
-- **Cross-check client state against the DB when debugging.** `anystore-cli`
+- **Cross-check client state against the DB when debugging.** `any-store-cli`
   reads the same local DB that backs `any-store`. Sort a collection by
   `-_ver.id`, mutate a record, re-query, and watch the new value land with its
   own version — the same CRDT-with-versions shape the change arrives in over
@@ -301,7 +301,7 @@ accumulate. Treat it as one and the lifecycle stays simple.
 `POST /v1/spaces/:spaceId/search` searches the server's local index
 (BM25 full-text + semantic vectors over chats, editor blocks, and
 object properties — pipeline in `13-index.md`, wire shape in
-`03-api.md` § search).
+`03-api.md` § POST /v1/spaces/:spaceId/search).
 
 ```json
 POST /v1/spaces/:spaceId/search
@@ -345,7 +345,8 @@ Call patterns:
 - **Scopes are an open set** of slugs: `basic` (blocks, object
   names/descriptions), `chat`, `props` (user property values,
   default-on, FTS-only, `"<prop name>: <value>"` entry text), and
-  whatever scopes property `meta` flags mint (e.g. `agent`). An
+  whatever scopes a property's `meta.index` or a runtime dataset's
+  `search.scope` names (e.g. `agent`, `meetings`). An
   unknown-but-valid scope returns no hits; a malformed one is `400
   search.bad_scope`. A content-only search passes `scopes` without
   `props`.
@@ -353,8 +354,9 @@ Call patterns:
   are different scales across modes). Rank, don't threshold.
 - **Freshness model**: new writes are FTS-searchable within ~the
   debounce (250ms); the vector leg lags by one embed round. The index
-  is local and "from the next change" — content that predates indexing
-  on this server is not in it (use `/query` for exhaustive reads).
+  is local: a new or rebuilt index backfills every record the server
+  holds, and until the backfill finishes `/query` is the exhaustive
+  read.
 - Errors: `409 index.disabled` (indexer off on this server), `400
   index.no_embedder` (`mode: "vector"` on an FTS-only server), `503
   index.embedder_unavailable` (`mode: "vector"` while the embedder is
@@ -428,8 +430,9 @@ a later `POST /v1/spaces/one-to-one` brings it back.
 The 1-1's chat is the same general chat as everywhere else: both
 participants run `POST /v1/catalog/general-chat/setup {"spaceId": …}`
 (§ 4) — the initiator right after creating the space, the acceptor
-after accept — and land on the one derived root on the first attempt,
-with no convergence wait between them (`16-chat.md` § Finding the chat object).
+after accept — and land on the one derived root on the first attempt;
+neither side is refused while the other is unsynced (`16-chat.md`
+§ Finding the chat object for a space).
 
 ## 8. Members-with-roles vs. the identities directory
 
@@ -438,7 +441,7 @@ questions — don't conflate them.
 
 - **A space's roster, with rights** → `GET /v1/spaces/:id/members`. Each
   row carries the member's `permission`
-  (`owner`/`admin`/`writer`/`reader`) **and** their profile (`name` /
+  (`owner`/`admin`/`writer`/`reader`/`guest`) **and** their profile (`name` /
   `iconCid`) **and** `status` — everything a "Members" panel with avatars
   and roles needs, in one call. This is the authoritative source for
   roles. Subscribe to `…/members/subscribe` for live role/membership
@@ -456,11 +459,10 @@ GET /v1/identities                # global id → profile, all spaces
 GET /v1/identities/:identity      # one contact (404 if never seen)
 ```
 
-The directory carries **no rights** — it has no permission field by
-design. To show "Alice is an admin of space X," read space X's members
-list; iterate `IdentityInfo.spaceIds` if you need her role in each shared
-space. There is no cross-space role rollup (and per the 1:1 SDK-mapping
-invariant the server won't synthesize one).
+The directory carries **no rights** — it has no permission field. To
+show "Alice is an admin of space X," read space X's members list;
+iterate `IdentityInfo.spaceIds` if you need her role in each shared
+space. There is no cross-space role rollup.
 
 **Tolerate empty names.** Profiles are encrypted and decryptable only by
 contacts who received the key through a shared space's ACL or a 1-1
@@ -468,8 +470,7 @@ invite. A freshly-seen contact — or any contact on a freshly-restored
 device, before background resolution completes — surfaces **id-only**
 (empty `name`). Render a fallback (truncated id, generated avatar) and
 let the `updated` subscribe frame fill it in. Never block UI on a
-resolved name. (Do not invent a degraded "fetch the raw profile bytes"
-path — there isn't one; the directory *is* the resolution surface.)
+resolved name; the directory is the only resolution surface.
 
 ## 9. Files: attach fire-and-forget, download as plain HTTP
 
@@ -487,11 +488,10 @@ Content-Type: image/jpeg
 ```
 
 Know what attach latency includes: the network backup is attempted
-**synchronously inside the request** (with a reachable broker a 10 MB
-attach takes roughly its object-store upload time and returns
-`durable: true`); when the broker is unreachable/refusing, attach
-returns fast with `durable: false` and a persistent queue retries in
-the background. Either way, don't block the UI on `durable`. For a
+**synchronously inside the request** (with a reachable broker the attach
+takes the upload time and returns `durable: true`); when the broker is
+unreachable/refusing, attach returns fast with `durable: false` and a
+persistent queue retries in the background. Either way, don't block the UI on `durable`. For a
 "not backed up" badge, hold `GET …/files/stats` and refresh it on
 `GET …/files/subscribe` events (state `inflight`/`limited` →
 `durable`). `limited` means the network refused for quota — offer a
@@ -642,15 +642,14 @@ spaces, is a bundle on the **tech space** (`techSpaceId` from
    dataset for live updates.
 2. **Ensure on first write.** `POST …/bundles` with `{"id": "<app>/v1",
    "hidden": true, "parts": [...]}` — a CREATED root minted by the
-   server, hidden from pickers (it hosts records, nothing attaches it
-   elsewhere), deletable
+   server, self-typed on the tech space so the records live on it,
+   hidden from pickers (nothing attaches it elsewhere), deletable
    (uninstall = `DELETE …/objects/<rootId>`). Idempotent: the first
-   call installs, later calls adopt. Do NOT reach for `"derived": true`
-   because a converged id sounds convenient — bundles exist precisely so
-   a converged install does not need a derived object. Derive only when
-   a fork would be UNMERGEABLE (chat-like content — the server's own
-   general chat is the canonical case), and accept the price:
-   permanent, uninstallable.
+   call installs, later calls adopt. Use a created root: the registry
+   already converges installs, so `"derived": true` buys nothing but
+   permanence. Derive only when a fork would be UNMERGEABLE (chat-like
+   content — the server's own general chat is the canonical case), and
+   accept the price: permanent, uninstallable.
 3. **On a fork** (two devices installed while apart): the registry
    converges on one winner, the other lands in `losers`. Merge the
    loser's records into the winner through your own schema, then
@@ -664,11 +663,12 @@ cases — an entry whose folder is removed, a
 move that forms a cycle across devices — are read-side product rules:
 compute the same view from the same records everywhere, never repair
 with writes.
+
 ## 13. Saved views: ensure the defaults, patch by path, one window per visible group
 
-Saved views (`24-data-views.md`) are the first place a client both
-*writes* shared configuration and *reads* it back on every render, so
-the call patterns matter more than the record shape.
+A client both *writes* saved views (`24-data-views.md`) as shared
+configuration and *reads* them back on every render, so the call
+patterns matter more than the record shape.
 
 - **Bind the type once, at create where you can.** A new host object
   takes `{"types": ["dataview"]}` on `POST …/objects`; an existing one
@@ -773,12 +773,6 @@ the call patterns matter more than the record shape.
   `{"$date": "<RFC 3339>"}`; a numeric decode target silently yields
   zero, and a filter literal needs the same shape.
 
-Migrating from per-device storage (any-ui's `localMeta:table`): on first
-run with a view-capable server, ensure the default view, seed it from
-the local settings you already have, and treat the server as
-authoritative from then on — keeping the local copy as a fallback
-re-creates the divergence views exist to remove.
-
 ## 14. Auth: read the capability bits, hold the phrase, log in every launch
 
 The server's ownership mode (`02-server.md` § Modes) decides what an
@@ -787,7 +781,7 @@ auth UI may offer. These rules are normative for every client:
 1. **Read `GET /v1/auth` before rendering any auth affordance.** Show
    sign-out, account switching and quit only where the matching
    `capabilities` bit is true. Never infer a capability from the `mode`
-   string — a future mode must not break you.
+   string.
 2. **On a managed server the client owns the account list.** The server
    cannot enumerate keys it never stored; `accounts` is empty. Build the
    picker from your keystore.
@@ -842,9 +836,8 @@ Call patterns:
   points at the entity itself; `parts` what points at one of its
   blocks, messages or values. A block link is a block link — never
   count it as a second link to the page.
-- **Show the kind.** `mention`, `link`, `card`, `embed`, `relation`
-  are the vocabulary today; render an unknown kind as a plain
-  reference (the set is open).
+- **Show the kind.** `mention`, `link`, `card`, `embed`, `relation`;
+  the set is open, so render an unknown kind as a plain reference.
 - **Navigate by the source place.** `source.dataset` +
   `source.recordId` locate the block or message; `prop` + the property
   id, with `source.typeId`, locate a value. Build the deep link with
