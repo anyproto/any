@@ -64,3 +64,21 @@ func TestLoadNodeconfBadPathStillErrors(t *testing.T) {
 		t.Fatal("expected error for unreadable nodeconfPath")
 	}
 }
+
+func TestNodeconfNetworkId(t *testing.T) {
+	if id, err := NodeconfNetworkId(nodeconfProd); err != nil || id != prodNetworkId {
+		t.Errorf("embedded default = %q, %v; want %q", id, err, prodNetworkId)
+	}
+	if id, err := NodeconfNetworkId(NodeconfPlaceholder()); err != nil || id == "" {
+		t.Errorf("placeholder = %q, %v; want its networkId", id, err)
+	}
+	for name, raw := range map[string]string{
+		"no networkId": "nodes: []",
+		"not yaml":     "networkId: [",
+		"empty":        "",
+	} {
+		if id, err := NodeconfNetworkId([]byte(raw)); err == nil {
+			t.Errorf("%s: got %q, want an error", name, id)
+		}
+	}
+}

@@ -81,6 +81,10 @@ func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 	if cfg.Mode, err = config.ParseMode(cfg.Mode); err != nil {
 		return err
 	}
+	networkId, err := pinNodeconf(&cfg)
+	if err != nil {
+		return err
+	}
 	// A managed server never resolves an account from disk: the host
 	// states it on POST /v1/auth every boot. A minted control token is
 	// announced after LISTENING so only the spawning parent can read it.
@@ -120,6 +124,7 @@ func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 
 	deps := &deps{
 		startedAt:    time.Now().UTC(),
+		networkId:    networkId,
 		shutdown:     shutdown,
 		root:         root,
 		cfg:          cfg,

@@ -61,6 +61,9 @@ auth:
 # working directory — that default is the PRODUCTION network, so an
 # unconfigured binary syncs against production. Point at another network
 # with nodeconfPath, inline nodeconf, or ANY_NETWORK_NODECONF_PATH.
+# The conf is read once at startup (a change applies on restart); a conf
+# without a networkId fails startup. GET /v1/health reports it as
+# `networkId`.
 #
 # internal/config/nodeconf-placeholder.yml is the sanitized fixture
 # (real networkId, placeholder nodes) — it boots and serves but joins no

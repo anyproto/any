@@ -38,6 +38,23 @@ import (
 // newTestDeps wins; subsequent ones leave the global alone.
 var logConfigOnce sync.Once
 
+// pinNodeconf resolves the nodeconf once at startup and pins the bytes
+// inline on cfg, so every engine the process boots joins the network
+// GET /v1/health reports, even if the configured file changes later.
+// Returns the conf's networkId.
+func pinNodeconf(cfg *config.Config) (string, error) {
+	raw, err := config.LoadNodeconf(cfg.Network)
+	if err != nil {
+		return "", err
+	}
+	networkId, err := config.NodeconfNetworkId(raw)
+	if err != nil {
+		return "", err
+	}
+	cfg.Network.Nodeconf = string(raw)
+	return networkId, nil
+}
+
 // OpenSDK boots the SDK against the wallet provider and the project
 // config. Storage lives under <dataDir>/sdk so the SDK's any-store and
 // any-sync state are isolated from other process state in the data dir.
