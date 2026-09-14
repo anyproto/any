@@ -355,6 +355,8 @@ leaves their values orphaned (readable, no schema).
 | | | `system:project/v1` | type `project` (`notes`, `parent` → `area`, `completed`, `completedAt`, `position`) |
 | | | `system:area/v1` | marker type `area` — an area is a name and an icon; all three are listed, weightless types the planner creates and a table may show |
 | | | `system:tasks/v1` | miniapp only — the sidebar entry that opens the planner |
+| `bookmarks` | `tasks` | `system:bookmark/v1` | type `bookmark`: source URL, editable native choices for purpose (single; initial keys `read`, `buy`, `inspiration`, `try`) and tags (multiple; initially empty), multiple `contexts` → existing `project` / `area`, independent inbox/archive/completed flags, note, reader text and summary; starring uses [native Any favorites](25-favorites.md) |
+| | | `system:bookmarks/v1` | miniapp only — Bookmarks; shared projects and areas retain their Tasks object IDs |
 | `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one shared `chat` part — the reserved module's only declaration, the root its only carrier — + miniapp, so the chat is a sidebar entry |
 | `people` | — | `system:person/v1` | type `person` (weight 10, layout `profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags) + shared editor `body` part |
 | | | `system:organization/v1` | type `organization` (weight 10, layout `profile`; kind, domain, categories, location, size, linkedin, main_contact → `person`) + shared editor `body` part |
