@@ -202,7 +202,7 @@ Implementation slices landed:
    it. The per-object read locks the tree and walks every change, so
    it isn't a hot path. CLI: `any debug space/object`. Field-level
    docs in `internal/api/debug.go` and the SDK's
-   `space/debug.go` / `internal/spaceimpl/debug.go`.
+   [`space/debug.go`](https://github.com/anyproto/any-sync-sdk/blob/main/space/debug.go) / [`internal/spaceimpl/debug.go`](https://github.com/anyproto/any-sync-sdk/blob/main/internal/spaceimpl/debug.go).
 10. **Sync status + SSE state stream** — production sync state from
     the SDK's `Space.SyncStatus()` / `Service.{Status,SubscribeStatus}`.
     GETs: `/v1/spaces/:id/sync-status` (rollup),
@@ -376,7 +376,7 @@ Implementation slices landed:
       preserved for last-pooling — explicit decision, docs/13-index.md
       § Known limits); Linux needs system libffi (NixOS: `nix develop`,
       see flake.nix). Config `index.*` (`internal/config.Index`, env
-      `ANY_INDEX_*`); `embedder` defaults to `local`, `none` opts out
+      `ANY_INDEX_*`); `embedder` defaults to `auto` (online primary + local fallback), `none` opts out
       (FTS-only). **An unavailable embedder never breaks the
       pipeline**: no boot probe — pending is marked whenever an
       embedder is configured, an outage freezes only the vector side
@@ -508,7 +508,7 @@ Implementation slices landed:
     dependency bump (`v0.0.11` → `v0.0.12`, any-store/v2 alpha.11 →
     alpha.14) plus the `any space delete <id> --yes` CLI command and doc
     alignment (docs/01-cli.md, docs/03-api.md § Spaces). SDK contract:
-    its `docs/03-space.md` § Space Lifecycle.
+    its [`docs/03-space.md` § Space Lifecycle](https://github.com/anyproto/any-sync-sdk/blob/main/docs/03-space.md#space-lifecycle).
 
 18. **Event bus (SYN-151)** — the account-wide **ephemeral** event bus
     that generalized (and replaced) the UI command channel:
@@ -590,7 +590,8 @@ Implementation slices landed:
     one-to-one start/accept/decline/register/pending` (top-level group,
     aliases `1-1`/`direct`). Contract: docs/03-api.md § Spaces,
     docs/01-cli.md, docs/02-server.md § Startup, client recipe in
-    docs/08-clients.md § 7, and the SDK's docs/13-one-to-one-spaces.md.
+    docs/08-clients.md § 7, and the SDK's
+    [`docs/13-one-to-one-spaces.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/13-one-to-one-spaces.md).
 
 20. **Identities directory + encrypted profiles** — wraps the SDK's new
     `SDK.Identities()` (`feat/identities-directory`), the account-global,
@@ -688,7 +689,7 @@ Implementation slices landed:
     RECORD fields is declared-but-not-writable (SDK mirror covers
     objects rows only). SDK prerequisite: `ModifyBatch.Scope` +
     exported `space.ParseScope` (branch cheggaaa/scoped-record-modify;
-    SDK contract test e2e/local_scope_records_test.go). `any` tests:
+    SDK contract test [`e2e/local_scope_records_test.go`](https://github.com/anyproto/any-sync-sdk/blob/main/e2e/local_scope_records_test.go)). `any` tests:
     handlers_modify_scope_test.go. Docs: 03-api.md § Modify records /
     § Datasets / § Types & properties / § Chat.
 23. **Property PATCH + select options** — closes any-ui #252
@@ -773,7 +774,7 @@ Implementation slices landed:
     snapshot-horizon contract). Static `diff` registered before the
     `:version` wildcard. No CLI surface yet. Contract: docs/03-api.md
     § Version history, docs/06-errors.md, and the SDK's
-    `docs/version-history-proposal.md`.
+    [`docs/version-history-proposal.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/version-history-proposal.md).
 26. **Push notifications (SYN-47)** — heart-interoperable mobile chat
     push (same `anytype-push-server` deployment; topics, payload JSON,
     crypto byte-compatible — golden tests pin the wire shapes).
@@ -860,7 +861,7 @@ Implementation slices landed:
     08-clients.md § 3, 09-query.md § Paths) and
     `TestE2E_ObjectsModifiedAt`; no `any` handler change. Client
     recency ordering: `{"sort": ["-modifiedAt"]}`. SDK prerequisite:
-    anyproto/any-sync-sdk#79 (`modifiedAt` in `anytype.Properties` +
+    [any-sync-sdk#79](https://github.com/anyproto/any-sync-sdk/pull/79) (`modifiedAt` in `anytype.Properties` +
     `Sink.DeriveOnce`).
 
 29. **SDK boot rework adoption (SYN-99)** — the SDK's `Open` now
@@ -950,12 +951,10 @@ Implementation slices landed:
     catalog TTL (the SDK snapshot refreshes synchronously on defs
     apply); `prop`/`schema` names reserved at the creation API. Error
     mapping in `datasetWriteError` (sentinels + STOPGAP string-matched
-    decl errors — SDK sentinel follow-up in docs/07-roadmap.md, along
-    with the dogfood handler-collapse audit and the removed-def index
-    sweep). CLI: `any type part dataset …`, `any upsert`. Contract:
+    decl errors). CLI: `any type part dataset …`, `any upsert`. Contract:
     docs/03-api.md § Runtime dataset schemas + § Upsert records,
     docs/13-index.md § Schema chunker, docs/06-errors.md, and the SDK's
-    docs/17-user-datasets.md (vocabulary, convergence rules, storage
+    [`docs/17-user-datasets.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/17-user-datasets.md) (vocabulary, convergence rules, storage
     model). **SDK prerequisite:** shipped in `any-sync-sdk v0.2.0`.
 33. **Process helper (SYN-153)** — progress reporting + cancel over the
     event bus: `process.*` events (envelope target = process id, keyed
@@ -1046,7 +1045,7 @@ Implementation slices landed:
 35. **Bundles registry over HTTP** — what a space has installed lives
     in the SDK's per-space registry (`Space.Bundles()`, the `bundles`
     dataset on the spaceIndex object; design in the SDK's
-    `docs/bundles.md`). A bundle is one NON-derived root object under a
+    [`docs/bundles.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/bundles.md)). A bundle is one NON-derived root object under a
     permanent versioned id, with setup objects derived from it
     (`ParentId`), so one converged id names the whole install. A
     derived root cannot be deleted, so two devices installing while
@@ -1163,7 +1162,7 @@ Implementation slices landed:
       multipeer_onetoone_test.go (both sides install the derived chat
       on the FIRST attempt — no convergence polling — and their copies
       merge), derived_spaces_test.go, and the SDK's
-      e2e/bundles_test.go `TestE2E_BundlesDerivedRoot`. Contract:
+      [`e2e/bundles_test.go`](https://github.com/anyproto/any-sync-sdk/blob/main/e2e/bundles_test.go) `TestE2E_BundlesDerivedRoot`. Contract:
       docs/03-api.md § Bundles (incl. Derived roots).
 36. **Type xKey lives on the meta-type (SYN-173)** — a type's
     programmatic handle moved from `any.xkey` to `type.xkey` in the
@@ -1182,7 +1181,7 @@ Implementation slices landed:
     raw row path moved. No back-compat — types created before the bump
     read back with an empty `xKey`. The web UI's object-type filter
     skips the synthetic ids. Contract: docs/03-api.md § Types, SDK
-    docs/06-data-structure.md.
+    [`docs/06-data-structure.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/06-data-structure.md).
 37. **Datetime values (SYN-136)** — every timestamp is any-store's
     native instant (`TypeDateTime`: unix millis, memcmp-orderable,
     index-keyable) instead of an ISO string or an epoch number, which is
@@ -1231,7 +1230,7 @@ Implementation slices landed:
     `{bundle, synced}`); ensure's convergence gate is the same wait.
     Client startup contract: locked read → adopt; ensure on first
     write; fork → merge loser entries → resolve. SDK prerequisite
-    (PR #108 branch): created roots with declarations + SDK-minted
+    ([any-sync-sdk#108](https://github.com/anyproto/any-sync-sdk/pull/108)): created roots with declarations + SDK-minted
     roots (`NewRoot` optional), tech `ResolveLoser`, bundle-root-only
     `Objects().Delete`, catalog release on type-object purge.
 
@@ -1293,10 +1292,10 @@ Implementation slices landed:
     `/v1/local` (`internal/localstore` + `handlers_local.go`,
     `api/local.go`, `client/local.go`, `cli/local.go` — `any local …`).
     They live INSIDE the SDK's `sdk.db` (handle via `SDK.Store()`,
-    any-sync-sdk#111) under a name tag — `l_a_<name>` /
+    [any-sync-sdk#111](https://github.com/anyproto/any-sync-sdk/pull/111)) under a name tag — `l_a_<name>` /
     `l_s_<spaceId>_<name>` — because a DB-wide read tx is what makes
     local↔synced `$lookup` and `$out`/`$merge` rollups possible
-    (both gated upstream today; docs/07-roadmap.md); the SDK's orphan
+    (both gated upstream today); the SDK's orphan
     sweep classifies the `l` prefix as a fixed collection and never
     touches it. `localstore.ParseRef` is the single fence: every name
     reaching any-store — wire refs, drop, and the raw `$out`/`$merge
@@ -1339,7 +1338,7 @@ Implementation slices landed:
     keeps climbing across the rebuild, so `Generation` does not rotate
     and the search index is NOT dropped — rebuilt rows resurface on
     the change feed and are re-indexed incrementally. SDK
-    prerequisite: anyproto/any-sync-sdk#113.
+    prerequisite: [any-sync-sdk#113](https://github.com/anyproto/any-sync-sdk/pull/113).
 42. **Query projection (SYN-207)** — `projection` is honored on every
     windowed query/subscribe body (`/objects/query[/subscribe]`,
     `/query[/subscribe]`, `/spaces/query[/subscribe]`, `/devices/…`,
@@ -1377,7 +1376,7 @@ Implementation slices landed:
     edit. Arrays are descended ELEMENT-WISE (`{"tags.name":1}`).
     Applies to `changes` frames too (requirement 2 of the issue): docs
     and per-field ops. Only `$set`/`$unset` reach the wire (the SDK
-    normalises `$inc`/`$addToSet`/`$pull` in its `internal/subscribe`
+    normalises `$inc`/`$addToSet`/`$pull` in its [`internal/subscribe`](https://github.com/anyproto/any-sync-sdk/tree/main/internal/subscribe)
     `projectOp`), so ops are keep / narrow-the-payload / drop; the
     multi-field form (empty path, payload keys are DOTTED PATHS) is
     classified per key — which also closed a blocklist hole, since a
@@ -1408,8 +1407,7 @@ Implementation slices landed:
     2 allocs → 306 ns / 195 B / 0 allocs for `{"any":1,"nav":1,
     "_ver":-1}`; end-to-end through the handler 2.0× faster and 5.2×
     less wire. Exclude-only (`{"_ver":-1}`) is 1.2× — it still pays the
-    full decode, which is why the store-side push-down stays in
-    docs/07-roadmap.md. CLI: `--projection 'any,<typeId>'` / `'-_ver'` on
+    full decode (no store-side push-down). CLI: `--projection 'any,<typeId>'` / `'-_ver'` on
     every windowed command. Contract: docs/09-query.md § Projection,
     docs/03-api.md, docs/04-events.md.
 43. **Auth ownership model (SYN-169)** — `mode` (`--mode` / `ANY_MODE` /
@@ -1513,7 +1511,7 @@ Implementation slices landed:
     `xFormat.options.*`, `any type part dataset field patch`. Contract:
     docs/27-descriptors.md (client rules), docs/03-api.md § Types +
     § Runtime dataset schemas, docs/06-errors.md; SDK
-    docs/06-data-structure.md § The `x-format` descriptor.
+    [`docs/06-data-structure.md` § The `x-format` descriptor](https://github.com/anyproto/any-sync-sdk/blob/main/docs/06-data-structure.md#the-x-format-descriptor).
 
 45. **Types, parts and modules** — a type is properties plus **parts**
     (display units a client renders), each part owning datasets served
@@ -1565,8 +1563,8 @@ Implementation slices landed:
     <spaceId> <typeId> <partId>`, `--collection` on every editor
     command. Contract: docs/03-api.md § Parts and modules + § Objects
     + § Chat, docs/06-errors.md, docs/13-index.md, docs/16-chat.md,
-    docs/25-favorites.md; SDK docs/17-user-datasets.md. Deferred
-    (docs/07-roadmap.md): namespaced chat and `dataview` as a module;
+    docs/25-favorites.md; SDK [`docs/17-user-datasets.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/17-user-datasets.md). Not supported:
+    namespaced chat and `dataview` as a module;
     since shipped: the server catalog (`GET/POST /v1/catalog…`, item
     50) that installs the well-known `system:` bundles, `nav` → `wiki`
     on top of it (item 51), `page` / `miniapp` / `bin` (item 46),
@@ -1612,8 +1610,8 @@ Implementation slices landed:
     module, registered from `handlers_staticparts_test.go`'s init).
     Contract: docs/03-api.md § Bundles (Bundle-declared types) +
     § Types + § Parts and modules, docs/06-errors.md, docs/01-cli.md;
-    SDK docs/bundles.md § Bundle-declared types, docs/17-user-datasets.md
-    § Static parts on registered types.
+    SDK [`docs/bundles.md` § Bundle-declared types](https://github.com/anyproto/any-sync-sdk/blob/main/docs/bundles.md#bundle-declared-types-type-roots-and-self-typed-roots),
+    [`docs/17-user-datasets.md` § Static parts on registered types](https://github.com/anyproto/any-sync-sdk/blob/main/docs/17-user-datasets.md#static-parts-on-registered-types).
     **CRDT version mark** (same pair): the SDK stamps
     `space.CRDTVersion` on the tech space's index object (`crdtVersion`
     system dataset, monotonic by handler rule) at Open; a higher stored
@@ -1624,7 +1622,7 @@ Implementation slices landed:
     stored, newer}` (`deps.crdtVersion`). Bump the SDK constant when a
     release writes data the previous one cannot read; the guard covers
     releases from this one on. Contract: docs/02-server.md § Startup /
-    § Health, docs/06-errors.md; SDK docs/08-versioning.md.
+    § Health, docs/06-errors.md; SDK [`docs/08-versioning.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/08-versioning.md).
     **Type `hidden` + `meta`** (same pair): `type.hidden` keeps a type
     out of `GET …/types` unless `?includeHidden=true` (a bundle root is
     hidden when its install says so); `type.meta` is an opaque per-key scalar
@@ -1694,7 +1692,7 @@ Implementation slices landed:
     ids are one namespace per host, convention `<dataviewId>.<key>`
     for a non-default dataview's views. Indexes: `dataviews.idx_pos`,
     `views.idx_dataview_pos` (the documented per-dataview read) +
-    `idx_pos`. No `dataview` module (roadmap). Tests:
+    `idx_pos`. No `dataview` module. Tests:
     handlers_dataview_test.go (`setupViewFixture` attaches the type AND
     ensures the `default` dataview; `ensureDataview` / `listDataviews`
     / `queryViews`; `TestServer_DataView_ManyDataviews` pins filter,
@@ -1744,8 +1742,8 @@ Implementation slices landed:
     `any` handler change: `SpaceInfo.status` keeps its vocabulary and
     `indexableStatus` already skips `joining`.
     Legacy device-local rows stay readable; nothing writes them. SDK
-    contract: its docs/03-space.md § Join lifecycle, docs/02-tech-space.md,
-    docs/15-direct-add-invites.md; e2e `TestE2E_JoinLifecycleSynced`.
+    contract: its [`docs/03-space.md` § Join lifecycle](https://github.com/anyproto/any-sync-sdk/blob/main/docs/03-space.md#join-lifecycle-sdk),
+    [`docs/02-tech-space.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/02-tech-space.md), [`docs/15-direct-add-invites.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/15-direct-add-invites.md); e2e `TestE2E_JoinLifecycleSynced`.
     Here: docs/03-api.md § Spaces (join) + § ACL (`cancel-join`).
 50. **Usecase catalog (`/v1/catalog`)** — the first server-side catalog
     of well-known bundles. `internal/catalog/catalog.yml` (go:embed)
@@ -1864,7 +1862,7 @@ Implementation slices landed:
     docs/28-well-known-bundles.md, docs/03-api.md § Catalog + § Bundles
     (`xKey`, root types on created roots, root + up to 3) + § Types →
     Built-in hidden types (`miniapp`), docs/01-cli.md § Catalog,
-    docs/06-errors.md, docs/18-ci.md § PR checks, docs/07-roadmap.md.
+    docs/06-errors.md, docs/18-ci.md § PR checks.
 51. **`nav` removed — the tree is the `wiki` usecase** — `internal/nav`
     is deleted, `injectNavDefaults` and the `nav` create-body field are
     gone (`400 request.unknown_field`), nothing is appended to `types`
@@ -1883,8 +1881,7 @@ Implementation slices landed:
     lexid. No back-compat — `nav.*` on old rows is inert. Editor block
     records keep their own `nav.parentId` / `nav.pos` (the block
     module's schema, item 7). Contract: docs/03-api.md § The wiki tree,
-    docs/09-query.md § Paths, docs/28-well-known-bundles.md § What
-    clients delete.
+    docs/09-query.md § Paths, docs/28-well-known-bundles.md.
 52. **General chat under the reserved `chat` module (SYN-216)** —
     `chat.NewModule()` sets `Reserved: true`: a client part, part
     dataset or bundle body naming `chat` is `400
@@ -1917,7 +1914,7 @@ Implementation slices landed:
     `TestE2E_TypeParts_RegisteredStaticAndReserved`. Contract:
     docs/03-api.md § Chat + § Parts and modules, docs/16-chat.md,
     docs/28-well-known-bundles.md, docs/06-errors.md; SDK
-    docs/17-user-datasets.md § Model, docs/bundles.md. **SDK
+    [`docs/17-user-datasets.md` § Model](https://github.com/anyproto/any-sync-sdk/blob/main/docs/17-user-datasets.md#model), [`docs/bundles.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/bundles.md). **SDK
     prerequisite:** the sole-carrier pre-flight (branch
     cheggaaa/syn-216-reserved-type-carrier, pseudo-versioned).
 
@@ -1970,7 +1967,7 @@ Implementation slices landed:
     `409 index.disabled` without the indexer. Liveness: `Options.OnLinks`
     → device-scope bus event `links.updated {spaceId, targets}`. CLI:
     `any backlinks` / `any links`. SDK untouched. Not in v1: evidence
-    edges, a subscribe stream, `links.enabled` (docs/07-roadmap.md).
+    edges, a subscribe stream, `links.enabled`.
     Tests: anyuri/links_test, index/links_test, editor/links_test,
     chat/links_test, indexer/links_store_test (untagged),
     server/handlers_links_test, e2e multipeer_links_test. Contract:
@@ -1980,6 +1977,11 @@ Implementation slices landed:
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
+
+**Never write plans or tasks into the repo.** No `docs/plans/`, `docs/tasks/`,
+`task-*.md`, TODO lists, roadmaps, proposals or design deliberation files — they
+go stale the day the work lands. `docs/` describes the current state only; plans
+and tasks live outside the repo (Linear issue, PR description).
 
 ### Build / test / run
 
@@ -2037,9 +2039,7 @@ Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 source of truth for the exact versions. Don't restate version numbers
 here: they drift on every bump and go stale silently. Which SDK feature
 a given slice needed is captured per-item in the Status section above.
-`any-sync-sdk` is a private module — `GOPRIVATE=github.com/anyproto/any-sync-sdk`
-(+ git SSH `insteadOf`) is needed to fetch it directly. To inspect SDK
-behavior, read the module cache
+To inspect SDK behavior at the pinned version, read the module cache
 (`$(go env GOMODCACHE)/github.com/anyproto/any-sync-sdk@<version>/`).
 55. **Alpha access codes** — `POST /v1/account/access-code` / `any account
    redeem <code>` sign `{purpose, ownerAnyId, code, ts}` with the account
@@ -2107,11 +2107,10 @@ any            (this repo)  — HTTP server + CLI
       └── any-sync, any-store
 ```
 
-The full stack context lives in the SDK's `docs/00-common-context.md` (in the
-module cache). When an SDK
+The full stack context lives in the SDK's
+[`docs/00-common-context.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/00-common-context.md). When an SDK
 method is missing or awkward, raise it on the SDK repo rather than working around
-it here — several v1 endpoints are explicitly blocked on SDK work (see
-`docs/07-roadmap.md` § SDK-side prerequisites).
+it here.
 
 **Property `xKey` is client-side only — the SDK never sees it.** Property
 values are stored and validated at `record[typeId][propId]`; writes MUST key
@@ -2269,7 +2268,6 @@ auto-start.
 | `docs/04-events.md` | subscriptions (SSE) — contract, lifecycle, tradeoffs |
 | `docs/05-config.md` | config file schema, env vars, flags, first-run flow |
 | `docs/06-errors.md` | error response shape, HTTP codes, code namespace |
-| `docs/07-roadmap.md` | v1.x / v2 plans, open questions, SDK prerequisites |
 | `docs/08-clients.md` | client call-pattern recommendations (writes via handlers, reads via query/subscribe, chat newest-first paging) |
 | `docs/09-query.md` | any-store query guide — filter operators, array matching, sort, paging, indexes, xKey paths |
 | `docs/11-agent-memory.md` | agent data — harness-owned userspace runtime datasets; pointer to the anybao repo |
@@ -2291,5 +2289,3 @@ auto-start.
 | `docs/29-client-model.md` | the client-facing object model — types / usecases / properties in the order a client needs them: startup sequence, catalog setup, the three ids (typeId / xKey / propId), descriptor value shapes, the `__type__` query trap, write gate, content surfaces |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
-Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or
-strike cut scope; add new open questions as they surface during implementation.

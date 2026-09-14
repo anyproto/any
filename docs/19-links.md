@@ -9,14 +9,12 @@ inside a markdown link destination.
 The format lives in the public `anyuri` package of this repo —
 `github.com/anyproto/any/anyuri`, the deliberate exception to the
 everything-under-`internal/` rule: `any` owns the format. Clients and agents
-**import the rule (Build/Parse/IsValid/ExtractMentions), they do not
-reimplement it**. This doc is the contract the client teams (desktop, mobile,
-bao) consume; the package is the source of truth for the grammar, this is the
-source of truth for the semantics.
+**import the rule (Build/Parse/IsValid/ExtractLinks/ExtractMentions), they do
+not reimplement it**. The package is the source of truth for the grammar; this
+doc is the source of truth for the semantics.
 
-Mentions (editor + chat) are just one link kind riding on this format — see
-[docs/16-chat.md](16-chat.md) for the chat mentions field. This doc is only the
-link format.
+Mentions (editor + chat) are one link kind riding on this format — see
+[docs/16-chat.md](16-chat.md) § Mentions for the chat mentions field.
 
 ## The grammar
 
@@ -26,9 +24,7 @@ any://<kind>/<spaceId>[/<rest…>][?<params>][#<fragment>]
 
 The **kind** is the first path segment. It makes the target self-describing:
 prefix-match `any://o/` / `any://m/` / `any://f/` etc. and you know what you're
-pointing at before you resolve anything. This is **type (b)** in the SYN-67
-design — a path-prefix kind, chosen over the `?type=` query-param alternative
-(type (a)) because it has no default-kind ambiguity and reads like a REST path.
+pointing at before you resolve anything.
 
 Everything after the kind is **kind-specific** but follows one composition rule
 (below). `spaceId` is present in every kind — links are global by design; there
@@ -55,9 +51,8 @@ Kind slugs occupy a **reserved lexical namespace**: a first path segment of
 **1-4 lowercase-alphanumeric bytes** (`[a-z0-9]{1,4}`) is always a kind slug;
 anything longer is a legacy bare id (see [Back-compat](#back-compat)). Real
 ids are ≥40-char base58 strings, so no collision is possible. Two
-consequences: a future kind must keep its slug within that shape, and a
-pathological ≤4-char object id no longer parses in the bare form — no real id
-is that short.
+consequences: a new kind must keep its slug within that shape, and a ≤4-char
+object id does not parse in the bare form.
 
 ### `o` — objects and their dataset records
 
@@ -73,12 +68,11 @@ any://o/<spaceId>/<objectId>/chat_messages/<msgId>      a message in a chat
 `<dataset>` is the dataset name (`editor_blocks`, `chat_messages`, …) exactly as
 it appears in `/query`'s `dataset` field; `<recordId>` is the record's derived
 id. **One rule covers editor blocks and chat messages alike** — dataset-name +
-record-id, same shape everywhere. This replaces the old `#block` fragment hack
-(see [Fragments](#fragments)).
+record-id, same shape everywhere.
 
 A trailing `<propId>` segment (`…/<dataset>/<recordId>/<propId>`) to address a
-field *within* a record is **reserved** — the grammar leaves room for it, it is
-not required by any current consumer.
+field *within* a record is **reserved**: the grammar leaves room for it, and
+`Parse` rejects it (`ErrInvalid`).
 
 ### `m` — mentions
 
@@ -96,10 +90,9 @@ Hey [Zarko](any://m/<spaceId>/<identity>), take a look
 The link **text** is the display name *at time of writing* — a snapshot, and the
 fallback a non-aware renderer (raw markdown, export, grep) shows. A
 mention-aware client detects the `m/` prefix, resolves the current display name
-via `GET /v1/identities`, and renders the "magic" mention. Identity profiles are
+via `GET /v1/identities`, and renders the mention chip. Identity profiles are
 encrypted — tolerate unresolved / id-only until the `symKey` arrives; fall back
-to the snapshot link text. See SYN-72 (chat mentions field) and SYN-73 (any-ui
-rendering).
+to the snapshot link text.
 
 ### `s` — spaces
 
@@ -119,8 +112,7 @@ any://p/<spaceId>/<objectId>/<propId>
 property" citation target. It is a *value* reference (per-object, per-prop), not
 the property *definition*. How a client renders it (open the object, highlight
 the field) is a UI question; the format's job is only to carry object + prop.
-Keyed by the content-addressed `propId`, never `xKey` (xKey is client-side only
-— see CLAUDE.md).
+Keyed by the content-addressed `propId`, never `xKey`.
 
 > **Note on `p` vs relation property values.** A relation *property
 > value* stores the plain legacy `any://<objectId>` form (see
@@ -181,15 +173,11 @@ any://o/<spaceId>/<debugObjectId>#turn_3      scroll to turn 3 on the debug page
 ```
 
 `#turn_3` says *where to scroll on a rendered page*; it does not name a record.
-Anything that identifies data goes in the **path** (`…/<dataset>/<recordId>`).
-
-This is the rule the old enrichment `#block` hack violated — it crammed a block
-id (`any://<objectId>#<blockId>`) into the fragment. A block is a *record* of the
-`editor_blocks` dataset, not an opaque anchor: blocks re-render and restructure.
-That producer now emits the dataset-record path form — a multi-block citation is
-the comma-joined list `any://o/<sp>/<obj>/editor_blocks/<b1>,any://o/…/<b2>`
-(WEB-42). Stored fragment-form sources stay readable on the consumer side and
-are never rewritten.
+Anything that identifies data goes in the **path** (`…/<dataset>/<recordId>`):
+a block is a *record* of the `editor_blocks` dataset, not an opaque anchor, so
+a block citation is `any://o/<sp>/<obj>/editor_blocks/<blockId>`, never
+`any://<objectId>#<blockId>`. A multi-block citation is the comma-joined list
+`any://o/<sp>/<obj>/editor_blocks/<b1>,any://o/…/<b2>`.
 
 ## Extension policy
 
@@ -207,56 +195,54 @@ The kind registry is open. Adding a kind must not break an existing parser:
   slugs must fit the reserved lexical namespace (`[a-z0-9]{1,4}`, see
   [Kind registry](#kind-registry)).
 
-This is what lets `i` (invite) and future kinds land later without a format v2 or
-a client redeploy.
+A new kind therefore needs no format version and no client redeploy.
 
 ## Back-compat
 
-The pre-typed **bare forms** stay valid and keep meaning **object**:
+The pre-typed **bare forms** are valid and mean **object**:
 
 ```
 any://<objectId>              in-space object reference (property-value form)
 any://<spaceId>/<objectId>    global object reference
 ```
 
-These are what's stored today and must keep parsing:
+Stored values use them:
 
 - **Relation property values** (`xFormat.type: "relation"`,
   `internal/server/descriptor.go`): strictly the one-segment, fragment-less form
   `any://<objectId>`. Value writes are validated against exactly this shape.
-- **The link index** (docs/13-index.md § Links) canonicalises every
-  written form through `URI.Canonical` — bare and global object forms
-  become `any://o/<sp>/<id>` — so backlinks are keyed on one string
-  whatever the writer emitted.
 - **Agent `debugLink`** on chat messages: `any://<spaceId>/<objectId>#turn_<n>`.
 
-`Parse` accepts the bare forms as kind `o` (flagged `Legacy: true`);
-`BuildObject` for a fresh object reference still emits the bare property-value
-form where the stricter consumers require it (`IsPropertyValueRef` is that
-strict check). No stored value is rewritten — the typed grammar is a superset,
-the bare object form is its shorthand. Disambiguation is the kind-slug lexical
-rule ([Kind registry](#kind-registry)): a first segment longer than 4 bytes is
-an id, not a kind. New typed references (mentions, files, property-value
-citations, dataset records) always use the explicit-kind form.
+The link index (docs/13-index.md § Links) canonicalises every written form
+through `URI.Canonical` — bare and global object forms become
+`any://o/<sp>/<id>` — so backlinks are keyed on one string whatever the writer
+emitted.
+
+`Parse` accepts the bare forms as kind `o` (flagged `Legacy: true`).
+`BuildObject` emits the bare in-space form relation values require
+(`IsPropertyValueRef` is that strict check); `BuildObjectGlobal` emits the
+typed `any://o/…` form. No stored value is rewritten — the typed grammar is a
+superset, the bare object form is its shorthand. Disambiguation is the
+kind-slug lexical rule ([Kind registry](#kind-registry)): a first segment longer
+than 4 bytes is an id, not a kind. New typed references (mentions, files,
+property-value citations, dataset records) always use the explicit-kind form.
 
 ## Explicitly out of scope
 
-- **Invite deep links.** Invites are shared as raw base58 text today; a
-  clickable invite link needs an HTTP front (an `https://` URL that
-  redirects/deeplinks into the app) first — a separate effort. The `i` kind is
-  **reserved** in this registry; it is not implemented.
-- **Inline views / transclusion** — embedding a live property value or a
-  filtered object set inline in a document. That is not a link, it's a
-  macro/embed block: it doesn't fit a markdown link destination and needs
-  product design for the block representation. A transclusion will *contain* an
-  `any://` URI as its target — it is not itself one. The link format's only job
-  here is not to paint us into a corner.
+- **Invite deep links.** The `i` kind is **reserved** in this registry and not
+  implemented (`Parse` returns `ErrKindUnknown`); invites are shared as the
+  token the invite endpoints return (`03-api.md` § Invites).
+- **Transclusion** — embedding live content inline in a document — is a block,
+  not a link: it does not fit a markdown link destination. The block *contains*
+  an `any://` URI as its target — the editor's synced-block envelope carries an
+  `any://o/…/editor_blocks/<id>` reference, indexed as an `embed` edge
+  (docs/13-index.md § Links).
 
 ## Where the code lives
 
 | Concern | Location |
 |---------|----------|
-| Grammar (builders / `Parse` / `IsValid` / `IsPropertyValueRef`, kind constants) | `anyuri/` — public `github.com/anyproto/any/anyuri` |
+| Grammar (builders / `Parse` / `IsValid` / `IsPropertyValueRef`, kind constants) | `anyuri/anyuri.go` — public `github.com/anyproto/any/anyuri` |
 | Link extraction from text (`ExtractLinks`), canonical targets (`Canonical`, `ObjectKey`, `IsPart`) | `anyuri/links.go` — the sanctioned scanner, shared by the link index and clients |
 | Mention extraction from text (`ExtractMentions`) | `anyuri/mentions.go` — a filter over `ExtractLinks`, shared by the chat mentions derivation and clients |
 | Relation property-value validation | `internal/server/descriptor.go` |

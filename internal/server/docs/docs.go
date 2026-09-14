@@ -220,7 +220,7 @@ const docTemplate = `{
                     },
                     "xFormat": {
                         "additionalProperties": {},
-                        "description": "XFormat is the property's descriptor: everything descriptive\nbeyond the kind — the semantic slug, icon, ordering key, option\nset, relation targets, per-format config (docs/27-descriptors.md).\nAn object; the server validates the keys it interprets (type,\nicon, pos, options, relation, config) against the vocabulary and\nthe slug against kind, stores vendor-namespaced keys verbatim,\nand reserves validate / compute. Every path under it is mutable\nvia PATCH.",
+                        "description": "XFormat is the property's descriptor: everything descriptive\nbeyond the kind — the semantic slug, icon, ordering key, option\nset, relation targets, per-format config (docs/27-descriptors.md).\nAn object; the server validates the keys it interprets (type,\nicon, pos, options, relation, config, links) against the vocabulary and\nthe slug against kind, stores vendor-namespaced keys verbatim,\nand reserves validate / compute. Every path under it is mutable\nvia PATCH.",
                         "type": "object"
                     },
                     "xKey": {
@@ -3365,7 +3365,7 @@ const docTemplate = `{
                         "type": "object"
                     },
                     "includeTotal": {
-                        "description": "IncludeTotal populates ` + "`" + `total` + "`" + ` + ` + "`" + `hasNext` + "`" + ` in the snapshot reply.\nPage-bounded in the current SDK — see docs/09-query.md caveat.",
+                        "description": "IncludeTotal populates ` + "`" + `total` + "`" + ` (every match, regardless of\nlimit/offset) + ` + "`" + `hasNext` + "`" + ` in the snapshot reply.",
                         "type": "boolean"
                     },
                     "limit": {
@@ -3477,7 +3477,7 @@ const docTemplate = `{
                         "type": "object"
                     },
                     "includeTotal": {
-                        "description": "IncludeTotal populates ` + "`" + `total` + "`" + ` + ` + "`" + `hasNext` + "`" + ` in the snapshot reply.\nPage-bounded in the current SDK — see docs/09-query.md caveat.",
+                        "description": "IncludeTotal populates ` + "`" + `total` + "`" + ` (every match, regardless of\nlimit/offset) + ` + "`" + `hasNext` + "`" + ` in the snapshot reply.",
                         "type": "boolean"
                     },
                     "limit": {
@@ -3530,7 +3530,7 @@ const docTemplate = `{
                         "type": "boolean"
                     },
                     "includeTotal": {
-                        "description": "IncludeTotal populates ` + "`" + `total` + "`" + ` + ` + "`" + `hasNext` + "`" + ` in the snapshot reply.\nPage-bounded in the current SDK — see docs/09-query.md caveat.",
+                        "description": "IncludeTotal populates ` + "`" + `total` + "`" + ` (every match, regardless of\nlimit/offset) + ` + "`" + `hasNext` + "`" + ` in the snapshot reply.",
                         "type": "boolean"
                     },
                     "limit": {

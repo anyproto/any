@@ -18,16 +18,15 @@
 >   a copy clones the peer id and breaks realtime sync. Restore a second device
 >   from the mnemonic (`any init --mnemonic-stdin`).
 
-All-in-one binary that wraps [`any-sync-sdk`](../any-sync-sdk) with a JSON
-HTTP API plus a CLI client.
+All-in-one binary that wraps [`any-sync-sdk`](https://github.com/anyproto/any-sync-sdk)
+with a JSON HTTP API plus a CLI client.
 
 ## What this is
 
 - **One binary**: `any`.
 - **Two modes**:
   - `any run` — starts an HTTP server on localhost and opens the SDK.
-    Runs in the foreground; stop with Ctrl-C or `any stop`. No
-    self-daemonization in v1 (future: install script / service file).
+    Runs in the foreground; stop with Ctrl-C or `any stop`.
   - `any <command>` — default. CLI client; makes HTTP calls to a running
     server.
 - **Thin CLI, thick server**: the server holds the SDK, any-store, and the
@@ -35,15 +34,13 @@ HTTP API plus a CLI client.
 
 ## Install
 
-`any-sync-sdk` is a private repo today, so `go install` needs
-`GOPRIVATE` and an SSH-rewrite for `github.com/anyproto/*`:
-
 ```sh
-git config --global url."git@github.com:".insteadOf "https://github.com/"
-GOPRIVATE=github.com/anyproto go install github.com/anyproto/any/cmd/any@latest
+go install github.com/anyproto/any/cmd/any@latest
 ```
 
-This drops a `any` binary into `$(go env GOBIN)` (or `$GOPATH/bin`).
+This drops a `any` binary into `$(go env GOBIN)` (or `$GOPATH/bin`). Build a
+server you will search with `make build` instead — the search index needs
+the `fts vector` build tags.
 
 ## Quick start
 
@@ -58,24 +55,6 @@ Without an account, `any run` starts unauthorized and every data route
 answers `401 auth.required` until `any auth login` (or `POST /v1/auth`)
 creates or restores one.
 
-## Why / what's this for in v1
-
-This is a **prototype** — its first job is to let us actually use the SDK
-surface end-to-end, so we can tell which parts of the API are usable,
-which are painful, and what to prioritise next. It is also the home for
-the initial auth flow (wallet creation).
-
-Narrowly in v1:
-- Start the server; create or restore an account over `any init` or `POST /v1/auth`.
-- Cover the core SDK ops over HTTP: spaces, objects, query, modify, types,
-  properties.
-- CLI subcommands that call those endpoints.
-
-Deferred (see [`docs/07-roadmap.md`](docs/07-roadmap.md)):
-- Remote access / TCP auth.
-- Install scripts, service files.
-- Files, multi-account, GUI.
-
 ## Relation to other repos
 
 ```
@@ -86,17 +65,20 @@ any            (this repo)        — HTTP server + CLI
           any-sync, any-store     — sync engine, document store
 ```
 
-Read `../any-sync-sdk/docs/00-common-context.md` first for the full stack.
+The SDK's [`docs/00-common-context.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/00-common-context.md)
+describes the full stack.
 
-## Docs in this repo
+## Docs
 
-- [`docs/00-overview.md`](docs/00-overview.md) — goals, scope, layout
+[`docs/00-overview.md`](docs/00-overview.md) is the entry point and indexes
+every doc. The most used:
+
 - [`docs/01-cli.md`](docs/01-cli.md) — CLI command surface
 - [`docs/02-server.md`](docs/02-server.md) — server lifecycle
 - [`docs/03-api.md`](docs/03-api.md) — HTTP endpoint catalog
 - [`docs/04-events.md`](docs/04-events.md) — subscriptions (SSE)
 - [`docs/05-config.md`](docs/05-config.md) — config file and flags
 - [`docs/06-errors.md`](docs/06-errors.md) — error response shape
-- [`docs/07-roadmap.md`](docs/07-roadmap.md) — what's next, open questions
+- [`docs/08-clients.md`](docs/08-clients.md) — client call patterns
 
 Module path: `github.com/anyproto/any`.

@@ -28,19 +28,13 @@ Local collections are any-store collections **inside the SDK's own
 | `account` | `l_a_<name>` |
 | `space` | `l_s_<spaceId>_<name>` |
 
-One file, not a sidecar, because two capabilities exist only when local
-and synced collections share a DB:
-
-- **cross-collection `$lookup`** — any-store's `$lookup` runs on a
-  DB-wide read transaction: one snapshot across both sides. A
-  cross-file join has no shared snapshot at all.
-- **`$out` / `$merge` rollups** — materialize a synced→local summary
-  with one aggregate call.
-
-Both are **gated upstream today** (the SDK's public aggregate is
-read-only; any-store's `$lookup` is same-collection) — see
-docs/07-roadmap.md. What ships now is local↔local: `$out`/`$merge`
-into a local collection, `$lookup` from one.
+One file, not a sidecar, because a shared snapshot across local and
+synced collections exists only inside one DB: any-store's `$lookup`
+runs on a DB-wide read transaction, and `$out` / `$merge` write within
+one DB. Neither crosses to synced collections: the SDK's aggregate is
+read-only, and any-store's `$lookup` joins only the aggregated
+collection itself. What works is local↔local — `$out`/`$merge` into a
+local collection, `$lookup` on the aggregated one.
 
 The tag is what keeps the two worlds apart. The SDK's boot-time orphan
 sweep classifies a collection by the segment before its first `_`
@@ -55,8 +49,8 @@ and leaves everything else alone.
 - **Not rebuildable.** `sdk.db` holds the SDK's replay cache of the
   DAGs AND the only copy of local data. The SDK's own
   rebuild paths (generation bump, handler version bump) are safe —
-  they touch CRDT collections only — but a manual `rm sdk/` loses
-  local collections. There is no backup story.
+  they touch CRDT collections only — but deleting the `sdk/` directory
+  loses local collections. There is no backup.
 - **Not independently deletable.** Local state cannot be wiped
   without wiping the account's replay cache with it. Drop
   collections through the API instead.
@@ -79,10 +73,9 @@ convention:
 - **`any` never writes an SDK collection.** A direct write bypasses
   the DAG and is reverted by the next re-index; the fence makes it
   unreachable.
-- **No transaction ever spans a local and an SDK collection.** A
-  local-vs-synced atomic write is a footgun (local rows have no DAG;
-  agents are already told not to condition shared mutations on local
-  values), and the fence never hands out an SDK handle to span with.
+- **No transaction ever spans a local and an SDK collection.** Local
+  rows have no DAG, so a local-vs-synced atomic write cannot hold
+  across peers; the fence never hands out an SDK handle to span with.
 
 ## Model
 
@@ -91,32 +84,30 @@ convention:
   `name` matches `^[a-z0-9][a-z0-9_-]{0,63}$`; `_` is legal inside it —
   the fixed tag segments keep the storage-name split exact.
 - **Space scope** binds a collection to a space id and pre-flights
-  the space on every operation except drop (`404 space.not_found` for
-  an unknown space, `409 space.deleted` for a tombstoned one — a dead
-  space cannot be resurrected as a namespace). **Nothing drops a
-  space-scoped collection when its space goes away**; it outlives the
-  space and `drop` is the cleanup path. The sharp case is a 1-1 space: delete is local-only and the id
-  is re-derivable from both account keys, so re-deriving the same 1-1
+  the space on every operation except list and drop (`404
+  space.not_found` for an unknown space, `409 space.deleted` for a
+  tombstoned one — a dead space cannot be resurrected as a namespace).
+  **Nothing drops a space-scoped collection when its space goes
+  away**; it outlives the space and `drop` is the cleanup path. The
+  sharp case is a 1-1 space: delete is local-only and the id is
+  re-derivable from both account keys, so re-deriving the same 1-1
   inherits the stale rows. Derived spaces can't hit this (undeletable).
   Clients that care version or namespace their collection names.
 - **Document** = a JSON object with a string `id`; a missing `id` is
   minted (16 random bytes, hex). No `_ver`, no `_addSeq`; a delete is a
   delete. No schema — validation is the caller's job.
 - **Key local collections by the synced record id** when they mirror
-  or annotate synced data. Both gated features depend on it:
-  `$lookup`'s `foreignField` is `"id"` (a primary-key point read) and
-  `$merge` requires every result doc to carry `id` with the target's
-  primary key being `id`. Establish the discipline now rather than
-  retrofit it.
-- **Indexes** are any-store range indexes (`fields`, `unique`,
+  or annotate synced data: `$lookup`'s `foreignField` is `"id"` (a
+  primary-key point read) and `$merge` requires every result doc to
+  carry `id`.
+- **Indexes** are any-store range indexes (`name?`, `fields`, `unique`,
   `sparse`). FTS and vector indexes are not exposed — search stays
   `/search`'s job and local data is not search-indexed.
 - **No subscribe.** any-store has no pub/sub and there is no apply
   path to hook; poll or re-query.
-- **No registry.** The space id is in the name, so a prefix scan
-  answers "what belongs to this space" exactly. A registry earns its
-  keep only with createdAt / TTL / last-access — none of which exist
-  yet.
+- **No registry.** The space id is in the storage name, so a prefix
+  scan (`GET /v1/local/collections?spaceId=`) answers "what belongs to
+  this space" exactly.
 
 ## Surface
 
@@ -151,7 +142,7 @@ field paths to `1` / `-1`, `id` always present. The protocol-field
 rules there are inert here — a local record has no `_ver` and no
 delivery counters, so a projection only ever narrows the fields the
 caller stored. Use `$project` inside `/aggregate` for the pipeline
-equivalent. There is no subscribe to shape.
+equivalent.
 
 ### Aggregation sinks
 
@@ -164,8 +155,7 @@ nested in `$facet` are fenced the same way. Constraints any-store
 imposes: a sink cannot target the aggregated collection itself, and
 `$merge`/`$out` need every result document to carry `id` (both `400
 local.bad_pipeline`). `$lookup from` must name the aggregated
-collection itself until cross-collection lookups land (`400
-local.bad_pipeline`).
+collection itself (`400 local.bad_pipeline`).
 
 ## Limits
 
@@ -203,19 +193,16 @@ local collections sit untouched on disk.
 
 - Not a dataset; not declared on a type; no schema enforcement.
 - Not synced, not subscribe-able, not search-indexed.
-- Not independently deletable; not covered by any backup story.
+- Not independently deletable; not covered by any backup.
 - Not cleaned up on space delete — a space-scoped collection outlives
   its space.
-- Not the home of SYN-174 scoped datasets (private *records* that are
-  still declared, subscribe-able and schema-checked). The two can
-  coexist; nothing here designs that.
 
-## Out of scope (v1)
+## Not supported
 
 Subscribe / liveness; FTS or vector indexes on local collections;
-synced→local `$out`/`$merge` and cross-collection `$lookup` (upstream
-prerequisites in docs/07-roadmap.md); auto-cleanup on space delete;
-TTL / expiration; a collection registry; backup or export.
+synced→local `$out`/`$merge` and cross-collection `$lookup`;
+auto-cleanup on space delete; TTL / expiration; a collection registry;
+backup or export.
 
 ## Source
 
@@ -223,4 +210,5 @@ TTL / expiration; a collection registry; backup or export.
 place the tag is applied), `internal/server/handlers_local.go` (wire),
 `internal/api/local.go` (bodies), `internal/client/local.go`,
 `internal/cli/local.go`. SDK side: `SDK.Store()` and the consumer
-contract in the SDK's docs/03-space.md § Space Lifecycle.
+contract in the SDK's
+[`docs/03-space.md` § Space Lifecycle](https://github.com/anyproto/any-sync-sdk/blob/main/docs/03-space.md#space-lifecycle).

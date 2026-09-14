@@ -64,9 +64,8 @@
 //     single CRDT $set/$unset on the leaf path adds or removes one
 //     identity's reaction with one emoji — no array shuffling.
 //
-// On the wire the handler keeps the storage shape unchanged; the API
-// layer rolls it up to `{emoji: [accountId, ...]}` (sorted by
-// timestamp ascending) because that's what clients render.
+// Reads return the storage shape verbatim:
+// `{emoji: {accountId: ts}}`.
 //
 // `mentions` is server-DERIVED, never client-supplied (spoofable both
 // ways otherwise: silent-ping griefing and notification suppression —
@@ -218,9 +217,7 @@ const (
 // instances are refused. Reserved: only the server's own catalog
 // install (`system:general-chat/v1`, docs/16-chat.md) declares it —
 // a client part, dataset or bundle naming the module is refused, and
-// the install root is the type's only carrier. Opening the module to
-// clients waits on per-collection push topics and read tracking
-// (docs/07-roadmap.md).
+// the install root is the type's only carrier.
 //
 //	cfg := config.Config{
 //	    Modules: []handler.Module{ editor.NewModule(), chat.NewModule() },

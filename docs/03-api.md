@@ -30,6 +30,7 @@
     - [Links and backlinks](#links-and-backlinks)
   - [Data plane](#data-plane)
     - [Snapshot request body (shared by both `…/query` and `…/query/subscribe`)](#snapshot-request-body-shared-by-both-query-and-querysubscribe)
+    - [Modify records](#modify-records)
     - [Aggregate](#aggregate)
     - [Subscribe (Server-Sent Events)](#subscribe-server-sent-events)
   - [Version history](#version-history)
@@ -50,8 +51,6 @@
     - [Read](#read)
     - [Edit / delete (own only)](#edit--delete-own-only)
     - [React (toggle)](#react-toggle)
-  - [Enrichment (moved userspace)](#enrichment-moved-userspace)
-  - [Agent data (moved userspace)](#agent-data-moved-userspace)
   - [Files (files v2)](#files-files-v2)
     - [Upload (attach)](#upload-attach)
     - [Download (content)](#download-content)
@@ -62,12 +61,12 @@
   - [ACL operations](#acl-operations)
     - [Permission / status strings](#permission--status-strings)
   - [Sync status](#sync-status)
+  - [Devices](#devices)
   - [Events](#events)
   - [Processes](#processes)
   - [Local store](#local-store)
   - [Push notifications](#push-notifications)
   - [Debug (diagnostic)](#debug-diagnostic)
-- [Body shapes (examples)](#body-shapes-examples)
 - [Middleware](#middleware)
 - [Pagination](#pagination)
 - [Idempotency](#idempotency)
@@ -76,8 +75,10 @@
 
 - **Framework**: `github.com/labstack/echo` (v4).
 - **Base path**: `/v1/`. All endpoints are versioned from day one.
-- **Media type**: `application/json; charset=utf-8` — requests with a body
-  and every response. No other content types in v1.
+- **Media type**: `application/json; charset=utf-8` for request bodies
+  and responses. Three exceptions: subscribe streams are
+  `text/event-stream`, a file attach body is the raw file, and file
+  content downloads are the raw bytes (§ Files).
 - **IDs in the path**: `{spaceId}`, `{objectId}`, `{typeId}`, `{propId}`
   are URL-safe strings (base58). Path segments are URL-encoded.
 - **Success**: `200 OK` for reads, `201 Created` for creates,
@@ -85,8 +86,11 @@
   `PUT /v1/account/metadata`, `PATCH /v1/spaces/:spaceId`,
   `DELETE /v1/spaces/:spaceId/objects/:objectId`).
 - **Errors**: see `06-errors.md`. Always JSON, always the same shape.
-- **Binding**: use `echo.Context.Bind` for request bodies. Share the
-  request/response types between server and CLI via `internal/api/`.
+- **Bodies**: request/response types live in `internal/api/`, shared by
+  server and CLI. Most request bodies are a closed field set (the
+  OpenAPI spec marks which) — an unknown top-level key answers
+  `400 request.unknown_field` naming the accepted fields; an
+  unparseable body is `400 request.bad_json`.
 - **Dataset reads go through `/query` and `/query/subscribe`.**
   The compiled-in modules (chat, editor) keep bespoke handlers for
   *writes* only — POST/PATCH/DELETE and reactions. Reads always go
@@ -120,8 +124,8 @@ delete) handlers — returns the same shape, `api.ModifyResult`:
   server-derived id (`recordIds[0]`); on edit / delete / react it echoes
   the target id.
 - `rejections` is omitted unless a handler dropped an op (partial
-  success). The bespoke chat/editor handlers turn any rejection into a
-  4xx instead, so it's always empty there.
+  success). The bespoke chat/editor handlers answer a rejected op with
+  an error response instead, so it never appears there.
 
 Writes never return the record body — read it back through `/query` (or
 live via `/query/subscribe`). One write shape across the whole API.
@@ -145,8 +149,7 @@ is still stoppable.
 
 `/v1/openapi.json` serves the **OpenAPI 3.1** document generated from
 the handler annotations and the `internal/api` request structs — the
-discovery surface for spec-reading clients (the UI apps, anybao's
-helper layer, external agents). Schema descriptions come from the
+discovery surface for spec-reading clients. Schema descriptions come from the
 struct field comments, so they carry the same guidance the error
 messages do. Request schemas whose endpoints enforce the closed body
 vocabulary (`request.unknown_field`) are served with
@@ -154,8 +157,9 @@ vocabulary (`request.unknown_field`) are served with
 which endpoints are strict, declared at discovery time. Not available
 in the mobile build (404).
 
-`/v1/health` works on an unauthorized server too — `account` is then
-`""`.
+`GET /v1/health` → `{status, version, startedAt, account, bootstrapping,
+crdtVersion?}`. It works on an unauthorized server too — `account` is
+then `""`.
 
 `networkId` (string, always present): the any-sync network this server
 joins — the `networkId` of the nodeconf it resolved at startup, the
@@ -165,9 +169,9 @@ Well-known ids (Anytype production, Anytype stage) are listed in
 `02-server.md` § Health.
 
 `bootstrapping` (bool): `true` while a booted engine's SDK background
-boot pass (eager space loading + offline catch-up) is still running —
-serving, offline catch-up in background; per-space convergence stays
-on `/sync-status`. `false` when unauthorized and after the pass
+boot pass (eager space loading + offline catch-up) is still running;
+the server serves throughout, and per-space convergence is
+`/sync-status`. `false` when unauthorized and after the pass
 completes. See `02-server.md` § Startup / § Health.
 
 `crdtVersion` (`{supported, stored, newer}`, absent when unauthorized):
@@ -222,7 +226,7 @@ A managed server reports every capability `true` and an empty
 `accounts` list: it holds no keys, so the client owns the account list
 (build the picker from its keystore). Clients read this before rendering
 any sign-out / switch / quit affordance and show each only where its bit
-is true, so a future third mode does not break them.
+is true.
 
 ```json
 // POST /v1/auth — mnemonic and accountId are mutually exclusive:
@@ -283,9 +287,8 @@ generated one is always the `any` default, 1). Omitted means 1; index
 0 is anytype's, passed explicitly to restore an anytype-derived
 account. Any `index` without `mnemonic` — including an explicit 0 —
 is `400 request.invalid_field`. If the engine fails to boot after this
-call created the account dir (e.g. SDK init error), the half-created
-dir is removed, so a retry — or `generate` getting a new phrase —
-starts clean rather than auto-selecting an un-backed account.
+call created the account dir, the half-created dir is removed, so a
+retry starts clean rather than auto-selecting an un-backed account.
 
 **`DELETE /v1/auth`** (managed, control token) tears the engine down —
 streams end with `closed{reason: deauthorized}`, in-flight requests
@@ -328,9 +331,11 @@ which the next boot pins again).
 | PUT    | `/v1/account/metadata`       | `Account.UpdateMetadata`               |
 | POST   | `/v1/account/access-code`    | redeem an alpha invite code (any-invite) |
 
-`GET /v1/account` also returns `techSpaceId` — the account's tech
-space, the `:spaceId` for account-level bundles (§ Bundles, "Tech-space
-bundles"). It never appears in `GET /v1/spaces`.
+`GET /v1/account` → `{id, techSpaceId, metadata?}`. `metadata`
+(`{name?, description?, iconCid?}`) is the locally stored profile,
+omitted when none was written. `techSpaceId` is the account's tech
+space, the `:spaceId` for account-level bundles (§ Bundles → Tech-space
+bundles); it never appears in `GET /v1/spaces`.
 
 ```json
 // PUT /v1/account/metadata
@@ -411,7 +416,7 @@ streams — see [events](04-events.md)).
 | Method | Path                            | Purpose                             |
 |--------|---------------------------------|-------------------------------------|
 | POST   | `/v1/spaces`                    | `Service.Create`                    |
-| GET    | `/v1/spaces`                    | `Service.List` → `[]SpaceInfo` (active-only by default, see note) |
+| GET    | `/v1/spaces`                    | `Service.List` → `{spaces: [SpaceInfo]}` (active-only by default, see note) |
 | POST   | `/v1/spaces/query`              | `Service.Query` (spaces dataset) snapshot |
 | POST   | `/v1/spaces/query/subscribe`    | `Service.Query` (spaces dataset) subscribe (SSE) |
 | GET    | `/v1/spaces/:spaceId`           | `Space.Info`                        |
@@ -430,44 +435,42 @@ streams — see [events](04-events.md)).
 | GET    | `/v1/spaces/derived`            | embedded registry → `Service.DeriveId` per entry |
 | POST   | `/v1/spaces/derived/:name`      | `Service.Derive` for a registry entry |
 
-**Raw `Service.Derive` / `DeriveId` are deliberately not exposed.** A
-client-supplied seed would mint a *permanent* space (derived spaces
-cannot be deleted) and invite silent seed collisions between consumers.
-Derivation is reachable only through the closed registry vocabulary of
-`/v1/spaces/derived` (below); there is no free-seed `/v1/spaces/derive`
-route by design.
+`POST /v1/spaces` takes `{name?, description?, iconCid?, spaceType?}`
+(`spaceType` is `any.space` or empty; anything else is
+`400 request.invalid_field`) → `201 SpaceInfo`.
 
-**`DELETE` is a real, offline-first deletion** (`any-sync-sdk v0.0.12`).
-It returns `204` as soon as the local half is done — no network round
-trip on the call path: the SDK writes the synced `remoteStatus=deleted`
-tombstone (propagates to the account's other devices, drives the
-`Subscribe` `Removed` event), offloads all local state (closes watchers
-+ Store, evicts the any-sync space, drops the per-space CRDT
-collections and DB file — immediate in the normal case, reclaiming disk
-even offline; on a partial sweep failure the storage file is kept so
-the next boot retries), and
-kicks a background reconciler that sends the signed
-`coordinator.SpaceDelete` now (if online) or on a later tick. Owner-only
-on the network side: deleting a non-owned space offloads locally and the
-reconciler no-ops the coordinator call. The reconciler also runs the
-inbound direction — spaces the coordinator reports gone (deleted on
-another device, or an owner deleted a space you joined) are offloaded
-locally on the next poll. **Derived spaces are refused** with
-`409 space.derived_undeletable` (see § Derived spaces), and an id the
-account doesn't know returns `404 space.not_found` instead of a silent
-204.
+**Raw `Service.Derive` / `DeriveId` are not exposed.** A client-supplied
+seed would mint a *permanent* space (derived spaces cannot be deleted)
+and invite silent seed collisions between consumers. Derivation is
+reachable only through the closed registry vocabulary of
+`/v1/spaces/derived` (below).
+
+**`DELETE` is a real, offline-first deletion.** It returns `204` as
+soon as the local half is done — no network round trip on the call
+path: the SDK writes the synced `remoteStatus=deleted` tombstone
+(propagates to the account's other devices), offloads all local state
+(watchers, the any-sync space, the per-space CRDT collections and DB
+file — disk is reclaimed even offline; on a partial sweep failure the
+storage file is kept and the next boot retries), and kicks a background
+reconciler that sends the signed `coordinator.SpaceDelete` now (if
+online) or on a later tick. Owner-only on the network side: deleting a
+non-owned space offloads locally and the reconciler skips the
+coordinator call. The reconciler also runs inbound — spaces the
+coordinator reports gone (deleted on another device, or an owner
+deleted a space you joined) are offloaded locally on the next poll.
+**Derived spaces are refused** with `409 space.derived_undeletable`
+(§ Derived spaces); an id the account doesn't know is
+`404 space.not_found`.
 
 **`GET /v1/spaces` defaults to active spaces only.** The tech-space row
 is never physically removed — it stays in `Service.List` with
-`status:"deleted"` as a **sticky tombstone** — so the raw list otherwise
+`status:"deleted"` as a **sticky tombstone** — so the raw list
 accumulates dead rows even though their storage is reclaimed. Pass
-`?status=all` to get the full list (every status), or `?status=<value>`
-to filter to a specific status (e.g. `deleted`). The
-`POST /v1/spaces/query[/subscribe]` primitive is unaffected — it still
+`?status=all` for every status, or `?status=<value>` for one (e.g.
+`deleted`). `POST /v1/spaces/query[/subscribe]` is unaffected — it
 returns the raw tech-index rows. Consumers that keep derived per-space
-state (search index, UI caches) drop it by watching
-`POST /v1/spaces/query/subscribe` and purging on the `removed` frame;
-the server's own search indexer already does this.
+state (UI caches) watch `POST /v1/spaces/query/subscribe` and purge on
+the row's status change; the server's own search indexer does this.
 
 **A deleted id still reads `200`.** `GET /v1/spaces/:spaceId` on a
 tombstone returns the row with `status:"deleted"`; only an id the
@@ -479,34 +482,25 @@ client keyed on `200` treats a deleted space as live.
 **`GET /v1/spaces/:id` materializes only active spaces.** A non-active
 row (joining / one_to_one_pending / one_to_one_declined / invite
 statuses / deleted) is served straight from the tech-space index —
-plain row `SpaceInfo`, no `spaceIndexObjectId`,
-nothing loaded. Materializing a pending row would download the space
-before it was accepted: the SDK's load path falls back to a network
-SpacePull when local storage is missing, so a single read on a
-pending-join or incoming-1-1 id used to pull the whole space
-ciphertext ahead of acceptance (and a 1-1's derivation-time read key
-would even decrypt it). The SDK enforces the same guard in
-`Service.Get`; the handler's status check keeps non-active reads
-serving row info instead of surfacing that error.
+plain row `SpaceInfo`, no `spaceIndexObjectId`, nothing loaded.
+Materializing a pending row would download the space before it was
+accepted (the SDK's load path falls back to a network pull when local
+storage is missing).
 
 `SpaceInfo` carries a `spaceIndexObjectId` field: the deterministic id
 of the in-space `spaceIndex` derived object that owns this space's
-metadata. Stable across peers and across SDK reboots — clients
-attach a `POST /v1/spaces/:id/objects/query/subscribe` stream filtered
-on this id to live-update name / description / icon. Single-space responses
-(`POST /v1/spaces`, `GET /v1/spaces/:id`, `PATCH /v1/spaces/:id`)
-always populate the field. `GET /v1/spaces` fills it on a best-effort
-basis; rows whose Space handle the SDK can't resolve (e.g. tombstoned
-entries) omit it.
+metadata. Stable across peers and restarts — clients attach a
+`POST /v1/spaces/:id/objects/query/subscribe` stream filtered on this
+id to live-update name / description / icon. `POST /v1/spaces` and
+`GET /v1/spaces/:id` on an active space populate it; `GET /v1/spaces`
+fills it on active rows only.
 
-
-`SpaceInfo.createdAt` (RFC3339) is the **added-to-account** time,
+`SpaceInfo.createdAt` (RFC 3339) is the **added-to-account** time,
 stamped when the tech-space row is created — at create for the author,
-at join for a joiner. Immutable once stamped. Rows from before the
-stamp existed report the zero time (`0001-01-01T00:00:00Z`) — treat it
-as "unknown"; there is no backfill. The stamp is per-device, so the
-account's devices can disagree by a few seconds (or zero vs real on
-mixed SDK versions) — good for ordering, not for equality checks.
+at join for a joiner. Immutable once stamped. A row without a stamp
+reports the zero time (`0001-01-01T00:00:00Z`) — treat it as
+"unknown". The stamp is per-device, so the account's devices can
+disagree by a few seconds — good for ordering, not for equality checks.
 
 `SpaceInfo` also carries `spaceType` and `author`. `spaceType` is the
 **app-level classification** tag (read from the in-space `spaceIndex`),
@@ -529,8 +523,8 @@ carry it, and the raw rows on `POST /v1/spaces/query[/subscribe]`
 stream role changes live. Use it to gate role-dependent UI straight
 from the space list — no per-space `GET …/members/me` fan-out.
 Two caveats: `"none"` doubles as "not mirrored yet" (a space this
-device hasn't loaded since the field shipped, a pending join, a
-tombstoned row) — treat it as "unknown / no access", with
+device hasn't loaded, a pending join, a tombstoned row) — treat it as
+"unknown / no access", with
 `GET /v1/spaces/:spaceId/members/me` as the authoritative per-space
 read when it matters. And on a 1-1 space both participants report
 `writer` (the ACL owner slot is a synthetic shared key nobody holds),
@@ -563,7 +557,7 @@ space without a create/find handshake (no check-then-create races, no
 duplicate "agent space" per client). The vocabulary is a small
 **embedded registry** compiled into `any`
 (`internal/server/derivedspaces.go`; seeds follow the
-`any/space/<name>/v1` convention) — v1 entry: `bao`, the account's
+`any/space/<name>/v1` convention) — one entry: `bao`, the account's
 agent space.
 
 ```
@@ -576,8 +570,8 @@ POST /v1/spaces/derived/:name  → 201 SpaceInfo   (404 space.derived_unknown,
   (`Service.DeriveId` — pure computation over the account keys);
   `created` reports whether a usable tech-space row exists —
   materialized here or on any of the account's devices (rows sync).
-  `status` is the raw row status when a row exists; a `deleted` row
-  (wedged before the permanence guard existed) reports `created:false`.
+  `status` is the row status when a row exists; a `deleted` row
+  reports `created:false`.
 - **POST materializes lazily and idempotently** (`Service.Derive`) and
   returns the full single-space `SpaceInfo`. On first materialization the registry's display name is
   written as the space name (`DeriveRequest.Name` — not part of the
@@ -597,17 +591,9 @@ POST /v1/spaces/derived/:name  → 201 SpaceInfo   (404 space.derived_unknown,
   `remoteStatus=deleted` writes on flagged rows from any peer, and its
   deletion reconciler exempts them. `SpaceInfo.derived` surfaces the
   flag; joiners of someone else's derived space never carry it, so
-  their removal stays allowed. Rollout caveat: a device still running a
-  pre-guard binary can locally delete the space it materialized —
-  upgrade all of an account's devices before relying on permanence.
+  their removal stays allowed.
 - `spaceType` is `any.space` — derived spaces are ordinary spaces in
   every other respect (members, invites, datasets, search).
-- **Migrating from an ad-hoc agent space**: accounts that already carry
-  a client-created agent space (e.g. a space named "bao" minted by an
-  older agent runtime) get a SECOND, derived space from the registry —
-  the registry id is the convergence point going forward; move or
-  re-import content from the legacy space, don't alternate between
-  them.
 
 #### One-to-one (direct) spaces
 
@@ -617,7 +603,7 @@ spaceId (order-independent), the same immutable ACL (both as writers), the
 same read key — there is **no owner/invite handshake** at the crypto
 layer. The peer's account identity is the `id` from their `GET
 /v1/account`, exchanged out-of-band. Authoritative SDK contract:
-`any-sync-sdk/docs/13-one-to-one-spaces.md`.
+[`docs/13-one-to-one-spaces.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/13-one-to-one-spaces.md).
 
 ```
 POST /v1/spaces/one-to-one                  { otherIdentity }              → 201 SpaceInfo
@@ -659,7 +645,7 @@ values, not ACL operations:
   overrides it. Returns 204.
 
 **Discovery has no bespoke endpoint** — incoming requests are the space
-list filtered on the new status: `GET
+list filtered on the status: `GET
 /v1/spaces?status=one_to_one_pending` (pending and declined rows are
 non-active, so they're hidden from the active-only default list, like
 `deleted`), or `POST /v1/spaces/query[/subscribe]` over the `spaces`
@@ -680,7 +666,7 @@ coordinator inbox, durably retried), the space surfaces here as a
 **synced** pending row. The account is already a full ACL member; like
 the 1-1 gate, approval only governs whether the space is materialized —
 nothing is downloaded until accepted. Authoritative SDK contract:
-`any-sync-sdk/docs/15-direct-add-invites.md`.
+[`docs/15-direct-add-invites.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/15-direct-add-invites.md).
 
 ```
 POST /v1/spaces/:spaceId/invite/accept    → 200 SpaceInfo | 202 SpaceInfo
@@ -707,16 +693,14 @@ POST /v1/spaces/:spaceId/invite/decline   → 204
   (`Service.DeclineInvite`). Writes a **synced sticky, non-terminal**
   marker (`status:"invite_declined"`) suppressing the invite on every
   device; a later accept overrides it. **No ACL change** — the account
-  remains a member on the space's ACL (self-remove is a follow-up).
-  Returns 204.
+  remains a member on the space's ACL. Returns 204.
 
 #### Query / subscribe the space list
 
-`GET /v1/spaces` (`Service.List`) stays the mapped convenience — it
-returns the public `SpaceInfo` shape (status / ownRole projected from the
-raw tech-index rows — the raw rows carry the same `ownRole` string
-label, device-local). For a **filterable / sortable / live** view, the
-generic windowed primitive reads the tech-space `spaces` dataset
+`GET /v1/spaces` (`Service.List`) is the mapped convenience — it
+returns the public `SpaceInfo` shape (status / ownRole projected from
+the raw tech-index rows). For a **filterable / sortable / live** view,
+the generic windowed primitive reads the tech-space `spaces` dataset
 directly:
 
 ```
@@ -727,38 +711,40 @@ POST /v1/spaces/query/subscribe    SSE        → ready → snapshot → changes
 Both wrap `Service.Query(SpaceIndexObjectId(), "spaces")` and take the
 same body as the per-object `…/query` endpoints (`filter` / `sort` /
 `limit` / `offset` / `includeTotal` / `mailboxCapacity` /
-`driftBudgetPercent`), plus an optional `dataset` override. `objectId` is
-fixed server-side to the tech-space index object. `dataset` is restricted
-to the closed allowlist `{spaces, profile}` (defaults to `spaces`) —
-anything else returns `400 request.invalid_field`. The tech-space index
-object also hosts the `identities` directory, whose rows carry a synced
-decryption key; it is deliberately **not** reachable here — read it
-through `GET /v1/identities`. Records are the **raw**
-tech-index rows (not the mapped `SpaceInfo`) — use `GET /v1/spaces` when
-you want the projected status/role. Rows carry `createdAt` as an
-instant — `{"$date": "<RFC 3339>"}`, the handler-derived added-to-account
-time, absent on pre-stamp rows — so newest-first creation ordering is
-`{"sort": ["-createdAt"]}` and a range filter takes the same shape
-(`{"$gte": {"$date": "…"}}`). The mapped `SpaceInfo.createdAt` on
-`GET /v1/spaces` stays a plain RFC 3339 string.
-The subscribe frame set and `closed`
-reasons are identical to the per-object `…/query/subscribe` (see the Data
-plane § Subscribe and `docs/04-events.md`); a space joined on another
-device or head-synced in arrives as an `added` change.
+`driftBudgetPercent` / `projection`), plus an optional `dataset`
+override; there is no `objectId` — the target is the tech-space index
+object. `dataset` is the closed allowlist `{spaces, profile}` (default
+`spaces`) — anything else returns `400 request.invalid_field`. The
+tech-space index object also hosts the `identities` directory, whose
+rows carry a synced decryption key; it is **not** reachable here — read
+it through `GET /v1/identities`. Records are the **raw** tech-index rows
+(not the mapped `SpaceInfo`). The guest and invite private-key fields
+of `spaces` rows (`guestKey`, `issuedGuestKey`, `issuedInviteKeys`) are
+withheld, and a filter, sort or projection naming one is
+`400 request.invalid_field`. Rows carry `createdAt` as an instant —
+`{"$date": "<RFC 3339>"}`, absent on unstamped rows — so newest-first
+creation ordering is `{"sort": ["-createdAt"]}` and a range filter
+takes the same shape (`{"$gte": {"$date": "…"}}`). The mapped
+`SpaceInfo.createdAt` on `GET /v1/spaces` is a plain RFC 3339 string.
+The subscribe frame set and `closed` reasons are identical to the
+per-object `…/query/subscribe` (§ Subscribe (Server-Sent Events),
+`docs/04-events.md`); a space joined on another device or head-synced
+in arrives as an `added` change.
 
 #### Dataset schema discovery
 
 ```
-GET /v1/spaces/:spaceId/datasets   → { datasets: [ { name, schema, owners?, module, shared? } ] }   Space.Datasets
-GET /v1/datasets                   → { datasets: [ { name, schema, module } ] }                    Service.Datasets
+GET /v1/spaces/:spaceId/datasets   → { datasets: [ { name, schema, owners?, module?, shared? } ] }   Space.Datasets
+GET /v1/datasets                   → { datasets: [ { name, schema } ] }                              Service.Datasets
 ```
 
 `schema` is a standard **JSON Schema** object per dataset
 (`{type:"object", properties:{…}, additionalProperties:<dynamic>}`).
 `name` is the collection — what `dataset` names on every read and
 write. `module` is the serving module (`records` for schema-enforced
-runtime datasets, `chat` / `editor` for the compiled-in ones, absent
-only on the SDK's own system datasets). `owners` lists the types whose
+runtime datasets, `chat` / `editor` for the compiled-in ones); it is
+absent on built-in datasets (`objects`, the SDK's system datasets) and
+on a registered type's statically declared datasets. `owners` lists the types whose
 parts declare the collection: the one declaring type of a namespaced
 `<typeId>_<key>` instance, every type sharing a module's canonical
 collection (`shared: true` — `editor_blocks`, `chat_messages`). A
@@ -776,8 +762,8 @@ classifying the field:
   `unreadMention` / `unreadReactions` — written via the local-scope
   `POST …/modify` route, § Modify records);
 - `account` — synced across this account's devices only, invisible to
-  other members (declarable on property definitions today; dataset
-  record fields await the SDK's record-level account transport).
+  other members (property definitions only; a dataset record field
+  cannot be written at account scope).
 
 Every field the server declares also carries `description`, and
 `x-format` where the descriptor vocabulary (docs/27-descriptors.md)
@@ -787,7 +773,6 @@ names its value — `chat_messages.createdAt` is `{"type": "datetime"}`,
 row-root fields; their slice is on `GET …/types/any/properties`). A
 field with no slug (the markdown `text` bodies, identities,
 record ids, opaque objects) describes itself in `description` alone.
-Built-in and client-declared fields render through one descriptor path.
 
 `additionalProperties:true` marks a dynamic dataset (free-form keys
 allowed, defaulting to synced — e.g. the per-type `objects` namespace and
@@ -796,7 +781,8 @@ staying open). The per-space form lists every collection the space
 hosts (`objects`, the module canonicals `chat_messages` /
 `editor_blocks`, every namespaced instance and runtime definition the
 space's types declare); the account-wide form lists the tech-space
-system datasets (`spaces`, `profile`) behind the space-list
+system datasets (`spaces`, `profile`, `devices`, `identities`, …) — of
+those, only `spaces` and `profile` are readable through the space-list
 query/subscribe above.
 
 Datasets with behavioral schema declarations (§ Runtime dataset schemas)
@@ -810,7 +796,7 @@ carry further extension keywords in the document:
   `x-id` (`user`, with `x-id-pattern` / `x-id-max-length`; absent =
   auto-derived record ids), and `x-search` (`{title, text, scope}` —
   the record fields the search indexer extracts and the index scope
-  the entries land under, § docs/13-index.md).
+  the entries land under, `docs/13-index.md` § The schema chunker).
 
 #### Update space metadata
 
@@ -830,8 +816,9 @@ body leaves the field unchanged; a key present with an empty string
 clears the field. `spaceType` is intentionally not patchable; it's
 pinned by the initial Create.
 
-The write lands on the in-space `spaceIndex` object's `properties`
-dataset and CRDT-replicates to every member. Each peer's indexer hook
+The write lands on the in-space `spaceIndex` object's `objects` row
+(`spaceIndex.name` / `.description` / `.icon`) and CRDT-replicates to
+every member. Each peer's indexer hook
 mirrors the converged state into its own local tech-space row.
 Because the mirror runs asynchronously (subscription delivery, not
 in-line with the local write), an immediate follow-up `GET
@@ -850,19 +837,18 @@ stream filtered on `spaceIndexObjectId`.
 ```
 
 A per-key patch of the `settings` object on the space's **tech-space
-row** — deliberately separate from `PATCH /v1/spaces/:spaceId`, which
-writes the *member-replicated* spaceIndex (name / description / icon).
-Mixing account-private and member-visible writes on one endpoint is a
-trap; these are different scopes with different audiences.
+row** — separate from `PATCH /v1/spaces/:spaceId`, which writes the
+*member-replicated* spaceIndex (name / description / icon).
 
 - **Account-private by construction**: the tech space is per-account
   (owner-only ACL), so settings sync across the account's own devices
   and are invisible to other space members.
 - **Keys** are the caller's vocabulary — non-empty, single-level (no
-  dots; a dotted key would silently become a deeper CRDT path). Push
-  claims `notifyMode` (`all | mentions | none`, `docs/20-push.md`);
-  other client settings are welcome to live alongside.
-- **Values** are scalars only: string, number, or bool.
+  dots; `400 request.invalid_field`). Push reads `notifyMode`
+  (`all | mentions | none`, `docs/20-push.md`); other client settings
+  live alongside.
+- **Values** are scalars only: string, number, or bool
+  (`400 request.invalid_field`).
 - At least one `set` or `unset` entry is required
   (`400 request.missing_field`); a key may not appear in both
   (`400 request.invalid_field`).
@@ -884,22 +870,20 @@ on `GET /v1/spaces[/:id]`, or the raw rows from
 
 Wraps `Space.SyncHeads`: forces an immediate head-sync (diff) round
 against the space's responsible nodes instead of waiting for the
-periodic headsync timer. The call **blocks** server-side until the
-round completes, then returns `204`. Normal operation never needs this
-— periodic + reactive sync keep a space current on their own — it
-exists for on-demand convergence: a manual "sync now" button, or
-collapsing the multi-peer convergence wait in tests from "next periodic
-headsync (~30s)" to "as fast as the diff round settles." A single round
-exchanges heads with the node; for a writer→reader handoff, sync the
-writer first (push to the node) then the reader (pull back).
+periodic headsync timer. The call **blocks** until the round completes,
+then returns `204`. Periodic and reactive sync keep a space current on
+their own; this is for on-demand convergence (a "sync now" button,
+tests). A single round exchanges heads with the node; for a
+writer→reader handoff, sync the writer first (push to the node) then
+the reader (pull back).
 
 #### POST /v1/spaces/:spaceId/search — local search index
 
-The **one sanctioned endpoint that does not map 1:1 onto an SDK
-method**: it queries the server's local search index (FTS + vector over
-the chunker feed — contract, scopes, and indexing pipeline in
-`docs/13-index.md`). Requires `index.enabled` (default true); `409
-index.disabled` otherwise.
+A consumer-side endpoint with no SDK method behind it: it queries the
+server's local search index (FTS + vector over the chunker feed —
+contract, scopes, and indexing pipeline in `docs/13-index.md`).
+Requires `index.enabled` (default true); `409 index.disabled`
+otherwise.
 
 Body:
 
@@ -907,7 +891,7 @@ Body:
 {
   "query":   "zeppelin disaster",     // required; supports "phrases" and prefix* on the FTS leg
   "scopes":  ["chat", "basic"],       // optional scope slugs (open set — see docs/13-index.md); empty = all
-  "limit":   10,                      // optional: max records (default 10, max 100)
+  "limit":   10,                      // optional: max records (default 10; above 100 clamps to 100)
   "mode":    "hybrid",                // optional: hybrid (default) | fts | vector
   "require": ["1937"],                // optional must-have terms (phrase/prefix ok); enforced in every mode
   "exclude": ["fiction"],             // optional must-not terms
@@ -1000,12 +984,17 @@ Scores are comparable only within one response
 covers content written while indexing is on — "index from the next
 change" (`docs/13-index.md`).
 
+Request errors: `400 request.missing_field` (no `query`),
+`400 search.bad_mode`, `400 search.bad_scope` (a scope that is not a
+slug `[a-z0-9_-]`, ≤64; an unknown well-formed scope just matches
+nothing).
+
 ### Bundles
 
 A **bundle** is one thing installed into a space — a chat, a
 marketplace bundle, an app's setup. It is one root object registered in
 the space's registry (the `bundles` dataset on the spaceIndex object;
-design in the SDK's `docs/bundles.md`), with every setup object derived
+design in the SDK's [`docs/bundles.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/bundles.md)), with every setup object derived
 from that root, so one converged id names the whole install.
 
 Clients register their own; the server installs nothing on a client's
@@ -1019,17 +1008,19 @@ Reads, resolve and children on a `system:` id work like on any other.
 
 ```
 POST   /v1/spaces/:spaceId/bundles                        → 200 {bundle, installed}
-GET    /v1/spaces/:spaceId/bundles                        → 200 {bundles: [...]}
-GET    /v1/spaces/:spaceId/bundles/:bundleId              → 200 Bundle
+GET    /v1/spaces/:spaceId/bundles                        → 200 {bundles: [Bundle], synced}
+GET    /v1/spaces/:spaceId/bundles/:bundleId              → 200 {bundle, synced}
 POST   /v1/spaces/:spaceId/bundles/:bundleId/resolve      → 204
 POST   /v1/spaces/:spaceId/bundles/:bundleId/children     → 200 {objectId}
 ```
 
+`Bundle` is `{id, name?, rootId, roots?, losers?, derived?}`.
+
 **Bundle ids carry a slash** (`favorites/v1` — the version suffix is
 part of the id, and ids are permanent: a successor install takes a new
-one, since record deletes are refused and a reused id could never be
-reclaimed). In a path segment the slash is percent-encoded:
-`/bundles/favorites%2Fv1`. Request bodies take the id verbatim.
+one, since record deletes are refused). In a path segment the slash is
+percent-encoded: `/bundles/favorites%2Fv1`. Request bodies take the id
+verbatim.
 
 **Ensure** (`POST …/bundles`) is adopt-or-install:
 `{id, name?, rootTypes?, rootProperties?, derived?, parts?, properties?,
@@ -1043,18 +1034,17 @@ nothing. Otherwise the server creates the root object with
 the requested types and initial properties, registers it in one change,
 and replies `installed: true`; that path is a write, so a member
 without write permission gets `403` (use `GET …/bundles/:bundleId`
-instead). `name` is stamped as `any.name` on the root, which is also
-what puts the root's tree in the head-sync diff. The `id` is the whole
+instead). `name` is stamped as `any.name` on the root. The `id` is the whole
 identity — a marketplace id, an app slug, a versioned convention like
 `favorites/v1` — so there is no separate provenance field.
 
 Installing waits for the registry to converge first (bounded, 30s —
-cut to 3s when no peer is connected, since a head-sync round against
-nobody answers the same way every time). It rides the space's index
+3s when no peer is connected). The registry rides the space's index
 tree, and a member that ensures against state it has not synced yet
 reads "nothing installed" and mints a root competing with the one
-already out there. Adopting never waits — a read cannot fork anything. A space that has never been set up
-converges to an empty registry, which is a valid answer, not a stall.
+already out there. Adopting a registered winner never waits. A space
+that has never been set up converges to an empty registry, which is a
+valid answer, not a stall.
 
 When the wait cannot complete, who is asking decides: the space's
 **owner** installs anyway (nobody else could have installed into a
@@ -1082,13 +1072,12 @@ computes it offline, with zero communication. Nothing can fork: each
 side registers the same id, the claim set converges to one element and
 `losers` stays empty. The reply and every read report `derived: true`.
 
-This is the answer for a space's chat, and the only workable one for a
+This is the shape for a space's chat, and the only workable one for a
 **1-1**: its ACL owner is a synthetic key nobody holds, so both
-participants are writers, neither can ever claim the owner escape, and
-a created root leaves both refused until they converge — which never
-happens while they are apart. With a derived root each side installs
-immediately and they meet on the one object; the two copies merge like
-any other CRDT tree.
+participants are writers, neither takes the owner escape, and a created
+root leaves both refused until they converge. With a derived root each
+side installs immediately and they meet on the one object; the two
+copies merge like any other CRDT tree.
 
 The price is permanence, in two directions:
 
@@ -1102,20 +1091,18 @@ The price is permanence, in two directions:
   and the created `rootId`. Moving content between roots is the client's
   decision, never a side effect of a flag.
 
-If a created and a derived root are ever both claimed for one id, the
+If a created and a derived root are both claimed for one id, the
 derived one wins on every device and the created one becomes an
-ordinary resolvable loser. The verdict itself reads only the add-only
-claim set, so every device reaches the same one — but **the claim can
-still be made blind**. A derived install runs the same convergence wait and, unlike a created
-one, installs anyway when it expires; if the space already carried a
-created install this device had not seen, that claim demotes it,
-irreversibly. Nothing is destroyed — the demoted root
-keeps its content and stays deletable — but the app's pointer moves,
-which for content that cannot be merged across objects (chat) amounts
-to the same thing. The wait is what narrows that window; proceeding
-past it is the deliberate trade that lets an offline 1-1 have a chat at
-all — and with no peer connected there is nothing to narrow, so the
-wait collapses to its offline bound and the chat appears in seconds.
+ordinary resolvable loser. The verdict reads only the add-only claim
+set, so every device reaches the same one — but **the claim can be
+made blind**. A derived install runs the same convergence wait and,
+unlike a created one, installs anyway when it expires; if the space
+already carried a created install this device had not seen, that claim
+demotes it, irreversibly. The demoted root keeps its content and stays
+deletable, but the app's pointer moves, which for content that cannot
+be merged across objects (chat) amounts to losing it. The wait narrows
+that window; installing past it is what lets an offline 1-1 have a chat
+at all.
 
 **Bundle-declared types.** A bundle may declare a full type on its
 root — `parts`, `properties` or an `xKey` make the root a type
@@ -1130,10 +1117,12 @@ describe that type and ride along (alone they are
   dataset the bundle declares is namespaced to the root: its
   collection is `<rootId>_<key>` (read it off `collection` in the
   parts list), and records go through `POST …/upsert` / `…/modify` /
-  `…/query[/subscribe]` with `objectId = rootId` and that collection as
-  `dataset`. A part naming a module (`{"module": "chat", "shared":
-  true}`) makes the root hold that module's canonical collection —
-  this is how a client's document bundle gives its root a body. A part
+  `…/query[/subscribe]` with that collection as `dataset` and
+  `objectId` = an object carrying the type — the root itself when
+  `selfTyped` (below). A part naming a module (`{"module": "editor", "shared":
+  true}`) makes the root's type own that module's canonical
+  collection — this is how a client's document bundle gives its
+  objects a body. A part
   naming a module reserved to the server (`chat`, § Parts and modules)
   is `400 dataset.module_reserved`.
 - `properties: [...]` (the same draft shape as `POST
@@ -1158,9 +1147,8 @@ describe that type and ride along (alone they are
   `409 type.xkey_conflict` (`details: {xKey, existingTypeId,
   bundleId}`), checked on the install path only — an adopted root
   carries the handle by design and never conflicts with itself.
-  Written on install. A writer's adopt fills in a handle the root
-  lacks (an install that predates it); an existing handle is never
-  changed.
+  Written on install; a writer's adopt fills in a handle the root
+  lacks, and an existing handle is never changed.
 - `layout` / `weight` (the type's rendering slice, § Types) and
   `hidden` are written with the root's name on install. **`hidden` is
   explicit**: a root that only hosts its bundle's records (favourites,
@@ -1203,7 +1191,7 @@ resurrected). Later evolution is `POST/PATCH/DELETE …/types/:rootId/parts…`,
 resurrects a declaration, and never touches the root's name, layout,
 weight or hidden flag once stamped. A malformed declaration (unknown
 module, a field on a module dataset, a duplicate key, a property
-without an xKey) fails before the permanent root is derived. The
+without an xKey) fails before any root is created. The
 declaration combines with `derived: true` or stands alone (a created
 root the server mints). `rootTypes` / `rootProperties`
 ride every root: a created one with no declaration, a derived one, and
@@ -1234,27 +1222,34 @@ settings — lives in bundles on the account's **tech space**, whose id
 `:spaceId` for:
 
 - `bundles` ensure / get / list / resolve — a type declaration
-  required (`parts`, `properties` or an `xKey`), roots minted by Ensure
-  (`rootTypes` / `rootProperties` / `children` refused). The normal shape is the default CREATED root — deletable
-  (`DELETE …/objects/:rootId` = uninstall; the id then reads as not
-  installed and a fresh install works), forking on concurrent offline
-  installs and resolving like in any space. `derived: true` is the
-  EXCEPTION, not a peer option: a permanent, uninstallable root,
-  justified only when a fork would be unmergeable (chat-like content —
-  the server's general chat, above all in a 1-1, where the
-  convergence gate cannot work). Records-shaped bundles merge, so they
-  are created;
-- `types` reads and `types/:rootId/parts…` / `types/:rootId/datasets…`
-  / `types/:rootId/properties…` on bundle roots;
+  required (`parts`, `properties` or an `xKey`; `400
+  request.missing_field` otherwise), roots minted by Ensure
+  (`rootTypes` / `rootProperties` are `400 request.invalid_field`,
+  `children` is `405`). The normal shape is the default CREATED root —
+  deletable (`DELETE …/objects/:rootId` = uninstall; the id then reads
+  as not installed and a fresh install works), forking on concurrent
+  offline installs and resolving like in any space. `derived: true` is
+  the exception: a permanent, uninstallable root, justified only when a
+  fork would be unmergeable (chat-like content). Records-shaped bundles
+  merge, so they are created;
+- `DELETE …/objects/:objectId` on a bundle root (the SDK refuses any
+  other object);
+- `GET …/types`, `GET …/types/:rootId`, `GET …/types/:rootId/properties`
+  and the `parts…` / `datasets…` / `POST|PATCH|DELETE properties…`
+  routes on bundle roots;
 - records on bundle roots: `query[/subscribe]`, `modify`, `upsert`,
-  `delete-records`, `aggregate`; `GET …/objects/:objectId`;
+  `delete-records`, `aggregate`, `objects/query[/subscribe]`,
+  `objects/aggregate`; `GET …/objects/:objectId`; `GET …/datasets`;
 - `GET` the space (a synthetic row: `spaceType: any.techspace`,
-  owner, derived), `sync-status`, `debug`, `sync`.
+  owner, derived), `sync-status` (space, object, object subscribe),
+  `debug`, `sync`.
 
-Everything else — `POST …/objects`, `DELETE …/objects/:id`,
-`POST …/types`, properties, members, invites, guest key, ACL, files,
-chat, editor, history, search, `PATCH`/`DELETE` the space, settings —
-returns `405 space.unsupported`. On the tech index object
+Everything else — `POST …/objects`, `POST …/types`,
+`PATCH …/types/:typeId`,
+`…/properties/:objectId…`, members, invites, guest key, ACL, files,
+chat, editor, history, search, links, `PATCH`/`DELETE` the space,
+settings, `POST /v1/catalog/:usecaseId/setup` — returns
+`405 space.unsupported`. On the tech index object
 (`spaceIndexObjectId` of the tech row) reads are limited to the
 `spaces`, `profile` and `bundles` datasets (guest keys stripped from
 `spaces` rows; `identities` stays behind `GET /v1/identities`) and
@@ -1265,16 +1260,15 @@ only after the space's registry convergence wait (local fast path when
 already synced; fast expiry with no reachable peer), and the reply
 carries `synced`: true means an absent bundle is definitively not
 installed; false (cold offline device) means absence is provisional.
-`GET …/bundles/:bundleId` returns `{bundle, synced}`. The ensure POST
-already runs the same wait as its convergence gate. The raw `bundles`
-dataset via `POST …/query[/subscribe]` stays the live local view.
+The ensure POST runs the same wait as its convergence gate. The raw
+`bundles` dataset via `POST …/query[/subscribe]` is the live local
+view.
 
 **Favourites** is a client-registered bundle (`favorites/v1`, created
 root, an `entries` part) — a documented convention, no server code.
-Model and client contract:
-`docs/25-favorites.md`.
+Model and client contract: `docs/25-favorites.md`.
 
-**Reads.** `GET …/bundles` lists the live rows as of local state;
+**Reads.** `GET …/bundles` lists the live rows;
 `GET …/bundles/:bundleId` reads one (`404 bundle.not_found`). Rows are
 also readable through the ordinary dataset surface —
 `POST /v1/spaces/:spaceId/query` with `{"objectId":
@@ -1286,12 +1280,12 @@ forge a claim. Raw rows carry the stored `rootId` register and no
 `GET …/bundles[/:bundleId]`, so read those when a bundle may be
 derived.
 
-**Children** (`POST …/bundles/:bundleId/children`, `{seed, types?}`)
-derive a setup object under the bundle's current winner. Same semantics
-as the objects derive: deterministic per (space, root, seed),
-materialized on the first call, the same id on every device — a
-restored device reaches the whole install from the winner alone — and
-cascade-deleted with the root. Seeds are permanent. A child binds to
+**Children** (`POST …/bundles/:bundleId/children`, `{seed, types?}`;
+seed ≤256 B, ≤32 types) derive a setup object under the bundle's
+current winner: deterministic per (space, root, seed), materialized on
+the first call, the same id on every device — a restored device reaches
+the whole install from the winner alone — and cascade-deleted with the
+root. Seeds are permanent. A child binds to
 its parent's tree, so on a member whose copy of the winner has not
 landed yet the call is `409 bundle.not_ready` — the same retryable
 state Ensure reports. Under a **derived** root the child binds by seed
@@ -1314,28 +1308,25 @@ reports the root fully **synced** — an unknown or still-syncing tree
 never qualifies — and it has been observed as a loser for a grace
 period (5 min). The clock starts when the conflict first became
 visible on this device (any `GET …/bundles[/:id]` or the boot pass
-counts), not at the first resolve call, so a client that showed the
-user a conflict and got an answer is not made to wait again. A restart
-restarts the clock, which only ever delays a deletion.
+counts), not at the first resolve call. A restart restarts the clock,
+which only ever delays a deletion.
 
-After a timing refusal the server keeps retrying in the background (the
-merge decision is already made; only the timing was missing) — one loop
-per losing root however often you poll, in-memory and dropped on
-restart, so clients retry too. Resolving the winner, or a root never
+After a timing refusal the server keeps retrying in the background —
+one loop per losing root however often you poll, in-memory and dropped
+on restart, so clients retry too. Resolving the winner, or a root never
 claimed for the bundle, is `409 bundle.not_loser`; a root already
 resolved returns 204 — the call is idempotent.
 
-**Restore.** On boot the server converges the space list and projects
-the space index for the well-known derived spaces, so a client ensuring
-right after a restore meets the account's converged registry instead of
-an empty one and does not mint a competing root. It installs nothing
-and deletes nothing itself.
+**Restore.** On boot the server converges the space list and the space
+index for the well-known derived spaces, so a client ensuring right
+after a restore meets the account's converged registry instead of an
+empty one. It installs nothing and deletes nothing itself.
 
 **Agreeing who installs.** Nothing stops two members from ensuring the
-same bundle; the registry just converges and reports a loser. Clients
-that want to avoid the conflict entirely either agree on one installer
-out of band, or ask for a `derived` root — the id both would compute
-anyway, which is what the per-space chat convention does.
+same bundle; the registry converges and reports a loser. Clients that
+want to avoid the conflict either agree on one installer out of band,
+or ask for a `derived` root — the id both would compute anyway, which
+is what the catalog's general chat does.
 
 ### Catalog
 
@@ -1382,9 +1373,10 @@ no encoding in the path.
 (dependencies first, deterministic), runs ONE registry-convergence
 wait for the whole list, then per bundle the § Bundles
 adopt-or-install: a live winner is adopted (a pure read; a writer's
-adopt also heals a property the root lacks by handle and a `miniapp`
-value the root lacks, attaching the built-in first when the root
-predates it), otherwise the handle check runs (no type in the space
+adopt also heals what the root lacks — a property by handle, a
+`choice` option key the catalog gained, a `miniapp` value, attaching
+the built-in `miniapp` first when the root does not carry it — and
+never overwrites what it has), otherwise the handle check runs (no type in the space
 may already hold the bundle's xKey — `409 type.xkey_conflict`, install
 path only) and the root is minted with everything the bundle declares
 (root + up to 3 changes). Idempotent: a second call adopts everything. A
@@ -1408,7 +1400,7 @@ installs anyway and any other member is `409 bundle.not_ready`.
 
 `typeId` (the root id) and `properties` (every property on the root
 with an xKey, xKey → propId) are present when the bundle declares a
-type — `type`, or `parts`; `miniapp` echoes the values a miniapp
+type — `type` or `parts`; `miniapp` echoes the values a miniapp
 bundle declares, `bundle` filled in; `installed` reports whether THIS
 call registered the root. Which usecases a space has is read off
 `GET …/bundles` — every member row is there under its `system:` id.
@@ -1471,15 +1463,14 @@ to walk the block tree. Liveness goes through the per-object
 query/subscribe endpoint with `dataset=<collection>`.
 
 The `editor/markdown` routes are aggregating endpoints (each one
-bundles several SDK calls) and are a deliberate exception to the
-"endpoints map 1:1 onto SDK methods" rule. `GET` reads every
-top-level block, renders each to its canonical markdown bytes, and
-joins with `\n\n` (see *Empty paragraphs* below for the blank-line
-rule). `PUT` parses the incoming markdown, diffs against
-the current block tree by (type + position + text), and emits
-per-block create / update / delete ops through the same write path a
-PATCH /editor/blocks call would, so the same `editor_blocks` SSE events
-fire under the hood. `PUT` replies with `{"inserted": [...],
+bundles several SDK calls), an exception to the "endpoints map 1:1
+onto SDK methods" rule. `GET` → `{"content": "…"}`: every top-level
+block rendered to its canonical markdown and joined with `\n\n` (see
+*Empty paragraphs* below for the blank-line rule). `PUT` takes
+`{"content": "…"}`, parses it, diffs against the current block tree by
+(type + position + text), and emits per-block create / update / delete
+ops through the same write path the `…/blocks` routes use, so the same
+collection events fire. `PUT` replies with `{"inserted": [...],
 "updated": [...], "deleted": [...], "unchanged": N}` where the slices
 contain block ids.
 
@@ -1526,11 +1517,12 @@ shape. Matching rules:
 | `markdown.ambiguous_match` | occurs more than once without `replaceAll` — add surrounding context or set `replaceAll` (details: `editIndex`, `occurrences`) |
 | `markdown.overlapping_edits` | two edits matched intersecting text — merge them into one edit (details: `editIndices`) |
 
-Because the match runs server-side against the current state, `PATCH`
-is what replaces the client-side `GET → string-replace → PUT`
-read-modify-write: a stale quote fails loudly instead of silently
+An empty `edits` array or an edit without `oldText` is
+`400 request.missing_field`. Because the match runs server-side against
+the current state, a stale quote fails loudly instead of silently
 reverting concurrent edits elsewhere in the document, and the caller
-ships O(edit) bytes instead of O(document).
+ships O(edit) bytes instead of O(document) — use `PATCH`, not a
+client-side `GET → string-replace → PUT`.
 
 `POST …/editor/:collection/markdown/append` is the append-only fast path. It
 parses the supplied `{"content": "..."}`, looks up only the tail
@@ -1614,8 +1606,8 @@ clients render blocks structurally without re-parsing.
 
 ##### Read blocks
 
-The bespoke list endpoint is gone — reads go through the per-object
-query primitive with `dataset=editor_blocks`:
+Reads go through the per-object query primitive with
+`dataset=editor_blocks`:
 
 ```
 POST /v1/spaces/:spaceId/query
@@ -1641,8 +1633,9 @@ blocks yet.
   "nav":   {"parentId": "<blockId>", "pos": "<lexid>"} }
 ```
 
-`type` is required (≤ 64 bytes, non-empty). `style` is an open-ended
-object — the handler accepts any sub-keys. `text` is inline markdown.
+`type` is required (non-empty, ≤ 64 bytes; empty is
+`400 blocks.type_required`). `style` is an open-ended object — the
+handler accepts any sub-keys. `text` is inline markdown, ≤ 64 KiB.
 `nav.parentId` defaults to `""` (top-level); `nav.pos` defaults to
 the next lexid past the parent's current max (queried server-side at
 create time). Returns 201 with the shared write result
@@ -1663,21 +1656,22 @@ Each key in `set` is a dotted field path applied as one `$set` op.
 Each entry in `unset` is a dotted path applied as one `$unset`. Both
 fields are optional; an empty patch is a no-op — no change is produced,
 so the result carries `recordIds=[blockId]` with an empty `versionId`.
-All ops land in a single any-sync change (one VersionId).
+All ops land in a single any-sync change (one VersionId). An unknown
+`blockId` is `404 blocks.not_found`.
 
-Required fields cannot be `$unset`-ed (`type`, `nav.parentId`,
-`nav.pos`) — the handler rejects those ops while still applying the
-rest of the batch. Per-op rejections do not fail the whole change.
+Required fields cannot be `$unset`-ed (`type`, `nav`, `nav.parentId`,
+`nav.pos`), and only `type`, `text`, `style[.<key>]` and
+`nav[.parentId|.pos]` are writable — the handler rejects any other op;
+the request then answers an error while the change's other ops still
+land.
 
 Note on path syntax: dotted-string keys (`"style.level": 2`) are
 parsed as one anyenc field path, NOT as nested objects. Use
 `"style.level"` to touch a single sub-field; use `"style": {"level":2}`
 only when you want to replace the entire `style` object whole-cloth.
 
-Response: the shared write result `{versionId, changeId, recordIds}`
-(`recordIds=[blockId]`). Clients running the
-subscribe-then-query-then-apply recipe stamp `_ver.<op.path> = versionId`
-on the affected paths to pre-seed dedup against the matching live event.
+Response: `200` with the shared write result (`recordIds=[blockId]`,
+§ Write responses).
 
 ##### Delete
 
@@ -1703,9 +1697,9 @@ POST /v1/spaces/:spaceId/query/subscribe
 entering, mutating, or leaving the visible window. `added` records
 include the full block as `doc` plus its per-field ops; `updated`
 records carry the post-apply doc and the ops that triggered the
-change; `removed` carries just the id. The same events fire whether
-the change originated from a PATCH `…/blocks` call or a PUT
-`…/markdown` bulk rewrite. See `04-events.md`.
+change; `removed` carries `{id, reason}`. The same events fire whether
+the change originated from a `…/blocks` call or a `…/markdown`
+rewrite. See `04-events.md`.
 
 #### Create an object
 
@@ -1728,7 +1722,14 @@ enforced per field too (`types` an array, `initialProperties` an
 object, every `initialProperties` group an object of
 `{propertyId: value}`) → `400 request.schema`. Nothing in this body
 is silently dropped, and nothing is added to it server-side: the
-object carries exactly the types it names.
+object carries exactly the types it names. Initial values pass the
+descriptor value gate (`400 property.format_violation`, § Types), and
+a type that declares a reserved module is refused
+(`400 type.reserved_carrier`, § Parts and modules). → `201
+{"objectId": "…"}`.
+
+`GET …/objects/:objectId` → `{objectId, record}` — `record` is the
+object's row from the `objects` collection (§ Data plane).
 
 #### The wiki tree
 
@@ -1803,12 +1804,11 @@ patches `pos` alone.
 #### Object deletion
 
 `DELETE /v1/spaces/:spaceId/objects/:objectId` is a single
-`Objects.Delete` call. The SDK writes a record-level tombstone on the
-per-space `objects` row before tearing down the any-sync tree, so the
-row disappears from `QueryObjects` and a `deleted: true` event fires
-on the per-space firehose (`dataset=objects`) with the change's
-`versionId` — the canonical signal subscribers use to drop the id
-from local state. See `04-events.md`.
+`Objects.Delete` call → `204`. The object's row leaves the `objects`
+collection, so it disappears from `objects/query` and leaves every
+`objects/query/subscribe` window as a `removed` entry with
+`reason: "deleted"` — the signal subscribers use to drop the id from
+local state. See `04-events.md`.
 
 A **derived** object is permanent — any bundle root installed with
 `derived: true`, so the general chat (§ Bundles → Derived roots) —
@@ -1841,6 +1841,10 @@ An **edge** is a source place, a kind and a canonical target:
 module or runtime collection, or the virtual `prop` for a property
 value, where `recordId` is the property id and `source.typeId` the
 type declaring it (the value lives at `record[typeId][propId]`).
+`source.field` names the field of a runtime record the reference was
+read from. `target` carries `uri`, `kind` and the ids its kind has
+(`spaceId`, `objectId`, `dataset`, `recordId`, `propId`, `identity`,
+`fileId`).
 `kind` is one of
 `mention` (an identity in text), `link` (an object, record, value or
 file reference in text or a chat attachment), `card` (an editor
@@ -1863,11 +1867,11 @@ value, an identity, a file.
   `"truncated": true` says it was hit; there is no continuation. No
   existence check: an unknown or unreferenced id answers empty lists.
 - `GET /v1/spaces/:spaceId/objects/:objectId/links` — `{"links":
-  [edge…]}`, the edges whose source is the object; the same narrowing
-  selects one record's or one value's edges, and `?dataset=` alone one
-  collection's.
+  [edge…], "truncated"?}`, the edges whose source is the object; the
+  same narrowing selects one record's or one value's edges, and
+  `?dataset=` alone one collection's.
 - `GET /v1/backlinks?target=<uri>` — `{"spaces": [{"spaceId",
-  "object", "parts"}…]}`: the edges pointing at one target from every
+  "object", "parts", "truncated"?}…]}`: the edges pointing at one target from every
   space this device indexes, one entry per space with an edge. The
   target must be a global form (`any://o/<sp>/…`, `any://m/…`,
   `any://f/…`, `any://p/…`); the bare in-space form is
@@ -1903,9 +1907,8 @@ Two query scopes:
   property, e.g. `{"filter":{"<typeId>.<propId>":"Casablanca"}}`.
 - `POST /v1/spaces/:spaceId/query` (+ `/subscribe`) — **per-object**.
   Reads one of an object's own datasets (`objectId` and `dataset`
-  required). Used for a type object's `properties` definitions
-  dataset, `editor_blocks`, `chat_messages`, runtime datasets such
-  as `program_source` / `mini_app`, etc.
+  required): a type object's `properties` definitions, `editor_blocks`,
+  `chat_messages`, a runtime `<typeId>_<key>` collection, etc.
 
 Every row in the per-space `objects` collection carries SDK-stamped
 row-root fields alongside `id`, all derived/read-only (client writes
@@ -1920,18 +1923,17 @@ addressing them are rejected):
   it; peers converge on the same value (LWW on the change's DAG
   order). It is the **author's clock** — sort/display quality, never a
   fencing token. Local- and account-scope writes (e.g. chat read
-  flags) deliberately don't bump it.
+  flags) don't bump it.
 - `modifiedBy` — the account identity that signed that same change:
   the object's last writer, `author` on an object nobody edited since
   it was created.
 
 "Recently modified first" is `{"sort": ["-modifiedAt"]}`.
 
-All four take POST (filter/sort body doesn't fit a query string).
-Reads always go through these — the bare `…/query` returns a
-point-in-time snapshot; `…/query/subscribe` returns the same
-snapshot plus a live SSE stream of windowed transitions. See
-`04-events.md` for the subscribe contract.
+All four take POST (the filter/sort body doesn't fit a query string).
+The bare `…/query` returns a point-in-time snapshot;
+`…/query/subscribe` returns the same snapshot plus a live SSE stream of
+windowed transitions. See `04-events.md` for the subscribe contract.
 
 `modifiedAt` and `modifiedBy` are stamped from **one** change — the
 object's latest by DAG order, whatever dataset it landed on (a
@@ -1947,15 +1949,16 @@ identity encoding as `author`, as chat `creator`, as `identity` in
 clients resolve name and icon through the members list, falling back
 to `GET /v1/identities/:identity` for a writer who has since left the
 space. `modifiedAt` is indexed, `modifiedBy` is not — a filter on it
-scans the collection. A missing `modifiedBy` means the row has yet to
-be rebuilt (on first load of the object, or by the background sweep)
-or the latest change has no known signer, never "nobody modified it".
+scans the collection. A missing `modifiedBy` means the row has not
+been rebuilt yet or the latest change has no known signer, never
+"nobody modified it".
 
-A `filter` naming an operator outside the grammar is a caller fault:
+A `filter` naming an operator outside the grammar is
 `400 filter.unknown_operator`, with the offending token in
-`details.operator` and the supported set spelled out in the message.
-Note there is no `$contains` — a scalar already compares against array
-elements, so `{"any.types": "chat"}` is the contains spelling. Filter
+`details.operator` and the supported set spelled out in the message;
+any other grammar violation is `400 filter.invalid` (`details.path`).
+There is no `$contains` — a scalar already compares against array
+elements, so `{"any.types": "page"}` is the contains spelling. Filter
 grammar and the array rules: `09-query.md`.
 
 A per-object read (`objectId` in the body, and likewise the editor /
@@ -1990,14 +1993,15 @@ This field set is **closed**: an unrecognized top-level key answers
 space), and a body that isn't a JSON object is `400 request.schema`.
 An `objectId` that is a serialized nil (`"None"`, `"null"`,
 `"undefined"`, …) is `400 object.id_required` — the caller's id
-variable was unset. The same closed set guards the space-list and
-files query/subscribe bodies (plus their own `dataset` / `objectId`
-extras where documented).
+variable was unset. A subscribe with `limit > 0` and no `sort` is
+`400 request.invalid_field` — a live window has to be ordered. The same
+closed set guards the space-list, devices and files query/subscribe
+bodies (plus their own `dataset` extra where documented).
 
 **`projection`** shapes the records that come back — mongo's grammar,
 a flat object of dotted field paths to `1` (include) or `-1`
-(exclude). Omit it and records ship their full form, byte for byte as
-before. It applies to snapshot frames AND to every `added` / `updated`
+(exclude). Omit it and records ship their full form. It applies to
+snapshot frames AND to every `added` / `updated`
 record in `changes` events, docs and per-field ops alike, so a
 projected subscription cannot silently widen after the first update.
 Full grammar, the `_ver` rule, and the divergences from mongo:
@@ -2015,9 +2019,8 @@ used. With it the snapshot reads through the SDK's find path rather
 than the windowed live view (same filter / sort / limit / offset;
 `total` is the full match count including tombstones). Refused on
 `…/query/subscribe` (`400 request.invalid_field` — the live window
-never carries tombstones) and unknown on `objects/query` (a deleted
-OBJECT is purged, not tombstoned — there is nothing to include; see
-`Objects.Delete` above).
+never carries tombstones) and an unknown field on `objects/query` (a
+deleted object's row is purged, not tombstoned — § Object deletion).
 
 Snapshot response (bare `…/query`):
 
@@ -2026,6 +2029,73 @@ Snapshot response (bare `…/query`):
   "total":   17,                      // omitted when includeTotal=false
   "hasNext": true }                   // more matches past this page; omitted when includeTotal=false
 ```
+
+#### Modify records
+
+`POST /v1/spaces/:spaceId/modify` → `Space.Modify`:
+
+```json
+{
+  "objectId": "obj_abc",
+  "dataset":  "notes",
+  "records": [
+    {
+      "id":     "",
+      "upsert": true,
+      "ops": [
+        { "type": "$set",       "path": "",     "value": { "title": "x" } },
+        { "type": "$addToSet",  "path": "tags", "value": "idea" }
+      ]
+    }
+  ],
+  "traceIds": ["demo"]
+}
+```
+
+`objectId` and `dataset` are required; each op is `{type, path?,
+value?}` with `type` one of `$set` / `$unset` / `$inc` / `$addToSet` /
+`$pull`, and an empty `path` on `$set` assigns every key of an object
+`value`. A malformed body is `400 request.schema`. Response: `200` with
+the shared write result (§ Write responses) — `recordIds[0]` is the
+derived id for the empty-id upsert above. A dataset the object's types
+do not declare is `400 dataset.not_declared`; a name that is not a
+records dataset in the space is `400 dataset.unknown`.
+
+The body takes an optional **`scope`** selecting the write route:
+`"synced"` (default — the object's own DAG change, synced to every
+member) or `"local"` (device-only materialization: no DAG change,
+never syncs, still flows through query/subscribe with a locally-minted
+`versionId` and an empty `changeId`). A local write may only target
+fields the dataset schema declares `local` (`x-scope` in
+`GET …/datasets`) — e.g. chat's `unread` / `unreadMention` /
+`unreadReactions` read-tracking flags on `chat_messages`. Constraints,
+enforced with `400 request.schema`: explicit record `id`s, no
+`upsert` (local fields annotate records the synced route created —
+they never create records), no `traceIds`, and not the shared
+`objects` dataset (local property values go through
+`POST …/properties/:objectId/set/:typeId`, which validates per-property
+scope and kind). Ops that target a non-local field come back in
+`rejections` (the write itself succeeds); the reverse direction — a
+synced write touching a local field — fails whole with
+`400 dataset.validation`. `"account"` is not writable here (account
+scope covers property values only).
+
+```json
+{
+  "objectId": "obj_abc",
+  "dataset":  "chat_messages",
+  "scope":    "local",
+  "records": [
+    { "id": "msg_1", "ops": [ { "type": "$set", "path": "unread", "value": true } ] }
+  ]
+}
+```
+
+`POST /v1/spaces/:spaceId/delete-records` → `Space.Delete`:
+`{objectId, dataset?, recordIds, traceIds?}` (`objectId` and a
+non-empty `recordIds` required — `400 request.missing_field`) →
+`200` with the shared write result. Record tombstones are sticky: a
+deleted id is never reused.
 
 #### Aggregate
 
@@ -2079,7 +2149,7 @@ data: [{"versionId":"!!%>",
         "updated":[{"id":"obj_a","doc":{...},
                     "ops":[{"type":"$set","path":["title"],
                             "payload":"renamed"}]}],
-        "removed":["obj_b"]}]
+        "removed":[{"id":"obj_b","reason":"deleted"}]}]
 
 : keepalive
 
@@ -2087,7 +2157,7 @@ event: closed
 data: {"reason": "overflow"}
 ```
 
-- **`ready`** — sent once after the SDK `Subscribe` call returns. Wait
+- **`ready`** — sent once when the subscription is registered. Wait
   for it before treating the stream as live.
 - **`snapshot`** — sent once, right after `ready`. `records` is the
   materialised window (bounded by `limit`/`offset`); `total` is the
@@ -2102,20 +2172,22 @@ data: {"reason": "overflow"}
     triggered the entry (a brand-new record's ops collapse to one
     multi-field `$set` at path `[]`).
   - `updated` — records already in the window whose state changed.
-    Same `doc`+`ops` shape as `added`.
-  - `removed` — array of ids that left the window. The wire does NOT
-    distinguish *deleted* / *filter-rejected* / *displaced* (pushed
-    past `limit`); all three look the same. From the consumer's view
-    the action is the same: drop the id from local state. If you need
-    to know which it was, query `…/query` with that id.
+    Same `doc`+`ops` shape as `added`. Under a `projection`, `ops` can
+    be absent — nothing the projection covers changed; `doc` stays
+    authoritative.
+  - `removed` — `[{id, reason}]` for records that left the window.
+    `reason` is `deleted` (the record is gone), `filtered-out` (an
+    update made it stop matching the filter) or `displaced` (pushed
+    past `limit`). Drop the id from the window in every case; only
+    `deleted` means the record no longer exists.
 
-  An op's `path` is always a JSON array of dotted segments — never
-  `null`. An empty array `[]` means the record root: on `$set`, the
-  payload is then an object whose top-level keys are themselves
-  dot-separated paths to assign at. `Wait` coalesces every event
-  accumulated during the previous write into a single frame, so a
-  slow client / network produces fewer, larger frames rather than
-  head-of-line stalls.
+  Each bucket is omitted when empty. An op's `path` is always a JSON
+  array of segments — never `null`. An empty array `[]` means the
+  record root: on `$set`, the payload is then an object whose top-level
+  keys are themselves dot-separated paths to assign at. Only `$set` and
+  `$unset` reach the wire (other operators arrive as their post-apply
+  value). Events accumulated while a frame was being written coalesce
+  into the next frame, so a slow client gets fewer, larger frames.
 - **`: keepalive`** — comment frame every 25s during silence; defeats
   idle middlebox timeouts.
 - **`closed`** — terminal frame. Reasons:
@@ -2132,14 +2204,14 @@ data: {"reason": "overflow"}
     without replacements, and the engine refuses to re-query on the
     hot path. Resubscribe.
 
-  Every reason means "the stream is over; if you want live state,
-  open a new POST." Recovery is identical for `overflow` and `drifted`
-  — the reason is split only so clients can log/backoff sensibly.
+  Every reason means "the stream is over; for live state, open a new
+  POST." Recovery is identical for `overflow` and `drifted` — the
+  reason is split so clients can log and back off sensibly.
 
 Subscriptions deliver events from registration onward only — there is
 no replay. The bundled `snapshot` frame is the only point-in-time read.
-There is no SSE `id:` — clients fence-and-replay on `versionId` if
-they want at-least-once semantics across reconnects.
+There is no SSE `id:`; `versionId` orders events for fence-and-replay
+across reconnects.
 
 ### Version history
 
@@ -2165,17 +2237,13 @@ a cursor rather than a timestamp range.
 Never sort or fence on it: it comes from whichever device wrote the
 change, and nothing forces those clocks to agree.
 
-The static `diff` segment is registered before `:version` so it isn't
-swallowed by the wildcard.
+`diff` is a static segment, never read as a `:version`.
 
 **Excluded datasets.** `chat_messages` opts out of history
-(`handler.Dataset.SkipHistory`): chat clients render live records
-only (edits show current text, deletes tombstone), so nothing reads a
-per-message timeline and the index rows would be dead weight at chat
-write volume. Writes to the dataset succeed as usual but are invisible
-to every history endpoint, filtered or not. The DAG retains
-everything regardless — re-enabling a dataset later only costs a
-backfill.
+(`handler.Dataset.SkipHistory`; runtime datasets via `skipHistory`):
+chat clients render live records only, so nothing reads a per-message
+timeline. Writes to such a dataset are invisible to every history
+endpoint, filtered or not; the DAG still retains them.
 
 #### List changes
 
@@ -2208,9 +2276,10 @@ same-author chain coalesces, a branch does not.
 }
 ```
 
-`truncated` is **reserved and always false today** — the SDK keeps
-full local history. It becomes meaningful only with the future
-snapshot-horizon contract.
+A change's `truncated` field is **reserved and always false** — the SDK
+keeps full local history. Errors across the history routes:
+`404 object.not_found`, `404 history.version_not_found`,
+`404 history.truncated`, `413 history.view_too_large`.
 
 #### View at a version
 
@@ -2223,17 +2292,18 @@ one. Empty datasets are omitted unless explicitly requested.
 history (they never entered the DAG) and are excluded — a history
 view is not a substitute for a `/query` read.
 
-The view is request-scoped: the server opens it, serializes, and
-closes it within the request. There are no long-lived view handles
-over HTTP in v1. A version whose materialization exceeds the SDK's
-bound returns `413 history.view_too_large` — narrow with `dataset`,
-or use the record fast path.
+`→ {version, datasets: [{dataset, records}]}`. The view is
+request-scoped — there are no long-lived view handles over HTTP. A
+version whose materialization exceeds the SDK's bound returns
+`413 history.view_too_large` — narrow with `dataset`, or use the record
+fast path.
 
 #### One record at a version
 
 `GET …/history/:version/datasets/:dataset/records/:recordId` is the
 record-scope fast path: one record, no full-view materialization, so
-it can't hit `view_too_large`. `exists: false` means the record wasn't
+it can't hit `view_too_large`. `→ {version, dataset, recordId, exists,
+deleted?, record?}`. `exists: false` means the record wasn't
 present at that cut; `deleted: true` means it was tombstoned and
 `record` carries the tombstone row.
 
@@ -2274,7 +2344,7 @@ diffs are leaf-level; an absent side is omitted (`added` has no
 | POST   | `/v1/spaces/:spaceId/types`                                   | `TypesAPI.Create`      |
 | GET    | `/v1/spaces/:spaceId/types/:typeId`                           | `TypesAPI.Get`         |
 | PATCH  | `/v1/spaces/:spaceId/types/:typeId`                           | `TypesAPI.Patch` — name / description / icon / weight / layout |
-| DELETE | `/v1/spaces/:spaceId/types/:typeId`                           | `TypesAPI.Delete`      |
+| DELETE | `/v1/spaces/:spaceId/types/:typeId`                           | `501 sdk.not_implemented` |
 | GET    | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.Properties`  |
 | POST   | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.AddProperty` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.RemoveProperty` |
@@ -2299,17 +2369,14 @@ enforces it: empty → `400 type.xkey_required`; collision with an
 existing type's `xKey` **or** id in the same space → `409
 type.xkey_conflict` (`details: {xKey, existingTypeId}`). Clients derive
 the xKey as a slug of the name (`"Pages"` → `pages`); it must survive
-display-name renames. Built-in types (the hidden
+display-name renames. Create → `201 {"typeId": "…"}`. Built-in types (the hidden
 `dataview` / `page` / `miniapp` / `bin`) are registered, not created here,
 and resolve by their literal id; a registered type's parts are static —
 `GET …/types/:typeId/parts` reads them compiled (keys as ids, a static
 dataset's collection is its name, `module: records` on a schema-only
 dataset), every write on them is `400 type.registered`, and a
-registered type may be `hidden` like a user one. There is no built-in
-`editor` or `chat` type: a chat is a user type whose part declares the
-`chat` module (§ Parts and modules), registered through a well-known
-bundle so every client lands on one type; a document is the built-in
-`page` or a user type with an editor part (§ Built-in hidden types).
+registered type may be `hidden` like a user one. Documents and chats
+are types with an editor or chat part (§ Documents and chats).
 
 `GET …/types` returns the synthetic built-ins first — `any`,
 `spaceIndex` and `type` (the meta-type: the shape of type objects
@@ -2347,14 +2414,16 @@ meta-type (`type.weight`, `type.layout` on the raw row, next to
 `type.xkey`). An object carries several types; the one with the
 highest `weight` is its **primary** type — the one whose `layout` a
 client renders (`any` and the built-ins carry no weight and never
-win; ties break on type id). `layout` is an opaque descriptor object
-in the x-format shape — `{"type": "<slug>", "config": {…}}`, e.g.
-`{"type": "page"}` or `{"type": "tabs"}` — the client's vocabulary,
-checked only for being an object. **`PATCH …/types/:typeId`** takes
-`{name?, description?, iconCid?, weight?, layout?, hidden?, meta?}`:
-absent keeps, an empty string clears a text field, `"layout": null`
-clears the layout; `204`, `400 type.registered` on a built-in, `404
-type.not_found`.
+win; ties break on type id). `layout` is a descriptor object in the
+x-format shape — `{"type": "<slug>", "config": {…}}`, e.g.
+`{"type": "page"}` or `{"type": "tabs"}` (v1 slugs `page`, `tabs`,
+`chat`, `profile`; an open set, the client's vocabulary). The server
+checks only the shape: `type` a non-empty slug, `config` an object
+(`400 request.invalid_field`). **`PATCH …/types/:typeId`** takes
+`{name?, description?, iconCid?, weight?, layout?, hidden?, meta?}`,
+at least one (`400 request.missing_field`): absent keeps, an empty
+string clears a text field, `"layout": null` clears the layout; `204`,
+`400 type.registered` on a built-in, `404 type.not_found`.
 
 `hidden` (bool, `type.hidden`) keeps the type out of `GET …/types` —
 the picker view — unless the request carries `?includeHidden=true`;
@@ -2371,18 +2440,19 @@ bytes; `400 request.invalid_field` otherwise), opaque to the server.
 Create takes it whole; PATCH patches it **per key** — a scalar sets
 the key, `null` unsets it, keys not named are untouched — so two
 devices writing different keys merge instead of clobbering each
-other. Consumers read the keys they own (an indexer flag, a client's
-tags); the server interprets none of them today.
+other. Consumers read the keys they own; the server interprets none
+of them.
 
 `GET …/types/:typeId` and `GET …/types/:typeId/properties` answer `404
 type.not_found` for an unknown typeId (deleted, never existed, or an id
-that resolves to a non-type object). The properties list is
-existence-checked server-side — the SDK's `Properties` returns an empty
-slice for unknown ids — so a `200 []` always means "the type exists and
-has no property definitions yet", never "no such type".
+that resolves to a non-type object), so a `200 []` properties list
+always means "the type exists and has no property definitions yet".
 
-`POST …/properties` — the definition. `kind` is **required** and
-pinned; nothing is defaulted from the descriptor. Body:
+`POST …/properties` — the definition → `201 {"propId": "…"}`. `kind`
+(`string` / `number` / `boolean` / `null` / `array` / `object` /
+`datetime`) is
+**required** and pinned — missing or unknown is `400 request.schema`;
+nothing is defaulted from the descriptor. Body:
 
 ```json
 { "name": "Stage", "xKey": "stage", "kind": "array",
@@ -2407,8 +2477,9 @@ pinned; nothing is defaulted from the descriptor. Body:
   descriptive metadata (display order, icon, …) lives under `xFormat`.
 - **`xFormat`** — the descriptor: everything descriptive beyond the
   kind, one object the SDK stores opaquely and **this server is the
-  semantics boundary for**. The full contract — the six interpreted keys
-  (`type`, `icon`, `pos`, `options`, `relation`, `config`), the v1 slug
+  semantics boundary for**. The full contract — the seven interpreted
+  keys (`type`, `icon`, `pos`, `options`, `relation`, `config`,
+  `links`), the v1 slug
   vocabulary and the kind each requires, the merge model, the client
   rules — is `docs/27-descriptors.md`. On create the interpreted keys are
   typed, the slug is checked against `kind`, `tags` / `validate` /
@@ -2422,16 +2493,16 @@ pinned; nothing is defaulted from the descriptor. Body:
   `"derived"` is reserved for built-ins → `400 request.schema`. Like
   `kind`, scope is pinned by the first write — changing it means defining
   a new property. `GET …/properties` returns each definition's `scope`
-  (pre-scope definitions read back as `"synced"`). Value writes need no
-  scope parameter: `/set/:typeId` auto-routes by the declared scope
-  (below).
+  (a definition without one reads back as `"synced"`). Value writes
+  need no scope parameter: `/set/:typeId` auto-routes by the declared
+  scope (§ Properties).
 
 ```json
 { "name": "pin", "kind": "boolean", "xKey": "pin", "scope": "local" }
 ```
 
 `GET …/properties` reads every definition back as
-`{id, name, description?, xKey, kind, scope, meta?, xFormat?}` —
+`{id, name?, description?, xKey?, kind, scope, meta?, xFormat?}` —
 `xFormat` verbatim as stored, absent for a property that never declared
 one (it renders structurally from `kind`).
 
@@ -2444,9 +2515,9 @@ segment, no fragment), a `choice` an array of option keys (one unless
 on per the vocabulary table → `400 property.format_violation`
 (`details: {propId, format, reason}`; `format` is the slug). Option
 membership is **not** enforced (dangling-tolerant), nor is object
-existence or type. An unknown slug gets no value checks. Known gap: raw
-`POST /v1/spaces/:spaceId/modify` against the `properties` dataset
-bypasses value validation.
+existence or type. An unknown slug gets no value checks. A raw
+`POST /v1/spaces/:spaceId/modify` against the `objects` dataset is not
+checked against the descriptor.
 
 **`PATCH …/properties/:propId`** — a generic per-path patch to a property
 definition (`TypesAPI.PatchProperty`): rename, the handle, the index
@@ -2476,8 +2547,8 @@ object**: `xFormat` itself, `xFormat.options`, `xFormat.options.<key>`,
 `meta` can be **`unset`** but not set (a set would replace the whole
 container and drop what other clients wrote) → `400
 request.invalid_field`. Interpreted leaves are typed —
-`type` / `icon` / `pos` / option `name` / `color` / `pos` / `meta.<k>`
-strings, `relation.targetTypes` an array of strings, `relation.filter`
+`type` / `icon` / `pos` / `links` / option `name` / `color` / `pos` /
+`meta.<k>` strings, `relation.targetTypes` an array of strings, `relation.filter`
 a string that parses as a query condition, `config.<k>` a scalar —
 `400 request.invalid_field` on a wrong shape, `400
 property.format_invalid` on an unparseable filter, a set of a reserved
@@ -2486,12 +2557,13 @@ a `xFormat.type` that does not fit the pinned kind (a slug only moves
 within one kind). Vendor subtrees take any non-object value at any
 depth, with the same key rules as create. Outside `xFormat` a set value
 is a JSON string — `null` is refused, a clear is an unset. Pinned paths
-(`kind`, `scope`, `items`, `properties`) → `400 property.immutable`;
-unknown paths (including the retired `format.*` and `xKind`) → `400
-request.invalid_field`; a `xKey` another property holds → `409
-property.xkey_conflict`. PATCH/DELETE on a registered built-in type →
-`400 type.registered`. Returns `204`; `404 sdk.not_found` for an
-unknown type/propId. At least one `set`/`unset` entry is required.
+(`kind`, `scope`, `items`, `properties`, `key`, `id`) → `400
+property.immutable`; unknown paths → `400 request.invalid_field`; a
+`xKey` another property holds → `409 property.xkey_conflict`.
+POST/PATCH/DELETE of a property on a registered built-in type → `400
+type.registered`.
+Returns `204`; `404 sdk.not_found` for an unknown type/propId. At least
+one `set`/`unset` entry is required (`400 request.missing_field`).
 
 Examples: rename `{ "set": { "name": "Priority" } }`; recolor
 `{ "set": { "xFormat.options.high.color": "blue" } }`; delete an option
@@ -2529,7 +2601,7 @@ value on every read and write:
   dataset.shared_conflict`); one shared dataset per module per type
   (a second is `409 dataset.key_conflict` on the canonical key); only
   modules with a canonical collection share (`records` never does —
-  `400 dataset.shared_conflict`). `chat` is shared-only in v1.
+  `400 dataset.shared_conflict`). `chat` is shared-only.
 
 A module may be **reserved** to the server's own installs: a part or
 dataset draft naming it — on a type, or in a bundle body — is `400
@@ -2613,23 +2685,20 @@ Every write on a registered built-in type is `400 type.registered`.
 Rendering rule for clients: take the object's primary type (highest
 `weight`), render its `layout` with the parts of **every** carried
 type, ordered by `pos`; a shared collection appears once however many
-types share it. Types remain plain user types — a client that wants
-every peer to agree on "the page type" registers it as a bundle
-(§ Bundles) rather than minting one per device.
+types share it.
 
 #### Runtime dataset schemas
 
 A declarative dataset schema, defined at runtime under a part of a
 **user type**, enforced generically by the SDK apply path on every
-peer as the definition syncs — a schema alone expresses what
-previously took a compiled-in handler: required fields, write-once vs
+peer as the definition syncs: required fields, write-once vs
 author-mutable fields, author-only delete, derived creator/time
 stamps, user-supplied record ids, search extraction. This is the
 `records` module — the default when a dataset names none. Registered
 built-in types (`dataview`, `page`, …) refuse (`400 type.registered`) —
 their datasets are statically declared. SDK contract (vocabulary,
 convergence rules, storage model, runtime registration): the SDK's
-`docs/17-user-datasets.md`.
+[`docs/17-user-datasets.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/17-user-datasets.md).
 
 `POST …/types/:typeId/parts/:partId/datasets` → `201 {datasetDefId,
 collection}` (or inline in the part's `datasets` on `POST …/parts`):
@@ -2662,13 +2731,13 @@ collection}` (or inline in the part's `datasets` on `POST …/parts`):
   doubles as the upsert idempotency key).
 - `deleteBy` — `anyone` (default) or `author` (requires a
   `stamp: creator` field; deletes by anyone else are dropped at apply).
-- per-field `mutableBy` — default write-once (writable only in the
-  creating change); `author` (requires a `stamp: creator` field) or
-  `any` opt into post-create edits. Every allowed edit bumps the
+- per-field `mutableBy` — `never` (default, write-once: writable only
+  in the creating change); `author` (requires a `stamp: creator` field)
+  or `any` opt into post-create edits. Every allowed edit bumps the
   `modifyTime` stamp if declared.
 - per-field `stamp` — `creator` / `createTime` / `modifyTime`: derived
   at apply time, client writes rejected; forces derived scope; `kind`
-  may be omitted (creator ⇒ string, times ⇒ number).
+  may be omitted (creator ⇒ string, times ⇒ datetime).
 - `required` — must be present on create; declarable only at
   AddDataset (an additive required field would reject the dataset's own
   history on fresh devices) and incompatible with `stamp`.
@@ -2687,9 +2756,10 @@ collection}` (or inline in the part's `datasets` on `POST …/parts`):
   dataset's entries land under — absent = `basic`. Scopes are the open
   slug set `/search` filters on; `props` inherits that scope's
   FTS-only rule (never embedded).
-- `dynamic` / `skipHistory` / per-field `scope` and `shape` — as in
-  compiled-in declarations. (`skipHistory` declared after the history
-  index opened applies from the next index open — SDK limitation.)
+- `dynamic` (free-form keys next to the declared fields) /
+  `skipHistory` (out of version history; applies from the next time
+  the object's history index opens) / per-field `scope` (`synced`
+  default or `local`) and `shape` (`{kind, items?, properties?}`).
 - per-field `description` and **`xFormat`** — the descriptive slice: the
   same descriptor a property carries (`docs/27-descriptors.md`),
   validated the same way against the field's kind (the wire `kind`, the
@@ -2750,15 +2820,14 @@ fieldId) — `:defId` rides the URI for hierarchy only.
 `GET …/types/:typeId/datasets` returns the compiled view:
 `{datasets: [{id, key, collection, module, shared?, partId,
 displayName?, description?, dynamic?, idRule, idPattern?, idMaxLen?,
-deleteBy, skipHistory?, search?, fields: [{id, key, name?, kind,
-scope, required?, mutableBy, stamp?}], invalid?, invalidReason?}]}`.
+deleteBy, skipHistory?, search?, fields: [<field>…], invalid?,
+invalidReason?}]}` with each field read back whole as above.
 `invalid` marks a definition whose folded declaration fails validation
 — it never registers or accepts data but stays listed so it can be
-repaired (add the missing field) or removed. Field read-back drops
-`description` and nested `shape` (leaf kind only). Runtime datasets
-also appear in the space's discovery document (§ Dataset schema
-discovery) under their collection name with `owners`, `module` and the
-behavioral `x-*` keywords.
+repaired (add the missing field) or removed. Runtime datasets also
+appear in the space's discovery document (§ Dataset schema discovery)
+under their collection name with `owners`, `module` and the behavioral
+`x-*` keywords.
 
 `DELETE …/datasets/:defId` tombstones the definition (unknown defId →
 `404 sdk.not_found`, existence-preflighted). Existing record data is
@@ -2790,12 +2859,11 @@ Per record, keyed by the caller-supplied id (the idempotency key):
 absent → created (one multi-field set); present → only declared-mutable
 fields are diffed against stored values, each changed field lands as a
 single-path set, identical records are skipped. Re-running an identical
-batch is a no-op — **the first genuinely idempotent write** on the
-surface. One CRDT change per page (`pageSize` default 500). Not
+batch is a no-op. One CRDT change per page (`pageSize` default 500). Not
 transactional against concurrent writers; the intended deployment is a
 single ingest writer per dataset (concurrent creates of the same id by
 different members are outside the convergence contract — the SDK's
-`docs/17-user-datasets.md` § The IdRule: user contract).
+[`docs/17-user-datasets.md` § The IdRule: user contract](https://github.com/anyproto/any-sync-sdk/blob/main/docs/17-user-datasets.md#the-idrule-user-contract)).
 
 Response (200 even with rejections — the `/modify` partial-success
 stance):
@@ -2814,7 +2882,8 @@ author's record), `upsert.record_deleted` (stored tombstone — ids never
 reuse), `upsert.rejected` (creation screening: missing required field,
 id pattern/length violation, undeclared field on a non-dynamic dataset,
 write to a stamped field — the specific cause in `reason`). Whole-call
-errors: `400 upsert.requires_user_ids` (dataset not declared
+errors: `400 request.missing_field` (no `objectId`, `dataset` or
+`records`), `400 upsert.requires_user_ids` (dataset not declared
 `idRule: user`), `400 dataset.unknown` (no such records collection in
 the space — a module collection such as `chat_messages` is never
 upsertable), `400 dataset.not_declared` (the object carries no type
@@ -2824,23 +2893,18 @@ declaring it).
 
 There is no built-in `editor` or `chat` type. "This object is a
 document" is a type whose part shares the editor module — the built-in
-`page` (§ Built-in hidden types) or a user type; "this object is a
-chat" is a user type whose part shares the chat module (§ Parts and
-modules). What used to be the reason for a built-in — every client
-minting its own type and racing into parallel definitions — is solved
-by registering the type through a bundle (§ Bundles), which converges
-on one type per space: a client's document type is a bundle-declared
-type with an editor part. A space's chat is not a client's to declare:
-`chat` is reserved, and the catalog's `general-chat` usecase installs
-the one chat (§ Chat). Listing a
-space's documents is a filter on
-the type ids that declare the editor (`owners` of `editor_blocks` in
-§ Dataset schema discovery — `page` is always among them):
-`{"filter": {"any.types": {"$in": [<owners>]}}}` on
-`…/objects/query[/subscribe]`. Being user types, the declared ones
-carry properties, a `weight` and a `layout` like any other; `page`
-carries none — a client that needs them declares its own document
-type.
+`page` (§ Built-in hidden types) or a user type; a client's own
+document type is registered as a bundle-declared type with an editor
+part (§ Bundles), so every device converges on one type per space
+instead of minting parallel ones. "This object is a chat" is the
+catalog's general chat: `chat` is reserved, and the `general-chat`
+usecase installs the one chat (§ Chat). Listing a space's documents is
+a filter on the type ids that declare the editor (`owners` of
+`editor_blocks` in § Dataset schema discovery — `page` is always among
+them): `{"filter": {"any.types": {"$in": [<owners>]}}}` on
+`…/objects/query[/subscribe]`. Declared user types carry properties, a
+`weight` and a `layout` like any other; `page` carries none — a client
+that needs them declares its own document type.
 
 #### Built-in `dataview` type
 
@@ -2903,9 +2967,9 @@ next id in a deterministic sequence (`default`, `default-2`, …). See
 id, no upsert) and never synced. Column-drag autosave belongs there so
 it does not push a change to every member.
 
-Only the **shared** tier ships; account- and device-private views need
-scoped datasets (SYN-174). Full model, the client grouping recipe, and
-the tier roadmap: `24-data-views.md`.
+Views are **shared** only; account- and device-private views are not
+supported. Full model and the client grouping recipe:
+`24-data-views.md`.
 
 #### Built-in hidden types: `page`, `miniapp`, `bin`
 
@@ -2945,8 +3009,8 @@ query keeps `__type__` rows, since a root that is an app and a type
 - `pos` (string) — sidebar position, a lexid the client allocates
   (the wiki `pos` allocator); the server orders nothing.
 - `hidden` (boolean, `checkbox`) — `true` takes the entry out of the
-  sidebar without uninstalling anything. There is no uninstall of a
-  catalog install yet; hiding is the supported "remove".
+  sidebar without uninstalling anything; it is the supported "remove"
+  for a catalog install.
 
 Pin = `POST …/properties/:objectId/attach/miniapp`, unpin =
 `…/detach/miniapp`; values through the generic
@@ -2954,9 +3018,9 @@ Pin = `POST …/properties/:objectId/attach/miniapp`, unpin =
 the object must carry the type. Catalog miniapp roots (§ Catalog) —
 the wiki, collections, journal, meetings, contacts, crm and the general
 chat — carry it from their first change with `bundle` set to the bundle
-id plus any other `miniapp` value the catalog declares; a value the catalog gains
-later is healed onto existing roots at their next setup, the type
-attached first when the root predates it. A client never detaches
+id plus any other `miniapp` value the catalog declares; a value missing
+on an existing root is healed at its next setup, attaching the type
+first when the root does not carry it. A client never detaches
 `miniapp` from a catalog root: the install would stay and become
 unreachable.
 
@@ -2988,11 +3052,14 @@ in the bin".
 | POST   | `/v1/spaces/:spaceId/properties/:objectId/attach/:typeId`     | `PropertiesAPI.AttachType`       |
 | POST   | `/v1/spaces/:spaceId/properties/:objectId/detach/:typeId`     | `PropertiesAPI.DetachType`       |
 
-Scoped properties (v0.0.11) replaced the former per-scope set endpoints
-(`/base`, `/account`, `/device` → `SetBase`/`SetAccount`/`SetDevice`) with
-a single scope-aware `/set/:typeId` → `PropertiesAPI.Set`: every propId in
-the patch must resolve to the SAME declared scope (the SDK rejects
-mixed-scope or unknown-key patches; scope is inferred from the props).
+`GET …/properties/:objectId` → `{record}`, the object's raw property
+row. `POST …/set/:typeId` takes `{"patch": {"<propId>": value}}` (a
+`null` value unsets; an empty patch is `400 request.missing_field`) and
+returns the shared write result. The route is
+scope-aware: every propId in the patch must resolve to the SAME
+declared scope (synced, account or local — inferred from the
+definitions); a mixed-scope or unknown-key patch is rejected. Values
+pass the descriptor gate (`400 property.format_violation`, § Types).
 
 Runtime type binding: `attach` adds a type to the object's `any.types`,
 admitting writes to that type's membership-gated datasets; `detach`
@@ -3009,7 +3076,9 @@ it is the repair path for a row that already carries a bogus id.
 Detaching is **not** a delete: values in that namespace and records in
 the type's datasets stay as orphan data, read-tolerant by design, and
 re-attaching brings them back into view. See `08-clients.md`
-§ "Preflight-validate writes against the bound types".
+§ 2 "Preflight-validate writes against the bound types". Attaching a
+type that declares a reserved module is `400 type.reserved_carrier`
+(§ Parts and modules).
 
 The built-in `bin` is the one type these routes treat specially:
 `attach/bin` also stamps `bin.movedAt` / `bin.movedBy` and `detach/bin`
@@ -3108,14 +3177,14 @@ POST /v1/spaces/:spaceId/query/subscribe
 ```
 
 Subscribe descending (`-_ver.id`) with a `limit`: the window holds the
-*newest* `limit` messages, so new arrivals enter it (oldest drops out as
-`removed`). Ascending would pin the oldest `limit` and new messages would
-never appear. Always set a `limit` — an unbounded subscribe risks
-overflowing the mailbox.
+*newest* `limit` messages, so new arrivals enter it. Ascending would pin
+the oldest `limit` and new messages would never appear. Always set a
+`limit` — an unbounded subscribe risks overflowing the mailbox.
 
-New incoming messages arrive in `added`; edits in `updated`; deletes
-and reactions toggling off in `removed`. `added.doc` carries the full
-message body — no follow-up GET needed. See `04-events.md`.
+New incoming messages arrive in `added`; edits and reaction toggles in
+`updated`; deletes in `removed` (`reason: "deleted"`), next to the
+oldest message sliding out as `displaced`. `added.doc` carries the full
+message body — no follow-up read needed. See `04-events.md`.
 
 #### Message wire shape (read path)
 
@@ -3133,7 +3202,8 @@ body is always read back through the query path.
   "modifiedAt":       {"$date": "2026-05-01T21:00:00.000Z"},
   "replyToMessageId": "<msgId>",
   "agent": {
-    "name": "bao", "debugLink": "any://<spaceId>/<debugObjId>#turn_3", "done": true
+    "name": "bao", "debugLink": "any://<spaceId>/<debugObjId>#turn_3", "done": true,
+    "outcome": "interrupted"
   },
   "text":             "**hi** _there_",
   "mentions":         ["<identity1>", "<identity2>"],
@@ -3162,8 +3232,7 @@ the second it was sent carries equal stamps, so an "edited" marker
 comes from `_ver`, not the clock: `_ver.text != _ver.id` means the
 text changed after creation (`_ver.id` is the creation marker, set
 once; `_ver.<path>` advances with every write to that path). `text`
-is markdown; rendering is the client's problem (`internal/markdown`
-exists if anyone wants to round-trip).
+is markdown; rendering is the client's.
 
 `mentions` is server-DERIVED (`x-scope` derived) — never accepted from
 a client: the send route has no such field and a direct `$set` via
@@ -3198,6 +3267,11 @@ by the signer directly). It is NOT cryptographically verified —
   produced this message is still going; clients cycle a typing
   indicator while the *last* message in a chat is an agent message
   with `done: false`. Every run must end with a `done: true` message.
+- `outcome` — optional, non-empty when present, ≤ 64 bytes, opaque to
+  the server. How the run behind a `done: true` message ended when it
+  did not end normally — `interrupted` (the user stopped it), `error`
+  (it died); absent on a normal reply. Clients key a stop mark or a
+  warning on it instead of parsing the text.
 
 No unknown sub-fields. Immutable post-create as a group. Typical use:
 an agent subscribed to `chat_messages` ignores its own messages
@@ -3205,11 +3279,12 @@ an agent subscribed to `chat_messages` ignores its own messages
 Omitted from responses when unset.
 
 `attachments` is an optional, create-only map keyed by short opaque
-ids (1–64 chars, `[A-Za-z0-9_-]+`); each entry is `{type, link}`.
-`type` is an open enum — known values are `"link"` and `"image"`, but
-clients should fall back to rendering `link` as a plain anchor for
-unknown types rather than dropping the entry. `link` is ≤ 2 KiB. Up
-to 32 attachments per message. Immutable post-create — the handler
+ids (1–64 chars, `[A-Za-z0-9_-]+`); each entry is `{type, link}`, both
+required. `type` (≤ 64 bytes) is an open enum — known values are
+`"link"` and `"image"`; clients fall back to rendering `link` as a
+plain anchor for unknown types rather than dropping the entry. `link`
+is ≤ 2 KiB. Up to 32 attachments per message; violations are
+`400 chat.attachments_invalid`. Immutable post-create — the handler
 rejects $set on the attachments path.
 
 `context` is the sender's view at send time — the page on screen when
@@ -3223,7 +3298,7 @@ message's `createdAt` is when the user was there. Ids ≤ 256 bytes,
 `chat.context_invalid` (HTTP) / `field_not_allowed` (handler).
 
 `control` is a client's signal to the agent serving the chat, carried
-on a message of its own — the one case where `text` may be empty:
+on a message of its own (`text` may be empty):
 `kind` (required, an open string ≤ 64 bytes the agent interprets —
 `break` asks the run in flight to stop), `hard` (optional boolean:
 stop now, vs. wrap up at the next turn). Optional, create-only,
@@ -3232,17 +3307,12 @@ marker in the thread, never as a bubble, and the agent never reads it
 as content. An empty `kind` or an unknown sub-key rejects 400
 `chat.control_invalid` (HTTP) / `field_not_allowed` (handler).
 
-`reactions` ships on the wire in the same shape it has in storage:
-emoji → `{accountId: <changeTimestamp>}`, where the leaf timestamp is
-when that identity added the emoji. This is identical to what `/query`
-and `/query/subscribe` return for the record, so a client parses
-`reactions` exactly one way regardless of which endpoint produced it
-(clients sort by the leaf timestamp themselves if they want arrival
-order). Authorization on writes is a single path-segment compare
-against `ctx.Change.Creator` in the handler: only the change's signer
-can write into `reactions.<emoji>.<their-identity>`. The leaf timestamp
-is server-derived (`sink.Derive` overrides whatever the client sent).
-See `internal/chat/handler.go`.
+`reactions` ships in the shape it has in storage: emoji →
+`{accountId: {"$date": …}}`, the leaf being the instant that identity
+added the emoji (server-derived from the change; whatever a client
+sends is overridden). `/query` and `/query/subscribe` return the same
+shape; clients sort by the leaf instant for arrival order. Only the
+change's signer can write into `reactions.<emoji>.<their-identity>`.
 
 #### Send
 
@@ -3254,25 +3324,23 @@ See `internal/chat/handler.go`.
   "context": { "spaceId": "<spaceId>", "objectId": "<objectId>", "view": "object" } }
 ```
 
-`text` is required unless `attachments` is non-empty — a photo sent
-with no caption is an ordinary message, so an attachment-only send is
-valid and `text` may be `""` or omitted. A message with neither text
-nor attachments carries nothing and is rejected 400
-`chat.text_required`. `text` is ≤ 32 KiB. `replyToMessageId` is optional, ≤ 256
-bytes, and a soft reference — the server doesn't validate that the
-target exists (when it does exist, its creator is folded into the
-derived `mentions` array; when it doesn't, the fold-in is silently
-skipped). `agent` is optional (see § Message wire shape for the
-sub-field rules; 400 `chat.agent_invalid` on violations); immutable
-post-create. Returns 201 with the shared write
-result `{versionId, changeId, recordIds}` — `recordIds[0]` is the
-server-derived message id. Read the message back via the query path
-above.
+Body: `{text, replyToMessageId?, agent?, attachments?, context?,
+control?}` (closed set). `text` is required unless `attachments` or
+`control` is present — a photo sent with no caption is an ordinary
+message, so `text` may be `""` or omitted then. A message with none of
+the three is `400 chat.text_required`. `text` is ≤ 32 KiB
+(`400 chat.text_too_long`). `replyToMessageId` is optional, ≤ 256 bytes
+(`400 chat.reply_id_invalid`), and a soft reference — the server
+doesn't validate that the target exists (when it does, its creator is
+folded into the derived `mentions`). `agent` is optional (sub-field
+rules in § Message wire shape; `400 chat.agent_invalid`). Returns 201
+with the shared write result — `recordIds[0]` is the server-derived
+message id. Read the message back via the query path above.
 
 #### Read
 
-The bespoke list endpoint is gone — reads go through the per-object
-query primitive with `dataset=chat_messages`:
+Reads go through the per-object query primitive with
+`dataset=chat_messages`:
 
 ```
 POST /v1/spaces/:spaceId/query
@@ -3292,21 +3360,15 @@ Page backward into history as a client-side two-step: take the oldest
 `_ver.id` from the page you have, then chain a second query with the same
 sort and `filter: {"_ver.id": {"$lt": <id>}}` (older messages). Always
 set a `limit` so a long history can't produce a huge response; reverse
-each page client-side for oldest-at-top display. The bespoke endpoint's
-`before` / `after` / `limit` flags moved off the API surface; the recipe
-replaces them. See `08-clients.md` for the full read/write recommendations.
-
-Reactions on queried records ship as
-`reactions.<emoji>.<accountId> = {"$date": "<RFC 3339>"}` (the instant
-the identity reacted, server-derived) — the same shape the bespoke send
-/ edit / react responses return, so there is nothing to transpose
-between the read and write paths.
+each page client-side for oldest-at-top display. See `08-clients.md`
+§ 4 for the full read/write recommendations.
 
 #### Edit / delete (own only)
 
 `PATCH .../chat/messages/:msgId` body `{ "text": "..." }` replaces the
-text and bumps `modifiedAt`. `DELETE .../chat/messages/:msgId` tombstones
-the record. Both return `200` with the shared write result
+text (required, non-empty, ≤ 32 KiB) and bumps `modifiedAt`.
+`DELETE .../chat/messages/:msgId` tombstones the record. Both return
+`200` with the shared write result
 `{versionId, changeId, recordIds}` (`recordIds=[msgId]`), `403
 chat.not_author` for non-authors, and `404 chat.not_found` for unknown
 ids. The handler enforces the same rules for peer-originated changes.
@@ -3314,7 +3376,8 @@ ids. The handler enforces the same rules for peer-originated changes.
 #### React (toggle)
 
 `POST .../chat/messages/:msgId/reactions/:emoji` (no body) toggles the
-caller's reaction. The CRDT op is `$set` (add) or `$unset` (remove)
+caller's reaction; `:emoji` is non-empty and ≤ 64 bytes
+(`400 chat.emoji_invalid`). The CRDT op is `$set` (add) or `$unset` (remove)
 on the leaf `reactions.<emoji>.<callerId>`; the value on add is the
 triggering change's instant, server-derived. Because the leaf is
 unique per (emoji, identity), two clients toggling at the same time
@@ -3322,40 +3385,14 @@ can't corrupt each other. Returns `200` with the shared write result
 `{versionId, changeId, recordIds}` (`recordIds=[msgId]`); read the
 updated `reactions` back via the query path.
 
-## Enrichment (moved userspace)
-
-The former built-in `enriched_data` / `enrich_proposal` types, their
-bespoke endpoints (`POST …/enriched-data`, `POST …/enrich/apply`) and
-the compiled-in enrichment chunker are **gone** — nothing
-enrichment-specific belongs in core (the same principle that kept the
-email type out). Enrichment is now a userspace convention owned by the
-agent: user types discovered by xKey (`enrichments` hub +
-`enrich_proposal`), runtime dataset schemas (§ Runtime dataset
-schemas) with an `x-search` mapping for indexing, records written
-through the generic `/modify` / `/query`, and a deterministic apply
-implemented client-side. The convention's contract lives with its
-producer (anybao `enrich@v1`); provenance `source` links follow
-[docs/19-links.md](19-links.md) § Fragments.
-## Agent data (moved userspace)
-
-The agent's operational data — turns, chunks, memory items, triggers,
-config, secrets — is a userspace convention owned by the harness
-(anybao ADR-017), on the same machinery as enrichment: user types,
-runtime dataset schemas with `search.scope` mappings (`agent` /
-`history`), records through the generic `/modify` / `/upsert` /
-`/query`, homed on children of the `bao/v1` bundle (§ Bundles) and of
-each chat's bundle. The server carries nothing agent-specific: no
-agent types, endpoints, chunkers, or `SpaceInfo` fields.
-
-
 ### Files (files v2)
 
 Full model — storage tiers, durability states, cache/offload, variants
 — in [`docs/17-files.md`](17-files.md). Files always bind to an
 existing object; the SDK stores one `payloads` row per file on a
 derived per-object child. The file **bytes ride plain HTTP** — upload
-is a raw POST body, download a raw GET response — the two deliberate
-non-JSON bodies in the API. Everything else is the usual JSON.
+is a raw POST body, download a raw GET response. Everything else is the
+usual JSON.
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -3376,6 +3413,14 @@ non-JSON bodies in the API. Everything else is the usual JSON.
 | POST   | `/v1/files/cache/free`                                        | LRU-reclaim `{bytes}` → `{freed}` |
 | POST   | `/v1/files/cache/sweep`                                       | one manual safety sweep → 204 |
 
+Shapes: `FileInfo` is `{fileId, objectId, rootCid?, size, inline,
+durable, cached, name?, mime?, variant?, variantOf?}` (list:
+`{files: [FileInfo]}`); status is `{fileId, objectId, state, cached,
+attempts?, lastErr?}` with `state` one of `durable` / `inflight` /
+`limited` (also the payload of the `status` frames on
+`…/files/subscribe`); stats is `{total, durable, inflight, limited}`;
+`GET /v1/files/cache` is `{size}`.
+
 Errors use the `file.*` namespace (`docs/06-errors.md`): unknown
 fileId/objectId → `404 file.not_found`, offload of the only copy →
 `409 file.not_durable`, content not fetchable yet →
@@ -3388,10 +3433,7 @@ The **raw request body is the file** — no JSON envelope, no multipart.
 Metadata rides outside the body:
 
 - `Content-Type` header + `?name=` → stored mime, resolved by the
-  **precedence below**. Attach is the only moment a type can be
-  attached, and the `curl -T` / typeless-`Blob` default would otherwise
-  pin the file to octet-stream for every downstream reader (browser
-  tags, model input),
+  **precedence below** and fixed at attach,
 - `?name=` → stored user-facing name. A name without an extension
   gains the one the resolved mime implies, **for binary content only**
   (`?name=pasted` + PNG bytes → `pasted.png`), so a download lands on
@@ -3402,7 +3444,8 @@ Metadata rides outside the body:
   still gains `.png` and `v2.0` gains `.pdf`),
 - `?variant=` + `?variantOf=` → attach the content as an alternate
   representation (e.g. a thumbnail the client rendered) of an existing
-  file **on the same object**. Both or neither.
+  file **on the same object**. Both or neither
+  (`400 file.variant_invalid`).
 
 **Mime precedence** — three signals, strongest first:
 
@@ -3454,12 +3497,12 @@ This is the one route exempt from the global 1 MB body limit — the
 body streams straight into the SDK. Files < 4096 bytes take the
 **inline tier** (`inline: true`, no `rootCid`, durable by
 construction, riding the CRDT row itself); larger files are encrypted
-and content-addressed locally, then backed up to the network's fileV2
-broker. The backup is **attempted synchronously inside the attach
-request** (best-effort): with a reachable broker the 201 usually
-already says `durable: true`, and attach latency for large files is
-dominated by the object-store upload (~upload time for a 10 MB file).
-When the broker is unreachable or refuses, attach still succeeds —
+and content-addressed locally (`<account-dir>/files/`), then backed up
+to the network's fileV2 broker. The backup is **attempted synchronously
+inside the attach request** (best-effort): with a reachable broker the
+201 usually already says `durable: true`, and attach latency for large
+files is dominated by the upload. When the broker is unreachable or
+refuses, attach still succeeds —
 `durable: false`, and a persistent background queue retries; watch
 `/files/subscribe` or poll `/files/:fileId/status` for the
 `inflight → durable` flip.
@@ -3478,13 +3521,15 @@ reader is seekable). Browser tags work directly:
 <img src="http://127.0.0.1:7001/v1/spaces/SP/files/FILE/content">
 ```
 
-Content not yet local streams in from the network on demand; every
-fetched block persists, so repeated reads accrete toward a complete
-local copy. A file whose bytes are not local and not yet fetchable —
-not durable yet, or the network advertises no public read base —
-returns `409 file.not_available`: a **retry-later resource state**,
-not a fault. The signal that it became fetchable is the row's
-`networkSign` appearing (a row-update event on
+Content not yet local streams in on demand — from a LAN peer holding
+the file when local-network p2p is enabled, otherwise (or when the peer
+fails) from the network's public read base; every fetched block
+persists, so repeated reads accrete toward a complete local copy. A
+file whose bytes are not local and not fetchable from either source —
+no peer holds it, and it is not durable yet or the network advertises
+no public read base — returns `409 file.not_available`: a
+**retry-later resource state**, not a fault. The signal that it became
+fetchable is the row's `networkSign` appearing (a row-update event on
 `…/files/query/subscribe`, or `durable: true` on a re-GET).
 
 #### Payload-row query / subscribe
@@ -3493,8 +3538,9 @@ not a fault. The signal that it became fetchable is the row's
 query/subscribe primitive over ONE object's payload rows — needed
 because the `payloads` dataset lives on a derived child object whose
 id clients don't know, so the generic `/query` can't reach it. Body
-and SSE frames are identical to the generic per-object query
-(`filter / sort / limit / offset / includeTotal` + subscribe opts).
+and SSE frames are identical to the generic per-object query minus
+`objectId` / `dataset` (`filter / sort / limit / offset / includeTotal /
+projection` + subscribe opts).
 Rows expose the **cleartext fields only** (`id`, `rootCid`, `size`,
 `networkSign`, `objectId`) — the sealed member meta (name, mime, key)
 never appears here; use `GET /files` for typed access. Returns
@@ -3522,20 +3568,21 @@ configured (`docs/05-config.md`).
 | GET    | `/v1/spaces/:spaceId/members/subscribe`              | `MembersAPI.Subscribe` (SSE)       |
 | GET    | `/v1/spaces/:spaceId/members/:identity`              | `MembersAPI.Get`                   |
 
-Static path segments (`/me`, `/requests`, `/subscribe`) are registered
-before the `:identity` wildcard so they don't get swallowed. The `Member` wire
-shape mirrors `space.Member` 1:1; both `permission` and `status` are
-strings (see "Permission / status strings" below). `requestRecordId`
-is non-empty only on a pending-request entry — pass it to
-`POST /v1/spaces/:id/acl/accept`.
+A `Member` is `{identity, permission, status, name?, description?,
+iconCid?, requestRecordId?}`; `permission` and `status` are strings
+(§ Permission / status strings). `requestRecordId` is non-empty only on
+a pending-request entry — pass it to `POST /v1/spaces/:id/acl/accept`.
+`GET …/members/requests` → `{requests: [{recordId, identity, name?,
+description?, iconCid?}]}`. An unknown identity on
+`GET …/members/:identity` is `404 members.not_found`.
 
 This is the **authoritative per-space roster with rights**: each row
 carries the member's `permission` (the role) alongside the profile
 (`name` / `iconCid`, resolved from the same identityRepo cache that feeds
 the [identities directory](#identities-account-global-directory), with
 the join-time metadata as the always-present baseline). For a roster with
-roles, this one call is all a client needs — don't reach for the
-directory, which is account-global and carries no rights.
+roles, this one call is all a client needs — the directory is
+account-global and carries no rights.
 
 ```json
 // GET /v1/spaces/:id/members
@@ -3549,6 +3596,12 @@ directory, which is account-global and carries no rights.
   ]
 }
 ```
+
+`GET …/members/subscribe` streams membership changes as `event: member`
+frames carrying `{kind, member, previous}` — `kind` is `added` /
+`changed` / `removed`, `previous` the pre-change row (`null` on
+`added`). Same `ready` → `lagged` → `closed` envelope as the
+sync-status streams (`04-events.md` § Members stream).
 
 ### Invites
 
@@ -3572,43 +3625,45 @@ Mint:
 ```
 
 `inviteToken` is a base58-packed `(spaceId, invitePrivKey)` produced
-by `space.EncodeInvite`. A listed invite's `permission` is `"none"`
-for the request-to-join invites v1 mints — the role is chosen by the
-owner at `/acl/accept`, not carried by the invite; only an
-anyone-can-join invite (deferred) would carry one. Owners share the
-token out-of-band; joiners pass it back verbatim:
+by `space.EncodeInvite`. Minted invites are request-to-join: a listed
+invite's `permission` is `"none"` — the role is chosen by the owner at
+`/acl/accept`, not carried by the invite. A mint the ACL refuses as a
+duplicate is `409 invite.duplicate`. Owners share the token
+out-of-band; joiners pass it back verbatim:
 
 ```json
 // POST /v1/spaces/join
 { "inviteToken":"5ZHbdx…",
   "metadata":{ "name":"Bob","iconCid":"…" } }
-// → 202 {SpaceInfo}      (RequestToJoin: status="joining" until owner accepts)
-// → 201 {SpaceInfo}      (AnyoneCanJoin: deferred — never returned in v1)
+// → 202 {SpaceInfo}   request-to-join: status "joining" until the owner accepts
+// → 201 {SpaceInfo}   guest token: the space loaded read-only
+// → 202 {SpaceInfo}   guest token: the load continues in the background
 ```
 
 A malformed or unrecognized `inviteToken` returns `400 invite.invalid`. A
 token for a space this account deleted returns `409 space.deleted` before
-anything reaches the network — the tombstone is sticky. A join that merely
-ended (the owner declined, or the joiner withdrew it with `cancel-join`) is
-not a tombstone: the same call re-requests and the row returns to `joining`.
+anything reaches the network — the tombstone is sticky. A guest token for
+a space this account already tracks is `409 space.already_member`. A join
+that merely ended (the owner declined, or the joiner withdrew it with
+`cancel-join`) is not a tombstone: the same call re-requests and the row
+returns to `joining`.
 
-In the v1 RequestToJoin flow `Service.Join` returns 202: the SDK has
-posted the join request, written a `joining` index entry, and the
-joiner now polls `GET /v1/spaces/:id/members/me` for the status flip
-to `active` after the owner accepts.
+For a request-to-join the SDK posts the join request and writes a
+`joining` row; the joiner watches the row (`GET /v1/spaces/:id`, or the
+space-list subscribe) for the flip to `active` after the owner accepts.
 
 The pending join is **account-wide**: the `joining` row syncs to every
 device of the joiner's account, each of them reads the space as
 `joining` (`GET /v1/spaces?status=joining` — the default list is
 active-only; `GET /v1/spaces/:id` serves the row) and none
-materializes it (`space.not_accepted` on anything that would load it).
-The device that observes the owner's verdict settles the row for all of
-them — acceptance flips it to `active` once that device has loaded the
-space (the others load lazily), a decline or a `cancel-join` moves it
-to `deleted`. Every device of the account may `cancel-join`, not only
-the one that requested. `DELETE /v1/spaces/:id` on a `joining` row is
-a withdrawal too, never a tombstone: the row reads `deleted` and stays
-re-joinable.
+materializes it (`409 space.not_accepted` on every route that would
+load it, members included). The device that observes the owner's
+verdict settles the row for all of them — acceptance flips it to
+`active` once that device has loaded the space (the others load
+lazily), a decline or a `cancel-join` moves it to `deleted`. Every
+device of the account may `cancel-join`, not only the one that
+requested. `DELETE /v1/spaces/:id` on a `joining` row is a withdrawal
+too, never a tombstone: the row reads `deleted` and stays re-joinable.
 
 Listing returns one entry per active invite record — pass `recordId`
 to the DELETE path to revoke a single invite, or DELETE the parent
@@ -3626,23 +3681,24 @@ collection to revoke all in one batch.
 from the minting account's synced custody (the ACL record itself
 carries only the invite public key). It is present only on the devices
 of the account that minted the invite — every other member, whatever
-their role, gets the row without it. Two more absence cases: invites
-minted before custody shipped (regenerate once to make the token
-durable across devices), and custody gone stale because the invite was
-replaced or revoked on another device. Clients must treat the field as
-optional and fall back to "regenerate to get a shareable code".
+their role, gets the row without it — and absent too when custody is
+missing or stale (the invite was minted without it, or replaced or
+revoked on another device). Clients treat the field as optional and
+fall back to "regenerate to get a shareable code".
 
 #### Guest key (public read-only access)
 
 `POST /v1/spaces/:spaceId/guest-key` mints a shared read-only guest
 identity (one per space, idempotent — repeated calls return the same
-token; owner only) and returns the same `{spaceId, inviteToken}` shape.
-Anyone holding the token joins via the regular `POST /v1/spaces/join` —
-the guest kind is encoded in the token and auto-detected. No join
-request, no approval, no per-user ACL entry: the space loads read-only
-(`ownRole:"guest"`); writes return `403 space.read_only`.
+token; owner only) and returns `201` with the same `{spaceId,
+inviteToken}` shape. Anyone holding the token joins via the regular
+`POST /v1/spaces/join` — the guest kind is encoded in the token and
+auto-detected. No join request, no approval, no per-user ACL entry: the
+space loads read-only (`ownRole:"guest"`); writes return
+`403 space.read_only`.
 
-`DELETE /v1/spaces/:spaceId/guest-key` revokes: the guest identity is
+`DELETE /v1/spaces/:spaceId/guest-key` revokes (`204`;
+`404 guest_key.not_found` when none is active): the guest identity is
 removed from the ACL and the read key rotates, so every guest copy
 stops receiving new content and flips to `status:"guest_revoked"`
 (local copy stays readable). A later create mints a fresh key — old
@@ -3661,7 +3717,7 @@ for guest spaces the delete marker is non-terminal: a later
 | POST   | `/v1/spaces/:spaceId/acl/decline`                    | `ACL.DeclineRequest`                       |
 | POST   | `/v1/spaces/:spaceId/acl/permissions`                | `ACL.ChangePermissions` — batched          |
 | POST   | `/v1/spaces/:spaceId/acl/remove`                     | `ACL.RemoveAccounts` — rotates read key    |
-| POST   | `/v1/spaces/:spaceId/acl/add`                        | `ACL.AddAccounts` — server-side flow       |
+| POST   | `/v1/spaces/:spaceId/acl/add`                        | `ACL.AddAccounts` — direct add by identity |
 | POST   | `/v1/spaces/:spaceId/acl/ownership`                  | `ACL.OwnershipChange`                      |
 | POST   | `/v1/spaces/:spaceId/acl/self-remove`                | `ACL.RequestSelfRemove`                    |
 | POST   | `/v1/spaces/:spaceId/acl/cancel-join`                | `Service.CancelJoin` — account-level, see below |
@@ -3695,29 +3751,29 @@ Bodies (every successful op returns `204 No Content`):
 { "newOwner":"A6ux…", "oldOwnerPerm":"admin" }
 ```
 
-`self-remove`, `cancel-join`, and `stop-sharing` take no body.
+`self-remove`, `cancel-join`, and `stop-sharing` take no body. A missing
+required field or an empty batch is `400 request.missing_field`; an
+unknown permission string is `400 request.schema`. SDK refusals map to
+`403 acl.forbidden` (insufficient permissions) and
+`404 acl.record_not_found` (no such ACL record).
 
-`cancel-join` is the one ACL op that never resolves the space. It
-applies only to a pending join, and a pending join is never
-materialized (`Service.Get` refuses it with `space.not_accepted`), so
-the server posts the withdrawal through the SDK's account-level
-`Service.CancelJoin`: the joining client writes the cancel record
-straight to the ACL chain the nodes serve, the same way the request
-was posted — from any device of the account, the request is
-identity-based. Afterwards the joiner's row reads `status: "deleted"`
-account-wide — the end state an owner decline leaves — and drops out
-of the default space list on every device; `POST /v1/spaces/join` with
-a valid token re-requests and returns the row to `joining` (a fresh ACL
-request, fresh `requestRecordId` on the owner's side), and a direct add
-by the owner surfaces it as `invite_pending`. Errors: `404
-space.not_found` for an id this account has no row for; `409
-space.join_not_pending` when the row is not `joining`, or when the
-owner accepted before the cancel landed — consensus is linear, so
-exactly one side wins, and the row settles to `active` on its own
-within the join controller's poll; re-read `GET /v1/spaces/:id` rather
-than retrying. A request that is already gone from the chain with no
-membership behind it (declined, or withdrawn from another device
-before the marker synced) is settled by the call itself: 204, row
+`cancel-join` is the one ACL op that never resolves the space: a
+pending join is never materialized, so the server posts the withdrawal
+through the SDK's account-level `Service.CancelJoin`, which writes the
+cancel record straight to the ACL chain the nodes serve — from any
+device of the account. Afterwards the joiner's row reads
+`status: "deleted"` account-wide — the end state an owner decline
+leaves — and drops out of the default space list on every device;
+`POST /v1/spaces/join` with a valid token re-requests and returns the
+row to `joining` (a fresh ACL request, fresh `requestRecordId` on the
+owner's side), and a direct add by the owner surfaces it as
+`invite_pending`. Errors: `404 space.not_found` for an id this account
+has no row for; `409 space.join_not_pending` when the row is not
+`joining`, or when the owner accepted before the cancel landed — exactly
+one side wins, and the row settles to `active` on its own; re-read
+`GET /v1/spaces/:id` rather than retrying. A request that is already
+gone from the chain with no membership behind it (declined, or
+withdrawn from another device) is settled by the call itself: 204, row
 `deleted`.
 
 #### Permission / status strings
@@ -3741,9 +3797,8 @@ before the marker synced) is settled by the call itself: 204, row
 | `removing`  | `MemberStatusRemoving`   |
 | `canceled`  | `MemberStatusCanceled`   |
 
-Unknown values on the wire return `400 request.schema`. Member-event
-SSE is **not** wired in v1 — clients refresh by re-`GET`-ing the
-collection after a write.
+An unknown permission value in a request body returns
+`400 request.schema`.
 
 ### Sync status
 
@@ -3753,13 +3808,12 @@ collection after a write.
 | GET    | `/v1/spaces/:spaceId/sync-status/objects/:objectId`               | `Space.SyncStatus().Object`                |
 | GET    | `/v1/spaces/:spaceId/sync-status/objects/:objectId/subscribe`     | per-object SSE (state-flip stream)         |
 | GET    | `/v1/sync-status/subscribe`                                       | account-wide SSE — every space's rollup    |
-| GET    | `/v1/spaces/:spaceId/sync-status/peers`                           | **501** until the SDK lands per-space peer list (use `/debug` for diagnostic equivalent) |
+| GET    | `/v1/spaces/:spaceId/sync-status/peers`                           | `501 sdk.not_implemented` — `/debug` is the diagnostic equivalent |
 
 The two GETs are cheap; safe to call on a render tick. `state` is one
 of `unknown` / `offline` / `syncing` / `synced` / `error`. Unknown
-object ids return `{state: "unknown"}` rather than 404 — the SDK is
-forgiving here, callers that need existence checks should use the
-object catalog.
+object ids return `{state: "unknown"}` rather than 404 — existence
+checks go through `GET …/objects/:objectId`.
 
 ```json
 // GET /v1/spaces/:spaceId/sync-status
@@ -3789,17 +3843,40 @@ converged entirely over the LAN.
 The two `/subscribe` endpoints are SSE streams. Wire shape and
 lifecycle are documented in `04-events.md` § Sync-status streams —
 short version: `event: ready`, then one `event: status` per state
-transition (carrying the GET body), terminating with `event: closed`
-on server shutdown. Account-wide subscribe lives outside the space
-group because the SDK call is account-scoped — one stream covers
-every known space.
+transition (carrying the GET body), `event: lagged {total}` when frames
+were dropped (re-GET), and a terminal `event: closed` with the shared
+reason set. The account-wide stream sits outside the space group — one
+stream covers every known space.
+
+### Devices
+
+The account's device registry — one tech-space row per device (peer),
+with per-app install flags and active-instance claims — and the
+reader-side election naming at most one active device per app slug.
+Account-scoped, outside the space group. Full model and the election
+rule: `docs/23-devices.md`.
+
+| Method | Path                           | Purpose                                                    |
+|--------|--------------------------------|------------------------------------------------------------|
+| GET    | `/v1/devices`                  | `Spaces.ListDevices` → `{devices: [{peerId, name?, os?, version?, apps?, activeClaims?}], active?: {slug: peerId}, self}` |
+| POST   | `/v1/devices/query`            | raw windowed snapshot over the `devices` dataset (standard query body) |
+| POST   | `/v1/devices/query/subscribe`  | raw windowed live view (SSE, standard frames)              |
+| PUT    | `/v1/devices/me`               | `Spaces.SetDevice` — this device's row only: `{name?, apps?}`; `"apps": {"slug": null}` uninstalls → 204 |
+| POST   | `/v1/devices/activate`         | `Spaces.ClaimActive` — `{app}`; also sets `apps.<app>` → 204 |
+| DELETE | `/v1/devices/:peerId`          | `Spaces.DeleteDevice` — prune a row, permanently for that peer id → 204 |
+
+`active` is the election already resolved (`space.ActiveDevice`) —
+clients read it instead of reimplementing the rule; `self` is this
+server's peer id. Errors: `404 device.not_found` (unknown peer id on
+DELETE), `400 device.self_delete` (DELETE of this server's own row),
+`409 device.pruned` (a self-row write after the row was pruned),
+`400 request.invalid_field` (bad slug / non-scalar app value),
+`400 request.missing_field` (empty update / missing `app`).
 
 ### Events
 
-Account-wide, **ephemeral** event bus (the generalized successor of the
-retired `/v1/ui/commands` channel — UI navigation is now the `ui.*` type
-family). Not space data — no SDK/dataset backing, nothing stored. Full
-contract in `docs/21-events.md`.
+Account-wide, **ephemeral** event bus. Not space data — no SDK/dataset
+backing, nothing stored. Full contract in `docs/21-events.md`.
 
 | Method | Path                      | Purpose                                              |
 |--------|---------------------------|------------------------------------------------------|
@@ -3814,8 +3891,9 @@ Subscribe filters via repeatable query params `scope` / `spaceId` /
 `type` (exact or `x.*` prefix) / `target` — AND across dimensions, OR
 within one. **At-most-once, no snapshot** — a subscriber receives only
 events published after it connects (no stale replay on reconnect).
-`closed` reasons: `server_shutdown`, `overflow`. Both routes sit
-outside the space group like `/sync-status/subscribe`.
+Delivered events carry the server-stamped `sender: {identity, self}`.
+`closed` reasons: `server_shutdown`, `deauthorized`, `overflow`. Both
+routes sit outside the space group like `/sync-status/subscribe`.
 `scope: account | space` ride the SDK pub/sub (tech space / target
 space) with refcounted subscribe-side interests; an explicit
 `scope=space` subscription must name at least one `spaceId` filter.
@@ -3836,7 +3914,7 @@ terminal event. Full contract in `docs/22-processes.md`.
 | GET    | `/v1/processes`               | live view — `{processes: [...]}`, expired entries swept    |
 | POST   | `/v1/processes`               | register `{id, kind, title, scope, spaceId?, target?}` → emits `process.started` |
 | POST   | `/v1/processes/:id/progress`  | `{done?, total?, message?}` → `process.progress` (heartbeat: ≤ every 15s; absent fields keep their values, `{}` = pure heartbeat) |
-| POST   | `/v1/processes/:id/finish`    | `{status: done\|failed\|cancelled, error?}` → terminal event (`error` required iff failed) |
+| POST   | `/v1/processes/:id/finish`    | `{status: done\|failed\|cancelled, error?: {code?, message}}` → terminal event (`error` required iff failed) |
 | POST   | `/v1/processes/:id/cancel`    | `{identity?}` → `process.cancel` toward the owner (no state change) |
 
 Every POST answers the bus publish reply `{subscribers: n}`.
@@ -3858,10 +3936,9 @@ outside the space group like `/v1/events`.
 Device-local, non-CRDT any-store collections — query / modifiers /
 indexes / aggregation for state that must never sync (scratch sets,
 ingest staging, per-device caches). They live inside the SDK's own
-`sdk.db` under a name tag (`l_a_<name>` / `l_s_<spaceId>_<name>`),
-which is what makes local↔synced `$lookup` and `$out`/`$merge`
-possible later; today both are gated upstream and sinks/lookups are
-local-only. Not a dataset: no type, no schema, no `_ver`, no
+`sdk.db` under a name tag (`l_a_<name>` / `l_s_<spaceId>_<name>`).
+Local↔synced `$lookup` and `$out`/`$merge` are not supported — sinks
+and lookups are local-only. Not a dataset: no type, no schema, no `_ver`, no
 subscribe, not search-indexed, and **a space-scoped collection
 outlives its space**. Full model + trade-offs: `docs/26-local-store.md`.
 Account-scoped routes outside the space group; `409 local.disabled`
@@ -3873,7 +3950,7 @@ when `local.enabled: false`.
 | GET    | `/v1/local/collections`  | list `?scope=account\|space&spaceId=` → `{collections: [{scope, spaceId?, name, storageName, count, indexes}]}` |
 | PUT    | `/v1/local/collections`  | ensure `{scope, spaceId?, name, indexes?}` → `{collection, created}` (201 created / 200 existed) |
 | DELETE | `/v1/local/collections`  | drop `?scope=&spaceId=&name=` → 204 (no space pre-flight: the cleanup path for a gone space) |
-| POST   | `/v1/local/insert`       | `{coll, docs: [..]}` → `{ids}` — a missing `id` is minted; existing `id` → 409 |
+| POST   | `/v1/local/insert`       | `{coll, docs: [..]}` → `{ids}` — a missing `id` is minted; existing `id` → `409 local.duplicate_id` |
 | POST   | `/v1/local/upsert`       | `{coll, docs: [..]}` → `{ids}` — whole-document replace-or-insert |
 | POST   | `/v1/local/update`       | `{coll, id, modifier, upsert?}` → `{modified, record}` — mongo-style `$set`/`$unset`/`$inc`… |
 | POST   | `/v1/local/delete`       | `{coll, ids: [..]}` or `{coll, filter}` → `{deleted}` |
@@ -3886,7 +3963,11 @@ when `local.enabled: false`.
 matches `^[a-z0-9][a-z0-9_-]{0,63}$`. A space-scoped op pre-flights
 the space (`404 space.not_found` unknown, `409 space.deleted`
 tombstoned), except drop. Every op on an
-un-ensured collection is `404 local.collection_not_found`.
+un-ensured collection is `404 local.collection_not_found`; a bad
+`coll` is `400 local.bad_name`, a missing document
+`404 local.doc_not_found`, a unique-index clash
+`409 local.unique_violation`, an aggregation bound
+`400 local.limit_exceeded` (full list in `06-errors.md`).
 `filter` / `sort` / `modifier` / `pipeline` are the raw any-store
 shapes `/query` and `/aggregate` take. Query `limit` defaults to 100
 (cap 1000).
@@ -3916,8 +3997,8 @@ Mobile push for chat (heart-interoperable; full contract —
 model, topic vocabulary, payload shape, settings, config — in
 `docs/20-push.md`). Account-scoped routes outside the `:spaceId` group,
 behind the `/v1` auth guard. Every route returns `409 push.disabled`
-when the server has no push node configured (`push.peerId` /
-`push.addrs`).
+when push is disabled or no push node is configured (`push.enabled` /
+`push.peerId` / `push.addrs`).
 
 | Method | Path                        | Purpose                                              |
 |--------|-----------------------------|------------------------------------------------------|
@@ -3953,8 +4034,7 @@ when the server has no push node configured (`push.peerId` /
 
 Notification *sending* has no endpoint: it's a sender-scoped side
 effect of the chat write handlers (send / mention-adding edit / read),
-async and best-effort — the consumer-side exception category `/search`
-established. Who-gets-what is controlled by the two `notifyMode` knobs
+async and best-effort. Who-gets-what is controlled by the two `notifyMode` knobs
 (§ Per-space settings + the `chat.notifyMode` property,
 `docs/20-push.md` § Settings).
 
@@ -3966,10 +4046,8 @@ established. Who-gets-what is controlled by the two `notifyMode` knobs
 | GET    | `/v1/spaces/:spaceId/debug/objects/:objectId`        | `Space.Debug().Object`                 |
 | GET    | `/v1/debug/p2p`                                       | `SDK.P2PStatus()` — account-wide local-network snapshot |
 
-**Diagnostic only — not a stable interface.** The SDK's `DebugAPI` is
-explicitly tagged as "fields and methods may grow or move"; this
-mirror inherits the same churn. Production UI should use
-`/sync-status` instead (501 until the SDK lands it).
+**Diagnostic only — not a stable interface**: fields may grow or move
+with the SDK's `DebugAPI`. Production UI uses `/sync-status`.
 
 `GET /v1/debug/p2p` returns the account-wide local-network layer: this
 device's own peer id, listener state, discovery possibility, and every
@@ -4045,89 +4123,45 @@ comparable across peers. `maxAddSeq` is the controller's
 delivery-order watermark, surfaced as a sanity check against tree
 length — it is not a cross-peer primitive.
 
-## Body shapes (examples)
-
-Query body / response are documented in § Data plane above.
-
-**POST /v1/spaces/:spaceId/modify**
-
-```json
-{
-  "objectId": "obj_abc",
-  "dataset":  "notes",
-  "records": [
-    {
-      "id":     "",
-      "upsert": true,
-      "ops": [
-        { "type": "$set",       "path": "",     "value": { "title": "x" } },
-        { "type": "$addToSet",  "path": "tags", "value": "idea" }
-      ]
-    }
-  ],
-  "traceIds": ["demo"]
-}
-```
-
-Response: the shared write result `{versionId, changeId, recordIds,
-rejections?}` — see § Write responses. `recordIds` mirrors the input
-record order (`recordIds[0]` is the derived id for the empty-id upsert
-above).
-
-The body takes an optional **`scope`** selecting the write route:
-`"synced"` (default — the object's own DAG change, synced to every
-member) or `"local"` (device-only materialization: no DAG change,
-never syncs, still flows through query/subscribe with a locally-minted
-`versionId` and an empty `changeId`). A local write may only target
-fields the dataset schema declares `local` (`x-scope` in
-`GET …/datasets`) — e.g. chat's `unread` / `unreadMention` /
-`unreadReactions` read-tracking flags on `chat_messages`. Constraints,
-enforced with `400 request.schema`: explicit record `id`s, no
-`upsert` (local fields annotate records the synced route created —
-they never create records), no `traceIds`, and not the shared
-`objects` dataset (its fields are per-property scoped — local property
-values go through `POST …/properties/:objectId/set/:typeId`, which
-validates per-prop scope and kind). Ops that target a
-non-local field come back in `rejections` (the write itself succeeds);
-the reverse direction — a synced write touching a local field — fails
-whole with `400 dataset.validation`. `"account"` is not writable here
-yet (the SDK's account transport covers property values only).
-
-```json
-{
-  "objectId": "obj_abc",
-  "dataset":  "chat_messages",
-  "scope":    "local",
-  "records": [
-    { "id": "msg_1", "ops": [ { "type": "$set", "path": "unread", "value": true } ] }
-  ]
-}
-```
-
 ## Middleware
 
-Minimal in v1:
-
-- `middleware.Recover` — catch panics, return 500.
+- `middleware.Recover` — catch panics, log the stack, return 500.
 - `middleware.RequestID` — generate an id per request for the logs.
 - **Logger middleware** wired to `any-sync/app/logger` — one line per
-  request at info level (path, status, duration).
-- `middleware.BodyLimit("1M")` — reject anything larger; prevents
-  accidental uploads before the file API lands.
+  request (path, status, duration).
+- `middleware.BodyLimit("1M")` — reject larger bodies, except the file
+  attach route (§ Files), whose raw body streams into the SDK.
+- **Unauthorized guard + engine gate** (§ Auth): `401 auth.required`
+  on every route except `/v1/health`, `/v1/shutdown`,
+  `/v1/openapi.json` and `/v1/auth` until an account is booted — it
+  gates server state, not the caller.
+- **Tech-space guard**: a per-space route naming the tech space that is
+  not on its allowlist answers `405 space.unsupported` (§ Bundles →
+  Tech-space bundles).
 
-No rate limiting in v1, and no caller authentication (loopback is the
-trust boundary). The only auth-shaped middleware is the unauthorized
-guard (§ Auth): `401 auth.required` on SDK-backed routes until an
-account is booted — it gates server STATE, not the caller — and the ownership gates of `02-server.md` § Modes (`X-Any-Control-Token` on a managed server's auth and shutdown verbs). CORS: one named exception — a fixed allowlist for the desktop-shell webview origins (`tauri://localhost`, `http://tauri.localhost`, the Vite dev origins; see `internal/server/routes.go`), with `X-Any-Control-Token` among the allowed headers so the webview can log a managed server in; requests without an Origin header are untouched, and the loopback-only listen stays the trust boundary.
+No rate limiting and no caller authentication (loopback is the trust
+boundary); the only ownership gate is the `X-Any-Control-Token` header
+on a managed server's auth and shutdown verbs (`02-server.md` § Modes).
+CORS: a fixed allowlist for the desktop-shell webview origins
+(`tauri://localhost`, `http://tauri.localhost`, and the Vite dev
+origins `http://localhost:5173` / `http://127.0.0.1:5173`), with
+`Content-Type`, `Accept`, `Range` and `X-Any-Control-Token` as allowed
+headers; requests without an Origin header are untouched, and the
+loopback-only listen stays the trust boundary.
 
 ## Pagination
 
-Offset-based, mirroring the SDK. Cursor pagination is a future add.
+Offset-based (`limit` / `offset`), mirroring the SDK. Version history
+and chat backward paging are the exceptions: history pages with an
+opaque `cursor` (§ Version history), chat with a `_ver.id` filter
+(§ Chat → Read).
 
 ## Idempotency
 
-POST endpoints are **not** idempotent in v1 — each POST produces a new
-DAG change. An `Idempotency-Key` header is a future add. The one
-exception is `POST /v1/spaces/:spaceId/upsert` (§ Upsert records):
-the caller-supplied record id is the idempotency key, and an identical
-re-run diffs to nothing and emits no change.
+A POST write is **not** idempotent unless its section says so — each
+call produces a new DAG change, and there is no `Idempotency-Key`
+header. The documented exceptions converge on state rather than
+replaying a change: bundle ensure, catalog setup, type attach / detach,
+the 1-1 and derived-space routes, and `POST /v1/spaces/:spaceId/upsert`
+(§ Upsert records), where the caller-supplied record id is the
+idempotency key and an identical re-run emits no change.

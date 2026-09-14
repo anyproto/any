@@ -1,19 +1,21 @@
 # 13 — Search index (consumer-side)
 
 This governs the search-index pipeline: the chunker contract
-(`internal/index`, `internal/editor/chunker.go`,
-`internal/chat/chunker.go`, `internal/index/prop.go`) and the indexer
-that consumes it (`internal/indexer`): a local BM25 + vector index per
-space behind `POST /v1/spaces/:spaceId/search` / `any search`.
+(`internal/index` — `index.go`, `module.go`, `prop.go`, `schema.go`,
+`links.go`; `internal/editor/chunker.go`, `internal/chat/chunker.go`)
+and the indexer that consumes it (`internal/indexer`): a local BM25 +
+vector index per space behind `POST /v1/spaces/:spaceId/search` /
+`any search`, plus the link index behind the backlinks endpoints.
 
-The chunkers are wired into the process via `server.NewIndexRegistry`
-(stored on `deps.chunkers`); the indexer is built in `server.Run` when
-`index.enabled` and drives them through the SDK's per-space change feed
+The chunker registry is built by `server.NewIndexRegistry` when the
+account engine boots (`bootEngine`, stored on the engine as
+`chunkers`); the indexer is opened next to it when `index.enabled` and
+drives the chunkers through the SDK's per-space change feed
 (`Space.Changes()`).
 
-This doc is the **contract** (how it works). For the **evaluation and
-decision record** — chunk-length before/after, BEIR results, why the
-defaults are what they are — see [`search/README.md`](search/README.md).
+This doc is the **contract**. The evaluation and decision record —
+chunk-length measurements, BEIR results, why the defaults are what they
+are — is [`search/README.md`](search/README.md).
 
 ## The contract
 
@@ -21,98 +23,97 @@ defaults are what they are — see [`search/README.md`](search/README.md).
 type IndexEntry struct {
     Scope    string // open slug set; "basic"/"chat"/"props" are the vocabulary
     ObjectId string
-    Dataset  string
+    Dataset  string // the real collection (doc-id middle segment)
     RecordId string
     Data     string // text to index; empty ⇒ remove this record from the index
-    AddSeq   uint64 // peer-local, per-space monotonic
+    Title    string // optional BM25F field; re-prefixed onto chunks past the first
+    ApplySeq uint64 // peer-local, per-space monotonic apply counter
+    Links    []LinkEntry // the edges the entry's record(s) hold (§ Links)
 }
 
 type Chunker interface {
-    Dataset() string // doc-id middle segment; may be virtual ("prop")
-    TypeId() string  // any.types gate; "" = ungated (see eviction below)
-    // Streams every entry of objectId with AddSeq > since, ascending.
+    Dataset() string // unique chunker name; a doc-id segment unless the chunker is dynamic
+    TypeId() string  // any.types gate; "" = ungated
+    // Streams every entry of objectId with ApplySeq > since, ascending.
     // Cleared/deleted records yield removal entries (Data == "").
     ChunksSince(ctx, sp space.Space, objectId string, since uint64, yield func(IndexEntry) error) error
 }
 
-// Optional: chunkers whose index unit spans several records implement
-// Reconciler. The indexer prefers it over ChunksSince and applies
-// {PrefixDelete, Upserts} in the same page transaction.
-type Reconciler interface {
+// Optional capabilities:
+type Reconciler interface { // index unit spans several records on one dataset
     Chunker
-    Reconcile(ctx, sp space.Space, objectId string, since uint64) (Reconciliation, error)
+    Reconcile(ctx, sp, objectId string, since uint64) ([]IndexEntry, error)
 }
-type Reconciliation struct { PrefixDelete bool; Upserts []IndexEntry }
+type DynamicChunker interface { // dataset set resolved per space at runtime
+    Chunker
+    EvictDatasets(ctx, sp, attached map[string]bool) ([]string, error)
+}
+type MultiReconciler interface { // Reconciler over several collections at once
+    DynamicChunker
+    Reconciles() bool
+    ReconcileAll(ctx, sp, objectId string, since uint64) (map[string][]IndexEntry, error)
+}
+type TextEvictor interface { EvictText(ctx, sp, attached map[string]bool) []string }
+type CatalogInvalidator interface { Invalidate(spaceId string) }
+type WholeCollectionLinks interface { LinksReplaceCollection() }
 ```
 
-A chunker turns one object's records (for one dataset) into a stream of
-`IndexEntry` values ordered by `AddSeq`. The indexer persists a cursor
-(its last-seen `AddSeq`) and calls `ChunksSince(cursor)` to pull only
-what changed. A **`Reconciler`** chunker (editor) is called via
-`Reconcile` instead: it returns the object's full current doc set plus a
-`PrefixDelete` flag, because a coalesced window can't be expressed as a
-per-record delta — a window's text needs sibling records below the
-cursor, and a deleted block's position is wiped from its tombstone, so
-the affected window can't be located incrementally.
+A chunker turns one object's records into `IndexEntry` values ordered by
+`ApplySeq`. The indexer persists a cursor (its last-seen `ApplySeq`) and
+calls `ChunksSince(cursor)` to pull only what changed. A reconciling
+chunker (editor) returns the object's **full** current entry set
+instead, which the indexer diffs against what is stored: a coalesced
+window can't be expressed as a per-record delta — its text needs
+sibling records below the cursor, and a deleted block's position is
+wiped from its tombstone.
 
 ## Chunkers, scopes, gating
 
-| Chunker                 | Dataset (doc-id segment) | Gate | Scope of entries | `Data` |
-|-------------------------|--------------------------|-----------------|------------------|--------|
-| `editor.NewChunker()`   | every `editor` collection — `editor_blocks` + each namespaced `<typeId>_<key>` instance (`Dataset()` = the virtual name `editor`) | per collection: an owner type attached | `basic`          | a **coalesced window** of consecutive blocks (recordId `win_<anchor>`) |
-| `chat.NewChunker()`     | `chat_messages` (`Dataset()` = `chat`) | per collection: an owner type attached | `chat`           | the message's `text` only |
-| `index.NewPropChunker(excl…)`| `prop` (virtual)    | — (ungated)     | `props` (default) / per-prop override | property values, `"<name>: <value>"` (see below) |
-| `index.NewSchemaChunker(static…)`| `schema` (virtual) | — (self-gated per dataset) | `basic` (default) / per-dataset `x-search.scope` | runtime-dataset records by their x-search mapping (see below) |
+| Chunker | `Dataset()` → doc-id segment | Gate | Scope | `Data` |
+|---|---|---|---|---|
+| `editor.NewChunker()` | `editor` (virtual) → each editor collection: `editor_blocks` and every namespaced `<typeId>_<key>` instance | per collection: an owner type attached | `basic` | a **coalesced window** of consecutive blocks (recordId `win_<anchor>`) |
+| `chat.NewChunker()` | `chat` (virtual) → `chat_messages` | per collection: an owner type attached | `chat` | the message's `text` only |
+| `index.NewPropChunker()` | `prop` (virtual) | ungated | `props` (default) / per-property override | property values, `"<name>: <value>"` |
+| `index.NewSchemaChunker(static…)` | `schema` (virtual) → each runtime records collection | per dataset, self-applied | `basic` (default) / per-dataset `x-search.scope` | runtime-dataset records by their `x-search` mapping |
 
 - **Module chunkers index every collection a module serves.** The
   editor and chat chunkers are `index.ModuleChunker`s: one registered
   chunker per module, resolved per space from `Space.Datasets` — the
-  module's canonical collection plus every namespaced instance a
-  type's part declares. Entries carry the real collection as their
-  `Dataset`, so doc ids stay per collection (`objectId:<collection>:`);
-  the chunker's own `Dataset()` is the module's virtual name and never
-  a doc-id segment. The gate is collection ownership (the discovery
-  document's `owners`): the chunker implements `DynamicChunker`, and
-  the worker prefix-evicts `objectId:<collection>:` for every collection
-  of the module none of whose owners is in the object's `any.types`,
-  plus collections that vanished from the catalog since process start
-  (a removed part — same restart caveat as runtime datasets, § Removal
-  semantics).
-- **Chat = one record per chunk.** `chat_messages` indexes one entry per
-  message (creator / reactions / attachments excluded — text only).
-- **Editor = coalesced windows.** An editor collection does NOT index one
-  doc per block: consecutive blocks (in document order — the `List` tree
-  walk) are grouped into ~1.5 KB windows broken before each heading
-  (`internal/editor/window.go`), one index doc per window, anchored on
-  the window's first block (`recordId = win_<firstBlockId>`), `Data` =
-  the member texts joined by newline with the heading leading. Tiny
-  one-block chunks (mean ~98 chars) hurt vector recall and BM25 length
-  normalization; coalescing fixes both (chunker-hybrid-search-report
-  § 3–4, eval § 9.1). Because a window spans several records, the editor
-  chunker is a **`index.MultiReconciler`** — it returns the object's
-  full current window set per editor collection it holds
-  (`ReconcileAll`) and the indexer diffs each set against that
-  collection's stored docs by **content hash** (see below): only
-  changed/new windows re-embed, unchanged ones keep their vectors. So
-  an append re-embeds one window, not the whole doc, and an edit in a
-  part's own editor never touches the shared body's docs. The read is still O(doc) per edit (re-reads the
-  blocks to form windows), but that's cheap against the local DB; the
-  expensive axis (embedding) is incremental.
-- **Programs are not indexed.** `program` is a harness-declared user
-  type (anybao ADR-010 §5): its `program_source` runtime dataset is
-  declared without a `search` mapping, so the schema chunker skips it
-  — code (docstrings included) is not a search target — and its
-  `summary` property is added with `meta.index: none` (revisit only if
-  evidence demands program recall).
+  module's canonical collection plus every namespaced instance a type's
+  part declares. Entries carry the real collection as `Dataset`, so doc
+  ids stay per collection (`objectId:<collection>:`). The gate is
+  collection ownership (the discovery document's `owners`): as a
+  `DynamicChunker` the chunker tells the worker to prefix-evict
+  `objectId:<collection>:` for every collection none of whose owners is
+  in the object's `any.types`, plus collections that left the catalog
+  since process start (a removed part — § Removal semantics).
+- **Chat = one entry per message.** Creator, reactions and attachments
+  are not indexed text.
+- **Editor = coalesced windows.** Consecutive blocks in document order
+  (the `List` tree walk) group into ~1.5 KB windows, breaking before
+  each heading (`internal/editor/window.go`); one index doc per window,
+  anchored on its first block (`recordId = win_<firstBlockId>`), `Data`
+  = the member texts joined by newline with the heading leading, `Title`
+  = that heading. One-block chunks are too short for vector recall and
+  skew BM25 length normalization (`search/README.md`). The editor
+  chunker is an `index.MultiReconciler`: it returns the full window set
+  per editor collection the object holds, and the indexer diffs each set
+  against that collection's stored docs by content hash (§ Content
+  hashes) — only changed or new windows re-embed. An append re-embeds
+  one window; an edit in a part's own editor never touches the shared
+  body's docs. Forming windows is an O(doc) read per edit; embedding is
+  incremental.
 - **Scopes are an open set** of slugs (`index.ValidScope`: 1..64 chars
   of `[a-z0-9_-]`); `basic` / `chat` / `props` are the established
-  vocabulary, and property meta flags can mint new ones. `props` is FTS-only (see the prop chunker below).
-- **`TypeId()` gating**: a chunker naming a type literal runs only
-  while that type is in the object's `any.types`; when it is not, the
-  indexer prefix-evicts `objectId:<dataset>:` instead (see eviction
-  below). No compiled-in chunker uses it today — module and runtime
-  datasets gate per collection through `DynamicChunker` — but the
-  contract stays for a chunker bound to one type.
+  vocabulary, and property or dataset declarations can name others.
+- **`TypeId()` gating**: a static chunker naming a type runs only while
+  that type is in the object's `any.types`; otherwise the indexer
+  prefix-evicts `objectId:<dataset>:`. No compiled-in chunker uses it —
+  module and runtime datasets gate per collection through
+  `DynamicChunker`.
+- **Not indexed**: saved views (`dataviews` / `views`) have no chunker;
+  a runtime dataset declared without an `x-search` mapping produces no
+  text docs (§ The schema chunker).
 
 ### The prop chunker (`internal/index/prop.go`)
 
@@ -120,175 +121,138 @@ Indexes property VALUES from the shared `objects` collection under the
 virtual dataset `prop` — one entry per (object, indexed property), doc
 id `objectId:prop:<propId>`:
 
-- **User properties index BY DEFAULT under the dedicated scope
-  `props`** — never interleaved with `basic` ranking; a search that
-  wants pure content passes `scopes` without `props`. The property
-  definition's `meta["index"]` (set at `AddProperty` time — SDK
-  `PropertyDraft.Meta`, HTTP `meta` field) is a 3-state override:
-  absent/empty ⇒ `props`; `"<scope>"` ⇒ that scope; the literal
-  `"none"` ⇒ excluded from the TEXT index (the opt-out for blobs and
-  noisy enums — a property carrying a link marker still reports its
-  edges, § Links). An invalid slug excludes rather than silently
-  landing in the default.
+- **User properties index by default under the scope `props`**, never
+  interleaved with `basic` ranking; a search that wants pure content
+  passes `scopes` without `props`. The definition's `meta["index"]`
+  (`meta` on property create, or `PATCH …/properties/:propId` with
+  `{"set": {"meta.index": …}}`) overrides it: absent/empty ⇒ `props`;
+  `"<scope>"` ⇒ that scope; `"none"` ⇒ excluded from the TEXT index (a
+  property carrying a link marker still reports its edges, § Links). An
+  invalid slug excludes rather than landing in the default.
 - **Entry text is self-describing**: `"<prop name>: <value>"`
-  ("Score: 9", "Publisher: Gollancz") — property-NAME search works
-  (property definitions are indexed nowhere else) and bare numbers get
-  context. The name is the definition's display `name`, falling back
-  to `xKey`. Valueless rows stay `Data ""` (a removal signal) — never
-  a bare name prefix. The name also rides `IndexEntry.Title`, which is
-  re-prefixed onto the TEXT of chunks past the first, so a value long
-  enough to split keeps its property name on every chunk (§ Chunking
-  long records). That re-prefix is what makes the name searchable
-  throughout; the `title` field only joins the BM25F index when
-  `index.search.titleWeight` is set. Built-ins carry no title — they
-  are indexed raw.
-- **Kinds**: string; array (newline join of string and number
-  elements); number (canonical JSON rendering — integers without a
-  decimal point; distinctive numerals like 85600 are real discovery
-  anchors, and small-number noise is scope-contained). Booleans, null
-  and object kinds never index.
-- **The `props` scope is FTS-only**: the store never marks props-scope
-  docs pending, so they are never embedded — short "name: value"
-  entries embed badly and would pollute vector recall. A `meta.index`
-  override into another scope re-enters the vector pipeline.
-- **Built-ins `any.name` and `any.description` are always indexed**
-  under scope `basic`, reserved recordIds `name` / `description`, raw
-  (no name prefix) — EXCEPT for objects whose `any.types` names an
-  excluded type. The exclusion list always contains `__type__`
-  (type-definition rows — schema, not knowledge; discovery is
-  `GET /types`, and their one-word names otherwise win BM25 on
-  field-length normalization and surface as top hits).
-- **Short prop docs never embed**: prop-dataset entries under 64 bytes
-  are not marked `pending` and stay FTS-only, on top of the
-  scope-`props` rule above. Short name-like strings land in a flat
-  cosine band (~0.55–0.62 for relevant and irrelevant queries alike —
-  the `minVectorSim` finding, `docs/search/README.md`), so they fill
-  vector top-N slots without discriminating; BM25 is the right
-  retrieval for lexical labels. Long descriptions and long
-  scope-overridden values still embed.
-- Per streamed live row the chunker emits entries for the built-ins and
-  for EVERY catalog property, unconditionally: value present and type
-  attached ⇒ text; otherwise ⇒ `Data ""` — so cleared values and
-  detached-type properties evict record-level, idempotently.
-- The per-space catalog (indexable props across all non-builtin types)
-  is a TTL snapshot (30s): newly added properties are picked up within
-  the TTL — and only affect rows written afterwards anyway ("index from
-  the next change"). `Invalidate(spaceId)` drops it (tests/ops).
+  ("Score: 9", "Publisher: Gollancz"), so property-name search works and
+  bare numbers get context. The name is the definition's `name`, falling
+  back to `xKey`. A valueless row is `Data ""` (a removal signal), never
+  a bare name. The name also rides `IndexEntry.Title`, re-prefixed onto
+  chunks past the first, so a value long enough to split keeps its name
+  on every chunk (§ Chunking long records); the `title` field itself
+  joins the BM25F index only when `index.search.titleWeight` is set.
+- **Kinds**: string; number (canonical JSON — integers without a decimal
+  point); datetime (RFC 3339 UTC, so `2026-08` matches a month); array
+  (newline join of its string and number elements). Boolean and object
+  kinds never index.
+- **The `props` scope is FTS-only**: props-scope docs are never marked
+  pending, so they are never embedded — short "name: value" entries
+  embed badly and pollute vector recall. A `meta.index` override into
+  another scope re-enters the vector pipeline.
+- **Built-ins `any.name` and `any.description` always index** under
+  scope `basic`, reserved recordIds `name` / `description`, raw (no name
+  prefix, no title) — except for objects carrying an excluded type. The
+  exclusion list always holds `__type__`: type-definition rows are
+  schema, not knowledge (discovery is `GET …/types`), and their one-word
+  names would otherwise win BM25 on field-length normalization.
+- **Short prop docs never embed**: a `prop` entry under 64 bytes is not
+  marked pending. Short name-like strings land in a flat cosine band
+  against relevant and irrelevant queries alike, so they fill vector
+  top-N slots without discriminating (`search/README.md` § Vector
+  similarity floor). Long descriptions and long scope-overridden values
+  still embed.
+- Per streamed live row the chunker emits the built-ins and one entry
+  for EVERY catalog property: value present and type attached ⇒ text;
+  otherwise `Data ""`. Cleared values and detached-type properties
+  therefore evict record-level, idempotently.
+- The per-space catalog (indexable properties of every non-built-in
+  type) is a 30 s TTL snapshot. The worker invalidates it whenever a
+  type object changes in the feed (§ Links → Catalog freshness), so a
+  value written right after its definition indexes on that write.
 
 ### The schema chunker (`internal/index/schema.go`)
 
-Indexes records of **runtime-defined datasets** (docs/03-api.md
-§ Runtime dataset schemas; SDK contract: its docs/17-user-datasets.md
-§ Discovery) by their declaration's `x-search {title, text, scope}`
+Indexes records of **runtime-defined datasets** (`03-api.md` § Runtime
+dataset schemas) by their declaration's `x-search {title, text, scope}`
 mapping — one registered chunker covers every searchable runtime
-dataset in every space. Entries carry the REAL dataset name (doc ids
-`objectId:<dataset>:<recordId>`) under the declared `x-search.scope` —
-absent defaults to `basic` (runtime records are user content on par
-with editor blocks, so they embed normally; a dataset that declares
-scope `props` inherits that scope's FTS-only rule).
-`Dataset()` returns the virtual name `schema`, used only for chunker
-identity; both virtual names (`prop`, `schema`) are reserved against
-user dataset names at the creation API.
+dataset in every space. Entries carry the real collection (doc ids
+`objectId:<collection>:<recordId>`) under `x-search.scope`, default
+`basic` (runtime records are user content and embed normally; a dataset
+that declares `props` inherits that scope's FTS-only rule). `Dataset()`
+returns the virtual name `schema`, used only for chunker identity.
 
-- **Mapping**: `x-search.title` → `IndexEntry.Title` (BM25F-boosted)
-  and `Data`'s leading line; `x-search.text` → the rest of `Data`.
-  `text` is a bare field key or an array of keys: each
-  mapped field renders separately and the non-empty values join with a
-  blank line, in mapping order — a missing/empty field contributes
-  nothing. Either side may be absent; title stays single-field.
-  Values render by their ACTUAL type
-  (string / number canonical / array newline-join; else empty) — the
-  SDK does not validate x-search fields against declared kinds. A
-  dataset without `x-search` is not indexed at all; a malformed `text`
-  form (wrong JSON type, non-string elements) makes the dataset
-  unsearchable, like a malformed doc. Both sides empty
-  (cleared values, tombstone) ⇒ `Data ""` removal entry.
-- **Scope**: `x-search.scope` picks the scope the dataset's entries
-  land under; absent = `basic`. An invalid slug (`index.ValidScope`)
-  makes the dataset unsearchable — a broken override must not
-  silently land in the default scope (the `resolveIndexedProp`
-  stance; `any`'s API validates on write, but the declaration syncs
-  from arbitrary peers). A scope patch applies to records as they
-  (re-)index: already-indexed docs keep their stored scope until
-  their object next goes dirty (same declare-forward semantics as a
-  prop `meta.index` change).
-- **No catalog cache** (deliberate PropChunker deviation):
-  `Space.Datasets()` is an atomic in-memory snapshot the SDK refreshes
-  synchronously when a definitions change applies — a fresh read is
-  never stale relative to the applySeq window, and a TTL cache could
-  skip records in the primary define-then-write flow while the cursor
-  advances past them.
-- **Gating is per dataset, self-applied**: the chunker implements
-  `index.DynamicChunker` — the worker asks it for the object's
-  eviction set (`EvictDatasets`: searchable catalog datasets whose
-  owning `TypeId` is not attached, every runtime dataset WITHOUT a
-  usable x-search — covering a cleared annotation, whose docs would
-  otherwise go stale forever — plus retired names) and prefix-deletes
-  `objectId:<dataset>:` for each in the same page transaction, then
-  streams normally; the chunker skips non-attached datasets itself, so
-  an evicted dataset is never also upserted in the page. One catalog
-  resolve serves the paired EvictDatasets + ChunksSince calls (a
-  one-shot per-space handoff; each space has a single advance
+- **Mapping**: `x-search.title` → `IndexEntry.Title` and the leading
+  line of `Data`; `x-search.text` → the rest of `Data`. `text` is a
+  field key or an array of keys: each mapped field renders separately
+  and the non-empty values join with a blank line, in mapping order.
+  Either side may be absent; title is single-field. Values render by
+  their ACTUAL type — string, number (canonical), datetime (RFC 3339),
+  array (newline join of those); anything else is empty — because the
+  SDK does not check x-search fields against declared kinds. A malformed
+  `text` form (wrong JSON type, non-string elements) makes the dataset
+  unsearchable. Both sides empty (cleared values, tombstone) ⇒ `Data ""`.
+- **Scope**: an invalid `x-search.scope` slug makes the dataset
+  unsearchable rather than landing in the default (the declaration syncs
+  from arbitrary peers). A scope change applies as records re-index:
+  stored docs keep their scope until their object next goes dirty — the
+  same forward-only semantics as a property `meta.index` change.
+- **No catalog cache**: `Space.Datasets()` is an in-memory snapshot the
+  SDK refreshes synchronously when a definitions change applies, so a
+  fresh read is never stale relative to the applySeq window being
+  processed; a TTL cache could skip records in the define-then-write
+  flow while the cursor advances past them.
+- **Gating is per dataset, self-applied** (`DynamicChunker`): the worker
+  asks for the object's eviction set (`EvictDatasets`: searchable
+  datasets whose owning type is not attached, every runtime dataset
+  without a usable `x-search` and without link fields, plus retired
+  names) and prefix-deletes `objectId:<collection>:` for each in the
+  same page transaction, then streams. A dataset with link fields but no
+  usable `x-search` loses its text docs (`TextEvictor`) and is still
+  streamed for its edges. One catalog resolve serves the paired
+  `EvictDatasets` + `ChunksSince` calls (each space has a single advance
   goroutine).
-- **Static skip set**: every compiled-in dataset name (the server's
-  `handler.Type` datasets and the modules' canonical collections) plus
-  the virtual names is never treated as runtime — belt-and-braces
-  against definitions synced from a peer with a different compiled-in
-  set; module-served collections are the module chunker's, never the
-  schema chunker's (discovery `module != records`).
+- **Static skip set**: compiled-in dataset names (the server's
+  `handler.Type` datasets and the modules' canonical collections) and
+  the virtual names are never treated as runtime; module-served
+  collections belong to the module chunkers (discovery `module` other
+  than `records`).
 
 ### Chunking long records (`internal/indexer/chunk.go`)
 
-Chunkers emit **one entry per record**; the indexer splits it. An
-entry whose `Data` exceeds `Options.ChunkRunes` (default
-`DefaultChunkRunes` = 2000 runes, ~500 tokens of prose) is indexed as
-several chunk docs — cut at a blank line, a line break, a sentence end
-or whitespace found in the second half of the window, hard-cut when
-there is none; no overlap, deterministic, so the content hash of an
-unchanged chunk is stable. Chunk 0 keeps the entry's head; chunks
-`n > 0` re-prefix the entry's `Title` (when set) so a mid-mail passage
-keeps its subject for BM25F and the embedder. Each chunk embeds whole
-(the target sits well inside the local embedder's 2048-token clamp),
-so vector recall covers the entire record, not just its head; and a
-hit's `data` is the matching passage, not the whole record. The hit's
-`recordId` is the record's; `chunk` says which piece — the record's
-best-ranked one, since `/search` returns one hit per record and folds
-the other matching chunks into `passages` on request (§ Search).
-Editor windows and chat messages are below the bound by construction;
-runtime-dataset records (mail bodies) and long property values are
-what this is for.
+Chunkers emit **one entry per record**; the indexer splits it. An entry
+whose `Data` exceeds `Options.ChunkRunes` (`DefaultChunkRunes` = 2000
+runes, ~500 tokens of prose) becomes several chunk docs — cut at a blank
+line, a line break, a sentence end or whitespace in the second half of
+the window, hard-cut when there is none; no overlap, deterministic, so
+an unchanged chunk keeps its content hash. Chunk 0 keeps the entry's
+head; chunks `n > 0` are prefixed with the entry's `Title` (clamped to
+half the bound) so a mid-record passage keeps its subject for BM25F and
+the embedder. Each chunk sits inside the local embedder's token clamp,
+so vector recall covers the whole record, and a hit's `data` is the
+matching passage. The hit's `recordId` is the record's; `chunk` names
+the record's best-ranked piece (§ Search). Editor windows and chat
+messages are below the bound by construction; long runtime-dataset
+records and long property values are what this is for.
 
 ### Content hashes (incremental embedding)
 
-Every index doc stores a `hash` field — a 64-bit FNV-1a of its `Data`
-and `Title`, hex-encoded (`docHash` in `store.go`). Both, because a
-title-only edit changes the text of chunks past the first (they carry the
-re-prefixed title) but not of chunk 0: hashing `Data` alone would refresh
-the tail and leave chunk 0 serving the old title in its BM25F field. The
-indexer uses it to avoid re-embedding unchanged content:
+Every index doc stores `hash` — a 64-bit FNV-1a of `Data` and `Title`,
+hex-encoded (`docHash` in `store.go`). The title is included because a
+title-only edit changes the text of chunks past the first but not of
+chunk 0; hashing `Data` alone would leave chunk 0 serving the old title.
 
-- **Reconcile diff (editor).** `worker.reconcileMulti` reads, per
-  editor collection the object holds, the stored `(id, hash)` for
-  `objectId:<collection>:` (`Store.DocHashes`), diffs against that
-  collection's full window set, and emits deletes for vanished ids,
-  upserts for new/changed ones, and **nothing** for unchanged ids —
-  their docs (and vectors) stay. An append re-embeds only the new window.
-- **Per-record skip (chat / memory).** On an incremental advance,
-  `worker.streamChunks` batch-reads the changed records' stored hashes
-  (`Store.DocHashesByIds`); a record that re-streamed (its `_applySeq`
-  bumped) but whose indexed text is unchanged is skipped — no re-embed.
-  Cold sync (cursor 0) skips the hash read and applies blind (nothing is
-  stored yet). This is what keeps a memory `accessCount` bump or a chat
-  reaction from re-embedding.
+- **Reconcile diff (editor).** `worker.reconcileMulti` reads, per editor
+  collection the object holds, the stored `(id, hash)` under
+  `objectId:<collection>:` (`Store.DocHashes`), diffs against the full
+  window set, and emits deletes for vanished ids, upserts for new or
+  changed ones, and nothing for unchanged ids — their docs and vectors
+  stay.
+- **Per-record skip (streaming chunkers).** On an incremental advance,
+  `worker.streamChunks` reads the re-streamed records' stored chunk
+  hashes (`Store.DocHashesByRecords`, one range seek per record); a
+  record whose indexed text is unchanged is skipped (no re-embed), and
+  one that now splits into fewer chunks drops its trailing chunk docs.
+  On the cold cursor (0) nothing is stored and entries apply blind. This
+  is what keeps a chat reaction, or any non-indexed field edit on a
+  runtime record, from re-embedding.
 
-Hash collisions are astronomically unlikely (64-bit) and the worst case
-is one stale vector. Docs written before the `hash` field existed simply
-miss the map and re-upsert once.
-
-### Excluded from indexing entirely
-
-Runtime datasets declared without a `search` mapping (anybao's
-`program_source`, `mini_app`) are never indexed — see § Schema chunker.
+A hash collision (64-bit) costs at worst one stale vector.
 
 ## Links
 
@@ -297,53 +261,51 @@ record holds — every `any://` reference, classified. The worker lands
 them in a per-space link collection of `index.db` in the same page
 transaction as the text docs, behind the same cursor, so eviction is
 applySeq-consistent with content and the rebuild triggers cover both.
-This is the backlinks index behind `GET …/objects/:id/backlinks`,
-`GET …/objects/:id/links` and `GET /v1/backlinks` (docs/03-api.md
-§ Links and backlinks); the SDK has no reverse index of its own.
+This is the index behind `GET …/objects/:id/backlinks`,
+`GET …/objects/:id/links` and `GET /v1/backlinks` (`03-api.md` § Links
+and backlinks); the SDK has no reverse index of its own.
 
 ### Contract
 
 ```go
 type LinkEntry struct {
-    ObjectId, Dataset, RecordId string   // the source place (DatasetProp + propId for a value)
-    Kind     string                      // mention | link | card | embed | relation (open set)
-    Target   anyuri.URI                  // canonical (URI.Canonical): never a space, never a fragment
+    ObjectId, Dataset, RecordId string // the source place (DatasetProp + propId for a value)
+    TypeId   string     // a property value's type (prop sources only)
+    Field    string     // the runtime-record field the reference was read from
+    Kind     string     // mention | link | card | embed | relation (open set)
+    Target   anyuri.URI // canonical (URI.Canonical): never a space
 }
-// IndexEntry.Links carries the edges of the record(s) the entry covers.
 ```
 
 - A **streaming** chunker's entry replaces its record's edges — nil
   means the record links nothing (a tombstone, a cleared value, a
   detached type's value). A **reconciling** chunker's set replaces the
-  whole collection's edges. Either way the source place is per record:
-  a coalesced editor window reports each member block's links under
-  that block's own id.
-- **Canonical targets.** `anyuri.Canonical` resolves what was written
-  to one key: the bare in-space form and the global form become
+  whole collection's edges, as does every stream of a
+  `WholeCollectionLinks` chunker (the prop chunker). Either way the
+  source place is per record: a coalesced editor window reports each
+  member block's links under that block's own id.
+- **Canonical targets.** `URI.Canonical` resolves what was written to
+  one key: the bare in-space form and the global form become
   `any://o/<sp>/<id>`; a record path stays a record path (a block link
   is a block link — the object is not counted twice); `p` / `m` / `f`
   keep their kind, params and fragments dropped; `s` and unknown kinds
-  are not targets. A link whose target is the source object itself,
-  as a whole, is dropped (the parent is not a backlink).
-- **What reports edges**, by field descriptor (docs/27-descriptors.md
+  are not targets. A link to the source object itself, as a whole, is
+  dropped (the parent is not a backlink).
+- **What reports edges**, by field descriptor (`27-descriptors.md`
   § `xFormat`): `xFormat.links` marks a field — `link` (the string is
   one reference), `links` (the array lists references), `markdown` (the
-  text is scanned), `none` (never scanned, the off-switch) — and the
-  `relation` slug implies `links`, the `markdown` slug implies
-  `markdown`. Plain `text` / `longtext` is never scanned; `meta.index:
-  none` keeps a property out of the TEXT index only. Kinds: a value
-  field yields `relation`; scanned text yields `mention` for an `m`
-  reference and `link` for the rest. A runtime record's edge carries
-  the `field` it was read from; a property value's edge its `typeId`.
-- **Catalog freshness.** A type object changing in the feed (a
-  property added, patched or removed) invalidates every chunker's
-  per-space catalog snapshot before the rest of the page is extracted,
-  so a value written right after its definition indexes on that
-  write, not after the snapshot's TTL and a later write. The prop
-  chunker's stream is complete per row (every catalog property, every
-  time), so the worker replaces the whole `prop` collection's edges on
-  each stream and a removed definition's edges fall out on the row's
-  next change.
+  text is scanned), `none` (never scanned) — and the `relation` slug
+  implies `links`, the `markdown` slug implies `markdown`. Plain `text` /
+  `longtext` is never scanned; `meta.index: none` keeps a property out
+  of the TEXT index only. Kinds: a value field yields `relation`;
+  scanned text yields `mention` for an `m` reference and `link` for the
+  rest.
+- **Catalog freshness.** A type object changing in the feed (a property
+  added, patched or removed) invalidates every `CatalogInvalidator`'s
+  per-space snapshot before the rest of the object is extracted, so a
+  value written right after its definition indexes on that write. The
+  prop chunker's stream is complete per row, so a removed definition's
+  edges fall out on the row's next change.
 - **Per source:**
 
 | Source | Fields | Kinds |
@@ -356,658 +318,562 @@ type LinkEntry struct {
 ### Store
 
 - `<spaceId>_links`, one doc per edge:
-  `{id, objectId, dataset, recordId, typeId?, kind, target{kind,
-  spaceId, objectId?, dataset?, recordId?, propId?, identity?,
-  fileId?}, targetKey, targetObject?, applySeq}`. `id` is the text-doc
-  base `objectId:dataset:recordId` + `U+001F` + `<hash(kind,
-  targetKey)>` — the chunk separator, so a record id containing `:`
-  can never be confused with a sibling's prefix: structural removals
-  are the `:`-terminated ranges (`objectId:`, `objectId:dataset:`), a
-  record's edges are `[base+U+001F, base+U+0020)`, and the hash merges
-  duplicates from one place. `typeId` names a property value's type
-  (`prop` sources). `targetKey` is the canonical target, `targetObject`
+  `{id, objectId, dataset, recordId, typeId?, field?, kind, target{kind,
+  spaceId, objectId?, dataset?, recordId?, propId?, identity?, fileId?},
+  targetKey, targetObject?, applySeq}`. `id` is the text-doc base
+  `objectId:dataset:recordId` + `U+001F` + `<hash(kind, field, target)>`
+  — the chunk separator, so a record id containing `:` can never be
+  confused with a sibling's prefix: structural removals are the
+  `:`-terminated ranges (`objectId:`, `objectId:dataset:`), a record's
+  edges are `[base+U+001F, base+U+0020)`, and the hash merges duplicates
+  from one place. `targetKey` is the canonical target, `targetObject`
   the object it belongs to (absent for identities and files). Indexes:
-  `(targetObject, id)` (sparse), `(targetKey, id)`, so a capped read is
-  a prefix scan in id order.
+  `(targetObject, id)` (sparse) and `(targetKey, id)`, so a capped read
+  is a prefix scan in id order.
 - **Content changes are an exact diff.** Per changed object the worker
-  reads the object's stored edge ids once (`LinkIds`, one range), then
-  removes the ids that fell out of a replaced scope — a re-streamed
-  record, a reconciled collection — and writes the ids that appeared
-  (`diffLinks`). An edit that leaves a record's edges unchanged costs
-  the read and nothing else; a property write on a page with 300
-  links rewrites nothing and signals nothing. Structural prefix deletes
-  (object deleted, type detached, definition retired) apply to the
-  link collection as they apply to text docs; a `TextEvictor` chunker
-  can evict a dataset's text docs alone (a runtime dataset that lost
-  its search mapping but keeps link fields).
-- The cursor row carries `links`, the sink's layout version, stamped
-  by the worker after its first landed page or its backfill — never by
+  reads the object's stored edge ids once (`LinkIds`, one range), removes
+  the ids that fell out of a replaced scope, and writes the ids that
+  appeared (`diffLinks`). An edit that leaves a record's edges unchanged
+  costs the read and nothing else — no rewrite, no signal. Structural
+  prefix deletes (object deleted, type detached, definition retired)
+  apply to the link collection as they apply to text docs.
+- The cursor row carries `links`, the sink's layout version, stamped by
+  the worker after its first landed page or after a backfill — never by
   a plain cursor write, so a failed backfill is retried on the next
   start. An indexed space stamped behind is **backfilled** on its
-  worker's advance goroutine (off the boot path, outside the indexer
-  lock): the collection is dropped, every object the feed knows is
-  re-extracted once through the chunkers and only the edges are kept,
-  landed page by page — text docs untouched, nothing re-embeds; an
-  unreadable object is skipped, its edges arrive with its next change.
-  Reported as `index.links_backfill.<spaceId>` on the process view
-  (docs/22-processes.md). This is also how a db indexed before the
-  sink existed gets its edges.
+  worker's advance goroutine: the collection is dropped, every object
+  the feed knows is re-extracted once through the chunkers and only the
+  edges are kept, landed page by page — text docs untouched, nothing
+  re-embeds; an unreadable object is skipped and its edges arrive with
+  its next change. Reported as `index.links_backfill.<spaceId>` on the
+  process view (`22-processes.md`).
 - After a page changed edges the indexer reports the affected target
   keys (`Options.OnLinks` — only targets an edge appeared for or
   vanished from); the server publishes them as one device-scope bus
-  event `links.updated` (docs/21-events.md), capped at 200 targets
-  with `truncated: true` past that, so an open panel refreshes.
+  event `links.updated` (`21-events.md`), capped at 200 targets with
+  `truncated: true` past that.
 
 ### Reads
 
 `Indexer.Backlinks` seeks `targetObject` for a whole-object target
 (every edge to the object, its records and its values — the reply
 splits them on whether the target is a part) and `targetKey` for a
-record, value, identity or file target; `Indexer.Links` walks the
-source prefix (object / dataset / record); `BacklinksAll` runs the
-seek over every indexed space — the device holds only spaces this
-account is a member of, so the account-wide read is access-filtered by
-construction. All reads are capped (500 per space over HTTP) and say
-so (`truncated`); there is no continuation.
+record, value, identity or file target; `Indexer.Links` walks the source
+prefix (object / dataset / record); `BacklinksAll` runs the seek over
+every indexed space — the device holds only spaces this account is a
+member of, so the account-wide read is access-filtered by construction.
+Every HTTP read is capped at 500 edges per space and says so
+(`truncated`); there is no continuation.
 
 ## Removal semantics
 
-Three granularities, all addSeq-consistent (discovered through the same
-`ChangedSince` window, applied in the same page transaction):
+All removals are applySeq-consistent: discovered through the same
+`ChangedSince` window and applied in the same page transaction.
 
 | What happened | Who detects it | Index operation |
-|---------------|----------------|-----------------|
-| record deleted / value cleared (per-record chunker) | the chunker (streams the tombstoned record / empty value) | entry with `Data == ""` → range delete `[objectId:dataset:recordId, +" ")` (the record's every chunk) |
-| record shrank to fewer chunks | the indexer (`planDocs` diffs the new chunk set against `DocHashesByRecords`) | delete the trailing chunk ids, upsert the changed ones |
-| any change to a **coalescing** collection (editor) | the `MultiReconciler` chunker + indexer hash-diff, per collection | delete the window ids that vanished, upsert the changed/new ones, leave unchanged ones — expresses block edits / deletes / merges that shift a window's shape, without re-embedding untouched windows |
-| type detached (`DetachType` — bumps `_addSeq`) | the indexer (a gated chunker's `TypeId()` ∉ `any.types`; module and runtime collections via their chunker's `EvictDatasets` — no owner type attached) | prefix delete `objectId:dataset:` |
-| part or runtime dataset definition removed | the module / schema chunker (the collection vanishes from the catalog → per-space retired set, held for the process lifetime) | prefix delete `objectId:dataset:` on each object's NEXT dirty tick |
+|---|---|---|
+| record deleted / value cleared (streaming chunker) | the chunker (streams the tombstoned record / empty value) | entry with `Data == ""` → range delete `[objectId:dataset:recordId, +" ")` (the record's every chunk) |
+| record shrank to fewer chunks | the indexer (`planDocs` diffs the new chunk set against the stored hashes) | delete the trailing chunk ids, upsert the changed ones |
+| any change to a reconciled collection (editor) | the `MultiReconciler` + hash diff, per collection | delete vanished window ids, upsert changed/new ones, leave unchanged ones |
+| type detached (`DetachType`) | the indexer: a static chunker's `TypeId()` ∉ `any.types`; module and runtime collections via `EvictDatasets` (no owner attached) | prefix delete `objectId:dataset:` |
+| part or runtime dataset definition removed | the module / schema chunker (the collection left the catalog → per-space retired set, held for the process lifetime) | prefix delete `objectId:dataset:` on each object's next dirty tick |
 | object deleted (`Objects().Delete`) | the indexer (`ObjectChange.Deleted` in the change feed) | prefix delete `objectId:` |
 
-Every prefix operation runs on the link collection too (§ Links), so
-an object's or a dataset's edges leave with its text docs; a record's
-edges are replaced whenever the record re-streams.
+Every prefix operation runs on the link collection too (§ Links), so an
+object's or a dataset's edges leave with its text docs.
 
 Object deletion leaves **no tombstone**: the SDK purges the shared
-`objects` row and every per-object dataset collection outright, and
-announces the deletion once through the change feed as
-`ObjectChange{Deleted: true}` (with an applySeq strictly greater than
-the object's last content change). That flag is the ONLY eviction
-signal for the object's index docs — nothing re-streams for a purged
-object (`space.ChangeIndexAPI`: "Consuming Deleted is MANDATORY for
-eviction"). Record-level tombstones (a deleted chat message, a cleared
-value) DO survive with `_deletedAt` set; chunkers opt in via
-`Projection({IncludeDeleted: true})` and stream them as `Data == ""`.
-Removing what was never indexed is a no-op everywhere, so all
-operations are safe to apply unconditionally. Re-attach after a
-detach does NOT resurrect rows below the cursor — they index on their
-next write ("index from the next change").
+`objects` row and every per-object dataset collection, and announces the
+deletion once through the change feed as `ObjectChange{Deleted: true}`,
+at an applySeq strictly greater than the object's last content change.
+That flag is the only eviction signal for the object's docs — nothing
+re-streams for a purged object. Record-level tombstones (a deleted chat
+message, a cleared value) survive with `_deletedAt` set; chunkers opt in
+via `Projection({IncludeDeleted: true})` and stream them as
+`Data == ""`. Removing what was never indexed is a no-op, so every
+operation applies unconditionally.
 
-**Definition-removal eviction is lazy and process-scoped** — two known
-residual leaks, accepted for now: an object never dirtied again after
-the removal keeps its stale docs, and a restart wipes the retired set
-(the SDK wipes the removed def record's content, so the name is
-unrecoverable post-restart). Follow-ups: a boot-time per-space sweep of
-stored dataset segments against the current catalog, and an SDK
-retired-name signal (preserve `name` on the def tombstone).
+After a detach and re-attach, streaming chunkers (chat, runtime records)
+do not resurrect records below the cursor — those index on their next
+write. Reconciled collections and property values re-index on the attach
+itself (the attach writes the object's row).
 
-## AddSeq semantics
+**Definition-removal eviction is lazy and process-scoped**: an object
+never dirtied after the removal keeps its stale docs, and a restart
+forgets the retired set (the SDK wipes the removed definition's name).
 
-`_addSeq` is any-sync's **per-space, peer-local, monotonic delivery
-counter** — an opaque ordering key within one space on one device. It
-advances on a change to any of an object's datasets. Treat it as a
-cursor: compare and persist it, but never assume it matches another
-peer's value for the same change.
+## ApplySeq semantics
 
-- **"Index from the next change."** Rows written before this SDK branch
-  started stamping `_addSeq` have no value for the field and sort below
-  any `since >= 0`, so they're excluded by the `$gt` window — same
-  contract as the SDK's own `Changes().ChangedSince`. Pre-existing data
-  is indexed only after its next write.
-- `RecordsSince` chains `Projection({IncludeDeleted: true})` → a typed
-  `_addSeq > since` filter → `Sort "_addSeq"` → `Iter`, so every chunker
-  streams ascending by `AddSeq` past the cursor. (All any-store filters
-  are built with the typed `any-store/v2/query` package — never map/JSON
-  literals; static filters are built once and reused.)
+`_applySeq` is the SDK's **per-space, peer-local, monotonic apply
+counter**, advanced by every apply that mutates the space's records —
+synced changes, the account mirror and device-local writes alike. It is
+the record-level twin of `ObjectChange.ApplySeq`, so the chunker window
+and the change-feed cursor share one ordering axis. Treat it as an
+opaque cursor: compare and persist it, never ship it to another peer.
+
+`RecordsSince` chains `Projection({IncludeDeleted: true})` → a typed
+`_applySeq > since` filter → `Sort "_applySeq"` → `Iter`, so every
+chunker streams ascending past the cursor. Rows never stamped with
+`_applySeq` sort below any `since >= 0` and are excluded — the same
+contract as `Changes().ChangedSince`. Filters are built with the typed
+`any-store/v2/query` package; static pieces are built once.
 
 ## Phase 2 — the indexer (`internal/indexer`)
 
-The consumer of the chunker feed: a background service started by
-`server.Run` when `index.enabled` (default true), holding one local
-any-store database at `<data-dir>/index/index.db`, plus the
-`POST /v1/spaces/:spaceId/search` endpoint and `any search` CLI.
+The consumer of the chunker feed: a background service started with the
+account engine when `index.enabled` (default true), holding one
+any-store database at `<data-dir>/index/index.db` (per account,
+`02-server.md` § Data dir layout), and serving
+`POST /v1/spaces/:spaceId/search` / `any search`.
 
-**Observability**: the indexer reports its long-running work onto the
-process view (`GET /v1/processes`, docs/22-processes.md § Internal
-producers) as device-scope processes — `index.fts.<spaceId>` (chunk
-backlog), `index.embed.<spaceId>` (vector drain, done/total docs) and
-`index.model_download` (bytes) — so clients can render progress for
-"search is still catching up" instead of guessing from empty results
-(`Options.OnProcess`, bridged in `internal/server/engine.go`).
+**Observability**: long-running work is reported on the process view
+(`GET /v1/processes`, `22-processes.md` § Internal producers) as
+device-scope processes — `index.fts.<spaceId>` (advance pass, done =
+changes, total unknown), `index.embed.<spaceId>` (vector drain,
+done/total docs), `index.links_backfill.<spaceId>` (objects) and
+`index.model_download` (bytes). The fts, embed and backfill processes
+announce only past 3 s of elapsed work (`Options.AnnounceAfter`), so
+routine per-edit indexing never appears (`Options.OnProcess`, bridged in
+`internal/server/engine.go`).
 
 ### Store layout
 
 - **One collection per space** (named by spaceId). Doc shape:
   `{id, scope, objectId, dataset, recordId, chunk?, data, title, hash,
-  applySeq, vector?, pending?}` where `id` is
-  `objectId:dataset:recordId` for a record's first chunk and that base
-  + `U+001F` + `n` for chunk `n > 0` (`chunk` is stored only when
-  non-zero). The id shape makes every removal a primary-key range
-  operation — `objectId:` prefix (object deleted), `objectId:dataset:`
-  prefix (type detached), `[base, base+" ")` (record deleted — the
-  base doc plus every chunk suffix; a chunk id passed the same way
-  removes exactly that chunk) — and keeps ids unique even though
-  recordIds repeat across objects (propIds do). The chunk separator is
-  a control byte (auto ids are CIDs, user ids default to
-  `[A-Za-z0-9._:-]+`), so every byte a real id can continue `base` with
-  sorts at or above `0x20` and the record range is exact. A runtime
-  dataset's `IdPattern` is client-supplied and checked only for
-  compilation, so the indexer ENFORCES this rather than assuming it: a
-  record id carrying a byte below `0x20` is skipped with a warning
-  instead of colliding with a neighbour's chunk docs.
-  Prefix ranges use bytewise bounds `[P, P[:len-1]+";")` (`;` = `:`+1)
-  and drive the primary btree directly; per-doc deletion cleans FTS and
+  applySeq, vector?, pending?}` where `id` is `objectId:dataset:recordId`
+  for a record's first chunk and that base + `U+001F` + `n` for chunk
+  `n > 0` (`chunk` is stored only when non-zero). Every removal is a
+  primary-key range: `objectId:` (object deleted), `objectId:dataset:`
+  (type detached), `[base, base+" ")` (record deleted — the base doc and
+  every chunk suffix). Ids stay unique although recordIds repeat across
+  objects (propIds do). The separator is a control byte, so every byte a
+  real id can continue `base` with sorts at or above `0x20` and the
+  record range is exact. A runtime dataset's id pattern is
+  client-supplied, so the indexer enforces this: a record id or dataset
+  name carrying a byte below `0x20` is skipped with a warning. Prefix
+  ranges use bytewise bounds `[P, P[:len-1]+";")` (`;` = `:`+1) and
+  drive the primary btree directly; per-doc deletion cleans FTS and
   vector entries in the same transaction.
-- Indexes per collection: BM25 **full-text** on `data`
-  (`IndexKindFulltext`); sparse range on `pending` (embed queue); and —
-  once at least one embedded doc exists — a **cosine vector index** on
-  `vector`. The strategy (`Store.vectorIndexParams`, `index.vector.mode`)
-  defaults to **IVF-SQ** (`VectorModeIVFSQ`): cheap near-flat incremental
-  ingest + physical deletes, ~3–4 recall@10 below exact — the right fit
-  for a local, continuously-written index (docs/search/README.md § index
-  mode). Alternatives: `btree`/`hnsw` (recall ≈ exact, but serial
-  super-linear ingest + tombstone-rebuild deletes — opt-in for read-heavy
-  deployments), `hybrid` (HNSW + RAM cache), `bruteforce` (exact,
-  O(N)/query, small spaces). The index is created lazily
-  (`Store.EnsureVectorIndex`) so the first build sees real data.
-- A `cursors` collection holds one `{id: spaceId, seq, gen}` row per
-  space — `gen` is the SDK's per-space `Changes().Generation()`, the
-  epoch the cursor belongs to (see Re-index triggers). Writes MERGE:
-  advancing the cursor with no epoch in hand keeps the stamped one,
-  because erasing it would disable rebuild detection silently. Plus a
-  `_meta` row pinning the **schema version** (the version ↔
-  layout map lives on `indexSchemaVersion` in `internal/indexer/
-  store.go`; a mismatched DB errors at boot with a remove-to-rebuild
-  message, no migration — the index is derived state and re-indexes
-  from the next change), the vector dimension — changing the
-  embedder dimension is the same kind of boot error — and the **chunk
-  target** the docs were written with, since it decides every doc id and
-  every doc's text (a DB written before the pin carries none and is
-  adopted).
+- Indexes per collection: BM25 **full-text** on `data` (plus `title`
+  when `index.search.titleWeight > 0`); sparse range on `pending` (the
+  embed queue); and — once at least one embedded doc exists — a
+  **cosine vector index** on `vector`, created lazily
+  (`Store.EnsureVectorIndex`) because IVF trains from existing docs. The
+  strategy (`index.vector.mode`, `Store.vectorIndexParams`) defaults to
+  **IVF-SQ**: cheap near-flat incremental ingest and physical deletes,
+  ~3–4 recall@10 below exact (`search/README.md` § Index mode).
+  Alternatives: `btree` / `hnsw` (recall ≈ exact, serial super-linear
+  ingest, tombstone-rebuild deletes), `hybrid` (HNSW + RAM cache),
+  `bruteforce` / `exact` (exact, O(N) per query). Existing indexes keep
+  their mode until rebuilt.
+- A `cursors` collection holds one `{id: spaceId, seq, gen, links}` row
+  per space — `gen` is the SDK's per-space `Changes().Generation()`, the
+  epoch the cursor belongs to; `links` the link-sink layout stamp.
+  Cursor writes MERGE: advancing with no epoch in hand keeps the stamped
+  one, because erasing it would silently disable rebuild detection. A
+  `_meta` row pins the **schema version** (`indexSchemaVersion` in
+  `store.go`), the **vector dimension** and the **chunk target**. A
+  mismatch is refused with `ErrIndexRebuildRequired` naming the
+  directory to remove — at open, or for the dimension when an embedder
+  first answers with a different one. There is no migration: the index
+  is derived state and rebuilds from cursor 0.
 
 ### Re-index triggers — per-space worker boot
 
 Before the loops start, `alignIndex` checks that the persisted index
 still describes the SDK store it was built from, and drops the space's
-docs + restarts at cursor 0 when it does not:
+docs and restarts at cursor 0 when it does not:
 
 - **`Generation()` changed** — the SDK store was rebuilt and the
   applySeq axis restarted at zero.
-- **cursor > `MaxApplySeq()`** — an older `sdk.db` was restored from
-  backup under a cursor that ran ahead of it.
+- **cursor > `MaxApplySeq()`** — an older `sdk.db` was restored under a
+  cursor that ran ahead of it.
 
 Either way the cursor names a position the feed will never report
-again: `ChangedSince` returns nothing, forever, with no error. A failed
-read leaves the cursor alone (freezing the index over a transient error
-is worse than the drift) and re-checks on the next boot; the merge rule
+again: `ChangedSince` returns nothing, with no error. A failed read
+leaves the cursor alone (freezing the index over a transient error is
+worse than the drift) and is re-checked on the next boot; the merge rule
 above keeps the stamp on record meanwhile.
 
 ### Advance loop (FTS path) — per-space worker
 
 The single operation is `advance`: page through
-`Changes().ChangedSince(cursor, batch)`, and per dirty object:
+`Changes().ChangedSince(cursor, 256)`, and per page:
 
-1. **Deleted ⇒ evict.** A change with `Deleted: true` prefix-deletes
-   `objectId:` and skips the chunkers — the object's projection is
-   purged and no later content change follows. Collected page-wide
-   before chunking, so a same-page content change can't upsert past
-   the eviction. For live objects, **read the shared objects row once**
-   (`QueryObjects`, `IncludeDeleted`); a tombstoned row only catches a
-   delete racing the row read.
-2. Otherwise, per registered chunker: a non-empty `TypeId()` not in the
-   row's `any.types` ⇒ prefix-delete `objectId:<dataset>:` (type
-   detached — idempotent, one btree seek when already empty); else run
-   `ChunksSince(cursor)` — `Data == ""` → delete the doc, else upsert.
-3. **One write transaction per page** (prefix deletes → record deletes
-   → upserts), then persist the cursor (the page's max `AddSeq`) and
-   loop. A removal wins over an upsert of the same doc in one page: an
-   object found tombstoned mid-collect evicts entries earlier chunkers
-   already queued, which would otherwise resurrect docs nothing
-   re-streams. Eviction rides the same addSeq window as content — no
-   out-of-band purge can race the cursor. Crash-safe: re-applying a
-   page is idempotent. Text-bearing upserts land marked `pending` —
-   **FTS is searchable immediately**, never waiting on the embedder.
-   Exceptions: `props`-scope docs and short prop-dataset docs are
-   never marked pending (FTS-only — see the prop chunker).
+1. **Deleted ⇒ evict.** Every change with `Deleted: true` prefix-deletes
+   `objectId:` and skips the chunkers. Collected page-wide before
+   chunking, so a same-page content change can't upsert past the
+   eviction.
+2. For each live object, read the shared objects row once
+   (`IncludeDeleted`; a tombstoned row catches a delete racing the
+   read). A type object invalidates the chunkers' catalogs. Then per
+   registered chunker: a `DynamicChunker` names the collections to
+   prefix-evict; a static chunker whose `TypeId()` is not attached
+   prefix-evicts `objectId:<dataset>:`; otherwise the chunker runs —
+   `ReconcileAll` / `Reconcile` (hash diff) or `ChunksSince(cursor)`
+   (`Data == ""` → delete, else upsert).
+3. **One write transaction per page** — prefix deletes → record deletes
+   → upserts → link ops — then persist the cursor (the page's max
+   `ApplySeq`) and loop. A removal wins over an upsert of the same doc
+   in one page: an object found tombstoned mid-collect evicts entries
+   earlier chunkers already queued. Re-applying a page is idempotent.
+   Text-bearing upserts land marked `pending` — **FTS is searchable
+   immediately**, never waiting on the embedder — except `props`-scope
+   docs and short `prop` docs, which are never marked.
 
 Hot path: `Changes().Subscribe` does a non-blocking send into a cap-1
 dirty channel (the callback runs on the SDK apply path); the worker
-debounces 250ms and runs `advance`. Lost signals are harmless — advance
-is cursor-driven. Space discovery: `Spaces().List` at boot plus
-`Service.Subscribe` (added → spawn worker; removed/deleted → stop +
-`DropSpace`).
+debounces 250 ms and runs `advance`. Lost signals are harmless — advance
+is cursor-driven. A failed advance retries after 5 s. Space discovery:
+`Spaces().List` at start plus `Spaces().Subscribe` — an added or updated
+space with status active/unknown spawns a worker; a removed space, or
+one updated to deleted, stops it and drops its index. A failed
+`Spaces().Get` at spawn retries with backoff (2 s doubling, 1 min cap).
 
 ### Embed loop (vector path) — parallel, batched
 
-A second per-space goroutine drains `pending` docs: batch `EmbedDocs`
-(default 64 per call) → batch `SetVectors` (one write tx, update-only —
-docs deleted meanwhile are skipped) → `EnsureVectorIndex`. Nudged by
-advance after each page with new text; a 1-minute ticker retries after
-embedder failures. A re-written record goes back to `pending` (its text
-changed). `index.embedder: none` ⇒ the loop doesn't run and the index
-is FTS-only.
+A second per-space goroutine drains `pending` docs: `EmbedDocs` in
+batches of `index.embedBatch` (default 64), `index.embedConcurrency`
+batches in parallel (default 1; 4 for `openai` / `auto`) → `SetVectors`
+(one write transaction, update-only — docs deleted meanwhile are
+skipped) → `EnsureVectorIndex`. Advance nudges it after each page with
+new text; a 1-minute ticker retries after embedder failures. A rewritten
+record goes back to `pending`. `index.embedder: none` ⇒ the loop doesn't
+run and the index is FTS-only.
 
-Embedders (`indexer.Embedder`), selected by `index.embedder`
-(default `local`; `none` opts out — FTS-only):
+Embedders (`indexer.Embedder`), selected by `index.embedder`:
+
+- `auto` — **default**: an OpenAI-compatible primary with the `local`
+  embedder as fallback. Both MUST serve the same model (one vector space,
+  one dimension); the default pairing is Qwen3-Embedding-0.6B online and
+  locally (`index.openai.*` names the primary, required). A circuit
+  breaker skips the primary for 30 s after 3 consecutive failures. A
+  query gives the primary half of the remaining query budget, so the
+  fallback still has time to decode.
+- `local` — llama.cpp in a child process (§ The embedder child process),
+  no external service. yzma purego bindings (no CGO) load the prebuilt
+  llama.cpp shared libs from `index.local.libDir` (else `$YZMA_LIB`,
+  else `llamacpp/` next to the binary — populated by `make llamacpp`,
+  which `make build` runs failure-tolerant; § GPU offload). Default
+  model: **Qwen3-Embedding-0.6B Q8_0** (1024-dim, last-token pooling,
+  L2-normalized; queries carry the Qwen retrieval instruction, docs embed
+  bare). The GGUF (sha256-pinned) is downloaded into the shared model
+  cache `<root>/models/` (a copy already in the account's `index/models/`
+  is used in place); the download is resumable, logs progress, reports
+  `index.model_download`, and never blocks boot — until it completes the
+  embedder reports unavailable (outage semantics below).
+  Air-gapped: set `index.local.modelPath` (no download). `index.local.dim`
+  truncates output vectors (Matryoshka) to shrink the index. Compute
+  threads default to `NumCPU()-1` (`index.local.threads`); past the
+  physical core count can regress on hyperthreaded CPUs. Loaded cost ≈
+  640 MB mmap + ~200 MB context; nothing loads before the first embed
+  call. Linux needs a system `libffi.so.8` (NixOS: `nix develop`).
 - `ollama` — local `/api/embed`, default `embeddinggemma`, doc/query
   task prompts.
-- `openai` — any OpenAI-compatible `/embeddings` API.
-- `local` — **default**: **llama.cpp in a child process**, no external service
-  (§ The embedder child process). yzma purego
-  bindings (no CGO) dlopen the prebuilt llama.cpp shared libs from
-  `index.local.libDir` (default: `llamacpp/` next to the binary —
-  populated by `make llamacpp`, which also runs as a failure-tolerant
-  step of `make build`; GPU-capable with CPU fallback, see § GPU
-  offload below). Default model:
-  **Qwen3-Embedding-0.6B Q8_0** (Apache-2.0, 1024-dim Matryoshka,
-  last-token pooling, L2-normalized; queries carry the Qwen retrieval
-  instruction, docs embed bare). The GGUF (639 MB, sha256-pinned) is
-  auto-downloaded into `<data-dir>/index/models/` on first boot with
-  progress in the server log; the download is resumable and never
-  blocks boot. Until it completes the embedder reports unavailable,
-  which rides the standard outage semantics below — FTS works
-  immediately, vectors flow once the model lands. Air-gapped:
-  set `index.local.modelPath` (no download is attempted).
-  `index.local.dim` truncates output vectors (Matryoshka) to shrink
-  the IVF index. One llama context in the child, one request in
-  flight; the server sends a batch one decode group per frame —
-  up to `index.local.batchDocs` docs (**default 1**) per `llama_decode`,
-  greedy in order under the `contextSize` token budget — and a search
-  query takes the next frame ahead of waiting doc groups. **Batching costs
-  context**: the unified KV cache PARTITIONS `contextSize` across the
-  packed sequences, so `batchDocs: N` caps each text at
-  `contextSize/N` tokens (rounded up to a 256-token block). `tokenize`
-  truncates to that bound (`Local.maxDocTokens`), so a wider batch never
-  fails a decode — it silently embeds less of each text, and the server
-  logs a warning at construction when the bound falls below
-  `contextSize`. Measured on a mixed record stream (the production
-  shape), width buys nothing once the bound is held equal: GTX 1080 via
-  Vulkan 10.1 docs/s at `batchDocs: 1` vs 9.2 at 4; 32-core CPU 2.16 vs
-  2.14. Apparent gains at wide settings come from the truncated bound,
-  not from batching. Batched and single decodes produce identical
-  vectors (TestLocal_BatchedMatchesSingle). Compute threads
-  (`NThreads`/`NThreadsBatch`)
-  default to `runtime.NumCPU()-1` (leave one core free); override with
-  `index.local.threads` / `ANY_INDEX_LOCAL_THREADS` — going past the
-  physical core count can regress on hyperthreaded CPUs. Loaded cost ≈ 640 MB mmap + ~200 MB context;
-  nothing is loaded until the first embed call. Linux needs a system
-  `libffi.so.8` (ubiquitous on mainstream distros; NixOS: `nix develop`
-  — the flake's dev shell provides it).
+- `openai` — any OpenAI-compatible `/embeddings` API (`index.openai.model`
+  required).
+
+**An unavailable embedder never breaks the pipeline.** There is no
+boot-time probe: whenever an embedder is configured, text-bearing docs
+are marked `pending` regardless of its reachability, so an outage — at
+boot or mid-run — only freezes the vector side while FTS indexes and
+answers normally. When the embedder comes back, the next embed round
+drains the queue. The vector dimension is learned from the first
+successful batch (or pinned via `index.vector.dim`) and persisted in
+`_meta`, so a later model or dimension change against a populated index
+is refused (`ErrIndexRebuildRequired`), not silent corruption. A batch
+that fails midway lands the vectors embedded so far.
+
+**Batching costs context.** The local child sends a batch one decode
+group per frame — up to `index.local.batchDocs` docs (**default 1**) per
+`llama_decode`. The unified KV cache partitions `contextSize` across the
+packed sequences, so `batchDocs: N` caps each text at `contextSize/N`
+tokens (rounded down to a 256-token block, at least 256). Texts are
+truncated to that bound, so a wider batch never fails a decode — it
+embeds less of each text; the server logs a warning when the bound falls
+below `contextSize`. On a mixed record stream width buys nothing once
+the bound is held equal (GTX 1080 / Vulkan: 10.1 docs/s at
+`batchDocs: 1` vs 9.2 at 4; 32-core CPU: 2.16 vs 2.14). Batched and
+single decodes produce identical vectors
+(`TestLocal_BatchedMatchesSingle`).
 
 ### The embedder child process
 
 The `local` embedder does not decode in the server process. It re-execs
-this binary as `any run embedder` (a hidden subcommand — self-exec keeps
-distribution to one signed artifact) and talks to it over stdin/stdout
-with a magic-prefixed, length-delimited frame protocol; vectors come
-back as raw little-endian float32. One child, spawned lazily on the
-first embed call and shared by every space worker. The stream carries
-one request at a time, and the server shares it through a one-slot
-semaphore with two classes: `EmbedDocs` sends a batch one decode group
-per frame (`batchDocs` texts, one `llama_decode`) and re-takes the
-slot for every frame, and a search query takes the slot ahead of any
-waiting doc frame. A doc frame yields to every waiting query, with one
-bound: after 8 consecutive query turns it runs anyway, so a saturating
-query stream still leaves indexing a frame per burst instead of
-starving it. Once the child is up, a query therefore waits
-for at most the decode in flight — ~1–2 s worst case for a 2048-token
-doc on CPU, well under that on a GPU — never for a 64-doc batch,
-however many spaces are backfilling. A cold spawn or a wedged child
-holds the slot longer; that is what the query budget in § Search is
-for. Acquisition is context-aware: a caller that gives up leaves the
-queue instead of parking until its turn.
+this binary as the hidden `any run embedder` and talks to it over
+stdin/stdout with a magic-prefixed, length-delimited frame protocol
+(JSON header + binary block; vectors as little-endian float32). One
+child, spawned on the first embed call and shared by every space worker.
+The stream carries one request at a time, shared through a one-slot
+semaphore with two classes: `EmbedDocs` sends one decode group per frame
+and re-takes the slot for every frame, and a search query takes the
+slot ahead of any waiting doc frame. After 8 consecutive query turns a
+doc frame runs anyway, so a saturating query stream still leaves
+indexing a frame per burst. Once the child is up, a query waits for at
+most the decode in flight (~1–2 s worst case for a 2048-token doc on
+CPU), never for a 64-doc batch. A cold spawn or a wedged child holds the
+slot longer; the query budget in § Search covers that. Acquisition is
+context-aware: a caller that gives up leaves the queue.
 
-**Why.** llama.cpp faults are not recoverable in Go. A Vulkan
-device-lost throws `vk::DeviceLostError` out of `vk::Queue::submit` and
-the C++ exception unwinds into a purego frame with no handler, so
-`std::terminate` aborts the process; `GGML_ASSERT` calls `abort()`
-outright. In-process, either one killed the whole server mid-decode. In
-the child they kill only the child: the round fails, its docs stay
-`pending`, and the next tick retries — the outage semantics this
-pipeline already has for an unreachable embedder.
+**Why a child.** llama.cpp faults are not recoverable in Go: a Vulkan
+device-lost throws a C++ exception through a purego frame with no
+handler (`std::terminate`), and `GGML_ASSERT` calls `abort()`. In the
+child they kill only the child: the round fails, its docs stay
+`pending`, and the next tick retries.
 
-**The child only embeds.** It is handed a model path and decode
-parameters and answers with vectors. It never opens the index db, the
-data dir, or any-store — the cursor, `pending` marking, `SetVectors` and
-the vector index all stay in the server, and so do model discovery and
-the background download (`index.model_download` reporting is unchanged).
+**The child only embeds.** It gets a model path and decode parameters
+and answers with vectors. It never opens the index db, the data dir or
+any-store; the cursor, `pending` marking, `SetVectors`, the vector index,
+model discovery and the download all stay in the server.
 
-**Failure handling.** A dead child, a desynchronized stream, or a
-frame that outlives `index.local.requestTimeout` (default 3m) kills
-the child and fails the round; the next round respawns behind an
-exponential backoff (1s → 1m). The timeout matters as much as the
-isolation — a wedged GPU stops answering rather than failing, so
-without a bound the embed loop waits forever. A timeout therefore counts
-as a fault and demotes the GPU, at the price of demoting a merely slow
-decode: one run at CPU speed against repeated multi-minute stalls. An
-error *frame* is different — the child reporting a failed call is still
-healthy and is kept. Its stderr is logged, and the tail is quoted when it dies — that
-is where llama.cpp's abort message lands. A caller that goes away is
-not a fault either: the server abandons the wait, not the work. Once a
-request is on the wire its answer has to be read for the stream to stay
-usable, so the frame (or a cold spawn) completes on its own, the child
-is kept, and the next caller finds it ready — a budgeted search never
-restarts a model load, and a dropped space costs one decode, not a
-respawn.
+**Failure handling.** A dead child, a desynchronized stream, or a frame
+that outlives `index.local.requestTimeout` (default 3 min) kills the
+child and fails the round; the next round respawns behind an exponential
+backoff (1 s → 1 min). The timeout exists because a wedged GPU stops
+answering rather than failing; it counts as a fault and demotes the GPU
+(below). An error *frame* is not a fault — the child stays. The child's
+stderr is logged, and its tail is quoted when it dies. A caller that
+goes away is not a fault either: a request already on the wire is read
+to completion so the stream stays usable, the child is kept, and the
+next caller finds it ready.
 
-**Priority.** The child runs *below* the server: `index.local.niceness`
-(default 10, 0 disables) nices it on Unix and drops it to a
-below-normal/idle priority class on Windows, so a full re-index yields
-to interactive work instead of competing with it. Nicing happens inside
-the child before llama.cpp loads — on Linux every existing task is
-niced, and the decode threads llama.cpp spawns later inherit it.
+**Priority.** The child runs below the server: `index.local.niceness`
+(default 10, 0 disables) nices it on Unix and lowers its priority class
+on Windows, applied before llama.cpp loads so its decode threads
+inherit it.
 
 **Hardware.** The child reports what llama.cpp initialized on — OS/arch,
-the backends that registered and the shared object each came from, the
-devices they found (GPU name and driver), the pinned llama.cpp release,
-CPU count and thread budget, plus `llama_print_system_info()` — in the
-`ready` frame. The server logs it on every spawn ("local embedder child
-started", with the CPU feature string at DEBUG) and keeps the last
-report behind `Indexer.EmbedHardware()`, so hardware can later be
-correlated with crashes and throughput. It is collected by filtering
-llama.cpp's own log callback down to the enumeration lines; everything
-else stays silent.
+registered backends and the shared object each came from, devices (GPU
+name and driver), the pinned llama.cpp release, CPU count and thread
+budget, `llama_print_system_info()` — in its `ready` frame. The server
+logs it on every spawn ("local embedder child started", CPU features at
+DEBUG) and keeps the last report behind `Indexer.EmbedHardware()`.
 
 **Threads.** `index.local.threads` is the child's CPU budget — lower it
-to keep background indexing off the user's cores. Set it in config and
-restart: `Indexer.SetEmbedThreads` changes it in place (the value lands
-on the spawn spec and an idle child is retired, so the next request
-comes up with the new count), but nothing calls it yet; it is the seam
-a settings surface plugs into.
+to keep background indexing off the user's cores. `Indexer.SetEmbedThreads`
+changes it at runtime (the next spawn uses it; an idle child is retired);
+no endpoint exposes it.
 
 ### GPU offload (local embedder)
 
 The shipped llama.cpp bundles are **GPU-capable with automatic CPU
-fallback**: macOS arm64 carries the Metal backend; Linux and Windows
-carry the **Vulkan** backend (cross-vendor: NVIDIA / AMD / Intel)
-alongside every `libggml-cpu-*` variant — the Vulkan archives are strict
-supersets of the CPU-only ones. Backend selection happens at model-load
-time through ggml's dynamic backend registry: a backend whose
-driver/loader is missing (no `libvulkan`, no ICD, headless box) simply
-doesn't register, and inference lands on the best CPU variant — same
-mechanism, no config, no error. llama.cpp's default model params offload
-all layers when a usable GPU device exists; `index.local.gpuLayers: 0`
-forces CPU-only inference (the opt-out when the embedder shouldn't take
-VRAM — full offload of the default model costs ~2 GB, dominated by
-compute buffers that scale with `contextSize`). It also turns
-llama.cpp's `op_offload` off: `n_gpu_layers` only places the *weights*,
-and with op offload left on a registered GPU still receives whole
-matmuls, so the compute never reaches the CPU threads. Measured on an
-RDNA2 iGPU with a 1200-token document: 6.6 s offloaded against 1.1 s
-across 16 CPU threads. That path is also the one that hangs the compute
-ring, so the crash demotion below depends on this too. Measured on a GTX 1080
-(478 editor-window docs, ~330 tokens each, `batchDocs` 16): CPU 240 s
-≈ 2.0 docs/s at ~14 cores vs Vulkan 56 s ≈ 8.5 docs/s — a ~4× win with
-the CPU left essentially idle.
+fallback**: macOS arm64 carries Metal; Linux and Windows carry
+**Vulkan** (NVIDIA / AMD / Intel) alongside every `libggml-cpu-*`
+variant. A backend whose driver or loader is missing doesn't register,
+and inference lands on the best CPU variant — no config, no error.
+llama.cpp offloads all layers when a usable GPU exists (full offload of
+the default model costs ~2 GB, dominated by compute buffers that scale
+with `contextSize`). `index.local.gpuLayers: 0` forces CPU-only
+inference: it also turns llama.cpp's op offload off, since `n_gpu_layers`
+only places the weights and a registered GPU would otherwise still run
+the matmuls. Measured on a GTX 1080 (478 editor windows, ~330 tokens
+each, `batchDocs: 16`): CPU ≈ 2.0 docs/s at ~14 cores vs Vulkan ≈ 8.5 docs/s with the CPU
+idle. An integrated GPU can be slower than the CPU (§ Tuning).
 
-**A GPU that dies mid-run does not take the server with it.** It kills
-the embedder child (above), and the parent demotes itself to CPU for the
-rest of the run: every later spawn passes `--gpu-layers 0`, one WARN
-names the reason and quotes the child's stderr, and the affected docs
-re-embed on CPU off the `pending` queue. The demotion is in-memory only
-— the next `any run` starts on the GPU again, so a driver or hardware
-fix recovers on its own and a permanently bad GPU costs one crashed
-child per run instead of a crash loop. Seen in the wild on an AMD iGPU
-that also drives the display: embedding load hangs the compute ring
-(`ring comp_* timeout` in the kernel log), the kernel resets it, and the
-in-flight submit comes back device-lost. On such a machine set
-`index.local.gpuLayers: 0` and skip the crashed child entirely.
+**A GPU that dies mid-run does not take the server down.** It kills the
+child, and the server demotes itself to CPU for the rest of the process:
+every later spawn passes `--gpu-layers 0`, one WARN names the reason and
+quotes the child's stderr, and the affected docs re-embed on CPU from
+the `pending` queue. The demotion is in-memory — the next start tries
+the GPU again. On a machine whose GPU reliably hangs under embedding
+load (an integrated GPU that also drives the display is the known case),
+set `index.local.gpuLayers: 0`.
 
-CUDA/ROCm builds are deliberately not
-bundled (per-vendor, hundreds of MB, no upstream Linux CUDA prebuilt);
-point `index.local.libDir` at a custom llama.cpp build to use them.
-
-**An unavailable embedder never breaks the pipeline.** There is no
-boot-time probe: whenever an embedder is *configured*, text-bearing
-docs are marked `pending` regardless of its reachability, so an outage
-— at boot or mid-run — only freezes the vector side while FTS indexes
-and answers normally. When the embedder comes back, the next embed
-round (nudge or 1-minute tick) drains the queue; the vector dimension
-is learned from the first successful batch (or pinned via
-`index.vector.dim`) and persisted in `_meta`, so a later model/dim
-change against a populated index is a loud error rather than silent
-corruption.
+CUDA and ROCm builds are not bundled; point `index.local.libDir` at a
+custom llama.cpp build to use them.
 
 ### Build tags — `fts` and `vector` (selecting the legs at compile time)
 
-The two search legs are **independently selectable at build time** via
-positive build tags, so a build can ship both, one, or neither:
+The two search legs are selected at build time by positive build tags:
 
 | Build | Tags | FTS | Vector / embeds |
-|-------|------|-----|------|
+|---|---|---|---|
 | Desktop / server (`make build`) | `fts vector` | on | on |
-| Darwin `-sandbox` tarball | `fts vector ffi_no_embed` | on | on (full, incl. `local`) |
+| Darwin `-sandbox` tarball | `fts vector ffi_no_embed` | on | on (incl. `local`) |
 | FTS-only | `fts` | on | off |
 | Vector-only | `vector` | off | on |
-| None (default `go build`) | *(none)* | off | off |
-| Mobile (gomobile) | *(none)* | off | **off (forced)** |
-| Mobile + FTS | `fts` | on | **off (forced)** |
+| Plain `go build` | *(none)* | off | off |
+| Android bind (`makefiles/android.mk`) | `gomobile fts` | on | **off (forced)** |
+| iOS c-archive (`scripts/build-xcframework.sh`) | `mobile fts` | on | **off (forced)** |
 
-The two legs are **separate, positive build flags** — a build opts each
-in. `make build` ships both; the default `go build` ships neither. The
-rule for `vector` is stronger than for `fts`:
+- **The vector leg is always off on mobile.** `capVector` is
+  `vector && !gomobile && !mobile`. On Android the embedder
+  implementations are not linked at all (`NewEmbedder` has a no-op
+  variant under `!vector || gomobile`): the `local` embedder's libffi
+  bindings resolve `ffi_prep_cif` at package load, which Android doesn't
+  provide, so a runtime toggle could not prevent the crash. No embedder
+  is constructed and no model is downloaded on either platform.
+- **`fts` is a plain opt-in**, available everywhere including mobile.
+- **`ffi_no_embed` is a packaging flag.** It compiles nothing out: the
+  `local` embedder, the ANN index and every mode keep working. It makes
+  jupiterrider/ffi use the system `/usr/lib/libffi.dylib` instead of a
+  copy extracted into the user Caches dir, which macOS library
+  validation refuses to load. Mechanism and consumer contract:
+  `18-ci.md` § The darwin `-sandbox` variants.
 
-- **`vector` / embeds are *always* off on mobile, regardless of tags.**
-  `capVector` is `vector && !gomobile`, so even `gomobile bind -tags
-  vector` keeps the whole embedding/ANN leg out — no embedder is
-  constructed, no model is downloaded, and the embedder implementations
-  (ollama, openai, and the llama.cpp-backed `local`) are not linked
-  at all. This is deliberate: the `local` embedder links the yzma /
-  jupiterrider-ffi llama.cpp bindings, whose libffi CIF descriptors
-  resolve `ffi_prep_cif` at package load — a symbol Android doesn't
-  provide, which panics the Go runtime at startup. A runtime toggle
-  can't prevent a load-time crash, so gomobile force-disables the leg at
-  compile time. Embedding has no place in the mobile runtime anyway.
-- **`fts` is a plain opt-in flag**, available everywhere including
-  mobile (`gomobile bind -tags fts` gives full-text search with no
-  embedder). Both mobile binds pass it: iOS `-tags 'mobile fts'`, Android
-  `ANY_TAGS := gomobile fts` (DROID-44). ~3 KB of AAR — any-store's
-  fulltext index links either way, the tag only lifts the gate.
-- **`ffi_no_embed` is a *packaging* flag, not a capability one.** Unlike
-  the mobile rule above it compiles nothing out of the search leg — the
-  `local` embedder, the ANN index and every mode keep working. It only
-  changes where libffi comes from: the system `/usr/lib/libffi.dylib`
-  (pinned by a companion `-ldflags -X`) instead of the copy
-  `jupiterrider/ffi` extracts into the user Caches dir at package init,
-  which macOS library validation refuses to load. The darwin `-sandbox`
-  release tarballs are built this way; the mechanism, the guard and the
-  consumer contract live in `docs/18-ci.md` § The darwin `-sandbox`
-  variants.
+Mechanics (`internal/indexer`): `capFTS` (`fts`) and `capVector` are
+build-tagged constants (`caps_fts_*.go`, `caps_vector_*.go`). When a cap
+is false the store creates no index for that leg (`spaceColl`) and the
+leg's search short-circuits to no hits; `capVector` false also stops
+docs being marked `pending`, so the embed loop never runs.
+`NewEmbedder` has the real switch in `embed_factory_vector.go` and the
+no-op in `embed_factory_novector.go`.
 
-Mechanics (`internal/indexer`):
-- `capFTS` (`fts`) and `capVector` (`vector && !gomobile`) are
-  build-tagged constants (`caps_fts_*.go`, `caps_vector_*.go`). When
-  false the store creates no index for that leg (`spaceColl`) and the
-  leg's search method short-circuits to no hits (`SearchFTS` /
-  `SearchVector` / `EnsureVectorIndex`); `capVector` false also stops
-  docs being marked `pending`, so the embed loop never runs.
-- `NewEmbedder` has two build-tagged variants: the real switch under
-  `vector && !gomobile` (`embed_factory_vector.go`) and a no-op
-  returning `nil` under `!vector || gomobile` (`embed_factory_novector.go`).
+Tags decide what is compiled; `index.enabled` / `index.embedder` decide
+what runs on top (there is no per-leg runtime flag). A server built with
+neither leg logs a warning at startup (`indexer.CompiledCaps`) — its
+`/search` returns no hits. A request carrying `require` / `exclude` on a
+build without the `fts` leg is refused (`409 index.terms_unsupported`):
+the terms could not be enforced. Tests covering a leg carry its tags
+(`make test` runs the `fts vector` suite).
 
-Tags decide what is *compiled*; the runtime `index.enabled` /
-`index.embedder` config decides what *runs* on top (there is no per-leg
-runtime flag — per-leg selection is the build tag). If `index.enabled`
-is set but the binary was built with neither leg, the server logs a
-warning at startup (`indexer.CompiledCaps`) so the empty-result state is
-observable, not silent. Tests covering either leg are tagged to match
-(`go test` without tags compiles but skips them; `make test` runs the
-full `fts vector` suite).
+On the embedded path (`internal/embedded.Start`) the compiled `fts` cap
+is the whole gate, and `index.embedder` is forced to `"none"`.
 
-On the mobile embed path (`internal/embedded.Start`) there is no config
-file and no host parameter: the compiled `fts` cap is the whole gate, so
-both shims run the indexer exactly when their binary was built with the
-tag (both are). `index.embedder` is hard-forced to `"none"` on this path
-regardless — no embedder is ever constructed on mobile.
-
-A mobile host that can't open its index gets a distinguishable failure:
-`ErrIndexRebuildRequired` (schema version or vector dimension mismatch,
-`internal/indexer/errors.go`) reaches the iOS shim as start code `4`, so
-the app can offer "reset local data" instead of a generic retry. The index
-is a derived cache, so deleting it is always the whole fix.
+A host that can't open its index gets a distinguishable failure:
+`ErrIndexRebuildRequired` (schema version, vector dimension or chunk
+target mismatch, `internal/indexer/errors.go`) reaches the iOS shim as
+start code `4`, so the app can offer "reset local data". The index is a
+derived cache, so deleting it is always the whole fix.
 
 ### Search
 
 `POST /v1/spaces/:spaceId/search` `{query, scopes?, limit?, mode?,
 require?, exclude?, maxData?, passages?}` →
-`{hits: [{scope, objectId, dataset, recordId, chunk?, data,
-dataOffset?, dataTotal, score, passages?}], mode, vectorStatus}`. Modes: `fts` (BM25), `vector` (cosine ANN; requires an
-embedder, hits below the similarity floor are dropped as noise), `hybrid`
-(default — both legs fused by reciprocal rank, k=60; degrades to `fts`
-when the embedder is missing or the query embedding fails or exceeds
-its budget — `mode` in the reply is the mode that actually ran). The
-query embedding is bounded (`index.search.queryEmbedTimeout`, default
-5 s): a cold model load, a wedged child or a slow API degrades the
-search instead of holding it, and a caller that disconnects leaves the
-embedder's queue at once. Under `auto` the online primary gets half of
-the remaining budget so the local fallback still has time to decode. Scores are comparable only
-within one response. CLI: `any search <spaceId> <query> [--scopes ...]
-[--limit N] [--mode ...] [--require T ...] [--exclude T ...]
-[--max-data N] [--passages N]`.
+`{hits: [{scope, objectId, dataset, recordId, chunk?, data, dataOffset?,
+dataTotal, score, passages?}], mode, vectorStatus}`.
+
+Modes: `fts` (BM25), `vector` (cosine ANN; requires an embedder; hits
+with similarity ≤ 0 — or ≤ `minVectorSim` — are dropped), `hybrid`
+(default — both legs fused by reciprocal rank, k = 60; degrades to `fts`
+when no embedder is configured or the query embedding fails or exceeds
+its budget — `mode` in the reply is the mode that ran). The query
+embedding is bounded by `index.search.queryEmbedTimeout` (default 5 s,
+every embedder): a cold model load, a wedged child or a slow API
+degrades the search instead of holding it, and a caller that disconnects
+leaves the embedder's queue at once. Scores are comparable only within
+one response. `limit` defaults to 10 and is clamped to 100. CLI:
+`any search <spaceId> <query> [--scopes a,b] [--limit N] [--mode …]
+[--require T …] [--exclude T …] [--max-data N] [--passages N]`.
 
 **`limit` counts records.** A hit is one `(objectId, dataset,
-recordId)`, shown through its best-ranked chunk; the other chunks of
-the record that ranked within the search window come back as
-`passages` (`passages: N`, max 10, best first, same window fields).
-Each leg reads a window that is at least `fetch = clamp(3·limit, 30,
-100)` chunks and continues until it covers enough distinct records —
-`2·limit` for the lexical leg, `limit` for the vector leg — capped at
-1000 chunks (`maxLegFetch`). The lexical leg is one any-store cursor
-opened without `Limit` and pulled to that rule (`Store.openFTS` /
-`Indexer.ftsLeg`): any-store ranks every match before the first row
-whatever the `Limit`, and only materializes what is pulled, so the
-deeper read costs ~1 µs per row and an early `Close` is free
-(§ Tuning).
-The vector leg has no cursor — `$knn` computes its `K` nearest up
-front — so it re-queries with `K` ×4 until covered, or until the index
-reports fewer than `K` candidates: an IVF search reaches only the
-probed cells (~4√N docs at nprobe 16), and past that no `K` or `ef`
-finds more. Under a scope filter any-store sizes its candidate beam
-from `K` (a residual thins the beam before the cut to `K`), so a short
-round only ends the leg once a wider `K` stopped adding rows
-(`vectorStop`); rows dropped by the similarity floor end it at once,
-everything farther being noise too. Fusion stays per chunk (`fuseRRF`, keyed by chunk doc id,
-so a long record never gains rank mass from chunk count) and
-`groupHits` then collapses chunks into records scored by their best
-chunk — max, never sum. Two consequences to design against: the fused
-order is reciprocal rank over those bounded windows (a record deep in
-both legs can outrank one shallow in one leg — as before), and when one
-record dominates a whole window the reply can hold fewer than `limit`
-records although the index has more. The reply is bounded by `limit ×
-(1 + passages) × maxData` runes of text (chunk size, ~2000 runes, in
-place of `maxData` when it is -1). Work order in
-`Indexer.Search`: query embedding, then the vector leg, then the
-lexical cursor — no read transaction is held across the embed wait or
-another store call (an open cursor pins a reader slot, a page cache and
-a WAL read-mark until `Close`).
+recordId)`, shown through its best-ranked chunk; the record's other
+chunks that ranked within the search window come back as `passages`
+(`passages: N`, max 10, best first, same window fields). Each leg reads
+at least `fetch = clamp(3·limit, 30, 100)` chunks and continues until it
+covers enough distinct records — `2·limit` for the lexical leg, `limit`
+for the vector leg — capped at 1000 chunks (`maxLegFetch`). The lexical
+leg is one any-store cursor opened without `Limit` and pulled to that
+rule (`Store.openFTS` / `Indexer.ftsLeg`): any-store ranks every match
+before the first row whatever the `Limit` and materializes only what is
+pulled, so the deeper read costs ~1 µs per row and an early `Close` is
+free (§ Tuning). The vector leg has no cursor — `$knn` computes its `K`
+nearest up front — so it re-queries with `K` ×4 until covered, or until
+the index returns fewer than `K` candidates: an IVF search reaches only
+the probed cells (~4√N docs at nprobe 16). Under a scope filter
+any-store sizes its candidate beam from `K`, so a short round ends the
+leg only once a wider `K` stopped adding rows (`vectorStop`); rows
+dropped by the similarity floor end it at once. Fusion is per chunk
+(`fuseRRF`, keyed by chunk doc id, so a long record never gains rank
+mass from chunk count), then `groupHits` collapses chunks into records
+scored by their best chunk — max, never sum. Two consequences: the fused
+order is reciprocal rank over bounded windows (a record deep in both
+legs can outrank one shallow in one leg), and when one record dominates
+a whole window the reply can hold fewer than `limit` records although
+the index has more. The reply is bounded by `limit × (1 + passages) ×
+maxData` runes of text (the chunk size, ~2000 runes, in place of
+`maxData` when it is -1). Work order in `Indexer.Search`: query
+embedding, then the vector leg, then the lexical cursor — no read
+transaction is held across the embed wait or another store call (an open
+cursor pins a reader slot, a page cache and a WAL read-mark until
+`Close`).
 
-**Hit `data` is a window, not the record.** Each hit's `data` is at
-most `maxData` runes (default 512; `-1` = the whole chunk text) cut
-around the first occurrence of any query / `require` term — the head
-when none occurs literally (a vector-only hit) — snapped to word
-boundaries. `dataOffset` is the window's rune offset into the chunk's
-indexed text and `dataTotal` that text's rune length, so a client can
-tell a clipped preview from the full text and ask for more. `chunk`
-(omitted when 0) is which chunk of the record the hit is (§ Chunking
-long records). The full record is one dataset query away.
+**Hit `data` is a window, not the record.** Each hit's `data` is at most
+`maxData` runes (default 512; `-1` = the whole chunk text), placed around
+the most selective query / `require` term that occurs in the chunk (terms
+tried longest first, stop words excluded, token-boundary matches
+preferred) — the head when none occurs (a vector-only hit) — and snapped
+to word boundaries. `dataOffset` is the window's rune offset into the
+chunk's indexed text and `dataTotal` that text's rune length, so a
+client can tell a clipped preview from the full text. `chunk` (omitted
+when 0) names the chunk (§ Chunking long records). The full record is
+one dataset query away.
 
-**FTS query operators (lexical leg).** `query` itself understands
-`"quoted phrases"` (matched by adjacency) and trailing-`*` prefixes
-(`zepp*`). `require` / `exclude` are arrays of extra must / must-not
-terms ($require / $exclude — a hit must contain every `require` term and
-no `exclude` term); each may itself be a phrase or prefix. A bare term
-alongside a `require` is an optional boost, not a filter (Lucene
-should-semantics). Phrases / prefixes in `query` shape the FTS leg only;
-`require` / `exclude` bind every hit: the vector leg is post-filtered
-against the FTS index (`Store.FilterTerms`, one `$text` query restricted
-to the leg's hit ids — any-store prices that restriction against the
-posting lists and probes per candidate when cheaper) before fusion, so
-hybrid and pure `vector` honor
-them too — the contract is "must contain / must not contain", not "the
-lexical leg agreed". Stop-word stripping is skipped when `query` contains
-a `"` so phrases survive intact.
+**FTS query operators.** `query` understands `"quoted phrases"` (matched
+by adjacency) and trailing-`*` prefixes (`zepp*`). `require` / `exclude`
+are arrays of must / must-not terms; each may itself be a phrase or
+prefix. A bare term alongside a `require` is an optional boost, not a
+filter. Phrases and prefixes in `query` shape the FTS leg only;
+`require` / `exclude` bind every hit in every mode: the vector leg is
+post-filtered against the FTS index (`Store.FilterTerms`, one `$text`
+query restricted to the leg's hit ids) before fusion — the contract is
+"must contain / must not contain", not "the lexical leg agreed".
+Stop-word stripping is skipped when `query` contains a `"`, so phrases
+survive intact.
 
-**Ranking knobs (`index.search.*`, docs/05-config.md).** Three app-side
-dials, all defaulting to pre-tuning behavior so an absent config block
-changes nothing (chunker-hybrid-search-report § 5, measured with
-`internal/indexer/eval_test.go`):
+**Ranking knobs (`index.search.*`, `05-config.md`).** Measured in
+`search/README.md`:
+
 - **Stop-word stripping** (`stopWords`, default **on**) — a small English
-  stop list is removed from the **FTS-leg** query only (the vector leg
-  always gets the full query). On a bag-of-words OR engine every common
-  word matches a large fraction of the corpus and pulls BM25 toward
-  length/frequency noise; dropping them is a precision win. Built-in list
-  in `internal/indexer/stopwords.go`; an all-stop-words query is left
-  unchanged rather than emptied.
-- **Weighted RRF** (`ftsWeight` / `vectorWeight`, default 1/1) — scales
-  each leg's fusion contribution. Lower `vectorWeight` to trust the
-  lexical leg more while the dense leg is noisy (short chunks / weak
-  embedder).
+  stop list (`stopwords.go`) is removed from the FTS-leg query only; the
+  vector leg gets the full query. An all-stop-words query is left
+  unchanged.
+- **Weighted RRF** (`ftsWeight` / `vectorWeight`, default 1 / 1) — scales
+  each leg's fusion contribution.
 - **Adaptive leg weighting** (`adaptiveWeights`, default **off**) —
-  down-weights the FTS leg per query by its score concentration so a
-  flat/weak BM25 distribution (paraphrastic queries) can't drag hybrid
-  below the dense leg. Asymmetric (FTS only — cosine is uncalibrated).
-  Measured win on weak-lexical corpora, small cost on lexical-friendly;
-  opt-in. docs/search/README.md § per-corpus leg weighting.
+  down-weights the FTS leg per query by its score concentration, so a
+  flat BM25 distribution (paraphrastic queries) can't drag hybrid below
+  the dense leg. FTS only — cosine is uncalibrated. Wins on weak-lexical
+  corpora, small cost on lexical-friendly ones (`search/README.md`
+  § Per-corpus leg weighting).
 - **Default operator** (`defaultOperator`, default `or`) — `and` makes
-  bare FTS terms all-required. **Measured caveat:** AND over
-  natural-language queries is catastrophic (BEIR nDCG@10 SciFact
-  0.66→0.02, FiQA 0.23→0.03) because few docs contain *every* query term;
+  bare FTS terms all-required. AND over natural-language queries
+  collapses recall (BEIR nDCG@10: SciFact 0.66 → 0.02, FiQA 0.23 → 0.03);
   use it only for short keyword input the client controls. Phrase /
-  `require` / `exclude` are the precise-query tools that don't have this
-  recall cliff.
-- **Vector similarity floor** (`minVectorSim`, default 0 = the legacy
-  "> 0" floor) — drops vector hits at/below the cutoff before fusion.
-  **Measured caveat:** for the default local model
-  (Qwen3-Embedding-0.6B) a static floor is a poor noise filter —
-  gibberish queries score ~0.6 cosine, on par with on-topic, and *above*
-  real off-topic queries (`internal/indexer/live_probe_test.go`), so any
-  cutoff that drops noise also drops signal. Keep 0 for that model and
-  let RRF + the FTS leg do the discrimination; raise it only for a
-  better-calibrated embedder (e.g. OpenAI).
+  `require` / `exclude` give precision without that cliff.
+- **Vector similarity floor** (`minVectorSim`, default 0 = similarity
+  must be > 0) — drops vector hits at or below the cutoff before fusion.
+  For the default local model a static floor filters signal along with
+  noise: gibberish queries score ~0.6 cosine, on par with on-topic
+  queries (`live_probe_test.go`). Keep 0 for that model.
+- **BM25 parameters** (`bm25B`, `bm25K1`, `titleWeight`, default 0 =
+  engine defaults, no title field). Set at index creation: changing `b` /
+  `k1`, or `titleWeight` from 0 to non-zero, needs a rebuild; a change
+  between non-zero title weights applies at query time.
 
 `vectorStatus` (`used` / `unavailable` / `disabled` / `skipped`) tells
-the consumer whether semantic recall took part and why not — an agent
-can distinguish "lexical-only because the embedder is momentarily down
-or too slow, retry may differ" (`unavailable`) from "this server never
-runs vector search" (`disabled`). Value table in `docs/03-api.md` § search.
+the consumer whether semantic recall took part and why not —
+`unavailable` (the configured embedder did not answer in time; a retry
+may differ) versus `disabled` (this server never runs vector search).
+Value table: `03-api.md` § POST /v1/spaces/:spaceId/search.
 
-This is the one sanctioned endpoint that does not map 1:1 onto an SDK
-method — the index is a consumer-side feature, owned by this doc.
+The endpoint is consumer-side: no SDK method sits behind it.
 
-**Agent-facing tool.** The agent harness (anybao) wraps this endpoint as
-its recall tool. `spaceId` is a plain path parameter, so one tool covers
-every space on the account — recall in another space is the same call
-with a different id, not a different code path.
+Errors:
 
-Errors: `index.disabled` (409, `index.enabled: false`),
-`index.no_embedder` (400, `mode=vector` with no embedder configured),
-`index.embedder_unavailable` (503, `mode=vector` while the configured
-embedder is unreachable or did not answer within the query budget —
-retryable; hybrid degrades instead),
-`search.bad_mode` / `search.bad_scope` (400).
+| code | status | when |
+|---|---|---|
+| `request.missing_field` | 400 | no `query` |
+| `request.bad` | 400 | `limit` < 0 |
+| `request.invalid_field` | 400 | `maxData` < -1, `passages` outside 0..10 |
+| `search.bad_mode` / `search.bad_scope` | 400 | unknown mode / scope not a slug |
+| `index.no_embedder` | 400 | `mode=vector` with no embedder configured |
+| `index.disabled` | 409 | `index.enabled: false` |
+| `index.terms_unsupported` | 409 | `require` / `exclude` on a build without the `fts` leg |
+| `index.embedder_unavailable` | 503 | `mode=vector` while the embedder is unreachable or over the query budget — retryable; hybrid degrades instead |
 
 ### Tuning (measured — `internal/indexer/bench_test.go`)
 
 Defaults in `indexer.Options`, picked from file-backed benchmarks:
 
 | Dial | Default | Why |
-|------|---------|-----|
-| `BatchLimit` (ChangedSince page = Apply tx) | 256 | FTS insert throughput plateaus at 256 docs/tx (~65k docs/s vs ~52k at 16); one page ≈ 4ms. Bigger pages add page latency, not throughput. |
-| `EmbedBatch` (texts per EmbedDocs call) | 64 | Real Ollama embeddinggemma: 54/72/76.5/78.6 texts/s at 8/32/64/128 — ≥97% of max at 64, half the per-call latency of 128. The embedder is the pipeline bottleneck by ~3 orders of magnitude (vs ~30k vecs/s IVF-SQ insert, flat across batch sizes) — which is exactly why embedding lives off the advance path. |
-| `Debounce` (dirty → advance) | 250ms | A no-op advance is sub-ms; the dial only coalesces write bursts into one page / fuller embed batches, trading freshness. |
-| `RetryBackoff` / `PendingEvery` | 5s / 1m | Failure paths only: advance retry, embed catch-up tick. |
+|---|---|---|
+| `BatchLimit` (ChangedSince page = write tx) | 256 | FTS insert throughput plateaus at 256 docs/tx (~65k docs/s vs ~52k at 16); one page ≈ 4 ms. Bigger pages add latency, not throughput. |
+| `EmbedBatch` (texts per EmbedDocs call) | 64 | Ollama embeddinggemma: 54 / 72 / 76.5 / 78.6 texts/s at 8 / 32 / 64 / 128 — ≥97% of max at 64, half the per-call latency of 128. The embedder is the bottleneck by ~3 orders of magnitude (vs ~30k vecs/s IVF-SQ insert), which is why embedding lives off the advance path. |
+| `Debounce` (dirty → advance) | 250 ms | A no-op advance is sub-ms; the dial only coalesces write bursts into one page. |
+| `RetryBackoff` / `PendingEvery` | 5 s / 1 min | Failure paths: advance retry, embed catch-up tick. |
 
-Search at 10k docs (dim 768): FTS ≈ 1.9ms, vector ≈ 1.0ms per query.
+Search at 10k docs (dim 768): FTS ≈ 1.9 ms, vector ≈ 1.0 ms per query.
 
 Reading past a fixed `Limit` (`BenchmarkCutoff`, file-backed, dim 256,
 one term matching ~half the corpus; medians of `-count 3 -benchtime
@@ -1025,23 +891,18 @@ pulled before `Close`):
 | `$knn` K=1000 with a scope residual | 0.53 ms (316 rows) | 1.43 ms (633 rows) |
 | `$knn` K=1000, closed after 30 rows | 0.24 ms | 0.55 ms |
 
-So a `Limit` buys nothing on the lexical leg — the BM25 accumulation
-and full sort are paid before the first row either way (the same
-7.5 MB/op at 100k with or without `Limit`), and `Limit(30)` vs
-no-`Limit`-closed-at-30 are equal within the spread; each extra row
-pulled costs ~1 µs over the first thousand and ~2 µs deep into a drain
-(the page cache stops helping); the vector leg's reach is the probed
-IVF cells (K=1000 returns 600 rows at 10k docs), an explicit `ef` of
-10000 changes nothing, and an early `Close` saves only the per-row
-fetch. An open iterator pins ~0.7 MiB (`$text`) / 0.2 MiB (`$knn`) and
-releases it all on `Close` (`TestIteratorEarlyCloseNoLeak`). End to end
-on the same corpus plus five 17-chunk records and one short record
-sharing a rare term, `limit 10`: fts answered 10 hits of ONE record
-before this change and answers the six matching records now in 0.19 ms;
-hybrid answered six records before and ten now in 0.42 ms (10k) /
-0.51 ms (100k) — the deeper pull stays well inside one millisecond.
-Timings drift 2–3× when the box is busy (a local LLM server, the
-indexer's own embedder), so re-measure idle, with
+A `Limit` buys nothing on the lexical leg — BM25 accumulation and the
+full sort are paid before the first row either way (the same 7.5 MB/op
+at 100k) — and each extra row pulled costs ~1 µs over the first thousand,
+~2 µs deep into a drain. The vector leg's reach is the probed IVF cells
+(K=1000 returns 600 rows at 10k docs); an explicit `ef` of 10000 changes
+nothing, and an early `Close` saves only the per-row fetch. An open
+iterator pins ~0.7 MiB (`$text`) / 0.2 MiB (`$knn`) and releases it all
+on `Close` (`TestIteratorEarlyCloseNoLeak`). End to end on the same
+corpus plus five 17-chunk records and one short record sharing a rare
+term, `limit 10` answers the six matching records in 0.19 ms (fts) and
+ten records in 0.42 ms (hybrid, 10k) / 0.51 ms (100k). Timings drift 2–3×
+on a busy machine; re-measure idle with
 `ANY_CUTOFF_BENCH_SIZES=10000,100000 go test -tags 'fts vector' -run '^$'
 -bench BenchmarkCutoff -benchmem -benchtime 100x -count 3
 ./internal/indexer`.
@@ -1051,99 +912,104 @@ looping 2000-rune frames — `TestWorkerEmbedder_RealChild_QueryLatency`,
 Qwen3-Embedding-0.6B Q8, 20 jittered queries): the wait is half a doc
 decode on average, never more than one.
 
-| Machine / mode | doc decode under load | query p50 / p90 / max |
+| Hardware / mode | doc decode under load | query p50 / p90 / max |
 |---|---|---|
-| Ryzen 9 9950X, CPU 16 threads | 297ms (3.3 frames/s) | 214 / 318 / 352ms |
-| Ryzen 9 9950X, iGPU (RADV, Vulkan) | 755ms (0.9/s) — slower than its CPU | 710 / 825 / 836ms |
-| Ryzen 9 3900X, CPU 23 threads (default) | 383ms (1.2/s) | 345 / 496 / 600ms |
-| Ryzen 9 3900X, CPU 12 threads | 470ms (1.1/s) | 479 / 720 / 753ms |
-| GeForce GTX 1080, Vulkan | 181ms (5.6/s) | 107 / 186 / 199ms |
+| Ryzen 9 9950X, CPU 16 threads | 297 ms (3.3 frames/s) | 214 / 318 / 352 ms |
+| Ryzen 9 9950X, iGPU (RADV, Vulkan) | 755 ms (0.9/s) — slower than its CPU | 710 / 825 / 836 ms |
+| Ryzen 9 3900X, CPU 23 threads (default) | 383 ms (1.2/s) | 345 / 496 / 600 ms |
+| Ryzen 9 3900X, CPU 12 threads | 470 ms (1.1/s) | 479 / 720 / 753 ms |
+| GeForce GTX 1080, Vulkan | 181 ms (5.6/s) | 107 / 186 / 199 ms |
 
 End to end on the 9950X CPU (server + 360-chunk backlog draining, 110
-hybrid `/search` calls over HTTP): p50 212ms, p90 306ms, max 446ms,
-every reply `mode=hybrid` / `vectorStatus=used`.
-Re-measure with `go test ./internal/indexer -bench . -benchtime 30x`
-(`ANY_BENCH_OLLAMA=1` adds the real-embedder run).
+hybrid `/search` calls over HTTP): p50 212 ms, p90 306 ms, max 446 ms,
+every reply `mode=hybrid` / `vectorStatus=used`. Re-measure the
+`Options` dials with `go test -tags 'fts vector' ./internal/indexer
+-bench . -benchtime 30x` (`ANY_BENCH_OLLAMA=1` adds the real-embedder
+run).
 
 ### Known limits
 
-- "Index from the next change" applies to the whole pipeline: removing
-  `<data-dir>/index/` does **not** re-index old content — only rows
-  whose `_addSeq` moves afterwards get (re-)indexed.
-- Embedder latency only delays the vector leg: fresh writes are FTS-
-  searchable immediately and gain vector recall once embedded. At query
-  time the local child serves a search ahead of doc frames (wait ≤ one
-  decode) and the embedding is capped (`index.search.queryEmbedTimeout`,
-  default 5 s), past which hybrid answers lexical-only.
-- **Embedder input is still clamped**, per SEQUENCE, to
+- Removing `<data-dir>/index/` rebuilds every space from cursor 0 — FTS
+  catches up quickly, every text doc re-embeds.
+- Embedder latency only delays the vector leg: fresh writes are
+  FTS-searchable immediately and gain vector recall once embedded. At
+  query time the local child serves a search ahead of doc frames (wait ≤
+  one decode) and the embedding is capped
+  (`index.search.queryEmbedTimeout`, default 5 s), past which hybrid
+  answers lexical-only.
+- **Embedder input is clamped** per sequence to
   `index.local.contextSize / index.local.batchDocs` tokens (default
-  2048 / 1 = 2048, EOS preserved for last-token pooling). Chunking
-  (§ Chunking long records, 2000-rune target) keeps every chunk inside
-  it for prose; a chunk of dense CJK or code can still exceed the clamp
-  and embed head-only — FTS covers its full text regardless. Raising
-  `batchDocs` lowers this bound proportionally.
+  2048 / 1 = 2048, EOS preserved for last-token pooling). The 2000-rune
+  chunk target keeps prose inside it; a chunk of dense CJK or code can
+  exceed the clamp and embed head-only — FTS covers its full text.
 - **`require` / `exclude` bind the hit, i.e. the chunk**: a term that
   appears only in another chunk of the same record does not satisfy a
-  `require` for this one — and a passage is only ever a chunk that
-  satisfied them itself.
+  `require` for this one, and a passage is always a chunk that satisfied
+  them itself.
 - **Passages are the window's, not the record's.** `passages` lists a
   record's other chunks that ranked within the legs' windows (≤ 1000
-  chunks deep); a record whose chunks all match still shows only the
-  ones the legs reached.
+  chunks deep); a record whose chunks all match shows only the ones the
+  legs reached.
 
 ## Tests
 
 - `internal/index/stream_test.go` — `RecordsSince` chains the
-  IncludeDeleted projection + `_addSeq` window + sort, parses the seq,
-  and stops + closes on a yield error; `IsDeleted`.
+  IncludeDeleted projection + `_applySeq` window + sort, parses the seq,
+  stops and closes on a yield error; `IsDeleted`.
+- `internal/index/prop_test.go`, `internal/index/schema_test.go` — the
+  prop and schema chunkers.
 - `internal/editor/chunker_test.go`, `internal/chat/chunker_test.go` —
   text extraction including the tombstone case.
 - `anyuri/links_test.go`, `internal/index/links_test.go`,
-  `internal/editor/links_test.go`, `internal/chat/links_test.go` —
-  the link scanner, canonical targets, marker resolution, the card /
-  embed rules, chat attachments; `internal/indexer/links_store_test.go`
-  — the link sink (replace / rewrite / eviction / backfill stamp),
-  untagged on purpose; `internal/server/handlers_links_test.go` — the
-  index end to end over HTTP; `internal/e2e/multipeer_links_test.go` —
-  the joiner's index sees the owner's block link and its deletion.
+  `internal/editor/links_test.go`, `internal/chat/links_test.go` — the
+  link scanner, canonical targets, marker resolution, the card / embed
+  rules, chat attachments; `internal/indexer/links_store_test.go` — the
+  link sink (replace / rewrite / eviction / backfill stamp), untagged;
+  `internal/server/handlers_links_test.go` — the index end to end over
+  HTTP; `internal/e2e/multipeer_links_test.go` — a joiner's index sees
+  the owner's block link and its deletion.
 - `internal/server/handlers_index_test.go::TestIndexChunkers_FullFlow` —
-  in-process SDK end to end: creation, cursor advance, deletions
-  (tombstones), and the non-memory tombstone case.
+  the chunkers in-process against a live SDK: creation, cursor advance,
+  tombstones.
+- `internal/server/handlers_indexer_test.go` — the indexer end to end:
+  cold sync, tail catch-up, type-detach and object-delete eviction,
+  editor coalescing and embed reuse, embedder outage, realtime updates,
+  type definitions excluded, default-on props;
+  `handlers_index_schema_test.go` — the schema chunker.
 - `internal/indexer` unit tests — store round-trips (FTS + vector +
-  pending lifecycle + purge/drop, in-memory any-store), RRF fusion
-  and record grouping (`rrf_test.go`), the HTTP embedder clients
-  against `httptest` servers.
-- `internal/indexer/search_terms_test.go` — `require`/`exclude` in every
-  mode, chunk windows + `maxData`, and
+  pending lifecycle + purge/drop, in-memory any-store), chunking
+  (`chunk_test.go`), RRF fusion and record grouping (`rrf_test.go`),
+  snippets, generation re-index, spawn retry, the HTTP embedder clients
+  against `httptest` servers, the `auto` fallback breaker.
+- `internal/indexer/search_terms_test.go` — `require` / `exclude` in
+  every mode, chunk windows + `maxData`, and
   `TestIndexer_SearchLimitCountsRecords`: a 17-chunk record whose every
   chunk outranks a short exact match, `limit 10` in fts / hybrid /
   vector → both records, passages on the long one.
-- `internal/indexer/cutoff_leak_test.go` — an any-store `$text` (with
-  and without `Limit`) and `$knn` iterator closed after a few rows, 500
+- `internal/indexer/cutoff_leak_test.go` — an any-store `$text` (with and
+  without `Limit`) and `$knn` iterator closed after a few rows, 500
   times: no goroutine, no retained heap, reader slots released, a write
   and the DB close go through afterwards.
 - `internal/indexer/embed_local_test.go` — local embedder factory and
-  pre-ready errors (no libs/model needed), `truncateTokens` (EOS
-  preservation), `l2Normalize`, Matryoshka dim; plus a gated
-  integration test (`ANY_TEST_LOCAL_EMBEDDER=1` +
-  `ANY_INDEX_LOCAL_MODEL_PATH`) running the real model: dims, unit
-  norms, relevance ordering, truncation path, concurrency under
-  `-race`.
-- `internal/indexer/embed_local_download_test.go` — download manager
+  pre-ready errors (no libs/model needed), token truncation (EOS
+  preservation), `l2Normalize`, Matryoshka dim; plus a gated integration
+  test (`ANY_TEST_LOCAL_EMBEDDER=1` + `ANY_INDEX_LOCAL_MODEL_PATH`)
+  running the real model: dims, unit norms, relevance ordering,
+  truncation, concurrency under `-race`.
+- `internal/indexer/embed_local_download_test.go` — the download manager
   against `httptest`: happy path, sha256 mismatch, Range resume,
   progress strings.
-- `internal/indexer/embed_worker_test.go` — the child supervisor
-  against a helper process (this test binary re-exec'd, speaking the
-  frame protocol in place of a model): per-frame batching, a query
-  jumping the doc queue, abandoned callers (queue and mid-frame) keeping
-  the child, crash → CPU demotion, request timeout, spawn backoff,
-  `SetThreads` idle/busy, `Close` mid-request and mid-spawn; plus a
-  gated real-child comparison against the in-process model.
-- `internal/indexer/search_budget_test.go` — the query-embedding
-  budget in `Search`: hybrid degrades to fts/`unavailable`, vector
-  fails as embedder-unavailable, a cancelled caller gets its own
-  cancellation.
+- `internal/indexer/embed_worker_test.go` — the child supervisor against
+  a helper process (the test binary re-exec'd, speaking the frame
+  protocol in place of a model): per-frame batching, a query jumping the
+  doc queue, abandoned callers keeping the child, crash → CPU demotion,
+  request timeout, spawn backoff, `SetThreads` idle/busy, `Close`
+  mid-request and mid-spawn; plus a gated real-child comparison against
+  the in-process model.
+- `internal/indexer/search_budget_test.go` — the query-embedding budget
+  in `Search`: hybrid degrades to fts / `unavailable`, vector fails as
+  embedder-unavailable, a cancelled caller gets its own cancellation.
 - `internal/server/handlers_search_test.go` — in-process SDK + in-memory
-  store + deterministic fake embedder: all three modes end to end,
-  scope filtering, deletion purge, degraded/disabled errors, and the
+  store + deterministic fake embedder: all three modes end to end, scope
+  filtering, deletion purge, degraded / disabled errors, and the
   asynchronous worker path (`Start` + poll).

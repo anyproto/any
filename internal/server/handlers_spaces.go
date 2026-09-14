@@ -280,13 +280,9 @@ func (d *deps) spaceList(c echo.Context) error {
 	if err != nil {
 		return spaceError(c, err, "")
 	}
-	// TEMPORARY WORKAROUND: default the list to active spaces only.
-	// Soft-deleted spaces are never offloaded yet (no proper space
-	// deletion / offloading — see docs/07-roadmap.md), so the raw list
-	// accumulates dozens of dead rows that swamp the real ones. Until
-	// that lands, hide non-active rows by default; `?status=all` (or an
-	// explicit status string) opts back into the full list. Remove this
-	// filter once deletion actually reclaims the rows.
+	// Default to active spaces only: deleted rows stay in the list as
+	// sticky tombstones, and pending/declined 1-1s are requests, not
+	// spaces. `?status=all` (or an explicit status) opts into the rest.
 	statusFilter := c.QueryParam("status")
 	if statusFilter == "" {
 		statusFilter = api.SpaceStatusActive

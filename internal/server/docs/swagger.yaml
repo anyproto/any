@@ -165,7 +165,7 @@ components:
             beyond the kind — the semantic slug, icon, ordering key, option
             set, relation targets, per-format config (docs/27-descriptors.md).
             An object; the server validates the keys it interprets (type,
-            icon, pos, options, relation, config) against the vocabulary and
+            icon, pos, options, relation, config, links) against the vocabulary and
             the slug against kind, stores vendor-namespaced keys verbatim,
             and reserves validate / compute. Every path under it is mutable
             via PATCH.
@@ -2704,8 +2704,8 @@ components:
           type: object
         includeTotal:
           description: |-
-            IncludeTotal populates `total` + `hasNext` in the snapshot reply.
-            Page-bounded in the current SDK — see docs/09-query.md caveat.
+            IncludeTotal populates `total` (every match, regardless of
+            limit/offset) + `hasNext` in the snapshot reply.
           type: boolean
         limit:
           description: Limit bounds the window; 0 or absent = unbounded.
@@ -2808,8 +2808,8 @@ components:
           type: object
         includeTotal:
           description: |-
-            IncludeTotal populates `total` + `hasNext` in the snapshot reply.
-            Page-bounded in the current SDK — see docs/09-query.md caveat.
+            IncludeTotal populates `total` (every match, regardless of
+            limit/offset) + `hasNext` in the snapshot reply.
           type: boolean
         limit:
           description: Limit bounds the window; 0 or absent = unbounded.
@@ -2878,8 +2878,8 @@ components:
           type: boolean
         includeTotal:
           description: |-
-            IncludeTotal populates `total` + `hasNext` in the snapshot reply.
-            Page-bounded in the current SDK — see docs/09-query.md caveat.
+            IncludeTotal populates `total` (every match, regardless of
+            limit/offset) + `hasNext` in the snapshot reply.
           type: boolean
         limit:
           description: Limit bounds the window; 0 or absent = unbounded.

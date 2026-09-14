@@ -1,12 +1,12 @@
 # 20 — Push notifications
 
-Mobile push for chat (SYN-47), interoperating with the same
+Mobile push for chat, interoperating with the same
 `anytype-push-server` deployment anytype-heart uses — topic vocabulary,
 payload shape, and crypto are byte-compatible, so an `any`-backed mobile
 shell and an Anytype app notify each other. `any` owns the account
 policy (which topics, when to sync, the chat hooks); the SDK's
 `pushclient` component owns crypto + transport (`SDK.Push()`, the
-`space.PushAPI` interface — SDK branch `cheggaaa/syn-47-push-client`).
+`space.PushAPI` interface).
 
 ## Model — sender-pushes, E2E-encrypted
 
@@ -20,9 +20,10 @@ decryption is a mobile-client concern (iOS NSE / Android extension) —
 `any` delivers the key material clients must cache for it
 (§ Receiver-side keys) and owns the wire contract.
 
-Both keys are **derived from ACL state, never stored** (the SDK
-re-derives on demand; see the `PushAPI` doc comments in the SDK's
-`space/push.go`):
+Both keys are **derived from ACL state** — the SDK re-derives them on
+demand, and the only copy it keeps is the receiver mirror on the
+space row (§ Receiver-side keys; see the `PushAPI` doc comments in the
+SDK's [`space/push.go`](https://github.com/anyproto/any-sync-sdk/blob/main/space/push.go)):
 
 | Key | Derivation | Properties |
 |---|---|---|
@@ -35,8 +36,8 @@ config, not from the nodeconf (see § Config).
 Like `/search`, this is a **consumer-side exception** to the "endpoints
 map 1:1 onto SDK methods" invariant: the chat notify hooks are a side
 effect of the chat handlers (not an SDK feature), and the subscription
-sync loop is `any`-side policy. The exception is deliberate — a
-`Changes()`-feed trigger would fire on *remote* messages too and
+sync loop is `any`-side policy. The hooks are handler-side on purpose:
+a `Changes()`-feed trigger would fire on *remote* messages too and
 double-push (the remote sender already pushed); the handler hook is
 sender-scoped by construction.
 
@@ -74,19 +75,22 @@ The pre-encryption JSON (`internal/push/chatpush.go`, pinned by
     "chatName":       "general",
     "senderName":     "alice",
     "text":           "…(truncated to 1024 runes)",
-    "hasAttachments": false,
-    "attachments":    [] } }
+    "hasAttachments": true,
+    "attachments":    [{"layout": 0}] } }
 ```
 
-- `type: 1` (new chat message) is the only loud payload v1 emits.
+- `type: 1` (new chat message) is the only loud payload `any` emits.
 - `spaceUxType` / `spaceType` are heart's enums, filled from the
   space's type: a one-to-one space sends `4` / `4`
   (`SpaceUxType_OneToOne` / `SpaceType_SpaceTypeOneToOne`), which is
   what a receiver keys its direct-message rendering on for a space it
   has never seen; every other space type sends `0` (unknown), so the
   channel rendering stays the fallback.
-- `attachments` entries are `{"layout": 0}` stubs — `any`'s chat
-  attachments have no layout notion.
+- `attachments` entries are `{"layout": 0}` stubs, one per attachment —
+  `any`'s chat attachments have no layout notion. A message without
+  attachments sends `"hasAttachments": false, "attachments": null`.
+- `spaceName` (space info), `chatName` (the chat object's `any.name`)
+  and `senderName` (the account profile) are empty strings when unset.
 - Read notifications are **silent** (data-only, no payload): the server
   targets only the caller's own-identity topic, waking the account's
   other devices to refresh badges.
@@ -118,9 +122,10 @@ Where to read it:
   `push` object; a **read-key rotation shows up as a row update**
   (new `encKey`/`encKeyId`), no extra stream needed.
 
-Omitted until the SDK's mirror has run for that space — e.g. a joiner
-whose access is still pending has no read key and gets `push` only
-after the owner's accept lands. A deleted space's tombstone row
+Omitted until the SDK's mirror has run for that space on this device —
+e.g. a joiner whose access is still pending has no read key and gets
+`push` only after the owner's accept lands, and a space this device
+never loaded has none. A deleted space's tombstone row
 (`status:"deleted"`) keeps its `push` object on purpose: a payload
 sent before the delete propagated can still arrive, and the
 append-only rule below already covers it — drop the cached keys only
@@ -175,9 +180,13 @@ best-effort, never block or fail the HTTP response
   the full topic superset above.
 - **edit** — diff mentions before/after; notify only **newly added**
   mentions (bare identity + per-chat mention topics; never the
-  broadcast topics — an edit is not a new message for the room).
+  broadcast topics — an edit is not a new message for the room). When
+  the pre-edit read fails, the edit sends no push.
 - **read / read-all** — silent own-identity notification with the
   chat's `groupId`.
+
+Delivery runs through a bounded in-memory queue (256); on overflow the
+notification is dropped — the message itself is already synced.
 
 ## Settings — who gets notified
 
@@ -208,17 +217,18 @@ bulk-vs-per-chat branch (`internal/push/topics.go`):
   dedups per device); `mentions` → `chats/<sha>/<identity>`; `none` →
   skip.
 
-The loop reconciles on space-list events (debounced), on a 5-minute
-tick, and on token changes; local writes to either knob (the settings
-`PATCH`, a `chat.notifyMode` property set) also kick it directly, so
-this device's mode changes converge immediately. **Remote-origin
-writes — another device flipping a mode, a peer creating a chat —
-converge on the next 5-minute tick**: the loop has no cross-peer
-change feed, the tick is the explicit convergence bound.
-`SubscribeAll` is a **full replace** (server semantics), diffed
-locally via a desired-state hash. Owned spaces and 1-1s are
-`RegisterSpace`d first (best-effort — a space whose registration fails
-is skipped with a warning and keeps its topics in the payload).
+Only active spaces participate. The loop reconciles on space-list
+events (debounced 250ms — this includes a `settings` change synced in
+from another device), on a 5-minute tick, and on token changes; local
+writes to either knob (the settings `PATCH`, a property set on the
+`chat` namespace) also kick it directly. **Writes that don't touch the
+space list — another device's `chat.notifyMode`, a peer creating a
+chat — converge on the next 5-minute tick**: the loop has no
+cross-peer change feed for chat objects. `SubscribeAll` is a **full
+replace** (server semantics), diffed locally via a desired-state hash.
+Owned spaces and 1-1s are `RegisterSpace`d first (best-effort — a space
+whose registration fails is skipped with a warning and keeps its topics
+in the payload).
 
 If a space's chat enumeration fails mid-reconcile, the loop is
 **fail-safe, never fail-open**: it reuses that space's last-known-good
@@ -230,15 +240,16 @@ topics, which would silently unmute muted chats.
 
 Account-scoped, outside the `:spaceId` group, behind the `/v1` auth
 guard. All return `409 push.disabled` when no push node is configured
-(`deps.push == nil` — the `/search` `index.disabled` pattern). Catalog
-entry: `docs/03-api.md` § Push notifications.
+(`deps.push == nil` — the `/search` `index.disabled` pattern); `POST
+/v1/push/token` validates its body first, so a bad body is a 400 either
+way. Catalog entry: `docs/03-api.md` § Push notifications.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST   | `/v1/push/token` | register this device's `{platform: ios\|android, token}` (204) |
+| POST   | `/v1/push/token` | register this device's `{platform: ios\|android, token}` (204; a push node that is slow or unreachable is retried in the background, never fails the call) |
 | GET    | `/v1/push/token` | local registration state `{registered, platform?}` — no push-node round trip |
 | DELETE | `/v1/push/token` | revoke (local delete wins even if the node is unreachable; 204) |
-| GET    | `/v1/push/subscriptions` | the account's server-held topic set — raw `{spaceKey, topic}` rows, unsigned |
+| GET    | `/v1/push/subscriptions` | the account's server-held topic set — `{subscriptions: [{spaceKey, topic}]}`, unsigned |
 
 Plus the settings write (works with push disabled — it's a generic
 client-settings surface):
@@ -246,6 +257,12 @@ client-settings surface):
 | Method | Path | Purpose |
 |--------|------|---------|
 | PATCH  | `/v1/spaces/:spaceId/settings` | per-key `{set, unset}` of the account-private settings object (204) |
+
+Settings keys are non-empty and dot-free, values are scalars (string,
+number, bool), and a key may not appear in both `set` and `unset`
+(`400 request.invalid_field`); an empty patch is `400
+request.missing_field`. The write works on any known row — deleted and
+pending ones included.
 
 `spaceKey` in the subscriptions rows is the base58 space push public
 key — the push server's space identifier, **not** a spaceId; the
@@ -269,9 +286,12 @@ any space settings <spaceId> --set notifyMode=mentions      # per-space default
 any space settings <spaceId> --unset notifyMode             # back to "all"
 ```
 
-Per-chat override rides the existing properties surface (no new CLI):
+`any space settings` also takes `--set-bool k=true|false` and
+`--set-num k=N` for typed values.
+
+Per-chat override rides the existing properties surface (no push CLI):
 `POST /v1/spaces/:s/properties/:chatObjectId/set/chat` with
-`{"notifyMode": "none"}`.
+`{"patch": {"notifyMode": "none"}}`.
 
 ## Config
 
@@ -287,6 +307,8 @@ push:
   addrs: []                # dial addresses, e.g. ["quic://host:port"]
 ```
 
+Push runs only when enabled AND both `peerId` and `addrs` are set.
+
 **The production node is the packaged default, paired with the network.**
 When a config names neither `peerId` nor `addrs` AND leaves the network
 unset — the packaged production nodeconf, see docs/05-config.md — `any`
@@ -294,13 +316,13 @@ fills in the production push node (`config.ProdPushPeerId` /
 `ProdPushAddr`, the same deployment heart uses). So an unconfigured
 binary has working push, exactly as it has working sync.
 
-The pairing is deliberate: the push node is not part of the nodeconf, so
+The pairing exists because the push node is not part of the nodeconf:
 nothing else would stop a server on staging or local infra from pushing
 through the production node. Point the network anywhere — `nodeconfPath`,
 inline `nodeconf`, or `ANY_NETWORK_NODECONF_PATH` — and the default drops
-out; that host supplies its own push node or gets none. This is also what
-keeps the test suite, which always names a nodeconf, off the production
-push server. A half-configured push node (one field of the two) is left
+out; that host supplies its own push node or gets none. This also keeps
+the test suite, which always names a nodeconf, off the production push
+server. A half-configured push node (one field of the two) is left
 alone rather than completed with mismatched production values.
 
 Env overrides: `ANY_PUSH_ENABLED`, `ANY_PUSH_PEER_ID`,
@@ -311,37 +333,35 @@ hence the explicit `yamux://` scheme in its default address.
 
 ### Embedded servers (any.aar / xcframework)
 
-The embedded path (SYN-83) reads no config.yaml and no env — the host
-passes the push node explicitly at start:
+The embedded path reads no config.yaml and no env — the host passes the
+network and push node explicitly at start:
 
 - **Android (gomobile)**: `mobile.StartWithPush(dataDir, listenAddr,
   nodeconfYAML, pushPeerId, pushAddrs)` — `pushAddrs` comma-separated,
-  same format `ANY_PUSH_ADDRS` parses. Plain `Start` keeps push off.
+  same format `ANY_PUSH_ADDRS` parses. `Start(dataDir, listenAddr,
+  nodeconfYAML)` is `StartWithPush` with empty push strings.
   `StartWithMode(…, mode, controlToken)` adds the ownership mode
   (`02-server.md` § Modes).
 - **iOS (c-archive)**: `AnyLibStart(dataDir, listenAddr,
-  nodeconfYAML, pushPeerId, pushAddrs)` — same semantics; empty
-  strings keep push off. There is no separate `…WithPush` variant;
-  `AnyLibStartWithMode(…, mode, controlToken)` adds the ownership mode.
+  nodeconfYAML, pushPeerId, pushAddrs)` — same semantics; there is no
+  separate `…WithPush` variant. `AnyLibStartWithMode(…, mode,
+  controlToken)` adds the ownership mode.
 - **Go hosts**: `embedded.Start(embedded.Options{…, PushPeerId,
   PushAddrs})`.
 
 Empty push options follow the same pairing rule as the CLI: a host that
 passes neither a push node nor a `nodeconfYAML` lands on the production
-pair, so plain `Start` on the default network now has push. Passing
-either one opts out of the default for both.
-
-Enablement stays config-driven: non-empty peer id + addrs fill
-`cfg.Push` and the tristate activates on its own; empty strings change
-nothing (push endpoints return `409 push.disabled`). The push peer
-pairs with the nodeconf choice, so peer id and addrs should come from
-wherever the network does; `any` ships no push default.
+pair, so plain `Start` on the default network has push. Passing a
+`nodeconfYAML` opts out of the default — push then runs only when the
+host also passes a non-empty peer id AND addrs (otherwise every push
+endpoint returns `409 push.disabled`). A host overriding the network
+takes the push node from the same place it takes the nodeconf.
 
 `nodeconfYAML` is optional: `""` selects the embedded **production**
 nodeconf compiled into the binding, so a host on production needs no
 vendored copy of the conf and moves networks with an AAR/xcframework
 bump. Pass YAML text only to override (staging, local infra) — see
-`docs/05-config.md` § Network.
+`docs/05-config.md` (the `network` block).
 
 The device token persists at `<account-dir>/push-token.json` and is
 re-registered in the background on boot; it is **never** a dataset
@@ -351,11 +371,14 @@ re-registered in the background on boot; it is **never** a dataset
 
 - `409 push.disabled` — no push node configured (or the SDK opened
   without one). The one push-specific code; see `docs/06-errors.md`.
+- `500 internal` — a push operation failed (token persistence, a
+  subscriptions read); the message is generic, the cause is in the
+  server log.
 - Delivery is best-effort: `Notify` retries 6×10s in the background
   (breaking early when the server reports no valid topics) and HTTP
   responses never wait on the push node.
 
-## Deferred (not in v1)
+## Not supported
 
 - **Reactions push** — no notification on reactions.
 - **ACL / invite push** — heart keeps these as in-app notifications,
@@ -364,13 +387,15 @@ re-registered in the background on boot; it is **never** a dataset
 - **`RemoveSpace`** — subscription cleanup rides the `SubscribeAll`
   full replace; registered space keys linger server-side (harmless,
   and heart behaves the same).
-- **Real-infra e2e** — the gated e2e (below) needs a reachable push
-  server; CI wiring + the staging peer address are pending infra.
+- **CI coverage** — the push e2e runs only against a push server you
+  point it at (§ Local e2e recipe).
 
 ## Local e2e recipe
 
 The e2e test (`internal/e2e/push_test.go`) skips unless a push server
-is reachable — it never stands up the server's Redis/Mongo deps itself:
+is reachable and the e2e nodeconf fixture (`staging.yml` at the repo
+root, not checked in) is present — it never stands up the push server's
+Redis/Mongo deps itself:
 
 ```bash
 # 1. Run anytype-push-server locally (its repo ships a docker-compose
@@ -396,7 +421,10 @@ or `ANY_PUSH_PEER_ID` / `ANY_PUSH_ADDRS`.
   hooks + heart payload (`chatpush.go`).
 - `internal/server/handlers_push.go` — token/subscriptions endpoints;
   `handlers_settings.go` — the settings PATCH;
-  `handlers_chat.go` — hook call sites; `engine.go` / `sdk.go` —
-  wiring (service constructed only when `config.Push.Active()`).
-- SDK: `space/push.go` (`PushAPI`), `internal/pushclient/` (crypto +
-  DRPC transport), config threading via `sdkconfig.Push`.
+  `handlers_chat.go` — hook call sites; `handlers_properties.go` — the
+  kick on a `chat` property set; `engine.go` / `sdk.go` — wiring
+  (service constructed and the node threaded into the SDK only when
+  `config.Push.Active()`).
+- SDK: [`space/push.go`](https://github.com/anyproto/any-sync-sdk/blob/main/space/push.go) (`PushAPI`),
+  [`internal/pushclient/`](https://github.com/anyproto/any-sync-sdk/tree/main/internal/pushclient) (crypto +
+  DRPC transport), config threading via the SDK `config.Push`.

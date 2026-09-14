@@ -13,15 +13,13 @@ unless a client asks.
 type.** An app that ships in a client — a sidebar entry, a built-in
 surface, an agent's ingest target — declares in its bundle everything
 it needs: the miniapp root AND the types, properties and datasets its
-content uses. A client must never mint a type of its own for one of
-these: two clients (or the same client on two devices, or an agent)
-minting by xKey converge only by luck, race on `409
-type.xkey_conflict`, and leave a space where one device's entries are
-invisible to the other. Resolve the type from the setup reply or the
-registry instead (§ What a client does with the reply). Only a type a
-USER creates in their own space is a client-minted type; if it is part
-of a shipped app, it belongs here — open a PR against
-`internal/catalog/catalog.yml`.
+content uses. A client never mints a type of its own for one of these:
+two clients (or one client on two devices, or an agent) minting by
+xKey race on `409 type.xkey_conflict` and leave a space where one
+device's entries are invisible to the other. Resolve the type from the
+setup reply or the registry (§ What a client does with the reply). A
+client-minted type is one a USER creates in their own space; a type a
+shipped app needs belongs in `internal/catalog/catalog.yml`.
 
 ## Model
 
@@ -45,26 +43,26 @@ root IS follows from that:
 |---|---|---|
 | `type` | a type object, `typeId = rootId`; `xKey` is its handle | carrying it in `any.types`; values at `<typeId>.<propId>` |
 | `miniapp` | the object a client opens; carries the built-in `miniapp` with `bundle` = the bundle id | opening it; `miniapp.bundle` says what to run |
-| `parts` | a type with datasets; the records live on the objects carrying it — on the root itself only with `selfTyped` | carrying it; records in `<typeId>_<key>` |
+| `parts` | a type with datasets; the records live on the objects carrying it — on the root itself only when self-typed | carrying it; records in `<typeId>_<key>` |
 | `type` + `miniapp` | one object that is both (the wiki: the app, and the type its pages carry) | both |
 
 `type: {xKey}` alone — no properties, no parts — is a valid **marker
 type**: a flag objects carry, resolvable by handle, with no columns.
 
 **`selfTyped` decides who carries the type.** By default a
-type-declaring root is the DEFINITION and nothing else: it matches no
+type-declaring root is the DEFINITION and nothing else: it carries
+`__type__` but not its own id, so it matches no
 `{"any.types": <typeId>}` query, holds none of the type's values and
 takes none of its collections. That is what a type OTHER objects carry
 wants — a wiki (its root is the app, not a page in its own tree), a
-journal (its root is not an entry), a recorder type (the recorders are
-the agent's objects). `selfTyped: true` makes the root carry the type
-as well, which is what a root that keeps its OWN bundle's records
-needs — the contacts app and its per-type layouts. Get it wrong in
-that direction and every write to the root's collection is `400
-dataset.not_declared`. It is implied, never declared, for a part
-naming a reserved module (the general chat's root is its type's sole
-carrier) and for tech-space bundles. An adopt adds the self type to a
-root that lacks it; nothing ever removes it.
+journal (its root is not an entry), a person. `selfTyped: true` makes
+the root carry the type as well, which is what a root that keeps its
+OWN bundle's records needs — the contacts app and its per-type
+layouts; without it every write to the root's collection is `400
+dataset.not_declared`. It is implied for a part naming a reserved
+module (the general chat's root is its type's sole carrier) and for
+every tech-space bundle. An adopt by a writer adds the self type to a
+root that lacks it; nothing removes it.
 
 **Created roots, one exception.** Every catalog root is a created
 root: deletable (`DELETE …/objects/:rootId` uninstalls it), forking
@@ -73,9 +71,12 @@ general chat is the one `derived: true` bundle — chat content cannot
 be merged across objects (`creator` / `createdAt` come from the change
 envelope), and a 1-1 space has no owner to break a tie — so its root
 is a function of (space, bundle id): it never forks and can never be
-deleted. It is also the one declaration of the reserved `chat` module,
-and its root is the only object that may carry its type: a space has
-one chat.
+deleted (`409 object.derived_undeletable`). It is also the one
+declaration of the reserved `chat` module: a client part, dataset or
+bundle naming `chat` is `400 dataset.module_reserved`, and any object
+other than the root carrying the general-chat type is `400
+type.reserved_carrier` — a space has exactly one chat (`16-chat.md`
+§ Finding the chat object for a space).
 
 **Naming.** Usecase ids are slugs (`[a-z][a-z0-9-]*`: `wiki`,
 `general-chat`, `contacts`); they never enter a space and need no
@@ -84,9 +85,9 @@ encoding in the path. Bundle ids are `system:<name>/v<n>` — the
 `409 bundle.reserved`), the version is part of the id, and a bundle
 that changes shape takes a new id (§ Evolution). Type xKeys
 (`[a-z][a-z0-9_]*`) are unique across the catalog and disjoint from
-the registered type ids; property xKeys are unique within their type.
-`relation.targetTypes` name types by xKey, so cross-bundle references
-need no id resolution.
+the registered type ids; property xKeys (`[A-Za-z][A-Za-z0-9_]*`) are
+unique within their type. `relation.targetTypes` name types by xKey,
+so cross-bundle references need no id resolution.
 
 ## Endpoints
 
@@ -112,9 +113,12 @@ POST /v1/catalog/:usecaseId/setup   → 200 CatalogSetupResponse
                                            { "xKey": "folder",   "name": "Folder",   "kind": "boolean", "xFormat": { "type": "checkbox" } } ] } } ] }
 ```
 
-`requires` is present when non-empty; `type.weight` / `type.layout`,
-`derived`, `hidden` and `parts` when set. Property and part entries
-are the `POST …/types/:typeId/properties` / `…/parts` draft shapes.
+`description` and `requires` are present when non-empty;
+`type.weight` / `type.layout`, `derived`, `hidden`, `selfTyped` and
+`parts` when set. Property and part entries are the
+`POST …/types/:typeId/properties` / `…/parts` draft shapes. A
+`miniapp` map always carries `bundle` = the bundle id, filled in where
+the yaml omits it.
 
 `CatalogSetupResponse` lists every bundle the call touched,
 dependencies first, the requested usecase's bundles last:
@@ -134,21 +138,21 @@ dependencies first, the requested usecase's bundles last:
 
 Per bundle: `usecase` (the entry it belongs to — the requested one or
 a dependency), `id`, `bundle` (the converged registry row, the
-`03-api.md` § Bundles shape), `installed` (THIS call registered the
-root; for the derived chat, what this device did), and when the bundle
-declares a type — `type`, or `parts` (a records host) — `typeId` (the
-root id) and `properties`, every property the root carries with an
-xKey mapped to its id (absent when there are none). A `miniapp`
-bundle echoes `miniapp`: the value map the catalog declares, `bundle`
-filled in.
+`03-api.md` § Bundles shape), `installed` (this call registered the
+root; for the derived chat, two devices can both report `true` for the
+one root they share), and when the bundle declares a type — `type` or
+`parts` — `typeId` (the root id) and `properties`, every property of
+the type that has an xKey, mapped to its id (absent when there are
+none). A `miniapp` bundle echoes `miniapp`: the value map the catalog
+declares, `bundle` filled in.
 
 Errors: `404 catalog.not_found` (`details.usecaseId`);
 `400 request.missing_field` without `spaceId`; `405 space.unsupported`
 on the tech space; the space errors (`404 space.not_found`, …); and
 per bundle the `03-api.md` § Bundles set — `409 bundle.not_ready`,
 `403` for a member without write permission on an install path,
-`409 type.xkey_conflict` (§ Handles). Every error of the walk carries
-`details.usecaseId` (the id asked for), `details.usecase` and
+`409 type.xkey_conflict` (§ Handles). An error raised by a bundle step
+carries `details.usecaseId` (the id asked for), `details.usecase` and
 `details.bundleId` (the step that failed) and `details.spaceId`.
 
 CLI: `any catalog list`, `any catalog get <usecaseId>`,
@@ -170,15 +174,16 @@ One call does, in order:
    read, so a reader member gets the ids too; a writer's adopt also
    heals what the root lacks (§ Evolution). Otherwise the server checks
    the handle (§ Handles), creates the root with everything the bundle
-   declares — the type marker plus its own id, the `miniapp` type with
-   its values, the parts and properties, name, xKey, weight, layout,
-   hidden — and registers it. A created root lands as root + up to 3
-   changes: one `objects` change carrying the types, `any.name`, the
-   type metadata and the seeded `rootProperties`; then, after the
-   registry row, one `datasets` change when the bundle declares parts
-   and one `properties` change when it declares properties; a peer may
-   briefly see the parts before the property definitions. A bundle with
-   no declaration (a bare miniapp) mints its root through the ordinary
+   declares — `__type__` (plus its own id when self-typed), the
+   `miniapp` type with its values, the parts and properties, name,
+   xKey, weight, layout, hidden — and registers it. A type-declaring
+   root lands as root + up to 3 changes: one `objects` change carrying
+   the types, `any.name`, the type metadata and the seeded
+   `miniapp` values; then, after the registry row, one `datasets`
+   change when the bundle declares parts and one `properties` change
+   when it declares properties, in that order — a peer may briefly see
+   the parts before the property definitions. A bundle with no type
+   declaration (a bare miniapp) mints its root through the ordinary
    object create plus the name stamp.
 
 Every step is idempotent: a second setup adopts everything
@@ -189,19 +194,20 @@ the registry's state.
 
 Who may do what: when the wait cannot complete, the space's **owner**
 installs anyway (only this account's own devices could compete, and
-the registry converges those); any other member is
+the registry converges those), and so does every member for the
+derived chat (its root cannot fork); any other member is
 `409 bundle.not_ready` and retries when the network is back — so a
 space set up by its owner before sharing spares joiners the wait. A
 member without write permission adopts but cannot install (`403` on
 the install path). The create-and-register section runs detached from
-the request (shutdown-bounded), so a client that disconnects mid-walk
-cannot leave an orphan root.
+the request, bounded by shutdown and two minutes for the whole walk,
+so a client that disconnects mid-walk cannot leave an orphan root.
 
 Which usecases a space has is read off the space's bundle list — every
-member row is there under its `system:` id (`GET …/bundles`, locked on
-convergence, `synced` says whether absence is definitive) — mapped to
-usecases through the catalog. The reply of a setup is the convenient
-form of the same information.
+bundle of a set-up usecase has a row under its `system:` id
+(`GET …/bundles`, locked on convergence, `synced` says whether absence
+is definitive) — mapped to usecases through the catalog. The reply of
+a setup is the convenient form of the same information.
 
 ## Handles
 
@@ -211,34 +217,27 @@ hidden or not, user or registered — may hold the bundle's `xKey` (as
 its `xKey` or as its id). A hit is `409 type.xkey_conflict` with
 `details.xKey` and `details.existingTypeId`, raised before anything is
 created, so a refused setup leaves nothing behind (the dependencies
-before it stand). An adopted install carries the handle by design and
-is never a conflict with itself; the registered built-ins are checked
-against the catalog at build time, so they cannot collide at setup.
-The check runs only for a member who may write (a reader's setup
-adopts or is refused by permission, never by handle), and a root ever
-claimed for this same bundle id is never a conflict with itself — a
-leftover loser holding the handle is the registry's to settle.
+before it stand). The check runs only for a member who may write (a
+reader's setup adopts or is refused by permission, never by handle),
+and a root ever claimed for the same bundle id is never a conflict — a
+leftover loser holding the handle is the registry's to settle. The
+registered built-in type ids are checked against the catalog at build
+time, so they cannot collide at setup.
 
-The case that bites: a type minted before the catalog knew the handle
-— a user's own `contact`, or a client that used to mint the app type
-itself (`journal`). It blocks that usecase in that space for good: a
-type cannot be deleted over HTTP in v1. The space keeps whatever the
-client did before, and nothing migrates — which is why an app's types
-belong in the catalog from its first release, not after one.
-
-A client that must clear the way can free the handle: the type's
-`xkey` is an ordinary value in the meta-type's namespace, so
-`POST …/properties/<typeId>/set/type` with
-`{"patch": {"xkey": "journal_legacy"}}` renames it and the next setup
+A type that holds a catalog handle before the usecase is set up — a
+user's own `contact` — blocks that usecase in that space: types cannot
+be deleted over HTTP (`DELETE …/types/:typeId` is `501`). To free the
+handle, rename it: the type's `xkey` is an ordinary value in the
+meta-type's namespace, so `POST …/properties/<typeId>/set/type` with
+`{"patch": {"xkey": "contact_own"}}` renames it and the next setup
 proceeds. That write is unguarded — the uniqueness check lives on
-`POST …/types` — so a client doing it owns the outcome, including
-re-stamping the objects that carried the old type onto the new one.
-Note that the guard runs on the INSTALL path only: in a space whose
-app root was installed before the catalog declared the type, the next
-setup adopts that root and heals the handle onto it without checking,
-which can leave two types holding one handle. Harmless (catalog types
-resolve through the registry, never by scanning handles) but visible
-in `GET …/types?includeHidden=true`.
+`POST …/types` — so the client doing it owns the outcome, including
+re-homing the objects that carried the old type.
+
+An adopt heals a missing handle onto an installed root without this
+check, so a space can end with two types holding one handle. Catalog
+types resolve through the registry, never by scanning handles, so this
+is visible only in `GET …/types?includeHidden=true`.
 
 ## What a client does with the reply
 
@@ -251,9 +250,9 @@ in `GET …/types?includeHidden=true`.
    `<typeId>.<propId>`, query with `{"<typeId>.<propId>": …}` and
    `{"any.types": <typeId>}`. Never key by xKey on the wire.
 4. Open a miniapp root by reading `miniapp.bundle` on it and running
-   what that bundle id means to the client; the app's own state is the
-   records on that root — a namespaced records dataset is
-   `<rootId>_<key>`, a shared module dataset the module's canonical
+   what that bundle id means to the client. A self-typed root keeps the
+   app's own state as records on itself — a namespaced records dataset
+   is `<rootId>_<key>`, a shared module dataset the module's canonical
    collection (`editor_blocks`, `chat_messages`); read either off
    `GET …/types/<rootId>/parts`.
 5. **Resolve catalog types through the bundle registry** — bundle id →
@@ -273,13 +272,14 @@ in `GET …/types?includeHidden=true`.
   competes for the primary type and takes no weight (the catalog
   refuses `weight` next to `hidden`).
 - Parts and properties of a hidden type still render: a hidden type
-  contributes its columns and its parts, only never the layout.
+  contributes its columns and its parts, never the layout.
 - A hidden **self-typed root** that is itself the rendered object — the
   general chat — renders by its own layout (`{"type": "chat"}`),
   because nothing else is carried.
-- Then every carried type's parts in `pos` order: a `records` part is
-  a table over `<typeId>_<key>` on the object, an `editor` part the
-  body (shared with `page`), a `chat` part a chat.
+- Then every carried type's parts in `pos` order, each as its `ui`
+  says: a `records` part over `<typeId>_<key>` on the object, an
+  `editor` part a document (`editor_blocks` when shared — the body
+  `page` has — `<typeId>_<key>` when namespaced), a `chat` part a chat.
 - A type picker lists the catalog's listed types like any user type and
   hides types the registry reports as losers.
 
@@ -295,14 +295,11 @@ through the xKey map**: attach the winner type, copy each value from
 `<loserId>.<propId>` to the winner's property of the same xKey, detach
 the loser; merge a records host's records the same way (upsert into
 the winner's collection); then `POST …/bundles/system%3A<name>%2Fv1/resolve`
-with `{loserRootId}` — the server deletes the loser once its tree has
-settled (`409 bundle.loser_not_ready` until then, retried in the
-background). The server never merges: only the client knows what the
-values mean. The bundle id carries a slash, so the path segment is
-percent-encoded.
-
-Deriving every root instead was rejected: a derived root can never be
-deleted, which would make every catalog type and app uninstallable.
+with `{loserRootId}`. The server deletes the loser once its tree has
+synced and it has been observed as a loser for five minutes
+(`409 bundle.loser_not_ready` until then, retried in the background).
+The server never merges: only the client knows what the values mean.
+The bundle id carries a slash, so the path segment is percent-encoded.
 
 ## Evolution
 
@@ -312,12 +309,16 @@ may, without a new bundle id:
 | change in the catalog | lands on existing installs |
 |---|---|
 | a property added to a type | at the next setup by a writer: written by handle under its deterministic id; a definition the root carries (live, or removed — the tombstone keeps the id) is left alone |
-| a `miniapp` value added | at the next setup by a writer: written where absent, never overwritten; the built-in `miniapp` type is attached first when the root predates it |
+| parts declared on a type that never declared any | at the next setup by a writer: declared; a type with any part declaration (live or removed) is left alone |
+| a type `xKey` on a root that has none | at the next setup by a writer: filled in, never changed |
+| `selfTyped` turned on | at the next setup by a writer: the root gains its own type |
+| a `miniapp` value added | at the next setup by a writer: written where absent, never overwritten; the built-in `miniapp` type is attached first when the root lacks it |
 | an option key added to a `choice` property | at the next setup by a writer: the key is written with all of its catalog leaves (`name`, `color`, `pos`, and each `meta.<k>` separately); a key the definition already carries is left exactly as the space has it — renamed, recoloured, reordered or not |
 | a bundle added to a usecase, a usecase added to `requires` | at the next setup: installed like any other step |
 
-A heal that fails (a permission or sync race) is not an error: the
-setup still answers 200 and the next setup retries it.
+A failed `miniapp` value or option-key heal (a permission or sync
+race) is not an error: the setup still answers 200 and the next setup
+retries it.
 
 Everything else on an existing install — an option's leaves once
 present, other `xFormat` edits, display `name`, `weight`, `layout` and
@@ -329,10 +330,11 @@ catalog option by shipping a catalog without it and leaving the space's
 copy alone, not by deleting it in the space.
 
 What needs a **new bundle id** (`/v2`, a new root; the old install
-stays and the client migrates content): changing or removing a part or
-a dataset (declared once, all-or-nothing), changing a property's
-`kind` or `scope` (pinned), renaming a type or property xKey (the
-property id derives from it), changing `derived`.
+stays and the client migrates content): adding, changing or removing a
+part or a dataset on a type that already declares parts (declared
+once, all-or-nothing), changing a property's `kind` or `scope`
+(pinned), renaming a type or property xKey (the property id derives
+from it), changing `derived`.
 
 Uninstall is `DELETE …/objects/<rootId>`: the id then reads as not
 installed and a later setup mints a fresh root. There is no
@@ -367,17 +369,14 @@ leaves their values orphaned (readable, no schema).
 | `crm` | `contacts` | `system:deal/v1` | type `deal` (weight 10, layout `profile`; stage, owner → `person`, organization → `organization`, amount, close_date) + shared editor `body` part |
 | | | `system:crm/v1` | miniapp only |
 
-Sixteen usecases, twenty-two bundles, seventeen types. The two identities
-are one usecase because `person.organization` and
+Sixteen usecases, twenty-two bundles, seventeen types with an xKey.
+The two identities are one usecase because `person.organization` and
 `organization.main_contact` reference each other and the `requires`
 graph must stay acyclic; the roles are one usecase each so a role
 lands only when picked (`crm` does not require them); `deal` lives in
 `crm` because only the CRM needs it. `choice` and `relation`
 properties are `kind: array` even when single-valued; an amount is
-`currency` on `number`. The yaml is the authoritative declaration;
-`GET /v1/catalog` returns it with one normalization — a `miniapp` map
-always carries `bundle` = the bundle id, filled in where the yaml
-omits it.
+`currency` on `number`. The yaml is the authoritative declaration.
 
 **The sidebar state of every app root.** A root carrying `miniapp` is
 a sidebar entry: the shared order is `miniapp.pos` (a client-allocated
@@ -387,11 +386,10 @@ ordinary property values —
 `{"patch": {"pos": "a0"}}`. Setup writes neither, and never resets
 them: it seeds only what the catalog declares, so a later setup
 adopting an existing root leaves the reader's order and hides alone.
-Catalog roots are created roots, so the ordinary permission,
-convergence and fork rules apply; a client renders the registry's
-winner if two offline installs converge (§ Forks). Deriving these
-roots just to avoid that case would make them permanently
-uninstallable, which is the worse trade for an app a user may remove.
+App roots other than the general chat are created roots, so the
+ordinary permission, convergence and fork rules apply; a client
+renders the registry's winner when two offline installs converge
+(§ Forks).
 
 **Journal** is one dated page per day: an entry carries the `journal`
 type with a `date` value (a `date` slug on `kind: datetime` — midnight
@@ -425,25 +423,25 @@ its three parts are the surfaces a client renders:
 An ingest agent creates the object and writes all three; a reader
 renders them and edits only the notes. `idRule: user` makes a
 transcript record's id the provider's segment id, so re-ingesting a
-turn is an upsert rather than a duplicate. Two consequences worth
-knowing before writing an ingest:
+turn is an upsert rather than a duplicate. Before writing an ingest:
 
 - `dynamic` leaves a free keyspace beside the declared fields so the
-  agent can carry one ahead of a server release — and an undeclared
-  key has no author rule, so any writer of the space may set it.
-- A deleted record's id is **burned** (`03-api.md` § Upsert): deleting
-  a turn and re-ingesting the same segment id answers `200` with a
-  `record_deleted` rejection and writes nothing. An ingest reads
-  `rejections`, never the status code alone.
+  agent can carry a field the catalog does not declare — and an
+  undeclared key has no author rule, so any writer of the space may
+  set it.
+- A deleted record's id is **burned** (`03-api.md` § Upsert records):
+  deleting a turn and re-ingesting the same segment id answers `200`
+  with an `upsert.record_deleted` rejection and writes nothing. An
+  ingest reads `rejections`, never the status code alone.
 
 Nothing is required — ingest is garbage-tolerant and readers render
-placeholders — and every declared field is `mutableBy: author`, so the
-agent revises what it wrote while no other member may touch those
-keys. Times are instants (`{"$date": …}`) like every other timestamp,
-so date filters and the aggregation date operators work on them.
-`participants` and `labels` are `choice`, so their values are option
-KEYS: an ingest writes the key (minting the option on the definition
-where it needs a new one), and a reader prints
+placeholders — and every declared value field is `mutableBy: author`,
+so the agent revises what it wrote while no other member may touch
+those keys. Times are instants (`{"$date": …}`) like every other
+timestamp, so date filters and the aggregation date operators work on
+them. `participants` and `labels` are `choice`, so their values are
+option KEYS: an ingest writes the key (minting the option on the
+definition where it needs a new one), and a reader prints
 `xFormat.options.<key>.name`, falling back to the key.
 
 ## Validation
@@ -455,10 +453,11 @@ start, all of them listed), in the test suite (a broken embedded
 catalog fails `make test`), and as a **build step** —
 `make catalog-validate [FILES="candidate.yml …"]` checks the embedded
 catalog and any candidate files, prints one
-`<source>: <path>: <code>: <message>` line per problem and exits 1 (2 when a candidate file cannot be read) on
-any (`embedded catalog: ok` otherwise). CI runs it on every pull
-request and before every release build (`18-ci.md`), so a broken
-catalog can neither merge nor ship. Offline: no server, no space.
+`<source>: <path>: <code>: <message>` line per problem (`<source>: ok`
+for a clean source) and exits 1 on any problem, 2 when a candidate file
+cannot be read. CI runs it on every pull request and before every
+release build (`18-ci.md` § PR checks), so a broken catalog can neither
+merge nor ship. Offline: no server, no space.
 
 Problem codes of the structural layer (`internal/catalog`):
 
@@ -468,8 +467,8 @@ Problem codes of the structural layer (`internal/catalog`):
 | `catalog.unknown_field` | a key no catalog struct declares (strict decoding) |
 | `catalog.bad_id` | a usecase id that is not a slug, a bundle id off `system:<name>/v<n>`, a type or property xKey or a part key off its grammar |
 | `catalog.duplicate` | a usecase id, bundle id, type xKey (also when it equals a registered type id), property xKey, part key, dataset key or `requires` entry declared twice |
-| `catalog.missing` | a required piece absent — usecase name or bundles, bundle name, a declaration (`type` / `miniapp` / `parts`), property xKey or kind, a dataset key, a relation's `targetTypes` |
-| `catalog.bad_field` | a field that contradicts the rest — `weight` next to `hidden`, `hidden` without `type` or `parts`, `meta` beyond `index`, `relation.filter`, a wrong module, `chat` not shared, `records` shared, fields on a module dataset, `deleteBy: author` without a creator stamp, a mapping key that is not a string, a node of the wrong shape, and the bounds (name ≤1024 B, ≤32 parts, ≤64 properties) |
+| `catalog.missing` | a required piece absent — an empty catalog, usecase name or bundles, bundle name, a declaration (`type` / `miniapp` / `parts`), property xKey or kind, a dataset key, a relation's `targetTypes` |
+| `catalog.bad_field` | a field that contradicts the rest — `weight` next to `hidden`, `hidden` or `selfTyped` without `type` or `parts`, `meta` beyond `index`, `relation.filter`, a wrong module, `chat` not shared, `records` shared, fields on a module dataset, `deleteBy: author` or a `mutableBy: author` field without a creator stamp, a `search` mapping naming a field the dataset does not declare, a mapping key that is not a string, a node of the wrong shape, and the bounds (name ≤1024 B, ≤32 parts, ≤64 properties) |
 | `catalog.unknown_usecase` | a `requires` entry naming no usecase |
 | `catalog.cycle` | a self-require, or a cycle in `requires` — reported as its path (`a → b → a`) |
 | `catalog.broken_link` | a `relation.targetTypes` xKey that is no type of the usecase, its transitive `requires` or a built-in; names the usecase that would have to be required when the type exists elsewhere in the catalog |
@@ -478,51 +477,23 @@ Problem codes of the structural layer (`internal/catalog`):
 The server layer adds the descriptor gate and reports its own codes
 verbatim at the offending property's or part's path:
 `property.format_invalid` (a slug on the wrong kind, a bad option
-shape) and `request.invalid_field` / `request.missing_field` (a
+shape), `request.schema` (a missing or unknown property kind, a bad
+scope) and `request.invalid_field` / `request.missing_field` (a
 malformed part or dataset draft, a layout that does not encode). The
 SDK's own declaration validators do not run here — a draft only the
-SDK would refuse surfaces at the first setup. Not checked, by design:
-whether a space already holds a type
-with a catalog handle (a runtime `409 type.xkey_conflict` at setup),
-and the `derived` choice (a policy, not a syntax).
-
-## What clients delete
-
-**The `nav` namespace on objects.** There is no `nav` type: reading or
-writing `nav.type` / `nav.parentId` / `nav.pos` on an object row, a
-move through `…/set/nav`, the `nav` block in the object create body
-(`400 request.unknown_field`) and `nav` in `GET …/types` are all gone,
-and nothing is appended to a created object's `types`. The tree is the
-`wiki` usecase: `POST /v1/catalog/wiki/setup` returns the type id and
-the `parentId` / `pos` / `folder` property ids, an object is in the
-tree only when it carries the type, and `pos` is the client's lexid
-(`03-api.md` § The wiki tree). `nav.*` values left on old rows are
-inert. Editor block records keep their own `nav.parentId` / `nav.pos`
-— that is the block module's per-document tree, unrelated.
-
-**Client-registered chats.** The `chat` module is reserved to the
-server: a client part, dataset or bundle naming it is `400
-dataset.module_reserved`, and the space's chat is the catalog's
-`general-chat` usecase — `POST /v1/catalog/general-chat/setup`, root
-`system:general-chat/v1`, a derived hidden root with a shared `chat`
-part and the handle `general_chat` (`16-chat.md` § Finding the chat
-object). The root is its type's only carrier (`400
-type.reserved_carrier` on any other object), so a space has exactly one
-chat. No back-compat: a chat registered under the former client recipe
-(`general-chat/v1`) is a different root the server neither detects nor
-adopts — the usecase installs the chat anew, and the old root is left
-behind.
+SDK would refuse surfaces at the first setup. Not checked: whether a
+space already holds a type with a catalog handle (a runtime `409
+type.xkey_conflict` at setup), and the `derived` choice (a policy, not
+a syntax).
 
 ## See also
 
 - `03-api.md` § Catalog (endpoints), § Bundles (registry, derived
   roots, bundle-declared types, resolve), § Types → Built-in hidden
-  types (`miniapp`)
+  types (`miniapp`), § The wiki tree
 - `27-descriptors.md` (the `xFormat` vocabulary the catalog's
   properties use), `24-data-views.md` (views on a catalog type: a
   `dataview` on the type object)
-- `16-chat.md` § Finding the chat object, `25-favorites.md` (a
-  client-registered bundle, for contrast)
-- `18-ci.md` § PR checks (`catalog-validate`), `07-roadmap.md`
-  (uninstall / refcount, handle collisions, setup
-  objects)
+- `16-chat.md` § Finding the chat object for a space, `25-favorites.md`
+  (a client-registered bundle, for contrast)
+- `18-ci.md` § PR checks (`catalog-validate`)

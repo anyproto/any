@@ -8,7 +8,7 @@ import "encoding/json"
 // (server-derived) and the target id on patch / delete. The block
 // record is read back through POST /query (or live via
 // /query/subscribe) with dataset=editor_blocks; there is no curated
-// per-block wire struct. See docs/03-api.md § Editor.
+// per-block wire struct. See docs/03-api.md § Blocks.
 
 // BlockNav is the per-record sibling-ordering namespace. parentId
 // references another block's id; pos is a lexid that sorts siblings.

@@ -20,7 +20,7 @@ import (
 // Windowed live view over the per-space `objects` collection. The
 // request body matches POST /objects/query plus the Subscribe-only
 // QueryOpts (mailboxCapacity, driftBudgetPercent). Response is an SSE
-// stream — see docs/04-events.md § Windowed query subscriptions.
+// stream — see docs/04-events.md.
 //
 //	@Summary	Subscribe to a windowed objects query (SSE)
 //	@Tags		objects

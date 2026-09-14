@@ -13,9 +13,10 @@ hands back:
 ```
 POST /v1/catalog/general-chat/setup
 { "spaceId": "<spaceId>" }
-→ 200 { "usecase": "general-chat", "bundles": [ { "id": "system:general-chat/v1",
+→ 200 { "usecase": "general-chat", "bundles": [ { "usecase": "general-chat",
+        "id": "system:general-chat/v1",
         "bundle": { "rootId": "<chat object>", "derived": true, ... },
-        "installed": true|false, "typeId": "<chat object>" } ] }
+        "installed": true|false, "typeId": "<chat object>", "miniapp": { ... } } ] }
 ```
 
 The install is a bundle whose root is its own type with a part that
@@ -43,14 +44,7 @@ Two consequences:
   dataset.module_reserved`, and the general-chat root is the only
   object that may carry its type — creating or attaching another
   object with it is `400 type.reserved_carrier`. `POST /objects` never
-  makes a chat. One exception on disk, not on the API: a space set up
-  under the former client recipe keeps its old root, which still
-  carries its declaring type and still takes writes (the rule refuses
-  additions only) — so `chat_messages` `owners` can list two ids
-  there; the server neither detects nor adopts it
-  (`28-well-known-bundles.md` § What clients delete). Per-collection
-  chats (a client's own chat types) wait on per-collection push topics
-  and read tracking (`07-roadmap.md`).
+  makes a chat.
 
 ## The model in four sentences
 
@@ -77,19 +71,6 @@ carries equal stamps. Show an "edited" marker off `_ver` instead —
 (`_ver.id` is the creation marker, `_ver.<path>` advances with every
 write to that path).
 
-**Tolerate a number there.** The stamps are derived on each device from
-the change envelope, so a peer running an older build materializes the
-same message as unix seconds, and rows a device wrote before it upgraded
-read that way until the SDK's re-index reaches them. The wire
-`DataVersion` deliberately does not gate this — bumping it would park
-every chat change on peers that don't know the new version, i.e. stop
-messages syncing to protect a field's shape. So a client that may talk
-to mixed builds accepts both forms:
-
-```js
-const ms = v && typeof v === 'object' ? Date.parse(v.$date) : v * 1000;
-```
-
 ## What the SDK maintains for you
 
 Per message (local fields on the record, visible in query results and
@@ -102,9 +83,9 @@ subscribe frames):
 | `unreadReactions: true` | someone reacted to this message and you haven't seen it. Only ever sets on messages **you authored** — a reaction is a signal to the message's author, so it badges only them. |
 
 Per chat (properties on the chat object's row, present in any
-object query — this is your chat list). Like every type-declared
-property, the values live under the type's container on the row —
-read them at `chat.<property>`, NOT top-level:
+object query — this is your chat list). The values live under the
+module's namespace on the row — read them at `chat.<property>`, NOT
+top-level:
 
 | row path | scope | meaning |
 |---|---|---|
@@ -114,9 +95,8 @@ read them at `chat.<property>`, NOT top-level:
 | `chat.notifyMode` | account | per-chat push preference: `all` \| `mentions` \| `none`. Client-written via `POST /v1/spaces/:s/properties/:chatObjectId/set/chat`, synced across the account's devices, invisible to other members. Not enum-enforced — treat absent/garbage as "inherit the space-level `settings.notifyMode`" (default `all`). Consumed by the push subscription sync loop (`internal/push`; full push contract in `docs/20-push.md`). |
 
 A counter is absent from the row until the SDK first materializes it
-— treat absent as 0. (A top-level `unreadCount` never exists; probing
-that path reads 0 forever and looks exactly like "counters are
-broken".)
+— treat absent as 0. There is no top-level `unreadCount`; reading that
+path always yields 0.
 
 Rules that follow:
 
@@ -157,15 +137,14 @@ message above the line stays unread — correct: the user hasn't seen
 it).
 
 `…/:msgId/reactions-read` clears the unread **reaction(s)** on that one
-message. It exists because a reaction is a change ordered *after* its
-target message, so `…/:msgId/read` (which cuts at the message's own
-`_ver.id`) can never cover a reaction on that same message — without
-this route, seeing a reaction never clears its `unreadReactions` badge;
-only a *newer* message advancing the read cursor past the reaction
-would. Call it when the user has actually seen the reaction (e.g. the
-reacted message — almost always one they authored — scrolled into
-view). It is a no-op (still `204`, never `404`) on a message with no
-unread reactions.
+message. A reaction is a change ordered *after* its target message, so
+`…/:msgId/read` (which cuts at the message's own `_ver.id`) never
+covers a reaction on that same message; only this route, or a *newer*
+message advancing the read cursor past the reaction, clears its
+`unreadReactions` badge. Call it when the user has actually seen the
+reaction (e.g. the reacted message — almost always one they authored —
+scrolled into view). It is a no-op (still `204`, never `404`) on a
+message with no unread reactions.
 
 **Scope caveat — it also advances message read state.** Under the hood
 this marks the reaction change read, and marking a change read covers
@@ -179,9 +158,7 @@ unread messages coexist, mark the visible ones read first (the viewport
 `/read` rule below) so the only thing this can clear beyond the reaction
 is messages the user has already seen. Concretely: don't jump the user
 to an old reaction and fire `reactions-read` while newer unread messages
-sit below unseen — those get marked read too. It is **not** a way to
-dismiss a reaction while preserving unread messages the reactor had
-already seen.
+sit below unseen — those get marked read too.
 
 **When to call it — viewport rule.** Mark read what the user has
 actually seen, nothing more:
@@ -211,8 +188,7 @@ UI from those events, same as any other change — don't locally
 predict-and-patch.
 
 **Marks from your other devices** arrive the same way: flags clear and
-counters drop without any local action. Handle it identically (it is
-literally the same event flow).
+counters drop without any local action.
 
 ## The unread divider and "jump to first unread"
 
@@ -256,8 +232,9 @@ A mention is a markdown link whose destination is a mention URI
 `any://` reference in a message — the text's links and mentions, each
 attachment's `link`, the agent group's `debugLink` — also lands in
 the link index, so "which messages mention this member" and "which
-chats link this page" are `GET …/backlinks` reads (docs/03-api.md
-§ Links and backlinks). Mentions in the text:
+chats link this page" are backlinks reads (`GET /v1/backlinks?target=`,
+`GET …/objects/:o/backlinks`; docs/03-api.md § Links and backlinks).
+Mentions in the text:
 
 ```
 Hey [Zarko](any://m/<spaceId>/<identity>), take a look
@@ -277,10 +254,10 @@ ping). Two sources, one array:
 
 Edits re-derive the array from the new text. A message that mentions
 nobody carries no `mentions` field at all. The array is capped at 64
-identities (post-dedup; far above anything real — a defense against
-link-stuffing), and the reply fold-in always survives the cap: when
-it's hit, the last text mention yields the slot, so stuffing a reply
-with links can't squeeze the replied-to author out of their ping.
+identities (post-dedup; a defense against link-stuffing), and the
+reply fold-in always survives the cap: when it's hit, the last text
+mention yields the slot, so stuffing a reply with links can't squeeze
+the replied-to author out of their ping.
 
 Recipes — all index-backed (`mentions` is a sparse multikey index with
 a `_ver.id` tiebreak; use the equality form, not `$exists`):
@@ -302,11 +279,9 @@ Badge from the row's `chat.unreadMentions`, exactly like
 `creator != me` if you don't want them) but never badge you: your own
 writes are born read.
 
-Notes: pre-existing messages carry no `mentions` until they're edited
-(derivation happens at write time; stored history is never rewritten).
-Rendering the "magic" mention chip — resolving the current display
-name via `GET /v1/identities`, falling back to the link text snapshot
-— is described in docs/19-links.md § Mentions.
+Rendering the mention chip — resolving the current display name via
+`GET /v1/identities`, falling back to the link text snapshot — is
+described in docs/19-links.md § `m` — mentions.
 
 ## Chat list
 
@@ -322,12 +297,11 @@ thousand chats cost one query.
 
 Do NOT subscribe to every chat to detect new messages — each
 subscription holds a record window and mailbox, and puts event-build
-work on every apply. There is also no notification service: a desktop
-client (e.g. a Tauri wrapper with its own local store) builds OS
-notifications itself, entirely over the existing HTTP surface. The
-trick is that the SDK already funnels "something notify-worthy
-happened" into the chat rows' counter properties — so ONE space-wide
-subscription covers every chat:
+work on every apply. There is no notification service either: a
+desktop client builds OS notifications itself over the existing HTTP
+surface. The SDK already funnels "something notify-worthy happened"
+into the chat rows' counter properties, so ONE space-wide subscription
+covers every chat:
 
 ```
 POST /v1/spaces/:spaceId/objects/query/subscribe
@@ -358,7 +332,7 @@ Boot policy: on start, take the subscription's snapshot as badge
 state — don't toast the offline gap (the last-notified markers make
 this automatic). On SSE overflow/drift, resubscribe; the snapshot
 frame re-establishes badges and the markers keep toasts deduplicated.
-Space add/remove: re-list `/spaces` on its own events or a slow poll.
+Space add/remove: `POST /v1/spaces/query/subscribe`.
 
 Total live surface for a desktop client: one objects subscription per
 space, one `/query/subscribe` for the currently OPEN chat, plus a
@@ -383,21 +357,20 @@ Same semantics as the HTTP recipe, one hop closer to the engine.)
   rendered flags is fine — it gets corrected by events.
 - Don't infer read state of OTHER members: there is none. Read state
   is private; the protocol carries no read receipts.
-- Don't treat `unread` as a boolean field to write — the flag fields
-  and counter properties are SDK-owned (local scope, handler-only);
-  writes to them are rejected.
+- Don't write the flag fields or counter properties. They are
+  SDK-owned local-scope values: a synced write to them is rejected,
+  and a local-scope write is overwritten by the SDK's next
+  materialization pass. Mark read through the read endpoints.
 
 ## Current limitations
 
 - A freshly linked device lands on the account's real read state
   (your other devices' synced read positions apply, so a chat your
   phone shows unread is unread here too). Only when no device ever
-  published read state for a chat — or in the rare case its read
-  positions haven't synced yet at first open — does it start with
-  everything read and converge at the next mark.
-- `chat_messages` has **no version history** (`SkipHistory`, SYN-86):
-  the `/history` endpoints never list chat changes, and there is no
+  published read state for a chat — or when its read positions
+  haven't synced yet at first open — does it start with everything
+  read and converge at the next mark.
+- `chat_messages` has **no version history** (`SkipHistory`): the
+  `/history` endpoints never list chat changes, and there is no
   per-message edit timeline or "view original" — clients render live
-  records only (an edit replaces `text`, a delete tombstones). The
-  DAG still retains every change, so this is revertible with a
-  backfill if a history UX ever materializes.
+  records only (an edit replaces `text`, a delete tombstones).

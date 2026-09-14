@@ -3,13 +3,13 @@
 An account-wide **ephemeral** event bus: a publisher `POST`s an event; the
 server fans it out over SSE to every subscriber whose filter matches.
 **Nothing is stored, there is no replay, no ack, delivery is at-most-once.**
-It generalizes the retired UI command channel (`/v1/ui/commands`,
-doc 15) — UI navigation is now just the `ui.*` corner of the type space.
+UI navigation, process progress (doc 22) and link-index liveness are all
+event types on it.
 
 This is a consumer-side channel, not an SDK dataset — the same kind of
 exception as `/search`. An event is a transient signal (a navigation
 directive, a progress tick, a presence beat), not shared space data, so it
-deliberately does **not** go through the dataset/handler/CRDT machinery.
+does **not** go through the dataset/handler/CRDT machinery.
 
 Scopes:
 
@@ -23,16 +23,13 @@ Scopes:
 
 ## Why in-memory (not a dataset)
 
-A persisted `events` dataset was considered and rejected. The problems it
-would create — and that the ephemeral bus simply doesn't have:
-
-- **No replay.** A persisted dataset replays its history to any reconnecting
-  subscriber (jump to an hour-old document, re-render stale progress).
-  The bus has no snapshot — a subscriber sees only events published *after*
-  it connects.
+- **No replay.** A persisted dataset would replay its history to any
+  reconnecting subscriber (jump to an hour-old document, re-render stale
+  progress). The bus has no snapshot — a subscriber sees only events
+  published *after* it connects.
 - **At-most-once is correct here.** An event fired while nobody listens is
-  dropped. You do not want a queued "open doc" firing minutes later, or a
-  backlog of progress ticks replaying on reconnect. Payloads must be
+  dropped. A queued "open doc" firing minutes later, or a backlog of
+  progress ticks replaying on reconnect, would be wrong. Payloads must be
   idempotent or last-write-wins.
 - **No growth, no space coupling.** Nothing accumulates, no object hosts it,
   no derived ids to discover. One account per server ⇒ one global bus.
@@ -55,16 +52,16 @@ would create — and that the ephemeral bus simply doesn't have:
   clients that don't handle them. New event kinds add a new type (plus
   payload fields) with **no server change**.
 - `target` — one token of `[A-Za-z0-9._-]{1,128}`, filterable on subscribe.
-  The charset keeps the future pub/sub topic mapping (dots → `/` segments,
+  The charset keeps the pub/sub topic mapping (dots → `/` segments,
   target appended as one segment) collision-free.
-- `data` — ≤ 64 KiB marshaled (matches the pub/sub per-message cap, so a
-  device-scope producer doesn't break when it switches scope).
+- `data` — any JSON value, ≤ 64 KiB marshaled (the pub/sub per-message
+  cap, so a device-scope producer doesn't break when it switches scope;
+  on the network scopes the cap covers the whole wire message, so the
+  effective `data` budget there is slightly smaller).
 - `sender` — stamped by the server: `identity` is the publishing account
-  (signature-verified once network scopes land), `self` is true when the
-  event came from this account (any of its devices). A `sender` field in a
-  publish body is rejected (`400 request.unknown_field`).
-- `sessionId` — **reserved** for a future per-connection identity; not
-  implemented.
+  (from the message signature on the network scopes), `self` is true when
+  the event came from this account (any of its devices). A `sender` field
+  in a publish body is rejected (`400 request.unknown_field`).
 
 ## Endpoints
 
@@ -117,6 +114,9 @@ no params = everything:
   (`process.*` matches `process` and everything under `process.`).
 - `target` — exact.
 
+A bad `scope` value or `type` / `target` grammar is `400
+request.invalid_field`.
+
 Frames:
 
 ```
@@ -134,9 +134,11 @@ data: {"reason":"server_shutdown"}
 
 - `ready` — emitted once on connect. **No snapshot follows** (there is none).
 - `event` — one per matching published event, the envelope verbatim.
-- `: keepalive` — comment heartbeat every ~25s while idle.
+- `: keepalive` — comment heartbeat every 25s while idle.
 - `closed` — terminal frame with a `reason`:
   - `server_shutdown` — the server is exiting.
+  - `deauthorized` — the account was logged out or switched in place
+    (`04-events.md` contract item 2).
   - `overflow` — this subscriber fell too far behind (its 16-deep buffer
     filled) and was dropped; reconnect for a fresh stream.
 
@@ -144,7 +146,7 @@ data: {"reason":"server_shutdown"}
   branch on one reason set. A plain client disconnect writes no frame (the
   peer is already gone).
 
-Network-scope subscriptions have two extra rules:
+Network-scope subscriptions have extra rules:
 
 - An **explicit** `scope=space` subscription must name at least one
   `spaceId` filter (`400 request.missing_field`) — pub/sub interest is
@@ -155,6 +157,9 @@ Network-scope subscriptions have two extra rules:
   so combining it with a scope list that excludes `space` is `400
   request.invalid_field`, and its presence skips the account interests
   a catch-all would otherwise acquire.
+- Every listed `spaceId` is resolved up front, so subscribe answers the
+  space-resolution errors (`404`/`409 space.*`) for an unknown or
+  unusable space.
 - Subscribe can answer `409 events.too_many_patterns` when the space's
   pub/sub pattern budget (100) is exhausted — narrow the type filters or
   share them across subscribers (identical filters share one interest).
@@ -162,9 +167,6 @@ Network-scope subscriptions have two extra rules:
 ## Event types
 
 ### `ui.*` — UI navigation (device scope)
-
-The retired `/v1/ui/commands` vocabulary, now event types. `data` carries
-what the command body used to:
 
 ```jsonc
 // type: "ui.open_space"
@@ -179,7 +181,8 @@ envelope's `spaceId` (which is scope routing and absent on device scope) —
 so one subscription drives navigation anywhere. `source` is a free-form
 publisher hint, UI display only. A UI window mounts one
 `EventSource('/v1/events/subscribe?scope=device&type=ui.*')` and dispatches
-`event` frames into navigation; unknown `ui.*` types are ignored.
+`event` frames into navigation; unknown `ui.*` types are ignored. The
+server does not validate `ui.*` payloads.
 
 ### `process.*` — the process helper (doc 22)
 
@@ -195,7 +198,8 @@ staleness rules — in `docs/22-processes.md`.
 
 Published by the search indexer after a page of changes landed edges
 in the link index (docs/13-index.md § Links): the canonical targets
-whose backlinks changed, so a panel showing them re-reads.
+whose backlinks changed, so a panel showing them re-reads. No envelope
+target.
 
 ```jsonc
 // type: "links.updated"
@@ -236,13 +240,19 @@ when absent):
 | `editor.cursor`, target `o1`, by A | `acc/ev/editor/cursor/o1/<A>`    |
 
 Types designated **self-owned** (registry `selfOwnedEventTypes` in
-`internal/server/events_topics.go`; v1: `editor.cursor`) map into
+`internal/server/events_topics.go`: `editor.cursor`) map into
 pub/sub's reserved `acc/…/<accountId>` namespace — only that account can
 publish there (enforced at publisher, relay and receiver), making
 presence-style signals spoof-proof. Anyone may subscribe; the fan-in
-pattern covers the target + account tail. Add a type to the registry to
-make it self-owned — a coordinated change, since every peer must map the
-type the same way.
+pattern covers the target + account tail. A self-owned type arriving on a
+plain `ev/` topic is dropped. Adding a type to the registry is a
+coordinated change — every peer must map the type the same way.
+
+The pub/sub payload is JSON `{type, target?, data?}`; scope and
+`spaceId` come from where the message arrives, the sender from its
+signature. A payload that is not valid JSON or breaks the `type` /
+`target` grammar is dropped on receipt — the `ev/` namespace is open to
+every space member, including non-`any` publishers.
 
 SSE filters become NATS-style interest patterns: `type=process.*` →
 `ev/process/>`, exact type → `ev/…/<target>` or `ev/…/*`, no type filter
@@ -272,16 +282,15 @@ interest on it). Approximate by design.
 
 ### Constraints
 
-- **Payload ≤ 64 KiB** per message (enforced at publish, `400
-  events.payload_too_large`).
-- **~30 msg/s per-peer publish budget** (burst 60; any-sync's pub/sub
+- **Payload ≤ 64 KiB** per message (`400 events.payload_too_large`).
+- **30 msg/s per-peer publish budget** (burst 60; any-sync's pub/sub
   rate limit). Coalesce high-frequency producers: token-level agent
   output at ~4 Hz, cursor positions at ≤ 10 Hz are fine.
 - **100 interest patterns per space** (shared across the process — `409
   events.too_many_patterns`).
-- Relay through sync nodes needs a network whose nodes carry
-  `pubsubrelay` (staging does, any-sync-node ≥ v0.13.1); against older
-  nodes events still flow between directly connected LAN peers.
+- Relay through sync nodes needs nodes that carry `pubsubrelay`
+  (any-sync-node ≥ v0.13.1); without it events flow only between
+  directly connected LAN peers.
 - Guest-mode (public access) spaces are unsupported — the transport
   signs as the account identity, which a guest ACL doesn't contain
   (`409 events.no_read_key`).
@@ -291,13 +300,17 @@ interest on it). Approximate by design.
 - `internal/server/events_hub.go` — `eventHub`, a process-global filtered
   broadcaster (mutex + `map[int]eventSub`). `publish` is a **non-blocking**
   fan-out to matching subscribers: one whose buffer is full is dropped
-  (channel closed) rather than blocking the publisher. Created lazily via
-  `deps.eventsHub()` — no engine/SDK dependency. `any`-internal producers
-  (indexer, sync milestones) publish through it directly.
+  (channel closed) rather than blocking the publisher. Construction-time
+  taps observe every publish loss-free (the process registry is one).
+  Created lazily via `deps.eventsHub()` — no engine/SDK dependency.
+  `any`-internal producers (the indexer's process updates and
+  `links.updated`, wired in `engine.go`) publish through it directly.
 - `internal/server/handlers_events.go` — `eventsPublish` (strict bind →
-  validate → stamp sender → route by scope) and `eventsSubscribe` (parse
-  filters → the shared `streamStatusSSE` driver: `ready`, keepalive,
-  terminal `closed`, registered with `streamsWG` so graceful shutdown waits).
+  validate → stamp sender → route by scope through `publishScoped`) and
+  `eventsSubscribe` (parse filters → acquire network interests → the
+  shared `streamStatusSSE` driver: `ready`, keepalive, terminal
+  `closed`). The stream runs inside the engine gate, so a teardown waits
+  for it.
 - `internal/server/events_topics.go` — the type↔topic mapping, the
   self-owned registry, filter→pattern derivation and the
   pattern-subsumption cover used by the bridge.
@@ -316,13 +329,11 @@ any events subscribe [--scope S]... [--type T]... [--space ID]... [--target X]..
                                           # one JSON line per SSE frame
 ```
 
-## Limits / future
+`--scope` defaults to `device` on publish.
+
+## Limits
 
 - Fire-and-forget, at-most-once. No persistence, no replay, no retry, no ack
-  beyond the local `subscribers` count. Intentional — see "Why in-memory".
-- Single account per server ⇒ the hub is genuinely global. If
-  multi-account-per-process ever lands, key the hub by account.
-- New event kinds = new `type` values; document the contracts here.
-  `any`-internal producers publish through `deps.eventsHub()` directly
-  — first one wired: the indexer's embed drain, reporting as a
-  device-scope process (docs/22-processes.md § Internal producers).
+  beyond the local `subscribers` count — see "Why in-memory".
+- Single account per server ⇒ the hub is process-global.
+- New event kinds = new `type` values; document their contracts here.
