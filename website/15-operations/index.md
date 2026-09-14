@@ -41,6 +41,7 @@ curl -s http://127.0.0.1:7001/v1/health
   "status": "ok",
   "version": "any v0.1.2 (commit 1a2b3c4, built 2026-09-09)",
   "startedAt": "2026-09-10T08:12:00Z",
+  "networkId": "N83gJpVd9MuNRZAuJLZ7LiMntTThhPc6DtzWWVjb1M3PouVU",
   "account": "A3…",
   "bootstrapping": false,
   "crdtVersion": { "supported": 1, "stored": 1, "newer": false }

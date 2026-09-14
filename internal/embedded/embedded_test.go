@@ -233,7 +233,7 @@ func TestMemoryLimitApplied(t *testing.T) {
 // unknown mode or a managed boot without a control token is refused
 // as ErrBadOptions before any filesystem work.
 func TestAssembleConfigMode(t *testing.T) {
-	base := Options{DataDir: "/d", ListenAddr: loopbackEphemeral, NodeconfYAML: "nc"}
+	base := Options{DataDir: "/d", ListenAddr: loopbackEphemeral, NodeconfYAML: "networkId: test"}
 
 	for _, in := range []string{"", "standalone"} {
 		opts := base
@@ -262,6 +262,24 @@ func TestAssembleConfigMode(t *testing.T) {
 	opts.Mode = "hosted"
 	if err := validateOptions(opts); !errors.Is(err, ErrBadOptions) {
 		t.Fatalf("unknown mode: err %v, want ErrBadOptions", err)
+	}
+}
+
+// A host conf naming no network is the host's input error, refused
+// before boot; an empty conf selects the embedded default.
+func TestValidateOptionsNodeconf(t *testing.T) {
+	for in, wantErr := range map[string]bool{
+		"":                false,
+		"  ":              false,
+		"networkId: test": false,
+		"nodes: []":       true,
+		"networkId: [":    true,
+	} {
+		opts := Options{DataDir: "/d", ListenAddr: loopbackEphemeral, NodeconfYAML: in}
+		err := validateOptions(opts)
+		if wantErr != errors.Is(err, ErrBadOptions) {
+			t.Errorf("NodeconfYAML %q: err %v, want ErrBadOptions=%v", in, err, wantErr)
+		}
 	}
 }
 

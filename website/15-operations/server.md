@@ -34,10 +34,12 @@ The SDK returns from `Open` after local wiring only. Eager space loading and off
 
 ```json
 { "status": "ok", "version": "any v0.1.2 (commit 1a2b3c4, built 2026-09-09)",
-  "startedAt": "2026-09-10T08:12:00Z", "account": "A3…",
-  "bootstrapping": true,
+  "startedAt": "2026-09-10T08:12:00Z", "networkId": "N83gJpVd…",
+  "account": "A3…", "bootstrapping": true,
   "crdtVersion": { "supported": 1, "stored": 1, "newer": false } }
 ```
+
+`networkId` is the any-sync network the server joins, read from the node configuration it started with and present whether or not an account is signed in ([Networks](networks.html)).
 
 `bootstrapping` is `true` while the pass runs and `false` when it completes (or when the server is unauthorized). It reports the one-shot pass only — per-space convergence is on [sync status](../realtime/sync-status.html). Health never needs SDK state, which makes it the right probe for supervisors and for `any status`.
 

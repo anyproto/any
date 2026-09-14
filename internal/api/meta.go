@@ -6,7 +6,12 @@ type HealthResponse struct {
 	Status    string    `json:"status"`
 	Version   string    `json:"version"`
 	StartedAt time.Time `json:"startedAt"`
-	Account   string    `json:"account"`
+	// NetworkId is the any-sync network this server joins: the networkId
+	// of the nodeconf it started with. Set whether or not an account is
+	// authorized. The server names no networks; clients map well-known
+	// ids to names themselves.
+	NetworkId string `json:"networkId"`
+	Account   string `json:"account"`
 	// Bootstrapping is true while the booted SDK's background boot pass
 	// (eager space loading + offline catch-up) is still running. The
 	// server serves throughout; per-space convergence is /sync-status.
