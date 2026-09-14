@@ -33,7 +33,12 @@ The configuration is read once at startup; changing the file takes effect on the
 curl -s http://127.0.0.1:7001/v1/health | jq -r .networkId
 ```
 
-The server returns the id only. Clients recognise the well-known ids (production, staging) and show any other network by a shortened id.
+The server returns the id only. Clients recognise the well-known ids and show any other network by a shortened id:
+
+| `networkId` | Network |
+|---|---|
+| `N83gJpVd9MuNRZAuJLZ7LiMntTThhPc6DtzWWVjb1M3PouVU` | Anytype production (the embedded default) |
+| `N9DU6hLkTAbvcpji3TCKPPd3UQWKGyzUxGmgJEyvhByqAjfD` | Anytype stage |
 
 > **Note.** Because the default is production, anything that must not touch real infrastructure — tests, CI, scratch rigs — has to set a nodeconf explicitly. The repository ships a sanitized **placeholder** configuration (the real network id with placeholder nodes) that boots and serves but joins no network; tests use it, and it is never selected at runtime.
 

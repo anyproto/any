@@ -160,8 +160,9 @@ in the mobile build (404).
 `networkId` (string, always present): the any-sync network this server
 joins — the `networkId` of the nodeconf it resolved at startup, the
 same before and after `POST /v1/auth`. The server returns only the id;
-clients map well-known ids (production, staging) to names and show any
-other id shortened. See `02-server.md` § Health.
+clients map well-known ids to names and show any other id shortened.
+Well-known ids (Anytype production, Anytype stage) are listed in
+`02-server.md` § Health.
 
 `bootstrapping` (bool): `true` while a booted engine's SDK background
 boot pass (eager space loading + offline catch-up) is still running —

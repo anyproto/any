@@ -306,8 +306,15 @@ of the nodeconf resolved at startup (§ Startup), present authorized or
 not. The same account and space ids exist independently on every
 network, so two devices listing different spaces for one account
 compare this first. The server names no networks — clients map
-well-known ids (production, staging) to labels and show any other id
-shortened.
+well-known ids to labels and show any other id shortened:
+
+| `networkId` | Network |
+|---|---|
+| `N83gJpVd9MuNRZAuJLZ7LiMntTThhPc6DtzWWVjb1M3PouVU` | Anytype production (the embedded default) |
+| `N9DU6hLkTAbvcpji3TCKPPd3UQWKGyzUxGmgJEyvhByqAjfD` | Anytype stage |
+
+The test placeholder conf carries the stage id with placeholder nodes,
+so a test server reports stage while joining nothing.
 
 `bootstrapping` is `true` while a booted engine's SDK background boot
 pass (eager space loading + offline catch-up) is still running: the
