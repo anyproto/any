@@ -34,12 +34,8 @@ with a JSON HTTP API plus a CLI client.
 
 ## Install
 
-`any-sync-sdk` is a private repo today, so `go install` needs
-`GOPRIVATE` and an SSH-rewrite for `github.com/anyproto/*`:
-
 ```sh
-git config --global url."git@github.com:".insteadOf "https://github.com/"
-GOPRIVATE=github.com/anyproto go install github.com/anyproto/any/cmd/any@latest
+go install github.com/anyproto/any/cmd/any@latest
 ```
 
 This drops a `any` binary into `$(go env GOBIN)` (or `$GOPATH/bin`). Build a
