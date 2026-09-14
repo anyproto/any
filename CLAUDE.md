@@ -2047,6 +2047,40 @@ To inspect SDK behavior at the pinned version, read the module cache
    service at `access.redeemUrl`; the answer is relayed as
    `{status, redemptionId}` or an `access.*` error. Disabled without a
    URL. Contract: docs/03-api.md § Account, errors in docs/06-errors.md.
+56. **Network id on health** — `RunWith` resolves the nodeconf once
+   (`pinNodeconf`, sdk.go): it reads `networkId`
+   (`config.NodeconfNetworkId`, a one-key decode — the SDK's full parse
+   still runs at Open) and pins the bytes inline on
+   `cfg.Network.Nodeconf`, so every engine the process boots joins the
+   network `GET /v1/health` reports as `networkId`, authorized or not.
+   A conf that isn't YAML or names no networkId fails startup
+   (`embedded.ErrBadOptions` for a host conf). The server returns the id
+   only; clients map well-known ids (listed in docs/02-server.md
+   § Health) to names. No SDK accessor needed.
+   Contract: docs/02-server.md § Startup + § Health, docs/03-api.md
+   § Meta.
+57. **Per-account network pin** — the network stays a per-process
+    setting (item 56), but `bootEngine` hands the pinned nodeconf bytes
+    to `OpenSDK` as an argument, pins its `networkId` in
+    `<account-dir>/network.json` after the first successful SDK open
+    (a failed write only warns), and refuses a boot under another
+    network before touching the dir, re-checked under the lock
+    (`networkpin.go`) — `any run` exits with both
+    ids, `POST /v1/auth` answers `409 auth.network_mismatch`
+    (`details.pinned` / `configured`); `switchAccount` checks the
+    target before tearing the running account down. An unpinned dir
+    adopts the network it boots with (a wrong adoption is fixed by
+    removing the file); an unreadable pin is `500
+    auth.network_pin_corrupt` and never rewritten. The SDK's own
+    `sdk/anysync/nodeconf/<networkId>.yml` cache cannot serve as the
+    pin: any-sync reads only the configured network's file, writes it
+    only after a coordinator hands a newer conf, and keeps one per
+    network touched. Tests: `TestNetworkPin`, `TestAuth_NetworkPin`,
+    `TestAuth_NetworkPinSwitch`, `TestRun_NetworkPin` (placeholder
+    nodeconf — run without staging). Contract:
+    docs/02-server.md § Startup + § Data dir layout, docs/03-api.md
+    § Auth, docs/05-config.md, docs/06-errors.md, docs/08-clients.md
+    § 14.
 
 ## What this project is
 
@@ -2196,6 +2230,7 @@ flat root is the default account — docs/02-server.md § Data dir layout):
 └── <accountId>/
     ├── wallet.key     # standalone: auth.FileProvider wallet (0600)
     ├── device.key     # managed: cached device key (0600, minted once, never portable)
+    ├── network.json   # networkId this account's data belongs to (pinned on first boot)
     ├── server.lock    # single-instance OS file lock (kernel-released)
     ├── server.pid     # holder's pid — error messages only, never proof of life
     ├── server.addr    # holder's bound address — CLI convenience only

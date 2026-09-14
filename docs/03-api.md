@@ -161,6 +161,13 @@ in the mobile build (404).
 crdtVersion?}`. It works on an unauthorized server too — `account` is
 then `""`.
 
+`networkId` (string, always present): the any-sync network this server
+joins — the `networkId` of the nodeconf it resolved at startup, the
+same before and after `POST /v1/auth`. The server returns only the id;
+clients map well-known ids to names and show any other id shortened.
+Well-known ids (Anytype production, Anytype stage) are listed in
+`02-server.md` § Health.
+
 `bootstrapping` (bool): `true` while a booted engine's SDK background
 boot pass (eager space loading + offline catch-up) is still running;
 the server serves throughout, and per-space convergence is
@@ -306,7 +313,15 @@ disagrees with the supplied phrase/index), `400 auth.passkey_required`
 var, never the request body), `500 auth.device_key_corrupt` (managed:
 the account's cached `device.key` is unreadable; it is never re-minted
 silently — remove the file to mint a new device identity, which
-registers this install as a new peer).
+registers this install as a new peer), `409 auth.network_mismatch` (the
+account's data belongs to another any-sync network than the server is
+configured for; `details.pinned` / `details.configured` carry both
+network ids — start the server with the matching nodeconf, keeping one
+data root per network; `02-server.md` § Startup — on a `replace` switch
+it is decided before the running account goes down, so that account
+stays up), `500 auth.network_pin_corrupt` (the account's `network.json`
+is unreadable; remove it and start the server on the account's network,
+which the next boot pins again).
 
 ### Account
 

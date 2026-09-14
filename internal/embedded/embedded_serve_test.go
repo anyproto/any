@@ -33,8 +33,9 @@ import (
 //     meta route served in UNAUTHORIZED mode (no account booted on a fresh
 //     data dir), so it needs no staging peers and runs fully offline — the
 //     point is that the HTTP engine serves after boot. Unauthorized health
-//     reports an empty account and a non-zero startedAt; fields that need
-//     network are not asserted.
+//     reports an empty account, a non-zero startedAt and the networkId of
+//     the conf it was given; fields that need a live network are not
+//     asserted.
 func TestBootAndServe(t *testing.T) {
 	resetState(t)
 	defer resetState(t)
@@ -78,13 +79,17 @@ func TestBootAndServe(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&h); err != nil {
 		t.Fatalf("decode HealthResponse: %v", err)
 	}
-	// Unauthorized boot: no account, but the engine is up and stamped a
-	// start time. (Account / network-dependent fields are not asserted.)
+	// Unauthorized boot: no account, but the engine is up, stamped a
+	// start time and reports the network of the conf it was given.
 	if h.Account != "" {
 		t.Errorf("unauthorized health account = %q, want empty", h.Account)
 	}
 	if h.StartedAt.IsZero() {
 		t.Error("health startedAt is zero, want a boot timestamp")
+	}
+	// The networkId nodeconf-placeholder.yml carries.
+	if want := "N9DU6hLkTAbvcpji3TCKPPd3UQWKGyzUxGmgJEyvhByqAjfD"; h.NetworkId != want {
+		t.Errorf("unauthorized health networkId = %q, want %q", h.NetworkId, want)
 	}
 
 	// --- Sub-check C: headless — the /ui debug harness is not mounted. ---

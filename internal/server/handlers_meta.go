@@ -34,6 +34,9 @@ import (
 type deps struct {
 	account   string
 	startedAt time.Time
+	// networkId is the pinned nodeconf's networkId (pinNodeconf), fixed
+	// for the process lifetime.
+	networkId string
 	// shutdown signals server.Run to begin graceful teardown. Receives at
 	// most one value; subsequent sends are dropped by the non-blocking send.
 	shutdown chan<- struct{}
@@ -177,6 +180,7 @@ func (d *deps) health(c echo.Context) error {
 		Status:        "ok",
 		Version:       version.String(),
 		StartedAt:     d.startedAt,
+		NetworkId:     d.networkId,
 		Account:       d.accountID(),
 		Bootstrapping: d.bootstrapping(),
 		CRDTVersion:   d.crdtVersion(),

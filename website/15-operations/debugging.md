@@ -16,7 +16,7 @@ curl -s http://127.0.0.1:7001/v1/health
 
 ```json
 { "status": "ok", "version": "any v0.1.2 (commit 1a2b3c4, built 2026-09-09)",
-  "startedAt": "2026-09-10T08:12:00Z", "account": "A3…", "bootstrapping": false,
+  "startedAt": "2026-09-10T08:12:00Z", "networkId": "N83gJpVd…", "account": "A3…", "bootstrapping": false,
   "crdtVersion": { "supported": 1, "stored": 1, "newer": false } }
 ```
 
@@ -25,6 +25,7 @@ curl -s http://127.0.0.1:7001/v1/health
 | connection refused | no server on that port; start with `any run` (the CLI exits 3 and says so) |
 | `"account": ""` and `401 auth.required` everywhere | server is unauthorized — `any auth login` or `POST /v1/auth` ([Accounts](../auth/accounts.html)) |
 | `"bootstrapping": true` | the background boot pass is still loading spaces; reads may serve pre-offline state |
+| two devices list different spaces for the same account | compare `networkId` — each network holds its own copy of the account ([Networks](networks.html)) |
 | `409 auth.account_in_use` on auth | another process holds this account's instance lock |
 | `"crdtVersion": {"newer": true}` and `409 sdk.crdt_version_newer` on writes | another device raised the account's data version — upgrade this server; reads keep working |
 | `403 control.forbidden` | a managed server's auth or shutdown call without its control token (`ANY_CONTROL_TOKEN` for the CLI) |

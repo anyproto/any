@@ -87,6 +87,11 @@ account is standalone-only — a managed login with its phrase lands in
 ## Startup
 
 1. Load config (file → env var overrides → flags). See `05-config.md`.
+   Resolve the nodeconf once and keep its bytes for the process: every
+   engine the process boots joins that network, and `GET /v1/health`
+   reports its `networkId` from the start. A conf that is unreadable,
+   isn't YAML or names no `networkId` fails startup; the rest of it is
+   checked when the SDK opens.
 2. **Managed**: skip account resolution entirely — start unauthorized
    (step 4) and wait for the host's `POST /v1/auth`.
    **Standalone**: resolve the data-dir ROOT (default `~/.any/`) and
@@ -121,6 +126,19 @@ account is standalone-only — a managed login with its phrase lands in
    sdk.crdt_version_newer`) so an older release never writes into data
    shaped by rules it does not know. A lower or absent mark is raised
    to this release's version.
+   Before that, the **network pin**: the network is a per-process
+   setting (`05-config.md`), but an account's data only makes sense on
+   the any-sync network that wrote it. The account dir records that
+   network's id in `network.json` on the first boot, and a server
+   configured for another network refuses the account before touching
+   its dir (`any run` exits naming both ids; over HTTP `409
+   auth.network_mismatch`) — a managed `replace` switch checks it before
+   tearing the running account down. Keep one data root per network.
+   An account dir without a pin — new, or from before pins — adopts the
+   network it next boots with. If that was the wrong network, or the pin
+   is unreadable (`500 auth.network_pin_corrupt`, never rewritten from
+   config), remove `network.json` and start the server on the account's
+   network.
 4. Without an account: start **unauthorized**. Every `/v1` route except
    `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth`
    returns `401 auth.required` until `POST /v1/auth` creates / restores
@@ -240,6 +258,9 @@ instance) takes no lock.
     ├── device.key               # MANAGED: cached device key (mode 0600, minted
     │                            #   once, never portable — § Modes); the account
     │                            #   key is never written
+    ├── network.json             # id of the any-sync network this account's data
+    │                            #   belongs to — written on first boot; another
+    │                            #   network refuses the boot (§ Startup)
     ├── server.lock              # per-account single-instance lock (OS file lock)
     ├── server.pid               # holder's pid, for error messages only
     ├── server.addr              # holder's bound address — CLI convenience only
@@ -294,6 +315,7 @@ panic logs at `error` with its stack.
   "status":        "ok",
   "version":       "any v0.1.0 (commit 1a2b3c4, built 2026-04-23T18:00:00Z)",
   "startedAt":     "2026-04-23T18:12:00Z",
+  "networkId":     "N83gJpVd9MuNRZAuJLZ7LiMntTThhPc6DtzWWVjb1M3PouVU",
   "account":       "A3...accountId...",
   "bootstrapping": false,
   "crdtVersion":   { "supported": 1, "stored": 1, "newer": false }
@@ -302,6 +324,21 @@ panic logs at `error` with its stack.
 
 Does not require SDK state — on an unauthorized server `account` is
 `""` and everything else is live. `any status` prints it.
+
+`networkId` is the any-sync network this server joins: the `networkId`
+of the nodeconf resolved at startup (§ Startup), present authorized or
+not. The same account and space ids exist independently on every
+network, so two devices listing different spaces for one account
+compare this first. The server names no networks — clients map
+well-known ids to labels and show any other id shortened:
+
+| `networkId` | Network |
+|---|---|
+| `N83gJpVd9MuNRZAuJLZ7LiMntTThhPc6DtzWWVjb1M3PouVU` | Anytype production (the embedded default) |
+| `N9DU6hLkTAbvcpji3TCKPPd3UQWKGyzUxGmgJEyvhByqAjfD` | Anytype stage |
+
+The test placeholder conf carries the stage id with placeholder nodes,
+so a test server reports stage while joining nothing.
 
 `bootstrapping` is `true` while a booted engine's SDK background boot
 pass (eager space loading + offline catch-up) is still running: the

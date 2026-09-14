@@ -61,10 +61,18 @@ auth:
 # PRODUCTION network — an unconfigured binary syncs against production
 # from any working directory. Point at another network with
 # nodeconfPath, inline nodeconf, or ANY_NETWORK_NODECONF_PATH.
+# The conf is read once at startup (a change applies on restart); a conf
+# that isn't YAML or names no networkId fails startup, the rest of it is
+# checked when the SDK opens. GET /v1/health reports it as `networkId`.
+#
+# The network is a PROCESS setting: every account the server boots joins
+# it. Each account dir is pinned to the network its data was written on
+# (network.json, 02-server.md § Startup) and refuses to boot under
+# another one — keep one data root per network.
 #
 # internal/config/nodeconf-placeholder.yml is a sanitized test fixture
-# (config.NodeconfPlaceholder()): it boots and serves but joins no
-# network. Nothing selects it at runtime.
+# (Anytype stage networkId, placeholder nodes; config.NodeconfPlaceholder()):
+# it boots and serves but joins no network. Nothing selects it at runtime.
 #
 # The embedded servers (any.aar / xcframework / embedded.Start) follow the
 # same rule: an empty nodeconfYAML selects the production default;
