@@ -720,6 +720,9 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 	if ix.opts.Embedder == nil {
 		vectorStatus = api.VectorStatusDisabled
 	}
+	if hs.empty() {
+		return api.SearchResponse{Hits: []api.SearchHit{}, Mode: mode, VectorStatus: vectorStatus}, nil
+	}
 
 	if mode == api.SearchModeVector || mode == api.SearchModeHybrid {
 		if ix.opts.Embedder == nil {

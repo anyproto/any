@@ -102,6 +102,12 @@ func (s *hostSet) lazy() bool {
 	return s != nil && !s.small
 }
 
+// empty reports a filter no object satisfies: nothing can match, so a
+// search answers without embedding the query or opening a leg.
+func (s *hostSet) empty() bool {
+	return s != nil && s.small && len(s.list) == 0
+}
+
 // materialize resolves the complete set; a no-op once exact.
 func (s *hostSet) materialize(ctx context.Context) error {
 	if s == nil || s.exact {

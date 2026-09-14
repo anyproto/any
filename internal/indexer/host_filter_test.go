@@ -251,20 +251,35 @@ func TestIndexer_FilterHybridSharesSet(t *testing.T) {
 	}
 }
 
-// An empty set answers empty without touching the legs' order: no
-// lookups, no hits, not truncated.
+// countingEmbedder counts query embeddings; every vector is the axis.
+type countingEmbedder struct {
+	axisEmbedder
+	queries int
+}
+
+func (c *countingEmbedder) EmbedQuery(ctx context.Context, q string) ([]float32, error) {
+	c.queries++
+	return c.axisEmbedder.EmbedQuery(ctx, q)
+}
+
+// An empty set answers empty without embedding the query or opening a
+// leg: no lookups, no hits, not truncated.
 func TestIndexer_FilterEmptySet(t *testing.T) {
 	ctx := context.Background()
-	st := mustStore(t, 0)
-	ix := &Indexer{store: st, opts: Options{AnnounceAfter: -1}.withDefaults()}
+	st := mustStore(t, 4)
+	emb := &countingEmbedder{axisEmbedder: axisEmbedder{dim: 4}}
+	ix := &Indexer{store: st, opts: Options{Embedder: emb, AnnounceAfter: -1}.withDefaults()}
 	const sp = "sp"
 	ids := filterCorpus(t, st, sp, 20)
 	f := newSetFilter(ids)
-	res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "needle", Mode: api.SearchModeFTS, Limit: 10}, f)
+	res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "needle", Limit: 10}, f)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Hits) != 0 || res.Truncated || f.matches != 0 {
-		t.Fatalf("empty set: hits=%d truncated=%v matches=%d", len(res.Hits), res.Truncated, f.matches)
+	if len(res.Hits) != 0 || res.Truncated || f.matches != 0 || emb.queries != 0 {
+		t.Fatalf("empty set: hits=%d truncated=%v matches=%d embeds=%d", len(res.Hits), res.Truncated, f.matches, emb.queries)
+	}
+	if res.Mode != api.SearchModeHybrid || res.VectorStatus != api.VectorStatusSkipped {
+		t.Fatalf("empty set reply: mode=%s vectorStatus=%s", res.Mode, res.VectorStatus)
 	}
 }

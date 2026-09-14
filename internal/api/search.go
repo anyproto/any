@@ -127,6 +127,8 @@ type SearchResponse struct {
 	VectorStatus string `json:"vectorStatus"`
 	// Truncated is set when the lexical leg's read budget under Filter
 	// ended before Limit matching records were found: the page may be
-	// shorter than the index could fill. Absent without a filter.
+	// shorter than the index could fill. Absent without a filter. A
+	// Filter no object satisfies answers empty without running a leg
+	// (VectorStatus then reads skipped, or disabled without an embedder).
 	Truncated bool `json:"truncated,omitempty"`
 }
