@@ -44,12 +44,20 @@ var (
 	// larger one stays lazy, so a page short on a broad filter never
 	// decodes the whole objects collection.
 	filterMaterializeMax = 50000
+	// filterResidualMax is the largest exact set a leg takes as a
+	// residual `objectId $in`: any-store derives index bounds from an
+	// $in of fewer than 10 000 members and none past it. The vector leg
+	// resolves a lazy set up to here before it queries — one ANN round
+	// with the residual beats re-running the ANN per widening round.
+	filterResidualMax = 9999
 )
 
 // hostSet is one request's view of the filter. A set the probe found
-// complete is carried as ids (small enough for a residual); otherwise
-// membership is resolved lazily, in batches, and cached per object —
-// until materialize replaces the cache with the complete set.
+// complete is carried as ids and rides the legs as a residual;
+// otherwise membership is resolved lazily, in batches, and cached per
+// object — until materialize replaces the cache with the complete set,
+// which the legs then take as a residual too while it fits
+// filterResidualMax.
 type hostSet struct {
 	filter HostFilter
 	// ids is the complete set once exact; list keeps it in resolve
@@ -58,7 +66,9 @@ type hostSet struct {
 	list  []string
 	exact bool
 	// small is set when the probe found the complete set within
-	// filterIdsMax — the one case the legs open with a residual.
+	// filterIdsMax: few enough docs that probing them one by one is
+	// always cheaper than the ANN's beam — and the only way the beam
+	// reaches them (hint).
 	small bool
 	// known caches lazy verdicts while the set is not exact.
 	known map[string]bool
@@ -92,18 +102,25 @@ func (s *hostSet) setExact(ids []string) {
 	s.known = nil
 }
 
-// residual returns the `objectId $in` clause for a small complete set,
-// nil when the legs must post-filter.
+// residual returns the `objectId $in` clause for an exact set that
+// fits filterResidualMax, nil when the legs must post-filter.
 func (s *hostSet) residual() query.Filter {
-	if s == nil || !s.small {
+	if s == nil || !s.exact || len(s.list) > filterResidualMax {
 		return nil
 	}
 	return objectIdIn(s.list)
 }
 
+// hint reports whether a leg should force the store's probe plan over
+// the objectId index: a small set is cheaper to verify doc by doc than
+// to find through the ANN beam, which may never reach it.
+func (s *hostSet) hint() bool {
+	return s != nil && s.small
+}
+
 // lazy reports whether the legs post-filter their rows through keep.
 func (s *hostSet) lazy() bool {
-	return s != nil && !s.small
+	return s != nil && s.residual() == nil
 }
 
 // empty reports a filter no object satisfies: nothing can match, so a
@@ -112,13 +129,13 @@ func (s *hostSet) empty() bool {
 	return s != nil && s.small && len(s.list) == 0
 }
 
-// materialize resolves the complete set when it fits
-// filterMaterializeMax; a larger set stays lazy. A no-op once exact.
-func (s *hostSet) materialize(ctx context.Context) error {
+// materialize resolves the complete set when it holds at most max
+// ids; a larger set stays lazy. A no-op once exact.
+func (s *hostSet) materialize(ctx context.Context, max int) error {
 	if s == nil || s.exact {
 		return nil
 	}
-	ids, more, err := s.filter.Resolve(ctx, filterMaterializeMax)
+	ids, more, err := s.filter.Resolve(ctx, max)
 	if err != nil {
 		return err
 	}

@@ -337,7 +337,7 @@ func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collect
 	// sparse pending index (which backs the embed loop) under `vector`.
 	var indexes []anystore.IndexInfo
 	if capFTS || capVector {
-		indexes = append(indexes, anystore.IndexInfo{Name: "objectId", Fields: []string{"objectId"}})
+		indexes = append(indexes, anystore.IndexInfo{Name: objectIdIndex, Fields: []string{"objectId"}})
 	}
 	if capFTS {
 		// BM25 over `data` (body). When titleWeight > 0, BM25F also covers
@@ -850,6 +850,14 @@ var (
 	vectorPresent = query.Key{Path: []string{"vector"}, Filter: query.Exists{}}
 )
 
+// objectIdIndex names the range index on objectId; probeBoost is the
+// cost subtracted from a plan seeking it when a leg asks for the probe
+// — large enough to win over any beam or posting walk.
+const (
+	objectIdIndex = "objectId"
+	probeBoost    = 1 << 40
+)
+
 // objectIdIn builds the filter's residual: `objectId $in ids`.
 func objectIdIn(ids []string) query.Filter {
 	arena := &anyenc.Arena{}
@@ -1083,7 +1091,7 @@ func appendClauses(dst []query.TextClause, terms []string, op query.TextOp) []qu
 // The effective floor is max(minSim, smallest-positive) — a similarity
 // must always be > 0 (cosine distance < 1) to carry any signal.
 func (s *Store) SearchVector(ctx context.Context, spaceId string, vec []float32, scopes []string, limit int, minSim float64) ([]Hit, error) {
-	hits, _, err := s.searchVector(ctx, spaceId, vec, scopes, limit, minSim, nil)
+	hits, _, err := s.searchVector(ctx, spaceId, vec, scopes, limit, minSim, nil, false)
 	return hits, err
 }
 
@@ -1093,7 +1101,12 @@ func (s *Store) SearchVector(ctx context.Context, spaceId string, vec []float32,
 // scope residual the beam any-store sizes from K — and len(hits) < n
 // means the floor trimmed the far tail. A caller widening K reads both
 // (vectorStop).
-func (s *Store) searchVector(ctx context.Context, spaceId string, vec []float32, scopes []string, limit int, minSim float64, residual query.Filter) (hits []Hit, n int, err error) {
+//
+// hint forces the planner's probe over the objectId index (a residual
+// must be present): the candidates are read from the index and scored
+// exactly, instead of hoping the ANN beam reaches them. Meant for a
+// small residual, where the store's own cost model keeps the beam.
+func (s *Store) searchVector(ctx context.Context, spaceId string, vec []float32, scopes []string, limit int, minSim float64, residual query.Filter, hint bool) (hits []Hit, n int, err error) {
 	if !capVector || s.Dim() == 0 {
 		return nil, 0, nil
 	}
@@ -1117,7 +1130,11 @@ func (s *Store) searchVector(ctx context.Context, spaceId string, vec []float32,
 	if residual != nil {
 		filter = query.And{filter, residual}
 	}
-	iter, err := coll.Find(filter).Iter(ctx)
+	q := coll.Find(filter)
+	if hint && residual != nil {
+		q = q.IndexHint(anystore.IndexHint{IndexName: objectIdIndex, Boost: probeBoost})
+	}
+	iter, err := q.Iter(ctx)
 	if err != nil {
 		return nil, 0, err
 	}

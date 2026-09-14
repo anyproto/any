@@ -524,14 +524,23 @@ const maxLegFetch = 1000
 // $knn and $text in one query, and $knn has no cursor past K, so the
 // leg re-queries with K ×4 (up to maxLegFetch) until vectorStop says
 // the window is covered or nothing further is reachable. The object
-// filter binds the hit the same way: a small set rides the query as a
-// residual (any-store then probes the objectId index or widens its
-// candidate beam), a large one is applied per round through hs.keep.
+// filter binds the hit the same way, and this leg prefers the residual:
+// each widening round is a full ANN pass, so a lazy set is resolved up
+// to filterResidualMax first and ridden as `objectId $in` (any-store
+// widens its candidate beam inside one round); a small set also forces
+// the probe over the objectId index, the beam being blind to a few
+// vectors among many. Only a set past the residual bound is applied
+// per round through hs.keep.
 func (ix *Indexer) vectorLeg(ctx context.Context, spaceId string, qv []float32, req api.SearchRequest, cover legCover, hs *hostSet) (hits []Hit, budgetOut bool, err error) {
-	residual := hs.residual()
+	if hs.lazy() {
+		if err := hs.materialize(ctx, filterResidualMax); err != nil {
+			return nil, false, err
+		}
+	}
+	residual, hint := hs.residual(), hs.hint()
 	k, prevN := cover.fetch, -1
 	for {
-		raw, n, err := ix.store.searchVector(ctx, spaceId, qv, req.Scopes, k, ix.opts.MinVectorSim, residual)
+		raw, n, err := ix.store.searchVector(ctx, spaceId, qv, req.Scopes, k, ix.opts.MinVectorSim, residual, hint)
 		if err != nil {
 			return nil, false, err
 		}
@@ -584,8 +593,9 @@ func vectorStop(cover legCover, kept []Hit, n, k, prevN int, floorDropped, scope
 // covered or the leg is exhausted, closed before returning. any-store
 // does not check ctx between rows, so the loop does.
 //
-// Under an object filter a small set rides the query as a residual and
-// every row counts. A large set post-filters: rows are pulled
+// Under an object filter an exact set within the residual bound rides
+// the query as a residual and every row counts. A larger set — or one
+// the probe left lazy, fts-only — post-filters: rows are pulled
 // filterBatch at a time and judged in one lookup (hs.keep) before they
 // count towards the cover — the cursor stays open across that lookup,
 // which reads the SDK's store, never this one. A page still short after
@@ -633,7 +643,7 @@ func (ix *Indexer) ftsLeg(ctx context.Context, spaceId string, fq FTSQuery, scop
 				if err := flush(); err != nil {
 					return nil, false, err
 				}
-				if err := hs.materialize(ctx); err != nil {
+				if err := hs.materialize(ctx, filterMaterializeMax); err != nil {
 					return nil, false, err
 				}
 			}

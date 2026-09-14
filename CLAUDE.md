@@ -2092,12 +2092,18 @@ To inspect SDK behavior at the pinned version, read the module cache
    whole rides both legs as a residual `objectId $in` (the index store
    gained an `objectId` range index so any-store's cost-based `$text` /
    `$knn` planner can PROBE it per candidate instead of walking the
-   postings; pages complete by construction; an empty set answers
-   before the query embedding) — else the legs run unrestricted and
-   post-filter through pk `$in` lookups on the objects collection
-   (`handlers_search.go` `objectsHostFilter`; 64 rows per lookup on the
-   lexical cursor, a widening round on the vector leg), verdicts cached
-   per object and shared by both legs; a lexical page still short after
+   postings — forced with an `IndexHint` on the vector leg, whose beam
+   is blind to a few vectors among many; pages complete by
+   construction; an empty set answers before the query embedding) —
+   else: the vector leg resolves the set up to `filterResidualMax`
+   (9 999, the `$in` bound) and rides it as a residual (one ANN round
+   with the residual beats re-running the ANN per widening round, 80
+   vs 250 ms per hybrid request), the lexical leg follows it, and
+   fts-only stays lazy; past that bound both legs post-filter through
+   pk `$in` lookups on the objects collection (`handlers_search.go`
+   `objectsHostFilter`; 64 rows per lookup on the lexical cursor, a
+   widening round on the vector leg), verdicts cached per object and
+   shared by both legs; a lexical page still short after
    `filterScanRows` (5000) rows materializes the set (up to
    `filterMaterializeMax` 50k ids) and continues the same cursor
    in-process; a page short of `limit` past `filterScanRowsMax` (100k)

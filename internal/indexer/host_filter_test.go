@@ -79,9 +79,11 @@ func hitObjects(res api.SearchResponse) []string {
 
 func setBudgets(t *testing.T, idsMax, scanRows, scanRowsMax int) {
 	t.Helper()
-	oi, os, om, oc := filterIdsMax, filterScanRows, filterScanRowsMax, filterMaterializeMax
+	oi, os, om, oc, orr := filterIdsMax, filterScanRows, filterScanRowsMax, filterMaterializeMax, filterResidualMax
 	filterIdsMax, filterScanRows, filterScanRowsMax = idsMax, scanRows, scanRowsMax
-	t.Cleanup(func() { filterIdsMax, filterScanRows, filterScanRowsMax, filterMaterializeMax = oi, os, om, oc })
+	t.Cleanup(func() {
+		filterIdsMax, filterScanRows, filterScanRowsMax, filterMaterializeMax, filterResidualMax = oi, os, om, oc, orr
+	})
 }
 
 // A set the probe resolves whole rides the query as a residual: the
@@ -220,9 +222,10 @@ func TestIndexer_FilterRescueAndTruncation(t *testing.T) {
 	}
 }
 
-// Hybrid shares one set between the legs: an object the vector leg
-// judged is never asked about again by the lexical leg, and a small
-// set restricts the vector leg too.
+// Hybrid shares one set between the legs: the vector leg resolves a
+// lazy set up to the residual bound and both legs then ride it as a
+// residual — no lookups at all — and a small set restricts the vector
+// leg too.
 func TestIndexer_FilterHybridSharesSet(t *testing.T) {
 	ctx := context.Background()
 	st := mustStore(t, 4)
@@ -251,11 +254,21 @@ func TestIndexer_FilterHybridSharesSet(t *testing.T) {
 			t.Fatalf("hit outside the set: %s", h.ObjectId)
 		}
 	}
-	for id, n := range f.asked {
-		if n != 1 {
-			t.Fatalf("object %s asked %d times across the legs, want once", id, n)
-		}
+	if len(f.resolves) != 2 || f.resolves[1] != filterResidualMax || f.matches != 0 {
+		t.Fatalf("reads: resolves=%v matches=%d, want the probe, one bounded materialize, no lookup", f.resolves, f.matches)
 	}
+
+	// Past the residual bound the set stays lazy: the vector leg judges
+	// its rounds through lookups, each object once.
+	filterResidualMax = 8
+	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "needle", Limit: 5}, newSetFilter(ids, odd...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Hits) != 5 {
+		t.Fatalf("lazy hybrid: hits=%d", len(res.Hits))
+	}
+	filterResidualMax = 9999
 
 	small := newSetFilter(ids, ids[1], ids[3])
 	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "needle", Mode: api.SearchModeVector, Limit: 10}, small)

@@ -895,23 +895,37 @@ the request takes one of two paths (`internal/indexer/host_filter.go`):
    few hundred rows; only a narrow unindexed predicate (a property
    value held by a few objects) scans the collection, ~4 ms per 6k
    objects, which is what resolving its ids costs anyway.
-2. **Small set — residual.** A set the probe resolved whole rides
-   both legs as `objectId $in ids`. any-store's cost-based `$text` /
-   `$knn` planner then chooses per query between the driver plan (walk
-   the posting lists, residual after the fetch) and the probe plan
-   (seek the `objectId` index, verify each candidate against the text
-   index by point-gets — order-identical); measured to fire up to ~100
-   objects, where it turns a 20–50 ms scan that came back short into a
-   complete page in 0.1–2 ms, and to cost a tie up to ~400, where the
-   planner keeps the driver. 256 sits in that band: every set below it
-   gets a complete page for at most the price of the unfiltered leg.
-   Pages are complete by construction: the store drains until `limit`
-   is met. A set the probe found EMPTY answers at once — no query
-   embedding, no leg.
-3. **Large set — post-filter.** The legs run unrestricted and judge
-   their rows through one primary-key `$in` query on the objects
-   collection per batch — `filterBatch` (64) rows for the lexical
-   cursor, a widening round (≤ 1000) for the vector leg — with
+2. **Small set — residual, probe forced on the vector leg.** A set the
+   probe resolved whole rides both legs as `objectId $in ids`. On the
+   lexical leg any-store's cost-based `$text` planner chooses per
+   query between the driver plan (walk the posting lists, residual
+   after the fetch) and the probe plan (seek the `objectId` index,
+   verify each candidate against the text index by point-gets —
+   order-identical); measured to fire up to ~100 objects, where it
+   turns a 20–50 ms scan that came back short into a complete page in
+   0.1–2 ms, and to cost a tie up to ~400, where the planner keeps the
+   driver. 256 sits in that band: every set below it gets a complete
+   page for at most the price of the unfiltered leg, and the store
+   drains until `limit` is met. On the vector leg the same set FORCES
+   the probe (`IndexHint` on the `objectId` index): the ANN beam is
+   blind to a few vectors among many — 103 objects' ~145 vectors among
+   66k returned nothing at every K — while probing them costs one
+   distance per doc; the store's own cost model only picks the probe
+   for a handful of docs. A set the probe found EMPTY answers at once —
+   no query embedding, no leg.
+3. **Large set.** The vector leg first resolves a lazy set up to
+   `filterResidualMax` (9 999 — the `$in` size any-store still derives
+   index bounds from) and rides it as a residual: every widening round
+   is a full ANN pass (~70 ms at 66k vectors), so one round with the
+   residual (any-store widens its candidate beam inside it) beats
+   re-running the ANN per round through lookups — measured 80 vs
+   250–290 ms per hybrid request. The lexical leg then takes the same
+   residual; fts-only, where no vector leg resolves, it stays lazy
+   (the residual costs the resolve, ~8 ms per 6k objects, where the
+   lookups cost ~0.1 ms). A set past the residual bound post-filters
+   on both legs: rows are judged through one primary-key `$in` query
+   on the objects collection per batch — `filterBatch` (64) rows for
+   the lexical cursor, a widening round for the vector leg — with
    verdicts cached per object for the request and shared by both legs.
    A lexical page still short after `filterScanRows` (5000) rows means
    the filter is anti-correlated with the ranking (the matching objects
@@ -928,9 +942,12 @@ the request takes one of two paths (`internal/indexer/host_filter.go`):
    that many concurrent filtered searches queue behind each other.
 
 Measured (docs/search/README.md → the filter-modes harness; real
-6k-object space, idle box): post-filtering wins 158 of 168 cells with
-≥ 389 matching objects, the residual wins 78 of 96 with ≤ 103, and the
-everyday `not in bin` costs the probe (0.2 ms) plus one or two lookups.
+6k-object space, idle box, fully embedded): on the lexical leg
+post-filtering wins 158 of 168 cells with ≥ 389 matching objects and
+the residual 78 of 96 with ≤ 103; on end-to-end hybrid and vector
+requests the residual wins every band (84 vs 220–290 ms median); the
+everyday `not in bin` costs the probe (0.2 ms) plus one or two lookups
+fts-only, the resolve (~8 ms) in hybrid.
 An eager id set for large filters was rejected: resolving 90k ids costs
 ~30 ms per search where the batched lookups cost 0.1 ms on an ordinary
 query. Mirroring `any.types` onto index docs was rejected: every type
@@ -1033,9 +1050,10 @@ run).
   host object's row (§ Filtering by object); a dataset record's own
   fields are out of reach, and a narrow filter on an unindexed
   property costs a scan of the objects collection per search until
-  the SDK indexes property values. The vector leg under a filter is
-  bounded by the ANN's reach like an unfiltered one: a tiny set whose
-  docs have no vectors yet returns nothing on that leg.
+  the SDK indexes property values. The vector leg under a filter past
+  the residual bound is bounded by the ANN's reach like an unfiltered
+  one, and a set whose docs have no vectors yet returns nothing on that
+  leg whatever its size.
 
 ## Tests
 
