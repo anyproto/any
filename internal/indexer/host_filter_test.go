@@ -79,9 +79,9 @@ func hitObjects(res api.SearchResponse) []string {
 
 func setBudgets(t *testing.T, idsMax, scanRows, scanRowsMax int) {
 	t.Helper()
-	oi, os, om := filterIdsMax, filterScanRows, filterScanRowsMax
+	oi, os, om, oc := filterIdsMax, filterScanRows, filterScanRowsMax, filterMaterializeMax
 	filterIdsMax, filterScanRows, filterScanRowsMax = idsMax, scanRows, scanRowsMax
-	t.Cleanup(func() { filterIdsMax, filterScanRows, filterScanRowsMax = oi, os, om })
+	t.Cleanup(func() { filterIdsMax, filterScanRows, filterScanRowsMax, filterMaterializeMax = oi, os, om, oc })
 }
 
 // A set the probe resolves whole rides the query as a residual: the
@@ -180,8 +180,8 @@ func TestIndexer_FilterRescueAndTruncation(t *testing.T) {
 	if got := hitObjects(res); len(got) != 3 {
 		t.Fatalf("hits = %v, want the three members found past the lookup budget", got)
 	}
-	if len(f.resolves) != 2 || f.resolves[1] != 0 {
-		t.Fatalf("resolves = %v, want the probe then a full materialize", f.resolves)
+	if len(f.resolves) != 2 || f.resolves[1] != filterMaterializeMax {
+		t.Fatalf("resolves = %v, want the probe then a materialize", f.resolves)
 	}
 	if f.matches != 1 {
 		t.Fatalf("matches = %d, want one batch before the materialize", f.matches)
@@ -189,6 +189,22 @@ func TestIndexer_FilterRescueAndTruncation(t *testing.T) {
 	if res.Truncated {
 		t.Fatal("truncated although the members were within the read budget")
 	}
+
+	// A set past filterMaterializeMax stays lazy through the rescue: the
+	// members are still found, through lookups.
+	filterMaterializeMax = 2
+	f = newSetFilter(ids, ranked[20], ranked[40], ranked[60])
+	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "needle", Mode: api.SearchModeFTS, Limit: 3}, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hitObjects(res); len(got) != 3 || res.Truncated {
+		t.Fatalf("lazy past the cap: hits=%v truncated=%v", got, res.Truncated)
+	}
+	if len(f.resolves) != 2 || f.resolves[1] != filterMaterializeMax || f.matches < 2 {
+		t.Fatalf("reads: resolves=%v matches=%d, want a capped materialize attempt then more lookups", f.resolves, f.matches)
+	}
+	filterMaterializeMax = 50000
 
 	// A member ranked past the total budget is out of reach: truncated.
 	f = newSetFilter(ids, ranked[10], ranked[90])

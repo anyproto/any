@@ -111,8 +111,9 @@ const (
 	// VectorStatusDisabled: no embedder is configured on this server —
 	// vector search can never run until config changes.
 	VectorStatusDisabled = "disabled"
-	// VectorStatusSkipped: the caller asked for mode=fts, vector was
-	// not attempted (but is available on this server).
+	// VectorStatusSkipped: vector was not attempted although available
+	// on this server — the caller asked for mode=fts, or the Filter
+	// matched no object so no leg ran.
 	VectorStatusSkipped = "skipped"
 )
 
@@ -125,10 +126,10 @@ type SearchResponse struct {
 	// VectorStatus: used | unavailable | disabled | skipped — whether
 	// semantic recall participated in this response and, if not, why.
 	VectorStatus string `json:"vectorStatus"`
-	// Truncated is set when the lexical leg's read budget under Filter
-	// ended before Limit matching records were found: the page may be
-	// shorter than the index could fill. Absent without a filter. A
-	// Filter no object satisfies answers empty without running a leg
+	// Truncated is set when a leg's read budget under Filter ended and
+	// the page holds fewer than Limit records: the index may hold
+	// matches the reply cannot show. Absent without a filter. A Filter
+	// no object satisfies answers empty without running a leg
 	// (VectorStatus then reads skipped, or disabled without an embedder).
 	Truncated bool `json:"truncated,omitempty"`
 }

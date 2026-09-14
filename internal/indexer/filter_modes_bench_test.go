@@ -1231,6 +1231,14 @@ func fbOpenReal(tb testing.TB, ctx context.Context) *fbFixture {
 	sdkPath := os.Getenv("ANY_FILTER_BENCH_REAL_SDK")
 	space := os.Getenv("ANY_FILTER_BENCH_REAL_SPACE")
 	specPath := os.Getenv("ANY_FILTER_BENCH_REAL_FILTERS")
+	// The harness opens both files read-write (the objectId index is
+	// ensured on open): refuse anything that sits inside a live data
+	// dir — <root>/<account>/{index,sdk}/*.db next to server.lock.
+	for _, p := range []string{idxPath, sdkPath} {
+		if lock := filepath.Join(filepath.Dir(filepath.Dir(p)), "server.lock"); fileExists(lock) {
+			tb.Fatalf("%s sits in a data dir (%s exists): run the harness on copies", p, lock)
+		}
+	}
 	for name, v := range map[string]string{"SDK": sdkPath, "SPACE": space, "FILTERS": specPath} {
 		if v == "" {
 			tb.Fatalf("ANY_FILTER_BENCH_REAL_%s is required", name)
@@ -1993,4 +2001,9 @@ func fbE2EGrid(t *testing.T, ctx context.Context, f *fbFixture, coll anystore.Co
 		}
 		t.Logf("%s e2e %s in %s", f.name(), q.name, time.Since(cell).Round(time.Millisecond))
 	}
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }

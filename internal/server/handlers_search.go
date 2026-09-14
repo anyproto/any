@@ -149,18 +149,18 @@ func parseSearchFilter(c echo.Context, raw json.RawMessage) (query.Filter, error
 // collection: Resolve lists the matching ids (bounded when asked),
 // Match checks a batch of ids in one query restricted to them (a
 // primary-key $in) and the condition. Tombstoned objects never match —
-// the query excludes them, and their index docs are evicted anyway.
+// the iterator skips them, and their index docs are evicted anyway.
 type objectsHostFilter struct {
 	sp   space.Space
 	cond query.Filter
 }
 
+// Resolve walks an UNBOUNDED iterator and stops once max ids are in
+// hand — never Query.Limit: the SDK applies a limit before it skips the
+// collection's tombstones, so a bounded query can end short of max
+// with the set still continuing. An early Close is free.
 func (f objectsHostFilter) Resolve(ctx context.Context, max int) ([]string, bool, error) {
-	q := f.sp.QueryObjects().Filter(f.cond)
-	if max > 0 {
-		q = q.Limit(max + 1)
-	}
-	it, err := q.Iter(ctx)
+	it, err := f.sp.QueryObjects().Filter(f.cond).Iter(ctx)
 	if err != nil {
 		return nil, false, err
 	}
@@ -171,15 +171,12 @@ func (f objectsHostFilter) Resolve(ctx context.Context, max int) ([]string, bool
 		if err != nil {
 			return nil, false, err
 		}
+		if max > 0 && len(ids) == max {
+			return ids, true, nil
+		}
 		ids = append(ids, string(doc.GetStringBytes("id")))
 	}
-	if err := it.Err(); err != nil {
-		return nil, false, err
-	}
-	if max > 0 && len(ids) > max {
-		return ids[:max], true, nil
-	}
-	return ids, false, nil
+	return ids, false, it.Err()
 }
 
 func (f objectsHostFilter) Match(ctx context.Context, ids []string) (map[string]bool, error) {

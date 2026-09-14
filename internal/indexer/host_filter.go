@@ -40,6 +40,10 @@ var (
 	// filterScanRowsMax bounds a leg's read under a filter; a page still
 	// short past it is reported truncated.
 	filterScanRowsMax = 100000
+	// filterMaterializeMax bounds the set a rescue materializes; a
+	// larger one stays lazy, so a page short on a broad filter never
+	// decodes the whole objects collection.
+	filterMaterializeMax = 50000
 )
 
 // hostSet is one request's view of the filter. A set the probe found
@@ -108,16 +112,19 @@ func (s *hostSet) empty() bool {
 	return s != nil && s.small && len(s.list) == 0
 }
 
-// materialize resolves the complete set; a no-op once exact.
+// materialize resolves the complete set when it fits
+// filterMaterializeMax; a larger set stays lazy. A no-op once exact.
 func (s *hostSet) materialize(ctx context.Context) error {
 	if s == nil || s.exact {
 		return nil
 	}
-	ids, _, err := s.filter.Resolve(ctx, 0)
+	ids, more, err := s.filter.Resolve(ctx, filterMaterializeMax)
 	if err != nil {
 		return err
 	}
-	s.setExact(ids)
+	if !more {
+		s.setExact(ids)
+	}
 	return nil
 }
 
@@ -140,8 +147,10 @@ func (s *hostSet) keep(ctx context.Context, hits []Hit) ([]Hit, error) {
 			if err != nil {
 				return nil, err
 			}
-			for id := range matched {
-				s.known[id] = true
+			for id, ok := range matched {
+				if ok {
+					s.known[id] = true
+				}
 			}
 		}
 	}

@@ -8,9 +8,12 @@ import (
 	"hash/fnv"
 	"math"
 	"net/http"
+	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/anyproto/any-store/v2/query"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/indexer"
@@ -362,6 +365,77 @@ func TestSearch_WorkerPath(t *testing.T) {
 			t.Fatalf("worker never indexed the message; last hits = %v", hitRecordIds(res))
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestSearch_FilterResolveSkipsTombstones: the probe's bounded resolve
+// must count LIVE rows. The SDK applies Query.Limit before it skips the
+// objects collection's tombstones, so a bounded query can come back
+// short with the set still continuing — Resolve walks unbounded and
+// closes early instead.
+func TestSearch_FilterResolveSkipsTombstones(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	ctx := context.Background()
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", `{"name":"ResolveTombstone"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create space: %d %s", rec.Code, rec.Body.String())
+	}
+	var sp api.SpaceInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &sp); err != nil {
+		t.Fatal(err)
+	}
+	base := "/v1/spaces/" + sp.Id
+	var ids []string
+	for range 6 {
+		ids = append(ids, mustCreateModuleObject(t, e, sp.Id, "editor"))
+	}
+	sort.Strings(ids)
+	// Tombstone the primary-key-smallest row: it sits inside every
+	// bounded window.
+	mustModify(t, e, http.MethodPost, base+"/delete-records",
+		`{"objectId":"`+ids[0]+`","dataset":"objects","recordIds":["`+ids[0]+`"]}`, http.StatusOK)
+
+	sdkSpace, err := d.sdk.Spaces().Get(ctx, sp.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cond, err := query.ParseCondition(`{"any.types":{"$nin":["bin"]}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := objectsHostFilter{sp: sdkSpace, cond: cond}
+	got, more, err := f.Resolve(ctx, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 4 || !more {
+		t.Fatalf("Resolve(4) = %d ids, more=%v; want 4 live ids and more", len(got), more)
+	}
+	for _, id := range got {
+		if id == ids[0] {
+			t.Fatalf("resolved a tombstoned row: %s", id)
+		}
+	}
+	// Unbounded: every live row (the space holds the type roots too),
+	// never the tombstone.
+	all, more, err := f.Resolve(ctx, 0)
+	if err != nil || more || len(all) < 5 {
+		t.Fatalf("Resolve(0) = %d ids, more=%v, err=%v; want every live row", len(all), more, err)
+	}
+	for _, id := range all {
+		if id == ids[0] {
+			t.Fatalf("Resolve(0) listed the tombstoned row %s", id)
+		}
+	}
+	matched, err := f.Match(ctx, ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matched) != 5 || matched[ids[0]] {
+		t.Fatalf("Match = %v, want the 5 live rows", matched)
 	}
 }
 
