@@ -1977,6 +1977,11 @@ Implementation slices landed:
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 
+**Never write plans or tasks into the repo.** No `docs/plans/`, `docs/tasks/`,
+`task-*.md`, TODO lists, roadmaps, proposals or design deliberation files — they
+go stale the day the work lands. `docs/` describes the current state only; plans
+and tasks live outside the repo (Linear issue, PR description).
+
 ### Build / test / run
 
 **Build with `make build`, not bare `go build`.** The search index is
