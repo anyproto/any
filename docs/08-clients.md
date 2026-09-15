@@ -420,6 +420,16 @@ POST /v1/spaces/one-to-one/register-incoming
   "displayHint": { "name": "Alice", "iconCid": "..." } }   // → 204
 ```
 
+**Names.** The participants exchange their profile keys inside the
+space, so once the 1-1 is active on both sides each can decrypt the
+other's profile — the acceptor's included, which no other channel
+delivers to the initiator. The name lands with the SDK's background
+identityRepo fetch. Render the peer id-only until
+`GET /v1/identities/:identity` (or the members list) carries a `name` —
+the same rule as for every contact (§ 8). The pending row's `displayHint`
+covers the time before that. Never read the key rows themselves; every
+read route refuses them.
+
 Once a 1-1 is active, everything else is identical to a regular space —
 both members are writers, so create objects, send chat
 (`dataset=chat_messages`), and subscribe exactly as in §1–5. Read the two
