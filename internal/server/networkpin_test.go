@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -57,17 +58,19 @@ func TestNetworkPin(t *testing.T) {
 	if err := writeNetworkPin(dir, "N1"); err != nil {
 		t.Fatal(err)
 	}
-	st, err := os.Stat(networkPinPath(dir))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if st.Mode().Perm() != 0o600 {
-		t.Fatalf("pin mode %v, want 0600", st.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		st, err := os.Stat(networkPinPath(dir))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Mode().Perm() != 0o600 {
+			t.Fatalf("pin mode %v, want 0600", st.Mode().Perm())
+		}
 	}
 	if pinned, err := checkNetworkPin(dir, "N1"); !pinned || err != nil {
 		t.Fatalf("same network: pinned=%v err=%v", pinned, err)
 	}
-	_, err = checkNetworkPin(dir, "N2")
+	_, err := checkNetworkPin(dir, "N2")
 	var mismatch *ErrNetworkMismatch
 	if !errors.As(err, &mismatch) || mismatch.Pinned != "N1" || mismatch.Configured != "N2" {
 		t.Fatalf("other network: %v", err)

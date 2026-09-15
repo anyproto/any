@@ -647,6 +647,12 @@ next caller finds it ready.
 on Windows, applied before llama.cpp loads so its decode threads
 inherit it.
 
+**Library search path.** On Windows the child adds the lib dir to the
+DLL search path before loading llama.cpp: Windows resolves a DLL's own
+imports (`ggml.dll` → `ggml-base.dll` → `libomp.dll`) by module name and
+never looks in the importing DLL's folder. Linux and macOS libs find
+their siblings through their rpath.
+
 **Hardware.** The child reports what llama.cpp initialized on — OS/arch,
 registered backends and the shared object each came from, devices (GPU
 name and driver), the pinned llama.cpp release, CPU count and thread

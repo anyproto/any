@@ -140,6 +140,9 @@ func (d *deps) historyViewAt(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "version required", nil)
 	}
 
+	if errResp, done := identityKeysReadRefused(c, objectId, c.QueryParam("dataset")); done {
+		return errResp
+	}
 	view, err := sp.History().ViewAt(c.Request().Context(), objectId, version)
 	if err != nil {
 		return historyError(c, err)
@@ -155,6 +158,9 @@ func (d *deps) historyViewAt(c echo.Context) error {
 	defer putFastjsonArena(fa)
 	out := api.HistoryViewResponse{Version: version, Datasets: make([]api.HistoryViewDataset, 0, len(datasets))}
 	for _, ds := range datasets {
+		if ds == identityKeysDataset {
+			continue
+		}
 		records, rerr := view.Records(c.Request().Context(), ds)
 		if rerr != nil {
 			return historyError(c, rerr)
@@ -202,6 +208,9 @@ func (d *deps) historyRecordAt(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",
 			"version, dataset and recordId required", nil)
 	}
+	if errResp, done := identityKeysReadRefused(c, objectId, dataset); done {
+		return errResp
+	}
 
 	rec, err := sp.History().RecordAt(c.Request().Context(), objectId, dataset, recordId, version)
 	if err != nil {
@@ -246,6 +255,9 @@ func (d *deps) historyDiff(c echo.Context) error {
 	}
 
 	f := space.DiffFilter{Dataset: c.QueryParam("dataset")}
+	if errResp, done := identityKeysReadRefused(c, objectId, f.Dataset); done {
+		return errResp
+	}
 	if raw := c.QueryParam("recordIds"); raw != "" {
 		if f.Dataset == "" {
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
@@ -272,6 +284,9 @@ func (d *deps) historyDiff(c echo.Context) error {
 
 	out := api.HistoryDiffResponse{Base: res.Base, Version: res.Version, Datasets: make([]api.HistoryDatasetDiff, 0, len(res.Datasets))}
 	for _, dd := range res.Datasets {
+		if dd.Dataset == identityKeysDataset {
+			continue
+		}
 		pd := api.HistoryDatasetDiff{Dataset: dd.Dataset, Records: make([]api.HistoryRecordDiff, 0, len(dd.Records))}
 		for _, rd := range dd.Records {
 			pr := api.HistoryRecordDiff{Id: rd.Id, Kind: string(rd.Kind)}

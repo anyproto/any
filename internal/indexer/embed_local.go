@@ -216,6 +216,9 @@ func loadLlamaRuntime(libDir string) error {
 	if _, err := os.Stat(libDir); err != nil {
 		return fmt.Errorf("indexer: local embedder: llama.cpp libs not found at %s (run 'make llamacpp' or set index.local.libDir): %w", libDir, err)
 	}
+	if err := addLibSearchDir(libDir); err != nil {
+		return fmt.Errorf("indexer: local embedder: add %s to the library search path: %w", libDir, err)
+	}
 	if err := llama.Load(libDir); err != nil {
 		return fmt.Errorf("indexer: local embedder: load llama.cpp from %s: %w", libDir, err)
 	}

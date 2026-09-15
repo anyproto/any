@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -25,5 +26,25 @@ func TestLockAndPIDPaths(t *testing.T) {
 	}
 	if base := filepath.Base(pid); base != "server.pid" {
 		t.Errorf("PIDPath base = %q, want server.pid", base)
+	}
+}
+
+// ExpandTilde takes the platform's separators after "~": "~/x" everywhere,
+// "~\x" on Windows too.
+func TestExpandTilde(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	for in, want := range map[string]string{
+		"":                                   "",
+		"~":                                  home,
+		"~/x/y":                              filepath.Join(home, "x", "y"),
+		"~" + string(os.PathSeparator) + "x": filepath.Join(home, "x"),
+		"~user/x":                            "~user/x",
+		"x/~":                                "x/~",
+	} {
+		if got := ExpandTilde(in); got != want {
+			t.Errorf("ExpandTilde(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
