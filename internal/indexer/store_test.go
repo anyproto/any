@@ -4,9 +4,13 @@ package indexer
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
+	anystore "github.com/anyproto/any-store/v2"
 	"github.com/anyproto/any-store/v2/anyenc"
+	"github.com/anyproto/any-store/v2/query"
 
 	"github.com/anyproto/any/internal/index"
 )
@@ -712,4 +716,96 @@ func TestStore_ChunkRangeDelete(t *testing.T) {
 func withData(e index.IndexEntry, data string) index.IndexEntry {
 	e.Data = data
 	return e
+}
+
+// The per-space collection carries an objectId index (the search
+// filter's residual seeks it), and a residual handed to openFTS
+// restricts the lexical leg to those objects.
+func TestStore_ObjectIdResidual(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 0)
+	const sp = "sp1"
+	if err := st.Apply(ctx, sp, []DocUpsert{
+		{Entry: entry("basic", "o1", "editor_blocks", "r", "needle one", 1)},
+		{Entry: entry("basic", "o2", "editor_blocks", "r", "needle two", 2)},
+		{Entry: entry("basic", "o3", "editor_blocks", "r", "needle three", 3)},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	coll, err := st.spaceColl(ctx, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, ix := range coll.GetIndexes() {
+		if ix.Info().Name == "objectId" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("objectId index missing on the space collection")
+	}
+	cur, err := st.openFTS(ctx, sp, FTSQuery{Query: "needle"}, nil, objectIdIn([]string{"o1", "o3"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cur.Close()
+	got := map[string]bool{}
+	for {
+		h, ok, err := cur.Next()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok {
+			break
+		}
+		got[h.ObjectId] = true
+	}
+	if len(got) != 2 || !got["o1"] || !got["o3"] {
+		t.Fatalf("residual leg objects = %v, want o1+o3", got)
+	}
+}
+
+// A hinted vector search plans the probe over the objectId index: the
+// candidates come from the residual, not from the ANN beam.
+func TestStore_VectorProbeHint(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 4)
+	const sp = "sp1"
+	ups := make([]DocUpsert, 0, 64)
+	for i := range 64 {
+		v := []float32{1, float32(i) / 64, 0, 0}
+		ups = append(ups, DocUpsert{Entry: entry("basic", fmt.Sprintf("o%02d", i), "editor_blocks", "r", "text", uint64(i+1)), Vector: v})
+	}
+	if err := st.Apply(ctx, sp, ups, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := st.EnsureVectorIndex(ctx, sp); err != nil || !ok {
+		t.Fatalf("vector index: ok=%v err=%v", ok, err)
+	}
+	coll, err := st.spaceColl(ctx, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vec := []float32{1, 0, 0, 0}
+	residual := objectIdIn([]string{"o07", "o40"})
+	filter := query.And{query.Key{Path: []string{"vector"}, Filter: query.NewKnn(vec, 10)}, residual}
+	plain, err := coll.Find(filter).Explain(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hinted, err := coll.Find(filter).IndexHint(anystore.IndexHint{IndexName: objectIdIndex, Boost: probeBoost}).Explain(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(hinted.Plan, "KnnProbeSeek(objectId)") {
+		t.Fatalf("hinted plan does not probe the objectId index:\n%s\n(unhinted:\n%s)", hinted.Plan, plain.Plan)
+	}
+	hits, _, err := st.searchVector(ctx, sp, vec, nil, 10, 0, residual, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 2 || hits[0].ObjectId != "o07" || hits[1].ObjectId != "o40" {
+		t.Fatalf("hinted search = %+v, want o07 then o40 by similarity", hits)
+	}
 }

@@ -357,10 +357,21 @@ Call patterns:
   is local: a new or rebuilt index backfills every record the server
   holds, and until the backfill finishes `/query` is the exhaustive
   read.
+- **Narrow by object with `filter`, never by post-filtering hits.**
+  `filter` takes the `/objects/query` grammar over the hit's host
+  object row and binds every hit in every mode, with `limit` counting
+  matching records — so "outside the bin" is `{"any.types": {"$nin":
+  ["bin"]}}`, "within this app" is `{"any.types": "<typeId>"}`, "this
+  month" is a `modifiedAt` range, and a combination is one `$and`.
+  Dropping hits client-side returns short or empty pages whenever most
+  hits fall outside the filter. Read `truncated` on the reply: when set,
+  the server's read budget ended before `limit` matching records were
+  found — narrow the query or the filter rather than paging further.
 - Errors: `409 index.disabled` (indexer off on this server), `400
   index.no_embedder` (`mode: "vector"` on an FTS-only server), `503
   index.embedder_unavailable` (`mode: "vector"` while the embedder is
-  down, loading, or over the query budget — retryable).
+  down, loading, or over the query budget — retryable), `400
+  filter.invalid` / `filter.unknown_operator` (a bad `filter`).
 
 ## 7. Direct (1-1) chats: derive by identity, approve incoming
 

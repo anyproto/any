@@ -139,7 +139,7 @@ any space derived create <name>                     # materialize one (idempoten
 any space query      [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--projection ...] [--dataset spaces|profile]
 any space subscribe  [same flags]                   # windowed space-list SSE
 any datasets [<spaceId>]                            # dataset schemas (JSON Schema + x-scope)
-any search <spaceId> <query> [--scopes basic,chat,props] [--limit N] [--mode hybrid|fts|vector] [--require T ...] [--exclude T ...] [--max-data N] [--passages N]
+any search <spaceId> <query> [--scopes basic,chat,props] [--limit N] [--mode hybrid|fts|vector] [--require T ...] [--exclude T ...] [--max-data N] [--passages N] [--filter JSON|@FILE|-]
 any backlinks <spaceId> <objectId> [--record ID --dataset NAME | --prop ID] [--kind K ...] [--limit N]
 any backlinks --target <any://…> [--kind K ...] [--limit N]         # across every indexed space
 any links <spaceId> <objectId> [--record ID --dataset NAME | --prop ID] [--kind K ...] [--limit N]
@@ -162,7 +162,12 @@ embedder configured on the server it degrades to FTS (the reply's
 must / must-not terms; `--max-data N` bounds each hit's `data` window
 (default 512 runes, `-1` = the whole chunk). `--limit N` counts
 records (one hit per record, default 10, max 100); `--passages N`
-(max 10) adds a record's next best matching chunks to its hit.
+(max 10) adds a record's next best matching chunks to its hit;
+`--filter` (inline JSON, `@FILE`, or `-` for stdin) keeps only hits
+whose host object matches an `/objects/query` filter — e.g.
+`'{"any.types":{"$nin":["bin"]}}'` to search outside the bin, or a
+type id to search within an app's objects — in every mode
+(`docs/03-api.md` § search).
 
 `any space query` / `any space subscribe` wrap `POST /v1/spaces/query`
 and `/query/subscribe` (`Service.Query` over the tech-space `spaces`

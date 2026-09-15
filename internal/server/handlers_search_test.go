@@ -8,9 +8,12 @@ import (
 	"hash/fnv"
 	"math"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/anyproto/any-store/v2/query"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/indexer"
@@ -362,5 +365,198 @@ func TestSearch_WorkerPath(t *testing.T) {
 			t.Fatalf("worker never indexed the message; last hits = %v", hitRecordIds(res))
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestSearch_FilterResolveSkipsTombstones: the probe's bounded resolve
+// must count LIVE rows. The SDK applies Query.Limit before it skips the
+// objects collection's tombstones, so a bounded query can come back
+// short with the set still continuing — Resolve walks unbounded and
+// closes early instead.
+func TestSearch_FilterResolveSkipsTombstones(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	ctx := context.Background()
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", `{"name":"ResolveTombstone"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create space: %d %s", rec.Code, rec.Body.String())
+	}
+	var sp api.SpaceInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &sp); err != nil {
+		t.Fatal(err)
+	}
+	base := "/v1/spaces/" + sp.Id
+	var ids []string
+	for range 6 {
+		ids = append(ids, mustCreateModuleObject(t, e, sp.Id, "editor"))
+	}
+	sdkSpace, err := d.sdk.Spaces().Get(ctx, sp.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cond, err := query.ParseCondition(`{"any.types":{"$nin":["bin"]}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := objectsHostFilter{sp: sdkSpace, cond: cond}
+	// Tombstone the first created object in resolve order and pin that
+	// it sits inside the bounded window the test then asks for.
+	before, _, err := f.Resolve(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, at := "", -1
+	for i, id := range before {
+		if slices.Contains(ids, id) {
+			target, at = id, i
+			break
+		}
+	}
+	if at < 0 || at >= 4 {
+		t.Fatalf("no created object within the first 4 resolved rows (%v)", before)
+	}
+	mustModify(t, e, http.MethodPost, base+"/delete-records",
+		`{"objectId":"`+target+`","dataset":"objects","recordIds":["`+target+`"]}`, http.StatusOK)
+	got, more, err := f.Resolve(ctx, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 4 || !more {
+		t.Fatalf("Resolve(4) = %d ids, more=%v; want 4 live ids and more", len(got), more)
+	}
+	for _, id := range got {
+		if id == target {
+			t.Fatalf("resolved a tombstoned row: %s", id)
+		}
+	}
+	// Unbounded: every live row (the space holds the type roots too),
+	// never the tombstone.
+	all, more, err := f.Resolve(ctx, 0)
+	if err != nil || more || len(all) < 5 {
+		t.Fatalf("Resolve(0) = %d ids, more=%v, err=%v; want every live row", len(all), more, err)
+	}
+	for _, id := range all {
+		if id == target {
+			t.Fatalf("Resolve(0) listed the tombstoned row %s", id)
+		}
+	}
+	matched, err := f.Match(ctx, ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matched) != 5 || matched[target] {
+		t.Fatalf("Match = %v, want the 5 live rows", matched)
+	}
+}
+
+// TestSearch_Filter: `filter` binds every hit to its host object's row in
+// the /objects/query grammar, in every mode — the bin exclusion being the
+// everyday shape — and a bad filter is the same 400 the query endpoints
+// give.
+func TestSearch_Filter(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	ctx := context.Background()
+	ix := newTestIndexer(t, d, fakeEmbedder{dim: 16})
+	defer func() { _ = ix.Close() }()
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", `{"name":"SearchFilter"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create space: %d %s", rec.Code, rec.Body.String())
+	}
+	var sp api.SpaceInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &sp); err != nil {
+		t.Fatal(err)
+	}
+	spaceId := sp.Id
+	base := "/v1/spaces/" + spaceId
+	editorType := installModuleType(t, e, spaceId, "editor")
+
+	objA := mustCreateModuleObject(t, e, spaceId, "editor")
+	objB := mustCreateModuleObject(t, e, spaceId, "editor")
+	for _, o := range []string{objA, objB} {
+		mustModify(t, e, http.MethodPost, base+"/objects/"+o+"/editor/editor_blocks/blocks",
+			`{"type":"paragraph","text":"budget review notes"}`, http.StatusCreated)
+	}
+	// B goes to the bin: the filter reads the live row, no re-index needed.
+	mustModify(t, e, http.MethodPost, base+"/properties/"+objB+"/attach/bin", "", http.StatusOK)
+
+	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+
+	search := func(body string) api.SearchResponse {
+		t.Helper()
+		rec := doJSON(t, e, http.MethodPost, base+"/search", body)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("search %s: %d %s", body, rec.Code, rec.Body.String())
+		}
+		var res api.SearchResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	objects := func(res api.SearchResponse) map[string]bool {
+		out := map[string]bool{}
+		for _, h := range res.Hits {
+			out[h.ObjectId] = true
+		}
+		return out
+	}
+
+	res := search(`{"query":"budget","mode":"fts"}`)
+	if got := objects(res); len(got) != 2 {
+		t.Fatalf("unfiltered: %v", got)
+	}
+	for _, mode := range []string{"fts", "vector", "hybrid"} {
+		res = search(`{"query":"budget review","mode":"` + mode + `","filter":{"any.types":{"$nin":["bin"]}}}`)
+		if got := objects(res); len(got) != 1 || !got[objA] {
+			t.Fatalf("%s not-in-bin: %v, want only %s", mode, got, objA)
+		}
+		if res.Truncated {
+			t.Fatalf("%s: truncated on a two-object space", mode)
+		}
+	}
+	res = search(`{"query":"budget","mode":"fts","filter":{"any.types":"bin"}}`)
+	if got := objects(res); len(got) != 1 || !got[objB] {
+		t.Fatalf("in-bin: %v, want only %s", got, objB)
+	}
+	res = search(`{"query":"budget","mode":"fts","filter":{"$and":[{"any.types":"` + editorType + `"},{"any.types":{"$ne":"bin"}}]}}`)
+	if got := objects(res); len(got) != 1 || !got[objA] {
+		t.Fatalf("type and not bin: %v, want only %s", got, objA)
+	}
+	res = search(`{"query":"budget","mode":"fts","filter":{"any.name":"no such object"}}`)
+	if len(res.Hits) != 0 || res.Truncated {
+		t.Fatalf("empty filter: hits=%d truncated=%v", len(res.Hits), res.Truncated)
+	}
+	for _, body := range []string{`{"query":"budget","mode":"fts","filter":null}`, `{"query":"budget","mode":"fts","filter":{}}`} {
+		res = search(body)
+		if got := objects(res); len(got) != 2 {
+			t.Fatalf("%s must mean no filter: %v", body, got)
+		}
+	}
+	rawRec := doJSON(t, e, http.MethodPost, base+"/search", `{"query":"budget","mode":"fts","filter":{"any.types":{"$nin":["bin"]}}}`)
+	if strings.Contains(rawRec.Body.String(), `"truncated"`) {
+		t.Fatalf("truncated must be absent when false: %s", rawRec.Body.String())
+	}
+
+	// The filter grammar's own 400s, before any space lookup.
+	for body, code := range map[string]string{
+		`{"query":"x","filter":{"any.types":{"$nope":1}}}`: "filter.unknown_operator",
+		`{"query":"x","filter":{"$and":5}}`:                "filter.invalid",
+		`{"query":"x","filter":"any.types"}`:               "filter.invalid",
+	} {
+		rec := doJSON(t, e, http.MethodPost, base+"/search", body)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"`+code+`"`) {
+			t.Fatalf("%s: %d %s, want 400 %s", body, rec.Code, rec.Body.String(), code)
+		}
 	}
 }

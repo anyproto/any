@@ -326,13 +326,19 @@ func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collect
 	// The vector index is NOT ensured here: IVF trains its quantizers
 	// from existing documents, so it can only be created on a populated
 	// collection — see EnsureVectorIndex, called from the embed path.
-	// No objectId index: structural deletes are primary-key prefix
-	// ranges on the objectId:dataset:recordId id shape.
+	// Structural deletes never need an objectId index (they are
+	// primary-key prefix ranges on the objectId:dataset:recordId id
+	// shape); the one below serves the search filter: with it the
+	// planner can probe a small `objectId $in` residual per candidate
+	// instead of walking the posting lists (host_filter.go).
 	//
 	// Each leg's index is created only when its build tag compiled it in
 	// (docs/13-index.md § build tags): the fulltext index under `fts`, the
 	// sparse pending index (which backs the embed loop) under `vector`.
 	var indexes []anystore.IndexInfo
+	if capFTS || capVector {
+		indexes = append(indexes, anystore.IndexInfo{Name: objectIdIndex, Fields: []string{"objectId"}})
+	}
 	if capFTS {
 		// BM25 over `data` (body). When titleWeight > 0, BM25F also covers
 		// the boosted `title` field (heading / method sig / memory context);
@@ -839,9 +845,28 @@ func (s *Store) DropSpace(ctx context.Context, spaceId string) error {
 var (
 	idPath        = []string{"id"}
 	scopePath     = []string{"scope"}
+	objectIdPath  = []string{"objectId"}
 	pendingEqOne  = query.Key{Path: []string{"pending"}, Filter: query.NewComp(query.CompOpEq, 1)}
 	vectorPresent = query.Key{Path: []string{"vector"}, Filter: query.Exists{}}
 )
+
+// objectIdIndex names the range index on objectId; probeBoost is the
+// cost subtracted from a plan seeking it when a leg asks for the probe
+// — large enough to win over any beam or posting walk.
+const (
+	objectIdIndex = "objectId"
+	probeBoost    = 1 << 30
+)
+
+// objectIdIn builds the filter's residual: `objectId $in ids`.
+func objectIdIn(ids []string) query.Filter {
+	arena := &anyenc.Arena{}
+	vals := make([]*anyenc.Value, len(ids))
+	for i, id := range ids {
+		vals[i] = arena.NewString(id)
+	}
+	return query.Key{Path: objectIdPath, Filter: query.NewInValue(vals...)}
+}
 
 // scopeKey builds the optional residual scope filter ($in over the
 // scope field). Nil when no scopes are requested.
@@ -878,7 +903,7 @@ type FTSQuery struct {
 // SearchFTSQuery runs the BM25(F) leg with full operator support and
 // returns the first limit hits in rank order (0 = every match).
 func (s *Store) SearchFTSQuery(ctx context.Context, spaceId string, fq FTSQuery, scopes []string, limit int) ([]Hit, error) {
-	cur, err := s.openFTS(ctx, spaceId, fq, scopes)
+	cur, err := s.openFTS(ctx, spaceId, fq, scopes, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -914,8 +939,11 @@ type ftsCursor struct {
 
 // openFTS starts the lexical leg: the shoulds parsed from Query plus
 // the required / excluded terms (each parsed so phrases / prefixes
-// work), optionally restricted to scopes.
-func (s *Store) openFTS(ctx context.Context, spaceId string, fq FTSQuery, scopes []string) (*ftsCursor, error) {
+// work), optionally restricted to scopes and to a residual (the
+// filter's `objectId $in`, objectIdIn) — the planner decides whether
+// the residual drives a probe over the objectId index or trails the
+// posting walk.
+func (s *Store) openFTS(ctx context.Context, spaceId string, fq FTSQuery, scopes []string, residual query.Filter) (*ftsCursor, error) {
 	if !capFTS {
 		return &ftsCursor{}, nil
 	}
@@ -933,6 +961,9 @@ func (s *Store) openFTS(ctx context.Context, spaceId string, fq FTSQuery, scopes
 	var filter query.Filter = text
 	if sk := scopeKey(scopes); sk != nil {
 		filter = query.And{filter, sk}
+	}
+	if residual != nil {
+		filter = query.And{filter, residual}
 	}
 	iter, err := coll.Find(filter).Iter(ctx)
 	if err != nil {
@@ -1060,7 +1091,7 @@ func appendClauses(dst []query.TextClause, terms []string, op query.TextOp) []qu
 // The effective floor is max(minSim, smallest-positive) — a similarity
 // must always be > 0 (cosine distance < 1) to carry any signal.
 func (s *Store) SearchVector(ctx context.Context, spaceId string, vec []float32, scopes []string, limit int, minSim float64) ([]Hit, error) {
-	hits, _, err := s.searchVector(ctx, spaceId, vec, scopes, limit, minSim)
+	hits, _, err := s.searchVector(ctx, spaceId, vec, scopes, limit, minSim, nil, false)
 	return hits, err
 }
 
@@ -1070,7 +1101,12 @@ func (s *Store) SearchVector(ctx context.Context, spaceId string, vec []float32,
 // scope residual the beam any-store sizes from K — and len(hits) < n
 // means the floor trimmed the far tail. A caller widening K reads both
 // (vectorStop).
-func (s *Store) searchVector(ctx context.Context, spaceId string, vec []float32, scopes []string, limit int, minSim float64) (hits []Hit, n int, err error) {
+//
+// hint forces the planner's probe over the objectId index (a residual
+// must be present): the candidates are read from the index and scored
+// exactly, instead of hoping the ANN beam reaches them. Meant for a
+// small residual, where the store's own cost model keeps the beam.
+func (s *Store) searchVector(ctx context.Context, spaceId string, vec []float32, scopes []string, limit int, minSim float64, residual query.Filter, hint bool) (hits []Hit, n int, err error) {
 	if !capVector || s.Dim() == 0 {
 		return nil, 0, nil
 	}
@@ -1091,7 +1127,14 @@ func (s *Store) searchVector(ctx context.Context, spaceId string, vec []float32,
 	if sk := scopeKey(scopes); sk != nil {
 		filter = query.And{filter, sk}
 	}
-	iter, err := coll.Find(filter).Iter(ctx)
+	if residual != nil {
+		filter = query.And{filter, residual}
+	}
+	q := coll.Find(filter)
+	if hint && residual != nil {
+		q = q.IndexHint(anystore.IndexHint{IndexName: objectIdIndex, Boost: probeBoost})
+	}
+	iter, err := q.Iter(ctx)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -2102,6 +2102,44 @@ To inspect SDK behavior at the pinned version, read the module cache
     `internal/e2e/multipeer_onetoone_names_test.go`. Contract:
     docs/03-api.md § Spaces (one-to-one) + § Identities,
     docs/08-clients.md § 7.
+59. **Search `filter`** — `POST /v1/spaces/:id/search` takes `filter`,
+   a condition over the hit's HOST OBJECT row in the `/objects/query`
+   grammar, binding every hit in every mode (`limit` counts matching
+   records; the row is read live, so a bin move takes effect at once).
+   Two paths chosen by one probe (`internal/indexer/host_filter.go`):
+   iterate the filter with early exit at `filterIdsMax` (256) ids — an
+   unbounded iterator closed early, never a `Limit`, because the SDK
+   applies a limit before it skips tombstones — and a set resolved
+   whole rides both legs as a residual `objectId $in` (the index store
+   gained an `objectId` range index so any-store's cost-based `$text` /
+   `$knn` planner can PROBE it per candidate instead of walking the
+   postings — forced with an `IndexHint` on the vector leg, whose beam
+   is blind to a few vectors among many; pages complete by
+   construction; an empty set answers before the query embedding) —
+   else: the vector leg resolves the set up to `filterResidualMax`
+   (9 999, the `$in` bound) and rides it as a residual (one ANN round
+   with the residual beats re-running the ANN per widening round, 80
+   vs 250 ms per hybrid request), the lexical leg follows it, and
+   fts-only stays lazy; past that bound both legs post-filter through
+   pk `$in` lookups on the objects collection (`handlers_search.go`
+   `objectsHostFilter`; 64 rows per lookup on the lexical cursor, a
+   widening round on the vector leg), verdicts cached per object and
+   shared by both legs; a lexical page still short after
+   `filterScanRows` (5000) rows materializes the set (up to
+   `filterMaterializeMax` 50k ids) and continues the same cursor
+   in-process; a page short of `limit` past `filterScanRowsMax` (100k)
+   rows or the vector K ceiling says `truncated: true`. Decided
+   against: an FTS-side estimate (any-store exposes none for a bare
+   `$text`), an eager id set for broad filters (resolving 90k ids costs
+   30 ms where the lookups cost 0.1), mirroring `any.types` onto index
+   docs (rewrites every chunk on a type toggle), `$or` of pk ranges
+   (driver-only). Bad filter → `filter.invalid` /
+   `filter.unknown_operator`. Record fields of the hit's dataset stay
+   unfilterable. Bench: `internal/indexer/filter_modes_bench_test.go`
+   (synthetic grid + real store copies + end-to-end hybrid), results in
+   the any research doc. CLI: `any search --filter`. Contract:
+   docs/13-index.md § Filtering by object, docs/03-api.md § search,
+   docs/08-clients.md § 6.
 
 ## What this project is
 

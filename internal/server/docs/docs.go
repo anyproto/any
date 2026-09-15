@@ -3106,6 +3106,11 @@ const docTemplate = `{
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "filter": {
+                        "additionalProperties": {},
+                        "description": "Filter keeps only hits whose host object matches this condition,\nin the /objects/query filter grammar verbatim (any.types,\n\u003ctypeId\u003e.\u003cpropId\u003e, modifiedAt, …), in every mode — like Require /\nExclude. The object's live row is checked, so a property write is\nhonored at once. Limit still counts matching records. An object\nwith no row never matches.",
+                        "type": "object"
+                    },
                     "limit": {
                         "description": "Limit caps returned records — every hit is a distinct\n(objectId, dataset, recordId). Default 10, max 100.",
                         "type": "integer"
@@ -3156,6 +3161,10 @@ const docTemplate = `{
                     },
                     "mode": {
                         "type": "string"
+                    },
+                    "truncated": {
+                        "description": "Truncated is set when a leg's read budget under Filter ended and\nthe page holds fewer than Limit records: the index may hold\nmatches the reply cannot show. Absent without a filter. A Filter\nno object satisfies answers empty without running a leg\n(VectorStatus then reads skipped, or disabled without an embedder).",
+                        "type": "boolean"
                     },
                     "vectorStatus": {
                         "description": "VectorStatus: used | unavailable | disabled | skipped — whether\nsemantic recall participated in this response and, if not, why.",

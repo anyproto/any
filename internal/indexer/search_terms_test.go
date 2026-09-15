@@ -62,7 +62,7 @@ func TestIndexer_SearchHybridRequireExclude(t *testing.T) {
 		return out
 	}
 
-	res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "anytype", Require: []string{"android"}, Limit: 10})
+	res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "anytype", Require: []string{"android"}, Limit: 10}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestIndexer_SearchHybridRequireExclude(t *testing.T) {
 		t.Fatalf("require android = %v, want m1+m3", got)
 	}
 
-	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "anytype", Exclude: []string{"android"}, Limit: 10})
+	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "anytype", Exclude: []string{"android"}, Limit: 10}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestIndexer_SearchHybridRequireExclude(t *testing.T) {
 	}
 
 	// Pure vector mode is post-filtered the same way.
-	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "anytype", Mode: api.SearchModeVector, Require: []string{"ios"}, Limit: 10})
+	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "anytype", Mode: api.SearchModeVector, Require: []string{"ios"}, Limit: 10}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestIndexer_SearchChunksAndMaxData(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "needle", Mode: api.SearchModeFTS, Limit: 10})
+	res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "needle", Mode: api.SearchModeFTS, Limit: 10}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,14 +129,14 @@ func TestIndexer_SearchChunksAndMaxData(t *testing.T) {
 	// "filler" is in every chunk: the record is ONE hit (its best chunk),
 	// and the other chunks come back as passages when asked for —
 	// distinct, windowed like the hit, capped at the request.
-	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "filler", Mode: api.SearchModeFTS, Limit: 10, MaxData: 40})
+	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "filler", Mode: api.SearchModeFTS, Limit: 10, MaxData: 40}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(res.Hits) != 1 || res.Hits[0].RecordId != "r1" || res.Hits[0].Passages != nil {
 		t.Fatalf("filler hits = %+v, want one r1 hit without passages", res.Hits)
 	}
-	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "filler", Mode: api.SearchModeFTS, Limit: 10, MaxData: 40, Passages: api.MaxSearchPassages})
+	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "filler", Mode: api.SearchModeFTS, Limit: 10, MaxData: 40, Passages: api.MaxSearchPassages}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestIndexer_SearchChunksAndMaxData(t *testing.T) {
 	if len(seen) != len(page.ups) {
 		t.Fatalf("hit + passages cover %d chunks, want %d", len(seen), len(page.ups))
 	}
-	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "filler", Mode: api.SearchModeFTS, Limit: 10, Passages: 2})
+	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "filler", Mode: api.SearchModeFTS, Limit: 10, Passages: 2}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestIndexer_SearchChunksAndMaxData(t *testing.T) {
 		t.Fatalf("passages: 2 → %+v", res.Hits)
 	}
 
-	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "needle", Mode: api.SearchModeFTS, Limit: 10, MaxData: -1})
+	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "needle", Mode: api.SearchModeFTS, Limit: 10, MaxData: -1}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestIndexer_SearchLimitCountsRecords(t *testing.T) {
 	}
 
 	for _, mode := range []string{api.SearchModeFTS, api.SearchModeHybrid, api.SearchModeVector} {
-		res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "reranker", Mode: mode, Limit: 10, Passages: 3})
+		res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "reranker", Mode: mode, Limit: 10, Passages: 3}, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", mode, err)
 		}
@@ -239,7 +239,7 @@ func TestIndexer_SearchLimitCountsRecords(t *testing.T) {
 		}
 	}
 	// limit 1 returns one record, not one chunk of each.
-	res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "reranker", Mode: api.SearchModeFTS, Limit: 1})
+	res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "reranker", Mode: api.SearchModeFTS, Limit: 1}, nil)
 	if err != nil || len(res.Hits) != 1 {
 		t.Fatalf("limit 1: %v %+v", err, res.Hits)
 	}
@@ -284,7 +284,7 @@ func TestIndexer_SearchLegCoverRule(t *testing.T) {
 		t.Fatalf("first 30 fts rows cover %d records, the premise needs 1", n)
 	}
 	for _, mode := range []string{api.SearchModeFTS, api.SearchModeHybrid, api.SearchModeVector} {
-		res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "kestrelith", Mode: mode, Limit: 10})
+		res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "kestrelith", Mode: mode, Limit: 10}, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", mode, err)
 		}
@@ -310,7 +310,7 @@ func TestIndexer_SearchLegCoverRule(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	res, err := ix2.Search(ctx, sp, api.SearchRequest{Query: "ospreyoid", Mode: api.SearchModeFTS, Limit: 10, Passages: api.MaxSearchPassages})
+	res, err := ix2.Search(ctx, sp, api.SearchRequest{Query: "ospreyoid", Mode: api.SearchModeFTS, Limit: 10, Passages: api.MaxSearchPassages}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

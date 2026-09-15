@@ -1,10 +1,16 @@
 package server
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 
+	"github.com/anyproto/any-store/v2/anyenc"
+	"github.com/anyproto/any-store/v2/query"
+	"github.com/anyproto/any-sync-sdk/space"
 	"github.com/labstack/echo/v4"
 
 	"github.com/anyproto/any/internal/api"
@@ -83,13 +89,21 @@ func (d *deps) search(c echo.Context) error {
 		return writeError(c, http.StatusConflict, "index.terms_unsupported",
 			"this build has no full-text index, so require/exclude cannot be enforced", nil)
 	}
+	cond, errResp, done := parseSearchFilter(c, req.Filter)
+	if done {
+		return errResp
+	}
 
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
 		return errResp
 	}
+	var host indexer.HostFilter
+	if cond != nil {
+		host = objectsHostFilter{sp: sp, cond: cond}
+	}
 
-	res, err := d.indexer.Search(c.Request().Context(), sp.Id(), *req)
+	res, err := d.indexer.Search(c.Request().Context(), sp.Id(), *req, host)
 	if err != nil {
 		if errors.Is(err, indexer.ErrEmbedderUnavailable) {
 			return writeError(c, http.StatusServiceUnavailable, "index.embedder_unavailable",
@@ -109,4 +123,88 @@ func (d *deps) search(c echo.Context) error {
 // constraint silently ignored; refusing is the honest answer.
 func termFilterUnsupported(ftsCompiled bool, req *api.SearchRequest) bool {
 	return !ftsCompiled && (len(req.Require) > 0 || len(req.Exclude) > 0)
+}
+
+// parseSearchFilter parses the request's object filter at the boundary
+// — the /objects/query grammar, the same 400s (filter.invalid /
+// filter.unknown_operator) — so a bad filter never surfaces from inside
+// a leg. Absent and null mean no filter.
+func parseSearchFilter(c echo.Context, raw json.RawMessage) (query.Filter, error, bool) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, nil, false
+	}
+	cond, err := query.ParseCondition(string(raw))
+	if err != nil {
+		var pe *query.ParseError
+		if errors.As(err, &pe) {
+			return nil, filterParseError(c, pe, nil), true
+		}
+		return nil, writeError(c, http.StatusBadRequest, "filter.invalid",
+			"invalid filter: "+err.Error(), nil), true
+	}
+	return cond, nil, false
+}
+
+// objectsHostFilter is the request's filter over the space's objects
+// collection: Resolve lists the matching ids (bounded when asked),
+// Match checks a batch of ids in one query restricted to them (a
+// primary-key $in) and the condition. Tombstoned objects never match —
+// the iterator skips them, and their index docs are evicted anyway.
+type objectsHostFilter struct {
+	sp   space.Space
+	cond query.Filter
+}
+
+// Resolve walks an UNBOUNDED iterator and stops once max ids are in
+// hand — never Query.Limit: the SDK applies a limit before it skips the
+// collection's tombstones, so a bounded query can end short of max
+// with the set still continuing. An early Close is free.
+func (f objectsHostFilter) Resolve(ctx context.Context, max int) ([]string, bool, error) {
+	it, err := f.sp.QueryObjects().Filter(f.cond).Iter(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = it.Close() }()
+	var ids []string
+	for it.Next() {
+		if max > 0 && len(ids) == max {
+			return ids, true, nil
+		}
+		if len(ids)%256 == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, false, err
+			}
+		}
+		doc, err := it.Doc()
+		if err != nil {
+			return nil, false, err
+		}
+		ids = append(ids, string(doc.GetStringBytes("id")))
+	}
+	return ids, false, it.Err()
+}
+
+func (f objectsHostFilter) Match(ctx context.Context, ids []string) (map[string]bool, error) {
+	arena := &anyenc.Arena{}
+	vals := make([]*anyenc.Value, len(ids))
+	for i, id := range ids {
+		vals[i] = arena.NewString(id)
+	}
+	it, err := f.sp.QueryObjects().Filter(query.And{
+		query.Key{Path: []string{"id"}, Filter: query.NewInValue(vals...)},
+		f.cond,
+	}).Iter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = it.Close() }()
+	matched := make(map[string]bool, len(ids))
+	for it.Next() {
+		doc, err := it.Doc()
+		if err != nil {
+			return nil, err
+		}
+		matched[string(doc.GetStringBytes("id"))] = true
+	}
+	return matched, it.Err()
 }

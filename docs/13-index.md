@@ -455,8 +455,13 @@ routine per-edit indexing never appears (`Options.OnProcess`, bridged in
   drive the primary btree directly; per-doc deletion cleans FTS and
   vector entries in the same transaction.
 - Indexes per collection: BM25 **full-text** on `data` (plus `title`
-  when `index.search.titleWeight > 0`); sparse range on `pending` (the
-  embed queue); and — once at least one embedded doc exists — a
+  when `index.search.titleWeight > 0`); a range index on `objectId` (the
+  search filter's residual seeks it — § Filtering by object; structural
+  deletes never use it, they are primary-key ranges; an existing
+  collection backfills it in one write transaction on its first open
+  after the upgrade, ~0.2 s per 100k docs, and every chunk upsert
+  maintains it from then on); sparse range on `pending`
+  (the embed queue); and — once at least one embedded doc exists — a
   **cosine vector index** on `vector`, created lazily
   (`Store.EnsureVectorIndex`) because IVF trains from existing docs. The
   strategy (`index.vector.mode`, `Store.vectorIndexParams`) defaults to
@@ -745,9 +750,9 @@ derived cache, so deleting it is always the whole fix.
 ### Search
 
 `POST /v1/spaces/:spaceId/search` `{query, scopes?, limit?, mode?,
-require?, exclude?, maxData?, passages?}` →
+require?, exclude?, maxData?, passages?, filter?}` →
 `{hits: [{scope, objectId, dataset, recordId, chunk?, data, dataOffset?,
-dataTotal, score, passages?}], mode, vectorStatus}`.
+dataTotal, score, passages?}], mode, vectorStatus, truncated?}`.
 
 Modes: `fts` (BM25), `vector` (cosine ANN; requires an embedder; hits
 with similarity ≤ 0 — or ≤ `minVectorSim` — are dropped), `hybrid`
@@ -863,10 +868,105 @@ Errors:
 | `request.bad` | 400 | `limit` < 0 |
 | `request.invalid_field` | 400 | `maxData` < -1, `passages` outside 0..10 |
 | `search.bad_mode` / `search.bad_scope` | 400 | unknown mode / scope not a slug |
+| `filter.invalid` / `filter.unknown_operator` | 400 | a bad `filter` — the `/objects/query` grammar's own codes |
 | `index.no_embedder` | 400 | `mode=vector` with no embedder configured |
 | `index.disabled` | 409 | `index.enabled: false` |
 | `index.terms_unsupported` | 409 | `require` / `exclude` on a build without the `fts` leg |
 | `index.embedder_unavailable` | 503 | `mode=vector` while the embedder is unreachable or over the query budget — retryable; hybrid degrades instead |
+
+### Filtering by object
+
+`filter` is a condition over the hit's HOST OBJECT row — the per-space
+`objects` collection, in the `/objects/query` grammar verbatim
+(`any.types`, `<typeId>.<propId>`, `modifiedAt`, `id`, …). A hit is kept
+only if its object's row matches, in every mode, like `require` /
+`exclude`; `limit` still counts matching records; the row is read live,
+so a property write (a bin move) is honored by the next search without
+a re-index. An object with no row never matches. Record fields of the
+hit's own dataset (a chat message's `creator`, a block's `type`) are not
+filterable — a row per hit is one read, a record per hit is another.
+
+The rows live in the SDK's store, the hits in the index store, and
+neither side can be estimated cheaply from the other — the store's
+`$text` planner reads per-term document frequencies only once a bounded
+residual makes a probe plan possible, and an unindexed object predicate
+costs a scan to count. So the filter is probed on the objects side and
+the request takes one of two paths (`internal/indexer/host_filter.go`):
+
+1. **Probe.** Iterate the filter with early exit after `filterIdsMax`
+   (256) ids, collecting them — an unbounded iterator closed early, not
+   a `Limit`, because the SDK applies a limit before it skips the
+   collection's tombstones. Indexed predicates (`any.types`,
+   `modifiedAt`, `id`) exit in microseconds; a dense unindexed one
+   (`any.types $ne bin` — the everyday shape) exits after the first
+   few hundred rows; only a narrow unindexed predicate (a property
+   value held by a few objects) scans the collection, ~4 ms per 6k
+   objects, which is what resolving its ids costs anyway.
+2. **Small set — residual, probe forced on the vector leg.** A set the
+   probe resolved whole rides both legs as `objectId $in ids`. On the
+   lexical leg any-store's cost-based `$text` planner chooses per
+   query between the driver plan (walk the posting lists, residual
+   after the fetch) and the probe plan (seek the `objectId` index,
+   verify each candidate against the text index by point-gets —
+   order-identical); measured to fire up to ~100 objects, where it
+   turns a 20–50 ms scan that came back short into a complete page in
+   0.1–2 ms, and to cost a tie up to ~400, where the planner keeps the
+   driver. 256 sits in that band: every set below it gets a complete
+   page for at most the price of the unfiltered leg, and the store
+   drains until `limit` is met. On the vector leg the same set FORCES
+   the probe (`IndexHint` on the `objectId` index): the ANN beam is
+   blind to a few vectors among many — 103 objects' ~145 vectors among
+   66k returned nothing at every K — while probing them costs one
+   distance per doc; the store's own cost model only picks the probe
+   for a handful of docs. The residual path's one cost is that it has
+   no read budget: a residual anti-correlated with a broad query drains
+   the whole posting list before the first row, as an unfiltered search
+   of that query would. A set the probe found EMPTY answers at once —
+   no query embedding, no leg.
+3. **Large set.** The vector leg first resolves a lazy set up to
+   `filterResidualMax` (9 999 — the `$in` size any-store still derives
+   index bounds from) and rides it as a residual: every widening round
+   is a full ANN pass (~70 ms at 66k vectors), so one round with the
+   residual (any-store widens its candidate beam inside it) beats
+   re-running the ANN per round through lookups — measured 80 vs
+   250–290 ms per hybrid request. The lexical leg then takes the same
+   residual; fts-only, where no vector leg resolves, it stays lazy
+   (the residual costs the resolve, ~8 ms per 6k objects, where the
+   lookups cost ~0.1 ms). A set past the residual bound post-filters
+   on both legs: rows are judged through one primary-key `$in` query
+   on the objects collection per batch — `filterBatch` (64) rows for
+   the lexical cursor, a widening round for the vector leg — with
+   verdicts cached per object for the request and shared by both legs.
+   A lexical page still short after `filterScanRows` (5000) rows means
+   the filter is anti-correlated with the ranking (the matching objects
+   sit deep — a binned import searched for its own content): the set is
+   materialized once, up to `filterMaterializeMax` (50 000) ids, and the
+   same cursor continues with in-process membership; a set larger than
+   that stays lazy. Past `filterScanRowsMax` (100 000) rows — or the
+   vector leg's K ceiling — a page still short of `limit` matching
+   records carries `truncated: true`. The lexical cursor is a read
+   transaction on `index.db` held across those lookups (a different
+   store, so no reader slot is shared and nothing can deadlock); its
+   hold grows from ~1 ms to the lookups' sum, at most a few hundred
+   milliseconds, and the store's reader slots are per process, so
+   that many concurrent filtered searches queue behind each other.
+
+Measured (docs/search/README.md → the filter-modes harness; real
+6k-object space, idle box, fully embedded): on the lexical leg
+post-filtering wins 158 of 168 cells with ≥ 389 matching objects and
+the residual 78 of 96 with ≤ 103; on end-to-end hybrid and vector
+requests the residual wins every band (84 vs 220–290 ms median); the
+everyday `not in bin` costs the probe (0.2 ms) plus one or two lookups
+fts-only, the resolve (~8 ms) in hybrid.
+An eager id set for large filters was rejected: resolving 90k ids costs
+~30 ms per search where the batched lookups cost 0.1 ms on an ordinary
+query. Mirroring `any.types` onto index docs was rejected: every type
+attach/detach would rewrite every chunk of the object. Not in this
+iteration: record fields of the hit's own dataset; a vector-specific
+id-set threshold (the residual beat post-filtering up to ~1k objects on
+the vector leg alone); property-value indexes on the objects collection
+(an SDK topic — they would turn the narrow-unindexed probe into a seek);
+the SDK's `Query.Count` forwarding its `Limit`.
 
 ### Tuning (measured — `internal/indexer/bench_test.go`)
 
@@ -956,6 +1056,14 @@ run).
   record's other chunks that ranked within the legs' windows (≤ 1000
   chunks deep); a record whose chunks all match shows only the ones the
   legs reached.
+- **`filter` sees the object, not the record.** It binds hits to the
+  host object's row (§ Filtering by object); a dataset record's own
+  fields are out of reach, and a narrow filter on an unindexed
+  property costs a scan of the objects collection per search until
+  the SDK indexes property values. The vector leg under a filter past
+  the residual bound is bounded by the ANN's reach like an unfiltered
+  one, and a set whose docs have no vectors yet returns nothing on that
+  leg whatever its size.
 
 ## Tests
 
@@ -964,6 +1072,14 @@ run).
   stops and closes on a yield error; `IsDeleted`.
 - `internal/index/prop_test.go`, `internal/index/schema_test.go` — the
   prop and schema chunkers.
+- `internal/indexer/host_filter_test.go` — the search filter's paths:
+  residual, batched post-filter with one lookup per object, the
+  materialize-and-continue rescue, truncation, hybrid sharing one set,
+  the empty set; `internal/indexer/store_test.go::TestStore_ObjectIdResidual`
+  — the `objectId` index and a residual on the lexical cursor;
+  `internal/server/handlers_search_test.go::TestSearch_Filter` — over
+  HTTP in every mode, bin in / out, a tombstoned objects row inside the
+  probe window, the 400s.
 - `internal/editor/chunker_test.go`, `internal/chat/chunker_test.go` —
   text extraction including the tombstone case.
 - `anyuri/links_test.go`, `internal/index/links_test.go`,
