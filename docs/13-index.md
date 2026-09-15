@@ -157,7 +157,7 @@ id `objectId:prop:<propId>`:
 - **Built-ins `any.name` and `any.description` always index** under
   scope `basic`, reserved recordIds `name` / `description`, raw (no name
   prefix, no title) — except for rows with an excluded member. The
-  exclusion list always holds `__type__`: type-definition rows are
+  exclusion list always holds `__type__` and `__collection__`: definition rows are
   schema, not knowledge (discovery is `GET …/types`), and their one-word
   names would otherwise win BM25 on field-length normalization.
 - **Short prop docs never embed**: a `prop` entry under 64 bytes is not

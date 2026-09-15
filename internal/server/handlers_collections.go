@@ -195,6 +195,9 @@ func (d *deps) collectionPatch(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",
 			"at least one of name, description, iconCid, hidden, meta is required", nil)
 	}
+	if errResp, done := requireCollection(c, sp, id); done {
+		return errResp
+	}
 	if err := sp.Collections().Patch(c.Request().Context(), id, patch); err != nil {
 		if resp, done := collectionLookupError(c, err, sp.Id(), id); done {
 			return resp
@@ -294,6 +297,7 @@ func (d *deps) collectionPatchProperty(c echo.Context) error {
 // so the type property handlers — owner-agnostic in the SDK — serve
 // the collection routes unchanged.
 func withOwnerParam(c echo.Context) echo.Context {
+	c.Set(ownerSurface, "collection")
 	names := c.ParamNames()
 	values := c.ParamValues()
 	outNames := make([]string, len(names))

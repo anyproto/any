@@ -113,11 +113,28 @@ func (d *deps) objectCreate(c echo.Context) error {
 		}
 	}
 
-	// A type declaring a reserved module is carried only by its own
-	// root: the SDK refuses the bootstrap, but Create has minted the
-	// tree by then, so the check runs first and no bare object is left.
-	if opts.Type != "" && reservedCarrierType(c.Request().Context(), sp, opts.Type) {
-		return reservedCarrierError(c, sp.Id(), opts.Type)
+	// Membership is pre-flighted the way the …/type and …/collections
+	// routes do it — a wrong slot or an unknown id answers a typed 4xx
+	// instead of a refused bootstrap on a minted tree. A type declaring
+	// a reserved module is carried only by its own root.
+	if opts.Type != "" {
+		if _, err := sp.Types().Get(c.Request().Context(), opts.Type); err != nil {
+			if resp, done := typeLookupError(c, err, sp.Id(), opts.Type); done {
+				return resp
+			}
+			return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": opts.Type})
+		}
+		if reservedCarrierType(c.Request().Context(), sp, opts.Type) {
+			return reservedCarrierError(c, sp.Id(), opts.Type)
+		}
+	}
+	for _, id := range opts.Collections {
+		if _, err := sp.Collections().Get(c.Request().Context(), id); err != nil {
+			if resp, done := collectionLookupError(c, err, sp.Id(), id); done {
+				return resp
+			}
+			return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "collectionId": id})
+		}
 	}
 
 	// Same descriptor value gate as propertiesSet, per initial owner

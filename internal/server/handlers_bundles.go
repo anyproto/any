@@ -427,6 +427,22 @@ func (d *deps) checkBundleRoot(c echo.Context, sp space.Space, inst bundles.Inst
 		}
 	}
 	for ownerId, patch := range inst.RootProperties {
+		// An owner that is neither the root's type nor `any` is filed
+		// as a collection, so it must be one — the preflight's 400s.
+		if ownerId != inst.RootType && ownerId != "any" {
+			if _, err := sp.Collections().Get(ctx, ownerId); err != nil {
+				details := map[string]any{"ownerId": ownerId, "spaceId": sp.Id()}
+				if errors.Is(err, space.ErrNotACollection) {
+					return writeError(c, http.StatusBadRequest, "collection.not_a_collection",
+						"rootProperties keyed by a type that is not rootType — a type goes in rootType, a collection in rootCollections", details), true
+				}
+				if errors.Is(err, space.ErrNotFound) {
+					return writeError(c, http.StatusBadRequest, "collection.not_found",
+						"rootProperties names a collection this space does not have", details), true
+				}
+				return sdkOpError(c, err, details), true
+			}
+		}
 		defs, err := ownerProperties(ctx, sp, ownerId)
 		if err != nil {
 			return writeError(c, http.StatusBadRequest, "type.not_found",

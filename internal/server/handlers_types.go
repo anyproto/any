@@ -106,6 +106,9 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 	if typeId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId required", nil)
 	}
+	if errResp, done := requireOwner(c, sp, typeId); done {
+		return errResp
+	}
 
 	req, ok := bindBodyStrict[api.AddPropertyRequest](c, "")
 	if !ok {
@@ -358,6 +361,9 @@ func (d *deps) typePatchProperty(c echo.Context) error {
 	if typeId == "" || propId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and propId required", nil)
 	}
+	if errResp, done := requireOwner(c, sp, typeId); done {
+		return errResp
+	}
 
 	req, ok := bindBodyStrict[api.PropertyPatchRequest](c, "")
 	if !ok {
@@ -484,6 +490,9 @@ func (d *deps) typeRemoveProperty(c echo.Context) error {
 	if typeId == "" || propId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and propId required", nil)
 	}
+	if errResp, done := requireOwner(c, sp, typeId); done {
+		return errResp
+	}
 	if err := sp.Types().RemoveProperty(c.Request().Context(), typeId, propId); err != nil {
 		return d.propertyWriteError(c, err, typeId, propId)
 	}
@@ -519,6 +528,22 @@ func requireHandleFree(c echo.Context, sp space.Space, xKey string) (errResp err
 		}
 	}
 	return nil, false
+}
+
+// ownerSurface names which definition surface a property route was
+// entered through; the collection wrappers set it so the shared
+// handlers refuse an id from the other surface.
+const ownerSurface = "ownerSurface"
+
+// requireOwner resolves the owner a property write names on the
+// surface the route belongs to: a type on the …/types routes, a
+// collection on the …/collections routes — `400 type.not_a_type` /
+// `collection.not_a_collection` across, 404 when unknown.
+func requireOwner(c echo.Context, sp space.Space, ownerId string) (errResp error, done bool) {
+	if c.Get(ownerSurface) == "collection" {
+		return requireCollection(c, sp, ownerId)
+	}
+	return requireType(c, sp, ownerId)
 }
 
 // ownerProperties resolves the property definitions of a type or a

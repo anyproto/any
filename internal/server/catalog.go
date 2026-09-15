@@ -75,6 +75,9 @@ func compileCatalog(src []byte) (*compiledCatalog, catalog.Problems) {
 	for _, t := range serverTypes() {
 		known = append(known, t.Id)
 	}
+	for _, col := range serverCollections() {
+		known = append(known, col.Id)
+	}
 	cat, problems := catalog.Load(src, catalog.Options{KnownTypeIds: known})
 	if cat == nil {
 		return nil, problems

@@ -399,7 +399,7 @@ func TestServer_BundleEnsurePreflight(t *testing.T) {
 	}{
 		{"unknown type", `{"id":"a/v1","rootType":"no_such_type"}`, "type.not_found"},
 		{"unknown collection", `{"id":"a/v1","rootCollections":["no_such_collection"]}`, "collection.not_found"},
-		{"unknown property owner", `{"id":"a/v1","rootProperties":{"no_such_type":{"x":1}}}`, "type.not_found"},
+		{"unknown property owner", `{"id":"a/v1","rootProperties":{"no_such_type":{"x":1}}}`, "collection.not_found"},
 		{"unknown field", `{"id":"a/v1","source":"marketplace"}`, "request.unknown_field"},
 		{"rootType not a string", `{"id":"a/v1","rootType":["chat_host"]}`, "request.schema"},
 		{"rootCollections not an array", `{"id":"a/v1","rootCollections":"miniapp"}`, "request.schema"},

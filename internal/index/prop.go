@@ -103,6 +103,7 @@ type propCatalog struct {
 func NewPropChunker(excludeTypeIds ...string) *PropChunker {
 	excl := make(map[string]bool, len(excludeTypeIds)+1)
 	excl[MetaTypeLabel] = true
+	excl[MetaCollectionLabel] = true
 	for _, id := range excludeTypeIds {
 		excl[id] = true
 	}

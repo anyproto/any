@@ -68,7 +68,8 @@ type Install struct {
 	// RootType is the root's one type (`any.type`) — refused next to a
 	// declaration, whose root carries its marker there. RootCollections
 	// are the collections the root is filed under at birth (a `miniapp`
-	// root); a collection the root lacks is added on adopt.
+	// root); on a derived or declaring root a collection the root lacks
+	// is added on adopt.
 	RootType        string
 	RootCollections []string
 	// RootProperties seeds the root's property values, keyed
@@ -332,11 +333,27 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	// reader/guest re-running the documented idempotent ensure must
 	// not land in Ensure's write gate.
 	settled := func(b space.Bundle) bool {
-		if !inst.Declares() {
-			return true
-		}
 		missing := false
-		if len(inst.Parts) > 0 {
+		if len(inst.RootCollections) > 0 && (inst.Derived || inst.Declares()) {
+			// A collection the request gained since the install is
+			// added by the SDK's adopt path — which runs for a derived
+			// or declaring root only.
+			row, err := sp.Objects().Get(ctx, b.RootId)
+			if err != nil {
+				return true
+			}
+			have := map[string]bool{}
+			for _, v := range row.GetArray("any", "collections") {
+				have[string(v.GetStringBytes())] = true
+			}
+			for _, want := range inst.RootCollections {
+				if !have[want] {
+					missing = true
+					break
+				}
+			}
+		}
+		if !missing && len(inst.Parts) > 0 {
 			defs, err := sp.Types().Parts(ctx, b.RootId)
 			if err != nil {
 				// A transient read error must not push the caller into
