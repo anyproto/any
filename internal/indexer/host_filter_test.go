@@ -397,3 +397,45 @@ func TestIndexer_FilterVectorTruncated(t *testing.T) {
 		t.Fatalf("vector past the bound: hits=%v truncated=%v matches=%d", got, res.Truncated, f.matches)
 	}
 }
+
+// Without an embedder hybrid degrades to fts before any leg runs: the
+// filter still binds every hit, a small set rides the lexical leg as a
+// residual with no lookup, a large one post-filters through lookups.
+func TestIndexer_FilterWithoutEmbedder(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 0)
+	ix := &Indexer{store: st, opts: Options{AnnounceAfter: -1}.withDefaults()}
+	const sp = "sp"
+	setBudgets(t, budgets(func(b *filterBudgets) { b.idsMax = 4 }))
+	ids := filterCorpus(t, st, sp, 40)
+
+	small := newSetFilter(ids, ids[3], ids[30])
+	res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "needle", Limit: 10}, small)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Mode != api.SearchModeFTS || res.VectorStatus != api.VectorStatusDisabled {
+		t.Fatalf("mode=%s vectorStatus=%s, want fts/disabled", res.Mode, res.VectorStatus)
+	}
+	if got := hitObjects(res); len(got) != 2 || small.matches != 0 || len(small.resolves) != 1 {
+		t.Fatalf("small set: hits=%v matches=%d resolves=%v", got, small.matches, small.resolves)
+	}
+
+	var even []string
+	for i := 0; i < len(ids); i += 2 {
+		even = append(even, ids[i])
+	}
+	large := newSetFilter(ids, even...)
+	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "needle", Limit: 10}, large)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Hits) != 10 || res.Truncated || large.matches == 0 || len(large.resolves) != 1 {
+		t.Fatalf("large set: hits=%d truncated=%v matches=%d resolves=%v", len(res.Hits), res.Truncated, large.matches, large.resolves)
+	}
+	for _, h := range res.Hits {
+		if !large.in[h.ObjectId] {
+			t.Fatalf("hit outside the set: %s", h.ObjectId)
+		}
+	}
+}
