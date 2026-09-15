@@ -1,7 +1,8 @@
 # Property & field descriptors
 
-One descriptor shape describes both **type properties** (values on an
-object's row) and **dataset fields** (records in a per-object dataset).
+One descriptor shape describes both **properties** (values on an object's
+row, declared by a type or a collection) and **dataset fields** (records in
+a per-object dataset).
 Everything descriptive lives in a single `xFormat` object, which the SDK
 stores **opaquely** — it is a client-facing contract, validated only by
 `any`.
@@ -23,7 +24,7 @@ between the two surfaces.
 
 | | enforced on every peer at apply |
 |---|---|
-| **type property values** | the top-level `kind`, and nothing else |
+| **property values** | the top-level `kind`, and nothing else |
 | **dataset record fields** | `kind` recursively through `items` / `properties`, plus `required`, `mutableBy`, `stamp`, `idRule`, `deleteBy` |
 
 A property value is checked against its declared `kind` at the top
@@ -31,7 +32,7 @@ level only, so a property's `items` / `properties` are **declarative**.
 A dataset field's sub-shape is resolved and enforced.
 
 `required` exists only on dataset fields, where it is enforced on record
-create. A type property has no `required` rule.
+create. A property has no `required` rule.
 
 **Pinned** paths are immutable for the definition's life. On a property:
 `id`, `kind`, `items`, `properties`, `scope` (`400 property.immutable`).
@@ -51,7 +52,7 @@ fact.
 
 ## The descriptor
 
-### Type property
+### Property
 
 ```json
 {
@@ -71,8 +72,8 @@ fact.
 
 | field | mutable | role |
 |---|---|---|
-| `id` | pinned | content-addressed record id. Values live at `record[typeId][id]`, so this is the storage key. |
-| `xKey` | **mutable** | the handle. An alias, not a storage key — renaming rewrites no data. Unique **within one type**; see Handles below. |
+| `id` | pinned | content-addressed record id. Values live at `record[ownerId][id]` — the owner being the type or collection that declares the property — so this is the storage key. |
+| `xKey` | **mutable** | the handle. An alias, not a storage key — renaming rewrites no data. Unique **within one owner**; see Handles below. |
 | `kind` | **pinned** | `string` · `number` · `boolean` · `array` · `object` · `datetime`. Required on create (`400 request.schema` when absent) — nothing is defaulted from the descriptor. (`null` is accepted but has no descriptor use.) |
 | `items` / `properties` | **pinned** | recursive sub-shape — `items` on `array`, `properties` on `object`. Declarative on properties, and not settable over HTTP; enforced on dataset fields, which declare them as `shape` (`{kind, items?, properties?}`). |
 | `scope` | **pinned** | `synced` · `account` · `local`. On dataset fields, `account` is declarable but not writable. |
@@ -102,7 +103,7 @@ Identical descriptor plus the record-write rules:
 
 `key` is pinned and **is** the record field name — a record reads
 `{"wateredAt": …}`. Properties are content-addressed instead because
-their values share one row with every other type's values. A field's
+their values share one row with every other owner's values. A field's
 `shape` (`{kind, items?, properties?}`) reads back whole; `name`,
 `description` and `xFormat` mutate through
 `PATCH …/datasets/:defId/fields/:fieldId`.
@@ -132,7 +133,7 @@ datetime), and its slug is checked against that.
 | `icon` | all | glyph name |
 | `pos` | all | lexid ordering key |
 | `options` | enumerated formats | the map **key is the stored value**; the entry is the display slice `{name, color, pos, meta.<k>}`, all strings. `color` is an open string — clients render the palette names they know |
-| `relation` | reference formats | `targetTypes` names types by type xKey (array of strings). `filter` is an additional condition over candidate objects, one JSON-text leaf that must parse as a query condition. |
+| `relation` | reference formats | `targetTypes` names target surfaces by handle (array of strings) — a type's xKey or a collection's, so a reference can be restricted to what an object **is** (`person`) or to what it is **filed under** (`contact`). `filter` is an additional condition over candidate objects, one JSON-text leaf that must parse as a query condition. |
 | `config` | per format | scalar settings (string / number / boolean), keyed by the vocabulary below |
 | `links` | any | the link-index marker: `link` (the string value is one `any://` reference, kind string), `links` (the array lists references, kind array), `markdown` (the text is scanned for references, kind string) or `none` (never scanned — the off-switch for a `relation` or `markdown` field whose references must stay out of backlinks). Implied by the `relation` slug (`links`) and the `markdown` slug (`markdown`); set it explicitly on any other shape that carries references. See docs/13-index.md § Links. |
 
@@ -279,7 +280,7 @@ for any viewer west of UTC, so a birthday or a deadline reads wrong.
     "options": { "weather": { "name": "Weather", "color": "green", "pos": "b09" } } } }
 // value: ["weather", "pilot_error"]
 
-// relation, single-valued, restricted by type
+// relation, single-valued, restricted to one type
 { "kind": "array", "xKey": "company", "name": "Company",
   "xFormat": {
     "type": "relation", "icon": "building", "pos": "a1",
@@ -287,15 +288,23 @@ for any viewer west of UTC, so a birthday or a deadline reads wrong.
     "relation": { "targetTypes": ["companies"] } } }
 // value: ["any://bafyreihfnly3l6ceiio7xpoc47mv6pqsxoexg5z4iumtfvq3ov4ctv5ggq"]
 
-// relation, many, restricted by type and query
+// relation, many, restricted by target and query
 { "kind": "array", "xKey": "aircraft", "name": "Aircraft involved",
   "xFormat": {
     "type": "relation", "pos": "a2",
     "config": { "multiple": true },
     "relation": {
       "targetTypes": ["aircraft_type"],
-      "filter": "{\"<typeId>.<propId>\":true}" } } }
+      "filter": "{\"<ownerId>.<propId>\":true}" } } }
 // filter paths are resolved ids, never xKeys — see below
+
+// relation restricted to anything filed under a collection
+{ "kind": "array", "xKey": "owner", "name": "Owner",
+  "xFormat": {
+    "type": "relation", "pos": "a3",
+    "relation": { "targetTypes": ["contact"] } } }
+// "contact" is a collection handle — any object filed under it qualifies,
+// whatever its type
 
 // currency
 { "kind": "number", "xKey": "deal_value", "name": "Deal value",
@@ -315,19 +324,28 @@ Link values are the bare in-space form `any://<objectId>` — no space
 segment, no fragment.
 
 `relation.filter` is stored on the server, so its paths are
-`<typeId>.<propId>` — resolve xKeys before writing one. `targetTypes`
-names types by xKey so a declaration survives installation into another
-space.
+`<ownerId>.<propId>` — resolve xKeys before writing one. `targetTypes`
+names its targets by handle so a declaration survives installation into
+another space.
+
+**A target is a type or a collection.** A handle names either surface —
+the xKey (or the id) of a type or of a collection — so a relation can be
+restricted to "anything of type `person`" or to "anything filed under
+`contact`", and a list may mix the two. Targets are **never validated**:
+a handle naming nothing, or naming a surface deleted afterwards, is a
+dangling target, inert rather than an error, and values already stored
+keep reading (§ Values a client must tolerate).
 
 **A filter does not survive one.** Property ids are content-addressed
 and differ per space, so a `filter` shipped in a bundle is inert on
-arrival. Only `targetTypes` travels; a bundle should ship the type
+arrival. Only `targetTypes` travels; a bundle should ship the target
 restriction and leave the filter to the installing space.
 
-**`targetTypes` can be ambiguous.** Type xKey is not convergently
-unique — the uniqueness check (`409 type.xkey_conflict`) is a
-read-then-create preflight — so two types created apart can share a
-handle, and a reference naming it resolves to either.
+**`targetTypes` can be ambiguous.** A handle is not convergently unique
+— the uniqueness check (`409 type.xkey_conflict`, one namespace across
+the space's types and collections) is a read-then-create preflight — so
+two surfaces created apart can share a handle, and a reference naming it
+resolves to either.
 
 ## Composites
 
@@ -343,7 +361,7 @@ a pin's two coordinates are one location.
 Write the whole object:
 
 ```json
-POST …/properties/:objectId/set/:typeId
+POST …/properties/:objectId/set/:ownerId
 { "patch": { "<propId>": { "from": {"$date":"2026-08-14T00:00:00.000Z"},
                            "to":   {"$date":"2026-08-18T00:00:00.000Z"} } } }
 ```
@@ -456,8 +474,8 @@ re-rank writes only the leaves it moves.
 
 ### Handles
 
-`xKey` is unique **within one type**, checked on add and on rename
-(`409 property.xkey_conflict`). The check is a convenience, not a
+`xKey` is unique **within one owner** — one type, or one collection —
+checked on add and on rename (`409 property.xkey_conflict`). The check is a convenience, not a
 guarantee: it is a read-then-create preflight, so two devices working
 apart can both land the same handle.
 
@@ -467,11 +485,11 @@ under their own propId. They do not merge. This is the defined
 behaviour, and resolving it is the client's job: surface both, and let
 the user rename or remove one. A handle is not an address for anything
 stored — filters, sorts and saved views all reference
-`<typeId>.<propId>`.
+`<ownerId>.<propId>`.
 
-Uniqueness is per type, so an object carrying two types may hold two
-properties with the same handle. Resolve a handle within a known type;
-there is no object-wide handle namespace.
+Uniqueness is per owner, so an object holding a type and one or more
+collections may carry the same handle once per namespace. Resolve a
+handle within a known owner; there is no object-wide handle namespace.
 
 ### Presentation tiers
 
@@ -495,19 +513,21 @@ Everything the SDK does not: the SDK stores `x-format` as one object
 created whole, lets every path under it mutate, and enforces `kind`
 alone.
 
-- **On create** (`POST …/properties`, bundle `properties`, dataset
-  field drafts): the seven interpreted keys are typed, the slug and the
+- **On create** (`POST …/types/:typeId/properties`,
+  `POST …/collections/:collectionId/properties`, bundle `properties`,
+  dataset field drafts): the seven interpreted keys are typed, the slug and the
   `links` marker are checked against the pinned `kind`, `tags` /
   `validate` / `compute` are refused, vendor keys pass verbatim.
   `400 request.invalid_field` for a shape problem,
   `400 property.format_invalid` for a vocabulary one.
-- **`xKey` uniqueness** within the type on add and on rename —
-  `409 property.xkey_conflict`.
+- **`xKey` uniqueness** within the owner — the type or the collection —
+  on add and on rename — `409 property.xkey_conflict`.
 - **On PATCH** (properties and dataset fields): the leaf-only rule; the
   same leaf typing; a slug or `links` move checked against the kind;
   pinned paths `400 property.immutable` / `400 dataset.immutable`.
-- **On every property write** (`/set`, object-create `initialProperties`,
-  bundle `rootProperties`): the value against the current slug —
+- **On every property write** (`/set/:ownerId`, object-create
+  `initialProperties`, bundle `rootProperties`): the value against the
+  current slug —
   `400 property.format_violation` with `details.{propId, format, reason}`.
   Raw `POST …/modify` on the `objects` dataset is not checked.
 - **The link index** reads references off every property and field

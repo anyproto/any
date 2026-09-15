@@ -33,7 +33,7 @@ func TestE2E_MultipeerBundleDeclaredType(t *testing.T) {
 	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionWriter)
 
 	const bundleId = "wiki-test/v1"
-	body := `{"id":"` + bundleId + `","name":"Wiki","derived":true,"weight":1,"layout":{"type":"page"},` +
+	body := `{"id":"` + bundleId + `","name":"Wiki","derived":true,"layout":{"type":"page"},` +
 		`"properties":[{"xKey":"parentId","name":"Parent","kind":"string"},{"xKey":"pos","name":"Position","kind":"string"}]}`
 
 	// Both peers install without waiting for each other: a derived
@@ -83,7 +83,7 @@ func TestE2E_MultipeerBundleDeclaredType(t *testing.T) {
 		}
 		var info api.TypeInfo
 		mustJSON(t, http.MethodGet, p.base+"/v1/spaces/"+sp.Id+"/types/"+root, "", http.StatusOK, &info)
-		if info.Weight != 1 || string(info.Layout) != `{"type":"page"}` || info.Hidden {
+		if string(info.Layout) != `{"type":"page"}` || info.Hidden {
 			t.Errorf("%s: type = %+v", p.base, info)
 		}
 	}

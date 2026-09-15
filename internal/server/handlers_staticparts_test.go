@@ -119,7 +119,7 @@ func TestServer_RegisteredTypeParts(t *testing.T) {
 
 	// The write gate follows the static declaration: an object carrying
 	// testdoc holds the collection, a bare one does not.
-	obj := mustCreateObject(t, e, sp.Id, `{"types":["testdoc"]}`)
+	obj := mustCreateObject(t, e, sp.Id, `{"type":"testdoc"}`)
 	write := func(objectId string) int {
 		rec := doJSON(t, e, http.MethodPost, base+"/modify",
 			`{"objectId":"`+objectId+`","dataset":"testdoc_notes","records":[{"upsert":true,"ops":[{"type":"$set","path":"title","value":"hello"}]}]}`)
@@ -172,9 +172,9 @@ func TestServer_ReservedModule(t *testing.T) {
 }
 
 // TestServer_BundleDeclaredType pins a bundle declaring a full type on
-// its root: properties with handle-derived ids, layout and weight,
-// listed (hidden is explicit); the definitions usable on a carrier;
-// adopt declaring nothing twice; and the body's validation.
+// its root: properties with handle-derived ids and a layout, listed
+// (hidden is explicit); the definitions usable on an object of the
+// type; adopt declaring nothing twice; and the body's validation.
 func TestServer_BundleDeclaredType(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -182,8 +182,7 @@ func TestServer_BundleDeclaredType(t *testing.T) {
 
 	sp := createSpaceInfo(t, e, "BundleType")
 	base := "/v1/spaces/" + sp.Id
-	// `1.0` is a JSON number too: it must land as weight 1, not 0.
-	body := `{"id":"wiki-test/v1","name":"Wiki","derived":true,"weight":1.0,"layout":{"type":"page"},"rootProperties":null,` +
+	body := `{"id":"wiki-test/v1","name":"Wiki","derived":true,"layout":{"type":"page"},"rootProperties":null,` +
 		`"properties":[{"xKey":"parentId","name":"Parent","kind":"string"},` +
 		`{"xKey":"pos","name":"Position","kind":"string","xFormat":{"type":"text"}}]}`
 	first := ensureBundle(t, e, sp.Id, body)
@@ -194,8 +193,8 @@ func TestServer_BundleDeclaredType(t *testing.T) {
 
 	var info api.TypeInfo
 	decodeGet(t, e, base+"/types/"+root, &info)
-	if info.Weight != 1 || string(info.Layout) != `{"type":"page"}` || info.Hidden {
-		t.Errorf("root type = %+v, want weight 1, page layout, listed", info)
+	if string(info.Layout) != `{"type":"page"}` || info.Hidden {
+		t.Errorf("root type = %+v, want a page layout, listed", info)
 	}
 	var list api.TypesListResponse
 	decodeGet(t, e, base+"/types", &list)
@@ -217,7 +216,7 @@ func TestServer_BundleDeclaredType(t *testing.T) {
 	}
 
 	// Values on a carrier through the ordinary property route.
-	obj := mustCreateObject(t, e, sp.Id, `{"types":["`+root+`"]}`)
+	obj := mustCreateObject(t, e, sp.Id, `{"type":"`+root+`"}`)
 	rec := doJSON(t, e, http.MethodPost, base+"/properties/"+obj+"/set/"+root, `{"patch":{"`+ids["parentId"]+`":"any://o/x"}}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("set a bundle-declared property: %d %s", rec.Code, rec.Body.String())
@@ -250,13 +249,20 @@ func TestServer_BundleDeclaredType(t *testing.T) {
 		"kind required":    {`{"id":"v/v1","properties":[{"xKey":"a"}]}`, http.StatusBadRequest, "request.schema"},
 		"unknown key":      {`{"id":"v/v1","properties":[{"xKey":"a","kind":"string","format":"x"}]}`, http.StatusBadRequest, "request.unknown_field"},
 		"layout shape":     {`{"id":"v/v1","layout":{"config":{}}}`, http.StatusBadRequest, "request.invalid_field"},
-		"weight shape":     {`{"id":"v/v1","weight":"heavy"}`, http.StatusBadRequest, "request.schema"},
-		"weight fraction":  {`{"id":"v/v1","weight":2.5,"properties":[{"xKey":"a","kind":"string"}]}`, http.StatusBadRequest, "request.schema"},
+		"weight gone":      {`{"id":"v/v1","weight":1,"properties":[{"xKey":"a","kind":"string"}]}`, http.StatusBadRequest, "request.unknown_field"},
 		"hidden shape":     {`{"id":"v/v1","hidden":"yes"}`, http.StatusBadRequest, "request.schema"},
-		"metadata alone":   {`{"id":"v/v1","weight":2,"hidden":true,"layout":{"type":"page"}}`, http.StatusBadRequest, "request.invalid_field"},
-		"created + types":  {`{"id":"v/v1","properties":[{"xKey":"a","kind":"string"}],"rootTypes":["x"]}`, http.StatusBadRequest, "type.not_found"},
+		"metadata alone":   {`{"id":"v/v1","hidden":true,"layout":{"type":"page"}}`, http.StatusBadRequest, "request.invalid_field"},
+		"unknown rootType": {`{"id":"v/v1","rootType":"x"}`, http.StatusBadRequest, "type.not_found"},
+		"rootType shape":   {`{"id":"v/v1","rootType":["x"]}`, http.StatusBadRequest, "request.schema"},
+		// A declaring root carries its marker in any.type, so it cannot
+		// also be typed.
+		"rootType + declaration": {`{"id":"v/v1","properties":[{"xKey":"a","kind":"string"}],"rootType":"page"}`,
+			http.StatusBadRequest, "request.invalid_field"},
+		"unknown rootCollection": {`{"id":"v/v1","rootCollections":["x"]}`, http.StatusBadRequest, "collection.not_found"},
+		"collection + layout": {`{"id":"v/v1","collection":true,"xKey":"c","layout":{"type":"page"}}`,
+			http.StatusBadRequest, "request.invalid_field"},
 		"too many":         {`{"id":"v/v1","properties":[` + repeatProps(65) + `]}`, http.StatusBadRequest, "request.invalid_field"},
-		"reserved id":      {`{"id":"system:wiki/v1","derived":true,"weight":1,"properties":[{"xKey":"a","kind":"string"}]}`, http.StatusConflict, api.ErrBundleReserved},
+		"reserved id":      {`{"id":"system:wiki/v1","derived":true,"properties":[{"xKey":"a","kind":"string"}]}`, http.StatusConflict, api.ErrBundleReserved},
 		"reserved id bare": {`{"id":"system:x"}`, http.StatusConflict, api.ErrBundleReserved},
 	} {
 		rec := doJSON(t, e, http.MethodPost, base+"/bundles", tc.body)
@@ -279,7 +285,7 @@ func TestServer_BundleDeclaredType(t *testing.T) {
 	var acc api.AccountResponse
 	decodeGet(t, e, "/v1/account", &acc)
 	techBase := "/v1/spaces/" + acc.TechSpaceId
-	rec = doJSON(t, e, http.MethodPost, techBase+"/bundles", `{"id":"labels-test/v1","derived":true,"weight":1}`)
+	rec = doJSON(t, e, http.MethodPost, techBase+"/bundles", `{"id":"labels-test/v1","derived":true,"hidden":true}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("tech bundle with metadata alone: %d %s", rec.Code, rec.Body.String())
 	}

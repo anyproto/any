@@ -174,7 +174,7 @@ func (d *deps) bundleEnsure(c echo.Context) error {
 }
 
 // bundleInstallFromBody extracts and bounds the Ensure request. Shape
-// checks come before positive extraction so a `rootTypes` object or a
+// checks come before positive extraction so a `rootCollections` object or a
 // `rootProperties` array is rejected rather than silently skipped.
 func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Install, error, bool) {
 	var inst bundles.Install
@@ -184,13 +184,13 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 	if v := root.Get("name"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeString {
 		return inst, writeError(c, http.StatusBadRequest, "request.schema", "name must be a string", nil), true
 	}
-	if v := root.Get("rootTypes"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeArray {
+	if v := root.Get("rootCollections"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeArray {
 		return inst, writeError(c, http.StatusBadRequest, "request.schema",
-			"rootTypes must be an array of type ids", nil), true
+			"rootCollections must be an array of collection ids", nil), true
 	}
 	if v := root.Get("rootProperties"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeObject {
 		return inst, writeError(c, http.StatusBadRequest, "request.schema",
-			`rootProperties must be an object keyed by type id, e.g. {"any": {"description": "…"}}`, nil), true
+			`rootProperties must be an object keyed by owner id, e.g. {"any": {"description": "…"}}`, nil), true
 	}
 	if v := root.Get("derived"); v != nil && v.Type() != fastjson.TypeNull &&
 		v.Type() != fastjson.TypeTrue && v.Type() != fastjson.TypeFalse {

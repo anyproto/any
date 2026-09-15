@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/anyproto/any/internal/api"
@@ -84,9 +85,9 @@ func TestServer_TechSpace(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("ensure without parts: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = doJSON(t, e, http.MethodPost, base+"/bundles", `{"id":"notes/v1","derived":true,"rootTypes":["any"],"parts":`+scratchParts+`}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/bundles", `{"id":"notes/v1","derived":true,"rootCollections":["miniapp"],"parts":`+scratchParts+`}`)
 	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("rootTypes on the tech space: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("rootCollections on the tech space: %d %s", rec.Code, rec.Body.String())
 	}
 	ens := ensureBundle(t, e, tech, `{"id":"notes/v1","name":"Favorites","derived":true,"parts":`+scratchParts+`}`)
 	if !ens.Installed || !ens.Bundle.Derived || ens.Bundle.RootId == "" {
@@ -98,25 +99,22 @@ func TestServer_TechSpace(t *testing.T) {
 		t.Fatalf("re-ensure must adopt: %+v", again)
 	}
 
-	// The root is a type implementing itself; the declaration is
-	// discoverable under typeId = rootId.
+	// The root is a definition — it carries only the marker and
+	// implements itself; the declaration is discoverable under
+	// typeId = rootId.
 	var obj api.ObjectGetResponse
 	decodeGet(t, e, base+"/objects/"+root, &obj)
 	var row struct {
 		Any struct {
-			Types []string `json:"types"`
+			Type        string   `json:"type"`
+			Collections []string `json:"collections"`
 		} `json:"any"`
 	}
 	if err := json.Unmarshal(obj.Record, &row); err != nil {
 		t.Fatalf("decode row: %v", err)
 	}
-	var marker, self bool
-	for _, ty := range row.Any.Types {
-		marker = marker || ty == "__type__"
-		self = self || ty == root
-	}
-	if !marker || !self {
-		t.Fatalf("root types %v: want __type__ and %s", row.Any.Types, root)
+	if row.Any.Type != "__type__" || slices.Contains(row.Any.Collections, root) {
+		t.Fatalf("root membership: type=%q collections=%v", row.Any.Type, row.Any.Collections)
 	}
 	var defs api.TypeDatasetsListResponse
 	decodeGet(t, e, base+"/types/"+root+"/datasets", &defs)

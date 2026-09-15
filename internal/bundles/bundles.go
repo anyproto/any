@@ -472,7 +472,7 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	// the one root they share, and materializing a root someone else
 	// registered reports false.
 	installed := registered && created != "" && b.RootId == created
-	if inst.Derived || req.DeclaresType() {
+	if inst.Derived || req.Declares() {
 		// Derived: registered is exact. SDK-minted created root: the
 		// minted id is not observable here, so registered is the
 		// answer, with the same narrow inbound-race weakness the

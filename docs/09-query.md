@@ -13,8 +13,8 @@ MongoDB-style aggregation pipelines at the sibling `…/aggregate` endpoints
 
 | Endpoint | Scope | Reads |
 |----------|-------|-------|
-| `POST /v1/spaces/:spaceId/objects/query` | **cross-object** | the per-space `objects` collection — one row per object: its property values keyed `<typeId>.<propId>`, `any.*`, and the row-root stamps |
-| `POST /v1/spaces/:spaceId/query` | **per-object** | one collection of a single object (`editor_blocks`, `chat_messages`, a namespaced `<typeId>_<key>` collection, …); needs `objectId` + `dataset` |
+| `POST /v1/spaces/:spaceId/objects/query` | **cross-object** | the per-space `objects` storage collection — one row per object: its property values keyed `<ownerId>.<propId>`, `any.*` (its one type and the collections it is filed under), and the row-root stamps |
+| `POST /v1/spaces/:spaceId/query` | **per-object** | one storage collection of a single object (`editor_blocks`, `chat_messages`, a namespaced `<typeId>_<key>` storage collection, …); needs `objectId` + `dataset` |
 
 ## Request body
 
@@ -44,7 +44,7 @@ no sort is `400 request.invalid_field`. A snapshot takes an unordered limit:
 there it is an arbitrary page.
 
 Snapshot reply: `{ "records": [ ... ], "total"?: <int>, "hasNext"?: <bool> }`.
-Records are the stored documents (per-object collections) or object rows
+Records are the stored documents (per-object storage collections) or object rows
 (cross-object). With `includeTotal`, `total` is the full match count,
 independent of `limit` / `offset`, and `hasNext` is `offset + len(records)
 < total`. `/subscribe` frames are documented in `docs/04-events.md`.
@@ -169,7 +169,7 @@ The operator set is any-store's filter grammar:
 - Strings: `$regex` (with `$options`)
 
 `$text` and `$knn` also parse, but need a full-text / vector index that no
-space collection carries; search is `POST …/search` (`docs/13-index.md`).
+space storage collection carries; search is `POST …/search` (`docs/13-index.md`).
 
 Multiple keys in one filter object are AND-ed. Examples:
 
@@ -221,13 +221,43 @@ This is how a client filters by category server-side, pruning candidates
 before they cross the wire. There is no `$contains` — the scalar spelling
 already is it.
 
+### Type and collection
+
+An object carries **one type** — `any.type`, a scalar string — and **any
+number of collections** — `any.collections`, an array of collection ids. The
+two filter differently:
+
+```json
+{ "any.type":        "<typeId>" }                    // of that type
+{ "any.type":        { "$in": ["<t1>", "<t2>"] } }   // of any of those types
+{ "any.collections": "<collectionId>" }              // filed under it
+{ "any.collections": { "$all": ["<c1>", "<c2>"] } }  // filed under both
+{ "any.collections": { "$nin": ["bin"] } }           // not in the bin
+```
+
+`any.type` is **plain equality on a scalar** — no array matching, `$in` for a
+set of types. `any.collections` is **membership** (§ Arrays): a scalar value
+matches any element, `$all` requires several, `$nin` excludes.
+
+Ordinary listings exclude bin members with
+`{"any.collections": {"$nin": ["bin"]}}`; the bin itself is
+`{"any.collections": "bin"}` sorted `["-bin.movedAt"]`.
+
+**No marker exclusion is ever needed.** A type definition's own row carries
+`any.type: "__type__"` and a collection definition's carries
+`any.type: "__collection__"` — the marker, never its own id — so a definition
+row never matches `{"any.type": "<rootId>"}` or
+`{"any.collections": "<rootId>"}`, not even while it hosts its own property
+values and its own datasets' records.
+
 ### Negation matches absent fields
 
 `$ne`, `$nin`, `$not`, and `$exists: false` also match rows that simply
-don't have the field. The cross-object `objects` collection holds *every*
-object, type definitions included, so `{"<t>.n": {"$ne": 2}}` returns piles
-of unrelated objects. Scope cross-object queries by type
-(`{"any.types": "<typeId>"}`).
+don't have the field. The cross-object `objects` storage collection holds
+*every* object, type and collection definitions included, so
+`{"<t>.n": {"$ne": 2}}` returns piles of unrelated objects. Scope
+cross-object queries by type (`{"any.type": "<typeId>"}`) or by collection
+(`{"any.collections": "<collectionId>"}`).
 
 ## Tombstones
 
@@ -266,33 +296,39 @@ tombstone-inclusive read can still tell the two apart.
 ## Sort
 
 `sort` is an array of dotted field paths; prefix with `-` for descending.
-Multi-key sorts apply left to right: `["<wikiTypeId>.<parentIdPropId>",
-"<wikiTypeId>.<posPropId>"]` (the wiki tree's columns, `03-api.md` § The
-wiki tree).
+Multi-key sorts apply left to right:
+`["<wikiCollectionId>.<parentIdPropId>", "<wikiCollectionId>.<posPropId>"]`
+(the wiki tree's columns, `03-api.md` § The wiki tree).
 
 ## Paths
 
-On the wire, property paths are `<typeId>.<propId>` — both content ids —
-plus the built-in paths `any.types`, `any.name`, `any.description`,
-`any.tags`, `_ver.id`, and the row-root derived stamps `author`,
-`createdAt`, `modifiedAt`, `modifiedBy`, `spaceId` (objects collection only
-— `03-api.md` § Data plane). `{"sort": ["-modifiedAt"]}` is the recency
-ordering; `modifiedBy` — the signer of that same change — is unindexed, so
-a filter on it scans. The wiki tree is no exception: the wiki type's
-`parentId` / `pos` / `folder` are `<wikiTypeId>.<propId>` paths, the ids
-resolved from `POST /v1/catalog/wiki/setup` (`03-api.md` § The wiki tree).
+On the wire, property paths are `<ownerId>.<propId>` — both content ids.
+The owner is the object's **type** or one of its **collections**: a value
+lives in the namespace of the surface that declares the property, and an
+object holds one namespace per surface it carries. Alongside them are the
+built-in paths `any.type`, `any.collections`, `any.name`,
+`any.description`, `any.tags`, `_ver.id`, and the row-root derived stamps
+`author`, `createdAt`, `modifiedAt`, `modifiedBy`, `spaceId` (`objects`
+storage collection only — `03-api.md` § Data plane). `{"sort":
+["-modifiedAt"]}` is the recency ordering; `modifiedBy` — the signer of
+that same change — is unindexed, so a filter on it scans. The wiki tree is
+no exception: the wiki collection's `parentId` / `pos` / `folder` are
+`<wikiCollectionId>.<propId>` paths, the ids resolved from
+`POST /v1/catalog/wiki/setup` (`03-api.md` § The wiki tree).
 
 Client helpers may expose dotted **xKey** paths instead (`"recipe.tags"`,
-`"movie.title"`) — the type's `xKey` (from `GET …/types`; built-in types use
-their id) plus the property's `xKey` (from `GET …/types/:typeId/properties`)
-— and resolve them to `<typeId>.<propId>` before sending. The server never
-sees an xKey path: keying a filter by xKey matches nothing.
+`"movie.title"`) — the owner's `xKey` (from `GET …/types` or
+`GET …/collections`; built-in ones use their id) plus the property's `xKey`
+(from `GET …/types/:typeId/properties` or
+`GET …/collections/:collectionId/properties`) — and resolve them to
+`<ownerId>.<propId>` before sending. The server never sees an xKey path:
+keying a filter by xKey matches nothing.
 
 ## Paging
 
 - **offset / limit** is simple but floats: row 50 becomes row 51 the moment
   a record lands ahead of it. Fine for one-shot reads of stable data.
-- **cursor** paging is stable for mutable collections: filter on an
+- **cursor** paging is stable for mutable storage collections: filter on an
   indexed, monotonic field. Chat pages backward with
   `{ "_ver.id": { "$lt": "<oldestSeen>" } }` sorted `["-_ver.id"]` —
   `docs/08-clients.md` § 4.
@@ -301,15 +337,15 @@ sees an xKey path: keying a filter by xKey matches nothing.
 
 Indexed paths:
 
-- `objects` → `any.types` (sparse), `modifiedAt`
-- `editor_blocks` (and every editor collection) → `(nav.parentId, nav.pos)`
+- `objects` → `any.type` (sparse), `any.collections` (sparse), `modifiedAt`
+- `editor_blocks` (and every editor storage collection) → `(nav.parentId, nav.pos)`
 - `chat_messages` → `(_ver.id)`, plus sparse `(unread, _ver.id)`,
   `(unreadMention, _ver.id)`, `(unreadReactions, _ver.id)` and multikey
   `(mentions, _ver.id)`
 - `dataviews` → `(pos)`; `views` → `(dataview, pos)`, `(pos)`
 
-Property values on the `objects` collection have **no indexes**: filtering
-or sorting on a `<typeId>.<propId>` path is a scan proportional to the
-space's object count — scope by `any.types` so the index narrows the scan
-first. Runtime datasets carry no secondary indexes, and there is no
-create-index API.
+Property values on the `objects` storage collection have **no indexes**:
+filtering or sorting on an `<ownerId>.<propId>` path is a scan proportional
+to the space's object count — scope by `any.type` or `any.collections` so
+the index narrows the scan first. Runtime datasets carry no secondary
+indexes, and there is no create-index API.

@@ -114,7 +114,7 @@ func TestIndexer_Links(t *testing.T) {
 	}
 	var pr api.AddPropertyResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &pr)
-	doc := mustCreateObject(t, e, spaceId, `{"types":["`+tr.TypeId+`"],"initialProperties":{"`+
+	doc := mustCreateObject(t, e, spaceId, `{"type":"`+tr.TypeId+`","initialProperties":{"`+
 		tr.TypeId+`":{"`+pr.PropId+`":["any://`+target+`","any://`+other+`"]}}}`)
 
 	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)

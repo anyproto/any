@@ -63,7 +63,7 @@ func TestServer_TypesAndPropertiesFlow(t *testing.T) {
 
 	// 4. Create an object bound to the type.
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
-		fmt.Sprintf(`{"types":[%q]}`, typeId))
+		fmt.Sprintf(`{"type":%q}`, typeId))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST .../objects: status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -121,24 +121,13 @@ func TestServer_TypesAndPropertiesFlow(t *testing.T) {
 		t.Errorf("record[%s][%s] = %v, want Casablanca", typeId, propId, v)
 	}
 
-	// any.types should contain the typeId we passed at creation time.
+	// any.type should be the typeId we passed at creation time.
 	anyNode, ok := record["any"].(map[string]any)
 	if !ok {
 		t.Fatalf("record.any missing or wrong shape: %v", record)
 	}
-	types, ok := anyNode["types"].([]any)
-	if !ok {
-		t.Fatalf("record.any.types missing: %v", anyNode)
-	}
-	var saw bool
-	for _, x := range types {
-		if x == typeId {
-			saw = true
-			break
-		}
-	}
-	if !saw {
-		t.Errorf("record.any.types = %v, want to contain %q", types, typeId)
+	if anyNode["type"] != typeId {
+		t.Errorf("record.any.type = %v, want %q", anyNode["type"], typeId)
 	}
 
 	// 7. List types — built-in `any` first, then the Movie type.
@@ -176,7 +165,7 @@ func TestServer_TypesAndPropertiesFlow(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &anyProps); err != nil {
 		t.Fatalf("decode any props: %v", err)
 	}
-	wantBuiltins := []string{"name", "description", "icon", "types"}
+	wantBuiltins := []string{"name", "description", "icon", "type", "collections"}
 	for _, want := range wantBuiltins {
 		var seen bool
 		for _, p := range anyProps.Properties {
@@ -284,7 +273,7 @@ func TestServer_CrossObjectQueryFlow(t *testing.T) {
 
 	createObject := func(title string) string {
 		rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
-			fmt.Sprintf(`{"types":[%q]}`, typeId))
+			fmt.Sprintf(`{"type":%q}`, typeId))
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("create object: %d %s", rec.Code, rec.Body.String())
 		}

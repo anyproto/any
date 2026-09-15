@@ -11,11 +11,11 @@ converge). No favourites code exists on the server.
 One bundle, `favorites/v1`, on the **tech space** (`techSpaceId` from
 `GET /v1/account`), installed on a CREATED root — deletable, forking
 on concurrent offline installs (see § Forks). One part, `entries`, with
-one records dataset of the same key — its collection is the namespaced
-**`<rootId>_entries`** (`03-api.md` § Parts and modules), the `dataset`
-value in every read and write below; read it off the parts list rather
-than composing it. One record per entry, the record id deterministic
-from what the entry IS —
+one records dataset of the same key — its storage collection is the
+namespaced **`<rootId>_entries`** (`03-api.md` § Parts and modules), the
+`dataset` value in every read and write below; read it off the parts
+list rather than composing it. One record per entry, the record id
+deterministic from what the entry IS —
 
 | entry | record id |
 |---|---|
@@ -27,7 +27,7 @@ is an idempotent upsert, and "is this starred" is a point lookup. The
 id prefix is the kind discriminator — there is no `type` field.
 
 Fields (schema is discoverable: `GET /v1/spaces/<tech>/types/<rootId>/parts`,
-each dataset carrying its `collection`):
+each dataset carrying its storage collection in `collection`):
 
 | field | | |
 |---|---|---|
@@ -36,7 +36,7 @@ each dataset carrying its `collection`):
 | `removed` | | `true` = soft-deleted; absent/false = live |
 | `name` | | folder name \| mirrored target `any.name` |
 | `iconCid` | | mirrored target `any.icon` (folders: optional) |
-| `types` | | mirrored target `any.types` (type-default icon fallback) |
+| `type` | | mirrored target `any.type` (type-default icon fallback) |
 | `creator`, `createdAt`, `modifiedAt` | stamped | server-derived; client writes rejected |
 
 Undeclared keys are permitted (`dynamic`) — a newer client's field is
@@ -71,7 +71,7 @@ POST /v1/spaces/<techSpaceId>/bundles
       {"key": "removed", "kind": "boolean", "mutableBy": "any"},
       {"key": "name", "kind": "string", "mutableBy": "any"},
       {"key": "iconCid", "kind": "string", "mutableBy": "any"},
-      {"key": "types", "kind": "array", "mutableBy": "any"},
+      {"key": "type", "kind": "string", "mutableBy": "any"},
       {"key": "creator", "stamp": "creator"},
       {"key": "createdAt", "stamp": "createTime"},
       {"key": "modifiedAt", "stamp": "modifyTime"}
@@ -79,11 +79,9 @@ POST /v1/spaces/<techSpaceId>/bundles
 ```
 
 Idempotent — the first call installs, later calls adopt. The root
-CARRIES the type it declares, so the entries live on it: on the tech
-space that is implied and needs no flag; the same bundle in an
-ordinary space would have to ask for it with `"selfTyped": true`
-(`03-api.md` § Bundles), or every write to `<rootId>_entries` would be
-`400 dataset.not_declared`. Uninstall = `DELETE
+DECLARES the type, and a declaring root hosts its own records, so the
+entries live on it — no flag, no self-membership, in any space
+(`03-api.md` § Bundles). Uninstall = `DELETE
 /v1/spaces/<tech>/objects/<rootId>`; the id then reads as not
 installed and a later install mints a fresh root.
 
@@ -108,7 +106,7 @@ POST /v1/spaces/<tech>/upsert
   { "id": "any://o/<spaceId>/<objectId>",
     "fields": { "parentId": "", "pos": "<lexid>",
                 "name": "<target any.name>", "iconCid": "<target any.icon>",
-                "types": ["<target any.types…>"], "removed": false } } ] }
+                "type": "<target any.type>", "removed": false } } ] }
 ```
 
 Folder:
@@ -140,7 +138,7 @@ POST /v1/spaces/<tech>/query/subscribe
 ```
 
 Render **from the entries alone**: the mirrored `name` / `iconCid` /
-`types` make every entry displayable instantly — offline, and on a
+`type` make every entry displayable instantly — offline, and on a
 device that never loaded the target's space. Layer freshness on top
 with **batched target subscriptions**:
 
@@ -167,7 +165,7 @@ POST /v1/spaces/<spaceId>/objects/query/subscribe
   the windowed contract's recovery rule; there is no in-place filter
   update.
 - Interpret deltas: `added`/`updated` rows carry the live `any.name` /
-  `any.icon` / `any.types` → refresh the mirror **only when a value
+  `any.icon` / `any.type` → refresh the mirror **only when a value
   differs** (after the first device writes, the others see the updated
   entry and skip — no ping-pong). A `removed` entry is definitive ONLY
   with `reason: "deleted"`; `filtered-out` / `displaced` mean the

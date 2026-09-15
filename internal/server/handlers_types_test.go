@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/anyproto/any/internal/api"
@@ -70,10 +71,9 @@ func TestServer_TypeCreate_XKeyValidation(t *testing.T) {
 }
 
 // TestServer_MetaTypeCatalogAndXKey pins the meta-type wire surface: the
-// meta-type is a catalog row with the `xkey` / `weight` / `layout`
-// properties, a created type's
-// xKey round-trips through TypeInfo, and the raw row carries it under
-// the meta-type namespace instead of `any`.
+// meta-type is a catalog row with the `xkey` / `layout` properties, a
+// created type's xKey round-trips through TypeInfo, and the raw row
+// carries it under the meta-type namespace instead of `any`.
 func TestServer_MetaTypeCatalogAndXKey(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -127,8 +127,7 @@ func TestServer_MetaTypeCatalogAndXKey(t *testing.T) {
 	}
 
 	// The meta-type describes type objects: the `xkey` handle, the
-	// rendering pair `weight` / `layout`, the `hidden` flag and the
-	// `meta` bag.
+	// `layout` descriptor, the `hidden` flag and the `meta` bag.
 	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types/type/properties", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("meta-type properties: status=%d body=%s", rec.Code, rec.Body.String())
@@ -141,9 +140,9 @@ func TestServer_MetaTypeCatalogAndXKey(t *testing.T) {
 	for _, p := range props.Properties {
 		metaKinds[p.Id] = p.Kind
 	}
-	if len(metaKinds) != 5 || metaKinds["xkey"] != "string" || metaKinds["weight"] != "number" || metaKinds["layout"] != "object" ||
+	if len(metaKinds) != 4 || metaKinds["xkey"] != "string" || metaKinds["layout"] != "object" ||
 		metaKinds["hidden"] != "boolean" || metaKinds["meta"] != "object" {
-		t.Fatalf("meta-type properties = %+v, want xkey/weight/layout/hidden/meta", props.Properties)
+		t.Fatalf("meta-type properties = %+v, want xkey/layout/hidden/meta", props.Properties)
 	}
 
 	// Raw row: xkey under the meta-type namespace, name still universal.
@@ -225,9 +224,9 @@ func TestServer_BuiltinTypesReportXKey(t *testing.T) {
 			t.Errorf("built-in %q xKey = %q, want the id", ti.Id, ti.XKey)
 		}
 	}
-	// any + spaceIndex + type; every registered type is hidden and shows
-	// only with includeHidden=true.
-	if builtins < 3 {
+	// any + spaceIndex + type + collection; every registered type is
+	// hidden and shows only with includeHidden=true.
+	if builtins < 4 {
 		t.Fatalf("only %d built-ins in the catalog, want the full set: %+v", builtins, list.Types)
 	}
 	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types?includeHidden=true", "")
@@ -247,12 +246,12 @@ func TestServer_BuiltinTypesReportXKey(t *testing.T) {
 			}
 		}
 	}
-	if hidden < 4 { // dataview, page, miniapp, bin
+	if hidden < 2 { // dataview, page — miniapp and bin are collections
 		t.Fatalf("only %d hidden built-ins with includeHidden, want the registered set: %+v", hidden, withHidden.Types)
 	}
 
 	// The single-type reads through the shared mapper.
-	for _, id := range []string{"any", "spaceIndex", "type", "dataview"} {
+	for _, id := range []string{"any", "spaceIndex", "type", "collection", "dataview"} {
 		rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types/"+id, "")
 		if rec.Code != http.StatusOK {
 			t.Errorf("GET /types/%s: status=%d body=%s", id, rec.Code, rec.Body.String())
@@ -363,7 +362,7 @@ func TestServer_NoBuiltinContentTypes(t *testing.T) {
 
 	// The module names are ordinary user xKeys; a document type declares
 	// the editor module through a part and its objects hold a body.
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Article","xKey":"editor","weight":10}`)
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Article","xKey":"editor"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("user type with xKey editor: status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -372,14 +371,14 @@ func TestServer_NoBuiltinContentTypes(t *testing.T) {
 		t.Fatalf("decode type: %v", err)
 	}
 	mustAddPart(t, e, sp.Id, created.TypeId, `{"key":"body","datasets":[{"module":"editor","shared":true}]}`)
-	obj := mustCreateObject(t, e, sp.Id, `{"types":["`+created.TypeId+`"],"initialProperties":{"any":{"name":"My page","tags":["draft","idea"]}}}`)
+	obj := mustCreateObject(t, e, sp.Id, `{"type":"`+created.TypeId+`","initialProperties":{"any":{"name":"My page","tags":["draft","idea"]}}}`)
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/"+obj+"/editor/editor_blocks/blocks",
 		`{"type":"paragraph","text":"body"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("block on the page: status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/query",
-		`{"filter":{"any.types":"`+created.TypeId+`","any.tags":"draft"},"limit":10}`)
+		`{"filter":{"any.type":"`+created.TypeId+`","any.tags":"draft"},"limit":10}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("query pages by tag: status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -483,5 +482,139 @@ func TestServer_TypeHiddenAndMeta(t *testing.T) {
 	page := ensureBundle(t, e, sp.Id, `{"id":"page-test/v1","name":"Page","layout":{"type":"page"},"parts":[{"key":"body","datasets":[{"module":"editor","shared":true}]}]}`)
 	if root, ok := listIds("")[page.Bundle.RootId]; !ok || root.Hidden {
 		t.Errorf("declared type root = %+v (ok=%v), want listed", root, ok)
+	}
+}
+
+// TestServer_CollectionsRoutes walks the collections surface: the
+// listing (hidden behind includeHidden), create with its required
+// handle, the handle reserved across BOTH surfaces, get, patch, the
+// property CRUD, and the two typed misses — a type id on a collections
+// route and back.
+func TestServer_CollectionsRoutes(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	sp := createSpaceInfo(t, e, "CollectionsRoutes")
+	base := "/v1/spaces/" + sp.Id
+
+	// A handle is required: it is what clients resolve a collection by.
+	rec := doJSON(t, e, http.MethodPost, base+"/collections", `{"name":"Shelf"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("create without xKey: %d %s", rec.Code, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "type.xkey_required")
+
+	shelf := mustCreateCollection(t, e, sp.Id, `{"name":"Shelf","description":"Where it sits","xKey":"shelf"}`)
+
+	// The handle now blocks a TYPE of the same name, and a type's handle
+	// blocks a collection: one namespace across both surfaces.
+	rec = doJSON(t, e, http.MethodPost, base+"/types", `{"name":"Shelf","xKey":"shelf"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("type taking a collection's handle: %d %s", rec.Code, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "type.xkey_conflict")
+	if !strings.Contains(rec.Body.String(), shelf) {
+		t.Errorf("conflict does not name the holding collection: %s", rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost, base+"/types", `{"name":"Task","xKey":"task"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
+	}
+	var task api.TypesCreateResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &task)
+	rec = doJSON(t, e, http.MethodPost, base+"/collections", `{"name":"Task","xKey":"task"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("collection taking a type's handle: %d %s", rec.Code, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "type.xkey_conflict")
+
+	// Get, and the listing: a user collection is visible by default, a
+	// hidden one only with includeHidden.
+	var info api.CollectionInfo
+	decodeGet(t, e, base+"/collections/"+shelf, &info)
+	if info.Id != shelf || info.XKey != "shelf" || info.Name != "Shelf" || info.Description != "Where it sits" ||
+		info.BuiltIn || info.Hidden {
+		t.Fatalf("collection info: %+v", info)
+	}
+	stash := mustCreateCollection(t, e, sp.Id, `{"name":"Stash","xKey":"stash","hidden":true}`)
+	visible := collectionsById(t, e, base, "")
+	if _, ok := visible[shelf]; !ok {
+		t.Errorf("user collection missing from the default listing: %+v", visible)
+	}
+	if _, ok := visible[stash]; ok {
+		t.Errorf("hidden collection listed by default")
+	}
+	if _, ok := collectionsById(t, e, base, "?includeHidden=true")[stash]; !ok {
+		t.Errorf("hidden collection missing with includeHidden")
+	}
+
+	// Patch: absent fields keep their value, an empty string clears one.
+	rec = doJSON(t, e, http.MethodPatch, base+"/collections/"+shelf, `{"name":"Bookshelf","description":""}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("patch: %d %s", rec.Code, rec.Body.String())
+	}
+	var patched api.CollectionInfo
+	decodeGet(t, e, base+"/collections/"+shelf, &patched)
+	if patched.Name != "Bookshelf" || patched.Description != "" || patched.XKey != "shelf" {
+		t.Fatalf("after patch: %+v", patched)
+	}
+	rec = doJSON(t, e, http.MethodPatch, base+"/collections/"+shelf, `{}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("empty patch: %d %s, want 400", rec.Code, rec.Body.String())
+	}
+
+	// Properties: add, list, patch, remove.
+	rec = doJSON(t, e, http.MethodPost, base+"/collections/"+shelf+"/properties",
+		`{"xKey":"note","name":"Note","kind":"string"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add property: %d %s", rec.Code, rec.Body.String())
+	}
+	var prop api.AddPropertyResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &prop)
+	var props api.PropertiesListResponse
+	decodeGet(t, e, base+"/collections/"+shelf+"/properties", &props)
+	if len(props.Properties) != 1 || props.Properties[0].Id != prop.PropId || props.Properties[0].XKey != "note" {
+		t.Fatalf("properties = %+v", props.Properties)
+	}
+	rec = doJSON(t, e, http.MethodPatch, base+"/collections/"+shelf+"/properties/"+prop.PropId, `{"set":{"name":"Remark"}}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("patch property: %d %s", rec.Code, rec.Body.String())
+	}
+	decodeGet(t, e, base+"/collections/"+shelf+"/properties", &props)
+	if len(props.Properties) != 1 || props.Properties[0].Name != "Remark" {
+		t.Fatalf("after property patch: %+v", props.Properties)
+	}
+	rec = doJSON(t, e, http.MethodDelete, base+"/collections/"+shelf+"/properties/"+prop.PropId, "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("remove property: %d %s", rec.Code, rec.Body.String())
+	}
+	decodeGet(t, e, base+"/collections/"+shelf+"/properties", &props)
+	if len(props.Properties) != 0 {
+		t.Fatalf("property survived the delete: %+v", props.Properties)
+	}
+
+	// The two surfaces refuse each other's ids, and an unknown id 404s.
+	for name, tc := range map[string]struct {
+		path   string
+		status int
+		code   string
+	}{
+		"type id on the collections route": {base + "/collections/" + task.TypeId, http.StatusBadRequest, "collection.not_a_collection"},
+		"type id on collection properties": {base + "/collections/" + task.TypeId + "/properties", http.StatusBadRequest, "collection.not_a_collection"},
+		"collection id on the types route": {base + "/types/" + shelf, http.StatusBadRequest, "type.not_a_type"},
+		"collection id on type properties": {base + "/types/" + shelf + "/properties", http.StatusBadRequest, "type.not_a_type"},
+		"unknown collection":               {base + "/collections/nope", http.StatusNotFound, "collection.not_found"},
+	} {
+		rec = doJSON(t, e, http.MethodGet, tc.path, "")
+		if rec.Code != tc.status {
+			t.Errorf("%s: %d %s, want %d", name, rec.Code, rec.Body.String(), tc.status)
+			continue
+		}
+		assertErrorCode(t, rec, tc.code)
+	}
+
+	// Deleting a collection is not implemented yet and says so.
+	if rec = doJSON(t, e, http.MethodDelete, base+"/collections/"+stash, ""); rec.Code != http.StatusNotImplemented {
+		t.Errorf("delete collection: %d %s, want 501", rec.Code, rec.Body.String())
 	}
 }

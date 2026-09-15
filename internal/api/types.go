@@ -38,12 +38,12 @@ type TypesCreateRequest struct {
 // sets the key, `null` unsets it, keys not named are untouched. At
 // least one field is required.
 type TypePatchRequest struct {
-	Name        *string                    `json:"name,omitempty"`
-	Description *string                    `json:"description,omitempty"`
-	IconCID     *string                    `json:"iconCid,omitempty"`
-	Layout      json.RawMessage            `json:"layout,omitempty"`
-	Hidden      *bool                      `json:"hidden,omitempty"`
-	Meta        map[string]any             `json:"meta,omitempty"`
+	Name        *string         `json:"name,omitempty"`
+	Description *string         `json:"description,omitempty"`
+	IconCID     *string         `json:"iconCid,omitempty"`
+	Layout      json.RawMessage `json:"layout,omitempty"`
+	Hidden      *bool           `json:"hidden,omitempty"`
+	Meta        map[string]any  `json:"meta,omitempty"`
 }
 
 // TypesCreateResponse is the body returned by POST /v1/spaces/:spaceId/types.

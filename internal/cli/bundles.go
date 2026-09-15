@@ -55,14 +55,17 @@ func newBundleEnsureCmd() *cobra.Command {
 		Use:   "ensure <spaceId> --body '<json>|@FILE|-'",
 		Short: "install a bundle or adopt the existing install",
 		Long: `Adopt-or-install (api.BundleEnsureRequest shape). The body declares
-what the root is: parts (datasets a module serves), properties (a type
-objects carry — every property needs an xKey, its id derives from it),
-xKey (the type's handle; alone it declares a marker type), layout,
-weight and hidden. rootTypes / rootProperties ride a derived root or a
-created root that declares a type.
+what the root is: parts (datasets a module serves), properties (the
+columns objects carry — every property needs an xKey, its id derives
+from it), xKey (the handle; alone it declares a marker), layout and
+hidden. collection: true declares a collection instead of a type
+(parts and layout are refused with it). rootType / rootCollections /
+rootProperties ride a derived root or a created root — rootType is
+refused next to a declaration, the declaring root's any.type holding
+the marker.
   {"id": "notes/v1", "name": "Notes", "hidden": true,
    "parts": [{"key": "body", "datasets": [{"module": "editor", "shared": true}]}]}
-  {"id": "wiki/v1", "name": "Wiki", "derived": true, "weight": 1,
+  {"id": "wiki/v1", "name": "Wiki", "derived": true, "collection": true,
    "properties": [{"xKey": "parentId", "name": "Parent", "kind": "string"},
                   {"xKey": "pos", "name": "Position", "kind": "string"}]}
 Ids under "system:" are the server's and are refused. The reply carries

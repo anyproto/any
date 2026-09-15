@@ -73,8 +73,8 @@ func shape(t *testing.T, s recordShaper, recordJSON string) map[string]any {
 
 const projTestRecord = `{
   "id": "rec1",
-  "_ver": {"id":"v1","any":{"types":"v1","name":"v3"},"nav":{"pos":"v1","type":"v1"},"spaceId":"v1"},
-  "any": {"types":["page"],"name":"Doc"},
+  "_ver": {"id":"v1","any":{"type":"v1","name":"v3"},"nav":{"pos":"v1","type":"v1"},"spaceId":"v1"},
+  "any": {"type":"page","name":"Doc"},
   "nav": {"pos":"aa","type":1},
   "spaceId": "space1",
   "author": "acct1",
@@ -116,11 +116,11 @@ func TestProjection_IncludeMode(t *testing.T) {
 		t.Errorf("_ver.spaceId should have been narrowed away; got %v", keys(ver))
 	}
 	// Subtrees are copied verbatim, not collapsed to their max — a
-	// collapsed "v3" here would tell the client any.types is at v3 when
+	// collapsed "v3" here would tell the client any.type is at v3 when
 	// it is really at v1, which is the direction that makes a client
 	// discard a live local edit.
 	anyVer, _ := ver["any"].(map[string]any)
-	if anyVer["types"] != "v1" || anyVer["name"] != "v3" {
+	if anyVer["type"] != "v1" || anyVer["name"] != "v3" {
 		t.Errorf("_ver.any should be verbatim per-leaf, got %v", anyVer)
 	}
 }
@@ -169,8 +169,8 @@ func TestProjection_Nested(t *testing.T) {
 	if anyGroup["name"] != "Doc" {
 		t.Errorf("any.name missing: %v", anyGroup)
 	}
-	if _, ok := anyGroup["types"]; ok {
-		t.Errorf("any.types was not projected: %v", anyGroup)
+	if _, ok := anyGroup["type"]; ok {
+		t.Errorf("any.type was not projected: %v", anyGroup)
 	}
 	navGroup, _ := got["nav"].(map[string]any)
 	if _, ok := navGroup["type"]; ok {
@@ -226,7 +226,7 @@ func TestProjection_VerResolvesIdentically(t *testing.T) {
 	const record = `{
       "id": "rec1",
       "_ver": {"*":"v2","id":"v1","any":{"*":"v5","name":"v7"},"nav":"v4","spaceId":"v9"},
-      "any": {"types":["page"],"name":"Doc"},
+      "any": {"type":"page","name":"Doc"},
       "nav": {"pos":"aa","type":1},
       "spaceId": "space1"
     }`
@@ -250,7 +250,7 @@ func TestProjection_VerResolvesIdentically(t *testing.T) {
 
 	for _, path := range [][]string{
 		{"id"},
-		{"any"}, {"any", "name"}, {"any", "types"}, {"any", "unenumerated"},
+		{"any"}, {"any", "name"}, {"any", "type"}, {"any", "unenumerated"},
 		{"nav"}, {"nav", "pos"}, {"nav", "type"},
 	} {
 		want := getVersionRef(fullVer, path)

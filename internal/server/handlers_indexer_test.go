@@ -517,7 +517,7 @@ func TestIndexer_ObjectDeleteEviction(t *testing.T) {
 	spaceId := mustCreateSpace(t, e, "DeleteEviction")
 	edType := installModuleType(t, e, spaceId, "editor")
 	obj := mustCreateObject(t, e, spaceId,
-		`{"types":["`+edType+`"],"initialProperties":{"any":{"name":"ephemeral quokka dossier"}}}`)
+		`{"type":"`+edType+`","initialProperties":{"any":{"name":"ephemeral quokka dossier"}}}`)
 	edBase := "/v1/spaces/" + spaceId + "/objects/" + obj
 	mustModify(t, e, http.MethodPost, edBase+"/editor/editor_blocks/blocks",
 		`{"type":"paragraph","text":"ephemeral quokka message"}`, http.StatusCreated)
@@ -560,7 +560,7 @@ func TestIndexer_ObjectDeleteEviction(t *testing.T) {
 }
 
 // TestIndexer_TypeDefinitionsExcluded pins the prop-chunker exclusion of
-// type-definition objects (`any.types = ["__type__"]`): a created type's
+// type-definition objects (`any.type = "__type__"`): a created type's
 // name must never surface as a search hit — its one-word name otherwise
 // wins BM25 on field-length normalization and shadows real content. The
 // control object proves the exclusion is selective (same token, indexed).
@@ -632,7 +632,7 @@ func TestIndexer_PropsDefaultOn(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &pr); err != nil {
 		t.Fatal(err)
 	}
-	obj := mustCreateObject(t, e, spaceId, `{"types":["`+tr.TypeId+`"]}`)
+	obj := mustCreateObject(t, e, spaceId, `{"type":"`+tr.TypeId+`"}`)
 	mustModify(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/properties/"+obj+"/set/"+tr.TypeId,
 		`{"patch":{"`+pr.PropId+`":"Dan Simmons"}}`, http.StatusOK)
 

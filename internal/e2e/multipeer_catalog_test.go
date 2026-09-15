@@ -42,14 +42,25 @@ func TestE2E_MultipeerCatalog(t *testing.T) {
 	}
 	byId := map[string]api.CatalogSetupBundle{}
 	for i, b := range ownerSetup.Bundles {
-		if b.Id != want[i] || !b.Installed {
-			t.Fatalf("owner setup order/installed: %+v", ownerSetup.Bundles)
+		if b.Id != want[i] {
+			t.Fatalf("owner setup order: %+v", ownerSetup.Bundles)
+		}
+		// A fresh space: this call mints every root, the
+		// collection-declaring ones included.
+		if !b.Installed {
+			t.Errorf("owner setup did not report %s installed: %+v", b.Id, b)
 		}
 		byId[b.Id] = b
 	}
 	person := byId["system:person/v1"]
 	if person.TypeId == "" || person.Properties["email"] == "" {
 		t.Fatalf("person type unresolved: %+v", person)
+	}
+	// The relationship facet is a COLLECTION: it reports a collectionId
+	// and no typeId, so a contact is a person filed under it.
+	contact := byId["system:contact/v1"]
+	if contact.CollectionId == "" || contact.TypeId != "" || contact.Properties["last_contact"] == "" {
+		t.Fatalf("contact collection unresolved: %+v", contact)
 	}
 
 	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionWriter)
@@ -70,8 +81,8 @@ func TestE2E_MultipeerCatalog(t *testing.T) {
 		if b.Installed {
 			t.Fatalf("joiner installed a competing root for %s: %+v", b.Id, b)
 		}
-		if b.Bundle.RootId != o.Bundle.RootId || b.TypeId != o.TypeId {
-			t.Fatalf("%s diverged: owner=%q joiner=%q", b.Id, o.Bundle.RootId, b.Bundle.RootId)
+		if b.Bundle.RootId != o.Bundle.RootId || b.TypeId != o.TypeId || b.CollectionId != o.CollectionId {
+			t.Fatalf("%s diverged: owner=%+v joiner=%+v", b.Id, o, b)
 		}
 		for xk, id := range o.Properties {
 			if b.Properties[xk] != id {
@@ -83,11 +94,15 @@ func TestE2E_MultipeerCatalog(t *testing.T) {
 		}
 	}
 
-	// The joiner writes a person under the adopted column; the owner
-	// reads it under the same one.
+	// The joiner writes a person filed under the contact facet — one
+	// type, one collection, a value in each namespace; the owner reads
+	// both under the same adopted columns.
+	lastContact := `{"$date":"2026-09-10T00:00:00.000Z"}`
 	var created api.ObjectsCreateResponse
 	mustJSON(t, http.MethodPost, joiner.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{"types":["`+person.TypeId+`"],"initialProperties":{"`+person.TypeId+`":{"`+person.Properties["email"]+`":"joiner@example.com"}}}`,
+		`{"type":"`+person.TypeId+`","collections":["`+contact.CollectionId+`"],"initialProperties":{`+
+			`"`+person.TypeId+`":{"`+person.Properties["email"]+`":"joiner@example.com"},`+
+			`"`+contact.CollectionId+`":{"`+contact.Properties["last_contact"]+`":`+lastContact+`}}}`,
 		http.StatusCreated, &created)
 	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
 		// 404 until the object's tree lands on the owner — a plain
@@ -96,6 +111,18 @@ func TestE2E_MultipeerCatalog(t *testing.T) {
 		return resp.StatusCode == http.StatusOK && strings.Contains(string(raw), "joiner@example.com")
 	}) {
 		t.Fatalf("the joiner's person did not reach the owner")
+	}
+	// Both membership queries find it on the owner, and neither needs a
+	// marker exclusion — a definition row never matches its own id.
+	for _, filter := range []string{
+		`{"any.type":"` + person.TypeId + `"}`,
+		`{"any.collections":"` + contact.CollectionId + `"}`,
+	} {
+		resp, raw := doRequest(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects/query",
+			`{"filter":`+filter+`}`)
+		if resp.StatusCode != http.StatusOK || !strings.Contains(string(raw), created.ObjectId) {
+			t.Errorf("filter %s missed the contact: %d %s", filter, resp.StatusCode, raw)
+		}
 	}
 
 	// A sidebar app that brings a type converges the same way: the
@@ -123,11 +150,11 @@ func TestE2E_MultipeerCatalog(t *testing.T) {
 	day := `{"$date":"2026-09-12T00:00:00.000Z"}`
 	var entry api.ObjectsCreateResponse
 	mustJSON(t, http.MethodPost, joiner.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{"types":["`+jj.TypeId+`"],"initialProperties":{"`+jj.TypeId+`":{"`+jj.Properties["date"]+`":`+day+`}}}`,
+		`{"type":"`+jj.TypeId+`","initialProperties":{"`+jj.TypeId+`":{"`+jj.Properties["date"]+`":`+day+`}}}`,
 		http.StatusCreated, &entry)
 	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
 		resp, raw := doRequest(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects/query",
-			`{"filter":{"any.types":"`+oj.TypeId+`","`+oj.TypeId+`.`+oj.Properties["date"]+`":`+day+`}}`)
+			`{"filter":{"any.type":"`+oj.TypeId+`","`+oj.TypeId+`.`+oj.Properties["date"]+`":`+day+`}}`)
 		return resp.StatusCode == http.StatusOK && strings.Contains(string(raw), entry.ObjectId)
 	}) {
 		t.Fatalf("the joiner's journal entry did not reach the owner's day query")

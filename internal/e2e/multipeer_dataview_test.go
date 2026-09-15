@@ -46,6 +46,25 @@ func recordOn(t *testing.T, base, spaceId, objectId, dataset, id string) (map[st
 	return rec, true
 }
 
+// hostOn reads the dataview object's `host` value off a peer, or "" if
+// the object has not landed there.
+func hostOn(t *testing.T, base, spaceId, objectId string) string {
+	t.Helper()
+	resp, raw := doRequest(t, http.MethodGet, base+"/v1/spaces/"+spaceId+"/properties/"+objectId, "")
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	var got struct {
+		Record map[string]any `json:"record"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		return ""
+	}
+	ns, _ := got.Record[dataview.TypeId].(map[string]any)
+	host, _ := ns[dataview.PropHost].(string)
+	return host
+}
+
 // writeView posts one modify batch for the `default` view.
 func writeView(t *testing.T, base, spaceId, objectId, scope, ops string) api.ModifyResult {
 	return writeRecord(t, base, spaceId, objectId, dataview.DatasetViews, "default", scope, ops)
@@ -93,28 +112,36 @@ func TestE2E_MultipeerDataViews(t *testing.T) {
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces",
 		`{"name":"views"}`, http.StatusCreated, &sp)
 
+	// The host is an ordinary object; the dataview is its OWN object,
+	// typed `dataview`, naming the host it serves. The two datasets
+	// live on the dataview object.
+	var host api.ObjectsCreateResponse
+	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects",
+		`{}`, http.StatusCreated, &host)
+
 	var obj api.ObjectsCreateResponse
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &obj)
-
-	var attach api.ModifyResult
-	mustJSON(t, http.MethodPost,
-		fmt.Sprintf("%s/v1/spaces/%s/properties/%s/attach/%s", owner.base, sp.Id, obj.ObjectId, dataview.TypeId),
-		"", http.StatusOK, &attach)
+		fmt.Sprintf(`{"type":%q,"initialProperties":{%q:{%q:%q}}}`,
+			dataview.TypeId, dataview.TypeId, dataview.PropHost, host.ObjectId),
+		http.StatusCreated, &obj)
 
 	writeRecord(t, owner.base, sp.Id, obj.ObjectId, dataview.DatasetDataviews, "default", "",
 		`[{"type": "$set", "path": "", "value": {"name": "Table", "pos": "a0"}}]`)
 	writeView(t, owner.base, sp.Id, obj.ObjectId, "", `[{"type": "$set", "path": "", "value": {
 		"dataview": "default", "name": "All", "layout": "table", "pos": "a0",
-		"query": {"type": "plain", "filter": {"any.types": "page"}, "sort": ["-modifiedAt"]}
+		"query": {"type": "plain", "filter": {"any.type": "page"}, "sort": ["-modifiedAt"]}
 	}}]`)
 
 	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionWriter)
 
 	// The shared tier reaches the joiner — both levels, opaque query
-	// blob intact.
+	// blob intact — and so does the host link that says what the views
+	// are over.
 	peers := []*peer{owner, joiner}
 	if !pollUntilSynced(t, 3*time.Minute, sp.Id, peers, func() bool {
+		if hostOn(t, joiner.base, sp.Id, obj.ObjectId) != host.ObjectId {
+			return false
+		}
 		if dv, ok := recordOn(t, joiner.base, sp.Id, obj.ObjectId, dataview.DatasetDataviews, "default"); !ok || dv["name"] != "Table" {
 			return false
 		}

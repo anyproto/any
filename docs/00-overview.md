@@ -57,9 +57,9 @@ token expresses ownership, not authentication (`02-server.md` § Modes).
   select the account.
 - HTTP endpoints (`03-api.md`) for: auth and account, identities,
   devices, spaces (create, join, derived, one-to-one, delete, settings),
-  members / invites / ACL, objects, types / parts / properties /
-  runtime datasets, bundles and the usecase catalog, the data plane
-  (query, modify, upsert, aggregate), windowed query/subscribe over
+  members / invites / ACL, objects, types / collections / parts /
+  properties / runtime datasets, bundles and the usecase catalog, the
+  data plane (query, modify, upsert, aggregate), windowed query/subscribe over
   Server-Sent Events, the chat and editor modules, files, version
   history, sync status, search and backlinks over the local index, the
   event bus and processes, the local store, push notifications, debug.
@@ -108,7 +108,8 @@ any/
 │   ├── chat/             `chat` module (chat_messages)
 │   ├── editor/           `editor` module (editor_blocks)
 │   ├── markdown/         markdown ↔ block-tree bridge
-│   ├── page/ miniapp/ bin/ dataview/   built-in hidden types
+│   ├── page/ dataview/   built-in hidden types
+│   ├── miniapp/ bin/     built-in hidden collections
 │   ├── index/            chunker contract (text + link entries)
 │   ├── indexer/          search + link index, embedders
 │   ├── localstore/       local store naming + tag fence over the SDK's sdk.db
@@ -167,7 +168,7 @@ around it here.
 | [23-devices.md](23-devices.md) | devices registry and active-app election |
 | [24-data-views.md](24-data-views.md) | saved views — the `dataview` type |
 | [25-favorites.md](25-favorites.md) | favourites bundle client contract |
-| [26-local-store.md](26-local-store.md) | local store — device-local collections |
+| [26-local-store.md](26-local-store.md) | local store — device-local storage collections |
 | [27-descriptors.md](27-descriptors.md) | property and field descriptors (`xFormat`) |
 | [28-well-known-bundles.md](28-well-known-bundles.md) | the usecase catalog |
 | [29-client-model.md](29-client-model.md) | the object model for clients |

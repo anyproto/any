@@ -57,7 +57,7 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 		"config":{"multiple":false},
 		"options":{"lead":{"name":"Lead","color":"grey","pos":"a0","meta":{"icon":"dot"}},"won":{"name":"Won","color":"green","pos":"a1"}}}}`)
 	related := add(`{"name":"Related","xKey":"related","kind":"array","xFormat":{"type":"relation","icon":"link",
-		"config":{"multiple":true},"relation":{"targetTypes":["doc"],"filter":"{\"any.types\":\"page\"}"}}}`)
+		"config":{"multiple":true},"relation":{"targetTypes":["doc"],"filter":"{\"any.type\":\"page\"}"}}}`)
 	due := add(`{"name":"Due","xKey":"due","kind":"datetime","xFormat":{"type":"date"}}`)
 	when := add(`{"name":"When","xKey":"when","kind":"datetime","xFormat":{"type":"datetime"}}`)
 	site := add(`{"name":"Site","xKey":"site","kind":"string","xFormat":{"type":"url"}}`)
@@ -150,7 +150,7 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 	if props[stage].Kind != api.PropertyKindArray || props[stage].XKey != "stage" {
 		t.Errorf("stage def = %+v", props[stage])
 	}
-	if r := xf(props[related]); r["relation"].(map[string]any)["filter"] != `{"any.types":"page"}` ||
+	if r := xf(props[related]); r["relation"].(map[string]any)["filter"] != `{"any.type":"page"}` ||
 		r["relation"].(map[string]any)["targetTypes"].([]any)[0] != "doc" {
 		t.Errorf("related descriptor read-back = %s", props[related].XFormat)
 	}
@@ -166,7 +166,7 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 
 	// --- value validation --------------------------------------------------
 
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects", `{"types":["`+tr.TypeId+`"]}`)
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects", `{"type":"`+tr.TypeId+`"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create object: status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -254,12 +254,12 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 
 	// initialProperties on object create go through the same gate.
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
-		`{"types":["`+tr.TypeId+`"],"initialProperties":{"`+tr.TypeId+`":{"`+due+`":{"$date":"not-a-date"}}}}`)
+		`{"type":"`+tr.TypeId+`","initialProperties":{"`+tr.TypeId+`":{"`+due+`":{"$date":"not-a-date"}}}}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("initialProperties violation: status=%d, want 400; body=%s", rec.Code, rec.Body.String())
 	}
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
-		`{"types":["`+tr.TypeId+`"],"initialProperties":{"`+tr.TypeId+`":{"`+due+`":{"$date":"2026-01-01T00:00:00Z"}}}}`)
+		`{"type":"`+tr.TypeId+`","initialProperties":{"`+tr.TypeId+`":{"`+due+`":{"$date":"2026-01-01T00:00:00Z"}}}}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("initialProperties valid: status=%d body=%s", rec.Code, rec.Body.String())
 	}

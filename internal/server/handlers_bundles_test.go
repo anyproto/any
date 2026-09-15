@@ -78,7 +78,7 @@ func TestServer_BundleEnsureInstallsThenAdopts(t *testing.T) {
 
 	sp := createSpaceInfo(t, e, "BundleEnsure")
 	edType := installModuleType(t, e, sp.Id, "editor")
-	body := `{"id":"` + testBundleId + `","name":"General","rootTypes":["` + edType + `"]}`
+	body := `{"id":"` + testBundleId + `","name":"General","rootType":"` + edType + `"}`
 
 	first := ensureBundle(t, e, sp.Id, body)
 	if !first.Installed {
@@ -126,7 +126,7 @@ func TestServer_BundleEnsureRootProperties(t *testing.T) {
 	sp := createSpaceInfo(t, e, "BundleProps")
 	pageType := installModuleType(t, e, sp.Id, "editor")
 	res := ensureBundle(t, e, sp.Id,
-		`{"id":"notes/v1","name":"Notes","rootTypes":["`+pageType+`"],`+
+		`{"id":"notes/v1","name":"Notes","rootType":"`+pageType+`",`+
 			`"rootProperties":{"any":{"description":"Seeded description"}}}`)
 
 	var props map[string]any
@@ -211,8 +211,8 @@ func TestServer_BundleChildren(t *testing.T) {
 		return out
 	}
 
-	first := child(`{"seed":"memory/v1","types":["agent_memory"]}`)
-	again := child(`{"seed":"memory/v1","types":["agent_memory"]}`)
+	first := child(`{"seed":"memory/v1","type":"agent_memory"}`)
+	again := child(`{"seed":"memory/v1","type":"agent_memory"}`)
 	if first.ObjectId == "" || first.ObjectId != again.ObjectId {
 		t.Fatalf("child not deterministic: %q vs %q", first.ObjectId, again.ObjectId)
 	}
@@ -397,10 +397,12 @@ func TestServer_BundleEnsurePreflight(t *testing.T) {
 	cases := []struct {
 		name, body, code string
 	}{
-		{"unknown type", `{"id":"a/v1","rootTypes":["no_such_type"]}`, "type.not_found"},
-		{"unknown property type", `{"id":"a/v1","rootProperties":{"no_such_type":{"x":1}}}`, "type.not_found"},
+		{"unknown type", `{"id":"a/v1","rootType":"no_such_type"}`, "type.not_found"},
+		{"unknown collection", `{"id":"a/v1","rootCollections":["no_such_collection"]}`, "collection.not_found"},
+		{"unknown property owner", `{"id":"a/v1","rootProperties":{"no_such_type":{"x":1}}}`, "type.not_found"},
 		{"unknown field", `{"id":"a/v1","source":"marketplace"}`, "request.unknown_field"},
-		{"types not an array", `{"id":"a/v1","rootTypes":"chat_host"}`, "request.schema"},
+		{"rootType not a string", `{"id":"a/v1","rootType":["chat_host"]}`, "request.schema"},
+		{"rootCollections not an array", `{"id":"a/v1","rootCollections":"miniapp"}`, "request.schema"},
 		{"props not an object", `{"id":"a/v1","rootProperties":[]}`, "request.schema"},
 		{"id too long", `{"id":"` + strings.Repeat("x", 257) + `"}`, "request.invalid_field"},
 		{"name too long", `{"id":"a/v1","name":"` + strings.Repeat("x", 1025) + `"}`, "request.invalid_field"},
@@ -458,7 +460,7 @@ func TestServer_BundleEnsureDerivedRoot(t *testing.T) {
 
 	sp := createSpaceInfo(t, e, "BundleDerived")
 	edType := installModuleType(t, e, sp.Id, "editor")
-	body := `{"id":"` + testBundleId + `","name":"General","rootTypes":["` + edType + `"],"derived":true}`
+	body := `{"id":"` + testBundleId + `","name":"General","rootType":"` + edType + `","derived":true}`
 
 	first := ensureBundle(t, e, sp.Id, body)
 	if !first.Installed || !first.Bundle.Derived || first.Bundle.RootId == "" {
@@ -503,8 +505,8 @@ func TestServer_BundleEnsureDerivedRoot(t *testing.T) {
 		}
 		return out
 	}
-	firstChild := child(`{"seed":"memory/v1","types":["agent_memory"]}`)
-	if again := child(`{"seed":"memory/v1","types":["agent_memory"]}`); again.ObjectId != firstChild.ObjectId {
+	firstChild := child(`{"seed":"memory/v1","type":"agent_memory"}`)
+	if again := child(`{"seed":"memory/v1","type":"agent_memory"}`); again.ObjectId != firstChild.ObjectId {
 		t.Fatalf("child not deterministic: %q vs %q", firstChild.ObjectId, again.ObjectId)
 	}
 	if other := child(`{"seed":"notes/v1"}`); other.ObjectId == firstChild.ObjectId {
@@ -549,7 +551,7 @@ func TestServer_BundleDerivedRootProperties(t *testing.T) {
 	sp := createSpaceInfo(t, e, "BundleDerivedProps")
 	pageType := installModuleType(t, e, sp.Id, "editor")
 	res := ensureBundle(t, e, sp.Id,
-		`{"id":"notes/v1","name":"Notes","rootTypes":["`+pageType+`"],"derived":true,`+
+		`{"id":"notes/v1","name":"Notes","rootType":"`+pageType+`","derived":true,`+
 			`"rootProperties":{"any":{"description":"Seeded description"}}}`)
 
 	var props map[string]any
@@ -581,11 +583,11 @@ func TestServer_BundleDerivedValidation(t *testing.T) {
 	}
 }
 
-// TestServer_BundleDerivedRootPropertyTypes pins that a derived root
-// implements every type its seeded properties write into, even when
-// rootTypes does not name it — a property write to a type the object
-// does not implement is rejected, and the created path attaches the
-// same union at birth.
+// TestServer_BundleDerivedRootPropertyTypes pins that a derived root is
+// filed under every COLLECTION its seeded properties write into, even
+// when rootCollections does not name it — a value write under an owner
+// the object does not have is rejected, and the created path writes the
+// same membership at birth.
 func TestServer_BundleDerivedRootPropertyTypes(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -593,16 +595,9 @@ func TestServer_BundleDerivedRootPropertyTypes(t *testing.T) {
 
 	sp := createSpaceInfo(t, e, "BundleDerivedPropTypes")
 
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Doc","xKey":"doc"}`)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
-	}
-	var tr api.TypesCreateResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &tr); err != nil {
-		t.Fatalf("decode type: %v", err)
-	}
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types/"+tr.TypeId+"/properties",
-		`{"name":"Topic","kind":"string"}`)
+	docs := mustCreateCollection(t, e, sp.Id, `{"name":"Docs","xKey":"doc"}`)
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/collections/"+docs+"/properties",
+		`{"xKey":"topic","name":"Topic","kind":"string"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("add property: %d %s", rec.Code, rec.Body.String())
 	}
@@ -611,10 +606,11 @@ func TestServer_BundleDerivedRootPropertyTypes(t *testing.T) {
 		t.Fatalf("decode property: %v", err)
 	}
 
-	// rootTypes names nothing; the type comes from rootProperties.
+	// rootCollections names nothing; the membership comes from
+	// rootProperties.
 	res := ensureBundle(t, e, sp.Id,
 		`{"id":"docs/v1","name":"Docs","derived":true,"rootProperties":{"`+
-			tr.TypeId+`":{"`+prop.PropId+`":"seeded"}}}`)
+			docs+`":{"`+prop.PropId+`":"seeded"}}}`)
 	if !res.Bundle.Derived {
 		t.Fatalf("not a derived install: %+v", res.Bundle)
 	}
@@ -622,9 +618,12 @@ func TestServer_BundleDerivedRootPropertyTypes(t *testing.T) {
 	var props map[string]any
 	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/properties/"+res.Bundle.RootId, &props)
 	record, _ := props["record"].(map[string]any)
-	typeProps, _ := record[tr.TypeId].(map[string]any)
-	if typeProps[prop.PropId] != "seeded" {
+	colProps, _ := record[docs].(map[string]any)
+	if colProps[prop.PropId] != "seeded" {
 		t.Fatalf("seeded value did not land: %+v", props)
+	}
+	if cols := objectCollections(t, e, sp.Id, res.Bundle.RootId); !slices.Contains(cols, docs) {
+		t.Fatalf("root not filed under the seeded collection: %v", cols)
 	}
 }
 
@@ -655,7 +654,7 @@ func TestServer_BundleEnsureRootPropertiesGate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	body := `{"id":"tasks/v1","name":"Tasks","rootTypes":["` + tr.TypeId + `"],` +
+	body := `{"id":"tasks/v1","name":"Tasks","rootType":"` + tr.TypeId + `",` +
 		`"rootProperties":{"` + tr.TypeId + `":{"` + pr.PropId + `":{"$date":"2026-07-03T12:00:00Z"}}}}`
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/bundles", body)
 	if rec.Code != http.StatusBadRequest {
@@ -668,7 +667,7 @@ func TestServer_BundleEnsureRootPropertiesGate(t *testing.T) {
 	}
 
 	// The same install with a fitting value goes through.
-	body = `{"id":"tasks/v1","name":"Tasks","rootTypes":["` + tr.TypeId + `"],` +
+	body = `{"id":"tasks/v1","name":"Tasks","rootType":"` + tr.TypeId + `",` +
 		`"rootProperties":{"` + tr.TypeId + `":{"` + pr.PropId + `":{"$date":"2026-07-03T00:00:00Z"}}}}`
 	res := ensureBundle(t, e, sp.Id, body)
 	if !res.Installed {
@@ -714,78 +713,95 @@ func TestServer_BundleXKeyHealsOnAdopt(t *testing.T) {
 	}
 }
 
-// selfTyped decides whether the bundle's records live ON its root. A
-// records host asks for it; without it the root is the type definition
-// only and its own collection refuses the write.
-func TestServer_BundleSelfTypedHostsItsRecords(t *testing.T) {
+// A definition implements itself: a parts-declaring root hosts its own
+// bundle's records with nothing to ask for, while its row carries only
+// the marker — so it never matches a query for the type it defines.
+func TestServer_BundleDefinitionHostsItsRecords(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
 	e := buildEcho(d)
-	sp := createSpaceInfo(t, e, "BundleSelfTyped")
+	sp := createSpaceInfo(t, e, "BundleDefinitionRecords")
 
 	parts := `"parts":[{"key":"entries","datasets":[{"key":"entries","idRule":"user","fields":[{"key":"t","kind":"string","mutableBy":"any"}]}]}]`
-	upsert := func(rootId string) *httptest.ResponseRecorder {
+	upsert := func(objectId, dataset string) *httptest.ResponseRecorder {
 		return doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert",
-			`{"objectId":"`+rootId+`","dataset":"`+rootId+`_entries","records":[{"id":"one","fields":{"t":"x"}}]}`)
+			`{"objectId":"`+objectId+`","dataset":"`+dataset+`","records":[{"id":"one","fields":{"t":"x"}}]}`)
 	}
 
 	definition := ensureBundle(t, e, sp.Id, `{"id":"definition/v1","name":"Definition",`+parts+`}`)
-	types := rowTypes(objectRow(t, e, sp.Id, definition.Bundle.RootId))
-	if slices.Contains(types, definition.Bundle.RootId) {
-		t.Fatalf("root carries its own type without selfTyped: %v", types)
+	root := definition.Bundle.RootId
+	entries := root + "_entries"
+	row := objectRow(t, e, sp.Id, root)
+	if rowType(row) != "__type__" || slices.Contains(rowCollections(row), root) {
+		t.Fatalf("definition root membership: type=%q collections=%v", rowType(row), rowCollections(row))
 	}
-	if rec := upsert(definition.Bundle.RootId); rec.Code != http.StatusBadRequest ||
+	if rec := upsert(root, entries); rec.Code != http.StatusOK {
+		t.Fatalf("write to the definition's own records: %d %s", rec.Code, rec.Body.String())
+	}
+	// The definition is not a member of itself.
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/query", `{"filter":{"any.type":"`+root+`"}}`)
+	var q api.QueryResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &q)
+	if rec.Code != http.StatusOK || len(q.Records) != 0 {
+		t.Fatalf("definition matched its own type: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// An object that only carries the type writes there too.
+	obj := mustCreateObject(t, e, sp.Id, `{"type":"`+root+`"}`)
+	if rec := upsert(obj, entries); rec.Code != http.StatusOK {
+		t.Fatalf("write on a typed object: %d %s", rec.Code, rec.Body.String())
+	}
+	// An object without the type does not.
+	other := mustCreateObject(t, e, sp.Id, `{}`)
+	if rec := upsert(other, entries); rec.Code != http.StatusBadRequest ||
 		!strings.Contains(rec.Body.String(), "dataset.not_declared") {
-		t.Fatalf("write to a definition-only root: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("write on an untyped object: %d %s", rec.Code, rec.Body.String())
 	}
 
-	host := ensureBundle(t, e, sp.Id, `{"id":"host/v1","name":"Host","selfTyped":true,`+parts+`}`)
-	types = rowTypes(objectRow(t, e, sp.Id, host.Bundle.RootId))
-	if !slices.Contains(types, host.Bundle.RootId) {
-		t.Fatalf("selfTyped root does not carry its type: %v", types)
-	}
-	if rec := upsert(host.Bundle.RootId); rec.Code != http.StatusOK {
-		t.Fatalf("write to a selfTyped root: %d %s", rec.Code, rec.Body.String())
-	}
-
-	// The flag describes a type, so it needs a declaration.
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/bundles", `{"id":"bare/v1","selfTyped":true}`)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "request.invalid_field") {
-		t.Fatalf("selfTyped without a declaration: %d %s", rec.Code, rec.Body.String())
+	// The flag is gone from the wire.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/bundles", `{"id":"bare/v1","selfTyped":true,`+parts+`}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "request.unknown_field") {
+		t.Fatalf("selfTyped on the wire: %d %s", rec.Code, rec.Body.String())
 	}
 }
 
-// A root installed before its bundle asked for `selfTyped` gains the
-// self type on the next ensure — the adopt heal, without which the
-// records of every existing install stay unwritable.
-func TestServer_BundleSelfTypedHealsOnAdopt(t *testing.T) {
+// A collection-declaring bundle: the root takes the collection marker,
+// its properties are columns objects filed under it may write, and the
+// type-only extras are refused.
+func TestServer_BundleDeclaresCollection(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
 	e := buildEcho(d)
-	sp := createSpaceInfo(t, e, "BundleSelfTypedHeal")
+	sp := createSpaceInfo(t, e, "BundleCollection")
 
-	parts := `"parts":[{"key":"entries","datasets":[{"key":"entries","idRule":"user","fields":[{"key":"t","kind":"string","mutableBy":"any"}]}]}]`
-	first := ensureBundle(t, e, sp.Id, `{"id":"heal-self/v1","name":"Heal",`+parts+`}`)
-	if !first.Installed {
-		t.Fatalf("first ensure: %+v", first)
+	out := ensureBundle(t, e, sp.Id, `{"id":"facet/v1","name":"Facet","collection":true,"xKey":"facet",`+
+		`"properties":[{"xKey":"stage","name":"Stage","kind":"string"}]}`)
+	if !out.Installed {
+		t.Fatalf("collection bundle: %+v", out)
 	}
-	root := first.Bundle.RootId
-	upsert := func() *httptest.ResponseRecorder {
-		return doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert",
-			`{"objectId":"`+root+`","dataset":"`+root+`_entries","records":[{"id":"one","fields":{"t":"x"}}]}`)
+	root := out.Bundle.RootId
+	if got := rowType(objectRow(t, e, sp.Id, root)); got != "__collection__" {
+		t.Fatalf("collection root any.type = %q", got)
 	}
-	if rec := upsert(); rec.Code != http.StatusBadRequest {
-		t.Fatalf("a definition-only root took its own records: %d %s", rec.Code, rec.Body.String())
+	var info api.CollectionInfo
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/collections/"+root, &info)
+	if info.XKey != "facet" || info.Name != "Facet" {
+		t.Fatalf("collection info: %+v", info)
 	}
-
-	second := ensureBundle(t, e, sp.Id, `{"id":"heal-self/v1","name":"Heal","selfTyped":true,`+parts+`}`)
-	if second.Installed || second.Bundle.RootId != root {
-		t.Fatalf("second ensure did not adopt: %+v", second)
+	var defs api.PropertiesListResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/collections/"+root+"/properties", &defs)
+	if len(defs.Properties) != 1 || defs.Properties[0].XKey != "stage" {
+		t.Fatalf("collection properties: %+v", defs)
 	}
-	if types := rowTypes(objectRow(t, e, sp.Id, root)); !slices.Contains(types, root) {
-		t.Fatalf("self type not healed on adopt: %v", types)
+	// The same root on the types surface is a typed refusal.
+	rec := doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types/"+root, "")
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "type.not_a_type") {
+		t.Fatalf("collection on the types route: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := upsert(); rec.Code != http.StatusOK {
-		t.Fatalf("write after the heal: %d %s", rec.Code, rec.Body.String())
+	// A collection has no layout and no parts.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/bundles",
+		`{"id":"facet2/v1","collection":true,"xKey":"facet2","layout":{"type":"page"}}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "request.invalid_field") {
+		t.Fatalf("collection with a layout: %d %s", rec.Code, rec.Body.String())
 	}
 }

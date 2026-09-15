@@ -1,6 +1,6 @@
-# Local store — device-local, non-CRDT collections
+# Local store — device-local, non-CRDT storage collections
 
-Plain any-store collections that never sync, served at `/v1/local`.
+Plain any-store storage collections that never sync, served at `/v1/local`.
 They give a client or agent the full any-store surface — filters,
 sort, indexes, modifiers, aggregation pipelines — for state that must
 NOT replicate: scratch and working sets during a run, ingest staging
@@ -8,10 +8,11 @@ before an `/upsert`, per-device caches derived from synced data,
 telemetry, tool results awaiting review.
 
 A local collection is **not a dataset**: no type, no schema, no
-handler, no `_ver`, no tombstones, no DAG. It is not a version domain
-and it is not subscribe-able. It is a document store that happens to
-speak the same query language as the synced data and to live in the
-same file.
+handler, no `_ver`, no tombstones, no DAG — and not a collection
+objects are filed under: nothing on an objects row names it. It is not
+a version domain and it is not subscribe-able. It is a document store
+that happens to speak the same query language as the synced data and to
+live in the same file.
 
 Consumer-side surface, like `/search` and `/v1/events`: the SDK's only
 involvement is handing out its DB handle (`SDK.Store()`). Nothing here
@@ -20,8 +21,8 @@ peers.
 
 ## Where it lives, and why there
 
-Local collections are any-store collections **inside the SDK's own
-`<account-dir>/sdk/sdk.db`**, fenced by a name tag:
+Local collections are any-store storage collections **inside the SDK's
+own `<account-dir>/sdk/sdk.db`**, fenced by a name tag:
 
 | scope | storage name |
 |---|---|
