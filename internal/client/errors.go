@@ -2,12 +2,10 @@ package client
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
-	"syscall"
 
 	"github.com/anyproto/any/internal/api"
 )
@@ -33,7 +31,7 @@ func (e *TransportError) Unwrap() error { return e.Err }
 // running" as opposed to a mid-flight network failure. The CLI prints a
 // specific hint in that case.
 func (e *TransportError) IsConnectionRefused() bool {
-	return errors.Is(e.Err, syscall.ECONNREFUSED)
+	return connRefused(e.Err)
 }
 
 // ServerError is a 4xx/5xx response parsed out of the canonical envelope.

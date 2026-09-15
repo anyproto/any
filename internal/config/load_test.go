@@ -401,6 +401,9 @@ func isolateEnv(t *testing.T) {
 		t.Setenv(k, "")
 		os.Unsetenv(k)
 	}
-	// Point HOME at a tmp dir so ConfigSearchPaths doesn't find a real file.
-	t.Setenv("HOME", t.TempDir())
+	// Point the home dir at a tmp dir so ConfigSearchPaths doesn't find a
+	// real file; Windows reads USERPROFILE, not HOME.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 }

@@ -3,6 +3,7 @@ package push
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -19,12 +20,14 @@ func TestTokenFile_RoundTrip(t *testing.T) {
 	if err := saveTokenFile(path, deviceToken{Platform: "ios", Token: "apns-token-1"}); err != nil {
 		t.Fatal(err)
 	}
-	fi, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fi.Mode().Perm() != 0o600 {
-		t.Errorf("token file mode = %v, want 0600", fi.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		fi, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != 0o600 {
+			t.Errorf("token file mode = %v, want 0600", fi.Mode().Perm())
+		}
 	}
 
 	tok, err = loadTokenFile(path)

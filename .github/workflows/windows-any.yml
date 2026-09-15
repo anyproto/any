@@ -46,8 +46,21 @@ jobs:
       # CLI reaches a release having passed every gate.
       - name: go build
         run: go build -tags 'fts vector' ./...
-      # internal/server owns the single-instance lock, internal/config the
-      # paths it uses. The SDK-backed server tests self-skip without a
-      # staging config, leaving the pure-unit set.
+      # The llama.cpp release the Windows tarball ships. Its DLLs import
+      # each other, which only a real load exercises.
+      - name: fetch llama.cpp
+        shell: bash
+        run: |
+          version=$(sed -n 's/^LLAMACPP_VERSION := //p' Makefile)
+          scripts/fetch-llamacpp.sh "$version" bin/llamacpp win-vulkan-x64
+      # internal/server owns the single-instance lock and boots the SDK on
+      # an offline network, internal/config the paths it uses,
+      # internal/indexer the embedder child and the llama.cpp load,
+      # internal/cli the address discovery, internal/client the "not
+      # running" hint, internal/push the token file. Tests needing staging
+      # self-skip.
       - name: go test
-        run: go test -tags 'fts vector' ./internal/server/ ./internal/config/
+        shell: bash
+        env:
+          ANY_TEST_LLAMACPP_LIBDIR: ${{ github.workspace }}/bin/llamacpp
+        run: go test -tags 'fts vector' ./internal/server/ ./internal/config/ ./internal/indexer/ ./internal/cli/ ./internal/client/ ./internal/push/
