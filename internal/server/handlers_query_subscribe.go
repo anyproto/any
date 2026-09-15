@@ -68,7 +68,7 @@ func (d *deps) spaceQuerySubscribe(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	pq, errResp, done := buildPerObjectQuery(c, sp, d.techIndexVet(c, sp))
+	pq, errResp, done := buildPerObjectQuery(c, sp, d.perObjectReadVet(c, sp))
 	if done {
 		return errResp
 	}
