@@ -379,8 +379,8 @@ func (o *objectLinks) add(e index.LinkEntry, seq uint64) {
 
 // collectObject gathers one live object's page ops, derived from the
 // shared objects row inside the same ChangedSince window:
-//   - gated chunkers whose type is not in any.types → dataset prefix
-//     delete (covers DetachType; idempotent — one btree seek when
+//   - gated chunkers whose type the object does not have → dataset
+//     prefix delete (covers a retype; idempotent — one btree seek when
 //     already empty);
 //   - everything else → the chunkers' entries.
 //
@@ -397,9 +397,9 @@ func (w *spaceWorker) collectObject(ctx context.Context, objectId string, cursor
 		return nil
 	}
 	attached := typeSet(row)
-	if attached[index.MetaTypeLabel] {
-		// A type object changed — a property was added, patched or
-		// removed. The chunkers' catalog snapshots must see it before
+	if attached[index.MetaTypeLabel] || attached[index.MetaCollectionLabel] {
+		// A definition object changed — a property was added, patched
+		// or removed. The chunkers' catalog snapshots must see it before
 		// the values written right after it (same page or the next)
 		// are extracted, or those values wait for the snapshot's TTL
 		// and a later write. Type objects precede their values in the
@@ -710,21 +710,9 @@ func (w *spaceWorker) objectRow(ctx context.Context, objectId string) (*anyenc.V
 	return row, nil
 }
 
-// typeSet extracts any.types into a membership set. Empty for nil rows.
-func typeSet(row *anyenc.Value) map[string]bool {
-	if row == nil {
-		return nil
-	}
-	types := row.GetArray("any", "types")
-	if len(types) == 0 {
-		return nil
-	}
-	out := make(map[string]bool, len(types))
-	for _, v := range types {
-		out[string(v.GetStringBytes())] = true
-	}
-	return out
-}
+// typeSet extracts the row's membership (its type, its collections,
+// itself when it is a definition) into a set. Empty for nil rows.
+func typeSet(row *anyenc.Value) map[string]bool { return index.Members(row) }
 
 // drainPending wraps drainRounds with embed-process reporting through
 // the shared procReporter: elapsed-work gate (a usual one-message

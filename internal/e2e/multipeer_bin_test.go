@@ -51,7 +51,7 @@ func binRowOn(t *testing.T, p *peer, spaceId, objectId string) (binRow, bool) {
 
 func (r binRow) carriesBin() bool {
 	for _, tp := range r.Any.Types {
-		if tp == bin.TypeId {
+		if tp == bin.Id {
 			return true
 		}
 	}
@@ -92,7 +92,7 @@ func TestE2E_MultipeerBin(t *testing.T) {
 	ownerId := accountId(t, owner.base)
 	var res api.ModifyResult
 	mustJSON(t, http.MethodPost,
-		fmt.Sprintf("%s/v1/spaces/%s/properties/%s/attach/%s", owner.base, sp.Id, obj.ObjectId, bin.TypeId),
+		fmt.Sprintf("%s/v1/spaces/%s/properties/%s/attach/%s", owner.base, sp.Id, obj.ObjectId, bin.Id),
 		"", http.StatusOK, &res)
 	if res.ChangeId == "" {
 		t.Fatalf("move minted no change: %+v", res)
@@ -108,7 +108,7 @@ func TestE2E_MultipeerBin(t *testing.T) {
 	// The joiner restores it; the owner's row loses the type and the
 	// whole namespace.
 	mustJSON(t, http.MethodPost,
-		fmt.Sprintf("%s/v1/spaces/%s/properties/%s/detach/%s", joiner.base, sp.Id, obj.ObjectId, bin.TypeId),
+		fmt.Sprintf("%s/v1/spaces/%s/properties/%s/detach/%s", joiner.base, sp.Id, obj.ObjectId, bin.Id),
 		"", http.StatusOK, &res)
 	if !pollUntilSynced(t, 3*time.Minute, sp.Id, peers, func() bool {
 		row, ok := binRowOn(t, owner, sp.Id, obj.ObjectId)

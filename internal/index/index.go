@@ -13,6 +13,7 @@ package index
 import (
 	"context"
 
+	"github.com/anyproto/any-store/v2/anyenc"
 	"github.com/anyproto/any-sync-sdk/space"
 )
 
@@ -114,9 +115,10 @@ type MultiReconciler interface {
 type DynamicChunker interface {
 	Chunker
 	// EvictDatasets returns the runtime dataset names to structurally
-	// evict for an object with the given any.types set: catalog
-	// datasets whose owning type is not attached (the DetachType path),
-	// plus names retired since process start (definition removed).
+	// evict for an object with the given membership set (its type and
+	// its collections): catalog datasets whose owning type is not the
+	// object's (the retype path), plus names retired since process
+	// start (definition removed).
 	EvictDatasets(ctx context.Context, sp space.Space, attached map[string]bool) ([]string, error)
 }
 
@@ -150,6 +152,30 @@ type WholeCollectionLinks interface {
 	LinksReplaceCollection()
 }
 
+// Members reads an objects row's membership into a set: its one type
+// (`any.type`), its collections (`any.collections`) and — a definition
+// object implements itself — its own id when the row carries a marker.
+// Nil for a nil row.
+func Members(row *anyenc.Value) map[string]bool {
+	if row == nil {
+		return nil
+	}
+	out := map[string]bool{}
+	if t := row.GetStringBytes("any", "type"); len(t) > 0 {
+		out[string(t)] = true
+		if string(t) == MetaTypeLabel || string(t) == MetaCollectionLabel {
+			out[string(row.GetStringBytes("id"))] = true
+		}
+	}
+	for _, v := range row.GetArray("any", "collections") {
+		out[string(v.GetStringBytes())] = true
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // Chunker streams the IndexEntry values for one dataset on one object.
 type Chunker interface {
 	// Dataset is the dataset this chunker writes — the middle segment
@@ -157,10 +183,10 @@ type Chunker interface {
 	// (see DatasetProp): it only has to be unique among chunkers,
 	// colon-free, and stable.
 	Dataset() string
-	// TypeId is the any.types entry gating this chunker: the indexer
-	// runs ChunksSince only while the type is attached to the object,
-	// and prefix-evicts objectId:<dataset>: when it is not — covering
-	// DetachType. Empty = ungated, runs for every object.
+	// TypeId is the type gating this chunker: the indexer runs
+	// ChunksSince only while the object has the type (or is the type
+	// itself), and prefix-evicts objectId:<dataset>: when it does not
+	// — covering a retype. Empty = ungated, runs for every object.
 	TypeId() string
 	// ChunksSince streams every entry of objectId with ApplySeq > since,
 	// ascending by ApplySeq. Cleared/deleted records yield removal

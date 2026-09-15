@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -51,10 +52,10 @@ func (d *deps) propertiesGet(c echo.Context) error {
 }
 
 // propertiesSet handles POST /v1/spaces/:spaceId/properties/:objectId/set/:typeId.
-// Wraps the scope-aware Properties().Set: every propId in the patch must
-// resolve to the SAME declared scope (the SDK rejects mixed-scope or
-// unknown-key patches). Renamed from the former `/base/:typeId` +
-// SetBase surface when scoped properties landed (v0.0.11).
+// Wraps the scope-aware Properties().Set: the path id is the owner —
+// the object's type or one of its collections — and every propId in
+// the patch must resolve to the SAME declared scope (the SDK rejects
+// mixed-scope or unknown-key patches).
 //
 //	@Summary	Set properties on an object (single declared scope)
 //	@Tags		properties
@@ -62,7 +63,7 @@ func (d *deps) propertiesGet(c echo.Context) error {
 //	@Produce	json
 //	@Param		spaceId		path		string							true	"Space ID"
 //	@Param		objectId	path		string							true	"Object ID"
-//	@Param		typeId		path		string							true	"Type ID"
+//	@Param		typeId		path		string							true	"Type or collection ID (the owner)"
 //	@Param		body		body		api.PropertiesSetRequest	true	"Patch map"
 //	@Success	200			{object}	api.ModifyResult
 //	@Failure	400			{object}	api.ErrorEnvelope
@@ -102,8 +103,8 @@ func (d *deps) propertiesSet(c echo.Context) error {
 	// Every value is checked against its property's current descriptor
 	// slug here — the SDK stores descriptors opaquely and enforces only
 	// kind; this server is the semantics boundary (see descriptor.go).
-	defs, err := sp.Types().Properties(c.Request().Context(), typeId)
-	if err != nil {
+	defs, err := ownerProperties(c.Request().Context(), sp, typeId)
+	if err != nil && !errors.Is(err, space.ErrNotFound) {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
 	}
 	if v := validateDescriptorValues(defs, patch); v != nil {
@@ -130,15 +131,14 @@ func (d *deps) propertiesSet(c echo.Context) error {
 	return c.JSON(http.StatusOK, modifyResultToAPI(res))
 }
 
-// propertiesAttachType handles
-// POST /v1/spaces/:spaceId/properties/:objectId/attach/:typeId — binds a
-// type to an existing object's `any.types`, admitting writes to the
-// type's membership-gated datasets. Idempotent ($addToSet at the SDK
-// layer). The object must already exist — an unknown id is
-// `404 object.not_found`, not a silent create. `attach/bin` is move to
-// bin: the same change stamps `bin.movedAt` / `bin.movedBy` (binBinding).
+// propertiesSetType handles
+// POST /v1/spaces/:spaceId/properties/:objectId/type/:typeId — sets
+// the object's one type (`any.type`, a $set: a previous type is
+// replaced; its values and dataset records stay as orphan data,
+// read-tolerant). The object must already exist — an unknown id is
+// `404 object.not_found`, not a silent create.
 //
-//	@Summary	Attach a type to an object
+//	@Summary	Set the object's type
 //	@Tags		properties
 //	@Produce	json
 //	@Param		spaceId		path		string	true	"Space ID"
@@ -148,36 +148,8 @@ func (d *deps) propertiesSet(c echo.Context) error {
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	404			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/properties/{objectId}/attach/{typeId} [post]
-func (d *deps) propertiesAttachType(c echo.Context) error {
-	return d.propertiesTypeBinding(c, true)
-}
-
-// propertiesDetachType handles
-// POST /v1/spaces/:spaceId/properties/:objectId/detach/:typeId — removes
-// a type from `any.types`. Idempotent ($pull). Values in that
-// namespace and records in the type's datasets stay as orphan data,
-// read-tolerant by design; detaching is not a delete. `detach/bin` is
-// restore from the bin: the same change clears the move stamps.
-//
-//	@Summary	Detach a type from an object
-//	@Tags		properties
-//	@Produce	json
-//	@Param		spaceId		path		string	true	"Space ID"
-//	@Param		objectId	path		string	true	"Object ID"
-//	@Param		typeId		path		string	true	"Type ID"
-//	@Success	200			{object}	api.ModifyResult
-//	@Failure	400			{object}	api.ErrorEnvelope
-//	@Failure	404			{object}	api.ErrorEnvelope
-//	@Failure	500			{object}	api.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/properties/{objectId}/detach/{typeId} [post]
-func (d *deps) propertiesDetachType(c echo.Context) error {
-	return d.propertiesTypeBinding(c, false)
-}
-
-// propertiesTypeBinding is the shared attach/detach body — the two
-// differ only in which SDK call they make.
-func (d *deps) propertiesTypeBinding(c echo.Context, attach bool) error {
+//	@Router		/spaces/{spaceId}/properties/{objectId}/type/{typeId} [post]
+func (d *deps) propertiesSetType(c echo.Context) error {
 	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
@@ -189,65 +161,179 @@ func (d *deps) propertiesTypeBinding(c echo.Context, attach bool) error {
 	if isSerializedNil(typeId) {
 		return serializedNilIdError(c, "typeId", typeId)
 	}
+	ctx := c.Request().Context()
+	// Pre-flighted the way objectCreate and the bundles root check do:
+	// `any.type` is a synced DAG write with no validation behind it,
+	// so a typo would otherwise be permanent.
+	if _, err := sp.Types().Get(ctx, typeId); err != nil {
+		if errors.Is(err, space.ErrNotAType) {
+			return writeError(c, http.StatusBadRequest, "type.not_a_type",
+				"the id names a collection — add it through …/collections/:collectionId",
+				map[string]any{"collectionId": typeId, "spaceId": sp.Id()})
+		}
+		return writeError(c, http.StatusNotFound, "type.not_found",
+			"this space has no such type",
+			map[string]any{"typeId": typeId, "spaceId": sp.Id()})
+	}
+	if reservedCarrierType(ctx, sp, typeId) {
+		return reservedCarrierError(c, sp.Id(), typeId)
+	}
+	res, err := sp.Properties().SetType(ctx, objectId, typeId)
+	if err != nil {
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId, "typeId": typeId})
+	}
+	return c.JSON(http.StatusOK, modifyResultToAPI(res))
+}
+
+// propertiesUnsetType handles
+// DELETE /v1/spaces/:spaceId/properties/:objectId/type — clears the
+// object's type; it then has no parts and renders as properties.
+//
+//	@Summary	Unset the object's type
+//	@Tags		properties
+//	@Produce	json
+//	@Param		spaceId		path		string	true	"Space ID"
+//	@Param		objectId	path		string	true	"Object ID"
+//	@Success	200			{object}	api.ModifyResult
+//	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	404			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/properties/{objectId}/type [delete]
+func (d *deps) propertiesUnsetType(c echo.Context) error {
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
+	if done {
+		return errResp
+	}
+	res, err := sp.Properties().UnsetType(c.Request().Context(), objectId)
+	if err != nil {
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
+	}
+	return c.JSON(http.StatusOK, modifyResultToAPI(res))
+}
+
+// propertiesAttachCollection handles
+// POST /v1/spaces/:spaceId/properties/:objectId/collections/:collectionId
+// — files the object under a collection (`any.collections`, $addToSet,
+// idempotent), admitting writes to its columns. The object must already
+// exist — an unknown id is `404 object.not_found`, not a silent
+// create. `collections/bin` is move to bin: the same change stamps
+// `bin.movedAt` / `bin.movedBy` (binBinding).
+//
+//	@Summary	Add the object to a collection
+//	@Tags		properties
+//	@Produce	json
+//	@Param		spaceId			path		string	true	"Space ID"
+//	@Param		objectId		path		string	true	"Object ID"
+//	@Param		collectionId	path		string	true	"Collection ID"
+//	@Success	200				{object}	api.ModifyResult
+//	@Failure	400				{object}	api.ErrorEnvelope
+//	@Failure	404				{object}	api.ErrorEnvelope
+//	@Failure	500				{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/properties/{objectId}/collections/{collectionId} [post]
+func (d *deps) propertiesAttachCollection(c echo.Context) error {
+	return d.propertiesCollectionBinding(c, true)
+}
+
+// propertiesDetachCollection handles
+// DELETE /v1/spaces/:spaceId/properties/:objectId/collections/:collectionId
+// — removes the object from a collection ($pull, idempotent). Values
+// in that namespace stay as orphan data, read-tolerant by design;
+// detaching is not a delete. `collections/bin` is restore from the
+// bin: the same change clears the move stamps.
+//
+//	@Summary	Remove the object from a collection
+//	@Tags		properties
+//	@Produce	json
+//	@Param		spaceId			path		string	true	"Space ID"
+//	@Param		objectId		path		string	true	"Object ID"
+//	@Param		collectionId	path		string	true	"Collection ID"
+//	@Success	200				{object}	api.ModifyResult
+//	@Failure	400				{object}	api.ErrorEnvelope
+//	@Failure	404				{object}	api.ErrorEnvelope
+//	@Failure	500				{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/properties/{objectId}/collections/{collectionId} [delete]
+func (d *deps) propertiesDetachCollection(c echo.Context) error {
+	return d.propertiesCollectionBinding(c, false)
+}
+
+// propertiesCollectionBinding is the shared attach/detach body — the
+// two differ only in which SDK call they make.
+func (d *deps) propertiesCollectionBinding(c echo.Context, attach bool) error {
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
+	if done {
+		return errResp
+	}
+	collectionId := c.Param("collectionId")
+	if collectionId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "collectionId required", nil)
+	}
+	if isSerializedNil(collectionId) {
+		return serializedNilIdError(c, "collectionId", collectionId)
+	}
 
 	ctx := c.Request().Context()
 
-	// Attach pre-flights the type the way objectCreate and the bundles
-	// root check do: `any.types` is a synced DAG write with no
-	// validation behind it, so a typo would otherwise be permanent.
-	// Detach deliberately does NOT pre-flight — it is the repair path
-	// for a bogus id that is already attached.
+	// Attach pre-flights the collection the way objectCreate does:
+	// `any.collections` is a synced DAG write with no validation behind
+	// it, so a typo would otherwise be permanent. Detach deliberately
+	// does NOT pre-flight — it is the repair path for a bogus id that
+	// is already attached.
 	if attach {
-		if _, err := sp.Types().Get(ctx, typeId); err != nil {
-			return writeError(c, http.StatusNotFound, "type.not_found",
-				"this space has no such type",
-				map[string]any{"typeId": typeId, "spaceId": sp.Id()})
+		if _, err := sp.Collections().Get(ctx, collectionId); err != nil {
+			if errors.Is(err, space.ErrNotACollection) {
+				return writeError(c, http.StatusBadRequest, "collection.not_a_collection",
+					"the id names a type — set it through …/type/:typeId",
+					map[string]any{"typeId": collectionId, "spaceId": sp.Id()})
+			}
+			return writeError(c, http.StatusNotFound, "collection.not_found",
+				"this space has no such collection",
+				map[string]any{"collectionId": collectionId, "spaceId": sp.Id()})
 		}
 	}
 
-	bind := sp.Properties().DetachType
+	bind := sp.Properties().DetachCollection
 	if attach {
-		bind = sp.Properties().AttachType
+		bind = sp.Properties().AttachCollection
 	}
-	if typeId == bin.TypeId {
+	if collectionId == bin.Id {
 		bind = func(ctx context.Context, objectId, _ string) (space.ModifyResult, error) {
 			return d.binBinding(ctx, sp, objectId, attach)
 		}
 	}
-	res, err := bind(ctx, objectId, typeId)
+	res, err := bind(ctx, objectId, collectionId)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{
-			"spaceId":  sp.Id(),
-			"objectId": objectId,
-			"typeId":   typeId,
+			"spaceId":      sp.Id(),
+			"objectId":     objectId,
+			"collectionId": collectionId,
 		})
 	}
 	return c.JSON(http.StatusOK, modifyResultToAPI(res))
 }
 
-// binBinding is the attach/detach body for the built-in `bin` type
-// (internal/bin): move to bin stamps `bin.movedAt` / `bin.movedBy`,
-// restore clears them. The stamps ride the SAME synced change as the
-// membership op on the objects row — the SDK's write-time preflight
-// grants a namespace the change itself attaches — so a bin carrier
-// never lacks its stamps and a restored object never keeps stale ones,
-// and one changeId names the move. movedBy is this account, the
-// change's signer; movedAt the server clock, written as an instant.
-// Restore unsets the whole `bin` namespace: a per-leaf $unset leaves
-// an empty `bin: {}` behind, which reads as a carrier to any client
-// testing the key.
+// binBinding is the attach/detach body for the built-in `bin`
+// collection (internal/bin): move to bin stamps `bin.movedAt` /
+// `bin.movedBy`, restore clears them. The stamps ride the SAME synced
+// change as the membership op on the objects row — the SDK's
+// write-time preflight grants a namespace the change itself attaches
+// — so a bin member never lacks its stamps and a restored object never
+// keeps stale ones, and one changeId names the move. movedBy is this
+// account, the change's signer; movedAt the server clock, written as
+// an instant. Restore unsets the whole `bin` namespace: a per-leaf
+// $unset leaves an empty `bin: {}` behind, which reads as a member to
+// any client testing the key.
 func (d *deps) binBinding(ctx context.Context, sp space.Space, objectId string, attach bool) (space.ModifyResult, error) {
 	var ops []space.Op
 	if attach {
 		ops = []space.Op{
-			{Type: space.OpAddToSet, Path: "any.types", Value: bin.TypeId},
-			{Type: space.OpSet, Path: bin.TypeId + "." + bin.PropMovedAt, Value: time.Now().UTC()},
-			{Type: space.OpSet, Path: bin.TypeId + "." + bin.PropMovedBy, Value: d.sdk.Account().Id()},
+			{Type: space.OpAddToSet, Path: "any.collections", Value: bin.Id},
+			{Type: space.OpSet, Path: bin.Id + "." + bin.PropMovedAt, Value: time.Now().UTC()},
+			{Type: space.OpSet, Path: bin.Id + "." + bin.PropMovedBy, Value: d.sdk.Account().Id()},
 		}
 	} else {
 		ops = []space.Op{
-			{Type: space.OpPull, Path: "any.types", Value: bin.TypeId},
-			{Type: space.OpUnset, Path: bin.TypeId},
+			{Type: space.OpPull, Path: "any.collections", Value: bin.Id},
+			{Type: space.OpUnset, Path: bin.Id},
 		}
 	}
 	return sp.Modify(ctx, space.ModifyBatch{

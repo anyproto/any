@@ -29,13 +29,16 @@ const MetaIndexKey = "index"
 const MetaIndexNone = "none"
 
 // MetaTypeLabel is the SDK's reserved meta-type marker: type-definition
-// objects carry `any.types = ["__type__"]` and their `any.name` is the
+// objects carry `any.type = "__type__"` and their `any.name` is the
 // type name. The SDK keeps the literal internal, but it is wire-visible
 // on every objects-query row, so it is restated here. Type definitions
 // are schema, not knowledge (discovery is `GET /types`) — the prop
 // chunker always excludes them: their one-word names otherwise win
 // BM25 on field-length normalization and surface as top search hits.
 const MetaTypeLabel = "__type__"
+
+// MetaCollectionLabel is the `any.type` value of a collection object.
+const MetaCollectionLabel = "__collection__"
 
 // Reserved RecordIds for the always-indexed built-in `any` properties.
 // Both are valid base58, so a collision with a real hash-derived propId
@@ -139,17 +142,29 @@ func (c *PropChunker) catalog(ctx context.Context, sp space.Space) ([]indexedPro
 	if err != nil {
 		return nil, err
 	}
-	var props []indexedProp
+	colls, err := sp.Collections().List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	owners := make([]string, 0, len(types)+len(colls))
 	for _, t := range types {
-		if t.BuiltIn {
-			continue // any.name/any.description are hardcoded below
+		if !t.BuiltIn { // any.name/any.description are hardcoded below
+			owners = append(owners, t.Id)
 		}
-		defs, err := sp.Types().Properties(ctx, t.Id)
+	}
+	for _, col := range colls {
+		if !col.BuiltIn {
+			owners = append(owners, col.Id)
+		}
+	}
+	var props []indexedProp
+	for _, ownerId := range owners {
+		defs, err := sp.Types().Properties(ctx, ownerId)
 		if err != nil {
 			return nil, err
 		}
 		for _, d := range defs {
-			p, text := resolveIndexedProp(t.Id, d)
+			p, text := resolveIndexedProp(ownerId, d)
 			p.linkMode = LinkMode(d.XFormat)
 			if !text {
 				p.scope = ""
@@ -215,10 +230,7 @@ func (c *PropChunker) ChunksSince(ctx context.Context, sp space.Space, objectId 
 		if IsDeleted(rec) {
 			return nil
 		}
-		attached := map[string]bool{}
-		for _, v := range rec.GetArray("any", "types") {
-			attached[string(v.GetStringBytes())] = true
-		}
+		attached := Members(rec)
 		// Diagnostic objects are excluded
 		// from search wholesale — their name/description carry debug
 		// content, not knowledge. They are never indexed, so there is

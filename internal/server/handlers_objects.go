@@ -71,18 +71,23 @@ func (d *deps) objectCreate(c echo.Context) error {
 		// extraction: a `types` string or an `initialProperties` array
 		// would otherwise be skipped unread — the same silent-drop trap
 		// checkUnknownFields closes for misspelled keys.
-		if v := root.Get("types"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeArray {
+		if v := root.Get("type"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeString {
 			return writeError(c, http.StatusBadRequest, "request.schema",
-				"types must be an array of type ids", nil)
+				"type must be a type id", nil)
+		}
+		if v := root.Get("collections"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeArray {
+			return writeError(c, http.StatusBadRequest, "request.schema",
+				"collections must be an array of collection ids", nil)
 		}
 		if v := root.Get("initialProperties"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeObject {
 			return writeError(c, http.StatusBadRequest, "request.schema",
-				"initialProperties must be an object keyed by type id, e.g. {\"any\": {\"name\": \"…\"}}", nil)
+				"initialProperties must be an object keyed by type or collection id, e.g. {\"any\": {\"name\": \"…\"}}", nil)
 		}
-		if types := root.GetArray("types"); len(types) > 0 {
-			opts.Types = make([]string, 0, len(types))
-			for _, v := range types {
-				opts.Types = append(opts.Types, string(v.GetStringBytes()))
+		opts.Type = string(root.GetStringBytes("type"))
+		if colls := root.GetArray("collections"); len(colls) > 0 {
+			opts.Collections = make([]string, 0, len(colls))
+			for _, v := range colls {
+				opts.Collections = append(opts.Collections, string(v.GetStringBytes()))
 			}
 		}
 		if ip := root.GetObject("initialProperties"); ip != nil {
@@ -111,18 +116,16 @@ func (d *deps) objectCreate(c echo.Context) error {
 	// A type declaring a reserved module is carried only by its own
 	// root: the SDK refuses the bootstrap, but Create has minted the
 	// tree by then, so the check runs first and no bare object is left.
-	for _, typeId := range opts.Types {
-		if reservedCarrierType(c.Request().Context(), sp, typeId) {
-			return reservedCarrierError(c, sp.Id(), typeId)
-		}
+	if opts.Type != "" && reservedCarrierType(c.Request().Context(), sp, opts.Type) {
+		return reservedCarrierError(c, sp.Id(), opts.Type)
 	}
 
-	// Same descriptor value gate as propertiesSet, per initial type (see
-	// descriptor.go).
-	for typeId, patch := range opts.InitialProperties {
-		defs, err := sp.Types().Properties(c.Request().Context(), typeId)
+	// Same descriptor value gate as propertiesSet, per initial owner
+	// (see descriptor.go).
+	for ownerId, patch := range opts.InitialProperties {
+		defs, err := ownerProperties(c.Request().Context(), sp, ownerId)
 		if err != nil {
-			continue // unknown type: the SDK rejects the write itself
+			continue // unknown owner: the SDK rejects the write itself
 		}
 		if v := validateDescriptorValues(defs, patch); v != nil {
 			return writeError(c, http.StatusBadRequest, "property.format_violation",
@@ -190,7 +193,7 @@ func (d *deps) objectDelete(c echo.Context) error {
 // objectGet handles GET /v1/spaces/:spaceId/objects/:objectId.
 //
 //	@Summary	Get an object's row
-//	@Description	The object's row from the space's objects collection: any.types and property values. 404 object.not_found for an unknown id, 410 object.deleted for a deleted object.
+//	@Description	The object's row from the space's objects collection: any.type, any.collections and property values. 404 object.not_found for an unknown id, 410 object.deleted for a deleted object.
 //	@Tags		objects
 //	@Produce	json
 //	@Param		spaceId		path		string	true	"Space ID"

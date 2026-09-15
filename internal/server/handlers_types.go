@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -55,19 +56,8 @@ func (d *deps) typeCreate(c echo.Context) error {
 		return errResp
 	}
 
-	existing, err := sp.Types().List(c.Request().Context())
-	if err != nil {
-		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
-	}
-	for _, t := range existing {
-		// Registered types resolve by their literal Id ("page",
-		// "miniapp", …) as well as by xKey, so a new xKey must dodge
-		// both namespaces.
-		if t.XKey == req.XKey || t.Id == req.XKey {
-			return writeError(c, http.StatusConflict, "type.xkey_conflict",
-				"xKey already in use by another type in this space",
-				map[string]any{"xKey": req.XKey, "existingTypeId": t.Id})
-		}
+	if errResp, done := requireHandleFree(c, sp, req.XKey); done {
+		return errResp
 	}
 
 	layout, code, reason := layoutFromWire(req.Layout)
@@ -84,7 +74,6 @@ func (d *deps) typeCreate(c echo.Context) error {
 		Description: req.Description,
 		IconCID:     req.IconCID,
 		XKey:        req.XKey,
-		Weight:      req.Weight,
 		Layout:      layout,
 		Hidden:      req.Hidden,
 		Meta:        req.Meta,
@@ -265,10 +254,8 @@ func (d *deps) typeGet(c echo.Context) error {
 	}
 	info, err := sp.Types().Get(c.Request().Context(), typeId)
 	if err != nil {
-		if errors.Is(err, space.ErrNotFound) {
-			return writeError(c, http.StatusNotFound, "type.not_found",
-				"type not found",
-				map[string]any{"spaceId": sp.Id(), "typeId": typeId})
+		if resp, done := typeLookupError(c, err, sp.Id(), typeId); done {
+			return resp
 		}
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
 	}
@@ -300,13 +287,32 @@ func (d *deps) typeProperties(c echo.Context) error {
 	// indistinguishable from "type exists, no properties yet". Check
 	// existence first so a bad id is a typed 404, not a silent 200 [].
 	if _, err := sp.Types().Get(c.Request().Context(), typeId); err != nil {
-		if errors.Is(err, space.ErrNotFound) {
-			return writeError(c, http.StatusNotFound, "type.not_found",
-				"type not found",
-				map[string]any{"spaceId": sp.Id(), "typeId": typeId})
+		if resp, done := typeLookupError(c, err, sp.Id(), typeId); done {
+			return resp
 		}
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
 	}
+	return d.propertiesOf(c, sp, typeId)
+}
+
+// typeLookupError maps the two typed misses of a type read: 404 for an
+// unknown id, 400 type.not_a_type when the id names a collection.
+func typeLookupError(c echo.Context, err error, spaceId, typeId string) (error, bool) {
+	details := map[string]any{"spaceId": spaceId, "typeId": typeId}
+	switch {
+	case errors.Is(err, space.ErrNotAType):
+		return writeError(c, http.StatusBadRequest, "type.not_a_type",
+			"the id names a collection — use the …/collections routes", details), true
+	case errors.Is(err, space.ErrNotFound):
+		return writeError(c, http.StatusNotFound, "type.not_found", "type not found", details), true
+	}
+	return nil, false
+}
+
+// propertiesOf renders the definitions of a type or collection the
+// caller has already resolved.
+func (d *deps) propertiesOf(c echo.Context, sp space.Space, ownerId string) error {
+	typeId := ownerId
 	defs, err := sp.Types().Properties(c.Request().Context(), typeId)
 	if err != nil {
 		if errors.Is(err, space.ErrNotFound) {
@@ -484,6 +490,50 @@ func (d *deps) typeRemoveProperty(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+// requireHandleFree refuses an xKey any type or collection of the
+// space already resolves by — registered definitions resolve by their
+// literal Id ("page", "miniapp", …) as well as by xKey, so a new xKey
+// must dodge both namespaces, on both surfaces.
+func requireHandleFree(c echo.Context, sp space.Space, xKey string) (errResp error, done bool) {
+	ctx := c.Request().Context()
+	types, err := sp.Types().List(ctx)
+	if err != nil {
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()}), true
+	}
+	for _, t := range types {
+		if t.XKey == xKey || t.Id == xKey {
+			return writeError(c, http.StatusConflict, "type.xkey_conflict",
+				"xKey already in use by another type in this space",
+				map[string]any{"xKey": xKey, "existingTypeId": t.Id}), true
+		}
+	}
+	colls, err := sp.Collections().List(ctx)
+	if err != nil {
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()}), true
+	}
+	for _, col := range colls {
+		if col.XKey == xKey || col.Id == xKey {
+			return writeError(c, http.StatusConflict, "type.xkey_conflict",
+				"xKey already in use by a collection in this space",
+				map[string]any{"xKey": xKey, "existingCollectionId": col.Id}), true
+		}
+	}
+	return nil, false
+}
+
+// ownerProperties resolves the property definitions of a type or a
+// collection by id — the shared definition surface — answering
+// space.ErrNotFound when neither resolves.
+func ownerProperties(ctx context.Context, sp space.Space, ownerId string) ([]space.PropertyDef, error) {
+	if _, err := sp.Types().Get(ctx, ownerId); err == nil {
+		return sp.Types().Properties(ctx, ownerId)
+	}
+	if _, err := sp.Collections().Get(ctx, ownerId); err != nil {
+		return nil, err
+	}
+	return sp.Collections().Properties(ctx, ownerId)
+}
+
 func typeInfoToAPI(t space.TypeInfo) api.TypeInfo {
 	// Builtin/registered types have clean literal ids (chat, editor, …) and no
 	// caller-set xKey; report xKey=id so every type has a stable programmatic
@@ -499,7 +549,6 @@ func typeInfoToAPI(t space.TypeInfo) api.TypeInfo {
 		IconCID:     t.IconCID,
 		XKey:        xkey,
 		BuiltIn:     t.BuiltIn,
-		Weight:      t.Weight,
 		Hidden:      t.Hidden,
 		Meta:        t.Meta,
 	}

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -118,17 +117,17 @@ func (d *deps) bundleEnsure(c echo.Context) error {
 	}
 
 	// The tech-space rules fail fast, BEFORE the space resolve and the
-	// registry-convergence wait the resolver runs: a type declaration
-	// required, no root types or properties (the
-	// SDK enforces the same; this spares an invalid request the wait).
+	// registry-convergence wait the resolver runs: a declaration
+	// required, no root membership or properties (the SDK enforces the
+	// same; this spares an invalid request the wait).
 	if d.isTechSpace(c.Param("spaceId")) {
 		switch {
-		case !inst.DeclaresType():
+		case !inst.Declares():
 			return writeError(c, http.StatusBadRequest, "request.missing_field",
-				"tech-space bundles must declare a type — parts, properties or an xKey", nil)
-		case len(inst.RootTypes) > 0 || len(inst.RootProperties) > 0:
+				"tech-space bundles must declare a type or collection — parts, properties or an xKey", nil)
+		case inst.RootType != "" || len(inst.RootCollections) > 0 || len(inst.RootProperties) > 0:
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
-				"rootTypes/rootProperties are not available on the tech space — a tech bundle root is its own type", nil)
+				"rootType/rootCollections/rootProperties are not available on the tech space — a tech bundle root is its own definition", nil)
 		}
 	}
 
@@ -237,25 +236,16 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 		}
 		inst.Layout = layout
 	}
-	if v := root.Get("weight"); v != nil && v.Type() != fastjson.TypeNull {
-		// GetFloat64, not GetInt: fastjson's GetInt answers 0 for `1.0`,
-		// which would silently drop the weight.
-		f := v.GetFloat64()
-		if v.Type() != fastjson.TypeNumber || f != math.Trunc(f) || f > math.MaxInt32 || f < math.MinInt32 {
-			return inst, writeError(c, http.StatusBadRequest, "request.schema", "weight must be an integer", nil), true
-		}
-		inst.Weight = int(f)
-	}
 	if v := root.Get("hidden"); v != nil && v.Type() != fastjson.TypeNull &&
 		v.Type() != fastjson.TypeTrue && v.Type() != fastjson.TypeFalse {
 		return inst, writeError(c, http.StatusBadRequest, "request.schema", "hidden must be a boolean", nil), true
 	}
 	inst.Hidden = root.GetBool("hidden")
-	if v := root.Get("selfTyped"); v != nil && v.Type() != fastjson.TypeNull &&
+	if v := root.Get("collection"); v != nil && v.Type() != fastjson.TypeNull &&
 		v.Type() != fastjson.TypeTrue && v.Type() != fastjson.TypeFalse {
-		return inst, writeError(c, http.StatusBadRequest, "request.schema", "selfTyped must be a boolean", nil), true
+		return inst, writeError(c, http.StatusBadRequest, "request.schema", "collection must be a boolean", nil), true
 	}
-	inst.SelfTyped = root.GetBool("selfTyped")
+	inst.Collection = root.GetBool("collection")
 	if v := root.Get("xKey"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeString {
 		return inst, writeError(c, http.StatusBadRequest, "request.schema", "xKey must be a string", nil), true
 	}
@@ -264,9 +254,13 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"xKey too long", map[string]any{"max_bytes": maxTypeXKeyBytes}), true
 	}
-	if !inst.DeclaresType() && (len(inst.Layout) > 0 || inst.Weight != 0 || inst.Hidden || inst.SelfTyped) {
+	if inst.Collection && len(inst.Layout) > 0 {
 		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
-			"layout/weight/hidden/selfTyped describe a type — declare parts, properties or an xKey with them", nil), true
+			"a collection has no layout", nil), true
+	}
+	if !inst.Declares() && (len(inst.Layout) > 0 || inst.Hidden) {
+		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"layout/hidden describe a definition — declare parts, properties or an xKey with them", nil), true
 	}
 	inst.Id = string(root.GetStringBytes("id"))
 	inst.Name = string(root.GetStringBytes("name"))
@@ -282,17 +276,25 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 			"name too long", map[string]any{"max_bytes": maxBundleNameBytes}), true
 	}
 
-	types := root.GetArray("rootTypes")
-	if len(types) > maxBundleTypes {
-		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
-			"too many rootTypes", map[string]any{"max": maxBundleTypes}), true
+	if v := root.Get("rootType"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeString {
+		return inst, writeError(c, http.StatusBadRequest, "request.schema", "rootType must be a type id", nil), true
 	}
-	for _, v := range types {
+	inst.RootType = string(root.GetStringBytes("rootType"))
+	if inst.RootType != "" && inst.Declares() {
+		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"rootType and a declaration are exclusive — a declaring root carries its marker in any.type", nil), true
+	}
+	colls := root.GetArray("rootCollections")
+	if len(colls) > maxBundleTypes {
+		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"too many rootCollections", map[string]any{"max": maxBundleTypes}), true
+	}
+	for _, v := range colls {
 		if v.Type() != fastjson.TypeString {
 			return inst, writeError(c, http.StatusBadRequest, "request.schema",
-				"rootTypes must be an array of type ids", nil), true
+				"rootCollections must be an array of collection ids", nil), true
 		}
-		inst.RootTypes = append(inst.RootTypes, string(v.GetStringBytes()))
+		inst.RootCollections = append(inst.RootCollections, string(v.GetStringBytes()))
 	}
 
 	if props := root.Get("rootProperties"); props != nil && props.Type() == fastjson.TypeObject {
@@ -399,33 +401,37 @@ func bundlePropertiesFromBody(c echo.Context, body []byte) ([]space.PropertyDraf
 }
 
 // checkBundleRoot pre-flights everything that would otherwise fail
-// silently or too late: a type id the space does not know (the create
-// path drops the attachment and reports success), and property values
-// that do not fit their descriptor slug (the same gate propertiesSet and
-// objectCreate run).
+// silently or too late: a type or collection id the space does not
+// know (the create path drops the membership and reports success), and
+// property values that do not fit their descriptor slug (the same gate
+// propertiesSet and objectCreate run).
 func (d *deps) checkBundleRoot(c echo.Context, sp space.Space, inst bundles.Install) (error, bool) {
 	ctx := c.Request().Context()
-	for _, typeId := range inst.RootTypes {
-		if _, err := sp.Types().Get(ctx, typeId); err != nil {
+	if inst.RootType != "" {
+		if _, err := sp.Types().Get(ctx, inst.RootType); err != nil {
 			return writeError(c, http.StatusBadRequest, "type.not_found",
-				"rootTypes names a type this space does not have",
-				map[string]any{"typeId": typeId, "spaceId": sp.Id()}), true
+				"rootType names a type this space does not have",
+				map[string]any{"typeId": inst.RootType, "spaceId": sp.Id()}), true
 		}
 		// Refused here: the root's tree is minted before the write the
 		// SDK would reject, and a row-less tree cannot be named to delete.
-		if reservedCarrierType(ctx, sp, typeId) {
-			return reservedCarrierError(c, sp.Id(), typeId), true
+		if reservedCarrierType(ctx, sp, inst.RootType) {
+			return reservedCarrierError(c, sp.Id(), inst.RootType), true
 		}
 	}
-	for typeId, patch := range inst.RootProperties {
-		if _, err := sp.Types().Get(ctx, typeId); err != nil {
-			return writeError(c, http.StatusBadRequest, "type.not_found",
-				"rootProperties names a type this space does not have",
-				map[string]any{"typeId": typeId, "spaceId": sp.Id()}), true
+	for _, id := range inst.RootCollections {
+		if _, err := sp.Collections().Get(ctx, id); err != nil {
+			return writeError(c, http.StatusBadRequest, "collection.not_found",
+				"rootCollections names a collection this space does not have",
+				map[string]any{"collectionId": id, "spaceId": sp.Id()}), true
 		}
-		defs, err := sp.Types().Properties(ctx, typeId)
+	}
+	for ownerId, patch := range inst.RootProperties {
+		defs, err := ownerProperties(ctx, sp, ownerId)
 		if err != nil {
-			return sdkOpError(c, err, map[string]any{"typeId": typeId, "spaceId": sp.Id()}), true
+			return writeError(c, http.StatusBadRequest, "type.not_found",
+				"rootProperties names a type or collection this space does not have",
+				map[string]any{"ownerId": ownerId, "spaceId": sp.Id()}), true
 		}
 		if v := validateDescriptorValues(defs, patch); v != nil {
 			return writeError(c, http.StatusBadRequest, "property.format_violation",
@@ -593,9 +599,9 @@ func (d *deps) bundleChild(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"seed too long", map[string]any{"max_bytes": maxBundleSeedBytes})
 	}
-	if len(req.Types) > maxBundleTypes {
+	if len(req.Collections) > maxBundleTypes {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
-			"too many types", map[string]any{"max": maxBundleTypes})
+			"too many collections", map[string]any{"max": maxBundleTypes})
 	}
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -607,13 +613,11 @@ func (d *deps) bundleChild(c echo.Context) error {
 		return bundleError(c, err, sp.Id(), bundleId)
 	}
 	// Same pre-check as the root's: the child is derived before its
-	// types are written.
-	for _, typeId := range req.Types {
-		if reservedCarrierType(ctx, sp, typeId) {
-			return reservedCarrierError(c, sp.Id(), typeId)
-		}
+	// type is written.
+	if req.Type != "" && reservedCarrierType(ctx, sp, req.Type) {
+		return reservedCarrierError(c, sp.Id(), req.Type)
 	}
-	objectId, err := bundles.Child(ctx, sp, b, req.Seed, req.Types...)
+	objectId, err := bundles.Child(ctx, sp, b, req.Seed, req.Type, req.Collections...)
 	if err != nil {
 		// A child is built on its parent's tree, so a missing parent
 		// means the winner has not reached this device yet — the same

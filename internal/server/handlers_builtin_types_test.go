@@ -70,7 +70,7 @@ func TestServer_BuiltinTypesHidden(t *testing.T) {
 	visible := typesById(t, e, base, "")
 	all := typesById(t, e, base, "?includeHidden=true")
 
-	for _, id := range []string{page.TypeId, miniapp.TypeId, bin.TypeId, dataview.TypeId} {
+	for _, id := range []string{page.TypeId, miniapp.Id, bin.Id, dataview.TypeId} {
 		if _, listed := visible[id]; listed {
 			t.Errorf("%s listed by default", id)
 		}
@@ -202,7 +202,7 @@ func TestServer_MiniappType(t *testing.T) {
 	base := "/v1/spaces/" + sp.Id
 
 	var props api.PropertiesListResponse
-	decodeGet(t, e, base+"/types/"+miniapp.TypeId+"/properties", &props)
+	decodeGet(t, e, base+"/types/"+miniapp.Id+"/properties", &props)
 	kinds := map[string]string{}
 	for _, p := range props.Properties {
 		kinds[p.Id] = string(p.Kind)
@@ -217,21 +217,21 @@ func TestServer_MiniappType(t *testing.T) {
 		}
 	}
 	var parts api.TypePartsListResponse
-	decodeGet(t, e, base+"/types/"+miniapp.TypeId+"/parts", &parts)
+	decodeGet(t, e, base+"/types/"+miniapp.Id+"/parts", &parts)
 	if len(parts.Parts) != 0 {
 		t.Errorf("miniapp parts = %+v, want none", parts.Parts)
 	}
 
-	obj := mustCreateObject(t, e, sp.Id, `{"types":["`+miniapp.TypeId+`"]}`)
-	setURL := fmt.Sprintf("%s/properties/%s/set/%s", base, obj, miniapp.TypeId)
+	obj := mustCreateObject(t, e, sp.Id, `{"types":["`+miniapp.Id+`"]}`)
+	setURL := fmt.Sprintf("%s/properties/%s/set/%s", base, obj, miniapp.Id)
 	rec := doJSON(t, e, http.MethodPost, setURL, `{"patch":{"bundle":"system:wiki/v1"}}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("set bundle: %d %s", rec.Code, rec.Body.String())
 	}
 	row := propertiesRecord(t, e, sp.Id, obj)
-	ns, _ := row[miniapp.TypeId].(map[string]any)
+	ns, _ := row[miniapp.Id].(map[string]any)
 	if ns[miniapp.PropBundle] != "system:wiki/v1" {
-		t.Errorf("miniapp namespace = %v", row[miniapp.TypeId])
+		t.Errorf("miniapp namespace = %v", row[miniapp.Id])
 	}
 	if rec := doJSON(t, e, http.MethodPost, setURL, `{"patch":{"bundle":42}}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("number into a string property: %d %s, want 400", rec.Code, rec.Body.String())
@@ -243,7 +243,7 @@ func TestServer_MiniappType(t *testing.T) {
 	}
 
 	bare := mustCreateObject(t, e, sp.Id, `{}`)
-	rec = doJSON(t, e, http.MethodPost, fmt.Sprintf("%s/properties/%s/set/%s", base, bare, miniapp.TypeId), `{"patch":{"bundle":"system:wiki/v1"}}`)
+	rec = doJSON(t, e, http.MethodPost, fmt.Sprintf("%s/properties/%s/set/%s", base, bare, miniapp.Id), `{"patch":{"bundle":"system:wiki/v1"}}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("set on a non-carrier: %d %s, want 400", rec.Code, rec.Body.String())
 	}
@@ -264,7 +264,7 @@ func TestServer_BinMoveRestore(t *testing.T) {
 	decodeGet(t, e, "/v1/account", &acc)
 
 	var props api.PropertiesListResponse
-	decodeGet(t, e, base+"/types/"+bin.TypeId+"/properties", &props)
+	decodeGet(t, e, base+"/types/"+bin.Id+"/properties", &props)
 	kinds := map[string]string{}
 	for _, p := range props.Properties {
 		kinds[p.Id] = p.Kind
@@ -274,8 +274,8 @@ func TestServer_BinMoveRestore(t *testing.T) {
 	}
 
 	obj := mustCreateObject(t, e, sp.Id, `{"initialProperties":{"any":{"name":"Trash me"}}}`)
-	attachURL := fmt.Sprintf("%s/properties/%s/attach/%s", base, obj, bin.TypeId)
-	detachURL := fmt.Sprintf("%s/properties/%s/detach/%s", base, obj, bin.TypeId)
+	attachURL := fmt.Sprintf("%s/properties/%s/attach/%s", base, obj, bin.Id)
+	detachURL := fmt.Sprintf("%s/properties/%s/detach/%s", base, obj, bin.Id)
 
 	// stamps reads the bin namespace: (movedAt, movedBy, present). A
 	// restored row carries NO `bin` key at all — an empty `bin: {}` would
@@ -283,7 +283,7 @@ func TestServer_BinMoveRestore(t *testing.T) {
 	stamps := func() (time.Time, string, bool) {
 		t.Helper()
 		row := propertiesRecord(t, e, sp.Id, obj)
-		nsRaw, hasNs := row[bin.TypeId]
+		nsRaw, hasNs := row[bin.Id]
 		if !hasNs {
 			return time.Time{}, "", false
 		}
@@ -310,7 +310,7 @@ func TestServer_BinMoveRestore(t *testing.T) {
 	if res.ChangeId == "" || res.VersionId == "" {
 		t.Errorf("move result = %+v, want a change", res)
 	}
-	if types := objectTypes(t, e, sp.Id, obj); !hasType(types, bin.TypeId) {
+	if types := objectTypes(t, e, sp.Id, obj); !hasType(types, bin.Id) {
 		t.Fatalf("bin not attached: %v", types)
 	}
 	first, by, ok := stamps()
@@ -342,10 +342,10 @@ func TestServer_BinMoveRestore(t *testing.T) {
 		}
 		return resp.Records
 	}
-	if got := query(`{"any.types":"` + bin.TypeId + `"}`); len(got) != 1 {
+	if got := query(`{"any.types":"` + bin.Id + `"}`); len(got) != 1 {
 		t.Errorf("carriers of bin = %d, want 1", len(got))
 	}
-	if got := query(`{"id":"` + obj + `","any.types":{"$nin":["` + bin.TypeId + `"]}}`); len(got) != 0 {
+	if got := query(`{"id":"` + obj + `","any.types":{"$nin":["` + bin.Id + `"]}}`); len(got) != 0 {
 		t.Errorf("$nin bin still lists the binned object: %s", got)
 	}
 
@@ -354,8 +354,8 @@ func TestServer_BinMoveRestore(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("second move: %d %s", rec.Code, rec.Body.String())
 	}
-	if types := objectTypes(t, e, sp.Id, obj); countOf(types, bin.TypeId) != 1 {
-		t.Errorf("bin listed %d times after the second move: %v", countOf(types, bin.TypeId), types)
+	if types := objectTypes(t, e, sp.Id, obj); countOf(types, bin.Id) != 1 {
+		t.Errorf("bin listed %d times after the second move: %v", countOf(types, bin.Id), types)
 	}
 	second, _, ok := stamps()
 	if !ok || second.Before(first) {
@@ -367,13 +367,13 @@ func TestServer_BinMoveRestore(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("restore: %d %s", rec.Code, rec.Body.String())
 	}
-	if types := objectTypes(t, e, sp.Id, obj); hasType(types, bin.TypeId) {
+	if types := objectTypes(t, e, sp.Id, obj); hasType(types, bin.Id) {
 		t.Errorf("bin still attached after restore: %v", types)
 	}
 	if _, _, ok := stamps(); ok {
-		t.Errorf("stamps survive the restore: %v", propertiesRecord(t, e, sp.Id, obj)[bin.TypeId])
+		t.Errorf("stamps survive the restore: %v", propertiesRecord(t, e, sp.Id, obj)[bin.Id])
 	}
-	if got := query(`{"id":"` + obj + `","any.types":{"$nin":["` + bin.TypeId + `"]}}`); len(got) != 1 {
+	if got := query(`{"id":"` + obj + `","any.types":{"$nin":["` + bin.Id + `"]}}`); len(got) != 1 {
 		t.Errorf("restored object missing from the $nin list")
 	}
 	// Restore is idempotent too.
@@ -391,7 +391,7 @@ func TestServer_BinMoveRestore(t *testing.T) {
 	}
 
 	// Unknown object: the generic 404, no partial write.
-	rec = doJSON(t, e, http.MethodPost, fmt.Sprintf("%s/properties/%s/attach/%s", base, "not-an-object", bin.TypeId), "")
+	rec = doJSON(t, e, http.MethodPost, fmt.Sprintf("%s/properties/%s/attach/%s", base, "not-an-object", bin.Id), "")
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("move a bogus id: %d %s, want 404", rec.Code, rec.Body.String())
 	}
@@ -399,11 +399,11 @@ func TestServer_BinMoveRestore(t *testing.T) {
 	// Restore on an object that was never binned is a no-op 200 and
 	// leaves no `bin` key behind.
 	never := mustCreateObject(t, e, sp.Id, `{}`)
-	rec = doJSON(t, e, http.MethodPost, fmt.Sprintf("%s/properties/%s/detach/%s", base, never, bin.TypeId), "")
+	rec = doJSON(t, e, http.MethodPost, fmt.Sprintf("%s/properties/%s/detach/%s", base, never, bin.Id), "")
 	if rec.Code != http.StatusOK {
 		t.Errorf("restore a never-binned object: %d %s", rec.Code, rec.Body.String())
 	}
-	if row := propertiesRecord(t, e, sp.Id, never); row[bin.TypeId] != nil || hasType(objectTypes(t, e, sp.Id, never), bin.TypeId) {
-		t.Errorf("never-binned object gained a bin namespace: %v", row[bin.TypeId])
+	if row := propertiesRecord(t, e, sp.Id, never); row[bin.Id] != nil || hasType(objectTypes(t, e, sp.Id, never), bin.Id) {
+		t.Errorf("never-binned object gained a bin namespace: %v", row[bin.Id])
 	}
 }

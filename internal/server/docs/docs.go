@@ -475,17 +475,20 @@ const docTemplate = `{
             },
             "api.BundleChildRequest": {
                 "properties": {
-                    "seed": {
-                        "description": "Seed derives the child deterministically under the bundle's\ncurrent winner. Permanent — a successor object takes a new seed.",
-                        "type": "string"
-                    },
-                    "types": {
-                        "description": "Types are attached on first materialization.",
+                    "collections": {
                         "items": {
                             "type": "string"
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "seed": {
+                        "description": "Seed derives the child deterministically under the bundle's\ncurrent winner. Permanent — a successor object takes a new seed.",
+                        "type": "string"
+                    },
+                    "type": {
+                        "description": "Type is set on first materialization; Collections the child\nlacks are added on every call.",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -500,6 +503,10 @@ const docTemplate = `{
             },
             "api.BundleEnsureRequest": {
                 "properties": {
+                    "collection": {
+                        "description": "Collection makes the declaration a COLLECTION instead of a type:\nthe root carries ` + "`" + `__collection__` + "`" + ` in any.type, properties are its\ncolumns, and objects are filed under it through any.collections.\nParts and layout are refused with it.",
+                        "type": "boolean"
+                    },
                     "derived": {
                         "description": "Derived installs the bundle on the root derived from its id\nrather than a created one. Every device computes that id\noffline, so the install never forks and never waits for the\nregistry to converge — which is the only way both sides of a\n1-1 (where nobody is the owner) can install while apart.\n\nPermanent in both directions: a derived root cannot be deleted,\nso the bundle can never be uninstalled, and an existing install\non a created root is adopted rather than migrated. Ask for it\nfor a space's chat; not for anything a user may remove.",
                         "type": "boolean"
@@ -513,7 +520,7 @@ const docTemplate = `{
                     },
                     "layout": {
                         "additionalProperties": {},
-                        "description": "Layout and Weight seed the root type's rendering slice (same\nshape as POST …/types); Hidden keeps it out of GET …/types. All\nthree are written on install only — an adopt never patches them.\nHidden is explicit: a root that only hosts its bundle's records\nshould ask for it (a listed type is one a client may attach\nelsewhere, granting that object the bundle's collections); a root\nthat is a type objects carry stays listed.",
+                        "description": "Layout seeds the root type's rendering slice (same shape as POST\n…/types; refused with ` + "`" + `collection` + "`" + `); Hidden keeps the definition\nout of the default listings. Both are written on install only —\nan adopt never patches them. Hidden is explicit: a root that only\nhosts its bundle's records should ask for it (a listed type is\none a client may set on other objects, granting them the bundle's\ncollections); a root that is a definition other objects use stays\nlisted.",
                         "type": "object"
                     },
                     "name": {
@@ -521,7 +528,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "parts": {
-                        "description": "Parts declares the root's parts with their datasets (same shape\nas POST …/types/:typeId/parts); the root becomes a type\nimplementing itself, typeId = rootId, and the records are written\nthrough POST …/upsert / …/modify on the root (dataset = the\ncomputed collection, ` + "`" + `\u003crootId\u003e_\u003ckey\u003e` + "`" + ` for a namespaced one).\nDeclared once on install; later evolution goes through the\n…/types/:rootId/parts routes. Parts or properties are required\non the tech space.",
+                        "description": "Parts declares the root's parts with their datasets (same shape\nas POST …/types/:typeId/parts); the root becomes a type\ndefinition, typeId = rootId, and — a definition implements\nitself — the records are written through POST …/upsert /\n…/modify on the root (dataset = the computed collection,\n` + "`" + `\u003crootId\u003e_\u003ckey\u003e` + "`" + ` for a namespaced one). Declared once on install;\nlater evolution goes through the …/types/:rootId/parts routes.\nParts or properties are required on the tech space. Refused with\n` + "`" + `collection` + "`" + `.",
                         "items": {
                             "$ref": "#/components/schemas/api.PartDraftRequest"
                         },
@@ -529,9 +536,16 @@ const docTemplate = `{
                         "uniqueItems": false
                     },
                     "properties": {
-                        "description": "Properties declares property definitions on the root (same shape\nas POST …/types/:typeId/properties, xKey REQUIRED and unique):\nthe root becomes a type objects carry, and each property's id is\nderived from (rootId, xKey) so two devices installing while apart\nmint one column per handle. Resolve xKey → propId through\nGET …/types/:rootId/properties. Declared once on install (an\nadopt fills in only definitions the root lacks); later evolution\ngoes through the …/types/:rootId/properties routes.",
+                        "description": "Properties declares property definitions on the root (same shape\nas POST …/types/:typeId/properties, xKey REQUIRED and unique):\nthe root becomes a type (or, with ` + "`" + `collection` + "`" + `, a collection)\nobjects use, and each property's id is derived from (rootId,\nxKey) so two devices installing while apart mint one column per\nhandle. Resolve xKey → propId through GET …/types/:rootId/\nproperties (or …/collections/:rootId/properties). Declared once\non install (an adopt fills in only definitions the root lacks);\nlater evolution goes through the …/properties routes.",
                         "items": {
                             "$ref": "#/components/schemas/api.AddPropertyRequest"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "rootCollections": {
+                        "items": {
+                            "type": "string"
                         },
                         "type": "array",
                         "uniqueItems": false
@@ -541,26 +555,15 @@ const docTemplate = `{
                             "additionalProperties": {},
                             "type": "object"
                         },
-                        "description": "RootProperties seeds the root's property values, keyed\ntypeId → propId → value (same shape as POST /objects), written\nwith RootTypes.",
+                        "description": "RootProperties seeds the root's property values, keyed\nowner → propId → value (same shape as POST /objects), written\nwith the membership; an owner that is neither rootType nor the\nroot's own declaration is added to rootCollections.",
                         "type": "object"
                     },
-                    "rootTypes": {
-                        "description": "RootTypes are attached to the root object at birth, so the\ninstall's datasets are writable on it with no extra call. On a\nroot that declares a type they ride the root's first change next\nto its own type — one object that is both a type and a carrier\nof another (the wiki: the type its pages carry and a ` + "`" + `miniapp` + "`" + `).",
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    },
-                    "selfTyped": {
-                        "description": "SelfTyped makes the root CARRY the type it declares, so it holds\nthat type's property values and its datasets — what a root that\nkeeps its own bundle's records needs (an app's layouts). Off, the\nroot is the type definition and nothing else: it matches no query\nfor the type and takes none of its collections, which is what a\ntype OTHER objects carry wants (a wiki, a person). Needs a type\ndeclaration; implied for a part declaring a reserved module and\non the tech space.",
-                        "type": "boolean"
-                    },
-                    "weight": {
-                        "type": "integer"
+                    "rootType": {
+                        "description": "RootType is the type of the root Ensure mints (its one type,\n` + "`" + `any.type` + "`" + `); refused next to a declaration — a declaring root\ncarries its marker there. RootCollections are the collections\nthe root is filed under at birth (a ` + "`" + `miniapp` + "`" + ` root is an app root\nthat also declares a type). Both ride the root's first change.",
+                        "type": "string"
                     },
                     "xKey": {
-                        "description": "XKey is the root type's handle (same meaning as on POST …/types):\nwhat a client resolves the type by, and what relation.targetTypes\nin other declarations name. Unique within the space among listed\ntypes (409 type.xkey_conflict). An xKey alone declares a MARKER\ntype — no properties, no parts, just a flag objects carry.\nWritten on install. A writer's adopt fills in a handle the root\nlacks (an install that predates it); an existing handle is never\nchanged.",
+                        "description": "XKey is the root definition's handle (same meaning as on POST\n…/types): what a client resolves it by, and what\nrelation.targetTypes in other declarations name. Unique within\nthe space among listed types and collections (409\ntype.xkey_conflict). An xKey alone declares a MARKER — a type, or\nwith ` + "`" + `collection` + "`" + ` a collection, with no properties and no parts.\nWritten on install. A writer's adopt fills in a handle the root\nlacks (an install that predates it); an existing handle is never\nchanged.",
                         "type": "string"
                     }
                 },
@@ -632,6 +635,9 @@ const docTemplate = `{
             },
             "api.CatalogBundle": {
                 "properties": {
+                    "collection": {
+                        "$ref": "#/components/schemas/api.CatalogCollection"
+                    },
                     "derived": {
                         "description": "Derived installs the bundle on the root derived from its id —\nnever forks, never deletable. The general chat only.",
                         "type": "boolean"
@@ -640,7 +646,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "hidden": {
-                        "description": "Hidden keeps the root's type out of pickers and out of the\nprimary-type choice; needs ` + "`" + `type` + "`" + ` or ` + "`" + `parts` + "`" + `, and excludes a\n` + "`" + `weight` + "`" + `.",
+                        "description": "Hidden keeps the root's definition out of pickers; needs ` + "`" + `type` + "`" + `,\n` + "`" + `collection` + "`" + ` or ` + "`" + `parts` + "`" + `.",
                         "type": "boolean"
                     },
                     "id": {
@@ -648,7 +654,7 @@ const docTemplate = `{
                     },
                     "miniapp": {
                         "additionalProperties": {},
-                        "description": "Miniapp is a value map on the built-in ` + "`" + `miniapp` + "`" + ` type the root\ncarries: ` + "`" + `bundle` + "`" + ` is this bundle's id (filled when omitted), any\nother key must be a property the built-in declares.",
+                        "description": "Miniapp is a value map on the built-in ` + "`" + `miniapp` + "`" + ` collection the\nroot is filed under: ` + "`" + `bundle` + "`" + ` is this bundle's id (filled when\nomitted), any other key must be a property the built-in declares.",
                         "type": "object"
                     },
                     "name": {
@@ -662,12 +668,23 @@ const docTemplate = `{
                         "type": "array",
                         "uniqueItems": false
                     },
-                    "selfTyped": {
-                        "description": "SelfTyped makes the root carry the type it declares — the shape\nof a root that hosts its own bundle's records (the contacts\nlayouts). Off, the root is the type definition only: it matches\nno query for the type and takes none of its collections, which\nis what a type other objects carry needs (the wiki, a person).\nNeeds a type declaration.",
-                        "type": "boolean"
-                    },
                     "type": {
                         "$ref": "#/components/schemas/api.CatalogType"
+                    }
+                },
+                "type": "object"
+            },
+            "api.CatalogCollection": {
+                "properties": {
+                    "properties": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.AddPropertyRequest"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "xKey": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -688,6 +705,10 @@ const docTemplate = `{
                 "properties": {
                     "bundle": {
                         "$ref": "#/components/schemas/api.Bundle"
+                    },
+                    "collectionId": {
+                        "description": "CollectionId is the root's id when the bundle declares a\ncollection.",
+                        "type": "string"
                     },
                     "id": {
                         "description": "Id is the bundle id.",
@@ -746,7 +767,7 @@ const docTemplate = `{
                 "type": "object"
             },
             "api.CatalogType": {
-                "description": "Type declares the type the root implements.",
+                "description": "Type declares the type the root defines; Collection the\ncollection. Exclusive. A root hosting its own records (parts)\nneeds no flag: a definition implements itself.",
                 "properties": {
                     "layout": {
                         "additionalProperties": {},
@@ -761,12 +782,8 @@ const docTemplate = `{
                         "type": "array",
                         "uniqueItems": false
                     },
-                    "weight": {
-                        "description": "Weight orders the type against others an object carries (the\nhighest listed one is the primary type); meaningless on a hidden\ntype.",
-                        "type": "integer"
-                    },
                     "xKey": {
-                        "description": "XKey is the type's handle — what clients resolve it by and what\nrelation.targetTypes name. Unique across the catalog.",
+                        "description": "XKey is the type's handle — what clients resolve it by and what\nrelation.targetTypes name. Unique across the catalog, types and\ncollections together.",
                         "type": "string"
                     }
                 },
@@ -887,6 +904,101 @@ const docTemplate = `{
                     },
                     "text": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.CollectionInfo": {
+                "properties": {
+                    "builtIn": {
+                        "type": "boolean"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "hidden": {
+                        "type": "boolean"
+                    },
+                    "iconCid": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "meta": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "xKey": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.CollectionPatchRequest": {
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "hidden": {
+                        "type": "boolean"
+                    },
+                    "iconCid": {
+                        "type": "string"
+                    },
+                    "meta": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.CollectionsCreateRequest": {
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "hidden": {
+                        "type": "boolean"
+                    },
+                    "iconCid": {
+                        "type": "string"
+                    },
+                    "meta": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "xKey": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.CollectionsCreateResponse": {
+                "properties": {
+                    "collectionId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.CollectionsListResponse": {
+                "properties": {
+                    "collections": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.CollectionInfo"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     }
                 },
                 "type": "object"
@@ -2419,21 +2531,25 @@ const docTemplate = `{
             },
             "api.ObjectCreateRequest": {
                 "properties": {
-                    "initialProperties": {
-                        "additionalProperties": {
-                            "additionalProperties": {},
-                            "type": "object"
-                        },
-                        "description": "InitialProperties carries the object's starting property values,\nkeyed by type id then property id — the ONLY home for them:\n{\"initialProperties\": {\"any\": {\"name\": \"Dune\"}}}. A top-level\nname/description/type-group key is rejected.",
-                        "type": "object"
-                    },
-                    "types": {
-                        "description": "Types lists the type ids attached at create — the object's\ncapabilities and the columns it takes. Nothing is appended\nserver-side: an object is in a space's wiki tree only when it\ncarries the wiki type (docs/28-well-known-bundles.md).",
+                    "collections": {
+                        "description": "Collections lists the collections the object is filed under at\ncreate — column groups without parts (docs/28-well-known-bundles.md:\nan object is in a space's wiki tree only when it is in the wiki\ncollection).",
                         "items": {
                             "type": "string"
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "initialProperties": {
+                        "additionalProperties": {
+                            "additionalProperties": {},
+                            "type": "object"
+                        },
+                        "description": "InitialProperties carries the object's starting property values,\nkeyed by owner (the type or a collection) then property id — the\nONLY home for them: {\"initialProperties\": {\"any\": {\"name\":\n\"Dune\"}}}. A top-level name/description/group key is rejected.",
+                        "type": "object"
+                    },
+                    "type": {
+                        "description": "Type is the object's one type — what it IS: its parts, its layout\nand one column group. Optional: an object with no type has no\nparts and renders as properties. Nothing is stamped server-side.",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -3669,6 +3785,7 @@ const docTemplate = `{
                     },
                     "layout": {
                         "additionalProperties": {},
+                        "description": "Layout — see TypesCreateRequest. Absent on built-ins.",
                         "type": "object"
                     },
                     "meta": {
@@ -3677,10 +3794,6 @@ const docTemplate = `{
                     },
                     "name": {
                         "type": "string"
-                    },
-                    "weight": {
-                        "description": "Weight / Layout — see TypesCreateRequest. Zero / absent on\nbuilt-ins.",
-                        "type": "integer"
                     },
                     "xKey": {
                         "description": "XKey is the stable, caller-side programmatic key. For builtin/registered\ntypes it equals Id (a clean literal like \"chat\"); for user types it's\nthe value set at create (or derived from Name by the client). Clients use\nit as the stable type handle in dotted property paths.",
@@ -3722,9 +3835,6 @@ const docTemplate = `{
                     },
                     "name": {
                         "type": "string"
-                    },
-                    "weight": {
-                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -3743,6 +3853,7 @@ const docTemplate = `{
                     },
                     "layout": {
                         "additionalProperties": {},
+                        "description": "Layout is how the type's header and parts compose — {type,\nconfig} in the xFormat shape (v1 slugs: page, tabs, chat, profile;\nopen set, unknown renders as page). Mutable via PATCH\n…/types/:typeId.",
                         "type": "object"
                     },
                     "meta": {
@@ -3751,10 +3862,6 @@ const docTemplate = `{
                     },
                     "name": {
                         "type": "string"
-                    },
-                    "weight": {
-                        "description": "Weight picks the primary type of a multi-typed object: the highest\nwins, tie broken by type id. Layout is how the primary type's\nheader and parts compose — {type, config} in the xFormat shape (v1\nslugs: page, tabs, chat, profile; open set, unknown renders as\npage). Both mutable via PATCH …/types/:typeId.",
-                        "type": "integer"
                     },
                     "xKey": {
                         "description": "XKey is the stable, caller-side programmatic key for the type\n(e.g. \"agent_memory\"). REQUIRED on create and unique per space: the\nserver rejects an empty xKey (type.xkey_required) and one that\ncollides with an existing type's xKey or id (type.xkey_conflict).\nClients derive it as a slug of Name. It's the only human handle a\ntype resolves by — the display Name is not a resolution key.",
@@ -8106,6 +8213,585 @@ const docTemplate = `{
                 ]
             }
         },
+        "/spaces/{spaceId}/collections": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Include hidden collections",
+                        "in": "query",
+                        "name": "includeHidden",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.CollectionsListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List collections",
+                "tags": [
+                    "collections"
+                ]
+            },
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.CollectionsCreateRequest",
+                                        "summary": "body",
+                                        "description": "Collection params"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Collection params",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.CollectionsCreateResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Create a collection",
+                "tags": [
+                    "collections"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/collections/{collectionId}": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Collection ID",
+                        "in": "path",
+                        "name": "collectionId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.CollectionInfo"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Get a collection",
+                "tags": [
+                    "collections"
+                ]
+            },
+            "patch": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Collection ID",
+                        "in": "path",
+                        "name": "collectionId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.CollectionPatchRequest",
+                                        "summary": "body",
+                                        "description": "Fields to change"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Fields to change",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Patch a collection's display metadata",
+                "tags": [
+                    "collections"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/collections/{collectionId}/properties": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Collection ID",
+                        "in": "path",
+                        "name": "collectionId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.PropertiesListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List properties of a collection",
+                "tags": [
+                    "collections"
+                ]
+            },
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Collection ID",
+                        "in": "path",
+                        "name": "collectionId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.AddPropertyRequest",
+                                        "summary": "body",
+                                        "description": "Property draft"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Property draft",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AddPropertyResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Add a property to a collection",
+                "tags": [
+                    "collections"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/collections/{collectionId}/properties/{propId}": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Collection ID",
+                        "in": "path",
+                        "name": "collectionId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Property ID",
+                        "in": "path",
+                        "name": "propId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Remove a property from a collection",
+                "tags": [
+                    "collections"
+                ]
+            },
+            "patch": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Collection ID",
+                        "in": "path",
+                        "name": "collectionId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Property ID",
+                        "in": "path",
+                        "name": "propId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.PropertyPatchRequest",
+                                        "summary": "body",
+                                        "description": "Patch"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Patch",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Patch a property of a collection",
+                "tags": [
+                    "collections"
+                ]
+            }
+        },
         "/spaces/{spaceId}/datasets": {
             "get": {
                 "parameters": [
@@ -9993,7 +10679,7 @@ const docTemplate = `{
                 ]
             },
             "get": {
-                "description": "The object's row from the space's objects collection: any.types and property values. 404 object.not_found for an unknown id, 410 object.deleted for a deleted object.",
+                "description": "The object's row from the space's objects collection: any.type, any.collections and property values. 404 object.not_found for an unknown id, 410 object.deleted for a deleted object.",
                 "parameters": [
                     {
                         "description": "Space ID",
@@ -12274,8 +12960,8 @@ const docTemplate = `{
                 ]
             }
         },
-        "/spaces/{spaceId}/properties/{objectId}/attach/{typeId}": {
-            "post": {
+        "/spaces/{spaceId}/properties/{objectId}/collections/{collectionId}": {
+            "delete": {
                 "parameters": [
                     {
                         "description": "Space ID",
@@ -12296,9 +12982,9 @@ const docTemplate = `{
                         }
                     },
                     {
-                        "description": "Type ID",
+                        "description": "Collection ID",
                         "in": "path",
-                        "name": "typeId",
+                        "name": "collectionId",
                         "required": true,
                         "schema": {
                             "type": "string"
@@ -12347,13 +13033,11 @@ const docTemplate = `{
                         "description": "Internal Server Error"
                     }
                 },
-                "summary": "Attach a type to an object",
+                "summary": "Remove the object from a collection",
                 "tags": [
                     "properties"
                 ]
-            }
-        },
-        "/spaces/{spaceId}/properties/{objectId}/detach/{typeId}": {
+            },
             "post": {
                 "parameters": [
                     {
@@ -12375,9 +13059,9 @@ const docTemplate = `{
                         }
                     },
                     {
-                        "description": "Type ID",
+                        "description": "Collection ID",
                         "in": "path",
-                        "name": "typeId",
+                        "name": "collectionId",
                         "required": true,
                         "schema": {
                             "type": "string"
@@ -12426,7 +13110,7 @@ const docTemplate = `{
                         "description": "Internal Server Error"
                     }
                 },
-                "summary": "Detach a type from an object",
+                "summary": "Add the object to a collection",
                 "tags": [
                     "properties"
                 ]
@@ -12454,7 +13138,7 @@ const docTemplate = `{
                         }
                     },
                     {
-                        "description": "Type ID",
+                        "description": "Type or collection ID (the owner)",
                         "in": "path",
                         "name": "typeId",
                         "required": true,
@@ -12516,6 +13200,155 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Set properties on an object (single declared scope)",
+                "tags": [
+                    "properties"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/properties/{objectId}/type": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Object ID",
+                        "in": "path",
+                        "name": "objectId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ModifyResult"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Unset the object's type",
+                "tags": [
+                    "properties"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/properties/{objectId}/type/{typeId}": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Object ID",
+                        "in": "path",
+                        "name": "objectId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ModifyResult"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Set the object's type",
                 "tags": [
                     "properties"
                 ]

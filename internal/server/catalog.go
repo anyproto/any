@@ -86,7 +86,7 @@ func compileCatalog(src []byte) (*compiledCatalog, catalog.Problems) {
 		problems = append(problems, catalog.Problem{Path: path, Code: code, Message: msg})
 	}
 	miniappProps := map[string]handler.PropertyDecl{}
-	for _, p := range miniapp.NewType().Properties {
+	for _, p := range miniapp.NewCollection().Properties {
 		miniappProps[p.Id] = p
 	}
 	for ui, u := range cat.Usecases {
@@ -97,11 +97,22 @@ func compileCatalog(src []byte) (*compiledCatalog, catalog.Problems) {
 			cb := compiledBundle{CatalogBundle: b, usecase: u.Id}
 			inst := bundles.Install{
 				Id: b.Id, Name: b.Name, Derived: b.Derived, Hidden: b.Hidden,
-				SelfTyped: b.SelfTyped, SystemInstall: true,
+				SystemInstall: true,
+			}
+			if b.Collection != nil {
+				inst.Collection = true
+				inst.XKey = b.Collection.XKey
+				for pi, req := range b.Collection.Properties {
+					draft, code, reason, _ := propertyDraftFromAPI(req)
+					if code != "" {
+						add(fmt.Sprintf("%s.collection.properties[%d]", bp, pi), code, reason)
+						continue
+					}
+					inst.Properties = append(inst.Properties, draft)
+				}
 			}
 			if b.Type != nil {
 				inst.XKey = b.Type.XKey
-				inst.Weight = b.Type.Weight
 				if layout, code, reason := layoutFromWire(b.Type.Layout); code != "" {
 					add(bp+".type.layout", code, reason)
 				} else {
@@ -144,8 +155,8 @@ func compileCatalog(src []byte) (*compiledCatalog, catalog.Problems) {
 				// not the author's shorthand (`miniapp: {}` would otherwise
 				// vanish behind omitempty).
 				cat.Usecases[ui].Bundles[bi].Miniapp = values
-				inst.RootTypes = []string{miniapp.TypeId}
-				inst.RootProperties = map[string]map[string]any{miniapp.TypeId: values}
+				inst.RootCollections = []string{miniapp.Id}
+				inst.RootProperties = map[string]map[string]any{miniapp.Id: values}
 			}
 			cb.install = inst
 			cu.bundles = append(cu.bundles, cb)

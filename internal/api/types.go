@@ -15,12 +15,10 @@ type TypesCreateRequest struct {
 	// Clients derive it as a slug of Name. It's the only human handle a
 	// type resolves by — the display Name is not a resolution key.
 	XKey string `json:"xKey,omitempty"`
-	// Weight picks the primary type of a multi-typed object: the highest
-	// wins, tie broken by type id. Layout is how the primary type's
-	// header and parts compose — {type, config} in the xFormat shape (v1
-	// slugs: page, tabs, chat, profile; open set, unknown renders as
-	// page). Both mutable via PATCH …/types/:typeId.
-	Weight int             `json:"weight,omitempty"`
+	// Layout is how the type's header and parts compose — {type,
+	// config} in the xFormat shape (v1 slugs: page, tabs, chat, profile;
+	// open set, unknown renders as page). Mutable via PATCH
+	// …/types/:typeId.
 	Layout json.RawMessage `json:"layout,omitempty"`
 	// Hidden keeps the type out of GET …/types by default (pass
 	// includeHidden=true to list it) and out of a client's pickers;
@@ -43,7 +41,6 @@ type TypePatchRequest struct {
 	Name        *string                    `json:"name,omitempty"`
 	Description *string                    `json:"description,omitempty"`
 	IconCID     *string                    `json:"iconCid,omitempty"`
-	Weight      *int                       `json:"weight,omitempty"`
 	Layout      json.RawMessage            `json:"layout,omitempty"`
 	Hidden      *bool                      `json:"hidden,omitempty"`
 	Meta        map[string]any             `json:"meta,omitempty"`
@@ -123,9 +120,7 @@ type TypeInfo struct {
 	// it as the stable type handle in dotted property paths.
 	XKey    string `json:"xKey,omitempty"`
 	BuiltIn bool   `json:"builtIn,omitempty"`
-	// Weight / Layout — see TypesCreateRequest. Zero / absent on
-	// built-ins.
-	Weight int             `json:"weight,omitempty"`
+	// Layout — see TypesCreateRequest. Absent on built-ins.
 	Layout json.RawMessage `json:"layout,omitempty"`
 	// Hidden / Meta — see TypesCreateRequest. GET …/types omits hidden
 	// types unless includeHidden=true.
@@ -136,6 +131,57 @@ type TypeInfo struct {
 // TypesListResponse is the body of GET /v1/spaces/:spaceId/types.
 type TypesListResponse struct {
 	Types []TypeInfo `json:"types"`
+}
+
+// CollectionsCreateRequest is the body of POST
+// /v1/spaces/:spaceId/collections. A collection is a type without
+// parts or layout: a column group objects are filed under
+// (`any.collections`) next to their one type. Mirrors
+// space.CollectionCreateParams; xKey, hidden and meta follow the type
+// rules (TypesCreateRequest).
+type CollectionsCreateRequest struct {
+	Name        string         `json:"name,omitempty"`
+	Description string         `json:"description,omitempty"`
+	IconCID     string         `json:"iconCid,omitempty"`
+	XKey        string         `json:"xKey,omitempty"`
+	Hidden      bool           `json:"hidden,omitempty"`
+	Meta        map[string]any `json:"meta,omitempty"`
+}
+
+// CollectionPatchRequest is the body of PATCH
+// /v1/spaces/:spaceId/collections/:collectionId — the display and
+// listing metadata, same rules as TypePatchRequest. At least one field
+// is required.
+type CollectionPatchRequest struct {
+	Name        *string        `json:"name,omitempty"`
+	Description *string        `json:"description,omitempty"`
+	IconCID     *string        `json:"iconCid,omitempty"`
+	Hidden      *bool          `json:"hidden,omitempty"`
+	Meta        map[string]any `json:"meta,omitempty"`
+}
+
+// CollectionsCreateResponse is the body returned by POST
+// /v1/spaces/:spaceId/collections.
+type CollectionsCreateResponse struct {
+	CollectionId string `json:"collectionId"`
+}
+
+// CollectionInfo mirrors space.CollectionInfo on the wire. Registered
+// collections report xKey = id, like registered types.
+type CollectionInfo struct {
+	Id          string         `json:"id"`
+	Name        string         `json:"name,omitempty"`
+	Description string         `json:"description,omitempty"`
+	IconCID     string         `json:"iconCid,omitempty"`
+	XKey        string         `json:"xKey,omitempty"`
+	BuiltIn     bool           `json:"builtIn,omitempty"`
+	Hidden      bool           `json:"hidden,omitempty"`
+	Meta        map[string]any `json:"meta,omitempty"`
+}
+
+// CollectionsListResponse is the body of GET /v1/spaces/:spaceId/collections.
+type CollectionsListResponse struct {
+	Collections []CollectionInfo `json:"collections"`
 }
 
 // PropertyDef mirrors space.PropertyDef on the wire. Recursive Items /

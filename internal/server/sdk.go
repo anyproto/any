@@ -92,8 +92,9 @@ func OpenSDK(ctx context.Context, cfg config.Config, nodeconf []byte, dataDir st
 		Network: sdkconfig.Network{NodeConfYAML: nodeconf},
 		Sync:    sdkconfig.Sync{ChangeBatchSize: cfg.Sync.ChangeBatchSize},
 		P2P:     sdkconfig.P2P{Enabled: cfg.P2P.Enabled, Port: cfg.P2P.Port, ServiceName: cfg.P2P.ServiceName},
-		Types:   serverTypes(),
-		Modules: serverModules(),
+		Types:       serverTypes(),
+		Collections: serverCollections(),
+		Modules:     serverModules(),
 	}
 	if cfg.Sync.DialTimeout != "" {
 		d, err := time.ParseDuration(cfg.Sync.DialTimeout)
@@ -131,26 +132,34 @@ func OpenSDK(ctx context.Context, cfg config.Config, nodeconf []byte, dataDir st
 // exercised over HTTP without shipping a production entry for them.
 // Set from a test file's init; empty in the server binary.
 var extraCatalog struct {
-	types   []handler.Type
-	modules []handler.Module
+	types       []handler.Type
+	collections []handler.Collection
+	modules     []handler.Module
 }
 
 // serverTypes is the hardcoded type set this server adds on top of the
-// SDK's built-ins — the types that are not modules: a saved-view
-// dataset on any host object and the hidden capability types an
-// object opts into (page / miniapp / bin). The wiki tree is a catalog
-// usecase, not a built-in.
-// Each entry registers its handler(s) with every per-object Controller;
-// a registered type reports builtIn with xKey = id, which is what
-// reserves the id against user types.
+// SDK's built-ins — the types that are not modules: the saved-view
+// object and the plain page. The wiki tree is a catalog usecase, not a
+// built-in. Each entry registers its handler(s) with every per-object
+// Controller; a registered type reports builtIn with xKey = id, which
+// is what reserves the id against user types.
 func serverTypes() []handler.Type {
 	out := []handler.Type{
-		dataview.NewType(), // hidden: dataviews + views records on any host object
+		dataview.NewType(), // hidden: dataviews + views records on a dataview object
 		page.NewType(),     // hidden: one part sharing the editor's canonical collection
-		miniapp.NewType(),  // hidden, property-only: the installed bundle an object runs
-		bin.NewType(),      // hidden, property-only: move-to-bin stamps (handlers_properties.go)
 	}
 	return append(out, extraCatalog.types...)
+}
+
+// serverCollections is the hardcoded collection set: the hidden
+// markers an object opts into next to its type — the sidebar entry
+// and the bin.
+func serverCollections() []handler.Collection {
+	out := []handler.Collection{
+		miniapp.NewCollection(), // hidden: the installed bundle an object runs
+		bin.NewCollection(),     // hidden: move-to-bin stamps (handlers_properties.go)
+	}
+	return append(out, extraCatalog.collections...)
 }
 
 // serverModules is the dataset-module set: compiled-in behaviours a

@@ -139,7 +139,7 @@ func holds(owners []string, attached map[string]bool) bool {
 }
 
 // EvictDatasets returns the collections to structurally evict for an
-// object with the given any.types: every collection of the module none
+// object with the given membership: every collection of the module none
 // of whose owners is attached, plus collections retired from the
 // catalog.
 func (c *ModuleChunker) EvictDatasets(ctx context.Context, sp space.Space, attached map[string]bool) ([]string, error) {
@@ -180,10 +180,7 @@ func (c *ModuleChunker) active(ctx context.Context, sp space.Space, objectId str
 	if row == nil || IsDeleted(row) {
 		return nil, nil // structural eviction is the indexer's job
 	}
-	attached := map[string]bool{}
-	for _, v := range row.GetArray("any", "types") {
-		attached[string(v.GetStringBytes())] = true
-	}
+	attached := Members(row)
 	var out []string
 	for _, name := range cat.names {
 		if holds(cat.owners[name], attached) {
