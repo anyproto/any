@@ -146,7 +146,7 @@ type P2P struct {
 
 // Local configures the local store — device-local, non-CRDT any-store
 // collections in the SDK's sdk.db under the "l_" tag, served at
-// /v1/local (docs/26-local-store.md).
+// /v1/local
 type Local struct {
 	// Enabled gates the /v1/local routes. Default true. When false the
 	// routes answer 409 local.disabled and no collection is created;

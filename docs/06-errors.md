@@ -198,6 +198,7 @@ local.bad_sort                   # 400 — unparseable sort key
 local.bad_modifier               # 400 — unparseable or unknown-operator modifier
 local.bad_pipeline               # 400 — unparseable pipeline, sink into the aggregated collection, sink result without id, $lookup from another collection
 local.limit_exceeded             # 400 — a blocking-stage bound blew (details.limit: group | accumArray | memory)
+local.bad_export                 # 400 — import of a file that is not an export this server reads: not gzip, foreign format/version, a section shorter than its count, a non-object or id-less document, bytes past the last section, an untagged collection name (details.imported = collections completed before it)
 
 access.disabled                  # 409 — no access.redeemUrl configured
 access.request_rejected          # 400 — the invite service refused the request (details.code)

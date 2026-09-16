@@ -1,5 +1,5 @@
 // TestE2E_LocalStore pins the local store's on-disk contract against
-// the real binary (docs/26-local-store.md): local collections live in
+// the real binary: local collections live in
 // the SDK's sdk.db and survive a server restart (the SDK's boot-time
 // orphan sweep leaves the l_ tag alone); a space-scoped collection
 // outlives its space — deleting the space makes every op on it

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -13,7 +15,7 @@ import (
 )
 
 // `any local ...` — the local store: device-local, non-CRDT any-store
-// collections that never sync (docs/26-local-store.md). One
+// collections that never sync. One
 // subcommand per /v1/local endpoint. Every data command takes the
 // collection NAME as its first argument; `--space ID` binds it to a
 // space, otherwise it is account-scoped.
@@ -23,7 +25,7 @@ func newLocalCmd() *cobra.Command {
 		Short: "local store: device-local, never-synced collections with any-store query/aggregate",
 		Long: `Device-local, non-CRDT collections in the server's own any-store DB.
 Nothing here syncs, subscribes, or is search-indexed; a space-scoped
-collection outlives its space. See docs/26-local-store.md.
+collection outlives its space.
 
   any local ensure scratch --index k,-at
   any local insert scratch --doc '[{"id":"a","k":1},{"k":2}]'
@@ -44,6 +46,8 @@ collection outlives its space. See docs/26-local-store.md.
 		newLocalQueryCmd(),
 		newLocalAggregateCmd(),
 		newLocalIndexesCmd(),
+		newLocalExportCmd(),
+		newLocalImportCmd(),
 	)
 	return cmd
 }
@@ -413,4 +417,85 @@ func newLocalIndexesCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&unique, "unique-ensure", nil, "unique index field list to ensure (repeatable)")
 	cmd.Flags().StringArrayVar(&drop, "drop", nil, "index name to drop (repeatable)")
 	return cmd
+}
+
+func newLocalExportCmd() *cobra.Command {
+	var scope, spaceId, out string
+	var names []string
+	cmd := &cobra.Command{
+		Use:   "export [--scope account|space] [--space ID] [--names a,b] --out FILE",
+		Short: "export collections as one gzip'd anyenc stream (any-store's dump format)",
+		Long: `Writes the named collections — or every collection in the scope when
+--names is absent — as one file: gzip around an anyenc value stream,
+a manifest first, then each collection's documents. Storage names stay tagged, so
+` + "`any local import`" + ` on another server recreates the same collections.
+
+  any local export --space <baoSpaceId> --names trace_runs,trace_records,trace_blobs --out traces.anyenc.gz
+`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if out == "" {
+				return fmt.Errorf("supply --out FILE (- for stdout)")
+			}
+			body, err := newClient(flags.Timeout).LocalExport(cmd.Context(), scope, spaceId, names)
+			if err != nil {
+				return err
+			}
+			defer body.Close()
+			var dst io.Writer = os.Stdout
+			if out != "-" {
+				f, err := os.Create(out)
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+				dst = f
+			}
+			n, err := io.Copy(dst, body)
+			if err != nil {
+				return fmt.Errorf("export: %w", err)
+			}
+			if out != "-" {
+				fmt.Fprintf(os.Stderr, "wrote %s (%d bytes)\n", out, n)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&scope, "scope", "", "account | space (--space implies space)")
+	cmd.Flags().StringVar(&spaceId, "space", "", "only this space's collections")
+	cmd.Flags().StringSliceVar(&names, "names", nil, "collection names (comma-separated or repeatable); absent = every collection in scope")
+	cmd.Flags().StringVar(&out, "out", "", "output file (- for stdout)")
+	return cmd
+}
+
+func newLocalImportCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "import FILE",
+		Short: "load an exported file's collections into this server's local store (same names; upsert)",
+		Long: `Recreates every collection the file carries — same scope, space id and
+name, same indexes — and upserts its documents, so importing the same
+file twice is a no-op. The file's spaces need not exist on this server:
+a reporter's bao traces land on a scratch server as-is, and
+` + "`anyrt trace ls --addr <this server> --space <their bao space id>`" + ` reads them.
+
+  any local import traces.anyenc.gz        # - for stdin
+`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var src io.Reader = os.Stdin
+			if args[0] != "-" {
+				f, err := os.Open(args[0])
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+				src = f
+			}
+			out, err := newClient(flags.Timeout).LocalImport(cmd.Context(), src)
+			if err != nil {
+				return err
+			}
+			return printJSON(out)
+		},
+	}
 }

@@ -51,7 +51,8 @@ and leaves everything else alone.
   DAGs AND the only copy of local data. The SDK's own
   rebuild paths (generation bump, handler version bump) are safe —
   they touch CRDT collections only — but deleting the `sdk/` directory
-  loses local collections. There is no backup.
+  loses local collections. There is no automatic backup; § Export and
+  import is the manual one.
 - **Not independently deletable.** Local state cannot be wiped
   without wiping the account's replay cache with it. Drop
   collections through the API instead.
@@ -85,9 +86,14 @@ convention:
   `name` matches `^[a-z0-9][a-z0-9_-]{0,63}$`; `_` is legal inside it —
   the fixed tag segments keep the storage-name split exact.
 - **Space scope** binds a collection to a space id and pre-flights
-  the space on every operation except list and drop (`404
-  space.not_found` for an unknown space, `409 space.deleted` for a
-  tombstoned one — a dead space cannot be resurrected as a namespace).
+  the space on every **write** — ensure, insert, upsert, update,
+  indexes, a pipeline's sink target (`404 space.not_found` for an
+  unknown space, `409 space.deleted` for a tombstoned one — a dead
+  space cannot be resurrected as a namespace). Reads (get, query,
+  aggregate), delete, drop, list, export and import never pre-flight:
+  a gone space's collections stay readable and deletable, and an
+  imported store's collections (§ Export and import) are readable on
+  a server that has never seen their space.
   **Nothing drops a space-scoped collection when its space goes
   away**; it outlives the space and `drop` is the cleanup path. The
   sharp case is a 1-1 space: delete is local-only and the id is
@@ -130,6 +136,8 @@ POST   /v1/local/get                  {coll, id}            → {record}
 POST   /v1/local/query                {coll, filter?, sort?, limit?, offset?, includeTotal?, projection?} → {records, total?, hasNext?}
 POST   /v1/local/aggregate            {coll, pipeline, …limits, explain?} → {records} | {plan} | {written}
 POST   /v1/local/indexes              {coll, ensure?, drop?} → {indexes}
+GET    /v1/local/export               ?scope=&spaceId=&names=a,b → the file (application/gzip)
+POST   /v1/local/import               body = the file → {collections}
 ```
 
 `filter` / `sort` / `modifier` / `pipeline` are the raw any-store
@@ -157,6 +165,74 @@ imposes: a sink cannot target the aggregated collection itself, and
 `$merge`/`$out` need every result document to carry `id` (both `400
 local.bad_pipeline`). `$lookup from` must name the aggregated
 collection itself (`400 local.bad_pipeline`).
+
+## Export and import
+
+A collection-level dump: the named collections leave as **one file**
+and come back on any server as the same collections — same scope,
+space id, name, indexes, documents. The use is diagnostics across
+machines: a reporter's device-local data (bao's trace collections,
+anybao ADR-023) exported from their app and imported into a
+developer's scratch server, where every `/v1/local` read — query,
+aggregate, `anyrt trace ls/show` — works on it unchanged. Whole-DB
+backup is not this: `sdk.db` is the whole account.
+
+```
+GET /v1/local/export?scope=space&spaceId=<id>&names=trace_runs,trace_records,trace_blobs
+                                      → 200 application/gzip, Content-Disposition attachment
+POST /v1/local/import   (body = the file, exempt from the 1 MiB body cap)
+                                      → {collections: [{scope, spaceId?, name, storageName, count, indexes}]}
+```
+
+- `names` is comma-separated and needs a scope (`spaceId` implies
+  `space`). Without `names`, every collection the `(scope, spaceId)`
+  listing would return is exported; nothing there is `404
+  local.collection_not_found`. Duplicates export once.
+- **No space pre-flight on either side**, like every read: a gone
+  space's collections must still export, and the file's spaces need
+  not exist on the importing server — reads, aggregation and delete
+  work on the imported collections there; only writes that could grow
+  them (insert, upsert, update, indexes) answer `404 space.not_found`.
+- **One snapshot.** The export runs inside one any-store read
+  transaction, so the collections are mutually consistent and every
+  section's count is exact. Every name is resolved before the first
+  byte — a missing collection is a JSON 404, never a truncated file.
+- **Import = ensure + upsert**, 256 documents per transaction like
+  every other write here: an existing collection keeps what it has
+  and is overlaid (re-importing the same file is a no-op; a newer
+  export of the same collections updates the older); an index that
+  exists under the same name with a different definition is `400
+  local.bad_index`. A failure mid-way leaves the collections before
+  it committed. The reply lists the collections as they stand after.
+- **The fence holds on import.** Every collection is re-derived from
+  its `(scope, spaceId, name)` through `ParseRef`; the recorded
+  storage name is checked, never trusted. A file naming `_meta` or
+  any untagged collection is `400 local.bad_export`.
+
+### The file
+
+gzip (anyenc carries no checksum; gzip's CRC catches corruption)
+around one any-store **anyenc value stream** (`anyenc.NewWriter` /
+`anyenc.NewReader`, any-store ≥ v2.1.1): values back to back, each
+delimiting itself. The first value is the manifest; then, in manifest
+order, exactly `count` documents per collection — no separators, no
+trailer. Suggested extension: `.anyenc.gz`.
+
+```
+{ format: "any-local-export", version: 1, exportedAt: <unix ms>,
+  collections: [ { scope, spaceId?, name, storageName, count,
+                   indexes: [{name, fields, unique, sparse}] } ] }
+<doc> <doc> …      collections[0], count docs
+<doc> …            collections[1], …
+```
+
+Only range indexes are recorded (the only kind the store exposes).
+`format`/`version` must match exactly; a section shorter than its
+count, a non-object document, a document without an `id`, or bytes
+past the last section are `400 local.bad_export` (`details.imported`
+= collections completed before the failure). Any anyenc reader can
+consume the file without a server — the documents are the stored
+values as-is.
 
 ## Limits
 
@@ -194,7 +270,8 @@ local collections sit untouched on disk.
 
 - Not a dataset; not declared on a type; no schema enforcement.
 - Not synced, not subscribe-able, not search-indexed.
-- Not independently deletable; not covered by any backup.
+- Not independently deletable; not covered by the SDK's backup —
+  export is per collection, on request.
 - Not cleaned up on space delete — a space-scoped collection outlives
   its space.
 
@@ -203,12 +280,13 @@ local collections sit untouched on disk.
 Subscribe / liveness; FTS or vector indexes on local collections;
 synced→local `$out`/`$merge` and cross-collection `$lookup`;
 auto-cleanup on space delete; TTL / expiration; a collection registry;
-backup or export.
+whole-store backup (export is per named collection).
 
 ## Source
 
 `internal/localstore` (naming, existence, the tag fence — the only
-place the tag is applied), `internal/server/handlers_local.go` (wire),
+place the tag is applied; `export.go` the file format + export/import),
+`internal/server/handlers_local.go` (wire),
 `internal/api/local.go` (bodies), `internal/client/local.go`,
 `internal/cli/local.go`. SDK side: `SDK.Store()` and the consumer
 contract in the SDK's

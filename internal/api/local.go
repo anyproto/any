@@ -3,7 +3,7 @@ package api
 import "encoding/json"
 
 // Local store — device-local, non-CRDT any-store collections under
-// /v1/local (task-local-store.md; docs/26-local-store.md). Records are
+// /v1/local. Records are
 // plain documents with a string `id`; no `_ver`, no tombstones, no
 // subscribe. Filters, sorts, modifiers and pipelines are the any-store
 // shapes /query and /aggregate already accept.
@@ -187,4 +187,12 @@ type LocalIndexesResponse struct {
 type LocalMetaResponse struct {
 	Stages       []string `json:"stages"`
 	Accumulators []string `json:"accumulators"`
+}
+
+// LocalImportResponse is the body of POST /v1/local/import: every
+// collection the file carried, as it stands after the import (in
+// file order). The export itself, GET /v1/local/export, has no JSON
+// body — it streams the file.
+type LocalImportResponse struct {
+	Collections []LocalCollectionInfo `json:"collections"`
 }

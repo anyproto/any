@@ -4175,11 +4175,16 @@ when `local.enabled: false`.
 | POST   | `/v1/local/query`        | `{coll, filter?, sort?, limit?, offset?, includeTotal?, projection?}` → `{records, total?, hasNext?}` |
 | POST   | `/v1/local/aggregate`    | `{coll, pipeline, groupLimit?, accumArrayLimit?, memoryLimitBytes?, explain?}` → `{records}` \| `{plan}` \| `{written}` |
 | POST   | `/v1/local/indexes`      | `{coll, ensure?: [{name?, fields, unique?, sparse?}], drop?: [name]}` → `{indexes}` |
+| GET    | `/v1/local/export`       | `?scope=&spaceId=&names=a,b` → the collections as one file (`application/gzip`: an anyenc value stream, manifest first) |
+| POST   | `/v1/local/import`       | body = that file (no body cap) → `{collections: [{scope, spaceId?, name, storageName, count, indexes}]}` |
 
 `coll` is `{scope: "account" | "space", spaceId?, name}`; `name`
-matches `^[a-z0-9][a-z0-9_-]{0,63}$`. A space-scoped op pre-flights
+matches `^[a-z0-9][a-z0-9_-]{0,63}$`. A space-scoped **write**
+(ensure, insert, upsert, update, indexes, a sink target) pre-flights
 the space (`404 space.not_found` unknown, `409 space.deleted`
-tombstoned), except drop. Every op on an
+tombstoned); reads, delete, drop, list, export and import do not — an
+imported store's collections are readable on a server without their
+space. Every op on an
 un-ensured collection is `404 local.collection_not_found`; a bad
 `coll` is `400 local.bad_name`, a missing document
 `404 local.doc_not_found`, a unique-index clash
@@ -4207,6 +4212,18 @@ writer per DB and the CRDT apply path shares it): insert/upsert take
 ≤ 1000 docs per request (`400 local.too_many_docs`) and a mid-way
 failure leaves earlier chunks committed; delete-by-filter collects ids
 under one read and removes them in chunks — **not atomic per call**.
+
+**Export / import move named collections between servers as one
+file** (`docs/26-local-store.md` § Export and import): `names` needs
+a scope (`spaceId` implies `space`), absent `names` = every collection
+in scope; no space pre-flight on either side. The export is one
+snapshot (one read transaction), resolved before the first byte — a
+missing name is `404 local.collection_not_found`, never a cut file.
+Import ensures each collection with the file's indexes and upserts
+its documents 256 per transaction (idempotent; `400 local.bad_index`
+on a clashing index definition); a file that is not an export this
+server reads — not gzip, foreign `format`/`version`, a short section,
+a document without `id`, an untagged name — is `400 local.bad_export`.
 
 ### Push notifications
 

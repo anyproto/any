@@ -2239,6 +2239,18 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.LocalImportResponse": {
+                "properties": {
+                    "collections": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.LocalCollectionInfo"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "api.LocalIndex": {
                 "properties": {
                     "fields": {
@@ -5675,6 +5687,82 @@ const docTemplate = `{
                 ]
             }
         },
+        "/local/export": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "account | space (absent with names absent = every local collection)",
+                        "in": "query",
+                        "name": "scope",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "restrict to one space (implies scope=space)",
+                        "in": "query",
+                        "name": "spaceId",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "comma-separated collection names (absent = every collection in scope)",
+                        "in": "query",
+                        "name": "names",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/gzip": {
+                                "schema": {
+                                    "type": "file"
+                                }
+                            }
+                        },
+                        "description": "gzip: an anyenc value stream — manifest, then each collection's documents"
+                    },
+                    "400": {
+                        "content": {
+                            "application/gzip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/gzip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/gzip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "summary": "Export local collections as one file",
+                "tags": [
+                    "local"
+                ]
+            }
+        },
         "/local/get": {
             "post": {
                 "requestBody": {
@@ -5740,6 +5828,55 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Read one local document by id",
+                "tags": [
+                    "local"
+                ]
+            }
+        },
+        "/local/import": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/gzip": {
+                            "schema": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.LocalImportResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "summary": "Import an exported local-store file",
                 "tags": [
                     "local"
                 ]
