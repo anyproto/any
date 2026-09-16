@@ -5,7 +5,7 @@ order: 10
 ---
 # Chat
 
-The `chat` module turns an object into a conversation: one `chat_messages` collection, one record per message, edits and reactions that merge on every peer, and read state the SDK maintains for you. An object holds the collection while it carries a type whose part declares `{"module": "chat", "shared": true}` ([modules](index.html)); chat is shared-only, one conversation per object. You write through a handful of chat endpoints and read everything — including live updates and unread flags — through the ordinary query primitive.
+The `chat` module turns an object into a conversation: one `chat_messages` storage collection, one record per message, edits and reactions that merge on every peer, and read state the SDK maintains for you. An object holds it while its type declares a part with `{"module": "chat", "shared": true}` ([modules](index.html)); chat is shared-only, one conversation per object. You write through a handful of chat endpoints and read everything — including live updates and unread flags — through the ordinary query primitive.
 
 > **Note.** Chat is restricted for now. The `chat` module is reserved to the server: a space has exactly one chat, the general chat that the catalog's `general-chat` usecase installs (`system:general-chat/v1`, a derived root). A client cannot declare its own chat — a part, dataset or bundle body naming `chat` is `400 dataset.module_reserved` — and the chat's type is carried only by its own root: creating or attaching another object with it is `400 type.reserved_carrier`.
 
@@ -26,7 +26,7 @@ curl -X POST http://127.0.0.1:7001/v1/catalog/general-chat/setup \
 #          "installed": true|false, "typeId": "<chat object>" } ] }
 ```
 
-The install is a derived, hidden root that is its own type with a chat part, so it accepts messages from the first write, and carries the `miniapp` marker, so the chat is a sidebar entry like any other app. Use its `rootId` as `<objectId>` in every endpoint below. The call is adopt-or-install, and a derived root's id is a pure function of the space and the bundle id — every client, on any device, for any member, online or not, computes the same `rootId`, two sides of a 1-1 included. `POST /objects` never makes a chat, and there is no second chat to find. Chat content cannot be merged across objects (`creator` and `createdAt` are stamped from the change envelope, so copying messages re-attributes and re-times them), which is why the one chat is derived and permanent.
+The install is a derived, hidden root that is its own type with a chat part, so it accepts messages from the first write, and is filed under the `miniapp` collection, so the chat is a sidebar entry like any other app. Use its `rootId` as `<objectId>` in every endpoint below. The call is adopt-or-install, and a derived root's id is a pure function of the space and the bundle id — every client, on any device, for any member, online or not, computes the same `rootId`, two sides of a 1-1 included. `POST /objects` never makes a chat, and there is no second chat to find. Chat content cannot be merged across objects (`creator` and `createdAt` are stamped from the change envelope, so copying messages re-attributes and re-times them), which is why the one chat is derived and permanent.
 
 ## Endpoints
 
@@ -181,10 +181,10 @@ Every `any://` reference in a message — text links and mentions, each attachme
 Each chat object's row already carries its counters, so a chat list is a plain objects query — `{"sort": ["-chat.unreadCount"]}` sorts unread-first, and a thousand chats cost one query. Do **not** subscribe to every chat to detect new messages. One space-wide objects subscription covers them all:
 
 ```json
-{ "filter": {"any.types": {"$in": ["<chat-declaring type ids>"]}}, "limit": 0 }
+{ "filter": {"any.type": {"$in": ["<chat-declaring type ids>"]}}, "limit": 0 }
 ```
 
-The type ids are the `owners` of `chat_messages` in `GET /v1/spaces/:spaceId/datasets` — every type whose part declares the chat module; resolve them once per space and match per element of `any.types` with `$in`.
+The type ids are the `owners` of `chat_messages` in `GET /v1/spaces/:spaceId/datasets` — every type whose part declares the chat module; resolve them once per space and match `any.type` against the set with `$in`.
 
 Counter went up → new unread in that chat; fetch `{"unread": true}` sorted `-_ver.id` with a small limit and toast only messages above a last-notified `_ver.id` you keep locally. Counter went down → the user read it somewhere (this window, another window, another device) — dismiss that chat's notifications. Total live surface for a desktop client: one objects subscription per space, one `/query/subscribe` for the open chat.
 

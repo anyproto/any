@@ -55,8 +55,9 @@ Reads never leave the device. `POST /v1/spaces/:id/query` runs a filter/sort/lim
 | **Account** | An identity derived from a BIP-39 mnemonic. One server process serves one account. |
 | **Space** | The unit of sharing and permissions: an encrypted container of objects with its own ACL and members. |
 | **Object** | A content-addressed DAG of changes. Holds property values plus zero or more datasets. |
-| **Dataset** | A named collection of records on an object (`chat_messages`, `editor_blocks`, `agent_triggers`, …). |
-| **Type** | A declaration bound to an object via `any.types` — its properties, and the parts whose datasets the object takes. |
+| **Dataset** | A named storage collection of records on an object (`chat_messages`, `editor_blocks`, `agent_triggers`, …). |
+| **Type** | What an object is — exactly one, in `any.type`: its properties, its layout, and the parts whose datasets the object takes. |
+| **Collection** | What an object is filed under — any number, in `any.collections`: property definitions only. |
 | **Module** | The server code that serves a kind of dataset — `editor` blocks, `chat` messages, generic `records` — for every type whose part declares it. |
 | **Change** | One signed, encrypted write appended to an object's DAG. Its CID is the `changeId`. |
 | **Program** | Python code stored in a space and executed by anyrt inside the effect boundary. |

@@ -22,7 +22,7 @@ At serve boot anyrt registers the **`bao/v1` [bundle](../collaboration/bundles.h
 
 Turn logs are per chat: the general chat is the catalog's `system:general-chat/v1` root, and its log is a child of *that* bundle. The brain exists only in the agent space — memory has one home. Each store is ensured by its writer, idempotently, on first use.
 
-Each store is one part of a hidden harness type (`agent_config`, `agent_secrets`, `agent_trigger`, `agent_brain`, `agent_log`), so type pickers never offer them. The names in the table are dataset **keys**; the records live in the collection `<typeId>_<key>`, which is the `dataset` value on the wire. Guest code passes the key and `any@v1` resolves it; from `curl`, look the collection up once:
+Each store is one part of a hidden harness type (`agent_config`, `agent_secrets`, `agent_trigger`, `agent_brain`, `agent_log`), so type pickers never offer them. The names in the table are dataset **keys**; the records live in the storage collection `<typeId>_<key>`, which is the `dataset` value on the wire. Guest code passes the key and `any@v1` resolves it; from `curl`, look the storage collection up once:
 
 ```bash
 TURNS=$(curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/datasets \

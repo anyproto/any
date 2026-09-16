@@ -33,11 +33,11 @@ const SPACE = space.id;                              // "bafyreig…"
 
 ## 2. Create an object
 
-A document is an object carrying a type whose part declares the `editor` module — the built-in `page` for a plain body, or a document type of your own (registered as a bundle so every device agrees on one).
+A document is an object whose type has a part declaring the `editor` module — the built-in `page` for a plain body, or a document type of your own (registered as a bundle so every device agrees on one). `type` is required; `collections` is optional.
 
 ```js
 const { objectId } = await call("POST", `/spaces/${SPACE}/objects`, {
-  types: ["page"],
+  type: "page",
   initialProperties: { any: { name: "Reading list" } },
 });
 ```
@@ -46,7 +46,7 @@ const { objectId } = await call("POST", `/spaces/${SPACE}/objects`, {
 
 ```js
 const page = await call("POST", `/spaces/${SPACE}/objects/query`, {
-  filter: { "any.types": "page" },
+  filter: { "any.type": "page" },
   sort: ["-modifiedAt"],
   limit: 20,
   includeTotal: true,
@@ -91,7 +91,7 @@ const ctl = new AbortController();
 const view = new Map();                              // id → record: hold a window, not a database
 
 for await (const { event, data } of sse(`/spaces/${SPACE}/objects/query/subscribe`,
-    { filter: { "any.types": "page" }, sort: ["-modifiedAt"], limit: 20 }, ctl.signal)) {
+    { filter: { "any.type": "page" }, sort: ["-modifiedAt"], limit: 20 }, ctl.signal)) {
   if (event === "ready") continue;                   // stream is live after this
   if (event === "snapshot") { for (const r of data.records) view.set(r.id, r); render(); }
   if (event === "changes") {

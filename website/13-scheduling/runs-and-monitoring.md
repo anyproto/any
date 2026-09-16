@@ -40,7 +40,7 @@ At the end of every run the runtime upserts one record into `agent_runs` on the 
 | `mutations` | effects classified as writes |
 | `tokens`, `costUsd`, `model` | LLM usage across the run |
 
-The runs collection is namespaced like the triggers one. Read the last twenty fires of one trigger:
+The runs storage collection is namespaced like the triggers one. Read the last twenty fires of one trigger:
 
 ```sh
 RUNS_ANCHOR=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/bao%2Fv1/children \

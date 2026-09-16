@@ -24,7 +24,7 @@ A trigger is a record in the agent's `agent_triggers` dataset: a program, a sche
 | `lastStatus` | string | written by the owning device: `ok` / `error` / `interrupted` / `auto_disabled` / a health marker |
 | `consecutiveFailures` | number | written by the owning device: the breaker count |
 
-The dataset lives on the hidden `agent_trigger` type (`idRule: user`, `dynamic: true`, no declared fields), so its collection is `<typeId>_agent_triggers`; the record id is a slug you choose. The runtime's own writes replace the whole record with the fields above — any other key does not survive them.
+The dataset lives on the hidden `agent_trigger` type (`idRule: user`, `dynamic: true`, no declared fields), so its storage collection is `<typeId>_agent_triggers`; the record id is a slug you choose. The runtime's own writes replace the whole record with the fields above — any other key does not survive them.
 
 ### `spec` by kind
 

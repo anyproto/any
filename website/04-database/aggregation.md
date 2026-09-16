@@ -12,7 +12,7 @@ Aggregation is snapshot-only. There is no `/aggregate/subscribe`; re-run the pip
 ## Endpoints
 
 ```
-POST /v1/spaces/:spaceId/objects/aggregate    cross-object — the space's objects collection
+POST /v1/spaces/:spaceId/objects/aggregate    cross-object — the space's objects storage collection
 POST /v1/spaces/:spaceId/aggregate            per-object dataset (objectId + dataset required)
 ```
 
@@ -51,7 +51,7 @@ any aggregate $SPACE $OBJ --dataset chat_messages \
   --pipeline '[{"$group":{"_id":"$creator","n":{"$count":{}}}},{"$sort":{"n":-1}}]'
 ```
 
-Movie count per year over objects (property values live at `<typeId>.<propId>`, see [Reading data](reading-data.html)):
+Movie count per year over objects (property values live at `<ownerId>.<propId>` — the owner being the object's type or one of its collections, see [Reading data](reading-data.html)):
 
 ```sh
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/aggregate -d '{
@@ -88,7 +88,7 @@ Just a count: `any aggregate $SPACE --properties --pipeline '[{"$count": "object
 
 ## Stages and operators
 
-Stages: `$match` (the full `/query` filter language plus `$expr`), `$sort`, `$skip`, `$limit`, `$count`, `$project`, `$addFields`/`$set`, `$unwind`, `$group`, `$facet`, `$lookup` (self-join only — `from` must name the aggregated collection or be omitted).
+Stages: `$match` (the full `/query` filter language plus `$expr`), `$sort`, `$skip`, `$limit`, `$count`, `$project`, `$addFields`/`$set`, `$unwind`, `$group`, `$facet`, `$lookup` (self-join only — `from` must name the aggregated storage collection or be omitted).
 
 Accumulators in `$group`: `$sum`, `$avg`, `$min`, `$max`, `$count`, `$first`, `$last`, `$push`, `$addToSet`.
 
@@ -135,7 +135,7 @@ Negative values mean unlimited. There is no spill to disk — filter earlier or 
 | `$group` output key | `_id` | `id` — accepts `_id` or `id` on input, always emits `id` |
 | `$count` result | `{"<name>": N}` | same, delivered as the only document in `records` |
 | Compute operators | full library | the closed set above |
-| `$lookup` | any collection | self-join only |
+| `$lookup` | any storage collection | self-join only |
 | `$bucket`, `$bucketAuto`, `$replaceRoot`, `$sortByCount`, `$unionWith` | yes | not supported |
 | `$out` / `$merge` | write results | not supported — writes go through the CRDT |
 | `$project` | implicit `_id`, exclusion mode | strictly explicit — only listed fields appear, `id` only if listed |
@@ -161,7 +161,7 @@ Negative values mean unlimited. There is no spill to disk — filter earlier or 
 
 ```
 any aggregate <spaceId> <objectId> --dataset NAME --pipeline '<json>'   # per-object dataset
-any aggregate <spaceId> --properties --pipeline '<json>'               # objects collection
+any aggregate <spaceId> --properties --pipeline '<json>'               # objects storage collection
 ```
 
 `--pipeline` takes inline JSON, `@FILE`, or `-` for stdin. Optional: `--group-limit`, `--accum-limit`, `--memory-limit`, `--explain`.

@@ -1767,8 +1767,9 @@ rewrite. See `04-events.md`.
 `type` is the object's one type (§ Types), `collections` the
 collections it is filed under (§ Collections), and every key of
 `initialProperties` is an **owner**: the type or one of the
-collections, whose namespace the values land in. All three are
-optional — `{}` creates a bare object.
+collections, whose namespace the values land in. `type` is required
+(`400 request.missing_field`; `page` for a plain document); the other
+two are optional.
 
 These three keys are the **whole** create vocabulary. Any other
 top-level key — a bare owner group like `"any"`, a top-level `"name"`,

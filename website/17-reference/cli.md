@@ -109,10 +109,10 @@ any bundle ensure  <spaceId> --body '<json>'|@FILE|-
 any bundle list    <spaceId>
 any bundle get     <spaceId> <bundleId>
 any bundle resolve <spaceId> <bundleId> <loserRootId>
-any bundle child   <spaceId> <bundleId> --seed SEED [--type T]...
+any bundle child   <spaceId> <bundleId> --seed SEED --type T [--collection C]...
 ```
 
-`catalog setup` prints every bundle it touched with its `typeId` and xKey → propId `properties`, so the ids a client writes with come from the reply, never from minting a type by xKey.
+`catalog setup` prints every bundle it touched with its `typeId` or `collectionId` — whichever kind the bundle declares — and its xKey → propId `properties`, so the ids a client writes with come from the reply, never from minting a definition by xKey.
 
 ```bash
 any catalog setup wiki $SP
@@ -122,7 +122,7 @@ any catalog setup wiki $SP
 
 ```
 any query-subscribe <spaceId> <objectId> --dataset NAME [--filter J] [--sort K] [--limit N] [--offset N] [--total] [--projection P]
-any query-subscribe <spaceId> --properties [same flags]      # per-space objects collection
+any query-subscribe <spaceId> --properties [same flags]      # per-space objects storage collection
 any aggregate <spaceId> <objectId> --dataset NAME --pipeline '<json>'|@FILE|-
 any aggregate <spaceId> --properties --pipeline '<json>'|@FILE|-
               [--group-limit N] [--accum-limit N] [--memory-limit N] [--explain]
@@ -169,13 +169,34 @@ any chat react  <spaceId> <objectId> <msgId> <emoji>          # toggle
 
 `<objectId>` is the `rootId` of the space's chat — `any catalog setup general-chat <spaceId>` installs or adopts it and prints the root. Text is markdown; `--file -` reads it from stdin. Edit and delete work on your own messages only. Reading is `any query-subscribe … --dataset chat_messages`.
 
+## Objects
+
+```
+any object create <spaceId> --type T [--collection C]... [--properties '<json>'|@FILE|-]
+
+any object type set          <spaceId> <objectId> <typeId>
+any object collection attach <spaceId> <objectId> <collectionId>
+any object collection detach <spaceId> <objectId> <collectionId>
+```
+
+`--type` is required (`page` is the plain document) and `object type set` replaces the previous one — there is no unset. `--collection` repeats; attach and detach are idempotent, and detaching is not a delete: that owner's values stay on the row as orphan data. `--properties` seeds values keyed owner → propId → value, the owner being the type or one of the collections.
+
+`set` and `attach` pre-flight the id (`404 type.not_found` / `404 collection.not_found`, `400 type.not_a_type` / `400 collection.not_a_collection` when it names the other surface); `detach` pre-flights nothing, so it can repair a row that already carries a bogus id.
+
+```bash
+any object create $SP --type page --collection $WIKI
+any object create $SP --type $PERSON --collection $CONTACT --properties '{"any":{"name":"Ada"}}'
+any object collection attach $SP $OBJ bin     # to the bin
+any object collection detach $SP $OBJ bin     # restore
+```
+
 ## Types and properties
 
 ```
 any type create <spaceId> --name N --xkey K [--description D] [--icon-cid CID]
-                [--weight N] [--layout '<json>'] [--hidden] [--meta k=v]...
+                [--layout '<json>'] [--hidden] [--meta k=v]...
 any type list   <spaceId> [--include-hidden]
-any type update <spaceId> <typeId> [--name N] [--description D] [--icon CID] [--weight N]
+any type update <spaceId> <typeId> [--name N] [--description D] [--icon CID]
                 [--layout '<json>'|''] [--hidden[=false]] [--meta k=v]...
 
 any type property list   <spaceId> <typeId>                        # alias: any type prop
@@ -204,6 +225,33 @@ any type part dataset field remove <spaceId> <typeId> <defId> <fieldId>
 any type property add $SP $T --name Stage --xkey stage --kind array --x-format '{"type":"choice"}'
 any type property patch $SP $T $P --set '{"xFormat.options.high.name":"High","xFormat.options.high.color":"red"}'
 any type property option set $SP $T $P high --name High --color red --pos a0    # same write, sugar
+```
+
+## Collections
+
+```
+any collection list   <spaceId> [--include-hidden]
+any collection get    <spaceId> <collectionId>
+any collection create <spaceId> --name N --xkey K [--description D] [--icon-cid CID]
+                      [--hidden] [--meta k=v]...
+any collection update <spaceId> <collectionId> [--name N] [--description D] [--icon CID]
+                      [--hidden[=false]] [--meta k=v]...
+
+any collection property list   <spaceId> <collectionId>            # alias: any collection prop
+any collection property add    <spaceId> <collectionId> --name N --kind string|number|boolean|array|object|datetime
+                               [--xkey K] [--description D] [--scope synced|account|local] [--x-format '<json>'|@FILE|-]
+any collection property patch  <spaceId> <collectionId> <propId> --set '<json>' [--unset PATH]...
+any collection property remove <spaceId> <collectionId> <propId>
+```
+
+A collection is what an object is filed under; a type is what it is. A collection takes a name, description, icon, `--xkey`, `--hidden`, `--meta` and property definitions — no parts, no layout. The property verbs are the type ones on a collection owner, same flags and same `{set, unset}` patch rules; the choice-option sugar is on the type group only, so patch the descriptor path directly here.
+
+`--xkey` is required on create and unique across the space's types and collections together (`409 type.xkey_conflict`). `collection list` omits hidden collections (the built-in `miniapp` / `bin`, and any you marked hidden) without `--include-hidden`; `collection get` resolves them always. A registered built-in refuses a metadata write (`400 collection.registered`), and deleting a collection is `501 sdk.not_implemented`.
+
+```bash
+any collection create $SP --name Contacts --xkey contact
+any collection property add $SP $C --name Company --xkey company --kind string
+any collection update $SP $C --hidden=false --meta pinned=true
 ```
 
 ## Files
@@ -241,7 +289,7 @@ any local aggregate <name> --pipeline '<json>' [--group-limit N] [--accum-limit 
 any local indexes <name> [--ensure 'a,-b']... [--unique-ensure 'k']... [--drop NAME]... [--space ID]
 ```
 
-Without `--space` a collection is account-scoped; with it, bound to that space. Nothing here syncs.
+Without `--space` a local storage collection is account-scoped; with it, bound to that space. Nothing here syncs.
 
 ```bash
 any local ensure scratch --index k,-at

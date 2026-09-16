@@ -20,7 +20,7 @@ $ any run &
 <span class="out">listening 127.0.0.1:7001   network prod   bootstrapping…done</span>
 $ curl -s :7001/v1/spaces -d '{"name":"notes"}' | jq -r .id
 <span class="out">bafyrei…7q.1a2b3c</span>
-$ curl -s :7001/v1/spaces/$S/objects -d '{"initialProperties":{"any":{"name":"hello"}}}'
+$ curl -s :7001/v1/spaces/$S/objects -d '{"type":"page","initialProperties":{"any":{"name":"hello"}}}'
 $ curl -sN :7001/v1/spaces/$S/objects/query/subscribe -d '{"sort":["-modifiedAt"],"limit":20}'
 <span class="out">event: ready
 event: snapshot   {"records":[{"id":"…","any":{"name":"hello"},…}]}
@@ -38,7 +38,7 @@ event: changes    …live from here, from every device you own</span></code></pr
 <a href="understanding/index.html"><strong>Understanding any</strong><span>Local-first, encryption, CRDT consistency, the invariants.</span></a>
 <a href="quickstart/index.html"><strong>Quickstart</strong><span>Install, first space in curl, CLI, JS, Python, mobile, anyrt.</span></a>
 <a href="tutorial/index.html"><strong>Tutorial</strong><span>Objects, properties, datasets, apps — four parts that build on each other.</span></a>
-<a href="database/index.html"><strong>Database</strong><span>Spaces, objects, types, reading & writing, aggregation, history.</span></a>
+<a href="database/index.html"><strong>Database</strong><span>Spaces, objects, types, collections, reading & writing, aggregation, history.</span></a>
 <a href="realtime/index.html"><strong>Realtime</strong><span>Subscribe, sync status, space list, event bus.</span></a>
 <a href="auth/index.html"><strong>Auth & identity</strong><span>Mnemonic accounts, devices, identities directory.</span></a>
 <a href="collaboration/index.html"><strong>Collaboration</strong><span>Members, invites, ACL, one-to-one spaces, bundles.</span></a>

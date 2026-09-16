@@ -5,9 +5,9 @@ order: 90
 ---
 # Runtime datasets
 
-A runtime dataset is a collection you define under a **part** of one of your own types, at runtime, with a declarative schema — the `records` module ([modules](../types/index.html)). The schema syncs like any other data, and every peer enforces it on apply — required fields, who may edit a field after creation, who may delete a record, server-derived creator and time stamps, and whether record ids are auto-derived or caller-supplied.
+A runtime dataset is a storage collection you define under a **part** of one of your own types, at runtime, with a declarative schema — the `records` module ([modules](../types/index.html)). The schema syncs like any other data, and every peer enforces it on apply — required fields, who may edit a field after creation, who may delete a record, server-derived creator and time stamps, and whether record ids are auto-derived or caller-supplied.
 
-The records live in a collection **namespaced to the type**, `<typeId>_<key>` — the `collection` every declaration reply and listing carries, and the `dataset` value on every read and write. Two types can each declare `entries` without colliding. Registered built-in types (`dataview`, `page`, …) refuse runtime definitions with `400 type.registered`. Runtime datasets are for *your* types.
+The records live in a storage collection **namespaced to the type**, `<typeId>_<key>` — the `collection` every declaration reply and listing carries, and the `dataset` value on every read and write. Two types can each declare `entries` without colliding. Registered built-in types (`page`, `dataview`) refuse runtime definitions with `400 type.registered`. Runtime datasets are for *your* types — parts and datasets belong to types alone, never to a collection.
 
 > **Why it matters.** There is no server-side function to put validation in. Every device applies every change, so the rules have to travel with the data. A dataset declaration is that rule set: an offline peer, a second device, and a member on another continent all reject the same malformed write, without ever agreeing on a leader.
 
@@ -40,9 +40,9 @@ any type part dataset add $SPACE $TYPE $PART --draft @articles.json
 
 | Field | Meaning |
 |---|---|
-| `key` | The dataset's slug inside the type (`[a-z][a-z0-9_]*`), pinned, unique among the type's parts and datasets → `409 dataset.key_conflict`. The collection is `<typeId>_<key>`. |
+| `key` | The dataset's slug inside the type (`[a-z][a-z0-9_]*`), pinned, unique among the type's parts and datasets → `409 dataset.key_conflict`. The storage collection is `<typeId>_<key>`. |
 | `module` | The serving module; absent = `records`. An `editor` dataset carries no `fields` (the module owns the schema — `409 dataset.module_owned`); `chat` is reserved to the server's catalog install (`400 dataset.module_reserved`); an unknown module is `400 dataset.module_unknown`. |
-| `shared` | Use the module's canonical collection instead of a namespaced one (`editor_blocks`, `chat_messages`); never for `records` → `400 dataset.shared_conflict`. |
+| `shared` | Use the module's canonical storage collection instead of a namespaced one (`editor_blocks`, `chat_messages`); never for `records` → `400 dataset.shared_conflict`. |
 | `idRule` | `auto` (default: ids derived from the change, explicit client ids rejected) or `user` (caller-supplied, matched against `idPattern` / `idMaxLen`, defaults `[A-Za-z0-9._:-]+` / 128). |
 | `deleteBy` | `anyone` (default) or `author` — requires a `stamp: creator` field; deletes by anyone else are dropped at apply. |
 | `search` | `{title, text, scope?}` — which fields the search indexer extracts. `text` is one key or a non-empty array of keys joined in order. `scope` picks the index scope (default `basic`). |
@@ -110,14 +110,14 @@ any type part dataset remove       $SPACE $TYPE $DEF
 
 A definition whose folded declaration fails validation is listed with `invalid: true` and `invalidReason` — it never registers or accepts data, but stays visible so it can be repaired or removed. Definitions racing in from other members fold by key: the smallest definition id wins the pinned leaves, and a disagreement on one marks the fold invalid.
 
-Runtime datasets also appear in the space's discovery document, `GET /v1/spaces/:spaceId/datasets`, under their collection name as JSON Schema with `owners` (the declaring type), `module` and the behavioral keywords `x-mutable-by`, `x-stamp`, `x-delete-by`, `x-id` / `x-id-pattern` / `x-id-max-length`, `x-search`, plus the standard `required` list. `any datasets $SPACE` prints the same.
+Runtime datasets also appear in the space's discovery document, `GET /v1/spaces/:spaceId/datasets`, under their storage collection name as JSON Schema with `owners` (the declaring type), `module` and the behavioral keywords `x-mutable-by`, `x-stamp`, `x-delete-by`, `x-id` / `x-id-pattern` / `x-id-max-length`, `x-search`, plus the standard `required` list. `any datasets $SPACE` prints the same.
 
 ## Writing and reading records
 
 The data path is the ordinary dataset surface — no new endpoints:
 
 ```sh
-# write (the object must carry the owning type; attach it at create via "types")
+# write (the object's type must be the owning one; set it at create via "type")
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/modify -d '{
   "objectId": "'$OBJ'", "dataset": "'$TYPE'_articles",
   "records": [ { "id": "a1", "ops": [
@@ -130,4 +130,4 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
 
 See [Writing data](writing-data.html) and [Reading data](reading-data.html) for the full `modify` / `query` bodies, and [Subscribe](../realtime/subscribe.html) for live updates. `idRule: user` datasets additionally get idempotent batch ingest through [Upsert](upsert.html).
 
-> **Note.** Records live on objects carrying the owning type, so the first write to a fresh object fails with `400 dataset.not_declared` until the type is attached. Stamped fields (`creator`, `createTime`, `modifyTime`) are instants and identities the server fills in; a payload that sets them is rejected.
+> **Note.** Records live on objects of the owning type, so a write fails with `400 dataset.not_declared` until that type is set — at create through `type`, or later through `POST …/properties/:objectId/type/:typeId`. A definition object hosts its own records, so the type itself is a valid `objectId`. Stamped fields (`creator`, `createTime`, `modifyTime`) are instants and identities the server fills in; a payload that sets them is rejected.

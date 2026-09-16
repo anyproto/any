@@ -37,7 +37,7 @@ The runtime stamps three fields back onto the record — `lastRunAt`, `lastStatu
 
 ## Where the records live
 
-Triggers sit on the **trigger anchor**: the `bao/triggers/v1` child of the agent space's `bao/v1` bundle, which `anyrt serve` provisions on boot. Resolve it by seed, never by name. The records live in a collection namespaced to the harness type (`<typeId>_agent_triggers`); read its name from the space's dataset listing:
+Triggers sit on the **trigger anchor**: the `bao/triggers/v1` child of the agent space's `bao/v1` bundle, which `anyrt serve` provisions on boot. Resolve it by seed, never by name. The records live in a storage collection namespaced to the harness type (`<typeId>_agent_triggers`); read its name from the space's dataset listing:
 
 ```sh
 ANCHOR=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/bao%2Fv1/children \

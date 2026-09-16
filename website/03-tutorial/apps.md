@@ -9,11 +9,11 @@ Everything so far was data. This part is about what a client does with it: how a
 
 ## Parts are inheritance, one level deep
 
-A type is properties plus **parts**. A part is a display unit the client renders — a table, a body, a transcript — and each part owns datasets that a **module** serves:
+A type is properties plus **parts**. A part is a display unit the client renders — a table, a body, a transcript — and each part owns storage collections that a **module** serves:
 
 | Module | Serves | You declared one in |
 |--------|--------|---------------------|
-| `records` | a dataset whose schema you declare, in `<typeId>_<key>` | Part 3 — the `messages` part |
+| `records` | records whose schema you declare, in `<typeId>_<key>` | Part 3 — the `messages` part |
 | `editor` | block documents with a lossless markdown bridge, in the shared `editor_blocks` | below |
 | `chat` | messages with reactions, mentions and read tracking, in `chat_messages` | reserved to the server — the space's one chat |
 
@@ -33,8 +33,8 @@ The mailbox object did not learn how to store blocks, merge concurrent edits or 
 
 Two rules keep this flat rather than a hierarchy:
 
-- **Types never inherit from types.** An object carries several types side by side; each contributes its columns and its parts. There is no chain to resolve.
-- **A shared collection appears once.** `"shared": true` puts the body in the module's canonical collection. An object carrying the mailbox *and* the built-in `page` has one body, not two — which is exactly the diamond problem, answered by construction instead of by a resolution order ([Modules](../types/index.html)).
+- **Types never inherit from types.** An object has exactly one type, and that type's parts are the object's parts. There is no chain to resolve and no primary-type contest.
+- **A shared storage collection is the same body everywhere.** `"shared": true` puts the body in the module's canonical storage collection, `editor_blocks` — the one the built-in `page` uses too. Retype an object from `mailbox` to `page` and its notes are still there, because both parts name the same place ([Modules](../types/index.html)).
 
 > **Why it matters.** The modules are the shapes that are hardest to get right as CRDTs — a block document, a messenger — shipped once and inherited everywhere. Your type gets a real collaborative body by naming a module; the merge rules run on every peer and never reach a server.
 
@@ -44,19 +44,25 @@ The server never renders anything, but the type carries the hints a client keys 
 
 ```bash
 curl -s -X PATCH $API/spaces/$SPACE/types/$MAILBOX -H 'content-type: application/json' \
-  -d '{"weight": 10, "layout": {"type": "table"}}'
+  -d '{"layout": {"type": "table"}}'
 
-any type update $SPACE $MAILBOX --weight 10 --layout '{"type":"table"}'
+any type update $SPACE $MAILBOX --layout '{"type":"table"}'
 ```
 
 | Hint | On | Meaning |
 |------|----|---------|
-| `weight` | the type | An object's **primary** type is the carried type with the highest weight. Built-ins carry none and never win. |
-| `layout` | the type | The descriptor the client renders for the primary type — `{"type": …, "config": …}`, your vocabulary, opaque to the server. |
+| `layout` | the type | The descriptor the client renders the object with — `{"type": …, "config": …}`, your vocabulary, opaque to the server. Collections carry none. |
 | `ui` | each part | The widget for that part (`table`, `document`, `board`, `chat`, …), also client vocabulary. |
 | `pos` | each part | Part order, a lexid string. |
 
-The client rule is: take the object's primary type, render its `layout` with the parts of **every** carried type in `pos` order. A mailbox that also carries the wiki type renders as a mailbox and still has a place in the tree; a person that also carries `page` still shows its body. Rendering only the primary type's parts is the common mistake.
+The client rule is one line:
+
+```
+object view     = layout of any.type + parts of any.type, in pos order
+property groups = the type's properties + every collection's properties
+```
+
+A mailbox filed under the wiki collection renders as a mailbox and still has a place in the tree; the wiki's `parentId` / `pos` / `folder` show up as a property group, not as a part. Rendering only the type's property group — and dropping the collections' columns — is the common mistake.
 
 ## Bundles: one definition on every device
 
@@ -66,7 +72,7 @@ A **bundle** fixes that. It is one root object registered in the space under a p
 
 ```bash
 curl -s -X POST $API/spaces/$SPACE/bundles -H 'content-type: application/json' -d '{
-  "id": "mail/v1", "name": "Mail", "xKey": "mail", "weight": 10, "layout": {"type": "table"}, "selfTyped": true,
+  "id": "mail/v1", "name": "Mail", "xKey": "mail", "layout": {"type": "table"},
   "properties": [ {"xKey": "address", "name": "Address", "kind": "string", "xFormat": {"type": "email"}} ],
   "parts": [
     {"key": "messages", "ui": {"type": "table"},
@@ -79,7 +85,7 @@ curl -s -X POST $API/spaces/$SPACE/bundles -H 'content-type: application/json' -
                               {"key": "read", "kind": "boolean", "mutableBy": "any"}]}]},
     {"key": "notes", "ui": {"type": "document"},
      "datasets": [{"module": "editor", "shared": true}]} ],
-  "rootTypes": ["miniapp"],
+  "rootCollections": ["miniapp"],
   "rootProperties": {"miniapp": {"bundle": "mail/v1", "pos": "a0"}} }'
 ```
 
@@ -95,8 +101,8 @@ any bundle ensure $SPACE --body @mail-bundle.json
 The reply's `rootId` is three things at once:
 
 1. **the type** — `typeId == rootId`; `GET …/types/<rootId>/properties` gives the `xKey → propId` map you cache;
-2. **an object of that type** — `selfTyped: true` makes the root carry its own type, so it can hold the mailbox's own records: `"objectId": "<rootId>", "dataset": "<rootId>_messages"` on `/upsert` and `/query` is the inbox. Without it the root is the definition only, the shape a type that *other* objects carry wants;
-3. **the app** — `rootTypes` attached the built-in `miniapp` type and `rootProperties` set its `bundle`, so the root is a sidebar entry (next section).
+2. **the host of its own records** — a definition hosts itself, with no flag and no self-membership: `"objectId": "<rootId>", "dataset": "<rootId>_messages"` on `/upsert` and `/query` is the inbox. The root's own type slot holds the marker `__type__`, not its id, so the root never turns up among the objects of its type;
+3. **the app** — `rootCollections` filed the root under the built-in `miniapp` collection and `rootProperties` set its `bundle`, so it is a sidebar entry (next section).
 
 Run the same call on the second device and it answers `installed: false` with the same `rootId`: an adopt, a pure read, safe for a member who could not create anything. Two devices that install while genuinely apart each register a root; after sync the registry names one winner and lists the other under `losers`, and the client merges and resolves ([Bundles](../collaboration/bundles.html)).
 
@@ -104,7 +110,7 @@ Property ids on a bundle are derived from `(rootId, xKey)`, which is why two bli
 
 ## The sidebar: `miniapp`
 
-A space is, to its user, a list of apps. The marker is the built-in hidden type `miniapp`, with three properties and no parts:
+A space is, to its user, a list of apps. The marker is the built-in hidden **collection** `miniapp`, with three columns and nothing else — an app root keeps its own type slot for its definition marker, and a pinned object keeps the type it already has:
 
 | Property | Meaning |
 |----------|---------|
@@ -116,8 +122,8 @@ The sidebar is one subscription:
 
 ```bash
 curl -s -N -X POST $API/spaces/$SPACE/objects/query/subscribe -H 'content-type: application/json' -d '{
-  "filter": {"$and": [{"any.types": "miniapp"},
-                      {"any.types": {"$nin": ["bin"]}},
+  "filter": {"$and": [{"any.collections": "miniapp"},
+                      {"any.collections": {"$nin": ["bin"]}},
                       {"miniapp.hidden": {"$ne": true}}]},
   "sort": ["miniapp.pos"]}'
 ```
@@ -125,10 +131,10 @@ curl -s -N -X POST $API/spaces/$SPACE/objects/query/subscribe -H 'content-type: 
 A row with `miniapp.bundle` is an installed app and the bundle id says what to run — `mail/v1` opens your mailbox UI, `system:wiki/v1` the wiki. A row without one is an object the user pinned, rendered as the object it is:
 
 ```bash
-curl -s -X POST $API/spaces/$SPACE/properties/$OBJ/attach/miniapp          # pin
+curl -s -X POST $API/spaces/$SPACE/properties/$OBJ/collections/miniapp     # pin
 curl -s -X POST $API/spaces/$SPACE/properties/$OBJ/set/miniapp \
   -H 'content-type: application/json' -d '{"patch": {"pos": "a2"}}'
-curl -s -X POST $API/spaces/$SPACE/properties/$OBJ/detach/miniapp          # unpin
+curl -s -X DELETE $API/spaces/$SPACE/properties/$OBJ/collections/miniapp   # unpin
 ```
 
 The marker obliges nothing. A plain-text notebook you wrote yourself, declared as a miniapp, is a valid entry point: "this is my notebook, this is where I start". All the machinery above it is optional.
@@ -150,7 +156,7 @@ any catalog setup wiki $SPACE
 { "usecase": "wiki",
   "bundles": [ { "usecase": "wiki", "id": "system:wiki/v1",
                  "bundle": {"id": "system:wiki/v1", "rootId": "<rootId>", …},
-                 "installed": true, "typeId": "<rootId>",
+                 "installed": true, "collectionId": "<rootId>",
                  "properties": {"parentId": "…", "pos": "…", "folder": "…"},
                  "miniapp": {"bundle": "system:wiki/v1"} } ] }
 ```
@@ -159,18 +165,18 @@ Every catalog entry is the same construction you just built by hand, and each sh
 
 | Usecase | The root is |
 |---------|-------------|
-| `wiki` | an app **and** a type: the sidebar entry, and the hidden type whose `parentId` / `pos` / `folder` place every page in the tree |
-| `collections` | an app only — an empty `miniapp` root whose presence switches the types feature on in the client |
+| `wiki` | an app **and** a collection: the sidebar entry, and the hidden collection whose `parentId` / `pos` / `folder` place every page filed under it in the tree (a page keeps its own type) |
+| `collections` | an app only — a `page` root filed under `miniapp`, whose presence switches the types feature on in the client |
 | `journal` | an app **and** a type, like the wiki: the sidebar entry, and the hidden type whose one `date` property makes an object that day's page |
 | `meetings` | an app **and** a content type: a meeting is one object whose three parts are its notes (the shared editor), a second editor for the summary, and a transcript dataset an agent fills |
 | `general-chat` | the space's one chat: a **derived** root both sides of a partition compute, so it can never fork, carrying the reserved `chat` module |
-| `people`, `contact`, `contacts`, `crm` | a set: `crm` requires `contacts`, which requires `people` and `contact`; setup resolves the closure in order and the reply lists every bundle it touched |
+| `people`, `contact`, `contacts`, `crm` | a set: `crm` requires `contacts`, which requires `people` and `contact`; setup resolves the closure in order and the reply lists every bundle it touched, `typeId` for a type root and `collectionId` for a collection root |
 
 Every app that ships with a client belongs here, types included: the catalog is the one place a well-known type is declared, so two clients — or a client and an agent — resolve the same ids instead of each minting a type by name and hoping they match.
 
 Setup is idempotent — run it on every device that needs the feature and each adopts the same roots with byte-identical property ids. A space where the wiki was never set up has no wiki type in it at all: nothing from a usecase you do not use lands in your space.
 
-The types a usecase installs are ordinary user types. `person` and `organization` reference each other through relation properties; `contact` is a second, lighter type attached to a person you actively manage, with a lower weight so the person's profile keeps rendering. Splitting a base type into its own bundle is how several usecases share it: `people` is required by every role, and installing a role installs it ([Well-known bundles](../collaboration/bundles.html)).
+What a usecase installs is ordinary definitions. `person` and `organization` are types that reference each other through relation properties; `contact` — like `investor`, `customer`, `partner`, `vendor`, `cofounder` and `candidate` — is a **collection**, so a person you actively manage stays `type: person` with the person profile rendering, and gains the contact columns by being filed under it. Splitting a base type into its own bundle is how several usecases share it: `people` is required by every role, and installing a role installs it ([Well-known bundles](../collaboration/bundles.html)).
 
 > **Note.** Nothing here stops a user from opening the `person` type and editing it. Setup is additive: the next run writes what a later catalog added and the root lacks — a property under its deterministic id, an option key, a `miniapp` value — and leaves what the definition carries as the space has it, renamed or recoloured. A property the user removed stays removed; an option key the user deleted is absent, so setup writes it again ([Bundles](../collaboration/bundles.html)).
 
@@ -178,4 +184,4 @@ The types a usecase installs are ordinary user types. `person` and `organization
 
 Read from the database up, an app is the complicated thing: a type, its parts, a bundle root, a sidebar marker. Read from the interface down, it is the simplest thing there is — one entry you tap — and objects, types and datasets are the details inside it that you can go and look at when you want to extend it. Both readings are true, and the levels of this tutorial are the path between them: stop at Part 1 with a notebook, at Part 2 with a password manager, at Part 3 with a mailbox, or take a ready bundle from the catalog and never think about what is inside until you need to.
 
-Reference: [Modules](../types/index.html), [Bundles](../collaboration/bundles.html), [Types and properties](../database/types-and-properties.html).
+Reference: [Modules](../types/index.html), [Bundles](../collaboration/bundles.html), [Types and properties](../database/types-and-properties.html), [Collections](../database/collections.html).

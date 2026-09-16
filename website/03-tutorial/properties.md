@@ -1,11 +1,11 @@
 ---
 title: 2. Properties
-description: The second level — a type with typed properties gives objects columns you can validate, filter and sort on, and one object can carry several types. Built here as a small password manager.
+description: The second level — a type with typed properties gives objects columns you can validate, filter and sort on, and a collection adds a second group on top. Built here as a small password manager.
 order: 20
 ---
 # 2. Properties
 
-A type is a named set of property definitions an object can carry. Attach it to an object and the object gains those columns: each with a kind the server checks, a descriptor that says how to render it, and a stable handle you resolve it by. This part builds a password manager — a `credential` type — and it never needs anything beyond this level.
+A type is what an object **is**: a named set of property definitions, plus the layout and the parts a client renders. Set it on an object and the object gains those columns — each with a kind the server checks, a descriptor that says how to render it, and a stable handle you resolve it by. This part builds a password manager — a `credential` type — and it never needs anything beyond this level.
 
 ## Create the type
 
@@ -16,7 +16,7 @@ CRED=$(curl -s -X POST $API/spaces/$SPACE/types -H 'content-type: application/js
 any type create $SPACE --name Credential --xkey credential
 ```
 
-`xKey` is required: it is the programmatic handle the type resolves by, and it must survive renames — the display `name` can change freely. A handle already used by another type in the space is `409 type.xkey_conflict`.
+`xKey` is required: it is the programmatic handle the type resolves by, and it must survive renames — the display `name` can change freely. A handle already used by another type or collection in the space is `409 type.xkey_conflict` — the two share one namespace.
 
 ## Add properties
 
@@ -70,22 +70,22 @@ curl -s $API/spaces/$SPACE/types/$CRED/properties
 
 ## Store a credential
 
-Attach the type at create and pass its values under its id. The `any` group still holds the name:
+Set the type at create and pass its values under its id. The `any` group still holds the name:
 
 ```bash
 GH=$(curl -s -X POST $API/spaces/$SPACE/objects -H 'content-type: application/json' -d '{
-  "types": ["'$CRED'"],
+  "type": "'$CRED'",
   "initialProperties": {
     "any":     {"name": "GitHub"},
     "'$CRED'": {"'$SITE'": "https://github.com", "'$LOGIN'": "ada", "'$SECRET'": "correct horse battery staple",
                 "'$CATEGORY'": ["work"], "'$ROTATED'": {"$date": "2026-09-01T00:00:00Z"}}}}' | jq -r .objectId)
 ```
 
-Notice where the values went: under the type's id, not at the top of the object. A type is a **namespace** for properties, and there are no global properties. Every property belongs to exactly one type, is defined there, and its value lives on the object under that type's id — even `name` and `description` sit in the universal `any` namespace rather than on the object itself. The property list of a type is the whole vocabulary you can write under its id, and nothing outside that list is a property at all.
+Notice where the values went: under the type's id, not at the top of the object. A type is a **namespace** for properties, and there are no global properties. Every property belongs to exactly one owner, is defined there, and its value lives on the object under that owner's id — even `name` and `description` sit in the universal `any` namespace rather than on the object itself. The property list of an owner is the whole vocabulary you can write under its id, and nothing outside that list is a property at all.
 
 A value that does not fit its declared format — a number under `site`, a bare string under `rotated`, an option not wrapped in an array — is refused with `400 property.format_violation`, so the type is a contract, not a convention.
 
-Later writes go through the type-scoped set:
+Later writes go through the owner-scoped set:
 
 ```bash
 curl -s -X POST $API/spaces/$SPACE/properties/$GH/set/$CRED -H 'content-type: application/json' \
@@ -96,14 +96,13 @@ curl -s -X POST $API/spaces/$SPACE/properties/$GH/set/$CRED -H 'content-type: ap
 
 ## Ask questions of the columns
 
-Property paths on the wire are `<typeId>.<propId>`. Filter and sort on them like any other field:
+Property paths on the wire are `<ownerId>.<propId>`. Filter and sort on them like any other field:
 
 ```bash
 # every work credential, oldest rotation first
 curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/json' -d '{
-  "filter": {"$and": [{"any.types": "'$CRED'"},
-                      {"any.types": {"$ne": "__type__"}},
-                      {"any.types": {"$nin": ["bin"]}},
+  "filter": {"$and": [{"any.type": "'$CRED'"},
+                      {"any.collections": {"$nin": ["bin"]}},
                       {"'$CRED.$CATEGORY'": "work"}]},
   "sort": ["'$CRED.$ROTATED'"], "limit": 50}'
 ```
@@ -114,43 +113,54 @@ curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/j
   "filter": {"'$CRED.$ROTATED'": {"$lt": {"$date": "2026-06-10T00:00:00Z"}}}}'
 ```
 
-Two things to notice. `{"any.types": "<typeId>"}` is "objects carrying this type". And the two exclusions. A type definition is itself an object row, marked `__type__`; the Credential type created above carries only the marker, but a type installed as a self-typed [bundle](apps.html) also carries its own id and would come back among its own objects. A binned object keeps its types, so an ordinary list leaves out `bin` carriers too. Write both clauses every time, and the query keeps working when the type later ships as a bundle ([Reading data](../database/reading-data.html)).
+Two things to notice. `{"any.type": "<typeId>"}` is "objects of this type" — plain equality on a scalar, because an object has exactly one type. And the one exclusion. A type definition is itself an object row, but it carries the marker `__type__` in `any.type` rather than its own id, so it never turns up among its own objects and needs no exclusion clause. A binned object keeps its type, so an ordinary list leaves out `bin` members with `{"any.collections": {"$nin": ["bin"]}}` ([Reading data](../database/reading-data.html)).
 
 The same body against `…/objects/query/subscribe` is a live list — the vault view of your password manager updates as entries change on any device.
 
-## One object, several types
+## One object, one type and any number of collections
 
-`types` on the create body is a list because an object can carry more than one type. Each carried type adds its own group of columns, keyed by its id, next to the others; none of them knows about the rest. Say the GitHub account is also a paid plan. That is a second type — `subscription`, with a price and a renewal date — attached to the same object:
+The type says what the object **is**, and there is exactly one of it. Everything else an object belongs to is a **collection**: a group of columns you file objects under, with no layout and no parts of its own. An object can be filed under any number of them, each contributing its own group of columns keyed by its id, and none of them knows about the rest.
+
+Say the GitHub account is also something you pay for. "Paid subscription" is not what the object *is* — it is still a credential — so it is a collection, `subscription`, with a price and a renewal date:
 
 ```bash
-SUB=$(curl -s -X POST $API/spaces/$SPACE/types -H 'content-type: application/json' \
-  -d '{"name": "Subscription", "xKey": "subscription"}' | jq -r .typeId)
-PRICE=$(curl -s -X POST $API/spaces/$SPACE/types/$SUB/properties -H 'content-type: application/json' \
+SUB=$(curl -s -X POST $API/spaces/$SPACE/collections -H 'content-type: application/json' \
+  -d '{"name": "Subscription", "xKey": "subscription"}' | jq -r .collectionId)
+PRICE=$(curl -s -X POST $API/spaces/$SPACE/collections/$SUB/properties -H 'content-type: application/json' \
   -d '{"name": "Price", "xKey": "price", "kind": "number", "xFormat": {"type": "currency"}}' | jq -r .propId)
-RENEWS=$(curl -s -X POST $API/spaces/$SPACE/types/$SUB/properties -H 'content-type: application/json' \
+RENEWS=$(curl -s -X POST $API/spaces/$SPACE/collections/$SUB/properties -H 'content-type: application/json' \
   -d '{"name": "Renews", "xKey": "renews", "kind": "datetime", "xFormat": {"type": "date"}}' | jq -r .propId)
 
-curl -s -X POST $API/spaces/$SPACE/properties/$GH/attach/$SUB                      # now a credential AND a subscription
+curl -s -X POST $API/spaces/$SPACE/properties/$GH/collections/$SUB      # file it under the collection
 curl -s -X POST $API/spaces/$SPACE/properties/$GH/set/$SUB -H 'content-type: application/json' \
   -d '{"patch": {"'$PRICE'": 4, "'$RENEWS'": {"$date": "2026-10-01T00:00:00Z"}}}'
 ```
 
-Read it back and the row holds both groups, and `any.types` lists both ids:
+```bash
+any collection create $SPACE --name Subscription --xkey subscription
+any object collection attach $SPACE $GH $SUB
+```
+
+Creating a collection is the type create minus `layout`, and its four property routes are the type ones with a different owner segment — same bodies, same patch grammar, same error codes.
+
+Read the row back and it holds both groups, with `any.type` naming the one type and `any.collections` listing what it is filed under:
 
 ```json
 { "id": "bafyreig…",
-  "any": { "name": "GitHub", "types": ["<credentialTypeId>", "<subscriptionTypeId>"] },
-  "<credentialTypeId>":   { "<site>": "https://github.com", "<login>": "ada", "…": "…" },
-  "<subscriptionTypeId>": { "<price>": 4, "<renews>": {"$date": "2026-10-01T00:00:00.000Z"} } }
+  "any": { "name": "GitHub", "type": "<credentialTypeId>", "collections": ["<subscriptionCollectionId>"] },
+  "<credentialTypeId>":           { "<site>": "https://github.com", "<login>": "ada", "…": "…" },
+  "<subscriptionCollectionId>":   { "<price>": 4, "<renews>": {"$date": "2026-10-01T00:00:00.000Z"} } }
 ```
 
-The object now answers to both questions: `{"any.types": "'$CRED'"}` lists it among the credentials, `{"any.types": "'$SUB'"}` among the subscriptions, and a sort on `<subscriptionTypeId>.<renews>` puts it in the renewal calendar. Passing both ids under `types` at create does the same in one call; `…/detach/$SUB` takes a type off again.
+The object now answers to both questions: `{"any.type": "'$CRED'"}` lists it among the credentials, `{"any.collections": "'$SUB'"}` among the subscriptions, and a sort on `<subscriptionCollectionId>.<renews>` puts it in the renewal calendar. Passing `"collections": ["'$SUB'"]` at create does the same in one call; `DELETE …/properties/$GH/collections/$SUB` unfiles it again.
 
 Three rules make this simple rather than clever:
 
-- **Types coexist; they never inherit from each other.** There is no base type to extend and no chain to resolve. An object is the sum of the types it carries, each contributing its own columns under its own id.
-- **Column names never collide.** Each type is its own namespace, so paths are `<typeId>.<propId>` and two types can both have a `name` or a `date` property with the values kept apart. Attaching a second type is opening a second namespace on the object, not merging columns into one flat row.
-- **Which type the object "is" is a rendering question, not a data one.** The server stores every group equally. A client that has to pick one layout for the object uses the type's `weight` — [Part 4](apps.html) covers that.
+- **One type, any number of collections.** The type is what the object is — replacing it with `POST …/properties/:objectId/type/:typeId` swaps the whole answer, and there is no unset. Filing and unfiling a collection is additive and idempotent, and neither is a delete: the old group's values stay on the row as read-tolerant orphan data, and setting the owner again brings them back.
+- **Column names never collide.** Each owner is its own namespace, so paths are `<ownerId>.<propId>` and a type and a collection can both have a `name` or a `date` property with the values kept apart. Filing an object is opening a second namespace on it, not merging columns into one flat row.
+- **Rendering comes from the type alone.** The layout and the parts are the type's; collections have neither. A client renders the credential layout and shows the subscription columns in the property panel next to the credential ones.
+
+Pick a type when the thing needs a layout, a body or any other part — Credential, Person, Task. Pick a collection when it is a facet on objects that keep their own type — Subscription, Reading list, Q3 launch ([Collections](../database/collections.html)).
 
 ## Change the definition, not the data
 
@@ -165,8 +175,8 @@ A choice value stores the option **key** (`work`), never its label, so renaming 
 
 ## Where this level ends
 
-You have objects with typed, validated, filterable columns — a schema that syncs with its data — and an object can carry several such schemas at once. It scales to hundreds of credentials, contacts or books: one object per thing, one row each in the objects collection.
+You have objects with typed, validated, filterable columns — a schema that syncs with its data — and a way to stack a second group of columns on top without changing what the object is. It scales to hundreds of credentials, contacts or books: one object per thing, one row each in the `objects` storage collection.
 
-It does not scale to a mailbox. Ten thousand emails as ten thousand objects means ten thousand rows in the space-wide collection, each with its own change history, for things that belong together, arrive in bulk and are mostly read as one list. The next part keeps them as **records on a single object** — a dataset with its own enforced schema, ids you supply, and an import that is safe to re-run.
+It does not scale to a mailbox. Ten thousand emails as ten thousand objects means ten thousand rows in the space-wide storage collection, each with its own change history, for things that belong together, arrive in bulk and are mostly read as one list. The next part keeps them as **records on a single object** — a dataset with its own enforced schema, ids you supply, and an import that is safe to re-run.
 
-Next: [3. Datasets](datasets.html). Reference: [Types and properties](../database/types-and-properties.html).
+Next: [3. Datasets](datasets.html). Reference: [Types and properties](../database/types-and-properties.html), [Collections](../database/collections.html).

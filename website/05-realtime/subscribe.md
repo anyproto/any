@@ -11,7 +11,7 @@ A subscription is a live version of a [query](../database/reading-data.html): th
 
 | Scope | Endpoint | Records |
 |---|---|---|
-| Cross-object | `POST /v1/spaces/:spaceId/objects/query/subscribe` | one row per object in the space (the `objects` collection) |
+| Cross-object | `POST /v1/spaces/:spaceId/objects/query/subscribe` | one row per object in the space (the `objects` storage collection) |
 | Per-object dataset | `POST /v1/spaces/:spaceId/query/subscribe` | rows of one dataset on one object (`chat_messages`, `editor_blocks`, a runtime dataset…) |
 | Space list | `POST /v1/spaces/query/subscribe` | the account's spaces — see [Live space list](space-list.html) |
 
@@ -91,7 +91,7 @@ Only `deleted` means the object is gone. For the other two, a fresh snapshot wou
 | `overflow` | events arrived faster than the client drained them and the mailbox (`mailboxCapacity`) filled; the engine closes the stream rather than drop events |
 | `drifted` | more than `driftBudgetPercent` of the window left without replacements; the engine refuses to re-query on the hot path |
 
-Recovery is the same for all of them: **open a new POST and take the fresh snapshot** — after `deauthorized`, once `GET /v1/auth` shows the account you expect. There is no replay across reconnects and no resume cursor — the new snapshot already reflects current state, which is strictly cheaper than reconstructing it from a backlog. `overflow` and `drifted` are split only so you can log and back off sensibly; a burst of `overflow` on a hot collection is the hint to raise `mailboxCapacity`, a stream of `drifted` on a churny list is the hint to raise `driftBudgetPercent` or widen `limit`.
+Recovery is the same for all of them: **open a new POST and take the fresh snapshot** — after `deauthorized`, once `GET /v1/auth` shows the account you expect. There is no replay across reconnects and no resume cursor — the new snapshot already reflects current state, which is strictly cheaper than reconstructing it from a backlog. `overflow` and `drifted` are split only so you can log and back off sensibly; a burst of `overflow` on a hot storage collection is the hint to raise `mailboxCapacity`, a stream of `drifted` on a churny list is the hint to raise `driftBudgetPercent` or widen `limit`.
 
 > **Note.** Drift detection needs a window to measure against: with `limit: 0` there is no window auto-shift and no drift safety net. Always subscribe with a limit.
 
@@ -150,9 +150,9 @@ From the shell, `curl -N` shows the raw frames, and the CLI prints one JSON obje
 ```bash
 curl -N http://127.0.0.1:7001/v1/spaces/SPACE/objects/query/subscribe \
   -H 'Content-Type: application/json' \
-  -d '{"filter":{"any.types":"page"},"sort":["-modifiedAt"],"limit":20}'
+  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}'
 
-any query-subscribe SPACE --properties --filter '{"any.types":"page"}' --sort -modifiedAt --limit 20
+any query-subscribe SPACE --properties --filter '{"any.type":"page"}' --sort -modifiedAt --limit 20
 any query-subscribe SPACE CHAT --dataset chat_messages --sort -_ver.id --limit 50 --total \
   | jq 'select(.event=="changes") | .data[]'
 ```
