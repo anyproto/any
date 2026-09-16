@@ -37,7 +37,7 @@ persistent memory and direct access to structured data.
   and event-triggered runs through `anyrt`.
 
 The sync layer builds on [any-sync](https://github.com/anyproto/any-sync),
-used on our production infrastructure for years across millions of spaces.
+used on our production infrastructure for years across millions of users.
 The sync protocol has been
 [audited by Cure53](https://sync.any.org/#trust-and-maturity).
 
