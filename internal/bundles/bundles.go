@@ -334,10 +334,10 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	// not land in Ensure's write gate.
 	settled := func(b space.Bundle) bool {
 		missing := false
-		if len(inst.RootCollections) > 0 && (inst.Derived || inst.Declares()) {
+		if len(inst.RootCollections) > 0 && ((inst.Derived && b.Derived) || inst.Declares()) {
 			// A collection the request gained since the install is
 			// added by the SDK's adopt path — which runs for a derived
-			// or declaring root only.
+			// request over a derived install, or a declaring root.
 			row, err := sp.Objects().Get(ctx, b.RootId)
 			if err != nil {
 				return true

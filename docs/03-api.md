@@ -3231,7 +3231,6 @@ in the bin".
 | GET    | `/v1/spaces/:spaceId/properties/:objectId`                        | `PropertiesAPI.Get`              |
 | POST   | `/v1/spaces/:spaceId/properties/:objectId/set/:ownerId`           | `PropertiesAPI.Set`              |
 | POST   | `/v1/spaces/:spaceId/properties/:objectId/type/:typeId`           | `PropertiesAPI.SetType`          |
-| DELETE | `/v1/spaces/:spaceId/properties/:objectId/type`                   | `PropertiesAPI.UnsetType`        |
 | POST   | `/v1/spaces/:spaceId/properties/:objectId/collections/:collectionId` | `PropertiesAPI.AttachCollection` |
 | DELETE | `/v1/spaces/:spaceId/properties/:objectId/collections/:collectionId` | `PropertiesAPI.DetachCollection` |
 

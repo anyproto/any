@@ -487,7 +487,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "type": {
-                        "description": "Type is set on first materialization; Collections the child\nlacks are added on every call.",
+                        "description": "Type is the child's one type, set on first materialization —\nrequired (400 request.missing_field), ` + "`" + `page` + "`" + ` for a plain\ndocument; Collections the child lacks are added on every call.",
                         "type": "string"
                     }
                 },
@@ -8617,6 +8617,16 @@ const docTemplate = `{
                         },
                         "description": "Bad Request"
                     },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -10379,6 +10389,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
                     },
                     "500": {
                         "content": {
@@ -15071,6 +15091,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
                     },
                     "500": {
                         "content": {

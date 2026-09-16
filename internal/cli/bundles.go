@@ -30,7 +30,7 @@ func newBundleChildCmd() *cobra.Command {
 		collections []string
 	)
 	cmd := &cobra.Command{
-		Use:   "child <spaceId> <bundleId> --seed SEED [--type T] [--collection C ...]",
+		Use:   "child <spaceId> <bundleId> --seed SEED --type T [--collection C ...]",
 		Short: "derive a setup object under the bundle's winner (deterministic per seed)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -43,8 +43,9 @@ func newBundleChildCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&seed, "seed", "", "child seed (permanent; a successor object takes a new one)")
-	cmd.Flags().StringVar(&typeId, "type", "", "type id set on first materialization")
+	cmd.Flags().StringVar(&typeId, "type", "", "the child's one type (required; page for a plain document)")
 	cmd.Flags().StringArrayVar(&collections, "collection", nil, "collection id the child is filed under (repeatable)")
+	_ = cmd.MarkFlagRequired("type")
 	_ = cmd.MarkFlagRequired("seed")
 	return cmd
 }

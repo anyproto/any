@@ -35,8 +35,8 @@ func newObjectCreateCmd() *cobra.Command {
 		Use:   "create <spaceId>",
 		Short: "create an object with its type and its collections",
 		Long: `An object has one type — what it is, its parts and its layout — and
-any number of collections it is filed under. Both are optional: a
-typeless object has no parts and renders as properties.
+any number of collections it is filed under. The type is required
+(page is the plain document); collections are optional.
 
 --properties seeds property values keyed owner → propId → value, the
 owner being the type or one of the collections.
@@ -61,9 +61,10 @@ Examples:
 			return printJSON(out)
 		},
 	}
-	cmd.Flags().StringVar(&typeId, "type", "", "the object's one type")
+	cmd.Flags().StringVar(&typeId, "type", "", "the object's one type (required; page for a plain document)")
 	cmd.Flags().StringArrayVar(&collections, "collection", nil, "collection id the object is filed under (repeatable)")
 	cmd.Flags().StringVar(&propsRaw, "properties", "", "initial property values (inline JSON, @FILE, or - for stdin)")
+	_ = cmd.MarkFlagRequired("type")
 	return cmd
 }
 

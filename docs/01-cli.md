@@ -578,7 +578,7 @@ any bundle ensure  <spaceId> --body '<json>|@FILE|-'
 any bundle list    <spaceId>
 any bundle get     <spaceId> <bundleId>
 any bundle resolve <spaceId> <bundleId> <loserRootId>
-any bundle child   <spaceId> <bundleId> --seed SEED [--type T] [--collection C ...]
+any bundle child   <spaceId> <bundleId> --seed SEED --type T [--collection C ...]
 ```
 
 `ensure` takes the `BundleEnsureRequest` body (`03-api.md` § Bundles)
@@ -591,9 +591,11 @@ handle; alone it declares a marker), plus `layout` and `hidden`.
 (`400 request.invalid_field`). `rootType`, `rootCollections` and
 `rootProperties` bind the root itself — the one type it carries, the
 collections it is filed under at birth, and its initial values keyed
-owner → propId → value. `rootType` is refused next to a declaration: a
-declaring root carries its marker in `any.type`, and it hosts its own
-records and values with no flag and no self-membership.
+owner → propId → value. `rootType` is required when the body declares
+nothing (every object has a type; `page` for a plain document) and
+refused next to a declaration: a declaring root carries its marker in
+`any.type`, and it hosts its own records and values with no flag and no
+self-membership.
 Adopt-or-install: the reply carries the converged row and
 whether THIS call installed it. `get` and `list` are locked on
 registry convergence and report `synced`. `resolve` deletes a losing

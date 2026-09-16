@@ -95,6 +95,7 @@ func (d *deps) typeCreate(c echo.Context) error {
 //	@Param		body	body		api.AddPropertyRequest	true	"Property draft"
 //	@Success	201		{object}	api.AddPropertyResponse
 //	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	404		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/properties [post]
 func (d *deps) typeAddProperty(c echo.Context) error {

@@ -211,8 +211,8 @@ func TestServer_BundleChildren(t *testing.T) {
 		return out
 	}
 
-	first := child(`{"seed":"memory/v1","type":"agent_memory"}`)
-	again := child(`{"seed":"memory/v1","type":"agent_memory"}`)
+	first := child(`{"seed":"memory/v1","type":"page"}`)
+	again := child(`{"seed":"memory/v1","type":"page"}`)
 	if first.ObjectId == "" || first.ObjectId != again.ObjectId {
 		t.Fatalf("child not deterministic: %q vs %q", first.ObjectId, again.ObjectId)
 	}
@@ -397,13 +397,29 @@ func TestServer_BundleEnsurePreflight(t *testing.T) {
 
 	sp := createSpaceInfo(t, e, "BundlePreflight")
 	path := "/v1/spaces/" + sp.Id + "/bundles"
+	userType := plainType(t, e, sp.Id)
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/collections", `{"name":"Shelf","xKey":"shelf"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create collection: %d %s", rec.Code, rec.Body.String())
+	}
+	var created api.CollectionsCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	userColl := created.CollectionId
 
 	cases := []struct {
 		name, body, code string
 	}{
 		{"unknown type", `{"id":"a/v1","rootType":"no_such_type"}`, "type.not_found"},
+		{"rootType names a user collection", `{"id":"a/v1","rootType":"` + userColl + `"}`, "type.not_a_type"},
+		{"rootCollections names a user type", `{"id":"a/v1","rootType":"page","rootCollections":["` + userType + `"]}`, "collection.not_a_collection"},
+		{"rootProperties keyed by a user type that is not rootType", `{"id":"a/v1","rootType":"page","rootProperties":{"` + userType + `":{"x":1}}}`, "collection.not_a_collection"},
 		{"unknown collection", `{"id":"a/v1","rootType":"page","rootCollections":["no_such_collection"]}`, "collection.not_found"},
-		{"unknown property owner", `{"id":"a/v1","rootType":"page","rootProperties":{"no_such_type":{"x":1}}}`, "collection.not_found"},
+		{"unknown rootProperties owner", `{"id":"a/v1","rootType":"page","rootProperties":{"no_such_type":{"x":1}}}`, "collection.not_found"},
+		{"rootProperties keyed by a registered type that is not rootType", `{"id":"a/v1","rootType":"page","rootProperties":{"dataview":{"host":"x"}}}`, "collection.not_found"},
+		{"rootType names a registered collection", `{"id":"a/v1","rootType":"miniapp"}`, "type.not_found"},
+		{"rootCollections names a registered type", `{"id":"a/v1","rootType":"page","rootCollections":["dataview"]}`, "collection.not_found"},
 		{"bare root without a type", `{"id":"a/v1"}`, "request.missing_field"},
 		{"unknown field", `{"id":"a/v1","source":"marketplace"}`, "request.unknown_field"},
 		{"rootType not a string", `{"id":"a/v1","rootType":["chat_host"]}`, "request.schema"},
@@ -447,8 +463,8 @@ func TestServer_BundleChildSeedCap(t *testing.T) {
 	ensureBundle(t, e, sp.Id, `{"id":"`+testBundleId+`","name":"General","rootType":"page"}`)
 	path := "/v1/spaces/" + sp.Id + "/bundles/" + escapedBundleId(testBundleId) + "/children"
 
-	rec := doJSON(t, e, http.MethodPost, path, `{"seed":"`+strings.Repeat("s", 257)+`"}`)
-	if rec.Code != http.StatusBadRequest {
+	rec := doJSON(t, e, http.MethodPost, path, `{"seed":"`+strings.Repeat("s", 257)+`","type":"page"}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "request.invalid_field") {
 		t.Fatalf("oversized seed: %d %s", rec.Code, rec.Body.String())
 	}
 }
@@ -510,8 +526,8 @@ func TestServer_BundleEnsureDerivedRoot(t *testing.T) {
 		}
 		return out
 	}
-	firstChild := child(`{"seed":"memory/v1","type":"agent_memory"}`)
-	if again := child(`{"seed":"memory/v1","type":"agent_memory"}`); again.ObjectId != firstChild.ObjectId {
+	firstChild := child(`{"seed":"memory/v1","type":"page"}`)
+	if again := child(`{"seed":"memory/v1","type":"page"}`); again.ObjectId != firstChild.ObjectId {
 		t.Fatalf("child not deterministic: %q vs %q", firstChild.ObjectId, again.ObjectId)
 	}
 	if other := child(`{"seed":"notes/v1","type":"page"}`); other.ObjectId == firstChild.ObjectId {

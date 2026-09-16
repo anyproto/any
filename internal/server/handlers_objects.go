@@ -37,6 +37,7 @@ const objectCreateFieldsHint = `object properties (name, description, custom fie
 //	@Param		body	body		api.ObjectCreateRequest	true	"Object params"
 //	@Success	201		{object}	api.ObjectsCreateResponse
 //	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	404		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects [post]
 func (d *deps) objectCreate(c echo.Context) error {

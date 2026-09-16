@@ -120,10 +120,10 @@ POST /v1/spaces/:spaceId/objects
   its values stay on the row as orphan data, read-tolerant and
   writable again the moment the owner comes back. Render off the
   current owners, not off whatever namespaces the row happens to hold.
-  `DELETE …/properties/:objectId/type` and `DELETE
-  …/properties/:objectId/collections/:collectionId` pre-flight nothing,
-  so they are also how you strip an id that should never have been on
-  the row.
+  `DELETE …/properties/:objectId/collections/:collectionId` pre-flights
+  nothing, so it is also how you strip a collection id that should
+  never have been on the row; a wrong type is repaired by setting the
+  right one (there is no unset — every object has a type).
 
 ## 3. Reads go through query / subscribe
 

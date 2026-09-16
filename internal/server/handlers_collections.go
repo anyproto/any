@@ -253,6 +253,7 @@ func (d *deps) collectionProperties(c echo.Context) error {
 //	@Param		body			body		api.AddPropertyRequest	true	"Property draft"
 //	@Success	201				{object}	api.AddPropertyResponse
 //	@Failure	400				{object}	api.ErrorEnvelope
+//	@Failure	404				{object}	api.ErrorEnvelope
 //	@Failure	500				{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/collections/{collectionId}/properties [post]
 func (d *deps) collectionAddProperty(c echo.Context) error {

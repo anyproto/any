@@ -164,11 +164,13 @@ func TestIndexer_TailCatchUp(t *testing.T) {
 	}
 }
 
-// TestIndexer_TypeDetachEviction: detaching a chunker's gating type
-// evicts the object's dataset docs via an id-prefix delete inside the
-// same advance page — applySeq-consistent with the change feed. The
-// detach itself goes through the SDK handle (the HTTP route is 501).
-func TestIndexer_TypeDetachEviction(t *testing.T) {
+// TestIndexer_RetypeEviction: retyping an object away from the type
+// that declares its dataset evicts the object's docs via an id-prefix
+// delete inside the same advance page — applySeq-consistent with the
+// change feed. The retype goes through the SDK handle. The dataset is
+// a runtime one on a user type: the object carries its declaring type
+// and nothing else, so the type is the whole gate.
+func TestIndexer_RetypeEviction(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
 	e := buildEcho(d)
@@ -176,11 +178,35 @@ func TestIndexer_TypeDetachEviction(t *testing.T) {
 	ix := newTestIndexer(t, d, nil) // FTS-only is enough for eviction
 	defer func() { _ = ix.Close() }()
 
-	spaceId := mustCreateSpace(t, e, "DetachEviction")
-	chatObj := mustCreateModuleObject(t, e, spaceId, "chat")
-	chatBase := "/v1/spaces/" + spaceId + "/objects/" + chatObj
-	mustModify(t, e, http.MethodPost, chatBase+"/chat/messages", `{"text":"detachable alpha"}`, http.StatusCreated)
-	mustModify(t, e, http.MethodPost, chatBase+"/chat/messages", `{"text":"detachable bravo"}`, http.StatusCreated)
+	spaceId := mustCreateSpace(t, e, "RetypeEviction")
+	base := "/v1/spaces/" + spaceId
+	rec := doJSON(t, e, http.MethodPost, base+"/types", `{"name":"Log","xKey":"log"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
+	}
+	var tr api.TypesCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &tr); err != nil {
+		t.Fatal(err)
+	}
+	partId := mustAddPart(t, e, spaceId, tr.TypeId, `{"key":"idx"}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/types/"+tr.TypeId+"/parts/"+partId+"/datasets", `{
+		"key": "entries", "idRule": "user",
+		"search": {"text": "body"},
+		"fields": [{"key": "body", "kind": "string", "mutableBy": "any"}]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add dataset: %d %s", rec.Code, rec.Body.String())
+	}
+	obj := mustCreateObject(t, e, spaceId, `{"type":"`+tr.TypeId+`"}`)
+	upsert := func(records string) {
+		t.Helper()
+		rec := doJSON(t, e, http.MethodPost, base+"/upsert",
+			`{"objectId":"`+obj+`","dataset":"`+tr.TypeId+`_entries","records":[`+records+`]}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("upsert: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+	upsert(`{"id":"e1","fields":{"body":"detachable alpha"}},
+		{"id":"e2","fields":{"body":"detachable bravo"}}`)
 
 	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
 	if err != nil {
@@ -191,15 +217,14 @@ func TestIndexer_TypeDetachEviction(t *testing.T) {
 	}
 	res := doSearch(t, e, spaceId, api.SearchRequest{Query: "detachable", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
 	if len(res.Hits) != 2 {
-		t.Fatalf("pre-detach hits = %v, want 2", hitRecordIds(res))
+		t.Fatalf("pre-retype hits = %v, want 2", hitRecordIds(res))
 	}
 
-	// Detach the declaring type: the row re-streams with a bumped
-	// _applySeq and the next advance prefix-evicts
-	// objectId:chat_messages: — the object no longer holds the
-	// collection (no owner of chat_messages among its types).
-	chatType := installModuleType(t, e, spaceId, "chat")
-	if _, err := sdkSpace.Properties().DetachType(ctx, chatObj, chatType); err != nil {
+	// Retype to a type that declares nothing: the row re-streams with a
+	// bumped _applySeq and the next advance prefix-evicts
+	// obj:<typeId>_entries: — no owner of the dataset among the
+	// object's members.
+	if _, err := sdkSpace.Properties().SetType(ctx, obj, plainType(t, e, spaceId)); err != nil {
 		t.Fatal(err)
 	}
 	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
@@ -207,21 +232,21 @@ func TestIndexer_TypeDetachEviction(t *testing.T) {
 	}
 	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "detachable", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
 	if len(res.Hits) != 0 {
-		t.Fatalf("post-detach hits = %v, want none", hitRecordIds(res))
+		t.Fatalf("post-retype hits = %v, want none", hitRecordIds(res))
 	}
 
-	// Re-attach the declaring type (no write attaches one) — only the
-	// new message indexes; rows below the cursor do not resurrect.
-	if _, err := sdkSpace.Properties().AttachType(ctx, chatObj, chatType); err != nil {
+	// Set the declaring type back — only the new record indexes; rows
+	// below the cursor do not resurrect.
+	if _, err := sdkSpace.Properties().SetType(ctx, obj, tr.TypeId); err != nil {
 		t.Fatal(err)
 	}
-	msg3 := mustModify(t, e, http.MethodPost, chatBase+"/chat/messages", `{"text":"detachable charlie"}`, http.StatusCreated)
+	upsert(`{"id":"e3","fields":{"body":"detachable charlie"}}`)
 	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
 		t.Fatal(err)
 	}
 	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "detachable", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
-	if len(res.Hits) != 1 || res.Hits[0].RecordId != msg3.RecordIds[0] {
-		t.Fatalf("post-reattach hits = %v, want only the new message", hitRecordIds(res))
+	if len(res.Hits) != 1 || res.Hits[0].RecordId != "e3" {
+		t.Fatalf("post-retype-back hits = %v, want only the new record", hitRecordIds(res))
 	}
 }
 
@@ -582,7 +607,7 @@ func TestIndexer_TypeDefinitionsExcluded(t *testing.T) {
 		t.Fatalf("type create: %d %s", rec.Code, rec.Body.String())
 	}
 	ctrlObj := mustCreateObject(t, e, spaceId,
-		`{"initialProperties":{"any":{"name":"zebrafinch sightings journal"}}}`)
+		`{"type":"page","initialProperties":{"any":{"name":"zebrafinch sightings journal"}}}`)
 
 	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
 	if err != nil {

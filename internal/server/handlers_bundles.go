@@ -104,7 +104,7 @@ func (d *deps) bundleEnsure(c echo.Context) error {
 	if errResp, done := checkUnknownFields(c, root, "", bundleEnsureFields...); done {
 		return errResp
 	}
-	inst, errResp, done := bundleInstallFromBody(c, root)
+	inst, errResp, done := d.bundleInstallFromBody(c, root)
 	if done {
 		return errResp
 	}
@@ -176,7 +176,7 @@ func (d *deps) bundleEnsure(c echo.Context) error {
 // bundleInstallFromBody extracts and bounds the Ensure request. Shape
 // checks come before positive extraction so a `rootCollections` object or a
 // `rootProperties` array is rejected rather than silently skipped.
-func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Install, error, bool) {
+func (d *deps) bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Install, error, bool) {
 	var inst bundles.Install
 	if v := root.Get("id"); v != nil && v.Type() != fastjson.TypeString {
 		return inst, writeError(c, http.StatusBadRequest, "request.schema", "id must be a string", nil), true
@@ -280,7 +280,9 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 		return inst, writeError(c, http.StatusBadRequest, "request.schema", "rootType must be a type id", nil), true
 	}
 	inst.RootType = string(root.GetStringBytes("rootType"))
-	if inst.RootType == "" && !inst.Declares() {
+	if inst.RootType == "" && !inst.Declares() && !d.isTechSpace(c.Param("spaceId")) {
+		// The tech space refuses a bare body with its own message (a
+		// declaration is required there) — see bundleEnsure.
 		return inst, writeError(c, http.StatusBadRequest, "request.missing_field",
 			"rootType required: a root that declares nothing needs a type (page for a plain document)", nil), true
 	}
@@ -413,9 +415,16 @@ func (d *deps) checkBundleRoot(c echo.Context, sp space.Space, inst bundles.Inst
 	ctx := c.Request().Context()
 	if inst.RootType != "" {
 		if _, err := sp.Types().Get(ctx, inst.RootType); err != nil {
-			return writeError(c, http.StatusBadRequest, "type.not_found",
-				"rootType names a type this space does not have",
-				map[string]any{"typeId": inst.RootType, "spaceId": sp.Id()}), true
+			details := map[string]any{"typeId": inst.RootType, "spaceId": sp.Id()}
+			if errors.Is(err, space.ErrNotAType) {
+				return writeError(c, http.StatusBadRequest, "type.not_a_type",
+					"rootType names a collection — a collection goes in rootCollections", details), true
+			}
+			if errors.Is(err, space.ErrNotFound) {
+				return writeError(c, http.StatusBadRequest, "type.not_found",
+					"rootType names a type this space does not have", details), true
+			}
+			return sdkOpError(c, err, details), true
 		}
 		// Refused here: the root's tree is minted before the write the
 		// SDK would reject, and a row-less tree cannot be named to delete.
@@ -425,9 +434,16 @@ func (d *deps) checkBundleRoot(c echo.Context, sp space.Space, inst bundles.Inst
 	}
 	for _, id := range inst.RootCollections {
 		if _, err := sp.Collections().Get(ctx, id); err != nil {
-			return writeError(c, http.StatusBadRequest, "collection.not_found",
-				"rootCollections names a collection this space does not have",
-				map[string]any{"collectionId": id, "spaceId": sp.Id()}), true
+			details := map[string]any{"collectionId": id, "spaceId": sp.Id()}
+			if errors.Is(err, space.ErrNotACollection) {
+				return writeError(c, http.StatusBadRequest, "collection.not_a_collection",
+					"rootCollections names a type — a type goes in rootType", details), true
+			}
+			if errors.Is(err, space.ErrNotFound) {
+				return writeError(c, http.StatusBadRequest, "collection.not_found",
+					"rootCollections names a collection this space does not have", details), true
+			}
+			return sdkOpError(c, err, details), true
 		}
 	}
 	for ownerId, patch := range inst.RootProperties {
@@ -615,13 +631,13 @@ func (d *deps) bundleChild(c echo.Context) error {
 	if req.Seed == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "seed required", nil)
 	}
-	if req.Type == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field",
-			"type required: every object has exactly one type (page for a plain document)", nil)
-	}
 	if len(req.Seed) > maxBundleSeedBytes {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"seed too long", map[string]any{"max_bytes": maxBundleSeedBytes})
+	}
+	if req.Type == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field",
+			"type required: every object has exactly one type (page for a plain document)", nil)
 	}
 	if len(req.Collections) > maxBundleTypes {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
@@ -636,10 +652,25 @@ func (d *deps) bundleChild(c echo.Context) error {
 	if err != nil {
 		return bundleError(c, err, sp.Id(), bundleId)
 	}
-	// Same pre-check as the root's: the child is derived before its
-	// type is written.
-	if req.Type != "" && reservedCarrierType(ctx, sp, req.Type) {
+	// Same pre-flight as object create: the child is derived before
+	// its membership is written, and the SDK writes an id it cannot
+	// resolve verbatim — on a derived install permanently.
+	if _, err := sp.Types().Get(ctx, req.Type); err != nil {
+		if resp, done := typeLookupError(c, err, sp.Id(), req.Type); done {
+			return resp
+		}
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": req.Type})
+	}
+	if reservedCarrierType(ctx, sp, req.Type) {
 		return reservedCarrierError(c, sp.Id(), req.Type)
+	}
+	for _, id := range req.Collections {
+		if _, err := sp.Collections().Get(ctx, id); err != nil {
+			if resp, done := collectionLookupError(c, err, sp.Id(), id); done {
+				return resp
+			}
+			return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "collectionId": id})
+		}
 	}
 	objectId, err := bundles.Child(ctx, sp, b, req.Seed, req.Type, req.Collections...)
 	if err != nil {

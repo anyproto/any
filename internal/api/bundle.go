@@ -166,9 +166,10 @@ type BundleChildRequest struct {
 	// Seed derives the child deterministically under the bundle's
 	// current winner. Permanent — a successor object takes a new seed.
 	Seed string `json:"seed"`
-	// Type is set on first materialization; Collections the child
-	// lacks are added on every call.
-	Type        string   `json:"type,omitempty"`
+	// Type is the child's one type, set on first materialization —
+	// required (400 request.missing_field), `page` for a plain
+	// document; Collections the child lacks are added on every call.
+	Type        string   `json:"type"`
 	Collections []string `json:"collections,omitempty"`
 }
 

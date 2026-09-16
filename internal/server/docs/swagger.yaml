@@ -410,8 +410,9 @@ components:
           type: string
         type:
           description: |-
-            Type is set on first materialization; Collections the child
-            lacks are added on every call.
+            Type is the child's one type, set on first materialization —
+            required (400 request.missing_field), `page` for a plain
+            document; Collections the child lacks are added on every call.
           type: string
       type: object
     api.BundleChildResponse:
@@ -5770,6 +5771,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
         "500":
           content:
             application/json:
@@ -6855,6 +6862,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
         "500":
           content:
             application/json:
@@ -9730,6 +9743,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
         "500":
           content:
             application/json:
