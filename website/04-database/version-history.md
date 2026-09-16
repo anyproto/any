@@ -9,7 +9,7 @@ Every write is a change in the object's DAG, and the DAG is kept in full on ever
 
 A **version is a change id** — the content-hash CID that every write already returns as `changeId` in its `ModifyResult`. It is stable across peers and restarts, so a version handed out by one device resolves on another.
 
-> **Why it matters.** History isn't a feature layered on top of storage — it *is* the storage. The CRDT keeps every change to converge replicas, so "what did this look like last Tuesday" is a local read over data you already hold, with no snapshot service, no retention plan and nothing to pay for.
+History reads the changes held on this device. Use it to inspect an earlier state or compare versions, subject to each dataset's history rules below.
 
 ## Endpoints
 

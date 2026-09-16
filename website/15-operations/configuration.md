@@ -1,11 +1,42 @@
 ---
 title: Configuration
-description: Config file, environment variables and flags — their precedence, and a reference of every key.
+description: Choose server storage, sync network, and search settings, then understand file, environment, and flag precedence.
 order: 20
 ---
 # Configuration
 
-Configuration comes from three layers, each overriding the last: a YAML file, `ANY_*` environment variables, then command-line flags. A missing file is not an error — every key has a default, and a bare `any run` works.
+The server reads a YAML file, then applies `ANY_*` environment variables, then command-line flags. A config file is optional. Without a resolvable account, `any run` starts unauthorized and waits for account setup.
+
+This page configures the **database server**. The companion agent runtime has a separate [anybao.toml](../reference/anybao-toml.html) file and its own model-provider settings.
+
+## Choose your starting settings
+
+| Setting | Default | Change it when… |
+|---|---|---|
+| Account storage | `~/.any` | you need a separate data root |
+| HTTP address | `127.0.0.1:7001` | another server already uses that port |
+| Sync network | production | you are running tests or using a private network |
+| Search embeddings | `auto`: online primary, local fallback | you want embeddings computed only on this device |
+| Ownership | `standalone` | an application will supply the account on each launch |
+
+### Use local search embeddings
+
+Save this as `any-config.yml`:
+
+```yaml
+index:
+  embedder: local
+```
+
+Start the installed server with it:
+
+```bash
+any run --config ./any-config.yml
+```
+
+The local embedding model downloads at startup if it is not already cached. Startup and full-text search can proceed while the model becomes available; vector search reports `unavailable` until its prerequisites are ready. The release's llama.cpp libraries are required. See [Embedders](../search/embedders.html) for the model, platform requirements, and other providers.
+
+This setting changes search embeddings. It does not change the sync network or the model used by an agent conversation. For a separate test network, provide the node configuration described in [Networks](networks.html).
 
 ## Sources and precedence
 
@@ -26,7 +57,7 @@ ANY_LOG_LEVEL=debug any run --config ./any-config.yml --addr 127.0.0.1:7002
 | `--mode <standalone\|managed>` | who owns the server — fixed at launch ([Server](server.html)) |
 | `--account <accountId>` | which account to boot when the root holds several (standalone only) |
 | `--addr <host:port>` | listen address; must be loopback |
-| `--wallet <path>` | explicit wallet file (manual mode) |
+| `--wallet <path>` | explicit wallet file (manual wallet selection) |
 | `--passkey-stdin` | read the wallet passkey from stdin (one line) |
 | `--log-level <debug\|info\|warn\|error>` | log verbosity |
 
@@ -84,7 +115,9 @@ The passkey is the one secret the server may need at boot. It arrives from the e
 | `push.enabled` | `ANY_PUSH_ENABLED` | null | tristate: null = enabled iff a peer is configured; false disables |
 | `push.peerId` / `push.addrs` | `ANY_PUSH_PEER_ID` / `ANY_PUSH_ADDRS` | production node when the network is production | the push node, a direct out-of-band peer ([Push](../notifications/push.html)) |
 
-## A complete example
+## Combine settings
+
+This example also chooses a network configuration, enables periodic file-cache cleanup, and writes a log file. Replace the network and log paths with paths for your installation:
 
 ```yaml
 dataDir: ~/.any

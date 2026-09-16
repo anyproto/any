@@ -5,7 +5,9 @@ order: 80
 ---
 # anyrt
 
-anyrt is the runtime that executes Python programs inside a wasm cage against your any server, and `anyrt serve` is the agent built on it: it watches a chat, answers, and runs scheduled triggers. This page gets one running standalone; the desktop app embeds the same runtime in-process.
+Run a program or agent beside the Any server. `anyrt` executes Python in a WebAssembly sandbox; `anyrt serve` watches chat and runs scheduled triggers. This page uses a separate runtime process. A desktop host can embed the runtime in-process.
+
+Complete the [HTTP quickstart](curl.html) first. Any remains the local data server. An agent's language-model provider is a separate choice from the server's search embedder; selecting local embeddings does not make agent model calls local.
 
 ## Prerequisites
 
@@ -18,9 +20,10 @@ nix develop                 # canonical environment (or: direnv allow)
 uv sync
 make kernel                 # componentized CPython → bin/kernel.wasm (required before cargo)
 make runtime                # → runtime/target/release/anyrt
+export PATH="$PWD/runtime/target/release:$PATH"
 ```
 
-The kernel is compiled into the binary; `anyrt` is one artifact.
+The kernel is compiled into the binary. Keep the shell in this checkout for the file examples below, and keep `runtime/target/release` on PATH when opening another terminal. Use a runtime revision compatible with your Any server; their preview contracts evolve together.
 
 ## 1. anybao.toml
 

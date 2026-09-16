@@ -5,7 +5,20 @@ order: 20
 ---
 # Encryption
 
-Space content is encrypted on the device before it syncs, under keys only space members hold: any-sync nodes store and relay changes but cannot read them, and see only the metadata listed below. Requests to outside providers — the online embedder of the default `index.embedder: auto`, an agent's model or connectors — carry readable content to that provider; `index.embedder: local` keeps search indexing on the device ([Embedders](../search/embedders.html)).
+Any encrypts space content on a member’s device before sending it through sync. Sync nodes store and relay that ciphertext without holding the keys needed to read it. Membership, identifiers and other routing metadata remain visible as listed below.
+
+That protection has two boundaries to keep in mind:
+
+- **On your device:** the local database and search index are not encrypted at rest by Any. The local API returns readable data to callers on the device.
+- **Outside sync:** a model or connector receives the content your application sends to it. Search embeddings can run locally; an explicitly local setup does not send text to an embedding provider. The standalone server’s default, `auto`, tries its configured online endpoint before local fallback. The installation guide explicitly selects `local`. [Choose an embedder](../search/embedders.html).
+
+## What this protects
+
+| Path | Protection |
+|---|---|
+| Space content exchanged through sync | End-to-end encrypted for authorized members. |
+| Local HTTP API and database files | Protected by the device’s access controls, not by sync encryption. |
+| Calls to external providers | Governed by the provider configuration and the content sent in each call. |
 
 ## The key hierarchy
 
@@ -59,10 +72,10 @@ Space name and description are not exempt: they are stored in a derived in-space
 
 **Push is sender-encrypted.** The sending device encrypts the notification payload; the push server fans out opaque ciphertext; the receiving phone decrypts with keys it cached from `SpaceInfo.push` while `any` was running ([Push](../notifications/push.html)).
 
-> **Why it matters.** Hosted backends encrypt in transit and at rest, and hold the keys. Here the keys are derived from a phrase only you hold and distributed only through the ACL, so the operators of the sync nodes are in the same position as an attacker who copied their disks: they have ciphertext, DAG shape, and membership — nothing else.
+Sync-node operators can see the metadata in the table above. Possessing a copy of the nodes’ stored data does not give them the space read keys.
 
 ## The local boundary
 
 Encryption protects data *between* devices. On the device itself the server is plaintext behind `127.0.0.1` — the trust boundary is the loopback interface, and anyone with a shell on the machine can call the API ([Security model](../operations/security-model.html)). The data dir is not encrypted at rest either: records, the local store and the search index are readable by anyone who can read the directory ([Data directory](../operations/data-dir.html)). A standalone `wallet.key` holds the mnemonic and is plain JSON unless encrypted with a passkey supplied via `ANY_WALLET_PASSKEY` or `--passkey-stdin`; the server never prompts for it interactively. A server started with `--mode managed` keeps no account key on disk at all: its host supplies the phrase over `POST /v1/auth` on every launch ([Accounts](../auth/accounts.html)).
 
-> **Note.** There is no key escrow and no recovery flow. Lose the mnemonic and every device key derived from it, and the data is unrecoverable by design. Back the phrase up when `any init` prints it.
+> **Note.** There is no key escrow and no recovery flow. Lose every usable copy of the account key and its recovery phrase, and the service cannot restore access for you. Back the phrase up when `any init` prints it.

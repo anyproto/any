@@ -5,9 +5,18 @@ order: 0
 ---
 # Collaboration
 
-A space is the unit of sharing: one encrypted CRDT world with its own access-control list. Everything on these pages is about who is in a space, how they got there, what they may do, and how several devices or members converge on the same objects without a coordinator deciding for them.
+Share data by sharing a **space**. Its access-control list (ACL) identifies members and their permissions. Each member works with local data, and encrypted changes sync between devices.
 
-## The model in one picture
+## Choose a sharing flow
+
+- **Invite someone to a team space:** create an invite, let them request to join, then approve the request. [Invites](invites.html)
+- **Grant access to a known account:** add its identity through the ACL. The recipient accepts the incoming space before loading it. [Access control](acl.html)
+- **Create a private space for two people:** use the deterministic one-to-one flow. [One-to-one spaces](one-to-one.html)
+- **Let people read without membership approval:** use a public guest key, which grants read-only access to anyone holding it. [Guest access](invites.html)
+
+Check membership and space status before showing shared data. A successful join request means approval is pending; it does not mean the space is ready to query.
+
+## Membership flows
 
 ```
 owner ── mints invite ──► token ──► joiner: POST /v1/spaces/join  (status: joining)
@@ -41,9 +50,9 @@ me ── one-to-one {otherIdentity} ──► both derive the same space, both 
 
 Your own role in every space is mirrored onto the space list as `SpaceInfo.ownRole`, so a UI can gate role-dependent controls straight from `GET /v1/spaces` — no per-space fan-out. `GET /v1/spaces/:id/members/me` is the authoritative read when it matters.
 
-> **Why it matters.** Access control is cryptographic, not a policy a server enforces: a grant hands the member the space's read key, a removal rotates it. A relay that stores the space cannot read it, and cannot quietly add itself as a member.
+Granting membership delivers the space’s read key to the member through the ACL. Removing a member rotates that key for future changes; it does not erase content they already received. Sync nodes store encrypted space content without holding its read key. [Encryption boundaries](../understanding/encryption.html)
 
-## Convergence without a coordinator
+## Shared objects with stable identities
 
 Two themes recur across the section:
 

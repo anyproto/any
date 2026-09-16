@@ -5,7 +5,9 @@ order: 30
 ---
 # CLI
 
-`any <cmd>` builds a request, sends it to the running server, and prints the JSON reply. It never opens the database itself, so anything the CLI does, `curl` can do, and vice versa.
+Use `any` for everyday calls to the local HTTP server. Commands print JSON, so you can inspect results with `jq` and pass returned IDs to the next command.
+
+**Before you start:** complete [Install](install.html), keep the server running, and put the same binary on PATH in this terminal. This page is a command reference with short examples, not one script to paste from top to bottom. The [curl quickstart](curl.html) supplies a continuous create → query → subscribe example.
 
 ## Global flags and exit codes
 
@@ -27,10 +29,10 @@ order: 30
 
 ```bash
 any init                       # create the account (prints the mnemonic once)
-any run                        # start the server in this terminal
+any run                        # foreground: leave this in its own terminal
 any status                     # GET /v1/health
 any auth status                # authorization state + local accounts
-any stop                       # signal the server holding the account lock
+any stop                       # use the server's data root; this stops it
 any version                    # binary + server versions
 ```
 
@@ -46,7 +48,7 @@ any space sync $SPACE          # force a head-sync round now
 any space delete $SPACE --yes  # irreversible
 ```
 
-Creating a regular space has no dedicated subcommand — use the API directly ([curl](curl.html)):
+Create a space before using `$SPACE` in the commands above. Regular space creation uses the API directly ([curl](curl.html)):
 
 ```bash
 SPACE=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces \

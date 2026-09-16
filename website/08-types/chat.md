@@ -26,7 +26,7 @@ curl -X POST http://127.0.0.1:7001/v1/catalog/general-chat/setup \
 #          "installed": true|false, "typeId": "<chat object>" } ] }
 ```
 
-The install is a derived, hidden root that is its own type with a chat part, so it accepts messages from the first write, and is filed under the `miniapp` collection, so the chat is a sidebar entry like any other app. Use its `rootId` as `<objectId>` in every endpoint below. The call is adopt-or-install, and a derived root's id is a pure function of the space and the bundle id — every client, on any device, for any member, online or not, computes the same `rootId`, two sides of a 1-1 included. `POST /objects` never makes a chat, and there is no second chat to find. Chat content cannot be merged across objects (`creator` and `createdAt` are stamped from the change envelope, so copying messages re-attributes and re-times them), which is why the one chat is derived and permanent.
+The install is a derived, hidden root that is its own type with a chat part, so it accepts messages from the first write, and is filed under the `miniapp` collection, so the chat appears in the space's app list. Use its `rootId` as `<objectId>` in every endpoint below. The call is adopt-or-install, and a derived root's id is a pure function of the space and the bundle id — every client, on any device, for any member, online or not, computes the same `rootId`, two sides of a 1-1 included. `POST /objects` never makes a chat, and there is no second chat to find. Chat content cannot be merged across objects (`creator` and `createdAt` are stamped from the change envelope, so copying messages re-attributes and re-times them), which is why the one chat is derived and permanent.
 
 ## Endpoints
 

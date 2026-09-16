@@ -1,167 +1,198 @@
 ---
 title: JavaScript
-description: A minimal fetch-based client — create a space, create an object, query, and read the SSE subscription from a streaming POST — with no dependencies.
+description: A complete fetch client that creates a page, watches a sorted result window, and recovers from an interrupted stream.
 order: 40
 ---
 # JavaScript
 
-Everything is `fetch`. The one wrinkle is live reads: the subscribe endpoints are POSTs (the filter body does not fit a query string), so the browser's `EventSource` does not apply — you read the response body as a stream and split SSE frames yourself. The blocks below form one file, runnable top to bottom as an ES module (top-level `await`) in Node 18+ (`client.mjs`) or a browser (`<script type="module">`).
+Create a page, subscribe to its space, and rename it while the subscription is open. The example maintains an ordered result window and reconnects after an interrupted stream.
+
+**Before you start:** complete [Install](install.html) and leave the authorized server running. <a href="../assets/examples/client.mjs" download>Download client.mjs</a>, or copy the JavaScript blocks below in order. Run `node client.mjs` with Node 18 or newer. Each run creates a new space.
+
+The same file works in a browser module. Serve it from `http://localhost:5173` or `http://127.0.0.1:5173`, the allowed development origins. Other origins need an appropriate proxy and a same-origin `API` URL ([Security model](../operations/security-model.html)).
+
+## 1. Make an HTTP call
+
+All ordinary calls share one helper. Keep the HTTP status on errors so a client can distinguish a bad request from a server that is temporarily unavailable.
 
 ```js
 const API = "http://127.0.0.1:7001/v1";
 
-async function call(method, path, body) {
-  const res = await fetch(API + path, {
-    method,
-    headers: body ? { "content-type": "application/json" } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) {
-    const { error } = await res.json();            // uniform shape: {error:{code,message,details?}}
-    throw new Error(`${res.status} ${error.code}: ${error.message}`);
-  }
-  return res.status === 204 ? null : res.json();
+async function checked(response) {
+  if (response.ok) return response;
+  const { error } = await response.json();
+  throw Object.assign(new Error(`${response.status} ${error.code}: ${error.message}`),
+    { status: response.status, code: error.code });
 }
+
+async function call(method, path, body, signal) {
+  const response = await checked(await fetch(API + path, {
+    method, signal,
+    headers: body === undefined ? {} : { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }));
+  return response.status === 204 ? null : response.json();
+}
+
+const account = await call("GET", "/auth");
+if (!account.authorized) throw new Error("Create or select an account before running this example.");
 ```
 
-## 1. Create a space
+## 2. Create and read a page
+
+An object requires one `type`; `collections` is optional. Names and descriptions belong to the universal `any` property group.
 
 ```js
-const space = await call("POST", "/spaces", { name: "Notebook" });
-const SPACE = space.id;                              // "bafyreig…"
-```
-
-## 2. Create an object
-
-A document is an object whose type has a part declaring the `editor` module — the built-in `page` for a plain body, or a document type of your own (registered as a bundle so every device agrees on one). `type` is required; `collections` is optional.
-
-```js
+const { id: SPACE } = await call("POST", "/spaces", { name: "JavaScript notebook" });
 const { objectId } = await call("POST", `/spaces/${SPACE}/objects`, {
-  type: "page",
-  initialProperties: { any: { name: "Reading list" } },
+  type: "page", initialProperties: { any: { name: "Reading list" } },
 });
+const query = { filter: { "any.type": "page" }, sort: ["-modifiedAt", "id"], limit: 20 };
+const page = await call("POST", `/spaces/${SPACE}/objects/query`, { ...query, includeTotal: true });
+console.log("Pages:", page.total, page.records.map(r => r.any.name));
 ```
 
-## 3. Query
+Expect `Pages: 1 [ 'Reading list' ]`. The query uses an explicit ascending ID as the second sort key, so equal timestamps have the same order in the server and renderer.
 
-```js
-const page = await call("POST", `/spaces/${SPACE}/objects/query`, {
-  filter: { "any.type": "page" },
-  sort: ["-modifiedAt"],
-  limit: 20,
-  includeTotal: true,
-});
-console.log(page.total, page.records.map(r => r.any.name));
-// timestamps arrive as {"$date": "…"}:
-const modified = new Date(page.records[0].modifiedAt.$date);
-```
+## 3. Read the stream
 
-## 4. Subscribe
-
-One POST returns `text/event-stream`. Parse it frame by frame: frames are separated by a blank line, each has `event:` and `data:` lines, and `: keepalive` comments can be ignored.
+Subscriptions are POSTs, so use `fetch` instead of `EventSource`. This parser accepts LF or CRLF frames, joins multiple `data:` lines, ignores keepalive comments, and releases the reader when the loop exits.
 
 ```js
 async function* sse(path, body, signal) {
-  const res = await fetch(API + path, {
+  const response = await checked(await fetch(API + path, {
     method: "POST", signal,
     headers: { "content-type": "application/json", accept: "text/event-stream" },
     body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const { error } = await res.json();
-    throw Object.assign(new Error(error.code), { status: res.status });
-  }
-  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
-  let buf = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) return;
-    buf += value;
-    let i;
-    while ((i = buf.indexOf("\n\n")) >= 0) {
-      const frame = buf.slice(0, i); buf = buf.slice(i + 2);
-      let event = "message", data = "";
-      for (const line of frame.split("\n")) {
-        if (line.startsWith("event:")) event = line.slice(6).trim();
-        else if (line.startsWith("data:")) data += line.slice(5).trim();
-      }
-      if (data) yield { event, data: JSON.parse(data) };
-    }
-  }
-}
-
-const ctl = new AbortController();
-let view = new Map();                                // id → record: hold a window, not a database
-let markLive;
-const live = new Promise(resolve => { markLive = resolve; });  // settles on the first snapshot
-
-function render() {
-  console.log([...view.values()].map(r => r.any?.name));
-}
-
-// One retry loop: a `closed` frame, a stream that ends without one and a
-// failed request all reopen the POST, and its snapshot replaces the window.
-async function watch() {
-  const { accountId } = await call("GET", "/auth");
-  while (!ctl.signal.aborted) {
-    try {
-      let reason = null;
-      for await (const { event, data } of sse(`/spaces/${SPACE}/objects/query/subscribe`,
-          { filter: { "any.type": "page" }, sort: ["-modifiedAt"], limit: 20 }, ctl.signal)) {
-        if (event === "snapshot") {                  // the whole window: replace, never merge
-          view = new Map(data.records.map(r => [r.id, r]));
-          render();
-          markLive();
+  }));
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return;
+      buffer += value;
+      let separator;
+      while ((separator = /\r?\n\r?\n/.exec(buffer))) {
+        const frame = buffer.slice(0, separator.index);
+        buffer = buffer.slice(separator.index + separator[0].length);
+        let event = "message";
+        const data = [];
+        for (const line of frame.split(/\r?\n/)) {
+          if (line.startsWith("event:")) event = line.slice(6).trim();
+          if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
         }
-        if (event === "changes") {
-          for (const ch of data) {                   // a batch omits the lists it has nothing for
-            for (const r of ch.added ?? [])   view.set(r.id, r.doc);
-            for (const r of ch.updated ?? []) view.set(r.id, r.doc);
-            for (const r of ch.removed ?? []) view.delete(r.id);
-          }
-          render();
-        }
-        if (event === "closed") reason = data.reason;  // terminal: the stream ends next
+        if (data.length) yield { event, data: JSON.parse(data.join("\n")) };
       }
-      if (reason === "deauthorized") {
-        const auth = await call("GET", "/auth");
-        if (!auth.authorized || auth.accountId !== accountId) return;  // signed out or switched: stop
-      }
-    } catch (e) {
-      if (e.name === "AbortError") return;
-      if (e.status >= 400 && e.status < 500 && e.status !== 401) throw e;  // a bad request stays bad
     }
-    await new Promise(resolve => setTimeout(resolve, 1000));
+  } finally {
+    try { await reader.cancel(); } catch { /* an aborted stream is already closed */ }
+    reader.releaseLock();
   }
 }
-
-watch().catch(console.error);                        // ctl.abort() stops it
 ```
 
-`watch()` runs alongside the rest of the file and keeps the process alive until `ctl.abort()` or Ctrl-C. Once the first snapshot is in, rename the object and watch an `updated` entry arrive:
+
+## 4. Keep a live, ordered window
+
+A snapshot replaces the window. Deltas change membership and values; they do not reorder a JavaScript Map. Sort by the query's two keys each time you render. These object IDs are ASCII, so direct string comparison matches their byte ordering.
 
 ```js
-await live;
-await call("POST", `/spaces/${SPACE}/properties/${objectId}/set/any`, { patch: { name: "Reading list 2026" } });
+const ctl = new AbortController();
+let view = new Map();
+let resolveLive, rejectLive;
+const live = new Promise((resolve, reject) => { resolveLive = resolve; rejectLive = reject; });
+
+function render() {
+  const rows = [...view.values()].sort((a, b) =>
+    Date.parse(b.modifiedAt.$date) - Date.parse(a.modifiedAt.$date) ||
+    (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  console.log("Live:", rows.map(r => r.any.name));
+}
+
+function pause(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(signal.reason);
+    const timer = setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, ms);
+    function abort() { clearTimeout(timer); reject(signal.reason); }
+    signal.addEventListener("abort", abort, { once: true });
+  });
+}
+
+async function watch() {
+  const signal = ctl.signal;
+  while (!signal.aborted) {
+    try {
+      // Check on every connection, including after EOF or a 401 without a closed frame.
+      const auth = await call("GET", "/auth", undefined, signal);
+      if (!auth.authorized || auth.accountId !== account.accountId) {
+        view.clear(); render();
+        throw Object.assign(new Error("Account signed out or changed; stopped the subscription."), { fatal: true });
+      }
+      for await (const { event, data } of sse(`/spaces/${SPACE}/objects/query/subscribe`, query, signal)) {
+        if (event === "snapshot") {
+          view = new Map(data.records.map(r => [r.id, r]));
+          render(); resolveLive();
+        } else if (event === "changes") {
+          for (const change of data) {
+            for (const row of change.added ?? []) view.set(row.id, row.doc);
+            for (const row of change.updated ?? []) view.set(row.id, row.doc);
+            for (const row of change.removed ?? []) view.delete(row.id);
+          }
+          render();
+        } else if (event === "closed") {
+          console.log("Reopening:", data.reason);
+          break;
+        }
+      }
+    } catch (error) {
+      if (signal.aborted || error.fatal || error instanceof SyntaxError ||
+          (error.status >= 400 && error.status < 500 && ![401, 429].includes(error.status))) throw error;
+      console.warn("Retrying:", error.message);
+    }
+    await pause(1000, signal);
+  }
+}
 ```
 
-## Recovery
+The loop retries network failures, EOF, and terminal frames. It stops on cancellation, an account change, invalid JSON, or a non-retryable client error. There is no event replay: reconnecting supplies a fresh snapshot. [Subscriptions](../realtime/subscribe.html) explains each close reason and removal reason.
 
-`closed` carries a reason — `server_shutdown`, `sdk_closed`, `overflow` (you drained too slowly), `drifted` (too much of the window left), `deauthorized` (the account was signed out or switched; read `GET /v1/auth` first). Each means the same thing for the stream: open a new POST and replace your window with the new `snapshot`. A stream that ends without `closed` means the same. There is no replay and nothing to reconcile: `watch()` above is that loop, and [Subscriptions](../realtime/subscribe.html) covers each reason.
+## 5. Rename while watching
+
+The watcher runs concurrently. Its first snapshot releases the rename below; a failure or cancellation before that snapshot rejects the wait instead of leaving the file stuck.
+
+```js
+const stop = () => ctl.abort();
+globalThis.stopAnyDemo = stop;                       // browser console: stopAnyDemo()
+if (typeof process !== "undefined" && process.once) process.once("SIGINT", stop);
+
+// Observe completion immediately, so no background rejection is left unhandled.
+const finished = watch().then(() => null, error => error);
+finished.then(error => rejectLive(error ?? new DOMException("Stopped", "AbortError")));
+
+try {
+  await live;
+  await call("POST", `/spaces/${SPACE}/properties/${objectId}/set/any`,
+    { patch: { name: "Reading list 2026" } }, ctl.signal);
+  console.log("Rename saved. Leave this process open to receive further changes.");
+  const error = await finished;
+  if (error) throw error;
+} catch (error) {
+  if (error.name !== "AbortError") throw error;
+} finally {
+  stop();
+  await finished;
+  delete globalThis.stopAnyDemo;
+  if (typeof process !== "undefined" && process.removeListener) process.removeListener("SIGINT", stop);
+}
+```
+
+Expect the live output to contain `Reading list 2026`. Stop with Ctrl-C in Node, or `stopAnyDemo()` in the browser console. The object remains in the space.
 
 ## Writing and reading back
 
-Writes return `{versionId, changeId, recordIds}` and never the record. Read it back through a query, or let the open subscription deliver it — stamp `versionId` on what you wrote if you need to recognise your own change on the stream ([Best practices](../understanding/best-practices.html)).
+Object creation returns `objectId`. Dataset writes, including chat messages, return `{versionId, changeId, recordIds}`; read the new record through a query or the open subscription. A change's `versionId` can identify your own write on that server's stream, but is not a version to compare across devices.
 
-```js
-// the space's one chat: the general-chat usecase's root
-const setup = await call("POST", "/catalog/general-chat/setup", { spaceId: SPACE });
-const chatId = setup.bundles[0].bundle.rootId;
+A chat uses the same pattern: install `general-chat` through `POST /catalog/general-chat/setup`, take `bundles[0].bundle.rootId`, and send to `POST /spaces/:spaceId/objects/:chatId/chat/messages`. [Python](python.html#3-read-a-dataset) shows the complete dataset write and pagination sequence.
 
-const r = await call("POST", `/spaces/${SPACE}/objects/${chatId}/chat/messages`, { text: "hello" });
-r.recordIds[0];                                     // the new message id
-```
-
-> **Note.** In a browser the server's CORS allowlist covers the desktop-shell webview origins and the Vite dev origins; a page served from another origin will be blocked by the browser even though the server is on loopback. Serve your dev page from Vite, or proxy `/v1` through your dev server ([Security model](../operations/security-model.html)).
-
-Next: [Python](python.html), or on to [Reading data](../database/reading-data.html).
+Next: [Reading data](../database/reading-data.html), [Python](python.html), or [the tutorial](../tutorial/index.html).

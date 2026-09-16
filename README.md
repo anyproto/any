@@ -116,7 +116,7 @@ SPACE=$(curl -fsS "$API/spaces" \
 
 OBJECT=$(curl -fsS "$API/spaces/$SPACE/objects" \
   -H 'Content-Type: application/json' \
-  -d '{"types":["page"],"initialProperties":{"any":{"name":"Reading list"}}}' \
+  -d '{"type":"page","initialProperties":{"any":{"name":"Reading list"}}}' \
   | jq -er '.objectId')
 
 printf 'Created page: %s\n' "$OBJECT"
@@ -131,7 +131,7 @@ In that same terminal, query the pages in your space:
 ```sh
 curl -fsS "$API/spaces/$SPACE/objects/query" \
   -H 'Content-Type: application/json' \
-  -d '{"filter":{"any.types":"page"},"sort":["-modifiedAt"],"limit":20}' | jq
+  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}' | jq
 ```
 
 The response's `records` array includes your Reading list page. To keep
@@ -140,7 +140,7 @@ that query live, open the matching subscription:
 ```sh
 curl -fsSN "$API/spaces/$SPACE/objects/query/subscribe" \
   -H 'Content-Type: application/json' \
-  -d '{"filter":{"any.types":"page"},"sort":["-modifiedAt"],"limit":20}'
+  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}'
 ```
 
 The stream sends `ready`, then a `snapshot` of the current records, followed

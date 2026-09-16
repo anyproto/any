@@ -55,7 +55,7 @@ Three rules connect values to definitions:
 - **Read tolerance.** A value that violates the current definition, or sits under an unknown propId, is returned as-is. There is no `valid` flag and no re-validation cascade; clients decide how to render out-of-spec data.
 - **Same-name properties are not a conflict.** Two peers concurrently adding "Rating" produce two ids, both fully real. Consolidating is a user or agent decision, never a merge rule.
 
-> **Why it matters.** Hosted schemas migrate tables in one transaction the server controls. Here two devices can edit a schema offline and both edits must converge without a coordinator — so the design moves every "breaking" fact into an immutable pin and everything else into per-path LWW. Nothing ever needs a migration, and nothing that merged is ever rolled back.
+Separate a property's meaning from its presentation. Its pinned kind and scope define how values behave; mutable descriptors control how clients display them.
 
 ## 4. Patch
 

@@ -1,11 +1,21 @@
 ---
-title: Debugging
-description: Where to look when something is off — health, sync status, the debug snapshots, the process view, logs, and how to read an error response.
+title: Troubleshooting
+description: Diagnose server startup, missing data, rejected writes, search delays, and agent jobs using the right status surface.
 order: 70
 ---
-# Debugging
+# Troubleshooting
 
-Most problems are one of four things: the server is not up or not authorized, a space has not converged yet, the index has not caught up, or a request was malformed. Each has a dedicated read.
+Start with the status surface closest to the symptom. Health describes the server, sync status describes replicated data, search processes describe indexing, and agent run records describe program execution.
+
+| Symptom | First check |
+|---|---|
+| API connection fails or returns `auth.required` | [Server health](#is-the-server-up-and-authorized) |
+| a device cannot see a recent change | [Space sync status](#has-this-space-converged) |
+| an object exists but does not appear in search | [Index progress](#is-search-behind) |
+| an object or dataset write is rejected | [Error codes](#reading-an-error) |
+| a scheduled program did not run | [Agent run summaries and trigger state](../scheduling/runs-and-monitoring.html) |
+
+The commands assume an installed CLI and a local server. Set `$SPACE`, `$OBJECT`, and `$CHAT` to IDs from your application before using the examples that need them. Use `--addr` when the server is on a different loopback port.
 
 ## Is the server up and authorized?
 
@@ -85,7 +95,7 @@ any process list                       # GET /v1/processes
 
 ## Reading an error
 
-Every non-2xx response has one shape:
+Every non-2xx response from the Any server has one shape:
 
 ```json
 { "error": { "code": "space.not_found", "message": "space spc_xyz not found",
@@ -98,6 +108,9 @@ Every non-2xx response has one shape:
 |---|---|---|
 | 400 | `request.bad_json` / `request.schema` / `request.missing_field` | the body did not parse or match the endpoint's shape; the message names what |
 | 400 | `request.unknown_field` | a top-level key outside the endpoint's accepted set — `details.accepted` lists them |
+| 400 | `request.missing_field` on object creation | supply the object's required `type`; collections are separate memberships |
+| 400 | `dataset.not_declared` | the object's type does not declare the dataset you are writing; set the intended type first |
+| 400 | `property.not_found` | resolve the property's `xKey` to its `propId`, and write under the owner that declares it |
 | 400 | `filter.unknown_operator` / `filter.invalid` | the query filter did not parse; `details.path` points at it |
 | 401 | `auth.required` | unauthorized server |
 | 404 | `space.not_found` / `object.not_found` / `type.not_found` | the target id is unknown or deleted |
@@ -107,6 +120,8 @@ Every non-2xx response has one shape:
 | 503 | `server.unavailable` / `index.embedder_unavailable` | shutting down / embedder outage; retry |
 
 The full namespace is in the [error reference](../reference/errors.html). CLI exit codes: `0` success, `1` user error or 4xx, `2` 5xx, `3` cannot reach the server.
+
+For a custom type or dataset, also check [Types and properties](../database/types-and-properties.html) and [Runtime datasets](../database/runtime-datasets.html). Writing values does not assign a type or add collection membership as a side effect.
 
 ## Logs
 

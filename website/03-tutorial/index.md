@@ -1,11 +1,13 @@
 ---
 title: Tutorial
-description: Four parts that build on each other — an object, then properties, then a dataset, then the parts, bundles and miniapps that turn it into an app — so you can stop at any level and use only what you have learned.
+description: Learn the object model by building a notebook, adding typed properties, importing dataset records, and adding an app to a space.
 order: 0
 ---
 # Tutorial
 
-any looks like a lot of machinery from the outside — types, properties, parts, datasets, modules, bundles, a catalog. Almost all of it is optional. In the simplest case you create an object and you are done; every further concept is one more thing you can add when you need it. This tutorial adds them in order, one part per level, with a working example at each step.
+Start with a named page, then learn when to add properties, records, and an app entry. Each part introduces one layer of the model through an example you can inspect with HTTP.
+
+**Before you start:** complete [Your first page with curl](../quickstart/curl.html). Keep the authorized server running. You need `curl`, `jq`, and one working terminal for the tutorial variables. These are experiments for a developer preview, not a production password manager or mail service.
 
 ## The four levels
 
@@ -13,21 +15,23 @@ any looks like a lot of machinery from the outside — types, properties, parts,
  1. Objects        an object with a name and a description         a notebook
  2. Properties     a type: typed columns on objects of that type    a password manager
  3. Datasets       a table of records inside one object            10 000 emails
- 4. Apps           parts, bundles, the sidebar, the catalog         the mailbox as an app
+ 4. Apps           parts, bundles, the app list, the catalog        the mailbox as an app
 ```
 
-Each level is complete on its own. A space full of plain objects with names is a valid space. A type with three properties and no parts is a valid type. You never have to reach the last level to use the first.
+Parts 1, 2, and 3 each create their own example in the shared tutorial space. Part 4 extends the mailbox created in Part 3 and needs its `MAILBOX` and `INBOX` variables. Follow them in order for the explanation, or start at a part after reading its prerequisites.
+
+You can stop after any part. A named page is useful without a custom schema; a type with properties is useful without a dataset.
 
 | Part | You build | You learn |
 |------|-----------|-----------|
 | [1. Objects](objects.html) | a notebook of named objects | create, read back, subscribe, rename, delete; the universal `any` group |
 | [2. Properties](properties.html) | a password manager | types, the three ids, kinds and descriptors, choice options, filters on values, collections stacking a second group of columns |
 | [3. Datasets](datasets.html) | a mailbox holding 10 000 emails | a table inside one object: when to use it instead of many objects, an enforced schema, idempotent import, paging, search, aggregation |
-| [4. Apps](apps.html) | the mailbox as a sidebar app | parts and modules, bundles that converge across devices, `miniapp`, the usecase catalog |
+| [4. Apps](apps.html) | the mailbox as an app in your space | parts and modules, bundles that converge across devices, `miniapp`, the usecase catalog |
 
 ## One model, two directions
 
-Seen as a database, the simple things are objects, types and properties, and an app is the complicated construction on top. Seen from the interface, it flips: the simple thing is the app in the sidebar — a wiki, a chat, a contacts directory — and the objects, types and properties inside it are the details. any has to serve both. The levels above are the database direction; Part 4 ends where the interface begins, at the [usecase catalog](../collaboration/bundles.html) that installs the well-known apps with one call.
+A space has a list of apps you install or enable there, such as a wiki, a chat or a contacts directory. You work with those apps; objects, types, properties and datasets are the building blocks inside them. This tutorial starts with those building blocks and ends with installing an app in a space through the [usecase catalog](../collaboration/bundles.html).
 
 ## The picture to keep in mind
 
@@ -75,19 +79,21 @@ On top of that an object can be filed under any number of **collections**, each 
 
 ## Before you start
 
-The tutorial assumes a running server and one space, as in the [Quickstart](../quickstart/index.html). Every example is a `curl` call against it:
+In your working terminal, create the shared tutorial space. Each part uses `API` and `SPACE` from here:
 
 ```bash
 API=http://127.0.0.1:7001/v1
-SPACE=$(curl -s -X POST $API/spaces -H 'content-type: application/json' \
-  -d '{"name": "Tutorial"}' | jq -r .id)
+curl -fsS "$API/auth" | jq -e '.authorized == true'
+SPACE=$(curl -fsS "$API/spaces" -H 'content-type: application/json' \
+  -d '{"name": "Tutorial"}' | jq -er .id)
+printf 'Space: %s\n' "$SPACE"
 ```
 
-Keep `$SPACE` — every part uses it.
+Keep this terminal open. Do not paste the examples into a new shell without copying their variables. CLI examples are alternatives to the preceding HTTP call unless stated otherwise; running both may create a duplicate or hit a handle conflict.
 
 <div class="cards">
 <a href="objects.html"><strong>1. Objects</strong><span>Create an object, read it back, watch it change live.</span></a>
 <a href="properties.html"><strong>2. Properties</strong><span>A type with typed columns — enough for a password manager.</span></a>
 <a href="datasets.html"><strong>3. Datasets</strong><span>Ten thousand emails as records on one object.</span></a>
-<a href="apps.html"><strong>4. Apps</strong><span>Parts, bundles, the sidebar and the catalog.</span></a>
+<a href="apps.html"><strong>4. Apps</strong><span>Parts, bundles, apps in a space and the catalog.</span></a>
 </div>

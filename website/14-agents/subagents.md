@@ -5,7 +5,9 @@ order: 40
 ---
 # Subagents
 
-`subagent@v1.delegate(space, task, opts=None)` runs the same conversation loop in **quiet mode**: no chat bubbles, no boot window, no auto-recall, no persisted turn, and the parent's mailbox is left alone. The child's final reply returns to the calling cell as a value.
+Delegate a bounded task when it needs its own working context and should return a report to the parent. `subagent@v1.delegate(space, task, opts=None)` calls the same conversation loop in **quiet mode**, then returns its final reply as a value.
+
+The child starts from the supplied task text, without the parent's history or recalled memories. Delegation is blocking and sequential; it does not start a persistent background worker. The table below lists the context, tool, and trace behavior. The guest-code example assumes the `agent` overlay and model tier are configured.
 
 ## When to delegate
 

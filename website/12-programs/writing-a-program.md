@@ -5,7 +5,9 @@ order: 20
 ---
 # Writing a program
 
-A program is one Python file whose docstring is its documentation, whose `main(args)` is its entry point, and whose public `@span` functions are its tool surface. Deploy and the agent's own program writer both check the convention and reject violations, so the rules below are a contract rather than a style guide.
+A program is a Python file with a module docstring and a `main(args)` entry point when it is invoked directly. A program exposed as an agent tool also declares public `@span` functions. The runtime uses these declarations to list tools and record their calls.
+
+Start with [Run your first program](index.html#run-your-first-program), then use this page to prepare it for publication or agent use. Develop against a local `--programs` directory, [test it](testing.html), and [deploy](modules-and-overlays.html#publishing) it to a space. Deploy validates the rules below.
 
 ## Layout and naming
 
@@ -13,6 +15,8 @@ A program is one Python file whose docstring is its documentation, whose `main(a
 |---|---|---|
 | flat | `programs/<name>@vN.py` | cron jobs, small tools |
 | folder | `programs/<name>@vN/program.py` | larger tools; tests and fixtures ride alongside and deploy ignores them |
+
+These paths are relative to a repo folder; `anyrt run --programs` selects the directory containing the versioned programs.
 
 The name is a valid identifier; the version is `@vN`, explicit and exact — there is no floating `latest`. A published overlay version is **frozen**: an edit ships as `name@vN+1`. Programs in your own working space are editable in place.
 

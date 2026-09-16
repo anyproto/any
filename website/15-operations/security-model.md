@@ -1,11 +1,22 @@
 ---
 title: Security model
-description: Loopback is the process boundary, end-to-end encryption is the data boundary — what each protects, what the CORS allowlist is for, and what the server does not provide.
+description: Understand encrypted sync, local API and disk access, model-provider exposure, and how credentials are stored.
 order: 50
 ---
 # Security model
 
-There are two boundaries. The HTTP socket is **localhost-only with no authentication**: anyone who can run a process on the machine can call it. The data is **end-to-end encrypted before it syncs**: sync nodes, coordinator, file nodes and the push node relay ciphertext they cannot read. Neither boundary covers the disk or outside providers — the data dir is not encrypted at rest, and an online embedder reads the text it embeds. Understanding which boundary protects what is most of operating `any` safely.
+Any encrypts space content before it syncs between devices. Members hold the keys; sync and file nodes store and relay encrypted content. On a device, the local server reads the data and exposes it through its loopback API.
+
+These protections apply to different parts of an application:
+
+| Surface | Who can read it | What to configure or protect |
+|---|---|---|
+| Synced content | members with the space's read key | [Membership and roles](../collaboration/acl.html) |
+| Local HTTP API | processes that can connect to the loopback port | trust in applications running on the device |
+| Local database and index | anyone who can read the data directory | operating-system access and device storage protection |
+| Hosted model or embedding request | the provider receiving the request | model choice and which data the harness sends |
+
+The sections below describe these boundaries, the wallet files, and the browser-origin allowlist.
 
 ## The socket: loopback, no auth
 
@@ -13,9 +24,9 @@ There are two boundaries. The HTTP socket is **localhost-only with no authentica
 - The trust model is the operating-system user: a local process that can open a TCP connection to the port has the same power as the CLI. That is the same trust a local database socket or a browser's local profile directory has.
 - Lifecycle is gated by **ownership, not authentication**: a standalone server refuses `POST /v1/shutdown`, `DELETE /v1/auth` and account switches outright (`403`), and a managed server accepts them only with the control token its host holds — so another local process cannot log it into a different account or sign it out over HTTP. Lifetime stays uid-bounded: any same-user process can still `any stop` or `kill` a server, token or not. Everything else on the socket stays open to any local process.
 
-> **Why it matters.** Because the server never listens off-host, the whole remote attack surface is the any-sync protocol, which carries ciphertext and signed ACL records.
+The loopback API is intended for local applications. Space membership controls access to synced data; it is not authentication for callers of this socket.
 
-## CORS: a fixed allowlist, not a hole
+## Browser origins
 
 Browsers enforce CORS on top of the socket. The server allows exactly the origins the bundled desktop-shell webview runs at:
 
@@ -37,6 +48,12 @@ Custom schemes are unclaimable by web content and `.localhost` is pinned to loop
 - Search indexing is outside this boundary: with the default `index.embedder: auto` the text of indexed documents and search queries goes to the online embedding provider; `local` keeps it on the device ([Embedders](../search/embedders.html)).
 
 What the network can observe: which peer ids sync which space ids, each space's ACL (member public keys and permissions), object and change ids, DAG shape, sizes and timing, and push topics. What it cannot: field values, records, file contents and names, space names, profiles or message text ([Encryption](../understanding/encryption.html)).
+
+## Models and external services
+
+A model provider receives the prompt you send, including selected history, recalled memories, and any tool results included in the next request. A connector's service likewise receives its API requests. End-to-end sync encryption does not hide these inputs from their destination.
+
+Search embeddings are configured separately from agent inference. The default `index.embedder: auto` uses an online primary and a local fallback. Use `index.embedder: local` for embeddings computed on the device; the model and native libraries must be available. This does not change the provider used by an agent conversation. See [Configuration](configuration.html#use-local-search-embeddings) and [Conversations](../agents/conversations.html#the-message-model).
 
 ## Secrets on this machine
 
@@ -64,4 +81,4 @@ LAN discovery (`p2p`) announces this device over mDNS. The space exchange proves
 | install / service files | you run `any run` under your own supervisor |
 | API-level rate limiting | none; the socket is local |
 
-Programs and agents that run inside the data — the sandboxed Python runtime — have their own boundary, the effect system, which is described under [Programs and effects](../understanding/programs-and-effects.html) and [Limits](../programs/limits.html).
+Programs run through the companion anyrt runtime's effect boundary. The host handles credentials and enforces execution limits; the guest receives only the supported capabilities. See [Effects](../programs/effects.html), [Credentials](../programs/credentials.html), and [Limits](../programs/limits.html).

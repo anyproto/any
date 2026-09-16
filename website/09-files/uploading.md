@@ -5,9 +5,11 @@ order: 10
 ---
 # Uploading
 
-Attaching a file is a single POST whose **raw request body is the file** — no JSON envelope, no multipart. Registration is durable in the CRDT the moment the request returns; network backup is a separate concern you never block on.
+Attaching a file is a single POST whose **raw request body is the file** — no JSON envelope, no multipart. A successful response confirms local registration. Read `durable` to learn whether the network backup also completed.
 
 ## Attach
+
+**Before you start:** the server must be running with an account allowed to write the space. Set `$SP` to the space ID and `$OBJ` to an existing object ID. The example reads a local `photo.jpg`.
 
 ```bash
 curl -X POST -T photo.jpg -H 'Content-Type: image/jpeg' \
@@ -50,10 +52,10 @@ The reply is the file's `FileInfo`:
 | `size` | plaintext byte size |
 | `inline` | the file rides the CRDT row itself (under 4096 bytes) |
 | `durable` | a verified network-custody receipt is recorded, or the file is inline |
-| `cached` | a complete local copy exists (always true right after attach) |
+| `cached` | a complete local copy exists |
 | `name`, `mime`, `variant`, `variantOf` | the sealed, member-only metadata |
 
-This is the one route exempt from the global 1 MB request body limit — the body streams straight into the SDK.
+File attach is exempt from the global 1 MiB request body limit: the body streams straight into the SDK. [Local-store import](../reference/http-api.html#export-and-import-local-collections) is also exempt.
 
 ## What happens to the bytes
 
@@ -61,7 +63,7 @@ Files **under 4096 bytes** take the inline tier: the bytes live in the sealed pa
 
 Larger files are encrypted, chunked into a content-addressed DAG and stored locally as one CARv2 per `rootCid`. Then the backup to the network's file broker is **attempted synchronously inside the attach request**, best-effort: with a reachable broker the 201 usually already says `durable: true`, and attach latency for a large file is dominated by the upload (roughly upload time for 10 MB). When the broker is unreachable or refuses, attach still succeeds with `durable: false`, and a persistent background queue — it survives restarts — retries. A network with no file nodes, or no connectivity at all, simply means files sit `inflight` until the network appears. Either way, treat the 201 as done and don't block the UI on `durable`; see [status and durability](status-and-durability.html) for the badge.
 
-> **Why it matters.** Attach is offline-first. On a plane you can attach a photo to a note, close the laptop, and the registration is already part of the space's history; the upload to the network is bookkeeping that catches up later. A hosted backend's upload either completes now or fails now.
+The registration and local bytes survive an offline attach. A reachable peer can serve those bytes before network backup finishes; `durable: false` does not mean the file is unreadable.
 
 Deduplication is per space by content: attaching the same bytes twice shares one local CAR (and one `rootCid`) under two distinct fileIds. There is no cross-space deduplication — the accepted cost of files being space-local.
 

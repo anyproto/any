@@ -68,6 +68,6 @@ Whole-call errors: `400 upsert.requires_user_ids` when the dataset is not declar
 
 Upsert is not transactional against concurrent writers. The intended deployment is a single ingest writer per dataset — a scheduled [program](../programs/index.html) or one importer process. Concurrent creates of the same id by *different members* are outside the convergence contract; the same member re-running its own batch is exactly the supported case.
 
-> **Why it matters.** A hosted backend gives you idempotency through a server that dedupes on your behalf. Here the dedupe is a local diff against the replica you already hold, so an importer that crashes halfway and restarts, or a cron job that runs twice, converges on the same data without a coordination service — and the changes it skips never cost the network anything.
+Upsert compares caller-supplied IDs and values with the local replica. An importer can repeat a batch after a crash: identical records produce no new changes.
 
 > **Note.** Only fields declared `mutableBy: author` or `mutableBy: any` are ever updated on an existing record. If your source system changes a field you declared write-once, the upsert reports `upsert.immutable_field` for that record rather than silently ignoring the difference.

@@ -54,7 +54,7 @@ The `any` type's property listing (`GET …/types/any/properties`) carries the s
 
 Runtime datasets get the same trio on demand through `stamp: creator` / `createTime` / `modifyTime` fields ([Runtime datasets](runtime-datasets.html)); chat messages carry `creator` / `createdAt` / `modifiedAt`.
 
-> **Why it matters.** There is no server clock to trust. Every stamp is whichever device wrote the change, and the CRDT converges on *a* value, not the *true* time. Sort and display on these freely; never use them as a fence for "has everything before T arrived" — that is what [sync status](../realtime/sync-status.html) is for.
+Timestamps come from the device that wrote the change. They are useful for display and sorting, but cannot prove that all earlier changes have arrived. Use [sync status](../realtime/sync-status.html) to observe convergence.
 
 ## Built-in properties on objects
 

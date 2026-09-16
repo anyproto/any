@@ -1,61 +1,59 @@
 ---
 title: Database
-description: How data is organised in any — spaces, objects, types, datasets — and the one query primitive that reads all of it.
+description: Create objects, define their properties, and read or update data on your device.
 order: 0
 ---
 # Database
 
-any is a document database that lives on your device, syncs through an end-to-end-encrypted network, and merges concurrent edits with CRDTs. This section covers the data model and the HTTP surface for reading and writing it.
+Use the database API to create objects, define their properties, and read or update their content. Queries and writes run on the local Any server. Shared changes sync to the space's members when peers are reachable.
 
-## The model in one picture
+## Choose a task
 
-```
+| I want to… | Start here |
+|---|---|
+| Create a place to keep shared data | [Spaces](spaces.html) |
+| Create a page or another object | [Objects](objects.html) |
+| Define what an object is and which fields it has | [Types and properties](types-and-properties.html) |
+| Group objects without changing their type | [Collections](collections.html) |
+| Find records, sort a list, or load another page | [Reading data](reading-data.html) |
+| Change property values or dataset records | [Writing data](writing-data.html) |
+| Keep a list current as data changes | [Subscribe](../realtime/subscribe.html) |
+
+New to the model? Read [Data model](data-model.html) first. The distinction that matters most is **one type, any number of collections**.
+
+## How the pieces fit
+
+```text
 account
- └── space                      encrypted, shared with members
-      ├── objects               one row per object: its property values
-      │     └── object          one type in any.type, N collections in any.collections
-      │           ├── properties     record[ownerId][propId]
-      │           └── datasets       chat_messages, editor_blocks, <runtime>…
-      ├── types                 property definitions + parts + layout
-      └── collections           property definitions only
+ └── space                         sharing and encryption boundary
+      ├── objects                  one row of properties per object
+      │     └── object
+      │           ├── any.type     exactly one type
+      │           ├── any.collections  zero or more collections
+      │           └── datasets     blocks, messages, or your own records
+      ├── types                    properties, layout, and parts
+      └── collections              property definitions
 ```
 
-- A **space** is the unit of sharing and encryption. Every member holds the same data; every write is a change in a per-object DAG that syncs to everyone.
-- An **object** is a document. It has exactly one **type** in `any.type`, any number of **collections** in `any.collections`, property values keyed by `<ownerId>.<propId>` — the owner being the type or one of the collections — and any number of per-object **datasets** (records that belong to that object — chat messages, editor blocks, or a runtime dataset you declare).
-- A **type** is what an object is: property definitions (kind, descriptor, scope), a **layout**, and **parts** — display units owning datasets a module serves: `records` (a runtime schema), `editor` (a block body), `chat` (a conversation). The hidden built-in types `page` and `dataview` exist in every space; your own document types are registered as bundles, and the space's chat is installed by the server's catalog.
-- A **collection** is what an object is filed under: property definitions and nothing else. `miniapp` (the sidebar) and `bin` are built in; the wiki and the contact facets come from the catalog.
+A **type** defines an object's layout and **parts**: display units such as a body or a table, backed by datasets. A **collection** adds a group of properties to objects filed under it. Property values are stored at `<ownerId>.<propId>`; the owner is the type or one of the collections.
 
-## One read path, many write paths
+The built-in `page` and `dataview` types are present in every space. The `miniapp` collection holds the space's app list and pinned objects; `bin` marks objects as moved to the bin. The [catalog](../collaboration/bundles.html#the-usecase-catalog) installs shared definitions such as the wiki collection and general chat.
 
-Reads always go through the windowed query primitive: `POST /v1/spaces/:spaceId/objects/query` for the cross-object `objects` storage collection and `POST /v1/spaces/:spaceId/query` for one object's dataset. Each has a `/subscribe` twin that returns the same snapshot plus a live stream of changes (see [Subscribe](../realtime/subscribe.html)). Writes go through purpose-built endpoints — property set, generic `/modify`, and the modules' own handlers — and each returns the same `{versionId, changeId, recordIds}` receipt; object create answers with the new `objectId`.
+## Choose the read and write endpoint
 
-> **Why it matters.** There is no server between you and your data. Queries run against a local any-store database, so a read is a local disk read, a write is immediately visible, and both work offline. Sync and merge happen underneath — the query you ran a second ago keeps answering while peers catch up.
+| Data | Read | Write |
+|---|---|---|
+| Object property rows across a space | `POST /v1/spaces/:spaceId/objects/query` | the property set route |
+| Records in one object's dataset | `POST /v1/spaces/:spaceId/query` | `/modify`, or the chat/editor module's routes |
 
-## Where to start
+Each query has a `/subscribe` endpoint that sends an initial snapshot and subsequent changes. Create returns `objectId`; property and record writes return a receipt with `versionId`, `changeId`, `recordIds` and any `rejections`. Read back through a query when you need the resulting record.
 
-1. [Spaces](spaces.html) — create one, read its metadata, understand its lifecycle.
-2. [Objects](objects.html) — create objects with a type, file them under collections, delete them.
-3. [Types and properties](types-and-properties.html) — define the shape of your data.
-4. [Collections](collections.html) — file objects under facets that add columns.
-5. [Reading data](reading-data.html) — the filter grammar, sort, paging.
-6. [Writing data](writing-data.html) — property writes, `/modify` ops, the write receipt.
+## More guides and reference
 
-<div class="cards">
-<a href="data-model.html"><strong>Data model</strong><span>One type, N collections and N datasets per object; schemas and scopes.</span></a>
-<a href="spaces.html"><strong>Spaces</strong><span>Create, list, update and delete the encrypted containers your data lives in.</span></a>
-<a href="objects.html"><strong>Objects</strong><span>Documents with one type, any number of collections, properties and per-object datasets.</span></a>
-<a href="types-and-properties.html"><strong>Types and properties</strong><span>Declare the one type an object is, with its layout, parts and property definitions.</span></a>
-<a href="collections.html"><strong>Collections</strong><span>File objects under facets that add columns — the wiki, the sidebar, the bin, your own.</span></a>
-<a href="property-lifecycle.html"><strong>Property lifecycle</strong><span>What is pinned, what patches, what removal does.</span></a>
-<a href="data-types.html"><strong>Data types</strong><span>Kinds, the xFormat descriptor, the `{"$date": …}` instant, and the synced / local / account scopes.</span></a>
-<a href="reading-data.html"><strong>Reading data</strong><span>Mongo-style filters, sort, limit/offset and cursor paging through /query.</span></a>
-<a href="writing-data.html"><strong>Writing data</strong><span>Property writes, /modify ops, local-scope writes and the ModifyResult receipt.</span></a>
-<a href="indexes.html"><strong>Indexes</strong><span>What is indexed, what is a scan, and how to keep hot queries cheap.</span></a>
-<a href="runtime-datasets.html"><strong>Runtime datasets</strong><span>Declare a dataset schema on a type at runtime and have every peer enforce it.</span></a>
-<a href="upsert.html"><strong>Upsert</strong><span>Idempotent batch ingest keyed by caller-supplied record ids.</span></a>
-<a href="aggregation.html"><strong>Aggregation</strong><span>MongoDB-style pipelines over objects or a dataset.</span></a>
-<a href="version-history.html"><strong>Version history</strong><span>List changes, diff versions and view an object as it was.</span></a>
-<a href="markdown-import-export.html"><strong>Markdown import/export</strong><span>Render blocks to markdown and import markdown back, losslessly.</span></a>
-<a href="system-fields.html"><strong>System fields</strong><span>The derived row-root stamps and the `_ver` / `_deletedAt` metadata on every record.</span></a>
-<a href="derived-objects.html"><strong>Derived objects</strong><span>Deterministic object ids that every device computes offline.</span></a>
-</div>
+| Area | Pages |
+|---|---|
+| Model and field definitions | [Data model](data-model.html), [Data types](data-types.html), [Property lifecycle](property-lifecycle.html), [System fields](system-fields.html) |
+| Your own record schemas | [Runtime datasets](runtime-datasets.html), [Upsert](upsert.html) |
+| Query performance and summaries | [Indexes](indexes.html), [Aggregation](aggregation.html) |
+| History and document interchange | [Version history](version-history.html), [Markdown import/export](markdown-import-export.html) |
+| Shared, deterministic identity | [Derived objects](derived-objects.html) |

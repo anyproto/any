@@ -57,7 +57,7 @@ CLI-side flags (`--addr`, `--timeout`, `--verbose`, `--control-token` / `ANY_CON
 
 The passkey is the one secret the server may need at boot: it comes from the env var named by `auth.passkeyEnv`, or from stdin with `--passkey-stdin`. There is no interactive prompt.
 
-> **Why it matters.** Nothing here points at a hosted backend. `dataDir` is the whole database — copy it and you have moved your data; the network config only names the sync nodes that relay ciphertext between your devices. See [Networks](../operations/networks.html) for staging and self-hosted nodeconfs.
+The data root contains this device’s local account state. Sync nodes relay encrypted content; configured embedding, model or connector providers have their own data paths. Restore an account with its recovery phrase when adding a device, so the new installation receives a fresh device key. See [Data directory](../operations/data-dir.html), [Accounts](../auth/accounts.html), and [Networks](../operations/networks.html).
 
 ## Search index (`index.*`)
 

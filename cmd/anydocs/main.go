@@ -21,9 +21,11 @@ import (
 	"strings"
 
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
 	"gopkg.in/yaml.v3"
 )
 
@@ -126,7 +128,10 @@ func run(src, out string) error {
 		if err != nil {
 			return err
 		}
-		fm, body := splitFront(raw)
+		fm, body, err := splitFront(raw)
+		if err != nil {
+			return fmt.Errorf("%s: %w", rel, err)
+		}
 		var buf bytes.Buffer
 		if err := md.Convert(body, &buf); err != nil {
 			return fmt.Errorf("%s: %w", rel, err)
@@ -210,6 +215,9 @@ func run(src, out string) error {
 	if err := copyDir(filepath.Join(src, "assets"), filepath.Join(out, "assets")); err != nil {
 		return err
 	}
+	if err := writeExamples(src, out); err != nil {
+		return err
+	}
 	// search index + llms.txt
 	type idx struct {
 		Title, URL, Section string
@@ -273,18 +281,28 @@ func rootPrefix(url string) string {
 	return strings.TrimSuffix(strings.Repeat("../", depth), "/")
 }
 
-func splitFront(raw []byte) (front, []byte) {
+func splitFront(raw []byte) (front, []byte, error) {
 	var fm front
-	if !bytes.HasPrefix(raw, []byte("---\n")) {
-		return fm, raw
+	line, _, found := bytes.Cut(raw, []byte("\n"))
+	if !found || !bytes.Equal(bytes.TrimSuffix(line, []byte("\r")), []byte("---")) {
+		return fm, raw, nil
 	}
-	rest := raw[4:]
-	end := bytes.Index(rest, []byte("\n---\n"))
-	if end < 0 {
-		return fm, raw
+	start := len(line) + 1
+	for pos := start; pos < len(raw); {
+		line, _, found = bytes.Cut(raw[pos:], []byte("\n"))
+		next := pos + len(line)
+		if found {
+			next++
+		}
+		if bytes.Equal(bytes.TrimSuffix(line, []byte("\r")), []byte("---")) {
+			if err := yaml.Unmarshal(raw[start:pos], &fm); err != nil {
+				return fm, nil, fmt.Errorf("invalid front matter: %w", err)
+			}
+			return fm, raw[next:], nil
+		}
+		pos = next
 	}
-	_ = yaml.Unmarshal(rest[:end], &fm)
-	return fm, rest[end+5:]
+	return fm, nil, fmt.Errorf("front matter is missing its closing delimiter")
 }
 
 func firstHeading(body []byte, fallback string) string {
@@ -345,6 +363,56 @@ func copyDir(from, to string) error {
 		}
 		return os.WriteFile(dst, b, 0o644)
 	})
+}
+
+// The downloadable clients are assembled from the examples on their pages.
+func writeExamples(src, out string) error {
+	for _, example := range []struct{ page, lang, filename string }{
+		{"javascript.md", "js", "client.mjs"},
+		{"python.md", "python", "client.py"},
+	} {
+		source, err := os.ReadFile(filepath.Join(src, "02-quickstart", example.page))
+		if os.IsNotExist(err) {
+			continue // custom -src trees need not contain these quickstarts
+		}
+		if err != nil {
+			return err
+		}
+		_, source, err = splitFront(source)
+		if err != nil {
+			return fmt.Errorf("%s: %w", example.page, err)
+		}
+		// Use the renderer's fence rules, including longer and tilde fences.
+		md := goldmark.New(goldmark.WithExtensions(extension.GFM, extension.Footnote))
+		doc := md.Parser().Parse(text.NewReader(source))
+		var body bytes.Buffer
+		blocks := 0
+		_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+			block, ok := n.(*ast.FencedCodeBlock)
+			if !entering || !ok || string(block.Language(source)) != example.lang {
+				return ast.WalkContinue, nil
+			}
+			code := block.Lines().Value(source)
+			body.Write(code)
+			if len(code) > 0 && code[len(code)-1] != '\n' {
+				body.WriteByte('\n')
+			}
+			body.WriteString("\n")
+			blocks++
+			return ast.WalkContinue, nil
+		})
+		if blocks == 0 {
+			return fmt.Errorf("no %s examples found in %s", example.lang, example.page)
+		}
+		directory := filepath.Join(out, "assets", "examples")
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(directory, example.filename), body.Bytes(), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 const pageTpl = `<!doctype html>

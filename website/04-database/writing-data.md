@@ -5,7 +5,16 @@ order: 60
 ---
 # Writing data
 
-Writes are purpose-built endpoints, not a generic document PUT: property values go through the owner-scoped `set`, dataset records through `/modify`, and the chat and editor modules through their own handlers. Every one of them returns the same receipt.
+Choose the write route by what you are changing. All changes apply to the local replica first; shared data syncs afterward.
+
+| I am changing… | Use |
+|---|---|
+| An object's property values | `POST …/properties/:objectId/set/:ownerId` |
+| Records in my runtime dataset | `POST …/modify`, or [upsert](upsert.html) for repeated imports |
+| A document body | the [editor](../types/editor.html) block or markdown routes |
+| Chat messages or reactions | the [chat](../types/chat.html) routes |
+
+**Before you start:** the server must be running with write access to `$SPACE`. `$OBJ` is an existing object. Set its type and collections before writing their values; a write never adds a missing owner for you.
 
 ## The write receipt
 
@@ -18,18 +27,18 @@ Writes are purpose-built endpoints, not a generic document PUT: property values 
 
 | Field | Meaning |
 |-------|---------|
-| `versionId` | The change's position in the object's DAG. Stamp `_ver.<path> = versionId` on the records you just wrote so the matching live event is recognised as your own and not double-applied. |
+| `versionId` | The change's order on this peer. A client applying optimistic edits can use it to reconcile the corresponding `_ver` paths when the live event arrives. It is not comparable across peers. |
 | `changeId` | The CID of the change — also the handle for [version history](version-history.html). Empty for local-scope writes. |
 | `recordIds` | Mirrors the input record order; `recordIds[0]` is the derived id of a created record. |
-| `rejections` | Per-op refusals: `{recordIndex, recordId?, opIndex, reason}`. `opIndex: -1` means the whole record was rejected. The write itself succeeded for everything else. |
+| `rejections` | When present, per-op refusals: `{recordIndex, recordId?, opIndex, reason}`. `opIndex: -1` means the whole record was rejected. The write itself succeeded for everything else. |
 
 No write returns the record body. Read it back through [`/query`](reading-data.html).
 
-> **Why it matters.** A write is a local append to the object's change DAG. It succeeds offline, is visible to the next query immediately, and syncs when a peer is reachable. `versionId` is what lets a client order its own writes against remote ones without a server clock.
+A shared write adds a change to the object's DAG: its directed graph of change history. Accepted changes are visible to the next query immediately and sync when a peer is reachable. Check `rejections` even on HTTP 200; a successful request can contain refused records or operations.
 
 ## Property values
 
-Values are stored at `record[ownerId][propId]`, the **owner** being the object's type or one of its collections. Write them with the owner-scoped set:
+Values are stored at `record[ownerId][propId]`. Set `$OWNER` to the object's type or collection ID, and `$PROP_AUTHOR` / `$PROP_YEAR` to property IDs declared there with string and number kinds. Then write both values in one patch:
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/$OWNER \
@@ -47,7 +56,9 @@ Initial values ride object create instead — `initialProperties` keyed the same
 
 ## Dataset records: `/modify`
 
-`POST /v1/spaces/:spaceId/modify` is the generic write over one object's dataset — a batch of records, each a list of ops, all landing in one change.
+`POST /v1/spaces/:spaceId/modify` writes a batch of records to one object's dataset. Each record contains operations such as setting a field or incrementing a number. The batch lands in one change.
+
+This operation example assumes `$TYPE` declares an auto-ID runtime dataset named `notes`, with writable `title`, `n`, `tags`, and `draft` fields of compatible kinds. `$OBJ` has that type, and `$NOTE` is an existing record ID in that dataset. For a complete schema-and-create walkthrough, use [Runtime datasets](runtime-datasets.html).
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/modify \
@@ -60,7 +71,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/modify \
         "ops": [
           { "type": "$set",      "path": "",     "value": { "title": "x", "n": 1 } },
           { "type": "$addToSet", "path": "tags", "value": "idea" } ] },
-      { "id": "note_7",
+      { "id": "'$NOTE'",
         "ops": [ { "type": "$inc", "path": "n", "value": 1 },
                  { "type": "$unset", "path": "draft" } ] }
     ],
@@ -76,7 +87,9 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/modify \
 | `$addToSet` | Append `value` to the array at `path` if absent. |
 | `$pull` | Remove `value` from the array at `path`. |
 
-`path` is a dotted field path (`"style.level"` touches one sub-field; `"style"` replaces the object). A record with `id: ""` and `upsert: true` is created with a derived id; a named id with `upsert` creates-or-updates. `traceIds` are opaque labels stored on the change and filterable in history.
+`path` is a dotted field path: `"style.level"` targets a nested field, while `"style"` replaces the whole object. The empty path with an object value sets multiple root fields.
+
+For an auto-ID dataset, `id: ""` with `upsert: true` creates a record and returns its derived ID. For a user-ID dataset, provide the ID and `upsert: true` to create or update it. With an explicit ID and no `upsert`, the operation only updates a record that already exists; a missing ID is rejected. `traceIds` are opaque labels stored on the change and filterable in history.
 
 `dataset` is a storage collection name — `<typeId>_<key>` for a runtime dataset — that a part of the object's **type** declares, and the object must have that type — otherwise `400 dataset.not_declared` (a name the space does not serve at all is `400 dataset.unknown`). Collections declare no datasets. Module storage collections (`chat_messages`, `editor_blocks`) are written through their own handlers, which stamp derived fields and enforce authorship; `/modify` is for runtime datasets and other dynamic ones. Runtime-dataset rules (required fields, write-once, author-only) are enforced on apply — see [Runtime datasets](runtime-datasets.html).
 
@@ -97,14 +110,14 @@ Constraints (`400 request.schema`): explicit record ids, no `upsert` (local fiel
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/delete-records \
   -H 'Content-Type: application/json' \
-  -d '{"objectId": "'$OBJ'", "dataset": "'$TYPE'_notes", "recordIds": ["note_7"]}'
+  -d '{"objectId": "'$OBJ'", "dataset": "'$TYPE'_notes", "recordIds": ["'$NOTE'"]}'
 ```
 
 A record delete is a sticky tombstone — the id can never be re-created. A later `/modify` addressing it still answers `200`, with a whole-record `rejections` entry (`opIndex: -1`) and nothing stored, so an ensure-by-fixed-id always inspects `rejections`. Subscribers see the id in `removed`.
 
 ## Idempotency
 
-POSTs are not idempotent: each call produces a new change. The one exception is [`/upsert`](upsert.html), where the caller-supplied record id is the idempotency key and an identical re-run writes nothing.
+Do not blindly retry `/modify` after an uncertain response: creating an auto-ID record can duplicate it, and `$inc` can run twice. For repeatable imports, use [`/upsert`](upsert.html): caller-supplied IDs identify records, and an identical re-run writes nothing. Other write endpoints document their own retry rules; there is no general `Idempotency-Key` header.
 
 ## Preflight, don't hope
 

@@ -1,11 +1,26 @@
 ---
 title: Operations
-description: Running the any server — lifecycle, configuration, the data directory, networks, the security model, release builds and debugging.
+description: Start and configure the local server, choose storage and network settings, protect your data, and diagnose problems.
 order: 0
 ---
 # Operations
 
-`any` is one binary: `any run` is the server, every other `any …` command is an HTTP client for it. This section covers what an operator needs — how the process starts and stops, where its state lives, how it is configured, which network it joins, what the trust boundary is, and how to look inside when something is off.
+Run `any` on the device that holds your data. `any run` starts the local HTTP server; the CLI and your application call that server to read and write records. The same server can run embedded in a mobile app.
+
+This section covers process ownership, configuration, storage, sync networks, and troubleshooting. Agent execution is provided by the separate **anyrt** companion runtime; see [Host the runtime](../agents/embedding-anyrt.html) for its setup.
+
+## Start here
+
+| Your task | Guide |
+|---|---|
+| install and make your first request | [Install](../quickstart/install.html) |
+| run the server yourself or host it in an app | [Server lifecycle](server.html) |
+| choose local embeddings or a sync network | [Configuration](configuration.html) |
+| back up an account or add a device | [Data directory](data-dir.html#backup-and-second-devices) |
+| understand who can read data | [Security model](security-model.html) |
+| investigate an error or missing data | [Troubleshooting](debugging.html) |
+
+Any is a developer preview. API changes are expected. Open-source release is planned; the license choice is TBD.
 
 ## The process model
 
@@ -19,22 +34,27 @@ any run                      foreground, 127.0.0.1:7001
 
 - One server serves **one account** at a time. Two accounts are two processes on two ports; they may share a data-dir root.
 - `--mode` says who owns the process: `standalone` (the user — keys on disk) or `managed` (a host app that supplies the account on every launch and holds a control token for sign-out, switching and shutdown).
-- The server binds **loopback only** and refuses anything else. There is no auth on the socket; the encrypted data and the account keys are the real boundary — see [Security model](security-model.html).
+- The server binds **loopback only** and refuses anything else. Local processes can call the API without caller authentication. Encrypted sync protects data in transit and on sync nodes; the local data directory and outside providers have separate boundaries — see [Security model](security-model.html).
 - Everything is under `/v1/`. `GET /v1/health` answers even before an account is booted.
 
-## Day-one commands
+## Start and check a server
+
+After [installing](../quickstart/install.html), create an account if you do not already have one. Save the recovery phrase printed by `any init`. In the first terminal:
 
 ```bash
 any init                     # create an account, print the mnemonic once (back it up)
 any run                      # serve in the foreground
-any status                   # GET /v1/health
-any stop                     # SIGTERM the server holding the account lock — graceful
-any version
 ```
 
+`any run` keeps this terminal occupied. In a second terminal, check the server:
+
 ```bash
+any status
+any version
 curl -s http://127.0.0.1:7001/v1/health
 ```
+
+Expect `status: "ok"` and an `account` ID. The exact version, timestamps, and network ID differ by installation:
 
 ```json
 {
@@ -48,7 +68,9 @@ curl -s http://127.0.0.1:7001/v1/health
 }
 ```
 
-> **Why it matters.** There is no hosted control plane to log into. The operator's whole surface is one local process, one directory on disk, and one YAML file — and the same holds on a phone, where the server runs embedded in the app.
+When you want to stop this server, press Ctrl-C in its terminal or run `any stop`. Both request a graceful shutdown; `any stop` signals the process holding the account lock.
+
+By default an authorized server joins the production sync network, and search uses an online embedding primary with a local fallback. Choose your network and embedding settings in [Configuration](configuration.html) before starting a separate test environment.
 
 ## Where things are decided
 

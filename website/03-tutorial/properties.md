@@ -5,15 +5,17 @@ order: 20
 ---
 # 2. Properties
 
-A type is what an object **is**: a named set of property definitions, plus the layout and the parts a client renders. Set it on an object and the object gains those columns — each with a kind the server checks, a descriptor that says how to render it, and a stable handle you resolve it by. This part builds a password manager — a `credential` type — and it never needs anything beyond this level.
+Define a `credential` type, add five properties, and create an example GitHub credential. Then file that object under a subscription collection to add a price and renewal date. Use the dummy values shown here.
+
+**Prerequisites:** the running server and `API` / `SPACE` variables from [tutorial setup](index.html#before-you-start). This part creates its own type and object; it does not reuse Part 1's deleted page.
+
+A type says what an object **is** and supplies its columns and layout. A collection adds another group of columns while the object keeps its type.
 
 ## Create the type
 
 ```bash
 CRED=$(curl -s -X POST $API/spaces/$SPACE/types -H 'content-type: application/json' \
   -d '{"name": "Credential", "xKey": "credential"}' | jq -r .typeId)
-
-any type create $SPACE --name Credential --xkey credential
 ```
 
 `xKey` is required: it is the programmatic handle the type resolves by, and it must survive renames — the display `name` can change freely. A handle already used by another type or collection in the space is `409 type.xkey_conflict` — the two share one namespace.
@@ -35,6 +37,8 @@ CATEGORY=$(add '{"name": "Category", "xKey": "category", "kind": "array",
     "work":    {"name": "Work",    "color": "blue",  "pos": "a0"},
     "personal":{"name": "Personal","color": "green", "pos": "a1"}}}}')
 ```
+
+The equivalent CLI call is shown below. Do not run it after the HTTP call has already added `site`.
 
 ```bash
 any type property add $SPACE $CRED --name Site --xkey site --kind string --x-format '{"type":"url"}'
@@ -83,7 +87,7 @@ GH=$(curl -s -X POST $API/spaces/$SPACE/objects -H 'content-type: application/js
 
 Notice where the values went: under the type's id, not at the top of the object. A type is a **namespace** for properties, and there are no global properties. Every property belongs to exactly one owner, is defined there, and its value lives on the object under that owner's id — even `name` and `description` sit in the universal `any` namespace rather than on the object itself. The property list of an owner is the whole vocabulary you can write under its id, and nothing outside that list is a property at all.
 
-A value that does not fit its declared format — a number under `site`, a bare string under `rotated`, an option not wrapped in an array — is refused with `400 property.format_violation`, so the type is a contract, not a convention.
+Writes validate both the storage kind and the descriptor. A number in a string property is `400 property.kind_mismatch`; a value that violates the descriptor can be `400 property.format_violation`. Datetimes need the `$date` wrapper and choice values need an array. The property list is the contract to validate against.
 
 Later writes go through the owner-scoped set:
 
@@ -136,10 +140,7 @@ curl -s -X POST $API/spaces/$SPACE/properties/$GH/set/$SUB -H 'content-type: app
   -d '{"patch": {"'$PRICE'": 4, "'$RENEWS'": {"$date": "2026-10-01T00:00:00Z"}}}'
 ```
 
-```bash
-any collection create $SPACE --name Subscription --xkey subscription
-any object collection attach $SPACE $GH $SUB
-```
+For a new collection, the CLI equivalents are `any collection create $SPACE --name Subscription --xkey subscription` and `any object collection attach $SPACE $GH $SUB`. Use the returned collection ID as `SUB`; skip the create if you already ran the HTTP example.
 
 Creating a collection is the type create minus `layout`, and its four property routes are the type ones with a different owner segment — same bodies, same patch grammar, same error codes.
 

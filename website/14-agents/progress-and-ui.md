@@ -5,7 +5,9 @@ order: 70
 ---
 # Progress and UI
 
-The agent talks to people through the same chat any client renders, reports long jobs through the account-wide process registry, and exposes small backend helpers a UI can call. None of it needs a bespoke protocol: a client that already handles chat, the [event bus](../realtime/event-bus.html) and [processes](../notifications/processes.html) can render the agent.
+An application renders the agent through the existing chat, event, and process APIs. Chat messages carry replies and typing state; the process registry carries progress; the runtime control API starts and interrupts runs.
+
+Use this page when adding agent behavior to a client that already connects to the local Any server. The examples need an existing chat and a running agent. Set `$SPACE` and `$CHAT` to their IDs. See [Chat](../types/chat.html), [Event bus](../realtime/event-bus.html), and [Processes](../notifications/processes.html) for the underlying client contracts.
 
 ## Agent-authored chat messages
 

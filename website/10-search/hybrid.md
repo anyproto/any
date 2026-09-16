@@ -5,7 +5,7 @@ order: 30
 ---
 # Hybrid ranking
 
-`hybrid` runs both legs and fuses them with reciprocal-rank fusion (k = 60). It is the default because it is the safe choice across corpora: it wins outright on lexical-friendly content and never collapses when one leg is weak — and when the embedder cannot help at all, it becomes full-text search by itself.
+`hybrid` combines full-text and semantic search. It ranks records by reciprocal-rank fusion: each search method contributes according to a record's position in its result list. It is the default mode. If embedding is unavailable, a non-empty search falls back to full-text and reports that in the response.
 
 ## The default call
 
@@ -78,7 +78,7 @@ Two replies need care:
 - A filter no object matches answers `hits: []` without running a leg: `mode` echoes the request, and `vectorStatus` reads `skipped` (`disabled` on a server without an embedder).
 - `truncated: true` means a leg's read budget ran out under the filter while the page held fewer than `limit` records. The index may hold more matches, so a short page is not exhaustive — narrow the filter or the query. Without a filter the field is absent.
 
-> **Why it matters.** The embedder is the one moving part that can be absent or temporarily down — a model still downloading, an API outage, a laptop without the shared libraries. Degrading to full-text keeps search answering; reporting it lets the caller decide how much to trust a thin result.
+A downloading model, missing runtime library, or unavailable endpoint can all make embedding temporarily unavailable. Read `vectorStatus` before interpreting a small or empty result set.
 
 ## Weighting knobs
 

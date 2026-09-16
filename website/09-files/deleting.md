@@ -26,7 +26,7 @@ The payload row is deleted in one synced change, so the file disappears from `GE
 
 **Variants cascade.** Deleting an original also deletes its variants (thumbnails and other alternate representations), since they are unresolvable without it.
 
-> **Why it matters.** Delete is an ordinary CRDT operation, so it works offline and converges like any other write: a member who deletes a file on a plane has the deletion applied on every other device when they land, in causal order with everything else they did. There is no server-side "delete job" that can partially succeed.
+Deletion works offline. Other members see the attachment disappear when the deletion syncs; reclaiming local and network bytes follows the separate rules below.
 
 ## What happens to the bytes
 

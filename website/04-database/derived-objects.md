@@ -15,7 +15,7 @@ The usual pattern — look for the object, create it if missing — needs a sing
 
 A derived id removes the race instead of resolving it. There is nothing to look for and nothing to create: the id is known before any write, both devices write to it, and their writes merge like any other CRDT tree.
 
-> **Why it matters.** Convergence without coordination is the whole point of a CRDT — but it only holds for edits to the *same* object. Derived ids extend it to *existence*: the decision "this object exists at this id" is made by arithmetic, so it can never fork.
+A deterministic ID lets disconnected devices create changes for the same object. Once they connect, those changes merge into one history.
 
 ## What is derived
 

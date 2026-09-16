@@ -5,7 +5,9 @@ order: 50
 ---
 # Runs and monitoring
 
-Every fire is a normal program run: it writes a trace on the device that ran it, publishes a synced summary to the `agent_runs` dataset, and stamps the trigger record. "Did it run, how long did it take, what did it cost, why did it stop" are answered from records — no log grepping.
+To check a scheduled job, read its trigger state and run summaries. The trigger says when it last fired and whether it is enabled. A run summary records the outcome, duration, model usage, and the device that executed it. The full trace on that device explains individual calls.
+
+The HTTP examples need a running server, `curl`, `jq`, and `$SPACE` set to the agent space ID. Use [the control API](#the-control-api) for the live registry of one running runtime, or the dataset query below for synced history. If a trigger has never run, also check its [owner](device-pins.html), schedule, and [health markers](#health-markers).
 
 ## The run summary
 

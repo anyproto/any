@@ -67,7 +67,7 @@ Matching rules:
 | `markdown.ambiguous_match` | more than one occurrence without `replaceAll` — add context or set `replaceAll` (`details.editIndex`, `occurrences`) |
 | `markdown.overlapping_edits` | two edits matched intersecting text — merge them (`details.editIndices`) |
 
-> **Why it matters.** `PATCH` replaces the client-side `GET → string-replace → PUT` read-modify-write. Because the match runs against the current state on the server, a stale quote fails loudly instead of silently reverting someone else's concurrent edit elsewhere in the document — and the caller ships O(edit) bytes, not O(document).
+PATCH matches text against the server's current document. A stale quote fails instead of replacing unrelated concurrent edits. The request size follows the size of the edit rather than the whole document.
 
 ## Append — `POST …/append`
 

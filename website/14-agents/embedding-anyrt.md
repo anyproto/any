@@ -5,11 +5,15 @@ order: 80
 ---
 # Embedding anyrt
 
-anyrt is a Rust crate with a thin CLI on top. Apps embed it as a library and run the agent in-process; a headless or browser-UI setup runs the same agent as `anyrt serve` next to an any server. Both modes need the wasm kernel built first, and both must obey one rule: one agent per chat.
+anyrt is a companion Rust runtime with a CLI and a library interface. Embed the library in your app, or run `anyrt serve` beside the local Any server. Both execute the same agent programs and use the same database stores.
+
+This page is for app integration and runtime builds. For your first standalone agent, follow the [runtime quickstart](../quickstart/anyrt.html). Avoid starting an embedded and standalone agent for the same chat on one device; [ownership across devices](#one-agent-per-chat) is handled separately by the runtime.
 
 ## Build order
 
-```
+Run these commands from the anybao repository. Building the Go `any` server does not build this runtime.
+
+```sh
 nix develop        # canonical env (or: direnv allow)
 uv sync
 make kernel        # componentized CPython → bin/kernel.wasm
@@ -17,7 +21,7 @@ make runtime       # runtime/target/release/anyrt
 make runtime-shell # the same binary with shell effects (the bash tool)
 ```
 
-`make kernel` is required before **any** cargo build of a consumer: the kernel embeds into the binary or library, so there is no agent binary and no asset tree to ship. The agent's own code (programs, skills) is not shipped either — it loads from spaces at run time.
+`make kernel` must precede a Cargo build of a consumer. The WebAssembly kernel is compiled into the anyrt binary or library; an embedded app needs no separate agent executable or kernel asset. The agent's programs and skills load from spaces at run time.
 
 ## Embedded mode (Rust library)
 
@@ -65,11 +69,17 @@ agent = { space = "<agentRepoSpaceId>", invite = "<inviteToken>" }
 traces = "traces"
 ```
 
+Start the installed server in one terminal, then the runtime in another from the directory containing `anybao.toml`. Complete the [provider and overlay setup](../quickstart/anyrt.html) first.
+
+```sh
+any run
 ```
-./bin/any run --config ./any-config.yml        # 1. the any server, 127.0.0.1:7001
-anyrt serve                                     # 2. the agent (reads anybao.toml)
-cd ../any-ui && pnpm dev                        # 3. a browser UI proxying /v1
+
+```sh
+anyrt serve
 ```
+
+An application can now use the server's chat API to post messages and read replies. A browser UI needs an appropriate local proxy or the server's allowed origin; see [Browser origins](../operations/security-model.html#browser-origins).
 
 | Command | What it does |
 |---|---|
@@ -78,7 +88,7 @@ cd ../any-ui && pnpm dev                        # 3. a browser UI proxying /v1
 | `anyrt run <name@vN>` | run one program from the local directory (offline dev) |
 | `anyrt trace ls` / `show <run_id>` / `follow` | list, render, and live-render runs (`--addr` reads a server's trace store) |
 
-`deploy` is the only publish step; a running serve picks up changes on its next conversation. Serve also exposes a loopback control API (default port 7010): `GET /status`, `GET /election`, `POST /break/:runId`, `GET /triggers[/:id[/runs]]`, `PATCH /triggers/:id`, `POST /triggers/:id/enable|disable`, and `POST /run` — see [Progress and UI](progress-and-ui.html) and [Runs and monitoring](../scheduling/runs-and-monitoring.html). Full flag reference: [anyrt CLI](../reference/anyrt-cli.html) and [anybao.toml](../reference/anybao-toml.html).
+`deploy` publishes source to a space; a running serve resolves updated modules on its next `use()`. Serve also exposes a loopback control API (default port 7010): `GET /status`, `GET /election`, `POST /break/:runId`, `GET /triggers[/:id[/runs]]`, `PATCH /triggers/:id`, `POST /triggers/:id/enable|disable`, and `POST /run` — see [Progress and UI](progress-and-ui.html) and [Runs and monitoring](../scheduling/runs-and-monitoring.html). Full flag reference: [anyrt CLI](../reference/anyrt-cli.html) and [anybao.toml](../reference/anybao-toml.html).
 
 ## One agent per chat
 

@@ -1,30 +1,25 @@
 ---
-title: Auth
+title: Identity & accounts
 description: How an any server is bound to an account, how devices and contacts are identified, and where your profile lives.
 order: 0
 ---
-# Auth
+# Identity and accounts
 
-There is no login form, no password database and no session cookie. An **account** is a keypair derived from a mnemonic, a **device** is a keypair minted on each machine, and every request to the local server runs as the one account the server booted. This section covers how those keys come to exist, how they are named on the network, and how other people see you.
+Each Any server runs as one account. Applications on that device call the local API as that account; `/auth` selects which account the server serves. It is not a per-request login system for app users.
 
-## The three identities
+An account is identified by a key derived from a recovery phrase. Each device has its own network key. Sharing permissions apply to accounts inside a space.
 
-```
-mnemonic (12 words)
-   └── account key  ──►  account id        "who"   — same on every device
-         └── device key ──►  peer id       "where" — unique per install
-                                 └── profile  (name / description / icon)
-```
+## Keep account and device identity separate
 
-| Thing | Derived from | Visible as | Scope |
-|-------|--------------|------------|-------|
-| Account id | the mnemonic + a derivation index | `GET /v1/account` → `id`, `SpaceInfo.author`, chat `creator` | one per person, shared by all their devices |
-| Peer id | a device key generated at `any init` / `POST /v1/auth` | `GET /v1/devices` → `self`, row ids in the device registry | one per install, never copied |
-| Profile | `PUT /v1/account/metadata` | members list, identities directory | encrypted; readable only by contacts holding your key |
+| Identity | Created from | Used for |
+|---|---|---|
+| **Account ID** | A recovery phrase and derivation index. | Permissions, authorship, mentions and one-to-one spaces. The same account ID is used on all your devices. |
+| **Peer ID** | A device key generated on that installation. | Identifying a particular device on the sync network. Restore the account on each device; do not copy its device key. |
+| **Profile** | Name, description and icon set through `PUT /v1/account/metadata`. | Showing who someone is. Profile content is encrypted and resolves when a contact has its key. |
 
-The account id is what other people address — it goes into an ACL grant, a mention, a one-to-one space derivation. The peer id is what the sync network routes to. Keeping them separate is what lets you add a second laptop with the same twelve words and have both sync as the same person without fighting over one network identity.
+`GET /v1/account` returns the current account. `GET /v1/devices` lists its devices. The members list and [identities directory](identities.html) combine account identity with profile information.
 
-> **Why it matters.** With a hosted backend, identity is a row in someone else's user table. Here the account *is* the key: nothing on a server can impersonate you, revoke you, or read the profile you publish unless you handed it the decryption key through an encrypted channel. The cost is that the mnemonic is the only recovery path — there is no "forgot password".
+The recovery phrase is needed to restore the account. A standalone wallet stores it locally, optionally protected by a passkey. See [Accounts](accounts.html) for creation, recovery and storage details.
 
 ## How a server becomes authorized
 
@@ -42,7 +37,7 @@ One process serves one account at a time. A standalone server changes account by
 
 ## What is local, what is synced
 
-- The **keys** never leave the machine: a standalone server keeps them in `wallet.key`; a managed server holds the account key in memory for the session and caches only its device key (`device.key`).
+- The **account key** is held by your devices. A standalone server stores its wallet in `wallet.key`; a managed server holds the account key in memory for the session and caches its device key in `device.key`. Space read keys are distributed to authorized members through encrypted ACL records.
 - The **device registry** is a synced dataset in the account's tech space, so every device sees every other device — and can elect which one runs an app.
 - The **identities directory** is a device-local cache of every account you have encountered; the decryption keys behind it are synced but never exposed over HTTP.
 - The **profile** is pushed to the network encrypted; a contact resolves your name only after receiving the key through a shared space's ACL or a one-to-one invite.

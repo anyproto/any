@@ -7,6 +7,9 @@ order: 60
 
 On Android the server does not run as a separate process — it is a library. `any.aar` is a gomobile binding of the same server; your app starts it in-process, gets a loopback address back, and uses plain HTTP from there.
 
+
+**Before you start:** make the [HTTP quickstart](curl.html) work against a standalone server. Then use this page to move that server into your Android host. The API is the same, but the host owns startup, account onboarding, and shutdown. Treat the integration as a developer preview.
+
 ## Get the artifact
 
 Every release publishes `any.aar` (arm64-v8a) alongside the desktop tarballs, with its sha256 in the release notes. Build it yourself with an Android NDK on the path:

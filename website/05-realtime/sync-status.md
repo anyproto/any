@@ -61,7 +61,7 @@ any sync-status object SPACE OBJ
 
 Unknown object ids return `{"state": "unknown"}` rather than a 404 — use the object catalog when you need an existence check.
 
-> **Why it matters.** Writes never wait on the network, so a UI needs a separate, honest signal about whether a change has left the device. `synced` is that signal: it comes from the same engine that holds the data, not from a round-trip to a server that may be unreachable.
+A successful write confirms local storage. Sync status is a separate signal about convergence with peers; a space can converge over the LAN without a network-node connection.
 
 ## Streaming transitions
 
@@ -85,7 +85,7 @@ data: { "reason": "server_shutdown" }
 - `lagged` appears only if the per-stream forwarder (16 events deep) dropped transitions; it precedes the next delivered frame, and `total` is the cumulative number of drops on this stream. Re-read the GET to resync — the stream stays open.
 - `closed` is written when the engine goes away — `server_shutdown` on exit, `deauthorized` when the account is torn down in place — from the [shared reason set](index.html), so one switch handles every stream family.
 
-The account-wide stream is `GET`, so a browser can use `EventSource` directly:
+The GET stream supports browser `EventSource`. This view fragment assumes the account has already been checked. Close on `closed` or `error` to prevent an automatic reconnect under another account; your lifecycle controller should check `GET /v1/auth` before creating a replacement stream ([Realtime](index.html)).
 
 ```js
 const es = new EventSource("http://127.0.0.1:7001/v1/sync-status/subscribe");
@@ -93,6 +93,10 @@ es.addEventListener("status", (e) => {
   const s = JSON.parse(e.data);
   badge(s.spaceId, s.state);            // "syncing" → spinner, "synced" → check
 });
+const closeStream = () => es.close();
+es.addEventListener("closed", closeStream);
+es.addEventListener("error", closeStream);
+// Also call es.close() when the view closes.
 ```
 
 ```bash

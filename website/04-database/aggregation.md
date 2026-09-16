@@ -126,7 +126,7 @@ Blocking stages (`$group`, in-pipeline `$sort`) are bounded; exceeding a bound a
 
 Negative values mean unlimited. There is no spill to disk — filter earlier or raise the limit.
 
-> **Why it matters.** The pipeline runs on the replica on your device, over decrypted data that never left it. There is no query planner in a datacenter to send this to — which is also why the budget is a hard in-memory bound rather than a billable spill.
+Aggregation runs against the local replica. Pipeline results must fit the documented in-memory budget; the engine does not spill excess work to disk.
 
 ## Where this differs from MongoDB
 

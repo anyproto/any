@@ -1,11 +1,15 @@
 ---
 title: Agent data
-description: Every dataset the agent owns — turns, chunks, memory, config, secrets, triggers, run summaries — declared as runtime datasets on derived objects in the user's space, and readable with the ordinary query surface.
+description: Find the agent's stored memory, conversation history, configuration, and run summaries, then query them through the standard API.
 order: 60
 ---
 # Agent data
 
-Nothing agent-specific is compiled into the any server. The harness declares its stores as [runtime datasets](../database/runtime-datasets.html) on types it creates itself, homes them on objects it derives, owns the record shapes and validation, and reads and writes them through the generic query, modify and upsert surface. You can do the same.
+The agent stores its state in ordinary database records: memory items, conversation turns, configuration, credentials, triggers, and run summaries. This page locates those records and shows how to query them. Use [Memory and recall](memory.html) to understand how the agent chooses which records enter a model prompt.
+
+The harness declares [runtime datasets](../database/runtime-datasets.html) on its own types and derives the objects that hold them. It owns their shapes, validation, and search mappings. The Any server supplies the same query, modify, and upsert operations your own application uses.
+
+**Before running the examples:** start the server and agent using the [runtime quickstart](../quickstart/anyrt.html). Set `$SPACE` to the agent space's ID, and have `curl` and `jq` available. The agent must have provisioned the store being queried; each writer ensures its store on first use.
 
 ## Where it lives
 
@@ -29,15 +33,17 @@ TURNS=$(curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/datasets \
   | jq -r '.datasets[].name | select(endswith("_agent_turns"))')
 ```
 
-Resolve a child yourself — the route requires the child's `type`, the store's hidden harness type:
+Resolve the brain child — the route requires the child's `type`, the store's hidden harness type. Keep the type ID and the returned object ID in separate variables:
 
 ```bash
-BRAIN=$(curl -s "http://127.0.0.1:7001/v1/spaces/$SPACE/types?includeHidden=true" \
+BRAIN_TYPE=$(curl -s "http://127.0.0.1:7001/v1/spaces/$SPACE/types?includeHidden=true" \
   | jq -er '.types[] | select(.xKey=="agent_brain") | .id')
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/bao%2Fv1/children \
+BRAIN=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/bao%2Fv1/children \
   -H 'content-type: application/json' \
-  -d '{"seed": "bao/brain/v1", "type": "'$BRAIN'"}'
+  -d "{\"seed\":\"bao/brain/v1\",\"type\":\"$BRAIN_TYPE\"}" | jq -er .objectId)
 ```
+
+`$BRAIN` now identifies the object holding memory records. `$BRAIN_TYPE` identifies its schema. Repeating the child call resolves the same derived object.
 
 ## Datasets
 
@@ -81,14 +87,18 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
        "sort": ["-seq"], "limit": 5}'
 ```
 
-Every memory item in one category, live (`$MEMORY` resolved like `$TURNS`, with the `_agent_memory_items` suffix):
+Watch memory items in one category. This uses the `$BRAIN` object ID resolved above and discovers the actual storage collection:
 
 ```bash
+MEMORY=$(curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/datasets \
+  | jq -er '.datasets[].name | select(endswith("_agent_memory_items"))')
 curl -N -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query/subscribe \
   -H 'content-type: application/json' \
   -d '{"objectId": "'$BRAIN'", "dataset": "'$MEMORY'",
        "filter": {"category": "decision"}, "sort": ["-createdAt"], "limit": 50}'
 ```
+
+The stream begins with the matching window and then reports changes. An empty window is valid when no decision memories have been saved. See [Subscribe](../realtime/subscribe.html) for the SSE event shapes and reconnect rules.
 
 Memory and history also participate in [search](../search/index.html) under scopes `agent` and `history`.
 
@@ -108,4 +118,4 @@ c.upsert_record(space, anchor, "agent_triggers", "remind-standup", {
 
 The owning device adopts it on the next tick; a `once` fires when `now >= at`, then auto-disables and keeps its record as the audit trail. See [Once](../scheduling/once.html).
 
-> **Why it matters.** The agent's whole operational state is a handful of datasets in your encrypted space: queryable, subscribable, exportable, deletable, and synced to your other devices — with no schema you cannot read and no store you cannot leave.
+The same pattern works for your own harness: declare the record shape, create a correctly typed host object, and use the standard data APIs. Keep model context selection in the harness; storing a record does not automatically send it to a model.

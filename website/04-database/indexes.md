@@ -20,7 +20,7 @@ Built-in datasets declare indexes for their hot paths:
 | `dataviews`, `views` | `pos`; on `views` also `(dataview, pos)` | A host's tables and one table's views, in order. |
 | `objects` | `modifiedAt` (dense) | `sort: ["-modifiedAt"]` recency lists and range filters on it. |
 | `objects` | `any.type` (dense) | `{"any.type": "<typeId>"}` — equality on the object's one type. |
-| `objects` | `any.collections` (sparse) | `{"any.collections": "<collectionId>"}` — membership; the sidebar, the bin, the wiki tree's member set. |
+| `objects` | `any.collections` (sparse) | `{"any.collections": "<collectionId>"}` — membership; the space's app list, the bin, the wiki tree's member set. |
 
 Every cross-object query should carry one of those two as its scope.
 
@@ -65,7 +65,7 @@ A [runtime dataset](runtime-datasets.html) declared on a user type is a per-obje
 
 `POST /v1/spaces/:spaceId/search` queries a consumer-side index (BM25 full-text plus an optional vector leg) built from the change feed. It covers editor text, chat text and property values by default, and stays eventually consistent with the query engine — a hit can outlive its object briefly. Use it for "find text anywhere"; use `/query` for exact filters. See [Search](../search/index.html).
 
-> **Why it matters.** Both the query engine and the search index are on-device. The FTS tables and vectors live next to the encrypted store in your data directory, and with `index.embedder: local` no indexed text leaves the device — the embedder runs as a child process of the server ([Embedders](../search/embedders.html)).
+Database queries and search both use local stores. With `index.embedder: local`, embedding computation also runs on the device, in a child process of the server. See [Embedders](../search/embedders.html) for model and runtime requirements.
 
 ## Related
 

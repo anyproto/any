@@ -5,7 +5,7 @@ order: 40
 ---
 # Cache
 
-Once a file is backed up to the network, its local bytes become a cache: droppable and refetchable. Until then they are the only copy, and the server refuses to throw them away. Nothing reclaims space on its own unless you configure it to.
+Once a file is backed up to the network, its local bytes become a cache: droppable and refetchable. Until a verified network backup exists, the server keeps the local bytes even if another peer can serve them. Nothing reclaims space on its own unless you configure it to.
 
 ## Pin
 
@@ -25,11 +25,11 @@ curl -X POST "http://127.0.0.1:7001/v1/spaces/$SP/files/$FILE/offload"
 any file offload $SP $FILE
 ```
 
-- Refused with **`409 file.not_durable`** while the local bytes are the only copy — the file has not been backed up yet.
+- Refused with **`409 file.not_durable`** until a verified network backup is recorded. A peer copy alone does not satisfy this check.
 - A no-op on inline files (their bytes are the CRDT row).
 - Content shared through per-space deduplication loses its bytes for every file sharing that `rootCid`; each stays refetchable.
 
-> **Why it matters.** Because the network copy is ciphertext under the space key, offloading is safe by construction: the bytes you drop can only ever be reconstituted by a member holding the key. Space management on a phone becomes a local decision with no privacy cost.
+Offload changes local storage only. It keeps the attachment and its encrypted network backup; a member with the space key can fetch the bytes again.
 
 ## Account-wide cache controls
 
@@ -55,7 +55,7 @@ any file cache free 500000000
 any file cache sweep
 ```
 
-`free` drops least-recently-used content that is **safe to drop** — backed up or unreferenced, never the only copy — and returns the bytes actually freed, which is less than requested when nothing else is safely evictable. `sweep` is the safety pass: it prunes references of deleted files, deletes unreferenced content past its grace period, and drops stale partial fetches.
+`free` drops least-recently-used content that is **safe to drop** — backed up or unreferenced; referenced content without a backup is retained — and returns the bytes actually freed, which is less than requested when nothing else is safely evictable. `sweep` is the safety pass: it prunes references of deleted files, deletes unreferenced content past its grace period, and drops stale partial fetches.
 
 ## No background GC by default
 

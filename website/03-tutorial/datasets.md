@@ -5,7 +5,11 @@ order: 30
 ---
 # 3. Datasets
 
-A dataset is a table inside one object. Where properties give an object a handful of columns, a dataset gives it rows: thousands of records with a schema every peer enforces, ids you control, and the same query, subscribe, search and aggregation surface as everything else. This part builds a mailbox — one object holding ten thousand emails.
+Create a mailbox object with a table of messages inside it. Import two sample emails, mark one as read, then query and summarize the results. The same batch pattern can import thousands of records.
+
+**Prerequisites:** the running server and `API` / `SPACE` variables from [tutorial setup](index.html#before-you-start). This part creates its own type and mailbox. Keep `MAILBOX`, `INBOX`, and `DS` in this terminal for [Part 4](apps.html).
+
+Properties are columns on an object. A dataset holds multiple records inside that object, with a declared schema and IDs you can supply.
 
 ## Many objects, or many records?
 
@@ -60,9 +64,7 @@ curl -s -X POST $API/spaces/$SPACE/types/$MAILBOX/parts -H 'content-type: applic
 # → 201 {"partId": "…"}
 ```
 
-```bash
-any type part add $SPACE $MAILBOX --draft @messages-part.json
-```
+To make the same declaration through the CLI, save the JSON body above as `messages-part.json` and use `any type part add $SPACE $MAILBOX --draft @messages-part.json` instead of the curl request.
 
 What the declaration says:
 
@@ -87,7 +89,7 @@ INBOX=$(curl -s -X POST $API/spaces/$SPACE/objects -H 'content-type: application
 DS=${MAILBOX}_messages
 ```
 
-## Import ten thousand emails
+## Import messages in batches
 
 `/upsert` is the ingest path for a dataset with user ids. Every record is keyed by the id you give it: absent ids are created, present ones are diffed field by field, identical ones are skipped. Re-running the same batch writes nothing, so an import job can run on a schedule without ever duplicating a message. A request body is capped at 1 MB, so the importer sends the mailbox in batches that fit:
 
@@ -99,18 +101,19 @@ curl -s -X POST $API/spaces/$SPACE/upsert -H 'content-type: application/json' -d
        "subject": "Invoice 2026-09", "from": "billing@example.com",
        "body": "Please find attached…", "receivedAt": {"$date": "2026-09-08T09:12:00Z"},
        "read": false, "labels": ["finance"]}},
-    {"id": "imap:INBOX:4202", "fields": {"…": "…"}}
+    {"id": "imap:INBOX:4202", "fields": {
+       "subject": "Team lunch", "from": "ada@example.com",
+       "body": "Thursday at noon", "receivedAt": {"$date": "2026-09-08T10:00:00Z"},
+       "read": false, "labels": ["team"]}}
   ] }'
 ```
 
 ```json
 { "pages": [ {"versionId": "…", "changeId": "…", "recordIds": ["imap:INBOX:4201", "…"]} ],
-  "created": 500, "updated": 0, "skipped": 0 }
+  "created": 2, "updated": 0, "skipped": 0 }
 ```
 
-```bash
-any upsert $SPACE $INBOX --dataset $DS --records @batch.json
-```
+For a larger import, put a records array in `batch.json` and use `any upsert $SPACE $INBOX --dataset $DS --records @batch.json`. The two-record curl example above is complete as written.
 
 Each call writes one CRDT change per `pageSize` records (500 by default), not one per email. A record that breaks the schema — no subject, a string where an instant belongs, a write to `importedAt` — comes back in `rejections` with a code and a reason while the rest of the batch lands; a clean batch has no `rejections` key ([Upsert](../database/upsert.html)). Mark a message read later with the ordinary record write:
 
@@ -165,15 +168,15 @@ curl -s -X POST $API/spaces/$SPACE/aggregate -H 'content-type: application/json'
 ```
 
 ```json
-{ "records": [ {"id": "billing@example.com", "count": 212}, … ] }
+{ "records": [ {"id": "ada@example.com", "count": 1} ] }
 ```
 
-The group key comes back as `id`. Snapshot only — re-run to refresh ([Aggregation](../database/aggregation.html)).
+With the two sample messages and the invoice marked read, only Ada's message remains unread. The group key comes back as `id`. Aggregation is a snapshot; re-run to refresh ([Aggregation](../database/aggregation.html)).
 
 ## Where this level ends
 
 You have a type whose objects carry a table: a declared, enforced schema; ids you own; an import safe to repeat; paging, liveness, search and aggregation. The mailbox works — for a client that already knows what a mailbox is.
 
-That is the gap. The type says *messages* is a part with a `table` widget, but nothing yet says how a mailbox object should be laid out, what to show when it opens, whether it has a notes body, or where it appears in the space. And if you set the type up on two devices while they were apart, each minted its own `mailbox`. The last part closes both gaps: parts and modules give the object behaviour it inherits rather than implements, a bundle makes every device converge on one definition, and filing the root under `miniapp` puts it in the sidebar next to the apps the catalog installs.
+That is the gap. The type says *messages* is a part with a `table` widget, but nothing yet says how a mailbox object should be laid out, what to show when it opens, whether it has a notes body, or where it appears in the space. And if you set the type up on two devices while they were apart, each minted its own `mailbox`. The last part closes both gaps: parts and modules give the object behaviour it inherits rather than implements, a bundle makes every device converge on one definition, and filing the root under `miniapp` adds it to the space's app list alongside apps installed from the catalog.
 
 Next: [4. Apps](apps.html). Reference: [Runtime datasets](../database/runtime-datasets.html), [Data model](../database/data-model.html).
