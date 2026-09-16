@@ -3,7 +3,7 @@
 **A local-first backend for multiplayer apps and agents.**
 
 Any combines a document database, live queries, search and end-to-end
-encrypted peer-to-peer (P2P) sync in a **local server that runs on your
+encrypted peer-to-peer (P2P) sync in a **local server that runs on
 users' devices**. Apps connect through an HTTP API and can read and write
 local data offline. The server and CLI ship together as the `any` binary.
 
