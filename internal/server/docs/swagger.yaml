@@ -509,10 +509,12 @@ components:
         rootType:
           description: |-
             RootType is the type of the root Ensure mints (its one type,
-            `any.type`); refused next to a declaration — a declaring root
-            carries its marker there. RootCollections are the collections
-            the root is filed under at birth (a `miniapp` root is an app root
-            that also declares a type). Both ride the root's first change.
+            `any.type`): required when the body declares nothing (every
+            object has a type; `page` for a plain document), refused next to
+            a declaration — a declaring root carries its marker there.
+            RootCollections are the collections the root is filed under at
+            birth (a `miniapp` root is an app root). Both ride the root's
+            first change.
           type: string
         xKey:
           description: |-
@@ -626,6 +628,12 @@ components:
             $ref: '#/components/schemas/api.PartDraftRequest'
           type: array
           uniqueItems: false
+        rootType:
+          description: |-
+            RootType is the root's type when the bundle declares nothing (a
+            bare app root): a registered type id, `page` for a plain
+            document. Required then, refused next to a declaration.
+          type: string
         type:
           $ref: '#/components/schemas/api.CatalogType'
       type: object
@@ -2064,8 +2072,8 @@ components:
         type:
           description: |-
             Type is the object's one type — what it IS: its parts, its layout
-            and one column group. Optional: an object with no type has no
-            parts and renders as properties. Nothing is stamped server-side.
+            and one column group. Required (400 request.missing_field);
+            `page` is the plain document. Nothing is stamped server-side.
           type: string
       type: object
     api.ObjectDebugResponse:
@@ -8583,49 +8591,6 @@ paths:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Internal Server Error
       summary: Set properties on an object (single declared scope)
-      tags:
-      - properties
-  /spaces/{spaceId}/properties/{objectId}/type:
-    delete:
-      parameters:
-      - description: Space ID
-        in: path
-        name: spaceId
-        required: true
-        schema:
-          type: string
-      - description: Object ID
-        in: path
-        name: objectId
-        required: true
-        schema:
-          type: string
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ModifyResult'
-          description: OK
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Bad Request
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Not Found
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Internal Server Error
-      summary: Unset the object's type
       tags:
       - properties
   /spaces/{spaceId}/properties/{objectId}/type/{typeId}:

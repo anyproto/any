@@ -23,7 +23,6 @@ func TestTypesAndCollectionsCommands(t *testing.T) {
 		"collection property remove",
 		"object create",
 		"object type set",
-		"object type unset",
 		"object collection attach",
 		"object collection detach",
 	} {
@@ -39,6 +38,18 @@ func TestTypesAndCollectionsCommands(t *testing.T) {
 		}
 		if cmd.RunE == nil {
 			t.Errorf("%q has no RunE", path)
+		}
+	}
+}
+
+// TestNoObjectTypeUnset — every object has exactly one type, so there
+// is no verb that clears it.
+func TestNoObjectTypeUnset(t *testing.T) {
+	root := newRootCmd()
+	for _, name := range []string{"unset", "clear"} {
+		cmd, rest, err := root.Find([]string{"object", "type", name})
+		if err == nil && len(rest) == 0 {
+			t.Errorf("object type %s still resolves to %s", name, cmd.CommandPath())
 		}
 	}
 }

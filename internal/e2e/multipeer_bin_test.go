@@ -91,7 +91,7 @@ func TestE2E_MultipeerBin(t *testing.T) {
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces", `{"name":"bin"}`, http.StatusCreated, &sp)
 	var obj api.ObjectsCreateResponse
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{"initialProperties":{"any":{"name":"Trash me"}}}`, http.StatusCreated, &obj)
+		`{"type":"page","initialProperties":{"any":{"name":"Trash me"}}}`, http.StatusCreated, &obj)
 	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionWriter)
 
 	peers := []*peer{owner, joiner}

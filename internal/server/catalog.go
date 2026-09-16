@@ -78,7 +78,11 @@ func compileCatalog(src []byte) (*compiledCatalog, catalog.Problems) {
 	for _, col := range serverCollections() {
 		known = append(known, col.Id)
 	}
-	cat, problems := catalog.Load(src, catalog.Options{KnownTypeIds: known})
+	rootTypes := make([]string, 0, 4)
+	for _, t := range serverTypes() {
+		rootTypes = append(rootTypes, t.Id)
+	}
+	cat, problems := catalog.Load(src, catalog.Options{KnownTypeIds: known, RootTypeIds: rootTypes})
 	if cat == nil {
 		return nil, problems
 	}
@@ -100,7 +104,7 @@ func compileCatalog(src []byte) (*compiledCatalog, catalog.Problems) {
 			cb := compiledBundle{CatalogBundle: b, usecase: u.Id}
 			inst := bundles.Install{
 				Id: b.Id, Name: b.Name, Derived: b.Derived, Hidden: b.Hidden,
-				SystemInstall: true,
+				RootType: b.RootType, SystemInstall: true,
 			}
 			if b.Collection != nil {
 				inst.Collection = true

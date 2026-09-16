@@ -149,8 +149,8 @@ func TestServer_BundleListAndGet(t *testing.T) {
 	e := buildEcho(d)
 
 	sp := createSpaceInfo(t, e, "BundleReads")
-	a := ensureBundle(t, e, sp.Id, `{"id":"`+testBundleId+`","name":"General"}`)
-	b := ensureBundle(t, e, sp.Id, `{"id":"notes/v1","name":"Notes"}`)
+	a := ensureBundle(t, e, sp.Id, `{"id":"`+testBundleId+`","name":"General","rootType":"page"}`)
+	b := ensureBundle(t, e, sp.Id, `{"id":"notes/v1","name":"Notes","rootType":"page"}`)
 
 	var list api.BundleListResponse
 	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/bundles", &list)
@@ -195,7 +195,7 @@ func TestServer_BundleChildren(t *testing.T) {
 	e := buildEcho(d)
 
 	sp := createSpaceInfo(t, e, "BundleChildren")
-	inst := ensureBundle(t, e, sp.Id, `{"id":"`+testBundleId+`","name":"General"}`)
+	inst := ensureBundle(t, e, sp.Id, `{"id":"`+testBundleId+`","name":"General","rootType":"page"}`)
 	path := "/v1/spaces/" + sp.Id + "/bundles/" + escapedBundleId(testBundleId) + "/children"
 
 	child := func(body string) api.BundleChildResponse {
@@ -219,16 +219,20 @@ func TestServer_BundleChildren(t *testing.T) {
 	if first.ObjectId == inst.Bundle.RootId {
 		t.Fatal("child collided with its root")
 	}
-	if other := child(`{"seed":"notes/v1"}`); other.ObjectId == first.ObjectId {
+	if other := child(`{"seed":"notes/v1","type":"page"}`); other.ObjectId == first.ObjectId {
 		t.Fatalf("distinct seeds derived the same child: %q", other.ObjectId)
 	}
 
-	// A seed is required, and children need an installed bundle.
+	// A seed and a type are required, and children need an installed
+	// bundle.
 	if rec := doJSON(t, e, http.MethodPost, path, `{}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("missing seed: %d %s", rec.Code, rec.Body.String())
 	}
+	if rec := doJSON(t, e, http.MethodPost, path, `{"seed":"x/v1"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing type: %d %s", rec.Code, rec.Body.String())
+	}
 	missing := "/v1/spaces/" + sp.Id + "/bundles/" + escapedBundleId("nope/v1") + "/children"
-	if rec := doJSON(t, e, http.MethodPost, missing, `{"seed":"x/v1"}`); rec.Code != http.StatusNotFound {
+	if rec := doJSON(t, e, http.MethodPost, missing, `{"seed":"x/v1","type":"page"}`); rec.Code != http.StatusNotFound {
 		t.Fatalf("child of an uninstalled bundle: %d %s", rec.Code, rec.Body.String())
 	}
 }
@@ -242,7 +246,7 @@ func TestServer_BundleResolveRejectsNonLoser(t *testing.T) {
 	e := buildEcho(d)
 
 	sp := createSpaceInfo(t, e, "BundleResolve")
-	inst := ensureBundle(t, e, sp.Id, `{"id":"`+testBundleId+`","name":"General"}`)
+	inst := ensureBundle(t, e, sp.Id, `{"id":"`+testBundleId+`","name":"General","rootType":"page"}`)
 	path := "/v1/spaces/" + sp.Id + "/bundles/" + escapedBundleId(testBundleId) + "/resolve"
 
 	rec := doJSON(t, e, http.MethodPost, path, `{"loserRootId":"`+inst.Bundle.RootId+`"}`)
@@ -278,7 +282,7 @@ func TestServer_BundleResolveUnknownRoot(t *testing.T) {
 	e := buildEcho(d)
 
 	sp := createSpaceInfo(t, e, "BundleResolveUnknown")
-	ensureBundle(t, e, sp.Id, `{"id":"`+testBundleId+`","name":"General"}`)
+	ensureBundle(t, e, sp.Id, `{"id":"`+testBundleId+`","name":"General","rootType":"page"}`)
 
 	path := "/v1/spaces/" + sp.Id + "/bundles/" + escapedBundleId(testBundleId) + "/resolve"
 	rec := doJSON(t, e, http.MethodPost, path, `{"loserRootId":"never-claimed"}`)
@@ -338,7 +342,7 @@ func TestServer_BundleEnsureValidation(t *testing.T) {
 	if rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/bundles", `{}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("missing id: %d %s", rec.Code, rec.Body.String())
 	}
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/nosuchspace/bundles", `{"id":"x/v1"}`)
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/nosuchspace/bundles", `{"id":"x/v1","rootType":"page"}`)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown space: %d %s", rec.Code, rec.Body.String())
 	}
@@ -354,7 +358,7 @@ func TestServer_BundleRegistryReadableAsDataset(t *testing.T) {
 	ctx := context.Background()
 
 	info := createSpaceInfo(t, e, "BundleDataset")
-	inst := ensureBundle(t, e, info.Id, `{"id":"`+testBundleId+`","name":"General"}`)
+	inst := ensureBundle(t, e, info.Id, `{"id":"`+testBundleId+`","name":"General","rootType":"page"}`)
 
 	sp, err := d.sdk.Spaces().Get(ctx, info.Id)
 	if err != nil {
@@ -398,8 +402,9 @@ func TestServer_BundleEnsurePreflight(t *testing.T) {
 		name, body, code string
 	}{
 		{"unknown type", `{"id":"a/v1","rootType":"no_such_type"}`, "type.not_found"},
-		{"unknown collection", `{"id":"a/v1","rootCollections":["no_such_collection"]}`, "collection.not_found"},
-		{"unknown property owner", `{"id":"a/v1","rootProperties":{"no_such_type":{"x":1}}}`, "collection.not_found"},
+		{"unknown collection", `{"id":"a/v1","rootType":"page","rootCollections":["no_such_collection"]}`, "collection.not_found"},
+		{"unknown property owner", `{"id":"a/v1","rootType":"page","rootProperties":{"no_such_type":{"x":1}}}`, "collection.not_found"},
+		{"bare root without a type", `{"id":"a/v1"}`, "request.missing_field"},
 		{"unknown field", `{"id":"a/v1","source":"marketplace"}`, "request.unknown_field"},
 		{"rootType not a string", `{"id":"a/v1","rootType":["chat_host"]}`, "request.schema"},
 		{"rootCollections not an array", `{"id":"a/v1","rootCollections":"miniapp"}`, "request.schema"},
@@ -439,7 +444,7 @@ func TestServer_BundleChildSeedCap(t *testing.T) {
 	e := buildEcho(d)
 
 	sp := createSpaceInfo(t, e, "BundleSeedCap")
-	ensureBundle(t, e, sp.Id, `{"id":"`+testBundleId+`","name":"General"}`)
+	ensureBundle(t, e, sp.Id, `{"id":"`+testBundleId+`","name":"General","rootType":"page"}`)
 	path := "/v1/spaces/" + sp.Id + "/bundles/" + escapedBundleId(testBundleId) + "/children"
 
 	rec := doJSON(t, e, http.MethodPost, path, `{"seed":"`+strings.Repeat("s", 257)+`"}`)
@@ -509,7 +514,7 @@ func TestServer_BundleEnsureDerivedRoot(t *testing.T) {
 	if again := child(`{"seed":"memory/v1","type":"agent_memory"}`); again.ObjectId != firstChild.ObjectId {
 		t.Fatalf("child not deterministic: %q vs %q", firstChild.ObjectId, again.ObjectId)
 	}
-	if other := child(`{"seed":"notes/v1"}`); other.ObjectId == firstChild.ObjectId {
+	if other := child(`{"seed":"notes/v1","type":"page"}`); other.ObjectId == firstChild.ObjectId {
 		t.Fatalf("distinct seeds derived the same child: %q", other.ObjectId)
 	}
 	if firstChild.ObjectId == first.Bundle.RootId {
@@ -526,12 +531,12 @@ func TestServer_BundleDerivedAdoptsCreatedInstall(t *testing.T) {
 	e := buildEcho(d)
 
 	sp := createSpaceInfo(t, e, "BundleDerivedAdopt")
-	created := ensureBundle(t, e, sp.Id, `{"id":"`+testBundleId+`","name":"General"}`)
+	created := ensureBundle(t, e, sp.Id, `{"id":"`+testBundleId+`","name":"General","rootType":"page"}`)
 	if created.Bundle.Derived {
 		t.Fatalf("created install reported as derived: %+v", created.Bundle)
 	}
 
-	derived := ensureBundle(t, e, sp.Id, `{"id":"`+testBundleId+`","name":"General","derived":true}`)
+	derived := ensureBundle(t, e, sp.Id, `{"id":"`+testBundleId+`","name":"General","derived":true,"rootType":"page"}`)
 	if derived.Installed || derived.Bundle.Derived {
 		t.Fatalf("derived request forked the created install: %+v (installed=%v)", derived.Bundle, derived.Installed)
 	}
@@ -609,7 +614,7 @@ func TestServer_BundleDerivedRootPropertyTypes(t *testing.T) {
 	// rootCollections names nothing; the membership comes from
 	// rootProperties.
 	res := ensureBundle(t, e, sp.Id,
-		`{"id":"docs/v1","name":"Docs","derived":true,"rootProperties":{"`+
+		`{"id":"docs/v1","name":"Docs","derived":true,"rootType":"page","rootProperties":{"`+
 			docs+`":{"`+prop.PropId+`":"seeded"}}}`)
 	if !res.Bundle.Derived {
 		t.Fatalf("not a derived install: %+v", res.Bundle)
@@ -751,11 +756,11 @@ func TestServer_BundleDefinitionHostsItsRecords(t *testing.T) {
 	if rec := upsert(obj, entries); rec.Code != http.StatusOK {
 		t.Fatalf("write on a typed object: %d %s", rec.Code, rec.Body.String())
 	}
-	// An object without the type does not.
-	other := mustCreateObject(t, e, sp.Id, `{}`)
+	// An object of another type does not.
+	other := mustCreateObject(t, e, sp.Id, `{"type":"`+plainType(t, e, sp.Id)+`"}`)
 	if rec := upsert(other, entries); rec.Code != http.StatusBadRequest ||
 		!strings.Contains(rec.Body.String(), "dataset.not_declared") {
-		t.Fatalf("write on an untyped object: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("write on an object of another type: %d %s", rec.Code, rec.Body.String())
 	}
 
 	// The flag is gone from the wire.

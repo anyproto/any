@@ -337,7 +337,7 @@ keying a filter by xKey matches nothing.
 
 Indexed paths:
 
-- `objects` → `any.type` (sparse), `any.collections` (sparse), `modifiedAt`
+- `objects` → `any.type` (dense), `any.collections` (sparse), `modifiedAt`
 - `editor_blocks` (and every editor storage collection) → `(nav.parentId, nav.pos)`
 - `chat_messages` → `(_ver.id)`, plus sparse `(unread, _ver.id)`,
   `(unreadMention, _ver.id)`, `(unreadReactions, _ver.id)` and multikey

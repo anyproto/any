@@ -135,7 +135,8 @@ func (d *deps) propertiesSet(c echo.Context) error {
 // POST /v1/spaces/:spaceId/properties/:objectId/type/:typeId — sets
 // the object's one type (`any.type`, a $set: a previous type is
 // replaced; its values and dataset records stay as orphan data,
-// read-tolerant). The object must already exist — an unknown id is
+// read-tolerant). There is no unset: every object has exactly one
+// type. The object must already exist — an unknown id is
 // `404 object.not_found`, not a silent create.
 //
 //	@Summary	Set the object's type
@@ -181,32 +182,6 @@ func (d *deps) propertiesSetType(c echo.Context) error {
 	res, err := sp.Properties().SetType(ctx, objectId, typeId)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId, "typeId": typeId})
-	}
-	return c.JSON(http.StatusOK, modifyResultToAPI(res))
-}
-
-// propertiesUnsetType handles
-// DELETE /v1/spaces/:spaceId/properties/:objectId/type — clears the
-// object's type; it then has no parts and renders as properties.
-//
-//	@Summary	Unset the object's type
-//	@Tags		properties
-//	@Produce	json
-//	@Param		spaceId		path		string	true	"Space ID"
-//	@Param		objectId	path		string	true	"Object ID"
-//	@Success	200			{object}	api.ModifyResult
-//	@Failure	400			{object}	api.ErrorEnvelope
-//	@Failure	404			{object}	api.ErrorEnvelope
-//	@Failure	500			{object}	api.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/properties/{objectId}/type [delete]
-func (d *deps) propertiesUnsetType(c echo.Context) error {
-	sp, objectId, errResp, done := d.resolveSpaceObject(c)
-	if done {
-		return errResp
-	}
-	res, err := sp.Properties().UnsetType(c.Request().Context(), objectId)
-	if err != nil {
-		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
 	return c.JSON(http.StatusOK, modifyResultToAPI(res))
 }

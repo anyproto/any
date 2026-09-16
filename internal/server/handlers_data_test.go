@@ -411,7 +411,7 @@ func TestServer_TypeGet_NotFound(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &sp)
 
 	// Create a regular object — exists but isn't a type.
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects", `{}`)
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects", `{"type":"page"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create object: %d %s", rec.Code, rec.Body.String())
 	}

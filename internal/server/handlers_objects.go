@@ -115,9 +115,14 @@ func (d *deps) objectCreate(c echo.Context) error {
 
 	// Membership is pre-flighted the way the …/type and …/collections
 	// routes do it — a wrong slot or an unknown id answers a typed 4xx
-	// instead of a refused bootstrap on a minted tree. A type declaring
-	// a reserved module is carried only by its own root.
-	if opts.Type != "" {
+	// instead of a refused bootstrap on a minted tree. Every object has
+	// a type; a type declaring a reserved module is carried only by its
+	// own root.
+	if opts.Type == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field",
+			"type required: every object has exactly one type (page for a plain document)", nil)
+	}
+	{
 		if _, err := sp.Types().Get(c.Request().Context(), opts.Type); err != nil {
 			if resp, done := typeLookupError(c, err, sp.Id(), opts.Type); done {
 				return resp

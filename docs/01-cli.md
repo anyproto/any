@@ -529,18 +529,17 @@ group only; patch the descriptor path directly on a collection.
 ### Objects
 
 ```
-any object create <spaceId> [--type T] [--collection C ...] [--properties '<json>|@FILE|-']
+any object create <spaceId> --type T [--collection C ...] [--properties '<json>|@FILE|-']
 
 any object type set   <spaceId> <objectId> <typeId>
-any object type unset <spaceId> <objectId>
 
 any object collection attach <spaceId> <objectId> <collectionId>
 any object collection detach <spaceId> <objectId> <collectionId>
 ```
 
-An object carries **one type** and **any number of collections**. Both
-are optional on create: a typeless object has no parts and renders as
-properties. `--collection` repeats. `--properties` seeds values keyed
+An object carries **one type** and **any number of collections**. The
+type is required on create (`page` is the plain document) and is never
+cleared; collections are optional. `--collection` repeats. `--properties` seeds values keyed
 owner → propId → value, the owner being the type or one of the
 collections — a value under an owner the object does not have is
 refused (`400 dataset.not_declared`).

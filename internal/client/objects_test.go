@@ -9,7 +9,8 @@ import (
 )
 
 // TestObjectRoutes pins the create body — one type, many collections —
-// and the four binding calls behind it.
+// and the three binding calls behind it. There is no unset: every
+// object has exactly one type.
 func TestObjectRoutes(t *testing.T) {
 	ctx := context.Background()
 	checkCalls(t, []struct {
@@ -28,10 +29,6 @@ func TestObjectRoutes(t *testing.T) {
 			_, err := cl.ObjectSetType(ctx, "sp", "o1", "person")
 			return err
 		}, call{http.MethodPost, "/v1/spaces/sp/properties/o1/type/person", ""}},
-		{"unset type", func(cl *Client) error {
-			_, err := cl.ObjectUnsetType(ctx, "sp", "o1")
-			return err
-		}, call{http.MethodDelete, "/v1/spaces/sp/properties/o1/type", ""}},
 		{"attach collection", func(cl *Client) error {
 			_, err := cl.ObjectAttachCollection(ctx, "sp", "o1", "bin")
 			return err

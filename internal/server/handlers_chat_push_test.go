@@ -77,7 +77,7 @@ func TestServer_ChatNotifyMode_RowAddressing(t *testing.T) {
 	// themselves (a definition hosts its own datasets — the general chat
 	// is its own type). The owners come from dataset discovery. A plain
 	// object is not a chat.
-	other := mustCreateObject(t, e, spaceId, `{}`)
+	other := mustCreateObject(t, e, spaceId, `{"type":"page"}`)
 	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+spaceId+"/datasets", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("datasets: %d %s", rec.Code, rec.Body.String())

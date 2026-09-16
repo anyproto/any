@@ -73,9 +73,9 @@ Examples:
 func newObjectTypeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "type",
-		Short: "set / unset the object's one type",
+		Short: "set the object's one type",
 	}
-	cmd.AddCommand(newObjectTypeSetCmd(), newObjectTypeUnsetCmd())
+	cmd.AddCommand(newObjectTypeSetCmd())
 	return cmd
 }
 
@@ -87,23 +87,6 @@ func newObjectTypeSetCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := newClient(flags.Timeout)
 			out, err := cl.ObjectSetType(cmd.Context(), args[0], args[1], args[2])
-			if err != nil {
-				return err
-			}
-			return printJSON(out)
-		},
-	}
-}
-
-func newObjectTypeUnsetCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:     "unset <spaceId> <objectId>",
-		Aliases: []string{"clear"},
-		Short:   "clear the object's type (it then renders as properties)",
-		Args:    cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := newClient(flags.Timeout)
-			out, err := cl.ObjectUnsetType(cmd.Context(), args[0], args[1])
 			if err != nil {
 				return err
 			}

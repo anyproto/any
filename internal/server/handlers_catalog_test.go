@@ -9,6 +9,7 @@ import (
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/catalog"
+	"github.com/anyproto/any/internal/page"
 )
 
 // The usecase catalog over HTTP: the embedded entries set up end to
@@ -322,7 +323,7 @@ func TestServer_CatalogSetupMeetings(t *testing.T) {
 	}
 
 	// An object that does not carry the type holds none of the surfaces.
-	other := mustCreateObject(t, e, sp.Id, `{}`)
+	other := mustCreateObject(t, e, sp.Id, `{"type":"`+plainType(t, e, sp.Id)+`"}`)
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert",
 		`{"objectId":"`+other+`","dataset":"`+collections["transcript"]+`","records":[{"id":"x","fields":{"text":"no"}}]}`)
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "dataset.not_declared") {
@@ -474,8 +475,8 @@ func TestServer_CatalogSetupCollectionsAndChat(t *testing.T) {
 	e := buildEcho(d)
 	sp := createSpaceInfo(t, e, "CatalogBare")
 
-	// collections: a bare miniapp root — declares nothing, so no marker
-	// in any.type, only the miniapp collection.
+	// collections: a bare miniapp root — declares nothing, so its
+	// any.type is the rootType the catalog names, not a marker.
 	res := setupUsecase(t, e, "collections", sp.Id)
 	b := res.Bundles[0]
 	if !b.Installed || b.TypeId != "" || b.CollectionId != "" || b.Properties != nil ||
@@ -483,7 +484,7 @@ func TestServer_CatalogSetupCollectionsAndChat(t *testing.T) {
 		t.Fatalf("collections bundle: %+v", b)
 	}
 	row := objectRow(t, e, sp.Id, b.Bundle.RootId)
-	if rowType(row) != "" || !slices.Contains(rowCollections(row), "miniapp") {
+	if rowType(row) != page.TypeId || !slices.Contains(rowCollections(row), "miniapp") {
 		t.Fatalf("collections root: type=%q collections=%v", rowType(row), rowCollections(row))
 	}
 
@@ -743,6 +744,7 @@ usecases:
             datasets: [ { key: state, idRule: user, fields: [ { key: v, kind: string, mutableBy: any } ] } ]
       - id: system:seam-app-extra/v1
         name: Extra
+        rootType: page
         miniapp: {}
 `
 
@@ -916,5 +918,16 @@ func TestServer_CatalogSetupEveryUsecase(t *testing.T) {
 	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/bundles", &bl)
 	if len(bl.Bundles) != len(roots) {
 		t.Fatalf("registry has %d rows, setup touched %d bundles", len(bl.Bundles), len(roots))
+	}
+	// The app roots that declare nothing are plain documents: the
+	// catalog's rootType is what setup mints them with.
+	for _, id := range []string{"system:collections/v1", "system:meetings/v1", "system:tasks/v1", "system:crm/v1"} {
+		root, ok := roots[id]
+		if !ok {
+			t.Fatalf("%s was not installed", id)
+		}
+		if got := rowType(objectRow(t, e, sp.Id, root)); got != page.TypeId {
+			t.Errorf("%s root any.type = %q, want %q", id, got, page.TypeId)
+		}
 	}
 }

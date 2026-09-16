@@ -128,7 +128,7 @@ func TestServer_RegisteredTypeParts(t *testing.T) {
 	if code := write(obj); code != http.StatusOK {
 		t.Errorf("write into a static part dataset: %d", code)
 	}
-	bare := mustCreateObject(t, e, sp.Id, `{}`)
+	bare := mustCreateObject(t, e, sp.Id, `{"type":"`+plainType(t, e, sp.Id)+`"}`)
 	if code := write(bare); code != http.StatusBadRequest {
 		t.Errorf("write without the declaring type: %d, want 400", code)
 	}
@@ -258,12 +258,13 @@ func TestServer_BundleDeclaredType(t *testing.T) {
 		// also be typed.
 		"rootType + declaration": {`{"id":"v/v1","properties":[{"xKey":"a","kind":"string"}],"rootType":"page"}`,
 			http.StatusBadRequest, "request.invalid_field"},
-		"unknown rootCollection": {`{"id":"v/v1","rootCollections":["x"]}`, http.StatusBadRequest, "collection.not_found"},
+		"unknown rootCollection":       {`{"id":"v/v1","rootType":"page","rootCollections":["x"]}`, http.StatusBadRequest, "collection.not_found"},
+		"bare root without a rootType": {`{"id":"v/v1"}`, http.StatusBadRequest, "request.missing_field"},
 		"collection + layout": {`{"id":"v/v1","collection":true,"xKey":"c","layout":{"type":"page"}}`,
 			http.StatusBadRequest, "request.invalid_field"},
 		"too many":         {`{"id":"v/v1","properties":[` + repeatProps(65) + `]}`, http.StatusBadRequest, "request.invalid_field"},
 		"reserved id":      {`{"id":"system:wiki/v1","derived":true,"properties":[{"xKey":"a","kind":"string"}]}`, http.StatusConflict, api.ErrBundleReserved},
-		"reserved id bare": {`{"id":"system:x"}`, http.StatusConflict, api.ErrBundleReserved},
+		"reserved id bare": {`{"id":"system:x","rootType":"page"}`, http.StatusConflict, api.ErrBundleReserved},
 	} {
 		rec := doJSON(t, e, http.MethodPost, base+"/bundles", tc.body)
 		if rec.Code != tc.status {

@@ -56,18 +56,18 @@ func mustCreateCollection(t *testing.T, e http.Handler, spaceId, body string) st
 
 // TestServer_PropertiesSetType exercises the one-type slot on an
 // existing object: setting replaces, a second type replaces the first,
-// and unsetting clears it while the old type's records stay as orphan
-// data — retyping is not a delete.
+// and the old type's records stay as orphan data — retyping is not a
+// delete. There is no unset: every object has exactly one type.
 func TestServer_PropertiesSetType(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
 	e := buildEcho(d)
 	sp := createSpaceInfo(t, e, "SetTypeTest")
 
-	obj := mustCreateObject(t, e, sp.Id, `{}`)
+	obj := mustCreateObject(t, e, sp.Id, `{"type":"page"}`)
 	base := "/v1/spaces/" + sp.Id + "/properties/" + obj
-	if got, _ := objectMembers(t, e, sp.Id, obj); got != "" {
-		t.Fatalf("fresh object already typed: %q", got)
+	if got, _ := objectMembers(t, e, sp.Id, obj); got != "page" {
+		t.Fatalf("created object any.type = %q, want page", got)
 	}
 
 	// Set twice — $set, so the second call is a no-op.
@@ -105,16 +105,20 @@ func TestServer_PropertiesSetType(t *testing.T) {
 		t.Errorf("view count after retype = %d, want 1 (records are read-tolerant orphans)", got)
 	}
 
-	// Unset twice — idempotent.
-	for i := range 2 {
-		rec = doJSON(t, e, http.MethodDelete, base+"/type", "")
-		if rec.Code != http.StatusOK {
-			t.Fatalf("unset type #%d: %d %s", i+1, rec.Code, rec.Body.String())
-		}
+	// The slot cannot be emptied: the unset route is gone and the raw
+	// op behind it is refused.
+	if rec = doJSON(t, e, http.MethodDelete, base+"/type", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("the unset route still answers: %d %s", rec.Code, rec.Body.String())
 	}
-	if got, _ := objectMembers(t, e, sp.Id, obj); got != "" {
-		t.Fatalf("any.type after unset = %q", got)
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/modify",
+		`{"objectId":"`+obj+`","dataset":"objects","records":[{"id":"`+obj+`","ops":[{"type":"$unset","path":"any.type"}]}]}`)
+	assertStatusCode(t, rec, http.StatusBadRequest, "membership.type_required")
+	if got, _ := objectMembers(t, e, sp.Id, obj); got != task.TypeId {
+		t.Fatalf("any.type after the refused unset = %q", got)
 	}
+	// And no object is born without one.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects", `{}`)
+	assertStatusCode(t, rec, http.StatusBadRequest, "request.missing_field")
 }
 
 // TestServer_PropertiesCollectionBinding: a collection is $addToSet, so
@@ -135,7 +139,7 @@ func TestServer_PropertiesCollectionBinding(t *testing.T) {
 	var prop api.AddPropertyResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &prop)
 
-	obj := mustCreateObject(t, e, sp.Id, `{}`)
+	obj := mustCreateObject(t, e, sp.Id, `{"type":"page"}`)
 	url := "/v1/spaces/" + sp.Id + "/properties/" + obj + "/collections/" + shelf
 
 	for i := range 2 {
@@ -185,7 +189,7 @@ func TestServer_PropertiesSlotsAreTyped(t *testing.T) {
 	var task api.TypesCreateResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &task)
 
-	obj := mustCreateObject(t, e, sp.Id, `{}`)
+	obj := mustCreateObject(t, e, sp.Id, `{"type":"page"}`)
 	base := "/v1/spaces/" + sp.Id + "/properties/" + obj
 
 	for name, tc := range map[string]struct {
@@ -207,8 +211,9 @@ func TestServer_PropertiesSlotsAreTyped(t *testing.T) {
 			t.Errorf("%s: code = %q, want %q", name, got, tc.code)
 		}
 	}
-	// Nothing refused reached the row.
-	if tp, cols := objectMembers(t, e, sp.Id, obj); tp != "" || len(cols) != 0 {
+	// Nothing refused reached the row: the type it was created with
+	// stands and it is filed nowhere.
+	if tp, cols := objectMembers(t, e, sp.Id, obj); tp != "page" || len(cols) != 0 {
 		t.Fatalf("a refused id reached the row: type=%q collections=%v", tp, cols)
 	}
 

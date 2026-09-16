@@ -222,7 +222,7 @@ func TestServer_PageType(t *testing.T) {
 		t.Errorf("markdown = %q", got)
 	}
 
-	bare := mustCreateObject(t, e, sp.Id, `{}`)
+	bare := mustCreateObject(t, e, sp.Id, `{"type":"`+plainType(t, e, sp.Id)+`"}`)
 	rec := doJSON(t, e, http.MethodPost, base+"/objects/"+bare+"/editor/editor_blocks/blocks", `{"type":"paragraph","text":"no"}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("block write without page: %d %s, want 400", rec.Code, rec.Body.String())
@@ -286,7 +286,7 @@ func TestServer_MiniappType(t *testing.T) {
 		t.Errorf("miniapp answered the type parts route: %s", rec.Body.String())
 	}
 
-	obj := mustCreateObject(t, e, sp.Id, `{"collections":["`+miniapp.Id+`"]}`)
+	obj := mustCreateObject(t, e, sp.Id, `{"type":"`+page.TypeId+`","collections":["`+miniapp.Id+`"]}`)
 	setURL := fmt.Sprintf("%s/properties/%s/set/%s", base, obj, miniapp.Id)
 	rec := doJSON(t, e, http.MethodPost, setURL, `{"patch":{"bundle":"system:wiki/v1"}}`)
 	if rec.Code != http.StatusOK {
@@ -306,7 +306,7 @@ func TestServer_MiniappType(t *testing.T) {
 		t.Errorf("undeclared property: %d %s, want 400", rec.Code, rec.Body.String())
 	}
 
-	bare := mustCreateObject(t, e, sp.Id, `{}`)
+	bare := mustCreateObject(t, e, sp.Id, `{"type":"`+page.TypeId+`"}`)
 	rec = doJSON(t, e, http.MethodPost, fmt.Sprintf("%s/properties/%s/set/%s", base, bare, miniapp.Id), `{"patch":{"bundle":"system:wiki/v1"}}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("set on a non-member: %d %s, want 400", rec.Code, rec.Body.String())
@@ -337,7 +337,7 @@ func TestServer_BinMoveRestore(t *testing.T) {
 		t.Fatalf("bin properties = %+v", props.Properties)
 	}
 
-	obj := mustCreateObject(t, e, sp.Id, `{"initialProperties":{"any":{"name":"Trash me"}}}`)
+	obj := mustCreateObject(t, e, sp.Id, `{"type":"`+page.TypeId+`","initialProperties":{"any":{"name":"Trash me"}}}`)
 	binURL := fmt.Sprintf("%s/properties/%s/collections/%s", base, obj, bin.Id)
 
 	// stamps reads the bin namespace: (movedAt, movedBy, present). A
@@ -461,7 +461,7 @@ func TestServer_BinMoveRestore(t *testing.T) {
 
 	// Restore on an object that was never binned is a no-op 200 and
 	// leaves no `bin` key behind.
-	never := mustCreateObject(t, e, sp.Id, `{}`)
+	never := mustCreateObject(t, e, sp.Id, `{"type":"`+page.TypeId+`"}`)
 	rec = doJSON(t, e, http.MethodDelete, fmt.Sprintf("%s/properties/%s/collections/%s", base, never, bin.Id), "")
 	if rec.Code != http.StatusOK {
 		t.Errorf("restore a never-binned object: %d %s", rec.Code, rec.Body.String())

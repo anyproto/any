@@ -1232,8 +1232,10 @@ declaration is added to `rootCollections`.
 
 Input is bounded and pre-flighted: `id` ≤256 B, `xKey` ≤256 B, `name` ≤1024 B,
 `rootCollections` ≤32 entries, `rootProperties` ≤64 KiB, `parts` ≤32
-entries / 64 KiB, `properties` ≤64 entries / 64 KiB. `rootType` must
-name a type the space has (`400 type.not_found`) and every
+entries / 64 KiB, `properties` ≤64 entries / 64 KiB. `rootType` is
+required when the body declares nothing (`400 request.missing_field`;
+every object has a type, `page` for a plain document), must name a
+type the space has (`400 type.not_found`), and every
 `rootCollections` entry a collection it has
 (`400 collection.not_found`) — the create path would otherwise
 drop an unknown id and report success — and property values must fit
@@ -2480,8 +2482,8 @@ the schema immediately) and each part via `POST …/types/:typeId/parts`.
 
 `layout` is the type's rendering slice, stored on the meta-type
 (`type.layout` on the raw row, next to `type.xkey`). An object has one
-type, so its layout is that type's; an object with no type renders by
-the client's default. `layout` is a descriptor object in the
+type — always: create requires one and it is never cleared — so its
+layout is that type's. `layout` is a descriptor object in the
 x-format shape — `{"type": "<slug>", "config": {…}}`, e.g.
 `{"type": "page"}` or `{"type": "tabs"}` (v1 slugs `page`, `tabs`,
 `chat`, `profile`; an open set, the client's vocabulary). The server
@@ -3249,9 +3251,9 @@ pass the descriptor gate (`400 property.format_violation`, § Types).
 
 **The type.** `POST …/type/:typeId` sets the object's one type
 (`any.type`, a `$set`): a previous type is replaced, and its values and
-dataset records stay as orphan data, read-tolerant. `DELETE …/type`
-clears it — the object then has no parts and renders as properties.
-Both take no body and return `ModifyResult`.
+dataset records stay as orphan data, read-tolerant. There is no unset:
+every object has exactly one type (a raw `$unset` of `any.type` is
+`400 membership.type_required`). Takes no body, returns `ModifyResult`.
 
 **The collections.** `POST …/collections/:collectionId` files the
 object under a collection (`any.collections`, `$addToSet`, idempotent),

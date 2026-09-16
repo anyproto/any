@@ -370,14 +370,14 @@ leaves their values orphaned (readable, no schema).
 | usecase | requires | bundle | declares |
 |---|---|---|---|
 | `wiki` | — | `system:wiki/v1` | collection `wiki` (hidden; `parentId`, `pos` — both kept out of the search index — and `folder`, a checkbox) + miniapp |
-| `collections` | — | `system:collections/v1` | miniapp only — a feature switch: installing it turns on working with types in clients; it declares none of its own |
+| `collections` | — | `system:collections/v1` | miniapp only, a `page` root — a feature switch: installing it turns on working with types in clients; it declares none of its own |
 | `journal` | — | `system:journal/v1` | type `journal` (hidden; one `date`, a `date`-slug datetime) + shared editor `body` part + miniapp — one dated page per day |
 | `meetings` | — | `system:meeting/v1` | type `meeting` (layout `page`; date, duration, participants, labels, words, source) with three surfaces — `notes` (the shared editor body), `summary` (a second, namespaced editor) and `transcript` (records, `idRule: user`, author-mutable and author-deletable, `skipHistory`, dynamic, search `text` under scope `meetings`) |
-| | | `system:meetings/v1` | miniapp only — the sidebar entry that opens the meetings list |
+| | | `system:meetings/v1` | miniapp only, a `page` root — the sidebar entry that opens the meetings list |
 | `tasks` | — | `system:task/v1` | type `task` (`notes`, `parent` → `project` / `area`, `planning` — a `choice` of inbox / anytime / someday, `planned` and `deadline` — `date` days, `completed`, `completedAt`, `position` — a rank kept out of the index) |
 | | | `system:project/v1` | type `project` (`notes`, `parent` → `area`, `completed`, `completedAt`, `position`) |
 | | | `system:area/v1` | marker type `area` — an area is a name and an icon; all three are listed types the planner creates and a table may show |
-| | | `system:tasks/v1` | miniapp only — the sidebar entry that opens the planner |
+| | | `system:tasks/v1` | miniapp only, a `page` root — the sidebar entry that opens the planner |
 | `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one shared `chat` part — the reserved module's only declaration, the root its only host — + miniapp, so the chat is a sidebar entry |
 | `people` | — | `system:person/v1` | type `person` (layout `profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags) + shared editor `body` part |
 | | | `system:organization/v1` | type `organization` (layout `profile`; kind, domain, categories, location, size, linkedin, main_contact → `person`) + shared editor `body` part |
@@ -390,7 +390,7 @@ leaves their values orphaned (readable, no schema).
 | `candidate` | `people` | `system:candidate/v1` | collection `candidate` (role, candidate_stage, next_interview, resume) |
 | `contacts` | `people`, `contact` | `system:contacts/v1` | miniapp, hidden; records part `layouts` (dataset `layouts`, `idRule: user` — the id is an identity type's xKey; field `blocks`, array) — a definition hosts itself, so the layouts live on the app root with no flag |
 | `crm` | `contacts` | `system:deal/v1` | type `deal` (layout `profile`; stage, owner → `person`, organization → `organization`, amount, close_date) + shared editor `body` part |
-| | | `system:crm/v1` | miniapp only |
+| | | `system:crm/v1` | miniapp only, a `page` root |
 
 Sixteen usecases, twenty-two bundles: nine types and eight collections
 with an xKey. The identity is the type — `person`, `organization` —
@@ -523,8 +523,8 @@ Problem codes of the structural layer (`internal/catalog`):
 | `catalog.unknown_field` | a key no catalog struct declares (strict decoding) |
 | `catalog.bad_id` | a usecase id that is not a slug, a bundle id off `system:<name>/v<n>`, a type, collection or property xKey or a part key off its grammar |
 | `catalog.duplicate` | a usecase id, bundle id, xKey (types and collections share one namespace; also when it equals a built-in id), property xKey, part key, dataset key or `requires` entry declared twice |
-| `catalog.missing` | a required piece absent — an empty catalog, usecase name or bundles, bundle name, a declaration (`type` / `collection` / `miniapp` / `parts`), property xKey or kind, a dataset key, a relation's `targetTypes` |
-| `catalog.bad_field` | a field that contradicts the rest — `type` next to `collection` ("a root defines a type or a collection, not both"), `parts` next to `collection` ("a collection declares no parts"), `hidden` without `type`, `collection` or `parts`, `meta` beyond `index`, `relation.filter`, a wrong module, `chat` not shared, `records` shared, fields on a module dataset, `deleteBy: author` or a `mutableBy: author` field without a creator stamp, a `search` mapping naming a field the dataset does not declare, a mapping key that is not a string, a node of the wrong shape, and the bounds (name ≤1024 B, ≤32 parts, ≤64 properties per declaration) |
+| `catalog.missing` | a required piece absent — an empty catalog, usecase name or bundles, bundle name, a declaration (`type` / `collection` / `miniapp` / `parts`), `rootType` on a bundle that declares nothing (every object has a type; `page` for a plain document), property xKey or kind, a dataset key, a relation's `targetTypes` |
+| `catalog.bad_field` | a field that contradicts the rest — `type` next to `collection` ("a root defines a type or a collection, not both"), `parts` next to `collection` ("a collection declares no parts"), `hidden` without `type`, `collection` or `parts`, `rootType` next to a declaration or naming an id that is not a registered type, `meta` beyond `index`, `relation.filter`, a wrong module, `chat` not shared, `records` shared, fields on a module dataset, `deleteBy: author` or a `mutableBy: author` field without a creator stamp, a `search` mapping naming a field the dataset does not declare, a mapping key that is not a string, a node of the wrong shape, and the bounds (name ≤1024 B, ≤32 parts, ≤64 properties per declaration) |
 | `catalog.unknown_usecase` | a `requires` entry naming no usecase |
 | `catalog.cycle` | a self-require, or a cycle in `requires` — reported as its path (`a → b → a`) |
 | `catalog.broken_link` | a `relation.targetTypes` xKey that is no type of the usecase, its transitive `requires` or a built-in; names the usecase that would have to be required when the type exists elsewhere in the catalog |

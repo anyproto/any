@@ -7,7 +7,10 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-var knownTypes = Options{KnownTypeIds: []string{"page", "miniapp", "bin", "dataview"}}
+var knownTypes = Options{
+	KnownTypeIds: []string{"page", "miniapp", "bin", "dataview"},
+	RootTypeIds:  []string{"page", "dataview"},
+}
 
 // TestCatalog_EmbeddedLoads is the build-time check: the catalog that
 // ships in the binary passes the pure validation.
@@ -39,6 +42,10 @@ func TestCatalog_CollectionsIsNavigationOnly(t *testing.T) {
 	if b.Id != "system:collections/v1" || b.Miniapp == nil || len(b.Miniapp) != 0 ||
 		b.Type != nil || len(b.Parts) != 0 || b.Derived || b.Hidden {
 		t.Fatalf("navigation-only bundle: %+v", b)
+	}
+	// A root that declares nothing still has a type: the plain document.
+	if b.RootType != "page" {
+		t.Fatalf("navigation-only root type = %q", b.RootType)
 	}
 }
 
@@ -190,9 +197,32 @@ usecases:
                 fields: [ { key: pipeline, kind: string, mutableBy: any } ]
 `
 
+// bareRoot strips the crm root's declaration, leaving a sidebar entry
+// that declares nothing — the shape that needs a rootType.
+func bareRoot(s string) string {
+	return strings.Replace(s, `        hidden: true
+        parts:
+          - key: settings
+            datasets:
+              - key: settings
+                idRule: user
+                fields: [ { key: pipeline, kind: string, mutableBy: any } ]
+`, "", 1)
+}
+
 func TestCatalog_BaseIsValid(t *testing.T) {
 	if _, problems := Load([]byte(base), knownTypes); len(problems) > 0 {
 		t.Fatalf("base: %v", problems)
+	}
+}
+
+// A root that declares nothing mints an ordinary object, so it names
+// the type that object gets.
+func TestCatalog_BareRootWithRootTypeIsValid(t *testing.T) {
+	src := strings.Replace(bareRoot(base), "        miniapp: {}\n",
+		"        miniapp: {}\n        rootType: page\n", 1)
+	if _, problems := Load([]byte(src), knownTypes); len(problems) > 0 {
+		t.Fatalf("bare root with rootType: %v", problems)
 	}
 }
 
@@ -325,6 +355,27 @@ func TestCatalog_Problems(t *testing.T) {
 				return strings.Replace(s, "        hidden: true\n        parts:\n          - key: settings\n            datasets:\n              - key: settings\n                idRule: user\n                fields: [ { key: pipeline, kind: string, mutableBy: any } ]\n", "        hidden: true\n", 1)
 			},
 			code: CodeBadField, path: "usecases[2].bundles[0].hidden",
+		},
+		{
+			name:   "bare root without a rootType",
+			mutate: bareRoot,
+			code:   CodeMissing, path: "usecases[2].bundles[0].rootType", contains: "page for a plain document",
+		},
+		{
+			name: "rootType is not a registered type",
+			mutate: func(s string) string {
+				return strings.Replace(bareRoot(s), "        miniapp: {}\n",
+					"        miniapp: {}\n        rootType: nope\n", 1)
+			},
+			code: CodeBadField, path: "usecases[2].bundles[0].rootType", contains: "not a registered type",
+		},
+		{
+			name: "rootType next to a declaration",
+			mutate: func(s string) string {
+				return strings.Replace(s, "        type:\n          xKey: contact\n",
+					"        rootType: page\n        type:\n          xKey: contact\n", 1)
+			},
+			code: CodeBadField, path: "usecases[0].bundles[0].rootType", contains: "carries its marker",
 		},
 		{
 			name: "mutableBy author without a creator stamp",

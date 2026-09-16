@@ -117,7 +117,7 @@ func TestE2E_MultipeerDataViews(t *testing.T) {
 	// live on the dataview object.
 	var host api.ObjectsCreateResponse
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &host)
+		`{"type":"page"}`, http.StatusCreated, &host)
 
 	var obj api.ObjectsCreateResponse
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects",

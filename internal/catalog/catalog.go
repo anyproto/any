@@ -81,6 +81,9 @@ type Options struct {
 	// relation targets. `any`, `type` and `collection` are always
 	// included.
 	KnownTypeIds []string
+	// RootTypeIds are the registered type ids a bare bundle root may
+	// name as its `rootType`.
+	RootTypeIds []string
 }
 
 // Catalog is a loaded, structurally valid catalog.
@@ -302,6 +305,10 @@ func (c *Catalog) validate(opts Options) Problems {
 	for _, id := range opts.KnownTypeIds {
 		known[id] = true
 	}
+	rootTypes := map[string]bool{}
+	for _, id := range opts.RootTypeIds {
+		rootTypes[id] = true
+	}
 	if len(c.Usecases) == 0 {
 		add("usecases", CodeMissing, "at least one usecase")
 	}
@@ -370,6 +377,14 @@ func (c *Catalog) validate(opts Options) Problems {
 			}
 			if b.Hidden && !declares {
 				add(bp+".hidden", CodeBadField, "hidden describes a definition — needs type, collection or parts")
+			}
+			switch {
+			case declares && b.RootType != "":
+				add(bp+".rootType", CodeBadField, "a declaring root carries its marker in any.type — no rootType")
+			case !declares && b.RootType == "":
+				add(bp+".rootType", CodeMissing, "a root that declares nothing needs a rootType (page for a plain document)")
+			case !declares && !rootTypes[b.RootType]:
+				add(bp+".rootType", CodeBadField, b.RootType+" is not a registered type")
 			}
 			if b.Type != nil {
 				c.validateType(bp+".type", u.Id, b, known, xkeys, add)

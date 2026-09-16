@@ -38,18 +38,6 @@ func (c *Client) ObjectSetType(ctx context.Context, spaceId, objectId, typeId st
 	return &out, nil
 }
 
-// ObjectUnsetType clears the object's type: it then has no parts and
-// renders as properties.
-func (c *Client) ObjectUnsetType(ctx context.Context, spaceId, objectId string) (*api.ModifyResult, error) {
-	var out api.ModifyResult
-	path := fmt.Sprintf("/v1/spaces/%s/properties/%s/type",
-		url.PathEscape(spaceId), url.PathEscape(objectId))
-	if err := c.do(ctx, http.MethodDelete, path, nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
 // ObjectAttachCollection files the object under a collection
 // (idempotent), admitting writes to its columns. The `bin` collection
 // is move to bin.

@@ -280,6 +280,10 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 		return inst, writeError(c, http.StatusBadRequest, "request.schema", "rootType must be a type id", nil), true
 	}
 	inst.RootType = string(root.GetStringBytes("rootType"))
+	if inst.RootType == "" && !inst.Declares() {
+		return inst, writeError(c, http.StatusBadRequest, "request.missing_field",
+			"rootType required: a root that declares nothing needs a type (page for a plain document)", nil), true
+	}
 	if inst.RootType != "" && inst.Declares() {
 		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"rootType and a declaration are exclusive — a declaring root carries its marker in any.type", nil), true
@@ -610,6 +614,10 @@ func (d *deps) bundleChild(c echo.Context) error {
 	}
 	if req.Seed == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "seed required", nil)
+	}
+	if req.Type == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field",
+			"type required: every object has exactly one type (page for a plain document)", nil)
 	}
 	if len(req.Seed) > maxBundleSeedBytes {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",

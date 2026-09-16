@@ -48,10 +48,12 @@ type BundleEnsureRequest struct {
 	// Name is the display name, written on install.
 	Name string `json:"name,omitempty"`
 	// RootType is the type of the root Ensure mints (its one type,
-	// `any.type`); refused next to a declaration — a declaring root
-	// carries its marker there. RootCollections are the collections
-	// the root is filed under at birth (a `miniapp` root is an app root
-	// that also declares a type). Both ride the root's first change.
+	// `any.type`): required when the body declares nothing (every
+	// object has a type; `page` for a plain document), refused next to
+	// a declaration — a declaring root carries its marker there.
+	// RootCollections are the collections the root is filed under at
+	// birth (a `miniapp` root is an app root). Both ride the root's
+	// first change.
 	RootType        string   `json:"rootType,omitempty"`
 	RootCollections []string `json:"rootCollections,omitempty"`
 	// RootProperties seeds the root's property values, keyed

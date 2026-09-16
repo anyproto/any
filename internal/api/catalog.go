@@ -38,6 +38,10 @@ type CatalogBundle struct {
 	// Hidden keeps the root's definition out of pickers; needs `type`,
 	// `collection` or `parts`.
 	Hidden bool `json:"hidden,omitempty"`
+	// RootType is the root's type when the bundle declares nothing (a
+	// bare app root): a registered type id, `page` for a plain
+	// document. Required then, refused next to a declaration.
+	RootType string `json:"rootType,omitempty"`
 	// Type declares the type the root defines; Collection the
 	// collection. Exclusive. A root hosting its own records (parts)
 	// needs no flag: a definition implements itself.

@@ -169,7 +169,6 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.GET("/spaces/:spaceId/properties/:objectId", d.propertiesGet)
 	g.POST("/spaces/:spaceId/properties/:objectId/set/:typeId", d.propertiesSet)
 	g.POST("/spaces/:spaceId/properties/:objectId/type/:typeId", d.propertiesSetType)
-	g.DELETE("/spaces/:spaceId/properties/:objectId/type", d.propertiesUnsetType)
 	g.POST("/spaces/:spaceId/properties/:objectId/collections/:collectionId", d.propertiesAttachCollection)
 	g.DELETE("/spaces/:spaceId/properties/:objectId/collections/:collectionId", d.propertiesDetachCollection)
 

@@ -88,7 +88,7 @@ func TestServer_ChatModuleReserved(t *testing.T) {
 	if after := countObjects(t, e, sp.Id); after != before {
 		t.Fatalf("refused create left an object: %d → %d", before, after)
 	}
-	other := mustCreateObject(t, e, sp.Id, `{}`)
+	other := mustCreateObject(t, e, sp.Id, `{"type":"page"}`)
 	rec = doJSON(t, e, http.MethodPost, base+"/properties/"+other+"/type/"+root, "")
 	assertStatusCode(t, rec, http.StatusBadRequest, "type.reserved_carrier")
 	rec = doJSON(t, e, http.MethodPost, base+"/modify",

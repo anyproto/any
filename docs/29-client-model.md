@@ -158,8 +158,9 @@ reading-list columns on the same object; rendering only the type's group
 is the common mistake, and the collection's columns then disappear from
 the UI.
 
-An object with no type has no layout and no parts: render it by the
-client's default, as its property groups.
+Every object has a type — `POST …/objects` refuses a body without one
+and the type is never cleared — so there is always a layout to render.
+`page` is the plain document.
 
 `layout` is opaque to the server — `{"type": "<slug>", "config": {…}}` in
 the descriptor shape, your vocabulary. Collections carry none: filing an
@@ -176,7 +177,6 @@ because that is what a row holds.
 | action | call |
 |---|---|
 | set the type (replaces the current one) | `POST …/properties/:objectId/type/:typeId` |
-| clear the type | `DELETE …/properties/:objectId/type` |
 | file under a collection | `POST …/properties/:objectId/collections/:collectionId` |
 | unfile | `DELETE …/properties/:objectId/collections/:collectionId` |
 

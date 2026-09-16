@@ -17,9 +17,9 @@ package api
 // create vocabulary.
 type ObjectCreateRequest struct {
 	// Type is the object's one type — what it IS: its parts, its layout
-	// and one column group. Optional: an object with no type has no
-	// parts and renders as properties. Nothing is stamped server-side.
-	Type string `json:"type,omitempty"`
+	// and one column group. Required (400 request.missing_field);
+	// `page` is the plain document. Nothing is stamped server-side.
+	Type string `json:"type"`
 	// Collections lists the collections the object is filed under at
 	// create — column groups without parts (docs/28-well-known-bundles.md:
 	// an object is in a space's wiki tree only when it is in the wiki

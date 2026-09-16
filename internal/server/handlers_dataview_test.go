@@ -59,7 +59,7 @@ func setupViewFixture(t *testing.T, e http.Handler) (spaceId, objectId string) {
 		t.Fatalf("decode space: %v", err)
 	}
 
-	host := mustCreateObject(t, e, sp.Id, `{}`)
+	host := mustCreateObject(t, e, sp.Id, `{"type":"page"}`)
 	dv := mustCreateObject(t, e, sp.Id, fmt.Sprintf(`{"type":%q,"initialProperties":{%q:{%q:%q}}}`,
 		dataview.TypeId, dataview.TypeId, dataview.PropHost, host))
 	ensureDataview(t, e, sp.Id, dv, "default", `{"name": "Table", "pos": "a0"}`)

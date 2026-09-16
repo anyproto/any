@@ -117,6 +117,23 @@ func TestE2E_CollectionsSurface(t *testing.T) {
 		}
 	})
 
+	t.Run("every object has exactly one type", func(t *testing.T) {
+		code := mustErrorCode(t, http.MethodPost, spaceBase+"/objects", `{}`, http.StatusBadRequest)
+		if code != "request.missing_field" {
+			t.Errorf("create without a type: code = %q, want request.missing_field", code)
+		}
+		code = mustErrorCode(t, http.MethodPost, spaceBase+"/modify",
+			`{"objectId":"`+obj.ObjectId+`","dataset":"objects","records":[{"id":"`+
+				obj.ObjectId+`","ops":[{"type":"$unset","path":"any.type"}]}]}`,
+			http.StatusBadRequest)
+		if code != "membership.type_required" {
+			t.Errorf("$unset any.type: code = %q, want membership.type_required", code)
+		}
+		if row := membershipRow(t, base, spaceID, obj.ObjectId); row.Any.Type != noteType {
+			t.Errorf("any.type = %q after the refused unset, want %q", row.Any.Type, noteType)
+		}
+	})
+
 	t.Run("set under the collection", func(t *testing.T) {
 		var res api.ModifyResult
 		mustJSON(t, http.MethodPost,
