@@ -67,7 +67,10 @@ async function* sse(path, body, signal) {
     headers: { "content-type": "application/json", accept: "text/event-stream" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) { const { error } = await res.json(); throw new Error(error.code); }
+  if (!res.ok) {
+    const { error } = await res.json();
+    throw Object.assign(new Error(error.code), { status: res.status });
+  }
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   let buf = "";
   for (;;) {
@@ -89,43 +92,62 @@ async function* sse(path, body, signal) {
 
 const ctl = new AbortController();
 let view = new Map();                                // id → record: hold a window, not a database
+let markLive;
+const live = new Promise(resolve => { markLive = resolve; });  // settles on the first snapshot
 
 function render() {
   console.log([...view.values()].map(r => r.any?.name));
 }
 
+// One retry loop: a `closed` frame, a stream that ends without one and a
+// failed request all reopen the POST, and its snapshot replaces the window.
 async function watch() {
-  for await (const { event, data } of sse(`/spaces/${SPACE}/objects/query/subscribe`,
-      { filter: { "any.type": "page" }, sort: ["-modifiedAt"], limit: 20 }, ctl.signal)) {
-    if (event === "ready") continue;                 // stream is live after this
-    if (event === "snapshot") {                      // the whole window: replace, never merge
-      view = new Map(data.records.map(r => [r.id, r]));
-      render();
-    }
-    if (event === "changes") {
-      for (const ch of data) {                       // a batch omits the lists it has nothing for
-        for (const r of ch.added ?? [])   view.set(r.id, r.doc);
-        for (const r of ch.updated ?? []) view.set(r.id, r.doc);
-        for (const r of ch.removed ?? []) view.delete(r.id);
+  const { accountId } = await call("GET", "/auth");
+  while (!ctl.signal.aborted) {
+    try {
+      let reason = null;
+      for await (const { event, data } of sse(`/spaces/${SPACE}/objects/query/subscribe`,
+          { filter: { "any.type": "page" }, sort: ["-modifiedAt"], limit: 20 }, ctl.signal)) {
+        if (event === "snapshot") {                  // the whole window: replace, never merge
+          view = new Map(data.records.map(r => [r.id, r]));
+          render();
+          markLive();
+        }
+        if (event === "changes") {
+          for (const ch of data) {                   // a batch omits the lists it has nothing for
+            for (const r of ch.added ?? [])   view.set(r.id, r.doc);
+            for (const r of ch.updated ?? []) view.set(r.id, r.doc);
+            for (const r of ch.removed ?? []) view.delete(r.id);
+          }
+          render();
+        }
+        if (event === "closed") reason = data.reason;  // terminal: the stream ends next
       }
-      render();
+      if (reason === "deauthorized") {
+        const auth = await call("GET", "/auth");
+        if (!auth.authorized || auth.accountId !== accountId) return;  // signed out or switched: stop
+      }
+    } catch (e) {
+      if (e.name === "AbortError") return;
+      if (e.status >= 400 && e.status < 500 && e.status !== 401) throw e;  // a bad request stays bad
     }
-    if (event === "closed") return data.reason;      // terminal: reopen for a fresh snapshot
+    await new Promise(resolve => setTimeout(resolve, 1000));
   }
 }
 
-watch().catch(e => { if (e.name !== "AbortError") console.error(e); });  // ctl.abort() closes it
+watch().catch(console.error);                        // ctl.abort() stops it
 ```
 
-`watch()` runs alongside the rest of the file and keeps the process alive until `ctl.abort()` or Ctrl-C. Rename the object and watch an `updated` entry arrive:
+`watch()` runs alongside the rest of the file and keeps the process alive until `ctl.abort()` or Ctrl-C. Once the first snapshot is in, rename the object and watch an `updated` entry arrive:
 
 ```js
+await live;
 await call("POST", `/spaces/${SPACE}/properties/${objectId}/set/any`, { patch: { name: "Reading list 2026" } });
 ```
 
 ## Recovery
 
-`closed` carries a reason — `server_shutdown`, `sdk_closed`, `overflow` (you drained too slowly), `drifted` (too much of the window left), `deauthorized` (the account was signed out or switched; read `GET /v1/auth` first). Each means the same thing for the stream: open a new POST and replace your window with the new `snapshot`. A stream that ends without `closed` means the same. There is no replay and nothing to reconcile; [Subscriptions](../realtime/subscribe.html) has the retry loop.
+`closed` carries a reason — `server_shutdown`, `sdk_closed`, `overflow` (you drained too slowly), `drifted` (too much of the window left), `deauthorized` (the account was signed out or switched; read `GET /v1/auth` first). Each means the same thing for the stream: open a new POST and replace your window with the new `snapshot`. A stream that ends without `closed` means the same. There is no replay and nothing to reconcile: `watch()` above is that loop, and [Subscriptions](../realtime/subscribe.html) covers each reason.
 
 ## Writing and reading back
 

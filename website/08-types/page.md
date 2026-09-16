@@ -73,7 +73,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/query \
        "sort": ["-modifiedAt"], "limit": 50}'
 ```
 
-The same body against `…/objects/query/subscribe` gives a live document list. Filter by label with `{"any.tags": "books"}` — array fields match on any element. "Every object with a body, whatever its type" is a filter on every type that shares the editor: the `owners` of `editor_blocks` in `GET /v1/spaces/:spaceId/datasets` (the built-in `page` is always among them), matched with `{"$or": [{"any.type": {"$in": [...]}}, {"id": {"$in": [...]}}]}` — the `id` arm catches a root that declares its own type and hosts its own body.
+The same body against `…/objects/query/subscribe` gives a live document list. Filter by label with `{"any.tags": "books"}` — array fields match on any element. "Every object with a body, whatever its type" is a filter on every type that shares the editor: the `owners` of `editor_blocks` in `GET /v1/spaces/:spaceId/datasets` (the built-in `page` is always among them), matched with `{"$and": [{"any.type": {"$in": [...]}}, {"any.collections": {"$nin": ["bin"]}}]}`. A type's own definition row carries the marker in `any.type`, so it never matches and needs no exclusion.
 
 ## Built-in or bundle
 

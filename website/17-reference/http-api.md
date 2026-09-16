@@ -223,7 +223,7 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| GET | `/v1/spaces/:spaceId/types` | `includeHidden?` | `{types}` | built-ins `any`, `spaceIndex`, `type`, `collection` first, then the registered hidden `page` / `dataview`, then user types; hidden types (the hidden built-ins, and bundle roots installed with `hidden: true`) only with `includeHidden=true` |
+| GET | `/v1/spaces/:spaceId/types` | `includeHidden?` | `{types}` | built-ins `any`, `spaceIndex`, `type`, `collection` first, then the registered hidden `page` / `dataview`, then user types; hidden types (the hidden built-ins, and any type created, patched or installed with `hidden: true`) only with `includeHidden=true` |
 | POST | `/v1/spaces/:spaceId/types` | `{name?, description?, iconCid?, xKey, layout?, hidden?, meta?}` | 201 `{typeId}` | `400 type.xkey_required`, `409 type.xkey_conflict` (one handle namespace with collections); properties and parts are added through their own routes |
 | GET | `/v1/spaces/:spaceId/types/:typeId` | — | `TypeInfo` | `404 type.not_found`; `400 type.not_a_type` for a user collection id |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId` | — | — | `501 sdk.not_implemented` |

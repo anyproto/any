@@ -15,12 +15,16 @@ A reactive, **local-first** database. Documents live on your devices, merge as C
 ## Get started
 
 <pre class="term"><code class="language-sh">$ any init
-<span class="out">{
+<span class="out">  A new wallet was generated. Write down the recovery phrase below.
+  You will NOT see it again. Anyone with this phrase owns the account.
+&lt;twelve words — your only way to restore the account&gt;
+{
   "accountId": "A8tR…",
   "created": true
 }</span>
 $ any run &
 <span class="out">LISTENING 127.0.0.1:7001</span>
+$ until any status >/dev/null 2>&1; do sleep 0.2; done
 $ API=http://127.0.0.1:7001/v1
 $ S=$(curl -s $API/spaces -H 'content-type: application/json' -d '{"name":"notes"}' | jq -er .id)
 $ curl -s $API/spaces/$S/objects -H 'content-type: application/json' \
