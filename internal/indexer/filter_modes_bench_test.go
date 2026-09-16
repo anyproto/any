@@ -73,13 +73,14 @@ const (
 	fbPkRangeMax = 512
 	// fbCapN is the capped-count probe's threshold ("more than N?").
 	fbCapN = 200
-	// fbPropType / fbPropId are the type/property namespace every object
-	// carries a value under — the `<typeId>.<propId>` path shape, with no
-	// index on it (the SDK indexes only any.types and modifiedAt).
+	// fbPropType / fbPropId are the owner/property namespace every object
+	// carries a value under — the `<ownerId>.<propId>` path shape, with no
+	// index on it (the SDK indexes only any.type, any.collections and
+	// modifiedAt).
 	fbPropType = "typ_props"
 	fbPropId   = "prp_choice"
-	// fbBinType is the built-in bin marker, on 10% of objects.
-	fbBinType = "bin"
+	// fbBin is the built-in bin collection, on 10% of objects.
+	fbBin = "bin"
 	// fbVocab is the Zipfian vocabulary size; fbSentence is how many of
 	// its head words the natural-sentence query uses.
 	fbVocab    = 2000
@@ -103,14 +104,14 @@ var fbTypes = []struct {
 
 // --- corpus -----------------------------------------------------------
 
-// fbObject is one host-object row: its type list, its recency stamp and
-// its single property value.
+// fbObject is one host-object row: its type, its collections, its
+// recency stamp and its single property value.
 type fbObject struct {
-	id       string
-	types    []string
-	modAt    time.Time
-	propVal  string
-	typeHead string
+	id          string
+	typeId      string
+	collections []string
+	modAt       time.Time
+	propVal     string
 }
 
 // fbFixture is one built corpus: the index store, the objects
@@ -242,16 +243,15 @@ func fbBuild(tb testing.TB, dir string, chunks, perObject int) *fbFixture {
 	for i := range objs {
 		o := fbObject{id: fmt.Sprintf("obj%07d", i)}
 		r, acc := rng.Float64(), 0.0
-		o.typeHead = fbTypes[len(fbTypes)-1].id
+		o.typeId = fbTypes[len(fbTypes)-1].id
 		for _, t := range fbTypes {
 			if acc += t.p; r < acc {
-				o.typeHead = t.id
+				o.typeId = t.id
 				break
 			}
 		}
-		o.types = []string{o.typeHead}
 		if rng.Float64() < 0.10 {
-			o.types = append(o.types, fbBinType)
+			o.collections = []string{fbBin}
 		}
 		o.modAt = epoch.Add(time.Duration(rng.Float64() * float64(span)))
 		o.propVal = fmt.Sprintf("val%02d", rng.Intn(20))
@@ -269,10 +269,11 @@ func fbBuild(tb testing.TB, dir string, chunks, perObject int) *fbFixture {
 	}
 	// The SDK's standing read-side indexes on the shared objects
 	// collection (any-sync-sdk internal/spaceobjects/store.go
-	// SharedObjects): sparse on any.types, dense on modifiedAt. Nothing
-	// indexes property values.
+	// SharedObjects): dense on any.type, sparse on any.collections, dense
+	// on modifiedAt. Nothing indexes property values.
 	if err = objColl.EnsureIndex(ctx,
-		anystore.IndexInfo{Fields: []string{"any.types"}, Sparse: true},
+		anystore.IndexInfo{Fields: []string{"any.type"}},
+		anystore.IndexInfo{Fields: []string{"any.collections"}, Sparse: true},
 		anystore.IndexInfo{Fields: []string{"modifiedAt"}},
 	); err != nil {
 		tb.Fatal(err)
@@ -289,11 +290,14 @@ func fbBuild(tb testing.TB, dir string, chunks, perObject int) *fbFixture {
 			doc := arena.NewObject()
 			doc.Set("id", arena.NewString(o.id))
 			any := arena.NewObject()
-			types := arena.NewArray()
-			for i, t := range o.types {
-				types.SetArrayItem(i, arena.NewString(t))
+			any.Set("type", arena.NewString(o.typeId))
+			if len(o.collections) > 0 {
+				colls := arena.NewArray()
+				for i, c := range o.collections {
+					colls.SetArrayItem(i, arena.NewString(c))
+				}
+				any.Set("collections", colls)
 			}
-			any.Set("types", types)
 			any.Set("name", arena.NewString("object "+o.id))
 			doc.Set("any", any)
 			doc.Set("modifiedAt", arena.NewDateTime(o.modAt))
@@ -406,15 +410,20 @@ type fbFilter struct {
 	build   func(f *fbFixture) query.Filter
 }
 
-// fbTypeFilter is the `any.types` membership predicate (array field:
-// Key matches any element).
+// fbTypeFilter is the `any.type` equality predicate.
 func fbTypeFilter(t string) query.Filter {
+	return query.Key{Path: []string{"any", "type"}, Filter: query.NewComp(query.CompOpEq, t)}
+}
+
+// fbCollectionFilter is the `any.collections` membership predicate (array
+// field: Key matches any element).
+func fbCollectionFilter(c string) query.Filter {
 	arena := &anyenc.Arena{}
-	return query.Key{Path: []string{"any", "types"}, Filter: query.NewInValue(arena.NewString(t))}
+	return query.Key{Path: []string{"any", "collections"}, Filter: query.NewInValue(arena.NewString(c))}
 }
 
 func fbFilters() []fbFilter {
-	notBin := query.Not{Filter: fbTypeFilter(fbBinType)}
+	notBin := query.Not{Filter: fbCollectionFilter(fbBin)}
 	return []fbFilter{
 		{"type50", true, func(*fbFixture) query.Filter { return fbTypeFilter("typ_note") }},
 		{"type10", true, func(*fbFixture) query.Filter { return fbTypeFilter("typ_task") }},
@@ -1192,7 +1201,7 @@ func fbEstimateFTS(t *testing.T, ctx context.Context, f *fbFixture, coll anystor
 //	{"queries": [{"name": "engine", "text": "engine failure"},
 //	             {"name": "vector", "vector": true}],
 //	 "filters": [{"name": "type70", "indexed": true,
-//	              "filter": {"any.types": "<typeId>"}}]}
+//	              "filter": {"any.type": "<typeId>"}}]}
 //
 // Filters are the /objects/query grammar (query.ParseCondition, so
 // {"$date": …} literals work); `indexed` is documentation — it says

@@ -123,7 +123,7 @@ The `x-scope` keyword says who writes a field and how far it travels:
 
 Account-wide, `GET /v1/datasets` lists the tech-space system datasets (`spaces`, `profile`, `devices`, …); `spaces` and `profile` are the two the [space list](../realtime/space-list.html) query reads.
 
-> **Note.** A definition is itself an object row: a type carries the marker `__type__` in `any.type`, a collection carries `__collection__`, and each holds the `properties` and `datasets` datasets that store your definitions. You never write those directly — the types and collections APIs do — but they follow the same model, which is why a definition change is a CRDT write every member converges on. A definition also **hosts its own records and values**, with no flag and no self-membership: because the marker sits in `any.type`, a definition row never matches `{"any.type": "<typeId>"}` or `{"any.collections": "<collectionId>"}`, so member queries need no marker exclusion.
+> **Note.** A definition is itself an object row: a type carries the marker `__type__` in `any.type`, a collection carries `__collection__`. Both hold the `properties` and `shortIds` datasets that store your property definitions, and a type also holds `datasets`, its parts and dataset declarations. You never write those directly — the types and collections APIs do — but they follow the same model, which is why a definition change is a CRDT write every member converges on. A definition also **hosts its own records and values**, with no flag and no self-membership: because the marker sits in `any.type`, a definition row never matches `{"any.type": "<typeId>"}` or `{"any.collections": "<collectionId>"}`, so member queries need no marker exclusion.
 
 ## Related
 

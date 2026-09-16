@@ -48,7 +48,7 @@ any collection list $SPACE
 
 `PATCH …/collections/:collectionId` takes `{name?, description?, iconCid?, hidden?, meta?}`, at least one, and answers `204`. A built-in refuses it with `400 collection.registered`. Deleting a collection is not implemented (`501 sdk.not_implemented`) — hide it instead.
 
-Passing a **type** id to any of these routes is `400 collection.not_a_collection`; an id the space does not have at all is `404 collection.not_found`.
+Passing a user **type**'s id to any of these routes is `400 collection.not_a_collection`; an id the space has no collection for — including a built-in type such as `page` — is `404 collection.not_found`.
 
 ## Columns
 
@@ -76,7 +76,7 @@ any object collection detach $SPACE $OBJ $COLL
 
 Both take no body, both are idempotent, and both return the write receipt. Filing appends to `any.collections` and admits writes to that collection's columns; unfiling removes the id.
 
-The POST pre-flights its ids — `404 object.not_found`, `404 collection.not_found`, and `400 collection.not_a_collection` when the id names a type — because `any.collections` is a synced CRDT write with no validation behind it, so a typo would replicate permanently. The DELETE pre-flights nothing on purpose: it is the repair path for a row that already carries a bogus id.
+The POST pre-flights its ids — `404 object.not_found`, `404 collection.not_found`, and `400 collection.not_a_collection` when the id names a user type (a built-in type such as `page` is `404 collection.not_found`) — because `any.collections` is a synced CRDT write with no validation behind it, so a typo would replicate permanently. The DELETE pre-flights nothing on purpose: it is the repair path for a row that already carries a bogus id.
 
 **Unfiling is not a delete.** That collection's values stay on the row as orphan data, read-tolerant, and filing the object again brings them back into view.
 
@@ -87,7 +87,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
   -H 'Content-Type: application/json' \
   -d '{"type": "'$PERSON'", "collections": ["'$CONTACT'"],
        "initialProperties": {"any": {"name": "Ada Lovelace"},
-                             "'$CONTACT'": {"'$STATUS'": ["lead"]}}}'
+                             "'$CONTACT'": {"'$STATUS'": ["active"]}}}'
 ```
 
 ## Query the members
@@ -125,7 +125,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
        "sort": ["miniapp.pos"]}'
 ```
 
-**`bin`** is move-to-bin. Filing under it stamps `bin.movedAt` and `bin.movedBy` in the same change as the membership op, so a bin member never lacks its stamps; unfiling clears them. The object keeps its type and its other collections throughout — restore brings it back exactly as it was. Permanent deletion is still `DELETE …/objects/:objectId`.
+**`bin`** is move-to-bin. Filing under it stamps `bin.movedAt` and `bin.movedBy` in the same change as the membership op, so a bin member never lacks its stamps; unfiling clears them. The object keeps its type and its other collections throughout — restore brings it back exactly as it was. Permanent deletion is `DELETE …/objects/:objectId`.
 
 ```bash
 any object collection attach $SPACE $OBJ bin     # to the bin

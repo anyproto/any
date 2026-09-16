@@ -79,11 +79,14 @@ jq 'select(.kind=="span" and .phase=="begin")' traces/run_<id>.jsonl
 
 Cross-run questions — which run created an object, what wrote this week, which runs failed — are aggregation pipelines over `trace_records` and `trace_runs` through `POST /v1/local/aggregate`, the same queries a program runs with `effects.query`.
 
-From a chat reply to its trace: the turn log is the `bao/log/v1` child of the general chat's bundle, and its turns live in the `<typeId>_agent_turns` storage collection.
+From a chat reply to its trace: the turn log is the `bao/log/v1` child of the general chat's bundle, typed with the hidden harness type `agent_log`, and its turns live in the `<typeId>_agent_turns` storage collection.
 
 ```sh
+LOGT=$(curl -s "http://127.0.0.1:7001/v1/spaces/$SPACE/types?includeHidden=true" \
+  | jq -er '.types[] | select(.xKey=="agent_log") | .id')
 LOG=$(curl -s -X POST "http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/system%3Ageneral-chat%2Fv1/children" \
-  -H 'Content-Type: application/json' -d '{"seed": "bao/log/v1"}' | jq -r .objectId)
+  -H 'Content-Type: application/json' \
+  -d "{\"seed\": \"bao/log/v1\", \"type\": \"$LOGT\"}" | jq -er .objectId)
 TURNS=$(curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/datasets \
   | jq -r '.datasets[].name | select(endswith("_agent_turns"))')
 curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \

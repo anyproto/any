@@ -116,7 +116,7 @@ type CatalogSetupBundle struct {
 	// Properties maps each declared property's xKey to its id.
 	Properties map[string]string `json:"properties,omitempty"`
 	// Miniapp is the value map the catalog declares on the built-in
-	// `miniapp` type, `bundle` included — what an install writes and an
+	// `miniapp` collection, `bundle` included — what an install writes and an
 	// adopt by a writer fills in where absent. Read the root for what it
 	// carries.
 	Miniapp map[string]any `json:"miniapp,omitempty"`

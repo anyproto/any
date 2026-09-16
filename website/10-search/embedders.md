@@ -11,11 +11,13 @@ An embedder turns index documents and queries into vectors for the [semantic leg
 
 | `index.embedder` | What runs | Needs |
 |---|---|---|
-| `auto` (default) | an online OpenAI-compatible API as primary, the local model as fallback — same model both ways | nothing; the local model auto-downloads regardless |
+| `auto` (default) | an online OpenAI-compatible API as primary, the local model as fallback — same model both ways; indexed text and search queries go to the online API | nothing; the local model auto-downloads regardless |
 | `local` | llama.cpp in a child process of the server, no external service | the llama.cpp shared libraries next to the binary; a system `libffi` on Linux |
 | `ollama` | a local Ollama server's `/api/embed` | Ollama running (default `http://localhost:11434`, model `embeddinggemma`) |
 | `openai` | any OpenAI-compatible `/embeddings` endpoint | `index.openai.{baseUrl, model, apiKey}` |
 | `none` | no embedder — the index is full-text only | — |
+
+> **Note.** An embedder reads the text it embeds. `auto` and `openai` send the text of every indexed document and every search query to `index.openai.baseUrl`; `ollama` sends them to the Ollama server. `local` keeps them on the device.
 
 ```yaml
 index:

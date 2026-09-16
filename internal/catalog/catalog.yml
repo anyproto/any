@@ -1,9 +1,10 @@
 # internal/catalog/catalog.yml — the usecase catalog embedded in the any
-# binary. Contract: docs/28-well-known-bundles.md; format: the usecase
-# catalog proposal (SYN-218). Validated by `make catalog-validate`.
+# binary. Contract: docs/28-well-known-bundles.md. Validated by
+# `make catalog-validate`.
 #
 # A usecase is a set of bundles installed together plus the usecases it
-# requires. Every bundle is a created root under a permanent `system:` id;
+# requires. Every bundle is a root under a permanent `system:` id, created
+# unless it says `derived: true`;
 # `type` makes it the type objects have (parts, layout, columns),
 # `collection` a collection objects are filed under (columns only),
 # `miniapp` the object a client opens, `parts` records on the root. Bundle

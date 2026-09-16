@@ -17,7 +17,7 @@ any init  ──▶  any run  ──▶  POST /v1/spaces  ──▶  POST …/ob
 1. **Install** the binary and create an account. The mnemonic prints once — back it up.
 2. **Run** the server: `any run` listens on `http://127.0.0.1:7001`.
 3. **Create a space** — the unit of sharing and encryption.
-4. **Create an object** with a type bound and a name.
+4. **Create an object** with its type and a name.
 5. **Query** the space's `objects` storage collection — an indexed read on your disk.
 6. **Subscribe** — the same query, plus `added` / `updated` / `removed` frames over SSE for as long as the connection is open.
 

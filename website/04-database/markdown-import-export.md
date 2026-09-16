@@ -38,7 +38,7 @@ The server parses the markdown, diffs against the current block tree by type + p
 
 ## Targeted edits — `PATCH`
 
-For callers that know the *text* they want changed but not the block ids:
+For callers that know the *text* they want changed but not the block ids. Each `oldText` must already be in the document:
 
 ```sh
 curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/markdown -d '{
@@ -59,7 +59,7 @@ Matching rules:
 - Every `oldText` matches against the original document, independently of the other edits; matched regions must not overlap.
 - Without `replaceAll` the match must be unique. `newText` may be empty (deletes the text). Deleting a whole block takes one blank-line separator with it, so neighbours end up adjacent.
 - Exact match first; on zero hits a whole-line fuzzy fallback folds unicode punctuation to ASCII (curly quotes, dashes, NBSP; NFKC) and ignores trailing whitespace. A mid-line fragment is never fuzzy-matched — re-`GET` and quote exactly.
-- All-or-nothing: any failing edit rejects the whole request and nothing is written. Byte-identical results are a `200` no-op.
+- All-or-nothing: any failing edit rejects the whole request and nothing is written. A request whose result is byte-identical to the current document is a `200` no-op, but repeating an edit that already applied is not: the `oldText` is gone, so the retry answers `400 markdown.no_match`. After an uncertain retry, `GET` the document and check for `newText` before treating the edit as lost.
 
 | Error | Meaning / recovery |
 |---|---|

@@ -29,12 +29,14 @@ TURNS=$(curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/datasets \
   | jq -r '.datasets[].name | select(endswith("_agent_turns"))')
 ```
 
-Resolve a child yourself:
+Resolve a child yourself — the route requires the child's `type`, the store's hidden harness type:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/bao%2Fv1/children \
+BRAIN=$(curl -s "http://127.0.0.1:7001/v1/spaces/$SPACE/types?includeHidden=true" \
+  | jq -er '.types[] | select(.xKey=="agent_brain") | .id')
+curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/bao%2Fv1/children \
   -H 'content-type: application/json' \
-  -d '{"seed": "bao/brain/v1"}'
+  -d '{"seed": "bao/brain/v1", "type": "'$BRAIN'"}'
 ```
 
 ## Datasets

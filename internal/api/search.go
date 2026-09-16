@@ -42,8 +42,8 @@ type SearchRequest struct {
 	// not every chunk of the record.
 	Passages int `json:"passages,omitempty"`
 	// Filter keeps only hits whose host object matches this condition,
-	// in the /objects/query filter grammar verbatim (any.types,
-	// <typeId>.<propId>, modifiedAt, …), in every mode — like Require /
+	// in the /objects/query filter grammar verbatim (any.type,
+	// any.collections, <ownerId>.<propId>, modifiedAt, …), in every mode — like Require /
 	// Exclude. The object's live row is checked, so a property write is
 	// honored at once. Limit still counts matching records. An object
 	// with no row never matches.

@@ -37,7 +37,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
   -H 'Content-Type: application/json' \
   -d '{"type": "'$PERSON'", "collections": ["'$CONTACT'", "'$INVESTOR'"],
        "initialProperties": {"any": {"name": "Ada Lovelace"},
-                             "'$CONTACT'": {"'$STATUS'": ["lead"]}}}'
+                             "'$CONTACT'": {"'$STATUS'": ["active"]}}}'
 ```
 
 ## Set the type, file under collections
@@ -53,7 +53,7 @@ any object collection detach $SPACE $OBJ $COLL
 
 `POST …/type/:typeId` **sets** the one type, replacing any previous one. There is no unset — every object has a type, and clearing `any.type` through a raw write is `400 membership.type_required`. Retyping is not a delete: the old type's values and its datasets' records stay on the row as orphan data, read-tolerant.
 
-The two POSTs pre-flight their ids: `404 object.not_found`, `404 type.not_found` / `404 collection.not_found`, and the slot check — a collection id in the type route is `400 type.not_a_type`, a type id in the collections route is `400 collection.not_a_collection`. The DELETE pre-flights nothing, on purpose: it is the repair path for a bogus id already on the row.
+The two POSTs pre-flight their ids: `404 object.not_found`, `404 type.not_found` / `404 collection.not_found`, and the slot check — a user collection's id in the type route is `400 type.not_a_type`, a user type's id in the collections route is `400 collection.not_a_collection`. A registered built-in in the wrong slot has no row there at all: `miniapp` or `bin` as a type is `404 type.not_found`, `page` or `dataview` as a collection is `404 collection.not_found`. The DELETE pre-flights nothing, on purpose: it is the repair path for a bogus id already on the row.
 
 A storage collection — chat messages, editor blocks, a runtime dataset — lives on an object only while its **type** declares the part that owns it ([modules](../types/index.html)); a write without it is `400 dataset.not_declared`, and no write sets a type for you. A type whose part declares a reserved module — the general chat's — is carried only by its own root; naming it as `type` is `400 type.reserved_carrier`.
 

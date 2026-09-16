@@ -36,7 +36,7 @@ Fuel exhaustion surfaces as a typed **`FuelExhausted`** error whose message says
  "metrics": {"fuel_used": 50000000000, "duration_ms": 31877}}
 ```
 
-For a trigger run, the run summary's `status` is `error` (or `interrupted` after a hard break) and the trigger's circuit breaker counts it — see [Runs and monitoring](../scheduling/runs-and-monitoring.html).
+For a trigger run, the run summary's `status` is `FAILED` (or `interrupted` after a hard break), the trigger's `lastStatus` is `error`, and the trigger's circuit breaker counts it — see [Runs and monitoring](../scheduling/runs-and-monitoring.html).
 
 ## Checkpointing long jobs
 

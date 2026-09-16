@@ -921,7 +921,7 @@ Body:
   "exclude": ["fiction"],             // optional must-not terms
   "maxData": 512,                     // optional: runes of `data` per hit around the first match (default 512; -1 = whole chunk)
   "passages": 3,                      // optional: further matching chunks per record on hit.passages (default 0, max 10)
-  "filter": {"any.types": {"$nin": ["bin"]}}  // optional: keep hits whose HOST OBJECT row matches (the /objects/query filter grammar); every mode
+  "filter": {"any.collections": {"$nin": ["bin"]}}  // optional: keep hits whose HOST OBJECT row matches (the /objects/query filter grammar); every mode
 }
 ```
 
@@ -976,11 +976,11 @@ place of `maxData` when it is -1). The full record is one
 dataset query away (`docs/08-clients.md` § 6).
 
 **`filter` binds every hit to its host object.** The condition is the
-`/objects/query` filter grammar verbatim — `any.types`,
-`<typeId>.<propId>`, `modifiedAt`, `id`, `$and` / `$or` / `$nin` … — and
+`/objects/query` filter grammar verbatim — `any.type`, `any.collections`,
+`<ownerId>.<propId>`, `modifiedAt`, `id`, `$and` / `$or` / `$nin` … — and
 a hit is kept only if its object's `objects` row matches, in every mode;
 `limit` still counts matching records. The row is read live, so a
-property write (a bin move: `{"any.types": {"$nin": ["bin"]}}`) is
+property write (a bin move: `{"any.collections": {"$nin": ["bin"]}}`) is
 honored by the next search with no re-index. Record fields of the hit's
 own dataset (a message's `creator`, a block's `type`) are not
 filterable. `null` means no filter; a bad one is the query endpoints'
@@ -1334,9 +1334,9 @@ forge a claim. Raw rows carry the stored `rootId` register and no
 `GET …/bundles[/:bundleId]`, so read those when a bundle may be
 derived.
 
-**Children** (`POST …/bundles/:bundleId/children`, `{seed, type?,
-collections?}`; seed ≤256 B, ≤32 collections — `type` is set on first
-materialization, collections the child lacks are added on every call)
+**Children** (`POST …/bundles/:bundleId/children`, `{seed, type,
+collections?}`; seed ≤256 B, ≤32 collections — `type` is required
+(`400 request.missing_field`) and set on first materialization, collections the child lacks are added on every call)
 derive a setup object under the bundle's
 current winner: deterministic per (space, root, seed), materialized on
 the first call, the same id on every device — a restored device reaches
@@ -1842,8 +1842,7 @@ POST /v1/spaces/:spaceId/objects
 }
 ```
 
-A folder is the same create with `<folderPropId>` `true` and no
-`type`. What type a tree object has is the client's choice — the wiki
+A folder is the same create with `<folderPropId>` `true`. What type a tree object has is the client's choice — the wiki
 collection only places it.
 
 Children of a node, in order (`""` as the parent lists the top level):
@@ -2473,8 +2472,8 @@ shape of collection objects) — then every
 registered type, then the
 space's user types. Built-ins and registered types report `builtIn:
 true` with `xKey` equal to their id, which is what reserves those ids
-against user definitions (`409 type.xkey_conflict`); user types report
-`builtIn: false` and their caller-set `xKey`. The four synthetic ids
+against user definitions (`409 type.xkey_conflict`); user types omit
+`builtIn` and carry their caller-set `xKey`. The four synthetic ids
 are not settable on an object — a client offering "filter by type" or
 "set the type" should skip them. Their properties (`GET
 …/types/any/properties`, `…/types/type/properties`) come back with the

@@ -30,8 +30,8 @@ type compiledBundle struct {
 	api.CatalogBundle
 	usecase string
 	install bundles.Install
-	// miniapp is the value map on the built-in `miniapp` type the root
-	// carries (`bundle` filled in); nil when the bundle is no miniapp.
+	// miniapp is the value map on the built-in `miniapp` collection the
+	// root is filed under (`bundle` filled in); nil when the bundle is no miniapp.
 	miniapp map[string]any
 }
 
