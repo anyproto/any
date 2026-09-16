@@ -50,6 +50,9 @@ We have support for custom CRDT types (via
 such as block-based editor and chat with distributed counters support -- i.e. we provide
 collaborative block-based editor and local-first, encrypted p2p chat primitives out of the box.
 
+One of the examples of apps which shows editor, chat and collaborative features is [any-ui](https://github.com/anyproto/any-ui)
+-- modern agentic knowledge-base tool.
+
 > [!WARNING]
 > **Developer preview.** Use a separate account for experiments. APIs and data
 > formats can change without migration; do not use an account containing
