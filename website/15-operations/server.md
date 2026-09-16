@@ -36,7 +36,7 @@ The SDK returns from `Open` after local wiring only. Eager space loading and off
 { "status": "ok", "version": "any v0.1.2 (commit 1a2b3c4, built 2026-09-09)",
   "startedAt": "2026-09-10T08:12:00Z", "networkId": "N83gJpVd…",
   "account": "A3…", "bootstrapping": true,
-  "crdtVersion": { "supported": 1, "stored": 1, "newer": false } }
+  "crdtVersion": { "supported": 2, "stored": 2, "newer": false } }
 ```
 
 `networkId` is the any-sync network the server joins, read from the node configuration it started with and present whether or not an account is signed in ([Networks](networks.html)).
