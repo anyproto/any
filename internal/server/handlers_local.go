@@ -7,9 +7,13 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
+	"go.uber.org/zap"
+
+	"github.com/anyproto/any-sync/app/logger"
 
 	anystore "github.com/anyproto/any-store/v2"
 	"github.com/anyproto/any-store/v2/anyenc"
@@ -28,6 +32,8 @@ import (
 // collection — including the raw names a client puts inside a
 // pipeline ($out / $merge into / $lookup from), which are re-validated
 // by SinkTarget after parse.
+
+var localLog = logger.NewNamed("local")
 
 const (
 	// localMaxDocs bounds insert/upsert per request.
@@ -55,6 +61,8 @@ func registerLocalRoutes(v1 *echo.Group, d *deps) {
 	v1.POST("/local/query", d.localQuery)
 	v1.POST("/local/aggregate", d.localAggregate)
 	v1.POST("/local/indexes", d.localIndexes)
+	v1.GET("/local/export", d.localExport)
+	v1.POST("/local/import", d.localImport)
 }
 
 // Closed body vocabularies, derived from the api structs (the
@@ -142,9 +150,18 @@ type localReq struct {
 }
 
 // resolveLocal is the shared prologue: disabled guard → body → coll ref
-// → space pre-flight → collection handle (404 local.collection_not_found).
-// On done=true nothing is held; otherwise the caller owns req.release.
-func (d *deps) resolveLocal(c echo.Context, fields []string) (req localReq, errResp error, done bool) {
+// → space pre-flight (writes only) → collection handle (404
+// local.collection_not_found). On done=true nothing is held; otherwise
+// the caller owns req.release.
+//
+// `write` is what the pre-flight guards: a dead space must not be
+// resurrected as a namespace, so anything that can create or grow a
+// collection (insert / upsert / update / indexes) checks the space
+// first. Reads and deletes never do — an imported store's collections
+// (§ Export and import) live on a server that has never seen their
+// space and must stay readable there, and a gone space's collections
+// must stay deletable (the same reason drop skips it).
+func (d *deps) resolveLocal(c echo.Context, fields []string, write bool) (req localReq, errResp error, done bool) {
 	if d.local == nil {
 		return localReq{}, localDisabled(c), true
 	}
@@ -157,9 +174,11 @@ func (d *deps) resolveLocal(c echo.Context, fields []string) (req localReq, errR
 		release()
 		return localReq{}, errResp, true
 	}
-	if errResp, done := d.localSpaceCheck(c, ref); done {
-		release()
-		return localReq{}, errResp, true
+	if write {
+		if errResp, done := d.localSpaceCheck(c, ref); done {
+			release()
+			return localReq{}, errResp, true
+		}
 	}
 	coll, err := d.local.Collection(c.Request().Context(), ref)
 	if err != nil {
@@ -522,7 +541,7 @@ func localWriteChunks(c echo.Context, coll anystore.Collection, docs []*anyenc.V
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Router		/local/insert [post]
 func (d *deps) localInsert(c echo.Context) error {
-	req, errResp, done := d.resolveLocal(c, localDocsFields)
+	req, errResp, done := d.resolveLocal(c, localDocsFields, true)
 	if done {
 		return errResp
 	}
@@ -554,7 +573,7 @@ func (d *deps) localInsert(c echo.Context) error {
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Router		/local/upsert [post]
 func (d *deps) localUpsert(c echo.Context) error {
-	req, errResp, done := d.resolveLocal(c, localDocsFields)
+	req, errResp, done := d.resolveLocal(c, localDocsFields, true)
 	if done {
 		return errResp
 	}
@@ -595,7 +614,7 @@ func (d *deps) localUpsert(c echo.Context) error {
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Router		/local/update [post]
 func (d *deps) localUpdate(c echo.Context) error {
-	req, errResp, done := d.resolveLocal(c, localUpdateFields)
+	req, errResp, done := d.resolveLocal(c, localUpdateFields, true)
 	if done {
 		return errResp
 	}
@@ -660,7 +679,7 @@ func (d *deps) localUpdate(c echo.Context) error {
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Router		/local/delete [post]
 func (d *deps) localDelete(c echo.Context) error {
-	req, errResp, done := d.resolveLocal(c, localDeleteFields)
+	req, errResp, done := d.resolveLocal(c, localDeleteFields, false)
 	if done {
 		return errResp
 	}
@@ -745,7 +764,7 @@ func (d *deps) localDelete(c echo.Context) error {
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Router		/local/get [post]
 func (d *deps) localGet(c echo.Context) error {
-	req, errResp, done := d.resolveLocal(c, localGetFields)
+	req, errResp, done := d.resolveLocal(c, localGetFields, false)
 	if done {
 		return errResp
 	}
@@ -779,7 +798,7 @@ func (d *deps) localGet(c echo.Context) error {
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Router		/local/query [post]
 func (d *deps) localQuery(c echo.Context) error {
-	req, errResp, done := d.resolveLocal(c, localQueryFields)
+	req, errResp, done := d.resolveLocal(c, localQueryFields, false)
 	if done {
 		return errResp
 	}
@@ -867,7 +886,7 @@ func (d *deps) localQuery(c echo.Context) error {
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Router		/local/aggregate [post]
 func (d *deps) localAggregate(c echo.Context) error {
-	req, errResp, done := d.resolveLocal(c, localAggregateFields)
+	req, errResp, done := d.resolveLocal(c, localAggregateFields, false)
 	if done {
 		return errResp
 	}
@@ -1027,7 +1046,7 @@ func (d *deps) localPipelineTargets(c echo.Context, pipeline *fastjson.Value, so
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Router		/local/indexes [post]
 func (d *deps) localIndexes(c echo.Context) error {
-	req, errResp, done := d.resolveLocal(c, localIndexesFields)
+	req, errResp, done := d.resolveLocal(c, localIndexesFields, true)
 	if done {
 		return errResp
 	}
@@ -1053,4 +1072,120 @@ func (d *deps) localIndexes(c echo.Context) error {
 		}
 	}
 	return c.JSON(http.StatusOK, api.LocalIndexesResponse{Indexes: localIndexesToAPI(coll)})
+}
+
+// localExport handles GET /v1/local/export — the named collections as
+// one gzip'd anyenc value stream (docs/26-local-store.md § Export and
+// import). `names` is comma-separated and needs a scope (`spaceId`
+// implies `space`); without `names` every collection the (scope,
+// spaceId) listing would return is exported. No space pre-flight: like
+// drop, this is a path that must still work for a space that is gone.
+// Every ref is resolved before the first byte, so a missing collection
+// is a JSON 404 and never a truncated stream; an error after the
+// headers are out cuts the body (the gzip trailer never lands, so the
+// reader rejects the file) and is logged.
+//
+//	@Summary	Export local collections as one file
+//	@Tags		local
+//	@Produce	application/gzip
+//	@Param		scope	query	string	false	"account | space (absent with names absent = every local collection)"
+//	@Param		spaceId	query	string	false	"restrict to one space (implies scope=space)"
+//	@Param		names	query	string	false	"comma-separated collection names (absent = every collection in scope)"
+//	@Success	200	{file}		binary	"gzip: an anyenc value stream — manifest, then each collection's documents"
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	409	{object}	api.ErrorEnvelope
+//	@Router		/local/export [get]
+func (d *deps) localExport(c echo.Context) error {
+	if d.local == nil {
+		return localDisabled(c)
+	}
+	ctx := c.Request().Context()
+	scope := localstore.Scope(c.QueryParam("scope"))
+	spaceId := c.QueryParam("spaceId")
+	if spaceId != "" && scope == "" {
+		scope = localstore.ScopeSpace
+	}
+	var refs []localstore.Ref
+	if names := c.QueryParam("names"); names == "" {
+		infos, err := d.local.List(ctx, scope, spaceId)
+		if err != nil {
+			return localError(c, err, localstore.Ref{Scope: scope, SpaceId: spaceId})
+		}
+		for _, info := range infos {
+			refs = append(refs, info.Ref)
+		}
+		if len(refs) == 0 {
+			return writeError(c, http.StatusNotFound, "local.collection_not_found",
+				"no local collections in this scope", localDetails(localstore.Ref{Scope: scope, SpaceId: spaceId}))
+		}
+	} else {
+		for _, name := range strings.Split(names, ",") {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			ref, errResp, done := localRef(c, string(scope), spaceId, name)
+			if done {
+				return errResp
+			}
+			if _, err := d.local.Collection(ctx, ref); err != nil {
+				return localError(c, err, ref)
+			}
+			refs = append(refs, ref)
+		}
+		if len(refs) == 0 {
+			return writeError(c, http.StatusBadRequest, "request.missing_field",
+				"names: at least one collection name", nil)
+		}
+	}
+	h := c.Response().Header()
+	h.Set(echo.HeaderContentType, "application/gzip")
+	h.Set("Content-Disposition", `attachment; filename="local-export.anyenc.gz"`)
+	c.Response().WriteHeader(http.StatusOK)
+	if err := d.local.Export(ctx, refs, c.Response()); err != nil {
+		localLog.Warn("export cut mid-stream", zap.Int("collections", len(refs)), zap.Error(err))
+		return err
+	}
+	return nil
+}
+
+// localImport handles POST /v1/local/import — the raw body is an
+// export file (exempt from the global BodyLimit). Each collection is
+// ensured with the file's indexes and its documents upserted, 256 per
+// transaction: re-importing is a no-op, a failure mid-way leaves the
+// collections before it committed. No space pre-flight — the file's
+// spaces need not exist on this server.
+//
+//	@Summary	Import an exported local-store file
+//	@Tags		local
+//	@Accept		application/gzip
+//	@Produce	json
+//	@Success	200	{object}	api.LocalImportResponse
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	409	{object}	api.ErrorEnvelope
+//	@Router		/local/import [post]
+func (d *deps) localImport(c echo.Context) error {
+	if d.local == nil {
+		return localDisabled(c)
+	}
+	infos, err := d.local.Import(c.Request().Context(), c.Request().Body)
+	if err != nil {
+		ref := localstore.Ref{}
+		var ie *localstore.ImportError
+		if errors.As(err, &ie) {
+			ref = ie.Ref
+		}
+		if errors.Is(err, localstore.ErrBadExport) {
+			details := localDetails(ref)
+			details["imported"] = len(infos)
+			return writeError(c, http.StatusBadRequest, "local.bad_export", err.Error(), details)
+		}
+		return localError(c, err, ref)
+	}
+	out := api.LocalImportResponse{Collections: make([]api.LocalCollectionInfo, 0, len(infos))}
+	for _, info := range infos {
+		out.Collections = append(out.Collections, localInfoToAPI(info))
+	}
+	return c.JSON(http.StatusOK, out)
 }

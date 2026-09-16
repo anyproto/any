@@ -654,13 +654,19 @@ any local get NAME ID [--space ID]                                      # POST /
 any local query NAME [--space ID] [--filter JSON] [--sort a,-b] [--limit N] [--offset N] [--total] [--projection ...]   # POST /v1/local/query
 any local aggregate NAME [--space ID] --pipeline JSON [--group-limit N] [--accum-limit N] [--memory-limit N] [--explain]
 any local indexes NAME [--space ID] [--ensure a,-b]... [--unique-ensure k]... [--drop NAME]...       # POST /v1/local/indexes
+any local export [--scope account|space] [--space ID] [--names a,b] --out FILE   # GET  /v1/local/export  (- = stdout)
+any local import FILE                                 # POST   /v1/local/import  (- = stdin)
 ```
 
 Device-local, never-synced collections (`docs/26-local-store.md`).
 NAME is always the first argument; `--space ID` binds the collection
 to a space, otherwise it is account-scoped. `drop` and `delete` refuse
-without `--yes` — local data has no backup. Pipelines name sink /
-lookup collections by their `storageName` (shown by `collections`).
+without `--yes` — local data has no automatic backup. Pipelines name
+sink / lookup collections by their `storageName` (shown by
+`collections`). `export` writes the named collections (all in scope
+without `--names`) as one gzip'd anyenc stream; `import` recreates
+them — same names, indexes, documents (upsert) — on the server it is
+pointed at, whether or not their spaces exist there.
 
 ### Push notifications
 

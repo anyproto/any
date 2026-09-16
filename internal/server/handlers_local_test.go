@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,8 +10,11 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/anyproto/any-store/v2/anyenc"
+
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
+	"github.com/anyproto/any/internal/localstore"
 )
 
 // localDo sends a JSON request to a /v1/local route and decodes the
@@ -435,4 +440,139 @@ func TestServer_Local_ConcurrentBodies(t *testing.T) {
 			}
 		}
 	}
+}
+
+// Export → drop → import round-trips a space-scoped collection with
+// its indexes and documents through the wire; the file is gzip with
+// the manifest as its first anyenc value; the failure modes are
+// typed. The imported space is never pre-flighted — the collection
+// comes back on a server that has never seen the space.
+func TestServer_Local_ExportImport(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	const ghostSpace = "bafyreiaybsrmdicsv7fmuupnzojtdnhpna7its6evawg7lhw67pu4yiulq.1f5isugmolo56"
+	// a space-scoped collection needs its space to exist for ensure /
+	// insert, so seed it under a real space, then export by name
+	sp := createSpaceInfo(t, e, "export").Id
+	coll := fmt.Sprintf(`{"scope":"space","spaceId":%q,"name":"trace_records"}`, sp)
+	localEnsure(t, e, `{"scope":"space","spaceId":"`+sp+`","name":"trace_records","indexes":[{"fields":["runId","seq"],"unique":true}]}`, http.StatusCreated)
+	localDo[api.LocalIdsResponse](t, e, http.MethodPost, "/v1/local/insert",
+		`{"coll":`+coll+`,"docs":[{"id":"run_1:0","runId":"run_1","seq":0,"kind":"header"},{"id":"run_1:1","runId":"run_1","seq":1,"input":{"q":"héllo"}}]}`, http.StatusOK)
+	localEnsure(t, e, accColl, http.StatusCreated)
+
+	// unknown name → 404 before any byte; bad scope → 400
+	localExpectError(t, e, http.MethodGet, "/v1/local/export?spaceId="+sp+"&names=nope", "", http.StatusNotFound, "local.collection_not_found")
+	localExpectError(t, e, http.MethodGet, "/v1/local/export?names=trace_records", "", http.StatusBadRequest, "local.bad_name")
+	localExpectError(t, e, http.MethodGet, "/v1/local/export?spaceId="+ghostSpace, "", http.StatusNotFound, "local.collection_not_found")
+
+	rec := doJSON(t, e, http.MethodGet, "/v1/local/export?spaceId="+sp+"&names=trace_records", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("export: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/gzip" {
+		t.Fatalf("export content-type = %q", ct)
+	}
+	file := rec.Body.Bytes()
+	gz, err := gzip.NewReader(bytes.NewReader(file))
+	if err != nil {
+		t.Fatalf("export is not gzip: %v", err)
+	}
+	mv, err := anyenc.NewReader(gz).Read(&anyenc.Parser{})
+	if err != nil {
+		t.Fatalf("manifest: %v", err)
+	}
+	if got := mv.GetString("format"); got != localstore.FormatName {
+		t.Fatalf("manifest format = %q", got)
+	}
+	if n := mv.GetInt("collections", "0", "count"); n != 2 {
+		t.Fatalf("manifest count = %d, want 2; manifest %s", n, mv.String())
+	}
+
+	// the whole scope, no names: both the space's collections would be
+	// here if there were two — one here, plus the account one stays out
+	rec = doJSON(t, e, http.MethodGet, "/v1/local/export?spaceId="+sp, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("export scope: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// drop, then import the file: same name, index and documents
+	localDo[struct{}](t, e, http.MethodDelete, "/v1/local/collections?scope=space&spaceId="+sp+"&name=trace_records", "", http.StatusNoContent)
+	imp := doRaw(t, e, http.MethodPost, "/v1/local/import", "application/gzip", file)
+	if imp.Code != http.StatusOK {
+		t.Fatalf("import: status=%d body=%s", imp.Code, imp.Body.String())
+	}
+	var out api.LocalImportResponse
+	if err := json.Unmarshal(imp.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Collections) != 1 || out.Collections[0].Count != 2 || out.Collections[0].SpaceId != sp || len(out.Collections[0].Indexes) != 1 {
+		t.Fatalf("import reply: %s", imp.Body.String())
+	}
+	got := localDo[api.LocalRecordResponse](t, e, http.MethodPost, "/v1/local/get", `{"coll":`+coll+`,"id":"run_1:1"}`, http.StatusOK)
+	if !strings.Contains(string(got.Record), `"héllo"`) {
+		t.Fatalf("imported record: %s", got.Record)
+	}
+	// unique index came back: a clashing insert is refused
+	localExpectError(t, e, http.MethodPost, "/v1/local/insert", `{"coll":`+coll+`,"docs":[{"id":"x","runId":"run_1","seq":1}]}`, http.StatusConflict, "local.unique_violation")
+
+	// re-import: idempotent
+	imp = doRaw(t, e, http.MethodPost, "/v1/local/import", "application/gzip", file)
+	if imp.Code != http.StatusOK {
+		t.Fatalf("re-import: status=%d body=%s", imp.Code, imp.Body.String())
+	}
+
+	// a file whose space this server has never seen imports as-is
+	rec = doJSON(t, e, http.MethodGet, "/v1/local/export?spaceId="+sp+"&names=trace_records", "")
+	d2, teardown2 := newTestDeps(t)
+	defer teardown2()
+	e2 := buildEcho(d2)
+	imp = doRaw(t, e2, http.MethodPost, "/v1/local/import", "application/gzip", rec.Body.Bytes())
+	if imp.Code != http.StatusOK {
+		t.Fatalf("import on a stranger: status=%d body=%s", imp.Code, imp.Body.String())
+	}
+	list := localDo[api.LocalListResponse](t, e2, http.MethodGet, "/v1/local/collections?spaceId="+sp, "", http.StatusOK)
+	if len(list.Collections) != 1 || list.Collections[0].Count != 2 {
+		t.Fatalf("stranger's listing: %+v", list.Collections)
+	}
+	// …and readable there: reads, aggregate and delete skip the space
+	// pre-flight; writes that could grow the namespace still 404
+	q := localDo[api.QueryResponse](t, e2, http.MethodPost, "/v1/local/query", `{"coll":`+coll+`,"filter":{"runId":"run_1"},"sort":["seq"]}`, http.StatusOK)
+	if len(q.Records) != 2 {
+		t.Fatalf("stranger's query: %d records", len(q.Records))
+	}
+	localDo[api.LocalRecordResponse](t, e2, http.MethodPost, "/v1/local/get", `{"coll":`+coll+`,"id":"run_1:0"}`, http.StatusOK)
+	agg := localDo[api.LocalAggregateResponse](t, e2, http.MethodPost, "/v1/local/aggregate", `{"coll":`+coll+`,"pipeline":[{"$group":{"_id":"$runId","n":{"$count":{}}}}]}`, http.StatusOK)
+	if len(agg.Records) != 1 {
+		t.Fatalf("stranger's aggregate: %s", imp.Body.String())
+	}
+	localExpectError(t, e2, http.MethodPost, "/v1/local/insert", `{"coll":`+coll+`,"docs":[{"id":"z"}]}`, http.StatusNotFound, "space.not_found")
+	localExpectError(t, e2, http.MethodPost, "/v1/local/indexes", `{"coll":`+coll+`,"ensure":[{"fields":["kind"]}]}`, http.StatusNotFound, "space.not_found")
+	del := localDo[api.LocalDeleteResponse](t, e2, http.MethodPost, "/v1/local/delete", `{"coll":`+coll+`,"ids":["run_1:0"]}`, http.StatusOK)
+	if del.Deleted != 1 {
+		t.Fatalf("stranger's delete: %+v", del)
+	}
+
+	// truncated file → 400 local.bad_export naming the collection
+	truncated := doRaw(t, e2, http.MethodPost, "/v1/local/import", "application/gzip", file[:len(file)/2])
+	if truncated.Code != http.StatusBadRequest {
+		t.Fatalf("truncated import: status=%d body=%s", truncated.Code, truncated.Body.String())
+	}
+	var env api.ErrorEnvelope
+	_ = json.Unmarshal(truncated.Body.Bytes(), &env)
+	if env.Error.Code != "local.bad_export" {
+		t.Fatalf("truncated import code = %q (%s)", env.Error.Code, env.Error.Message)
+	}
+	notGz := doRaw(t, e2, http.MethodPost, "/v1/local/import", "application/gzip", []byte("nope"))
+	if notGz.Code != http.StatusBadRequest {
+		t.Fatalf("not-gzip import: status=%d", notGz.Code)
+	}
+
+	// disabled server: both routes 409
+	d3, teardown3 := newTestDepsCfg(t, func(c *config.Config) { c.Local.Enabled = false })
+	defer teardown3()
+	e3 := buildEcho(d3)
+	localExpectError(t, e3, http.MethodGet, "/v1/local/export?scope=account", "", http.StatusConflict, "local.disabled")
+	localExpectError(t, e3, http.MethodPost, "/v1/local/import", "", http.StatusConflict, "local.disabled")
 }

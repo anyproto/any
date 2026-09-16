@@ -188,3 +188,12 @@ type LocalMetaResponse struct {
 	Stages       []string `json:"stages"`
 	Accumulators []string `json:"accumulators"`
 }
+
+// LocalImportResponse is the body of POST /v1/local/import: every
+// collection the file carried, as it stands after the import (in
+// file order). The export itself, GET /v1/local/export, has no JSON
+// body — it streams the file (docs/26-local-store.md § Export and
+// import).
+type LocalImportResponse struct {
+	Collections []LocalCollectionInfo `json:"collections"`
+}

@@ -2,8 +2,12 @@ package client
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/anyproto/any/internal/api"
 )
@@ -129,6 +133,64 @@ func (c *Client) LocalIndexes(ctx context.Context, req api.LocalIndexesRequest) 
 	var out api.LocalIndexesResponse
 	if err := c.do(ctx, http.MethodPost, "/v1/local/indexes", req, &out); err != nil {
 		return nil, err
+	}
+	return &out, nil
+}
+
+// LocalExport — GET /v1/local/export: the named collections as one
+// gzip'd anyenc stream (docs/26-local-store.md § Export and import).
+// The caller streams the body and MUST close it. names nil with a
+// scope exports every collection in that scope; both empty, the whole
+// local store.
+func (c *Client) LocalExport(ctx context.Context, scope, spaceId string, names []string) (io.ReadCloser, error) {
+	q := url.Values{}
+	if scope != "" {
+		q.Set("scope", scope)
+	}
+	if spaceId != "" {
+		q.Set("spaceId", spaceId)
+	}
+	if len(names) > 0 {
+		q.Set("names", strings.Join(names, ","))
+	}
+	path := "/v1/local/export"
+	if enc := q.Encode(); enc != "" {
+		path += "?" + enc
+	}
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := streamHTTP.Do(req)
+	if err != nil {
+		return nil, &TransportError{Addr: c.base, Err: err}
+	}
+	if resp.StatusCode >= 400 {
+		defer resp.Body.Close()
+		return nil, parseServerError(resp)
+	}
+	return resp.Body, nil
+}
+
+// LocalImport — POST /v1/local/import: r is an export file, streamed
+// as the raw body.
+func (c *Client) LocalImport(ctx context.Context, r io.Reader) (*api.LocalImportResponse, error) {
+	req, err := c.newRequest(ctx, http.MethodPost, "/v1/local/import", r)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/gzip")
+	resp, err := streamHTTP.Do(req)
+	if err != nil {
+		return nil, &TransportError{Addr: c.base, Err: err}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, parseServerError(resp)
+	}
+	var out api.LocalImportResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("decode import reply: %w", err)
 	}
 	return &out, nil
 }
