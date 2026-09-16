@@ -34,7 +34,16 @@ designed for long-lived sessions over structured data, with persistent memory.
 
 ## Built for collaboration
 
-Each device writes to its local database. CRDTs merge changes as devices
+Multiplayer collaboration is a core strength of Any. When people and agents
+work on the same records, a writer acting on an older copy can overwrite
+someone else's changes. Handling concurrent edits requires clear rules for
+applying and merging changes, along with a history you can inspect.
+
+Server-side transactions help coordinate writes to a central database.
+Applications still need to reconcile changes made independently across
+devices, including edits made while those devices are offline.
+
+In Any, each device writes to its local database. CRDTs merge changes as devices
 sync, whether they connect directly or through sync nodes. Those nodes
 store and relay encrypted content without being able to read it.
 
