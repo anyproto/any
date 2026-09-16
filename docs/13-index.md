@@ -907,10 +907,11 @@ the request takes one of two paths (`internal/indexer/host_filter.go`):
 1. **Probe.** Iterate the filter with early exit after `filterIdsMax`
    (256) ids, collecting them — an unbounded iterator closed early, not
    a `Limit`, because the SDK applies a limit before it skips the
-   collection's tombstones. Indexed predicates (`any.type`,
-   `any.collections`, `modifiedAt`, `id`) exit in microseconds; a dense unindexed one
-   (`any.collections $nin [bin]` — the everyday shape) exits after the first
-   few hundred rows; only a narrow unindexed predicate (a property
+   collection's tombstones. An equality or range
+   on an indexed field (`any.type`, `any.collections`, `modifiedAt`,
+   `id`) exits in microseconds; a dense predicate the index cannot bound
+   (`any.collections $nin [bin]` — the everyday shape) exits after the
+   first few hundred rows; only a narrow unindexed predicate (a property
    value held by a few objects) scans the collection, ~4 ms per 6k
    objects, which is what resolving its ids costs anyway.
 2. **Small set — residual, probe forced on the vector leg.** A set the
@@ -961,23 +962,6 @@ the request takes one of two paths (`internal/indexer/host_filter.go`):
    hold grows from ~1 ms to the lookups' sum, at most a few hundred
    milliseconds, and the store's reader slots are per process, so
    that many concurrent filtered searches queue behind each other.
-
-Measured (docs/search/README.md → the filter-modes harness; real
-6k-object space, idle box, fully embedded): on the lexical leg
-post-filtering wins 158 of 168 cells with ≥ 389 matching objects and
-the residual 78 of 96 with ≤ 103; on end-to-end hybrid and vector
-requests the residual wins every band (84 vs 220–290 ms median); the
-everyday `not in bin` costs the probe (0.2 ms) plus one or two lookups
-fts-only, the resolve (~8 ms) in hybrid.
-An eager id set for large filters was rejected: resolving 90k ids costs
-~30 ms per search where the batched lookups cost 0.1 ms on an ordinary
-query. Mirroring `any.type` / `any.collections` onto index docs was rejected:
-every retype or filing would rewrite every chunk of the object. Not in this
-iteration: record fields of the hit's own dataset; a vector-specific
-id-set threshold (the residual beat post-filtering up to ~1k objects on
-the vector leg alone); property-value indexes on the objects collection
-(an SDK topic — they would turn the narrow-unindexed probe into a seek);
-the SDK's `Query.Count` forwarding its `Limit`.
 
 ### Tuning (measured — `internal/indexer/bench_test.go`)
 
