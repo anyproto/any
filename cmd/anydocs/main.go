@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	gohtml "html"
 	"html/template"
 	"io/fs"
 	"os"
@@ -38,10 +39,18 @@ type page struct {
 	Src     string // relative source path
 	URL     string // absolute site path, e.g. /database/objects.html
 	Body    template.HTML
-	Text    string // plain-ish text for the search index
+	Parts   []part // search index entries, one per h2/h3 section
 	Prev    *page
 	Next    *page
 	IsIndex bool
+}
+
+// part is one searchable slice of a page: the text before the first h2/h3
+// (ID empty), then each h2/h3 with the text up to the next one.
+type part struct {
+	Heading string `json:",omitempty"`
+	ID      string `json:",omitempty"`
+	Text    string
 }
 
 type section struct {
@@ -57,6 +66,8 @@ type section struct {
 var (
 	prefixRe = regexp.MustCompile(`^(\d+)-(.*)$`)
 	tagRe    = regexp.MustCompile(`<[^>]*>`)
+	inlineRe = regexp.MustCompile(`</?(?:a|b|code|em|i|kbd|span|strong|sub|sup)\b[^>]*>`)
+	headRe   = regexp.MustCompile(`<h[23] id="([^"]*)">(.*?)</h[23]>`)
 	wsRe     = regexp.MustCompile(`\s+`)
 )
 
@@ -120,7 +131,7 @@ func run(src, out string) error {
 		if err := md.Convert(body, &buf); err != nil {
 			return fmt.Errorf("%s: %w", rel, err)
 		}
-		pg := &page{front: fm, Src: rel, Body: template.HTML(buf.String()), Text: plain(buf.String())}
+		pg := &page{front: fm, Src: rel, Body: template.HTML(buf.String()), Parts: split(buf.String())}
 		if pg.Title == "" {
 			pg.Title = firstHeading(body, humanize(strings.TrimSuffix(d.Name(), ".md")))
 		}
@@ -201,7 +212,8 @@ func run(src, out string) error {
 	}
 	// search index + llms.txt
 	type idx struct {
-		Title, URL, Section, Text string
+		Title, URL, Section string
+		Parts               []part
 	}
 	var index []idx
 	var llms strings.Builder
@@ -211,15 +223,20 @@ func run(src, out string) error {
 		if p.Section != nil {
 			sec = p.Section.Title
 		}
-		index = append(index, idx{p.Title, p.URL, sec, truncate(p.Text, 4000)})
+		index = append(index, idx{p.Title, p.URL, sec, p.Parts})
 		fmt.Fprintf(&llms, "- [%s](%s)", p.Title, p.URL)
 		if p.Description != "" {
 			fmt.Fprintf(&llms, ": %s", p.Description)
 		}
 		llms.WriteString("\n")
 	}
-	ij, _ := json.Marshal(index)
-	if err := os.WriteFile(filepath.Join(out, "search.json"), ij, 0o644); err != nil {
+	var ij bytes.Buffer
+	enc := json.NewEncoder(&ij)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(index); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(out, "search.json"), ij.Bytes(), 0o644); err != nil {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(out, "llms.txt"), []byte(llms.String()), 0o644); err != nil {
@@ -287,15 +304,26 @@ func humanize(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
+// plain turns rendered HTML into unescaped text; site.js escapes on display.
+// Inline tags vanish, block tags become a space, so words neither merge nor split.
 func plain(h string) string {
-	return strings.TrimSpace(wsRe.ReplaceAllString(template.HTMLEscapeString(tagRe.ReplaceAllString(h, " ")), " "))
+	h = tagRe.ReplaceAllString(inlineRe.ReplaceAllString(h, ""), " ")
+	return strings.TrimSpace(wsRe.ReplaceAllString(gohtml.UnescapeString(h), " "))
 }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
+// split cuts a rendered page at its h2/h3 headings so a search hit links to
+// the section it matched, and indexes every section in full.
+func split(h string) []part {
+	var parts []part
+	cur, last := part{}, 0
+	for _, m := range headRe.FindAllStringSubmatchIndex(h, -1) {
+		cur.Text = plain(h[last:m[0]])
+		parts = append(parts, cur)
+		cur = part{Heading: plain(h[m[4]:m[5]]), ID: h[m[2]:m[3]]}
+		last = m[1]
 	}
-	return s[:n]
+	cur.Text = plain(h[last:])
+	return append(parts, cur)
 }
 
 func copyDir(from, to string) error {
@@ -352,7 +380,7 @@ const pageTpl = `<!doctype html>
 </aside>
 <div class="content">
 <div class="bar">
-  <button class="menu" id="menu" aria-label="Menu">☰</button>
+  <button class="menu" id="menu" aria-label="Menu" aria-controls="side" aria-expanded="false">☰</button>
   <p class="crumb">{{if .Page.Section}}<span class="sec-name">{{.Page.Section.Title}}</span><span class="sep">/</span>{{end}}{{if .Page.IsIndex}}Overview{{else}}{{.Page.Title}}{{end}}</p>
   <div class="search" id="search"><svg class="ico" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="currentColor" d="M7 2.5C9.48528 2.5 11.5 4.51472 11.5 7C11.5 7.97182 11.1908 8.87085 10.667 9.60645L13.5303 12.4697C13.8232 12.7626 13.8232 13.2374 13.5303 13.5303C13.2374 13.8232 12.7626 13.8232 12.4697 13.5303L9.60645 10.667C8.87085 11.1908 7.97182 11.5 7 11.5C4.51472 11.5 2.5 9.48528 2.5 7C2.5 4.51472 4.51472 2.5 7 2.5ZM7 3.59961C5.12223 3.59961 3.59961 5.12223 3.59961 7C3.59961 8.87777 5.12223 10.4004 7 10.4004C8.87777 10.4004 10.4004 8.87777 10.4004 7C10.4004 5.12223 8.87777 3.59961 7 3.59961Z"/></svg><input id="q" type="search" placeholder="Search docs…" autocomplete="off"><span class="esc" aria-hidden="true">ESC</span><div id="results" class="results" hidden></div></div>
 </div>

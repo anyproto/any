@@ -1,12 +1,4 @@
 (function(){
-  var box=document.getElementById('search'),q=document.getElementById('q'),res=document.getElementById('results');
-  if(!box||!q)return;
-  document.addEventListener('keydown',function(e){
-    if(e.key==='/'&&document.activeElement!==q){e.preventDefault();q.focus();q.select()}
-    if(e.key==='Escape'&&document.activeElement===q){q.value='';if(res)res.hidden=true;q.blur()}
-  });
-})();
-(function(){
   var btn=document.getElementById('mode');if(!btn)return;
   btn.onclick=function(){
     var cur=document.documentElement.dataset.theme;
@@ -19,34 +11,54 @@
 (function(){
   var root=window.__root||'.';
   var q=document.getElementById('q'),res=document.getElementById('results'),idx=null,sel=-1;
-  document.getElementById('menu').onclick=function(){document.getElementById('side').classList.toggle('open')};
+  var side=document.getElementById('side'),nav=side.querySelector('.side-nav'),menu=document.getElementById('menu');
+  // below the breakpoint the sidebar is a drawer; the button, a nav link, an
+  // outside click and Escape all close it
+  function drawer(open){side.classList.toggle('open',open);menu.setAttribute('aria-expanded',open);if(open)reveal()}
+  menu.onclick=function(){drawer(!side.classList.contains('open'))};
+  side.addEventListener('click',function(e){if(e.target.closest('a'))drawer(false)});
   document.addEventListener('keydown',function(e){
-    if(e.key==='/'&&document.activeElement!==q){e.preventDefault();q.focus()}
-    if(e.key==='Escape'){res.hidden=true;q.blur()}
+    if(e.key==='/'&&document.activeElement!==q){e.preventDefault();q.focus();q.select()}
+    if(e.key==='Escape'){if(document.activeElement===q)q.value='';res.hidden=true;q.blur();drawer(false)}
   });
-  function load(cb){if(idx)return cb();fetch(root+'/search.json').then(function(r){return r.json()}).then(function(j){idx=j;cb()})}
+  function load(cb){if(idx)return cb();fetch(root+'/search.json').then(function(r){return r.json()}).then(function(j){
+    j.forEach(function(p){p.t=p.Title.toLowerCase();p.Parts.forEach(function(s){s.h=(s.Heading||'').toLowerCase();s.b=s.Text.toLowerCase()})});
+    idx=j;cb()})}
   function esc(s){return s.replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+  // highlights on the raw text and escapes each piece, so a term never matches
+  // inside an entity or an earlier <em>
+  function mark(t,terms){var re=new RegExp('('+terms.map(function(w){return w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}).join('|')+')','ig');
+    return t.split(re).map(function(x,i){return i%2?'<em>'+esc(x)+'</em>':esc(x)}).join('')}
   function snippet(t,terms){var l=t.toLowerCase(),i=-1;for(var k=0;k<terms.length;k++){i=l.indexOf(terms[k]);if(i>=0)break}
-    if(i<0)i=0;var s=Math.max(0,i-60),out=esc(t.slice(s,s+160));
-    terms.forEach(function(w){out=out.replace(new RegExp('('+w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig'),'<em>$1</em>')});return (s?'…':'')+out+'…'}
+    if(i<0)i=0;var s=Math.max(0,i-60);return (s?'…':'')+mark(t.slice(s,s+160),terms)+'…'}
+  function count(s,w){return s.split(w).length-1}
+  // a page ranks on its title and its whole text; the hit links to the
+  // section that matches best (the page top when only the title does)
   function search(){var v=q.value.trim().toLowerCase();if(!v){res.hidden=true;return}
     load(function(){var terms=v.split(/\s+/);var hits=[];
-      idx.forEach(function(p){var t=p.Title.toLowerCase(),b=p.Text.toLowerCase(),score=0;
-        terms.forEach(function(w){if(t.indexOf(w)>=0)score+=10;var c=b.split(w).length-1;score+=Math.min(c,5)});
-        if(score>0)hits.push([score,p])});
+      idx.forEach(function(p){var score=0,best=p.Parts[0],top=0;
+        terms.forEach(function(w){if(p.t.indexOf(w)>=0)score+=10;
+          score+=Math.min(p.Parts.reduce(function(n,s){return n+count(s.h,w)+count(s.b,w)},0),5)});
+        p.Parts.forEach(function(s){var n=0;terms.forEach(function(w){if(s.h.indexOf(w)>=0)n+=3;n+=Math.min(count(s.b,w),5)});
+          if(n>top){top=n;best=s}});
+        if(score>0)hits.push([score,p,best])});
       hits.sort(function(a,b){return b[0]-a[0]});hits=hits.slice(0,12);sel=-1;
-      res.innerHTML=hits.map(function(h){var p=h[1];return '<a href="'+root+p.URL+'"><strong>'+esc(p.Title)+'</strong> <small>'+esc(p.Section)+'</small><small>'+snippet(p.Text,terms)+'</small></a>'}).join('')||'<a><small>No results</small></a>';
+      res.innerHTML=hits.map(function(h){var p=h[1],s=h[2];
+        return '<a href="'+root+p.URL+(s.ID?'#'+s.ID:'')+'"><strong>'+esc(p.Title)+'</strong> <small>'+esc(p.Section)+(s.Heading?' › '+esc(s.Heading):'')+'</small><small>'+snippet(s.Text,terms)+'</small></a>'}).join('')||'<a><small>No results</small></a>';
       res.hidden=false})}
+  // the whole pill focuses the input; narrow screens show only its icon
+  document.getElementById('search').addEventListener('click',function(e){if(!e.target.closest('.results'))q.focus()});
   q.addEventListener('input',search);q.addEventListener('focus',function(){if(q.value)search()});
   q.addEventListener('keydown',function(e){var as=res.querySelectorAll('a[href]');if(!as.length)return;
     if(e.key==='ArrowDown'){sel=Math.min(sel+1,as.length-1)}else if(e.key==='ArrowUp'){sel=Math.max(sel-1,0)}else if(e.key==='Enter'&&sel>=0){location.href=as[sel].href;return}else return;
     e.preventDefault();as.forEach(function(a,i){a.classList.toggle('sel',i===sel)})});
-  document.addEventListener('click',function(e){if(!e.target.closest('.search'))res.hidden=true});
+  document.addEventListener('click',function(e){if(!e.target.closest('.search'))res.hidden=true;
+    if(side.classList.contains('open')&&!e.target.closest('#side,#menu'))drawer(false)});
   // heading anchors
   document.querySelectorAll('.doc h2[id],.doc h3[id]').forEach(function(h){var a=document.createElement('a');a.href='#'+h.id;a.textContent=h.textContent;h.textContent='';h.appendChild(a)});
-  // scroll active sidebar link into view
-  var act=document.querySelector('.side a.active');
-  if(act){var side=document.getElementById('side');side.scrollTop=act.offsetTop-side.clientHeight/2;}
+  // scroll the active sidebar link into the middle of the nav
+  function reveal(){var act=nav.querySelector('a.active');if(act)nav.scrollTop=act.offsetTop-nav.offsetTop-nav.clientHeight/2}
+  reveal();
 })();
 (function(){
   var esc=function(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')};
