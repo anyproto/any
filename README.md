@@ -1,10 +1,10 @@
 # Any
 
 - local-first, e2e encrypted multiplayer database with HTTP interface
-- sync engine on top of [any-sync](https://github.com/anyproto/any-sync), which battle-tested on our infra for many years and millions of spaces and passed security audit from Cure53.
+- sync engine on top of [any-sync](https://github.com/anyproto/any-sync), which has been battle-tested on our infra for many years and millions of spaces and passed a security audit by Cure53.
 - mongo query language support, including aggregation framework via [any-store](https://github.com/anyproto/any-store)
-- isolated CPython programs on top of Wasmtime with determenistic traces and fuel control
-- full-text search, semantic search with HNSW/ivfsq index types, hybrid search with reranking.
+- isolated CPython programs on top of Wasmtime with deterministic traces and fuel control
+- full-text search, semantic search with HNSW/ivfsq index types, hybrid search.
 - local vector embedding via llama.cpp.
 - CRON-like triggers, event subscriptions
 
@@ -29,24 +29,26 @@ The agent runtime runs alongside the server, acting as a client.
 The database, search, identity, and sync are built in. You choose the models
 and control your data and agent memory.
 
-
 ## What you can build
 
-Any is a general-purpose database, -- it doesn't apply any constraints on which
-applications can be built on top of.
+Any is a general-purpose database -- it doesn't constrain which applications
+can be built on top of it.
 
 However, some of the features are way easier to build on top of Any.
 
 One of the strongest of such features is multiplayer collaboration. It is quite hard
-to solve the problem of [agentic] concurent write consistency due to the central
-transaction architecture of databases: concurent actors rewrite each other's data without history.
+to solve the problem of [agentic] concurrent write consistency due to the central
+transaction architecture of databases: concurrent actors rewrite each other's data without history.
 
-We give convenient tooling to organize conflict-free data access with CRDT enventual
-consistency guarantees. We have support for custom CRDT types and some complex CRDTs implementations,
+We give convenient tooling to organize conflict-free data access with CRDT eventual
+consistency guarantees, a [changes history API](docs/03-api.md#version-history)
+and a [safe model of mutating object properties](https://github.com/anyproto/any-sync-sdk/blob/main/docs/06-data-structure.md#object-properties)
+in collaborative environments.
+
+We have support for custom CRDT types (via
+[any-sync-sdk](https://github.com/anyproto/any-sync-sdk)) and some complex CRDT implementations,
 such as block-based editor and chat with distributed counters support -- i.e. we provide
 collaborative block-based editor and local-first, encrypted p2p chat primitives out of the box.
-
-
 
 > [!WARNING]
 > **Developer preview.** Use a separate account for experiments. APIs and data
