@@ -191,7 +191,11 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 @media (max-width:900px){
   .shell{grid-template-columns:minmax(0,1fr)}
   .side{display:none;position:fixed;top:0;bottom:0;left:0;z-index:40;width:min(var(--side),85vw);height:auto}
-  .side.open{display:flex;box-shadow:inset -1px 0 0 var(--line),0 0 0 100vmax rgba(0,0,0,.55)}
+  .side.open{display:flex}
+  /* the backdrop is a real layer under the drawer: a tap on it closes the
+     drawer and never reaches the page, which stops scrolling meanwhile */
+  .drawer-open,.drawer-open body{overflow:hidden}
+  .drawer-open body::after{content:"";position:fixed;inset:0;z-index:39;background:rgba(0,0,0,.55)}
   .menu{display:block;flex:0 0 auto}
   .bar{padding:0 16px;gap:8px}
   .search{position:static;width:36px;padding:0 10px}

@@ -10,20 +10,24 @@
 })();
 (function(){
   var root=window.__root||'.';
-  var q=document.getElementById('q'),res=document.getElementById('results'),idx=null,sel=-1;
+  var q=document.getElementById('q'),res=document.getElementById('results'),idx=null,loading=null,sel=-1;
   var side=document.getElementById('side'),nav=side.querySelector('.side-nav'),menu=document.getElementById('menu');
-  // below the breakpoint the sidebar is a drawer; the button, a nav link, an
-  // outside click and Escape all close it
-  function drawer(open){side.classList.toggle('open',open);menu.setAttribute('aria-expanded',open);if(open)reveal()}
+  // below the breakpoint the sidebar is a drawer; the button, a nav link, a
+  // tap on the backdrop and Escape all close it. The root class draws the
+  // backdrop (it takes the tap, so nothing underneath is clicked) and locks
+  // the page scroll.
+  function drawer(open){side.classList.toggle('open',open);document.documentElement.classList.toggle('drawer-open',open);
+    menu.setAttribute('aria-expanded',open);if(open)reveal()}
   menu.onclick=function(){drawer(!side.classList.contains('open'))};
   side.addEventListener('click',function(e){if(e.target.closest('a'))drawer(false)});
   document.addEventListener('keydown',function(e){
     if(e.key==='/'&&document.activeElement!==q){e.preventDefault();q.focus();q.select()}
     if(e.key==='Escape'){if(document.activeElement===q)q.value='';res.hidden=true;q.blur();drawer(false)}
   });
-  function load(cb){if(idx)return cb();fetch(root+'/search.json').then(function(r){return r.json()}).then(function(j){
+  // one fetch shared by every keystroke that arrives before the index does
+  function load(){return loading||(loading=fetch(root+'/search.json').then(function(r){return r.json()}).then(function(j){
     j.forEach(function(p){p.t=p.Title.toLowerCase();p.Parts.forEach(function(s){s.h=(s.Heading||'').toLowerCase();s.b=s.Text.toLowerCase()})});
-    idx=j;cb()})}
+    idx=j},function(e){loading=null;throw e}))}
   function esc(s){return s.replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
   // highlights on the raw text and escapes each piece, so a term never matches
   // inside an entity or an earlier <em>
@@ -31,26 +35,32 @@
     return t.split(re).map(function(x,i){return i%2?'<em>'+esc(x)+'</em>':esc(x)}).join('')}
   function snippet(t,terms){var l=t.toLowerCase(),i=-1;for(var k=0;k<terms.length;k++){i=l.indexOf(terms[k]);if(i>=0)break}
     if(i<0)i=0;var s=Math.max(0,i-60);return (s?'…':'')+mark(t.slice(s,s+160),terms)+'…'}
-  function count(s,w){return s.split(w).length-1}
+  // occurrences of w in s, stopping at 5 — every score caps a term there
+  function count(s,w){var n=0,i=s.indexOf(w);while(i>=0&&n<5){n++;i=s.indexOf(w,i+w.length)}return n}
   // a page ranks on its title and its whole text; the hit links to the
-  // section that matches best (the page top when only the title does)
+  // section that matches best (the page top when only the title does). One
+  // pass per section counts each term once and feeds both scores.
   function search(){var v=q.value.trim().toLowerCase();if(!v){res.hidden=true;return}
-    load(function(){var terms=v.split(/\s+/);var hits=[];
-      idx.forEach(function(p){var score=0,best=p.Parts[0],top=0;
-        terms.forEach(function(w){if(p.t.indexOf(w)>=0)score+=10;
-          score+=Math.min(p.Parts.reduce(function(n,s){return n+count(s.h,w)+count(s.b,w)},0),5)});
-        p.Parts.forEach(function(s){var n=0;terms.forEach(function(w){if(s.h.indexOf(w)>=0)n+=3;n+=Math.min(count(s.b,w),5)});
+    load().then(function(){var terms=v.split(/\s+/);var hits=[];
+      idx.forEach(function(p){var score=0,best=p.Parts[0],top=0,sum=terms.map(function(){return 0});
+        p.Parts.forEach(function(s){var n=0;terms.forEach(function(w,k){var h=count(s.h,w),b=count(s.b,w);
+            sum[k]+=h+b;if(h)n+=3;n+=b});
           if(n>top){top=n;best=s}});
+        terms.forEach(function(w,k){if(p.t.indexOf(w)>=0)score+=10;score+=Math.min(sum[k],5)});
         if(score>0)hits.push([score,p,best])});
       hits.sort(function(a,b){return b[0]-a[0]});hits=hits.slice(0,12);sel=-1;
       res.innerHTML=hits.map(function(h){var p=h[1],s=h[2];
         return '<a href="'+root+p.URL+(s.ID?'#'+s.ID:'')+'"><strong>'+esc(p.Title)+'</strong> <small>'+esc(p.Section)+(s.Heading?' › '+esc(s.Heading):'')+'</small><small>'+snippet(s.Text,terms)+'</small></a>'}).join('')||'<a><small>No results</small></a>';
       res.hidden=false})}
+  // a picked hit closes the panel and leaves the input, so a same-page
+  // anchor jump isn't covered by the results and the bar gets its breadcrumb back
+  function done(){res.hidden=true;sel=-1;q.blur();if(res.contains(document.activeElement))document.activeElement.blur()}
+  res.addEventListener('click',function(e){if(e.target.closest('a[href]'))done()});
   // the whole pill focuses the input; narrow screens show only its icon
   document.getElementById('search').addEventListener('click',function(e){if(!e.target.closest('.results'))q.focus()});
   q.addEventListener('input',search);q.addEventListener('focus',function(){if(q.value)search()});
   q.addEventListener('keydown',function(e){var as=res.querySelectorAll('a[href]');if(!as.length)return;
-    if(e.key==='ArrowDown'){sel=Math.min(sel+1,as.length-1)}else if(e.key==='ArrowUp'){sel=Math.max(sel-1,0)}else if(e.key==='Enter'&&sel>=0){location.href=as[sel].href;return}else return;
+    if(e.key==='ArrowDown'){sel=Math.min(sel+1,as.length-1)}else if(e.key==='ArrowUp'){sel=Math.max(sel-1,0)}else if(e.key==='Enter'&&sel>=0){var href=as[sel].href;done();location.href=href;return}else return;
     e.preventDefault();as.forEach(function(a,i){a.classList.toggle('sel',i===sel)})});
   document.addEventListener('click',function(e){if(!e.target.closest('.search'))res.hidden=true;
     if(side.classList.contains('open')&&!e.target.closest('#side,#menu'))drawer(false)});
@@ -116,14 +126,18 @@
 (function(){
   // copy button on every code block. A block written as a terminal session
   // ("$ cmd" lines followed by output) copies only the commands, prompt
-  // stripped; every other block copies verbatim.
+  // stripped, with the lines a trailing backslash continues; every other
+  // block copies verbatim.
   if(!navigator.clipboard)return;
   document.querySelectorAll('.doc pre > code').forEach(function(c){
     var pre=c.parentNode,b=document.createElement('button');
     b.type='button';b.className='copy';b.textContent='copy';b.setAttribute('aria-label','Copy to clipboard');
     b.onclick=function(){
-      var t=c.textContent,cmds=t.split('\n').filter(function(l){return /^\s*\$ /.test(l)});
-      if(cmds.length)t=cmds.map(function(l){return l.replace(/^\s*\$ /,'')}).join('\n');
+      var t=c.textContent,cmds=[],cont=false;
+      t.split('\n').forEach(function(l){
+        if(/^\s*\$ /.test(l))cmds.push(l.replace(/^\s*\$ /,''));else if(!cont)return;else cmds.push(l);
+        cont=/\\\s*$/.test(l)});
+      if(cmds.length)t=cmds.join('\n');
       navigator.clipboard.writeText(t.replace(/\n$/,'')).then(function(){
         b.textContent='copied';b.classList.add('done');
         setTimeout(function(){b.textContent='copy';b.classList.remove('done')},1500)});
