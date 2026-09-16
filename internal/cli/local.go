@@ -15,7 +15,7 @@ import (
 )
 
 // `any local ...` — the local store: device-local, non-CRDT any-store
-// collections that never sync (docs/26-local-store.md). One
+// collections that never sync. One
 // subcommand per /v1/local endpoint. Every data command takes the
 // collection NAME as its first argument; `--space ID` binds it to a
 // space, otherwise it is account-scoped.
@@ -25,7 +25,7 @@ func newLocalCmd() *cobra.Command {
 		Short: "local store: device-local, never-synced collections with any-store query/aggregate",
 		Long: `Device-local, non-CRDT collections in the server's own any-store DB.
 Nothing here syncs, subscribes, or is search-indexed; a space-scoped
-collection outlives its space. See docs/26-local-store.md.
+collection outlives its space.
 
   any local ensure scratch --index k,-at
   any local insert scratch --doc '[{"id":"a","k":1},{"k":2}]'
@@ -427,8 +427,7 @@ func newLocalExportCmd() *cobra.Command {
 		Short: "export collections as one gzip'd anyenc stream (any-store's dump format)",
 		Long: `Writes the named collections — or every collection in the scope when
 --names is absent — as one file: gzip around an anyenc value stream,
-a manifest first, then each collection's documents (docs/26-local-store.md
-§ Export and import). Storage names stay tagged, so
+a manifest first, then each collection's documents. Storage names stay tagged, so
 ` + "`any local import`" + ` on another server recreates the same collections.
 
   any local export --space <baoSpaceId> --names trace_runs,trace_records,trace_blobs --out traces.anyenc.gz

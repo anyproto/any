@@ -138,7 +138,7 @@ func (c *Client) LocalIndexes(ctx context.Context, req api.LocalIndexesRequest) 
 }
 
 // LocalExport — GET /v1/local/export: the named collections as one
-// gzip'd anyenc stream (docs/26-local-store.md § Export and import).
+// gzip'd anyenc stream.
 // The caller streams the body and MUST close it. names nil with a
 // scope exports every collection in that scope; both empty, the whole
 // local store.

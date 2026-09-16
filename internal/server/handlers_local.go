@@ -1075,9 +1075,8 @@ func (d *deps) localIndexes(c echo.Context) error {
 }
 
 // localExport handles GET /v1/local/export — the named collections as
-// one gzip'd anyenc value stream (docs/26-local-store.md § Export and
-// import). `names` is comma-separated and needs a scope (`spaceId`
-// implies `space`); without `names` every collection the (scope,
+// one gzip'd anyenc value stream. `names` is comma-separated and needs
+// a scope (`spaceId` implies `space`); without `names` every collection the (scope,
 // spaceId) listing would return is exported. No space pre-flight: like
 // drop, this is a path that must still work for a space that is gone.
 // Every ref is resolved before the first byte, so a missing collection

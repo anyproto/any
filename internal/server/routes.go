@@ -202,7 +202,7 @@ func buildEcho(d *deps) *echo.Echo {
 	// sync. Consumer-side like /search and /events, account-scoped (a
 	// space-scoped collection is addressed in the body), so it sits
 	// outside the space group. 409 local.disabled when local.enabled is
-	// false (deps.local == nil). See docs/26-local-store.md.
+	// false (deps.local == nil).
 	registerLocalRoutes(v1, d)
 
 	// Account-wide push notifications: device-token registration and

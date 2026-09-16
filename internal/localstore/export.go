@@ -1,7 +1,7 @@
 package localstore
 
 // Export / import — a collection-level dump of the local store
-// (docs/26-local-store.md § Export and import). The file is a gzip
+// The file is a gzip
 // stream (anyenc carries no checksum; gzip's CRC catches payload
 // corruption) around ONE anyenc value stream (any-store v2.1.1
 // `anyenc.Writer` / `anyenc.Reader`): the manifest object first, then
@@ -240,7 +240,7 @@ func importSection(ctx context.Context, coll anystore.Collection, dec *anyenc.Re
 		if err != nil {
 			return err
 		}
-		for i := 0; i < n; i++ {
+		for i := range n {
 			v, err := dec.Read(p)
 			if err != nil {
 				_ = tx.Rollback()
