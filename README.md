@@ -34,24 +34,27 @@ designed for long-lived sessions over structured data, with persistent memory.
 
 ## Built for collaboration
 
-Multiplayer collaboration is a core strength of Any. When people and agents
-work on the same records, a writer acting on an older copy can overwrite
-someone else's changes. Handling concurrent edits requires clear rules for
-applying and merging changes, along with a history you can inspect.
+Any is a general-purpose document database with collaboration built in.
+People and agents can work independently on shared data, even while offline.
 
-Server-side transactions help coordinate writes to a central database.
-Applications still need to reconcile changes made independently across
-devices, including edits made while those devices are offline.
+Collaboration takes more than accepting simultaneous writes. A writer
+working from an older copy can overwrite someone else's changes.
+Applications need to reconcile independent edits and keep a history of
+how their data evolved. Central transactions alone do not provide those
+behaviors across disconnected devices.
 
-In Any, each device writes to its local database. CRDTs merge changes as devices
-sync, whether they connect directly or through sync nodes. Those nodes
-store and relay encrypted content without being able to read it.
+In Any, each device writes to its local database. Conflict-free replicated
+data types (CRDTs) merge changes as devices sync. Devices that have received
+the same changes converge on the same state.
 
 [Field-level updates](website/04-database/writing-data.md) preserve concurrent
-edits to different properties. Writes to the same property resolve according
-to the [CRDT merge rules](website/01-understanding/crdt-and-consistency.md),
+edits to different properties. Concurrent writes to the same property resolve
+to one value according to the [CRDT merge rules](website/01-understanding/crdt-and-consistency.md),
 and the [version history API](docs/03-api.md#version-history) lets you inspect
 object changes.
+
+Devices sync directly or through sync nodes, which store and relay encrypted
+content without being able to read it.
 
 The sync layer builds on [any-sync](https://github.com/anyproto/any-sync),
 used on our production infrastructure for years across millions of users.
