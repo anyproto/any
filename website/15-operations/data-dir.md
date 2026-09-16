@@ -5,7 +5,7 @@ order: 30
 ---
 # Data directory
 
-`dataDir` (default `~/.any`) is a **root** that can hold several accounts. Each account keeps its wallet, instance lock, CRDT storage, file bytes and search index in its own subdirectory; the config file and the embedder model cache sit at the root and are shared.
+`dataDir` (default `~/.any`) is a **root** that can hold several accounts. Each account keeps its wallet, network pin, instance lock, CRDT storage, file bytes and search index in its own subdirectory; the config file and the embedder model cache sit at the root and are shared.
 
 ## Layout
 
@@ -14,11 +14,12 @@ order: 30
 ├── config.yaml                  # optional, if not passed via --config
 ├── models/                      # shared embedder model cache (all accounts)
 ├── wallet.key                   # LEGACY flat layout = the DEFAULT account;
-├── server.lock  server.pid      #   its data stays directly at the root
+├── network.json  server.*       #   its data stays directly at the root
 ├── sdk/  index/  files/         #   exactly as below
 └── <accountId>/                 # every other account
-    ├── wallet.key               # standalone: account + device keys (mode 0600)
+    ├── wallet.key               # standalone: mnemonic + device key (mode 0600)
     ├── device.key               # managed: cached device key (mode 0600); the account key is never written
+    ├── network.json             # the any-sync network this account's data belongs to
     ├── server.lock              # per-account single-instance lock (OS file lock)
     ├── server.pid               # holder's pid, for error messages only
     ├── server.addr              # holder's bound address, for the CLI only
@@ -27,14 +28,15 @@ order: 30
     └── index/                   # local search and link index (index.db) — owned by the indexer
 ```
 
-A `wallet.key` directly at the root is the legacy flat layout: it acts as the default account with its data flat at the root, and nothing migrates it. New accounts always nest. A standalone server keeps its keys in `wallet.key`; a managed server never writes the account key and caches only the device key in `device.key`, minted once so every login keeps the same peer id.
+A `wallet.key` directly at the root is the legacy flat layout: it acts as the default account with its data flat at the root, and nothing migrates it. New accounts always nest. A standalone server keeps the mnemonic and the device key in `wallet.key`, plain JSON unless a passkey encrypts it; a managed server never writes the account key and caches only the device key in `device.key`, minted once so every login keeps the same peer id.
 
 ## What each part is
 
 | Path | Owner | Contents | Derived? |
 |---|---|---|---|
-| `wallet.key` | server | standalone: the account's signing keys and this device's key | **no — the only copy of the device key** |
+| `wallet.key` | server | standalone: the mnemonic (the account) and this device's key | **no — the only copy of the device key** |
 | `device.key` | server | managed: this device's key, reused on every login of the account | no — removing it registers this install as a new device |
+| `network.json` | server | the id of the any-sync network the account's data belongs to, pinned on the first boot | no — without it the next boot adopts whatever network it starts on |
 | `server.lock` | server | the single-instance lock itself — an OS file lock, empty, released by the kernel when the process exits | yes |
 | `server.pid` | server | the lock holder's pid, written after acquiring; names it in `409 auth.account_in_use` and nothing more | yes |
 | `server.addr` | server | the lock holder's bound address; the CLI reads it when `--addr` is not given | yes |
@@ -43,7 +45,7 @@ A `wallet.key` directly at the root is the legacy flat layout: it acts as the de
 | `index/` | indexer | `index.db` — BM25 + vector index and link edges per space, cursors, schema version | yes — rebuilt from the synced data |
 | `models/` | indexer | the embedding model GGUF (~639 MB), one per root, not per account | yes — re-downloaded |
 
-> **Why it matters.** This directory *is* your database. There is no server-side copy to restore from — a device that syncs a space holds the whole space, and the account keys in `wallet.key` are what make the encrypted bytes readable. Treat it the way you would treat a private key directory.
+> **Why it matters.** This directory *is* your database. There is no server-side copy to restore from — a device that syncs a space holds the whole space. It is not encrypted at rest: records, the local store and the search index are readable by anyone who can read the directory, and a plain `wallet.key` holds the mnemonic itself. Treat it the way you would treat a private key directory.
 
 ## What is safe to delete
 
@@ -56,6 +58,7 @@ A `wallet.key` directly at the root is the legacy flat layout: it acts as the de
 | `files/` | **loses non-durable files** — bytes not yet backed up to the network have no other copy. Use the cache endpoints or per-file offload instead ([Cache](../files/cache.html)). |
 | `sdk/` | loses every unsynced change, forces a full re-sync of shared spaces and **loses the local store** (`/v1/local` collections have no backup); a wiped storage also restarts the index generation, which the indexer detects and re-indexes |
 | `wallet.key` | **loses this device's key**. The account survives if you kept the mnemonic — `any init --mnemonic` derives the same account id with a fresh device key. |
+| `network.json` | only to repair the pin: when the account was first booted on the wrong network, or the pin is unreadable (`500 auth.network_pin_corrupt`). Start the server on the account's network afterwards; that boot pins it again. |
 
 ## Backup and second devices
 
@@ -77,6 +80,10 @@ any auth status
 ```
 
 Two servers may share a root as long as they serve different accounts on different ports; the lock is per account.
+
+## Network pin
+
+An account's data only makes sense on the any-sync network that wrote it. The first boot records that network's id in the account dir's `network.json`, and a server configured for another network refuses the account before touching its dir: `any run` exits naming both ids, `POST /v1/auth` answers `409 auth.network_mismatch` with `details.pinned` and `details.configured`. Keep one data root per network ([Networks](networks.html)).
 
 ## Storage upgrades are one-way
 

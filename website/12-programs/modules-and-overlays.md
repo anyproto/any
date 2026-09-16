@@ -102,7 +102,7 @@ TOKEN=$(any --addr 127.0.0.1:7002 invite guest-key $REPO | jq -r .inviteToken)
 | Surface | Resolves from |
 |---|---|
 | `anyrt serve` and its control API's `POST /run` | spaces only — working space + overlay aliases; it structurally cannot read program source from disk |
-| `anyrt run <spec>` | the local `programs/` folder only (flat file wins over folder on a tie) |
+| `anyrt run <spec>` | the `--programs` directory only — default in the [anyrt CLI reference](../reference/anyrt-cli.html) (flat file wins over folder on a tie) |
 | `anyrt run --from-space <space>` | serve's resolver, one-shot — tests the *deployed* source |
 
 A broker has either the local directory or the space resolver, so every `module.resolve` record in one trace answers from one world.

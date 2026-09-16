@@ -48,7 +48,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$BAO/modify -H 'Content-Type: appli
     "args": {"space": "'$BAO'", "chatId": "'$CHAT'", "text": "standup in 5"}, "enabled": true }}]}]}'
 ```
 
-`$TRIGGER_ANCHOR` is the `bao/triggers/v1` child of the `bao/v1` bundle (`POST /v1/spaces/:id/bundles/bao%2Fv1/children {"seed": "bao/triggers/v1"}`).
+`$TRIGGER_ANCHOR` is the `bao/triggers/v1` child of the `bao/v1` bundle (`POST /v1/spaces/:id/bundles/bao%2Fv1/children {"seed": "bao/triggers/v1", "type": "<typeId>"}`, where `<typeId>` is the hidden `agent_trigger` type from `GET /v1/spaces/:id/types?includeHidden=true`).
 
 ## Lifecycle rules
 

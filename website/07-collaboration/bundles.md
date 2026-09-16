@@ -84,7 +84,7 @@ If a created and a derived root are both claimed for one id, the derived one win
 
 ## The usecase catalog
 
-The well-known apps that ship with the product — the wiki, collections, journal, meetings, people, CRM, the general chat — are bundles in a catalog embedded in the server, under `system:<name>/v<n>` ids. A **usecase** is a set of those bundles plus the usecases it `requires`. The catalog declares every type, collection, property and dataset its apps use, so each client, device and agent that sets a usecase up resolves the same ids instead of minting its own.
+The well-known apps that ship with the product — the wiki, the Collections app (the `collections` usecase: browse and manage objects by type), journal, meetings, people, CRM, the general chat — are bundles in a catalog embedded in the server, under `system:<name>/v<n>` ids. A **usecase** is a set of those bundles plus the usecases it `requires`. The catalog declares every type, collection, property and dataset its apps use, so each client, device and agent that sets a usecase up resolves the same ids instead of minting its own.
 
 Each catalog bundle declares a `type` (parts, layout, columns) **or** a `collection` (columns only), never both. The wiki is a collection — a wiki page keeps its own type and is filed under it — and so are the seven role facets `contact`, `investor`, `customer`, `partner`, `vendor`, `cofounder` and `candidate`: a contact is `type: person` filed under the contact collection, with each owner's values in its own namespace. `person`, `organization`, `deal`, `meeting`, `journal` and the general chat are types.
 
@@ -149,8 +149,10 @@ The server never merges; it enforces timing. A losing root arrives change by cha
 | 400 | `dataset.module_reserved` | a part naming a module reserved to the server |
 | 400 | `request.missing_field` | a bundle that declares nothing and has no `rootType` |
 | 400 | `type.not_found` | `rootType` does not exist in the space |
-| 400 | `collection.not_found` | a `rootCollections` entry does not exist in the space |
-| 400 | `collection.not_a_collection` | a `rootProperties` owner that is neither `rootType` nor a collection |
+| 400 | `type.not_a_type` | `rootType` names a collection — a collection goes in `rootCollections` |
+| 400 | `type.reserved_carrier` | `rootType` names a type only its own root may carry (the general chat's) |
+| 400 | `collection.not_found` | a `rootCollections` entry or a `rootProperties` owner does not exist in the space |
+| 400 | `collection.not_a_collection` | a `rootCollections` entry names a type, or a `rootProperties` owner is a type other than `rootType` |
 | 400 | `property.format_violation` | a `rootProperties` value does not fit its property's descriptor |
 
 Resolving an already-resolved root returns 204 — the call is idempotent.

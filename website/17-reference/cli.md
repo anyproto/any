@@ -81,10 +81,10 @@ any space subscribe  [same flags]                    # live space list, one fram
 any datasets [<spaceId>]                             # dataset schemas (JSON Schema + x-scope)
 any search <spaceId> <query> [--scopes basic,chat,props] [--limit N]
            [--mode hybrid|fts|vector] [--require T]... [--exclude T]...
-           [--max-data N] [--passages N]
+           [--max-data N] [--passages N] [--filter J]
 ```
 
-`any space settings` writes the account-private per-space settings object; push reads `notifyMode` from it: `any space settings $SP --set notifyMode=mentions`. `any search` defaults to `hybrid` and degrades to FTS when the server has no embedder — the reply's `mode` says which ran; `--limit` counts records, `--max-data` bounds each hit's text window (default 512 runes, `-1` = whole chunk), `--passages` adds up to 10 further matching chunks per record.
+`any space settings` writes the account-private per-space settings object; push reads `notifyMode` from it: `any space settings $SP --set notifyMode=mentions`. `any search` defaults to `hybrid` and degrades to FTS when the server has no embedder — the reply's `mode` says which ran; `--limit` counts records, `--max-data` bounds each hit's text window (default 512 runes, `-1` = whole chunk), `--passages` adds up to 10 further matching chunks per record, `--filter` keeps hits whose host object matches an objects-query filter (inline JSON, `@FILE` or `-`).
 
 Space create and list have no dedicated subcommand — use `curl` against `POST /v1/spaces` and `GET /v1/spaces`; join with `any join --token T` below.
 
@@ -151,7 +151,7 @@ any editor edit          <spaceId> <objectId> --old TEXT --new TEXT [--all] [--c
 any editor edit          <spaceId> <objectId> --edits '<json>'|@FILE|- [--collection NAME]
 ```
 
-`--collection` names the editor collection (default `editor_blocks`; a namespaced `<typeId>_<key>` for a part with its own editor). `editor edit` is `PATCH …/editor/:collection/markdown`: each `oldText` must match the current rendering exactly (whole-line fuzzy fallback for unicode punctuation and trailing whitespace) and, without `--all`, exactly once.
+`--collection` names the editor collection (default `editor_blocks`; a namespaced `<typeId>_<key>` for a part with its own editor). `editor edit` is `PATCH …/editor/:collection/markdown`: each `oldText` must match the current rendering exactly (whole-line fuzzy fallback for unicode punctuation and trailing whitespace) and, without `--all`, exactly once. The example needs `- [ ] buy milk` in the document; once it applies, running it again answers `markdown.no_match`.
 
 ```bash
 any editor edit $SP $DOC --old '- [ ] buy milk' --new '- [x] buy milk'

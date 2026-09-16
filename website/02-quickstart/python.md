@@ -126,14 +126,15 @@ msgs = call("POST", f"/spaces/{SPACE}/query", {
 })
 ```
 
-Page history with an absolute cursor rather than `offset`, which floats under writes:
+Page history with an absolute cursor rather than `offset`, which floats under writes. The cursor is the oldest record on the current page, so an empty page has nothing older:
 
 ```python
-older = call("POST", f"/spaces/{SPACE}/query", {
-    "objectId": CHAT, "dataset": "chat_messages",
-    "sort": ["-_ver.id"], "limit": 50,
-    "filter": {"_ver.id": {"$lt": msgs["records"][-1]["_ver"]["id"]}},
-})
+if msgs["records"]:
+    older = call("POST", f"/spaces/{SPACE}/query", {
+        "objectId": CHAT, "dataset": "chat_messages",
+        "sort": ["-_ver.id"], "limit": 50,
+        "filter": {"_ver.id": {"$lt": msgs["records"][-1]["_ver"]["id"]}},
+    })
 ```
 
 ## Writes

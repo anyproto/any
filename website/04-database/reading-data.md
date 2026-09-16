@@ -70,9 +70,9 @@ Multiple keys in one filter object are AND-ed. A bare value means `$eq`.
 
 ```json
 { "<ownerId>.<propId>": "Casablanca" }
-{ "<ownerId>.year":     { "$gte": 1940, "$lt": 1950 } }
-{ "<ownerId>.title":    { "$regex": "^The " } }
-{ "$or": [ { "<t>.a": 1 }, { "<t>.b": "x" } ] }
+{ "<ownerId>.<yearPropId>":  { "$gte": 1940, "$lt": 1950 } }
+{ "<ownerId>.<titlePropId>": { "$regex": "^The " } }
+{ "$or": [ { "<ownerId>.<propA>": 1 }, { "<ownerId>.<propB>": "x" } ] }
 ```
 
 An operator outside this set is `400 filter.unknown_operator`, with the token in `details.operator` and the supported list in the message; any other malformed filter is `400 filter.invalid`, located by `details.path`.
@@ -81,9 +81,9 @@ An operator outside this set is `400 filter.unknown_operator`, with the token in
 
 When a field is an array, the filter compares against its elements:
 
-- a **scalar** means *contains*: `{"<t>.tags": "food"}`;
-- **`$in`** means *intersects*: `{"<t>.tags": {"$in": ["a", "b"]}}`;
-- **`$all`** means *superset*: `{"<t>.tags": {"$all": ["a", "b"]}}`.
+- a **scalar** means *contains*: `{"any.tags": "food"}`;
+- **`$in`** means *intersects*: `{"any.tags": {"$in": ["a", "b"]}}`;
+- **`$all`** means *superset*: `{"any.tags": {"$all": ["a", "b"]}}`.
 
 There is deliberately no `$contains` — the scalar spelling already is it. `any.collections` is the array that matters most: `{"any.collections": "<collectionId>"}` lists what is filed under a collection, `$all` demands several at once, `$nin` excludes.
 
@@ -112,7 +112,7 @@ Instants filter as instants. Wrap the literal in `{"$date": …}`:
 
 ### Negation matches absent fields
 
-`$ne`, `$nin`, `$not` and `$exists: false` also match rows that simply lack the field. The `objects` storage collection holds *every* object in the space, type and collection definitions included, so `{"<t>.n": {"$ne": 2}}` returns piles of unrelated rows. Always scope a cross-object query by type or by collection: `{"any.type": "<typeId>", …}`, `{"any.collections": "<collectionId>", …}`.
+`$ne`, `$nin`, `$not` and `$exists: false` also match rows that simply lack the field. The `objects` storage collection holds *every* object in the space, type and collection definitions included, so `{"<ownerId>.<propId>": {"$ne": 2}}` returns piles of unrelated rows. Always scope a cross-object query by type or by collection: `{"any.type": "<typeId>", …}`, `{"any.collections": "<collectionId>", …}`.
 
 ## Sort
 

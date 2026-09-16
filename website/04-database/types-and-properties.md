@@ -34,9 +34,9 @@ curl http://127.0.0.1:7001/v1/spaces/$SPACE/types
 any type list $SPACE
 ```
 
-Each row is `{id, name, description?, iconCid?, xKey, builtIn, layout?, hidden?, meta?}`. The list starts with four synthetic built-ins — `any` (the universal group: `any.name`, `any.description`, `any.icon`, `any.tags`, `any.type`, `any.collections`), `spaceIndex`, `type` (the meta-type: `xkey`, `layout`, `hidden`, `meta`) and `collection` (the shape of collection objects) — then every registered built-in type (the hidden `page` and `dataview`), then user types; hidden types appear only with `includeHidden=true`. Built-ins report `builtIn: true` with `xKey` equal to their id, which reserves those ids against user definitions. The four synthetic ids are never set on an object; a type picker skips them.
+Each row is `{id, name?, description?, iconCid?, xKey, builtIn?, layout?, hidden?, meta?}`; flags are omitted when false, so read an absent `builtIn` or `hidden` as false. The list starts with four synthetic built-ins — `any` (the universal group: `any.name`, `any.description`, `any.icon`, `any.tags`, `any.type`, `any.collections`), `spaceIndex`, `type` (the meta-type: `xkey`, `layout`, `hidden`, `meta`) and `collection` (the shape of collection objects) — then every registered built-in type (the hidden `page` and `dataview`), then user types; hidden types appear only with `includeHidden=true`. Built-ins report `builtIn: true` with `xKey` equal to their id, which reserves those ids against user definitions. The four synthetic ids are never set on an object; a type picker skips them.
 
-`GET …/types/:typeId` and `GET …/types/:typeId/properties` answer `404 type.not_found` for an unknown id, and `400 type.not_a_type` when the id names a user collection — read that one through `…/collections/:collectionId`. A `200 []` from the properties list always means "exists, no properties yet".
+`GET …/types/:typeId` and `GET …/types/:typeId/properties` answer `404 type.not_found` for an unknown id, and `400 type.not_a_type` when the id names a user collection — read that one through `…/collections/:collectionId`. A built-in collection (`miniapp`, `bin`) has no type row and answers `404 type.not_found`. A `200 []` from the properties list always means "exists, no properties yet".
 
 ### Parts and layout
 
@@ -109,7 +109,7 @@ any type property patch $SPACE $TYPE $PROP --unset xFormat.options.low
 | `kind`, `scope`, `items`, `properties` | Pinned → `400 property.immutable`. |
 | containers (`meta`, `xFormat`, `xFormat.options`, `xFormat.options.<key>`, `xFormat.relation`, `xFormat.config`) | Rejected on `set`; allowed on `unset` (unsetting an option key deletes the option). |
 
-Other failures: unknown path or wrong leaf type → `400 request.invalid_field`; a slug that does not fit the kind, a reserved key or an unparseable `xFormat.relation.filter` → `400 property.format_invalid`; a taken `xKey` → `409 property.xkey_conflict`; a registered built-in → `400 type.registered`; a collection id on a `…/types` route (or a type id on a `…/collections` one) → `400 type.not_a_type` / `400 collection.not_a_collection`; unknown ids → `404 sdk.not_found`. Returns `204`.
+Other failures: unknown path or wrong leaf type → `400 request.invalid_field`; a slug that does not fit the kind, a reserved key or an unparseable `xFormat.relation.filter` → `400 property.format_invalid`; a taken `xKey` → `409 property.xkey_conflict`; a registered built-in → `400 type.registered`; a user collection's id on a `…/types` route (or a user type's id on a `…/collections` one) → `400 type.not_a_type` / `400 collection.not_a_collection`, while a built-in in the wrong slot is `404 type.not_found` / `404 collection.not_found`; unknown ids → `404 sdk.not_found`. Returns `204`.
 
 ## Remove a property
 

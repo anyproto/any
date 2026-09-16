@@ -45,13 +45,16 @@ The `xKey` must not collide with another type's or collection's handle, nor with
 
 ## Creating and listing pages
 
-Create an object with the type, and file it under the wiki collection if it belongs in the tree:
+Create an object with the type:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects \
+OBJ=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects \
   -H 'Content-Type: application/json' \
-  -d '{"type": "'$DOC'", "initialProperties": {"any": {"name": "Reading list", "tags": ["books"]}}}'
+  -d '{"type": "'$DOC'", "initialProperties": {"any": {"name": "Reading list", "tags": ["books"]}}}' \
+  | jq -r .objectId)
 ```
+
+To place it in the wiki tree, also send `"collections": ["<wikiCollectionId>"]` — the id the wiki's catalog setup returns.
 
 Then write its body through the editor — the object already holds the storage collection because its type declares the part:
 
@@ -61,15 +64,16 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_bloc
   -d '{"content": "# Reading list\n\n- [ ] Children of Time"}'
 ```
 
-List a space's documents with a filter on the type, most recently edited first:
+List a space's documents with a filter on the type, most recently edited first. A binned object keeps its type, so exclude the `bin` collection:
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/query \
   -H 'Content-Type: application/json' \
-  -d '{"filter": {"any.type": "'$DOC'"}, "sort": ["-modifiedAt"], "limit": 50}'
+  -d '{"filter": {"$and": [{"any.type": "'$DOC'"}, {"any.collections": {"$nin": ["bin"]}}]},
+       "sort": ["-modifiedAt"], "limit": 50}'
 ```
 
-The same body against `…/objects/query/subscribe` gives a live document list. Filter by label with `{"any.tags": "books"}` — array fields match on any element. "Every object with a body, whatever its type" is a filter on every type that shares the editor: the `owners` of `editor_blocks` in `GET /v1/spaces/:spaceId/datasets` (the built-in `page` is always among them), matched with `{"any.type": {"$in": [...]}}`.
+The same body against `…/objects/query/subscribe` gives a live document list. Filter by label with `{"any.tags": "books"}` — array fields match on any element. "Every object with a body, whatever its type" is a filter on every type that shares the editor: the `owners` of `editor_blocks` in `GET /v1/spaces/:spaceId/datasets` (the built-in `page` is always among them), matched with `{"$and": [{"any.type": {"$in": [...]}}, {"any.collections": {"$nin": ["bin"]}}]}`. A type's own definition row carries the marker in `any.type`, so it never matches and needs no exclusion.
 
 ## Built-in or bundle
 

@@ -74,6 +74,8 @@ Panics are converted to `500 internal` with a generic message.
 | `auth.account_in_use` | 409 | another process holds the account's instance lock (`details.pid` when known) |
 | `auth.passkey_required` | 400 | encrypted wallet; no or wrong passkey in the configured env var |
 | `auth.device_key_corrupt` | 500 | managed: the account's cached `device.key` is unreadable; never re-minted silently — remove it to mint a new device identity |
+| `auth.network_mismatch` | 409 | the account's data belongs to a different any-sync network than the server's config (`details.pinned`, `details.configured`) — use one data root per network |
+| `auth.network_pin_corrupt` | 500 | the account's `network.json` is unreadable; it is never rewritten from config — remove it and start on the account's network |
 | `control.forbidden` | 403 | managed server: control token (`X-Any-Control-Token`) missing or wrong |
 | `shutdown.not_managed` | 403 | standalone server refuses `POST /v1/shutdown`; use `any stop` or a signal |
 | `identity.not_found` | 404 | the identities directory has never seen this identity |
@@ -150,17 +152,17 @@ Panics are converted to `500 internal` with a generic message.
 | Code | Status | Meaning |
 |---|---|---|
 | `type.not_found` | 404 | unknown typeId (400 inside a bundle ensure) |
-| `type.not_a_type` | 400 | a `…/types` route, or `POST …/properties/:objectId/type/:typeId`, names a user **collection** (`details.collectionId`) — use the `…/collections` routes |
+| `type.not_a_type` | 400 | a `…/types` route, or `POST …/properties/:objectId/type/:typeId`, names a user **collection** (`details.collectionId`) — use the `…/collections` routes. A registered collection id (`miniapp`, `bin`) answers `404 type.not_found` |
 | `type.xkey_required` | 400 | a type or a collection created without an `xKey` |
 | `type.xkey_conflict` | 409 | `xKey` collides with an existing type's or collection's xKey or id (`details.xKey`, `details.existingTypeId` or `details.existingCollectionId`) — the two surfaces share one handle namespace; also raised by a bundle or catalog install |
 | `type.registered` | 400 | add/patch/remove a property, part or dataset, or PATCH the type, on a registered built-in type; also a column write on a registered built-in collection |
 | `type.reserved_carrier` | 400 | object create, `POST …/type/:typeId` or an `any.type` op names a type only its own root may carry (the general-chat root; `details.typeId`) |
 | `collection.not_found` | 404 | unknown collectionId (400 inside a bundle ensure) |
-| `collection.not_a_collection` | 400 | a `…/collections` route, or `POST …/properties/:objectId/collections/:collectionId`, names a user **type** (`details.typeId`) |
+| `collection.not_a_collection` | 400 | a `…/collections` route, or `POST …/properties/:objectId/collections/:collectionId`, names a user **type** (`details.typeId`). A registered type id (`page`, `dataview`) answers `404 collection.not_found` |
 | `collection.registered` | 400 | PATCH the metadata of a registered built-in collection (`miniapp`, `bin`) |
 | `membership.wrong_slot` | 400 | a raw `…/modify` write put a known collection id in `any.type` or a known type id in `any.collections` |
 | `membership.type_required` | 400 | a raw write cleared `any.type`; every object has exactly one type |
-| `property.not_found` | 404 | unknown propId, or a value write names a property the owner does not declare |
+| `property.not_found` | 400 | a value write names a property the owner — the object's type or one of its collections — does not declare |
 | `property.kind_mismatch` | 400 | write violated the immutable kind |
 | `property.xkey_conflict` | 409 | another property of the same type or collection holds this `xKey` (`details.xKey`, `details.existingPropId`) |
 | `property.immutable` | 400 | PATCH of a pinned path — `kind`, `scope`, `items`, `properties` (`details.path`) |

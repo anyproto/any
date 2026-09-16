@@ -13,9 +13,13 @@ The records live in a storage collection **namespaced to the type**, `<typeId>_<
 
 ## Declaring a dataset
 
-A dataset belongs to a part — the display unit a client renders it in. Declare the part first (or inline the dataset in the part's `datasets`):
+A dataset belongs to a part — the display unit a client renders it in — and a part belongs to a type. Create the type, declare the part (or inline the dataset in the part's `datasets`), then the dataset:
 
 ```sh
+TYPE=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "Blog", "xKey": "blog"}' | jq -r .typeId)
+
 PART=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/parts \
   -H 'Content-Type: application/json' \
   -d '{"key": "articles", "name": "Articles", "ui": {"type": "table"}}' | jq -r .partId)
@@ -33,8 +37,14 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/parts/$PART/data
     { "key": "updatedAt", "stamp": "modifyTime" }
   ] }'
 # → 201 {"datasetDefId": "…", "collection": "<typeId>_articles"}
+```
 
-any type part add         $SPACE $TYPE --draft '{"key":"articles","name":"Articles"}'
+The same with the CLI, `articles.json` holding the dataset body above:
+
+```sh
+TYPE=$(any type create $SPACE --name Blog --xkey blog | jq -r .typeId)
+PART=$(any type part add $SPACE $TYPE \
+  --draft '{"key":"articles","name":"Articles","ui":{"type":"table"}}' | jq -r .partId)
 any type part dataset add $SPACE $TYPE $PART --draft @articles.json
 ```
 
@@ -114,19 +124,35 @@ Runtime datasets also appear in the space's discovery document, `GET /v1/spaces/
 
 ## Writing and reading records
 
-The data path is the ordinary dataset surface — no new endpoints:
+The data path is the ordinary dataset surface — no new endpoints. Records live on an object of the declaring type:
 
 ```sh
-# write (the object's type must be the owning one; set it at create via "type")
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/modify -d '{
+OBJ=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
+  -H 'Content-Type: application/json' \
+  -d '{"type": "'$TYPE'", "initialProperties": {"any": {"name": "My blog"}}}' | jq -r .objectId)
+
+# write — "upsert": true creates the record; without it the op only updates an existing id
+curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/modify \
+  -H 'Content-Type: application/json' -d '{
   "objectId": "'$OBJ'", "dataset": "'$TYPE'_articles",
-  "records": [ { "id": "a1", "ops": [
+  "records": [ { "id": "a1", "upsert": true, "ops": [
     { "type": "$set", "path": "", "value": { "title": "Hello", "body": "…" } } ] } ] }'
+# → {"versionId": "…", "changeId": "…", "recordIds": ["a1"]}
 
 # read
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
+curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
+  -H 'Content-Type: application/json' \
   -d '{"objectId": "'$OBJ'", "dataset": "'$TYPE'_articles", "sort": ["-createdAt"]}'
 ```
+
+A `200` does not mean every record landed. The change commits, and whatever the handler refused at apply comes back in `rejections` — the same write without `upsert` on a fresh dataset is one, since strict mode updates only ids that exist:
+
+```json
+{ "versionId": "…", "changeId": "…", "recordIds": ["a1"],
+  "rejections": [ { "recordIndex": 0, "recordId": "a1", "opIndex": -1, "reason": "…" } ] }
+```
+
+`opIndex: -1` means the whole record was refused. A clean write has no `rejections` key, so check for it before treating a write as done.
 
 See [Writing data](writing-data.html) and [Reading data](reading-data.html) for the full `modify` / `query` bodies, and [Subscribe](../realtime/subscribe.html) for live updates. `idRule: user` datasets additionally get idempotent batch ingest through [Upsert](upsert.html).
 

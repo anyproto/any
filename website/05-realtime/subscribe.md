@@ -97,22 +97,29 @@ Recovery is the same for all of them: **open a new POST and take the fresh snaps
 
 ## Client example: fetch streaming, no EventSource
 
-Windowed subscribes are `POST`, so the browser's `EventSource` cannot open them. Parse the SSE frames from a streaming `fetch` body instead:
+Windowed subscribes are `POST`, so the browser's `EventSource` cannot open them. Parse the SSE frames from a streaming `fetch` body instead, and wrap the stream in one retry loop: a `closed` frame, a stream that ends without one, and a failed request all mean "open a new POST and replace the window with its snapshot":
 
 ```js
+const API = "http://127.0.0.1:7001/v1";
+const SPACE = "<spaceId>", CHAT = "<chatId>", ACCOUNT = "<accountId>";
+
+// Resolves with the `closed` reason, or null when the stream ends without one.
 async function subscribe(url, body, onFrame) {
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error((await res.json()).error.code);
+  if (!res.ok) {
+    const { error } = await res.json();
+    throw Object.assign(new Error(error.code), { status: res.status });
+  }
 
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   let buf = "";
   for (;;) {
     const { value, done } = await reader.read();
-    if (done) return;                       // connection dropped without `closed`
+    if (done) return null;                  // dropped without `closed`
     buf += value;
     let i;
     while ((i = buf.indexOf("\n\n")) >= 0) {  // one frame per blank line
@@ -123,24 +130,37 @@ async function subscribe(url, body, onFrame) {
         else if (line.startsWith("data:")) data += line.slice(5).trim();
         // lines starting with ":" are keepalive comments — ignore
       }
-      if (data) onFrame(event, JSON.parse(data));
+      if (!data) continue;
+      if (event === "closed") return JSON.parse(data).reason;
+      onFrame(event, JSON.parse(data));
     }
   }
 }
 
-const window = new Map();
-function run() {
-  subscribe("http://127.0.0.1:7001/v1/spaces/SPACE/query/subscribe",
-    { objectId: "CHAT", dataset: "chat_messages", sort: ["-_ver.id"], limit: 50 },
-    (event, data) => {
-      if (event === "snapshot") for (const r of data.records) window.set(r.id, r);
-      if (event === "changes") for (const ev of data) {   // empty lists are omitted
-        for (const r of ev.added ?? [])   window.set(r.id, r.doc);
-        for (const r of ev.updated ?? []) window.set(r.id, r.doc);
-        for (const r of ev.removed ?? []) window.delete(r.id);
+let messages = new Map();                   // id → message: the current window
+
+async function run() {
+  for (;;) {
+    try {
+      const reason = await subscribe(`${API}/spaces/${SPACE}/query/subscribe`,
+        { objectId: CHAT, dataset: "chat_messages", sort: ["-_ver.id"], limit: 50 },
+        (event, data) => {
+          if (event === "snapshot") messages = new Map(data.records.map(r => [r.id, r]));  // replace, never merge
+          if (event === "changes") for (const ev of data) {   // empty lists are omitted
+            for (const r of ev.added ?? [])   messages.set(r.id, r.doc);
+            for (const r of ev.updated ?? []) messages.set(r.id, r.doc);
+            for (const r of ev.removed ?? []) messages.delete(r.id);
+          }
+        });
+      if (reason === "deauthorized") {
+        const auth = await (await fetch(`${API}/auth`)).json();
+        if (!auth.authorized || auth.accountId !== ACCOUNT) return;  // signed out or switched: stop
       }
-      if (event === "closed") setTimeout(run, 500);   // every reason: resubscribe
-    }).catch(() => setTimeout(run, 2000));
+    } catch (e) {
+      if (e.status >= 400 && e.status < 500 && e.status !== 401) throw e;  // a bad request stays bad
+    }
+    await new Promise(r => setTimeout(r, 1000));
+  }
 }
 run();
 ```

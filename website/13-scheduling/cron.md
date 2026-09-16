@@ -80,7 +80,7 @@ Consequences:
 
 ## Pause, edit, delete
 
-Pausing is `enabled: false` on the record; deleting the record evicts it from the registry within a tick. A deleted id stays tombstoned server-side, so recreating a trigger means a new id. The running agent's control API offers the same operations against the live registry and writes them through to the record — see [Runs and monitoring](runs-and-monitoring.html).
+Pausing is `enabled: false` on the record; deleting the record evicts it from the registry within a tick. A deleted id stays tombstoned server-side, so recreating a trigger means a new id. The running agent's control API enables, disables and edits `spec` on triggers it has already adopted and writes those through to the record; creating and deleting are record writes only — see [Runs and monitoring](runs-and-monitoring.html).
 
 ## The standing jobs
 

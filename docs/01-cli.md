@@ -165,8 +165,8 @@ records (one hit per record, default 10, max 100); `--passages N`
 (max 10) adds a record's next best matching chunks to its hit;
 `--filter` (inline JSON, `@FILE`, or `-` for stdin) keeps only hits
 whose host object matches an `/objects/query` filter — e.g.
-`'{"any.types":{"$nin":["bin"]}}'` to search outside the bin, or a
-type id to search within an app's objects — in every mode
+`'{"any.collections":{"$nin":["bin"]}}'` to search outside the bin, or
+`'{"any.type":"<typeId>"}'` to search within one type's objects — in every mode
 (`docs/03-api.md` § search).
 
 `any space query` / `any space subscribe` wrap `POST /v1/spaces/query`

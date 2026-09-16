@@ -11,7 +11,7 @@ Your account can run the agent on several devices. A trigger's `owner` field say
 
 | `owner` | Meaning |
 |---|---|
-| `<peerId>` | pinned: fires on that device whenever its agent process is up, online or not, active or standby. An offline pinned device simply does not fire |
+| `<peerId>` | pinned: fires on that device whenever its agent process runs, with or without a network connection, active or standby. While that process is not running the trigger does not fire anywhere |
 | `""` | unassigned: the election-active device claims it and stamps its own peer id |
 | `anyrt-<pid>` | the stamp a device writes when it has no peer id; every reader treats it as unassigned |
 

@@ -396,7 +396,7 @@ func TestSearch_FilterResolveSkipsTombstones(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cond, err := query.ParseCondition(`{"any.types":{"$nin":["bin"]}}`)
+	cond, err := query.ParseCondition(`{"any.collections":{"$nin":["bin"]}}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +482,7 @@ func TestSearch_Filter(t *testing.T) {
 			`{"type":"paragraph","text":"budget review notes"}`, http.StatusCreated)
 	}
 	// B goes to the bin: the filter reads the live row, no re-index needed.
-	mustModify(t, e, http.MethodPost, base+"/properties/"+objB+"/attach/bin", "", http.StatusOK)
+	mustModify(t, e, http.MethodPost, base+"/properties/"+objB+"/collections/bin", "", http.StatusOK)
 
 	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
 	if err != nil {
@@ -517,7 +517,7 @@ func TestSearch_Filter(t *testing.T) {
 		t.Fatalf("unfiltered: %v", got)
 	}
 	for _, mode := range []string{"fts", "vector", "hybrid"} {
-		res = search(`{"query":"budget review","mode":"` + mode + `","filter":{"any.types":{"$nin":["bin"]}}}`)
+		res = search(`{"query":"budget review","mode":"` + mode + `","filter":{"any.collections":{"$nin":["bin"]}}}`)
 		if got := objects(res); len(got) != 1 || !got[objA] {
 			t.Fatalf("%s not-in-bin: %v, want only %s", mode, got, objA)
 		}
@@ -525,11 +525,11 @@ func TestSearch_Filter(t *testing.T) {
 			t.Fatalf("%s: truncated on a two-object space", mode)
 		}
 	}
-	res = search(`{"query":"budget","mode":"fts","filter":{"any.types":"bin"}}`)
+	res = search(`{"query":"budget","mode":"fts","filter":{"any.collections":"bin"}}`)
 	if got := objects(res); len(got) != 1 || !got[objB] {
 		t.Fatalf("in-bin: %v, want only %s", got, objB)
 	}
-	res = search(`{"query":"budget","mode":"fts","filter":{"$and":[{"any.types":"` + editorType + `"},{"any.types":{"$ne":"bin"}}]}}`)
+	res = search(`{"query":"budget","mode":"fts","filter":{"$and":[{"any.type":"` + editorType + `"},{"any.collections":{"$nin":["bin"]}}]}}`)
 	if got := objects(res); len(got) != 1 || !got[objA] {
 		t.Fatalf("type and not bin: %v, want only %s", got, objA)
 	}
@@ -543,16 +543,16 @@ func TestSearch_Filter(t *testing.T) {
 			t.Fatalf("%s must mean no filter: %v", body, got)
 		}
 	}
-	rawRec := doJSON(t, e, http.MethodPost, base+"/search", `{"query":"budget","mode":"fts","filter":{"any.types":{"$nin":["bin"]}}}`)
+	rawRec := doJSON(t, e, http.MethodPost, base+"/search", `{"query":"budget","mode":"fts","filter":{"any.collections":{"$nin":["bin"]}}}`)
 	if strings.Contains(rawRec.Body.String(), `"truncated"`) {
 		t.Fatalf("truncated must be absent when false: %s", rawRec.Body.String())
 	}
 
 	// The filter grammar's own 400s, before any space lookup.
 	for body, code := range map[string]string{
-		`{"query":"x","filter":{"any.types":{"$nope":1}}}`: "filter.unknown_operator",
-		`{"query":"x","filter":{"$and":5}}`:                "filter.invalid",
-		`{"query":"x","filter":"any.types"}`:               "filter.invalid",
+		`{"query":"x","filter":{"any.type":{"$nope":1}}}`: "filter.unknown_operator",
+		`{"query":"x","filter":{"$and":5}}`:               "filter.invalid",
+		`{"query":"x","filter":"any.type"}`:               "filter.invalid",
 	} {
 		rec := doJSON(t, e, http.MethodPost, base+"/search", body)
 		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"`+code+`"`) {

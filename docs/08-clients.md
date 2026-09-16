@@ -394,8 +394,8 @@ Call patterns:
 - **Narrow by object with `filter`, never by post-filtering hits.**
   `filter` takes the `/objects/query` grammar over the hit's host
   object row and binds every hit in every mode, with `limit` counting
-  matching records — so "outside the bin" is `{"any.types": {"$nin":
-  ["bin"]}}`, "within this app" is `{"any.types": "<typeId>"}`, "this
+  matching records — so "outside the bin" is `{"any.collections": {"$nin":
+  ["bin"]}}`, "within this type" is `{"any.type": "<typeId>"}`, "this
   month" is a `modifiedAt` range, and a combination is one `$and`.
   Dropping hits client-side returns short or empty pages whenever most
   hits fall outside the filter. Read `truncated` on the reply: when set,

@@ -717,7 +717,7 @@
                     },
                     "miniapp": {
                         "additionalProperties": {},
-                        "description": "Miniapp is the value map the catalog declares on the built-in\n`miniapp` type, `bundle` included — what an install writes and an\nadopt by a writer fills in where absent. Read the root for what it\ncarries.",
+                        "description": "Miniapp is the value map the catalog declares on the built-in\n`miniapp` collection, `bundle` included — what an install writes and an\nadopt by a writer fills in where absent. Read the root for what it\ncarries.",
                         "type": "object"
                     },
                     "properties": {
@@ -3233,7 +3233,7 @@
                     },
                     "filter": {
                         "additionalProperties": {},
-                        "description": "Filter keeps only hits whose host object matches this condition,\nin the /objects/query filter grammar verbatim (any.types,\n\u003ctypeId\u003e.\u003cpropId\u003e, modifiedAt, …), in every mode — like Require /\nExclude. The object's live row is checked, so a property write is\nhonored at once. Limit still counts matching records. An object\nwith no row never matches.",
+                        "description": "Filter keeps only hits whose host object matches this condition,\nin the /objects/query filter grammar verbatim (any.type,\nany.collections, \u003cownerId\u003e.\u003cpropId\u003e, modifiedAt, …), in every mode — like Require /\nExclude. The object's live row is checked, so a property write is\nhonored at once. Limit still counts matching records. An object\nwith no row never matches.",
                         "type": "object"
                     },
                     "limit": {

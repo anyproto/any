@@ -53,9 +53,11 @@ The server returns the id only. Clients recognise the well-known ids and show an
 
 ## Self-hosting
 
-A self-hosted any-sync deployment is described by its own nodeconf; point every device's server at it and they form a private network. Two operational consequences: an account's spaces live on one network — a data dir created against staging does not sync with production — and the push node must be configured separately if you run one.
+A self-hosted any-sync deployment is described by its own nodeconf; point every device's server at it and they form a private network. The push node must be configured separately if you run one.
 
-One account per data dir per network is the practical rule:
+An account's data belongs to the network that wrote it. The first boot pins that network's id in the account dir's `network.json`, and a server configured for another network refuses the account before touching its dir: `any run` exits naming both ids, `POST /v1/auth` answers `409 auth.network_mismatch` (`details.pinned`, `details.configured`). An account dir without a pin adopts the network it next boots on. If that was the wrong network, or the pin is unreadable (`500 auth.network_pin_corrupt`), remove `network.json` and start the server on the account's network ([Data directory](data-dir.html)).
+
+Keep one data root per network:
 
 ```bash
 any run --data-dir ~/.any                                          # production
