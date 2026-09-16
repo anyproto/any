@@ -127,4 +127,4 @@ curl -s $API/spaces/nope
 
 `401 auth.required` means the server has no account booted yet — `any init` was skipped, or the data dir holds several accounts and none was selected. `POST $API/auth` with `{}` generates one in place ([Accounts](../auth/accounts.html)).
 
-Next: the same four steps as [CLI](cli.html) commands, or in [JavaScript](javascript.html) / [Python](python.html).
+Next: the same four steps as [CLI](cli.html) commands, or in [Python](python.html).

@@ -88,7 +88,7 @@ val req = Request.Builder()
 client.newCall(req).execute().use { println(it.body!!.string()) }   // {"objectId":"bafy…"}
 ```
 
-Live reads are the same streaming POST as everywhere else — read the response body line by line and split on blank lines ([JavaScript](javascript.html) shows the parser; the frame set is in [Subscriptions](../realtime/subscribe.html)).
+Live reads are the same streaming POST as everywhere else — read the response body line by line and split on blank lines ([Subscriptions](../realtime/subscribe.html) shows the parser and the frame set).
 
 ## Lifecycle notes
 
