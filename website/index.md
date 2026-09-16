@@ -1,12 +1,12 @@
 ---
 title: any docs
-description: Documentation for any — the open source, reactive, local-first, end-to-end encrypted database with built-in chat and editor CRDTs, and a sandboxed runtime for jobs and agents that live in your data.
+description: Documentation for any — the reactive, local-first, end-to-end encrypted database with built-in chat and editor CRDTs, and a sandboxed runtime for jobs and agents that live in your data.
 ---
 <div class="hero">
 
 # Any
 
-The open source, reactive, **local-first** database. Documents live on your devices, merge as CRDTs, sync end-to-end encrypted, and answer Mongo-style queries with live subscriptions — online or not. Chat and a block editor are built in as CRDT modules, and **anyrt** runs sandboxed Python programs, scheduled jobs and agents next to your data instead of on someone else's server.
+A reactive, **local-first** database. Documents live on your devices, merge as CRDTs, sync end-to-end encrypted, and answer Mongo-style queries with live subscriptions — online or not. Chat and a block editor are built in as CRDT modules, and **anyrt** runs sandboxed Python programs, scheduled jobs and agents next to your data instead of on someone else's server.
 
 <div class="pills"><span class="pill">local-first</span><span class="pill cyan">e2e encrypted</span><span class="pill amber">crdt</span><span class="pill magenta">mongo queries</span><span class="pill">sse live queries</span><span class="pill cyan">wasm-sandboxed programs</span><span class="pill amber">single go binary</span></div>
 
@@ -15,16 +15,29 @@ The open source, reactive, **local-first** database. Documents live on your devi
 ## Get started
 
 <pre class="term"><code class="language-sh">$ any init
-<span class="out">account  A9f3…c21e   (mnemonic printed once — write it down)</span>
+<span class="out">{
+  "accountId": "A8tR…",
+  "created": true
+}</span>
 $ any run &
-<span class="out">listening 127.0.0.1:7001   network prod   bootstrapping…done</span>
-$ curl -s :7001/v1/spaces -d '{"name":"notes"}' | jq -r .id
-<span class="out">bafyrei…7q.1a2b3c</span>
-$ curl -s :7001/v1/spaces/$S/objects -d '{"type":"page","initialProperties":{"any":{"name":"hello"}}}'
-$ curl -sN :7001/v1/spaces/$S/objects/query/subscribe -d '{"sort":["-modifiedAt"],"limit":20}'
+<span class="out">LISTENING 127.0.0.1:7001</span>
+$ API=http://127.0.0.1:7001/v1
+$ S=$(curl -s $API/spaces -H 'content-type: application/json' -d '{"name":"notes"}' | jq -er .id)
+$ curl -s $API/spaces/$S/objects -H 'content-type: application/json' \
+    -d '{"type":"page","initialProperties":{"any":{"name":"hello"}}}'
+<span class="out">{
+  "objectId": "bafyrei…"
+}</span>
+$ curl -sN $API/spaces/$S/objects/query/subscribe -H 'content-type: application/json' \
+    -d '{"sort":["-modifiedAt"],"limit":20}'
 <span class="out">event: ready
-event: snapshot   {"records":[{"id":"…","any":{"name":"hello"},…}]}
-event: changes    …live from here, from every device you own</span></code></pre>
+data: {}
+
+event: snapshot
+data: {"records":[{"id":"bafyrei…","any":{"type":"page","name":"hello"},…}]}
+
+event: changes
+data: [{"versionId":"…","updated":[…]}]</span></code></pre>
 
 <div class="tiers">
 <div class="tier"><h3>Database</h3><p>Spaces of objects and datasets, typed properties, Mongo-style filters, aggregation pipelines, version history — every byte CRDT-merged and encrypted.</p><a href="database/index.html">Learn more</a></div>

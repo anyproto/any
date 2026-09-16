@@ -35,12 +35,14 @@ with a JSON HTTP API plus a CLI client.
 ## Install
 
 ```sh
-go install github.com/anyproto/any/cmd/any@latest
+go install -tags 'fts vector' github.com/anyproto/any/cmd/any@latest
 ```
 
-This drops a `any` binary into `$(go env GOBIN)` (or `$GOPATH/bin`). Build a
-server you will search with `make build` instead — the search index needs
-the `fts vector` build tags.
+This drops `any` into `$(go env GOBIN)` (or `$GOPATH/bin`). The `fts vector`
+tags compile in the search index; without them `/search` returns no hits.
+The local embedder loads the llama.cpp libraries from `llamacpp/` next to the
+binary: `make build` builds `bin/any` with them in `bin/llamacpp`, and release
+tarballs ship them.
 
 ## Quick start
 

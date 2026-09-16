@@ -5,7 +5,7 @@ order: 20
 ---
 # Encryption
 
-Everything that leaves a device is encrypted under keys that only space members hold. any-sync nodes store and relay changes; they cannot read them.
+Space content is encrypted on the device before it syncs, under keys only space members hold: any-sync nodes store and relay changes but cannot read them, and see only the metadata listed below. Requests to outside providers — the online embedder of the default `index.embedder: auto`, an agent's model or connectors — carry readable content to that provider; `index.embedder: local` keeps search indexing on the device ([Embedders](../search/embedders.html)).
 
 ## The key hierarchy
 
@@ -63,6 +63,6 @@ Space name and description are not exempt: they are stored in a derived in-space
 
 ## The local boundary
 
-Encryption protects data *between* devices. On the device itself the server is plaintext behind `127.0.0.1` — the trust boundary is the loopback interface, and anyone with a shell on the machine can call the API ([Security model](../operations/security-model.html)). The wallet file can additionally be encrypted with a passkey supplied via `ANY_WALLET_PASSKEY` or `--passkey-stdin`; the server never prompts for it interactively. A server started with `--mode managed` keeps no account key on disk at all: its host supplies the phrase over `POST /v1/auth` on every launch ([Accounts](../auth/accounts.html)).
+Encryption protects data *between* devices. On the device itself the server is plaintext behind `127.0.0.1` — the trust boundary is the loopback interface, and anyone with a shell on the machine can call the API ([Security model](../operations/security-model.html)). The data dir is not encrypted at rest either: records, the local store and the search index are readable by anyone who can read the directory ([Data directory](../operations/data-dir.html)). A standalone `wallet.key` holds the mnemonic and is plain JSON unless encrypted with a passkey supplied via `ANY_WALLET_PASSKEY` or `--passkey-stdin`; the server never prompts for it interactively. A server started with `--mode managed` keeps no account key on disk at all: its host supplies the phrase over `POST /v1/auth` on every launch ([Accounts](../auth/accounts.html)).
 
 > **Note.** There is no key escrow and no recovery flow. Lose the mnemonic and every device key derived from it, and the data is unrecoverable by design. Back the phrase up when `any init` prints it.

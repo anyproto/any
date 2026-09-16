@@ -5,7 +5,7 @@ order: 40
 ---
 # JavaScript
 
-Everything is `fetch`. The one wrinkle is live reads: the subscribe endpoints are POSTs (the filter body does not fit a query string), so the browser's `EventSource` does not apply — you read the response body as a stream and split SSE frames yourself. Below is the whole loop in ~60 lines, runnable in Node 18+ or a browser.
+Everything is `fetch`. The one wrinkle is live reads: the subscribe endpoints are POSTs (the filter body does not fit a query string), so the browser's `EventSource` does not apply — you read the response body as a stream and split SSE frames yourself. The blocks below form one file, runnable top to bottom as an ES module (top-level `await`) in Node 18+ (`client.mjs`) or a browser (`<script type="module">`).
 
 ```js
 const API = "http://127.0.0.1:7001/v1";
@@ -88,25 +88,36 @@ async function* sse(path, body, signal) {
 }
 
 const ctl = new AbortController();
-const view = new Map();                              // id → record: hold a window, not a database
+let view = new Map();                                // id → record: hold a window, not a database
 
-for await (const { event, data } of sse(`/spaces/${SPACE}/objects/query/subscribe`,
-    { filter: { "any.type": "page" }, sort: ["-modifiedAt"], limit: 20 }, ctl.signal)) {
-  if (event === "ready") continue;                   // stream is live after this
-  if (event === "snapshot") { for (const r of data.records) view.set(r.id, r); render(); }
-  if (event === "changes") {
-    for (const ch of data) {                         // a batch omits the lists it has nothing for
-      for (const r of ch.added ?? [])   view.set(r.id, r.doc);
-      for (const r of ch.updated ?? []) view.set(r.id, r.doc);
-      for (const r of ch.removed ?? []) view.delete(r.id);
-    }
-    render();
-  }
-  if (event === "closed") break;                     // terminal: reopen for a fresh snapshot
+function render() {
+  console.log([...view.values()].map(r => r.any?.name));
 }
+
+async function watch() {
+  for await (const { event, data } of sse(`/spaces/${SPACE}/objects/query/subscribe`,
+      { filter: { "any.type": "page" }, sort: ["-modifiedAt"], limit: 20 }, ctl.signal)) {
+    if (event === "ready") continue;                 // stream is live after this
+    if (event === "snapshot") {                      // the whole window: replace, never merge
+      view = new Map(data.records.map(r => [r.id, r]));
+      render();
+    }
+    if (event === "changes") {
+      for (const ch of data) {                       // a batch omits the lists it has nothing for
+        for (const r of ch.added ?? [])   view.set(r.id, r.doc);
+        for (const r of ch.updated ?? []) view.set(r.id, r.doc);
+        for (const r of ch.removed ?? []) view.delete(r.id);
+      }
+      render();
+    }
+    if (event === "closed") return data.reason;      // terminal: reopen for a fresh snapshot
+  }
+}
+
+watch().catch(e => { if (e.name !== "AbortError") console.error(e); });  // ctl.abort() closes it
 ```
 
-Rename the object from another tab or with `curl` and watch an `updated` entry arrive:
+`watch()` runs alongside the rest of the file and keeps the process alive until `ctl.abort()` or Ctrl-C. Rename the object and watch an `updated` entry arrive:
 
 ```js
 await call("POST", `/spaces/${SPACE}/properties/${objectId}/set/any`, { patch: { name: "Reading list 2026" } });
@@ -114,7 +125,7 @@ await call("POST", `/spaces/${SPACE}/properties/${objectId}/set/any`, { patch: {
 
 ## Recovery
 
-`closed` carries a reason — `server_shutdown`, `sdk_closed`, `overflow` (you drained too slowly), `drifted` (too much of the window left), `deauthorized` (the account was signed out or switched; read `GET /v1/auth` first). Each means the same thing for the stream: open a new POST and replace your window with the new `snapshot`. There is no replay and nothing to reconcile ([Subscriptions](../realtime/subscribe.html)).
+`closed` carries a reason — `server_shutdown`, `sdk_closed`, `overflow` (you drained too slowly), `drifted` (too much of the window left), `deauthorized` (the account was signed out or switched; read `GET /v1/auth` first). Each means the same thing for the stream: open a new POST and replace your window with the new `snapshot`. A stream that ends without `closed` means the same. There is no replay and nothing to reconcile; [Subscriptions](../realtime/subscribe.html) has the retry loop.
 
 ## Writing and reading back
 

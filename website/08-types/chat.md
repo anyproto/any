@@ -5,9 +5,9 @@ order: 10
 ---
 # Chat
 
-The `chat` module turns an object into a conversation: one `chat_messages` storage collection, one record per message, edits and reactions that merge on every peer, and read state the SDK maintains for you. An object holds it while its type declares a part with `{"module": "chat", "shared": true}` ([modules](index.html)); chat is shared-only, one conversation per object. You write through a handful of chat endpoints and read everything — including live updates and unread flags — through the ordinary query primitive.
+The `chat` module turns an object into a conversation: one `chat_messages` storage collection, one record per message, edits and reactions that merge on every peer, and read state the SDK maintains for you. The general chat's root declares its own type with a part `{"module": "chat", "shared": true}` ([modules](index.html)) and hosts its own messages; chat is shared-only, one conversation per object. You write through a handful of chat endpoints and read everything — including live updates and unread flags — through the ordinary query primitive.
 
-> **Note.** Chat is restricted for now. The `chat` module is reserved to the server: a space has exactly one chat, the general chat that the catalog's `general-chat` usecase installs (`system:general-chat/v1`, a derived root). A client cannot declare its own chat — a part, dataset or bundle body naming `chat` is `400 dataset.module_reserved` — and the chat's type is carried only by its own root: creating or attaching another object with it is `400 type.reserved_carrier`.
+> **Note.** The `chat` module is reserved to the server: a space has exactly one chat, the general chat that the catalog's `general-chat` usecase installs (`system:general-chat/v1`, a derived root). A client cannot declare its own chat — a part, dataset or bundle body naming `chat` is `400 dataset.module_reserved` — and the chat's type is carried only by its own root: creating or attaching another object with it is `400 type.reserved_carrier`.
 
 ## The model in four sentences
 
@@ -114,7 +114,7 @@ curl -N -X POST http://127.0.0.1:7001/v1/spaces/$SP/query/subscribe \
   -d '{"objectId": "'$CHAT'", "dataset": "chat_messages", "sort": ["-_ver.id"], "limit": 50}'
 ```
 
-Subscribe **descending** with a `limit`. The window holds the top of the sort, so with `-_ver.id` new arrivals enter it and the oldest drops out as `removed`; ascending would pin the oldest 50 forever. New messages arrive in `added` (with the full body in `doc`), edits in `updated`, deletes and reaction-offs in `removed`. Always set a limit — an unbounded subscribe risks overflowing the mailbox.
+Subscribe **descending** with a `limit`. The window holds the top of the sort, so with `-_ver.id` new arrivals enter it and the oldest drops out as `removed`; ascending would pin the oldest 50 forever. New messages arrive in `added` (with the full body in `doc`); edits and reaction toggles in `updated`; deletes (`deleted`) and messages leaving the window (`displaced`) in `removed`. Always set a limit — an unbounded subscribe risks overflowing the mailbox.
 
 `_ver.id` is the record's position in the sync DAG — logical order, not wall-clock time — stamped once at creation and never bumped by edits. Page into history with a one-shot query on the oldest id you hold:
 
@@ -137,7 +137,7 @@ const ms = v && typeof v === 'object' ? Date.parse(v.$date) : v * 1000;
 
 > **Why it matters.** Unread state in a hosted messenger is a server-side table the operator can read. Here it is computed by the SDK on your own device from the CRDT, synced only across your account's devices, and never encoded into the protocol at all — there is nothing for another member to observe.
 
-The SDK maintains, per message, the local flags `unread`, `unreadMention` (the message's `mentions` contains you) and `unreadReactions` (only ever set on messages **you authored** — a reaction is a signal to the author). Per chat, it maintains counter properties on the chat object's row, nested under the type container:
+The SDK maintains, per message, the local flags `unread`, `unreadMention` (the message's `mentions` contains you) and `unreadReactions` (only ever set on messages **you authored** — a reaction is a signal to the author). Per chat, it maintains counter properties on the chat object's row, under the `chat` module namespace (`chat.<property>`, not top-level):
 
 | Row path | Scope | Meaning |
 |----------|-------|---------|
@@ -181,10 +181,12 @@ Every `any://` reference in a message — text links and mentions, each attachme
 Each chat object's row already carries its counters, so a chat list is a plain objects query — `{"sort": ["-chat.unreadCount"]}` sorts unread-first, and a thousand chats cost one query. Do **not** subscribe to every chat to detect new messages. One space-wide objects subscription covers them all:
 
 ```json
-{ "filter": {"any.type": {"$in": ["<chat-declaring type ids>"]}}, "limit": 0 }
+{ "filter": {"$or": [{"any.type": {"$in": ["<chat-declaring type ids>"]}},
+                     {"id":       {"$in": ["<chat-declaring type ids>"]}}]},
+  "limit": 0 }
 ```
 
-The type ids are the `owners` of `chat_messages` in `GET /v1/spaces/:spaceId/datasets` — every type whose part declares the chat module; resolve them once per space and match `any.type` against the set with `$in`.
+The ids are the `owners` of `chat_messages` in `GET /v1/spaces/:spaceId/datasets` — every type whose part declares the chat module; resolve them once per space. Both arms are needed: an ordinary chat object names its type in `any.type`, while a declaring root — the general chat is one — hosts its own messages and matches by `id`.
 
 Counter went up → new unread in that chat; fetch `{"unread": true}` sorted `-_ver.id` with a small limit and toast only messages above a last-notified `_ver.id` you keep locally. Counter went down → the user read it somewhere (this window, another window, another device) — dismiss that chat's notifications. Total live surface for a desktop client: one objects subscription per space, one `/query/subscribe` for the open chat.
 

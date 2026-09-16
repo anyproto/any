@@ -9,7 +9,7 @@ None of these are new endpoints. They are the patterns that make a client correc
 
 ## 1. Writes go through the module's handler
 
-Chat and editor collections are written only through `…/chat/messages` and `…/editor/:collection/blocks` — the handler stamps `creator` / `createdAt` / `modifiedAt`, enforces author-only edit/delete, and keys reactions per identity. For documents pick the route by change shape: targeted edit → `PATCH …/editor/editor_blocks/markdown` with `{edits:[{oldText,newText}]}` (a stale quote fails with `markdown.no_match` instead of clobbering concurrent edits); full rewrite → `PUT`; tail growth → `POST …/markdown/append`. Never `GET → string-replace → PUT`.
+Chat and editor storage collections are written only through `…/chat/messages` and `…/editor/:collection/blocks` — the handler stamps `creator` / `createdAt` / `modifiedAt`, enforces author-only edit/delete, and keys reactions per identity. For documents pick the route by change shape: targeted edit → `PATCH …/editor/editor_blocks/markdown` with `{edits:[{oldText,newText}]}` (a stale quote fails with `markdown.no_match` instead of clobbering concurrent edits); full rewrite → `PUT`; tail growth → `POST …/markdown/append`. Never `GET → string-replace → PUT`.
 
 Every write returns `{versionId, changeId, recordIds}`, never the record. Stamp `versionId` on the paths you touched so you recognise your own change when it arrives on the stream.
 

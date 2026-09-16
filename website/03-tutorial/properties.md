@@ -158,7 +158,7 @@ Three rules make this simple rather than clever:
 
 - **One type, any number of collections.** The type is what the object is — replacing it with `POST …/properties/:objectId/type/:typeId` swaps the whole answer, and there is no unset. Filing and unfiling a collection is additive and idempotent, and neither is a delete: the old group's values stay on the row as read-tolerant orphan data, and setting the owner again brings them back.
 - **Column names never collide.** Each owner is its own namespace, so paths are `<ownerId>.<propId>` and a type and a collection can both have a `name` or a `date` property with the values kept apart. Filing an object is opening a second namespace on it, not merging columns into one flat row.
-- **Rendering comes from the type alone.** The layout and the parts are the type's; collections have neither. A client renders the credential layout and shows the subscription columns in the property panel next to the credential ones.
+- **Layout and parts come from the type alone; property groups come from every owner.** Collections have no layout and no parts, but each adds its columns. A client renders the credential layout and shows the subscription columns in the property panel next to the credential ones.
 
 Pick a type when the thing needs a layout, a body or any other part — Credential, Person, Task. Pick a collection when it is a facet on objects that keep their own type — Subscription, Reading list, Q3 launch ([Collections](../database/collections.html)).
 

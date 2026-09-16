@@ -15,7 +15,7 @@ The any server listens on `127.0.0.1:7001` and exposes one JSON API under `/v1/`
 - **Body limit** 1 MB on every route except file attach.
 - **Strict bodies**: endpoints whose OpenAPI schema carries `additionalProperties: false` answer `400 request.unknown_field` for any unknown top-level key. `GET /v1/openapi.json` is the authoritative list.
 - **Unauthorized server**: until an account is booted, every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth` answers `401 auth.required`.
-- **Tech space**: `GET /v1/account` returns its id as `techSpaceId`. It is a valid `:spaceId` for bundles, for types and records on bundle roots, and for the space read, sync-status, debug and sync routes; every other space-scoped route there answers `405 space.unsupported`.
+- **Tech space**: `GET /v1/account` returns its id as `techSpaceId`. It is a valid `:spaceId` for bundles, for types, collections and records on bundle roots, and for the space read, sync-status, debug and sync routes; every other space-scoped route there answers `405 space.unsupported`.
 
 ### Write result
 
@@ -48,7 +48,7 @@ curl http://127.0.0.1:7001/v1/health        # any status
 | POST | `/v1/auth` | `{}` \| `{mnemonic, index?, replace?}` \| `{accountId}` (+ header `X-Any-Control-Token` on managed) | `{accountId, created, mnemonic?, alreadyAuthorized?}` | generates / restores / selects an account and boots the engine in place; the running account answers `200 {alreadyAuthorized: true}`; `replace: true` switches a managed server in place; `mnemonic` returned once, only when generated |
 | DELETE | `/v1/auth` | header `X-Any-Control-Token` | 204 | managed only: tears the account down in place, the server stays up unauthorized (`403 auth.not_managed` on standalone) |
 
-Errors: `400 auth.bad_mnemonic`, `400 request.invalid_field` (mnemonic + accountId together, `index` without `mnemonic`, `replace` without a credential, `accountId` on a managed server), `403 control.forbidden`, `403 auth.not_managed`, `404 auth.account_not_found`, `409 auth.account_in_use`, `409 auth.account_mismatch`, `409 auth.mnemonic_mismatch`, `409 auth.already_authorized`, `400 auth.passkey_required`, `409 sdk.crdt_version_newer`, `500 auth.device_key_corrupt`. Details and the decision table: [Accounts](../auth/accounts.html).
+Errors: `400 auth.bad_mnemonic`, `400 request.invalid_field` (mnemonic + accountId together, `index` without `mnemonic`, `replace` without a credential, `accountId` on a managed server), `403 control.forbidden`, `403 auth.not_managed`, `404 auth.account_not_found`, `409 auth.account_in_use`, `409 auth.account_mismatch`, `409 auth.mnemonic_mismatch`, `409 auth.already_authorized`, `409 auth.network_mismatch`, `400 auth.passkey_required`, `409 sdk.crdt_version_newer`, `500 auth.device_key_corrupt`, `500 auth.network_pin_corrupt`. Details and the decision table: [Accounts](../auth/accounts.html).
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/auth -d '{}'      # any auth login
@@ -85,7 +85,7 @@ curl -X POST http://127.0.0.1:7001/v1/auth -d '{}'      # any auth login
 | POST | `/v1/spaces/derived/:name` | — | 201 `SpaceInfo` | idempotent; `404 space.derived_unknown`, `409 space.deleted` |
 | GET | `/v1/spaces/:spaceId/datasets` | — | `{datasets: [{name, schema, owners?, module, shared?}]}` | JSON Schema with `x-scope` per field; `owners` = the types whose parts declare the storage collection |
 | GET | `/v1/datasets` | — | `{datasets: [{name, schema}]}` | tech-space system datasets |
-| POST | `/v1/spaces/:spaceId/search` | `{query, scopes?, limit?, mode?, require?, exclude?, maxData?, passages?}` | `{hits, mode, vectorStatus}` | local index, not an SDK method; `limit` counts records (default 10), `passages` ≤ 10; `409 index.disabled`, `400 index.no_embedder`, `503 index.embedder_unavailable`, `409 index.terms_unsupported`, `400 search.bad_mode`, `400 search.bad_scope` |
+| POST | `/v1/spaces/:spaceId/search` | `{query, scopes?, limit?, mode?, require?, exclude?, maxData?, passages?, filter?}` | `{hits, mode, vectorStatus, truncated?}` | local index, not an SDK method; `limit` counts records (default 10), `passages` ≤ 10; `filter` is an objects-query filter on the host object's row, `truncated` marks a short filtered page that may not be exhaustive; `400 filter.invalid`, `400 filter.unknown_operator`, `409 index.disabled`, `400 index.no_embedder`, `503 index.embedder_unavailable`, `409 index.terms_unsupported`, `400 search.bad_mode`, `400 search.bad_scope` |
 
 `SpaceInfo` fields worth knowing: `spaceIndexObjectId`, `createdAt`, `spaceType` (`any.space` \| `any.onetoone`), `author`, `ownRole` (`owner\|admin\|writer\|reader\|guest\|none`), `settings`, `push`, `derived`, `status`.
 
@@ -223,7 +223,7 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| GET | `/v1/spaces/:spaceId/types` | `includeHidden?` | `{types}` | built-ins `any`, `spaceIndex`, `type`, `collection` first, then the registered hidden `page` / `dataview`, then user types; hidden types (bundle roots and hidden built-ins) only with `includeHidden=true` |
+| GET | `/v1/spaces/:spaceId/types` | `includeHidden?` | `{types}` | built-ins `any`, `spaceIndex`, `type`, `collection` first, then the registered hidden `page` / `dataview`, then user types; hidden types (the hidden built-ins, and bundle roots installed with `hidden: true`) only with `includeHidden=true` |
 | POST | `/v1/spaces/:spaceId/types` | `{name?, description?, iconCid?, xKey, layout?, hidden?, meta?}` | 201 `{typeId}` | `400 type.xkey_required`, `409 type.xkey_conflict` (one handle namespace with collections); properties and parts are added through their own routes |
 | GET | `/v1/spaces/:spaceId/types/:typeId` | — | `TypeInfo` | `404 type.not_found`; `400 type.not_a_type` for a user collection id |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId` | — | — | `501 sdk.not_implemented` |
@@ -250,7 +250,7 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 | DELETE | `…/collections/:collectionId` | — | — | `501 sdk.not_implemented` |
 | GET/POST/PATCH/DELETE | `…/collections/:collectionId/properties[/:propId]` | as the `…/types` twins | as the `…/types` twins | one property surface: same bodies, same codes; a column write on a built-in is `400 type.registered` |
 | GET | `/v1/spaces/:spaceId/properties/:objectId` | — | `{record}` | raw `objects` row |
-| POST | `/v1/spaces/:spaceId/properties/:objectId/set/:ownerId` | `{patch: {propId: value}}` | write result | `ownerId` is the object's type or one of its collections; routes by the props' declared scope; `400 property.format_violation`, `property.kind_mismatch`, `property.not_found` |
+| POST | `/v1/spaces/:spaceId/properties/:objectId/set/:ownerId` | `{patch: {propId: value}}` | write result | `ownerId` is the object's type, one of its collections, or a module namespace its type grants (`chat` for `chat.notifyMode`); routes by the props' declared scope; `400 property.format_violation`, `property.kind_mismatch`, `property.not_found` |
 | POST | `…/properties/:objectId/type/:typeId` | — | write result | `$set any.type`, replacing the previous one (no unset; a raw `$unset` is `400 membership.type_required`); checks both ids (`404 object.not_found`, `404 type.not_found`, `400 type.not_a_type`); `400 type.reserved_carrier` |
 | POST | `…/properties/:objectId/collections/:collectionId` | — | write result | idempotent `$addToSet any.collections`; checks both ids (`404 object.not_found`, `404 collection.not_found`, `400 collection.not_a_collection`); `collections/bin` also stamps `bin.movedAt` / `bin.movedBy` |
 | DELETE | `…/properties/:objectId/collections/:collectionId` | — | write result | idempotent `$pull`; checks neither id (the repair path); values and records stay as orphan data; `collections/bin` clears the stamps |

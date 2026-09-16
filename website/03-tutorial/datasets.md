@@ -29,7 +29,7 @@ Both are read, subscribed to and synced the same way. They differ in what a row 
 | Lives in | the space-wide `objects` storage collection | a storage collection owned by one object |
 | Query scope | the whole space — every object, any mix of types | that one object's records |
 | Id | minted by the server | chosen by you (`idRule: user`) or derived from the change |
-| Shape | the columns of every type it carries; can carry several | one schema, declared once |
+| Shape | its one type's columns, plus one group per collection it is filed under | one schema, declared once |
 | Rules | kind and format checks on values | required fields, write-once fields, server stamps, author-only delete |
 | Cost of many | one change per object | one change per page of 500 records |
 | Bulk import | one create per object | `/upsert` — safe to re-run, unchanged records skipped |

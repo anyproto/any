@@ -51,7 +51,7 @@ data: [{ "versionId": "…", "removed": [{ "id": "<fileId>", "reason": "deleted"
 Only `reason: "deleted"` means the file is gone; `"displaced"` means it merely left the window's limit. Drop the row from your view and, if the deleted file had variants, expect their ids to follow. Without a subscription, a `GET …/files?objectId=` after the deletion syncs simply no longer lists the file, and the per-space `GET …/files/stats` counts drop accordingly.
 
 ```bash
-any file query-subscribe $SP $OBJ --limit 50     # one JSON line per frame
+any file query-subscribe $SP $OBJ --sort=-_ver.id --limit 50     # one JSON line per frame
 any file list $SP --object $OBJ
 ```
 

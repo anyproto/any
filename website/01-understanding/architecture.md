@@ -85,9 +85,9 @@ The loopback address is the trust boundary: no TLS, no per-client authentication
 
 ## Clients and anyrt
 
-Everything above the server is a client of it — the web UI, the CLI, the language bindings, and **anyrt**, the sandboxed runtime that executes Python programs and agents. anyrt talks to the same HTTP API as any other client, which is what lets a program or an agent work on your data without the data leaving the machine ([Programs and effects](programs-and-effects.html)).
+Everything above the server is a client of it — the web UI, the CLI, the language bindings, and **anyrt**, the sandboxed runtime that executes Python programs and agents. anyrt talks to the same HTTP API as any other client, so a program or an agent reads and writes your data on the machine; anything it sends out — a model call, a connector request — goes through its logged effects ([Programs and effects](programs-and-effects.html)).
 
-> **Why it matters.** In a hosted backend the database, the auth, the business logic and the sync all live on a server you rent. Here the only thing that lives outside your device is a relay for ciphertext, and every layer that can read data is one you run. That is why the API can promise offline reads and writes, why membership is enforced by signatures instead of sessions, and why the design choices on the following pages look the way they do.
+> **Why it matters.** In a hosted backend the database, the auth, the business logic and the sync all live on a server you rent. Here the sync network is a relay for ciphertext, and the database, the auth and the logic run on your device. Content reaches an outside party only through an outside provider — the online embedder of the default `index.embedder: auto`, an agent's model — and only what that provider is sent. That is why the API can promise offline reads and writes, why membership is enforced by signatures instead of sessions, and why the design choices on the following pages look the way they do.
 
 ## Further reading
 

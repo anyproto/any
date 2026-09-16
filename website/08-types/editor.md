@@ -107,7 +107,7 @@ Re-PUTting a GET writes nothing (`unchanged` equals the block count), so a clien
 
 ### Surgical edits with PATCH
 
-PATCH is for callers — LLM agents above all — that know the *text* they want changed but not the block ids:
+PATCH is for callers — LLM agents above all — that know the *text* they want changed but not the block ids. Each `oldText` must already be in the document:
 
 ```bash
 curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/markdown \
@@ -128,7 +128,7 @@ The server renders the current canonical markdown (exactly the bytes GET returns
 - Every `oldText` matches against the **original** document, independently of the other edits; matched regions must not overlap.
 - Without `replaceAll` the match must be unique. `newText` may be empty; deleting a whole block takes one blank-line separator with it so the neighbours become adjacent.
 - Exact match first; on zero hits a whole-line fuzzy fallback folds unicode punctuation to ASCII (curly quotes, dashes, NBSP) and ignores trailing whitespace. A mid-line fragment is never fuzzy-matched — re-GET and quote exactly.
-- All-or-nothing: any failing edit rejects the whole request and nothing is written. Byte-identical results are a 200 no-op, so ticking an already-ticked box is idempotent.
+- All-or-nothing: any failing edit rejects the whole request and nothing is written. A request whose result is byte-identical to the current document is a 200 no-op, but repeating an edit that already applied is not: the `oldText` is gone, so the retry answers `400 markdown.no_match`. After an uncertain retry, GET the document and check for `newText` before treating the edit as lost.
 
 | Error code | Meaning / recovery |
 |------------|--------------------|

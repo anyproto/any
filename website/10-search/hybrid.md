@@ -53,11 +53,30 @@ The reply's `mode` is the mode that actually ran, and `vectorStatus` says whethe
 | `used` | the vector leg ran and contributed | trust the fused ranking |
 | `unavailable` | an embedder is configured but did not embed the query — unreachable, or not within `index.search.queryEmbedTimeout` — so results are lexical-only | retry later; results may differ |
 | `disabled` | this server has no embedder — vector can never run until config changes | adjust the query toward exact terms; don't retry |
-| `skipped` | the caller asked for `mode: "fts"` | the echo of your own choice |
+| `skipped` | the caller asked for `mode: "fts"`, or a `filter` matched no object so no leg ran | the echo of your own choice, or an empty filtered set |
 
-With `unavailable` or `disabled`, `mode` in the reply reads `fts` even though the request said `hybrid`. Pure `vector` mode does not degrade this way — it errors instead (see [Vector search](vector.html)).
+When a leg runs, `unavailable` or `disabled` makes `mode` in the reply read `fts` even though the request said `hybrid`. Pure `vector` mode does not degrade this way — it errors instead (see [Vector search](vector.html)).
 
 The query embedding is bounded by `index.search.queryEmbedTimeout` (default 5 s), so a model still loading, a wedged local embedder or a slow API turns into a lexical-only answer instead of a stalled search. The local embedder serves a search query ahead of queued index documents, so a busy re-index delays a query by at most the one decode in flight. Under `auto` the online API gets half the budget, leaving the local fallback time to answer.
+
+## Filtering by host object
+
+`filter` keeps only hits whose host object matches, in the [objects query](../database/reading-data.html) filter grammar verbatim — `any.type`, `any.collections`, `<ownerId>.<propId>`, `modifiedAt`, `id`. It binds every mode, like `require` / `exclude`, and checks the object's live row, so a property write counts at once. `limit` still counts matching records.
+
+```bash
+curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/search \
+  -H 'content-type: application/json' \
+  -d '{"query": "reranker", "filter": {"any.collections": {"$nin": ["bin"]}}}'
+```
+
+```bash
+any search $SPACE reranker --filter '{"any.collections": {"$nin": ["bin"]}}'
+```
+
+Two replies need care:
+
+- A filter no object matches answers `hits: []` without running a leg: `mode` echoes the request, and `vectorStatus` reads `skipped` (`disabled` on a server without an embedder).
+- `truncated: true` means a leg's read budget ran out under the filter while the page held fewer than `limit` records. The index may hold more matches, so a short page is not exhaustive — narrow the filter or the query. Without a filter the field is absent.
 
 > **Why it matters.** The embedder is the one moving part that can be absent or temporarily down — a model still downloading, an API outage, a laptop without the shared libraries. Degrading to full-text keeps search answering; reporting it lets the caller decide how much to trust a thin result.
 

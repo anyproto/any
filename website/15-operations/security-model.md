@@ -1,11 +1,11 @@
 ---
 title: Security model
-description: Loopback is the process boundary, end-to-end encryption is the data boundary — what each protects, what the CORS allowlist is for, and what is deferred.
+description: Loopback is the process boundary, end-to-end encryption is the data boundary — what each protects, what the CORS allowlist is for, and what the server does not provide.
 order: 50
 ---
 # Security model
 
-There are two boundaries. The HTTP socket is **localhost-only with no authentication**: anyone who can run a process on the machine can call it. The data is **end-to-end encrypted with keys that never leave the device**: nothing on the network — sync nodes, coordinator, file nodes, push node — can read it. Understanding which boundary protects what is most of operating `any` safely.
+There are two boundaries. The HTTP socket is **localhost-only with no authentication**: anyone who can run a process on the machine can call it. The data is **end-to-end encrypted before it syncs**: sync nodes, coordinator, file nodes and the push node relay ciphertext they cannot read. Neither boundary covers the disk or outside providers — the data dir is not encrypted at rest, and an online embedder reads the text it embeds. Understanding which boundary protects what is most of operating `any` safely.
 
 ## The socket: loopback, no auth
 
@@ -13,7 +13,7 @@ There are two boundaries. The HTTP socket is **localhost-only with no authentica
 - The trust model is the operating-system user: a local process that can open a TCP connection to the port has the same power as the CLI. That is the same trust a local database socket or a browser's local profile directory has.
 - Lifecycle is gated by **ownership, not authentication**: a standalone server refuses `POST /v1/shutdown`, `DELETE /v1/auth` and account switches outright (`403`), and a managed server accepts them only with the control token its host holds — so another local process cannot log it into a different account or sign it out over HTTP. Lifetime stays uid-bounded: any same-user process can still `any stop` or `kill` a server, token or not. Everything else on the socket stays open to any local process.
 
-> **Why it matters.** Because the server never listens off-host, the whole remote attack surface is the any-sync protocol, which carries ciphertext and signed ACL records. A remote-access story — TCP auth, TLS — is deferred until it exists as a designed feature rather than a bolt-on.
+> **Why it matters.** Because the server never listens off-host, the whole remote attack surface is the any-sync protocol, which carries ciphertext and signed ACL records.
 
 ## CORS: a fixed allowlist, not a hole
 
@@ -34,19 +34,20 @@ Custom schemes are unclaimable by web content and `.localhost` is pinned to loop
 - Profiles pushed to the identity directory are encrypted too — a contact's name resolves only once their key arrives through a shared space or a direct-space invite ([Identities](../auth/identities.html)).
 - Push notifications are encrypted by the sender with keys derived from ACL state; the push node sees topics, not content ([Push](../notifications/push.html)).
 - Files are encrypted as UnixFS DAGs before leaving the device ([Files](../files/index.html)).
+- Search indexing is outside this boundary: with the default `index.embedder: auto` the text of indexed documents and search queries goes to the online embedding provider; `local` keeps it on the device ([Embedders](../search/embedders.html)).
 
-What the network can observe: which peer ids sync which space ids, timing and sizes. What it cannot: any record, any file byte, any name.
+What the network can observe: which peer ids sync which space ids, each space's ACL (member public keys and permissions), object and change ids, DAG shape, sizes and timing, and push topics. What it cannot: field values, records, file contents and names, space names, profiles or message text ([Encryption](../understanding/encryption.html)).
 
 ## Secrets on this machine
 
 | Secret | Where | Notes |
 |---|---|---|
-| mnemonic | printed once by `any init`, never stored | back it up; it is the account |
-| `wallet.key` | `<account-dir>/wallet.key`, mode 0600 | standalone; optionally encrypted with a passkey (`ANY_WALLET_PASSKEY` or `--passkey-stdin`, never an interactive prompt) |
+| mnemonic | standalone: inside `wallet.key`; managed: memory only — the host supplies it over `POST /v1/auth` on every boot | printed once by `any init`; back it up, it is the account |
+| `wallet.key` | `<account-dir>/wallet.key`, mode 0600 | standalone; holds the mnemonic and this device's key as plain JSON unless a passkey encrypts it (`ANY_WALLET_PASSKEY` or `--passkey-stdin`, never an interactive prompt) — whoever reads a plain file holds the account |
 | `device.key` | `<account-dir>/device.key`, mode 0600 | managed; the device key only — the host supplies the account key on each boot and the server holds it in memory |
 | control token | printed once as `CONTROL_TOKEN <hex>` to the spawning host, or passed in-process | managed; never logged, never on disk; the CLI takes it from `ANY_CONTROL_TOKEN` |
 | embedder API key | `index.openai.apiKey` | sent as a Bearer header, never logged |
-| data on disk | `sdk/`, `files/`, `index/` | plaintext-readable with the wallet — protect the directory like a key store ([Data directory](data-dir.html)) |
+| data on disk | `sdk/`, `index/`, `files/` | not encrypted at rest: records, the local store and indexed text are readable without the wallet; `files/` holds file content encrypted. Protect the directory like a key store ([Data directory](data-dir.html)) |
 
 Error responses never carry file paths or internal types; stack traces go to the server log, not the body ([Errors](../reference/errors.html)).
 
@@ -54,12 +55,12 @@ Error responses never carry file paths or internal types; stack traces go to the
 
 LAN discovery (`p2p`) announces this device over mDNS. The space exchange proves membership per space and reveals only the set of spaces two peers share; a stranger on the LAN sees an empty list. Disable with `p2p.enabled: false`, or isolate a deployment with `p2p.serviceName` ([Networks](networks.html)).
 
-## What is deferred
+## What the server does not provide
 
-| Deferred | Meaning today |
+| Not provided | Consequence |
 |---|---|
 | remote access | no non-loopback bind, no TLS, no auth tokens |
-| multi-account per process | one server = one account; a second account is a second process |
+| several accounts per process | one server = one account; a second account is a second process |
 | install / service files | you run `any run` under your own supervisor |
 | API-level rate limiting | none; the socket is local |
 

@@ -1,6 +1,6 @@
 ---
 title: 4. Apps
-description: The fourth level — parts let an object inherit a module's behaviour, a bundle makes every device converge on one definition, the miniapp marker puts it in the sidebar, and the catalog installs the well-known apps with one call.
+description: The fourth level — parts let an object inherit a module's behaviour, a bundle makes every device converge on one definition, filing it under the miniapp collection puts it in the sidebar, and the catalog installs the well-known apps with one call.
 order: 40
 ---
 # 4. Apps
@@ -128,13 +128,13 @@ curl -s -N -X POST $API/spaces/$SPACE/objects/query/subscribe -H 'content-type: 
   "sort": ["miniapp.pos"]}'
 ```
 
-A row with `miniapp.bundle` is an installed app and the bundle id says what to run — `mail/v1` opens your mailbox UI, `system:wiki/v1` the wiki. A row without one is an object the user pinned, rendered as the object it is:
+A row with `miniapp.bundle` is an installed app and the bundle id says what to run — `mail/v1` opens your mailbox UI, `system:wiki/v1` the wiki. A row without one is an object the user pinned, rendered as the object it is. Pinning the Part 3 inbox:
 
 ```bash
-curl -s -X POST $API/spaces/$SPACE/properties/$OBJ/collections/miniapp     # pin
-curl -s -X POST $API/spaces/$SPACE/properties/$OBJ/set/miniapp \
+curl -s -X POST $API/spaces/$SPACE/properties/$INBOX/collections/miniapp     # pin
+curl -s -X POST $API/spaces/$SPACE/properties/$INBOX/set/miniapp \
   -H 'content-type: application/json' -d '{"patch": {"pos": "a2"}}'
-curl -s -X DELETE $API/spaces/$SPACE/properties/$OBJ/collections/miniapp   # unpin
+curl -s -X DELETE $API/spaces/$SPACE/properties/$INBOX/collections/miniapp   # unpin
 ```
 
 The marker obliges nothing. A plain-text notebook you wrote yourself, declared as a miniapp, is a valid entry point: "this is my notebook, this is where I start". All the machinery above it is optional.
@@ -167,14 +167,14 @@ Every catalog entry is the same construction you just built by hand, and each sh
 |---------|-------------|
 | `wiki` | an app **and** a collection: the sidebar entry, and the hidden collection whose `parentId` / `pos` / `folder` place every page filed under it in the tree (a page keeps its own type) |
 | `collections` | an app only — a `page` root filed under `miniapp`, whose presence switches the types feature on in the client |
-| `journal` | an app **and** a type, like the wiki: the sidebar entry, and the hidden type whose one `date` property makes an object that day's page |
-| `meetings` | an app **and** a content type: a meeting is one object whose three parts are its notes (the shared editor), a second editor for the summary, and a transcript dataset an agent fills |
+| `journal` | an app **and** a type: the sidebar entry, and the hidden type whose one `date` property makes an object that day's page |
+| `meetings` | two roots: the `meeting` type, outside the sidebar — a meeting is one object whose three parts are its notes (the shared editor), a second editor for the summary, and a transcript dataset an agent fills — and a separate `page` root that is the sidebar entry |
 | `general-chat` | the space's one chat: a **derived** root both sides of a partition compute, so it can never fork, carrying the reserved `chat` module |
 | `people`, `contact`, `contacts`, `crm` | a set: `crm` requires `contacts`, which requires `people` and `contact`; setup resolves the closure in order and the reply lists every bundle it touched, `typeId` for a type root and `collectionId` for a collection root |
 
 Every app that ships with a client belongs here, types included: the catalog is the one place a well-known type is declared, so two clients — or a client and an agent — resolve the same ids instead of each minting a type by name and hoping they match.
 
-Setup is idempotent — run it on every device that needs the feature and each adopts the same roots with byte-identical property ids. A space where the wiki was never set up has no wiki type in it at all: nothing from a usecase you do not use lands in your space.
+Setup is idempotent — run it on every device that needs the feature and each adopts the same roots with byte-identical property ids. A space where the wiki was never set up has no wiki collection in it at all: nothing from a usecase you do not use lands in your space.
 
 What a usecase installs is ordinary definitions. `person` and `organization` are types that reference each other through relation properties; `contact` — like `investor`, `customer`, `partner`, `vendor`, `cofounder` and `candidate` — is a **collection**, so a person you actively manage stays `type: person` with the person profile rendering, and gains the contact columns by being filed under it. Splitting a base type into its own bundle is how several usecases share it: `people` is required by every role, and installing a role installs it ([Well-known bundles](../collaboration/bundles.html)).
 

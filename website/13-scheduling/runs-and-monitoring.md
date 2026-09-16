@@ -40,11 +40,14 @@ At the end of every run the runtime upserts one record into `agent_runs` on the 
 | `mutations` | effects classified as writes |
 | `tokens`, `costUsd`, `model` | LLM usage across the run |
 
-The runs storage collection is namespaced like the triggers one. Read the last twenty fires of one trigger:
+The runs anchor is the `bao/runs/v1` child, on the same hidden `agent_trigger` type as the trigger anchor, and its storage collection is namespaced like the triggers one. Read the last twenty fires of one trigger:
 
 ```sh
+TRG=$(curl -s "http://127.0.0.1:7001/v1/spaces/$SPACE/types?includeHidden=true" \
+  | jq -er '.types[] | select(.xKey=="agent_trigger") | .id')
 RUNS_ANCHOR=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/bao%2Fv1/children \
-  -H 'Content-Type: application/json' -d '{"seed": "bao/runs/v1"}' | jq -r .objectId)
+  -H 'Content-Type: application/json' \
+  -d "{\"seed\": \"bao/runs/v1\", \"type\": \"$TRG\"}" | jq -er .objectId)
 RUNS=$(curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/datasets \
   | jq -r '.datasets[].name | select(endswith("_agent_runs"))')
 
@@ -67,7 +70,7 @@ The trigger record carries only scheduler state, written by the owning device af
 | `lastStatus` | `ok` / `error` / `interrupted`, or `auto_disabled`, or a health marker (below) |
 | `consecutiveFailures` | the breaker count, reset to 0 by an `ok` run |
 
-A run is `interrupted` when a hard break stopped it; a fuel exhaustion or the one-hour wall deadline ends it as `error`. How many times a trigger ran, what it cost and which run was last are questions for `agent_runs`, not for the record.
+A run is `interrupted` when a hard break stopped it; a fuel exhaustion or the one-hour wall deadline ends it as `error` (the run summary says `FAILED`). How many times a trigger ran, what it cost and which run was last are questions for `agent_runs`, not for the record.
 
 ## The circuit breaker
 
