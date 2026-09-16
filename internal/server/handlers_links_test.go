@@ -79,8 +79,8 @@ func TestIndexer_Links(t *testing.T) {
 	defer func() { _ = ix.Close() }()
 
 	spaceId := mustCreateSpace(t, e, "Links")
-	target := mustCreateObject(t, e, spaceId, `{"initialProperties":{"any":{"name":"target"}}}`)
-	other := mustCreateObject(t, e, spaceId, `{"initialProperties":{"any":{"name":"other"}}}`)
+	target := mustCreateObject(t, e, spaceId, `{"type":"page","initialProperties":{"any":{"name":"target"}}}`)
+	other := mustCreateObject(t, e, spaceId, `{"type":"page","initialProperties":{"any":{"name":"other"}}}`)
 	targetUri := "any://o/" + spaceId + "/" + target
 
 	// Editor: four blocks on one page.
@@ -114,7 +114,7 @@ func TestIndexer_Links(t *testing.T) {
 	}
 	var pr api.AddPropertyResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &pr)
-	doc := mustCreateObject(t, e, spaceId, `{"types":["`+tr.TypeId+`"],"initialProperties":{"`+
+	doc := mustCreateObject(t, e, spaceId, `{"type":"`+tr.TypeId+`","initialProperties":{"`+
 		tr.TypeId+`":{"`+pr.PropId+`":["any://`+target+`","any://`+other+`"]}}}`)
 
 	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
@@ -333,40 +333,43 @@ func TestIndexer_Links(t *testing.T) {
 		t.Error("space still needs a backfill after one ran")
 	}
 
-	// --- type detach -----------------------------------------------------
-	// Detaching the type that declares the editor collection evicts the
-	// page's editor edges (a structural prefix, no re-extraction);
-	// detaching the relation's type drops the value's edges (the value
-	// is stale, not a live reference).
+	// --- retype ----------------------------------------------------------
+	// Retyping the page away from the type that declares the editor
+	// collection evicts its editor edges (a structural prefix, no
+	// re-extraction); retyping the doc away from the relation's type
+	// drops the value's edges (the value is stale, not a live
+	// reference). The target type declares nothing — `page` would keep
+	// the editor collection, which is shared.
 	edType := installModuleType(t, e, spaceId, "editor")
-	if _, err := sdkSpace.Properties().DetachType(ctx, page, edType); err != nil {
+	plain := plainType(t, e, spaceId)
+	if _, err := sdkSpace.Properties().SetType(ctx, page, plain); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sdkSpace.Properties().DetachType(ctx, doc, tr.TypeId); err != nil {
+	if _, err := sdkSpace.Properties().SetType(ctx, doc, plain); err != nil {
 		t.Fatal(err)
 	}
 	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
 		t.Fatal(err)
 	}
 	if got := getLinks(t, e, spaceId, page, ""); len(got.Links) != 0 {
-		t.Errorf("edges of the detached editor collection survived: %+v", got)
+		t.Errorf("edges of the evicted editor collection survived: %+v", got)
 	}
 	if got := linkKeys(getBacklinks(t, e, spaceId, target, "").Object); len(got) != 1 || got["chat_messages/"+msg+"→"+targetUri] == "" {
-		t.Errorf("after detaches: %v, want only the chat edge", got)
+		t.Errorf("after the retypes: %v, want only the chat edge", got)
 	}
-	// Re-attach: the value comes back on the row's next change (the
-	// attach itself), the blocks on theirs.
-	if _, err := sdkSpace.Properties().AttachType(ctx, page, edType); err != nil {
+	// Set the declaring types back: the value comes back on the row's
+	// next change (the retype itself), the blocks on theirs.
+	if _, err := sdkSpace.Properties().SetType(ctx, page, edType); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sdkSpace.Properties().AttachType(ctx, doc, tr.TypeId); err != nil {
+	if _, err := sdkSpace.Properties().SetType(ctx, doc, tr.TypeId); err != nil {
 		t.Fatal(err)
 	}
 	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
 		t.Fatal(err)
 	}
 	if got := linkKeys(getBacklinks(t, e, spaceId, target, "").Object); len(got) != len(wantObject) {
-		t.Errorf("after re-attach: %v, want %v", got, wantObject)
+		t.Errorf("after the types come back: %v, want %v", got, wantObject)
 	}
 
 	// --- removals ------------------------------------------------------
@@ -450,7 +453,7 @@ func TestLinks_IndexDisabled(t *testing.T) {
 	e := buildEcho(d)
 	d.indexer = nil
 	spaceId := mustCreateSpace(t, e, "LinksOff")
-	obj := mustCreateObject(t, e, spaceId, `{}`)
+	obj := mustCreateObject(t, e, spaceId, `{"type":"page"}`)
 	for _, path := range []string{
 		"/v1/spaces/" + spaceId + "/objects/" + obj + "/backlinks",
 		"/v1/spaces/" + spaceId + "/objects/" + obj + "/links",

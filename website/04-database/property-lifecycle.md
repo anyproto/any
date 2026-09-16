@@ -5,7 +5,7 @@ order: 35
 ---
 # Property lifecycle
 
-A property definition is a small synced record inside its type. Its id is content-addressed, its structural facts are pinned by the first write, its display facts merge per path, and its removal is a tombstone that leaves values untouched. Knowing which is which is what keeps concurrent schema edits from fighting.
+A property definition is a small synced record inside its owner — a type or a collection, the same surface either way. Its id is content-addressed, its structural facts are pinned by the first write, its display facts merge per path, and its removal is a tombstone that leaves values untouched. Knowing which is which is what keeps concurrent schema edits from fighting.
 
 ## 1. Define
 
@@ -21,7 +21,7 @@ any type property add $SPACE $MOVIE --name Year --xkey year --kind number
 
 The `propId` is derived from the change that created the record (`base58(xxh3-64(changeId))`, up to 11 chars) — the same id on every peer, and the field key under which values are stored. Built-in properties on `any` use readable ids (`name`, `description`, `icon`, `tags`) that an 11-char base58 string can never collide with. A property a bundle or catalog install declares takes an id derived from the root and its `xKey` instead, so two devices installing apart mint one column, not two.
 
-`xKey` is your stable code-side handle: clients resolve `xKey → propId` from `GET …/properties` and write by `propId`. It is metadata — unique within the type by a read-then-create preflight (`409 property.xkey_conflict`), never seen by storage, mutable — and `POST …/types` requires a type-level `xKey` for the same reason (types resolve by handle, not by display name).
+`xKey` is your stable code-side handle: clients resolve `xKey → propId` from `GET …/properties` and write by `propId`. It is metadata — unique within the owning type or collection by a read-then-create preflight (`409 property.xkey_conflict`), never seen by storage, mutable — and `POST …/types` and `POST …/collections` require a definition-level `xKey` for the same reason (both resolve by handle, not by display name, out of one shared namespace).
 
 ## 2. What the first write pins
 
@@ -41,7 +41,7 @@ Pins are enforced at apply time on every peer, convergently: an op that tries to
 
 ## 3. Values
 
-Values live on objects at `{typeId}.{propId}`, written through the typed set route, which auto-routes by the declared scope:
+Values live on objects at `{ownerId}.{propId}` — the owner being the object's type or one of its collections — written through the owner-scoped set route, which auto-routes by the declared scope:
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/$MOVIE \
@@ -76,7 +76,7 @@ any type property option set $SPACE $MOVIE $GENRE noir --name Noir --color gray
 - `set` targets a leaf and never carries an object; a container (`meta`, `xFormat`, `xFormat.options`, `xFormat.options.<key>`, `xFormat.relation`, `xFormat.config`) is rejected on `set` but allowed on `unset` — unsetting an option key deletes the option. That is what keeps one client from replacing the bag and dropping keys another client added.
 - Pinned paths answer `400 property.immutable`; unknown paths or wrong leaf types `400 request.invalid_field`; a slug that does not fit the kind, a reserved key or an unparseable `xFormat.relation.filter` `400 property.format_invalid`; a taken `xKey` `409 property.xkey_conflict`.
 - Deleting then re-adding the same option key works: it is a field unset, not a tombstone.
-- Definitions on registered built-in types are frozen: `400 type.registered`.
+- Definitions on registered built-in types and collections are frozen: `400 type.registered`.
 
 Because each leaf merges independently, two members renaming different options at once both win; two renaming the same option converge on the later write.
 
@@ -87,16 +87,17 @@ curl -X DELETE http://127.0.0.1:7001/v1/spaces/$SPACE/types/$MOVIE/properties/$P
 any type property remove $SPACE $MOVIE $PROP
 ```
 
-Removal tombstones the definition record. Stored values are **not** cleaned up — they stay in the object rows as orphan data, read-tolerant — and later writes to the removed id are dropped op by op. The same holds one level up: dropping a type from an object's `any.types` orphans that namespace's values rather than deleting them.
+Removal tombstones the definition record. Stored values are **not** cleaned up — they stay in the object rows as orphan data, read-tolerant — and later writes to the removed id are dropped op by op. The same holds one level up: replacing an object's type, or unfiling it from a collection, orphans that namespace's values rather than deleting them, and setting the owner again brings them back into view.
 
 There is deliberately no "rename or delete a value across N objects" operation: values store option keys, not labels, so a rename is one definition write and zero object writes, and a delete leaves keys dangling by design.
 
 ## 6. Observe
 
-Definitions are synced records, so a schema change is visible live to every member the same way data is — subscribe to the type object's `properties` dataset, or re-read `GET …/types/:typeId/properties`. Search indexing of values follows `meta.index` (`props` by default, a named scope, or `none`) — [Indexing](../search/indexing.html).
+Definitions are synced records, so a schema change is visible live to every member the same way data is — subscribe to the definition object's `properties` dataset, or re-read `GET …/types/:typeId/properties` (`…/collections/:collectionId/properties` for a collection's columns). Search indexing of values follows `meta.index` (`props` by default, a named scope, or `none`) — [Indexing](../search/indexing.html).
 
 ## Related
 
 - [Types and properties](types-and-properties.html) — the endpoint walkthrough.
+- [Collections](collections.html) — the same property surface on the other owner.
 - [Data model](data-model.html) — where definitions and values sit.
 - [Runtime datasets](runtime-datasets.html) — the same pin/patch discipline applied to dataset fields.

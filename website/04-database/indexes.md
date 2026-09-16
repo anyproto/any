@@ -11,7 +11,7 @@ Every query runs against a local any-store database, so "cost" means local disk 
 
 Built-in datasets declare indexes for their hot paths:
 
-| Dataset | Index | Serves |
+| Storage collection | Index | Serves |
 |---------|-------|--------|
 | `editor_blocks` | `(nav.parentId, nav.pos)` | Listing a document's blocks in order; finding the tail position for appends. |
 | `chat_messages` | `(_ver.id)` | Chronological paging — `sort: ["-_ver.id"]` with a `_ver.id` cursor. |
@@ -19,11 +19,14 @@ Built-in datasets declare indexes for their hot paths:
 | `chat_messages` | `unread`, `unreadMention`, `unreadReactions` (sparse, each with `_ver.id`) | Unread lists and badges — only currently-flagged messages carry an entry. |
 | `dataviews`, `views` | `pos`; on `views` also `(dataview, pos)` | A host's tables and one table's views, in order. |
 | `objects` | `modifiedAt` (dense) | `sort: ["-modifiedAt"]` recency lists and range filters on it. |
-| `objects` | `any.types` (sparse) | `{"any.types": "<typeId>"}` — the scope every cross-object query should carry. |
+| `objects` | `any.type` (dense) | `{"any.type": "<typeId>"}` — equality on the object's one type. |
+| `objects` | `any.collections` (sparse) | `{"any.collections": "<collectionId>"}` — membership; the sidebar, the bin, the wiki tree's member set. |
 
-The objects collection's other row-root stamps — `author`, `createdAt`, `spaceId`, `modifiedBy` — are unindexed, so a filter on one of them scans.
+Every cross-object query should carry one of those two as its scope.
 
-The objects collection has **no per-property indexes**. A cross-object filter or sort on `<typeId>.<propId>` is a scan proportional to the space size. There is no create-index API for user properties; when a per-property read becomes hot, the options are an indexed built-in field, a dedicated per-object dataset, or a search over the [FTS / vector index](../search/index.html), which is maintained separately from the query engine.
+The `objects` storage collection's other row-root stamps — `author`, `createdAt`, `spaceId`, `modifiedBy` — are unindexed, so a filter on one of them scans.
+
+`objects` has **no per-property indexes**. A cross-object filter or sort on `<ownerId>.<propId>` is a scan proportional to the space size. There is no create-index API for user properties; when a per-property read becomes hot, the options are an indexed built-in field, a dedicated per-object dataset, or a search over the [FTS / vector index](../search/index.html), which is maintained separately from the query engine.
 
 ## Cheap patterns
 
@@ -35,15 +38,15 @@ The objects collection has **no per-property indexes**. A cross-object filter or
   "sort": ["-_ver.id"], "limit": 50 }
 ```
 
-**List a block's children through the tree index.** `{"filter": {"nav.parentId": "<block>"}, "sort": ["nav.pos"]}` on `editor_blocks` hits `(nav.parentId, nav.pos)` directly. The wiki tree on the objects collection has no such index — its `parentId` / `pos` are ordinary properties and scan ([Objects](objects.html)).
+**List a block's children through the tree index.** `{"filter": {"nav.parentId": "<block>"}, "sort": ["nav.pos"]}` on `editor_blocks` hits `(nav.parentId, nav.pos)` directly. The wiki tree on `objects` has no such index — its `parentId` / `pos` are ordinary columns of the wiki collection and scan ([Objects](objects.html)). Put `{"any.collections": "<wikiCollectionId>"}` in the same filter so the sparse index narrows the scan first.
 
 **Put `$match` first in a pipeline.** [Aggregation](aggregation.html) pushes a leading `$match` down to the index plan; tombstone exclusion folds into the same prefix so it stays index-planned.
 
-**Scope by type.** `{"any.types": "<typeId>"}` does not make a scan indexed, but it stops negation operators (`$ne`, `$nin`, `$exists: false`) from matching every field-less row in the space.
+**Scope by type or collection.** `{"any.type": "<typeId>"}` and `{"any.collections": "<collectionId>"}` narrow through an index, and they stop negation operators (`$ne`, `$nin`, `$exists: false`) from matching every field-less row in the space. A definition's own row never matches either, so no marker exclusion is needed.
 
 **Always set a `limit`.** A scan that stops after 20 matches is still bounded work; an unbounded one materialises the whole result.
 
-**Ask for the plan.** An aggregation body with `"explain": true` returns `{plan}` instead of records, which shows whether the leading `$match` was pushed to an index or the stage runs as a collection scan:
+**Ask for the plan.** An aggregation body with `"explain": true` returns `{plan}` instead of records, which shows whether the leading `$match` was pushed to an index or the stage runs as a full scan:
 
 ```bash
 any aggregate $SPACE $OBJ --dataset chat_messages --explain \
@@ -56,7 +59,7 @@ Datetime values are stored as native instants (unix milliseconds), so a range fi
 
 ## Runtime datasets
 
-A [runtime dataset](runtime-datasets.html) declared on a user type is a per-object collection like `chat_messages`, so its reads are bounded by that object's records rather than the whole space. An `idRule: user` dataset is keyed by the caller-supplied id, which is what [upsert](upsert.html) diffs against.
+A [runtime dataset](runtime-datasets.html) declared on a user type is a per-object storage collection like `chat_messages`, so its reads are bounded by that object's records rather than the whole space. An `idRule: user` dataset is keyed by the caller-supplied id, which is what [upsert](upsert.html) diffs against.
 
 ## The search index is separate
 

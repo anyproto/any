@@ -181,7 +181,7 @@ func TestServer_QuerySubscribeProjection(t *testing.T) {
 
 	// A create lands as an Added record on the same stream.
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects",
-		`{"types":["`+typeId+`"],"initialProperties":{"any":{"name":"Projected"}}}`)
+		`{"type":"`+typeId+`","initialProperties":{"any":{"name":"Projected"}}}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create object: %d %s", rec.Code, rec.Body.String())
 	}

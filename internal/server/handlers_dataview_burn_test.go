@@ -52,36 +52,3 @@ func TestServer_DataView_DeletedIdIsBurned(t *testing.T) {
 		t.Errorf("after recovery: %+v, want one view with id default-2", views)
 	}
 }
-
-// TestServer_PropertiesAttachUnknownType: `any.types` is a synced DAG
-// write with no validation behind it, so a typo'd type id has to be
-// refused up front rather than replicated forever. Detach stays
-// unchecked — it is the repair path for a row that already carries a
-// bogus id.
-func TestServer_PropertiesAttachUnknownType(t *testing.T) {
-	d, teardown := newTestDeps(t)
-	defer teardown()
-	e := buildEcho(d)
-
-	spaceId, objectId := setupViewFixture(t, e)
-
-	for _, typeId := range []string{"no_such_type", "undefined"} {
-		rec := doJSON(t, e, http.MethodPost,
-			fmt.Sprintf("/v1/spaces/%s/properties/%s/attach/%s", spaceId, objectId, typeId), "")
-		if rec.Code != http.StatusNotFound && rec.Code != http.StatusBadRequest {
-			t.Errorf("attach %q: %d %s, want a 4xx", typeId, rec.Code, rec.Body.String())
-		}
-	}
-	for _, tp := range objectTypes(t, e, spaceId, objectId) {
-		if tp == "no_such_type" || tp == "undefined" {
-			t.Fatalf("a refused type reached any.types: %v", objectTypes(t, e, spaceId, objectId))
-		}
-	}
-
-	// Detach removes whatever is on the row, checked or not.
-	rec := doJSON(t, e, http.MethodPost,
-		fmt.Sprintf("/v1/spaces/%s/properties/%s/detach/%s", spaceId, objectId, "no_such_type"), "")
-	if rec.Code != http.StatusOK {
-		t.Errorf("detach of an unknown type: %d %s, want 200 (repair path)", rec.Code, rec.Body.String())
-	}
-}

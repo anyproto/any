@@ -42,12 +42,11 @@ type dataviewRecord struct {
 	ModifiedAt extDate `json:"modifiedAt"`
 }
 
-// setupViewFixture creates a space and a host object for saved views,
-// attaches the dataview type and ensures the `default` dataview the
-// view fixtures hang off. The type is a registered built-in, so nothing
-// has to be created — attaching it is the only binding step, and a
-// fresh object exercises the attach endpoint the same way a client
-// would on an existing object.
+// setupViewFixture creates a space, a host object and the DATAVIEW
+// OBJECT its saved views live on — an object of the registered
+// `dataview` type whose `host` names the served object — then ensures
+// the `default` dataview the view fixtures hang off. The returned id is
+// the dataview object: that is where the two datasets live.
 func setupViewFixture(t *testing.T, e http.Handler) (spaceId, objectId string) {
 	t.Helper()
 
@@ -60,22 +59,11 @@ func setupViewFixture(t *testing.T, e http.Handler) (spaceId, objectId string) {
 		t.Fatalf("decode space: %v", err)
 	}
 
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects", `{}`)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("create object: %d %s", rec.Code, rec.Body.String())
-	}
-	var obj api.ObjectsCreateResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &obj); err != nil {
-		t.Fatalf("decode object: %v", err)
-	}
-
-	rec = doJSON(t, e, http.MethodPost,
-		fmt.Sprintf("/v1/spaces/%s/properties/%s/attach/%s", sp.Id, obj.ObjectId, dataview.TypeId), "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("attach dataview: %d %s", rec.Code, rec.Body.String())
-	}
-	ensureDataview(t, e, sp.Id, obj.ObjectId, "default", `{"name": "Table", "pos": "a0"}`)
-	return sp.Id, obj.ObjectId
+	host := mustCreateObject(t, e, sp.Id, `{"type":"page"}`)
+	dv := mustCreateObject(t, e, sp.Id, fmt.Sprintf(`{"type":%q,"initialProperties":{%q:{%q:%q}}}`,
+		dataview.TypeId, dataview.TypeId, dataview.PropHost, host))
+	ensureDataview(t, e, sp.Id, dv, "default", `{"name": "Table", "pos": "a0"}`)
+	return sp.Id, dv
 }
 
 // ensureDataview upserts one dataviews record with a client-supplied id.
@@ -212,7 +200,7 @@ const defaultViewPayload = `{
 	"layout": "table",
 	"query": {
 		"type": "plain",
-		"filter": {"any.types": "page"},
+		"filter": {"any.type": "page"},
 		"sort": ["-modifiedAt"],
 		"groupBy": {"propId": "status"}
 	},
@@ -266,7 +254,7 @@ func TestServer_DataView_CreateReadStamp(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(`{
 		"type": "plain",
-		"filter": {"any.types": "page"},
+		"filter": {"any.type": "page"},
 		"sort": ["-modifiedAt"],
 		"groupBy": {"propId": "status"}
 	}`), &wantQuery); err != nil {

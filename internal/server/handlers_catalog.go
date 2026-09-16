@@ -182,8 +182,12 @@ func (d *deps) catalogSetup(c echo.Context) error {
 			Usecase: cb.usecase, Id: r.Install.Id,
 			Bundle: bundleToAPI(r.Bundle), Installed: r.Installed,
 		}
-		if r.Install.DeclaresType() {
-			row.TypeId = r.Bundle.RootId
+		if r.Install.Declares() {
+			if r.Install.Collection {
+				row.CollectionId = r.Bundle.RootId
+			} else {
+				row.TypeId = r.Bundle.RootId
+			}
 			props, err := sp.Types().Properties(ctx, r.Bundle.RootId)
 			if err != nil {
 				return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "bundleId": r.Install.Id})
@@ -254,13 +258,25 @@ func catalogBeforeInstall(ctx context.Context, sp space.Space, inst bundles.Inst
 	default:
 		return nil
 	}
+	type handle struct{ id, xkey string }
+	var handles []handle
 	infos, err := sp.Types().List(ctx)
 	if err != nil {
 		return err
 	}
-	var own map[string]bool
 	for _, t := range infos {
-		if t.XKey != inst.XKey && t.Id != inst.XKey {
+		handles = append(handles, handle{t.Id, t.XKey})
+	}
+	colls, err := sp.Collections().List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, col := range colls {
+		handles = append(handles, handle{col.Id, col.XKey})
+	}
+	var own map[string]bool
+	for _, h := range handles {
+		if h.xkey != inst.XKey && h.id != inst.XKey {
 			continue
 		}
 		if own == nil {
@@ -268,10 +284,10 @@ func catalogBeforeInstall(ctx context.Context, sp space.Space, inst bundles.Inst
 				return err
 			}
 		}
-		if own[t.Id] {
+		if own[h.id] {
 			continue
 		}
-		return &xKeyConflictError{XKey: inst.XKey, ExistingTypeId: t.Id}
+		return &xKeyConflictError{XKey: inst.XKey, ExistingTypeId: h.id}
 	}
 	return nil
 }
@@ -315,27 +331,27 @@ func healMiniapp(ctx context.Context, sp space.Space, rootId string, values map[
 		return err
 	}
 	carries := false
-	for _, t := range row.GetArray("any", "types") {
-		if string(t.GetStringBytes()) == miniapp.TypeId {
+	for _, t := range row.GetArray("any", "collections") {
+		if string(t.GetStringBytes()) == miniapp.Id {
 			carries = true
 			break
 		}
 	}
 	if !carries {
-		if _, err := sp.Properties().AttachType(ctx, rootId, miniapp.TypeId); err != nil {
+		if _, err := sp.Properties().AttachCollection(ctx, rootId, miniapp.Id); err != nil {
 			return err
 		}
 	}
 	missing := map[string]any{}
 	for k, v := range values {
-		if row.Get(miniapp.TypeId, k) == nil {
+		if row.Get(miniapp.Id, k) == nil {
 			missing[k] = v
 		}
 	}
 	if len(missing) == 0 {
 		return nil
 	}
-	_, err = sp.Properties().Set(ctx, rootId, miniapp.TypeId, missing)
+	_, err = sp.Properties().Set(ctx, rootId, miniapp.Id, missing)
 	return err
 }
 

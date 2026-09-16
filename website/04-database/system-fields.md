@@ -25,7 +25,7 @@ Version ids are peer-local: two devices holding the same change name it by diffe
 
 ## Row-root stamps on objects
 
-Every row of the per-space `objects` collection carries these next to `id`, all derived and read-only:
+Every row of the per-space `objects` storage collection carries these next to `id`, all derived and read-only:
 
 | Field | Meaning |
 |---|---|
@@ -48,7 +48,7 @@ Both instants are the **author's clock** and are written in the `{"$date": …}`
 
 **`modifiedAt` and `modifiedBy` are one pair.** Both come from a single change — the object's latest by DAG order, whatever dataset it landed on: a property write, an editor block, a chat message, a runtime-dataset record, a record delete. They carry that change's version, so they move together and never pair one change's time with another's signer. A change that arrives late regresses neither. Concurrent writers are resolved by DAG order, not by clock, so the identity that wins can be the one whose wall clock reads earlier. Deleting the object removes the row outright, stamps included.
 
-`modifiedBy` is an account identity in the same encoding as `author`, as chat `creator`, as `identity` in `GET /v1/spaces/:spaceId/members`, and as `id` from `GET /v1/account` — resolve a name and icon through the members list, and through the account-global [identities directory](../auth/identities.html) (`GET /v1/identities/:identity`) for a past writer who has since left the space. `modifiedAt` is indexed and is the conventional recency ordering; `modifiedBy` is not, so a filter on it scans the collection. A row without `modifiedBy` has either not been rebuilt yet (rebuilds run on each object's first load, plus a background sweep) or its latest change has no known signer — never "nobody modified it".
+`modifiedBy` is an account identity in the same encoding as `author`, as chat `creator`, as `identity` in `GET /v1/spaces/:spaceId/members`, and as `id` from `GET /v1/account` — resolve a name and icon through the members list, and through the account-global [identities directory](../auth/identities.html) (`GET /v1/identities/:identity`) for a past writer who has since left the space. `modifiedAt` is indexed and is the conventional recency ordering; `modifiedBy` is not, so a filter on it scans. A row without `modifiedBy` has either not been rebuilt yet (rebuilds run on each object's first load, plus a background sweep) or its latest change has no known signer — never "nobody modified it".
 
 The `any` type's property listing (`GET …/types/any/properties`) carries the stamps as derived properties — `modifiedBy` appears there as "Modified by" — but their values sit at the row root. Filter and sort by the bare name; `any.modifiedBy` matches nothing.
 
@@ -58,17 +58,18 @@ Runtime datasets get the same trio on demand through `stamp: creator` / `createT
 
 ## Built-in properties on objects
 
-Objects carry a few properties under the universal `any` type. Paths use literal keys, not content-addressed property ids.
+Objects carry a few properties under the universal `any` group. Paths use literal keys, not content-addressed property ids.
 
 | Path | Kind | Meaning |
 |---|---|---|
-| `any.types` | string array | The type ids attached to the object. A scalar filter is a *contains* test — `{"any.types": "<typeId>"}` — and is how every cross-object query should be scoped. Type definition rows carry the `__type__` marker here; exclude them with `{"any.types": {"$ne": "__type__"}}`. |
+| `any.type` | string | The object's one type — what it is. Required at create, never cleared. Plain equality: `{"any.type": "<typeId>"}`, `$in` for a set. A type definition's row carries the marker `__type__` here and a collection's carries `__collection__`, never its own id, so a member query needs no exclusion. |
+| `any.collections` | string array | The collections the object is filed under. A scalar filter is a *contains* test — `{"any.collections": "<collectionId>"}` — `$all` demands several, `$nin` excludes (`{"any.collections": {"$nin": ["bin"]}}` on every ordinary list). |
 | `any.name` | string | Display name. |
 | `any.description` | string | Description. Indexed with `any.name` under the search scope `basic`. |
 | `any.icon` | string | Display icon; the encoding is the client's. |
 | `any.tags` | string array | Free-form labels; filter with `{"any.tags": "<label>"}`. |
 
-Tree placement is not a system field. The wiki usecase's `parentId` / `pos` / `folder` are ordinary properties of a hidden type, at `<wikiTypeId>.<propId>` on objects that carry it, and nothing is stamped on create — [Objects](objects.html).
+Tree placement is not a system field. The wiki usecase's `parentId` / `pos` / `folder` are ordinary columns of a hidden collection, at `<wikiCollectionId>.<propId>` on the objects filed under it, and nothing is stamped on create — [Objects](objects.html). The bin's `bin.movedAt` / `bin.movedBy` are the same kind of thing: ordinary synced properties of the built-in `bin` collection, written by the server in the same change as the membership op ([Collections](collections.html)).
 
 ## Field scopes
 
@@ -81,4 +82,4 @@ Every dataset field belongs to one scope, visible as `x-scope` in the dataset's 
 | `local` | Device-local, never synced — chat's `unread` flags. Written through `POST …/modify` with `"scope": "local"`; never bumps `modifiedAt`. |
 | `account` | Synced across this account's devices only, invisible to other members (property definitions today). |
 
-Negation operators (`$ne`, `$nin`, `$not`, `$exists: false`) also match rows that lack the field entirely — on the objects collection, which holds every object including type definitions, always scope by `any.types` first.
+Negation operators (`$ne`, `$nin`, `$not`, `$exists: false`) also match rows that lack the field entirely — on the `objects` storage collection, which holds every object including type and collection definitions, always scope by `any.type` or `any.collections` first.

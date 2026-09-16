@@ -80,7 +80,7 @@ func benchSeedSpace(b *testing.B, e http.Handler) string {
 	body := strings.Repeat("lorem ipsum ", 17)
 	for i := range benchSeedObjects {
 		payload := fmt.Sprintf(
-			`{"types":[%q],"initialProperties":{"any":{"name":"Note %d"},%q:{%q:%q}}}`,
+			`{"type":%q,"initialProperties":{"any":{"name":"Note %d"},%q:{%q:%q}}}`,
 			tr.TypeId, i, tr.TypeId, pr.PropId, body)
 		benchPost(b, e, "/v1/spaces/"+sp.Id+"/objects", payload)
 	}

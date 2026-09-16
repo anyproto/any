@@ -18,7 +18,7 @@ any init  ──▶  any run  ──▶  POST /v1/spaces  ──▶  POST …/ob
 2. **Run** the server: `any run` listens on `http://127.0.0.1:7001`.
 3. **Create a space** — the unit of sharing and encryption.
 4. **Create an object** with a type bound and a name.
-5. **Query** the space's objects collection — an indexed read on your disk.
+5. **Query** the space's `objects` storage collection — an indexed read on your disk.
 6. **Subscribe** — the same query, plus `added` / `updated` / `removed` frames over SSE for as long as the connection is open.
 
 Everything you write is on your machine the moment the request returns; sync to other devices and members happens in the background ([Local-first](../understanding/local-first.html)).

@@ -95,7 +95,7 @@ any status
   "networkId": "N83gJpVd9MuNRZAuJLZ7LiMntTThhPc6DtzWWVjb1M3PouVU",
   "account": "A8tR…",
   "bootstrapping": false,
-  "crdtVersion": { "supported": 1, "stored": 1, "newer": false }
+  "crdtVersion": { "supported": 2, "stored": 2, "newer": false }
 }
 ```
 

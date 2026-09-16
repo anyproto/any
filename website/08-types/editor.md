@@ -1,17 +1,17 @@
 ---
 title: Editor
-description: Block-structured documents in an editor collection — atomic block writes, live subscriptions, and a lossless markdown bridge for imports, exports and LLM edits.
+description: Block-structured documents in an editor storage collection — atomic block writes, live subscriptions, and a lossless markdown bridge for imports, exports and LLM edits.
 order: 20
 ---
 # Editor
 
-The `editor` module stores an object's body as a tree of atomic blocks: one CRDT record per block, ordered by a lexicographic position, nested by parent id. Two members editing different paragraphs merge cleanly; an offline edit lands as a per-block change when the device reconnects. On top of the block collection sits a markdown bridge, so tools that think in text — exporters, importers, LLM agents — never have to walk the tree.
+The `editor` module stores an object's body as a tree of atomic blocks: one CRDT record per block, ordered by a lexicographic position, nested by parent id. Two members editing different paragraphs merge cleanly; an offline edit lands as a per-block change when the device reconnects. On top of the block storage collection sits a markdown bridge, so tools that think in text — exporters, importers, LLM agents — never have to walk the tree.
 
-An object holds an editor collection while it carries a type whose part declares the module ([modules](index.html)). Every editor route names the collection: `editor_blocks`, the canonical collection a shared part declares — the body every document type contributes to — or `<typeId>_<key>` for a part that wants an editor of its own (a meeting's `summary` next to its shared notes). A write into a collection none of the object's types declare is `400 dataset.not_declared`; a collection no editor part in the space declares is `404 dataset.not_found`. The examples below use `editor_blocks`.
+An object holds an editor storage collection while its type declares the part that owns it ([modules](index.html)). Every editor route names that storage collection: `editor_blocks`, the canonical one a shared part declares — the body every document type writes, so retyping between document types keeps it — or `<typeId>_<key>` for a part that wants an editor of its own (a meeting's `summary` next to its shared notes). A write into one the object's type does not declare is `400 dataset.not_declared`; one no editor part in the space declares is `404 dataset.not_found`. The examples below use `editor_blocks`.
 
 ## Blocks
 
-One record per block in the object's editor collection:
+One record per block in the object's editor storage collection:
 
 ```json
 {

@@ -48,7 +48,7 @@ func TestProjection_OpsFollowDeepestMark(t *testing.T) {
 
 	ops := opsOf(t, s, []space.EventOp{
 		{Type: "$set", Path: []string{"any", "name"}, Payload: anyencVal(t, `"New"`)},
-		{Type: "$set", Path: []string{"any", "types"}, Payload: anyencVal(t, `["page"]`)},
+		{Type: "$set", Path: []string{"any", "type"}, Payload: anyencVal(t, `"page"`)},
 	})
 	if len(ops) != 1 {
 		t.Fatalf("expected exactly the any.name op, got %v", ops)

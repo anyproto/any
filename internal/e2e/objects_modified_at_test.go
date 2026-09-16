@@ -126,7 +126,7 @@ func TestE2E_ObjectsModifiedAt(t *testing.T) {
 		// [A, B].
 		var resp map[string]any
 		mustJSON(t, http.MethodPost, base+"/v1/spaces/"+spaceID+"/objects/query",
-			fmt.Sprintf(`{"filter":{"any.types":%q},"sort":["-modifiedAt"]}`, movieType),
+			fmt.Sprintf(`{"filter":{"any.type":%q},"sort":["-modifiedAt"]}`, movieType),
 			http.StatusOK, &resp)
 		records, _ := resp["records"].([]any)
 		if len(records) != 2 {

@@ -12,8 +12,8 @@ any is a local-first database with a stable `/v1/` HTTP surface and a growing se
 | Area | What you can use today |
 |---|---|
 | Server and accounts | `any run` on loopback, mnemonic-restored accounts with fresh device keys, per-account data dirs, `POST /v1/auth` onboarding, standalone and host-managed server modes with a control token, the OpenAPI 3.1 document at `/v1/openapi.json` — [Accounts](auth/accounts.html) |
-| Data plane | objects, types and properties with descriptors and choice options, Mongo-style query with projection and windowed subscribe over SSE, aggregation pipelines, version history, runtime dataset schemas with idempotent upsert, datetime instants, derived `createdAt`/`modifiedAt`/`modifiedBy`/`author`, a device-local store under `/v1/local` — [Database](database/index.html) |
-| Modules | chat with reactions, mentions, replies, attachments and private read tracking; the block editor with a lossless markdown bridge and surgical text edits — both served to any type whose part declares them; type parts, weight and layout; the hidden built-in `page`, `miniapp`, `bin` and `dataview` types; `any://` links with a backlink index — [Types](types/index.html) |
+| Data plane | objects with one type and any number of collections, property definitions with descriptors and choice options, Mongo-style query with projection and windowed subscribe over SSE, aggregation pipelines, version history, runtime dataset schemas with idempotent upsert, datetime instants, derived `createdAt`/`modifiedAt`/`modifiedBy`/`author`, a device-local store under `/v1/local` — [Database](database/index.html) |
+| Modules | chat with reactions, mentions, replies, attachments and private read tracking; the block editor with a lossless markdown bridge and surgical text edits — both served to any type whose part declares them; type parts and layout; the hidden built-in `page` and `dataview` types and the built-in `miniapp` and `bin` collections; `any://` links with a backlink index — [Types](types/index.html) |
 | Collaboration | members, invites, guest keys, ACL operations, direct-add by identity, one-to-one spaces, well-known derived spaces, bundles with derived roots, the usecase catalog of `system:` bundles (wiki, journal, meetings, the general chat, contacts, CRM), the encrypted identities directory — [Collaboration](collaboration/index.html) |
 | Files | encrypted content-addressed files with offline-first backup, ranged download, variants, pin/offload/retry, account-wide cache control — [Files](files/index.html) |
 | Realtime | windowed query/subscribe, live space list, sync status, the account-wide event bus with device/account/space scopes, the process helper, LAN peer discovery and sync — [Realtime](realtime/index.html) |
@@ -30,14 +30,14 @@ any is a local-first database with a stable `/v1/` HTTP surface and a growing se
 - **Endpoint shape fixes** — anything awkward to call from a shell or a language binding, absorbed by bumping the `/v1/` path rather than breaking routes in place.
 - **Install one-liner** — a `curl … | sh` that drops the binary and wires `systemd --user` / `launchctl` to start `any run` at login.
 - **Projection push-down** — `projection` is applied at the serialization boundary today; pushing the field set into the store's find path would cut the document decode too.
-- **Type delete** — removing a whole type over HTTP; properties, parts and dataset fields already delete individually.
+- **Type and collection delete** — removing a whole definition over HTTP; properties, parts and dataset fields already delete individually.
 - **Account-scope record fields** — dataset fields declared `account` are readable but not yet writable; property values already are.
 
 **Search.** Backfill / full re-index of content written before indexing was on; highlighting; per-scope weights and cross-space search; re-embedding on model change; grouping several hits of one object; indexing file names and contents.
 
 **Links.** Evidence edges that cite the record a result relied on; a dedicated subscribe stream for link changes.
 
-**Chat.** More than one chat per space, once read tracking and push topics are keyed per collection; push for reactions and ACL/invite events; desktop receive.
+**Chat.** More than one chat per space, once read tracking and push topics are keyed per storage collection; push for reactions and ACL/invite events; desktop receive.
 
 **Realtime.** A soft `lagged` signal on windowed subscribes for clients that want to ride out bursts without resubscribing; resume from a version cursor once the engine supports replay; a WebSocket multiplex (`/v2/subscribe`) if a consumer needs many subscriptions per connection — additive, SSE stays.
 

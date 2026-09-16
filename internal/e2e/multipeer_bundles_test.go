@@ -93,7 +93,7 @@ func TestE2E_MultipeerBundles(t *testing.T) {
 	// same object without exchanging its id either. A child binds to
 	// its parent's tree, so the joiner polls through
 	// 409 bundle.not_ready until the winner's tree has landed.
-	childBody := `{"seed":"memory/v1","types":["agent_memory"]}`
+	childBody := `{"seed":"memory/v1","type":"page"}`
 	childPath := "/v1/spaces/" + sp.Id + "/bundles/" + url.PathEscape(bundleId) + "/children"
 	var ownerChild, joinerChild api.BundleChildResponse
 	mustJSON(t, http.MethodPost, owner.base+childPath, childBody, http.StatusOK, &ownerChild)

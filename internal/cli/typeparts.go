@@ -133,19 +133,18 @@ func newTypePartRemoveCmd() *cobra.Command {
 func newTypeUpdateCmd() *cobra.Command {
 	var (
 		name, desc, iconCID string
-		weight              int
 		layoutRaw           string
 		hidden              bool
 		metaRaw             []string
 	)
 	cmd := &cobra.Command{
 		Use:   "update <spaceId> <typeId>",
-		Short: "PATCH a type's name, description, icon, weight or layout",
+		Short: "PATCH a type's name, description, icon or layout",
 		Long: `Absent flags keep the current value; an empty string clears a text
 field; --layout '' clears the layout.
 
 Examples:
-  any type update S T --name Meeting --weight 50
+  any type update S T --name Meeting --layout '{"type":"page"}'
   any type update S T --layout '{"type":"tabs"}'`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -158,9 +157,6 @@ Examples:
 			}
 			if cmd.Flags().Changed("icon") {
 				req.IconCID = &iconCID
-			}
-			if cmd.Flags().Changed("weight") {
-				req.Weight = &weight
 			}
 			if cmd.Flags().Changed("layout") {
 				if layoutRaw == "" {
@@ -182,9 +178,9 @@ Examples:
 				}
 				req.Meta = meta // nil value = unset
 			}
-			if req.Name == nil && req.Description == nil && req.IconCID == nil && req.Weight == nil && req.Layout == nil &&
+			if req.Name == nil && req.Description == nil && req.IconCID == nil && req.Layout == nil &&
 				req.Hidden == nil && len(req.Meta) == 0 {
-				return fmt.Errorf("nothing to update: pass at least one of --name, --description, --icon, --weight, --layout, --hidden, --meta")
+				return fmt.Errorf("nothing to update: pass at least one of --name, --description, --icon, --layout, --hidden, --meta")
 			}
 			cl := newClient(flags.Timeout)
 			return cl.TypePatch(cmd.Context(), args[0], args[1], req)
@@ -193,7 +189,6 @@ Examples:
 	cmd.Flags().StringVar(&name, "name", "", "display name")
 	cmd.Flags().StringVar(&desc, "description", "", "description")
 	cmd.Flags().StringVar(&iconCID, "icon", "", "icon CID")
-	cmd.Flags().IntVar(&weight, "weight", 0, "primary-type weight (highest carried type renders)")
 	cmd.Flags().StringVar(&layoutRaw, "layout", "", `layout descriptor JSON, e.g. '{"type":"page"}' ('' clears)`)
 	cmd.Flags().BoolVar(&hidden, "hidden", false, "hide (--hidden) or unhide (--hidden=false) the type")
 	cmd.Flags().StringArrayVar(&metaRaw, "meta", nil, "consumer flag key=value (repeatable; key= unsets)")

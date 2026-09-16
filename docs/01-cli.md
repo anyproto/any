@@ -249,8 +249,9 @@ any aggregate <spaceId> --properties --pipeline JSON|@FILE|-
 
 Runs a MongoDB-style aggregation pipeline (snapshot, no subscribe
 variant) — `POST …/aggregate` over a per-object dataset, or
-`POST …/objects/aggregate` over the per-space objects collection with
-`--properties`. The pipeline is a JSON array of stages. Optional:
+`POST …/objects/aggregate` over the per-space `objects` storage
+collection with `--properties`. The pipeline is a JSON array of stages.
+Optional:
 `--group-limit` / `--accum-limit` / `--memory-limit` (blocking-stage
 bounds; negative = unlimited) and `--explain` (print the access plan
 instead of results). Stage set, examples, and MongoDB divergences in
@@ -274,9 +275,9 @@ any editor edit          <spaceId> <objectId> --edits JSON|@FILE|- [--collection
 `editor blocks` maps 1:1 onto the atomic block write endpoints
 (reads go through `any query-subscribe … --dataset <collection>`). Every
 editor command takes `--collection` (default `editor_blocks`, the
-canonical collection a shared editor part declares); pass a namespaced
-`<typeId>_<key>` to address a part's own editor. The object must carry
-a type whose part declares the collection (`dataset.not_declared`
+canonical storage collection a shared editor part declares); pass a
+namespaced `<typeId>_<key>` to address a part's own editor. The object
+must carry a type whose part declares it (`dataset.not_declared`
 otherwise — see `03-api.md` § Parts and modules).
 
 `editor edit` is `PATCH …/editor/:collection/markdown` — targeted oldText →
@@ -366,8 +367,8 @@ any query-subscribe <spaceId> --properties [same flags]
 
 Opens the windowed query/subscribe stream — `POST …/query/subscribe`
 over a per-object dataset, or `POST …/objects/query/subscribe` over the
-per-space objects collection with `--properties` — and prints one JSON
-object per SSE frame on stdout, `{"event": "<name>", "data": <payload>}`:
+per-space `objects` storage collection with `--properties` — and prints
+one JSON object per SSE frame on stdout, `{"event": "<name>", "data": <payload>}`:
 `ready`, `snapshot`, `changes`, `closed`. The first `snapshot` is the
 query's answer; the stream stays open for live changes. `--sort` is a
 comma-separated key list (`-` prefix = descending) and needs `--limit`;
@@ -402,9 +403,9 @@ mongo: `09-query.md` § Projection.
 
 ```
 any type create <spaceId> --name "..." --xkey ... [--description "..."] [--icon-cid ...]
-                [--weight N] [--layout '<json>'] [--hidden] [--meta k=v ...]
+                [--layout '<json>'] [--hidden] [--meta k=v ...]
 any type update <spaceId> <typeId> [--name ...] [--description ...] [--icon ...]
-                [--weight N] [--layout '<json>'|''] [--hidden[=false]] [--meta k=v|k= ...]
+                [--layout '<json>'|''] [--hidden[=false]] [--meta k=v|k= ...]
 any type list   <spaceId> [--include-hidden]
 
 any type property list   <spaceId> <typeId>
@@ -436,7 +437,7 @@ any type part dataset field patch  <spaceId> <typeId> <defId> <fieldId> --set '<
 any type part dataset field remove <spaceId> <typeId> <defId> <fieldId>
 
 # batch ingest into an id:user dataset (the record id is the
-# idempotency key — identical re-runs are no-ops; NAME is the
+# idempotency key — identical re-runs are no-ops; NAME is the storage
 # collection, <typeId>_<key> for a records dataset):
 any upsert <spaceId> <objectId> --dataset NAME --records '<json>|@FILE|-'
            [--page-size N] [--trace-id ...]
@@ -456,7 +457,10 @@ without `--include-hidden`. A part draft is the
 "editor", "shared": true}]}` declares a shared editor body; `{"key":
 "transcript", "ui": {"type": "table"}, "datasets": [{"key":
 "segments", "idRule": "user", "fields": […]}]}` a records dataset in
-the namespaced collection `<typeId>_segments`.
+the namespaced storage collection `<typeId>_segments`.
+
+Parts and layout are a type's alone — a collection has neither
+(§ Collections).
 
 `--kind` is pinned; everything descriptive — slug, icon, order, options,
 relation targets, per-format config — is the `--x-format` descriptor
@@ -477,9 +481,100 @@ any type property option set S T P high --name High --color red --pos a0
 any type part dataset field patch S T D F --set '{"description":"Headline","xFormat.icon":"title"}'
 ```
 
-Property values on objects, type attach / detach (moving an object to
-the bin included) and object create / delete have no command
-(`03-api.md` § Objects, § Properties (values on objects)).
+Writing property values on objects (`POST …/properties/:objectId/set/:ownerId`),
+reading an object's raw row (`GET …/properties/:objectId`,
+`GET …/objects/:objectId`) and deleting an object
+(`DELETE …/objects/:objectId`) have no command (`03-api.md` § Objects,
+§ Properties (values on objects)).
+
+### Collections
+
+```
+any collection list   <spaceId> [--include-hidden]
+any collection get    <spaceId> <collectionId>
+any collection create <spaceId> --name "..." --xkey ... [--description "..."] [--icon-cid ...]
+                      [--hidden] [--meta k=v ...]
+any collection update <spaceId> <collectionId> [--name ...] [--description ...] [--icon ...]
+                      [--hidden[=false]] [--meta k=v|k= ...]
+
+any collection property list   <spaceId> <collectionId>
+any collection property add    <spaceId> <collectionId> --name ... --kind string|number|boolean|array|object|datetime
+                               [--xkey ...] [--description ...] [--scope synced|account|local]
+                               [--x-format '<json>|@FILE|-']
+any collection property patch  <spaceId> <collectionId> <propId> --set '<json>' [--unset <path> ...]
+any collection property remove <spaceId> <collectionId> <propId>
+```
+
+A collection is what an object is filed under; a type is what it is. A
+collection carries a name, description, icon, `--xkey`, `--hidden`,
+`--meta` and property definitions — no parts, no layout. The property
+verbs are the type ones on a collection owner, same flags and same
+`{set, unset}` patch rules.
+
+`--xkey` is required on create and unique across the space's types and
+collections together (`409 type.xkey_conflict`). `collection update`
+uses cobra's `Changed` semantics like `type update`: an absent flag
+keeps the value, an empty string clears it, `--hidden=false` unhides.
+`collection list` omits hidden collections (the built-in `miniapp` /
+`bin`, a collection marked hidden) without `--include-hidden`;
+`collection get` resolves hidden ones too. A registered built-in
+refuses a metadata write (`400 collection.registered`), and deleting a
+collection is not implemented (`501 sdk.not_implemented`).
+
+```
+any collection create $SPID --name Contacts --xkey contact
+any collection property add $SPID $CID --name Company --xkey company --kind string
+any collection update $SPID $CID --hidden=false --meta pinned=true
+```
+
+Aliases: `any collection property` = `prop`, `remove` = `delete` /
+`rm`. Choice-option sugar (`property option set|delete`) is on the type
+group only; patch the descriptor path directly on a collection.
+
+### Objects
+
+```
+any object create <spaceId> --type T [--collection C ...] [--properties '<json>|@FILE|-']
+
+any object type set   <spaceId> <objectId> <typeId>
+
+any object collection attach <spaceId> <objectId> <collectionId>
+any object collection detach <spaceId> <objectId> <collectionId>
+```
+
+An object carries **one type** and **any number of collections**. The
+type is required on create (`page` is the plain document) and is never
+cleared; collections are optional. `--collection` repeats. `--properties` seeds values keyed
+owner → propId → value, the owner being the type or one of the
+collections — a value under an owner the object does not have is
+refused (`400 dataset.not_declared`).
+
+```
+any object create $SPID --type $PAGE --collection $WIKI
+any object create $SPID --type $PERSON --collection $CONTACT --collection $INVESTOR \
+  --properties '{"any":{"name":"Ada"}}'
+```
+
+`object type set` replaces the previous type; the old namespace's
+values stay in place as orphan data, read-tolerant. `object type
+unset` clears it. `object collection attach` / `detach` are
+idempotent, and detaching is not a delete either. `set` and `attach`
+pre-flight the id (`404 type.not_found` / `404 collection.not_found`,
+`400 type.not_a_type` / `400 collection.not_a_collection` when it names
+the other surface); `unset` and `detach` deliberately pre-flight
+nothing — they are the repair path for a bogus id already on the row.
+
+Moving an object to the bin and restoring it are the same two verbs on
+the built-in `bin` collection:
+
+```
+any object collection attach $SPID $OBJID bin     # to the bin
+any object collection detach $SPID $OBJID bin     # restore
+```
+
+Attaching stamps `bin.movedAt` / `bin.movedBy`; detaching clears the
+`bin` namespace. Ordinary listings exclude bin members with
+`{"any.collections": {"$nin": ["bin"]}}` (`09-query.md`).
 
 ### Bundles
 
@@ -488,19 +583,30 @@ any bundle ensure  <spaceId> --body '<json>|@FILE|-'
 any bundle list    <spaceId>
 any bundle get     <spaceId> <bundleId>
 any bundle resolve <spaceId> <bundleId> <loserRootId>
-any bundle child   <spaceId> <bundleId> --seed SEED [--type T ...]
+any bundle child   <spaceId> <bundleId> --seed SEED --type T [--collection C ...]
 ```
 
 `ensure` takes the `BundleEnsureRequest` body (`03-api.md` § Bundles)
 — the id, the root strategy (`derived`) and what the root declares:
-`parts`, `properties` (each property with an `xKey`; the property id
-derives from it) or an `xKey` (the type's handle; alone it declares a
-marker type), plus `layout`, `weight`, `hidden` describing that type.
+`parts` (the datasets a module serves), `properties` (each property
+with an `xKey`; the property id derives from it) or an `xKey` (the
+handle; alone it declares a marker), plus `layout` and `hidden`.
+`collection: true` declares a **collection** instead of a type:
+`properties` are its columns, and `parts` / `layout` are refused
+(`400 request.invalid_field`). `rootType`, `rootCollections` and
+`rootProperties` bind the root itself — the one type it carries, the
+collections it is filed under at birth, and its initial values keyed
+owner → propId → value. `rootType` is required when the body declares
+nothing (every object has a type; `page` for a plain document) and
+refused next to a declaration: a declaring root carries its marker in
+`any.type`, and it hosts its own records and values with no flag and no
+self-membership.
 Adopt-or-install: the reply carries the converged row and
 whether THIS call installed it. `get` and `list` are locked on
 registry convergence and report `synced`. `resolve` deletes a losing
 root after its content was merged; `child` derives a setup object
-under the winner. Bundle ids are passed verbatim (`favorites/v1`);
+under the winner, `--type` and `--collection` binding it on first
+materialization. Bundle ids are passed verbatim (`favorites/v1`);
 the CLI encodes the path. Ids under `system:` are the server's and are
 refused.
 
@@ -517,8 +623,9 @@ The server's embedded usecase catalog (`03-api.md` § Catalog,
 declared; `setup` sets a usecase up in a space, its `requires` first —
 adopt-or-install per bundle, idempotent, resumable after a failure —
 and prints every bundle touched with the converged row, whether THIS
-call installed it, `typeId` and the xKey → propId map. Usecase ids are
-slugs (`wiki`, `general-chat`, `crm`), passed as-is. `make
+call installed it, `typeId` or `collectionId` (whichever the bundle
+declares) and the xKey → propId map. Usecase ids are slugs (`wiki`,
+`general-chat`, `crm`), passed as-is. `make
 catalog-validate [FILES=…]` checks the catalog file itself — a build
 step in the repo, not a CLI command.
 
@@ -656,11 +763,12 @@ any local aggregate NAME [--space ID] --pipeline JSON [--group-limit N] [--accum
 any local indexes NAME [--space ID] [--ensure a,-b]... [--unique-ensure k]... [--drop NAME]...       # POST /v1/local/indexes
 ```
 
-Device-local, never-synced collections (`docs/26-local-store.md`).
-NAME is always the first argument; `--space ID` binds the collection
-to a space, otherwise it is account-scoped. `drop` and `delete` refuse
-without `--yes` — local data has no backup. Pipelines name sink /
-lookup collections by their `storageName` (shown by `collections`).
+Device-local, never-synced storage collections
+(`docs/26-local-store.md`). NAME is always the first argument;
+`--space ID` binds one to a space, otherwise it is account-scoped.
+`drop` and `delete` refuse without `--yes` — local data has no backup.
+Pipelines name sink / lookup collections by their `storageName` (shown
+by `collections`).
 
 ### Push notifications
 

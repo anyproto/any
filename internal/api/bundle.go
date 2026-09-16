@@ -47,15 +47,19 @@ type BundleEnsureRequest struct {
 	Id string `json:"id"`
 	// Name is the display name, written on install.
 	Name string `json:"name,omitempty"`
-	// RootTypes are attached to the root object at birth, so the
-	// install's datasets are writable on it with no extra call. On a
-	// root that declares a type they ride the root's first change next
-	// to its own type — one object that is both a type and a carrier
-	// of another (the wiki: the type its pages carry and a `miniapp`).
-	RootTypes []string `json:"rootTypes,omitempty"`
+	// RootType is the type of the root Ensure mints (its one type,
+	// `any.type`): required when the body declares nothing (every
+	// object has a type; `page` for a plain document), refused next to
+	// a declaration — a declaring root carries its marker there.
+	// RootCollections are the collections the root is filed under at
+	// birth (a `miniapp` root is an app root). Both ride the root's
+	// first change.
+	RootType        string   `json:"rootType,omitempty"`
+	RootCollections []string `json:"rootCollections,omitempty"`
 	// RootProperties seeds the root's property values, keyed
-	// typeId → propId → value (same shape as POST /objects), written
-	// with RootTypes.
+	// owner → propId → value (same shape as POST /objects), written
+	// with the membership; an owner that is neither rootType nor the
+	// root's own declaration is added to rootCollections.
 	RootProperties map[string]map[string]any `json:"rootProperties,omitempty"`
 	// Derived installs the bundle on the root derived from its id
 	// rather than a created one. Every device computes that id
@@ -70,50 +74,49 @@ type BundleEnsureRequest struct {
 	Derived bool `json:"derived,omitempty"`
 	// Parts declares the root's parts with their datasets (same shape
 	// as POST …/types/:typeId/parts); the root becomes a type
-	// implementing itself, typeId = rootId, and the records are written
-	// through POST …/upsert / …/modify on the root (dataset = the
-	// computed collection, `<rootId>_<key>` for a namespaced one).
-	// Declared once on install; later evolution goes through the
-	// …/types/:rootId/parts routes. Parts or properties are required
-	// on the tech space.
+	// definition, typeId = rootId, and — a definition implements
+	// itself — the records are written through POST …/upsert /
+	// …/modify on the root (dataset = the computed collection,
+	// `<rootId>_<key>` for a namespaced one). Declared once on install;
+	// later evolution goes through the …/types/:rootId/parts routes.
+	// Parts or properties are required on the tech space. Refused with
+	// `collection`.
 	Parts []PartDraftRequest `json:"parts,omitempty"`
 	// Properties declares property definitions on the root (same shape
 	// as POST …/types/:typeId/properties, xKey REQUIRED and unique):
-	// the root becomes a type objects carry, and each property's id is
-	// derived from (rootId, xKey) so two devices installing while apart
-	// mint one column per handle. Resolve xKey → propId through
-	// GET …/types/:rootId/properties. Declared once on install (an
-	// adopt fills in only definitions the root lacks); later evolution
-	// goes through the …/types/:rootId/properties routes.
+	// the root becomes a type (or, with `collection`, a collection)
+	// objects use, and each property's id is derived from (rootId,
+	// xKey) so two devices installing while apart mint one column per
+	// handle. Resolve xKey → propId through GET …/types/:rootId/
+	// properties (or …/collections/:rootId/properties). Declared once
+	// on install (an adopt fills in only definitions the root lacks);
+	// later evolution goes through the …/properties routes.
 	Properties []AddPropertyRequest `json:"properties,omitempty"`
-	// XKey is the root type's handle (same meaning as on POST …/types):
-	// what a client resolves the type by, and what relation.targetTypes
-	// in other declarations name. Unique within the space among listed
-	// types (409 type.xkey_conflict). An xKey alone declares a MARKER
-	// type — no properties, no parts, just a flag objects carry.
+	// XKey is the root definition's handle (same meaning as on POST
+	// …/types): what a client resolves it by, and what
+	// relation.targetTypes in other declarations name. Unique within
+	// the space among listed types and collections (409
+	// type.xkey_conflict). An xKey alone declares a MARKER — a type, or
+	// with `collection` a collection, with no properties and no parts.
 	// Written on install. A writer's adopt fills in a handle the root
 	// lacks (an install that predates it); an existing handle is never
 	// changed.
 	XKey string `json:"xKey,omitempty"`
-	// Layout and Weight seed the root type's rendering slice (same
-	// shape as POST …/types); Hidden keeps it out of GET …/types. All
-	// three are written on install only — an adopt never patches them.
-	// Hidden is explicit: a root that only hosts its bundle's records
-	// should ask for it (a listed type is one a client may attach
-	// elsewhere, granting that object the bundle's collections); a root
-	// that is a type objects carry stays listed.
+	// Layout seeds the root type's rendering slice (same shape as POST
+	// …/types; refused with `collection`); Hidden keeps the definition
+	// out of the default listings. Both are written on install only —
+	// an adopt never patches them. Hidden is explicit: a root that only
+	// hosts its bundle's records should ask for it (a listed type is
+	// one a client may set on other objects, granting them the bundle's
+	// collections); a root that is a definition other objects use stays
+	// listed.
 	Layout json.RawMessage `json:"layout,omitempty"`
-	Weight int             `json:"weight,omitempty"`
 	Hidden bool            `json:"hidden,omitempty"`
-	// SelfTyped makes the root CARRY the type it declares, so it holds
-	// that type's property values and its datasets — what a root that
-	// keeps its own bundle's records needs (an app's layouts). Off, the
-	// root is the type definition and nothing else: it matches no query
-	// for the type and takes none of its collections, which is what a
-	// type OTHER objects carry wants (a wiki, a person). Needs a type
-	// declaration; implied for a part declaring a reserved module and
-	// on the tech space.
-	SelfTyped bool `json:"selfTyped,omitempty"`
+	// Collection makes the declaration a COLLECTION instead of a type:
+	// the root carries `__collection__` in any.type, properties are its
+	// columns, and objects are filed under it through any.collections.
+	// Parts and layout are refused with it.
+	Collection bool `json:"collection,omitempty"`
 }
 
 // BundleEnsureResponse is the reply to an Ensure call.
@@ -163,8 +166,11 @@ type BundleChildRequest struct {
 	// Seed derives the child deterministically under the bundle's
 	// current winner. Permanent — a successor object takes a new seed.
 	Seed string `json:"seed"`
-	// Types are attached on first materialization.
-	Types []string `json:"types,omitempty"`
+	// Type is the child's one type, set on first materialization —
+	// required (400 request.missing_field), `page` for a plain
+	// document; Collections the child lacks are added on every call.
+	Type        string   `json:"type"`
+	Collections []string `json:"collections,omitempty"`
 }
 
 // BundleChildResponse carries the derived child's object id.

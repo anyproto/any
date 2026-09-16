@@ -5,7 +5,7 @@ order: 130
 ---
 # Markdown import & export
 
-A document's body is a tree of atomic block records in an [editor](../types/editor.html) collection — `editor_blocks` for the shared body, `<typeId>_<key>` for a part with its own editor; the routes name it as `:collection`, the examples use `editor_blocks`. The markdown routes are a lossless bridge over that collection: `GET` renders the blocks to markdown, `PUT` parses markdown and diffs it against the current blocks, `PATCH` applies quoted-text replacements server-side, and `append` adds a fragment at the tail without reading the document. They exist for "Export as .md" / "Import .md" flows, LLM tooling, and any caller that doesn't want to walk the block tree.
+A document's body is a tree of atomic block records in an [editor](../types/editor.html) storage collection — `editor_blocks` for the shared body, `<typeId>_<key>` for a part with its own editor; the routes name it as `:collection`, the examples use `editor_blocks`. The markdown routes are a lossless bridge over that storage collection: `GET` renders the blocks to markdown, `PUT` parses markdown and diffs it against the current blocks, `PATCH` applies quoted-text replacements server-side, and `append` adds a fragment at the tail without reading the document. They exist for "Export as .md" / "Import .md" flows, LLM tooling, and any caller that doesn't want to walk the block tree.
 
 ```
 GET   /v1/spaces/:spaceId/objects/:objectId/editor/editor_blocks/markdown          render blocks → markdown
@@ -14,7 +14,7 @@ PATCH /v1/spaces/:spaceId/objects/:objectId/editor/editor_blocks/markdown       
 POST  /v1/spaces/:spaceId/objects/:objectId/editor/editor_blocks/markdown/append   append at tail, no read or diff
 ```
 
-All four write through the same block write path a per-block edit would, so the same live events fire on the collection and other clients update in place. The object must carry a type whose part declares the collection (`page` declares `editor_blocks`) — a write otherwise is `400 dataset.not_declared` — and a `:collection` the space does not serve is `404 dataset.not_found`.
+All four write through the same block write path a per-block edit would, so the same live events fire on that storage collection and other clients update in place. The object's type must declare the part that owns it (`page` declares `editor_blocks`) — a write otherwise is `400 dataset.not_declared` — and a `:collection` the space does not serve is `404 dataset.not_found`.
 
 ## Export — `GET`
 

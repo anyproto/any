@@ -16,7 +16,7 @@ const benchRecordJSON = `{
   "id": "bafyreiahq2n522avjpw7xka2lzzjrynpjttv4ddfrpxwj26rfjzpabtrii",
   "_ver": {
     "id": "!!$5",
-    "any": {"types": "!!$5", "name": "!!$5"},
+    "any": {"type": "!!$5", "collections": "!!$5", "name": "!!$5"},
     "nav": {"pos": "!!$5", "type": "!!$5", "parentId": "!!$5"},
     "bafyreibjoqwn23nzx63cx7n7bkunvca4jueqbuhbz27rxvjbta5fxhvyoa": {"3zsJKegeZJu": "!!%>"},
     "author": "!!$5",
@@ -24,7 +24,7 @@ const benchRecordJSON = `{
     "spaceId": "!!$5",
     "modifiedAt": "!!%>"
   },
-  "any": {"types": ["page", "nav", "editor"], "name": "Any primitives — thoughts on UI"},
+  "any": {"type": "page", "collections": ["nav", "editor"], "name": "Any primitives — thoughts on UI"},
   "nav": {"pos": "PPSl", "type": 1, "parentId": ""},
   "bafyreibjoqwn23nzx63cx7n7bkunvca4jueqbuhbz27rxvjbta5fxhvyoa": {
     "3zsJKegeZJu": "PLACEHOLDER"

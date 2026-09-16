@@ -171,7 +171,7 @@ func TestProjection_OpWalkersAgree(t *testing.T) {
 		`{"spaceId":-1,"author":-1}`,
 	}
 	paths := [][]string{
-		{"any"}, {"any", "name"}, {"any", "types"},
+		{"any"}, {"any", "name"}, {"any", "type"},
 		{"nav"}, {"nav", "pos"}, {"nav", "type"}, {"nav", "pos", "deep"},
 		{"spaceId"}, {"author"}, {"missing"}, {"missing", "deeper"},
 	}

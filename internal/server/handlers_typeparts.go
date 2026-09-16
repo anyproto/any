@@ -376,7 +376,6 @@ func (d *deps) typePatch(c echo.Context) error {
 		Name:        req.Name,
 		Description: req.Description,
 		IconCID:     req.IconCID,
-		Weight:      req.Weight,
 		Hidden:      req.Hidden,
 	}
 	if len(req.Meta) > 0 {
@@ -399,10 +398,10 @@ func (d *deps) typePatch(c echo.Context) error {
 			patch.Layout = layout
 		}
 	}
-	if patch.Name == nil && patch.Description == nil && patch.IconCID == nil && patch.Weight == nil &&
+	if patch.Name == nil && patch.Description == nil && patch.IconCID == nil &&
 		patch.Layout == nil && !patch.ClearLayout && patch.Hidden == nil && len(patch.Meta) == 0 {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",
-			"at least one of name, description, iconCid, weight, layout, hidden, meta is required", nil)
+			"at least one of name, description, iconCid, layout, hidden, meta is required", nil)
 	}
 	if errResp, done := requireType(c, sp, typeId); done {
 		return errResp

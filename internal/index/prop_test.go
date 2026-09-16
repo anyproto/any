@@ -178,3 +178,43 @@ func TestRenderSearchValueDatetime(t *testing.T) {
 		t.Errorf("array render = %q", got)
 	}
 }
+
+// TestMembers pins the membership set the chunkers gate on: the one
+// type, the collections, and — a definition implements itself — the
+// row's own id when it carries a marker.
+func TestMembers(t *testing.T) {
+	row := func(js string) *anyenc.Value {
+		v, err := anyenc.ParseJson(js)
+		if err != nil {
+			t.Fatalf("parse %s: %v", js, err)
+		}
+		return v
+	}
+	cases := map[string]struct {
+		json string
+		want []string
+	}{
+		"type only": {`{"id":"o1","any":{"type":"page"}}`, []string{"page"}},
+		"type + collections": {`{"id":"o1","any":{"type":"page","collections":["wiki","bin"]}}`,
+			[]string{"page", "wiki", "bin"}},
+		"collections only": {`{"id":"o1","any":{"collections":["miniapp"]}}`, []string{"miniapp"}},
+		"type definition":  {`{"id":"t1","any":{"type":"__type__"}}`, []string{"__type__", "t1"}},
+		"collection def":   {`{"id":"c1","any":{"type":"__collection__"}}`, []string{"__collection__", "c1"}},
+		"bare object":      {`{"id":"o1","any":{"name":"x"}}`, nil},
+	}
+	for name, tc := range cases {
+		got := Members(row(tc.json))
+		if len(got) != len(tc.want) {
+			t.Errorf("%s: Members = %v, want %v", name, got, tc.want)
+			continue
+		}
+		for _, w := range tc.want {
+			if !got[w] {
+				t.Errorf("%s: Members = %v, missing %q", name, got, w)
+			}
+		}
+	}
+	if Members(nil) != nil {
+		t.Error("Members(nil) must be nil")
+	}
+}
