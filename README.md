@@ -1,13 +1,19 @@
 # Any
 
-**The local-first backend for multiplayer agentic applications.**
+- local-first, e2e encrypted multiplayer database with HTTP interface
+- sync engine on top of [any-sync](https://github.com/anyproto/any-sync), which battle-tested on our infra for many years and millions of spaces and passed security audit from Cure53.
+- mongo query language support, including aggregation framework via [any-store](https://github.com/anyproto/any-store)
+- isolated CPython programs on top of Wasmtime with determenistic traces and fuel control
+- full-text search, semantic search with HNSW/ivfsq index types, hybrid search with reranking.
+- local vector embedding via llama.cpp.
+- CRON-like triggers, event subscriptions
 
 Any runs a local server on each user's device. Applications connect to it
 through a localhost HTTP API to store data, run queries, and subscribe to
 changes. Devices sync through end-to-end encrypted peer-to-peer (P2P)
 connections.
 
-Its companion runtime, [anyrt](website/02-quickstart/anyrt.md), lets programs
+Its companion runtime, [anyrt](https://github.com/anyproto/anybao), lets programs
 and agents live in the same database as the data they work with. The agent
 harness is designed for long-lived sessions, with persistent memory and
 direct access to the database's structured data.
@@ -18,24 +24,29 @@ or through sync nodes, which store and relay encrypted content without
 being able to read it.
 
 This repository packages the database server and CLI as one `any` binary.
-The agent runtime can run alongside the server or inside the Any desktop
-application. Use the HTTP API and CLI to work with your data.
-
-## What you can build
-
-- **Agent memory systems:** facts, preferences, conversation history, and
-  semantic recall in one database.
-- **Custom agent harnesses:** long-lived agents with persistent state,
-  reusable tools, and scheduled workflows.
-- **Company brains:** shared knowledge and project history, with agents
-  that help teams recall why decisions were made.
-- **Research copilots:** agents that collect sources, connect evidence,
-  and build on previous findings.
-- **Custom business apps:** CRMs that remember conversations, project
-  trackers that summarize progress, and workflows tailored to your team.
+The agent runtime runs alongside the server, acting as a client.
 
 The database, search, identity, and sync are built in. You choose the models
 and control your data and agent memory.
+
+
+## What you can build
+
+Any is a general-purpose database, -- it doesn't apply any constraints on which
+applications can be built on top of.
+
+However, some of the features are way easier to build on top of Any.
+
+One of the strongest of such features is multiplayer collaboration. It is quite hard
+to solve the problem of [agentic] concurent write consistency due to the central
+transaction architecture of databases: concurent actors rewrite each other's data without history.
+
+We give convenient tooling to organize conflict-free data access with CRDT enventual
+consistency guarantees. We have support for custom CRDT types and some complex CRDTs implementations,
+such as block-based editor and chat with distributed counters support -- i.e. we provide
+collaborative block-based editor and local-first, encrypted p2p chat primitives out of the box.
+
+
 
 > [!WARNING]
 > **Developer preview.** Use a separate account for experiments. APIs and data
