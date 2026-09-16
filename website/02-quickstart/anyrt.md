@@ -93,13 +93,16 @@ anyrt deploy --source myrepo
 
 ## 5. Your first trigger
 
-A schedule is a record in the `agent_triggers` dataset on the working space's trigger anchor object. The anchor is the `bao/triggers/v1` child of the `bao/v1` bundle — resolve it, never search by name. The dataset lives on the harness's hidden `agent_trigger` type, so its collection is `<typeId>_agent_triggers`; read the name from the space's dataset listing:
+A schedule is a record in the `agent_triggers` dataset on the working space's trigger anchor object. The anchor is the `bao/triggers/v1` child of the `bao/v1` bundle, typed with the harness's hidden `agent_trigger` type — resolve both, never search by name. The child route requires the `type`, and the dataset's storage collection is `<typeId>_agent_triggers`; read the name from the space's dataset listing:
 
 ```bash
 API=http://127.0.0.1:7001/v1
-BAO=$(any space derived | jq -r '.spaces[] | select(.name=="bao") | .spaceId')
+BAO=$(any space derived | jq -er '.spaces[] | select(.name=="bao") | .spaceId')
+TRG=$(curl -s "$API/spaces/$BAO/types?includeHidden=true" \
+  | jq -er '.types[] | select(.xKey=="agent_trigger") | .id')
 ANCHOR=$(curl -s -X POST $API/spaces/$BAO/bundles/bao%2Fv1/children \
-  -H 'content-type: application/json' -d '{"seed":"bao/triggers/v1"}' | jq -r .objectId)
+  -H 'content-type: application/json' \
+  -d '{"seed":"bao/triggers/v1","type":"'$TRG'"}' | jq -er .objectId)
 TRIGGERS=$(curl -s $API/spaces/$BAO/datasets \
   | jq -r '.datasets[].name | select(endswith("_agent_triggers"))')
 ```

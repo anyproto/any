@@ -83,7 +83,7 @@ Serve boot seeds one reserved record, `chat-watch` ("Chat responder"), on the tr
 
 - `program` is informational. The runtime recognizes the reserved id and routes messages through its conversation watcher — dedup, injecting into a live conversation, deferring while overlays sync, and the reconnect snapshot backlog — instead of a program run. The backlog is the one exception to live-only: messages that arrived while nobody was answering get answered late. A message that lands during a live conversation is injected into it rather than starting a run; each conversation run publishes its `agent_runs` summary under the responder's id, and the record's `lastRunAt` marks the latest conversation start.
 - A device watches the chat **only while it owns the enabled `chat-watch` record**. The election-active device claims it and re-stamps it on a takeover; a device that stands down clears the owner on the record. Repinning it moves where the agent answers.
-- `enabled: false` pauses answering on every device — legal, visible and reversible. Pinned to an offline device, nobody answers, by design.
+- `enabled: false` pauses answering on every device — legal, visible and reversible. Pinned to a device whose agent is not running, nobody answers, by design.
 - Boot seeds it only when no `chat-watch` record exists. Because a deleted id stays tombstoned, a reseed after a delete uses a generation id (`chat-watch-g2`, …), recognized as the same reserved record.
 
 > **Why it matters.** Every background behavior of the agent is one mechanism — a record with an owner — so a remote runner (an always-on box, a VM) inherits all of it by holding pins, and "which device is the agent right now" is queryable state instead of an invisible verdict.

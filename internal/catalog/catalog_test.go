@@ -7,7 +7,10 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-var knownTypes = Options{KnownTypeIds: []string{"page", "miniapp", "bin", "dataview"}}
+var knownTypes = Options{
+	KnownTypeIds: []string{"page", "miniapp", "bin", "dataview"},
+	RootTypeIds:  []string{"page", "dataview"},
+}
 
 // TestCatalog_EmbeddedLoads is the build-time check: the catalog that
 // ships in the binary passes the pure validation.
@@ -40,40 +43,59 @@ func TestCatalog_CollectionsIsNavigationOnly(t *testing.T) {
 		b.Type != nil || len(b.Parts) != 0 || b.Derived || b.Hidden {
 		t.Fatalf("navigation-only bundle: %+v", b)
 	}
+	// A root that declares nothing still has a type: the plain document.
+	if b.RootType != "page" {
+		t.Fatalf("navigation-only root type = %q", b.RootType)
+	}
 }
 
-// Every sidebar app whose client mints types has them in the catalog:
-// one bundle, hidden type, the handles clients resolve by.
+// Every sidebar app whose client mints definitions has them in the
+// catalog: one bundle, the handles clients resolve by. A wiki page keeps
+// its own type, so the wiki app declares a COLLECTION its pages are
+// filed under.
 func TestCatalog_SidebarAppsDeclareTheirTypes(t *testing.T) {
 	cat, problems := Load(Embedded(), knownTypes)
 	if len(problems) > 0 {
 		t.Fatal(problems)
 	}
-	// The app root and the type it brings, per usecase.
-	for id, xKey := range map[string]string{"journal": "journal", "meetings": "meeting", "wiki": "wiki"} {
+	// The app root and the definition it brings, per usecase.
+	defs := map[string]struct {
+		xKey       string
+		collection bool
+	}{
+		"journal":  {xKey: "journal"},
+		"meetings": {xKey: "meeting"},
+		"wiki":     {xKey: "wiki", collection: true},
+	}
+	for id, def := range defs {
 		t.Run(id, func(t *testing.T) {
 			u, ok := cat.Get(id)
 			if !ok {
 				t.Fatalf("usecase %s missing", id)
 			}
-			var typed, sidebar *api.CatalogBundle
+			var declaring, sidebar *api.CatalogBundle
 			for i := range u.Bundles {
 				b := &u.Bundles[i]
-				if b.Type != nil && b.Type.XKey == xKey {
-					typed = b
+				if def.collection {
+					if b.Collection != nil && b.Collection.XKey == def.xKey {
+						declaring = b
+					}
+				} else if b.Type != nil && b.Type.XKey == def.xKey {
+					declaring = b
 				}
 				if b.Miniapp != nil {
 					sidebar = b
 				}
 			}
-			if typed == nil || sidebar == nil {
-				t.Fatalf("%s declares no type or no sidebar root: %+v", id, u.Bundles)
+			if declaring == nil || sidebar == nil {
+				t.Fatalf("%s declares no %s or no sidebar root: %+v", id, def.xKey, u.Bundles)
 			}
 			if sidebar.Id != "system:"+id+"/v1" {
 				t.Fatalf("%s sidebar root: %s", id, sidebar.Id)
 			}
-			if typed.SelfTyped {
-				t.Fatalf("%s type root carries its own type: %+v", id, typed)
+			// A collection is columns only — no parts, no type beside it.
+			if def.collection && (declaring.Type != nil || len(declaring.Parts) > 0) {
+				t.Fatalf("%s collection root carries a type or parts: %+v", id, declaring)
 			}
 		})
 	}
@@ -110,6 +132,32 @@ func TestCatalog_SidebarAppsDeclareTheirTypes(t *testing.T) {
 	}
 }
 
+// A relationship facet is a collection: an identity keeps its own type
+// and its profile layout and is filed under the facets it plays.
+func TestCatalog_RoleFacetsAreCollections(t *testing.T) {
+	cat, problems := Load(Embedded(), knownTypes)
+	if len(problems) > 0 {
+		t.Fatal(problems)
+	}
+	for _, id := range []string{"contact", "investor", "customer", "partner", "vendor", "cofounder", "candidate"} {
+		u, ok := cat.Get(id)
+		if !ok {
+			t.Fatalf("usecase %s missing", id)
+		}
+		b := u.Bundles[0]
+		if b.Collection == nil || b.Collection.XKey != id || b.Type != nil || len(b.Parts) > 0 {
+			t.Errorf("%s facet: %+v", id, b)
+		}
+	}
+	// The contacts app root hosts its own layouts records — a definition
+	// implements itself, so nothing declares that.
+	contacts, _ := cat.Get("contacts")
+	root := contacts.Bundles[0]
+	if root.Type != nil || root.Collection != nil || len(root.Parts) != 1 {
+		t.Fatalf("contacts root: %+v", root)
+	}
+}
+
 // base is a small valid catalog the fixtures below mutate.
 const base = `
 usecases:
@@ -120,7 +168,6 @@ usecases:
         name: Contact
         type:
           xKey: contact
-          weight: 10
           properties:
             - { xKey: email, name: Email, kind: string, xFormat: { type: email } }
   - id: company
@@ -150,9 +197,32 @@ usecases:
                 fields: [ { key: pipeline, kind: string, mutableBy: any } ]
 `
 
+// bareRoot strips the crm root's declaration, leaving a sidebar entry
+// that declares nothing — the shape that needs a rootType.
+func bareRoot(s string) string {
+	return strings.Replace(s, `        hidden: true
+        parts:
+          - key: settings
+            datasets:
+              - key: settings
+                idRule: user
+                fields: [ { key: pipeline, kind: string, mutableBy: any } ]
+`, "", 1)
+}
+
 func TestCatalog_BaseIsValid(t *testing.T) {
 	if _, problems := Load([]byte(base), knownTypes); len(problems) > 0 {
 		t.Fatalf("base: %v", problems)
+	}
+}
+
+// A root that declares nothing mints an ordinary object, so it names
+// the type that object gets.
+func TestCatalog_BareRootWithRootTypeIsValid(t *testing.T) {
+	src := strings.Replace(bareRoot(base), "        miniapp: {}\n",
+		"        miniapp: {}\n        rootType: page\n", 1)
+	if _, problems := Load([]byte(src), knownTypes); len(problems) > 0 {
+		t.Fatalf("bare root with rootType: %v", problems)
 	}
 }
 
@@ -287,6 +357,27 @@ func TestCatalog_Problems(t *testing.T) {
 			code: CodeBadField, path: "usecases[2].bundles[0].hidden",
 		},
 		{
+			name:   "bare root without a rootType",
+			mutate: bareRoot,
+			code:   CodeMissing, path: "usecases[2].bundles[0].rootType", contains: "page for a plain document",
+		},
+		{
+			name: "rootType is not a registered type",
+			mutate: func(s string) string {
+				return strings.Replace(bareRoot(s), "        miniapp: {}\n",
+					"        miniapp: {}\n        rootType: nope\n", 1)
+			},
+			code: CodeBadField, path: "usecases[2].bundles[0].rootType", contains: "not a registered type",
+		},
+		{
+			name: "rootType next to a declaration",
+			mutate: func(s string) string {
+				return strings.Replace(s, "        type:\n          xKey: contact\n",
+					"        rootType: page\n        type:\n          xKey: contact\n", 1)
+			},
+			code: CodeBadField, path: "usecases[0].bundles[0].rootType", contains: "carries its marker",
+		},
+		{
 			name: "mutableBy author without a creator stamp",
 			mutate: func(s string) string {
 				return strings.Replace(s, "{ key: pipeline, kind: string, mutableBy: any }",
@@ -305,19 +396,35 @@ func TestCatalog_Problems(t *testing.T) {
 			contains: "no field pipelien",
 		},
 		{
-			name: "selfTyped without a declaration",
+			name: "type and collection on one root",
 			mutate: func(s string) string {
-				return strings.Replace(s, "        hidden: true\n        parts:\n          - key: settings\n            datasets:\n              - key: settings\n                idRule: user\n                fields: [ { key: pipeline, kind: string, mutableBy: any } ]\n", "        selfTyped: true\n", 1)
+				return strings.Replace(s, "        type:\n          xKey: contact\n",
+					"        collection: { xKey: contact_facet }\n        type:\n          xKey: contact\n", 1)
 			},
-			code: CodeBadField, path: "usecases[2].bundles[0].selfTyped",
+			code: CodeBadField, path: "usecases[0].bundles[0].collection", contains: "not both",
 		},
 		{
-			name: "weight on a hidden type",
+			name: "collection with parts",
 			mutate: func(s string) string {
-				return strings.Replace(s, "          xKey: company\n", "          xKey: company\n          weight: 5\n", 1) + ""
+				return strings.Replace(s, "        miniapp: {}\n",
+					"        miniapp: {}\n        collection: { xKey: pipeline }\n", 1)
 			},
-			code: CodeBadField, path: "usecases[1].bundles[0].type.weight",
-			// hidden must be set on that bundle for the rule to fire
+			code: CodeBadField, path: "usecases[2].bundles[0].parts", contains: "declares no parts",
+		},
+		{
+			name: "collection xKey collides with a type xKey",
+			mutate: func(s string) string {
+				return strings.Replace(s, "        type:\n          xKey: company\n",
+					"        collection:\n          xKey: contact\n", 1)
+			},
+			code: CodeDuplicate, path: "usecases[1].bundles[0].collection.xKey", contains: "system:contact/v1",
+		},
+		{
+			name: "weight is gone from a type",
+			mutate: func(s string) string {
+				return strings.Replace(s, "          xKey: company\n", "          xKey: company\n          weight: 5\n", 1)
+			},
+			code: CodeUnknownField, path: "usecases[1].bundles[0].type.weight",
 		},
 		{
 			name: "chat dataset not shared",
@@ -349,9 +456,6 @@ func TestCatalog_Problems(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			src := tc.mutate(base)
-			if tc.name == "weight on a hidden type" {
-				src = strings.Replace(src, "      - id: system:company/v1\n        name: Company\n", "      - id: system:company/v1\n        name: Company\n        hidden: true\n", 1)
-			}
 			_, ps := Load([]byte(src), knownTypes)
 			if len(ps) == 0 {
 				t.Fatalf("expected problems")

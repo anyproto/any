@@ -137,7 +137,7 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 	addProp(`{"name":"Score","kind":"number","xKey":"score"}`, "score")
 	addProp(`{"name":"Secret","kind":"string","xKey":"secret","meta":{"index":"none"}}`, "secret")
 
-	memObj := mustCreateObject(t, e, spaceId, fmt.Sprintf(`{"types":[%q]}`, memTypeId))
+	memObj := mustCreateObject(t, e, spaceId, fmt.Sprintf(`{"type":%q}`, memTypeId))
 	// Set the property values (keyed by propId, as the wire demands).
 	mustModify(t, e, http.MethodPost,
 		"/v1/spaces/"+spaceId+"/properties/"+memObj+"/set/"+memTypeId,

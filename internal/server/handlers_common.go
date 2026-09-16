@@ -339,6 +339,16 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 	if resp, done := unsupportedError(c, err, details); done {
 		return resp
 	}
+	if errors.Is(err, space.ErrTypeRequired) {
+		return writeError(c, http.StatusBadRequest, "membership.type_required",
+			"an object needs a type: any.type cannot be cleared", details)
+	}
+	if errors.Is(err, space.ErrWrongSlot) {
+		// A known collection id written as the type, or a known type id
+		// filed as a collection — the SDK's pre-flight refused it.
+		return writeError(c, http.StatusBadRequest, "membership.wrong_slot",
+			"a type goes in any.type, a collection in any.collections", details)
+	}
 	if errors.Is(err, space.ErrRecordDeleted) {
 		// A write addressed a tombstoned record: the id is burned for
 		// good (docs/24-data-views.md), so the rejection is permanent.

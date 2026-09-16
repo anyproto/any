@@ -114,8 +114,8 @@ func TestIndexer_SchemaChunkerMultiText(t *testing.T) {
 // TestIndexer_SchemaChunker drives the schema-driven chunker end to
 // end: a runtime dataset with an x-search mapping indexes its records
 // under scope "basic" (title boosted), a search-less dataset indexes
-// nothing, and all three eviction paths hold — record delete, type
-// detach, definition removal (retired-set, in-process).
+// nothing, and all three eviction paths hold — record delete, retype,
+// definition removal (retired-set, in-process).
 func TestIndexer_SchemaChunker(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -229,23 +229,25 @@ func TestIndexer_SchemaChunker(t *testing.T) {
 		}
 	})
 
-	t.Run("type detach evicts", func(t *testing.T) {
-		if _, err := sdkSpace.Properties().DetachType(ctx, objectId, typeId); err != nil {
+	t.Run("retype evicts", func(t *testing.T) {
+		// Retyping to a type that declares nothing drops the dataset's
+		// owner: the object's docs go.
+		if _, err := sdkSpace.Properties().SetType(ctx, objectId, plainType(t, e, spaceId)); err != nil {
 			t.Fatal(err)
 		}
 		sync()
 		if res := search("glacier"); len(res.Hits) != 0 {
-			t.Fatalf("detached type's docs still indexed: %v", hitRecordIds(res))
+			t.Fatalf("retyped object's docs still indexed: %v", hitRecordIds(res))
 		}
-		// Re-attach for the removal subtest below.
-		if _, err := sdkSpace.Properties().AttachType(ctx, objectId, typeId); err != nil {
+		// Set the declaring type back for the removal subtest below.
+		if _, err := sdkSpace.Properties().SetType(ctx, objectId, typeId); err != nil {
 			t.Fatal(err)
 		}
 		upsert(`{"objectId":"` + objectId + `","dataset":"` + typeId + `_articles","records":[
 			{"id":"a3","fields":{"title":"Permafrost cores","body":"borehole sampling"}}]}`)
 		sync()
 		if res := search("permafrost"); len(res.Hits) != 1 {
-			t.Fatalf("re-attached dataset must index again: %v", hitRecordIds(res))
+			t.Fatalf("dataset must index again once its type is back: %v", hitRecordIds(res))
 		}
 	})
 

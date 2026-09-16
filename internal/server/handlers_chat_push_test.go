@@ -72,11 +72,12 @@ func TestServer_ChatNotifyMode_RowAddressing(t *testing.T) {
 			qr.Records[0].Chat.NotifyMode, rec.Body.String())
 	}
 
-	// The push sync loop enumerates a space's chats as the objects
-	// carrying an owner of the chat collection: the owners come from
-	// dataset discovery and an $in against any.types matches per
-	// element. A plain object is not a chat.
-	other := mustCreateObject(t, e, spaceId, `{}`)
+	// The push sync loop enumerates a space's chats as the objects whose
+	// TYPE is an owner of the chat collection, plus the declaring roots
+	// themselves (a definition hosts its own datasets — the general chat
+	// is its own type). The owners come from dataset discovery. A plain
+	// object is not a chat.
+	other := mustCreateObject(t, e, spaceId, `{"type":"page"}`)
 	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+spaceId+"/datasets", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("datasets: %d %s", rec.Code, rec.Body.String())
@@ -94,7 +95,10 @@ func TestServer_ChatNotifyMode_RowAddressing(t *testing.T) {
 	if len(owners) != 1 || owners[0] != installModuleType(t, e, spaceId, "chat") {
 		t.Fatalf("chat_messages owners = %v, want the fixture's chat type", owners)
 	}
-	fBody, _ := json.Marshal(map[string]any{"filter": map[string]any{"any.types": map[string]any{"$in": owners}}})
+	fBody, _ := json.Marshal(map[string]any{"filter": map[string]any{"$or": []any{
+		map[string]any{"any.type": map[string]any{"$in": owners}},
+		map[string]any{"id": map[string]any{"$in": owners}},
+	}}})
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects/query", string(fBody))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("chat objects query: %d %s", rec.Code, rec.Body.String())

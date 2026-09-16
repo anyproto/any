@@ -34,6 +34,9 @@ type fakeSpace struct {
 	// types serves the root's part declarations for the adopt-side
 	// settled check; nil = every root reads as declaration-less.
 	types *fakeTypes
+	// collections serves the handle read the settled check runs for a
+	// collection-declaring install.
+	collections *fakeCollections
 }
 
 // fakeTypes stubs the two TypesAPI reads Ensure performs.
@@ -58,9 +61,26 @@ func (f *fakeTypes) Properties(_ context.Context, typeId string) ([]space.Proper
 	return f.props[typeId], f.err
 }
 
+// fakeCollections stubs the one CollectionsAPI read Ensure performs for
+// a collection-declaring install.
+type fakeCollections struct {
+	space.CollectionsAPI
+	info map[string]space.CollectionInfo
+	err  error
+}
+
+func (f *fakeCollections) Get(_ context.Context, collectionId string) (space.CollectionInfo, error) {
+	if f == nil {
+		return space.CollectionInfo{}, nil
+	}
+	return f.info[collectionId], f.err
+}
+
 func (f *fakeSpace) Id() string                { return f.id }
 func (f *fakeSpace) Types() space.TypesAPI     { return f.types }
 func (f *fakeSpace) Bundles() space.BundlesAPI { return f.bundles }
+
+func (f *fakeSpace) Collections() space.CollectionsAPI { return f.collections }
 
 func (f *fakeSpace) SyncStatus() space.SyncStatusAPI {
 	if f.status == nil {
@@ -520,11 +540,12 @@ func TestEnsureDerivedInstallsUnconverged(t *testing.T) {
 	ctx := context.Background()
 
 	b, installed, err := newTestResolver(0).Ensure(ctx, ctx, sp, Install{
-		Id:             "general-chat/v1",
-		Name:           "General",
-		RootTypes:      []string{"chat"},
-		RootProperties: map[string]map[string]any{"any": {"description": "seeded"}},
-		Derived:        true,
+		Id:              "general-chat/v1",
+		Name:            "General",
+		RootType:        "chat",
+		RootCollections: []string{"miniapp"},
+		RootProperties:  map[string]map[string]any{"any": {"description": "seeded"}},
+		Derived:         true,
 	})
 	if err != nil {
 		t.Fatalf("derived install refused: %v", err)
@@ -539,8 +560,8 @@ func TestEnsureDerivedInstallsUnconverged(t *testing.T) {
 	if !req.DerivedRoot || req.NewRoot != nil {
 		t.Fatalf("request did not ask the SDK for a derived root: %+v", req)
 	}
-	if len(req.RootTypes) != 1 || req.RootTypes[0] != "chat" {
-		t.Fatalf("root types not forwarded: %+v", req.RootTypes)
+	if req.RootType != "chat" || len(req.RootCollections) != 1 || req.RootCollections[0] != "miniapp" {
+		t.Fatalf("root type/collections not forwarded: %q %+v", req.RootType, req.RootCollections)
 	}
 	if sp.objects.created != 0 {
 		t.Fatalf("derived install created %d object(s)", sp.objects.created)
@@ -563,18 +584,22 @@ func TestChildDerivationShape(t *testing.T) {
 	if _, err := Child(ctx, sp, space.Bundle{RootId: "root1"}, "memory/v1", "agent_memory"); err != nil {
 		t.Fatalf("child of a created root: %v", err)
 	}
-	if _, err := Child(ctx, sp, space.Bundle{RootId: "root1", Derived: true}, "memory/v1"); err != nil {
+	if _, err := Child(ctx, sp, space.Bundle{RootId: "root1", Derived: true}, "memory/v1", "agent_memory", "pinned"); err != nil {
 		t.Fatalf("child of a derived root: %v", err)
 	}
 	if len(sp.objects.derived) != 2 {
 		t.Fatalf("derive calls = %d, want 2", len(sp.objects.derived))
 	}
 	created, derived := sp.objects.derived[0], sp.objects.derived[1]
-	if created.ParentId != "root1" || string(created.Seed) != "memory/v1" {
+	if created.ParentId != "root1" || string(created.Seed) != "memory/v1" || created.Type != "agent_memory" {
 		t.Fatalf("created root child must bind by parent: %+v", created)
 	}
 	if derived.ParentId != "" || string(derived.Seed) != "root1/memory/v1" {
 		t.Fatalf("derived root child must bind by seed: %+v", derived)
+	}
+	// One type, the rest are collections.
+	if derived.Type != "agent_memory" || len(derived.Collections) != 1 || derived.Collections[0] != "pinned" {
+		t.Fatalf("child membership: type=%q collections=%+v", derived.Type, derived.Collections)
 	}
 }
 
@@ -772,7 +797,7 @@ func TestEnsurePartsAdoptRoles(t *testing.T) {
 // must never hit the write gate).
 func TestEnsurePropertiesAdoptRoles(t *testing.T) {
 	ctx := context.Background()
-	inst := Install{Id: "wiki/v1", Derived: true, Weight: 1,
+	inst := Install{Id: "wiki/v1", Derived: true,
 		Properties: []space.PropertyDraft{{XKey: "parentId", Kind: space.PropertyKindString}, {XKey: "pos", Kind: space.PropertyKindString}}}
 	row := space.Bundle{Id: "wiki/v1", RootId: "root-1", Roots: []string{"root-1"}, Derived: true}
 	both := map[string][]space.PropertyDef{"root-1": {{Id: "p1", XKey: "parentId"}, {Id: "p2", XKey: "pos"}}}
@@ -799,7 +824,7 @@ func TestEnsurePropertiesAdoptRoles(t *testing.T) {
 	if _, _, err := newTestResolver(0).Ensure(ctx, ctx, sp2, inst); err != nil {
 		t.Fatalf("writer heal: %v", err)
 	}
-	if len(sp2.bundles.ensured) != 1 || len(sp2.bundles.ensured[0].Properties) != 2 || sp2.bundles.ensured[0].Weight != 1 {
+	if len(sp2.bundles.ensured) != 1 || len(sp2.bundles.ensured[0].Properties) != 2 {
 		t.Fatalf("writer with a missing handle must reach SDK Ensure once with the declaration, got %+v", sp2.bundles.ensured)
 	}
 	if sp2.bundles.options[0].SystemInstall {
@@ -827,6 +852,51 @@ func TestEnsurePropertiesAdoptRoles(t *testing.T) {
 	}
 	if len(sp4.bundles.options) != 1 || !sp4.bundles.options[0].SystemInstall {
 		t.Fatalf("system install must reach the SDK as the ensure option, got %+v", sp4.bundles.options)
+	}
+}
+
+// TestEnsureCollectionDeclaration pins the collection form: the flag
+// reaches the SDK request, the settled check reads the handle off the
+// collections surface (not the types one), and a root that already
+// carries it adopts as a pure read.
+func TestEnsureCollectionDeclaration(t *testing.T) {
+	ctx := context.Background()
+	inst := Install{Id: "wiki/v1", Name: "Wiki", XKey: "wiki", Collection: true,
+		Properties: []space.PropertyDraft{{XKey: "parentId", Kind: space.PropertyKindString}}}
+	row := space.Bundle{Id: "wiki/v1", RootId: "root-1", Roots: []string{"root-1"}}
+
+	// Handle present: adopt, no SDK call, no types read.
+	sp := newInstallFake(space.PermissionWriter, nil)
+	sp.bundles.getErr = nil
+	sp.bundles.row = row
+	sp.types = &fakeTypes{props: map[string][]space.PropertyDef{"root-1": {{Id: "p1", XKey: "parentId"}}}}
+	sp.collections = &fakeCollections{info: map[string]space.CollectionInfo{"root-1": {Id: "root-1", XKey: "wiki"}}}
+	b, installed, err := newTestResolver(0).Ensure(ctx, ctx, sp, inst)
+	if err != nil || installed || b.RootId != "root-1" {
+		t.Fatalf("settled collection adopt: b=%+v installed=%v err=%v", b, installed, err)
+	}
+	if len(sp.bundles.ensured) != 0 {
+		t.Fatalf("settled collection adopt reached SDK Ensure %d time(s)", len(sp.bundles.ensured))
+	}
+
+	// Handle missing: a writer falls through and the SDK heals it, with
+	// Collection set so the root takes the collection marker.
+	sp2 := newInstallFake(space.PermissionWriter, nil)
+	sp2.bundles.getErr = nil
+	sp2.bundles.row = row
+	sp2.collections = &fakeCollections{}
+	if _, _, err := newTestResolver(0).Ensure(ctx, ctx, sp2, inst); err != nil {
+		t.Fatalf("writer heal: %v", err)
+	}
+	if len(sp2.bundles.ensured) != 1 || !sp2.bundles.ensured[0].Collection {
+		t.Fatalf("collection flag not forwarded: %+v", sp2.bundles.ensured)
+	}
+	// A declaring root is minted by the SDK, never through Objects.Create.
+	if sp2.bundles.ensured[0].NewRoot != nil || sp2.objects.created != 0 {
+		t.Fatalf("collection install minted its own root: %+v created=%d", sp2.bundles.ensured[0], sp2.objects.created)
+	}
+	if !inst.DeclaresCollection() || inst.DeclaresType() {
+		t.Fatalf("DeclaresCollection/DeclaresType on %+v", inst)
 	}
 }
 

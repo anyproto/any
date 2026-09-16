@@ -32,7 +32,7 @@ Every error response from the any server — whatever the status code — has th
 | 400 | validation error on body, path params or query string |
 | 401 | `auth.required` — the server has no account booted yet; `access.signature_rejected` — the invite service refused this account's signature |
 | 403 | ownership gates (`auth.not_managed`, `shutdown.not_managed`, `control.forbidden`), author-only data rules (`chat.not_author`), guest and reader writes (`space.read_only`), ACL roles (`acl.forbidden`), foreign topic namespaces |
-| 404 | target not found (space, object, type, record, version, collection) |
+| 404 | target not found (space, object, type, collection, record, version, route) |
 | 405 | the surface is not available on the tech space (`space.unsupported`) |
 | 409 | conflict — duplicate, precondition failed, not converged yet, feature disabled |
 | 410 | the target existed and is gone for good (`object.deleted`, `record.deleted`) |
@@ -57,7 +57,7 @@ Panics are converted to `500 internal` with a generic message.
 |---|---|---|
 | `request.bad_json` | 400 | body is not valid JSON |
 | `request.schema` | 400 | JSON shape does not match the endpoint schema |
-| `request.missing_field` | 400 | a required field is absent |
+| `request.missing_field` | 400 | a required field is absent — object create without `type`, a bundle body that declares nothing and has no `rootType` |
 | `request.unknown_field` | 400 | a top-level key outside the accepted set (`details.fields`, `details.accepted`) |
 | `request.invalid_field` | 400 | a field value the endpoint refuses (bad identity, dataset outside an allowlist, …; `details.field`) |
 | `request.bad` | 400 | a malformed request the framework or a query parameter check rejected |
@@ -74,6 +74,8 @@ Panics are converted to `500 internal` with a generic message.
 | `auth.account_in_use` | 409 | another process holds the account's instance lock (`details.pid` when known) |
 | `auth.passkey_required` | 400 | encrypted wallet; no or wrong passkey in the configured env var |
 | `auth.device_key_corrupt` | 500 | managed: the account's cached `device.key` is unreadable; never re-minted silently — remove it to mint a new device identity |
+| `auth.network_mismatch` | 409 | the account's data belongs to a different any-sync network than the server's config (`details.pinned`, `details.configured`) — use one data root per network |
+| `auth.network_pin_corrupt` | 500 | the account's `network.json` is unreadable; it is never rewritten from config — remove it and start on the account's network |
 | `control.forbidden` | 403 | managed server: control token (`X-Any-Control-Token`) missing or wrong |
 | `shutdown.not_managed` | 403 | standalone server refuses `POST /v1/shutdown`; use `any stop` or a signal |
 | `identity.not_found` | 404 | the identities directory has never seen this identity |
@@ -127,12 +129,12 @@ Panics are converted to `500 internal` with a generic message.
 
 | Code | Status | Meaning |
 |---|---|---|
-| `dataset.unknown` | 400 | a record write names a collection the space does not serve as a records dataset (module collections are never upsertable); a read of an unknown dataset answers `200 {"records": []}` |
-| `dataset.not_declared` | 400 | a write into a collection none of the object's types declare — attach the declaring type first |
-| `dataset.not_found` | 404 | the editor route's `:collection` is not an editor dataset in this space |
+| `dataset.unknown` | 400 | a record write names a storage collection the space does not serve as a records dataset (a module's own is never upsertable); a read of an unknown dataset answers `200 {"records": []}` |
+| `dataset.not_declared` | 400 | a write into a storage collection the object's type does not declare — set the declaring type first (collections declare no datasets) |
+| `dataset.not_found` | 404 | the editor route's `:collection` is not an editor storage collection in this space |
 | `dataset.validation` | 400 | schema or handler rejected the ops |
 | `dataset.key_conflict` | 409 | a part or dataset with this key already exists on the type (`details.key`) |
-| `dataset.shared_conflict` | 400 | `shared` on a module without a canonical collection, a shared key that is not the canonical name, or a namespaced dataset on a shared-only module |
+| `dataset.shared_conflict` | 400 | `shared` on a module without a canonical storage collection, a shared key that is not the canonical name, or a namespaced dataset on a shared-only module |
 | `dataset.module_unknown` | 400 | the dataset names a module the server does not compile in |
 | `dataset.module_owned` | 409 | fields declared on a module-served dataset |
 | `dataset.module_reserved` | 400 | a part, dataset or bundle draft names a module reserved to the server's own installs (`chat`) |
@@ -145,18 +147,24 @@ Panics are converted to `500 internal` with a generic message.
 | `aggregate.bad_pipeline` | 400 | unparseable pipeline, unknown stage, or `$text`/vector outside the pushdown prefix |
 | `aggregate.limit_exceeded` | 400 | a blocking-stage bound blew (`details.limit`: `group` \| `accumArray` \| `memory`) |
 
-### Types and properties
+### Types, collections and properties
 
 | Code | Status | Meaning |
 |---|---|---|
 | `type.not_found` | 404 | unknown typeId (400 inside a bundle ensure) |
-| `type.xkey_required` | 400 | create without an `xKey` |
-| `type.xkey_conflict` | 409 | `xKey` collides with an existing type's xKey or id (`details.xKey`, `details.existingTypeId`); also raised by a bundle or catalog install whose xKey a type in the space holds |
-| `type.registered` | 400 | add/patch/remove a property, part or dataset, or PATCH the type, on a registered built-in type |
-| `type.reserved_carrier` | 400 | object create, `attach` or an `any.types` op names a type only its own root may carry (the general-chat root; `details.typeId`) |
-| `property.not_found` | 404 | unknown propId |
+| `type.not_a_type` | 400 | a `…/types` route, or `POST …/properties/:objectId/type/:typeId`, names a user **collection** (`details.collectionId`) — use the `…/collections` routes. A registered collection id (`miniapp`, `bin`) answers `404 type.not_found` |
+| `type.xkey_required` | 400 | a type or a collection created without an `xKey` |
+| `type.xkey_conflict` | 409 | `xKey` collides with an existing type's or collection's xKey or id (`details.xKey`, `details.existingTypeId` or `details.existingCollectionId`) — the two surfaces share one handle namespace; also raised by a bundle or catalog install |
+| `type.registered` | 400 | add/patch/remove a property, part or dataset, or PATCH the type, on a registered built-in type; also a column write on a registered built-in collection |
+| `type.reserved_carrier` | 400 | object create, `POST …/type/:typeId` or an `any.type` op names a type only its own root may carry (the general-chat root; `details.typeId`) |
+| `collection.not_found` | 404 | unknown collectionId (400 inside a bundle ensure) |
+| `collection.not_a_collection` | 400 | a `…/collections` route, or `POST …/properties/:objectId/collections/:collectionId`, names a user **type** (`details.typeId`). A registered type id (`page`, `dataview`) answers `404 collection.not_found` |
+| `collection.registered` | 400 | PATCH the metadata of a registered built-in collection (`miniapp`, `bin`) |
+| `membership.wrong_slot` | 400 | a raw `…/modify` write put a known collection id in `any.type` or a known type id in `any.collections` |
+| `membership.type_required` | 400 | a raw write cleared `any.type`; every object has exactly one type |
+| `property.not_found` | 400 | a value write names a property the owner — the object's type or one of its collections — does not declare |
 | `property.kind_mismatch` | 400 | write violated the immutable kind |
-| `property.xkey_conflict` | 409 | another property of the type holds this `xKey` (`details.xKey`, `details.existingPropId`) |
+| `property.xkey_conflict` | 409 | another property of the same type or collection holds this `xKey` (`details.xKey`, `details.existingPropId`) |
 | `property.immutable` | 400 | PATCH of a pinned path — `kind`, `scope`, `items`, `properties` (`details.path`) |
 | `property.format_invalid` | 400 | descriptor vocabulary problem on create/PATCH: slug does not fit the kind, reserved slug or key (`tags`, `validate`, `compute`), unparseable `relation.filter` |
 | `property.format_violation` | 400 | a value violated its descriptor's current slug (`details.propId`, `format` = the slug, `reason`) |
@@ -202,7 +210,7 @@ Panics are converted to `500 internal` with a generic message.
 | Code | Status | Meaning |
 |---|---|---|
 | `local.disabled` | 409 | `local.enabled: false`; existing collections stay on disk |
-| `local.collection_not_found` | 404 | collection not ensured yet, or already dropped |
+| `local.collection_not_found` | 404 | local storage collection not ensured yet, or already dropped |
 | `local.doc_not_found` | 404 | get, or update without `upsert`, of an unknown id |
 | `local.duplicate_id` | 409 | insert of an id that already exists |
 | `local.unique_violation` | 409 | a unique index rejected the write |
@@ -210,8 +218,8 @@ Panics are converted to `500 internal` with a generic message.
 | `local.bad_name` | 400 | scope, spaceId or name failed validation |
 | `local.bad_index` | 400 | an index was rejected (same name, different definition; invalid name) |
 | `local.bad_filter` / `local.bad_sort` / `local.bad_modifier` | 400 | the filter, sort key or modifier did not parse |
-| `local.bad_pipeline` | 400 | unparseable pipeline, a sink into the aggregated collection, a sink result without `id`, `$lookup` from another collection |
-| `local.bad_sink_target` | 400 | `$out` / `$merge into` / `$lookup from` names a collection outside the local store |
+| `local.bad_pipeline` | 400 | unparseable pipeline, a sink into the aggregated storage collection, a sink result without `id`, `$lookup` from another one |
+| `local.bad_sink_target` | 400 | `$out` / `$merge into` / `$lookup from` names a storage collection outside the local store |
 | `local.limit_exceeded` | 400 | a blocking-stage bound blew (`details.limit`) |
 
 ### Events, processes, search
@@ -235,7 +243,7 @@ Panics are converted to `500 internal` with a generic message.
 
 | Code | Status | Meaning |
 |---|---|---|
-| `sdk.not_implemented` | 501 | placeholder route (sync-status peers, type delete) |
+| `sdk.not_implemented` | 501 | placeholder route (sync-status peers, type delete, collection delete) |
 | `sdk.not_found` | 404 | the engine reports the target gone (deleted object, unknown property or definition) |
 | `sdk.crdt_version_newer` | 409 | the account's data was written by a newer release (`details.stored` > `details.supported`): booting it refuses, a running server turns read-only until upgraded (`GET /v1/health` → `crdtVersion`) |
 | `server.unavailable` | 503 | request cancelled / server shutting down |

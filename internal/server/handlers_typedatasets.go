@@ -494,12 +494,21 @@ func (d *deps) typeRemoveDatasetField(c echo.Context) error {
 // the response was written.
 func requireType(c echo.Context, sp space.Space, typeId string) (errResp error, done bool) {
 	if _, err := sp.Types().Get(c.Request().Context(), typeId); err != nil {
-		if errors.Is(err, space.ErrNotFound) {
-			return writeError(c, http.StatusNotFound, "type.not_found",
-				"type not found",
-				map[string]any{"spaceId": sp.Id(), "typeId": typeId}), true
+		if resp, done := typeLookupError(c, err, sp.Id(), typeId); done {
+			return resp, true
 		}
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId}), true
+	}
+	return nil, false
+}
+
+// requireCollection is requireType's twin on the collections surface.
+func requireCollection(c echo.Context, sp space.Space, id string) (errResp error, done bool) {
+	if _, err := sp.Collections().Get(c.Request().Context(), id); err != nil {
+		if resp, done := collectionLookupError(c, err, sp.Id(), id); done {
+			return resp, true
+		}
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "collectionId": id}), true
 	}
 	return nil, false
 }

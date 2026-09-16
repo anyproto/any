@@ -7,7 +7,7 @@ order: 20
 
 Every any client is an HTTP client. This page is the whole loop in raw JSON, so you know exactly what the CLI and the language recipes are sending.
 
-Assumes `any run` is up on `127.0.0.1:7001` ([Install](install.html)).
+Assumes `any run` is up on `127.0.0.1:7001` ([Install](install.html)) and `jq` is installed.
 
 ```bash
 API=http://127.0.0.1:7001/v1
@@ -16,9 +16,11 @@ API=http://127.0.0.1:7001/v1
 ## 1. Create a space
 
 ```bash
-curl -s -X POST $API/spaces -H 'content-type: application/json' \
-  -d '{"name":"Notebook","description":"first space"}'
+SPACE=$(curl -s -X POST $API/spaces -H 'content-type: application/json' \
+  -d '{"name":"Notebook","description":"first space"}' | jq -er .id)
 ```
+
+The reply is the space; `jq` keeps its id:
 
 ```json
 { "id": "bafyreig…", "spaceType": "any.space", "name": "Notebook",
@@ -26,44 +28,34 @@ curl -s -X POST $API/spaces -H 'content-type: application/json' \
   "createdAt": "2026-08-24T10:00:00Z", "spaceIndexObjectId": "bafyreia…" }
 ```
 
-Keep the id:
-
-```bash
-SPACE=bafyreig…
-```
-
 ## 2. Create an object
 
-A document is an object carrying a type whose part declares the `editor` module. The built-in [`page`](../types/page.html) type is the plain one — hidden from the picker, present in every space, no properties — so `"types": ["page"]` is all it takes; a client that needs columns declares its own document type, normally registered as a [bundle](../collaboration/bundles.html) so every device agrees on it. Properties always ride `initialProperties` keyed by type; the universal `any` type owns `name` / `description`.
+A document is an object whose type has a part declaring the `editor` module. The built-in [`page`](../types/page.html) type is the plain one — hidden from the picker, present in every space, no properties — so `"type": "page"` is all it takes; a client that needs columns declares its own document type, normally registered as a [bundle](../collaboration/bundles.html) so every device agrees on it. **`type` is required** on create; `collections` (what the object is filed under) is optional. Properties always ride `initialProperties` keyed by owner; the universal `any` group owns `name` / `description`.
 
 ```bash
-curl -s -X POST $API/spaces/$SPACE/objects -H 'content-type: application/json' \
-  -d '{"types":["page"],"initialProperties":{"any":{"name":"Reading list"}}}'
+OBJ=$(curl -s -X POST $API/spaces/$SPACE/objects -H 'content-type: application/json' \
+  -d '{"type":"page","initialProperties":{"any":{"name":"Reading list"}}}' | jq -er .objectId)
 ```
 
 ```json
 { "objectId": "bafyreib…" }
 ```
 
-```bash
-OBJ=bafyreib…
-```
-
-The two body keys `types`, `initialProperties` are the whole vocabulary; anything else is `400 request.unknown_field`. The object carries exactly the types it names — a place in the space's tree is one more type, the wiki usecase's ([Objects](../database/objects.html)).
+The three body keys `type`, `collections`, `initialProperties` are the whole vocabulary; anything else is `400 request.unknown_field`. The object gets exactly the type and the collections it names — a place in the space's tree is one of those collections, the wiki usecase's ([Objects](../database/objects.html)).
 
 ## 3. Query
 
-Reads are POSTs with a Mongo-style body. The cross-object query reads the space's `objects` collection — one row per object with its property values and derived stamps:
+Reads are POSTs with a Mongo-style body. The cross-object query reads the space's `objects` storage collection — one row per object with its property values and derived stamps:
 
 ```bash
 curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/json' \
-  -d '{"filter":{"any.types":"page"},"sort":["-modifiedAt"],"limit":20,"includeTotal":true}'
+  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20,"includeTotal":true}'
 ```
 
 ```json
 { "records": [
     { "id": "bafyreib…",
-      "any": { "types": ["page"], "name": "Reading list" },
+      "any": { "type": "page", "name": "Reading list" },
       "author": "A8tR…", "spaceId": "bafyreig…",
       "createdAt": { "$date": "2026-08-24T10:01:00.000Z" },
       "modifiedAt": { "$date": "2026-08-24T10:01:00.000Z" },
@@ -72,7 +64,7 @@ curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/j
   "total": 1, "hasNext": false }
 ```
 
-A scalar against an array field is the "contains" spelling (`{"any.types":"<typeId>"}`). Timestamps are `{"$date": …}` instants and must be written the same way in filters ([Reading data](../database/reading-data.html)).
+`any.type` is a scalar, so filtering by type is plain equality (`{"any.type":"<typeId>"}`); `any.collections` is an array, where a scalar is the "contains" spelling (`{"any.collections":"<collectionId>"}`). Timestamps are `{"$date": …}` instants and must be written the same way in filters ([Reading data](../database/reading-data.html)).
 
 ## 4. Subscribe
 
@@ -80,7 +72,7 @@ Same body, sibling path, `-N` to keep the stream open. The response is `text/eve
 
 ```bash
 curl -s -N -X POST $API/spaces/$SPACE/objects/query/subscribe -H 'content-type: application/json' \
-  -d '{"filter":{"any.types":"page"},"sort":["-modifiedAt"],"limit":20}'
+  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}'
 ```
 
 ```

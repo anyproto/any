@@ -27,7 +27,7 @@ This table is the entire host effect catalog — the kernel API between a sandbo
 | `oauth.refresh(provider)` | mutate | `oauth.refresh` | **host-emitted only**: the refresh-token exchange recorded before the http record it serves; a direct guest call fails typed `host_only` |
 | `trace.effects_of(cell?, span?, run?, all?)` / `trace.effect_get(seq, run?)` | read | own name | trace views over this run, or a past run with `run` |
 | `trace.runs(program?, filter?, sort?, limit?)` / `trace.stats(run)` | read | own name | the run finder over run summaries, and one run's cost/shape summary |
-| `trace.query(pipeline, coll)` | read | `trace.query` | read-only aggregation over the trace collections `records` / `runs` / `blobs`; `$out` / `$merge` refused |
+| `trace.query(pipeline, coll)` | read | `trace.query` | read-only aggregation over the trace storage collections `records` / `runs` / `blobs`; `$out` / `$merge` refused |
 | `blob.read(hash, offset?, length?)` / `blob.put(data, mime)` | read | own name | bytes as handles: read a slice of a stored blob (base64), or store bytes → a ref |
 | `bao.status(line)` | mutate | `bao.status` | set the agent's presence status line (serve only) |
 | `sh.run` · `fs.read` · `fs.list` · `fs.write` · `fs.edit` | `sh.run`, `fs.write`, `fs.edit` mutate; `fs.read`, `fs.list` read | own name | processes and files on the serve's device — present only in a runtime built with the `shell` feature |
@@ -56,7 +56,7 @@ A program that only reads can therefore be granted `data.read` and nothing else,
 # a read against the local server — classified data.read
 base = effect("runtime.get", {"key": "any.base_url"})["value"]
 r = http.post(f"{base}/v1/spaces/{space}/objects/query",
-              json={"filter": {"any.types": "page"}, "limit": 10})
+              json={"filter": {"any.type": "page"}, "limit": 10})
 pages = r.json()["records"]
 ```
 

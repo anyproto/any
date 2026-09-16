@@ -80,7 +80,7 @@ Until then every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json`, 
 ```kotlin
 val client = OkHttpClient()
 // "page": the built-in document type
-val body = """{"types":["page"],"initialProperties":{"any":{"name":"From Android"}}}"""
+val body = """{"type":"page","initialProperties":{"any":{"name":"From Android"}}}"""
 val req = Request.Builder()
     .url("${AnyClient.baseUrl}/spaces/$space/objects")
     .post(body.toRequestBody("application/json".toMediaType()))

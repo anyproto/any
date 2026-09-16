@@ -47,7 +47,7 @@ func TestE2E_MultipeerLinks(t *testing.T) {
 
 	var target api.ObjectsCreateResponse
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{"initialProperties":{"any":{"name":"target"}}}`, http.StatusCreated, &target)
+		`{"type":"page","initialProperties":{"any":{"name":"target"}}}`, http.StatusCreated, &target)
 	page := createModuleObject(t, owner.base, sp.Id, "editor")
 	blocks := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + page + "/editor/editor_blocks/blocks"
 	var blk api.ModifyResult

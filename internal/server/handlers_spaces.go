@@ -127,6 +127,15 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	// Types.
 	g.GET("/spaces/:spaceId/types", d.typeList)
 	g.POST("/spaces/:spaceId/types", d.typeCreate)
+	g.GET("/spaces/:spaceId/collections", d.collectionList)
+	g.POST("/spaces/:spaceId/collections", d.collectionCreate)
+	g.GET("/spaces/:spaceId/collections/:collectionId", d.collectionGet)
+	g.PATCH("/spaces/:spaceId/collections/:collectionId", d.collectionPatch)
+	g.DELETE("/spaces/:spaceId/collections/:collectionId", notImplemented("Collections.Delete"))
+	g.GET("/spaces/:spaceId/collections/:collectionId/properties", d.collectionProperties)
+	g.POST("/spaces/:spaceId/collections/:collectionId/properties", d.collectionAddProperty)
+	g.DELETE("/spaces/:spaceId/collections/:collectionId/properties/:propId", d.collectionRemoveProperty)
+	g.PATCH("/spaces/:spaceId/collections/:collectionId/properties/:propId", d.collectionPatchProperty)
 	g.GET("/spaces/:spaceId/types/:typeId", d.typeGet)
 	g.PATCH("/spaces/:spaceId/types/:typeId", d.typePatch)
 	g.DELETE("/spaces/:spaceId/types/:typeId", notImplemented("Types.Delete"))
@@ -159,8 +168,9 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	// patch's propIds determine the scope (all must share one).
 	g.GET("/spaces/:spaceId/properties/:objectId", d.propertiesGet)
 	g.POST("/spaces/:spaceId/properties/:objectId/set/:typeId", d.propertiesSet)
-	g.POST("/spaces/:spaceId/properties/:objectId/attach/:typeId", d.propertiesAttachType)
-	g.POST("/spaces/:spaceId/properties/:objectId/detach/:typeId", d.propertiesDetachType)
+	g.POST("/spaces/:spaceId/properties/:objectId/type/:typeId", d.propertiesSetType)
+	g.POST("/spaces/:spaceId/properties/:objectId/collections/:collectionId", d.propertiesAttachCollection)
+	g.DELETE("/spaces/:spaceId/properties/:objectId/collections/:collectionId", d.propertiesDetachCollection)
 
 	// Members. Static segments before the :identity wildcard so /me,
 	// /requests, and /subscribe don't get swallowed by the param matcher.

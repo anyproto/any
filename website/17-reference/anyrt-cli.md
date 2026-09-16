@@ -115,7 +115,7 @@ Details: [Modules and overlays](../programs/modules-and-overlays.html).
 
 ## `anyrt trace`
 
-Trace tooling. With `--addr`, a subcommand reads the trace collections a serve keeps in that any server's local store (`--space` names the agent space, default `bao`); without it, it reads a JSONL traces directory — what `anyrt run` and the `file` backend write. A bare run id resolves against `traces/`, so `trace ls` output feeds straight into `show`.
+Trace tooling. With `--addr`, a subcommand reads the trace storage collections a serve keeps in that any server's local store (`--space` names the agent space, default `bao`); without it, it reads a JSONL traces directory — what `anyrt run` and the `file` backend write. A bare run id resolves against `traces/`, so `trace ls` output feeds straight into `show`.
 
 ```
 anyrt trace ls [DIR] [--addr URL] [--space NAME] [--program SUBSTR] [-n N]

@@ -308,10 +308,7 @@ func (c *SchemaChunker) ChunksSince(ctx context.Context, sp space.Space, objectI
 	if row == nil || IsDeleted(row) {
 		return nil // structural eviction is the indexer's job
 	}
-	attached := map[string]bool{}
-	for _, v := range row.GetArray("any", "types") {
-		attached[string(v.GetStringBytes())] = true
-	}
+	attached := Members(row)
 	for _, ds := range dss {
 		if !attached[ds.typeId] {
 			continue // evicted by the worker via EvictDatasets

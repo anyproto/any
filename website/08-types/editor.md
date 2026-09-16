@@ -1,17 +1,17 @@
 ---
 title: Editor
-description: Block-structured documents in an editor collection — atomic block writes, live subscriptions, and a lossless markdown bridge for imports, exports and LLM edits.
+description: Block-structured documents in an editor storage collection — atomic block writes, live subscriptions, and a lossless markdown bridge for imports, exports and LLM edits.
 order: 20
 ---
 # Editor
 
-The `editor` module stores an object's body as a tree of atomic blocks: one CRDT record per block, ordered by a lexicographic position, nested by parent id. Two members editing different paragraphs merge cleanly; an offline edit lands as a per-block change when the device reconnects. On top of the block collection sits a markdown bridge, so tools that think in text — exporters, importers, LLM agents — never have to walk the tree.
+The `editor` module stores an object's body as a tree of atomic blocks: one CRDT record per block, ordered by a lexicographic position, nested by parent id. Two members editing different paragraphs merge cleanly; an offline edit lands as a per-block change when the device reconnects. On top of the block storage collection sits a markdown bridge, so tools that think in text — exporters, importers, LLM agents — never have to walk the tree.
 
-An object holds an editor collection while it carries a type whose part declares the module ([modules](index.html)). Every editor route names the collection: `editor_blocks`, the canonical collection a shared part declares — the body every document type contributes to — or `<typeId>_<key>` for a part that wants an editor of its own (a meeting's `summary` next to its shared notes). A write into a collection none of the object's types declare is `400 dataset.not_declared`; a collection no editor part in the space declares is `404 dataset.not_found`. The examples below use `editor_blocks`.
+An object holds an editor storage collection while its type declares the part that owns it ([modules](index.html)). Every editor route names that storage collection: `editor_blocks`, the canonical one a shared part declares — the body every document type writes, so retyping between document types keeps it — or `<typeId>_<key>` for a part that wants an editor of its own (a meeting's `summary` next to its shared notes). A write into one the object's type does not declare is `400 dataset.not_declared`; one no editor part in the space declares is `404 dataset.not_found`. The examples below use `editor_blocks`.
 
 ## Blocks
 
-One record per block in the object's editor collection:
+One record per block in the object's editor storage collection:
 
 ```json
 {
@@ -107,7 +107,7 @@ Re-PUTting a GET writes nothing (`unchanged` equals the block count), so a clien
 
 ### Surgical edits with PATCH
 
-PATCH is for callers — LLM agents above all — that know the *text* they want changed but not the block ids:
+PATCH is for callers — LLM agents above all — that know the *text* they want changed but not the block ids. Each `oldText` must already be in the document:
 
 ```bash
 curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/markdown \
@@ -128,7 +128,7 @@ The server renders the current canonical markdown (exactly the bytes GET returns
 - Every `oldText` matches against the **original** document, independently of the other edits; matched regions must not overlap.
 - Without `replaceAll` the match must be unique. `newText` may be empty; deleting a whole block takes one blank-line separator with it so the neighbours become adjacent.
 - Exact match first; on zero hits a whole-line fuzzy fallback folds unicode punctuation to ASCII (curly quotes, dashes, NBSP) and ignores trailing whitespace. A mid-line fragment is never fuzzy-matched — re-GET and quote exactly.
-- All-or-nothing: any failing edit rejects the whole request and nothing is written. Byte-identical results are a 200 no-op, so ticking an already-ticked box is idempotent.
+- All-or-nothing: any failing edit rejects the whole request and nothing is written. A request whose result is byte-identical to the current document is a 200 no-op, but repeating an edit that already applied is not: the `oldText` is gone, so the retry answers `400 markdown.no_match`. After an uncertain retry, GET the document and check for `newText` before treating the edit as lost.
 
 | Error code | Meaning / recovery |
 |------------|--------------------|

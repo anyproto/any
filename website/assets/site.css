@@ -186,7 +186,25 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 .pager a span{font-weight:500}
 .pager .prev small::before{content:"←"}
 .pager .next{text-align:right}.pager .next small{justify-content:flex-end}.pager .next small::after{content:"→"}
+/* narrow: one column; the sidebar is a drawer over the page, the search
+   takes the bar while focused and its results span the bar */
 @media (max-width:900px){
-  .menu{display:block}
-    .side.open{display:block}
+  .shell{grid-template-columns:minmax(0,1fr)}
+  .side{display:none;position:fixed;top:0;bottom:0;left:0;z-index:40;width:min(var(--side),85vw);height:auto}
+  .side.open{display:flex}
+  /* the backdrop is a real layer under the drawer: a tap on it closes the
+     drawer and never reaches the page, which stops scrolling meanwhile */
+  .drawer-open,.drawer-open body{overflow:hidden}
+  .drawer-open body::after{content:"";position:fixed;inset:0;z-index:39;background:rgba(0,0,0,.55)}
+  .menu{display:block;flex:0 0 auto}
+  .bar{padding:0 16px;gap:8px}
+  .search{position:static;width:36px;padding:0 10px}
+  .search input{width:0}
+  .search:focus-within{flex:1 1 auto;width:auto}
+  .search:focus-within .esc{display:none}
+  .bar:has(.search:focus-within) .crumb{display:none}
+  .results{top:48px;left:16px;right:16px;width:auto;max-width:none;max-height:70vh}
+  .main{padding:24px 16px 48px}
+  .doc{overflow-wrap:break-word}
+  .pager{flex-direction:column}
   .doc .cards,.doc .tiers{grid-template-columns:1fr}}

@@ -1,12 +1,12 @@
 // Package page registers the built-in `page` type: the plain document.
 //
 // Hidden, no properties, one part — `body` — whose dataset is the
-// editor module's shared collection, so an object carrying `page` holds
-// `editor_blocks` (docs/03-api.md § Parts and modules). Optional for
-// clients: attach it for a plain document body, or declare your own
-// document types with an editor part — both share the same collection,
-// and an object carrying two such types still has one body. Nothing
-// stamps it: a client decides which types its objects carry.
+// editor module's shared collection, so an object of type `page` holds
+// `editor_blocks` (docs/03-api.md § Parts and modules). Every object
+// has exactly one type; `page` is the answer for a plain document, a
+// client's own document types with an editor part share the same
+// collection. Nothing stamps it: a client decides the type of each
+// object it creates.
 //
 // Registered, not a bundle: the id is reserved and the declaration
 // static, so every space has it by construction and no install can

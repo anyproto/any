@@ -52,7 +52,7 @@ func TestServer_DebugFlow(t *testing.T) {
 	}
 
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
-		fmt.Sprintf(`{"types":[%q]}`, typeResp.TypeId))
+		fmt.Sprintf(`{"type":%q}`, typeResp.TypeId))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST .../objects: status=%d body=%s", rec.Code, rec.Body.String())
 	}

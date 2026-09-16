@@ -28,7 +28,7 @@ any upsert $SPACE $OBJ --dataset "${TYPE}_articles" --records @batch.json --page
 | Field | Meaning |
 |---|---|
 | `objectId` | The object hosting the dataset — it must carry the dataset's owning type. |
-| `dataset` | The runtime dataset's collection, `<typeId>_<key>` — the `collection` its declaration returned. |
+| `dataset` | The runtime dataset's storage collection, `<typeId>_<key>` — the `collection` its declaration returned. |
 | `records[]` | `{id, fields}` — `id` must match the dataset's `idPattern` / `idMaxLen`. |
 | `pageSize` | Records per CRDT change, default 500. |
 | `traceIds` | Optional trace ids stamped on every page's change. |
@@ -62,7 +62,7 @@ The call answers `200` even when some records were rejected — the same partial
 | `upsert.record_deleted` | The stored record is a tombstone. |
 | `upsert.rejected` | Creation screening failed — missing required field, id pattern or length violation, undeclared field on a non-dynamic dataset, write to a stamped field. `reason` carries the specific cause. |
 
-Whole-call errors: `400 upsert.requires_user_ids` when the dataset is not declared `idRule: user`, `400 dataset.unknown` when the space serves no records collection of that name (module collections such as `chat_messages` are never upsertable), and `400 dataset.not_declared` when the object carries no type declaring it.
+Whole-call errors: `400 upsert.requires_user_ids` when the dataset is not declared `idRule: user`, `400 dataset.unknown` when the space serves no records storage collection of that name (a module's own, such as `chat_messages`, is never upsertable), and `400 dataset.not_declared` when the object's type does not declare it.
 
 ## Concurrency
 

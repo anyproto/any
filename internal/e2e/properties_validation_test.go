@@ -97,9 +97,10 @@ func TestE2E_PropertyValidation(t *testing.T) {
 	})
 
 	t.Run("type not implemented by object", func(t *testing.T) {
-		// bookType/bookTitle are well-formed, but the object's any.types
-		// is [Movie] — it never implemented Book, so the write is
-		// rejected before the (valid) property is even consulted.
+		// bookType/bookTitle are well-formed, but the object's any.type
+		// is Movie and it is in no collection — Book owns nothing on it,
+		// so the write is rejected before the (valid) property is even
+		// consulted.
 		code := mustErrorCode(t, http.MethodPost, setBase+bookType,
 			fmt.Sprintf(`{"patch":{%q:"x"}}`, bookTitle), http.StatusBadRequest)
 		if code != "dataset.validation" {
@@ -190,7 +191,7 @@ func createObject(t *testing.T, base, spaceID, typeID string) string {
 	t.Helper()
 	var resp map[string]any
 	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+spaceID+"/objects",
-		fmt.Sprintf(`{"types":[%q]}`, typeID), http.StatusCreated, &resp)
+		fmt.Sprintf(`{"type":%q}`, typeID), http.StatusCreated, &resp)
 	id, _ := resp["objectId"].(string)
 	if id == "" {
 		t.Fatalf("createObject: objectId empty: %+v", resp)

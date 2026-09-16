@@ -41,7 +41,7 @@ func TestE2E_FilesBinary(t *testing.T) {
 		`{"name":"files-binary"}`, http.StatusCreated, &sp)
 	var obj api.ObjectsCreateResponse
 	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &obj)
+		`{"type":"page"}`, http.StatusCreated, &obj)
 
 	filesBase := base + "/v1/spaces/" + sp.Id + "/files"
 	attachBase := base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId + "/files"
@@ -248,7 +248,7 @@ func TestE2E_FilesBinary(t *testing.T) {
 	// Query against an object with no files yet → 404 file.not_found.
 	var obj2 api.ObjectsCreateResponse
 	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &obj2)
+		`{"type":"page"}`, http.StatusCreated, &obj2)
 	mustJSON(t, http.MethodPost,
 		base+"/v1/spaces/"+sp.Id+"/objects/"+obj2.ObjectId+"/files/query",
 		"", http.StatusNotFound, &env)

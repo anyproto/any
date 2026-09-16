@@ -106,7 +106,7 @@ func TestCheckUnknownFields(t *testing.T) {
 
 	// The hint lands in the message.
 	c, rec = newTestContext("")
-	_, _ = checkUnknownFields(c, fastjson.MustParse(`{"name": "x"}`), objectCreateFieldsHint, "types", "initialProperties")
+	_, _ = checkUnknownFields(c, fastjson.MustParse(`{"name": "x"}`), objectCreateFieldsHint, "type", "collections", "initialProperties")
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("decode envelope: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestDerivedAcceptedSets(t *testing.T) {
 		{"spaceListQueryFields", spaceListQueryFields,
 			[]string{"dataset", "filter", "sort", "limit", "offset", "includeTotal", "mailboxCapacity", "driftBudgetPercent", "projection"}},
 		{"objectCreateFields", objectCreateFields,
-			[]string{"types", "initialProperties"}},
+			[]string{"type", "collections", "initialProperties"}},
 	}
 	for _, tc := range cases {
 		if len(tc.fields) != len(tc.want) {
@@ -238,8 +238,12 @@ func TestRequestSchemaBoundaries(t *testing.T) {
 			`{"any": {"name": "x"}, "types": ["nav"]}`, "request.unknown_field"},
 		{"create bad group", http.MethodPost, "/v1/spaces/" + sp.Id + "/objects",
 			`{"initialProperties": {"any": "Dune"}}`, "request.schema"},
-		{"create types not array", http.MethodPost, "/v1/spaces/" + sp.Id + "/objects",
-			`{"types": "nav"}`, "request.schema"},
+		{"create type not a string", http.MethodPost, "/v1/spaces/" + sp.Id + "/objects",
+			`{"type": ["nav"]}`, "request.schema"},
+		{"create collections not an array", http.MethodPost, "/v1/spaces/" + sp.Id + "/objects",
+			`{"collections": "nav"}`, "request.schema"},
+		{"create retired types field", http.MethodPost, "/v1/spaces/" + sp.Id + "/objects",
+			`{"types": ["page"]}`, "request.unknown_field"},
 		{"objects query filters typo", http.MethodPost, "/v1/spaces/" + sp.Id + "/objects/query",
 			`{"filters": {"any.name": "x"}}`, "request.unknown_field"},
 		{"per-object query unknown key", http.MethodPost, "/v1/spaces/" + sp.Id + "/query",
@@ -268,12 +272,12 @@ func TestRequestSchemaBoundaries(t *testing.T) {
 	// both fields plus a query with every documented key answers 2xx;
 	// the retired `nav` body field is an unknown field like any other.
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
-		`{"types": ["page"], "initialProperties": {"any": {"name": "Dune"}}}`)
+		`{"type": "page", "collections": ["miniapp"], "initialProperties": {"any": {"name": "Dune"}, "miniapp": {"pos": "a0"}}}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("full create: %d %s", rec.Code, rec.Body.String())
 	}
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
-		`{"types": ["page"], "nav": {"type": 2}}`)
+		`{"type": "page", "nav": {"type": 2}}`)
 	if rec.Code != http.StatusBadRequest || errEnvCode(t, rec.Body.Bytes()) != "request.unknown_field" {
 		t.Fatalf("nav body field: %d %s", rec.Code, rec.Body.String())
 	}

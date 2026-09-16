@@ -46,7 +46,7 @@ CLI-side flags (`--addr`, `--timeout`, `--verbose`, `--control-token` / `ANY_CON
 | `p2p.enabled` | — | `true` | local-network (mDNS + QUIC) discovery and sync between the account's devices |
 | `p2p.port` | — | `0` | QUIC listen port; 0 = reuse the persisted port or pick an ephemeral one |
 | `p2p.serviceName` | — | `""` | mDNS service type; empty = `_any._tcp` |
-| `local.enabled` | `ANY_LOCAL_ENABLED` | `true` | serve the device-local store at `/v1/local`; `false` answers `409 local.disabled` and leaves existing collections on disk |
+| `local.enabled` | `ANY_LOCAL_ENABLED` | `true` | serve the device-local store at `/v1/local`; `false` answers `409 local.disabled` and leaves existing storage collections on disk |
 | `access.redeemUrl` | `ANY_ACCESS_REDEEM_URL` | `""` | base URL of the invite service `POST /v1/account/access-code` relays to; empty answers `409 access.disabled` |
 | `log.defaultLevel` | `ANY_LOG_LEVEL` | `info` | |
 | `log.production` | — | `false` | |
@@ -64,7 +64,7 @@ The passkey is the one secret the server may need at boot: it comes from the env
 | Key | Env | Default | Meaning |
 |---|---|---|---|
 | `index.enabled` | `ANY_INDEX_ENABLED` | `true` | `false` disables the indexer and `/search` (`409 index.disabled`) |
-| `index.embedder` | `ANY_INDEX_EMBEDDER` | `auto` | `auto` (online primary + local fallback, same model) \| `local` \| `ollama` \| `openai` \| `none` (FTS-only) |
+| `index.embedder` | `ANY_INDEX_EMBEDDER` | `auto` | `auto` (online primary + local fallback, same model; indexed text and queries go to `index.openai.baseUrl`) \| `local` (on-device) \| `ollama` \| `openai` \| `none` (FTS-only) |
 | `index.embedBatch` | `ANY_INDEX_EMBED_BATCH` | `64` | docs per embed request |
 | `index.embedConcurrency` | `ANY_INDEX_EMBED_CONCURRENCY` | `0` | parallel batches; 0 = 1 for local, 4 for online |
 | `index.ollama.url` | `ANY_INDEX_OLLAMA_URL` | `http://localhost:11434` | |

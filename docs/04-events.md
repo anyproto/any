@@ -12,7 +12,7 @@ Every windowed endpoint wraps the SDK's `Query.Snapshot` /
 `SubscriptionEvent` shape on the wire, same frames and `closed` reasons:
 
 - `POST /v1/spaces/:id/objects/query/subscribe` — cross-object, over
-  the per-space `objects` collection;
+  the per-space `objects` storage collection;
 - `POST /v1/spaces/:id/query/subscribe` — one object's dataset;
 - `POST /v1/spaces/:id/objects/:objectId/files/query/subscribe` — one
   object's file payload rows;
@@ -173,9 +173,9 @@ All consumers run the same flow above; the dataset names below are the
 `dataset` values to pass on the per-object endpoint
 (`POST /v1/spaces/:id/query/subscribe`). For cross-object live views
 use `POST /v1/spaces/:id/objects/query/subscribe` (no `dataset` —
-implicitly the per-space `objects` collection).
+implicitly the per-space `objects` storage collection).
 
-- **`editor_blocks`** (or a namespaced editor collection) — per-object
+- **`editor_blocks`** (or a namespaced editor storage collection) — per-object
   block tree. Events ship the full post-apply block in `doc`; clients
   update their tree directly. The same events fire whether the change
   came from `…/editor/:collection/blocks` or a

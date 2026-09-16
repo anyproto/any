@@ -1,7 +1,8 @@
-// Cross-peer move-to-bin: the type membership and the two move stamps
-// travel in one change, so a joiner sees `bin` together with
-// `bin.movedAt` / `bin.movedBy` naming the mover, and a restore issued
-// on the other side clears the whole namespace everywhere.
+// Cross-peer move-to-bin: the collection membership and the two move
+// stamps travel in one change, so a joiner sees `bin` in
+// `any.collections` together with `bin.movedAt` / `bin.movedBy` naming
+// the mover, and a restore issued on the other side clears the whole
+// namespace everywhere.
 package e2e
 
 import (
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -21,7 +23,8 @@ import (
 type binRow struct {
 	Id  string `json:"id"`
 	Any struct {
-		Types []string `json:"types"`
+		Type        string   `json:"type"`
+		Collections []string `json:"collections"`
 	} `json:"any"`
 	Bin map[string]any `json:"bin"`
 }
@@ -50,12 +53,24 @@ func binRowOn(t *testing.T, p *peer, spaceId, objectId string) (binRow, bool) {
 }
 
 func (r binRow) carriesBin() bool {
-	for _, tp := range r.Any.Types {
-		if tp == bin.TypeId {
-			return true
-		}
+	return slices.Contains(r.Any.Collections, bin.Id)
+}
+
+// queryIds runs one objects query against base and returns the row ids.
+func queryIds(t *testing.T, base, spaceId, filter string) []string {
+	t.Helper()
+	var qr struct {
+		Records []struct {
+			Id string `json:"id"`
+		} `json:"records"`
 	}
-	return false
+	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+spaceId+"/objects/query",
+		`{"filter":`+filter+`}`, http.StatusOK, &qr)
+	ids := make([]string, 0, len(qr.Records))
+	for _, r := range qr.Records {
+		ids = append(ids, r.Id)
+	}
+	return ids
 }
 
 func TestE2E_MultipeerBin(t *testing.T) {
@@ -76,7 +91,7 @@ func TestE2E_MultipeerBin(t *testing.T) {
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces", `{"name":"bin"}`, http.StatusCreated, &sp)
 	var obj api.ObjectsCreateResponse
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{"initialProperties":{"any":{"name":"Trash me"}}}`, http.StatusCreated, &obj)
+		`{"type":"page","initialProperties":{"any":{"name":"Trash me"}}}`, http.StatusCreated, &obj)
 	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionWriter)
 
 	peers := []*peer{owner, joiner}
@@ -87,12 +102,12 @@ func TestE2E_MultipeerBin(t *testing.T) {
 		t.Fatal("joiner never saw the object")
 	}
 
-	// The owner moves it to the bin; the joiner sees the type AND both
-	// stamps, the mover being the owner.
+	// The owner moves it to the bin; the joiner sees the collection AND
+	// both stamps, the mover being the owner.
 	ownerId := accountId(t, owner.base)
 	var res api.ModifyResult
 	mustJSON(t, http.MethodPost,
-		fmt.Sprintf("%s/v1/spaces/%s/properties/%s/attach/%s", owner.base, sp.Id, obj.ObjectId, bin.TypeId),
+		fmt.Sprintf("%s/v1/spaces/%s/properties/%s/collections/%s", owner.base, sp.Id, obj.ObjectId, bin.Id),
 		"", http.StatusOK, &res)
 	if res.ChangeId == "" {
 		t.Fatalf("move minted no change: %+v", res)
@@ -105,10 +120,19 @@ func TestE2E_MultipeerBin(t *testing.T) {
 		t.Fatalf("joiner never saw the move with its stamps: %+v", row)
 	}
 
-	// The joiner restores it; the owner's row loses the type and the
-	// whole namespace.
-	mustJSON(t, http.MethodPost,
-		fmt.Sprintf("%s/v1/spaces/%s/properties/%s/detach/%s", joiner.base, sp.Id, obj.ObjectId, bin.TypeId),
+	// The list filters clients ship: the bin exclusion hides the member,
+	// the membership filter finds it.
+	if ids := queryIds(t, joiner.base, sp.Id, `{"any.collections":{"$nin":["`+bin.Id+`"]}}`); slices.Contains(ids, obj.ObjectId) {
+		t.Errorf("the bin exclusion filter still lists the moved object: %v", ids)
+	}
+	if ids := queryIds(t, joiner.base, sp.Id, `{"any.collections":"`+bin.Id+`"}`); !slices.Contains(ids, obj.ObjectId) {
+		t.Errorf("membership query missed the moved object: %v", ids)
+	}
+
+	// The joiner restores it; the owner's row loses the collection and
+	// the whole namespace.
+	mustJSON(t, http.MethodDelete,
+		fmt.Sprintf("%s/v1/spaces/%s/properties/%s/collections/%s", joiner.base, sp.Id, obj.ObjectId, bin.Id),
 		"", http.StatusOK, &res)
 	if !pollUntilSynced(t, 3*time.Minute, sp.Id, peers, func() bool {
 		row, ok := binRowOn(t, owner, sp.Id, obj.ObjectId)

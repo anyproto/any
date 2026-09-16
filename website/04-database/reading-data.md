@@ -11,7 +11,7 @@ All reads go through one primitive: a windowed query over any-store, the embedde
 
 | Endpoint | Reads |
 |----------|-------|
-| `POST /v1/spaces/:spaceId/objects/query` | **Cross-object.** The space's `objects` collection — one row per object with its property values keyed `<typeId>.<propId>` plus `any.*` and the row-root stamps. |
+| `POST /v1/spaces/:spaceId/objects/query` | **Cross-object.** The space's `objects` storage collection — one row per object with its property values keyed `<ownerId>.<propId>` plus `any.*` and the row-root stamps. |
 | `POST /v1/spaces/:spaceId/query` | **Per-object.** One dataset of one object (`editor_blocks`, `chat_messages`, a runtime dataset…). Needs `objectId` + `dataset`. |
 
 Both are POST because a filter does not fit a query string. Both have a `/subscribe` sibling with the same body — see [Subscribe](../realtime/subscribe.html) — and an `/aggregate` sibling for pipelines — see [Aggregation](aggregation.html).
@@ -20,7 +20,7 @@ Both are POST because a filter does not fit a query string. Both have a `/subscr
 # every page in the space, newest edits first
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
   -H 'Content-Type: application/json' \
-  -d '{"filter": {"any.types": "page"}, "sort": ["-modifiedAt"], "limit": 20}'
+  -d '{"filter": {"any.type": "page"}, "sort": ["-modifiedAt"], "limit": 20}'
 
 # the blocks of one document, in order
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
@@ -69,10 +69,10 @@ Multiple keys in one filter object are AND-ed. A bare value means `$eq`.
 | Strings | `$regex` (with `$options`) |
 
 ```json
-{ "<typeId>.<propId>": "Casablanca" }
-{ "<typeId>.year":     { "$gte": 1940, "$lt": 1950 } }
-{ "<typeId>.title":    { "$regex": "^The " } }
-{ "$or": [ { "<t>.a": 1 }, { "<t>.b": "x" } ] }
+{ "<ownerId>.<propId>": "Casablanca" }
+{ "<ownerId>.<yearPropId>":  { "$gte": 1940, "$lt": 1950 } }
+{ "<ownerId>.<titlePropId>": { "$regex": "^The " } }
+{ "$or": [ { "<ownerId>.<propA>": 1 }, { "<ownerId>.<propB>": "x" } ] }
 ```
 
 An operator outside this set is `400 filter.unknown_operator`, with the token in `details.operator` and the supported list in the message; any other malformed filter is `400 filter.invalid`, located by `details.path`.
@@ -81,11 +81,24 @@ An operator outside this set is `400 filter.unknown_operator`, with the token in
 
 When a field is an array, the filter compares against its elements:
 
-- a **scalar** means *contains*: `{"<t>.tags": "food"}`;
-- **`$in`** means *intersects*: `{"<t>.tags": {"$in": ["a", "b"]}}`;
-- **`$all`** means *superset*: `{"<t>.tags": {"$all": ["a", "b"]}}`.
+- a **scalar** means *contains*: `{"any.tags": "food"}`;
+- **`$in`** means *intersects*: `{"any.tags": {"$in": ["a", "b"]}}`;
+- **`$all`** means *superset*: `{"any.tags": {"$all": ["a", "b"]}}`.
 
-There is deliberately no `$contains` — the scalar spelling already is it. `{"any.types": "<typeId>"}` is how you filter objects by type.
+There is deliberately no `$contains` — the scalar spelling already is it. `any.collections` is the array that matters most: `{"any.collections": "<collectionId>"}` lists what is filed under a collection, `$all` demands several at once, `$nin` excludes.
+
+### Type and collection
+
+An object carries one type and any number of collections, so the two filter differently:
+
+```json
+{ "any.type":        "<typeId>" }                    // of that type
+{ "any.type":        { "$in": ["<t1>", "<t2>"] } }   // of any of those types
+{ "any.collections": "<collectionId>" }              // filed under it
+{ "any.collections": { "$nin": ["bin"] } }           // not in the bin
+```
+
+`any.type` is plain equality on a scalar — no array matching, `$in` for a set. **No marker exclusion is ever needed:** a type definition's row carries `any.type: "__type__"` and a collection's carries `"__collection__"`, never its own id, so a definition never matches a member query even while it hosts its own values and records.
 
 ### Dates
 
@@ -99,28 +112,28 @@ Instants filter as instants. Wrap the literal in `{"$date": …}`:
 
 ### Negation matches absent fields
 
-`$ne`, `$nin`, `$not` and `$exists: false` also match rows that simply lack the field. The `objects` collection holds *every* object in the space, type definitions included, so `{"<t>.n": {"$ne": 2}}` returns piles of unrelated rows. Always scope a cross-object query by type: `{"any.types": "<typeId>", …}`.
+`$ne`, `$nin`, `$not` and `$exists: false` also match rows that simply lack the field. The `objects` storage collection holds *every* object in the space, type and collection definitions included, so `{"<ownerId>.<propId>": {"$ne": 2}}` returns piles of unrelated rows. Always scope a cross-object query by type or by collection: `{"any.type": "<typeId>", …}`, `{"any.collections": "<collectionId>", …}`.
 
 ## Sort
 
-`sort` is an array of dotted paths, `-` prefix for descending, applied left to right: `["<wikiTypeId>.<parentIdPropId>", "<wikiTypeId>.<posPropId>"]` (the wiki tree's columns — [Objects](objects.html)). On `/subscribe`, `sort` is required whenever `limit > 0` so the window is well-defined. `{"sort": ["-modifiedAt"]}` is "recently modified first"; `-createdAt` is creation order.
+`sort` is an array of dotted paths, `-` prefix for descending, applied left to right: `["<wikiCollectionId>.<parentIdPropId>", "<wikiCollectionId>.<posPropId>"]` (the wiki tree's columns — [Objects](objects.html)). On `/subscribe`, `sort` is required whenever `limit > 0` so the window is well-defined. `{"sort": ["-modifiedAt"]}` is "recently modified first"; `-createdAt` is creation order.
 
 ## Paths
 
 | Path | Where |
 |------|-------|
-| `<typeId>.<propId>` | Property values on the objects collection — both are content-addressed ids, resolved from `GET …/types/:typeId/properties`. |
-| `any.types`, `any.name`, `any.description`, `any.tags` | The universal built-in type. |
-| `<wikiTypeId>.<propId>` — the wiki type's `parentId` / `pos` / `folder` | Tree placement: ordinary properties of the hidden wiki type, ids from `POST /v1/catalog/wiki/setup` ([Objects](objects.html)). |
-| `author`, `createdAt`, `modifiedAt`, `modifiedBy`, `spaceId` | Derived row-root stamps (objects collection only). `modifiedAt` is indexed; the rest, `modifiedBy` included, are scans. |
+| `<ownerId>.<propId>` | Property values on the `objects` storage collection — both are content-addressed ids, the owner being the object's type or one of its collections, resolved from `GET …/types/:typeId/properties` or `GET …/collections/:collectionId/properties`. |
+| `any.type`, `any.collections`, `any.name`, `any.description`, `any.tags` | The universal built-in group. |
+| `<wikiCollectionId>.<propId>` — the wiki collection's `parentId` / `pos` / `folder` | Tree placement: ordinary columns of the hidden wiki collection, ids from `POST /v1/catalog/wiki/setup` ([Objects](objects.html)). |
+| `author`, `createdAt`, `modifiedAt`, `modifiedBy`, `spaceId` | Derived row-root stamps (`objects` storage collection only). `modifiedAt` is indexed; the rest, `modifiedBy` included, are scans. |
 | `_ver.id` | The record's creation version id — the logical DAG order. |
 | `id` | The record id. |
 
-A type's `xKey` is a client-side label, never a server path.
+A type's or collection's `xKey` is a client-side label, never a server path.
 
 ## Paging
 
-**`offset` / `limit`** is fine for a frozen snapshot. It floats on a live collection: row 50 becomes row 51 the moment something lands ahead of it, so paging across writes skips and repeats rows.
+**`offset` / `limit`** is fine for a frozen snapshot. It floats on a live storage collection: row 50 becomes row 51 the moment something lands ahead of it, so paging across writes skips and repeats rows.
 
 **Cursor paging** is stable: filter on an indexed, monotonic field and keep the same sort. Chat pages backward with
 
@@ -144,7 +157,7 @@ A deleted record is a tombstone: its content is wiped, its id is burned, and eve
 
 ```bash
 any query-subscribe $SPACE $OBJ --dataset editor_blocks --sort nav.pos --limit 50
-any query-subscribe $SPACE --properties --filter '{"any.types": "page"}' --sort -modifiedAt --limit 20
+any query-subscribe $SPACE --properties --filter '{"any.type": "page"}' --sort -modifiedAt --limit 20
 ```
 
 ## Related

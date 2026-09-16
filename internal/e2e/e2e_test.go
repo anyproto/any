@@ -174,7 +174,7 @@ func TestE2E_FullFlow(t *testing.T) {
 
 		var objResp map[string]any
 		mustJSON(t, http.MethodPost, base+"/v1/spaces/"+spaceID+"/objects",
-			fmt.Sprintf(`{"types":[%q]}`, typeID),
+			fmt.Sprintf(`{"type":%q}`, typeID),
 			http.StatusCreated, &objResp)
 		objectID, _ := objResp["objectId"].(string)
 		if objectID == "" {

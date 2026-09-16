@@ -31,7 +31,7 @@ The single exception is `GET …/editor/:collection/markdown`, which is a render
 
 ## 3. Writes go through the module's handler
 
-Module collections are written only by their bespoke endpoints — chat's send/edit/delete/react, editor's block create/patch/delete — because the handler is what stamps `creator` / `createdAt`, enforces author-only rules, and keys reactions per identity. Generic datasets go through `/modify` (and `/upsert` for id-keyed ingest). Every write returns one shape and never the record body:
+Module storage collections are written only by their bespoke endpoints — chat's send/edit/delete/react, editor's block create/patch/delete — because the handler is what stamps `creator` / `createdAt`, enforces author-only rules, and keys reactions per identity. Generic datasets go through `/modify` (and `/upsert` for id-keyed ingest). Every write returns one shape and never the record body:
 
 ```json
 { "versionId": "…", "changeId": "bafy…", "recordIds": ["…"] }

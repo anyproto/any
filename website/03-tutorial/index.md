@@ -21,7 +21,7 @@ Each level is complete on its own. A space full of plain objects with names is a
 | Part | You build | You learn |
 |------|-----------|-----------|
 | [1. Objects](objects.html) | a notebook of named objects | create, read back, subscribe, rename, delete; the universal `any` group |
-| [2. Properties](properties.html) | a password manager | types, the three ids, kinds and descriptors, choice options, filters on values, one object carrying several types |
+| [2. Properties](properties.html) | a password manager | types, the three ids, kinds and descriptors, choice options, filters on values, collections stacking a second group of columns |
 | [3. Datasets](datasets.html) | a mailbox holding 10 000 emails | a table inside one object: when to use it instead of many objects, an enforced schema, idempotent import, paging, search, aggregation |
 | [4. Apps](apps.html) | the mailbox as a sidebar app | parts and modules, bundles that converge across devices, `miniapp`, the usecase catalog |
 
@@ -31,7 +31,7 @@ Seen as a database, the simple things are objects, types and properties, and an 
 
 ## The picture to keep in mind
 
-<svg class="figure" viewBox="0 0 760 210" role="img" aria-label="An object carries types; a type has parts; a part owns a dataset served by a module. Property values hang off the object, property definitions off the type.">
+<svg class="figure" viewBox="0 0 760 210" role="img" aria-label="An object is one type; a type has parts; a part owns a dataset served by a module. Property values hang off the object, property definitions off the type.">
 <style>
 .fig1 .box{fill:var(--bg1);stroke:var(--line2);stroke-width:1}
 .fig1 .sub{fill:none;stroke:var(--line2);stroke-width:1;stroke-dasharray:4 3}
@@ -52,14 +52,14 @@ Seen as a database, the simple things are objects, types and properties, and an 
 <text class="t" x="480" y="58">part</text><text class="e" x="480" y="76">messages</text>
 <rect class="box" x="605" y="36" width="150" height="52" rx="8"/>
 <text class="t" x="680" y="58">dataset</text><text class="e" x="680" y="76">&lt;typeId&gt;_messages</text>
-<path class="a" d="M155 62 H203" marker-end="url(#fig1-arrow)"/><text class="l" x="180" y="54">carries</text>
+<path class="a" d="M155 62 H203" marker-end="url(#fig1-arrow)"/><text class="l" x="180" y="54">is a</text>
 <path class="a" d="M355 62 H403" marker-end="url(#fig1-arrow)"/><text class="l" x="380" y="54">has</text>
 <path class="a" d="M555 62 H603" marker-end="url(#fig1-arrow)"/><text class="l" x="580" y="54">owns</text>
 <path class="a" d="M80 88 V138" marker-end="url(#fig1-arrow)"/>
 <path class="a" d="M280 88 V138" marker-end="url(#fig1-arrow)"/>
 <path class="a" d="M680 88 V138" marker-end="url(#fig1-arrow)"/><text class="l" x="722" y="118">served by</text>
 <rect class="sub" x="5" y="140" width="150" height="52" rx="8"/>
-<text class="t" x="80" y="162">property values</text><text class="e" x="80" y="180">one group per type</text>
+<text class="t" x="80" y="162">property values</text><text class="e" x="80" y="180">one group per owner</text>
 <rect class="sub" x="205" y="140" width="150" height="52" rx="8"/>
 <text class="t" x="280" y="162">property definitions</text><text class="e" x="280" y="180">the columns</text>
 <rect class="mod" x="605" y="140" width="150" height="52" rx="8"/>
@@ -67,9 +67,9 @@ Seen as a database, the simple things are objects, types and properties, and an 
 </g>
 </svg>
 
-An object carries any number of types. Each type contributes its property definitions — the columns the object can hold values for — and its **parts**: display units a client renders, each owning a dataset that a **module** serves. The `records` module serves a dataset whose schema you declare; the `editor` module serves block documents; the `chat` module serves messages.
+An object has exactly one type. The type contributes its property definitions — the columns the object can hold values for — and its **parts**: display units a client renders, each owning a dataset that a **module** serves. The `records` module serves a dataset whose schema you declare; the `editor` module serves block documents; the `chat` module serves messages.
 
-Attaching a type is the closest thing any has to inheritance, and it is deliberately flat. An object inherits columns and behaviour from every type it carries, side by side; types never inherit from each other. [Part 4](apps.html) spells out the rules, and you do not need them before then.
+On top of that an object can be filed under any number of **collections**, each adding a second group of columns and nothing else — no parts, no layout. That is the closest thing any has to inheritance, and it is deliberately flat: behaviour comes from the one type, extra columns come from the collections, and neither inherits from the other. [Part 2](properties.html) files the first object under a collection and [Part 4](apps.html) spells out the rules.
 
 > **Why it matters.** Every one of these levels is a CRDT record in an end-to-end encrypted space on your own device. A type definition, a choice option, a part declaration and the data they govern all sync the same way, so a schema change made offline on one device converges with data written on another without a migration step or a server that sees plaintext.
 
