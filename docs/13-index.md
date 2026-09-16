@@ -889,7 +889,7 @@ Errors:
 
 `filter` is a condition over the hit's HOST OBJECT row — the per-space
 `objects` collection, in the `/objects/query` grammar verbatim
-(`any.types`, `<typeId>.<propId>`, `modifiedAt`, `id`, …). A hit is kept
+(`any.type`, `any.collections`, `<ownerId>.<propId>`, `modifiedAt`, `id`, …). A hit is kept
 only if its object's row matches, in every mode, like `require` /
 `exclude`; `limit` still counts matching records; the row is read live,
 so a property write (a bin move) is honored by the next search without
@@ -907,9 +907,9 @@ the request takes one of two paths (`internal/indexer/host_filter.go`):
 1. **Probe.** Iterate the filter with early exit after `filterIdsMax`
    (256) ids, collecting them — an unbounded iterator closed early, not
    a `Limit`, because the SDK applies a limit before it skips the
-   collection's tombstones. Indexed predicates (`any.types`,
-   `modifiedAt`, `id`) exit in microseconds; a dense unindexed one
-   (`any.types $ne bin` — the everyday shape) exits after the first
+   collection's tombstones. Indexed predicates (`any.type`,
+   `any.collections`, `modifiedAt`, `id`) exit in microseconds; a dense unindexed one
+   (`any.collections $nin [bin]` — the everyday shape) exits after the first
    few hundred rows; only a narrow unindexed predicate (a property
    value held by a few objects) scans the collection, ~4 ms per 6k
    objects, which is what resolving its ids costs anyway.
@@ -971,8 +971,8 @@ everyday `not in bin` costs the probe (0.2 ms) plus one or two lookups
 fts-only, the resolve (~8 ms) in hybrid.
 An eager id set for large filters was rejected: resolving 90k ids costs
 ~30 ms per search where the batched lookups cost 0.1 ms on an ordinary
-query. Mirroring `any.types` onto index docs was rejected: every type
-attach/detach would rewrite every chunk of the object. Not in this
+query. Mirroring `any.type` / `any.collections` onto index docs was rejected:
+every retype or filing would rewrite every chunk of the object. Not in this
 iteration: record fields of the hit's own dataset; a vector-specific
 id-set threshold (the residual beat post-filtering up to ~1k objects on
 the vector leg alone); property-value indexes on the objects collection
