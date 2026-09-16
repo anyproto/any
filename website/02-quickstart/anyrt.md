@@ -93,7 +93,7 @@ anyrt deploy --source myrepo
 
 ## 5. Your first trigger
 
-A schedule is a record in the `agent_triggers` dataset on the working space's trigger anchor object. The anchor is the `bao/triggers/v1` child of the `bao/v1` bundle — resolve it, never search by name. The dataset lives on the harness's hidden `agent_trigger` type, so its collection is `<typeId>_agent_triggers`; read the name from the space's dataset listing:
+A schedule is a record in the `agent_triggers` dataset on the working space's trigger anchor object. The anchor is the `bao/triggers/v1` child of the `bao/v1` bundle — resolve it, never search by name. The dataset lives on the harness's hidden `agent_trigger` type, so its storage collection is `<typeId>_agent_triggers`; read the name from the space's dataset listing:
 
 ```bash
 API=http://127.0.0.1:7001/v1

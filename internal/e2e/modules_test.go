@@ -61,7 +61,7 @@ func createModuleObject(t *testing.T, base, spaceId, module string) string {
 	}
 	var resp map[string]any
 	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+spaceId+"/objects",
-		fmt.Sprintf(`{"types":[%q]}`, typeId), http.StatusCreated, &resp)
+		fmt.Sprintf(`{"type":%q}`, typeId), http.StatusCreated, &resp)
 	id, _ := resp["objectId"].(string)
 	if id == "" {
 		t.Fatalf("createModuleObject %s: objectId empty: %+v", module, resp)

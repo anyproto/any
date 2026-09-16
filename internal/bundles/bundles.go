@@ -65,10 +65,15 @@ type Install struct {
 	// freshly created root, which is also what puts the root's tree in
 	// the head-sync diff.
 	Name string
-	// RootTypes are attached to the root object at birth.
-	RootTypes []string
+	// RootType is the root's one type (`any.type`) — refused next to a
+	// declaration, whose root carries its marker there. RootCollections
+	// are the collections the root is filed under at birth (a `miniapp`
+	// root); on a derived or declaring root a collection the root lacks
+	// is added on adopt.
+	RootType        string
+	RootCollections []string
 	// RootProperties seeds the root's property values, keyed
-	// typeId → propId → value.
+	// owner → propId → value.
 	RootProperties map[string]map[string]any
 	// Derived installs the bundle on the root DERIVED from its id
 	// instead of a created one: the same root id on every device,
@@ -81,32 +86,29 @@ type Install struct {
 	// 1-1's, where nobody is the owner) that is the point; for
 	// anything a user may remove it is the wrong trade.
 	Derived bool
-	// XKey is the root type's handle (`type.xkey`) — what a client
-	// resolves the type by and what other declarations' relation
-	// targets name. An XKey alone declares a marker type (no columns,
-	// no parts). Written on install; adopt never patches it.
+	// XKey is the root definition's handle (`type.xkey` /
+	// `collection.xkey`) — what a client resolves it by and what other
+	// declarations' relation targets name. An XKey alone declares a
+	// marker (no columns, no parts). Written on install; adopt never
+	// patches it.
 	XKey string
 	// Parts are declared on the root at install (derived or created);
-	// the root is then a type definition (typeId = rootId), carried by
-	// the objects that attach it — and by the root itself only when
-	// SelfTyped.
+	// the root is then a type definition (typeId = rootId) — objects of
+	// that type take its datasets, and so does the root itself (a
+	// definition implements itself). Refused with Collection.
 	Parts []space.PartDraft
 	// Properties are declared on the root at install with ids derived
 	// from (root, xKey), so concurrent installs mint one column per
 	// handle. Every draft carries an XKey.
 	Properties []space.PropertyDraft
-	// Layout, Weight and Hidden seed the root type's metadata on
+	// Layout and Hidden seed the root definition's metadata on
 	// install; adopt never patches them. Hidden is explicit. They need
-	// Parts or Properties — the SDK refuses them alone.
+	// a declaration — the SDK refuses them alone; Layout is refused
+	// with Collection.
 	Layout map[string]any
-	Weight int
 	Hidden bool
-	// SelfTyped makes the root carry the type it declares, so the
-	// bundle's own records live ON the root and its property values
-	// with them. Off, the root is the definition only — the shape of a
-	// type other objects carry. Implied by the SDK for a part
-	// declaring a reserved module and on the tech space.
-	SelfTyped bool
+	// Collection makes the declaration a collection instead of a type.
+	Collection bool
 	// SystemInstall marks the server's own catalog install: it lifts the
 	// reserved-module refusal (the SDK's SystemInstall ensure option).
 	// Never set from client input.
@@ -114,11 +116,18 @@ type Install struct {
 }
 
 // DeclaresType reports whether the install makes the root a type
-// implementing itself — Parts, Properties or an XKey (the SDK's
-// EnsureBundleRequest.DeclaresType rule).
+// definition — Parts, Properties or an XKey without Collection (the
+// SDK's EnsureBundleRequest.DeclaresType rule); DeclaresCollection the
+// collection form; Declares either.
 func (i Install) DeclaresType() bool {
-	return len(i.Parts) > 0 || len(i.Properties) > 0 || i.XKey != ""
+	return !i.Collection && (len(i.Parts) > 0 || len(i.Properties) > 0 || i.XKey != "")
 }
+
+func (i Install) DeclaresCollection() bool {
+	return i.Collection && (len(i.Properties) > 0 || i.XKey != "")
+}
+
+func (i Install) Declares() bool { return i.DeclaresType() || i.DeclaresCollection() }
 
 // ReservedIdPrefix marks the bundle ids the server's embedded catalog
 // owns. A client install under it is refused; the prefix is the rule,
@@ -324,11 +333,27 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	// reader/guest re-running the documented idempotent ensure must
 	// not land in Ensure's write gate.
 	settled := func(b space.Bundle) bool {
-		if !inst.DeclaresType() {
-			return true
-		}
 		missing := false
-		if len(inst.Parts) > 0 {
+		if len(inst.RootCollections) > 0 && ((inst.Derived && b.Derived) || inst.Declares()) {
+			// A collection the request gained since the install is
+			// added by the SDK's adopt path — which runs for a derived
+			// request over a derived install, or a declaring root.
+			row, err := sp.Objects().Get(ctx, b.RootId)
+			if err != nil {
+				return true
+			}
+			have := map[string]bool{}
+			for _, v := range row.GetArray("any", "collections") {
+				have[string(v.GetStringBytes())] = true
+			}
+			for _, want := range inst.RootCollections {
+				if !have[want] {
+					missing = true
+					break
+				}
+			}
+		}
+		if !missing && len(inst.Parts) > 0 {
 			defs, err := sp.Types().Parts(ctx, b.RootId)
 			if err != nil {
 				// A transient read error must not push the caller into
@@ -341,27 +366,21 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		if !missing && inst.XKey != "" {
 			// A handle the root lacks (an install that predates it) is
 			// filled by the SDK's adopt path, like an absent property.
-			info, err := sp.Types().Get(ctx, b.RootId)
-			if err != nil {
-				return true
-			}
-			missing = info.XKey == ""
-		}
-		if !missing && inst.SelfTyped {
-			// The same for the self type: an install that predates the
-			// flag carries the marker but not its own id, so its
-			// records are unwritable until the adopt heals it.
-			row, err := sp.Objects().Get(ctx, b.RootId)
-			if err != nil {
-				return true
-			}
-			missing = true
-			for _, t := range row.GetArray("any", "types") {
-				if string(t.GetStringBytes()) == b.RootId {
-					missing = false
-					break
+			var xkey string
+			if inst.Collection {
+				info, err := sp.Collections().Get(ctx, b.RootId)
+				if err != nil {
+					return true
 				}
+				xkey = info.XKey
+			} else {
+				info, err := sp.Types().Get(ctx, b.RootId)
+				if err != nil {
+					return true
+				}
+				xkey = info.XKey
 			}
+			missing = xkey == ""
 		}
 		if !missing && len(inst.Properties) > 0 {
 			props, err := sp.Types().Properties(ctx, b.RootId)
@@ -423,8 +442,8 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	req := space.EnsureBundleRequest{
 		Id: inst.Id, Name: inst.Name, XKey: inst.XKey,
 		Parts: inst.Parts, Properties: inst.Properties,
-		Layout: inst.Layout, Weight: inst.Weight, Hidden: inst.Hidden,
-		SelfTyped: inst.SelfTyped,
+		Layout: inst.Layout, Hidden: inst.Hidden,
+		Collection: inst.Collection,
 	}
 	var opts []space.EnsureOption
 	if inst.SystemInstall {
@@ -433,20 +452,21 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	var created string
 	if inst.Derived {
 		req.DerivedRoot = true
-		req.RootTypes = inst.RootTypes
+		req.RootType = inst.RootType
+		req.RootCollections = inst.RootCollections
 		req.RootProperties = inst.RootProperties
-	} else if req.DeclaresType() {
+	} else if req.Declares() {
 		// SDK-minted created root: Ensure creates the object, marks it
-		// a type with the root types and seeded values in one change
-		// (its own type among them only when SelfTyped), and declares
-		// — the only create the tech space allows, and the same shape
-		// everywhere.
-		req.RootTypes = inst.RootTypes
+		// a definition with its collections and seeded values in one
+		// change, and declares — the only create the tech space allows,
+		// and the same shape everywhere.
+		req.RootCollections = inst.RootCollections
 		req.RootProperties = inst.RootProperties
 	} else {
 		req.NewRoot = func(ctx context.Context) (string, error) {
 			rootId, err := sp.Objects().Create(ctx, space.CreateObjectOpts{
-				Types:             inst.RootTypes,
+				Type:              inst.RootType,
+				Collections:       inst.RootCollections,
 				InitialProperties: inst.RootProperties,
 			})
 			created = rootId
@@ -469,7 +489,7 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	// the one root they share, and materializing a root someone else
 	// registered reports false.
 	installed := registered && created != "" && b.RootId == created
-	if inst.Derived || req.DeclaresType() {
+	if inst.Derived || req.Declares() {
 		// Derived: registered is exact. SDK-minted created root: the
 		// minted id is not observable here, so registered is the
 		// answer, with the same narrow inbound-race weakness the
@@ -773,19 +793,21 @@ func rootLocal(ctx context.Context, sp space.Space, rootId string) error {
 //
 // Seeds are permanent — bump the version suffix for a successor object
 // rather than reusing one.
-func Child(ctx context.Context, sp space.Space, b space.Bundle, seed string, types ...string) (string, error) {
+func Child(ctx context.Context, sp space.Space, b space.Bundle, seed, typeId string, collections ...string) (string, error) {
 	if b.RootId == "" {
 		return "", fmt.Errorf("bundles: child %q: empty root id", seed)
 	}
 	opts := space.DeriveObjectOpts{
-		Seed:     []byte(seed),
-		ParentId: b.RootId,
-		Types:    types,
+		Seed:        []byte(seed),
+		ParentId:    b.RootId,
+		Type:        typeId,
+		Collections: collections,
 	}
 	if b.Derived {
 		opts = space.DeriveObjectOpts{
-			Seed:  []byte(b.RootId + "/" + seed),
-			Types: types,
+			Seed:        []byte(b.RootId + "/" + seed),
+			Type:        typeId,
+			Collections: collections,
 		}
 	}
 	objectId, err := sp.Objects().Derive(ctx, opts)

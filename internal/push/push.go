@@ -466,16 +466,19 @@ func chatOwners(sp space.Space) []string {
 	return nil
 }
 
-// chatOwnersFilter matches objects rows whose `any.types` array carries
-// one of the declaring types (any-store `$in` against an array path
-// matches per element).
+// chatOwnersFilter matches objects rows whose type is one of the
+// declaring types, and the declaring roots themselves (a definition
+// object hosts its own datasets — the general chat is its own root).
 func chatOwnersFilter(owners []string) query.Filter {
 	a := &anyenc.Arena{}
 	vals := make([]*anyenc.Value, len(owners))
 	for i, o := range owners {
 		vals[i] = a.NewString(o)
 	}
-	return query.Key{Path: []string{"any", "types"}, Filter: query.NewInValue(vals...)}
+	return query.Or{
+		query.Key{Path: []string{"any", "type"}, Filter: query.NewInValue(vals...)},
+		query.Key{Path: []string{"id"}, Filter: query.NewInValue(vals...)},
+	}
 }
 
 // collectChatModes enumerates every ACTIVE space's chat objects and

@@ -15,7 +15,7 @@ Every value in any has a structural **kind**, may carry a **descriptor** (`xForm
 | `number` | `1965` | |
 | `boolean` | `true` | Never indexed for search. |
 | `array` | `["sci-fi", "classic"]` | Filters compare against elements — see [Reading data](reading-data.html). |
-| `object` | `{"…": "…"}` | Nested paths are addressed dotted: `<typeId>.<propId>.sub`. |
+| `object` | `{"…": "…"}` | Nested paths are addressed dotted: `<ownerId>.<propId>.sub`. |
 | `datetime` | `{"$date": "2026-08-05T17:00:00.000Z"}` | An instant: unix milliseconds, orderable, index-keyable, computable. |
 | `null` | `null` | |
 

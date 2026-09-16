@@ -1,26 +1,26 @@
 ---
 title: 1. Objects
-description: The first level — create an object with a name and a description, read it back, subscribe to changes, rename it and delete it. No types, no schema.
+description: The first level — create a plain page with a name and a description, read it back, subscribe to changes, rename it and delete it. No schema of your own.
 order: 10
 ---
 # 1. Objects
 
-An object is a row in the space's `objects` collection. In the simplest case it carries no type of your own at all: a name, a description and the stamps the server derives. That is enough for a notebook, and it is the level every later part builds on.
+An object is a row in the space's `objects` storage collection. In the simplest case it is a plain `page`: a name, a description and the stamps the server derives. That is enough for a notebook, and it is the level every later part builds on.
 
 ## Create one
 
 ```bash
 curl -s -X POST $API/spaces/$SPACE/objects -H 'content-type: application/json' \
-  -d '{"initialProperties": {"any": {"name": "Groceries", "description": "for Saturday"}}}'
+  -d '{"type": "page", "initialProperties": {"any": {"name": "Groceries", "description": "for Saturday"}}}'
 ```
 
 ```json
 { "objectId": "bafyreib…" }
 ```
 
-The create body has two keys, both optional: `types` (which types the object carries — none here) and `initialProperties` (starting values, grouped by type). The group `any` is the **universal** property group every object has: `name`, `description`, `icon`, `tags` and `types`. It is not a type you attach; it is the base every object starts from, and it is where the system keeps track of which types the object does carry.
+The create body has three keys: `type` — **required**, the one type the object is — `collections` (optional, what it is filed under) and `initialProperties` (starting values, grouped by owner). The group `any` is the **universal** property group every object has: `name`, `description`, `icon`, `tags`, plus `type` and `collections`. It is not something you set; it is the base every object starts from, and it is where the system keeps track of the type and the collections the object does have.
 
-`types` is a list, and it stays one for the life of the object: an object can carry several types at once, gaining each one's columns side by side, and types can be attached and detached later. This part uses none; [Part 2](properties.html) attaches one, then a second.
+`page` is the built-in plain document — the right type when the thing is just a note. Every object has exactly one type and it is never cleared; [Part 2](properties.html) defines a type of your own, then files objects under a collection.
 
 Keep the id:
 
@@ -30,7 +30,7 @@ OBJ=bafyreib…
 
 ## Read it back
 
-Reads are POSTs with a Mongo-style body against the space's objects collection:
+Reads are POSTs with a Mongo-style body against the space's `objects` storage collection:
 
 ```bash
 curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/json' \
@@ -40,7 +40,7 @@ curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/j
 ```json
 { "records": [ {
   "id": "bafyreib…",
-  "any": { "name": "Groceries", "description": "for Saturday" },
+  "any": { "type": "page", "name": "Groceries", "description": "for Saturday" },
   "author": "A8tR…", "spaceId": "bafyreig…",
   "createdAt":  { "$date": "2026-09-08T10:00:00.000Z" },
   "modifiedAt": { "$date": "2026-09-08T10:00:00.000Z" },
@@ -58,7 +58,7 @@ curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/j
   -d '{"sort": ["-modifiedAt"], "limit": 20, "includeTotal": true}'
 ```
 
-Filters use the same grammar throughout the system — `{"any.name": "Groceries"}`, `{"createdAt": {"$gte": {"$date": "2026-09-01T00:00:00Z"}}}`, and from Part 2 on `{"any.types": "<typeId>"}` (an array field matches on any element). The full grammar is in [Reading data](../database/reading-data.html).
+Filters use the same grammar throughout the system — `{"any.name": "Groceries"}`, `{"createdAt": {"$gte": {"$date": "2026-09-01T00:00:00Z"}}}`, and from Part 2 on `{"any.type": "<typeId>"}` for the type and `{"any.collections": "<collectionId>"}` for membership in a collection (an array field matches on any element). The full grammar is in [Reading data](../database/reading-data.html).
 
 ## Watch it change
 
@@ -117,6 +117,6 @@ The row disappears from every query, and open subscriptions see the id under `re
 
 ## Where this level ends
 
-You now have named, described objects that sync and stream. What you do not have is a *shape*: nothing says a grocery list has a store and a budget, and nothing lets you ask "every list for the store on Main Street". A name and a description are all the columns there are. The next part adds columns — a type with properties — and that is already enough for a password manager.
+You now have named, described pages that sync and stream. What you do not have is a *shape*: nothing says a grocery list has a store and a budget, and nothing lets you ask "every list for the store on Main Street". A name and a description are all the columns there are. The next part adds columns — a type with properties — and that is already enough for a password manager.
 
 Next: [2. Properties](properties.html). Reference: [Objects](../database/objects.html).

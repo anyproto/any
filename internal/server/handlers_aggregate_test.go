@@ -254,7 +254,7 @@ func setupAggMovies(t *testing.T, e http.Handler, movies map[string]int) (string
 
 	for title, year := range movies {
 		rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
-			fmt.Sprintf(`{"types":[%q]}`, typeResp.TypeId))
+			fmt.Sprintf(`{"type":%q}`, typeResp.TypeId))
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("create object %s: %d %s", title, rec.Code, rec.Body.String())
 		}

@@ -230,6 +230,12 @@ Owned spaces and 1-1s are `RegisterSpace`d first (best-effort — a space
 whose registration fails is skipped with a warning and keeps its topics
 in the payload).
 
+**Chat enumeration** is one objects query per active space: rows whose
+`any.type` is one of the `chat_messages` owners, OR whose `id` is one of
+them — a declaring root hosts its own datasets, and the general chat is
+its own root. Each match contributes its `chat.notifyMode`, read off the
+row.
+
 If a space's chat enumeration fails mid-reconcile, the loop is
 **fail-safe, never fail-open**: it reuses that space's last-known-good
 modes, or — with no known-good state — omits the space from the round

@@ -23,7 +23,7 @@ are — is [`search/README.md`](search/README.md).
 type IndexEntry struct {
     Scope    string // open slug set; "basic"/"chat"/"props" are the vocabulary
     ObjectId string
-    Dataset  string // the real collection (doc-id middle segment)
+    Dataset  string // the real storage collection (doc-id middle segment)
     RecordId string
     Data     string // text to index; empty ⇒ remove this record from the index
     Title    string // optional BM25F field; re-prefixed onto chunks past the first
@@ -33,7 +33,7 @@ type IndexEntry struct {
 
 type Chunker interface {
     Dataset() string // unique chunker name; a doc-id segment unless the chunker is dynamic
-    TypeId() string  // any.types gate; "" = ungated
+    TypeId() string  // any.type gate; "" = ungated
     // Streams every entry of objectId with ApplySeq > since, ascending.
     // Cleared/deleted records yield removal entries (Data == "").
     ChunksSince(ctx, sp space.Space, objectId string, since uint64, yield func(IndexEntry) error) error
@@ -48,7 +48,7 @@ type DynamicChunker interface { // dataset set resolved per space at runtime
     Chunker
     EvictDatasets(ctx, sp, attached map[string]bool) ([]string, error)
 }
-type MultiReconciler interface { // Reconciler over several collections at once
+type MultiReconciler interface { // Reconciler over several storage collections at once
     DynamicChunker
     Reconciles() bool
     ReconcileAll(ctx, sp, objectId string, since uint64) (map[string][]IndexEntry, error)
@@ -69,24 +69,32 @@ wiped from its tombstone.
 
 ## Chunkers, scopes, gating
 
+Every gate below is a membership test. An objects row's **members**
+(`index.Members`) are its one type (`any.type`) and its collections
+(`any.collections`), plus — when `any.type` holds a definition marker
+(`__type__` / `__collection__`) — the row's **own id**, because a
+definition hosts its own datasets and values. Nothing else enters the
+set, and a row's members are read once per page from the row itself.
+
 | Chunker | `Dataset()` → doc-id segment | Gate | Scope | `Data` |
 |---|---|---|---|---|
-| `editor.NewChunker()` | `editor` (virtual) → each editor collection: `editor_blocks` and every namespaced `<typeId>_<key>` instance | per collection: an owner type attached | `basic` | a **coalesced window** of consecutive blocks (recordId `win_<anchor>`) |
-| `chat.NewChunker()` | `chat` (virtual) → `chat_messages` | per collection: an owner type attached | `chat` | the message's `text` only |
+| `editor.NewChunker()` | `editor` (virtual) → each editor storage collection: `editor_blocks` and every namespaced `<typeId>_<key>` instance | per storage collection: an owner among the row's members | `basic` | a **coalesced window** of consecutive blocks (recordId `win_<anchor>`) |
+| `chat.NewChunker()` | `chat` (virtual) → `chat_messages` | per storage collection: an owner among the row's members | `chat` | the message's `text` only |
 | `index.NewPropChunker()` | `prop` (virtual) | ungated | `props` (default) / per-property override | property values, `"<name>: <value>"` |
-| `index.NewSchemaChunker(static…)` | `schema` (virtual) → each runtime records collection | per dataset, self-applied | `basic` (default) / per-dataset `x-search.scope` | runtime-dataset records by their `x-search` mapping |
+| `index.NewSchemaChunker(static…)` | `schema` (virtual) → each runtime records storage collection | per dataset, self-applied | `basic` (default) / per-dataset `x-search.scope` | runtime-dataset records by their `x-search` mapping |
 
-- **Module chunkers index every collection a module serves.** The
-  editor and chat chunkers are `index.ModuleChunker`s: one registered
-  chunker per module, resolved per space from `Space.Datasets` — the
-  module's canonical collection plus every namespaced instance a type's
-  part declares. Entries carry the real collection as `Dataset`, so doc
-  ids stay per collection (`objectId:<collection>:`). The gate is
-  collection ownership (the discovery document's `owners`): as a
-  `DynamicChunker` the chunker tells the worker to prefix-evict
-  `objectId:<collection>:` for every collection none of whose owners is
-  in the object's `any.types`, plus collections that left the catalog
-  since process start (a removed part — § Removal semantics).
+- **Module chunkers index every storage collection a module serves.**
+  The editor and chat chunkers are `index.ModuleChunker`s: one
+  registered chunker per module, resolved per space from
+  `Space.Datasets` — the module's canonical storage collection plus
+  every namespaced instance a type's part declares. Entries carry the
+  real storage collection as `Dataset`, so doc ids stay per storage
+  collection (`objectId:<collection>:`). The gate is ownership (the
+  discovery document's `owners`): as a `DynamicChunker` the chunker
+  tells the worker to prefix-evict `objectId:<collection>:` for every
+  storage collection none of whose owners is among the row's members,
+  plus storage collections that left the catalog since process start
+  (a removed part — § Removal semantics).
 - **Chat = one entry per message.** Creator, reactions and attachments
   are not indexed text.
 - **Editor = coalesced windows.** Consecutive blocks in document order
@@ -97,8 +105,8 @@ wiped from its tombstone.
   = that heading. One-block chunks are too short for vector recall and
   skew BM25 length normalization (`search/README.md`). The editor
   chunker is an `index.MultiReconciler`: it returns the full window set
-  per editor collection the object holds, and the indexer diffs each set
-  against that collection's stored docs by content hash (§ Content
+  per editor storage collection the object holds, and the indexer diffs
+  each set against that collection's stored docs by content hash (§ Content
   hashes) — only changed or new windows re-embed. An append re-embeds
   one window; an edit in a part's own editor never touches the shared
   body's docs. Forming windows is an O(doc) read per edit; embedding is
@@ -107,9 +115,10 @@ wiped from its tombstone.
   of `[a-z0-9_-]`); `basic` / `chat` / `props` are the established
   vocabulary, and property or dataset declarations can name others.
 - **`TypeId()` gating**: a static chunker naming a type runs only while
-  that type is in the object's `any.types`; otherwise the indexer
+  that type is among the row's members — it is the object's `any.type`,
+  or the row is that type's own definition; otherwise the indexer
   prefix-evicts `objectId:<dataset>:`. No compiled-in chunker uses it —
-  module and runtime datasets gate per collection through
+  module and runtime datasets gate per storage collection through
   `DynamicChunker`.
 - **Not indexed**: saved views (`dataviews` / `views`) have no chunker;
   a runtime dataset declared without an `x-search` mapping produces no
@@ -117,8 +126,8 @@ wiped from its tombstone.
 
 ### The prop chunker (`internal/index/prop.go`)
 
-Indexes property VALUES from the shared `objects` collection under the
-virtual dataset `prop` — one entry per (object, indexed property), doc
+Indexes property VALUES from the shared `objects` storage collection
+under the virtual dataset `prop` — one entry per (object, indexed property), doc
 id `objectId:prop:<propId>`:
 
 - **User properties index by default under the scope `props`**, never
@@ -147,8 +156,8 @@ id `objectId:prop:<propId>`:
   another scope re-enters the vector pipeline.
 - **Built-ins `any.name` and `any.description` always index** under
   scope `basic`, reserved recordIds `name` / `description`, raw (no name
-  prefix, no title) — except for objects carrying an excluded type. The
-  exclusion list always holds `__type__`: type-definition rows are
+  prefix, no title) — except for rows with an excluded member. The
+  exclusion list always holds `__type__` and `__collection__`: definition rows are
   schema, not knowledge (discovery is `GET …/types`), and their one-word
   names would otherwise win BM25 on field-length normalization.
 - **Short prop docs never embed**: a `prop` entry under 64 bytes is not
@@ -158,20 +167,21 @@ id `objectId:prop:<propId>`:
   similarity floor). Long descriptions and long scope-overridden values
   still embed.
 - Per streamed live row the chunker emits the built-ins and one entry
-  for EVERY catalog property: value present and type attached ⇒ text;
-  otherwise `Data ""`. Cleared values and detached-type properties
-  therefore evict record-level, idempotently.
+  for EVERY catalog property: value present and its owner among the
+  row's members ⇒ text; otherwise `Data ""`. Cleared values and values
+  whose owner left the row therefore evict record-level, idempotently.
 - The per-space catalog (indexable properties of every non-built-in
-  type) is a 30 s TTL snapshot. The worker invalidates it whenever a
-  type object changes in the feed (§ Links → Catalog freshness), so a
-  value written right after its definition indexes on that write.
+  type AND collection — property definitions work the same on both) is
+  a 30 s TTL snapshot. The worker invalidates it whenever a definition
+  object changes in the feed (§ Links → Catalog freshness), so a value
+  written right after its definition indexes on that write.
 
 ### The schema chunker (`internal/index/schema.go`)
 
 Indexes records of **runtime-defined datasets** (`03-api.md` § Runtime
 dataset schemas) by their declaration's `x-search {title, text, scope}`
 mapping — one registered chunker covers every searchable runtime
-dataset in every space. Entries carry the real collection (doc ids
+dataset in every space. Entries carry the real storage collection (doc ids
 `objectId:<collection>:<recordId>`) under `x-search.scope`, default
 `basic` (runtime records are user content and embed normally; a dataset
 that declares `props` inherits that scope's FTS-only rule). `Dataset()`
@@ -199,7 +209,7 @@ returns the virtual name `schema`, used only for chunker identity.
   flow while the cursor advances past them.
 - **Gating is per dataset, self-applied** (`DynamicChunker`): the worker
   asks for the object's eviction set (`EvictDatasets`: searchable
-  datasets whose owning type is not attached, every runtime dataset
+  datasets whose owning type is not the row's, every runtime dataset
   without a usable `x-search` and without link fields, plus retired
   names) and prefix-deletes `objectId:<collection>:` for each in the
   same page transaction, then streams. A dataset with link fields but no
@@ -208,10 +218,10 @@ returns the virtual name `schema`, used only for chunker identity.
   `EvictDatasets` + `ChunksSince` calls (each space has a single advance
   goroutine).
 - **Static skip set**: compiled-in dataset names (the server's
-  `handler.Type` datasets and the modules' canonical collections) and
-  the virtual names are never treated as runtime; module-served
-  collections belong to the module chunkers (discovery `module` other
-  than `records`).
+  `handler.Type` datasets and the modules' canonical storage
+  collections) and the virtual names are never treated as runtime;
+  module-served storage collections belong to the module chunkers
+  (discovery `module` other than `records`).
 
 ### Chunking long records (`internal/indexer/chunk.go`)
 
@@ -238,7 +248,7 @@ title-only edit changes the text of chunks past the first but not of
 chunk 0; hashing `Data` alone would leave chunk 0 serving the old title.
 
 - **Reconcile diff (editor).** `worker.reconcileMulti` reads, per editor
-  collection the object holds, the stored `(id, hash)` under
+  storage collection the object holds, the stored `(id, hash)` under
   `objectId:<collection>:` (`Store.DocHashes`), diffs against the full
   window set, and emits deletes for vanished ids, upserts for new or
   changed ones, and nothing for unchanged ids — their docs and vectors
@@ -278,9 +288,9 @@ type LinkEntry struct {
 ```
 
 - A **streaming** chunker's entry replaces its record's edges — nil
-  means the record links nothing (a tombstone, a cleared value, a
-  detached type's value). A **reconciling** chunker's set replaces the
-  whole collection's edges, as does every stream of a
+  means the record links nothing (a tombstone, a cleared value, a value
+  whose owner is not on the row). A **reconciling** chunker's set
+  replaces the whole collection's edges, as does every stream of a
   `WholeCollectionLinks` chunker (the prop chunker). Either way the
   source place is per record: a coalesced editor window reports each
   member block's links under that block's own id.
@@ -300,8 +310,8 @@ type LinkEntry struct {
   of the TEXT index only. Kinds: a value field yields `relation`;
   scanned text yields `mention` for an `m` reference and `link` for the
   rest.
-- **Catalog freshness.** A type object changing in the feed (a property
-  added, patched or removed) invalidates every `CatalogInvalidator`'s
+- **Catalog freshness.** A definition object changing in the feed (a
+  property added, patched or removed) invalidates every `CatalogInvalidator`'s
   per-space snapshot before the rest of the object is extracted, so a
   value written right after its definition indexes on that write. The
   prop chunker's stream is complete per row, so a removed definition's
@@ -310,9 +320,9 @@ type LinkEntry struct {
 
 | Source | Fields | Kinds |
 |---|---|---|
-| editor blocks (every editor collection) | `text` (markdown) | `link` / `mention`; `card` when a paragraph is exactly one whole-line `[…](any://o/…)` or `[…](any://f/…)` link; `embed` for the synced-block reference envelope (an `html` block `<!-- any:block {…"kind":"synced-block","data":{"role":"reference","ref":"any://o/…/editor_blocks/…"}} -->`) |
+| editor blocks (every editor storage collection) | `text` (markdown) | `link` / `mention`; `card` when a paragraph is exactly one whole-line `[…](any://o/…)` or `[…](any://f/…)` link; `embed` for the synced-block reference envelope (an `html` block `<!-- any:block {…"kind":"synced-block","data":{"role":"reference","ref":"any://o/…/editor_blocks/…"}} -->`) |
 | chat messages | `text` (markdown), `attachments.<k>.link`, `agent.debugLink` | `link` / `mention` |
-| property values (the virtual `prop` dataset) | every property whose descriptor carries a marker; a detached type's values yield nothing | `relation` (`link` / `mention` under a `markdown` marker) |
+| property values (the virtual `prop` dataset) | every property whose descriptor carries a marker; values whose owner is not on the row yield nothing | `relation` (`link` / `mention` under a `markdown` marker) |
 | runtime records | every field whose `x-format` carries a marker; a dataset with link fields and no `x-search` is streamed for its edges only | as above |
 
 ### Store
@@ -335,8 +345,8 @@ type LinkEntry struct {
   the ids that fell out of a replaced scope, and writes the ids that
   appeared (`diffLinks`). An edit that leaves a record's edges unchanged
   costs the read and nothing else — no rewrite, no signal. Structural
-  prefix deletes (object deleted, type detached, definition retired)
-  apply to the link collection as they apply to text docs.
+  prefix deletes (object deleted, an owner gone from the row, definition
+  retired) apply to the link collection as they apply to text docs.
 - The cursor row carries `links`, the sink's layout version, stamped by
   the worker after its first landed page or after a backfill — never by
   a plain cursor write, so a failed backfill is retried on the next
@@ -374,16 +384,16 @@ All removals are applySeq-consistent: discovered through the same
 |---|---|---|
 | record deleted / value cleared (streaming chunker) | the chunker (streams the tombstoned record / empty value) | entry with `Data == ""` → range delete `[objectId:dataset:recordId, +" ")` (the record's every chunk) |
 | record shrank to fewer chunks | the indexer (`planDocs` diffs the new chunk set against the stored hashes) | delete the trailing chunk ids, upsert the changed ones |
-| any change to a reconciled collection (editor) | the `MultiReconciler` + hash diff, per collection | delete vanished window ids, upsert changed/new ones, leave unchanged ones |
-| type detached (`DetachType`) | the indexer: a static chunker's `TypeId()` ∉ `any.types`; module and runtime collections via `EvictDatasets` (no owner attached) | prefix delete `objectId:dataset:` |
-| part or runtime dataset definition removed | the module / schema chunker (the collection left the catalog → per-space retired set, held for the process lifetime) | prefix delete `objectId:dataset:` on each object's next dirty tick |
+| any change to a reconciled storage collection (editor) | the `MultiReconciler` + hash diff, per storage collection | delete vanished window ids, upsert changed/new ones, leave unchanged ones |
+| an owner left the row (retype, collection detached) | the indexer: a static chunker's `TypeId()` is no longer a member; module and runtime storage collections via `EvictDatasets` (no owner among the members) | prefix delete `objectId:dataset:` |
+| part or runtime dataset definition removed | the module / schema chunker (the storage collection left the catalog → per-space retired set, held for the process lifetime) | prefix delete `objectId:dataset:` on each object's next dirty tick |
 | object deleted (`Objects().Delete`) | the indexer (`ObjectChange.Deleted` in the change feed) | prefix delete `objectId:` |
 
 Every prefix operation runs on the link collection too (§ Links), so an
 object's or a dataset's edges leave with its text docs.
 
 Object deletion leaves **no tombstone**: the SDK purges the shared
-`objects` row and every per-object dataset collection, and announces the
+`objects` row and every per-object storage collection, and announces the
 deletion once through the change feed as `ObjectChange{Deleted: true}`,
 at an applySeq strictly greater than the object's last content change.
 That flag is the only eviction signal for the object's docs — nothing
@@ -393,10 +403,10 @@ via `Projection({IncludeDeleted: true})` and stream them as
 `Data == ""`. Removing what was never indexed is a no-op, so every
 operation applies unconditionally.
 
-After a detach and re-attach, streaming chunkers (chat, runtime records)
-do not resurrect records below the cursor — those index on their next
-write. Reconciled collections and property values re-index on the attach
-itself (the attach writes the object's row).
+After an owner leaves and returns, streaming chunkers (chat, runtime
+records) do not resurrect records below the cursor — those index on
+their next write. Reconciled storage collections and property values
+re-index on the membership write itself (it writes the object's row).
 
 **Definition-removal eviction is lazy and process-scoped**: an object
 never dirtied after the removal keeps its stale docs, and a restart
@@ -444,7 +454,7 @@ routine per-edit indexing never appears (`Options.OnProcess`, bridged in
   for a record's first chunk and that base + `U+001F` + `n` for chunk
   `n > 0` (`chunk` is stored only when non-zero). Every removal is a
   primary-key range: `objectId:` (object deleted), `objectId:dataset:`
-  (type detached), `[base, base+" ")` (record deleted — the base doc and
+  (an owner left the row), `[base, base+" ")` (record deleted — the base doc and
   every chunk suffix). Ids stay unique although recordIds repeat across
   objects (propIds do). The separator is a control byte, so every byte a
   real id can continue `base` with sorts at or above `0x20` and the
@@ -511,9 +521,10 @@ The single operation is `advance`: page through
    eviction.
 2. For each live object, read the shared objects row once
    (`IncludeDeleted`; a tombstoned row catches a delete racing the
-   read). A type object invalidates the chunkers' catalogs. Then per
-   registered chunker: a `DynamicChunker` names the collections to
-   prefix-evict; a static chunker whose `TypeId()` is not attached
+   read). Its members are read from it once (`index.Members`), and a
+   definition object invalidates the chunkers' catalogs. Then per
+   registered chunker: a `DynamicChunker` names the storage collections
+   to prefix-evict; a static chunker whose `TypeId()` is not a member
    prefix-evicts `objectId:<dataset>:`; otherwise the chunker runs —
    `ReconcileAll` / `Reconcile` (hash diff) or `ChunksSince(cursor)`
    (`Data == ""` → delete, else upsert).
@@ -1094,7 +1105,7 @@ run).
   the chunkers in-process against a live SDK: creation, cursor advance,
   tombstones.
 - `internal/server/handlers_indexer_test.go` — the indexer end to end:
-  cold sync, tail catch-up, type-detach and object-delete eviction,
+  cold sync, tail catch-up, owner-loss and object-delete eviction,
   editor coalescing and embed reuse, embedder outage, realtime updates,
   type definitions excluded, default-on props;
   `handlers_index_schema_test.go` — the schema chunker.

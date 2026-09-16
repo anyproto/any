@@ -47,7 +47,7 @@ func TestUnknownFilterOperator(t *testing.T) {
 		{
 			name: "objects query",
 			path: "/v1/spaces/" + sp.Id + "/objects/query",
-			body: `{"filter":{"any.types":{"$contains":"chat"}}}`,
+			body: `{"filter":{"any.type":{"$contains":"chat"}}}`,
 		},
 		{
 			name: "per-object dataset query",
@@ -58,7 +58,7 @@ func TestUnknownFilterOperator(t *testing.T) {
 		{
 			name: "nested under $and",
 			path: "/v1/spaces/" + sp.Id + "/objects/query",
-			body: `{"filter":{"$and":[{"any.types":{"$contains":"chat"}}]}}`,
+			body: `{"filter":{"$and":[{"any.type":{"$contains":"chat"}}]}}`,
 		},
 	}
 
@@ -167,7 +167,7 @@ func TestScalarFilterMatchesArrayElement(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &pr)
 
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
-		fmt.Sprintf(`{"types":[%q]}`, tr.TypeId))
+		fmt.Sprintf(`{"type":%q}`, tr.TypeId))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create object: %d %s", rec.Code, rec.Body.String())
 	}

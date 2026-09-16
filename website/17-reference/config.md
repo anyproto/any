@@ -46,7 +46,7 @@ CLI-side flags (`--addr`, `--timeout`, `--verbose`, `--control-token` / `ANY_CON
 | `p2p.enabled` | — | `true` | local-network (mDNS + QUIC) discovery and sync between the account's devices |
 | `p2p.port` | — | `0` | QUIC listen port; 0 = reuse the persisted port or pick an ephemeral one |
 | `p2p.serviceName` | — | `""` | mDNS service type; empty = `_any._tcp` |
-| `local.enabled` | `ANY_LOCAL_ENABLED` | `true` | serve the device-local store at `/v1/local`; `false` answers `409 local.disabled` and leaves existing collections on disk |
+| `local.enabled` | `ANY_LOCAL_ENABLED` | `true` | serve the device-local store at `/v1/local`; `false` answers `409 local.disabled` and leaves existing storage collections on disk |
 | `access.redeemUrl` | `ANY_ACCESS_REDEEM_URL` | `""` | base URL of the invite service `POST /v1/account/access-code` relays to; empty answers `409 access.disabled` |
 | `log.defaultLevel` | `ANY_LOG_LEVEL` | `info` | |
 | `log.production` | — | `false` | |

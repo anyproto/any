@@ -16,15 +16,19 @@ package api
 // unknown-field rejection from these json tags — this is the whole
 // create vocabulary.
 type ObjectCreateRequest struct {
-	// Types lists the type ids attached at create — the object's
-	// capabilities and the columns it takes. Nothing is appended
-	// server-side: an object is in a space's wiki tree only when it
-	// carries the wiki type (docs/28-well-known-bundles.md).
-	Types []string `json:"types,omitempty"`
+	// Type is the object's one type — what it IS: its parts, its layout
+	// and one column group. Required (400 request.missing_field);
+	// `page` is the plain document. Nothing is stamped server-side.
+	Type string `json:"type"`
+	// Collections lists the collections the object is filed under at
+	// create — column groups without parts (docs/28-well-known-bundles.md:
+	// an object is in a space's wiki tree only when it is in the wiki
+	// collection).
+	Collections []string `json:"collections,omitempty"`
 	// InitialProperties carries the object's starting property values,
-	// keyed by type id then property id — the ONLY home for them:
-	// {"initialProperties": {"any": {"name": "Dune"}}}. A top-level
-	// name/description/type-group key is rejected.
+	// keyed by owner (the type or a collection) then property id — the
+	// ONLY home for them: {"initialProperties": {"any": {"name":
+	// "Dune"}}}. A top-level name/description/group key is rejected.
 	InitialProperties map[string]map[string]any `json:"initialProperties,omitempty"`
 }
 

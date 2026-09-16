@@ -76,17 +76,22 @@ const (
 
 // Options tune the pure validation with what only the server knows.
 type Options struct {
-	// KnownTypeIds are the registered (built-in) type ids of the
-	// server: reserved against catalog xKeys, and valid relation
-	// targets. `any` and `type` are always included.
+	// KnownTypeIds are the registered (built-in) type and collection
+	// ids of the server: reserved against catalog xKeys, and valid
+	// relation targets. `any`, `type` and `collection` are always
+	// included.
 	KnownTypeIds []string
+	// RootTypeIds are the registered type ids a bare bundle root may
+	// name as its `rootType`.
+	RootTypeIds []string
 }
 
 // Catalog is a loaded, structurally valid catalog.
 type Catalog struct {
 	Usecases []api.CatalogUsecase
 	byId     map[string]int
-	// types maps a type xKey to the usecase declaring it.
+	// types maps a type's or collection's xKey to the usecase
+	// declaring it.
 	types map[string]string
 }
 
@@ -296,9 +301,13 @@ func (c *Catalog) validate(opts Options) Problems {
 	var ps Problems
 	add := func(path, code, msg string) { ps = append(ps, Problem{Path: path, Code: code, Message: msg}) }
 
-	known := map[string]bool{"any": true, "type": true}
+	known := map[string]bool{"any": true, "type": true, "collection": true}
 	for _, id := range opts.KnownTypeIds {
 		known[id] = true
+	}
+	rootTypes := map[string]bool{}
+	for _, id := range opts.RootTypeIds {
+		rootTypes[id] = true
 	}
 	if len(c.Usecases) == 0 {
 		add("usecases", CodeMissing, "at least one usecase")
@@ -353,18 +362,35 @@ func (c *Catalog) validate(opts Options) Problems {
 			if b.Type != nil && len(b.Type.Properties) > maxProperties {
 				add(bp+".type.properties", CodeBadField, fmt.Sprintf("more than %d properties", maxProperties))
 			}
-			declares := b.Type != nil || len(b.Parts) > 0
-			if b.Type == nil && b.Miniapp == nil && len(b.Parts) == 0 {
-				add(bp, CodeMissing, "a bundle declares at least one of type, miniapp, parts")
+			if b.Collection != nil && len(b.Collection.Properties) > maxProperties {
+				add(bp+".collection.properties", CodeBadField, fmt.Sprintf("more than %d properties", maxProperties))
+			}
+			declares := b.Type != nil || b.Collection != nil || len(b.Parts) > 0
+			if !declares && b.Miniapp == nil {
+				add(bp, CodeMissing, "a bundle declares at least one of type, collection, miniapp, parts")
+			}
+			if b.Type != nil && b.Collection != nil {
+				add(bp+".collection", CodeBadField, "a root defines a type or a collection, not both")
+			}
+			if b.Collection != nil && len(b.Parts) > 0 {
+				add(bp+".parts", CodeBadField, "a collection declares no parts")
 			}
 			if b.Hidden && !declares {
-				add(bp+".hidden", CodeBadField, "hidden describes a type object — needs type or parts")
+				add(bp+".hidden", CodeBadField, "hidden describes a definition — needs type, collection or parts")
 			}
-			if b.SelfTyped && !declares {
-				add(bp+".selfTyped", CodeBadField, "selfTyped makes the root carry its own type — needs type or parts")
+			switch {
+			case declares && b.RootType != "":
+				add(bp+".rootType", CodeBadField, "a declaring root carries its marker in any.type — no rootType")
+			case !declares && b.RootType == "":
+				add(bp+".rootType", CodeMissing, "a root that declares nothing needs a rootType (page for a plain document)")
+			case !declares && !rootTypes[b.RootType]:
+				add(bp+".rootType", CodeBadField, b.RootType+" is not a registered type")
 			}
 			if b.Type != nil {
 				c.validateType(bp+".type", u.Id, b, known, xkeys, add)
+			}
+			if b.Collection != nil {
+				c.validateCollection(bp+".collection", u.Id, b, known, xkeys, add)
 			}
 			if b.Miniapp != nil {
 				if v, ok := b.Miniapp["bundle"]; ok {
@@ -405,12 +431,13 @@ func (c *Catalog) validate(opts Options) Problems {
 		}
 		for bi := range u.Bundles {
 			b := &u.Bundles[bi]
-			if b.Type == nil {
+			props, group := declaredProperties(b)
+			if props == nil {
 				continue
 			}
-			for pi := range b.Type.Properties {
-				pr := &b.Type.Properties[pi]
-				pp := fmt.Sprintf("usecases[%d].bundles[%d].type.properties[%d].xFormat.relation.targetTypes", ui, bi, pi)
+			for pi := range props {
+				pr := &props[pi]
+				pp := fmt.Sprintf("usecases[%d].bundles[%d].%s.properties[%d].xFormat.relation.targetTypes", ui, bi, group, pi)
 				for ti, target := range relationTargets(pr.XFormat) {
 					if reach[target] || known[target] {
 						continue
@@ -429,25 +456,53 @@ func (c *Catalog) validate(opts Options) Problems {
 	return ps
 }
 
+// declaredProperties returns the property drafts a bundle declares and
+// the yaml group they sit under ("type" or "collection"); nil when
+// the bundle declares neither.
+func declaredProperties(b *api.CatalogBundle) ([]api.AddPropertyRequest, string) {
+	switch {
+	case b.Type != nil:
+		return b.Type.Properties, "type"
+	case b.Collection != nil:
+		return b.Collection.Properties, "collection"
+	}
+	return nil, ""
+}
+
 func (c *Catalog) validateType(tp, usecase string, b *api.CatalogBundle, known map[string]bool,
 	xkeys map[string]string, add func(path, code, msg string)) {
-	t := b.Type
-	if !xKeyRe.MatchString(t.XKey) {
-		add(tp+".xKey", CodeBadId, fmt.Sprintf("%q is not a handle ([a-z][a-z0-9_]*)", t.XKey))
-	} else if known[t.XKey] {
-		add(tp+".xKey", CodeDuplicate, t.XKey+" is a built-in type id")
-	} else if prev, dup := xkeys[t.XKey]; dup {
-		add(tp+".xKey", CodeDuplicate, "xKey "+t.XKey+" also on bundle "+prev)
+	c.validateHandle(tp, usecase, b.Id, b.Type.XKey, known, xkeys, add)
+	c.validateProperties(tp, b.Type.Properties, add)
+}
+
+// validateCollection applies the type rules minus layout: a handle and
+// columns.
+func (c *Catalog) validateCollection(cp, usecase string, b *api.CatalogBundle, known map[string]bool,
+	xkeys map[string]string, add func(path, code, msg string)) {
+	c.validateHandle(cp, usecase, b.Id, b.Collection.XKey, known, xkeys, add)
+	c.validateProperties(cp, b.Collection.Properties, add)
+}
+
+// validateHandle checks a declaration's xKey: a handle, not a built-in
+// id, unique across the catalog's types and collections together.
+func (c *Catalog) validateHandle(tp, usecase, bundleId, xKey string, known map[string]bool,
+	xkeys map[string]string, add func(path, code, msg string)) {
+	if !xKeyRe.MatchString(xKey) {
+		add(tp+".xKey", CodeBadId, fmt.Sprintf("%q is not a handle ([a-z][a-z0-9_]*)", xKey))
+	} else if known[xKey] {
+		add(tp+".xKey", CodeDuplicate, xKey+" is a built-in id")
+	} else if prev, dup := xkeys[xKey]; dup {
+		add(tp+".xKey", CodeDuplicate, "xKey "+xKey+" also on bundle "+prev)
 	} else {
-		xkeys[t.XKey] = b.Id
-		c.types[t.XKey] = usecase
+		xkeys[xKey] = bundleId
+		c.types[xKey] = usecase
 	}
-	if b.Hidden && t.Weight != 0 {
-		add(tp+".weight", CodeBadField, "weight is meaningless on a hidden type — it never competes for the primary type")
-	}
+}
+
+func (c *Catalog) validateProperties(tp string, properties []api.AddPropertyRequest, add func(path, code, msg string)) {
 	seen := map[string]bool{}
-	for pi := range t.Properties {
-		pr := &t.Properties[pi]
+	for pi := range properties {
+		pr := &properties[pi]
 		pp := fmt.Sprintf("%s.properties[%d]", tp, pi)
 		switch {
 		case pr.XKey == "":

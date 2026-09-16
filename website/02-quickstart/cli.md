@@ -61,11 +61,11 @@ Object creation and the generic snapshot query are likewise `curl` calls; the CL
 # a document: an object carrying the built-in page type
 OBJ=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
   -H 'content-type: application/json' \
-  -d '{"types":["page"],"initialProperties":{"any":{"name":"Reading list"}}}' | jq -r .objectId)
+  -d '{"type":"page","initialProperties":{"any":{"name":"Reading list"}}}' | jq -r .objectId)
 
-# cross-object live window: the space's objects collection
+# cross-object live window: the space's objects storage collection
 any query-subscribe $SPACE --properties \
-  --filter '{"any.types":"page"}' --sort='-modifiedAt' --limit 20 --total
+  --filter '{"any.type":"page"}' --sort='-modifiedAt' --limit 20 --total
 
 # per-object dataset: the blocks of one document
 any query-subscribe $SPACE $OBJ --dataset editor_blocks --sort nav.pos --limit 200

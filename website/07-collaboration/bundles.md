@@ -29,7 +29,7 @@ Bundle ids carry a slash — the version suffix is part of the id (`favorites/v1
 
 ```bash
 curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles \
-  -d '{"id": "notes/v1", "name": "Notes", "hidden": true, "selfTyped": true,
+  -d '{"id": "notes/v1", "name": "Notes", "xKey": "notes", "hidden": true,
        "parts": [{"key": "body", "datasets": [{"module": "editor", "shared": true}]}]}'
 ```
 
@@ -42,19 +42,22 @@ curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles \
 |------------|---------|
 | `id` | the whole identity — an app slug, a marketplace id, a versioned convention; ≤256 B |
 | `name` | stamped as `any.name` on the root; ≤1024 B |
-| `rootTypes` | types attached to the root; must exist in the space; ≤32 |
-| `rootProperties` | initial property values, validated against their descriptors; ≤64 KiB |
-| `parts` | parts of the root type (`typeId = rootId`) — the [modules](../types/index.html) and records datasets (`<rootId>_<key>`) its carriers hold; ≤32; the same draft shape as `POST …/types/:typeId/parts` |
-| `properties` | property definitions on the root type, each with an `xKey` its id derives from — two devices installing apart mint one column per handle; ≤64; the same draft shape as `POST …/types/:typeId/properties` |
-| `xKey` | the root type's handle, unique among the space's types; `409 type.xkey_conflict` |
-| `layout` / `weight` | the root type's rendering slice, as on `POST …/types` |
-| `hidden` | keeps the root type out of `GET …/types` — ask for it when the root only hosts its bundle's own records |
-| `selfTyped` | the root carries the type it declares, so it holds that type's values and collections (an app keeping records on its root); off, the root is the type definition only and writing its collections is `400 dataset.not_declared` |
+| `rootType` | the root's one type; must exist in the space. **Required when the body declares nothing** (`400 request.missing_field`; `page` for a plain root) and refused next to a declaration — a declaring root's type slot holds its own marker |
+| `rootCollections` | collections the root is filed under; each must exist in the space; ≤32 |
+| `rootProperties` | initial property values keyed by owner — `rootType` or one of the collections — validated against their descriptors; ≤64 KiB |
+| `parts` | parts of the root type (`typeId = rootId`) — the [modules](../types/index.html) and records datasets (`<rootId>_<key>`) objects of that type hold; ≤32; the same draft shape as `POST …/types/:typeId/parts`. Refused with `collection` |
+| `properties` | property definitions on the root definition, each with an `xKey` its id derives from — two devices installing apart mint one column per handle; ≤64; the same draft shape as `POST …/types/:typeId/properties` |
+| `xKey` | the definition's handle, unique among the space's types **and** collections; `409 type.xkey_conflict` |
+| `collection` | `true` declares a **collection** instead of a type: `properties` are its columns, `parts` and `layout` are refused |
+| `layout` | the root type's rendering slice, as on `POST …/types`; refused with `collection` |
+| `hidden` | keeps the root definition out of `GET …/types` / `GET …/collections` — ask for it when the root only hosts its bundle's own records |
 | `derived` | install on the root derived from the bundle id (below) |
 
-A bundle may declare a full type on its root — `parts`, `properties` or an `xKey` make the root a type definition; `layout`, `weight`, `hidden` and `selfTyped` describe that type and are `400 request.invalid_field` without one. A part naming a module reserved to the server (`chat`) is `400 dataset.module_reserved`.
+A bundle may declare a definition on its root — `parts`, `properties` or an `xKey` make the root a **type** (`any.type` holds the `__type__` marker, `typeId = rootId`), and `collection: true` makes it a **collection** (`__collection__`, `collectionId = rootId`). `layout` and `hidden` describe the definition and are `400 request.invalid_field` without one. A part naming a module reserved to the server (`chat`) is `400 dataset.module_reserved`.
 
-With a winner already registered, Ensure **adopts** it and `installed` is `false`. For a reader or guest that is a pure read, so they resolve an install they could not create; a writer's adopt also fills in declarations the root lacks (a property handle, the self type), never patching what it has. Otherwise the server creates the root with the requested types and properties, registers it, and replies `installed: true`. That path is a write, so a member without write permission gets `403`; use `GET …/bundles/:bundleId` instead. Type existence and property formats are checked *before* the root is created, so a rejected request (`400 type.not_found`, `400 property.format_violation`) never leaves an orphan.
+**A declaring root hosts itself.** It holds its own `<rootId>.<propId>` values and the records of its own datasets with no flag and no self-membership — the marker sits in `any.type`, so the root never matches `{"any.type": "<rootId>"}` or `{"any.collections": "<rootId>"}` and member queries need no exclusion. One object is the definition, its own first user, and — filed under `miniapp` through `rootCollections` — the sidebar entry.
+
+With a winner already registered, Ensure **adopts** it and `installed` is `false`. For a reader or guest that is a pure read, so they resolve an install they could not create; a writer's adopt also fills in declarations the root lacks (a property handle), never patching what it has. Otherwise the server creates the root with the requested type, collections and properties, registers it, and replies `installed: true`. That path is a write, so a member without write permission gets `403`; use `GET …/bundles/:bundleId` instead. Definition existence and property formats are checked *before* the root is created, so a rejected request (`400 type.not_found`, `400 collection.not_found`, `400 property.format_violation`) never leaves an orphan.
 
 ### The convergence gate
 
@@ -81,7 +84,9 @@ If a created and a derived root are both claimed for one id, the derived one win
 
 ## The usecase catalog
 
-The well-known apps that ship with the product — the wiki, collections, journal, meetings, people, CRM, the general chat — are bundles in a catalog embedded in the server, under `system:<name>/v<n>` ids. A **usecase** is a set of those bundles plus the usecases it `requires`. The catalog declares every type, property and dataset its apps use, so each client, device and agent that sets a usecase up resolves the same ids instead of minting its own.
+The well-known apps that ship with the product — the wiki, collections, journal, meetings, people, CRM, the general chat — are bundles in a catalog embedded in the server, under `system:<name>/v<n>` ids. A **usecase** is a set of those bundles plus the usecases it `requires`. The catalog declares every type, collection, property and dataset its apps use, so each client, device and agent that sets a usecase up resolves the same ids instead of minting its own.
+
+Each catalog bundle declares a `type` (parts, layout, columns) **or** a `collection` (columns only), never both. The wiki is a collection — a wiki page keeps its own type and is filed under it — and so are the seven role facets `contact`, `investor`, `customer`, `partner`, `vendor`, `cofounder` and `candidate`: a contact is `type: person` filed under the contact collection, with each owner's values in its own namespace. `person`, `organization`, `deal`, `meeting`, `journal` and the general chat are types.
 
 ```
 GET  /v1/catalog                    → 200 { usecases: [...] }
@@ -89,7 +94,7 @@ GET  /v1/catalog/:usecaseId         → 200 usecase             404 catalog.not_
 POST /v1/catalog/:usecaseId/setup   → 200 { usecase, bundles: [...] }      body { spaceId }
 ```
 
-Setup walks the dependency closure (dependencies first) against one convergence wait and runs Ensure's adopt-or-install per bundle; it is idempotent, and a failure names the step in `details.bundleId` while the steps before it stand, so the next call resumes. Each reply entry carries the registry row (`bundle`), `installed`, and — for a bundle that declares a type — `typeId` (the root id) and `properties` (xKey → property id). An install whose `xKey` a type in the space already holds is `409 type.xkey_conflict` with `details.existingTypeId`. Which usecases a space has reads off `GET …/bundles`. CLI: `any catalog list | get | setup`.
+Setup walks the dependency closure (dependencies first) against one convergence wait and runs Ensure's adopt-or-install per bundle; it is idempotent, and a failure names the step in `details.bundleId` while the steps before it stand, so the next call resumes. Each reply entry carries the registry row (`bundle`), `installed`, and — for a bundle that declares a definition — `typeId` or `collectionId` (the root id, whichever kind it declares) plus `properties` (xKey → property id). An install whose `xKey` a type or collection in the space already holds is `409 type.xkey_conflict` with `details.existingTypeId` or `details.existingCollectionId`. Which usecases a space has reads off `GET …/bundles`. CLI: `any catalog list | get | setup`.
 
 ### The general chat
 
@@ -106,11 +111,11 @@ Use the entry's `bundle.rootId` as the [chat](../types/chat.html) object. Every 
 
 ```bash
 curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/notes%2Fv1/children \
-  -d '{"seed": "settings", "types": ["'$PAGE'"]}'
+  -d '{"seed": "settings", "type": "page", "collections": ["'$WIKI'"]}'
 # → { "objectId": "bafy…" }
 ```
 
-A child is a setup object derived under the bundle's current winner: deterministic per (space, root, seed), materialized on the first call, the same id on every device — a restored device reaches the whole install from the winner alone. Seeds are permanent and ≤256 B. Under a created root the child binds to the parent's tree and cascade-deletes with it; on a member whose copy of the winner has not landed, the call is `409 bundle.not_ready`. Under a derived root the child binds by seed instead — same ids everywhere, and the cascade is moot on a root that can never be deleted.
+A child is a setup object derived under the bundle's current winner: `type` is required and set on first materialization, `collections` the child lacks are added on every call. It is deterministic per (space, root, seed), materialized on the first call, the same id on every device — a restored device reaches the whole install from the winner alone. Seeds are permanent and ≤256 B. Under a created root the child binds to the parent's tree and cascade-deletes with it; on a member whose copy of the winner has not landed, the call is `409 bundle.not_ready`. Under a derived root the child binds by seed instead — same ids everywhere, and the cascade is moot on a root that can never be deleted.
 
 ## Reads
 
@@ -140,9 +145,12 @@ The server never merges; it enforces timing. A losing root arrives change by cha
 | 409 | `bundle.not_loser` | the winner, or a root never claimed for this bundle |
 | 404 | `bundle.not_found` | unknown bundle id on GET / resolve / children |
 | 409 | `bundle.reserved` | a client ensure with a `system:` id |
-| 409 | `type.xkey_conflict` | an install whose `xKey` another type in the space already holds (`details.existingTypeId`) |
+| 409 | `type.xkey_conflict` | an install whose `xKey` another type or collection in the space already holds (`details.existingTypeId` / `details.existingCollectionId`) |
 | 400 | `dataset.module_reserved` | a part naming a module reserved to the server |
-| 400 | `type.not_found` | a `rootTypes` entry does not exist in the space |
+| 400 | `request.missing_field` | a bundle that declares nothing and has no `rootType` |
+| 400 | `type.not_found` | `rootType` does not exist in the space |
+| 400 | `collection.not_found` | a `rootCollections` entry does not exist in the space |
+| 400 | `collection.not_a_collection` | a `rootProperties` owner that is neither `rootType` nor a collection |
 | 400 | `property.format_violation` | a `rootProperties` value does not fit its property's descriptor |
 
 Resolving an already-resolved root returns 204 — the call is idempotent.
@@ -155,4 +163,4 @@ On boot, for each well-known [derived space](derived-spaces.html) the account ha
 
 ## Account-level bundles
 
-Account-private data — favourites, pinned items, personal settings — lives in bundles on the account's **tech space**, whose id `GET /v1/account` returns as `techSpaceId`. Ensure, list, get and resolve work there with two differences: the bundle must declare a type (`parts`, `properties` or an `xKey`), and `rootTypes`, `rootProperties` and children are refused. The records live on the self-typed root and go through `query`, `modify` and `upsert` like in any space; `DELETE /v1/spaces/:techSpaceId/objects/:rootId` uninstalls a created root. Everything else on the tech space answers `405 space.unsupported`.
+Account-private data — favourites, pinned items, personal settings — lives in bundles on the account's **tech space**, whose id `GET /v1/account` returns as `techSpaceId`. Ensure, list, get and resolve work there with two differences: the bundle must declare a definition (`parts`, `properties` or an `xKey`, type or collection), and `rootType`, `rootCollections`, `rootProperties` and children are refused. The records live on the root that declares them — a definition hosts itself — and go through `query`, `modify` and `upsert` like in any space; `DELETE /v1/spaces/:techSpaceId/objects/:rootId` uninstalls a created root. Everything else on the tech space answers `405 space.unsupported`.

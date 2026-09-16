@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/anyproto/any-store/v2/anyenc"
+
 	"github.com/anyproto/any-sync-sdk/space"
 )
 
@@ -362,5 +364,45 @@ func TestCollectChatModes_PruneOnInactive(t *testing.T) {
 	_, omit := s.collectChatModes(context.Background(), []space.SpaceInfo{sp1})
 	if !omit["sp1"] {
 		t.Fatalf("returned space with pruned cache must be omitted, got %v", omit)
+	}
+}
+
+// TestChatOwnersFilter: a chat object matches by `any.type`, and a
+// DECLARING root by its id — a definition hosts its own datasets, so
+// the general chat (its own type) is a chat too. A plain object and an
+// unrelated definition match neither.
+func TestChatOwnersFilter(t *testing.T) {
+	f := chatOwnersFilter([]string{"chatType", "generalRoot"})
+	a := &anyenc.Arena{}
+	row := func(id, typ string, collections ...string) *anyenc.Value {
+		v := a.NewObject()
+		v.Set("id", a.NewString(id))
+		anyNs := a.NewObject()
+		if typ != "" {
+			anyNs.Set("type", a.NewString(typ))
+		}
+		if len(collections) > 0 {
+			arr := a.NewArray()
+			for i, c := range collections {
+				arr.SetArrayItem(i, a.NewString(c))
+			}
+			anyNs.Set("collections", arr)
+		}
+		v.Set("any", anyNs)
+		return v
+	}
+	for name, tc := range map[string]struct {
+		row  *anyenc.Value
+		want bool
+	}{
+		"object of a chat type": {row("c1", "chatType"), true},
+		"the declaring root":    {row("generalRoot", "__type__"), true},
+		"plain object":          {row("o1", ""), false},
+		"another definition":    {row("otherType", "__type__"), false},
+		"only filed under it":   {row("o2", "page", "chatType"), false},
+	} {
+		if got := f.Ok(tc.row, nil); got != tc.want {
+			t.Errorf("%s: Ok = %v, want %v", name, got, tc.want)
+		}
 	}
 }

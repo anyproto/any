@@ -124,7 +124,7 @@ func TestE2E_MultipeerFileLatency(t *testing.T) {
 		`{"name":"file-latency"}`, http.StatusCreated, &sp)
 	var obj api.ObjectsCreateResponse
 	mustJSON(t, http.MethodPost, alice.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &obj)
+		`{"type":"page"}`, http.StatusCreated, &obj)
 
 	joinSpace(t, alice, bob, sp.Id, api.SpacePermissionReader)
 

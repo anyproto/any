@@ -33,7 +33,6 @@ func newTypeCmd() *cobra.Command {
 func newTypeCreateCmd() *cobra.Command {
 	var (
 		name, desc, iconCID, xkey string
-		weight                    int
 		layoutRaw                 string
 		hidden                    bool
 		metaRaw                   []string
@@ -43,7 +42,7 @@ func newTypeCreateCmd() *cobra.Command {
 		Short: "create a user-defined type",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			req := api.TypesCreateRequest{Name: name, Description: desc, IconCID: iconCID, XKey: xkey, Weight: weight, Hidden: hidden}
+			req := api.TypesCreateRequest{Name: name, Description: desc, IconCID: iconCID, XKey: xkey, Hidden: hidden}
 			if layoutRaw != "" {
 				if !json.Valid([]byte(layoutRaw)) {
 					return fmt.Errorf("--layout is not valid JSON")
@@ -67,7 +66,6 @@ func newTypeCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&desc, "description", "", "description")
 	cmd.Flags().StringVar(&iconCID, "icon-cid", "", "icon CID")
 	cmd.Flags().StringVar(&xkey, "xkey", "", "stable programmatic key (required, unique per space)")
-	cmd.Flags().IntVar(&weight, "weight", 0, "primary-type weight (highest carried type renders)")
 	cmd.Flags().StringVar(&layoutRaw, "layout", "", `layout descriptor JSON, e.g. '{"type":"page"}'`)
 	cmd.Flags().BoolVar(&hidden, "hidden", false, "keep the type out of default listings and pickers")
 	cmd.Flags().StringArrayVar(&metaRaw, "meta", nil, "consumer flag key=value (repeatable; value parsed as JSON scalar, else a string)")

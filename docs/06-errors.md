@@ -33,7 +33,7 @@ Every error response — regardless of status code — has the same body:
 | 413    | Body over the 1 MiB cap (`request.too_large`; file attach is exempt), or `history.view_too_large` |
 | 429    | `access.rate_limited`                                          |
 | 500    | Internal error — unexpected SDK or server failure              |
-| 501    | `sdk.not_implemented` — `DELETE …/types/:typeId` and `GET …/sync-status/peers` |
+| 501    | `sdk.not_implemented` — `DELETE …/types/:typeId`, `DELETE …/collections/:collectionId` and `GET …/sync-status/peers` |
 | 502    | `access.unavailable`                                           |
 | 503    | Request cancelled or the engine tearing down (`server.unavailable`); embedder unreachable (`index.embedder_unavailable`) |
 
@@ -113,12 +113,12 @@ record.deleted                   # 410 — a write addressed a tombstoned record
 object.derived_undeletable       # 409 — DELETE on a derived object (a bundle root installed with derived:true, e.g. the general chat); derived objects are permanent
 object.id_required               # 400 — the object id in the path or body is a serialized nil ("None", "null", "undefined", …): the caller's id variable was unset; never a store lookup failure
 
-dataset.unknown                  # 400 — a record write (modify / delete-records / upsert) names a collection the space does not serve as a records dataset (details.dataset): no part declares it, or it is a module collection (chat_messages, editor_blocks — written through the module's routes, never upsertable). A read of an unknown dataset answers 200 {"records": []}
-dataset.not_declared             # 400 — a write into a collection none of the object's types declare (details.dataset, details.objectId): the space serves it, but this object carries no type whose part declares it — attach the type first; no write attaches one
-dataset.not_found                # 404 — the :collection of an editor route is not an editor dataset in this space (details.collection): neither editor_blocks nor a namespaced <typeId>_<key> instance a part declares with module "editor"
+dataset.unknown                  # 400 — a record write (modify / delete-records / upsert) names a storage collection the space does not serve as a records dataset (details.dataset): no part declares it, or it is a module's storage collection (chat_messages, editor_blocks — written through the module's routes, never upsertable). A read of an unknown dataset answers 200 {"records": []}
+dataset.not_declared             # 400 — a write into a storage collection the object's type does not declare (details.dataset, details.objectId): the space serves it, but no part of the object's type owns it — set that type first (a definition object owns its own datasets); no write sets one
+dataset.not_found                # 404 — the :collection segment of an editor route names no editor dataset in this space (details.collection): neither editor_blocks nor a namespaced <typeId>_<key> instance a part declares with module "editor"
 dataset.validation               # 400 — schema or handler rejected ops
 dataset.key_conflict             # 409 — a part or dataset with this key already exists on the type (details.key); a second shared dataset of one module collides on the canonical key
-dataset.shared_conflict          # 400 — shared on a module with no canonical collection (records), a shared key that is not the canonical name, or a namespaced dataset on a shared-only module (chat)
+dataset.shared_conflict          # 400 — shared on a module with no canonical storage collection (records), a shared key that is not the canonical name, or a namespaced dataset on a shared-only module (chat)
 dataset.module_unknown           # 400 — the dataset names a module this server does not compile in (records, editor, chat)
 dataset.module_owned             # 409 — a field declaration on a module-served dataset (editor, chat): the module owns the schema, the dataset declares no fields
 dataset.module_reserved          # 400 — a part or dataset draft (on a type, or in a bundle body) names a module reserved to the server's own installs (`chat` — the catalog's general-chat usecase is its one declaration)
@@ -132,14 +132,20 @@ upsert.requires_user_ids         # 400 — upsert on a dataset not declared idRu
 filter.unknown_operator          # 400 — filter names an operator outside the grammar (details.operator, details.path); message lists the supported set
 filter.invalid                   # 400 — any other filter-grammar violation (wrong operand type, malformed $and/$or array, bad $regex, …); message carries the parser's path + reason (details.path, details.operator). Filters parse at the request boundary, so these never surface mid-subscribe. Both codes also answer a bad `filter` on POST /v1/spaces/:id/search
 
-type.not_found                   # 404 — unknown typeId on GET …/types/:typeId and GET …/types/:typeId/properties (existence-checked: a real type with no properties answers 200 [], an unknown id never does); 400 when a bundle ensure's rootTypes / rootProperties names an unknown type
-type.xkey_required               # 400 — create without an xKey (a type needs a stable handle)
-type.reserved_carrier            # 400 — object create `types`, POST …/attach/:typeId, or an `any.types` op through …/modify names a type whose part declares a reserved module (the general-chat root): that type is carried only by its own root (details.typeId)
-type.xkey_conflict               # 409 — xKey collides with an existing type's xKey or id in the space (details.xKey, details.existingTypeId); also raised by POST …/bundles and POST /v1/catalog/:usecaseId/setup when an install's xKey is held by a type in the space — install path only, never on adopt (details.bundleId; a setup adds details.usecase, details.usecaseId)
-type.registered                  # 400 — add/patch/remove a property, part or dataset, or PATCH the type itself, on a registered built-in type (declarations are static)
-property.not_found               # 400 — a value write names a property the type does not declare
+type.not_found                   # 404 — unknown typeId on GET …/types/:typeId, GET …/types/:typeId/properties (existence-checked: a real type with no properties answers 200 [], an unknown id never does) POST …/properties/:objectId/type/:typeId, POST …/objects and POST …/bundles/:bundleId/children (`type` names a type the space does not have); 400 when a bundle ensure's rootType does — an unknown rootProperties owner is collection.not_found
+membership.wrong_slot            # 400 — a write put a known collection id in any.type or a known type id in any.collections through a raw route (POST …/modify on the objects row, a bundle child); the membership routes and POST …/objects answer type.not_a_type / collection.not_a_collection instead
+membership.type_required         # 400 — a raw write cleared any.type; every object has exactly one type (POST …/objects without `type` and a bare bundle body without `rootType` answer request.missing_field)
+type.not_a_type                  # 400 — a …/types route, or POST …/properties/:objectId/type/:typeId, names a user COLLECTION (details.collectionId): use the …/collections routes, or file the object with POST …/properties/:objectId/collections/:collectionId. A registered collection's id (miniapp, bin) has no type row at all and answers type.not_found
+type.xkey_required               # 400 — a type or a collection created without an xKey (both need a stable handle)
+type.reserved_carrier            # 400 — object create `type`, POST …/properties/:objectId/type/:typeId, a bundle's rootType or a bundle child's type, or an `any.type` op through …/modify names a type whose part declares a reserved module (the general-chat root): that type is carried only by its own root (details.typeId)
+type.xkey_conflict               # 409 — the xKey is already a handle in this space, on EITHER surface: a type's xKey or id (details.xKey, details.existingTypeId), or a collection's (details.xKey, details.existingCollectionId) — a collection never takes a type's handle and vice versa; also raised by POST …/bundles and POST /v1/catalog/:usecaseId/setup when an install's xKey is already held — install path only, never on adopt (details.bundleId; a setup adds details.usecase, details.usecaseId)
+type.registered                  # 400 — add/patch/remove a property, part or dataset, or PATCH the type itself, on a registered built-in type; also a column write on a registered built-in collection (declarations are static)
+collection.not_found             # 404 — unknown collectionId on GET/PATCH …/collections/:collectionId, GET …/collections/:collectionId/properties and POST …/properties/:objectId/collections/:collectionId; 400 when a bundle ensure's rootCollections names a collection the space does not have
+collection.not_a_collection      # 400 — a …/collections route, or POST …/properties/:objectId/collections/:collectionId, names a user TYPE (details.typeId): use the …/types routes, or set it with POST …/properties/:objectId/type/:typeId. A registered type's id (page, dataview) answers collection.not_found
+collection.registered            # 400 — PATCH the metadata of a registered built-in collection (miniapp, bin): it is statically declared (a column write on one is type.registered)
+property.not_found               # 400 — a value write names a property the owner — the object's type or one of its collections — does not declare
 property.kind_mismatch           # 400 — a value write violates the property's pinned kind
-property.xkey_conflict           # 409 — add/rename a property to an xKey another property of the type holds (details.xKey, details.existingPropId); a preflight, not a guarantee
+property.xkey_conflict           # 409 — add/rename a property to an xKey another property of the same type or collection holds (details.xKey, details.existingPropId); a preflight, not a guarantee
 property.immutable               # 400 — PATCH a pinned path (kind/scope/items/properties); details.path
 property.format_invalid          # 400 — descriptor vocabulary problem on create/PATCH, property or dataset field: slug does not fit the pinned kind, reserved slug/key (tags, validate, compute), unparseable relation.filter, empty slug
 property.format_violation        # 400 — a property VALUE write does not fit its descriptor's current slug (details.propId, format = the slug, reason)
@@ -219,7 +225,7 @@ index.terms_unsupported          # 409 — require/exclude on a build with no fu
 search.bad_mode                  # 400 — mode not hybrid | fts | vector
 search.bad_scope                 # 400 — scope not a valid slug ([a-z0-9_-], max 64; scopes are an open set)
 
-sdk.not_implemented              # 501 — DELETE …/types/:typeId, GET …/sync-status/peers
+sdk.not_implemented              # 501 — DELETE …/types/:typeId, DELETE …/collections/:collectionId, GET …/sync-status/peers
 sdk.not_found                    # 404 — the SDK reports the target is gone (object, type, property, part or dataset definition)
 sdk.crdt_version_newer           # 409 — the account's data was written by a newer release (details.stored > details.supported): POST /v1/auth refuses to boot it; a running server whose account is raised by another device turns read-only — every synced write answers this until the server is upgraded (GET /v1/health.crdtVersion)
 

@@ -745,8 +745,8 @@ func TestTypeParts_ModuleDatasets(t *testing.T) {
 		t.Fatalf("undeclared editor collection: %d %s", rec.Code, rec.Body.String())
 	}
 	assertErrorCode(t, rec, "dataset.not_found")
-	// An object without the type cannot hold the shared collection.
-	other := mustCreateObject(t, e, spaceId, `{}`)
+	// An object of another type cannot hold the shared collection.
+	other := mustCreateObject(t, e, spaceId, `{"type":"`+plainType(t, e, spaceId)+`"}`)
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects/"+other+"/editor/editor_blocks/blocks",
 		`{"type":"paragraph","text":"x"}`)
 	if rec.Code != http.StatusBadRequest {

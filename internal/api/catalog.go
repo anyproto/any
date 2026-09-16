@@ -24,8 +24,10 @@ type CatalogUsecase struct {
 
 // CatalogBundle is one bundle of a usecase: one created root under a
 // `system:<name>/v<n>` id. What the root IS follows from what it
-// declares — a type objects carry (`type`), the object a client opens
-// (`miniapp`), records on the root (`parts`) — in any combination.
+// declares — a type objects have (`type`), a collection objects are
+// filed under (`collection`), the object a client opens (`miniapp`),
+// records on the root (`parts`) — in any combination but type with
+// collection, or collection with parts.
 type CatalogBundle struct {
 	Id          string `json:"id"`
 	Name        string `json:"name"`
@@ -33,22 +35,21 @@ type CatalogBundle struct {
 	// Derived installs the bundle on the root derived from its id —
 	// never forks, never deletable. The general chat only.
 	Derived bool `json:"derived,omitempty"`
-	// Hidden keeps the root's type out of pickers and out of the
-	// primary-type choice; needs `type` or `parts`, and excludes a
-	// `weight`.
+	// Hidden keeps the root's definition out of pickers; needs `type`,
+	// `collection` or `parts`.
 	Hidden bool `json:"hidden,omitempty"`
-	// SelfTyped makes the root carry the type it declares — the shape
-	// of a root that hosts its own bundle's records (the contacts
-	// layouts). Off, the root is the type definition only: it matches
-	// no query for the type and takes none of its collections, which
-	// is what a type other objects carry needs (the wiki, a person).
-	// Needs a type declaration.
-	SelfTyped bool `json:"selfTyped,omitempty"`
-	// Type declares the type the root implements.
-	Type *CatalogType `json:"type,omitempty"`
-	// Miniapp is a value map on the built-in `miniapp` type the root
-	// carries: `bundle` is this bundle's id (filled when omitted), any
-	// other key must be a property the built-in declares.
+	// RootType is the root's type when the bundle declares nothing (a
+	// bare app root): a registered type id, `page` for a plain
+	// document. Required then, refused next to a declaration.
+	RootType string `json:"rootType,omitempty"`
+	// Type declares the type the root defines; Collection the
+	// collection. Exclusive. A root hosting its own records (parts)
+	// needs no flag: a definition implements itself.
+	Type       *CatalogType       `json:"type,omitempty"`
+	Collection *CatalogCollection `json:"collection,omitempty"`
+	// Miniapp is a value map on the built-in `miniapp` collection the
+	// root is filed under: `bundle` is this bundle's id (filled when
+	// omitted), any other key must be a property the built-in declares.
 	Miniapp map[string]any `json:"miniapp,omitempty"`
 	// Parts declare records datasets on the root (the
 	// POST …/types/:typeId/parts draft shape).
@@ -58,17 +59,21 @@ type CatalogBundle struct {
 // CatalogType is the type a catalog bundle declares on its root.
 type CatalogType struct {
 	// XKey is the type's handle — what clients resolve it by and what
-	// relation.targetTypes name. Unique across the catalog.
+	// relation.targetTypes name. Unique across the catalog, types and
+	// collections together.
 	XKey string `json:"xKey"`
-	// Weight orders the type against others an object carries (the
-	// highest listed one is the primary type); meaningless on a hidden
-	// type.
-	Weight int `json:"weight,omitempty"`
 	// Layout is the rendering slug, `{type, config?}`.
 	Layout json.RawMessage `json:"layout,omitempty"`
 	// Properties are the columns (the POST …/types/:typeId/properties
 	// draft shape); each carries an xKey, the property id derives from
 	// it.
+	Properties []AddPropertyRequest `json:"properties,omitempty"`
+}
+
+// CatalogCollection is the collection a catalog bundle declares on its
+// root: a handle and columns, no parts, no layout.
+type CatalogCollection struct {
+	XKey       string               `json:"xKey"`
 	Properties []AddPropertyRequest `json:"properties,omitempty"`
 }
 
@@ -105,6 +110,9 @@ type CatalogSetupBundle struct {
 	// TypeId is the root's id when the bundle declares a type — the
 	// namespace of its property values (`<typeId>.<propId>`).
 	TypeId string `json:"typeId,omitempty"`
+	// CollectionId is the root's id when the bundle declares a
+	// collection.
+	CollectionId string `json:"collectionId,omitempty"`
 	// Properties maps each declared property's xKey to its id.
 	Properties map[string]string `json:"properties,omitempty"`
 	// Miniapp is the value map the catalog declares on the built-in

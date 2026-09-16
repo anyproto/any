@@ -13,15 +13,15 @@ any is five layers, each with one job: an embedded document database, a peer-to-
 |-------|--------------|
 | **Clients** | Web UI, CLI, JS / Python / mobile bindings, anyrt (programs and agents) — all speak HTTP/JSON + SSE. |
 | **any** | HTTP façade on `127.0.0.1:7001`, CLI client, search and link index, event bus, markdown bridge, bundles engine and usecase catalog, local store. |
-| **any-sync-sdk** | Space / Object / record CRDT, types and properties, datasets and handlers, tech space, queries and subscribe. |
+| **any-sync-sdk** | Space / Object / record CRDT, types, collections and properties, datasets and handlers, tech space, queries and subscribe. |
 | **[any-sync](https://github.com/anyproto/any-sync)** | The protocol: spaces, ACLs, object trees (signed + encrypted change DAGs), head-sync, files, nodeconf, mDNS p2p. |
-| **[any-store](https://github.com/anyproto/any-store)** | Embedded document DB: collections, Mongo filters, modifiers, indexes, transactions, FTS + vector indexes. |
+| **[any-store](https://github.com/anyproto/any-store)** | Embedded document DB: storage collections, Mongo filters, modifiers, indexes, transactions, FTS + vector indexes. |
 
 Everything above the any-sync layer runs inside one process on your machine. Below it sits the network — and, as the next sections show, the network holds only ciphertext.
 
 ## any-store — the database
 
-[any-store](https://github.com/anyproto/any-store) is an embedded document database. It stores anyenc documents (a binary JSON-like encoding) in collections, filters them with a MongoDB-style query language (`$eq`, `$in`, `$gt`, `$elemMatch`, `$regex`, `$and`/`$or`, …), mutates them with modifiers (`$set`, `$unset`, `$inc`, …), and picks indexes with a cost-based planner. It provides ACID transactions with a single writer and snapshot-isolated reads, plus BM25 full-text and vector indexes that the [search index](../search/index.html) is built on.
+[any-store](https://github.com/anyproto/any-store) is an embedded document database. It stores anyenc documents (a binary JSON-like encoding) in storage collections, filters them with a MongoDB-style query language (`$eq`, `$in`, `$gt`, `$elemMatch`, `$regex`, `$and`/`$or`, …), mutates them with modifiers (`$set`, `$unset`, `$inc`, …), and picks indexes with a cost-based planner. It provides ACID transactions with a single writer and snapshot-isolated reads, plus BM25 full-text and vector indexes that the [search index](../search/index.html) is built on.
 
 It has no notion of sync, peers, encryption or subscriptions. Every layer above it is what turns a local file into a shared database.
 
@@ -65,7 +65,7 @@ any-sync stores and delivers encrypted blobs; it does not know what is in them. 
 - **Spaces** as an API: create, join, invite, ACL operations, members, delete-and-offload.
 - **Objects** with many datasets each; the DAG itself is hidden — callers see `Modify` / `Delete` / `Query`.
 - **The record CRDT** — per-path last-writer-wins on DAG order, upsert, sticky tombstones, content-addressed record ids ([Record CRDT](record-crdt.html)).
-- **Types and properties** — the `objects` collection with one row per object, property definitions as records on type objects, scopes on declarations.
+- **Types, collections and properties** — the `objects` storage collection with one row per object, property definitions as records on the type and collection objects that own them, scopes on declarations.
 - **Dataset handlers** — the SDK's own (spaceIndex, bundles, files, …), modules the host registers (any's chat and editor), and runtime-declared schemas — run identically on every peer at apply time.
 - **The tech space** — the account's private space holding the space list, devices, profile and account-scoped values ([Tech space](tech-space.html)).
 - **Versioning** — the version-driven re-index that rebuilds rows from the DAG when handler logic changes ([Versioning and re-index](versioning-and-reindex.html)).

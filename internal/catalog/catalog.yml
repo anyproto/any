@@ -4,14 +4,15 @@
 #
 # A usecase is a set of bundles installed together plus the usecases it
 # requires. Every bundle is a created root under a permanent `system:` id;
-# `type` makes it a type objects carry, `miniapp` the object a client
-# opens, `parts` records on the root. Bundle ids never change — a bundle
-# that changes shape takes a new id.
+# `type` makes it the type objects have (parts, layout, columns),
+# `collection` a collection objects are filed under (columns only),
+# `miniapp` the object a client opens, `parts` records on the root. Bundle
+# ids never change — a bundle that changes shape takes a new id.
 
 usecases:
 
-  # ── One object that is both the wiki app and the type its pages carry.
-  #    Hidden: the app attaches it; nothing picks it, so no weight.
+  # ── One object that is both the wiki app and the collection its pages are
+  #    filed under (a page keeps its own type). Hidden: the app files them.
   - id: wiki
     name: Wiki
     description: A tree of pages — parent link, sibling order and folder flag
@@ -20,7 +21,7 @@ usecases:
         name: Wiki
         hidden: true
         miniapp: { bundle: system:wiki/v1 }
-        type:
+        collection:
           xKey: wiki
           properties:
             - { xKey: parentId, name: Parent,   kind: string,  meta: { index: none } }
@@ -36,10 +37,11 @@ usecases:
     bundles:
       - id: system:collections/v1
         name: Collections
+        rootType: page
         miniapp: {}
 
   # ── Journal: one page per day. The app creates the entries, so the type is
-  #    hidden and carries no weight; its body is the shared editor collection,
+  #    hidden; its body is the shared editor collection,
   #    which is why an entry needs no second type.
   - id: journal
     name: Journal
@@ -71,7 +73,6 @@ usecases:
         name: Meeting
         type:
           xKey: meeting
-          weight: 20                             # a meeting renders as itself, not as a plain page
           layout: { type: page }
           properties:
             - { xKey: date,         name: Date,         kind: datetime,
@@ -121,6 +122,7 @@ usecases:
 
       - id: system:meetings/v1                   # the sidebar entry
         name: Meetings
+        rootType: page
         miniapp: {}
 
 
@@ -128,7 +130,7 @@ usecases:
   #    project a finishable outcome that groups tasks; an area an ongoing
   #    responsibility that groups projects and tasks. The three types are
   #    listed — a task is an ordinary object a user may also meet in a table
-  #    or a picker — and weightless; the fourth bundle is the sidebar entry.
+  #    or a picker; the fourth bundle is the sidebar entry.
   #    The lists (inbox, today, upcoming, anytime, someday,
   #    logbook) are derived by clients from `planning`, `planned`, `deadline`
   #    and `completed`; `position` is a fractional rank shared by every list,
@@ -176,6 +178,7 @@ usecases:
         type: { xKey: area }                     # a marker: name and icon are all an area has
       - id: system:tasks/v1                      # the sidebar entry
         name: Tasks
+        rootType: page
         miniapp: {}
 
   # ── The space's chat. The one derived root: chat content cannot be merged
@@ -206,7 +209,6 @@ usecases:
         name: Person
         type:
           xKey: person
-          weight: 10
           layout: { type: profile }
           properties:
             - { xKey: email,        name: Email,        kind: string,   xFormat: { type: email } }
@@ -228,7 +230,6 @@ usecases:
         name: Organisation
         type:
           xKey: organization
-          weight: 10
           layout: { type: profile }
           properties:
             - { xKey: kind,         name: Kind,         kind: array,      # what it is; roles say why you care
@@ -253,8 +254,8 @@ usecases:
             ui: { type: document }
             datasets: [ { module: editor, shared: true } ]
 
-  # ── The relationship facet: attached to a person or organisation you actively
-  #    manage. Weight below the identities so their profile layout keeps rendering.
+  # ── The relationship facet: a collection a person or organisation you actively
+  #    manage is filed under; the identity keeps its type and its profile layout.
   - id: contact
     name: Contact
     description: Owner, source, status and the last and next touch on a person or organisation
@@ -262,9 +263,8 @@ usecases:
     bundles:
       - id: system:contact/v1
         name: Contact
-        type:
+        collection:
           xKey: contact
-          weight: 5
           properties:
             - { xKey: owner,          name: Owner,          kind: array,    # no member descriptor yet
                 xFormat: { type: relation, relation: { targetTypes: [ person ] } } }
@@ -291,9 +291,8 @@ usecases:
     bundles:
       - id: system:investor/v1
         name: Investor
-        type:
+        collection:
           xKey: investor
-          weight: 5
           properties:
             - { xKey: investor_type,   name: Investor type,   kind: array, 
                 xFormat: { type: choice, options: {
@@ -322,9 +321,8 @@ usecases:
     bundles:
       - id: system:customer/v1
         name: Customer
-        type:
+        collection:
           xKey: customer
-          weight: 5
           properties:
             - { xKey: account_status, name: Account status, kind: array, 
                 xFormat: { type: choice, options: {
@@ -343,9 +341,8 @@ usecases:
     bundles:
       - id: system:partner/v1
         name: Partner
-        type:
+        collection:
           xKey: partner
-          weight: 5
           properties:
             - { xKey: partnership_type, name: Partnership type, kind: array, 
                 xFormat: { type: choice, options: {
@@ -365,9 +362,8 @@ usecases:
     bundles:
       - id: system:vendor/v1
         name: Vendor
-        type:
+        collection:
           xKey: vendor
-          weight: 5
           properties:
             - { xKey: services,       name: Services,       kind: array,
                 xFormat: { type: choice, config: { multiple: true }, options: {
@@ -387,9 +383,8 @@ usecases:
     bundles:
       - id: system:cofounder/v1
         name: Co-founder
-        type:
+        collection:
           xKey: cofounder
-          weight: 5
           properties:
             - { xKey: founded,          name: Founded,          kind: array,    # may differ from Organisation once they move on
                 xFormat: { type: relation, relation: { targetTypes: [ organization ] } } }
@@ -407,9 +402,8 @@ usecases:
     bundles:
       - id: system:candidate/v1
         name: Candidate
-        type:
+        collection:
           xKey: candidate
-          weight: 5
           properties:
             - { xKey: role,            name: Role,            kind: string, xFormat: { type: text } }
             - { xKey: candidate_stage, name: Candidate stage, kind: array, 
@@ -432,7 +426,6 @@ usecases:
         name: Contacts
         miniapp: {}
         hidden: true
-        selfTyped: true                                # the layouts live ON the app root
         parts:
           - key: layouts
             datasets:
@@ -452,7 +445,6 @@ usecases:
         name: Deal
         type:
           xKey: deal
-          weight: 10
           layout: { type: profile }
           properties:
             - { xKey: stage,        name: Stage,        kind: array, 
@@ -472,4 +464,5 @@ usecases:
             datasets: [ { module: editor, shared: true } ]
       - id: system:crm/v1
         name: CRM
+        rootType: page
         miniapp: {}

@@ -54,7 +54,7 @@ curl -X POST http://127.0.0.1:7001/v1/catalog/general-chat/setup \
 # → {"usecase": "general-chat", "bundles": [{"id": "system:general-chat/v1", "bundle": {"rootId": "bafy…", "derived": true}, "installed": true}]}
 ```
 
-Clients subscribe to a derived object like any other — for space metadata, a [subscribe](../realtime/subscribe.html) stream over the objects collection filtered on `spaceIndexObjectId`.
+Clients subscribe to a derived object like any other — for space metadata, a [subscribe](../realtime/subscribe.html) stream over the `objects` storage collection filtered on `spaceIndexObjectId`.
 
 ## The price: permanence
 

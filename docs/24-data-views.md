@@ -6,10 +6,10 @@ in the space, so a view saved in one client is the same view in the
 next.
 
 Views come in two levels. A **dataview** is a named, ordered table on
-the host object — "Tasks", "Reading list" — and every view belongs to
-one dataview. An object carries as many dataviews as it needs, each
-with its own views, which is what lets a page hold a task board and a
-reading list side by side without their views bleeding into each other.
+the host — "Tasks", "Reading list" — and every view belongs to one
+dataview. A host has as many dataviews as it needs, each with its own
+views, which is what lets a page hold a task board and a reading list
+side by side without their views bleeding into each other.
 
 `dataview` is a **registered built-in type**, not a type a client
 creates: it exists in every space by construction, so clients never
@@ -19,18 +19,27 @@ capability an object opts into, not a class a user picks
 
 ## Data model
 
-The type attaches to a **host object** and owns two records datasets
-under one part (`views`): `dataviews`, one record per dataview on the
-host, and `views`, one record per view. The host is whatever the views
-are "of":
+**A dataview is its own object.** Its type is `dataview`, and the
+property `dataview.host` names the object the views are over. The type
+owns two records datasets under its one part (`views`): `dataviews`,
+one record per dataview on the host, and `views`, one record per view.
+Both live on the dataview object, never on the host.
 
-| Views of…            | Host object                          |
-|----------------------|--------------------------------------|
-| a type's objects     | the **type object** (`typeId` is an object id) |
-| a document / board   | that object                          |
+The host is whatever the views are "of":
 
-Attach works on a type object like on any other object, so views on a
-type need no special mechanism.
+| Views of…              | `dataview.host`                      |
+|------------------------|--------------------------------------|
+| a type's objects       | the **type** (`typeId` is an object id) |
+| a collection's members | the **collection** (`collectionId` is an object id) |
+| a document / board     | that object                          |
+
+A type and a collection are objects like any other, so views over a
+type's objects or a collection's members need no special mechanism —
+the dataview object just points at the definition.
+
+`host` is a plain string (`kind: string`); nothing resolves it
+server-side. A dataview object whose host is gone is an orphan the
+client cleans up, exactly like the orphan views below.
 
 A dataview record:
 
@@ -58,7 +67,7 @@ A view record — `dataview` names the dataview it belongs to:
   "layout": "table",
   "query": {
     "type": "plain",
-    "filter": { "<typeId>.<propId>": { "$in": ["urgent"] } },
+    "filter": { "<ownerId>.<propId>": { "$in": ["urgent"] } },
     "sort": ["-modifiedAt"],
     "groupBy": { "propId": "<propId>" }
   },
@@ -87,7 +96,7 @@ deleted property into a *write failure* instead of a rule the client
 marks invalid — the view must stay editable precisely when it is broken.
 
 The same rule applies one level up. A view's `dataview` is required but
-**not validated** against the `dataviews` collection, and deleting a
+**not validated** against the `dataviews` dataset, and deleting a
 dataview does **not** cascade: its views stay as orphans, still
 readable through `{"dataview": "<id>"}` and still writable. The client
 deletes them with the dataview, or re-parents them with one path write
@@ -131,7 +140,7 @@ record on every peer.
 
 Read the rules from `GET /v1/spaces/:spaceId/datasets` (`x-scope`,
 `x-mutable-by`, `x-stamp`, `x-id`, `x-delete-by`) rather than
-hardcoding them; the part and its two collections come back from
+hardcoding them; the part and its two datasets come back from
 `GET …/types/dataview/parts`.
 
 `createdAt` / `modifiedAt` are **instants**, not numbers — they read and
@@ -169,20 +178,32 @@ preference, not as data.
 No bespoke endpoints — the record shapes carry no server semantics
 worth one.
 
-**Attach the type once** (only needed for an object that already
-exists; `POST …/objects` takes a `types` array):
+**Create the dataview object once per host**, like any other object:
 
+```json
+POST /v1/spaces/:spaceId/objects
+{
+  "type": "dataview",
+  "initialProperties": { "dataview": { "host": "<hostId>" } }
+}
+→ 201 {"objectId": "<dataviewId>"}
 ```
-POST /v1/spaces/:spaceId/properties/:objectId/attach/dataview
+
+**Find a host's dataview objects** with an ordinary objects query:
+
+```json
+POST /v1/spaces/:spaceId/objects/query
+{"filter": {"any.type": "dataview", "dataview.host": "<hostId>"}}
 ```
 
 **Write** through `POST /v1/spaces/:spaceId/modify` with
-`dataset: "dataviews"` or `dataset: "views"`. Ids are
+`dataset: "dataviews"` or `dataset: "views"`. `objectId` is the
+**dataview object's** id, not the host's. Record ids are
 **client-supplied** in both, which is what makes the defaults safe:
 
 ```json
 {
-  "objectId": "<host>",
+  "objectId": "<dataviewId>",
   "dataset": "dataviews",
   "records": [{
     "id": "default",
@@ -194,7 +215,7 @@ POST /v1/spaces/:spaceId/properties/:objectId/attach/dataview
 
 ```json
 {
-  "objectId": "<host>",
+  "objectId": "<dataviewId>",
   "dataset": "views",
   "records": [{
     "id": "default",
@@ -204,8 +225,8 @@ POST /v1/spaces/:spaceId/properties/:objectId/attach/dataview
 }
 ```
 
-View ids are one namespace per host, not per dataview: a second
-dataview's views need their own ids — the convention is
+View ids are one namespace per dataview object, not per dataview: a
+second dataview's views need their own ids — the convention is
 `<dataviewId>.<key>` (`board.default`), which keeps the deterministic
 ensure below working per dataview.
 
@@ -250,7 +271,7 @@ already exist), no `traceIds`:
 
 ```json
 {
-  "objectId": "<host>", "dataset": "views", "scope": "local",
+  "objectId": "<dataviewId>", "dataset": "views", "scope": "local",
   "records": [{"id": "default", "ops": [
     {"type": "$set", "path": "localSettings", "value": {"widths": {"name": 480}}}
   ]}]
@@ -258,10 +279,11 @@ already exist), no `traceIds`:
 ```
 
 **Read** through `POST /v1/spaces/:spaceId/query` (snapshot) or
-`…/query/subscribe` (live): the dataview list is `dataset: "dataviews"`,
-`sort: ["pos"]`; one dataview's views are `dataset: "views"`,
-`filter: {"dataview": "<id>"}`, `sort: ["pos"]`. Both scopes of a view
-come back on one record — there is no second read for the local half.
+`…/query/subscribe` (live), again with the dataview object's id: the
+dataview list is `dataset: "dataviews"`, `sort: ["pos"]`; one dataview's
+views are `dataset: "views"`, `filter: {"dataview": "<id>"}`,
+`sort: ["pos"]`. Both scopes of a view come back on one record — there
+is no second read for the local half.
 
 Saved views are **not** search-indexed: a view name is navigation
 chrome, not knowledge.
@@ -274,26 +296,33 @@ follows is only what is different because the query is **saved and
 shared** rather than built fresh per request.
 
 **Key properties by `propId`, never by `xKey`.** The wire path is
-`<typeId>.<propId>`, both content-addressed ids. `xKey` is a
-client-side convenience that helpers map on the way in — it never
-reaches the server, so an xKey path saved in a view resolves for
-nobody, including the client that wrote it. Resolve `xKey → propId`
-once via `GET …/types/:typeId/properties` and store the propId.
+`<ownerId>.<propId>` — the object's type or one of its collections, and
+the property, both content-addressed ids. `xKey` is a client-side
+convenience that helpers map on the way in — it never reaches the
+server, so an xKey path saved in a view resolves for nobody, including
+the client that wrote it. Resolve `xKey → propId` once via
+`GET …/types/:typeId/properties` (or
+`GET …/collections/:collectionId/properties`) and store the propId.
 This is also what makes a view survive a property rename: the display
 name changes, the propId does not.
 
-**Every view over a type's objects must carry its own type scope.**
+**Every view over a set of objects must carry its own scope.** By type,
+or by collection membership:
 
 ```json
-{"filter": {"any.types": "<typeId>", "<typeId>.<propId>": {"$in": ["urgent"]}}}
+{"filter": {"any.type": "<typeId>", "<typeId>.<propId>": {"$in": ["urgent"]}}}
 ```
 
-The scope is not optional politeness. `objects` is a per-space
-collection holding *every* object — type definitions, chat objects,
-bundle roots — and the negation operators (`$ne`, `$nin`, `$not`,
-`$exists: false`) match field-absent rows, so an unscoped saved filter
-like "status is not done" quietly returns the whole space. A filter
-built once and replayed for months is exactly where that bites.
+```json
+{"filter": {"any.collections": "<collectionId>", "<collectionId>.<propId>": {"$in": ["urgent"]}}}
+```
+
+The scope is not optional politeness. `objects` is a per-space storage
+collection holding *every* object — definitions, chat objects, bundle
+roots, dataview objects — and the negation operators (`$ne`, `$nin`,
+`$not`, `$exists: false`) match field-absent rows, so an unscoped saved
+filter like "status is not done" quietly returns the whole space. A
+filter built once and replayed for months is exactly where that bites.
 
 **Sort:** dotted paths, `-` prefix for descending, applied
 left-to-right. A `/query/subscribe` with `limit > 0` **requires** a
@@ -314,11 +343,12 @@ by `changes` frames, so a live footer re-reads it with a snapshot.
 
 A saved filter outlives the properties it names. Detect it client-side:
 diff the propIds the filter references against
-`GET …/types/:typeId/properties`. A propId that is gone means the rule
-is dangling — **mark the rule invalid and keep the view editable**;
-never drop it silently and never block the write. The server will not
-help here, deliberately: it treats `query` as opaque so that a deleted
-property cannot turn every subsequent write to the view into a failure.
+`GET …/types/:typeId/properties` (or the collection twin). A propId
+that is gone means the rule is dangling — **mark the rule invalid and
+keep the view editable**; never drop it silently and never block the
+write. The server will not help here, deliberately: it treats `query` as
+opaque so that a deleted property cannot turn every subsequent write to
+the view into a failure.
 
 Choice values reference immutable option keys, so the same applies one
 level down: an option key missing from the property's current
@@ -369,7 +399,7 @@ only surface that answers "what values does this property take":
 POST /v1/spaces/:spaceId/objects/aggregate
 {
   "pipeline": [
-    {"$match":  {"any.types": "<typeId>", "…": "the view's own filter"}},
+    {"$match":  {"any.type": "<typeId>", "…": "the view's own filter"}},
     {"$group":  {"_id": "$<typeId>.<propId>", "count": {"$count": {}}}},
     {"$sort":   {"count": -1}}
   ],
@@ -389,7 +419,7 @@ columns and neither counts as "urgent". Unwind to get per-option counts:
 
 ```json
 "pipeline": [
-  {"$match":  {"any.types": "<typeId>"}},
+  {"$match":  {"any.type": "<typeId>"}},
   {"$unwind": "$<typeId>.<propId>"},
   {"$group":  {"_id": "$<typeId>.<propId>", "count": {"$count": {}}}}
 ]
@@ -422,19 +452,19 @@ so count that group on its own:
 
 ```json
 "pipeline": [
-  {"$match": {"any.types": "<typeId>", "<typeId>.<propId>": {"$exists": false}}},
+  {"$match": {"any.type": "<typeId>", "<typeId>.<propId>": {"$exists": false}}},
   {"$count": "n"}
 ]
 ```
 
-Keep the type scope in that `$match`: `$exists: false` matches every
-object that simply lacks the field, including type definitions.
+Keep the scope in that `$match`: `$exists: false` matches every object
+that simply lacks the field, definitions included.
 
 **3. Read each group with its own plain query.** One
 `…/objects/query/subscribe` window per **visible** group:
 
 ```json
-{"filter": {"any.types": "<typeId>", "<typeId>.<propId>": "<optionKey>"},
+{"filter": {"any.type": "<typeId>", "<typeId>.<propId>": "<optionKey>"},
  "sort": ["-modifiedAt"], "limit": 50}
 ```
 
@@ -456,7 +486,8 @@ them needs polling:
 
 **The column set streams.** A type's property definitions live in the
 `properties` dataset on the **type object**, which is an ordinary
-per-object dataset:
+per-object dataset (a collection's live in the same dataset on the
+collection object):
 
 ```json
 POST /v1/spaces/:spaceId/query/subscribe
@@ -524,3 +555,5 @@ the `localSettings` field (§ `layoutSettings` vs `localSettings`).
 - `03-api.md` § Types → Built-in `dataview` type, § Properties
 - `09-query.md` — the filter/sort grammar a view's `query` embeds
 - `14-aggregation.md` — the pipeline surface grouping depends on
+- `29-client-model.md` — types, collections and the property owners a
+  view's paths name

@@ -15,7 +15,7 @@ The `any` server process owns an any-store database under the account's data dir
 # works with the network cable unplugged
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
   -H 'content-type: application/json' \
-  -d '{"types":["'$PAGE'"],"initialProperties":{"any":{"name":"Offline note"}}}'
+  -d '{"type":"page","initialProperties":{"any":{"name":"Offline note"}}}'
 ```
 
 The reply is `201` with the new object's id. It will sync later; nothing about the request depends on whether "later" is milliseconds or days away.

@@ -1,13 +1,15 @@
 // Package dataview registers the built-in `dataview` type — saved views
-// over a set of objects, in two levels: an object hosts many DATAVIEWS,
-// each with its own VIEWS.
+// over a set of objects, in two levels: a dataview object hosts many
+// DATAVIEWS, each with its own VIEWS.
 //
-// The type attaches to ANY object, including a type object (a view "on
-// a type" hosts its records there), and owns two records datasets under
-// one part: `dataviews` (one record per dataview on the host — name,
+// A dataview object is an object of this type (its one type), created
+// for the object it serves: `host` names that object — any object, a
+// type or a collection definition included (a view "on a type" is a
+// dataview object whose host is the type). The type owns two records
+// datasets under one part: `dataviews` (one record per dataview — name,
 // icon, pos) and `views` (one record per view — the dataview it belongs
 // to, name, icon, pos, layout, a query, column settings). The added
-// level is what lets one object carry several independent tables, each
+// level is what lets one host carry several independent tables, each
 // with its own set of views.
 //
 // A view is name + icon + layout + a query + column settings. The query
@@ -53,7 +55,11 @@ const (
 	// claiming it.
 	TypeId      = "dataview"
 	Name        = "Data view"
-	Description = "Saved views over a set of objects: dataviews on a host, each with its own views (layout + query + column settings)"
+	Description = "Saved views over a set of objects: dataviews for a host, each with its own views (layout + query + column settings)"
+
+	// PropHost is the object the dataview object serves — the object,
+	// type or collection its views are over.
+	PropHost = "host"
 
 	// PartViews is the type's single part; it owns both datasets.
 	PartViews = "views"
@@ -120,6 +126,10 @@ func NewType() handler.Type {
 		Name:        Name,
 		Description: Description,
 		Hidden:      true,
+		Properties: []handler.PropertyDecl{
+			{Id: PropHost, Name: "Host", Kind: handler.PropertyKindString,
+				Description: "Id of the object, type or collection the views are over."},
+		},
 		Datasets: []handler.Dataset{
 			{
 				Name:        DatasetDataviews,

@@ -44,7 +44,7 @@ curl -s http://127.0.0.1:7001/v1/health
   "networkId": "N83gJpVd9MuNRZAuJLZ7LiMntTThhPc6DtzWWVjb1M3PouVU",
   "account": "A3…",
   "bootstrapping": false,
-  "crdtVersion": { "supported": 1, "stored": 1, "newer": false }
+  "crdtVersion": { "supported": 2, "stored": 2, "newer": false }
 }
 ```
 

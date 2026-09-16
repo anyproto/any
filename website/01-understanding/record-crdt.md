@@ -11,7 +11,7 @@ any-sync delivers signed, encrypted changes; any-store holds documents. The reco
 
 ```
 object (one any-sync tree)
-└── dataset  "chat_messages"          named record collection; one handler
+└── dataset  "chat_messages"          named storage collection; one handler
     └── record  { id, …fields, _ver } anyenc document
         └── op   $set / $unset / $addToSet / $pull / $inc / $incGated / delete
 ```
@@ -114,7 +114,7 @@ All three are local to a peer. None is a timestamp, and none should be compared 
 
 ## The DataVersion gate
 
-Every change carries a **DataVersion**: a compiled-in handler stamps an opaque label (`chat_messages-v5`), a runtime dataset stamps the schema state it was written against (`typeId:shortId`). A receiving peer **parks** a change when it has no handler for the change's dataset, or when the change names schema state it has not applied yet — the change is persisted in the tree, kept in a `_detached` collection, invisible to queries — and drains it when the registration appears. An opaque label is carried but not compared. For runtime datasets that means "schema first, then data" holds in either arrival order: a record written against a field definition you have not yet received waits for the definition instead of being applied wrongly or dropped.
+Every change carries a **DataVersion**: a compiled-in handler stamps an opaque label (`chat_messages-v5`), a runtime dataset stamps the schema state it was written against (`typeId:shortId`). A receiving peer **parks** a change when it has no handler for the change's dataset, or when the change names schema state it has not applied yet — the change is persisted in the tree, kept in a `_detached` storage collection, invisible to queries — and drains it when the registration appears. An opaque label is carried but not compared. For runtime datasets that means "schema first, then data" holds in either arrival order: a record written against a field definition you have not yet received waits for the definition instead of being applied wrongly or dropped.
 
 ## Why there is no rollback and no total order
 

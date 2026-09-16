@@ -116,13 +116,13 @@ Until an account is booted, every route except `/v1/health`, `/v1/shutdown`, `/v
 ## Then it is just HTTP
 
 ```swift
-struct Create: Encodable { let types: [String]; let initialProperties: [String: [String: String]] }
+struct Create: Encodable { let type: String; let initialProperties: [String: [String: String]] }
 
 var req = URLRequest(url: base.appendingPathComponent("spaces/\(space)/objects"))
 req.httpMethod = "POST"
 req.setValue("application/json", forHTTPHeaderField: "content-type")
 // "page": the built-in document type
-req.httpBody = try JSONEncoder().encode(Create(types: ["page"], initialProperties: ["any": ["name": "From iOS"]]))
+req.httpBody = try JSONEncoder().encode(Create(type: "page", initialProperties: ["any": ["name": "From iOS"]]))
 let (data, _) = try await URLSession.shared.data(for: req)   // {"objectId":"bafy…"}
 ```
 
