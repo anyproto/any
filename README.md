@@ -1,40 +1,48 @@
 # Any
 
-**A local-first database for apps and agents.**
+**A local-first backend for multiplayer apps and agents.**
 
-Any runs a local document database server on each user's device. Apps connect
-through a local HTTP API to store data, run queries and subscribe to changes.
-Reads and writes to local data work offline.
+Any combines a document database, live queries, search and end-to-end
+encrypted peer-to-peer (P2P) sync in a **local server that runs on your
+users' devices**. Apps connect through an HTTP API and can read and write
+local data offline. The server and CLI ship together as the `any` binary.
 
-Devices exchange end-to-end encrypted changes through peer-to-peer (P2P)
-connections or sync nodes. CRDTs merge those changes automatically when
-devices reconnect. Sync nodes store and relay encrypted content without
-being able to read it.
+Programs and agents run through [anyrt](https://github.com/anyproto/anybao),
+a companion runtime that connects to Any as a client. Their code and state
+live in the same database as the data they work with. Its agent harness is
+designed for long-lived sessions over structured data, with persistent memory.
 
-The `any` binary includes the database server and CLI. Its companion runtime,
-[anyrt](https://github.com/anyproto/anybao), connects as a client to run programs
-and agents whose code and state live in the same database as the data they
-work with. The agent harness is designed for long-lived sessions, with
-persistent memory and direct access to structured data.
+[Quickstart](#quickstart) · [Documentation](#documentation) · [Example app](https://github.com/anyproto/any-ui)
 
 ## What's included
 
-- **Document queries and live updates** — Mongo-style queries and aggregation
-  through [any-store](https://github.com/anyproto/any-store), with subscriptions
-  that keep application views current.
-- **Encrypted sync and sharing** — P2P sync, CRDT merging, identity and
-  access control for shared spaces.
-- **Full-text and semantic search** — keyword, vector and hybrid search,
-  with HNSW and IVF-SQ vector indexes. Embeddings can run locally through
-  llama.cpp.
-- **Collaboration primitives** — a collaborative block editor, encrypted
-  P2P chat and distributed counters. The
-  [any-sync-sdk](https://github.com/anyproto/any-sync-sdk) also supports custom
-  CRDT types.
-- **Programs and agents** — `anyrt` runs CPython in a Wasmtime sandbox, with
-  recorded effects, deterministic replay and a compute budget called fuel.
-- **Scheduled and event-triggered work** — cron schedules, one-time jobs
-  and event-triggered runs through `anyrt`.
+- **Database and live queries** — Mongo-style filters, aggregation pipelines
+  and query subscriptions, powered by
+  [any-store](https://github.com/anyproto/any-store).
+- **Identity and sharing** — accounts, shared spaces, member permissions
+  and end-to-end encrypted P2P sync.
+- **Search and embeddings** — full-text, vector and hybrid search, with
+  HNSW and IVF-SQ indexes. Run embeddings on the device through llama.cpp.
+- **Chat and collaborative editing** — built-in block-editor and chat CRDT
+  modules, with distributed counters. Extend the model with custom CRDT
+  types through [any-sync-sdk](https://github.com/anyproto/any-sync-sdk).
+- **Program execution** — CPython in a Wasmtime sandbox through `anyrt`,
+  with recorded effects, deterministic replay, WebAssembly instruction
+  budgets (fuel) and time limits.
+- **Scheduling** — cron schedules, one-time jobs and event-triggered runs
+  through `anyrt`.
+
+## Built for collaboration
+
+Each device writes to its local database. CRDTs merge changes as devices
+sync, whether they connect directly or through sync nodes. Those nodes
+store and relay encrypted content without being able to read it.
+
+[Field-level updates](website/04-database/writing-data.md) preserve concurrent
+edits to different properties. Writes to the same property resolve according
+to the [CRDT merge rules](website/01-understanding/crdt-and-consistency.md),
+and the [version history API](docs/03-api.md#version-history) lets you inspect
+object changes.
 
 The sync layer builds on [any-sync](https://github.com/anyproto/any-sync),
 used on our production infrastructure for years across millions of users.
@@ -44,19 +52,11 @@ The sync protocol has been
 ## What you can build
 
 Build knowledge bases, agent memory systems, custom harnesses, research tools,
-business apps or just personal tools for fun. Any is a general-purpose
-database; you choose the models and control your data and agent memory.
+business apps or just personal tools for fun. You choose the models and
+control your data and agent memory.
 
-It is especially useful when people and agents work on shared data across
-devices. Each device can write independently and merge changes when it syncs.
-[Field-level updates](website/04-database/writing-data.md) let concurrent
-edits to different properties survive, and the
-[version history API](docs/03-api.md#version-history) lets you inspect object
-changes. Concurrent writes to the same property follow the
-[CRDT merge rules](website/01-understanding/crdt-and-consistency.md).
-
-For an example, see [any-ui](https://github.com/anyproto/any-ui), an agentic
-knowledge-base app built with Any's editor, chat and collaboration primitives.
+See [any-ui](https://github.com/anyproto/any-ui) for an agentic knowledge-base
+app that brings together Any's editor, chat and collaboration features.
 
 > [!WARNING]
 > **Developer preview.** Use a separate account for experiments. APIs and data
@@ -65,8 +65,8 @@ knowledge-base app built with Any's editor, chat and collaboration primitives.
 
 ## Quickstart
 
-Build Any from source, start a local server and create your first page. This
-walkthrough uses a dedicated data directory and **local embeddings**.
+Create a page, query it and subscribe to updates. This walkthrough builds
+Any from source and uses a dedicated data directory with **local embeddings**.
 
 You need Git, Go 1.26.2 or newer, `make`, a C toolchain, `curl` and `jq`.
 For release packages and platform-specific setup, see
@@ -80,15 +80,13 @@ cd any
 make build
 ```
 
-This writes `bin/any` with full-text and vector search enabled, and attempts
-to download the llama.cpp libraries for local embeddings. If the download
-fails, retry with `make llamacpp`.
+The build writes `bin/any`, enables full-text and vector search, and attempts
+to download the llama.cpp libraries for local embeddings. Retry a failed
+library download with `make llamacpp`.
 
 ### 2. Create an account and start the server
 
-The server joins the **production any-sync network** by default. To use
-another network, configure it before starting the server and give it a
-separate data directory. See [Networks](website/02-quickstart/networks.md).
+The server joins the **production any-sync network** by default. To use another network, configure it before starting the server and give it a separate data directory. See [Networks](website/02-quickstart/networks.md).
 
 From the repository directory:
 
@@ -100,18 +98,18 @@ export ANY_INDEX_EMBEDDER=local
 ./bin/any run
 ```
 
-On a fresh data root, `init` creates an account and prints its recovery
-phrase. Save it so you can restore the account on another device. Running
-`init` again lists the existing accounts; it does not replace them.
+`init` creates an account in the new data directory and prints its recovery
+phrase. Save the phrase to restore the account on another device. If this
+directory already contains accounts, `init` lists them instead.
 
 Wait for `LISTENING 127.0.0.1:7001` and leave the server running. The local
-embedding model downloads on first use; you can create and query data while
-it downloads.
+embedding model downloads on first use; database reads and writes are
+available while it downloads.
 
 ### 3. Create a document
 
-In a **second terminal**, create a space and a page inside it. A space groups
-data and apps under the same membership and access permissions:
+In a **second terminal**, create a space and a page inside it. A space holds
+data and apps shared with the same members, each with their own permissions:
 
 ```sh
 API=http://127.0.0.1:7001/v1
@@ -140,8 +138,8 @@ curl -fsS "$API/spaces/$SPACE/objects/query" \
   -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}' | jq
 ```
 
-The response's `records` array contains your Reading list page. Subscribe
-to the same query to receive updates as its results change:
+Your Reading list page appears in the response's `records` array. Subscribe
+to the same query to receive updates:
 
 ```sh
 curl -fsSN "$API/spaces/$SPACE/objects/query/subscribe" \
@@ -149,12 +147,11 @@ curl -fsSN "$API/spaces/$SPACE/objects/query/subscribe" \
   -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}'
 ```
 
-The stream sends `ready`, a `snapshot` of the current records, then `changes`
-as the results update. Press Ctrl-C to close the subscription. Press Ctrl-C
-in the first terminal to stop the server.
+The stream sends `ready`, followed by a `snapshot` of the current records
+and `changes` as the query results update. Press Ctrl-C to close the
+subscription; press it in the first terminal to stop the server.
 
-Continue with the [tutorial](website/03-tutorial/index.md) to add properties,
-datasets and apps to your space.
+Continue with the [tutorial](website/03-tutorial/index.md) to add properties, datasets and apps to your space.
 
 ## Embedding modes
 
@@ -171,7 +168,7 @@ See [Embedders](website/10-search/embedders.md) for model settings, Ollama,
 and other compatible providers. Agent language-model calls use separate
 provider settings.
 
-## Data and access
+## Data, access and recovery
 
 - **Local API:** the server binds to loopback and does not authenticate
   callers. Local processes can access the API as the active account.
@@ -184,8 +181,7 @@ provider settings.
 - **Data location:** the example uses `~/.any-demo/`; the normal default is
   `~/.any/`. Treat the directory as private account data.
 
-See [Server lifecycle](docs/02-server.md) for account modes and storage,
-and [Configuration](docs/05-config.md) for file, environment, and flag precedence.
+See [Server lifecycle](docs/02-server.md) for account modes and storage, and [Configuration](docs/05-config.md) for file, environment, and flag precedence.
 
 ## Documentation
 
@@ -196,8 +192,8 @@ and [Configuration](docs/05-config.md) for file, environment, and flag precedenc
 - [Live queries](docs/04-events.md) — snapshots, updates, and reconnect behavior.
 - [Technical overview](docs/00-overview.md) — architecture and the complete docs index.
 
-The standalone setup runs `anyrt` alongside the server. Application hosts,
-including the Any desktop app, can also embed the runtime.
+You can run `anyrt` alongside the server or embed it in an application host,
+as the Any desktop app does.
 
 ## License
 
