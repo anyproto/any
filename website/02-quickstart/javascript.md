@@ -1,0 +1,145 @@
+---
+title: JavaScript
+description: A minimal fetch-based client — create a space, create an object, query, and read the SSE subscription from a streaming POST — with no dependencies.
+order: 40
+---
+# JavaScript
+
+Everything is `fetch`. The one wrinkle is live reads: the subscribe endpoints are POSTs (the filter body does not fit a query string), so the browser's `EventSource` does not apply — you read the response body as a stream and split SSE frames yourself. The blocks below form one file, runnable top to bottom as an ES module (top-level `await`) in Node 18+ (`client.mjs`) or a browser (`<script type="module">`).
+
+```js
+const API = "http://127.0.0.1:7001/v1";
+
+async function call(method, path, body) {
+  const res = await fetch(API + path, {
+    method,
+    headers: body ? { "content-type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const { error } = await res.json();            // uniform shape: {error:{code,message,details?}}
+    throw new Error(`${res.status} ${error.code}: ${error.message}`);
+  }
+  return res.status === 204 ? null : res.json();
+}
+```
+
+## 1. Create a space
+
+```js
+const space = await call("POST", "/spaces", { name: "Notebook" });
+const SPACE = space.id;                              // "bafyreig…"
+```
+
+## 2. Create an object
+
+A document is an object whose type has a part declaring the `editor` module — the built-in `page` for a plain body, or a document type of your own (registered as a bundle so every device agrees on one). `type` is required; `collections` is optional.
+
+```js
+const { objectId } = await call("POST", `/spaces/${SPACE}/objects`, {
+  type: "page",
+  initialProperties: { any: { name: "Reading list" } },
+});
+```
+
+## 3. Query
+
+```js
+const page = await call("POST", `/spaces/${SPACE}/objects/query`, {
+  filter: { "any.type": "page" },
+  sort: ["-modifiedAt"],
+  limit: 20,
+  includeTotal: true,
+});
+console.log(page.total, page.records.map(r => r.any.name));
+// timestamps arrive as {"$date": "…"}:
+const modified = new Date(page.records[0].modifiedAt.$date);
+```
+
+## 4. Subscribe
+
+One POST returns `text/event-stream`. Parse it frame by frame: frames are separated by a blank line, each has `event:` and `data:` lines, and `: keepalive` comments can be ignored.
+
+```js
+async function* sse(path, body, signal) {
+  const res = await fetch(API + path, {
+    method: "POST", signal,
+    headers: { "content-type": "application/json", accept: "text/event-stream" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) { const { error } = await res.json(); throw new Error(error.code); }
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buf += value;
+    let i;
+    while ((i = buf.indexOf("\n\n")) >= 0) {
+      const frame = buf.slice(0, i); buf = buf.slice(i + 2);
+      let event = "message", data = "";
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) data += line.slice(5).trim();
+      }
+      if (data) yield { event, data: JSON.parse(data) };
+    }
+  }
+}
+
+const ctl = new AbortController();
+let view = new Map();                                // id → record: hold a window, not a database
+
+function render() {
+  console.log([...view.values()].map(r => r.any?.name));
+}
+
+async function watch() {
+  for await (const { event, data } of sse(`/spaces/${SPACE}/objects/query/subscribe`,
+      { filter: { "any.type": "page" }, sort: ["-modifiedAt"], limit: 20 }, ctl.signal)) {
+    if (event === "ready") continue;                 // stream is live after this
+    if (event === "snapshot") {                      // the whole window: replace, never merge
+      view = new Map(data.records.map(r => [r.id, r]));
+      render();
+    }
+    if (event === "changes") {
+      for (const ch of data) {                       // a batch omits the lists it has nothing for
+        for (const r of ch.added ?? [])   view.set(r.id, r.doc);
+        for (const r of ch.updated ?? []) view.set(r.id, r.doc);
+        for (const r of ch.removed ?? []) view.delete(r.id);
+      }
+      render();
+    }
+    if (event === "closed") return data.reason;      // terminal: reopen for a fresh snapshot
+  }
+}
+
+watch().catch(e => { if (e.name !== "AbortError") console.error(e); });  // ctl.abort() closes it
+```
+
+`watch()` runs alongside the rest of the file and keeps the process alive until `ctl.abort()` or Ctrl-C. Rename the object and watch an `updated` entry arrive:
+
+```js
+await call("POST", `/spaces/${SPACE}/properties/${objectId}/set/any`, { patch: { name: "Reading list 2026" } });
+```
+
+## Recovery
+
+`closed` carries a reason — `server_shutdown`, `sdk_closed`, `overflow` (you drained too slowly), `drifted` (too much of the window left), `deauthorized` (the account was signed out or switched; read `GET /v1/auth` first). Each means the same thing for the stream: open a new POST and replace your window with the new `snapshot`. A stream that ends without `closed` means the same. There is no replay and nothing to reconcile; [Subscriptions](../realtime/subscribe.html) has the retry loop.
+
+## Writing and reading back
+
+Writes return `{versionId, changeId, recordIds}` and never the record. Read it back through a query, or let the open subscription deliver it — stamp `versionId` on what you wrote if you need to recognise your own change on the stream ([Best practices](../understanding/best-practices.html)).
+
+```js
+// the space's one chat: the general-chat usecase's root
+const setup = await call("POST", "/catalog/general-chat/setup", { spaceId: SPACE });
+const chatId = setup.bundles[0].bundle.rootId;
+
+const r = await call("POST", `/spaces/${SPACE}/objects/${chatId}/chat/messages`, { text: "hello" });
+r.recordIds[0];                                     // the new message id
+```
+
+> **Note.** In a browser the server's CORS allowlist covers the desktop-shell webview origins and the Vite dev origins; a page served from another origin will be blocked by the browser even though the server is on loopback. Serve your dev page from Vite, or proxy `/v1` through your dev server ([Security model](../operations/security-model.html)).
+
+Next: [Python](python.html), or on to [Reading data](../database/reading-data.html).

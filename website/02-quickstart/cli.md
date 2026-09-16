@@ -112,4 +112,4 @@ The full surface is in the [CLI reference](../reference/cli.html).
 
 > **Note.** Endpoints without a CLI subcommand are deliberate, not missing: the CLI mirrors the API 1:1 where a flag surface makes sense, and defers to `curl` for bodies that are really JSON documents (ad-hoc snapshot queries, `/modify`).
 
-Next: drive the same API from [Python](python.html).
+Next: drive the same API from [JavaScript](javascript.html) or [Python](python.html).

@@ -62,7 +62,7 @@ Everything is `http://127.0.0.1:7001/v1/…` with JSON bodies. Pick whichever cl
 | `curl` | Exploring; the [curl quickstart](../quickstart/curl.html) creates a space, an object, and a subscription. |
 | `any …` CLI | Scripts and shells — subcommands mirroring the endpoints, pretty JSON on stdout, `jq`-friendly ([CLI quickstart](../quickstart/cli.html)). |
 | Web UI | `http://127.0.0.1:7001/ui` — a debug harness with a space picker, object tree, chat, members, and a network log. Disable with `webUI.enabled: false`. |
-| Your app | Any HTTP client; live updates are SSE over a streaming POST ([Subscriptions](../realtime/subscribe.html), [Python](../quickstart/python.html)). |
+| Your app | Any HTTP client; live updates are SSE over a streaming POST ([JavaScript](../quickstart/javascript.html), [Python](../quickstart/python.html)). |
 
 ```bash
 any --verbose space get $SPACE              # log the HTTP exchange to stderr

@@ -1,6 +1,6 @@
 ---
 title: Quickstart
-description: Install any, create an account, run the server, and make your first space, object, query, and live subscription — from curl, the CLI, Python, Android, iOS, or the anyrt runtime.
+description: Install any, create an account, run the server, and make your first space, object, query, and live subscription — from curl, the CLI, JavaScript, Python, Android, iOS, or the anyrt runtime.
 order: 0
 ---
 # Quickstart
@@ -40,6 +40,7 @@ any status                   # in another terminal: {"status":"ok", …}
 | [Install](install.html) | Release tarballs, building from source, first-run account creation. |
 | [curl](curl.html) | The four calls with raw JSON, including reading an SSE stream with `curl -N`. |
 | [CLI](cli.html) | The same flow with `any …` subcommands and `jq`. |
+| [JavaScript](javascript.html) | `fetch` + a streaming reader for the POST-based SSE. |
 | [Python](python.html) | `urllib` / `http.client`, no third-party packages. |
 | [Android](android.html) | Embedding the server as `any.aar` in an app process. |
 | [iOS](ios.html) | Embedding as `any.xcframework`. |
@@ -50,6 +51,7 @@ any status                   # in another terminal: {"status":"ok", …}
 <a href="install.html"><strong>Install</strong><span>Get the binary and create an account.</span></a>
 <a href="curl.html"><strong>curl</strong><span>Space → object → query → subscribe with raw HTTP.</span></a>
 <a href="cli.html"><strong>CLI</strong><span>The same flow with the any command.</span></a>
+<a href="javascript.html"><strong>JavaScript</strong><span>fetch, ReadableStream, and SSE frames.</span></a>
 <a href="python.html"><strong>Python</strong><span>Standard library only.</span></a>
 <a href="android.html"><strong>Android</strong><span>Embed the server with any.aar.</span></a>
 <a href="ios.html"><strong>iOS</strong><span>Embed the server with any.xcframework.</span></a>
