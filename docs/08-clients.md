@@ -101,7 +101,7 @@ POST /v1/spaces/:spaceId/objects
   a bad write whole: a value of the wrong `kind` is `400
   property.kind_mismatch`, an undeclared property id `400
   property.not_found`, an owner the object does not carry `400
-  dataset.validation`, and a value that does not fit the descriptor's
+  dataset.not_declared`, and a value that does not fit the descriptor's
   current slug `400 property.format_violation` (`27-descriptors.md`).
   Check the same rules client-side so a form reports the problem
   before the round trip.
