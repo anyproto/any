@@ -103,8 +103,8 @@ func TestE2E_PropertyValidation(t *testing.T) {
 		// consulted.
 		code := mustErrorCode(t, http.MethodPost, setBase+bookType,
 			fmt.Sprintf(`{"patch":{%q:"x"}}`, bookTitle), http.StatusBadRequest)
-		if code != "dataset.validation" {
-			t.Errorf("code = %q, want dataset.validation", code)
+		if code != "dataset.not_declared" {
+			t.Errorf("code = %q, want dataset.not_declared", code)
 		}
 	})
 
