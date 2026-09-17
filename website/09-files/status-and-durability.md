@@ -15,7 +15,7 @@ A file is *registered* the instant attach returns; it is *durable* once the netw
 | `inflight` | registered in the CRDT; backup queued, running, or being driven by another device |
 | `limited` | the network refused backup (storage limit); retried on a slow cadence and on `POST …/retry` |
 
-Inline files (under 4096 bytes) are born `durable`. Larger files start `inflight` and flip to `durable` on a persistent background queue that starts the upload as soon as attach returns, retries with backoff and survives restarts. The one exception is content already backed up in the space: a deduplicated attach is born `durable`.
+Inline files (under 4096 bytes) are born `durable`. Larger files start `inflight` and flip to `durable` on a persistent background queue that starts the upload as soon as attach returns, retries with backoff and survives restarts. The one exception is content already backed up in the space: an attach that deduplicates against an already-durable file is born `durable`.
 
 ## Reading status
 

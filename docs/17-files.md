@@ -54,10 +54,16 @@ queues the backup and returns. Attach latency is local work only —
 spooling, encryption, the local CAR. The reply says `durable: true`
 only for an inline file or one whose content is already backed up in
 the space (dedup); otherwise `durable: false`. The backup ("durable")
-phase runs on a persistent background queue (survives restarts) that
-starts the upload at once and retries with backoff when the broker is
-unreachable or refuses. No fileV2 nodes in the nodeconf (or no
-connectivity) means files sit `inflight` until the network appears.
+phase runs on a persistent background queue that starts the upload at
+once and retries with backoff when the broker is unreachable or
+refuses. Jobs survive a restart and their backoff does not: a file
+attached offline backs up as soon as the server next starts online.
+No fileV2 nodes in the nodeconf (or no connectivity) means files sit
+`inflight` until the network appears; a storage-limit refusal is
+`limited`. Several backups run at once, files that share content share
+one upload, and deleting a file cancels its upload. From the moment
+attach returns, local-network peers can fetch the file from this device
+(§ Reads) — before and regardless of the backup.
 
 `GET /files/subscribe` streams `FileStatus` on **local** transitions
 only — attach, backup progress/failure, pin completion, manual
