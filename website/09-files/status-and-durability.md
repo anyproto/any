@@ -15,7 +15,7 @@ A file is *registered* the instant attach returns; it is *durable* once the netw
 | `inflight` | registered in the CRDT; backup queued, running, or being driven by another device |
 | `limited` | the network refused backup (storage limit); retried on a slow cadence and on `POST …/retry` |
 
-Inline files (under 4096 bytes) are born `durable`. Larger files start `inflight`, usually flip to `durable` inside the attach request itself when a broker is reachable, and otherwise ride a persistent background queue that survives restarts.
+Inline files (under 4096 bytes) are born `durable`. Larger files start `inflight` and flip to `durable` on a persistent background queue that starts the upload as soon as attach returns, retries with backoff and survives restarts. The one exception is content already backed up in the space: a deduplicated attach is born `durable`.
 
 ## Reading status
 
@@ -63,8 +63,8 @@ data: { "reason": "server_shutdown" }
 
 There is no notification channel to build: the file *is* space data. When another member attaches a file, its payload row syncs to you like any record. The broker's custody receipt, `networkSign`, is a synced **cleartext field on that row**, so the durable flip arrives as an ordinary row update:
 
-1. Subscribe to the object's rows: `POST …/objects/:objectId/files/query/subscribe`. The sender's file arrives as an `added` row — usually already carrying `networkSign`, because the sender's attach completes the backup synchronously.
-2. If it arrived unsigned, the moment it becomes fetchable is an `updated` frame on the same row when `networkSign` lands (or `durable: true` on a re-GET of `…/files/:fileId`).
+1. Subscribe to the object's rows: `POST …/objects/:objectId/files/query/subscribe`. The sender's file arrives as an `added` row — usually without `networkSign` yet, because the sender's backup runs after its attach returns.
+2. The moment it becomes fetchable is an `updated` frame on the same row when `networkSign` lands (or `durable: true` on a re-GET of `…/files/:fileId`).
 3. Then `GET …/files/:fileId/content`. Downloading before that point returns `409 file.not_available` — a retry-later state to wait out, not an error to surface.
 
 Names and mime for rendering come from `GET …/files/:fileId`; the payload rows carry only the cleartext fields.
@@ -77,4 +77,4 @@ Names and mime for rendering come from `GET …/files/:fileId`; the payload rows
 
 ## What attach latency includes
 
-Because the backup is attempted inside the attach request, a 10 MB attach against a reachable broker takes roughly its upload time and returns `durable: true`. When the broker is unreachable or refusing, attach returns fast with `durable: false` and the queue takes over. In both cases the registration was already durable in the CRDT; the state only tells you whether the *network* has a copy yet — which is what decides whether [offload](cache.html) is allowed and whether other members can fetch.
+Local work only: spooling the body, encrypting it and writing the local CAR. Attach never waits on the network — it queues the backup and returns `durable: false`, whether the broker is reachable or not, and the queue uploads in the background. The registration is already durable in the CRDT; the state only tells you whether the *network* has a copy yet — which is what decides whether [offload](cache.html) is allowed and whether other members can fetch.

@@ -48,14 +48,16 @@ and the client recipe in [`08-clients.md`](08-clients.md).
 | `inflight` | registered in the CRDT; backup queued, running, or being driven by another device |
 | `limited` | the network refused backup (storage limit); retried on a slow cadence and on `POST …/retry` |
 
-Attach is **offline-first**: registration is durable in the CRDT
-immediately. The backup ("durable") phase is attempted synchronously
-inside the attach request — with a reachable broker the reply already
-says `durable: true` and attach latency ≈ the object-store upload —
-and falls back to a persistent background queue (survives restarts)
-when the broker is unreachable or refuses. No fileV2 nodes in the
-nodeconf (or no connectivity) means files sit `inflight` until the
-network appears.
+Attach is **offline-first** and never waits on the network: the
+request registers the file in the CRDT, stores the bytes locally,
+queues the backup and returns. Attach latency is local work only —
+spooling, encryption, the local CAR. The reply says `durable: true`
+only for an inline file or one whose content is already backed up in
+the space (dedup); otherwise `durable: false`. The backup ("durable")
+phase runs on a persistent background queue (survives restarts) that
+starts the upload at once and retries with backoff when the broker is
+unreachable or refuses. No fileV2 nodes in the nodeconf (or no
+connectivity) means files sit `inflight` until the network appears.
 
 `GET /files/subscribe` streams `FileStatus` on **local** transitions
 only — attach, backup progress/failure, pin completion, manual

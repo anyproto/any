@@ -170,24 +170,31 @@ func TestE2E_FilesBinary(t *testing.T) {
 	mustStatus(t, http.MethodPost, filesBase+"/"+bigInfo.FileId+"/pin", "", http.StatusNoContent)
 	mustStatus(t, http.MethodPost, filesBase+"/"+bigInfo.FileId+"/retry", "", http.StatusNoContent)
 
-	// Re-read durability: with no fileV2 nodes in staging the file is
-	// still local-only and offload must refuse; if the network ever
-	// grows fileV2 nodes the file may be durable, in which case offload
-	// succeeds and a re-download refetches.
-	mustJSON(t, http.MethodGet, filesBase+"/"+bigInfo.FileId, "", http.StatusOK, &got)
-	if got.Durable {
-		mustStatus(t, http.MethodPost, filesBase+"/"+bigInfo.FileId+"/offload", "", http.StatusNoContent)
+	// The backup runs in the background, so the offload answer decides
+	// the branch: 204 means the file is durable and a re-download
+	// refetches; 409 means the local bytes are still the only copy.
+	offResp, offRaw := doRequest(t, http.MethodPost, filesBase+"/"+bigInfo.FileId+"/offload", "")
+	switch offResp.StatusCode {
+	case http.StatusNoContent:
+		mustJSON(t, http.MethodGet, filesBase+"/"+bigInfo.FileId, "", http.StatusOK, &got)
+		if !got.Durable {
+			t.Errorf("offload succeeded on a non-durable file: %+v", got)
+		}
 		resp = doRawGet(t, filesBase+"/"+bigInfo.FileId+"/content", "")
 		if body = readAll(t, resp); !bytes.Equal(body, bigContent) {
 			t.Fatalf("post-offload refetch differs (%d bytes, status %d)", len(body), resp.StatusCode)
 		}
-	} else {
+	case http.StatusConflict:
 		var env map[string]any
-		mustJSON(t, http.MethodPost, filesBase+"/"+bigInfo.FileId+"/offload", "", http.StatusConflict, &env)
+		if err := json.Unmarshal(offRaw, &env); err != nil {
+			t.Fatalf("offload error body: %v: %s", err, offRaw)
+		}
 		errObj, _ := env["error"].(map[string]any)
 		if errObj["code"] != api.ErrFileNotDurable {
 			t.Errorf("offload code = %v, want %s", errObj["code"], api.ErrFileNotDurable)
 		}
+	default:
+		t.Fatalf("offload: status=%d body=%s", offResp.StatusCode, offRaw)
 	}
 
 	// Inline offload is a documented no-op.
