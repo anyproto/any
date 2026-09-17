@@ -182,6 +182,40 @@ usecases:
         rootType: page
         miniapp: {}
 
+  # Bookmarks share the Tasks project/area identities. A reference can belong
+  # to several destinations; completing its intent never implies archiving it.
+  - id: bookmarks
+    name: Bookmarks
+    description: Saved links with tags and shared projects and areas
+    requires: [ tasks ]
+    bundles:
+      - id: system:bookmark/v1
+        name: Bookmark
+        type:
+          xKey: bookmark
+          properties:
+            - { xKey: url, name: Source URL, kind: string, xFormat: { type: url } }
+            - { xKey: purpose, name: Purpose, kind: array,
+                xFormat: { type: choice, config: { multiple: false }, options: {
+                  read: { name: Read, pos: a0 }, buy: { name: Buy, pos: a1 },
+                  inspiration: { name: Inspiration, pos: a2 }, try: { name: Try, pos: a3 } } } }
+            - { xKey: tags, name: Tags, kind: array,
+                xFormat: { type: choice, options: {}, config: { multiple: true } } }
+            - { xKey: contexts, name: Projects and Areas, kind: array,
+                xFormat: { type: relation, config: { multiple: true },
+                           relation: { targetTypes: [ project, area ] } } }
+            - { xKey: inbox, name: Inbox, kind: boolean, xFormat: { type: checkbox } }
+            - { xKey: archived, name: Archived, kind: boolean, xFormat: { type: checkbox } }
+            - { xKey: completed, name: Completed, kind: boolean, xFormat: { type: checkbox },
+                description: "Read, purchased or tried; independent of archive and project or area membership" }
+            - { xKey: note, name: Note, kind: string, xFormat: { type: longtext } }
+            - { xKey: readerText, name: Reader text, kind: string, xFormat: { type: longtext } }
+            - { xKey: summary, name: Summary, kind: string, xFormat: { type: longtext } }
+      - id: system:bookmarks/v1
+        name: Bookmarks
+        rootType: page
+        miniapp: {}
+
   # ── The space's chat. The one derived root: chat content cannot be merged
   #    across objects, and a 1-1 space has no owner to break a tie.
   - id: general-chat

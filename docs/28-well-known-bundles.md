@@ -378,6 +378,8 @@ leaves their values orphaned (readable, no schema).
 | | | `system:project/v1` | type `project` (`notes`, `parent` → `area`, `completed`, `completedAt`, `position`) |
 | | | `system:area/v1` | marker type `area` — an area is a name and an icon; all three are listed types the planner creates and a table may show |
 | | | `system:tasks/v1` | miniapp only, a `page` root — the sidebar entry that opens the planner |
+| `bookmarks` | `tasks` | `system:bookmark/v1` | type `bookmark`: source URL, native choices for purpose (single; keys `read`, `buy`, `inspiration`, `try`) and tags (multiple; initially empty), multiple `contexts` → shared `project` / `area`, independent inbox/archive/completed flags, note, reader text and summary; starring uses [native Any favorites](25-favorites.md) |
+| | | `system:bookmarks/v1` | miniapp only, a `page` root filed under `miniapp` — Bookmarks; Project and Area objects retain their Tasks identities |
 | `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one shared `chat` part — the reserved module's only declaration, the root its only host — + miniapp, so the chat is a sidebar entry |
 | `people` | — | `system:person/v1` | type `person` (layout `profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags) + shared editor `body` part |
 | | | `system:organization/v1` | type `organization` (layout `profile`; kind, domain, categories, location, size, linkedin, main_contact → `person`) + shared editor `body` part |
@@ -392,7 +394,7 @@ leaves their values orphaned (readable, no schema).
 | `crm` | `contacts` | `system:deal/v1` | type `deal` (layout `profile`; stage, owner → `person`, organization → `organization`, amount, close_date) + shared editor `body` part |
 | | | `system:crm/v1` | miniapp only, a `page` root |
 
-Sixteen usecases, twenty-two bundles: nine types and eight collections
+Seventeen usecases, twenty-four bundles: ten types and eight collections
 with an xKey. The identity is the type — `person`, `organization` —
 and the relationship is the collection it is filed under, so one
 person can be a customer and an investor at once, each facet carrying
@@ -422,6 +424,16 @@ App roots other than the general chat are created roots, so the
 ordinary permission, convergence and fork rules apply; a client
 renders the registry's winner when two offline installs converge
 (§ Forks).
+
+**A bookmark has one type, `bookmark`.** Create it with the `typeId`
+from `system:bookmark/v1` and query members with
+`{"any.type": "<bookmarkTypeId>"}`. Its values use that type's resolved
+property ids under `<bookmarkTypeId>.<propId>`. The `contexts` relation
+contains object URIs for existing Projects and Areas; assigning a
+context changes neither the bookmark's type nor its collections.
+The separate `system:bookmarks/v1` root is a `page` filed under
+`miniapp`, with `miniapp.bundle` identifying Bookmarks. It is not a
+bookmark or a new collection definition.
 
 **A wiki page is an ordinary object filed under the wiki
 collection.** The wiki root is one object that is both the sidebar

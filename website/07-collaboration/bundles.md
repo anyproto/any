@@ -84,7 +84,7 @@ If a created and a derived root are both claimed for one id, the derived one win
 
 ## The usecase catalog
 
-The well-known apps that ship with the product — the wiki, the Collections app (the `collections` usecase: browse and manage objects by type), journal, meetings, people, CRM, the general chat — are bundles in a catalog embedded in the server, under `system:<name>/v<n>` ids. A **usecase** is a set of those bundles plus the usecases it `requires`. The catalog declares every type, collection, property and dataset its apps use, so each client, device and agent that sets a usecase up resolves the same ids instead of minting its own.
+The well-known apps that ship with the product — the wiki, the Collections app (the `collections` usecase: browse and manage objects by type), journal, meetings, tasks, bookmarks, people, CRM, the general chat — are bundles in a catalog embedded in the server, under `system:<name>/v<n>` ids. A **usecase** is a set of those bundles plus the usecases it `requires`. The catalog declares every type, collection, property and dataset its apps use, so each client, device and agent that sets a usecase up resolves the same ids instead of minting its own.
 
 Each catalog bundle declares a `type` (parts, layout, columns) **or** a `collection` (columns only), never both. The wiki is a collection — a wiki page keeps its own type and is filed under it — and so are the seven role facets `contact`, `investor`, `customer`, `partner`, `vendor`, `cofounder` and `candidate`: a contact is `type: person` filed under the contact collection, with each owner's values in its own namespace. `person`, `organization`, `deal`, `meeting`, `journal` and the general chat are types.
 
@@ -95,6 +95,16 @@ POST /v1/catalog/:usecaseId/setup   → 200 { usecase, bundles: [...] }      bod
 ```
 
 Setup walks the dependency closure (dependencies first) against one convergence wait and runs Ensure's adopt-or-install per bundle; it is idempotent, and a failure names the step in `details.bundleId` while the steps before it stand, so the next call resumes. Each reply entry carries the registry row (`bundle`), `installed`, and — for a bundle that declares a definition — `typeId` or `collectionId` (the root id, whichever kind it declares) plus `properties` (xKey → property id). An install whose `xKey` a type or collection in the space already holds is `409 type.xkey_conflict` with `details.existingTypeId` or `details.existingCollectionId`. Which usecases a space has reads off `GET …/bundles`. CLI: `any catalog list | get | setup`.
+
+### Bookmarks
+
+```bash
+any catalog setup bookmarks "$SPACE"
+```
+
+Setup installs the `tasks` dependency first, then `system:bookmark/v1` and `system:bookmarks/v1`. A bookmark uses the first bundle's `typeId` as its one type, with URL, purpose, tags, saved text and independent organization flags. Values use the returned property ids in that type's namespace. Query bookmarks with `{"any.type": "<bookmarkTypeId>"}`.
+
+Projects and Areas are the existing Tasks objects: the bookmark's multi-value `contexts` relation stores their object URIs. An assignment changes neither its type nor its collections. The separate app root is a `page` filed under the built-in `miniapp` collection, with `miniapp.bundle` set to `system:bookmarks/v1`; it declares no type or collection of its own.
 
 ### The general chat
 
