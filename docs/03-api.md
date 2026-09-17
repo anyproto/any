@@ -3715,14 +3715,13 @@ body streams straight into the SDK. Files < 4096 bytes take the
 **inline tier** (`inline: true`, no `rootCid`, durable by
 construction, riding the CRDT row itself); larger files are encrypted
 and content-addressed locally (`<account-dir>/files/`), then backed up
-to the network's fileV2 broker. The backup is **attempted synchronously
-inside the attach request** (best-effort): with a reachable broker the
-201 usually already says `durable: true`, and attach latency for large
-files is dominated by the upload. When the broker is unreachable or
-refuses, attach still succeeds —
-`durable: false`, and a persistent background queue retries; watch
-`/files/subscribe` or poll `/files/:fileId/status` for the
-`inflight → durable` flip.
+to the network's fileV2 broker. The backup **never runs inside the
+attach request**: attach queues it and returns `durable: false`
+(`durable: true` only for inline files and content already backed up in
+the space), so attach latency is local work only. A persistent
+background queue starts the upload at once and retries when the broker
+is unreachable or refuses; watch `/files/subscribe` or poll
+`/files/:fileId/status` for the `inflight → durable` flip.
 
 #### Download (content)
 
