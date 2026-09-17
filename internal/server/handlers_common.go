@@ -380,12 +380,12 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 			"the account's data was written by a newer version — this server is read-only until it is upgraded",
 			crdtVersionDetails(err, details))
 	}
-	// A write to a collection none of the object's types declare: no
-	// type attaches on write, the caller attaches a declaring type first.
+	// A write to a storage collection the object's type does not declare:
+	// no write sets a type, the caller sets a declaring type first.
 	if errors.Is(err, space.ErrDatasetNotDeclared) {
 		return writeError(c, http.StatusBadRequest, "dataset.not_declared",
-			"the object carries no type whose parts declare this collection — attach a declaring type "+
-				"(POST /v1/spaces/{spaceId}/properties/{objectId}/attach/{typeId}) or declare the dataset on one of its types",
+			"no part of the object's type declares this collection — set a declaring type "+
+				"(POST /v1/spaces/{spaceId}/properties/{objectId}/type/{typeId}) or declare the dataset on its type",
 			details)
 	}
 	if errors.Is(err, handler.ErrValidation) {
@@ -508,6 +508,14 @@ func sdkValidationError(c echo.Context, err error, details map[string]any) error
 			code = "property.kind_mismatch"
 		case handler.ReasonUnknownProperty:
 			code = "property.not_found"
+		case handler.ReasonTypeNotImplemented:
+			// A value under an owner the object does not have: no write
+			// sets a type or files a collection.
+			return writeError(c, http.StatusBadRequest, "dataset.not_declared",
+				"the object has neither this type nor this collection — set the type "+
+					"(POST /v1/spaces/{spaceId}/properties/{objectId}/type/{typeId}) or file the collection "+
+					"(POST /v1/spaces/{spaceId}/properties/{objectId}/collections/{collectionId}) first",
+				details)
 		case handler.ReasonReservedCarrier:
 			// The server's own wording: the SDK's names the write path.
 			return writeError(c, http.StatusBadRequest, "type.reserved_carrier", reservedCarrierMessage, details)

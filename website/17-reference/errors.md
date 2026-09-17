@@ -130,7 +130,7 @@ Panics are converted to `500 internal` with a generic message.
 | Code | Status | Meaning |
 |---|---|---|
 | `dataset.unknown` | 400 | a record write names a storage collection the space does not serve as a records dataset (a module's own is never upsertable); a read of an unknown dataset answers `200 {"records": []}` |
-| `dataset.not_declared` | 400 | a write into a storage collection the object's type does not declare — set the declaring type first (collections declare no datasets) |
+| `dataset.not_declared` | 400 | a write into a storage collection the object's type does not declare — set the declaring type first (collections declare no datasets); also a property value written under an owner the object does not have — set that type or file that collection first |
 | `dataset.not_found` | 404 | the editor route's `:collection` is not an editor storage collection in this space |
 | `dataset.validation` | 400 | schema or handler rejected the ops |
 | `dataset.key_conflict` | 409 | a part or dataset with this key already exists on the type (`details.key`) |

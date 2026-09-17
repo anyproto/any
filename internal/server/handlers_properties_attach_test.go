@@ -171,6 +171,10 @@ func TestServer_PropertiesCollectionBinding(t *testing.T) {
 	if row := propertiesRecord(t, e, sp.Id, obj); row[shelf] == nil {
 		t.Errorf("detach dropped the namespace: %v", row)
 	}
+	// Unfiled, the collection admits no further values.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/properties/"+obj+"/set/"+shelf,
+		`{"patch":{"`+prop.PropId+`":"refused"}}`)
+	assertStatusCode(t, rec, http.StatusBadRequest, "dataset.not_declared")
 }
 
 // The two slots refuse each other's ids: a collection cannot be the
