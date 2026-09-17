@@ -3,8 +3,9 @@ package api
 import "encoding/json"
 
 // ObjectGetResponse is the body of GET /v1/spaces/:spaceId/objects/:objectId:
-// the object's row from the space's objects collection (any.types and
-// property values, meta included), rendered as JSON.
+// the object's row from the space's objects collection (any.type,
+// any.collections and property values, meta included), rendered as
+// JSON.
 type ObjectGetResponse struct {
 	ObjectId string          `json:"objectId"`
 	Record   json.RawMessage `json:"record"`

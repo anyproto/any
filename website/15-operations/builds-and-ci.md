@@ -78,4 +78,4 @@ Both are sha256-pinned in the release notes. On the embedded path the full-text 
 
 ## Versions
 
-Dependencies (the SDK, any-sync, the storage engine, the agent runtime) are published Go modules pinned in `go.mod` — the single source of truth for versions. `any version` prints the binary's version alongside the running server's.
+The server's Go dependencies — the SDK, any-sync and the storage engine — are published modules pinned in `go.mod`, the single source of truth for their versions. The agent runtime is not among them: anyrt is a separate Rust crate that the desktop app builds against. `any version` prints the binary's version alongside the running server's.

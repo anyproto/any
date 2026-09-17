@@ -73,7 +73,7 @@ func TestE2E_MultipeerRealtimeSync(t *testing.T) {
 	propID, _ := propResp["propId"].(string)
 	var objResp map[string]any
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects",
-		fmt.Sprintf(`{"types":[%q]}`, typeID), http.StatusCreated, &objResp)
+		fmt.Sprintf(`{"type":%q}`, typeID), http.StatusCreated, &objResp)
 	objectID, _ := objResp["objectId"].(string)
 	mustStatus(t, http.MethodPost,
 		owner.base+"/v1/spaces/"+sp.Id+"/properties/"+objectID+"/set/"+typeID,

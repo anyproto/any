@@ -58,7 +58,7 @@ Hits carry identity, not full records — hydrate them with a [dataset query](..
 | Content | Dataset in hits | Scope | Unit |
 |---|---|---|---|
 | Chat messages | `chat_messages` | `chat` | one message (text only) |
-| Editor documents | the editor collection (`editor_blocks` or `<typeId>_<key>`) | `basic` | a ~1.5 KB window of consecutive blocks |
+| Editor documents | the editor storage collection (`editor_blocks` or `<typeId>_<key>`) | `basic` | a ~1.5 KB window of consecutive blocks |
 | Object name / description | `prop` | `basic` | one entry per built-in |
 | User property values | `prop` | `props` (full-text only) | `"<prop name>: <value>"` |
 | Runtime-dataset records | the dataset's own name | `basic` (or the declared scope) | one record, by its `x-search` mapping — split into ~2000-rune chunks when long |

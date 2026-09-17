@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -88,11 +89,12 @@ func OpenSDK(ctx context.Context, cfg config.Config, nodeconf []byte, dataDir st
 			DataDir:  filepath.Join(dataDir, "sdk"),
 			Topology: topology,
 		},
-		Network: sdkconfig.Network{NodeConfYAML: nodeconf},
-		Sync:    sdkconfig.Sync{ChangeBatchSize: cfg.Sync.ChangeBatchSize},
-		P2P:     sdkconfig.P2P{Enabled: cfg.P2P.Enabled, Port: cfg.P2P.Port, ServiceName: cfg.P2P.ServiceName},
-		Types:   serverTypes(),
-		Modules: serverModules(),
+		Network:     sdkconfig.Network{NodeConfYAML: nodeconf},
+		Sync:        sdkconfig.Sync{ChangeBatchSize: cfg.Sync.ChangeBatchSize},
+		P2P:         sdkconfig.P2P{Enabled: cfg.P2P.Enabled, Port: cfg.P2P.Port, ServiceName: cfg.P2P.ServiceName},
+		Types:       serverTypes(),
+		Collections: serverCollections(),
+		Modules:     serverModules(),
 	}
 	if cfg.Sync.DialTimeout != "" {
 		d, err := time.ParseDuration(cfg.Sync.DialTimeout)
@@ -130,26 +132,34 @@ func OpenSDK(ctx context.Context, cfg config.Config, nodeconf []byte, dataDir st
 // exercised over HTTP without shipping a production entry for them.
 // Set from a test file's init; empty in the server binary.
 var extraCatalog struct {
-	types   []handler.Type
-	modules []handler.Module
+	types       []handler.Type
+	collections []handler.Collection
+	modules     []handler.Module
 }
 
 // serverTypes is the hardcoded type set this server adds on top of the
-// SDK's built-ins — the types that are not modules: a saved-view
-// dataset on any host object and the hidden capability types an
-// object opts into (page / miniapp / bin). The wiki tree is a catalog
-// usecase, not a built-in.
-// Each entry registers its handler(s) with every per-object Controller;
-// a registered type reports builtIn with xKey = id, which is what
-// reserves the id against user types.
+// SDK's built-ins — the types that are not modules: the saved-view
+// object and the plain page. The wiki tree is a catalog usecase, not a
+// built-in. Each entry registers its handler(s) with every per-object
+// Controller; a registered type reports builtIn with xKey = id, which
+// is what reserves the id against user types.
 func serverTypes() []handler.Type {
 	out := []handler.Type{
-		dataview.NewType(), // hidden: dataviews + views records on any host object
+		dataview.NewType(), // hidden: dataviews + views records on a dataview object
 		page.NewType(),     // hidden: one part sharing the editor's canonical collection
-		miniapp.NewType(),  // hidden, property-only: the installed bundle an object runs
-		bin.NewType(),      // hidden, property-only: move-to-bin stamps (handlers_properties.go)
 	}
 	return append(out, extraCatalog.types...)
+}
+
+// serverCollections is the hardcoded collection set: the hidden
+// markers an object opts into next to its type — the sidebar entry
+// and the bin.
+func serverCollections() []handler.Collection {
+	out := []handler.Collection{
+		miniapp.NewCollection(), // hidden: the installed bundle an object runs
+		bin.NewCollection(),     // hidden: move-to-bin stamps (handlers_properties.go)
+	}
+	return append(out, extraCatalog.collections...)
 }
 
 // serverModules is the dataset-module set: compiled-in behaviours a
@@ -236,12 +246,24 @@ func NewIndexRegistry() *index.Registry {
 // embed / model download) for the process view — see
 // deps.indexerProcess.
 func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir string, sdk *anysyncsdk.SDK, chunkers *index.Registry, onProcess func(indexer.ProcessUpdate), onLinks func(spaceId string, targets []string)) (*indexer.Indexer, error) {
+	var queryEmbedTimeout time.Duration
+	if cfg.Search.QueryEmbedTimeout != "" {
+		d, err := time.ParseDuration(cfg.Search.QueryEmbedTimeout)
+		if err != nil || d <= 0 {
+			return nil, fmt.Errorf("index.search.queryEmbedTimeout: want a positive duration, got %q", cfg.Search.QueryEmbedTimeout)
+		}
+		queryEmbedTimeout = d
+	}
 	emb, err := indexer.NewEmbedder(cfg, modelsDir, filepath.Join(dataDir, "index", "models"), onProcess)
 	if err != nil {
 		return nil, err
 	}
 	st, err := indexer.OpenStore(ctx, filepath.Join(dataDir, "index", "index.db"), cfg.Vector.Dim, emb != nil)
 	if err != nil {
+		// The local embedder already runs its model download.
+		if c, ok := emb.(io.Closer); ok {
+			_ = c.Close()
+		}
 		return nil, err
 	}
 	st.SetVectorMode(cfg.Vector.Mode) // ANN strategy; "" = IVF-SQ default
@@ -259,14 +281,6 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 	embedConc := cfg.EmbedConcurrency
 	if embedConc == 0 && (cfg.Embedder == "openai" || cfg.Embedder == "auto") {
 		embedConc = 4
-	}
-	var queryEmbedTimeout time.Duration
-	if cfg.Search.QueryEmbedTimeout != "" {
-		d, err := time.ParseDuration(cfg.Search.QueryEmbedTimeout)
-		if err != nil || d <= 0 {
-			return nil, fmt.Errorf("index.search.queryEmbedTimeout: want a positive duration, got %q", cfg.Search.QueryEmbedTimeout)
-		}
-		queryEmbedTimeout = d
 	}
 	ix := indexer.New(sdk, chunkers, st, indexer.Options{
 		Embedder:          emb,
@@ -286,6 +300,9 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 	// the db's pin can never describe boundaries the chunker isn't using.
 	// A db built on a different one is refused here (rebuild required).
 	if err := st.PinChunkRunes(ctx, ix.ChunkRunes()); err != nil {
+		// Closes the store and the embedder: the error tells the user to
+		// remove the index dir, which Windows refuses while it is open.
+		_ = ix.Close()
 		return nil, err
 	}
 	return ix, nil

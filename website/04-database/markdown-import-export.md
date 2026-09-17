@@ -5,7 +5,7 @@ order: 130
 ---
 # Markdown import & export
 
-A document's body is a tree of atomic block records in an [editor](../types/editor.html) collection — `editor_blocks` for the shared body, `<typeId>_<key>` for a part with its own editor; the routes name it as `:collection`, the examples use `editor_blocks`. The markdown routes are a lossless bridge over that collection: `GET` renders the blocks to markdown, `PUT` parses markdown and diffs it against the current blocks, `PATCH` applies quoted-text replacements server-side, and `append` adds a fragment at the tail without reading the document. They exist for "Export as .md" / "Import .md" flows, LLM tooling, and any caller that doesn't want to walk the block tree.
+A document's body is a tree of atomic block records in an [editor](../types/editor.html) storage collection — `editor_blocks` for the shared body, `<typeId>_<key>` for a part with its own editor; the routes name it as `:collection`, the examples use `editor_blocks`. The markdown routes are a lossless bridge over that storage collection: `GET` renders the blocks to markdown, `PUT` parses markdown and diffs it against the current blocks, `PATCH` applies quoted-text replacements server-side, and `append` adds a fragment at the tail without reading the document. They exist for "Export as .md" / "Import .md" flows, LLM tooling, and any caller that doesn't want to walk the block tree.
 
 ```
 GET   /v1/spaces/:spaceId/objects/:objectId/editor/editor_blocks/markdown          render blocks → markdown
@@ -14,7 +14,7 @@ PATCH /v1/spaces/:spaceId/objects/:objectId/editor/editor_blocks/markdown       
 POST  /v1/spaces/:spaceId/objects/:objectId/editor/editor_blocks/markdown/append   append at tail, no read or diff
 ```
 
-All four write through the same block write path a per-block edit would, so the same live events fire on the collection and other clients update in place. The object must carry a type whose part declares the collection (`page` declares `editor_blocks`) — a write otherwise is `400 dataset.not_declared` — and a `:collection` the space does not serve is `404 dataset.not_found`.
+All four write through the same block write path a per-block edit would, so the same live events fire on that storage collection and other clients update in place. The object's type must declare the part that owns it (`page` declares `editor_blocks`) — a write otherwise is `400 dataset.not_declared` — and a `:collection` the space does not serve is `404 dataset.not_found`.
 
 ## Export — `GET`
 
@@ -38,7 +38,7 @@ The server parses the markdown, diffs against the current block tree by type + p
 
 ## Targeted edits — `PATCH`
 
-For callers that know the *text* they want changed but not the block ids:
+For callers that know the *text* they want changed but not the block ids. Each `oldText` must already be in the document:
 
 ```sh
 curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/markdown -d '{
@@ -59,7 +59,7 @@ Matching rules:
 - Every `oldText` matches against the original document, independently of the other edits; matched regions must not overlap.
 - Without `replaceAll` the match must be unique. `newText` may be empty (deletes the text). Deleting a whole block takes one blank-line separator with it, so neighbours end up adjacent.
 - Exact match first; on zero hits a whole-line fuzzy fallback folds unicode punctuation to ASCII (curly quotes, dashes, NBSP; NFKC) and ignores trailing whitespace. A mid-line fragment is never fuzzy-matched — re-`GET` and quote exactly.
-- All-or-nothing: any failing edit rejects the whole request and nothing is written. Byte-identical results are a `200` no-op.
+- All-or-nothing: any failing edit rejects the whole request and nothing is written. A request whose result is byte-identical to the current document is a `200` no-op, but repeating an edit that already applied is not: the `oldText` is gone, so the retry answers `400 markdown.no_match`. After an uncertain retry, `GET` the document and check for `newText` before treating the edit as lost.
 
 | Error | Meaning / recovery |
 |---|---|

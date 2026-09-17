@@ -24,7 +24,7 @@ A trigger is a record in the agent's `agent_triggers` dataset: a program, a sche
 | `lastStatus` | string | written by the owning device: `ok` / `error` / `interrupted` / `auto_disabled` / a health marker |
 | `consecutiveFailures` | number | written by the owning device: the breaker count |
 
-The dataset lives on the hidden `agent_trigger` type (`idRule: user`, `dynamic: true`, no declared fields), so its collection is `<typeId>_agent_triggers`; the record id is a slug you choose. The runtime's own writes replace the whole record with the fields above — any other key does not survive them.
+The dataset lives on the hidden `agent_trigger` type (`idRule: user`, `dynamic: true`, no declared fields), so its storage collection is `<typeId>_agent_triggers`; the record id is a slug you choose. The runtime's own writes replace the whole record with the fields above — any other key does not survive them.
 
 ### `spec` by kind
 
@@ -48,7 +48,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$BAO/modify -H 'Content-Type: appli
     "args": {"space": "'$BAO'", "chatId": "'$CHAT'", "text": "standup in 5"}, "enabled": true }}]}]}'
 ```
 
-`$TRIGGER_ANCHOR` is the `bao/triggers/v1` child of the `bao/v1` bundle (`POST /v1/spaces/:id/bundles/bao%2Fv1/children {"seed": "bao/triggers/v1"}`).
+`$TRIGGER_ANCHOR` is the `bao/triggers/v1` child of the `bao/v1` bundle (`POST /v1/spaces/:id/bundles/bao%2Fv1/children {"seed": "bao/triggers/v1", "type": "<typeId>"}`, where `<typeId>` is the hidden `agent_trigger` type from `GET /v1/spaces/:id/types?includeHidden=true`).
 
 ## Lifecycle rules
 

@@ -7,22 +7,23 @@ them*.
 
 ## 1. Writes go through the module's handler methods
 
-Module collections are written **only** through their bespoke handler
-endpoints — never through a generic write path:
+A module's storage collections are written **only** through their
+bespoke handler endpoints — never through a generic write path:
 
 - chat: `POST/PATCH/DELETE /v1/spaces/:s/objects/:o/chat/messages[/:msgId]`
   and `…/:msgId/reactions/:emoji`
 - editor: `POST/PATCH/DELETE /v1/spaces/:s/objects/:o/editor/:collection/blocks[/:id]`
-  — `:collection` is `editor_blocks` for the shared body, or the
-  namespaced `<typeId>_<key>` of a part with its own editor
+  — `:collection` is the storage collection: `editor_blocks` for the
+  shared body, or the namespaced `<typeId>_<key>` of a part with its
+  own editor
 
 The endpoints build the ops the module's handler accepts — it stamps
 server-owned fields (`creator` / `createdAt` / `modifiedAt`), enforces
 author-only edit/delete and keys reactions per identity — and run the
 write's side effects (a chat send notifies push). The write-shaped
 exceptions are the `…/editor/:collection/markdown` routes, which are
-render/import *transforms* over the editor collection, not dataset
-writes. Pick by change shape:
+render/import *transforms* over the editor storage collection, not
+dataset writes. Pick by change shape:
 
 - **Targeted change** ("tick this box", "fix this line") →
   `PATCH …/editor/:collection/markdown` with `{edits: [{oldText, newText}]}`.
@@ -51,53 +52,84 @@ you recognise it as your own and don't double-apply (and so you can order
 it against remote changes). Read the resulting record back through
 `/query` — the write never returns it.
 
-## 2. Preflight-validate writes against the bound types
+## 2. Preflight-validate writes against the object's owners
 
-An object carries an `any.types` array — the type IDs bound to it. Bind at
-create time, or later through `POST …/properties/:objectId/attach/:typeId`:
+An object carries **one type** — `any.type`, what it IS — and **any
+number of collections** — `any.collections`, what it is filed under.
+Together they are the object's *owners*: the ids whose properties and
+parts it holds. Set both at create time, or later through
+`POST …/properties/:objectId/type/:typeId` and
+`POST …/properties/:objectId/collections/:collectionId`:
 
 ```
 POST /v1/spaces/:spaceId/objects
-{ "types": ["page"], "initialProperties": { "any": { "name": "Notes" } } }
+{ "type": "page", "collections": ["<collectionId>"],
+  "initialProperties": { "any": { "name": "Notes" } } }
 ```
 
-- **Don't call a dataset write endpoint unless the target object carries
-  a type that declares the collection.** A collection — `chat_messages`,
-  `editor_blocks`, a namespaced `<typeId>_<key>` — lives on an object
-  only while one of its `any.types` has a part declaring it
-  (`03-api.md` § Parts and modules); a write without one is `400
-  dataset.not_declared`, and no write attaches a type for you. Resolve
-  the declaring types once per space from `GET /v1/spaces/:id/datasets`
-  (the collection's `owners`), check the object's `any.types` (read its
-  row from the per-space `objects` collection) before writing, or create
-  the object with the type bound up front. Don't fire the write and hope.
-  A document type is the built-in `page` (plain body, no properties)
-  or any type with an editor part — for a type an app ships, the
-  catalog's (`28-well-known-bundles.md`), so every client and device
-  converges on one.
+- **Don't call a dataset write endpoint unless the object's type
+  declares the storage collection.** A storage collection —
+  `chat_messages`, `editor_blocks`, a namespaced `<typeId>_<key>` —
+  lives on an object only while its `any.type` has a part declaring it
+  (`03-api.md` § Parts and modules); a write without it is `400
+  dataset.not_declared`, and no write sets a type for you. Resolve the
+  declaring types once per space from `GET /v1/spaces/:id/datasets`
+  (the storage collection's `owners`), check the object's `any.type`
+  (read its row from the per-space `objects` storage collection) before
+  writing, or create the object with the type up front. Don't fire the
+  write and hope. Collections declare no parts, so they never carry
+  datasets. A document type is the built-in `page` (plain body, no
+  properties) or any type with an editor part — for a type an app
+  ships, the catalog's (`28-well-known-bundles.md`), so every client
+  and device converges on one.
 
-- **Preflight-validate property values against the bound type's property
-  definitions.** Fetch them once per type:
+- **Preflight-validate property values against the owner's property
+  definitions.** Property values live under `<ownerId>.<propId>`, and
+  the owner is the object's type or one of its collections; values go to
+  `POST …/properties/:objectId/set/:ownerId`, one owner's namespace per
+  call, and a write under an owner the object does not have is refused.
+  Fetch the definitions once per owner — the two routes have the same
+  shape:
 
   ```
   GET /v1/spaces/:spaceId/types/:typeId/properties
+  GET /v1/spaces/:spaceId/collections/:collectionId/properties
   ```
 
   Each entry is a `PropertyDef` (`kind`, `xFormat`, and for object
   kinds nested `items` / `properties` / `required`). The server refuses
   a bad write whole: a value of the wrong `kind` is `400
   property.kind_mismatch`, an undeclared property id `400
-  property.not_found`, a type the object does not carry `400
-  dataset.validation`, and a value that does not fit the descriptor's
+  property.not_found`, an owner the object does not carry `400
+  dataset.not_declared`, and a value that does not fit the descriptor's
   current slug `400 property.format_violation` (`27-descriptors.md`).
   Check the same rules client-side so a form reports the problem
   before the round trip.
 
+- **Render off the type; file with collections.** Layout and parts are
+  the type's, and an object has exactly one — so a renderer reads
+  `any.type`, resolves that type's `layout` and parts, and draws. There
+  is no contest to resolve and no ranking to apply. Collections carry
+  properties only: they add columns and they decide what an object shows
+  up under, never how it looks. A picker offering "what is this?" lists
+  types; a picker offering "where does this go?" lists collections, and
+  both hide the entries flagged `hidden`.
+
+- **Retyping and unfiling leave values behind.** Setting a new type, or
+  detaching a collection, does not delete the old owner's namespace:
+  its values stay on the row as orphan data, read-tolerant and
+  writable again the moment the owner comes back. Render off the
+  current owners, not off whatever namespaces the row happens to hold.
+  `DELETE …/properties/:objectId/collections/:collectionId` pre-flights
+  nothing, so it is also how you strip a collection id that should
+  never have been on the row; a wrong type is repaired by setting the
+  right one (there is no unset — every object has a type).
+
 ## 3. Reads go through query / subscribe
 
 One read path per dataset: a snapshot via `POST /v1/spaces/:id/query`, or a
-live stream via `POST /v1/spaces/:id/query/subscribe`. For per-object
-collections pass `objectId` + `dataset` — the collection name
+live stream via `POST /v1/spaces/:id/query/subscribe`. For a per-object
+dataset pass `objectId` + `dataset` — the storage collection's name
 (`chat_messages`, `editor_blocks`, a namespaced `<typeId>_<key>`; read
 them off `GET /v1/spaces/:id/datasets` or the type's `…/parts`); the
 cross-object firehose is `POST /v1/spaces/:id/objects/query[/subscribe]`.
@@ -116,10 +148,10 @@ lifecycle is in `04-events.md`.
 
 - **Page on an absolute cursor, not `offset`, for anything that mutates under
   you.** `offset` floats — row 50 becomes row 51 the moment a record lands
-  ahead of it, so paging a live collection by offset silently skips and
+  ahead of it, so paging a live dataset by offset silently skips and
   repeats rows. A `_ver.id` (or other indexed-field) cursor filter is
   absolute: the next page is `{ "<field>": { "$lt": <lastSeen> } }` with the
-  same `sort`, and because the collection is indexed on it the page returns
+  same `sort`, and because the storage collection is indexed on it the page returns
   from disk directly. `offset` is fine only for a frozen, point-in-time
   snapshot you won't page across writes.
 
@@ -127,8 +159,8 @@ lifecycle is in `04-events.md`.
   `filter` is mongo-style — operators include `$lt` / `$gt`. On `subscribe`,
   `sort` is required when `limit > 0`.
 
-- **"Recently modified" lists sort on `modifiedAt`.** Every objects-collection
-  row carries the derived row-root stamps `author` / `createdAt` /
+- **"Recently modified" lists sort on `modifiedAt`.** Every `objects` row
+  carries the derived row-root stamps `author` / `createdAt` /
   `modifiedAt` / `modifiedBy` / `spaceId`; `{"sort": ["-modifiedAt"]}` is the
   recency ordering (`-createdAt` for creation order). `modifiedAt` bumps on any
   synced write to the object and converges across peers, but it's the
@@ -155,18 +187,20 @@ lifecycle is in `04-events.md`.
   by type, so a bare literal never compares against an instant and a
   range filter that forgets the wrapper comes back empty.
 
-- **Ordinary lists exclude the bin.** An object moved to the bin carries
-  the built-in `bin` type (`03-api.md` § Types → Built-in hidden types);
-  every list, tree and picker adds `{"any.types": {"$nin": ["bin"]}}` to
-  its filter, and the bin view is `{"any.types": "bin"}` sorted
-  `-bin.movedAt`, rendering `bin.movedBy` through the members list like
-  `modifiedBy`. Move and restore are the plain
-  `…/properties/:objectId/attach/bin` / `detach/bin` calls — the server
-  stamps and clears the two properties — and permanent deletion stays
-  `DELETE …/objects/:id`. `/search` does not know about the bin: a
+- **Ordinary lists exclude the bin.** An object moved to the bin is
+  filed under the built-in `bin` collection (`03-api.md` § Collections);
+  every list, tree and picker adds
+  `{"any.collections": {"$nin": ["bin"]}}` to its filter, and the bin
+  view is `{"any.collections": "bin"}` sorted `-bin.movedAt`, rendering
+  `bin.movedBy` through the members list like `modifiedBy`. Move and
+  restore are the plain `POST` / `DELETE
+  …/properties/:objectId/collections/bin` calls — the server stamps and
+  clears the two properties in the same change — and permanent deletion
+  stays `DELETE …/objects/:id`. The object keeps its type throughout, so
+  it restores as what it was. `/search` does not know about the bin: a
   binned object's text still surfaces as a hit, and a hit carries no
-  types, so drop binned hits by reading the hit's object row (or its
-  `any.types` from a cached list) before rendering.
+  membership, so drop binned hits by reading the hit's object row (or its
+  `any.collections` from a cached list) before rendering.
 
 - **Aggregate server-side instead of reducing client-side.** Counts per
   group, top-N rollups, tag distributions: don't page the whole dataset
@@ -256,7 +290,7 @@ the window (and the oldest drops out as `removed`). Ascending would pin the
 
 ## 5. Live subscriptions: hold a window, recover by resubscribing
 
-A `subscribe` stream is a moving window over the collection, not a feed you
+A `subscribe` stream is a moving window over the dataset, not a feed you
 accumulate. Treat it as one and the lifecycle stays simple.
 
 - **Hold a window, not a database.** The `any-store` instance inside the
@@ -276,7 +310,7 @@ accumulate. Treat it as one and the lifecycle stays simple.
     count; churn that new arrivals backfill does not.
   - `overflow` — events arrived faster than the client drained the SSE mailbox
     (`mailboxCapacity`, default 256, min 16) — e.g. a cold reconnect against a
-    busy collection.
+    busy dataset.
 
   Both thresholds are request-tunable when a workload needs more headroom.
   Note the corollary to "always set a `limit`" (§3): drift detection is
@@ -290,7 +324,7 @@ accumulate. Treat it as one and the lifecycle stays simple.
   server. The real cost of a large window is client memory.
 
 - **Cross-check client state against the DB when debugging.** `any-store-cli`
-  reads the same local DB that backs `any-store`. Sort a collection by
+  reads the same local DB that backs `any-store`. Sort a storage collection by
   `-_ver.id`, mutate a record, re-query, and watch the new value land with its
   own version — the same CRDT-with-versions shape the change arrives in over
   the wire. Client in-memory state should layer versions the way the DB does,
@@ -357,10 +391,21 @@ Call patterns:
   is local: a new or rebuilt index backfills every record the server
   holds, and until the backfill finishes `/query` is the exhaustive
   read.
+- **Narrow by object with `filter`, never by post-filtering hits.**
+  `filter` takes the `/objects/query` grammar over the hit's host
+  object row and binds every hit in every mode, with `limit` counting
+  matching records — so "outside the bin" is `{"any.collections": {"$nin":
+  ["bin"]}}`, "within this type" is `{"any.type": "<typeId>"}`, "this
+  month" is a `modifiedAt` range, and a combination is one `$and`.
+  Dropping hits client-side returns short or empty pages whenever most
+  hits fall outside the filter. Read `truncated` on the reply: when set,
+  the server's read budget ended before `limit` matching records were
+  found — narrow the query or the filter rather than paging further.
 - Errors: `409 index.disabled` (indexer off on this server), `400
   index.no_embedder` (`mode: "vector"` on an FTS-only server), `503
   index.embedder_unavailable` (`mode: "vector"` while the embedder is
-  down, loading, or over the query budget — retryable).
+  down, loading, or over the query budget — retryable), `400
+  filter.invalid` / `filter.unknown_operator` (a bad `filter`).
 
 ## 7. Direct (1-1) chats: derive by identity, approve incoming
 
@@ -420,10 +465,20 @@ POST /v1/spaces/one-to-one/register-incoming
   "displayHint": { "name": "Alice", "iconCid": "..." } }   // → 204
 ```
 
+**Names.** The participants exchange their profile keys inside the
+space, so once the 1-1 is active on both sides each can decrypt the
+other's profile — the acceptor's included, which no other channel
+delivers to the initiator. The name lands with the SDK's background
+identityRepo fetch. Render the peer id-only until
+`GET /v1/identities/:identity` (or the members list) carries a `name` —
+the same rule as for every contact (§ 8). The pending row's `displayHint`
+covers the time before that. Never read the key rows themselves; every
+read route refuses them.
+
 Once a 1-1 is active, everything else is identical to a regular space —
 both members are writers, so create objects, send chat
 (`dataset=chat_messages`), and subscribe exactly as in §1–5. Read the two
-participants through the normal members collection. Deleting a 1-1 is
+participants through the normal members list. Deleting a 1-1 is
 local-only and re-derivable: `DELETE /v1/spaces/:spaceId` offloads it, and
 a later `POST /v1/spaces/one-to-one` brings it back.
 
@@ -487,11 +542,11 @@ Content-Type: image/jpeg
 → 201 {fileId, size, inline, durable:true|false, cached:true, …}
 ```
 
-Know what attach latency includes: the network backup is attempted
-**synchronously inside the request** (with a reachable broker the attach
-takes the upload time and returns `durable: true`); when the broker is
-unreachable/refusing, attach returns fast with `durable: false` and a
-persistent queue retries in the background. Either way, don't block the UI on `durable`. For a
+Know what attach latency includes: local work only. Attach never waits
+on the network — it registers the file, queues the backup and returns
+`durable: false` (`true` only for inline files and content already
+backed up in the space); a persistent queue uploads in the background.
+Treat the 201 as done and don't block the UI on `durable`. For a
 "not backed up" badge, hold `GET …/files/stats` and refresh it on
 `GET …/files/subscribe` events (state `inflight`/`limited` →
 `durable`). `limited` means the network refused for quota — offer a
@@ -504,8 +559,8 @@ the object's payload rows
 shows up as an `added` row, and — the part that matters — the moment
 it becomes fetchable shows up as an **update on the same row when
 `networkSign` lands** (the broker's custody receipt is a synced
-cleartext row field; usually the row arrives already signed, since the
-sender's attach completes the backup synchronously). Then GET
+cleartext row field; the row usually arrives unsigned, since the
+sender's backup runs after its attach returns). Then GET
 `…/files/:fileId/content`. Downloading before that point returns
 `409 file.not_available` — a retry-later state, not an error to
 surface. Two things that do NOT signal remote availability: the
@@ -561,7 +616,7 @@ Budget it by principle:
   data exists.** One subscription per open view: the visible list
   (one space-wide objects query), the open document or chat (one
   per-object subscription). NEVER one subscription per object of a
-  collection — "subscribe to all chats/documents to watch them" is
+  list — "subscribe to all chats/documents to watch them" is
   the canonical anti-pattern; a thousand objects must not mean a
   thousand streams. Closing a view closes its subscription.
 
@@ -642,9 +697,10 @@ spaces, is a bundle on the **tech space** (`techSpaceId` from
    dataset for live updates.
 2. **Ensure on first write.** `POST …/bundles` with `{"id": "<app>/v1",
    "hidden": true, "parts": [...]}` — a CREATED root minted by the
-   server, self-typed on the tech space so the records live on it,
-   hidden from pickers (nothing attaches it elsewhere), deletable
-   (uninstall = `DELETE …/objects/<rootId>`). Idempotent: the first
+   server. The root declares a type, and a declaring root hosts its own
+   records, so the parts' records live on it with no flag and no
+   self-membership; `hidden` keeps it out of pickers, and it is
+   deletable (uninstall = `DELETE …/objects/<rootId>`). Idempotent: the first
    call installs, later calls adopt. Use a created root: the registry
    already converges installs, so `"derived": true` buys nothing but
    permanence. Derive only when a fork would be UNMERGEABLE (chat-like
@@ -656,7 +712,7 @@ spaces, is a bundle on the **tech space** (`techSpaceId` from
    `POST …/bundles/:id/resolve` with the loser root id.
 
 A bundle's records datasets are namespaced to its root: `favorites/v1`
-declares an `entries` part and reads and writes the collection
+declares an `entries` part and reads and writes the storage collection
 `<rootId>_entries` (read the name off the parts list — guide:
 `25-favorites.md`), so two bundles never collide on a key. Tree edge
 cases — an entry whose folder is removed, a
@@ -670,12 +726,25 @@ A client both *writes* saved views (`24-data-views.md`) as shared
 configuration and *reads* them back on every render, so the call
 patterns matter more than the record shape.
 
-- **Bind the type once, at create where you can.** A new host object
-  takes `{"types": ["dataview"]}` on `POST …/objects`; an existing one
-  needs `POST …/properties/:objectId/attach/dataview`. Attach is
-  idempotent, so calling it on every open is *correct but wasteful* —
-  it is a DAG write. Attach when you first add a view, not when you
-  open the object.
+- **Ensure one dataview object per host, and address it, not the
+  host.** A dataview is its own object — `type: "dataview"`, with the
+  property `dataview.host` naming what its views are over: an ordinary
+  object, a type or a collection. Find it with a plain objects query,
+  `{"any.type": "dataview", "dataview.host": "<hostId>"}`, and create it
+  only when that comes back empty:
+
+  ```
+  POST /v1/spaces/:spaceId/objects
+  { "type": "dataview",
+    "initialProperties": { "dataview": { "host": "<hostId>" } } }
+  ```
+
+  Create when the user first saves a view, not when the object opens —
+  it is a DAG write. Every read and write below takes the dataview
+  object's id as `objectId`; the host is only a property value. Two
+  devices creating while apart leave two dataview objects for one host:
+  pick the winner deterministically everywhere (lowest id), merge the
+  other's records into it, and delete the loser.
 
 - **Ensure the default dataview and its default view, never
   create-on-open.** Two levels: a `dataviews` record (`default`,
@@ -695,7 +764,7 @@ patterns matter more than the record shape.
 - **Never offer to delete the last view — and delete a dataview's
   views yourself.** "At least one dataview with one view always exists"
   cannot be enforced server-side — the delete gate is per-record, not
-  per-collection — so it is your rule; it also protects users from
+  per-dataset — so it is your rule; it also protects users from
   burning the well-known ids. Deleting a dataview does not cascade: its
   views stay as orphans (`{"filter": {"dataview": "<id>"}}` still finds
   them), so delete them in the same batch, or re-parent them with one
@@ -728,7 +797,8 @@ patterns matter more than the record shape.
 - **Save the query keyed by `propId`, and scope it by type.** `xKey`
   paths never reach the server, so a saved view keyed by xKey resolves
   for nobody; propIds also survive a property rename. And a saved filter
-  must carry `{"any.types": "<typeId>"}` — `objects` holds every object
+  must carry `{"any.type": "<typeId>"}` (or `{"any.collections":
+  "<collectionId>"}` for a filing scope) — `objects` holds every object
   in the space and the negation operators match field-absent rows, so an
   unscoped "status is not done" returns type definitions and bundle
   roots along with the rows you wanted.
@@ -747,8 +817,9 @@ patterns matter more than the record shape.
 
   `/aggregate` is snapshot-only, so nothing about grouping updates
   itself. Split it: the **column set streams** — subscribe to the
-  `properties` dataset on the type object and a new or renamed option
-  arrives live, no polling — while **counts and dangling keys** need the
+  `properties` dataset on the property's owner — the type or collection
+  that declares it — and a new or renamed option arrives live, no
+  polling — while **counts and dangling keys** need the
   preflight re-run on a coalesced timer (tens of seconds) while the view
   is *visible*, plus immediately whenever the filter, the `groupBy` or
   the catalog changes. Stop the timer when the view is hidden.

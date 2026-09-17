@@ -85,7 +85,7 @@ func TestServer_PropertyScope(t *testing.T) {
 	// Value writes auto-route by declared scope: a local value commits
 	// with a VersionId but no DAG ChangeId.
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
-		fmt.Sprintf(`{"types":[%q]}`, typeResp.TypeId))
+		fmt.Sprintf(`{"type":%q}`, typeResp.TypeId))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create object: %d %s", rec.Code, rec.Body.String())
 	}

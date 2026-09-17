@@ -46,7 +46,7 @@ func searchBounded(t *testing.T, ix *Indexer, ctx context.Context, sp string, re
 	t.Helper()
 	ch := make(chan searchOut, 1)
 	go func() {
-		res, err := ix.Search(ctx, sp, req)
+		res, err := ix.Search(ctx, sp, req, nil)
 		ch <- searchOut{res, err}
 	}()
 	select {

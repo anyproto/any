@@ -11,7 +11,7 @@ A subscription is a live version of a [query](../database/reading-data.html): th
 
 | Scope | Endpoint | Records |
 |---|---|---|
-| Cross-object | `POST /v1/spaces/:spaceId/objects/query/subscribe` | one row per object in the space (the `objects` collection) |
+| Cross-object | `POST /v1/spaces/:spaceId/objects/query/subscribe` | one row per object in the space (the `objects` storage collection) |
 | Per-object dataset | `POST /v1/spaces/:spaceId/query/subscribe` | rows of one dataset on one object (`chat_messages`, `editor_blocks`, a runtime dataset…) |
 | Space list | `POST /v1/spaces/query/subscribe` | the account's spaces — see [Live space list](space-list.html) |
 
@@ -91,28 +91,35 @@ Only `deleted` means the object is gone. For the other two, a fresh snapshot wou
 | `overflow` | events arrived faster than the client drained them and the mailbox (`mailboxCapacity`) filled; the engine closes the stream rather than drop events |
 | `drifted` | more than `driftBudgetPercent` of the window left without replacements; the engine refuses to re-query on the hot path |
 
-Recovery is the same for all of them: **open a new POST and take the fresh snapshot** — after `deauthorized`, once `GET /v1/auth` shows the account you expect. There is no replay across reconnects and no resume cursor — the new snapshot already reflects current state, which is strictly cheaper than reconstructing it from a backlog. `overflow` and `drifted` are split only so you can log and back off sensibly; a burst of `overflow` on a hot collection is the hint to raise `mailboxCapacity`, a stream of `drifted` on a churny list is the hint to raise `driftBudgetPercent` or widen `limit`.
+Recovery is the same for all of them: **open a new POST and take the fresh snapshot** — after `deauthorized`, once `GET /v1/auth` shows the account you expect. There is no replay across reconnects and no resume cursor — the new snapshot already reflects current state, which is strictly cheaper than reconstructing it from a backlog. `overflow` and `drifted` are split only so you can log and back off sensibly; a burst of `overflow` on a hot storage collection is the hint to raise `mailboxCapacity`, a stream of `drifted` on a churny list is the hint to raise `driftBudgetPercent` or widen `limit`.
 
 > **Note.** Drift detection needs a window to measure against: with `limit: 0` there is no window auto-shift and no drift safety net. Always subscribe with a limit.
 
 ## Client example: fetch streaming, no EventSource
 
-Windowed subscribes are `POST`, so the browser's `EventSource` cannot open them. Parse the SSE frames from a streaming `fetch` body instead:
+Windowed subscribes are `POST`, so the browser's `EventSource` cannot open them. Parse the SSE frames from a streaming `fetch` body instead, and wrap the stream in one retry loop: a `closed` frame, a stream that ends without one, and a failed request all mean "open a new POST and replace the window with its snapshot":
 
 ```js
+const API = "http://127.0.0.1:7001/v1";
+const SPACE = "<spaceId>", CHAT = "<chatId>", ACCOUNT = "<accountId>";
+
+// Resolves with the `closed` reason, or null when the stream ends without one.
 async function subscribe(url, body, onFrame) {
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error((await res.json()).error.code);
+  if (!res.ok) {
+    const { error } = await res.json();
+    throw Object.assign(new Error(error.code), { status: res.status });
+  }
 
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   let buf = "";
   for (;;) {
     const { value, done } = await reader.read();
-    if (done) return;                       // connection dropped without `closed`
+    if (done) return null;                  // dropped without `closed`
     buf += value;
     let i;
     while ((i = buf.indexOf("\n\n")) >= 0) {  // one frame per blank line
@@ -123,24 +130,37 @@ async function subscribe(url, body, onFrame) {
         else if (line.startsWith("data:")) data += line.slice(5).trim();
         // lines starting with ":" are keepalive comments — ignore
       }
-      if (data) onFrame(event, JSON.parse(data));
+      if (!data) continue;
+      if (event === "closed") return JSON.parse(data).reason;
+      onFrame(event, JSON.parse(data));
     }
   }
 }
 
-const window = new Map();
-function run() {
-  subscribe("http://127.0.0.1:7001/v1/spaces/SPACE/query/subscribe",
-    { objectId: "CHAT", dataset: "chat_messages", sort: ["-_ver.id"], limit: 50 },
-    (event, data) => {
-      if (event === "snapshot") for (const r of data.records) window.set(r.id, r);
-      if (event === "changes") for (const ev of data) {   // empty lists are omitted
-        for (const r of ev.added ?? [])   window.set(r.id, r.doc);
-        for (const r of ev.updated ?? []) window.set(r.id, r.doc);
-        for (const r of ev.removed ?? []) window.delete(r.id);
+let messages = new Map();                   // id → message: the current window
+
+async function run() {
+  for (;;) {
+    try {
+      const reason = await subscribe(`${API}/spaces/${SPACE}/query/subscribe`,
+        { objectId: CHAT, dataset: "chat_messages", sort: ["-_ver.id"], limit: 50 },
+        (event, data) => {
+          if (event === "snapshot") messages = new Map(data.records.map(r => [r.id, r]));  // replace, never merge
+          if (event === "changes") for (const ev of data) {   // empty lists are omitted
+            for (const r of ev.added ?? [])   messages.set(r.id, r.doc);
+            for (const r of ev.updated ?? []) messages.set(r.id, r.doc);
+            for (const r of ev.removed ?? []) messages.delete(r.id);
+          }
+        });
+      if (reason === "deauthorized") {
+        const auth = await (await fetch(`${API}/auth`)).json();
+        if (!auth.authorized || auth.accountId !== ACCOUNT) return;  // signed out or switched: stop
       }
-      if (event === "closed") setTimeout(run, 500);   // every reason: resubscribe
-    }).catch(() => setTimeout(run, 2000));
+    } catch (e) {
+      if (e.status >= 400 && e.status < 500 && e.status !== 401) throw e;  // a bad request stays bad
+    }
+    await new Promise(r => setTimeout(r, 1000));
+  }
 }
 run();
 ```
@@ -150,9 +170,9 @@ From the shell, `curl -N` shows the raw frames, and the CLI prints one JSON obje
 ```bash
 curl -N http://127.0.0.1:7001/v1/spaces/SPACE/objects/query/subscribe \
   -H 'Content-Type: application/json' \
-  -d '{"filter":{"any.types":"page"},"sort":["-modifiedAt"],"limit":20}'
+  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}'
 
-any query-subscribe SPACE --properties --filter '{"any.types":"page"}' --sort -modifiedAt --limit 20
+any query-subscribe SPACE --properties --filter '{"any.type":"page"}' --sort -modifiedAt --limit 20
 any query-subscribe SPACE CHAT --dataset chat_messages --sort -_ver.id --limit 50 --total \
   | jq 'select(.event=="changes") | .data[]'
 ```

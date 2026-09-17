@@ -19,11 +19,12 @@ POST /v1/catalog/general-chat/setup
         "installed": true|false, "typeId": "<chat object>", "miniapp": { ... } } ] }
 ```
 
-The install is a bundle whose root is its own type with a part that
-declares the `chat` module (`03-api.md` § Parts and modules), so the
-root holds `chat_messages` from the first write, and a `miniapp`
-carrier, so the chat shows in the space sidebar next to the other apps
-(`03-api.md` § Built-in hidden types). Use `rootId` as the
+The install is a bundle whose root declares its own type with a part
+that declares the `chat` module (`03-api.md` § Parts and modules) — a
+declaring root hosts its own records, so the root holds `chat_messages`
+from the first write — and is filed under the built-in `miniapp`
+collection, so the chat shows in the space sidebar next to the other
+apps (`03-api.md` § Collections). Use `rootId` as the
 `<objectId>` in every endpoint below. The call is adopt-or-install and
 idempotent: the first caller installs, every later caller — any
 member, any device, online or not — gets the same root, because the
@@ -42,9 +43,9 @@ Two consequences:
 - **There is no other chat.** The `chat` module is reserved to the
   server: a client part, dataset or bundle naming it is `400
   dataset.module_reserved`, and the general-chat root is the only
-  object that may carry its type — creating or attaching another
-  object with it is `400 type.reserved_carrier`. `POST /objects` never
-  makes a chat.
+  object that may hold its type — creating another object with it, or
+  setting it through `POST …/properties/:objectId/type/:typeId`, is
+  `400 type.reserved_carrier`. `POST /objects` never makes a chat.
 
 ## The model in four sentences
 
@@ -305,13 +306,17 @@ covers every chat:
 
 ```
 POST /v1/spaces/:spaceId/objects/query/subscribe
-{ "filter": {"any.types": {"$in": [<chat-declaring type ids>]}}, "limit": 0 }
+{ "filter": {"$or": [{"any.type": {"$in": [<chat-declaring type ids>]}},
+                     {"id":       {"$in": [<chat-declaring type ids>]}}]},
+  "limit": 0 }
 ```
 
-The type ids are the `owners` of `chat_messages` in
+The ids are the `owners` of `chat_messages` in
 `GET /v1/spaces/:spaceId/datasets` — every type in the space whose
 part declares the chat module; resolve them once per space (re-read
-when a part is added) and match per element of `any.types` with `$in`.
+when a part is added). Both arms are needed: an ordinary chat object
+names its type in `any.type`, while a declaring root — the general
+chat is one — hosts its own messages and matches by `id`.
 
 Each frame's `updated` entries carry the full row and the ops — watch
 for `chat.unreadCount` / `chat.unreadMentions` changes:

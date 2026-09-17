@@ -55,17 +55,16 @@ SPACE=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces \
 
 ## Objects and reads
 
-Object creation and the generic snapshot query are likewise `curl` calls; the CLI's read surface is the live one:
+`any object create` takes the one type (required) and any collections; the generic snapshot query is a `curl` call, and the CLI's read surface is the live one:
 
 ```bash
 # a document: an object carrying the built-in page type
-OBJ=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
-  -H 'content-type: application/json' \
-  -d '{"types":["page"],"initialProperties":{"any":{"name":"Reading list"}}}' | jq -r .objectId)
+OBJ=$(any object create $SPACE --type page \
+  --properties '{"any":{"name":"Reading list"}}' | jq -r .objectId)
 
-# cross-object live window: the space's objects collection
+# cross-object live window: the space's objects storage collection
 any query-subscribe $SPACE --properties \
-  --filter '{"any.types":"page"}' --sort='-modifiedAt' --limit 20 --total
+  --filter '{"any.type":"page"}' --sort='-modifiedAt' --limit 20 --total
 
 # per-object dataset: the blocks of one document
 any query-subscribe $SPACE $OBJ --dataset editor_blocks --sort nav.pos --limit 200
@@ -82,23 +81,25 @@ A `changes` batch omits the lists it has nothing for, hence the `?`. Cancel with
 
 ## Editor and chat
 
-The `editor` and `chat` modules have full CLI coverage. The space's one chat is the `general-chat` usecase's root, set up once per space:
+The `editor` and `chat` modules have full CLI coverage. `any editor edit` replaces text already in the rendered markdown, so the block goes in first. The space's one chat is the `general-chat` usecase's root, set up once per space:
 
 ```bash
-any editor edit $SPACE $OBJ --old '- [ ] Dune' --new '- [x] Dune'   # PATCH …/editor/editor_blocks/markdown
-any editor blocks create $SPACE $OBJ --type paragraph --text 'hello'
+any editor blocks create $SPACE $OBJ --type check_list_item --text 'Dune'   # renders as "- [ ] Dune"
+any editor edit $SPACE $OBJ --old '- [ ] Dune' --new '- [x] Dune'          # PATCH …/editor/editor_blocks/markdown
 
 CHAT=$(any catalog setup general-chat $SPACE | jq -r '.bundles[0].bundle.rootId')
-any chat send $SPACE $CHAT --text 'hi there'
-any query-subscribe $SPACE $CHAT --dataset chat_messages --sort='-_ver.id' --limit 50
+MSG=$(any chat send $SPACE $CHAT --text 'hi there' | jq -r '.recordIds[0]')
 any chat react $SPACE $CHAT $MSG 👍
+any query-subscribe $SPACE $CHAT --dataset chat_messages --sort='-_ver.id' --limit 50
 ```
 
 ## Everything else
 
 | Group | Commands |
 |-------|----------|
+| Objects | `any object create`, `any object type set`, `any object collection attach/detach` |
 | Types | `any type create/list/update`, `any type property list/add/patch/remove/option`, `any type part list/add/patch/remove`, `any type part dataset …` |
+| Collections | `any collection create/list/get/update`, `any collection property list/add/patch/remove` |
 | Apps | `any catalog list/get/setup`, `any bundle ensure/list/get/resolve/child` |
 | Data | `any aggregate`, `any upsert`, `any datasets`, `any search`, `any backlinks`, `any links`, `any local …` |
 | Sharing | `any members …`, `any invite …`, `any join --token …`, `any acl …`, `any one-to-one …` |
@@ -109,6 +110,6 @@ any chat react $SPACE $CHAT $MSG 👍
 
 The full surface is in the [CLI reference](../reference/cli.html).
 
-> **Note.** Endpoints without a CLI subcommand are deliberate, not missing: the CLI mirrors the API 1:1 where a flag surface makes sense, and defers to `curl` for bodies that are really JSON documents (object creation, ad-hoc snapshot queries, `/modify`).
+> **Note.** Endpoints without a CLI subcommand are deliberate, not missing: the CLI mirrors the API 1:1 where a flag surface makes sense, and defers to `curl` for bodies that are really JSON documents (ad-hoc snapshot queries, `/modify`).
 
 Next: drive the same API from [JavaScript](javascript.html) or [Python](python.html).

@@ -1,5 +1,7 @@
 package api
 
+import "encoding/json"
+
 // Search modes. Hybrid runs both legs and fuses by reciprocal rank;
 // fts / vector run one leg only.
 const (
@@ -39,6 +41,13 @@ type SearchRequest struct {
 	// the record's other chunks that ranked within the search window,
 	// not every chunk of the record.
 	Passages int `json:"passages,omitempty"`
+	// Filter keeps only hits whose host object matches this condition,
+	// in the /objects/query filter grammar verbatim (any.type,
+	// any.collections, <ownerId>.<propId>, modifiedAt, …), in every mode — like Require /
+	// Exclude. The object's live row is checked, so a property write is
+	// honored at once. Limit still counts matching records. An object
+	// with no row never matches.
+	Filter json.RawMessage `json:"filter,omitempty"`
 }
 
 // MaxSearchPassages caps SearchRequest.Passages.
@@ -102,8 +111,9 @@ const (
 	// VectorStatusDisabled: no embedder is configured on this server —
 	// vector search can never run until config changes.
 	VectorStatusDisabled = "disabled"
-	// VectorStatusSkipped: the caller asked for mode=fts, vector was
-	// not attempted (but is available on this server).
+	// VectorStatusSkipped: vector was not attempted although available
+	// on this server — the caller asked for mode=fts, or the Filter
+	// matched no object so no leg ran.
 	VectorStatusSkipped = "skipped"
 )
 
@@ -116,4 +126,10 @@ type SearchResponse struct {
 	// VectorStatus: used | unavailable | disabled | skipped — whether
 	// semantic recall participated in this response and, if not, why.
 	VectorStatus string `json:"vectorStatus"`
+	// Truncated is set when a leg's read budget under Filter ended and
+	// the page holds fewer than Limit records: the index may hold
+	// matches the reply cannot show. Absent without a filter. A Filter
+	// no object satisfies answers empty without running a leg
+	// (VectorStatus then reads skipped, or disabled without an embedder).
+	Truncated bool `json:"truncated,omitempty"`
 }

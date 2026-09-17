@@ -59,12 +59,17 @@ func buildEcho(d *deps) *echo.Echo {
 		// with (docs/08-clients.md § 14).
 		AllowHeaders: []string{echo.HeaderContentType, echo.HeaderAccept, "Range", api.ControlTokenHeader},
 	}))
-	// Global body cap for the JSON API. The one exemption is the file
-	// attach route — its raw body IS the file, streamed straight into
-	// the SDK without buffering, so a byte cap would truncate uploads.
+	// Global body cap for the JSON API. Two exemptions, both routes
+	// whose raw body IS a file streamed without buffering, so a byte
+	// cap would truncate it: file attach (into the SDK) and the local
+	// store import (into any-store, 256 documents per transaction).
 	e.Use(middleware.BodyLimitWithConfig(middleware.BodyLimitConfig{
 		Skipper: func(c echo.Context) bool {
-			return c.Path() == "/v1/spaces/:spaceId/objects/:objectId/files"
+			switch c.Path() {
+			case "/v1/spaces/:spaceId/objects/:objectId/files", "/v1/local/import":
+				return true
+			}
+			return false
 		},
 		Limit: "1M",
 	}))
@@ -197,7 +202,7 @@ func buildEcho(d *deps) *echo.Echo {
 	// sync. Consumer-side like /search and /events, account-scoped (a
 	// space-scoped collection is addressed in the body), so it sits
 	// outside the space group. 409 local.disabled when local.enabled is
-	// false (deps.local == nil). See docs/26-local-store.md.
+	// false (deps.local == nil).
 	registerLocalRoutes(v1, d)
 
 	// Account-wide push notifications: device-token registration and

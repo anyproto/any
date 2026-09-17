@@ -101,7 +101,7 @@ var latencyHTTP = &http.Client{}
 type latencyResult struct {
 	size       int
 	attach     time.Duration // Alice POST round-trip
-	durable    time.Duration // t0 → custody receipt on Alice ("≤ attach" when synchronous)
+	durable    time.Duration // t0 → custody receipt on Alice ("≤ attach" when born durable)
 	syncedRow  time.Duration // t0 → payload row materialized on Bob
 	content    time.Duration // t0 → byte-identical download completed on Bob
 	redownload time.Duration // second (locally cached) download on Bob
@@ -124,7 +124,7 @@ func TestE2E_MultipeerFileLatency(t *testing.T) {
 		`{"name":"file-latency"}`, http.StatusCreated, &sp)
 	var obj api.ObjectsCreateResponse
 	mustJSON(t, http.MethodPost, alice.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &obj)
+		`{"type":"page"}`, http.StatusCreated, &obj)
 
 	joinSpace(t, alice, bob, sp.Id, api.SpacePermissionReader)
 
@@ -200,7 +200,7 @@ func TestE2E_MultipeerFileLatency(t *testing.T) {
 
 		durCh := make(chan time.Duration, 1)
 		if info.Durable {
-			// Backup completed inside the attach request (or inline tier).
+			// Born durable: inline tier or deduplicated content.
 			durCh <- attachDur
 		} else {
 			go func() { durCh <- watchFrameFor(aliceStatus, info.FileId, api.FileStateDurable, t0, perFileDeadline) }()

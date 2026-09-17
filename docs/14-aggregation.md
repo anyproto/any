@@ -15,7 +15,7 @@ pipeline to refresh. For live windows over raw records use
 ## Endpoints
 
 ```
-POST /v1/spaces/:spaceId/objects/aggregate    cross-object — the per-space `objects` collection
+POST /v1/spaces/:spaceId/objects/aggregate    cross-object — the per-space `objects` storage collection
 POST /v1/spaces/:spaceId/aggregate            per-object dataset (objectId + dataset required)
 ```
 
@@ -50,7 +50,7 @@ returns and the skip stays in the index-planned prefix.
 `$expr` for expression predicates), `$sort`, `$skip`, `$limit`, `$count`,
 `$project`, `$addFields` / `$set`, `$unwind`, `$group`, `$facet`,
 `$lookup` (**self-join only**: omit `from`; `foreignField` is `id`, the
-primary key of the aggregated collection).
+primary key of the aggregated storage collection).
 
 `$out` and `$merge` are rejected with `aggregate.bad_pipeline` —
 `/aggregate` is a read surface; writes go through the CRDT.
@@ -150,7 +150,7 @@ Several rollups over one scan with `$facet`:
 
 ```json
 [
-  {"$match": {"any.types": "<typeId>"}},
+  {"$match": {"any.type": "<typeId>"}},
   {"$facet": {
     "total":  [{"$count": "n"}],
     "recent": [{"$sort": {"modifiedAt": -1}}, {"$limit": 5}]
@@ -172,7 +172,7 @@ optimizer). Everything after the prefix streams in Go. So:
 - An in-pipeline `$sort` directly followed by `$skip` / `$limit` keeps
   only the top `skip+limit` rows (O(K) memory).
 - `$text` and `$knn` clauses need a full-text / vector index, and no
-  space collection carries one: they answer `aggregate.bad_pipeline`.
+  space storage collection carries one: they answer `aggregate.bad_pipeline`.
   Full-text and semantic search is `POST …/search` (`docs/13-index.md`).
 
 `"explain": true` shows the split (`Pushdown: filter=… sort limit=…` plus
@@ -206,9 +206,9 @@ unless listed here. The two most common surprises first:
 | Compute operators | full library | **the closed set listed under Stages** — no type conversions, no `$map` / `$filter` / `$reduce` |
 | Runtime type errors | query error | `null` (a non-numeric arithmetic operand, a non-string string operand, division by zero, a non-instant date operand) |
 | Date operator parameters | may be expressions | `unit` / `timezone` / `startOfWeek` / `binSize` must be literals |
-| `$lookup` | joins any collection | **self-join only** — omit `from`; `foreignField` must be `id` |
+| `$lookup` | joins any storage collection | **self-join only** — omit `from`; `foreignField` must be `id` |
 | `$bucket` / `$bucketAuto` / `$replaceRoot` / `$sortByCount` / `$unionWith` | yes | not supported |
-| `$out` / `$merge` | write the result into a collection | rejected (`aggregate.bad_pipeline`) — `/aggregate` is read-only |
+| `$out` / `$merge` | write the result into a storage collection | rejected (`aggregate.bad_pipeline`) — `/aggregate` is read-only |
 | `$project` | implicit `_id`, exclusion mode (`{"a": 0}`) | **strictly explicit** — only listed fields appear, `id` included only if listed; exclusion not supported |
 | Numbers | int / long / double / decimal | **IEEE 754 float64 only** — `$sum` / `$avg` are float arithmetic, integer precision ends at 2^53 |
 | `$group` key equality | type-aware, field-order-insensitive documents | **byte equality** of the canonical encoding — object keys are field-order-sensitive |
@@ -216,7 +216,7 @@ unless listed here. The two most common surprises first:
 | `$sort` stability | not guaranteed | stable |
 | `$group` output order | unspecified | first-seen scan order — still add `$sort` |
 | Dotted output names (`{"a.b": …}`) | allowed | rejected |
-| `$text` | anywhere | unavailable — no space collection has a full-text index |
+| `$text` | anywhere | unavailable — no space storage collection has a full-text index |
 | Memory | spills to disk with `allowDiskUse` | hard budget, `aggregate.limit_exceeded` — no spill |
 
 ## Errors
@@ -236,7 +236,7 @@ Standard envelope, see `docs/06-errors.md`.
 
 ```
 any aggregate <spaceId> <objectId> --dataset NAME --pipeline '<json>'   # per-object dataset
-any aggregate <spaceId> --properties --pipeline '<json>'               # objects collection
+any aggregate <spaceId> --properties --pipeline '<json>'               # objects storage collection
 ```
 
 `--pipeline` takes inline JSON, `@FILE`, or `-` for stdin. Optional:

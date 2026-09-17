@@ -32,7 +32,7 @@ The payload row is deleted in one synced change, so the file disappears from `GE
 
 Locally, pending background work for the file — backup, pin — is cancelled and the content reference is released. The bytes themselves are reclaimed by [cache](cache.html) garbage collection: the safety sweep deletes the CAR once it is unreferenced past a grace period, so a deletion never races a sync that is still settling. Content shared with a surviving file through per-space deduplication keeps its bytes.
 
-The **network copy is not reclaimed**. The file protocol has no delete RPC yet; the broker's row-driven accounting stops counting the row once the deletion syncs, and network-side reclamation is a roadmap item.
+The **network copy is not reclaimed**: the file protocol has no delete RPC. The broker's row-driven accounting stops counting the row once the deletion syncs.
 
 ## Watching a deletion land
 
@@ -51,7 +51,7 @@ data: [{ "versionId": "…", "removed": [{ "id": "<fileId>", "reason": "deleted"
 Only `reason: "deleted"` means the file is gone; `"displaced"` means it merely left the window's limit. Drop the row from your view and, if the deleted file had variants, expect their ids to follow. Without a subscription, a `GET …/files?objectId=` after the deletion syncs simply no longer lists the file, and the per-space `GET …/files/stats` counts drop accordingly.
 
 ```bash
-any file query-subscribe $SP $OBJ --limit 50     # one JSON line per frame
+any file query-subscribe $SP $OBJ --sort=-_ver.id --limit 50     # one JSON line per frame
 any file list $SP --object $OBJ
 ```
 

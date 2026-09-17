@@ -56,8 +56,21 @@ func propertiesRecord(t *testing.T, e http.Handler, spaceId, objectId string) ma
 	return resp.Record
 }
 
+// collectionsById reads GET …/collections (with the given query string)
+// into a map keyed by collection id.
+func collectionsById(t *testing.T, e http.Handler, base, q string) map[string]api.CollectionInfo {
+	t.Helper()
+	var list api.CollectionsListResponse
+	decodeGet(t, e, base+"/collections"+q, &list)
+	out := make(map[string]api.CollectionInfo, len(list.Collections))
+	for _, ci := range list.Collections {
+		out[ci.Id] = ci
+	}
+	return out
+}
+
 // TestServer_BuiltinTypesHidden pins the listing contract shared by the
-// hidden built-ins: out of the default picker listing, present
+// hidden built-in TYPES: out of the default picker listing, present
 // with includeHidden as hidden built-ins whose xKey is their id,
 // resolvable by GET, and reserved against user types.
 func TestServer_BuiltinTypesHidden(t *testing.T) {
@@ -70,7 +83,7 @@ func TestServer_BuiltinTypesHidden(t *testing.T) {
 	visible := typesById(t, e, base, "")
 	all := typesById(t, e, base, "?includeHidden=true")
 
-	for _, id := range []string{page.TypeId, miniapp.TypeId, bin.TypeId, dataview.TypeId} {
+	for _, id := range []string{page.TypeId, dataview.TypeId} {
 		if _, listed := visible[id]; listed {
 			t.Errorf("%s listed by default", id)
 		}
@@ -95,6 +108,59 @@ func TestServer_BuiltinTypesHidden(t *testing.T) {
 			t.Errorf("add part on %s: %d %s, want 400", id, rec.Code, rec.Body.String())
 		} else {
 			assertErrorCode(t, rec, "type.registered")
+		}
+	}
+}
+
+// The same contract for the hidden built-in COLLECTIONS: they live on
+// the collections surface, the types surface refuses them, and their
+// handles are reserved against both.
+func TestServer_BuiltinCollectionsHidden(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	sp := createSpaceInfo(t, e, "HiddenCollections")
+	base := "/v1/spaces/" + sp.Id
+	visible := collectionsById(t, e, base, "")
+	all := collectionsById(t, e, base, "?includeHidden=true")
+
+	for _, id := range []string{miniapp.Id, bin.Id} {
+		if _, listed := visible[id]; listed {
+			t.Errorf("%s listed by default", id)
+		}
+		ci, ok := all[id]
+		if !ok || !ci.Hidden || !ci.BuiltIn || ci.XKey != id {
+			t.Errorf("%s includeHidden row = %+v (ok=%v), want hidden built-in with xKey == id", id, ci, ok)
+		}
+		var got api.CollectionInfo
+		decodeGet(t, e, base+"/collections/"+id, &got)
+		if got.Id != id || !got.Hidden {
+			t.Errorf("GET %s = %+v", id, got)
+		}
+		// It is not a type, and it never lands in GET …/types.
+		if _, listed := typesById(t, e, base, "?includeHidden=true")[id]; listed {
+			t.Errorf("%s listed among the types", id)
+		}
+		rec := doJSON(t, e, http.MethodGet, base+"/types/"+id, "")
+		if rec.Code != http.StatusBadRequest && rec.Code != http.StatusNotFound {
+			t.Errorf("GET types/%s: %d %s, want a 4xx", id, rec.Code, rec.Body.String())
+		}
+		// The handle is reserved on BOTH surfaces.
+		for _, path := range []string{base + "/types", base + "/collections"} {
+			rec = doJSON(t, e, http.MethodPost, path, `{"name":"Mine","xKey":"`+id+`"}`)
+			if rec.Code != http.StatusConflict {
+				t.Errorf("POST %s with xKey %q: %d %s, want 409", path, id, rec.Code, rec.Body.String())
+			} else {
+				assertErrorCode(t, rec, "type.xkey_conflict")
+			}
+		}
+		// Registered: the metadata is statically declared.
+		rec = doJSON(t, e, http.MethodPatch, base+"/collections/"+id, `{"name":"Renamed"}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("patch %s: %d %s, want 400", id, rec.Code, rec.Body.String())
+		} else {
+			assertErrorCode(t, rec, "collection.registered")
 		}
 	}
 }
@@ -143,7 +209,7 @@ func TestServer_PageType(t *testing.T) {
 	}
 
 	// The write gate follows the declaration.
-	obj := mustCreateObject(t, e, sp.Id, `{"types":["`+page.TypeId+`"],"initialProperties":{"any":{"name":"Doc"}}}`)
+	obj := mustCreateObject(t, e, sp.Id, `{"type":"`+page.TypeId+`","initialProperties":{"any":{"name":"Doc"}}}`)
 	objBase := base + "/objects/" + obj
 	b := blocksCreate(t, e, objBase, `{"type":"paragraph","text":"hello"}`)
 	if b.Text != "hello" {
@@ -156,43 +222,42 @@ func TestServer_PageType(t *testing.T) {
 		t.Errorf("markdown = %q", got)
 	}
 
-	bare := mustCreateObject(t, e, sp.Id, `{}`)
+	bare := mustCreateObject(t, e, sp.Id, `{"type":"`+plainType(t, e, sp.Id)+`"}`)
 	rec := doJSON(t, e, http.MethodPost, base+"/objects/"+bare+"/editor/editor_blocks/blocks", `{"type":"paragraph","text":"no"}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("block write without page: %d %s, want 400", rec.Code, rec.Body.String())
 	}
 	assertErrorCode(t, rec, "dataset.not_declared")
 
-	// Attaching page later admits the same writes.
-	rec = doJSON(t, e, http.MethodPost, base+"/properties/"+bare+"/attach/"+page.TypeId, "")
+	// Setting page later admits the same writes.
+	rec = doJSON(t, e, http.MethodPost, base+"/properties/"+bare+"/type/"+page.TypeId, "")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("attach page: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("set page: %d %s", rec.Code, rec.Body.String())
 	}
-	blocksCreate(t, e, base+"/objects/"+bare, `{"type":"paragraph","text":"now"}`)
+	bareBase := base + "/objects/" + bare
+	blocksCreate(t, e, bareBase, `{"type":"paragraph","text":"now"}`)
 
-	// page and a user document type on one object share the canonical
-	// collection: one body, whichever type's part admitted the write,
-	// and detaching page leaves the body to the other type.
+	// page and a user document type share the canonical collection, so
+	// retyping from one to the other keeps the SAME body: whichever
+	// type's part admits the write, there is one editor_blocks.
 	userDoc := installModuleType(t, e, sp.Id, editor.Module)
-	both := mustCreateObject(t, e, sp.Id, `{"types":["`+page.TypeId+`","`+userDoc+`"]}`)
-	bothBase := base + "/objects/" + both
-	blocksCreate(t, e, bothBase, `{"type":"paragraph","text":"one"}`)
-	blocksCreate(t, e, bothBase, `{"type":"paragraph","text":"two"}`)
-	if got := len(blocksList(t, e, bothBase).Records); got != 2 {
-		t.Errorf("blocks on a page+user-typed object = %d, want 2 in one body", got)
-	}
-	rec = doJSON(t, e, http.MethodPost, base+"/properties/"+both+"/detach/"+page.TypeId, "")
+	rec = doJSON(t, e, http.MethodPost, base+"/properties/"+bare+"/type/"+userDoc, "")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("detach page: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("retype to the user document type: %d %s", rec.Code, rec.Body.String())
 	}
-	if got := getMarkdown(t, e, bothBase+"/editor/editor_blocks/markdown"); got != "one\n\ntwo" {
-		t.Errorf("body after detaching page = %q, want it intact under the user type", got)
+	blocksCreate(t, e, bareBase, `{"type":"paragraph","text":"then"}`)
+	if got := len(blocksList(t, e, bareBase).Records); got != 2 {
+		t.Errorf("blocks after the retype = %d, want 2 in one body", got)
+	}
+	if got := getMarkdown(t, e, bareBase+"/editor/editor_blocks/markdown"); got != "now\n\nthen" {
+		t.Errorf("body after the retype = %q, want it intact under the user type", got)
 	}
 }
 
-// TestServer_MiniappType pins the built-in mini-app marker: `bundle`
-// (string), `pos` (string) and `hidden` (bool), writable on a carrier
-// through the generic properties surface and refused elsewhere.
+// TestServer_MiniappType pins the built-in mini-app marker — a
+// COLLECTION: `bundle` (string), `pos` (string) and `hidden` (bool),
+// writable on a member through the generic properties surface and
+// refused elsewhere.
 func TestServer_MiniappType(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -202,7 +267,7 @@ func TestServer_MiniappType(t *testing.T) {
 	base := "/v1/spaces/" + sp.Id
 
 	var props api.PropertiesListResponse
-	decodeGet(t, e, base+"/types/"+miniapp.TypeId+"/properties", &props)
+	decodeGet(t, e, base+"/collections/"+miniapp.Id+"/properties", &props)
 	kinds := map[string]string{}
 	for _, p := range props.Properties {
 		kinds[p.Id] = string(p.Kind)
@@ -216,22 +281,21 @@ func TestServer_MiniappType(t *testing.T) {
 			t.Fatalf("miniapp property %s kind = %q, want %q", id, kinds[id], k)
 		}
 	}
-	var parts api.TypePartsListResponse
-	decodeGet(t, e, base+"/types/"+miniapp.TypeId+"/parts", &parts)
-	if len(parts.Parts) != 0 {
-		t.Errorf("miniapp parts = %+v, want none", parts.Parts)
+	// A collection has no parts, so the type route refuses the id.
+	if rec := doJSON(t, e, http.MethodGet, base+"/types/"+miniapp.Id+"/parts", ""); rec.Code == http.StatusOK {
+		t.Errorf("miniapp answered the type parts route: %s", rec.Body.String())
 	}
 
-	obj := mustCreateObject(t, e, sp.Id, `{"types":["`+miniapp.TypeId+`"]}`)
-	setURL := fmt.Sprintf("%s/properties/%s/set/%s", base, obj, miniapp.TypeId)
+	obj := mustCreateObject(t, e, sp.Id, `{"type":"`+page.TypeId+`","collections":["`+miniapp.Id+`"]}`)
+	setURL := fmt.Sprintf("%s/properties/%s/set/%s", base, obj, miniapp.Id)
 	rec := doJSON(t, e, http.MethodPost, setURL, `{"patch":{"bundle":"system:wiki/v1"}}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("set bundle: %d %s", rec.Code, rec.Body.String())
 	}
 	row := propertiesRecord(t, e, sp.Id, obj)
-	ns, _ := row[miniapp.TypeId].(map[string]any)
+	ns, _ := row[miniapp.Id].(map[string]any)
 	if ns[miniapp.PropBundle] != "system:wiki/v1" {
-		t.Errorf("miniapp namespace = %v", row[miniapp.TypeId])
+		t.Errorf("miniapp namespace = %v", row[miniapp.Id])
 	}
 	if rec := doJSON(t, e, http.MethodPost, setURL, `{"patch":{"bundle":42}}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("number into a string property: %d %s, want 400", rec.Code, rec.Body.String())
@@ -242,17 +306,17 @@ func TestServer_MiniappType(t *testing.T) {
 		t.Errorf("undeclared property: %d %s, want 400", rec.Code, rec.Body.String())
 	}
 
-	bare := mustCreateObject(t, e, sp.Id, `{}`)
-	rec = doJSON(t, e, http.MethodPost, fmt.Sprintf("%s/properties/%s/set/%s", base, bare, miniapp.TypeId), `{"patch":{"bundle":"system:wiki/v1"}}`)
+	bare := mustCreateObject(t, e, sp.Id, `{"type":"`+page.TypeId+`"}`)
+	rec = doJSON(t, e, http.MethodPost, fmt.Sprintf("%s/properties/%s/set/%s", base, bare, miniapp.Id), `{"patch":{"bundle":"system:wiki/v1"}}`)
 	if rec.Code != http.StatusBadRequest {
-		t.Errorf("set on a non-carrier: %d %s, want 400", rec.Code, rec.Body.String())
+		t.Errorf("set on a non-member: %d %s, want 400", rec.Code, rec.Body.String())
 	}
 }
 
-// TestServer_BinMoveRestore pins move-to-bin over the plain attach /
-// detach routes: attach adds the type AND stamps movedAt / movedBy in
-// one change, detach removes the type and clears both, and the stamps
-// name this account and a fresh instant every time.
+// TestServer_BinMoveRestore pins move-to-bin over the plain collection
+// routes: the POST files the object under `bin` AND stamps movedAt /
+// movedBy in one change, the DELETE removes it and clears both, and the
+// stamps name this account and a fresh instant every time.
 func TestServer_BinMoveRestore(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -264,7 +328,7 @@ func TestServer_BinMoveRestore(t *testing.T) {
 	decodeGet(t, e, "/v1/account", &acc)
 
 	var props api.PropertiesListResponse
-	decodeGet(t, e, base+"/types/"+bin.TypeId+"/properties", &props)
+	decodeGet(t, e, base+"/collections/"+bin.Id+"/properties", &props)
 	kinds := map[string]string{}
 	for _, p := range props.Properties {
 		kinds[p.Id] = p.Kind
@@ -273,17 +337,16 @@ func TestServer_BinMoveRestore(t *testing.T) {
 		t.Fatalf("bin properties = %+v", props.Properties)
 	}
 
-	obj := mustCreateObject(t, e, sp.Id, `{"initialProperties":{"any":{"name":"Trash me"}}}`)
-	attachURL := fmt.Sprintf("%s/properties/%s/attach/%s", base, obj, bin.TypeId)
-	detachURL := fmt.Sprintf("%s/properties/%s/detach/%s", base, obj, bin.TypeId)
+	obj := mustCreateObject(t, e, sp.Id, `{"type":"`+page.TypeId+`","initialProperties":{"any":{"name":"Trash me"}}}`)
+	binURL := fmt.Sprintf("%s/properties/%s/collections/%s", base, obj, bin.Id)
 
 	// stamps reads the bin namespace: (movedAt, movedBy, present). A
 	// restored row carries NO `bin` key at all — an empty `bin: {}` would
-	// read as a carrier to a client testing the key.
+	// read as a member to a client testing the key.
 	stamps := func() (time.Time, string, bool) {
 		t.Helper()
 		row := propertiesRecord(t, e, sp.Id, obj)
-		nsRaw, hasNs := row[bin.TypeId]
+		nsRaw, hasNs := row[bin.Id]
 		if !hasNs {
 			return time.Time{}, "", false
 		}
@@ -302,7 +365,7 @@ func TestServer_BinMoveRestore(t *testing.T) {
 	}
 
 	before := time.Now().Add(-time.Minute)
-	rec := doJSON(t, e, http.MethodPost, attachURL, "")
+	rec := doJSON(t, e, http.MethodPost, binURL, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("move to bin: %d %s", rec.Code, rec.Body.String())
 	}
@@ -310,8 +373,8 @@ func TestServer_BinMoveRestore(t *testing.T) {
 	if res.ChangeId == "" || res.VersionId == "" {
 		t.Errorf("move result = %+v, want a change", res)
 	}
-	if types := objectTypes(t, e, sp.Id, obj); !hasType(types, bin.TypeId) {
-		t.Fatalf("bin not attached: %v", types)
+	if cols := objectCollections(t, e, sp.Id, obj); !slices.Contains(cols, bin.Id) {
+		t.Fatalf("bin not attached: %v", cols)
 	}
 	first, by, ok := stamps()
 	if !ok {
@@ -329,7 +392,7 @@ func TestServer_BinMoveRestore(t *testing.T) {
 		t.Errorf("row lacks modifiedAt after the move: %v", row)
 	}
 
-	// Carriers are what clients filter out of ordinary lists.
+	// Members are what clients filter out of ordinary lists.
 	query := func(filter string) []json.RawMessage {
 		t.Helper()
 		rec := doJSON(t, e, http.MethodPost, base+"/objects/query", `{"filter":`+filter+`,"limit":10}`)
@@ -342,47 +405,47 @@ func TestServer_BinMoveRestore(t *testing.T) {
 		}
 		return resp.Records
 	}
-	if got := query(`{"any.types":"` + bin.TypeId + `"}`); len(got) != 1 {
-		t.Errorf("carriers of bin = %d, want 1", len(got))
+	if got := query(`{"any.collections":"` + bin.Id + `"}`); len(got) != 1 {
+		t.Errorf("members of bin = %d, want 1", len(got))
 	}
-	if got := query(`{"id":"` + obj + `","any.types":{"$nin":["` + bin.TypeId + `"]}}`); len(got) != 0 {
+	if got := query(`{"id":"` + obj + `","any.collections":{"$nin":["` + bin.Id + `"]}}`); len(got) != 0 {
 		t.Errorf("$nin bin still lists the binned object: %s", got)
 	}
 
 	// Idempotent: a second move keeps one membership entry and re-stamps.
-	rec = doJSON(t, e, http.MethodPost, attachURL, "")
+	rec = doJSON(t, e, http.MethodPost, binURL, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("second move: %d %s", rec.Code, rec.Body.String())
 	}
-	if types := objectTypes(t, e, sp.Id, obj); countOf(types, bin.TypeId) != 1 {
-		t.Errorf("bin listed %d times after the second move: %v", countOf(types, bin.TypeId), types)
+	if cols := objectCollections(t, e, sp.Id, obj); countOf(cols, bin.Id) != 1 {
+		t.Errorf("bin listed %d times after the second move: %v", countOf(cols, bin.Id), cols)
 	}
 	second, _, ok := stamps()
 	if !ok || second.Before(first) {
 		t.Errorf("second move stamps = (%v, %v), want a fresh instant >= %v", second, ok, first)
 	}
 
-	// Restore: the type goes, and so do both stamps.
-	rec = doJSON(t, e, http.MethodPost, detachURL, "")
+	// Restore: the membership goes, and so do both stamps.
+	rec = doJSON(t, e, http.MethodDelete, binURL, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("restore: %d %s", rec.Code, rec.Body.String())
 	}
-	if types := objectTypes(t, e, sp.Id, obj); hasType(types, bin.TypeId) {
-		t.Errorf("bin still attached after restore: %v", types)
+	if cols := objectCollections(t, e, sp.Id, obj); slices.Contains(cols, bin.Id) {
+		t.Errorf("bin still attached after restore: %v", cols)
 	}
 	if _, _, ok := stamps(); ok {
-		t.Errorf("stamps survive the restore: %v", propertiesRecord(t, e, sp.Id, obj)[bin.TypeId])
+		t.Errorf("stamps survive the restore: %v", propertiesRecord(t, e, sp.Id, obj)[bin.Id])
 	}
-	if got := query(`{"id":"` + obj + `","any.types":{"$nin":["` + bin.TypeId + `"]}}`); len(got) != 1 {
+	if got := query(`{"id":"` + obj + `","any.collections":{"$nin":["` + bin.Id + `"]}}`); len(got) != 1 {
 		t.Errorf("restored object missing from the $nin list")
 	}
 	// Restore is idempotent too.
-	if rec := doJSON(t, e, http.MethodPost, detachURL, ""); rec.Code != http.StatusOK {
+	if rec := doJSON(t, e, http.MethodDelete, binURL, ""); rec.Code != http.StatusOK {
 		t.Errorf("second restore: %d %s", rec.Code, rec.Body.String())
 	}
 
 	// Moving again stamps afresh — nothing stale leaks from the first move.
-	rec = doJSON(t, e, http.MethodPost, attachURL, "")
+	rec = doJSON(t, e, http.MethodPost, binURL, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("third move: %d %s", rec.Code, rec.Body.String())
 	}
@@ -391,19 +454,19 @@ func TestServer_BinMoveRestore(t *testing.T) {
 	}
 
 	// Unknown object: the generic 404, no partial write.
-	rec = doJSON(t, e, http.MethodPost, fmt.Sprintf("%s/properties/%s/attach/%s", base, "not-an-object", bin.TypeId), "")
+	rec = doJSON(t, e, http.MethodPost, fmt.Sprintf("%s/properties/%s/collections/%s", base, "not-an-object", bin.Id), "")
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("move a bogus id: %d %s, want 404", rec.Code, rec.Body.String())
 	}
 
 	// Restore on an object that was never binned is a no-op 200 and
 	// leaves no `bin` key behind.
-	never := mustCreateObject(t, e, sp.Id, `{}`)
-	rec = doJSON(t, e, http.MethodPost, fmt.Sprintf("%s/properties/%s/detach/%s", base, never, bin.TypeId), "")
+	never := mustCreateObject(t, e, sp.Id, `{"type":"`+page.TypeId+`"}`)
+	rec = doJSON(t, e, http.MethodDelete, fmt.Sprintf("%s/properties/%s/collections/%s", base, never, bin.Id), "")
 	if rec.Code != http.StatusOK {
 		t.Errorf("restore a never-binned object: %d %s", rec.Code, rec.Body.String())
 	}
-	if row := propertiesRecord(t, e, sp.Id, never); row[bin.TypeId] != nil || hasType(objectTypes(t, e, sp.Id, never), bin.TypeId) {
-		t.Errorf("never-binned object gained a bin namespace: %v", row[bin.TypeId])
+	if row := propertiesRecord(t, e, sp.Id, never); row[bin.Id] != nil || slices.Contains(objectCollections(t, e, sp.Id, never), bin.Id) {
+		t.Errorf("never-binned object gained a bin namespace: %v", row[bin.Id])
 	}
 }

@@ -37,7 +37,7 @@ A document is an object carrying a type whose part declares the `editor` module 
 
 ```python
 obj = call("POST", f"/spaces/{SPACE}/objects", {
-    "types": ["page"],
+    "type": "page",
     "initialProperties": {"any": {"name": "Reading list"}},
 })
 OBJ = obj["objectId"]
@@ -47,7 +47,7 @@ OBJ = obj["objectId"]
 
 ```python
 page = call("POST", f"/spaces/{SPACE}/objects/query", {
-    "filter": {"any.types": "page"},
+    "filter": {"any.type": "page"},
     "sort": ["-modifiedAt"],
     "limit": 20,
     "includeTotal": True,
@@ -88,7 +88,7 @@ def sse(path, body):
 window = {}                                           # id → record
 
 for event, data in sse(f"/spaces/{SPACE}/objects/query/subscribe",
-                       {"filter": {"any.types": "page"}, "sort": ["-modifiedAt"], "limit": 20}):
+                       {"filter": {"any.type": "page"}, "sort": ["-modifiedAt"], "limit": 20}):
     if event == "ready":
         continue
     if event == "snapshot":
@@ -126,14 +126,15 @@ msgs = call("POST", f"/spaces/{SPACE}/query", {
 })
 ```
 
-Page history with an absolute cursor rather than `offset`, which floats under writes:
+Page history with an absolute cursor rather than `offset`, which floats under writes. The cursor is the oldest record on the current page, so an empty page has nothing older:
 
 ```python
-older = call("POST", f"/spaces/{SPACE}/query", {
-    "objectId": CHAT, "dataset": "chat_messages",
-    "sort": ["-_ver.id"], "limit": 50,
-    "filter": {"_ver.id": {"$lt": msgs["records"][-1]["_ver"]["id"]}},
-})
+if msgs["records"]:
+    older = call("POST", f"/spaces/{SPACE}/query", {
+        "objectId": CHAT, "dataset": "chat_messages",
+        "sort": ["-_ver.id"], "limit": 50,
+        "filter": {"_ver.id": {"$lt": msgs["records"][-1]["_ver"]["id"]}},
+    })
 ```
 
 ## Writes

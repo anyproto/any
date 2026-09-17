@@ -9,7 +9,7 @@ A dataset is a table inside one object. Where properties give an object a handfu
 
 ## Many objects, or many records?
 
-You already know one way to hold many things: [Part 2](properties.html) stored each credential as its own object, one row each in the space-wide `objects` collection, all carrying the same type. A dataset is the other way: **one** object, and the many things as records in a table that object owns.
+You already know one way to hold many things: [Part 2](properties.html) stored each credential as its own object, one row each in the space-wide `objects` storage collection, all of the same type. A dataset is the other way: **one** object, and the many things as records in a table that object owns.
 
 ```
  many objects, one type                    one object, one dataset
@@ -26,15 +26,15 @@ Both are read, subscribed to and synced the same way. They differ in what a row 
 
 | | An object with properties | A record in a dataset |
 |---|---|---|
-| Lives in | the space-wide `objects` collection | a collection owned by one object |
+| Lives in | the space-wide `objects` storage collection | a storage collection owned by one object |
 | Query scope | the whole space — every object, any mix of types | that one object's records |
 | Id | minted by the server | chosen by you (`idRule: user`) or derived from the change |
-| Shape | the columns of every type it carries; can carry several | one schema, declared once |
+| Shape | its one type's columns, plus one group per collection it is filed under | one schema, declared once |
 | Rules | kind and format checks on values | required fields, write-once fields, server stamps, author-only delete |
 | Cost of many | one change per object | one change per page of 500 records |
 | Bulk import | one create per object | `/upsert` — safe to re-run, unchanged records skipped |
 
-The rule of thumb: a thing that stands on its own — that you would open, show in a list next to unrelated things, or give more than one type — is an object. Things that belong to one object and are read together as one list — the messages of a mailbox, the rows of a ledger, the entries of a log — are records in a dataset on that object. The test that settles most cases is the query you will need: "every credential in the space" is an objects filter; "every unread message in this inbox" is a dataset query. A dataset never answers across objects, and the objects collection never gives you a schema-enforced table.
+The rule of thumb: a thing that stands on its own — that you would open, show in a list next to unrelated things, or file under a collection — is an object. Things that belong to one object and are read together as one list — the messages of a mailbox, the rows of a ledger, the entries of a log — are records in a dataset on that object. The test that settles most cases is the query you will need: "every credential in the space" is an objects filter; "every unread message in this inbox" is a dataset query. A dataset never answers across objects, and the `objects` storage collection never gives you a schema-enforced table.
 
 ## Declare the dataset on a type
 
@@ -68,7 +68,7 @@ What the declaration says:
 
 | Piece | Meaning |
 |-------|---------|
-| `key: messages` | The dataset's slug inside the type. Its records live in the collection **`<typeId>_messages`** — namespaced to the type, so another type's `messages` never collides. |
+| `key: messages` | The dataset's slug inside the type. Its records live in the storage collection **`<typeId>_messages`** — namespaced to the type, so another type's `messages` never collides. |
 | `idRule: user` | You supply record ids — here the mailbox's IMAP uid. Ids match `[A-Za-z0-9._:-]+` up to 128 bytes unless the declaration sets `idPattern` / `idMaxLen`. The alternative, `auto`, derives ids from the change. |
 | `required` | Must be present on create; an email without a subject is rejected on every peer. |
 | `mutableBy: any` | `read` and `labels` can be edited after creation. A field without it is **write-once** — subject, sender and body are immutable once imported. |
@@ -79,11 +79,11 @@ The rules travel with the data: a second device, an offline peer and a member on
 
 ## Create the mailbox
 
-The object must carry the declaring type — no write attaches one for you:
+The object's type must be the declaring one — no write sets it for you:
 
 ```bash
 INBOX=$(curl -s -X POST $API/spaces/$SPACE/objects -H 'content-type: application/json' \
-  -d '{"types": ["'$MAILBOX'"], "initialProperties": {"any": {"name": "Inbox"}}}' | jq -r .objectId)
+  -d '{"type": "'$MAILBOX'", "initialProperties": {"any": {"name": "Inbox"}}}' | jq -r .objectId)
 DS=${MAILBOX}_messages
 ```
 
@@ -125,7 +125,7 @@ The same op against `subject` is refused: write-once.
 
 ## Read it like a mailbox
 
-Dataset reads are the per-object query with the collection name. Newest first, one screen at a time:
+Dataset reads are the per-object query with the storage collection name. Newest first, one screen at a time:
 
 ```bash
 curl -s -X POST $API/spaces/$SPACE/query -H 'content-type: application/json' -d '{
@@ -136,7 +136,7 @@ curl -s -X POST $API/spaces/$SPACE/query -H 'content-type: application/json' -d 
 
 `…/query/subscribe` with the same body is the live inbox: a snapshot of the window, then `added` / `updated` / `removed` frames as messages arrive or get marked read — on this device or any other. A `limit` on a subscription requires a `sort`, because a live window has to be ordered ([Subscribe](../realtime/subscribe.html)).
 
-> **Note.** A dataset is *per object*. "All unread mail across every mailbox in the space" is not one query — the space-wide collection is `objects` only. Model what you read together as one dataset on one object; a second mailbox is a second object with its own collection.
+> **Note.** A dataset is *per object*. "All unread mail across every mailbox in the space" is not one query — the space-wide storage collection is `objects` only. Model what you read together as one dataset on one object; a second mailbox is a second object with its own storage collection.
 
 ## Search it
 
@@ -174,6 +174,6 @@ The group key comes back as `id`. Snapshot only — re-run to refresh ([Aggregat
 
 You have a type whose objects carry a table: a declared, enforced schema; ids you own; an import safe to repeat; paging, liveness, search and aggregation. The mailbox works — for a client that already knows what a mailbox is.
 
-That is the gap. The type says *messages* is a part with a `table` widget, but nothing yet says how a mailbox object should be laid out, what to show when it opens, whether it has a notes body, or where it appears in the space. And if you set the type up on two devices while they were apart, each minted its own `mailbox`. The last part closes both gaps: parts and modules give the object behaviour it inherits rather than implements, a bundle makes every device converge on one definition, and a `miniapp` marker puts it in the sidebar next to the apps the catalog installs.
+That is the gap. The type says *messages* is a part with a `table` widget, but nothing yet says how a mailbox object should be laid out, what to show when it opens, whether it has a notes body, or where it appears in the space. And if you set the type up on two devices while they were apart, each minted its own `mailbox`. The last part closes both gaps: parts and modules give the object behaviour it inherits rather than implements, a bundle makes every device converge on one definition, and filing the root under `miniapp` puts it in the sidebar next to the apps the catalog installs.
 
 Next: [4. Apps](apps.html). Reference: [Runtime datasets](../database/runtime-datasets.html), [Data model](../database/data-model.html).

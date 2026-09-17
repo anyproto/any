@@ -25,7 +25,7 @@ When an object's controller is built, it reads the stored `dataset → version` 
 load object
   1. capture local-scope values        (they never entered the DAG; nothing could replay them)
   2. rewind the addSeq watermark to 0  and persist it together with the captured leaves
-  3. wipe the object's rows            its row in shared collections, its per-object collections,
+  3. wipe the object's rows            its row in shared storage collections, its per-object ones,
                                        its history rows
   4. replay the whole tree             every change, through the CURRENT handlers
   5. restore the local values, stamp the current versions, clear the in-flight mark
@@ -36,12 +36,12 @@ The compare is per `(object, dataset)`; the wipe and replay are per object, beca
 Properties of the mechanism:
 
 - **Lazy, per object.** The rebuild rides object load — the cold-restore path that opens the tree anyway — so startup stays flat and objects nobody opens cost nothing until they are opened.
-- **Converged by a background sweep.** Lazy alone would leave the `objects` collection mixing rows built by the old handler with rows built by the new one for as long as some object stayed unopened, and a sort or filter over a rebuilt field would read both shapes. When a space store starts, a paced sweep scans `_meta` for stale objects and loads them. Nothing waits on it; a store with nothing stale pays one scan.
+- **Converged by a background sweep.** Lazy alone would leave the `objects` storage collection mixing rows built by the old handler with rows built by the new one for as long as some object stayed unopened, and a sort or filter over a rebuilt field would read both shapes. When a space store starts, a paced sweep scans `_meta` for stale objects and loads them. Nothing waits on it; a store with nothing stale pays one scan.
 - **Crash-safe by construction.** The rewound watermark is durable before the wipe and the stored versions stay stale until the replay stamps them, so an interruption anywhere simply rebuilds again on the next load — or, once versions are stamped, resumes from the persisted watermark.
 - **Not a deletion.** The wipe emits no `removed` events and writes no delete marker, since a delete stamp is sticky and would evict the object from every consumer index for good.
 - **Read state and history follow.** Read-tracking classification is suppressed during the replay (otherwise every replayed change would mark the object unread), and the per-object history index is wiped with the rows and lazily rebuilt.
 
-Type objects rebuild too. While a type's `shortIds` / `properties` / `datasets` collections are empty mid-replay, an inbound change for that type fails the DataVersion lookup and is parked, then drained once the definitions are back — only a local write in that window sees a transient `type_unknown` rejection.
+Type objects rebuild too. While a type's `shortIds` / `properties` / `datasets` datasets are empty mid-replay, an inbound change for that type fails the DataVersion lookup and is parked, then drained once the definitions are back — only a local write in that window sees a transient `type_unknown` rejection.
 
 ## What clients see during the window
 

@@ -398,17 +398,22 @@ components:
       type: object
     api.BundleChildRequest:
       properties:
+        collections:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
         seed:
           description: |-
             Seed derives the child deterministically under the bundle's
             current winner. Permanent — a successor object takes a new seed.
           type: string
-        types:
-          description: Types are attached on first materialization.
-          items:
-            type: string
-          type: array
-          uniqueItems: false
+        type:
+          description: |-
+            Type is the child's one type, set on first materialization —
+            required (400 request.missing_field), `page` for a plain
+            document; Collections the child lacks are added on every call.
+          type: string
       type: object
     api.BundleChildResponse:
       properties:
@@ -417,6 +422,13 @@ components:
       type: object
     api.BundleEnsureRequest:
       properties:
+        collection:
+          description: |-
+            Collection makes the declaration a COLLECTION instead of a type:
+            the root carries `__collection__` in any.type, properties are its
+            columns, and objects are filed under it through any.collections.
+            Parts and layout are refused with it.
+          type: boolean
         derived:
           description: |-
             Derived installs the bundle on the root derived from its id
@@ -438,13 +450,14 @@ components:
         layout:
           additionalProperties: {}
           description: |-
-            Layout and Weight seed the root type's rendering slice (same
-            shape as POST …/types); Hidden keeps it out of GET …/types. All
-            three are written on install only — an adopt never patches them.
-            Hidden is explicit: a root that only hosts its bundle's records
-            should ask for it (a listed type is one a client may attach
-            elsewhere, granting that object the bundle's collections); a root
-            that is a type objects carry stays listed.
+            Layout seeds the root type's rendering slice (same shape as POST
+            …/types; refused with `collection`); Hidden keeps the definition
+            out of the default listings. Both are written on install only —
+            an adopt never patches them. Hidden is explicit: a root that only
+            hosts its bundle's records should ask for it (a listed type is
+            one a client may set on other objects, granting them the bundle's
+            collections); a root that is a definition other objects use stays
+            listed.
           type: object
         name:
           description: Name is the display name, written on install.
@@ -453,12 +466,13 @@ components:
           description: |-
             Parts declares the root's parts with their datasets (same shape
             as POST …/types/:typeId/parts); the root becomes a type
-            implementing itself, typeId = rootId, and the records are written
-            through POST …/upsert / …/modify on the root (dataset = the
-            computed collection, `<rootId>_<key>` for a namespaced one).
-            Declared once on install; later evolution goes through the
-            …/types/:rootId/parts routes. Parts or properties are required
-            on the tech space.
+            definition, typeId = rootId, and — a definition implements
+            itself — the records are written through POST …/upsert /
+            …/modify on the root (dataset = the computed collection,
+            `<rootId>_<key>` for a namespaced one). Declared once on install;
+            later evolution goes through the …/types/:rootId/parts routes.
+            Parts or properties are required on the tech space. Refused with
+            `collection`.
           items:
             $ref: '#/components/schemas/api.PartDraftRequest'
           type: array
@@ -467,14 +481,20 @@ components:
           description: |-
             Properties declares property definitions on the root (same shape
             as POST …/types/:typeId/properties, xKey REQUIRED and unique):
-            the root becomes a type objects carry, and each property's id is
-            derived from (rootId, xKey) so two devices installing while apart
-            mint one column per handle. Resolve xKey → propId through
-            GET …/types/:rootId/properties. Declared once on install (an
-            adopt fills in only definitions the root lacks); later evolution
-            goes through the …/types/:rootId/properties routes.
+            the root becomes a type (or, with `collection`, a collection)
+            objects use, and each property's id is derived from (rootId,
+            xKey) so two devices installing while apart mint one column per
+            handle. Resolve xKey → propId through GET …/types/:rootId/
+            properties (or …/collections/:rootId/properties). Declared once
+            on install (an adopt fills in only definitions the root lacks);
+            later evolution goes through the …/properties routes.
           items:
             $ref: '#/components/schemas/api.AddPropertyRequest'
+          type: array
+          uniqueItems: false
+        rootCollections:
+          items:
+            type: string
           type: array
           uniqueItems: false
         rootProperties:
@@ -483,40 +503,28 @@ components:
             type: object
           description: |-
             RootProperties seeds the root's property values, keyed
-            typeId → propId → value (same shape as POST /objects), written
-            with RootTypes.
+            owner → propId → value (same shape as POST /objects), written
+            with the membership; an owner that is neither rootType nor the
+            root's own declaration is added to rootCollections.
           type: object
-        rootTypes:
+        rootType:
           description: |-
-            RootTypes are attached to the root object at birth, so the
-            install's datasets are writable on it with no extra call. On a
-            root that declares a type they ride the root's first change next
-            to its own type — one object that is both a type and a carrier
-            of another (the wiki: the type its pages carry and a `miniapp`).
-          items:
-            type: string
-          type: array
-          uniqueItems: false
-        selfTyped:
-          description: |-
-            SelfTyped makes the root CARRY the type it declares, so it holds
-            that type's property values and its datasets — what a root that
-            keeps its own bundle's records needs (an app's layouts). Off, the
-            root is the type definition and nothing else: it matches no query
-            for the type and takes none of its collections, which is what a
-            type OTHER objects carry wants (a wiki, a person). Needs a type
-            declaration; implied for a part declaring a reserved module and
-            on the tech space.
-          type: boolean
-        weight:
-          type: integer
+            RootType is the type of the root Ensure mints (its one type,
+            `any.type`): required when the body declares nothing (every
+            object has a type; `page` for a plain document), refused next to
+            a declaration — a declaring root carries its marker there.
+            RootCollections are the collections the root is filed under at
+            birth (a `miniapp` root is an app root). Both ride the root's
+            first change.
+          type: string
         xKey:
           description: |-
-            XKey is the root type's handle (same meaning as on POST …/types):
-            what a client resolves the type by, and what relation.targetTypes
-            in other declarations name. Unique within the space among listed
-            types (409 type.xkey_conflict). An xKey alone declares a MARKER
-            type — no properties, no parts, just a flag objects carry.
+            XKey is the root definition's handle (same meaning as on POST
+            …/types): what a client resolves it by, and what
+            relation.targetTypes in other declarations name. Unique within
+            the space among listed types and collections (409
+            type.xkey_conflict). An xKey alone declares a MARKER — a type, or
+            with `collection` a collection, with no properties and no parts.
             Written on install. A writer's adopt fills in a handle the root
             lacks (an install that predates it); an existing handle is never
             changed.
@@ -588,6 +596,8 @@ components:
       type: object
     api.CatalogBundle:
       properties:
+        collection:
+          $ref: '#/components/schemas/api.CatalogCollection'
         derived:
           description: |-
             Derived installs the bundle on the root derived from its id —
@@ -597,18 +607,17 @@ components:
           type: string
         hidden:
           description: |-
-            Hidden keeps the root's type out of pickers and out of the
-            primary-type choice; needs `type` or `parts`, and excludes a
-            `weight`.
+            Hidden keeps the root's definition out of pickers; needs `type`,
+            `collection` or `parts`.
           type: boolean
         id:
           type: string
         miniapp:
           additionalProperties: {}
           description: |-
-            Miniapp is a value map on the built-in `miniapp` type the root
-            carries: `bundle` is this bundle's id (filled when omitted), any
-            other key must be a property the built-in declares.
+            Miniapp is a value map on the built-in `miniapp` collection the
+            root is filed under: `bundle` is this bundle's id (filled when
+            omitted), any other key must be a property the built-in declares.
           type: object
         name:
           type: string
@@ -620,17 +629,24 @@ components:
             $ref: '#/components/schemas/api.PartDraftRequest'
           type: array
           uniqueItems: false
-        selfTyped:
+        rootType:
           description: |-
-            SelfTyped makes the root carry the type it declares — the shape
-            of a root that hosts its own bundle's records (the contacts
-            layouts). Off, the root is the type definition only: it matches
-            no query for the type and takes none of its collections, which
-            is what a type other objects carry needs (the wiki, a person).
-            Needs a type declaration.
-          type: boolean
+            RootType is the root's type when the bundle declares nothing (a
+            bare app root): a registered type id, `page` for a plain
+            document. Required then, refused next to a declaration.
+          type: string
         type:
           $ref: '#/components/schemas/api.CatalogType'
+      type: object
+    api.CatalogCollection:
+      properties:
+        properties:
+          items:
+            $ref: '#/components/schemas/api.AddPropertyRequest'
+          type: array
+          uniqueItems: false
+        xKey:
+          type: string
       type: object
     api.CatalogListResponse:
       properties:
@@ -644,6 +660,11 @@ components:
       properties:
         bundle:
           $ref: '#/components/schemas/api.Bundle'
+        collectionId:
+          description: |-
+            CollectionId is the root's id when the bundle declares a
+            collection.
+          type: string
         id:
           description: Id is the bundle id.
           type: string
@@ -654,7 +675,7 @@ components:
           additionalProperties: {}
           description: |-
             Miniapp is the value map the catalog declares on the built-in
-            `miniapp` type, `bundle` included — what an install writes and an
+            `miniapp` collection, `bundle` included — what an install writes and an
             adopt by a writer fills in where absent. Read the root for what it
             carries.
           type: object
@@ -692,7 +713,10 @@ components:
           type: string
       type: object
     api.CatalogType:
-      description: Type declares the type the root implements.
+      description: |-
+        Type declares the type the root defines; Collection the
+        collection. Exclusive. A root hosting its own records (parts)
+        needs no flag: a definition implements itself.
       properties:
         layout:
           additionalProperties: {}
@@ -707,16 +731,11 @@ components:
             $ref: '#/components/schemas/api.AddPropertyRequest'
           type: array
           uniqueItems: false
-        weight:
-          description: |-
-            Weight orders the type against others an object carries (the
-            highest listed one is the primary type); meaningless on a hidden
-            type.
-          type: integer
         xKey:
           description: |-
             XKey is the type's handle — what clients resolve it by and what
-            relation.targetTypes name. Unique across the catalog.
+            relation.targetTypes name. Unique across the catalog, types and
+            collections together.
           type: string
       type: object
     api.CatalogUsecase:
@@ -804,6 +823,69 @@ components:
           type: string
         text:
           type: string
+      type: object
+    api.CollectionInfo:
+      properties:
+        builtIn:
+          type: boolean
+        description:
+          type: string
+        hidden:
+          type: boolean
+        iconCid:
+          type: string
+        id:
+          type: string
+        meta:
+          additionalProperties: {}
+          type: object
+        name:
+          type: string
+        xKey:
+          type: string
+      type: object
+    api.CollectionPatchRequest:
+      properties:
+        description:
+          type: string
+        hidden:
+          type: boolean
+        iconCid:
+          type: string
+        meta:
+          additionalProperties: {}
+          type: object
+        name:
+          type: string
+      type: object
+    api.CollectionsCreateRequest:
+      properties:
+        description:
+          type: string
+        hidden:
+          type: boolean
+        iconCid:
+          type: string
+        meta:
+          additionalProperties: {}
+          type: object
+        name:
+          type: string
+        xKey:
+          type: string
+      type: object
+    api.CollectionsCreateResponse:
+      properties:
+        collectionId:
+          type: string
+      type: object
+    api.CollectionsListResponse:
+      properties:
+        collections:
+          items:
+            $ref: '#/components/schemas/api.CollectionInfo'
+          type: array
+          uniqueItems: false
       type: object
     api.DatasetDefResponse:
       properties:
@@ -1756,6 +1838,14 @@ components:
           type: array
           uniqueItems: false
       type: object
+    api.LocalImportResponse:
+      properties:
+        collections:
+          items:
+            $ref: '#/components/schemas/api.LocalCollectionInfo'
+          type: array
+          uniqueItems: false
+      type: object
     api.LocalIndex:
       properties:
         fields:
@@ -1968,26 +2058,32 @@ components:
       type: object
     api.ObjectCreateRequest:
       properties:
+        collections:
+          description: |-
+            Collections lists the collections the object is filed under at
+            create — column groups without parts (docs/28-well-known-bundles.md:
+            an object is in a space's wiki tree only when it is in the wiki
+            collection).
+          items:
+            type: string
+          type: array
+          uniqueItems: false
         initialProperties:
           additionalProperties:
             additionalProperties: {}
             type: object
           description: |-
             InitialProperties carries the object's starting property values,
-            keyed by type id then property id — the ONLY home for them:
-            {"initialProperties": {"any": {"name": "Dune"}}}. A top-level
-            name/description/type-group key is rejected.
+            keyed by owner (the type or a collection) then property id — the
+            ONLY home for them: {"initialProperties": {"any": {"name":
+            "Dune"}}}. A top-level name/description/group key is rejected.
           type: object
-        types:
+        type:
           description: |-
-            Types lists the type ids attached at create — the object's
-            capabilities and the columns it takes. Nothing is appended
-            server-side: an object is in a space's wiki tree only when it
-            carries the wiki type (docs/28-well-known-bundles.md).
-          items:
-            type: string
-          type: array
-          uniqueItems: false
+            Type is the object's one type — what it IS: its parts, its layout
+            and one column group. Required (400 request.missing_field);
+            `page` is the plain document. Nothing is stamped server-side.
+          type: string
       type: object
     api.ObjectDebugResponse:
       properties:
@@ -2488,6 +2584,16 @@ components:
             type: string
           type: array
           uniqueItems: false
+        filter:
+          additionalProperties: {}
+          description: |-
+            Filter keeps only hits whose host object matches this condition,
+            in the /objects/query filter grammar verbatim (any.type,
+            any.collections, <ownerId>.<propId>, modifiedAt, …), in every mode — like Require /
+            Exclude. The object's live row is checked, so a property write is
+            honored at once. Limit still counts matching records. An object
+            with no row never matches.
+          type: object
         limit:
           description: |-
             Limit caps returned records — every hit is a distinct
@@ -2544,6 +2650,14 @@ components:
           uniqueItems: false
         mode:
           type: string
+        truncated:
+          description: |-
+            Truncated is set when a leg's read budget under Filter ended and
+            the page holds fewer than Limit records: the index may hold
+            matches the reply cannot show. Absent without a filter. A Filter
+            no object satisfies answers empty without running a leg
+            (VectorStatus then reads skipped, or disabled without an embedder).
+          type: boolean
         vectorStatus:
           description: |-
             VectorStatus: used | unavailable | disabled | skipped — whether
@@ -2990,17 +3104,13 @@ components:
           type: string
         layout:
           additionalProperties: {}
+          description: Layout — see TypesCreateRequest. Absent on built-ins.
           type: object
         meta:
           additionalProperties: {}
           type: object
         name:
           type: string
-        weight:
-          description: |-
-            Weight / Layout — see TypesCreateRequest. Zero / absent on
-            built-ins.
-          type: integer
         xKey:
           description: |-
             XKey is the stable, caller-side programmatic key. For builtin/registered
@@ -3033,8 +3143,6 @@ components:
           type: object
         name:
           type: string
-        weight:
-          type: integer
       type: object
     api.TypesCreateRequest:
       properties:
@@ -3053,20 +3161,17 @@ components:
           type: string
         layout:
           additionalProperties: {}
+          description: |-
+            Layout is how the type's header and parts compose — {type,
+            config} in the xFormat shape (v1 slugs: page, tabs, chat, profile;
+            open set, unknown renders as page). Mutable via PATCH
+            …/types/:typeId.
           type: object
         meta:
           additionalProperties: {}
           type: object
         name:
           type: string
-        weight:
-          description: |-
-            Weight picks the primary type of a multi-typed object: the highest
-            wins, tie broken by type id. Layout is how the primary type's
-            header and parts compose — {type, config} in the xFormat shape (v1
-            slugs: page, tabs, chat, profile; open set, unknown renders as
-            page). Both mutable via PATCH …/types/:typeId.
-          type: integer
         xKey:
           description: |-
             XKey is the stable, caller-side programmatic key for the type
@@ -4160,6 +4265,54 @@ paths:
       summary: Delete local documents by ids or filter
       tags:
       - local
+  /local/export:
+    get:
+      parameters:
+      - description: account | space (absent with names absent = every local collection)
+        in: query
+        name: scope
+        schema:
+          type: string
+      - description: restrict to one space (implies scope=space)
+        in: query
+        name: spaceId
+        schema:
+          type: string
+      - description: comma-separated collection names (absent = every collection in
+          scope)
+        in: query
+        name: names
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/gzip:
+              schema:
+                type: file
+          description: 'gzip: an anyenc value stream — manifest, then each collection''s
+            documents'
+        "400":
+          content:
+            application/gzip:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/gzip:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "409":
+          content:
+            application/gzip:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Conflict
+      summary: Export local collections as one file
+      tags:
+      - local
   /local/get:
     post:
       requestBody:
@@ -4199,6 +4352,35 @@ paths:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Conflict
       summary: Read one local document by id
+      tags:
+      - local
+  /local/import:
+    post:
+      requestBody:
+        content:
+          application/gzip:
+            schema:
+              type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.LocalImportResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Conflict
+      summary: Import an exported local-store file
       tags:
       - local
   /local/indexes:
@@ -5448,6 +5630,365 @@ paths:
       summary: Resolve a losing root
       tags:
       - bundles
+  /spaces/{spaceId}/collections:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Include hidden collections
+        in: query
+        name: includeHidden
+        schema:
+          type: boolean
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.CollectionsListResponse'
+          description: OK
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: List collections
+      tags:
+      - collections
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.CollectionsCreateRequest'
+                description: Collection params
+                summary: body
+        description: Collection params
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.CollectionsCreateResponse'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Create a collection
+      tags:
+      - collections
+  /spaces/{spaceId}/collections/{collectionId}:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Collection ID
+        in: path
+        name: collectionId
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.CollectionInfo'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Get a collection
+      tags:
+      - collections
+    patch:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Collection ID
+        in: path
+        name: collectionId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.CollectionPatchRequest'
+                description: Fields to change
+                summary: body
+        description: Fields to change
+        required: true
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Patch a collection's display metadata
+      tags:
+      - collections
+  /spaces/{spaceId}/collections/{collectionId}/properties:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Collection ID
+        in: path
+        name: collectionId
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.PropertiesListResponse'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: List properties of a collection
+      tags:
+      - collections
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Collection ID
+        in: path
+        name: collectionId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.AddPropertyRequest'
+                description: Property draft
+                summary: body
+        description: Property draft
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.AddPropertyResponse'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Add a property to a collection
+      tags:
+      - collections
+  /spaces/{spaceId}/collections/{collectionId}/properties/{propId}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Collection ID
+        in: path
+        name: collectionId
+        required: true
+        schema:
+          type: string
+      - description: Property ID
+        in: path
+        name: propId
+        required: true
+        schema:
+          type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Remove a property from a collection
+      tags:
+      - collections
+    patch:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Collection ID
+        in: path
+        name: collectionId
+        required: true
+        schema:
+          type: string
+      - description: Property ID
+        in: path
+        name: propId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.PropertyPatchRequest'
+                description: Patch
+                summary: body
+        description: Patch
+        required: true
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Patch a property of a collection
+      tags:
+      - collections
   /spaces/{spaceId}/datasets:
     get:
       parameters:
@@ -6424,6 +6965,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
         "500":
           content:
             application/json:
@@ -6479,9 +7026,9 @@ paths:
       tags:
       - objects
     get:
-      description: 'The object''s row from the space''s objects collection: any.types
-        and property values. 404 object.not_found for an unknown id, 410 object.deleted
-        for a deleted object.'
+      description: 'The object''s row from the space''s objects collection: any.type,
+        any.collections and property values. 404 object.not_found for an unknown id,
+        410 object.deleted for a deleted object.'
       parameters:
       - description: Space ID
         in: path
@@ -8011,8 +8558,8 @@ paths:
       summary: Get properties of an object
       tags:
       - properties
-  /spaces/{spaceId}/properties/{objectId}/attach/{typeId}:
-    post:
+  /spaces/{spaceId}/properties/{objectId}/collections/{collectionId}:
+    delete:
       parameters:
       - description: Space ID
         in: path
@@ -8026,9 +8573,9 @@ paths:
         required: true
         schema:
           type: string
-      - description: Type ID
+      - description: Collection ID
         in: path
-        name: typeId
+        name: collectionId
         required: true
         schema:
           type: string
@@ -8057,10 +8604,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Internal Server Error
-      summary: Attach a type to an object
+      summary: Remove the object from a collection
       tags:
       - properties
-  /spaces/{spaceId}/properties/{objectId}/detach/{typeId}:
     post:
       parameters:
       - description: Space ID
@@ -8075,9 +8621,9 @@ paths:
         required: true
         schema:
           type: string
-      - description: Type ID
+      - description: Collection ID
         in: path
-        name: typeId
+        name: collectionId
         required: true
         schema:
           type: string
@@ -8106,7 +8652,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Internal Server Error
-      summary: Detach a type from an object
+      summary: Add the object to a collection
       tags:
       - properties
   /spaces/{spaceId}/properties/{objectId}/set/{typeId}:
@@ -8124,7 +8670,7 @@ paths:
         required: true
         schema:
           type: string
-      - description: Type ID
+      - description: Type or collection ID (the owner)
         in: path
         name: typeId
         required: true
@@ -8161,6 +8707,55 @@ paths:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Internal Server Error
       summary: Set properties on an object (single declared scope)
+      tags:
+      - properties
+  /spaces/{spaceId}/properties/{objectId}/type/{typeId}:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        schema:
+          type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ModifyResult'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Set the object's type
       tags:
       - properties
   /spaces/{spaceId}/query:
@@ -9251,6 +9846,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
         "500":
           content:
             application/json:

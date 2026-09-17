@@ -43,7 +43,9 @@ func TestDiscoverAddr(t *testing.T) {
 	t.Setenv("ANY_ACCOUNT", "")
 	os.Unsetenv("ANY_ACCOUNT")
 	t.Setenv("ANY_MODE", "managed")
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	if got := discoverAddr(); got != "" {
 		t.Fatalf("empty root: %q, want \"\"", got)

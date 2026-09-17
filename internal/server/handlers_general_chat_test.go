@@ -15,8 +15,8 @@ import (
 // while the catalog's general-chat setup installs the one chat, a
 // derived hidden root that is its own type and takes chat writes.
 // That root is the type's only carrier: creating an object with it,
-// attaching it, and an any.types op through /modify are all refused,
-// and no bare object is left behind by the refused create.
+// setting it as a type, and an any.type op through /modify are all
+// refused, and no bare object is left behind by the refused create.
 func TestServer_ChatModuleReserved(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -47,7 +47,7 @@ func TestServer_ChatModuleReserved(t *testing.T) {
 	rec = doJSON(t, e, http.MethodGet, base+"/bundles/room%2Fv1", "")
 	assertStatusCode(t, rec, http.StatusNotFound, "bundle.not_found")
 
-	// The catalog's install: derived, hidden, self-typed, a chat.
+	// The catalog's install: derived, hidden, its own definition, a chat.
 	setup := setupUsecase(t, e, "general-chat", sp.Id)
 	if len(setup.Bundles) != 1 || setup.Bundles[0].Id != generalChatBundleId {
 		t.Fatalf("setup bundles = %+v", setup.Bundles)
@@ -83,27 +83,27 @@ func TestServer_ChatModuleReserved(t *testing.T) {
 
 	// The root is the type's only carrier.
 	before := countObjects(t, e, sp.Id)
-	rec = doJSON(t, e, http.MethodPost, base+"/objects", `{"types":["`+root+`"]}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/objects", `{"type":"`+root+`"}`)
 	assertStatusCode(t, rec, http.StatusBadRequest, "type.reserved_carrier")
 	if after := countObjects(t, e, sp.Id); after != before {
 		t.Fatalf("refused create left an object: %d → %d", before, after)
 	}
-	other := mustCreateObject(t, e, sp.Id, `{}`)
-	rec = doJSON(t, e, http.MethodPost, base+"/properties/"+other+"/attach/"+root, "")
+	other := mustCreateObject(t, e, sp.Id, `{"type":"page"}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/properties/"+other+"/type/"+root, "")
 	assertStatusCode(t, rec, http.StatusBadRequest, "type.reserved_carrier")
 	rec = doJSON(t, e, http.MethodPost, base+"/modify",
-		`{"objectId":"`+other+`","dataset":"objects","records":[{"id":"`+other+`","ops":[{"type":"$addToSet","path":"any.types","value":"`+root+`"}]}]}`)
+		`{"objectId":"`+other+`","dataset":"objects","records":[{"id":"`+other+`","ops":[{"type":"$set","path":"any.type","value":"`+root+`"}]}]}`)
 	assertStatusCode(t, rec, http.StatusBadRequest, "type.reserved_carrier")
 	rec = doJSON(t, e, http.MethodPost, base+"/objects/"+other+"/chat/messages", `{"text":"nope"}`)
 	assertStatusCode(t, rec, http.StatusBadRequest, "dataset.not_declared")
-	// An editor type stays attachable — the rule is the reserved module's.
-	rec = doJSON(t, e, http.MethodPost, base+"/properties/"+other+"/attach/"+typeId, "")
+	// An editor type stays settable — the rule is the reserved module's.
+	rec = doJSON(t, e, http.MethodPost, base+"/properties/"+other+"/type/"+typeId, "")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("attach editor type: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("set editor type: %d %s", rec.Code, rec.Body.String())
 	}
 	// The bundle paths that mint a tree before their type write are
 	// refused up front: a root carrying the type, a child carrying it.
-	rec = doJSON(t, e, http.MethodPost, base+"/bundles", `{"id":"carrier/v1","rootTypes":["`+root+`"]}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/bundles", `{"id":"carrier/v1","rootType":"`+root+`"}`)
 	assertStatusCode(t, rec, http.StatusBadRequest, "type.reserved_carrier")
 	rec = doJSON(t, e, http.MethodGet, base+"/bundles/carrier%2Fv1", "")
 	assertStatusCode(t, rec, http.StatusNotFound, "bundle.not_found")
@@ -111,7 +111,7 @@ func TestServer_ChatModuleReserved(t *testing.T) {
 	if !notes.Installed {
 		t.Fatalf("notes install: %+v", notes)
 	}
-	rec = doJSON(t, e, http.MethodPost, base+"/bundles/notes%2Fv1/children", `{"seed":"log","types":["`+root+`"]}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/bundles/notes%2Fv1/children", `{"seed":"log","type":"`+root+`"}`)
 	assertStatusCode(t, rec, http.StatusBadRequest, "type.reserved_carrier")
 }
 
@@ -159,7 +159,7 @@ func TestServer_DerivedObjectUndeletable(t *testing.T) {
 	// first is what this pins.
 	doJSONExpect(t, e, http.MethodGet, base+"/objects/"+chatRoot, http.StatusOK)
 
-	rec = doJSON(t, e, http.MethodPost, base+"/objects", `{"types":["page"]}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/objects", `{"type":"page"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create object: %d %s", rec.Code, rec.Body.String())
 	}

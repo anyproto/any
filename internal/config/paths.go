@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
-// ExpandTilde resolves a leading "~" to the user's home directory.
-// Returns the input unchanged when no home can be resolved or no tilde
-// is present.
+// ExpandTilde resolves a leading "~" to the user's home directory, up to
+// a path separator: "~/" everywhere, "~\" on Windows too. Returns the
+// input unchanged when no home can be resolved or no tilde is present.
 func ExpandTilde(p string) string {
 	if p == "" || p[0] != '~' {
 		return p
@@ -21,7 +20,7 @@ func ExpandTilde(p string) string {
 	if p == "~" {
 		return home
 	}
-	if strings.HasPrefix(p, "~/") {
+	if os.IsPathSeparator(p[1]) {
 		return filepath.Join(home, p[2:])
 	}
 	return p

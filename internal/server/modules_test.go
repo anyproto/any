@@ -39,7 +39,7 @@ func installModuleType(t testing.TB, e http.Handler, spaceId, module string) str
 		return root
 	}
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types",
-		`{"name":"`+module+` host","xKey":"`+module+`_host","weight":10,"layout":{"type":"page"}}`)
+		`{"name":"`+module+` host","xKey":"`+module+`_host","layout":{"type":"page"}}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create %s type: %d %s", module, rec.Code, rec.Body.String())
 	}
@@ -56,6 +56,30 @@ func installModuleType(t testing.TB, e http.Handler, spaceId, module string) str
 	return created.TypeId
 }
 
+// plainType creates (once per space) a user type with no parts: every
+// object has a type, and this is the one that declares no dataset —
+// what a test carries when it needs the write gate to refuse.
+func plainType(t testing.TB, e http.Handler, spaceId string) string {
+	t.Helper()
+	key := spaceId + "|plain"
+	moduleTypesMu.Lock()
+	defer moduleTypesMu.Unlock()
+	if id, ok := moduleTypes[key]; ok {
+		return id
+	}
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types",
+		`{"name":"Plain","xKey":"plain"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create plain type: %d %s", rec.Code, rec.Body.String())
+	}
+	var created api.TypesCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode type: %v", err)
+	}
+	moduleTypes[key] = created.TypeId
+	return created.TypeId
+}
+
 // mustCreateModuleObject creates an object carrying the module type
 // (installing the type on first use) and returns its id.
 func mustCreateModuleObject(t testing.TB, e http.Handler, spaceId, module string) string {
@@ -64,7 +88,7 @@ func mustCreateModuleObject(t testing.TB, e http.Handler, spaceId, module string
 	if module == "chat" {
 		return typeId // the general-chat root is the space's one chat
 	}
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects", `{"types":["`+typeId+`"]}`)
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects", `{"type":"`+typeId+`"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create %s object: %d %s", module, rec.Code, rec.Body.String())
 	}

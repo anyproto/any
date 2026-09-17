@@ -37,11 +37,14 @@ The runtime stamps three fields back onto the record — `lastRunAt`, `lastStatu
 
 ## Where the records live
 
-Triggers sit on the **trigger anchor**: the `bao/triggers/v1` child of the agent space's `bao/v1` bundle, which `anyrt serve` provisions on boot. Resolve it by seed, never by name. The records live in a collection namespaced to the harness type (`<typeId>_agent_triggers`); read its name from the space's dataset listing:
+Triggers sit on the **trigger anchor**: the `bao/triggers/v1` child of the agent space's `bao/v1` bundle, which `anyrt serve` provisions on boot with the hidden harness type `agent_trigger`. Resolve it by seed, never by name; the child route requires that `type`. The records live in a storage collection namespaced to the harness type (`<typeId>_agent_triggers`); read its name from the space's dataset listing:
 
 ```sh
+TRG=$(curl -s "http://127.0.0.1:7001/v1/spaces/$SPACE/types?includeHidden=true" \
+  | jq -er '.types[] | select(.xKey=="agent_trigger") | .id')
 ANCHOR=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/bao%2Fv1/children \
-  -H 'Content-Type: application/json' -d '{"seed": "bao/triggers/v1"}' | jq -r .objectId)
+  -H 'Content-Type: application/json' \
+  -d "{\"seed\": \"bao/triggers/v1\", \"type\": \"$TRG\"}" | jq -er .objectId)
 TRIGGERS=$(curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/datasets \
   | jq -r '.datasets[].name | select(endswith("_agent_triggers"))')
 
@@ -68,7 +71,7 @@ every 5 s, on each running device:
 
 The dataset is the source of truth. A registry-only edit would be reverted by the next reconcile, which is why the control-plane routes write through to the record.
 
-> **Why it matters.** There is no scheduler service. The schedule syncs with your data, encrypted, to every device you own; whichever device holds the pin fires it, and the run summary lands in the same space. Take the laptop offline and its pinned jobs pause; repin them to a machine that is up and they move within a tick.
+> **Why it matters.** There is no scheduler service. The schedule syncs with your data, encrypted, to every device you own; whichever device holds the pin fires it, and the run summary lands in the same space. A laptop without a network still fires its pinned jobs; shut it down and they pause, and repinning them to a machine that is running moves them within a tick.
 
 ## Semantics in one table
 

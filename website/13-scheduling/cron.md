@@ -29,7 +29,7 @@ curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/upsert \
          \"enabled\": true, \"maxConsecutiveFailures\": 3}}]}"
 ```
 
-`$ANCHOR` and `$TRIGGERS` (the anchor id and its collection name) come from [Scheduling](index.html). From a program the same write is one call on the any client, which takes the store key:
+`$ANCHOR` and `$TRIGGERS` (the anchor id and its storage collection name) come from [Scheduling](index.html). From a program the same write is one call on the any client, which takes the store key:
 
 ```python
 c = use("agent:any@v1")
@@ -80,7 +80,7 @@ Consequences:
 
 ## Pause, edit, delete
 
-Pausing is `enabled: false` on the record; deleting the record evicts it from the registry within a tick. A deleted id stays tombstoned server-side, so recreating a trigger means a new id. The running agent's control API offers the same operations against the live registry and writes them through to the record — see [Runs and monitoring](runs-and-monitoring.html).
+Pausing is `enabled: false` on the record; deleting the record evicts it from the registry within a tick. A deleted id stays tombstoned server-side, so recreating a trigger means a new id. The running agent's control API enables, disables and edits `spec` on triggers it has already adopted and writes those through to the record; creating and deleting are record writes only — see [Runs and monitoring](runs-and-monitoring.html).
 
 ## The standing jobs
 

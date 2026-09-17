@@ -15,7 +15,7 @@ The any server listens on `127.0.0.1:7001` and exposes one JSON API under `/v1/`
 - **Body limit** 1 MB on every route except file attach.
 - **Strict bodies**: endpoints whose OpenAPI schema carries `additionalProperties: false` answer `400 request.unknown_field` for any unknown top-level key. `GET /v1/openapi.json` is the authoritative list.
 - **Unauthorized server**: until an account is booted, every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth` answers `401 auth.required`.
-- **Tech space**: `GET /v1/account` returns its id as `techSpaceId`. It is a valid `:spaceId` for bundles, for types and records on bundle roots, and for the space read, sync-status, debug and sync routes; every other space-scoped route there answers `405 space.unsupported`.
+- **Tech space**: `GET /v1/account` returns its id as `techSpaceId`. It is a valid `:spaceId` for bundles, for types, collections and records on bundle roots, and for the space read, sync-status, debug and sync routes; every other space-scoped route there answers `405 space.unsupported`.
 
 ### Write result
 
@@ -48,7 +48,7 @@ curl http://127.0.0.1:7001/v1/health        # any status
 | POST | `/v1/auth` | `{}` \| `{mnemonic, index?, replace?}` \| `{accountId}` (+ header `X-Any-Control-Token` on managed) | `{accountId, created, mnemonic?, alreadyAuthorized?}` | generates / restores / selects an account and boots the engine in place; the running account answers `200 {alreadyAuthorized: true}`; `replace: true` switches a managed server in place; `mnemonic` returned once, only when generated |
 | DELETE | `/v1/auth` | header `X-Any-Control-Token` | 204 | managed only: tears the account down in place, the server stays up unauthorized (`403 auth.not_managed` on standalone) |
 
-Errors: `400 auth.bad_mnemonic`, `400 request.invalid_field` (mnemonic + accountId together, `index` without `mnemonic`, `replace` without a credential, `accountId` on a managed server), `403 control.forbidden`, `403 auth.not_managed`, `404 auth.account_not_found`, `409 auth.account_in_use`, `409 auth.account_mismatch`, `409 auth.mnemonic_mismatch`, `409 auth.already_authorized`, `400 auth.passkey_required`, `409 sdk.crdt_version_newer`, `500 auth.device_key_corrupt`. Details and the decision table: [Accounts](../auth/accounts.html).
+Errors: `400 auth.bad_mnemonic`, `400 request.invalid_field` (mnemonic + accountId together, `index` without `mnemonic`, `replace` without a credential, `accountId` on a managed server), `403 control.forbidden`, `403 auth.not_managed`, `404 auth.account_not_found`, `409 auth.account_in_use`, `409 auth.account_mismatch`, `409 auth.mnemonic_mismatch`, `409 auth.already_authorized`, `409 auth.network_mismatch`, `400 auth.passkey_required`, `409 sdk.crdt_version_newer`, `500 auth.device_key_corrupt`, `500 auth.network_pin_corrupt`. Details and the decision table: [Accounts](../auth/accounts.html).
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/auth -d '{}'      # any auth login
@@ -83,9 +83,9 @@ curl -X POST http://127.0.0.1:7001/v1/auth -d '{}'      # any auth login
 | POST | `/v1/spaces/join` | `{inviteToken, metadata?}` | 201 \| 202 `SpaceInfo` | 202 while the request awaits approval (status `joining`); guest tokens auto-detected (201 once loaded, 202 while loading); `400 invite.invalid`; `409 space.deleted` on a space this account deleted; `409 space.already_member` for a guest token of a space already tracked |
 | GET | `/v1/spaces/derived` | — | `{spaces: [{name, spaceId, created, status?}]}` | resolves, never creates |
 | POST | `/v1/spaces/derived/:name` | — | 201 `SpaceInfo` | idempotent; `404 space.derived_unknown`, `409 space.deleted` |
-| GET | `/v1/spaces/:spaceId/datasets` | — | `{datasets: [{name, schema, owners?, module, shared?}]}` | JSON Schema with `x-scope` per field; `owners` = the types whose parts declare the collection |
+| GET | `/v1/spaces/:spaceId/datasets` | — | `{datasets: [{name, schema, owners?, module, shared?}]}` | JSON Schema with `x-scope` per field; `owners` = the types whose parts declare the storage collection |
 | GET | `/v1/datasets` | — | `{datasets: [{name, schema}]}` | tech-space system datasets |
-| POST | `/v1/spaces/:spaceId/search` | `{query, scopes?, limit?, mode?, require?, exclude?, maxData?, passages?}` | `{hits, mode, vectorStatus}` | local index, not an SDK method; `limit` counts records (default 10), `passages` ≤ 10; `409 index.disabled`, `400 index.no_embedder`, `503 index.embedder_unavailable`, `409 index.terms_unsupported`, `400 search.bad_mode`, `400 search.bad_scope` |
+| POST | `/v1/spaces/:spaceId/search` | `{query, scopes?, limit?, mode?, require?, exclude?, maxData?, passages?, filter?}` | `{hits, mode, vectorStatus, truncated?}` | local index, not an SDK method; `limit` counts records (default 10), `passages` ≤ 10; `filter` is an objects-query filter on the host object's row, `truncated` marks a short filtered page that may not be exhaustive; `400 filter.invalid`, `400 filter.unknown_operator`, `409 index.disabled`, `400 index.no_embedder`, `503 index.embedder_unavailable`, `409 index.terms_unsupported`, `400 search.bad_mode`, `400 search.bad_scope` |
 
 `SpaceInfo` fields worth knowing: `spaceIndexObjectId`, `createdAt`, `spaceType` (`any.space` \| `any.onetoone`), `author`, `ownRole` (`owner\|admin\|writer\|reader\|guest\|none`), `settings`, `push`, `derived`, `status`.
 
@@ -111,15 +111,15 @@ Pending rows are discovered through `GET /v1/spaces?status=one_to_one_pending` /
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| POST | `/v1/spaces/:spaceId/bundles` | `{id, name?, rootTypes?, rootProperties?, derived?, parts?, properties?, xKey?, layout?, weight?, hidden?, selfTyped?}` | `{bundle, installed}` | adopt-or-install; a bundle may declare a full type on its root (`parts` its modules and datasets, `properties`, `xKey`, `layout`, `weight`, `hidden`; `selfTyped` makes the root carry that type); `409 bundle.not_ready`, `400 type.not_found`, `400 property.format_violation`, `409 type.xkey_conflict`, `400 dataset.module_reserved`, `409 bundle.reserved` for a `system:` id |
+| POST | `/v1/spaces/:spaceId/bundles` | `{id, name?, rootType?, rootCollections?, rootProperties?, derived?, parts?, properties?, xKey?, collection?, layout?, hidden?}` | `{bundle, installed}` | adopt-or-install; a bundle may declare a definition on its root — a type (`parts`, `properties`, `xKey`, `layout`, `hidden`) or, with `collection: true`, a collection (`properties`, `xKey`, `hidden`; `parts` / `layout` refused). A declaring root hosts its own values and records; `rootType` is required when the body declares nothing and refused next to a declaration. `409 bundle.not_ready`, `400 request.missing_field`, `400 type.not_found`, `400 collection.not_found`, `400 property.format_violation`, `409 type.xkey_conflict`, `400 dataset.module_reserved`, `409 bundle.reserved` for a `system:` id |
 | GET | `/v1/spaces/:spaceId/bundles` | — | `{bundles: [Bundle], synced}` | answers after the registry convergence wait; `synced: true` means an absent bundle is definitively not installed |
 | GET | `/v1/spaces/:spaceId/bundles/:bundleId` | — | `{bundle, synced}` | `404 bundle.not_found` |
 | POST | `/v1/spaces/:spaceId/bundles/:bundleId/resolve` | `{loserRootId}` | 204 | `409 bundle.loser_not_ready`, `409 bundle.not_loser` |
-| POST | `/v1/spaces/:spaceId/bundles/:bundleId/children` | `{seed, types?}` | `{objectId}` | deterministic child; `409 bundle.not_ready` |
+| POST | `/v1/spaces/:spaceId/bundles/:bundleId/children` | `{seed, type, collections?}` | `{objectId}` | deterministic child; `type` set on first materialization, missing collections added on every call; `409 bundle.not_ready` |
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/bundles \
-  -d '{"id":"notes/v1","name":"Notes","hidden":true,"parts":[{"key":"body","datasets":[{"module":"editor","shared":true}]}]}'
+  -d '{"id":"notes/v1","name":"Notes","xKey":"notes","hidden":true,"parts":[{"key":"body","datasets":[{"module":"editor","shared":true}]}]}'
 ```
 
 Full semantics in [Bundles](../collaboration/bundles.html).
@@ -130,16 +130,16 @@ Full semantics in [Bundles](../collaboration/bundles.html).
 |---|---|---|---|---|
 | GET | `/v1/catalog` | — | `{usecases}` | the server's well-known `system:` bundles, grouped into usecases |
 | GET | `/v1/catalog/:usecaseId` | — | usecase | `404 catalog.not_found` |
-| POST | `/v1/catalog/:usecaseId/setup` | `{spaceId}` | `{usecase, bundles: [{usecase, id, bundle, installed, typeId?, properties?, miniapp?}]}` | idempotent adopt-or-install, dependencies first; `properties` maps xKey → propId; `409 type.xkey_conflict`, `409 bundle.not_ready`, `405 space.unsupported` on the tech space |
+| POST | `/v1/catalog/:usecaseId/setup` | `{spaceId}` | `{usecase, bundles: [{usecase, id, bundle, installed, typeId?, collectionId?, properties?, miniapp?}]}` | idempotent adopt-or-install, dependencies first; `typeId` for a bundle declaring a type, `collectionId` for one declaring a collection; `properties` maps xKey → propId; `409 type.xkey_conflict`, `409 bundle.not_ready`, `405 space.unsupported` on the tech space |
 
-`wiki` is the usecase that gives a space its tree — [Objects](../database/objects.html).
+`wiki` is the usecase that gives a space its tree — a **collection** pages are filed under ([Objects](../database/objects.html)).
 
 ## Objects
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| POST | `/v1/spaces/:spaceId/objects` | `{types?, initialProperties?}` | 201 `{objectId}` | closed vocabulary (`400 request.unknown_field`); nothing appended server-side — the tree is the wiki usecase's type ([Objects](../database/objects.html)); `400 type.reserved_carrier` for a type only its own root may carry |
-| POST | `/v1/spaces/:spaceId/objects/query` | snapshot body | `{records, total?, hasNext?}` | cross-object `objects` collection |
+| POST | `/v1/spaces/:spaceId/objects` | `{type, collections?, initialProperties?}` | 201 `{objectId}` | closed vocabulary (`400 request.unknown_field`); `type` required (`400 request.missing_field`; `page` is the plain document), `initialProperties` keyed by owner; nothing appended server-side — the tree is the wiki usecase's collection ([Objects](../database/objects.html)); `400 type.not_a_type` for a collection id in `type`, `400 collection.not_a_collection` for a type id in `collections`, `400 type.reserved_carrier` for a type only its own root may carry |
+| POST | `/v1/spaces/:spaceId/objects/query` | snapshot body | `{records, total?, hasNext?}` | cross-object `objects` storage collection |
 | POST | `/v1/spaces/:spaceId/objects/query/subscribe` | snapshot body | SSE | |
 | POST | `/v1/spaces/:spaceId/objects/aggregate` | `{pipeline, groupLimit?, accumArrayLimit?, memoryLimitBytes?, explain?}` | `{records}` \| `{plan}` | `400 aggregate.bad_pipeline`, `400 aggregate.limit_exceeded` |
 | GET | `/v1/spaces/:spaceId/objects/:objectId` | — | `{objectId, record}` | the raw `objects` row; `404 object.not_found`, `410 object.deleted` |
@@ -147,9 +147,9 @@ Full semantics in [Bundles](../collaboration/bundles.html).
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects \
-  -d '{"types":["'$PAGE'"],"initialProperties":{"any":{"name":"Dune"}}}'
+  -d '{"type":"page","initialProperties":{"any":{"name":"Dune"}}}'
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/query \
-  -d '{"filter":{"any.types":"'$PAGE'"},"sort":["-modifiedAt"],"limit":20}'
+  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}'
 ```
 
 Every `objects` row carries derived `author`, `createdAt`, `spaceId`, `modifiedAt`, `modifiedBy` (instants as `{"$date": …}`; `modifiedBy` is the identity that signed the change `modifiedAt` names). See [Objects](../database/objects.html) and [System fields](../database/system-fields.html).
@@ -170,8 +170,8 @@ Reads over the link index the search indexer maintains — not SDK methods. All 
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| GET | `…/objects/:objectId/editor/:collection/markdown` | — | `{content}` | render transform over the editor collection (`editor_blocks` or `<typeId>_<key>`); `404 dataset.not_found` when no editor part in the space declares `:collection` |
-| PUT | `…/objects/:objectId/editor/:collection/markdown` | `{content}` | `{inserted, updated, deleted, unchanged}` | parse → diff → per-block ops; every editor write answers `400 dataset.not_declared` when none of the object's types declares the collection |
+| GET | `…/objects/:objectId/editor/:collection/markdown` | — | `{content}` | render transform over the editor storage collection (`editor_blocks` or `<typeId>_<key>`); `404 dataset.not_found` when no editor part in the space declares `:collection` |
+| PUT | `…/objects/:objectId/editor/:collection/markdown` | `{content}` | `{inserted, updated, deleted, unchanged}` | parse → diff → per-block ops; every editor write answers `400 dataset.not_declared` when the object's type does not declare that storage collection |
 | PATCH | `…/objects/:objectId/editor/:collection/markdown` | `{edits: [{oldText, newText, replaceAll?}]}` | PUT shape | all-or-nothing; `400 markdown.no_match`, `markdown.ambiguous_match`, `markdown.overlapping_edits` |
 | POST | `…/objects/:objectId/editor/:collection/markdown/append` | `{content}` | PUT shape (`inserted` only) | O(fragment), no diff |
 | POST | `…/objects/:objectId/editor/:collection/blocks` | `{type, style?, text?, nav?}` | 201 write result | `recordIds[0]` is the block id; `400 blocks.type_required` |
@@ -219,42 +219,51 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/modify -d '{
 
 A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history.truncated` (reserved). `chat_messages` opts out of history. See [Version history](../database/version-history.html).
 
-## Types and properties
+## Types, collections and properties
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| GET | `/v1/spaces/:spaceId/types` | `includeHidden?` | `{types}` | built-ins `any`, `spaceIndex`, `type` first, then registered (the hidden `dataview` / `page` / `miniapp` / `bin`), then user types; hidden types (bundle roots and hidden built-ins) only with `includeHidden=true` |
-| POST | `/v1/spaces/:spaceId/types` | `{name?, description?, iconCid?, xKey, weight?, layout?, hidden?, meta?}` | 201 `{typeId}` | `400 type.xkey_required`, `409 type.xkey_conflict`; properties and parts are added through their own routes |
-| GET | `/v1/spaces/:spaceId/types/:typeId` | — | `TypeInfo` | `404 type.not_found` |
+| GET | `/v1/spaces/:spaceId/types` | `includeHidden?` | `{types}` | built-ins `any`, `spaceIndex`, `type`, `collection` first, then the registered hidden `page` / `dataview`, then user types; hidden types (the hidden built-ins, and any type created, patched or installed with `hidden: true`) only with `includeHidden=true` |
+| POST | `/v1/spaces/:spaceId/types` | `{name?, description?, iconCid?, xKey, layout?, hidden?, meta?}` | 201 `{typeId}` | `400 type.xkey_required`, `409 type.xkey_conflict` (one handle namespace with collections); properties and parts are added through their own routes |
+| GET | `/v1/spaces/:spaceId/types/:typeId` | — | `TypeInfo` | `404 type.not_found`; `400 type.not_a_type` for a user collection id |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId` | — | — | `501 sdk.not_implemented` |
 | GET | `…/types/:typeId/properties` | — | `{properties: [PropertyDef]}` | `404 type.not_found`; `200 []` means "no properties yet" |
 | POST | `…/types/:typeId/properties` | `{name?, description?, kind, xKey?, xFormat?, meta?, scope?}` | 201 `{propId}` | `kind` required and pinned (`string`, `number`, `boolean`, `array`, `object`, `datetime`); `xFormat` is the descriptor ([Types and properties](../database/types-and-properties.html)); `meta` takes only `index`; `400 property.format_invalid`, `409 property.xkey_conflict`, `400 type.registered` |
 | PATCH | `…/types/:typeId/properties/:propId` | `{set, unset}` | 204 | `name`, `description`, `xKey`, `meta.index`, `xFormat.*` leaves; `400 property.immutable`, `400 property.format_invalid`, `409 property.xkey_conflict`, `404 sdk.not_found` |
 | DELETE | `…/types/:typeId/properties/:propId` | — | 204 | tombstone; values not cleaned up |
-| PATCH | `…/types/:typeId` | `{name?, description?, iconCid?, weight?, layout?, hidden?, meta?}` | 204 | rendering slice, the hidden flag and the per-key meta bag (`null` unsets a key); `400 type.registered`, `404 type.not_found` |
+| PATCH | `…/types/:typeId` | `{name?, description?, iconCid?, layout?, hidden?, meta?}` | 204 | rendering slice, the hidden flag and the per-key meta bag (`null` unsets a key); `400 type.registered`, `404 type.not_found` |
 | GET | `…/types/:typeId/parts` | — | `{parts: [{id, key, name?, icon?, pos?, hidden?, ui?, uses?, datasets: [DatasetDef]}]}` | |
 | POST | `…/types/:typeId/parts` | `{key, name?, icon?, pos?, hidden?, ui?, uses?, datasets?: [dataset draft]}` | 201 `{partId}` | one change; `409 dataset.key_conflict`, `400 dataset.module_unknown`, `400 dataset.module_reserved`, `400 dataset.shared_conflict`, `409 dataset.module_owned` |
 | PATCH | `…/types/:typeId/parts/:partId` | `{set, unset}` | 204 | `name`, `icon`, `pos`, `hidden`, `ui`, `uses`; `400 dataset.immutable` |
 | DELETE | `…/types/:typeId/parts/:partId` | — | 204 | removes the part and its datasets |
-| POST | `…/types/:typeId/parts/:partId/datasets` | `{key?, module?, shared?, displayName?, idRule?, deleteBy?, search?, fields, …}` | 201 `{datasetDefId, collection}` | collection = `<typeId>_<key>` (or the module's canonical when shared); `409 dataset.key_conflict`, `400 dataset.decl_invalid` |
-| GET | `…/types/:typeId/datasets` | — | `{datasets: [DatasetDef]}` | flat compiled view; each carries `collection`, `module`, `shared`, `partId` |
+| POST | `…/types/:typeId/parts/:partId/datasets` | `{key?, module?, shared?, displayName?, idRule?, deleteBy?, search?, fields, …}` | 201 `{datasetDefId, collection}` | the storage collection is `<typeId>_<key>` (or the module's canonical one when shared); `409 dataset.key_conflict`, `400 dataset.decl_invalid` |
+| GET | `…/types/:typeId/datasets` | — | `{datasets: [DatasetDef]}` | flat compiled view; each carries its storage `collection`, `module`, `shared`, `partId` |
 | PATCH | `…/types/:typeId/datasets/:defId` | `{set, unset}` | 204 | display leaves only; `400 dataset.immutable` |
 | DELETE | `…/types/:typeId/datasets/:defId` | — | 204 | |
 | POST | `…/types/:typeId/datasets/:defId/fields` | field def | 201 `{fieldDefId}` | never `required` |
 | PATCH | `…/types/:typeId/datasets/:defId/fields/:fieldId` | `{set, unset}` | 204 | `name`, `description`, `xFormat.*`; `400 dataset.immutable` |
 | DELETE | `…/types/:typeId/datasets/:defId/fields/:fieldId` | — | 204 | |
+| GET | `/v1/spaces/:spaceId/collections` | `includeHidden?` | `{collections}` | the meta row `collection` first, then the registered hidden `miniapp` / `bin`, then user collections |
+| POST | `/v1/spaces/:spaceId/collections` | `{name?, description?, iconCid?, xKey, hidden?, meta?}` | 201 `{collectionId}` | the type body minus `layout`; `400 type.xkey_required`, `409 type.xkey_conflict` |
+| GET | `/v1/spaces/:spaceId/collections/:collectionId` | — | `CollectionInfo` | `404 collection.not_found`; `400 collection.not_a_collection` for a user type id |
+| PATCH | `…/collections/:collectionId` | `{name?, description?, iconCid?, hidden?, meta?}` | 204 | `400 collection.registered` on a built-in, `404 collection.not_found` |
+| DELETE | `…/collections/:collectionId` | — | — | `501 sdk.not_implemented` |
+| GET/POST/PATCH/DELETE | `…/collections/:collectionId/properties[/:propId]` | as the `…/types` twins | as the `…/types` twins | one property surface: same bodies, same codes; a column write on a built-in is `400 type.registered` |
 | GET | `/v1/spaces/:spaceId/properties/:objectId` | — | `{record}` | raw `objects` row |
-| POST | `/v1/spaces/:spaceId/properties/:objectId/set/:typeId` | `{patch: {propId: value}}` | write result | routes by the props' declared scope; `400 property.format_violation`, `property.kind_mismatch`, `property.not_found` |
-| POST | `…/properties/:objectId/attach/:typeId` | — | write result | idempotent `$addToSet any.types`; checks both ids (`404 object.not_found`, `404 type.not_found`); `400 type.reserved_carrier`; `attach/bin` also stamps `bin.movedAt` / `bin.movedBy` |
-| POST | `…/properties/:objectId/detach/:typeId` | — | write result | idempotent `$pull`; checks neither id (the repair path); values and records stay as orphan data; `detach/bin` clears the stamps |
+| POST | `/v1/spaces/:spaceId/properties/:objectId/set/:ownerId` | `{patch: {propId: value}}` | write result | `ownerId` is the object's type, one of its collections, or a module namespace its type grants (`chat` for `chat.notifyMode`); routes by the props' declared scope; `400 property.format_violation`, `property.kind_mismatch`, `property.not_found`; `400 dataset.not_declared` for an owner the object does not have |
+| POST | `…/properties/:objectId/type/:typeId` | — | write result | `$set any.type`, replacing the previous one (no unset; a raw `$unset` is `400 membership.type_required`); checks both ids (`404 object.not_found`, `404 type.not_found`, `400 type.not_a_type`); `400 type.reserved_carrier` |
+| POST | `…/properties/:objectId/collections/:collectionId` | — | write result | idempotent `$addToSet any.collections`; checks both ids (`404 object.not_found`, `404 collection.not_found`, `400 collection.not_a_collection`); `collections/bin` also stamps `bin.movedAt` / `bin.movedBy` |
+| DELETE | `…/properties/:objectId/collections/:collectionId` | — | write result | idempotent `$pull`; checks neither id (the repair path); values and records stay as orphan data; `collections/bin` clears the stamps |
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/types -d '{"name":"Book","xKey":"book"}'
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/types/$T/properties \
   -d '{"name":"Rating","kind":"number","xKey":"rating"}'
+curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/collections -d '{"name":"Reading list","xKey":"reading_list"}'
+curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/properties/$OBJ/collections/$C
 ```
 
-Values are keyed by `propId`, never `xKey`. See [Types and properties](../database/types-and-properties.html) and [Runtime datasets](../database/runtime-datasets.html).
+Values are keyed by `propId`, never `xKey`. See [Types and properties](../database/types-and-properties.html), [Collections](../database/collections.html) and [Runtime datasets](../database/runtime-datasets.html).
 
 ## Chat
 
@@ -396,6 +405,6 @@ Device-local, non-CRDT collections that never sync — query, modifiers, indexes
 | POST | `/v1/local/aggregate` | `{coll, pipeline, groupLimit?, accumArrayLimit?, memoryLimitBytes?, explain?}` | `{records}` \| `{plan}` \| `{written}` | `$out` / `$merge` / `$lookup` name local collections by `storageName` only (`400 local.bad_sink_target`) |
 | POST | `/v1/local/indexes` | `{coll, ensure?: [{name?, fields, unique?, sparse?}], drop?: [name]}` | `{indexes}` | |
 
-`coll` is `{scope: "account" | "space", spaceId?, name}`, `name` matching `^[a-z0-9][a-z0-9_-]{0,63}$` (`400 local.bad_name`). An op on a collection never ensured is `404 local.collection_not_found`; a space-scoped op answers `404 space.not_found` / `409 space.deleted` for its space.
+`coll` is `{scope: "account" | "space", spaceId?, name}`, `name` matching `^[a-z0-9][a-z0-9_-]{0,63}$` (`400 local.bad_name`). An op on a local storage collection never ensured is `404 local.collection_not_found`; a space-scoped write (ensure, insert, upsert, update, indexes, a pipeline's sink target) answers `404 space.not_found` / `409 space.deleted` for its space, while reads, delete, drop, list, export and import never check the space.
 
 > **Note.** Synced writes are not idempotent — each POST produces a new DAG change. The exceptions are `/upsert`, where the caller-supplied record id is the idempotency key, and the adopt-or-install routes (`…/bundles`, `/v1/catalog/:usecaseId/setup`), where a second call adopts. Pagination is offset-based on every list.

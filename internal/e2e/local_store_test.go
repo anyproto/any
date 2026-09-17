@@ -1,10 +1,10 @@
 // TestE2E_LocalStore pins the local store's on-disk contract against
-// the real binary (docs/26-local-store.md): local collections live in
+// the real binary: local collections live in
 // the SDK's sdk.db and survive a server restart (the SDK's boot-time
 // orphan sweep leaves the l_ tag alone); a space-scoped collection
-// outlives its space — deleting the space makes every op on it
-// 409 space.deleted (the sticky tombstone) except drop, the cleanup
-// path; and the fence refuses an SDK collection as a sink.
+// outlives its space — deleting the space makes every write to it
+// 409 space.deleted (the sticky tombstone) while reads, delete and
+// drop keep working; and the fence refuses an SDK collection as a sink.
 package e2e
 
 import (
@@ -100,12 +100,30 @@ func TestE2E_LocalStore(t *testing.T) {
 	t.Run("space-scoped collection outlives its space", func(t *testing.T) {
 		mustStatus(t, http.MethodDelete, base+"/v1/spaces/"+spaceId, "", http.StatusNoContent)
 
-		// Every op on the space-scoped collection is now fenced by the
-		// space pre-flight — the collection itself is still on disk.
-		var env map[string]any
-		mustJSON(t, http.MethodPost, base+"/v1/local/query", `{"coll":`+sp+`}`, http.StatusConflict, &env)
-		if code := env["error"].(map[string]any)["code"]; code != "space.deleted" {
-			t.Fatalf("query on deleted space code = %v", code)
+		// Writes are fenced by the space pre-flight: a dead space can't
+		// be grown as a namespace.
+		for _, w := range []struct{ method, path, body string }{
+			{http.MethodPut, "/v1/local/collections", sp},
+			{http.MethodPost, "/v1/local/insert", `{"coll":` + sp + `,"docs":[{"id":"y"}]}`},
+			{http.MethodPost, "/v1/local/upsert", `{"coll":` + sp + `,"docs":[{"id":"x","objectId":"obj-2"}]}`},
+			{http.MethodPost, "/v1/local/update", `{"coll":` + sp + `,"id":"x","modifier":{"$set":{"objectId":"obj-2"}}}`},
+			{http.MethodPost, "/v1/local/indexes", `{"coll":` + sp + `,"ensure":[{"fields":["objectId"]}]}`},
+		} {
+			var env map[string]any
+			mustJSON(t, w.method, base+w.path, w.body, http.StatusConflict, &env)
+			if code := env["error"].(map[string]any)["code"]; code != "space.deleted" {
+				t.Fatalf("%s %s on deleted space code = %v", w.method, w.path, code)
+			}
+		}
+
+		// Reads never pre-flight — the collection is still on disk,
+		// untouched by the refused writes.
+		var q struct {
+			Records []map[string]any `json:"records"`
+		}
+		mustJSON(t, http.MethodPost, base+"/v1/local/query", `{"coll":`+sp+`}`, http.StatusOK, &q)
+		if len(q.Records) != 1 || q.Records[0]["id"] != "x" || q.Records[0]["objectId"] != "obj-1" {
+			t.Fatalf("query on deleted space: %+v", q.Records)
 		}
 		var list api.LocalListResponse
 		mustJSON(t, http.MethodGet, base+"/v1/local/collections?spaceId="+spaceId, "", http.StatusOK, &list)
@@ -113,7 +131,12 @@ func TestE2E_LocalStore(t *testing.T) {
 			t.Fatalf("space collection after space delete: %+v", list.Collections)
 		}
 
-		// Drop is the cleanup path: no space pre-flight.
+		// Delete and drop are the cleanup path: no space pre-flight.
+		var del api.LocalDeleteResponse
+		mustJSON(t, http.MethodPost, base+"/v1/local/delete", `{"coll":`+sp+`,"ids":["x"]}`, http.StatusOK, &del)
+		if del.Deleted != 1 {
+			t.Fatalf("delete on deleted space: %+v", del)
+		}
 		mustStatus(t, http.MethodDelete,
 			base+"/v1/local/collections?scope=space&spaceId="+spaceId+"&name=cache", "", http.StatusNoContent)
 		mustJSON(t, http.MethodGet, base+"/v1/local/collections?spaceId="+spaceId, "", http.StatusOK, &list)

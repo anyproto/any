@@ -9,6 +9,7 @@ import (
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/catalog"
+	"github.com/anyproto/any/internal/page"
 )
 
 // The usecase catalog over HTTP: the embedded entries set up end to
@@ -60,9 +61,17 @@ func objectRow(t *testing.T, e http.Handler, spaceId, objectId string) map[strin
 	return row
 }
 
-func rowTypes(row map[string]any) []string {
+// rowType is the object's one type (`any.type`); rowCollections what it
+// is filed under (`any.collections`).
+func rowType(row map[string]any) string {
 	anyNs, _ := row["any"].(map[string]any)
-	list, _ := anyNs["types"].([]any)
+	t, _ := anyNs["type"].(string)
+	return t
+}
+
+func rowCollections(row map[string]any) []string {
+	anyNs, _ := row["any"].(map[string]any)
+	list, _ := anyNs["collections"].([]any)
 	out := make([]string, 0, len(list))
 	for _, v := range list {
 		out = append(out, v.(string))
@@ -92,8 +101,9 @@ func TestServer_CatalogListAndGet(t *testing.T) {
 
 	var wiki api.CatalogUsecase
 	decodeGet(t, e, "/v1/catalog/wiki", &wiki)
-	if len(wiki.Bundles) != 1 || wiki.Bundles[0].Id != "system:wiki/v1" || wiki.Bundles[0].Type == nil ||
-		wiki.Bundles[0].Type.XKey != "wiki" || !wiki.Bundles[0].Hidden {
+	// The wiki files pages it does not type: it declares a COLLECTION.
+	if len(wiki.Bundles) != 1 || wiki.Bundles[0].Id != "system:wiki/v1" || wiki.Bundles[0].Type != nil ||
+		wiki.Bundles[0].Collection == nil || wiki.Bundles[0].Collection.XKey != "wiki" || !wiki.Bundles[0].Hidden {
 		t.Fatalf("wiki entry: %+v", wiki)
 	}
 	if got := wiki.Bundles[0].Miniapp["bundle"]; got != "system:wiki/v1" {
@@ -190,22 +200,26 @@ func TestServer_CatalogSetupJournal(t *testing.T) {
 	if b.TypeId != b.Bundle.RootId || b.Properties["date"] == "" {
 		t.Fatalf("journal bundle: %+v", b)
 	}
-	// The root is the type DEFINITION plus the sidebar entry — it must
-	// not carry the type, or the app itself would read as an entry.
-	types := rowTypes(objectRow(t, e, sp.Id, b.TypeId))
-	if !slices.Contains(types, "__type__") || !slices.Contains(types, "miniapp") || slices.Contains(types, b.TypeId) {
-		t.Fatalf("journal root types = %v", types)
+	// The root is the type DEFINITION plus the sidebar entry: the marker
+	// in any.type, `miniapp` among its collections. It never matches a
+	// query for its own type, or the app itself would read as an entry.
+	row := objectRow(t, e, sp.Id, b.TypeId)
+	if got := rowType(row); got != "__type__" {
+		t.Fatalf("journal root any.type = %q", got)
+	}
+	if cols := rowCollections(row); !slices.Contains(cols, "miniapp") || slices.Contains(cols, b.TypeId) {
+		t.Fatalf("journal root collections = %v", cols)
 	}
 	var info api.TypeInfo
 	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+b.TypeId, &info)
-	if info.XKey != "journal" || !info.Hidden || info.Weight != 0 {
+	if info.XKey != "journal" || !info.Hidden {
 		t.Fatalf("journal type info: %+v", info)
 	}
 
 	// An entry is one object: the type carries the day, and its part
 	// shares the editor collection, so the body needs no second type.
 	day := `{"$date":"2026-09-12T00:00:00.000Z"}`
-	entry := mustCreateObject(t, e, sp.Id, `{"types":["`+b.TypeId+`"],"initialProperties":{"`+
+	entry := mustCreateObject(t, e, sp.Id, `{"type":"`+b.TypeId+`","initialProperties":{"`+
 		b.TypeId+`":{"`+b.Properties["date"]+`":`+day+`}}}`)
 	rec := doJSON(t, e, http.MethodPost,
 		"/v1/spaces/"+sp.Id+"/objects/"+entry+"/editor/editor_blocks/blocks",
@@ -215,7 +229,7 @@ func TestServer_CatalogSetupJournal(t *testing.T) {
 	}
 	// The day is the query key the Journal surface reads by.
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/query",
-		`{"filter":{"any.types":"`+b.TypeId+`","`+b.TypeId+`.`+b.Properties["date"]+`":`+day+`}}`)
+		`{"filter":{"any.type":"`+b.TypeId+`","`+b.TypeId+`.`+b.Properties["date"]+`":`+day+`}}`)
 	var q api.QueryResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &q); err != nil || len(q.Records) != 1 ||
 		!strings.Contains(string(q.Records[0]), entry) {
@@ -244,7 +258,7 @@ func TestServer_CatalogSetupMeetings(t *testing.T) {
 	// The type is a content type users see, not a hidden marker.
 	var info api.TypeInfo
 	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+meeting.TypeId, &info)
-	if info.XKey != "meeting" || info.Hidden || info.Weight != 20 {
+	if info.XKey != "meeting" || info.Hidden {
 		t.Fatalf("meeting type info: %+v", info)
 	}
 	for _, xk := range []string{"date", "duration", "participants", "labels", "words", "source"} {
@@ -270,7 +284,7 @@ func TestServer_CatalogSetupMeetings(t *testing.T) {
 		t.Fatalf("meeting surfaces: %v", collections)
 	}
 
-	obj := mustCreateObject(t, e, sp.Id, `{"types":["`+meeting.TypeId+`"],"initialProperties":{"any":{"name":"Weekly sync"},"`+
+	obj := mustCreateObject(t, e, sp.Id, `{"type":"`+meeting.TypeId+`","initialProperties":{"any":{"name":"Weekly sync"},"`+
 		meeting.TypeId+`":{"`+meeting.Properties["date"]+`":{"$date":"2026-09-11T09:00:00.000Z"},"`+
 		meeting.Properties["participants"]+`":["Ann","Bo"]}}}`)
 	for _, coll := range []string{"editor_blocks", collections["summary"]} {
@@ -309,7 +323,7 @@ func TestServer_CatalogSetupMeetings(t *testing.T) {
 	}
 
 	// An object that does not carry the type holds none of the surfaces.
-	other := mustCreateObject(t, e, sp.Id, `{}`)
+	other := mustCreateObject(t, e, sp.Id, `{"type":"`+plainType(t, e, sp.Id)+`"}`)
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert",
 		`{"objectId":"`+other+`","dataset":"`+collections["transcript"]+`","records":[{"id":"x","fields":{"text":"no"}}]}`)
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "dataset.not_declared") {
@@ -318,8 +332,9 @@ func TestServer_CatalogSetupMeetings(t *testing.T) {
 }
 
 // TestServer_CatalogSetupWiki pins the one-object shape: the root is
-// the wiki type (hidden, xKey wiki, three columns by handle) AND the
-// miniapp carrier, and a second setup adopts it unchanged.
+// the wiki COLLECTION (hidden, xKey wiki, three columns by handle) AND
+// the miniapp entry, and a second setup adopts it unchanged. A page
+// keeps its own type and is filed under the collection.
 func TestServer_CatalogSetupWiki(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -331,9 +346,11 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 		t.Fatalf("reply: %+v", res)
 	}
 	b := res.Bundles[0]
-	if !b.Installed || b.Id != "system:wiki/v1" || b.Usecase != "wiki" || b.TypeId == "" || b.TypeId != b.Bundle.RootId {
+	if !b.Installed || b.Id != "system:wiki/v1" || b.Usecase != "wiki" || b.TypeId != "" ||
+		b.CollectionId == "" || b.CollectionId != b.Bundle.RootId {
 		t.Fatalf("wiki bundle: %+v", b)
 	}
+	wikiId := b.CollectionId
 	for _, xk := range []string{"parentId", "pos", "folder"} {
 		if b.Properties[xk] == "" {
 			t.Fatalf("property %s unresolved: %+v", xk, b.Properties)
@@ -343,57 +360,61 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 		t.Fatalf("miniapp values: %+v", b.Miniapp)
 	}
 
-	// The root carries the marker and miniapp, with the bundle id — and
-	// NOT its own type: a self-typed wiki root would be a page in its
-	// own tree, sorted among the pages it is the app for.
-	row := objectRow(t, e, sp.Id, b.TypeId)
-	types := rowTypes(row)
-	for _, want := range []string{"__type__", "miniapp"} {
-		if !slices.Contains(types, want) {
-			t.Fatalf("root types %v lack %s", types, want)
-		}
+	// The root carries the collection marker and is filed under miniapp
+	// with the bundle id — and is NOT in its own collection: a
+	// self-filed wiki root would be a page in its own tree, sorted
+	// among the pages it is the app for.
+	row := objectRow(t, e, sp.Id, wikiId)
+	if got := rowType(row); got != "__collection__" {
+		t.Fatalf("wiki root any.type = %q", got)
 	}
-	if slices.Contains(types, b.TypeId) {
-		t.Fatalf("wiki root carries its own type: %v", types)
+	cols := rowCollections(row)
+	if !slices.Contains(cols, "miniapp") || slices.Contains(cols, wikiId) {
+		t.Fatalf("wiki root collections = %v", cols)
 	}
 	if ma, _ := row["miniapp"].(map[string]any); ma["bundle"] != "system:wiki/v1" {
 		t.Fatalf("miniapp.bundle on the root: %v", row["miniapp"])
 	}
 
-	// Hidden: absent from the plain list, present with includeHidden,
-	// resolvable by xKey, no weight.
-	var listed api.TypesListResponse
-	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types", &listed)
-	for _, ti := range listed.Types {
-		if ti.Id == b.TypeId {
-			t.Fatalf("hidden wiki type listed by default")
+	// It is a collection, not a type, on both surfaces.
+	rec := doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types/"+wikiId, "")
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "type.not_a_type") {
+		t.Fatalf("wiki on the types route: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Hidden: absent from the plain list, present with includeHidden.
+	var listed api.CollectionsListResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/collections", &listed)
+	for _, ci := range listed.Collections {
+		if ci.Id == wikiId {
+			t.Fatalf("hidden wiki collection listed by default")
 		}
 	}
-	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types?includeHidden=true", &listed)
-	var found *api.TypeInfo
-	for i := range listed.Types {
-		if listed.Types[i].Id == b.TypeId {
-			found = &listed.Types[i]
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/collections?includeHidden=true", &listed)
+	var found *api.CollectionInfo
+	for i := range listed.Collections {
+		if listed.Collections[i].Id == wikiId {
+			found = &listed.Collections[i]
 		}
 	}
-	if found == nil || found.XKey != "wiki" || !found.Hidden || found.Weight != 0 || found.Name != "Wiki" {
-		t.Fatalf("wiki type info: %+v", found)
+	if found == nil || found.XKey != "wiki" || !found.Hidden || found.Name != "Wiki" {
+		t.Fatalf("wiki collection info: %+v", found)
 	}
 
 	// Adopt: same ids, nothing installed.
 	again := setupUsecase(t, e, "wiki", sp.Id)
-	if again.Bundles[0].Installed || again.Bundles[0].TypeId != b.TypeId ||
+	if again.Bundles[0].Installed || again.Bundles[0].CollectionId != wikiId ||
 		again.Bundles[0].Properties["pos"] != b.Properties["pos"] {
 		t.Fatalf("second setup did not adopt: %+v", again.Bundles[0])
 	}
 
-	// A page carrying the wiki type takes its columns by id, and the
-	// tree is a plain query on them: children of a parent sorted by
-	// pos. An object created without the type is not in the tree, and
+	// A page filed under the wiki takes its columns by id, and the tree
+	// is a plain query on them: children of a parent sorted by pos. An
+	// object created outside the collection is not in the tree, and
 	// nothing stamps a `nav` namespace any more.
 	parentProp, posProp, folderProp := b.Properties["parentId"], b.Properties["pos"], b.Properties["folder"]
 	mk := func(name, parent, pos string, folder bool) string {
-		body := `{"types":["page","` + b.TypeId + `"],"initialProperties":{"any":{"name":"` + name + `"},"` + b.TypeId +
+		body := `{"type":"page","collections":["` + wikiId + `"],"initialProperties":{"any":{"name":"` + name + `"},"` + wikiId +
 			`":{"` + parentProp + `":"` + parent + `","` + posProp + `":"` + pos + `","` + folderProp + `":` + map[bool]string{true: "true", false: "false"}[folder] + `}}}`
 		rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects", body)
 		if rec.Code != http.StatusCreated {
@@ -406,7 +427,7 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 	folder := mk("Folder", "", "a0", true)
 	second := mk("Second", "", "a1", false)
 	inside := mk("Inside", folder, "a0", false)
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects", `{"types":["page"]}`)
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects", `{"type":"page"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create bare page: %d %s", rec.Code, rec.Body.String())
 	}
@@ -417,7 +438,7 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 	}
 
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/query",
-		`{"filter":{"`+b.TypeId+`.`+parentProp+`":""},"sort":["`+b.TypeId+`.`+posProp+`"]}`)
+		`{"filter":{"`+wikiId+`.`+parentProp+`":""},"sort":["`+wikiId+`.`+posProp+`"]}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("tree query: %d %s", rec.Code, rec.Body.String())
 	}
@@ -433,13 +454,18 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 		t.Fatalf("root level = %v, want [%s %s] (folder first by pos, the bare page and the nested one absent)", rootIds, folder, second)
 	}
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/query",
-		`{"filter":{"`+b.TypeId+`.`+parentProp+`":"`+folder+`"}}`)
+		`{"filter":{"`+wikiId+`.`+parentProp+`":"`+folder+`"}}`)
 	_ = json.Unmarshal(rec.Body.Bytes(), &q)
 	if len(q.Records) != 1 || !strings.Contains(string(q.Records[0]), inside) {
 		t.Fatalf("folder children = %s", rec.Body.String())
 	}
-	if fr := objectRow(t, e, sp.Id, folder); fr[b.TypeId].(map[string]any)[folderProp] != true {
-		t.Fatalf("folder flag not stored: %v", fr[b.TypeId])
+	fr := objectRow(t, e, sp.Id, folder)
+	if fr[wikiId].(map[string]any)[folderProp] != true {
+		t.Fatalf("folder flag not stored: %v", fr[wikiId])
+	}
+	// The page keeps its own type; the wiki is only where it is filed.
+	if rowType(fr) != "page" || !slices.Contains(rowCollections(fr), wikiId) {
+		t.Fatalf("wiki page membership: type=%q collections=%v", rowType(fr), rowCollections(fr))
 	}
 }
 
@@ -449,15 +475,17 @@ func TestServer_CatalogSetupCollectionsAndChat(t *testing.T) {
 	e := buildEcho(d)
 	sp := createSpaceInfo(t, e, "CatalogBare")
 
-	// collections: a bare miniapp root — no type, the marker with the id.
+	// collections: a bare miniapp root — declares nothing, so its
+	// any.type is the rootType the catalog names, not a marker.
 	res := setupUsecase(t, e, "collections", sp.Id)
 	b := res.Bundles[0]
-	if !b.Installed || b.TypeId != "" || b.Properties != nil || b.Miniapp["bundle"] != "system:collections/v1" {
+	if !b.Installed || b.TypeId != "" || b.CollectionId != "" || b.Properties != nil ||
+		b.Miniapp["bundle"] != "system:collections/v1" {
 		t.Fatalf("collections bundle: %+v", b)
 	}
-	types := rowTypes(objectRow(t, e, sp.Id, b.Bundle.RootId))
-	if !slices.Contains(types, "miniapp") || slices.Contains(types, "__type__") {
-		t.Fatalf("collections root types: %v", types)
+	row := objectRow(t, e, sp.Id, b.Bundle.RootId)
+	if rowType(row) != page.TypeId || !slices.Contains(rowCollections(row), "miniapp") {
+		t.Fatalf("collections root: type=%q collections=%v", rowType(row), rowCollections(row))
 	}
 
 	// general chat: derived, hidden, a sidebar entry (miniapp), a chat
@@ -467,9 +495,9 @@ func TestServer_CatalogSetupCollectionsAndChat(t *testing.T) {
 	if !chat.Bundle.Derived || chat.TypeId != chat.Bundle.RootId || chat.Miniapp["bundle"] != "system:general-chat/v1" {
 		t.Fatalf("general chat bundle: %+v", chat)
 	}
-	row := objectRow(t, e, sp.Id, chat.Bundle.RootId)
-	if types := rowTypes(row); !slices.Contains(types, "miniapp") {
-		t.Fatalf("general chat root types = %v, want miniapp", types)
+	row = objectRow(t, e, sp.Id, chat.Bundle.RootId)
+	if cols := rowCollections(row); !slices.Contains(cols, "miniapp") {
+		t.Fatalf("general chat root collections = %v, want miniapp", cols)
 	}
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/"+chat.Bundle.RootId+"/chat/messages", `{"text":"hello"}`)
 	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
@@ -510,6 +538,24 @@ func TestServer_CatalogSetupDependencies(t *testing.T) {
 	if byId["system:person/v1"].Properties["organization"] == "" || byId["system:organization/v1"].Properties["main_contact"] == "" {
 		t.Fatalf("relation properties unresolved: %+v %+v", byId["system:person/v1"].Properties, byId["system:organization/v1"].Properties)
 	}
+	// A role facet is a COLLECTION: the reply names collectionId, and a
+	// person filed under it keeps `person` as its type while taking the
+	// facet's columns — initialProperties keyed by the collection.
+	facet := byId["system:contact/v1"]
+	if facet.TypeId != "" || facet.CollectionId != facet.Bundle.RootId || facet.Properties["status"] == "" {
+		t.Fatalf("contact facet: %+v", facet)
+	}
+	person := byId["system:person/v1"]
+	who := mustCreateObject(t, e, sp.Id, `{"type":"`+person.TypeId+`","collections":["`+facet.CollectionId+
+		`"],"initialProperties":{"any":{"name":"Ada"},"`+facet.CollectionId+`":{"`+facet.Properties["status"]+`":["active"]}}}`)
+	whoRow := objectRow(t, e, sp.Id, who)
+	if rowType(whoRow) != person.TypeId || !slices.Contains(rowCollections(whoRow), facet.CollectionId) {
+		t.Fatalf("contact membership: type=%q collections=%v", rowType(whoRow), rowCollections(whoRow))
+	}
+	if vals, _ := whoRow[facet.CollectionId].(map[string]any); vals[facet.Properties["status"]] == nil {
+		t.Fatalf("facet value not stored: %v", whoRow[facet.CollectionId])
+	}
+
 	// The app root is hidden and its layouts collection is writable.
 	app := byId["system:contacts/v1"]
 	var parts api.TypePartsListResponse
@@ -646,7 +692,6 @@ usecases:
         name: Note
         type:
           xKey: seam_note
-          weight: 10
           properties:
             - { xKey: title, name: Title, kind: string }
             - { xKey: tags,  name: Tags,  kind: array,
@@ -680,7 +725,6 @@ usecases:
         name: Note
         type:
           xKey: seam_note
-          weight: 10
           properties:
             - { xKey: title, name: Title, kind: string }
             - { xKey: tags,  name: Tags,  kind: array,
@@ -700,6 +744,7 @@ usecases:
             datasets: [ { key: state, idRule: user, fields: [ { key: v, kind: string, mutableBy: any } ] } ]
       - id: system:seam-app-extra/v1
         name: Extra
+        rootType: page
         miniapp: {}
 `
 
@@ -724,7 +769,7 @@ func TestServer_CatalogEvolution(t *testing.T) {
 	if info.XKey != "seam_tag" {
 		t.Fatalf("marker info: %+v", info)
 	}
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects", `{"types":["`+tag.TypeId+`"]}`)
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects", `{"type":"`+tag.TypeId+`"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("carry marker: %d %s", rec.Code, rec.Body.String())
 	}
@@ -780,8 +825,8 @@ func TestServer_CatalogEvolution(t *testing.T) {
 		t.Fatalf("miniapp heal reply: %+v", app2)
 	}
 	row := objectRow(t, e, sp.Id, app2.TypeId)
-	if !slices.Contains(rowTypes(row), "miniapp") {
-		t.Fatalf("miniapp not attached on heal: %v", rowTypes(row))
+	if !slices.Contains(rowCollections(row), "miniapp") {
+		t.Fatalf("miniapp not attached on heal: %v", rowCollections(row))
 	}
 	if ma, _ := row["miniapp"].(map[string]any); ma["bundle"] != "system:seam-app/v1" {
 		t.Fatalf("miniapp.bundle not healed: %v", row["miniapp"])
@@ -873,5 +918,16 @@ func TestServer_CatalogSetupEveryUsecase(t *testing.T) {
 	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/bundles", &bl)
 	if len(bl.Bundles) != len(roots) {
 		t.Fatalf("registry has %d rows, setup touched %d bundles", len(bl.Bundles), len(roots))
+	}
+	// The app roots that declare nothing are plain documents: the
+	// catalog's rootType is what setup mints them with.
+	for _, id := range []string{"system:collections/v1", "system:meetings/v1", "system:tasks/v1", "system:crm/v1"} {
+		root, ok := roots[id]
+		if !ok {
+			t.Fatalf("%s was not installed", id)
+		}
+		if got := rowType(objectRow(t, e, sp.Id, root)); got != page.TypeId {
+			t.Errorf("%s root any.type = %q, want %q", id, got, page.TypeId)
+		}
 	}
 }

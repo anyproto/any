@@ -9,19 +9,21 @@ None of these are new endpoints. They are the patterns that make a client correc
 
 ## 1. Writes go through the module's handler
 
-Chat and editor collections are written only through `…/chat/messages` and `…/editor/:collection/blocks` — the handler stamps `creator` / `createdAt` / `modifiedAt`, enforces author-only edit/delete, and keys reactions per identity. For documents pick the route by change shape: targeted edit → `PATCH …/editor/editor_blocks/markdown` with `{edits:[{oldText,newText}]}` (a stale quote fails with `markdown.no_match` instead of clobbering concurrent edits); full rewrite → `PUT`; tail growth → `POST …/markdown/append`. Never `GET → string-replace → PUT`.
+Chat and editor storage collections are written only through `…/chat/messages` and `…/editor/:collection/blocks` — the handler stamps `creator` / `createdAt` / `modifiedAt`, enforces author-only edit/delete, and keys reactions per identity. For documents pick the route by change shape: targeted edit → `PATCH …/editor/editor_blocks/markdown` with `{edits:[{oldText,newText}]}` (a stale quote fails with `markdown.no_match` instead of clobbering concurrent edits); full rewrite → `PUT`; tail growth → `POST …/markdown/append`. Never `GET → string-replace → PUT`.
 
 Every write returns `{versionId, changeId, recordIds}`, never the record. Stamp `versionId` on the paths you touched so you recognise your own change when it arrives on the stream.
 
-## 2. Preflight-validate against the bound types
+## 2. Preflight-validate against the object's owners
 
-An object's `any.types` decides which collections it accepts: a collection lives on an object only while one of its types has a part declaring it, so an `editor_blocks` write to an object carrying no document type is `400 dataset.not_declared` — and no write attaches a type for you. Bind types deliberately, at create (`{"types":["page"]}`) or with `POST …/properties/:objectId/attach/:typeId`, and check the row before writing; `GET /v1/spaces/:id/datasets` lists each collection's declaring `owners`. Property values are checked against the declared `kind` (`400 property.kind_mismatch`) and the `xFormat` slug (`400 property.format_violation`); read `GET …/types/:id/properties` once and validate before you write rather than after a 400.
+An object's `any.type` decides which storage collections it accepts: one lives on an object only while a part of its type declares it, so an `editor_blocks` write to an object whose type is not a document type is `400 dataset.not_declared` — and no write sets a type for you. Set the type deliberately, at create (`{"type": "page"}`) or with `POST …/properties/:objectId/type/:typeId`, and check the row before writing; `GET /v1/spaces/:id/datasets` lists each storage collection's declaring `owners`.
+
+Property values are admitted only under an **owner** the object has — its type or one of its collections filed through `POST …/properties/:objectId/collections/:collectionId` — and are checked against the declared `kind` (`400 property.kind_mismatch`) and the `xFormat` slug (`400 property.format_violation`); read `GET …/types/:id/properties` or `GET …/collections/:id/properties` once and validate before you write rather than after a 400.
 
 ## 3. Reads go through query / subscribe
 
 - **Prefer `query`.** Open a `subscribe` only when the UI renders changes live.
 - **Always set `limit`.** An unbounded read is a bug: it can produce a huge snapshot or overflow a subscribe mailbox, and drift detection is off when `limit == 0`.
-- **Page on a cursor, not `offset`.** Offsets float under writes. Page with `{"_ver.id": {"$lt": "<last>"}}` and the same sort — indexed, absolute, and correct while the collection mutates.
+- **Page on a cursor, not `offset`.** Offsets float under writes. Page with `{"_ver.id": {"$lt": "<last>"}}` and the same sort — indexed, absolute, and correct while the storage collection mutates.
 - **Recency is `-modifiedAt`**, creation order `-createdAt` — author's clock, display quality only.
 - **Timestamps are `{"$date": …}`** in filters too; a bare value compares only within its own type bracket, so it silently returns nothing.
 - **Aggregate server-side.** Counts and top-N go through `…/aggregate`, `$match` first ([Aggregation](../database/aggregation.html)).
@@ -48,7 +50,7 @@ Default `mode: "hybrid"`; pin `fts` for exact ids and error strings. Check `vect
 
 ## 9. Files: attach and move on, render by URL
 
-`POST …/files` returns 201 once the row is durable in the CRDT; the network backup runs inside the request when a broker is reachable, otherwise in the background. Do not block UI on `durable`. A member's incoming file becomes fetchable when its row gains `networkSign` on the files/query subscribe; `409 file.not_available` before that is "wait", not "error". Point `<img>` / `<video>` straight at `…/files/:id/content` — correct mime, Range support ([Files](../files/index.html)).
+`POST …/files` returns 201 once the row is durable in the CRDT; the network backup always runs in the background, so the receipt says `durable: false` for anything but an inline file or one deduplicated against an already backed-up file. Do not block UI on `durable`. A member's incoming file becomes fetchable when its row gains `networkSign` on the files/query subscribe; `409 file.not_available` before that is "wait", not "error". Point `<img>` / `<video>` straight at `…/files/:id/content` — correct mime, Range support ([Files](../files/index.html)).
 
 ## 10. Subscribe to views, not data
 

@@ -5,7 +5,7 @@ order: 60
 ---
 # Writing data
 
-Writes are purpose-built endpoints, not a generic document PUT: property values go through the type-scoped `set`, dataset records through `/modify`, and the chat and editor modules through their own handlers. Every one of them returns the same receipt.
+Writes are purpose-built endpoints, not a generic document PUT: property values go through the owner-scoped `set`, dataset records through `/modify`, and the chat and editor modules through their own handlers. Every one of them returns the same receipt.
 
 ## The write receipt
 
@@ -29,18 +29,19 @@ No write returns the record body. Read it back through [`/query`](reading-data.h
 
 ## Property values
 
-Values are stored at `record[typeId][propId]`. Write them with the type-scoped set:
+Values are stored at `record[ownerId][propId]`, the **owner** being the object's type or one of its collections. Write them with the owner-scoped set:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/$TYPE \
+curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/$OWNER \
   -H 'Content-Type: application/json' \
   -d '{"patch": {"'$PROP_AUTHOR'": "Frank Herbert", "'$PROP_YEAR'": 1965}}'
 ```
 
-- **Key by `propId`, never by `xKey`.** The server never sees xKeys; a patch keyed by one fails with `property.not_found`. Resolve `xKey → propId` from `GET …/types/:typeId/properties` first.
+- **Key by `propId`, never by `xKey`.** The server never sees xKeys; a patch keyed by one fails with `property.not_found`. Resolve `xKey → propId` from `GET …/types/:typeId/properties` or `GET …/collections/:collectionId/properties` first.
+- **No write creates its own owner.** A value is admitted only while the object has that type or that collection; otherwise the write is refused. Set the type and file the collections first ([Objects](objects.html)).
 - The endpoint auto-routes by the property's declared [scope](data-types.html). Every propId in one patch must resolve to the same scope — mixed-scope or unknown keys are rejected.
 - A value whose kind differs from the declared `kind` is `400 property.kind_mismatch`; a value that does not fit the property's `xFormat` slug is `400 property.format_violation`.
-- Built-in paths use literal keys: `…/set/any` with `{"patch": {"name": "Dune"}}`. A tree move is this route on the wiki type — `…/set/<wikiTypeId>` with `{"patch": {"<parentIdPropId>": "…", "<posPropId>": "…"}}` ([Objects](objects.html)).
+- Built-in paths use literal keys: `…/set/any` with `{"patch": {"name": "Dune"}}`. A tree move is this route on the wiki collection — `…/set/<wikiCollectionId>` with `{"patch": {"<parentIdPropId>": "…", "<posPropId>": "…"}}` ([Objects](objects.html)).
 
 Initial values ride object create instead — `initialProperties` keyed the same way (see [Objects](objects.html)).
 
@@ -77,7 +78,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/modify \
 
 `path` is a dotted field path (`"style.level"` touches one sub-field; `"style"` replaces the object). A record with `id: ""` and `upsert: true` is created with a derived id; a named id with `upsert` creates-or-updates. `traceIds` are opaque labels stored on the change and filterable in history.
 
-`dataset` is a collection name — `<typeId>_<key>` for a runtime dataset — that one of the object's types declares, and the object must carry that type — otherwise `400 dataset.not_declared` (a name the space does not serve at all is `400 dataset.unknown`). Module collections (`chat_messages`, `editor_blocks`) are written through their own handlers, which stamp derived fields and enforce authorship; `/modify` is for runtime datasets and other dynamic collections. Runtime-dataset rules (required fields, write-once, author-only) are enforced on apply — see [Runtime datasets](runtime-datasets.html).
+`dataset` is a storage collection name — `<typeId>_<key>` for a runtime dataset — that a part of the object's **type** declares, and the object must have that type — otherwise `400 dataset.not_declared` (a name the space does not serve at all is `400 dataset.unknown`). Collections declare no datasets. Module storage collections (`chat_messages`, `editor_blocks`) are written through their own handlers, which stamp derived fields and enforce authorship; `/modify` is for runtime datasets and other dynamic ones. Runtime-dataset rules (required fields, write-once, author-only) are enforced on apply — see [Runtime datasets](runtime-datasets.html).
 
 ### Local-scope writes
 
@@ -89,7 +90,7 @@ Add `"scope": "local"` to write fields the dataset schema declares `local` — d
                  "ops": [ { "type": "$set", "path": "unread", "value": false } ] } ] }
 ```
 
-Constraints (`400 request.schema`): explicit record ids, no `upsert` (local fields annotate records the synced route created), no `traceIds`, and not the `objects` dataset — local property values go through `…/properties/:objectId/set/:typeId`. An op targeting a non-local field comes back in `rejections`; the reverse — a synced write touching a local field — fails whole with `400 dataset.validation`. `account` scope is not writable here.
+Constraints (`400 request.schema`): explicit record ids, no `upsert` (local fields annotate records the synced route created), no `traceIds`, and not the `objects` dataset — local property values go through `…/properties/:objectId/set/:ownerId`. An op targeting a non-local field comes back in `rejections`; the reverse — a synced write touching a local field — fails whole with `400 dataset.validation`. `account` scope is not writable here.
 
 ## Delete records
 
@@ -107,12 +108,12 @@ POSTs are not idempotent: each call produces a new change. The one exception is 
 
 ## Preflight, don't hope
 
-- Check the object's `any.types` before a dataset write — one of them must declare the collection; a missing type is a `400 dataset.not_declared`, not a silent no-op.
-- Resolve property ids from the type's definitions and validate kinds client-side.
+- Check the object's `any.type` before a dataset write — a part of that type must declare the storage collection; the wrong type is a `400 dataset.not_declared`, not a silent no-op.
+- Resolve property ids from the owner's definitions — the type's or the collection's — and validate kinds client-side.
 - Read back through `/query`; never expect a write to echo the record.
 
 ## Related
 
-- [Objects](objects.html) — create with `initialProperties`.
+- [Objects](objects.html) — create with `type`, `collections` and `initialProperties`.
 - [Editor](../types/editor.html), [Chat](../types/chat.html) — the bespoke write handlers.
 - [Subscribe](../realtime/subscribe.html) — matching your `versionId` against live frames.

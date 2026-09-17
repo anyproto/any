@@ -43,10 +43,13 @@ Requires Go 1.26 and `make`.
 git clone https://github.com/anyproto/any
 cd any
 make build              # → bin/any  (also fetches bin/llamacpp)
-bin/any version
+export PATH="$PWD/bin:$PATH"
+any version
 ```
 
-Use `make build`, not `go build ./cmd/any`: the search index is behind build tags that the Makefile passes. A tag-less binary serves `/search` with zero hits and warns only once at boot. On NixOS (or any system without `libffi.so.8` on the loader path) run both the build and the binary through the repo's dev shell: `nix develop -c make build`, `nix develop -c bin/any run`.
+Run the `PATH` line in every terminal you use below, or put the repo's `bin` on `PATH` in your shell profile: the `any` commands then run the binary you just built, with `bin/llamacpp` next to it where the local embedder looks. Otherwise a bare `any` fails or runs an older install.
+
+Use `make build`, not `go build ./cmd/any`: the search index is behind build tags that the Makefile passes. A tag-less binary serves `/search` with zero hits and warns only once at boot. On NixOS (or any system without `libffi.so.8` on the loader path) run both the build and the binary through the repo's dev shell: `nix develop -c make build`, `nix develop -c any run`.
 
 ## Create an account
 
@@ -95,7 +98,7 @@ any status
   "networkId": "N83gJpVd9MuNRZAuJLZ7LiMntTThhPc6DtzWWVjb1M3PouVU",
   "account": "A8tR…",
   "bootstrapping": false,
-  "crdtVersion": { "supported": 1, "stored": 1, "newer": false }
+  "crdtVersion": { "supported": 2, "stored": 2, "newer": false }
 }
 ```
 

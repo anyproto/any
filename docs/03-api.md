@@ -43,7 +43,9 @@
     - [Runtime dataset schemas](#runtime-dataset-schemas)
     - [Upsert records](#upsert-records)
     - [Built-in `dataview` type](#built-in-dataview-type)
-    - [Built-in hidden types: `page`, `miniapp`, `bin`](#built-in-hidden-types-page-miniapp-bin)
+    - [Built-in hidden type: `page`](#built-in-hidden-type-page)
+  - [Collections](#collections)
+    - [Built-in collections: `miniapp`, `bin`](#built-in-collections-miniapp-bin)
   - [Properties (values on objects)](#properties-values-on-objects)
   - [Chat (the `chat` module)](#chat-the-chat-module)
     - [Message wire shape (read path)](#message-wire-shape-read-path)
@@ -95,8 +97,8 @@
   The compiled-in modules (chat, editor) keep bespoke handlers for
   *writes* only — POST/PATCH/DELETE and reactions. Reads always go
   through the per-object query primitive with the matching `dataset`
-  value — the collection name (`chat_messages`, `editor_blocks`, a
-  namespaced `<typeId>_<key>`, …). One read path for every dataset,
+  value — the storage collection name (`chat_messages`,
+  `editor_blocks`, a namespaced `<typeId>_<key>`, …). One read path for every dataset,
   one wire shape for every snapshot. The lone exception is
   `GET …/editor/:collection/markdown`, which renders blocks to
   markdown bytes — a transform, not a dataset read.
@@ -365,7 +367,8 @@ redeemed a code before (nothing consumed). Refusals are relayed as
 > **Profiles are encrypted.** The bytes pushed to identityRepo are
 > encrypted with an account-derived key that is shared with a contact
 > only through an already-encrypted channel — a shared space's ACL
-> metadata or a 1-1 invite. A peer who has not yet received the key sees
+> metadata, a 1-1 invite, or the key rows the two participants of a 1-1
+> write inside their space. A peer who has not yet received the key sees
 > the account **id only**, with `name` / `description` / `iconCid` empty,
 > until the key arrives and the SDK's background fetch resolves the
 > profile. Clients must tolerate an empty name everywhere a contact
@@ -397,7 +400,11 @@ Each row carries the last resolved profile (`name` / `description` /
 `iconCid`, omitted until resolved — see the encryption note above) and
 `spaceIds`, the set of spaces where the identity is currently seen
 (pruned when you leave/offload a space). The synced decryption key behind
-each row is **never** exposed.
+each row is **never** exposed: the directory strips it, and the SDK's
+`identityKeys` rows on a 1-1's index object — where the two participants
+publish theirs — are refused on every per-object read (`/query`,
+`/query/subscribe`, `/aggregate`, `/history`) with
+`400 request.invalid_field`.
 
 **The directory carries no rights.** Roles
 (`owner`/`admin`/`writer`/`reader`) are per-space and live on the members
@@ -644,6 +651,22 @@ values, not ACL operations:
   it never auto-resurfaces. A later explicit `POST /v1/spaces/one-to-one`
   overrides it. Returns 204.
 
+**The friend's profile becomes decryptable on both sides.** Identity
+profiles are encrypted with a per-account metadata key. For a 1-1 the
+inbox invite carries the initiator's key to the receiver (so a pending
+row can show "Alice wants to chat"), and each participant publishes its
+own key inside the space on its first load of the 1-1 (the SDK's
+`identityKeys` rows on the space's index object); the rows cross once
+both sides have materialized the space, so the acceptor's profile is
+decryptable for the initiator too — without any other shared space and
+without the inbox. The name itself appears once the SDK's background
+identityRepo fetch lands, which needs the coordinator reachable. Until
+then a side sees the peer id-only (`GET /v1/identities/:identity` with an
+empty `name`), which clients must tolerate as they do for any contact. The
+rows are SDK-internal: no read route serves them (§ Identities). The
+exchange is 1-1 only; a regular space distributes the key through its
+ACL.
+
 **Discovery has no bespoke endpoint** — incoming requests are the space
 list filtered on the status: `GET
 /v1/spaces?status=one_to_one_pending` (pending and declined rows are
@@ -740,17 +763,18 @@ GET /v1/datasets                   → { datasets: [ { name, schema } ] }       
 
 `schema` is a standard **JSON Schema** object per dataset
 (`{type:"object", properties:{…}, additionalProperties:<dynamic>}`).
-`name` is the collection — what `dataset` names on every read and
-write. `module` is the serving module (`records` for schema-enforced
+`name` is the storage collection — what `dataset` names on every read
+and write. `module` is the serving module (`records` for schema-enforced
 runtime datasets, `chat` / `editor` for the compiled-in ones); it is
 absent on built-in datasets (`objects`, the SDK's system datasets) and
-on a registered type's statically declared datasets. `owners` lists the types whose
-parts declare the collection: the one declaring type of a namespaced
-`<typeId>_<key>` instance, every type sharing a module's canonical
-collection (`shared: true` — `editor_blocks`, `chat_messages`). A
-collection lives on an object only while the object carries one of its
-owners, so consumers gate indexing/eviction on that set; a canonical
-collection nothing declares yet is listed without `owners`, and no
+on a registered type's statically declared datasets. `owners` lists the
+types whose parts declare the storage collection: the one declaring
+type of a namespaced `<typeId>_<key>` instance, every type sharing a
+module's canonical one (`shared: true` — `editor_blocks`,
+`chat_messages`). A storage collection lives on an object only while
+the object's type is one of its owners (a type definition object counts
+as its own), so consumers gate indexing/eviction on that set; a
+canonical one nothing declares yet is listed without `owners`, and no
 object can hold it until a type declares the module (§ Parts and
 modules). Each property carries an `x-scope` extension keyword
 classifying the field:
@@ -775,12 +799,12 @@ field with no slug (the markdown `text` bodies, identities,
 record ids, opaque objects) describes itself in `description` alone.
 
 `additionalProperties:true` marks a dynamic dataset (free-form keys
-allowed, defaulting to synced — e.g. the per-type `objects` namespace and
-the chat/editor collections, which declare their known fields while
-staying open). The per-space form lists every collection the space
-hosts (`objects`, the module canonicals `chat_messages` /
-`editor_blocks`, every namespaced instance and runtime definition the
-space's types declare); the account-wide form lists the tech-space
+allowed, defaulting to synced — e.g. the per-owner `objects` namespaces
+and the chat/editor storage collections, which declare their known
+fields while staying open). The per-space form lists every storage
+collection the space hosts (`objects`, the module canonicals
+`chat_messages` / `editor_blocks`, every namespaced instance and
+runtime definition the space's types declare); the account-wide form lists the tech-space
 system datasets (`spaces`, `profile`, `devices`, `identities`, …) — of
 those, only `spaces` and `profile` are readable through the space-list
 query/subscribe above.
@@ -896,7 +920,8 @@ Body:
   "require": ["1937"],                // optional must-have terms (phrase/prefix ok); enforced in every mode
   "exclude": ["fiction"],             // optional must-not terms
   "maxData": 512,                     // optional: runes of `data` per hit around the first match (default 512; -1 = whole chunk)
-  "passages": 3                       // optional: further matching chunks per record on hit.passages (default 0, max 10)
+  "passages": 3,                      // optional: further matching chunks per record on hit.passages (default 0, max 10)
+  "filter": {"any.collections": {"$nin": ["bin"]}}  // optional: keep hits whose HOST OBJECT row matches (the /objects/query filter grammar); every mode
 }
 ```
 
@@ -949,6 +974,23 @@ equals `dataTotal`. `maxData: -1` returns the whole chunk; `maxData <
 (1 + passages) × maxData` runes of text (chunk size, ~2000 runes, in
 place of `maxData` when it is -1). The full record is one
 dataset query away (`docs/08-clients.md` § 6).
+
+**`filter` binds every hit to its host object.** The condition is the
+`/objects/query` filter grammar verbatim — `any.type`, `any.collections`,
+`<ownerId>.<propId>`, `modifiedAt`, `id`, `$and` / `$or` / `$nin` … — and
+a hit is kept only if its object's `objects` row matches, in every mode;
+`limit` still counts matching records. The row is read live, so a
+property write (a bin move: `{"any.collections": {"$nin": ["bin"]}}`) is
+honored by the next search with no re-index. Record fields of the hit's
+own dataset (a message's `creator`, a block's `type`) are not
+filterable. `null` means no filter; a bad one is the query endpoints'
+own `400 filter.invalid` / `filter.unknown_operator`. The reply carries
+`truncated: true` (absent otherwise) when the server's read budget
+under the filter ended before `limit` matching records were found — a
+narrow filter over a query that matches most of the index; the page may
+be shorter than the index could fill. How the server chooses between
+restricting the legs and post-filtering them, and the budgets:
+`docs/13-index.md` § Filtering by object.
 
 `require` / `exclude` are a contract on every returned hit, whatever
 the mode: the FTS leg matches on them, and vector hits (hybrid and pure
@@ -1023,15 +1065,15 @@ percent-encoded: `/bundles/favorites%2Fv1`. Request bodies take the id
 verbatim.
 
 **Ensure** (`POST …/bundles`) is adopt-or-install:
-`{id, name?, rootTypes?, rootProperties?, derived?, parts?, properties?,
-xKey?, layout?, weight?, hidden?, selfTyped?}`. With a winner already
+`{id, name?, rootType?, rootCollections?, rootProperties?, derived?,
+parts?, properties?, xKey?, layout?, hidden?, collection?}`. With a winner already
 registered it is a pure read — nothing is written, so a reader or guest
 member can resolve an install they could not create — and the reply is
 `installed: false`. That flag means "this call registered the install":
 a derived adopt can still materialize the root's tree locally (the id
 is this device's to mint) and reports `false`, because it registered
 nothing. Otherwise the server creates the root object with
-the requested types and initial properties, registers it in one change,
+the requested type, collections and initial properties, registers it in one change,
 and replies `installed: true`; that path is a write, so a member
 without write permission gets `403` (use `GET …/bundles/:bundleId`
 instead). `name` is stamped as `any.name` on the root. The `id` is the whole
@@ -1104,77 +1146,81 @@ be merged across objects (chat) amounts to losing it. The wait narrows
 that window; installing past it is what lets an offline 1-1 have a chat
 at all.
 
-**Bundle-declared types.** A bundle may declare a full type on its
-root — `parts`, `properties` or an `xKey` make the root a type
-definition (`any.types` carries `"__type__"`, `typeId = rootId`,
-readable through `GET …/types/:rootId` and its `parts` / `properties`
-/ `datasets` routes); `layout`, `weight`, `hidden` and `selfTyped`
-describe that type and ride along (alone they are
-`400 request.invalid_field`).
+**Bundle-declared definitions.** A bundle may declare a definition on
+its root: `parts`, `properties` or an `xKey` make the root a **type**
+(`any.type` is the `__type__` marker, `typeId = rootId`, readable
+through `GET …/types/:rootId` and its `parts` / `properties` /
+`datasets` routes) — or, with `collection: true`, a **collection**
+(`__collection__`, `collectionId = rootId`, read through
+`GET …/collections/:rootId`). `layout` and `hidden` describe the
+definition and ride along (alone they are `400 request.invalid_field`).
+A declaring root **hosts itself**: it holds its own
+`<rootId>.<propId>` values and the records of its own datasets with no
+membership and no flag, and because the marker sits in `any.type` it
+never matches `{"any.type": "<rootId>"}` or
+`{"any.collections": "<rootId>"}` — one object is both the definition
+and its own first user. `rootType` is therefore refused next to a
+declaration (`400 request.invalid_field`): a declaring root's type slot
+holds the marker.
 
 - `parts: [...]` (the same draft shape as `POST …/types/:typeId/parts`,
   ≤32 entries) declares parts and the datasets under them. A records
   dataset the bundle declares is namespaced to the root: its
-  collection is `<rootId>_<key>` (read it off `collection` in the
-  parts list), and records go through `POST …/upsert` / `…/modify` /
-  `…/query[/subscribe]` with that collection as `dataset` and
-  `objectId` = an object carrying the type — the root itself when
-  `selfTyped` (below). A part naming a module (`{"module": "editor", "shared":
-  true}`) makes the root's type own that module's canonical
+  storage collection is `<rootId>_<key>` (read it off `collection` in
+  the parts list), and records go through `POST …/upsert` / `…/modify`
+  / `…/query[/subscribe]` with that storage collection as `dataset` and
+  `objectId` = an object of the type — the root itself included, since a
+  definition hosts itself. A part naming a module (`{"module": "editor", "shared":
+  true}`) makes the root's type own that module's canonical storage
   collection — this is how a client's document bundle gives its
   objects a body. A part
   naming a module reserved to the server (`chat`, § Parts and modules)
-  is `400 dataset.module_reserved`.
+  is `400 dataset.module_reserved`. Refused with `collection`
+  (`400 request.invalid_field`): a collection has no parts.
 - `properties: [...]` (the same draft shape as `POST
-  …/types/:typeId/properties`, ≤64 entries, ≤64 KiB) declares property
-  definitions, so the root is a type **objects carry** — a wiki's
-  `parentId` / `pos`. Every draft carries an `xKey`, unique in the body
+  …/types/:typeId/properties`, ≤64 entries, ≤64 KiB) declares the
+  definition's columns — the type's, or with `collection` the
+  collection's (a wiki's `parentId` / `pos`). Every draft carries an `xKey`, unique in the body
   (`400 request.missing_field` / `400 request.invalid_field`), because
   the **property id is derived from (rootId, xKey)**: two devices that
   install while apart mint ONE column per handle, not the two the
   descriptor model otherwise allows (docs/27-descriptors.md § Handles)
   — a forked tree is not a repairable outcome. Resolve `xKey → propId`
-  through `GET …/types/:rootId/properties`; a property added later
-  through `POST …/types/:rootId/properties` gets an ordinary id. Each
+  through `GET …/types/:rootId/properties` (or
+  `…/collections/:rootId/properties`); a property added later through
+  `POST …/types/:rootId/properties` gets an ordinary id. Each
   draft passes the property gate (kind required, descriptor against
   kind, `meta` narrowed to `index`).
-- `xKey` is the type's handle (the same meaning as on `POST …/types`):
-  what a client resolves the type by, and what `relation.targetTypes`
-  in other declarations name. An xKey **alone** declares a marker type
-  — no columns, no parts, a flag objects carry. Unique among the
-  space's types: an install whose xKey a type in the space already
-  holds (as its xKey or its id, hidden or not) is
+- `xKey` is the definition's handle (the same meaning as on `POST
+  …/types`): what a client resolves it by, and what
+  `relation.targetTypes` in other declarations name. An xKey **alone**
+  declares a marker — a type, or with `collection` a collection, with
+  no columns and no parts. Unique among the space's handles, types and
+  collections together: an install whose xKey is already held (as an
+  xKey or an id, hidden or not) is
   `409 type.xkey_conflict` (`details: {xKey, existingTypeId,
   bundleId}`), checked on the install path only — an adopted root
-  carries the handle by design and never conflicts with itself.
+  holds the handle by design and never conflicts with itself.
   Written on install; a writer's adopt fills in a handle the root
   lacks, and an existing handle is never changed.
-- `layout` / `weight` (the type's rendering slice, § Types) and
-  `hidden` are written with the root's name on install. **`hidden` is
-  explicit**: a root that only hosts its bundle's records (favourites,
-  an app's setup) should ask for it — a listed type is one a picker
-  offers for attachment elsewhere, which would grant that object the
-  bundle's collections — while a root that is a type objects carry (a
-  page, a wiki) stays listed.
-- `selfTyped` makes the root CARRY the type it declares (`any.types`
-  gains the root's own id), so the root holds that type's property
-  values and its datasets — what a root keeping its own bundle's
-  records needs (favourites entries, an app's layouts). Off (the
-  default), the root is the definition only: it matches no
-  `{"any.types": "<rootId>"}` query, holds none of the type's values
-  and takes none of its collections — the shape of a type OTHER
-  objects carry (a wiki, a journal, a person). Writing the root's
-  collection without it is `400 dataset.not_declared`. Implied, never
-  declared, for a part naming a reserved module (the root is that
-  type's sole carrier) and for every tech-space bundle. A writer's
-  adopt adds the self type to a root that lacks it; nothing removes
-  it.
+- `layout` (the type's rendering slice, § Types; refused with
+  `collection`) and `hidden` are written with the root's name on
+  install. **`hidden` is explicit**: a root that only hosts its
+  bundle's records (favourites, an app's setup) should ask for it — a
+  listed definition is one a picker offers for other objects, which
+  would grant them the bundle's storage collections — while a
+  definition other objects use (a page, a wiki) stays listed.
+- `collection: true` declares a COLLECTION instead of a type: the
+  root's `properties` are its columns, and objects join it through
+  `any.collections`. `parts` and `layout` are refused with it — a
+  collection has neither.
 
 An install writes the root as **root + up to 3 changes**: one `objects`
-change carrying the types (`__type__`, `rootTypes`, and the root's own
-id when `selfTyped`),
-`any.name`, the type metadata (`type.xkey` / `layout` / `weight` /
-`hidden`) and the seeded `rootProperties` values; then, after the
+change carrying the type (`__type__` or `__collection__` for a
+declaring root, `rootType` otherwise), `rootCollections`,
+`any.name`, the definition metadata (`type.xkey` / `layout` /
+`hidden`, or `collection.xkey` / `hidden`) and the seeded
+`rootProperties` values; then, after the
 registry row, one `datasets` change when the bundle declares parts and
 one `properties` change when it declares properties. Each dataset
 lands atomically; a peer may briefly see the parts before the property
@@ -1188,23 +1234,29 @@ removed through `DELETE …/types/:rootId/properties/:propId` — the
 tombstone keeps the id — is left alone, so nothing is doubled or
 resurrected). Later evolution is `POST/PATCH/DELETE …/types/:rootId/parts…`,
 `…/datasets…` and `…/properties…` — `Ensure` never patches, adds or
-resurrects a declaration, and never touches the root's name, layout,
-weight or hidden flag once stamped. A malformed declaration (unknown
+resurrects a declaration, and never touches the root's name, layout or
+hidden flag once stamped. A malformed declaration (unknown
 module, a field on a module dataset, a duplicate key, a property
 without an xKey) fails before any root is created. The
 declaration combines with `derived: true` or stands alone (a created
-root the server mints). `rootTypes` / `rootProperties`
+root the server mints). `rootCollections` / `rootProperties`
 ride every root: a created one with no declaration, a derived one, and
-the created root of a request that declares a type — where they land
-in the root's first change next to the type marker, so one object can
-be both a type definition and a carrier of another (the wiki root: the
-type its pages carry, and a `miniapp`).
+the created root of a declaring request — where they land
+in the root's first change next to the marker, so one object is both a
+definition and a member of other collections (the wiki root: the
+collection its pages are filed under, and a `miniapp`). An owner in
+`rootProperties` that is neither `rootType` nor the root's own
+declaration is added to `rootCollections`.
 
 Input is bounded and pre-flighted: `id` ≤256 B, `xKey` ≤256 B, `name` ≤1024 B,
-`rootTypes` ≤32 entries, `rootProperties` ≤64 KiB, `parts` ≤32
-entries / 64 KiB, `properties` ≤64 entries / 64 KiB. Type ids must exist
-in the space (`400 type.not_found` — the create path would otherwise
-drop an unknown type and report success) and property values must fit
+`rootCollections` ≤32 entries, `rootProperties` ≤64 KiB, `parts` ≤32
+entries / 64 KiB, `properties` ≤64 entries / 64 KiB. `rootType` is
+required when the body declares nothing (`400 request.missing_field`;
+every object has a type, `page` for a plain document), must name a
+type the space has (`400 type.not_found`), and every
+`rootCollections` entry a collection it has
+(`400 collection.not_found`) — the create path would otherwise
+drop an unknown id and report success — and property values must fit
 their descriptor slug (`400 property.format_violation`); both are
 checked BEFORE the root is created, so a rejected request never leaves
 an orphan object. Bundle records are **permanent** — the registry
@@ -1221,10 +1273,11 @@ settings — lives in bundles on the account's **tech space**, whose id
 `GET /v1/account` returns as `techSpaceId`. The tech space is a valid
 `:spaceId` for:
 
-- `bundles` ensure / get / list / resolve — a type declaration
-  required (`parts`, `properties` or an `xKey`; `400
+- `bundles` ensure / get / list / resolve — a declaration required
+  (`parts`, `properties` or an `xKey`, type or collection; `400
   request.missing_field` otherwise), roots minted by Ensure
-  (`rootTypes` / `rootProperties` are `400 request.invalid_field`,
+  (`rootType` / `rootCollections` / `rootProperties` are `400
+  request.invalid_field` — a tech bundle root is its own definition;
   `children` is `405`). The normal shape is the default CREATED root —
   deletable (`DELETE …/objects/:rootId` = uninstall; the id then reads
   as not installed and a fresh install works), forking on concurrent
@@ -1265,7 +1318,8 @@ The ensure POST runs the same wait as its convergence gate. The raw
 view.
 
 **Favourites** is a client-registered bundle (`favorites/v1`, created
-root, an `entries` part) — a documented convention, no server code.
+root, an `entries` part whose records live on the root itself) — a
+documented convention, no server code.
 Model and client contract: `docs/25-favorites.md`.
 
 **Reads.** `GET …/bundles` lists the live rows;
@@ -1280,8 +1334,10 @@ forge a claim. Raw rows carry the stored `rootId` register and no
 `GET …/bundles[/:bundleId]`, so read those when a bundle may be
 derived.
 
-**Children** (`POST …/bundles/:bundleId/children`, `{seed, types?}`;
-seed ≤256 B, ≤32 types) derive a setup object under the bundle's
+**Children** (`POST …/bundles/:bundleId/children`, `{seed, type,
+collections?}`; seed ≤256 B, ≤32 collections — `type` is required
+(`400 request.missing_field`) and set on first materialization, collections the child lacks are added on every call)
+derive a setup object under the bundle's
 current winner: deterministic per (space, root, seed), materialized on
 the first call, the same id on every device — a restored device reaches
 the whole install from the winner alone — and cascade-deleted with the
@@ -1334,9 +1390,11 @@ The server's own well-known bundles: a yaml catalog embedded in the
 binary, grouped into **usecases** — a set of bundles installed together
 plus `requires`, the usecases that must be present first. Every bundle
 is one created root under a permanent `system:<name>/v<n>` id,
-declaring a `type` objects carry, a `miniapp` the client opens (the
-root carries the built-in `miniapp` with `bundle` = its id), `parts`
-(records on the root), or several of those; the general chat is the
+declaring a `type` objects have, a `collection` they are filed under, a
+`miniapp` the client opens (the root is filed under the built-in
+`miniapp` collection with `bundle` = its id), `parts`
+(records on the root), or several of those — in any combination but
+type with collection, or collection with parts; the general chat is the
 one `derived` root and the one declaration of the reserved `chat`
 module. The catalog is read-only over HTTP, validated at
 build time (`make catalog-validate`, CI, boot refusal), and installs
@@ -1344,12 +1402,13 @@ nothing unless a client asks. Full client contract — model, setup
 semantics, handles, rendering, forks, evolution, the shipped entries —
 in `docs/28-well-known-bundles.md`.
 
-**The catalog is the source of truth for a well-known app's types.** A
-bundle declares everything its app needs — the miniapp root and the
-types, properties and datasets its content uses — so every client,
+**The catalog is the source of truth for a well-known app's
+definitions.** A bundle declares everything its app needs — the miniapp
+root and the types, collections, properties and datasets its content
+uses — so every client,
 device and agent that sets the usecase up resolves the same ids. A
-client must not mint its own type for an app that ships with the
-product: minting by xKey converges only by luck and races on
+client must not mint its own type or collection for an app that ships
+with the product: minting by xKey converges only by luck and races on
 `409 type.xkey_conflict`. Resolve from the setup reply or the bundle
 registry instead.
 
@@ -1364,8 +1423,10 @@ POST /v1/catalog/:usecaseId/setup   → 200 CatalogSetupResponse
 
 `CatalogUsecase` is the entry as the catalog declares it — `{id, name,
 description?, requires?, bundles: [{id, name, description?, derived?,
-hidden?, selfTyped?, type?: {xKey, weight?, layout?, properties?},
-miniapp?, parts?}]}` — property and part entries in the `POST
+hidden?, type?: {xKey, layout?, properties?},
+collection?: {xKey, properties?}, miniapp?, parts?}]}` — `type` and
+`collection` exclusive, a collection taking neither `layout` nor
+`parts`; property and part entries in the `POST
 …/types/:typeId/properties` / `…/parts` draft shapes. Usecase ids are slugs and need
 no encoding in the path.
 
@@ -1374,9 +1435,11 @@ no encoding in the path.
 wait for the whole list, then per bundle the § Bundles
 adopt-or-install: a live winner is adopted (a pure read; a writer's
 adopt also heals what the root lacks — a property by handle, a
-`choice` option key the catalog gained, a `miniapp` value, attaching
-the built-in `miniapp` first when the root does not carry it — and
-never overwrites what it has), otherwise the handle check runs (no type in the space
+`choice` option key the catalog gained, a `miniapp` value, filing the
+root under the built-in `miniapp` collection first when it is not yet a
+member — and
+never overwrites what it has), otherwise the handle check runs (no type
+or collection in the space
 may already hold the bundle's xKey — `409 type.xkey_conflict`, install
 path only) and the root is minted with everything the bundle declares
 (root + up to 3 changes). Idempotent: a second call adopts everything. A
@@ -1394,13 +1457,16 @@ installs anyway and any other member is `409 bundle.not_ready`.
   "bundles": [ { "usecase": "people", "id": "system:person/v1",
                  "bundle": { "id": "system:person/v1", "rootId": "…", "roots": ["…"] },
                  "installed": true, "typeId": "<rootId>", "properties": { "email": "<propId>", "…": "…" } },
+               { "usecase": "contact", "id": "system:contact/v1",
+                 "installed": true, "collectionId": "<rootId>", "properties": { "status": "<propId>", "…": "…" } },
                { "usecase": "people", "id": "system:organization/v1", "…": "…" },
                { "usecase": "contact", "id": "system:contact/v1", "…": "…" } ] }
 ```
 
-`typeId` (the root id) and `properties` (every property on the root
-with an xKey, xKey → propId) are present when the bundle declares a
-type — `type` or `parts`; `miniapp` echoes the values a miniapp
+`typeId` (the root id) is present when the bundle declares a type —
+`type` or `parts` — and `collectionId` when it declares a
+`collection`; `properties` (every property on the root with an xKey,
+xKey → propId) rides either. `miniapp` echoes the values a miniapp
 bundle declares, `bundle` filled in; `installed` reports whether THIS
 call registered the root. Which usecases a space has is read off
 `GET …/bundles` — every member row is there under its `system:` id.
@@ -1438,21 +1504,24 @@ list | get | setup`.
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId/editor/:collection/blocks/:blockId` | tombstone one block      |
 
 Object bodies are stored as a tree of atomic blocks in an **editor
-collection** (one record per block) served by the compiled-in `editor`
-module, and exposed through the `…/editor/:collection/**` route
-namespace. `:collection` is the collection a type's part declared with
-`{"module": "editor"}` (§ Parts and modules): the canonical
+storage collection** (one record per block) served by the compiled-in
+`editor` module, and exposed through the `…/editor/:collection/**`
+route namespace. `:collection` is the storage collection a type's part
+declared with `{"module": "editor"}` (§ Parts and modules): the canonical
 `editor_blocks` for a shared part — the body every document type
-shares, so an object carrying two such types has one body — or a
+shares, so an object that changes from one document type to another
+keeps its body — or a
 namespaced `<typeId>_<key>` instance for a part that wants its own
 editor (the catalog's `meeting`: its notes are the shared body, its
 summary a second editor at `<typeId>_summary`). An object holds a
-collection only while it carries a type whose part declares it: a
-write into a collection none of the object's types declare is `400
-dataset.not_declared` (attach the type first — the write never attaches
+storage collection only while its type declares it: a
+write into one the object's type does not declare is `400
+dataset.not_declared` (set the type first — the write never sets
 one); a `:collection` no editor part in the space declares is `404
-dataset.not_found`. The built-in `page` type (§ Built-in hidden types)
-is the plain document — hidden, one part sharing this collection; a
+dataset.not_found`. The built-in `page` type (§ Built-in hidden type:
+`page`)
+is the plain document — hidden, one part sharing this storage
+collection; a
 client with its own document types declares them with an editor part,
 registered as a bundle so every peer lands on one, and an object
 carrying both has one body. The atomic surface is the three
@@ -1703,33 +1772,42 @@ rewrite. See `04-events.md`.
 
 #### Create an object
 
-`POST /v1/spaces/:spaceId/objects` takes two keys:
+`POST /v1/spaces/:spaceId/objects` takes three keys:
 
 ```json
 {
-  "types": ["..."],
-  "initialProperties": { "<typeId>": { "<propId>": "..." } }
+  "type": "<typeId>",
+  "collections": ["<collectionId>"],
+  "initialProperties": { "<ownerId>": { "<propId>": "..." } }
 }
 ```
 
-These two keys are the **whole** create vocabulary. Any other
-top-level key — a bare type group like `"any"`, a top-level `"name"`,
+`type` is the object's one type (§ Types), `collections` the
+collections it is filed under (§ Collections), and every key of
+`initialProperties` is an **owner**: the type or one of the
+collections, whose namespace the values land in. `type` is required
+(`400 request.missing_field`; `page` for a plain document); the other
+two are optional.
+
+These three keys are the **whole** create vocabulary. Any other
+top-level key — a bare owner group like `"any"`, a top-level `"name"`,
 a typo — is `400 request.unknown_field` naming the accepted set and
 where the value belongs: object properties always ride
-`initialProperties` keyed by type
+`initialProperties` keyed by owner
 (`{"initialProperties": {"any": {"name": "Dune"}}}`). Shape is
-enforced per field too (`types` an array, `initialProperties` an
-object, every `initialProperties` group an object of
-`{propertyId: value}`) → `400 request.schema`. Nothing in this body
-is silently dropped, and nothing is added to it server-side: the
-object carries exactly the types it names. Initial values pass the
-descriptor value gate (`400 property.format_violation`, § Types), and
-a type that declares a reserved module is refused
-(`400 type.reserved_carrier`, § Parts and modules). → `201
-{"objectId": "…"}`.
+enforced per field too (`type` a string, `collections` an array,
+`initialProperties` an object, every `initialProperties` group an
+object of `{propertyId: value}`) → `400 request.schema`. Nothing in
+this body is silently dropped, and nothing is added to it server-side:
+the object gets exactly the type and collections it names. Initial
+values pass the descriptor value gate
+(`400 property.format_violation`, § Types), and a type that declares a
+reserved module is refused (`400 type.reserved_carrier`, § Parts and
+modules). → `201 {"objectId": "…"}`.
 
-`GET …/objects/:objectId` → `{objectId, record}` — `record` is the
-object's row from the `objects` collection (§ Data plane).
+`GET …/objects/:objectId` → `{objectId, record}` — the object's row
+from the `objects` storage collection: `any.type`, `any.collections`
+and its property values (§ Data plane).
 
 #### The wiki tree
 
@@ -1741,43 +1819,44 @@ keeps the reply:
 ```
 POST /v1/catalog/wiki/setup   {"spaceId": "<spaceId>"}
 → the bundles[] entry with id "system:wiki/v1":
-    typeId                # <wikiTypeId>
+    collectionId          # <wikiCollectionId>
     properties.parentId   # <parentIdPropId> — string; "" = top level
     properties.pos        # <posPropId>      — lexid string; orders siblings
     properties.folder     # <folderPropId>   — boolean
 ```
 
-An object is in the tree only when it carries the wiki type; its
-placement is three ordinary property values at
-`<wikiTypeId>.<propId>`, written like any other property. A page in
-the tree carries `page` for its body and the wiki type for its place:
+An object is in the tree only while it is filed under the wiki
+collection; its placement is three ordinary property values at
+`<wikiCollectionId>.<propId>`, written like any other property. A page
+in the tree has `page` as its type for the body and the wiki
+collection for its place:
 
 ```
 POST /v1/spaces/:spaceId/objects
 {
-  "types": ["page", "<wikiTypeId>"],
+  "type": "page",
+  "collections": ["<wikiCollectionId>"],
   "initialProperties": {
-    "<wikiTypeId>": { "<parentIdPropId>": "", "<posPropId>": "a0", "<folderPropId>": false }
+    "<wikiCollectionId>": { "<parentIdPropId>": "", "<posPropId>": "a0", "<folderPropId>": false }
   }
 }
 ```
 
-A folder is the same create with `<folderPropId>` `true` and no
-`page`. Which other types a tree object carries is the client's
-choice — the wiki type only places it.
+A folder is the same create with `<folderPropId>` `true`. What type a tree object has is the client's choice — the wiki
+collection only places it.
 
 Children of a node, in order (`""` as the parent lists the top level):
 
 ```
 POST /v1/spaces/:spaceId/objects/query
 {
-  "filter": { "<wikiTypeId>.<parentIdPropId>": "<parentObjectId>" },
-  "sort":   [ "<wikiTypeId>.<posPropId>" ]
+  "filter": { "<wikiCollectionId>.<parentIdPropId>": "<parentObjectId>" },
+  "sort":   [ "<wikiCollectionId>.<posPropId>" ]
 }
 ```
 
 The columns are ordinary properties: unindexed on the `objects`
-collection (a scan, `09-query.md` § Indexes); `parentId` and `pos` are
+storage collection (a scan, `09-query.md` § Indexes); `parentId` and `pos` are
 kept out of search with `meta.index: none` and are plain strings
 rather than relations, so `/backlinks` never reports a parent link
 (`folder`, a boolean, is never indexed at all).
@@ -1790,11 +1869,11 @@ siblings on a drop. No write needs a server round-trip to pick one.
 
 #### Moves (drag-and-drop)
 
-A move is one property write on the wiki type — no dedicated route.
-To relocate `oid` under `newParent` at lexid `p`:
+A move is one property write in the wiki collection's namespace — no
+dedicated route. To relocate `oid` under `newParent` at lexid `p`:
 
 ```
-POST /v1/spaces/:spaceId/properties/:oid/set/<wikiTypeId>
+POST /v1/spaces/:spaceId/properties/:oid/set/<wikiCollectionId>
 { "patch": { "<parentIdPropId>": "<newParent>", "<posPropId>": "<p>" } }
 ```
 
@@ -1805,7 +1884,7 @@ patches `pos` alone.
 
 `DELETE /v1/spaces/:spaceId/objects/:objectId` is a single
 `Objects.Delete` call → `204`. The object's row leaves the `objects`
-collection, so it disappears from `objects/query` and leaves every
+storage collection, so it disappears from `objects/query` and leaves every
 `objects/query/subscribe` window as a `removed` entry with
 `reason: "deleted"` — the signal subscribers use to drop the id from
 local state. See `04-events.md`.
@@ -1837,10 +1916,11 @@ An **edge** is a source place, a kind and a canonical target:
 }
 ```
 
-`source.dataset` is the collection the reference was found in — a
-module or runtime collection, or the virtual `prop` for a property
+`source.dataset` is the storage collection the reference was found in
+— a module or runtime one, or the virtual `prop` for a property
 value, where `recordId` is the property id and `source.typeId` the
-type declaring it (the value lives at `record[typeId][propId]`).
+owner declaring it, the object's type or one of its collections (the
+value lives at `record[ownerId][propId]`).
 `source.field` names the field of a runtime record the reference was
 read from. `target` carries `uri`, `kind` and the ids its kind has
 (`spaceId`, `objectId`, `dataset`, `recordId`, `propId`, `identity`,
@@ -1869,7 +1949,7 @@ value, an identity, a file.
 - `GET /v1/spaces/:spaceId/objects/:objectId/links` — `{"links":
   [edge…], "truncated"?}`, the edges whose source is the object; the
   same narrowing selects one record's or one value's edges, and
-  `?dataset=` alone one collection's.
+  `?dataset=` alone one storage collection's.
 - `GET /v1/backlinks?target=<uri>` — `{"spaces": [{"spaceId",
   "object", "parts", "truncated"?}…]}`: the edges pointing at one target from every
   space this device indexes, one entry per space with an edge. The
@@ -1883,8 +1963,9 @@ Liveness: after a page changes edges the server publishes one
 device-scope `links.updated` event naming the targets whose backlinks
 moved — at most 200, `truncated: true` past that (`docs/21-events.md`);
 a panel re-reads on it. Only live
-references count: a deleted record, a cleared value, a detached type's
-values and a deleted object all drop their edges. The wiki tree's
+references count: a deleted record, a cleared value, the values of a
+type or collection the object no longer has, and a deleted object all
+drop their edges. The wiki tree's
 `parentId` is a plain string, not a link — query children directly
 (§ The wiki tree). Client recipe: `docs/08-clients.md` § 15.
 
@@ -1902,15 +1983,18 @@ values and a deleted object all drop their edges. The wiki tree's
 Two query scopes:
 
 - `POST /v1/spaces/:spaceId/objects/query` (+ `/subscribe`) —
-  **cross-object**. Reads the per-space `objects` collection (one row
-  per object's computed property values). Use this to find objects by
-  property, e.g. `{"filter":{"<typeId>.<propId>":"Casablanca"}}`.
+  **cross-object**. Reads the per-space `objects` storage collection
+  (one row per object: `any.type`, `any.collections` and its computed
+  property values). Use this to find objects by
+  property, e.g. `{"filter":{"<ownerId>.<propId>":"Casablanca"}}`, by
+  type (`{"any.type": "<typeId>"}`) or by collection
+  (`{"any.collections": "<collectionId>"}`).
 - `POST /v1/spaces/:spaceId/query` (+ `/subscribe`) — **per-object**.
   Reads one of an object's own datasets (`objectId` and `dataset`
-  required): a type object's `properties` definitions, `editor_blocks`,
-  `chat_messages`, a runtime `<typeId>_<key>` collection, etc.
+  required): a definition object's `properties`, `editor_blocks`,
+  `chat_messages`, a runtime `<typeId>_<key>` storage collection, etc.
 
-Every row in the per-space `objects` collection carries SDK-stamped
+Every row in the per-space `objects` storage collection carries SDK-stamped
 row-root fields alongside `id`, all derived/read-only (client writes
 addressing them are rejected):
 
@@ -1949,7 +2033,7 @@ identity encoding as `author`, as chat `creator`, as `identity` in
 clients resolve name and icon through the members list, falling back
 to `GET /v1/identities/:identity` for a writer who has since left the
 space. `modifiedAt` is indexed, `modifiedBy` is not — a filter on it
-scans the collection. A missing `modifiedBy` means the row has not
+scans the storage collection. A missing `modifiedBy` means the row has not
 been rebuilt yet or the latest change has no known signer, never
 "nobody modified it".
 
@@ -1958,7 +2042,8 @@ A `filter` naming an operator outside the grammar is
 `details.operator` and the supported set spelled out in the message;
 any other grammar violation is `400 filter.invalid` (`details.path`).
 There is no `$contains` — a scalar already compares against array
-elements, so `{"any.types": "page"}` is the contains spelling. Filter
+elements, so `{"any.collections": "<collectionId>"}` is the contains
+spelling (`any.type` is a scalar and compares directly). Filter
 grammar and the array rules: `09-query.md`.
 
 A per-object read (`objectId` in the body, and likewise the editor /
@@ -1983,7 +2068,7 @@ into `/query` must treat 404 as "stale hit", not an error.
   "includeDeleted":     false,        // per-object `…/query` only — tombstones too, see below
   "mailboxCapacity":    256,          // subscribe only — default 256, min 16
   "driftBudgetPercent": 30,           // subscribe only — default 30
-  "projection": { "any": 1, "<typeId>": 1, "_ver": -1 }   // field paths → 1 include / -1 exclude
+  "projection": { "any": 1, "<ownerId>": 1, "_ver": -1 }  // field paths → 1 include / -1 exclude
 }
 ```
 
@@ -2057,8 +2142,8 @@ value?}` with `type` one of `$set` / `$unset` / `$inc` / `$addToSet` /
 `$pull`, and an empty `path` on `$set` assigns every key of an object
 `value`. A malformed body is `400 request.schema`. Response: `200` with
 the shared write result (§ Write responses) — `recordIds[0]` is the
-derived id for the empty-id upsert above. A dataset the object's types
-do not declare is `400 dataset.not_declared`; a name that is not a
+derived id for the empty-id upsert above. A dataset the object's type
+does not declare is `400 dataset.not_declared`; a name that is not a
 records dataset in the space is `400 dataset.unknown`.
 
 The body takes an optional **`scope`** selecting the write route:
@@ -2073,8 +2158,8 @@ enforced with `400 request.schema`: explicit record `id`s, no
 `upsert` (local fields annotate records the synced route created —
 they never create records), no `traceIds`, and not the shared
 `objects` dataset (local property values go through
-`POST …/properties/:objectId/set/:typeId`, which validates per-property
-scope and kind). Ops that target a non-local field come back in
+`POST …/properties/:objectId/set/:ownerId`, which validates
+per-property scope and kind). Ops that target a non-local field come back in
 `rejections` (the write itself succeeds); the reverse direction — a
 synced write touching a local field — fails whole with
 `400 dataset.validation`. `"account"` is not writable here (account
@@ -2343,7 +2428,7 @@ diffs are leaf-level; an absent side is omitted (`added` has no
 | GET    | `/v1/spaces/:spaceId/types`                                   | `TypesAPI.List`        |
 | POST   | `/v1/spaces/:spaceId/types`                                   | `TypesAPI.Create`      |
 | GET    | `/v1/spaces/:spaceId/types/:typeId`                           | `TypesAPI.Get`         |
-| PATCH  | `/v1/spaces/:spaceId/types/:typeId`                           | `TypesAPI.Patch` — name / description / icon / weight / layout |
+| PATCH  | `/v1/spaces/:spaceId/types/:typeId`                           | `TypesAPI.Patch` — name / description / icon / layout |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId`                           | `501 sdk.not_implemented` |
 | GET    | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.Properties`  |
 | POST   | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.AddProperty` |
@@ -2366,28 +2451,31 @@ programmatic handle a type is resolved by (the display `name` is not a
 resolution key; a type without an xKey is reachable only by its CID).
 The SDK treats xKey as non-unique display metadata, so the server
 enforces it: empty → `400 type.xkey_required`; collision with an
-existing type's `xKey` **or** id in the same space → `409
-type.xkey_conflict` (`details: {xKey, existingTypeId}`). Clients derive
+existing type's or collection's `xKey` **or** id in the same space →
+`409 type.xkey_conflict` (`details: {xKey, existingTypeId}`, or
+`{xKey, existingCollectionId}` when a collection holds the handle — the
+two surfaces share one namespace). Clients derive
 the xKey as a slug of the name (`"Pages"` → `pages`); it must survive
 display-name renames. Create → `201 {"typeId": "…"}`. Built-in types (the hidden
-`dataview` / `page` / `miniapp` / `bin`) are registered, not created here,
+`dataview` and `page`) are registered, not created here,
 and resolve by their literal id; a registered type's parts are static —
 `GET …/types/:typeId/parts` reads them compiled (keys as ids, a static
-dataset's collection is its name, `module: records` on a schema-only
+dataset's storage collection is its name, `module: records` on a schema-only
 dataset), every write on them is `400 type.registered`, and a
 registered type may be `hidden` like a user one. Documents and chats
 are types with an editor or chat part (§ Documents and chats).
 
 `GET …/types` returns the synthetic built-ins first — `any`,
-`spaceIndex` and `type` (the meta-type: the shape of type objects
-themselves: `xkey`, `weight`, `layout`, `hidden`, `meta`) — then every
+`spaceIndex`, `type` (the meta-type: the shape of type objects
+themselves: `xkey`, `layout`, `hidden`, `meta`) and `collection` (the
+shape of collection objects) — then every
 registered type, then the
 space's user types. Built-ins and registered types report `builtIn:
 true` with `xKey` equal to their id, which is what reserves those ids
-against user types (`409 type.xkey_conflict`); user types report
-`builtIn: false` and their caller-set `xKey`. The three synthetic ids
-are not attachable to an object — a client offering "filter by type" or
-"add a type" should skip them. Their properties (`GET
+against user definitions (`409 type.xkey_conflict`); user types omit
+`builtIn` and carry their caller-set `xKey`. The four synthetic ids
+are not settable on an object — a client offering "filter by type" or
+"set the type" should skip them. Their properties (`GET
 …/types/any/properties`, `…/types/type/properties`) come back with the
 same `description` / `xFormat` slice a user definition carries —
 `any.name` is `{"type": "text"}`, `any.createdAt` `{"type":
@@ -2397,42 +2485,41 @@ the icon carry a description alone (docs/27-descriptors.md).
 Storage note for anyone reading raw rows (`GET …/properties/:objectId`,
 `/query`): a type's own row keeps `any.name` / `any.description` /
 `any.icon` where every object keeps them, but its xKey sits at
-`type.xkey` — the meta-type's namespace, writable only on rows carrying
-the `__type__` marker in `any.types`. `TypeInfo.xKey` is the supported
-read; the raw path is for debugging.
+`type.xkey` — the meta-type's namespace, writable only on rows whose
+`any.type` is the `__type__` marker (a collection object carries
+`__collection__` there, and its handle at `collection.xkey`).
+`TypeInfo.xKey` is the supported read; the raw path is for debugging.
 
-The create body is `{name?, description?, iconCid?, xKey, weight?,
-layout?, hidden?, meta?}` — **inline property definitions are not part
+The create body is `{name?, description?, iconCid?, xKey, layout?,
+hidden?, meta?}` — **inline property definitions are not part
 of type create** (no SDK surface accepts them). A `properties` key, or any
 other unknown top-level key, answers `400 request.unknown_field`
 pointing at the per-field route: create the type, then add each
 property via `POST …/types/:typeId/properties` (each add materializes
 the schema immediately) and each part via `POST …/types/:typeId/parts`.
 
-`weight` and `layout` are the type's rendering slice, stored on the
-meta-type (`type.weight`, `type.layout` on the raw row, next to
-`type.xkey`). An object carries several types; the one with the
-highest `weight` is its **primary** type — the one whose `layout` a
-client renders (`any` and the built-ins carry no weight and never
-win; ties break on type id). `layout` is a descriptor object in the
+`layout` is the type's rendering slice, stored on the meta-type
+(`type.layout` on the raw row, next to `type.xkey`). An object has one
+type — always: create requires one and it is never cleared — so its
+layout is that type's. `layout` is a descriptor object in the
 x-format shape — `{"type": "<slug>", "config": {…}}`, e.g.
 `{"type": "page"}` or `{"type": "tabs"}` (v1 slugs `page`, `tabs`,
 `chat`, `profile`; an open set, the client's vocabulary). The server
 checks only the shape: `type` a non-empty slug, `config` an object
 (`400 request.invalid_field`). **`PATCH …/types/:typeId`** takes
-`{name?, description?, iconCid?, weight?, layout?, hidden?, meta?}`,
+`{name?, description?, iconCid?, layout?, hidden?, meta?}`,
 at least one (`400 request.missing_field`): absent keeps, an empty
 string clears a text field, `"layout": null` clears the layout; `204`,
 `400 type.registered` on a built-in, `404 type.not_found`.
 
 `hidden` (bool, `type.hidden`) keeps the type out of `GET …/types` —
 the picker view — unless the request carries `?includeHidden=true`;
-`GET …/types/:typeId` resolves a hidden type always, so an object
-carrying one still renders. A bundle root is hidden when its install
+`GET …/types/:typeId` resolves a hidden type always, so an object of
+that type still renders. A bundle root is hidden when its install
 asks for it (`hidden` in § Bundles): a root that only hosts its
-bundle's records should be, since attaching it elsewhere would grant
-that object the bundle's collections; a root that is a type objects
-carry stays listed.
+bundle's records should be, since setting it on another object would
+grant that object the bundle's storage collections; a root that is a
+type objects have stays listed.
 
 `meta` (`type.meta`) is the open bag of consumer flags on a type — one
 string, bool or number per single-level key (no `.`, no `$`, ≤64
@@ -2445,8 +2532,18 @@ of them.
 
 `GET …/types/:typeId` and `GET …/types/:typeId/properties` answer `404
 type.not_found` for an unknown typeId (deleted, never existed, or an id
-that resolves to a non-type object), so a `200 []` properties list
-always means "the type exists and has no property definitions yet".
+that resolves to a non-definition object), and `400 type.not_a_type`
+when the id names a user collection (§ Collections; a registered
+collection has no type row either, so `miniapp` / `bin` answer `404`),
+so a `200 []`
+properties list always means "the type exists and has no property
+definitions yet".
+
+**Property definitions are one surface.** Everything from here to the
+end of this subsection holds verbatim for a collection's columns:
+`GET/POST …/collections/:collectionId/properties` and
+`PATCH/DELETE …/collections/:collectionId/properties/:propId` take the
+same bodies and answer the same codes (§ Collections).
 
 `POST …/properties` — the definition → `201 {"propId": "…"}`. `kind`
 (`string` / `number` / `boolean` / `null` / `array` / `object` /
@@ -2464,7 +2561,8 @@ nothing is defaulted from the descriptor. Body:
 
 - **`xKey`** — the property's handle: an alias, not a storage key
   (values live under the content-addressed `propId`; keying a write by
-  xKey is `property.not_found`). Unique **within the type** — a
+  xKey is `property.not_found`). Unique **within the owning type or
+  collection** — a
   read-then-create preflight, `409 property.xkey_conflict`
   (`details: {xKey, existingPropId}`); two devices working apart can
   still both land it, and then both columns persist (docs/27-descriptors.md
@@ -2494,7 +2592,7 @@ nothing is defaulted from the descriptor. Body:
   `kind`, scope is pinned by the first write — changing it means defining
   a new property. `GET …/properties` returns each definition's `scope`
   (a definition without one reads back as `"synced"`). Value writes
-  need no scope parameter: `/set/:typeId` auto-routes by the declared
+  need no scope parameter: `/set/:ownerId` auto-routes by the declared
   scope (§ Properties).
 
 ```json
@@ -2507,7 +2605,7 @@ nothing is defaulted from the descriptor. Body:
 one (it renders structurally from `kind`).
 
 **Values are validated against the current slug** on every property
-write — `POST …/set/:typeId`, `initialProperties` on object create,
+write — `POST …/set/:ownerId`, `initialProperties` on object create,
 bundle `rootProperties`: a `date` is an instant at midnight UTC, a
 `relation` an array of plain `any://<objectId>` URIs (no spaceId
 segment, no fragment), a `choice` an array of option keys (one unless
@@ -2560,8 +2658,8 @@ is a JSON string — `null` is refused, a clear is an unset. Pinned paths
 (`kind`, `scope`, `items`, `properties`, `key`, `id`) → `400
 property.immutable`; unknown paths → `400 request.invalid_field`; a
 `xKey` another property holds → `409 property.xkey_conflict`.
-POST/PATCH/DELETE of a property on a registered built-in type → `400
-type.registered`.
+POST/PATCH/DELETE of a property on a registered built-in definition,
+type or collection → `400 type.registered`.
 Returns `204`; `404 sdk.not_found` for an unknown type/propId. At least
 one `set`/`unset` entry is required (`400 request.missing_field`).
 
@@ -2587,21 +2685,22 @@ or a compiled-in module with its own handler and write surface —
 part is what the client renders; the module is what the server
 enforces.
 
-Where a dataset's records live is the **collection** — the `dataset`
-value on every read and write:
+Where a dataset's records live is its **storage collection** — the
+`dataset` value on every read and write:
 
 - **namespaced** (the default): `<typeId>_<key>`. Owned by this type
   alone; two types each declaring a `notes` editor part have two
   bodies. `records` datasets are always namespaced.
-- **shared** (`"shared": true`): the module's canonical collection —
-  `editor_blocks`, `chat_messages`. Every type declaring a shared
-  editor part contributes to the same body, so an object carrying two
-  document-ish types has one body, not two. The key is the canonical
+- **shared** (`"shared": true`): the module's canonical storage
+  collection — `editor_blocks`, `chat_messages`. Every type declaring a
+  shared editor part writes the same body, so an object that takes
+  another document-ish type keeps the one it already has. The key is
+  the canonical
   name (omit it or spell it exactly; anything else is `400
   dataset.shared_conflict`); one shared dataset per module per type
   (a second is `409 dataset.key_conflict` on the canonical key); only
-  modules with a canonical collection share (`records` never does —
-  `400 dataset.shared_conflict`). `chat` is shared-only.
+  modules with a canonical storage collection share (`records` never
+  does — `400 dataset.shared_conflict`). `chat` is shared-only.
 
 A module may be **reserved** to the server's own installs: a part or
 dataset draft naming it — on a type, or in a bundle body — is `400
@@ -2610,23 +2709,25 @@ any wait. Only the server's own catalog install and a registered
 type's static part may declare it. **`chat` is reserved**: the one
 declaration is the catalog's `system:general-chat/v1` (§ Chat), so a
 space has one chat and no client can race it. The install root is
-also the module's **only carrier** — the root is its own type, and
-attaching that type to any other object (create `types`,
-`…/attach/:typeId`, an `any.types` op through `…/modify`) is `400
-type.reserved_carrier` (the SDK's local write pre-flight; the create
-path is refused before the tree is minted). A registered type's
-static declaration is not a carrier.
+also the module's **only carrier** — the root hosts its own
+declaration, and setting that type on any other object (create `type`,
+`POST …/properties/:objectId/type/:typeId`, an `any.type` op through
+`…/modify`) is `400 type.reserved_carrier` (the SDK's local write
+pre-flight; the create path is refused before the tree is minted). A
+registered type's static declaration is not a carrier.
 
-**An object holds a collection while it carries a declaring type.**
-The write gate is on the object's `any.types`: a write into a
-collection none of the object's types declare — the SDK's local
+**An object holds a storage collection while its type declares it.**
+The write gate is on the object's `any.type`: a write into a storage
+collection the object's type does not declare — the SDK's local
 write-time check, on every module's write path — is `400
-dataset.not_declared`. Attach the type first (object create `types`,
-`POST …/properties/:objectId/attach/:typeId`); no write attaches one.
+dataset.not_declared`. Set the type first (object create `type`,
+`POST …/properties/:objectId/type/:typeId`); no write sets one. A type
+definition object holds its own datasets with no membership at all — a
+definition implements itself.
 Inbound changes are read-tolerant, so a peer that removed a part still
 applies data from before the removal. Removing a part withdraws the
-declaration: the collection stops accepting writes on objects that
-carry no other declaring type; existing records are not cleaned up.
+declaration: the storage collection stops accepting writes on objects
+of that type; existing records are not cleaned up.
 
 `POST …/types/:typeId/parts` → `201 {partId}` — the part and every
 dataset under it land in one change:
@@ -2682,10 +2783,10 @@ are added later with `POST …/parts/:partId/datasets` → `201
 {datasetDefId, collection}` and evolve through the dataset routes.
 Every write on a registered built-in type is `400 type.registered`.
 
-Rendering rule for clients: take the object's primary type (highest
-`weight`), render its `layout` with the parts of **every** carried
-type, ordered by `pos`; a shared collection appears once however many
-types share it.
+Rendering rule for clients: render the object's one type — its
+`layout` with that type's parts, ordered by `pos`. The property groups
+come from the type **and** every collection the object is filed under
+(§ Collections).
 
 #### Runtime dataset schemas
 
@@ -2718,11 +2819,11 @@ collection}` (or inline in the part's `datasets` on `POST …/parts`):
 
 - `key` — the dataset's slug inside the type; pinned, unique among the
   type's parts and datasets (`409 dataset.key_conflict`). The records
-  live in the namespaced collection **`<typeId>_<key>`** — the
+  live in the namespaced storage collection **`<typeId>_<key>`** — the
   `collection` the reply and every listing carry, and the `dataset`
   value on reads and writes. Keys are never space-unique: two types
   can each declare `entries`, and the search indexer's virtual names
-  cannot collide with a namespaced collection. Definitions racing in
+  cannot collide with a namespaced storage collection. Definitions racing in
   from other members fold by key SDK-side (smallest definition id
   wins; a pinned-leaf disagreement marks the fold `invalid`).
 - `idRule` — `auto` (default; record ids derived from the change,
@@ -2788,7 +2889,7 @@ without a creator stamp, duplicate stamp kinds, …) → `400
 request.invalid_field` or `400 dataset.decl_invalid`.
 
 **Semantics of the pinning model:** behavioral parts — `key` (and with
-it the collection name), `module`, `shared`, `dynamic`,
+it the storage collection name), `module`, `shared`, `dynamic`,
 `idRule`/`idPattern`/`idMaxLen`, `deleteBy`, `skipHistory`, field
 `key`/`kind`/`shape`/`scope`/`required`/`mutableBy`/`stamp` — are
 pinned for the definition's life; remove and re-add under a new
@@ -2837,11 +2938,12 @@ collection's docs lazily (docs/13-index.md § Removal semantics).
 
 **Data path:** the existing dataset-parameterized surface works as-is —
 `POST /v1/spaces/:spaceId/modify` / `/delete-records` write,
-`POST …/query[/subscribe]` read (dataset = the definition's
-`collection`; records live on objects carrying the owning type — the
-first write needs the type attached, e.g. via object create `types`;
-`400 dataset.not_declared` otherwise). `id: user` datasets additionally
-get the batch upsert below.
+`POST …/query[/subscribe]` read (dataset = the definition's storage
+`collection`; records live on objects whose type owns the dataset, and
+on the declaring type object itself — the first write needs that type
+set, e.g. via object create `type`; `400 dataset.not_declared`
+otherwise). `id: user` datasets additionally get the batch upsert
+below.
 
 #### Upsert records
 
@@ -2884,16 +2986,16 @@ id pattern/length violation, undeclared field on a non-dynamic dataset,
 write to a stamped field — the specific cause in `reason`). Whole-call
 errors: `400 request.missing_field` (no `objectId`, `dataset` or
 `records`), `400 upsert.requires_user_ids` (dataset not declared
-`idRule: user`), `400 dataset.unknown` (no such records collection in
-the space — a module collection such as `chat_messages` is never
-upsertable), `400 dataset.not_declared` (the object carries no type
-declaring it).
+`idRule: user`), `400 dataset.unknown` (no such records storage
+collection in the space — a module's storage collection such as
+`chat_messages` is never upsertable), `400 dataset.not_declared` (the
+object's type does not declare it).
 
 #### Documents and chats
 
 There is no built-in `editor` or `chat` type. "This object is a
 document" is a type whose part shares the editor module — the built-in
-`page` (§ Built-in hidden types) or a user type; a client's own
+`page` (§ Built-in hidden type: `page`) or a user type; a client's own
 document type is registered as a bundle-declared type with an editor
 part (§ Bundles), so every device converges on one type per space
 instead of minting parallel ones. "This object is a chat" is the
@@ -2901,20 +3003,36 @@ catalog's general chat: `chat` is reserved, and the `general-chat`
 usecase installs the one chat (§ Chat). Listing a space's documents is
 a filter on the type ids that declare the editor (`owners` of
 `editor_blocks` in § Dataset schema discovery — `page` is always among
-them): `{"filter": {"any.types": {"$in": [<owners>]}}}` on
-`…/objects/query[/subscribe]`. Declared user types carry properties, a
-`weight` and a `layout` like any other; `page` carries none — a client
+them): `{"filter": {"any.type": {"$in": [<owners>]}}}` on
+`…/objects/query[/subscribe]`. Declared user types carry properties and
+a `layout` like any other; `page` carries neither — a client
 that needs them declares its own document type.
 
 #### Built-in `dataview` type
 
 `dataview` is the built-in for **saved views** — a named, shareable way
-of looking at a set of objects — in two levels: a host object carries
-many **dataviews** (named, ordered tables), each with its own **views**.
-It attaches to a host object (including a **type object**, which is how
-"views on a type" works) and owns two records datasets under one part
-`views` (`ui: {"type": "table"}`): `dataviews`, one record per dataview,
-and `views`, one record per view. Hidden, like the three types below.
+of looking at a set of objects. A dataview is **its own object**: its
+type is `dataview` and its `dataview.host` property names what the
+views are over — any object, a type or a collection definition
+included, which is how "views on a type" and "views on a collection"
+work. One host takes as many dataview objects as a client needs.
+
+```json
+POST /v1/spaces/:spaceId/objects
+{ "type": "dataview",
+  "initialProperties": { "dataview": { "host": "<hostId>" } } }
+```
+
+A client finds a host's dataview objects with
+`{"filter": {"any.type": "dataview", "dataview.host": "<hostId>"}}` on
+`…/objects/query[/subscribe]`.
+
+The type owns two records datasets under one part `views`
+(`ui: {"type": "table"}`), in two levels: `dataviews`, one record per
+dataview (a named, ordered table), and `views`, one record per view.
+Both live **on the dataview object** — the `objectId` of every read and
+write is the dataview object's id, never the host's. Hidden, like
+`page`.
 
 ```json
 // dataviews
@@ -2939,12 +3057,14 @@ feeds straight into `…/objects/query[/subscribe]`. `query`,
 `layoutSettings` and `localSettings` are **opaque** — the server checks
 only that each is an object; clients own the vocabulary and decide what
 a rule naming a deleted property means. A view's `dataview` is required
-but **not validated** against the collection, and deleting a dataview
+but **not validated** against the `dataviews` dataset, and deleting a
+dataview
 does not cascade — orphan views stay readable and writable for the
 client to delete or re-parent (`$set dataview`).
 
 No bespoke endpoints and no `dataview` module: write through
-`POST /v1/spaces/:spaceId/modify` with `dataset: "dataviews"` /
+`POST /v1/spaces/:spaceId/modify` with the dataview object's
+`objectId` and `dataset: "dataviews"` /
 `"views"`, read through `…/query[/subscribe]` — the dataview list sorted
 by `pos`, one dataview's views with `{"filter": {"dataview": "<id>"},
 "sort": ["pos"]}` (indexed). `name` + `pos` are required on a dataview,
@@ -2955,8 +3075,8 @@ field is `mutableBy: any` and any writer may delete a record.
 Record ids are **client-supplied** (`idRule: user`) in both datasets —
 ensure the default dataview and its default view with fixed ids plus
 `upsert`, never create-on-open, or two devices mint two "All" views.
-View ids are one namespace per host, so a second dataview's views take
-`<dataviewId>.<key>` ids. A deleted id is **burned permanently**:
+View ids are one namespace per dataview object, so a second dataview's
+views take `<dataviewId>.<key>` ids. A deleted id is **burned permanently**:
 re-upserting it returns `200` with a `rejections` entry and creates
 nothing, so an ensure must inspect `rejections` and fall through to the
 next id in a deterministic sequence (`default`, `default-2`, …). See
@@ -2971,35 +3091,112 @@ Views are **shared** only; account- and device-private views are not
 supported. Full model and the client grouping recipe:
 `24-data-views.md`.
 
-#### Built-in hidden types: `page`, `miniapp`, `bin`
+#### Built-in hidden type: `page`
 
-Three more registered types an object **opts into** rather than a class
-a user picks, so all three are `hidden`: out of `GET …/types` unless
+`page` is a registered type an object **opts into** rather than a class
+a user picks, so it is `hidden`: out of `GET …/types` unless
 `?includeHidden=true`, resolvable by `GET …/types/:typeId` always,
-`builtIn: true` with `xKey` equal to the id (which reserves `page`,
-`miniapp` and `bin` against user types — `409 type.xkey_conflict`),
-static (`400 type.registered` on every write), and present in every
-space by construction — nothing installs them and nothing stamps them
-onto an object: a client decides which types its objects carry
-(`types` on `POST …/objects`, or `…/properties/:objectId/attach/:typeId`).
+`builtIn: true` with `xKey` equal to the id (which reserves `page`
+against user definitions — `409 type.xkey_conflict`), static
+(`400 type.registered` on every write), and present in every space by
+construction — nothing installs it and nothing stamps it onto an
+object: a client decides what type its objects have (`type` on
+`POST …/objects`, or `POST …/properties/:objectId/type/page`).
 
-**`page`** — the plain document. No properties; one part `body`
+It is the plain document. No properties; one part `body`
 (`ui: {"type": "document"}`) whose dataset is the editor module's
-shared collection, so an object carrying `page` holds `editor_blocks`
-and every `…/editor/editor_blocks/**` route works on it. Optional: a
-client that wants a plain body uses it; one with its own document types
-declares them with an editor part (§ Parts and modules) — both share
-the collection, and `page` is always among the `owners` of
-`editor_blocks`. Being registered, `page` carries no `weight` and no
-`layout`: an object carrying only `page` has no primary type and renders
-by the client's default.
+shared storage collection, so an object of type `page` holds
+`editor_blocks` and every `…/editor/editor_blocks/**` route works on
+it. Optional: a client that wants a plain body uses it; one with its
+own document types declares them with an editor part (§ Parts and
+modules) — both share the storage collection, and `page` is always
+among the `owners` of `editor_blocks`. Being registered, `page` carries
+no `layout`: an object of type `page` renders by the client's default.
 
-**`miniapp`** — the marker of a sidebar entry: an object that runs an
-installed bundle, or an ordinary object the user pinned. The space
-sidebar is the list of carriers — `{"any.types": "miniapp"}` minus
-`bin` carriers and `miniapp.hidden`, sorted on `miniapp.pos`; that
-query keeps `__type__` rows, since a root that is an app and a type
-(the wiki) carries both. Three properties, no parts:
+### Collections
+
+| Method | Path                                                          | Purpose                |
+|--------|---------------------------------------------------------------|------------------------|
+| GET    | `/v1/spaces/:spaceId/collections`                             | `CollectionsAPI.List`  |
+| POST   | `/v1/spaces/:spaceId/collections`                             | `CollectionsAPI.Create` |
+| GET    | `/v1/spaces/:spaceId/collections/:collectionId`               | `CollectionsAPI.Get`   |
+| PATCH  | `/v1/spaces/:spaceId/collections/:collectionId`               | `CollectionsAPI.Patch` — name / description / icon / hidden / meta |
+| DELETE | `/v1/spaces/:spaceId/collections/:collectionId`               | `501 sdk.not_implemented` |
+| GET    | `/v1/spaces/:spaceId/collections/:collectionId/properties`    | list the columns       |
+| POST   | `/v1/spaces/:spaceId/collections/:collectionId/properties`    | add a column           |
+| PATCH  | `/v1/spaces/:spaceId/collections/:collectionId/properties/:propId` | patch a column    |
+| DELETE | `/v1/spaces/:spaceId/collections/:collectionId/properties/:propId` | remove a column   |
+
+A **collection** is what an object is filed under — `any.collections`,
+an array — next to the one type it IS (`any.type`). It is a group of
+columns and nothing else: no parts, no layout, no datasets. A person
+who is also a contact is one object with `type: person` and
+`collections: [<contactId>]`, rendered by the person layout and
+carrying both property groups.
+
+`POST …/collections` takes `{name?, description?, iconCid?, xKey,
+hidden?, meta?}` → `201 {"collectionId": "…"}`. **`xKey` is required**
+and follows the type rules exactly: empty → `400 type.xkey_required`;
+already a handle in the space, on either surface → `409
+type.xkey_conflict` (`details: {xKey, existingCollectionId}`, or
+`existingTypeId` when a type holds it). **Inline property definitions
+are not part of collection create** — a `properties` key, or any other
+unknown top-level key, answers `400 request.unknown_field` pointing at
+`POST …/collections/:collectionId/properties`. `hidden` and `meta`
+mean what they mean on a type.
+
+`GET …/collections` → `{"collections": […]}`, each entry
+`{id, name?, description?, iconCid?, xKey?, builtIn?, hidden?, meta?}`:
+the synthetic meta `collection` (the shape of collection objects — not
+one objects are filed under, so a picker skips it), then every
+registered collection, then the space's user collections.
+Hidden collections stay out of the listing unless the request carries
+`?includeHidden=true`; `GET …/collections/:collectionId` resolves them
+always. The meta row and registered collections report `builtIn: true`,
+registered ones with `xKey` equal to their id.
+
+**`PATCH …/collections/:collectionId`** takes `{name?, description?,
+iconCid?, hidden?, meta?}`, at least one (`400 request.missing_field`):
+absent keeps, an empty string clears a text field, `meta` patches per
+key. `204`; `400 collection.registered` on a built-in; `404
+collection.not_found`.
+
+An id that names a user type answers `400 collection.not_a_collection`
+on every route here — set it with
+`POST …/properties/:objectId/type/:typeId` or read it through
+`…/types/:typeId` instead. Unknown ids — a registered type's id
+included — are `404 collection.not_found`, so a `200 []` properties list always means "the
+collection exists and has no columns yet".
+
+The four property routes are the type ones behind one owner parameter:
+bodies, validation and error codes are § Types verbatim — a column
+write on a registered built-in is `400 type.registered` there too;
+`collection.registered` is the metadata PATCH above.
+A collection's own row carries `__collection__` in `any.type` and its
+handle at `collection.xkey`; like a type definition it may hold its own
+`<collectionId>.<propId>` values, and it never matches
+`{"any.collections": "<collectionId>"}` — a member query needs no
+marker exclusion.
+
+Filing an object is `POST …/properties/:objectId/collections/:collectionId`,
+unfiling the matching DELETE (§ Properties).
+
+#### Built-in collections: `miniapp`, `bin`
+
+Two registered collections an object **opts into**, both `hidden`: out
+of `GET …/collections` unless `?includeHidden=true`, resolvable by
+`GET …/collections/:collectionId` always, `builtIn: true` with `xKey`
+equal to the id (which reserves `miniapp` and `bin` against user
+definitions — `409 type.xkey_conflict`), static (`400
+collection.registered` on a metadata write), and present in every space
+by construction.
+
+**`miniapp`** — the sidebar entry: an object that runs an installed
+bundle, or an ordinary object the user pinned. The space sidebar is the
+list of members — `{"any.collections": "miniapp"}` minus `bin` members
+and `miniapp.hidden`, sorted on `miniapp.pos`. A collection, not a
+type, so an app root keeps its own type slot (its definition marker, or
+the type a pinned object has). Three properties:
 
 - `bundle` (string) — the id of the installed bundle (§ Bundles —
   `system:wiki/v1`, a marketplace id, …), which is what a client
@@ -3012,78 +3209,97 @@ query keeps `__type__` rows, since a root that is an app and a type
   sidebar without uninstalling anything; it is the supported "remove"
   for a catalog install.
 
-Pin = `POST …/properties/:objectId/attach/miniapp`, unpin =
-`…/detach/miniapp`; values through the generic
-`POST …/properties/:objectId/set/miniapp` (`{"patch": {"pos": "a0"}}`),
-the object must carry the type. Catalog miniapp roots (§ Catalog) —
-the wiki, collections, journal, meetings, contacts, crm and the general
-chat — carry it from their first change with `bundle` set to the bundle
-id plus any other `miniapp` value the catalog declares; a value missing
-on an existing root is healed at its next setup, attaching the type
-first when the root does not carry it. A client never detaches
-`miniapp` from a catalog root: the install would stay and become
-unreachable.
+Pin = `POST …/properties/:objectId/collections/miniapp`, unpin =
+`DELETE …/properties/:objectId/collections/miniapp`; values through the
+generic `POST …/properties/:objectId/set/miniapp`
+(`{"patch": {"pos": "a0"}}`), the object must be in the collection.
+Catalog miniapp roots (§ Catalog) — the wiki, collections, journal,
+meetings, contacts, crm and the general chat — are filed under it from
+their first change with `bundle` set to the bundle id plus any other
+`miniapp` value the catalog declares; a value missing on an existing
+root is healed at its next setup, filing the root first when it is not
+yet a member. A client never removes a catalog root from `miniapp`: the
+install would stay and become unreachable.
 
-**`bin`** — the marker of an object moved to the bin. Move to bin is
-`POST …/properties/:objectId/attach/bin`, restore is
-`…/detach/bin` — the plain type-binding routes, no wire surface of
-their own. The server stamps two properties on the move and clears them
-on restore: `movedAt` (datetime — `{"$date": …}` on the wire, the
-server clock) and `movedBy` (string — the account identity, the same
-encoding as `author` / `modifiedBy`). The membership op and the stamps
-ride **one** synced change, so the `changeId` the call returns names
-the move, a bin carrier never lacks its stamps and a restored object
-never keeps stale ones; a second move re-stamps. Clients filter carriers
-out of ordinary lists — `{"any.types": {"$nin": ["bin"]}}` — and list
-the bin with `{"any.types": "bin"}` sorted `-bin.movedAt` (not indexed;
-the bin is small). Restore brings the object back as it was: detaching
-is not a delete, nothing else on the row changes. Permanent deletion
-stays `DELETE …/objects/:objectId`. The stamps are ordinary synced
+**`bin`** — the objects moved to the bin. Move to bin is
+`POST …/properties/:objectId/collections/bin`, restore is
+`DELETE …/properties/:objectId/collections/bin` — the plain filing
+routes, no wire surface of their own. The server stamps two properties
+on the move and clears them on restore: `movedAt` (datetime —
+`{"$date": …}` on the wire, the server clock) and `movedBy` (string —
+the account identity, the same encoding as `author` / `modifiedBy`).
+The membership op and the stamps ride **one** synced change, so the
+`changeId` the call returns names the move, a bin member never lacks
+its stamps and a restored object never keeps stale ones; a second move
+re-stamps. Clients filter members out of ordinary lists —
+`{"any.collections": {"$nin": ["bin"]}}` — and list the bin with
+`{"any.collections": "bin"}` sorted `-bin.movedAt` (not indexed; the
+bin is small). Restore brings the object back as it was: unfiling is
+not a delete, nothing else on the row changes, and the object keeps its
+type throughout. Permanent deletion stays
+`DELETE …/objects/:objectId`. The stamps are ordinary synced
 properties: the server writes them, but a peer can write the namespace
 directly, so a reader treats an absent stamp as unknown, never as "not
 in the bin".
 
 ### Properties (values on objects)
 
-| Method | Path                                                          | Purpose                          |
-|--------|---------------------------------------------------------------|----------------------------------|
-| GET    | `/v1/spaces/:spaceId/properties/:objectId`                    | `PropertiesAPI.Get`              |
-| POST   | `/v1/spaces/:spaceId/properties/:objectId/set/:typeId`        | `PropertiesAPI.Set`              |
-| POST   | `/v1/spaces/:spaceId/properties/:objectId/attach/:typeId`     | `PropertiesAPI.AttachType`       |
-| POST   | `/v1/spaces/:spaceId/properties/:objectId/detach/:typeId`     | `PropertiesAPI.DetachType`       |
+| Method | Path                                                              | Purpose                          |
+|--------|-------------------------------------------------------------------|----------------------------------|
+| GET    | `/v1/spaces/:spaceId/properties/:objectId`                        | `PropertiesAPI.Get`              |
+| POST   | `/v1/spaces/:spaceId/properties/:objectId/set/:ownerId`           | `PropertiesAPI.Set`              |
+| POST   | `/v1/spaces/:spaceId/properties/:objectId/type/:typeId`           | `PropertiesAPI.SetType`          |
+| POST   | `/v1/spaces/:spaceId/properties/:objectId/collections/:collectionId` | `PropertiesAPI.AttachCollection` |
+| DELETE | `/v1/spaces/:spaceId/properties/:objectId/collections/:collectionId` | `PropertiesAPI.DetachCollection` |
 
 `GET …/properties/:objectId` → `{record}`, the object's raw property
-row. `POST …/set/:typeId` takes `{"patch": {"<propId>": value}}` (a
-`null` value unsets; an empty patch is `400 request.missing_field`) and
-returns the shared write result. The route is
-scope-aware: every propId in the patch must resolve to the SAME
-declared scope (synced, account or local — inferred from the
-definitions); a mixed-scope or unknown-key patch is rejected. Values
-pass the descriptor gate (`400 property.format_violation`, § Types).
+row — `any.type`, `any.collections` and every property value under its
+owner's namespace.
 
-Runtime type binding: `attach` adds a type to the object's `any.types`,
-admitting writes to that type's membership-gated datasets; `detach`
-removes it. Both take no body, return `ModifyResult`, and are idempotent
-(`$addToSet` / `$pull`). Bind at creation instead via the `types` array
+`POST …/set/:ownerId` takes `{"patch": {"<propId>": value}}` (a
+`null` value unsets; an empty patch is `400 request.missing_field`) and
+returns the shared write result. **`ownerId` is the object's type or
+one of its collections** — the namespace the values land in
+(`<ownerId>.<propId>`); a definition object may also use its own id.
+The route is scope-aware: every propId in the patch must resolve to the
+SAME declared scope (synced, account or local — inferred from the
+definitions); a mixed-scope or unknown-key patch is rejected. A value
+set under an `ownerId` the object does not have — not its type, not a
+collection it is filed under — is `400 dataset.not_declared`. Values pass the
+descriptor gate (`400 property.format_violation`, § Types).
+
+**The type.** `POST …/type/:typeId` sets the object's one type
+(`any.type`, a `$set`): a previous type is replaced, and its values and
+dataset records stay as orphan data, read-tolerant. There is no unset:
+every object has exactly one type (a raw `$unset` of `any.type` is
+`400 membership.type_required`). Takes no body, returns `ModifyResult`.
+
+**The collections.** `POST …/collections/:collectionId` files the
+object under a collection (`any.collections`, `$addToSet`, idempotent),
+admitting writes to its columns; the DELETE removes it (`$pull`,
+idempotent). Set both at creation instead via `type` and `collections`
 on `POST /v1/spaces/:spaceId/objects` when the object is new.
 
-`attach` pre-flights both ids — `404 object.not_found` for an unknown
-object, `404 type.not_found` for a type the space doesn't have — because
-`any.types` is a synced DAG write with no validation behind it, so a
-typo would replicate permanently. `detach` deliberately checks neither:
-it is the repair path for a row that already carries a bogus id.
+Both POSTs pre-flight their ids — `404 object.not_found` for an unknown
+object, `404 type.not_found` / `404 collection.not_found` for an id the
+space does not have, and `400 type.not_a_type` / `400
+collection.not_a_collection` when the id names the other surface —
+because `any.type` and `any.collections` are synced DAG writes with no
+validation behind them, so a typo would replicate permanently. Neither
+DELETE checks anything: they are the repair path for a row that already
+carries a bogus id.
 
-Detaching is **not** a delete: values in that namespace and records in
-the type's datasets stay as orphan data, read-tolerant by design, and
-re-attaching brings them back into view. See `08-clients.md`
-§ 2 "Preflight-validate writes against the bound types". Attaching a
-type that declares a reserved module is `400 type.reserved_carrier`
-(§ Parts and modules).
+Clearing a type or unfiling a collection is **not** a delete: values in
+that namespace and records in the type's datasets stay as orphan data,
+read-tolerant by design, and setting it again brings them back into
+view. See `08-clients.md` § 2 "Preflight-validate writes against the
+object's owners". Setting a type that declares a reserved module is
+`400 type.reserved_carrier` (§ Parts and modules).
 
-The built-in `bin` is the one type these routes treat specially:
-`attach/bin` also stamps `bin.movedAt` / `bin.movedBy` and `detach/bin`
-clears them, in the same change as the membership op (§ Types →
-Built-in hidden types).
+The built-in `bin` is the one collection these routes treat specially:
+`POST …/collections/bin` also stamps `bin.movedAt` / `bin.movedBy` and
+the DELETE clears them, in the same change as the membership op
+(§ Collections → Built-in collections).
 
 ### Chat (the `chat` module)
 
@@ -3097,9 +3313,9 @@ Built-in hidden types).
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read`             | mark msg + all above read |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions-read`   | mark msg's reactions read |
 
-A chat is an object holding the `chat_messages` collection — served by
-the compiled-in `chat` module, which an object holds while it carries
-a type whose part declares `{"module": "chat", "shared": true}`
+A chat is an object holding the `chat_messages` storage collection —
+served by the compiled-in `chat` module, which an object holds while
+its type has a part declaring `{"module": "chat", "shared": true}`
 (§ Parts and modules). The module is **reserved to the server**: no
 client part, dataset or bundle may declare it (`400
 dataset.module_reserved`), and the one declaration is the catalog's
@@ -3120,11 +3336,13 @@ POST /v1/catalog/general-chat/setup
 ```
 
 The install is `system:general-chat/v1`: a **derived**, **hidden**
-root that is its own type (handle `general_chat`, `layout
-{"type": "chat"}`) with one shared `chat` part, so it takes
-`chat/messages` writes from the first call, and a `miniapp` carrier
-(`bundle = system:general-chat/v1`), so the chat is a sidebar entry
-like every other app (§ Built-in hidden types). Setup is adopt-or-install
+root that is its own type definition (handle `general_chat`, `layout
+{"type": "chat"}`) with one shared `chat` part — a definition hosts
+itself, so it takes
+`chat/messages` writes from the first call — and is filed under the
+`miniapp` collection (`bundle = system:general-chat/v1`), so the chat
+is a sidebar entry
+like every other app (§ Built-in collections). Setup is adopt-or-install
 and idempotent — every client, member and device lands on the same
 object, and because the root is derived its id is a function of the
 space and the bundle id: computed offline, two sides of a 1-1
@@ -3132,8 +3350,9 @@ included, so the chat can never fork into two parallel conversations
 (chat content cannot be merged across objects — `creator` and
 `createdAt` come from the change envelope). The price is permanence:
 a derived root cannot be deleted (§ Bundles → Derived roots). The
-root is the type's **only carrier** — creating or attaching another
-object with it is `400 type.reserved_carrier` (§ Parts and modules),
+root is the type's **only carrier** — creating another object with it,
+or setting it on one, is `400 type.reserved_carrier` (§ Parts and
+modules),
 so there is no second chat to find. Clients that want to react to
 "the chat exists" subscribe to the space's `bundles` dataset
 (§ Bundles) or to the root's `chat_messages`.
@@ -3498,14 +3717,13 @@ body streams straight into the SDK. Files < 4096 bytes take the
 **inline tier** (`inline: true`, no `rootCid`, durable by
 construction, riding the CRDT row itself); larger files are encrypted
 and content-addressed locally (`<account-dir>/files/`), then backed up
-to the network's fileV2 broker. The backup is **attempted synchronously
-inside the attach request** (best-effort): with a reachable broker the
-201 usually already says `durable: true`, and attach latency for large
-files is dominated by the upload. When the broker is unreachable or
-refuses, attach still succeeds —
-`durable: false`, and a persistent background queue retries; watch
-`/files/subscribe` or poll `/files/:fileId/status` for the
-`inflight → durable` flip.
+to the network's fileV2 broker. The backup **never runs inside the
+attach request**: attach queues it and returns `durable: false`
+(`durable: true` only for inline files and content already backed up in
+the space), so attach latency is local work only. A persistent
+background queue starts the upload at once and retries when the broker
+is unreachable or refuses; watch `/files/subscribe` or poll
+`/files/:fileId/status` for the `inflight → durable` flip.
 
 #### Download (content)
 
@@ -3958,11 +4176,16 @@ when `local.enabled: false`.
 | POST   | `/v1/local/query`        | `{coll, filter?, sort?, limit?, offset?, includeTotal?, projection?}` → `{records, total?, hasNext?}` |
 | POST   | `/v1/local/aggregate`    | `{coll, pipeline, groupLimit?, accumArrayLimit?, memoryLimitBytes?, explain?}` → `{records}` \| `{plan}` \| `{written}` |
 | POST   | `/v1/local/indexes`      | `{coll, ensure?: [{name?, fields, unique?, sparse?}], drop?: [name]}` → `{indexes}` |
+| GET    | `/v1/local/export`       | `?scope=&spaceId=&names=a,b` → the collections as one file (`application/gzip`: an anyenc value stream, manifest first) |
+| POST   | `/v1/local/import`       | body = that file (no body cap) → `{collections: [{scope, spaceId?, name, storageName, count, indexes}]}` |
 
 `coll` is `{scope: "account" | "space", spaceId?, name}`; `name`
-matches `^[a-z0-9][a-z0-9_-]{0,63}$`. A space-scoped op pre-flights
+matches `^[a-z0-9][a-z0-9_-]{0,63}$`. A space-scoped **write**
+(ensure, insert, upsert, update, indexes, a sink target) pre-flights
 the space (`404 space.not_found` unknown, `409 space.deleted`
-tombstoned), except drop. Every op on an
+tombstoned); reads, delete, drop, list, export and import do not — an
+imported store's collections are readable on a server without their
+space. Every op on an
 un-ensured collection is `404 local.collection_not_found`; a bad
 `coll` is `400 local.bad_name`, a missing document
 `404 local.doc_not_found`, a unique-index clash
@@ -3990,6 +4213,18 @@ writer per DB and the CRDT apply path shares it): insert/upsert take
 ≤ 1000 docs per request (`400 local.too_many_docs`) and a mid-way
 failure leaves earlier chunks committed; delete-by-filter collects ids
 under one read and removes them in chunks — **not atomic per call**.
+
+**Export / import move named collections between servers as one
+file** (`docs/26-local-store.md` § Export and import): `names` needs
+a scope (`spaceId` implies `space`), absent `names` = every collection
+in scope; no space pre-flight on either side. The export is one
+snapshot (one read transaction), resolved before the first byte — a
+missing name is `404 local.collection_not_found`, never a cut file.
+Import ensures each collection with the file's indexes and upserts
+its documents 256 per transaction (idempotent; `400 local.bad_index`
+on a clashing index definition); a file that is not an export this
+server reads — not gzip, foreign `format`/`version`, a short section,
+a document without `id`, an untagged name — is `400 local.bad_export`.
 
 ### Push notifications
 
@@ -4161,7 +4396,7 @@ opaque `cursor` (§ Version history), chat with a `_ver.id` filter
 A POST write is **not** idempotent unless its section says so — each
 call produces a new DAG change, and there is no `Idempotency-Key`
 header. The documented exceptions converge on state rather than
-replaying a change: bundle ensure, catalog setup, type attach / detach,
-the 1-1 and derived-space routes, and `POST /v1/spaces/:spaceId/upsert`
+replaying a change: bundle ensure, catalog setup, setting the type and
+filing under a collection, the 1-1 and derived-space routes, and `POST /v1/spaces/:spaceId/upsert`
 (§ Upsert records), where the caller-supplied record id is the
 idempotency key and an identical re-run emits no change.
