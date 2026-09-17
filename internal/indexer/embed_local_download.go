@@ -37,6 +37,10 @@ type modelDownload struct {
 	sha    string // expected hex sha256; "" = skip verification (logged once)
 	lg     logger.CtxLogger
 	cancel context.CancelFunc
+	// finished closes when run returns; Close joins on it. The models
+	// dir outlives an engine, so the next download of the same file
+	// must not start while this one can still write the .part.
+	finished chan struct{}
 	// rep reports the download onto the process view
 	// (ProcessKindModelDownload; Done/Total = bytes). Immediate gate:
 	// a download is long by definition and its absence — offline
@@ -56,11 +60,12 @@ type modelDownload struct {
 func startModelDownload(url, dest, sha string, client *http.Client, onProcess func(ProcessUpdate)) *modelDownload {
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &modelDownload{
-		url:    url,
-		dest:   dest,
-		sha:    sha,
-		lg:     logger.NewNamed("indexer"),
-		cancel: cancel,
+		url:      url,
+		dest:     dest,
+		sha:      sha,
+		lg:       logger.NewNamed("indexer"),
+		cancel:   cancel,
+		finished: make(chan struct{}),
 		rep: newProcReporter(onProcess,
 			ProcessUpdate{Kind: ProcessKindModelDownload, Name: filepath.Base(dest)}, -1),
 	}
@@ -92,12 +97,15 @@ func (d *modelDownload) Status() error {
 	return fmt.Errorf("downloading model: %d MB so far", d.got>>20)
 }
 
-// Close stops the download goroutine. The .part file stays for resume.
+// Close stops the download goroutine and waits for it. The .part file
+// stays for resume.
 func (d *modelDownload) Close() {
 	d.cancel()
+	<-d.finished
 }
 
 func (d *modelDownload) run(ctx context.Context, client *http.Client) {
+	defer close(d.finished)
 	d.rep.begin() // announce up front — "still fetching the model" must be visible even offline
 	backoff := 5 * time.Second
 	for {
@@ -127,6 +135,7 @@ func (d *modelDownload) run(ctx context.Context, client *http.Client) {
 		d.rep.progress(-1, -1, "download failed; retrying — see server log")
 		select {
 		case <-ctx.Done():
+			d.rep.finish(ctx, ctx.Err()) // stops the heartbeat
 			return
 		case <-time.After(backoff):
 		}
@@ -147,8 +156,10 @@ func (d *modelDownload) attempt(ctx context.Context, client *http.Client) error 
 	h := sha256.New()
 	var offset int64
 	if st, err := os.Stat(part); err == nil && st.Size() > 0 {
-		if err := hashFilePrefix(part, st.Size(), h); err == nil {
+		if err := hashFilePrefix(ctx, part, st.Size(), h); err == nil {
 			offset = st.Size()
+		} else if ctx.Err() != nil {
+			return ctx.Err() // cancelled mid-hash: the .part is intact
 		} else {
 			_ = os.Remove(part)
 			h = sha256.New()
@@ -277,12 +288,23 @@ func (d *modelDownload) stream(ctx context.Context, f *os.File, body io.Reader, 
 	}
 }
 
-func hashFilePrefix(path string, n int64, h hash.Hash) error {
+func hashFilePrefix(ctx context.Context, path string, n int64, h hash.Hash) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	_, err = io.CopyN(h, f, n)
-	return err
+	// Chunked so Close is not held for a whole multi-hundred-MB prefix.
+	const chunk = 8 << 20
+	for n > 0 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		step := min(n, chunk)
+		if _, err := io.CopyN(h, f, step); err != nil {
+			return err
+		}
+		n -= step
+	}
+	return nil
 }

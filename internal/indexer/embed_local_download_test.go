@@ -220,3 +220,49 @@ func TestModelDownload_CompletePartInstallsOffline(t *testing.T) {
 		t.Fatalf("complete .part not installed: %v", err)
 	}
 }
+
+// Close during a retry backoff joins the goroutine and ends the
+// process row: the reporter's heartbeat must not outlive the download.
+func TestModelDownload_CloseDuringBackoff(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	var mu sync.Mutex
+	var updates []ProcessUpdate
+	report := func(u ProcessUpdate) { mu.Lock(); updates = append(updates, u); mu.Unlock() }
+	dest := filepath.Join(t.TempDir(), "models", "m.gguf")
+	d := startModelDownload(srv.URL, dest, "", srv.Client(), report)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if err := d.Status(); err != nil && strings.Contains(err.Error(), "retrying") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("download never reached the retry backoff: %v", d.Status())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	d.Close()
+	select {
+	case <-d.finished:
+	default:
+		t.Fatal("Close returned before the download goroutine")
+	}
+	mu.Lock()
+	n := len(updates)
+	last := updates[n-1]
+	mu.Unlock()
+	if last.Phase != ProcessCancelled {
+		t.Fatalf("last frame = %+v, want cancelled", last)
+	}
+	d.rep.mu.Lock()
+	finished := d.rep.finished
+	d.rep.mu.Unlock()
+	if !finished {
+		t.Fatal("process reporter still running after Close")
+	}
+}
