@@ -42,7 +42,7 @@ func TestE2E_ManagedLifecycle(t *testing.T) {
 	}
 
 	cmd := exec.Command(bin, "run", "--mode", "managed", "--addr", "127.0.0.1:0", "--data-dir", dataDir)
-	cmd.Env = append(os.Environ(), "ANY_DATA_DIR="+dataDir, "ANY_NETWORK_NODECONF_PATH="+nodeconfPath)
+	cmd.Env = append(os.Environ(), "ANY_DATA_DIR="+dataDir, "ANY_NETWORK_NODECONF_PATH="+nodeconfPath, "ANY_INDEX_EMBEDDER=none")
 	cmd.Stdout = stdoutFile
 	cmd.Stderr = stderrFile
 	if err := cmd.Start(); err != nil {

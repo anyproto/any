@@ -20,7 +20,11 @@ BUILD_TAGS := llamacpp
 
 # llama.cpp release pin for the local embedder's shared libs; the source
 # of truth and its bump rules live in internal/indexer/llamacpp_release.go.
-LLAMACPP_VERSION := $(shell sed -n 's/^const llamaCppRelease = "\(.*\)"$$/\1/p' internal/indexer/llamacpp_release.go)
+LLAMACPP_VERSION := $(shell scripts/llamacpp-version.sh)
+
+# Packages with llamacpp-constrained files: `make test` reruns them with
+# the tag after the untagged suite, which is the `go install` build.
+LLAMACPP_PKGS := $(addprefix ./,$(sort $(dir $(shell grep -rl --include='*.go' '^//go:build.*llamacpp' internal cmd mobile))))
 
 .PHONY: build test vet tidy clean swagger llamacpp llamacpp-soft any docs docs-serve catalog-validate check-deps
 
@@ -48,7 +52,8 @@ llamacpp-soft:
 		|| echo "make: llamacpp libs unavailable — 'index.embedder: local' won't work until 'make llamacpp' succeeds or index.local.libDir is set" >&2
 
 test:
-	go test -tags '$(BUILD_TAGS)' ./...
+	go test ./...
+	go test -tags '$(BUILD_TAGS)' $(LLAMACPP_PKGS)
 
 vet:
 	go vet -tags '$(BUILD_TAGS)' ./...
@@ -57,15 +62,15 @@ vet:
 # link the llama.cpp bindings: their ffi dependency loads libffi at
 # process start and panics without it (docs/13-index.md § Builds and the
 # local embedder). The mobile checks pass `llamacpp` to prove the GOOS
-# exclusion holds.
+# exclusion holds. A failing `go list` fails the check too.
 FFI_PKG := github.com/jupiterrider/ffi
+# $(call no-ffi,label,env,tags,package)
+no-ffi = deps=$$($(2) go list -deps -tags '$(3)' $(4)) && ! printf '%s\n' "$$deps" | grep -qx '$(FFI_PKG)' \
+	|| { echo "check-deps: $(1): go list failed or it links $(FFI_PKG)" >&2; exit 1; }
 check-deps:
-	@! go list -deps ./cmd/any | grep -qx '$(FFI_PKG)' \
-		|| { echo "check-deps: untagged ./cmd/any links $(FFI_PKG)" >&2; exit 1; }
-	@! GOOS=android GOARCH=arm64 CGO_ENABLED=1 go list -deps -tags 'gomobile llamacpp' ./mobile/android | grep -qx '$(FFI_PKG)' \
-		|| { echo "check-deps: android links $(FFI_PKG)" >&2; exit 1; }
-	@! GOOS=ios GOARCH=arm64 CGO_ENABLED=1 go list -deps -tags 'mobile llamacpp' ./mobile/ios | grep -qx '$(FFI_PKG)' \
-		|| { echo "check-deps: ios links $(FFI_PKG)" >&2; exit 1; }
+	@$(call no-ffi,untagged ./cmd/any,,,./cmd/any)
+	@$(call no-ffi,android,GOOS=android GOARCH=arm64 CGO_ENABLED=1,gomobile llamacpp,./mobile/android)
+	@$(call no-ffi,ios,GOOS=ios GOARCH=arm64 CGO_ENABLED=1,mobile llamacpp,./mobile/ios)
 
 # Validate the embedded usecase catalog (internal/catalog/catalog.yml)
 # and any candidate files passed as FILES — every problem with its

@@ -347,7 +347,8 @@ local model during an outage, so vector search stays fresh
 instead of pausing. The online primary is configured by the `openai`
 block (`baseUrl` / `model` / `apiKey`, `model` required); the fallback
 by the `local` block (auto-downloaded at boot regardless, so it's
-ready). A circuit breaker skips the primary for a cooldown after
+ready). A build without the local embedder (no `-tags llamacpp`) runs the
+online primary alone, with no fallback and no model download. A circuit breaker skips the primary for a cooldown after
 repeated failures, then re-probes.
 
 **Both sides must be the SAME embedding model** — the index stores one

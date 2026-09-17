@@ -59,7 +59,7 @@ windows-x86_64) GOOS=windows GOARCH=amd64 LLAMA=win-vulkan-x64 EXE=".exe" OS=win
     ;;
 esac
 
-LLAMACPP_VERSION="$(sed -n 's/^const llamaCppRelease = "\(.*\)"$/\1/p' internal/indexer/llamacpp_release.go)"
+LLAMACPP_VERSION="$(scripts/llamacpp-version.sh)"
 # The workflow passes the resolved release version (a real tag, or a
 # v<base>-nightly.<date>.<n> prerelease) so the asset name + embedded version
 # match the release; standalone runs fall back to git describe.

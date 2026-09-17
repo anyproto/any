@@ -51,7 +51,7 @@ jobs:
       - name: fetch llama.cpp
         shell: bash
         run: |
-          version=$(sed -n 's/^const llamaCppRelease = "\(.*\)"$/\1/p' internal/indexer/llamacpp_release.go)
+          version=$(scripts/llamacpp-version.sh)
           scripts/fetch-llamacpp.sh "$version" bin/llamacpp win-vulkan-x64
       # internal/server owns the single-instance lock and boots the SDK on
       # an offline network, internal/config the paths it uses,

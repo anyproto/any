@@ -60,7 +60,7 @@ func TestDesktopContract_AnnounceEmbeddedNodeconfShutdown(t *testing.T) {
 	// A CWD that has no ../test-etc sibling — this is what a packaged
 	// install looks like, and what used to fail before the embed.
 	cmd.Dir = t.TempDir()
-	cmd.Env = append(os.Environ(), "ANY_DATA_DIR="+dataDir, "ANY_NETWORK_NODECONF_PATH="+nodeconfPath)
+	cmd.Env = append(os.Environ(), "ANY_DATA_DIR="+dataDir, "ANY_NETWORK_NODECONF_PATH="+nodeconfPath, "ANY_INDEX_EMBEDDER=none")
 	cmd.Stdout = stdoutFile
 	cmd.Stderr = stderrFile
 	if err := cmd.Start(); err != nil {

@@ -12,7 +12,7 @@ The server is a CGO-free Go binary. Full-text and vector search compile into eve
 ```bash
 make build            # bin/any with -tags llamacpp
 make llamacpp         # prebuilt llama.cpp libs into bin/llamacpp (also part of make build)
-make test             # go test -tags llamacpp ./...
+make test             # go test ./..., then the local-embedder packages with -tags llamacpp
 make vet
 make check-deps       # the untagged and mobile builds must not link libffi
 make swagger          # regenerate the OpenAPI spec (make build runs it too)

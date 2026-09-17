@@ -1,5 +1,5 @@
 // Package main is the C-archive surface that embeds the `any` engine in
-// an iOS app. Built with `-tags 'mobile fts' -buildmode=c-archive` it
+// an iOS app. Built with `-tags mobile -buildmode=c-archive` it
 // links the full embedded dependency graph (any-sync + libp2p + QUIC +
 // the modernc SQLite shim) and exposes five C entry points the Swift
 // side calls over its lifecycle: AnyLibStart, AnyLibStartWithMode,

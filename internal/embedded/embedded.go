@@ -15,8 +15,8 @@
 //   - the GOMEMLIMIT soft cap via debug.SetMemoryLimit (iOS jetsam AND
 //     Android's low-memory killer);
 //   - config assembly: config.Defaults() + DataDir + Listen.Addr +
-//     Network.Nodeconf + index policy (Embedder="none", Index.Enabled =
-//     the compiled FTS cap) + headless (WebUI.Enabled=false) +
+//     Network.Nodeconf + index policy (Embedder="none": FTS only) +
+//     headless (WebUI.Enabled=false) +
 //     the push node peer (Options.PushPeerId/PushAddrs → cfg.Push);
 //   - the run via main's canonical embedder seam, server.RunWith.
 //

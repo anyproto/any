@@ -71,7 +71,7 @@ embedder's llama.cpp bindings need the system `libffi`.
 
 ```
 make build              # bin/any with -tags llamacpp; regenerates swagger, fetches llama.cpp libs
-make test               # go test -tags llamacpp ./...
+make test               # go test ./..., then -tags llamacpp over the local-embedder packages
 make vet
 make check-deps         # untagged and mobile builds must not link libffi
 make swagger            # regenerate the OpenAPI spec in internal/server/docs

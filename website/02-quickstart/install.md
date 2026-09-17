@@ -57,7 +57,7 @@ On NixOS (or any system without `libffi.so.8` on the loader path) run both the b
 go install github.com/anyproto/any/cmd/any@latest
 ```
 
-This binary has full-text and vector search and embeds through the online embedder (`index.embedder: auto`). It has no local embedder: `index.embedder: local` fails at boot.
+This binary has full-text and vector search and embeds through the online embedder (`index.embedder: auto`): indexed text and search queries go to the online API. Set `index.embedder: none` to keep everything on the machine with full-text search only. It has no local embedder: `index.embedder: local` fails at boot.
 
 For the local embedder, install with its build tag:
 

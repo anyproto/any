@@ -10,11 +10,11 @@ The server's confidence comes from running the compiled binary. Unit tests cover
 ## Unit tests
 
 ```bash
-make test        # go test -tags llamacpp ./...
+make test        # go test ./..., then the local-embedder packages with -tags llamacpp
 make vet
 ```
 
-A bare `go test ./...` runs every unit test except the local-embedder ones, which carry the `llamacpp` tag that `make test` passes. In-process handler tests boot a real SDK and the handlers without a binary or a socket — chat, editor, search, links, bundles, the catalog, local store, modify-scope and property surfaces — against the same staging fixture as the e2e suite, and skip without it. Tests that only need a server to boot and serve (the embedded host, the desktop-shell and managed-lifecycle contracts) use the sanitized **placeholder** node configuration instead, which joins no network.
+A bare `go test ./...` runs every unit test except the local-embedder ones, which carry the `llamacpp` tag; `make test` runs the untagged suite and then those packages with the tag. In-process handler tests boot a real SDK and the handlers without a binary or a socket — chat, editor, search, links, bundles, the catalog, local store, modify-scope and property surfaces — against the same staging fixture as the e2e suite, and skip without it. Tests that only need a server to boot and serve (the embedded host, the desktop-shell and managed-lifecycle contracts) use the sanitized **placeholder** node configuration instead, which joins no network.
 
 ## The staging fixture rule
 

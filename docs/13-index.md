@@ -753,7 +753,8 @@ store marks docs `pending`, and creates the sparse pending index, only
 when an embedder is configured or a vector dimension is already known,
 so an FTS-only index never runs the embed loop. Tests that drive the
 local embedder carry the `llamacpp` constraint: `go test ./...` runs
-everything else, `make test` adds them.
+everything else, and `make test` reruns the packages that hold them with
+the tag.
 
 A host that can't open its index gets a distinguishable failure:
 `ErrIndexRebuildRequired` (schema version, vector dimension or chunk

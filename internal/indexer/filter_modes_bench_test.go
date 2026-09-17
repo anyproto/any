@@ -1844,7 +1844,8 @@ func fbE2ESearch(ctx context.Context, f *fbFixture, q fbQuery, filter query.Filt
 // `Local` — the same decoder the `any run embedder` child runs, minus
 // the child: NewLocal takes the model path and the llama.cpp lib dir
 // straight from the environment, so the test needs no server binary and
-// nothing is re-exec'd. It is closed as soon as the vectors are cached,
+// nothing is re-exec'd. It needs a `-tags llamacpp` build
+// (bench_local_test.go). It is closed as soon as the vectors are cached,
 // so the model does not hold memory or threads during the timed passes.
 //
 // Env: ANY_FILTER_BENCH_REAL_MODEL (GGUF path; absent = skip, the
