@@ -30,7 +30,7 @@ INDEX_TAGS := fts vector
 # compatibility table; verify a bump by embedding with the real model.
 LLAMACPP_VERSION := b10620
 
-.PHONY: build test vet tidy clean swagger llamacpp llamacpp-soft any docs docs-serve catalog-validate
+.PHONY: build test vet tidy clean swagger llamacpp llamacpp-soft any docs docs-check docs-serve catalog-validate
 
 swagger:
 	$(SWAG) init --v3.1 -g doc.go -d ./internal/server,./internal/api -o internal/server/docs --parseDependency --parseInternal --overridesFile $(CURDIR)/.swaggo
@@ -85,6 +85,14 @@ include makefiles/android.mk
 ## Docs website: website/*.md -> website/dist (static, deploy as-is)
 docs:
 	go run ./cmd/anydocs -src website -out website/dist
+
+docs-check: docs
+	go vet ./cmd/anydocs
+	go test ./cmd/anydocs
+	python3 cmd/anydocs/check_site.py website/dist
+	node --check website/dist/assets/examples/client.mjs
+	node --test cmd/anydocs/client_js_test.mjs
+	python3 cmd/anydocs/client_python_test.py website/dist/assets/examples/client.py
 
 docs-serve: docs
 	@echo "http://0.0.0.0:8088/"; cd website/dist && python3 -m http.server 8088 --bind 0.0.0.0

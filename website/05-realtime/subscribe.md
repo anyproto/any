@@ -104,7 +104,9 @@ An object deletion can produce a synthetic removal with an empty `versionId`. Ap
 | `overflow` | events arrived faster than the client drained them and the mailbox (`mailboxCapacity`) filled; the engine closes the stream rather than drop events |
 | `drifted` | more than `driftBudgetPercent` of the window left without replacements; the engine refuses to re-query on the hot path |
 
-Recovery is **a new POST and a fresh snapshot**. Before every attempt, check `GET /v1/auth`: the account must be authorized and match the one the view belongs to. Otherwise stop and clear the old view. Make the same check after HTTP 401, a failed request, or an end of stream without `closed`; an account switch can interrupt delivery of the terminal frame.
+Recovery is **a new POST and a fresh snapshot**. Before every attempt, check `GET /v1/auth`: subscribe only when the account is authorized and matches the one the view belongs to. If it reports `authorized: false`, clear the old view and wait before checking again; this state can occur during a restart or while a managed host authorizes an account. If another account is authorized, clear the view and stop. Make the same check after HTTP 401, a failed request, or an end of stream without `closed`; an account switch can interrupt delivery of the terminal frame.
+
+An unauthorized status does not say whether the interruption is temporary or the user signed out. The example waits for the original account to return. A host application should cancel the watcher when the user deliberately signs out.
 
 There is no replay or resume cursor. Back off before retrying. Repeated `overflow` suggests the consumer cannot drain its mailbox quickly enough; inspect processing time or increase `mailboxCapacity`. Repeated `drifted` suggests widening `limit` or adjusting `driftBudgetPercent`.
 
@@ -131,16 +133,18 @@ function windowChanged() {
 
 async function requireOK(res) {
   if (res.ok) return res;
-  const body = await res.json().catch(() => ({}));
-  throw Object.assign(new Error(body.error?.code ?? `HTTP ${res.status}`),
+  const body = await res.json().catch(() => null);
+  throw Object.assign(new Error(body?.error?.code ?? `HTTP ${res.status}`),
     { status: res.status });
 }
 
 async function expectedAccount(signal) {
   const res = await fetch(`${API}/auth`, { signal });
-  if (res.status === 401) return false;
   const auth = await (await requireOK(res)).json();
-  return auth.authorized && auth.accountId === ACCOUNT;
+  if (!auth.authorized) {
+    throw Object.assign(new Error("Waiting for the original account to be authorized."), { status: 401 });
+  }
+  return auth.accountId === ACCOUNT;
 }
 
 function pause(ms, signal) {
@@ -182,8 +186,8 @@ async function subscribe(url, body, onFrame, signal) {
         }
         if (!data.length) continue;
         const payload = JSON.parse(data.join("\n"));
-        if (event === "closed") return;
         onFrame(event, payload);
+        if (event === "closed") return;
       }
     }
   } finally {
@@ -193,7 +197,9 @@ async function subscribe(url, body, onFrame, signal) {
 }
 
 function onFrame(event, data) {
-  if (event === "snapshot") {
+  if (event === "closed" && data.reason === "deauthorized") {
+    messages.clear();
+  } else if (event === "snapshot") {
     messages = new Map((data.records ?? []).map(r => [r.id, r]));
   } else if (event === "changes") {
     for (const ev of data) {
@@ -211,15 +217,17 @@ async function run(signal) {
       if (!await expectedAccount(signal)) {
         messages.clear();
         windowChanged();
-        return;                            // signed out or switched accounts
+        return;                            // another account is authorized
       }
       await subscribe(`${API}/spaces/${SPACE}/query/subscribe`,
         { objectId: CHAT, dataset: "chat_messages", sort: ["-_ver.id"], limit: 50 },
         onFrame, signal);
     } catch (e) {
       if (signal.aborted) return;
-      // Retry transport/server failures and 401; a malformed request needs a fix.
-      if (e.status >= 400 && e.status < 500 && e.status !== 401) throw e;
+      if (e.status === 401) { messages.clear(); windowChanged(); }
+      // Retry transport/server failures, 401 and 429; other client errors need a fix.
+      if (e instanceof SyntaxError ||
+          (e.status >= 400 && e.status < 500 && ![401, 429].includes(e.status))) throw e;
       console.warn("Subscription interrupted:", e.message);
     }
     await pause(1000, signal);

@@ -13,16 +13,16 @@ The same file works in a browser module. Serve it from `http://localhost:5173` o
 
 ## 1. Make an HTTP call
 
-All ordinary calls share one helper. Keep the HTTP status on errors so a client can distinguish a bad request from a server that is temporarily unavailable.
+All ordinary calls share one helper. Keep the HTTP status even if a proxy returns an HTML or empty error body, so the reconnect loop can still recognize a temporary server failure.
 
 ```js
 const API = "http://127.0.0.1:7001/v1";
 
 async function checked(response) {
   if (response.ok) return response;
-  const { error } = await response.json();
-  throw Object.assign(new Error(`${response.status} ${error.code}: ${error.message}`),
-    { status: response.status, code: error.code });
+  const error = (await response.json().catch(() => null))?.error;
+  throw Object.assign(new Error(`${response.status}: ${error?.message ?? response.statusText}`),
+    { status: response.status, code: error?.code });
 }
 
 async function call(method, path, body, signal) {
@@ -125,9 +125,12 @@ async function watch() {
     try {
       // Check on every connection, including after EOF or a 401 without a closed frame.
       const auth = await call("GET", "/auth", undefined, signal);
-      if (!auth.authorized || auth.accountId !== account.accountId) {
+      if (!auth.authorized) {
+        throw Object.assign(new Error("Waiting for the original account to be authorized."), { status: 401 });
+      }
+      if (auth.accountId !== account.accountId) {
         view.clear(); render();
-        throw Object.assign(new Error("Account signed out or changed; stopped the subscription."), { fatal: true });
+        throw Object.assign(new Error("Account changed; stopped the subscription."), { fatal: true });
       }
       for await (const { event, data } of sse(`/spaces/${SPACE}/objects/query/subscribe`, query, signal)) {
         if (event === "snapshot") {
@@ -141,11 +144,13 @@ async function watch() {
           }
           render();
         } else if (event === "closed") {
+          if (data.reason === "deauthorized") { view.clear(); render(); }
           console.log("Reopening:", data.reason);
           break;
         }
       }
     } catch (error) {
+      if (error.status === 401) { view.clear(); render(); }
       if (signal.aborted || error.fatal || error instanceof SyntaxError ||
           (error.status >= 400 && error.status < 500 && ![401, 429].includes(error.status))) throw error;
       console.warn("Retrying:", error.message);
@@ -155,7 +160,11 @@ async function watch() {
 }
 ```
 
-The loop retries network failures, EOF, and terminal frames. It stops on cancellation, an account change, invalid JSON, or a non-retryable client error. There is no event replay: reconnecting supplies a fresh snapshot. [Subscriptions](../realtime/subscribe.html) explains each close reason and removal reason.
+The loop retries network failures, server errors, HTTP 429, EOF, and terminal frames. There is no event replay: reconnecting supplies a fresh snapshot.
+
+While `GET /auth` reports `authorized: false`, the loop clears the view and waits. This state can occur during a restart or while a managed host authorizes an account. It subscribes again only when the original account is authorized.
+
+A different account, cancellation, invalid JSON in a successful response or stream, or another client error stops the loop. Call `stopAnyDemo()` on deliberate sign-out: the auth status alone cannot distinguish sign-out from a temporary interruption. [Subscriptions](../realtime/subscribe.html) explains each close reason and removal reason.
 
 ## 5. Rename while watching
 

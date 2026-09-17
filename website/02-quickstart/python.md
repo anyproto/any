@@ -11,18 +11,27 @@ Use the standard library to create a page, send a chat message, and keep a live 
 
 ## 1. Connect and create a page
 
-`urllib.request` handles ordinary HTTP calls. Keep the status and error code in failures so you can diagnose a request.
+`urllib.request` handles ordinary HTTP calls. `API` sets the address for both requests and subscriptions. Keep the HTTP status in failures even when the response is not a JSON error envelope.
 
 ```python
 import json
 import shlex
 import urllib.request
 import urllib.error
+import urllib.parse
 import http.client
 from contextlib import closing
 from datetime import datetime
 
 API = "http://127.0.0.1:7001/v1"
+
+
+def response_error(status, response):
+    try:
+        error = json.load(response)["error"]
+        return RuntimeError(f"HTTP {status} {error['code']}: {error['message']}")
+    except (ValueError, KeyError, TypeError):
+        return RuntimeError(f"HTTP {status}: unexpected error response")
 
 
 def call(method, path, body=None):
@@ -36,8 +45,7 @@ def call(method, path, body=None):
             return json.load(res) if res.status != 204 else None
     except urllib.error.HTTPError as exc:
         with exc:
-            error = json.load(exc)["error"]
-        raise RuntimeError(f"{exc.code} {error['code']}: {error['message']}") from None
+            raise response_error(exc.code, exc) from None
 
 
 if not call("GET", "/auth")["authorized"]:
@@ -105,15 +113,17 @@ Dataset writes return `{versionId, changeId, recordIds}`, not the record. Read t
 
 ```python
 def sse(path, body):
-    conn = http.client.HTTPConnection("127.0.0.1", 7001)
+    url = urllib.parse.urlsplit(API + path)
+    conn = http.client.HTTPConnection(url.hostname, url.port)
     res = None
     try:
-        conn.request("POST", "/v1" + path, body=json.dumps(body), headers={
+        target = url.path + ("?" + url.query if url.query else "")
+        conn.request("POST", target, body=json.dumps(body), headers={
             "content-type": "application/json", "accept": "text/event-stream",
         })
         res = conn.getresponse()
         if res.status != 200:
-            raise RuntimeError(f"{res.status} {json.load(res)['error']['code']}")
+            raise response_error(res.status, res)
         event, data = "message", []
         for raw in res:
             line = raw.decode().rstrip("\r\n")
@@ -125,6 +135,8 @@ def sse(path, body):
                 if data:
                     yield event, json.loads("\n".join(data))
                 event, data = "message", []
+        if data:
+            yield event, json.loads("\n".join(data))
     finally:
         if res is not None:
             res.close()

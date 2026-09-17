@@ -37,7 +37,7 @@ If the symlink already exists, check that it points to this installation. Put th
 
 ## From source
 
-Requires Git, Go 1.26.2 or newer, `make`, and a C toolchain. In a directory where you keep source checkouts:
+Requires Git, Go 1.26.2 or newer, and `make`. In a directory where you keep source checkouts:
 
 ```bash
 git clone https://github.com/anyproto/any
@@ -105,10 +105,11 @@ Stop with Ctrl-C in the server terminal. To stop it from another terminal, pass 
 
 | Path | What |
 |------|------|
-| `$ANY_DATA_DIR/<accountId>/` | Wallet, instance lock, databases, files, and search index. |
-| `$ANY_DATA_DIR/models/` | Downloaded embedding models. |
+| `~/.any/` | Default data root. Override with `ANY_DATA_DIR` or `--data-dir`; this guide uses `~/.any-demo/`. |
+| `<data-dir>/<accountId>/` | Wallet, instance lock, databases, files, and search index. |
+| `<data-dir>/models/` | Downloaded embedding models. |
 | `~/.config/any/config.yaml` | Optional configuration; the data root can also contain `config.yaml`. |
-| `http://127.0.0.1:7001/v1` | HTTP API. The listener accepts loopback addresses only. |
-| `http://127.0.0.1:7001/ui` | Debug web UI in the standalone server. |
+| `http://127.0.0.1:7001/v1` | Default HTTP API address. Set the listener with `any run --addr HOST:PORT`; only loopback IP addresses are accepted. |
+| `http://127.0.0.1:7001/ui` | Debug web UI in the standalone server, on the same listener. |
 
 Next: **[Create your first page with curl](curl.html)**.

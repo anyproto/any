@@ -21,15 +21,23 @@ The JavaScript and Python quickstarts link to downloadable clients. The
 generator assembles these from the pages' `js` and `python` fenced blocks
 into `assets/examples/client.mjs` and `assets/examples/client.py`; keep
 those blocks in execution order so the downloads match the guides.
+Sources are resolved by their public `/quickstart/javascript.html` and
+`/quickstart/python.html` URLs, so changing the numeric section prefix does
+not break generation. A linked download without its source page fails the build.
 
-Verify the renderer and the generated links, assets, fragments and search
-targets from the repository root:
+Search indexes every section heading and target, with a shared budget of
+4,000 characters of body text per page. Short sections keep their full text;
+longer sections share the remaining budget.
+
+Verify the renderer, generated links, assets, fragments, search targets and
+downloadable clients from the repository root (requires Go, Node.js and Python 3):
 
 ```sh
-go test ./cmd/anydocs
-make docs
-python3 cmd/anydocs/check_site.py
+make docs-check
 ```
+
+The PR workflow runs this check. Client regression tests use mocked HTTP
+responses and streams; they do not start a server or join a sync network.
 
 Writing style: present tense, describe current behavior only, one idea
 per paragraph, a runnable `curl`/CLI example per feature, a "Why this

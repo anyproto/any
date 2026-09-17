@@ -80,7 +80,7 @@ app that brings together Any's editor, chat and collaboration features.
 Create a page, query it and subscribe to updates. This walkthrough builds
 Any from source and uses a dedicated data directory with **local embeddings**.
 
-You need Git, Go 1.26.2 or newer, `make`, a C toolchain, `curl` and `jq`.
+You need Git, Go 1.26.2 or newer, `make`, `curl` and `jq`.
 For release packages and platform-specific setup, see
 [Installation](website/02-quickstart/install.md).
 
