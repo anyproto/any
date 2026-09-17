@@ -106,6 +106,8 @@ func TestE2E_LocalStore(t *testing.T) {
 			{http.MethodPut, "/v1/local/collections", sp},
 			{http.MethodPost, "/v1/local/insert", `{"coll":` + sp + `,"docs":[{"id":"y"}]}`},
 			{http.MethodPost, "/v1/local/upsert", `{"coll":` + sp + `,"docs":[{"id":"x","objectId":"obj-2"}]}`},
+			{http.MethodPost, "/v1/local/update", `{"coll":` + sp + `,"id":"x","modifier":{"$set":{"objectId":"obj-2"}}}`},
+			{http.MethodPost, "/v1/local/indexes", `{"coll":` + sp + `,"ensure":[{"fields":["objectId"]}]}`},
 		} {
 			var env map[string]any
 			mustJSON(t, w.method, base+w.path, w.body, http.StatusConflict, &env)
