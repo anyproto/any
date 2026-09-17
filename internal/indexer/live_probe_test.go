@@ -1,5 +1,3 @@
-//go:build fts && vector && !gomobile
-
 package indexer
 
 import (
@@ -19,7 +17,7 @@ import (
 //	ANY_LIVE_SPACE=<spaceId> \
 //	ANY_EVAL_LOCAL_MODEL=~/.any/models/<model>.gguf \
 //	ANY_EVAL_LOCAL_LIBDIR=./bin/llamacpp \
-//	go test -tags 'fts vector' -run TestLiveVectorScoreProbe -v ./internal/indexer
+//	go test -tags llamacpp -run TestLiveVectorScoreProbe -v ./internal/indexer
 //
 // The server must be stopped (it holds the DB open).
 func TestLiveVectorScoreProbe(t *testing.T) {

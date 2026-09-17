@@ -10,12 +10,12 @@ Two codebases, two doctrines that fit their subject. The `any` server is tested 
 ## Testing against any
 
 ```bash
-make test                                   # unit tests with the fts vector tags
+make test                                   # unit tests, local embedder included
 go test ./internal/e2e -run TestE2E_FullFlow # boot the binary, drive every endpoint
 go test ./internal/e2e -run Multipeer        # two peers, invite/join, CRDT convergence
 ```
 
-- Unit tests live next to the code; the search index legs are behind build tags, so `make test` (not bare `go test`) runs the full suite. It is also a PR check.
+- Unit tests live next to the code; `make test` runs the full suite, and a bare `go test ./...` skips only the local-embedder tests (`-tags llamacpp`). It is also a PR check.
 - End-to-end tests build the binary, run `any run` against a temporary data dir on an ephemeral port, and talk JSON over real TCP. They need a **staging** node configuration and skip without one — a test must never join production.
 - Multi-peer tests start two servers with distinct accounts (or the same mnemonic on two device keys) and prove what a single process cannot: invites, membership, cross-replica convergence, LAN discovery.
 

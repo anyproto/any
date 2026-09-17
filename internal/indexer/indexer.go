@@ -249,13 +249,6 @@ func (ix *Indexer) spaces() space.Service {
 	return ix.sdk.Spaces()
 }
 
-// CompiledCaps reports which search legs were compiled into this binary
-// via the `fts` / `vector` build tags (docs/13-index.md § build tags).
-// vector is always false on gomobile builds. Both false means the search
-// index, even when enabled at runtime, returns no results — callers log
-// this so the state is observable rather than silently empty.
-func CompiledCaps() (fts, vector bool) { return capFTS, capVector }
-
 // New constructs the indexer. Call Start to begin; Close to stop.
 func New(sdk *anysyncsdk.SDK, reg *index.Registry, store *Store, opts Options) *Indexer {
 	return &Indexer{

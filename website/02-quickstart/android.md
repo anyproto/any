@@ -38,7 +38,7 @@ The binding is deliberately flat — top-level functions, strings and errors onl
 | `Mobile.stopNow()` | Hard stop, returns promptly — for a deadline-bounded teardown. |
 | `Mobile.version()` | Build-stamped version string. |
 
-`nodeconfYAML` is the network: pass `""` for the production any-sync network embedded in the AAR, or a nodeconf's YAML text to join another one ([Networks](networks.html)). The AAR builds with the full-text search leg; the vector leg is off, so `/search` runs `fts` only.
+`nodeconfYAML` is the network: pass `""` for the production any-sync network embedded in the AAR, or a nodeconf's YAML text to join another one ([Networks](networks.html)). The AAR runs the index with no embedder, so `/search` runs `fts` only.
 
 ## Start it
 

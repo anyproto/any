@@ -112,8 +112,8 @@ type startResult struct {
 // (returning a code and the underlying error's message). It is the
 // testable core behind the //export AnyLibStart wrapper.
 //
-// The search index is not a host parameter: it rides the compiled `fts`
-// cap alone, same as the Android bind. pushPeerId/pushAddrs configure the
+// The search index is not a host parameter: FTS on, no embedder, same as
+// the Android bind. pushPeerId/pushAddrs configure the
 // push node (addrs comma-separated, see embedded.Options) — empty strings
 // keep push off. mode/controlToken select the ownership mode ("" =
 // standalone; "managed" needs a non-empty controlToken).

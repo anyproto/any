@@ -124,7 +124,7 @@ log:
   outputPaths: ["/var/log/any/server.log"]   # absolute; ~ is not expanded
 ```
 
-5xx responses log at `error` with the full stack; panics are converted to `500 internal` with a generic message and the trace goes to the log. A startup warning that the binary was "built without the fts/vector tags" means search will return nothing — rebuild with `make build` ([Builds and CI](builds-and-ci.html)).
+5xx responses log at `error` with the full stack; panics are converted to `500 internal` with a generic message and the trace goes to the log. A boot error saying `index.embedder "local"` needs `-tags llamacpp` means the binary has no local embedder — rebuild with `make build`, or use `index.embedder: auto` ([Builds and CI](builds-and-ci.html)).
 
 ## Watching live
 

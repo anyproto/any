@@ -1,4 +1,4 @@
-//go:build vector && !gomobile
+//go:build llamacpp && !android && !ios
 
 package indexer
 
@@ -18,6 +18,27 @@ import (
 
 // Factory + pre-ready behavior — no llama.cpp libs or model needed.
 // ModelPath points at a missing file so no download is spawned.
+
+func TestNewEmbedder_AutoWithLocal(t *testing.T) {
+	dir := t.TempDir()
+	e, err := NewEmbedder(config.Index{
+		Embedder: "auto",
+		OpenAI:   config.IndexOpenAI{Model: "m"},
+		Local:    config.IndexLocal{ModelPath: filepath.Join(dir, "absent.gguf")},
+	}, filepath.Join(dir, "models"), "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, ok := e.(*fallbackEmbedder)
+	if !ok {
+		t.Fatalf("want *fallbackEmbedder, got %T", e)
+	}
+	w, ok := f.fallback.(*workerEmbedder)
+	if !ok {
+		t.Fatalf("want a *workerEmbedder fallback, got %T", f.fallback)
+	}
+	w.Close()
+}
 
 func TestNewEmbedder_Local(t *testing.T) {
 	dir := t.TempDir()
@@ -328,7 +349,7 @@ func TestGroupEnd(t *testing.T) {
 //
 //	ANY_EVAL_LOCAL_MODEL=~/.any/models/<model>.gguf \
 //	ANY_EVAL_LOCAL_LIBDIR=./bin/llamacpp \
-//	go test -tags 'fts vector' -run TestLocal_BatchedMatchesSingle -v ./internal/indexer
+//	go test -tags llamacpp -run TestLocal_BatchedMatchesSingle -v ./internal/indexer
 func TestLocal_BatchedMatchesSingle(t *testing.T) {
 	modelPath := os.Getenv("ANY_EVAL_LOCAL_MODEL")
 	libDir := os.Getenv("ANY_EVAL_LOCAL_LIBDIR")

@@ -1,4 +1,4 @@
-//go:build vector && !gomobile
+//go:build llamacpp && !android && !ios
 
 package cli
 
@@ -14,8 +14,8 @@ import (
 // server starts for itself (docs/13-index.md § GPU offload). It is not
 // client surface: the server re-execs this binary so a llama.cpp abort
 // kills the child instead of the server, and speaks a framed protocol
-// over stdin/stdout. Hidden, and absent from builds without the vector
-// leg (embed_worker_off.go).
+// over stdin/stdout. Hidden, and absent from builds without the local
+// embedder (embed_worker_off.go).
 func embedderCmds() []*cobra.Command {
 	var cfg indexer.EmbedWorkerConfig
 	c := &cobra.Command{

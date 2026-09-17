@@ -126,6 +126,6 @@ Packing several documents into one local decode (`index.local.batchDocs`) buys n
 
 ## Reproducing
 
-The harnesses are opt-in tests in the server repo, built with the `fts vector` tags: a synthetic labeled-query harness, a BEIR runner that takes any BEIR-format set by directory, an ingest/latency profiler for the ANN modes, and a live-index cosine probe. Each is driven by `ANY_EVAL_*` / `ANY_BEIR_*` environment variables naming the corpus, the embedder and the index mode; see [Testing](../testing/any-e2e.html) for how the repo's test suites are laid out.
+The harnesses are opt-in tests in the server repo (the real local embedder needs `-tags llamacpp`): a synthetic labeled-query harness, a BEIR runner that takes any BEIR-format set by directory, an ingest/latency profiler for the ANN modes, and a live-index cosine probe. Each is driven by `ANY_EVAL_*` / `ANY_BEIR_*` environment variables naming the corpus, the embedder and the index mode; see [Testing](../testing/any-e2e.html) for how the repo's test suites are laid out.
 
 Known gaps: BEIR measures the stack on out-of-domain scientific text — a labeled set over real notes, chat and memory would measure the actual content — and there is no reranker tier yet, so true "nothing relevant" abstention is not available.

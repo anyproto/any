@@ -74,9 +74,12 @@ cd any
 make build
 ```
 
-The binary is written to `bin/any`. This build includes full-text and vector
-search and attempts to fetch the llama.cpp libraries needed for local
-embeddings. If that download fails, retry with `make llamacpp`.
+The binary is written to `bin/any`. This build includes the local embedder
+and attempts to fetch the llama.cpp libraries it needs. If that download
+fails, retry with `make llamacpp`. A plain
+`go install github.com/anyproto/any/cmd/any@latest` gives full-text and vector
+search through the online embedder only; see
+[Installation](website/02-quickstart/install.md).
 
 ### 2. Create an account and start the server
 
@@ -158,8 +161,8 @@ The quickstart explicitly selects `local`. The server's built-in default is
 | Mode | Where embedding inputs go |
 | --- | --- |
 | `local` | A local llama.cpp worker. Model files may be downloaded, but document text and queries are embedded on the device. |
-| `auto` | An online embedding provider first, with the local model as fallback. |
-| `none` | No embeddings; full-text search remains available in builds that include it. |
+| `auto` | An online embedding provider first, with the local model as fallback in builds that include it. |
+| `none` | No embeddings; full-text search remains available. |
 
 See [Embedders](website/10-search/embedders.md) for model settings, Ollama,
 and other compatible providers.

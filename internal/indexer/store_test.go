@@ -1,5 +1,3 @@
-//go:build fts && vector && !gomobile
-
 package indexer
 
 import (

@@ -2,8 +2,8 @@ GOBIN    := $(shell go env GOPATH)/bin
 GOMOBILE := $(GOBIN)/gomobile
 GOBIND   := $(GOBIN)/gobind
 
-# `gomobile` selects mobile code paths; `fts` compiles the BM25 search leg
-ANY_TAGS := gomobile fts
+# `gomobile` selects the bind package (mobile/android)
+ANY_TAGS := gomobile
 
 # Build the go.mod-PINNED gomobile + gobind into GOPATH/bin and initialize
 # gomobile. `go build <cmd-pkg>` resolves the commands at the version pinned

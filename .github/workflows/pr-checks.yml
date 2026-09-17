@@ -46,12 +46,14 @@ jobs:
           fi
       - name: go vet
         run: go vet ./...
+      - name: No libffi in the untagged and mobile builds
+        run: make check-deps
       - name: Validate the usecase catalog
         run: make catalog-validate
 
-  # `make test` is the canonical command (go test -tags 'fts vector' ./...);
-  # the index lives behind those tags, so an untagged run would exercise a
-  # different build than the one we ship. Nothing here loads llama.cpp: the
+  # `make test` is the canonical command (go test -tags llamacpp ./...): the
+  # tag adds the local-embedder tests to the untagged suite, matching the
+  # build we ship. Nothing here loads llama.cpp: the
   # local-embedder tests cover factory behaviour only and the live probe
   # skips without ANY_LIVE_INDEX. Network-backed tests self-skip without a
   # staging config.

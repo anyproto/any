@@ -1,4 +1,4 @@
-//go:build vector && !gomobile && !linux && !darwin && !freebsd && !netbsd && !openbsd && !windows
+//go:build llamacpp && !android && !ios && !linux && !darwin && !freebsd && !netbsd && !openbsd && !windows
 
 package indexer
 

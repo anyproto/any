@@ -13,31 +13,23 @@ LDFLAGS := -s -w \
 
 SWAG := go tool github.com/swaggo/swag/v2/cmd/swag
 
-# Search-index build tags (docs/13-index.md § build tags). The desktop
-# binary ships both legs; each is independently selectable so other
-# builds (e.g. gomobile) can drop one or both — `fts` compiles in the
-# BM25 full-text leg, `vector` the embedding + IVF-SQ ANN leg (and the
-# embedder implementations, including the llama.cpp bindings). Build/test
-# with neither to exclude the whole search index from compilation.
-INDEX_TAGS := fts vector
+# `llamacpp` compiles in the local llama.cpp embedder (docs/13-index.md
+# § Builds and the local embedder). Search itself needs no tag; a build
+# without it runs `index.embedder: auto` on the online embedder alone.
+BUILD_TAGS := llamacpp
 
-# llama.cpp release pin for the local embedder's shared libs
-# (docs/13-index.md § GPU offload). Bump together with the yzma
-# dependency — yzma tracks llama.cpp releases, and only a matching pair
-# works: too old a build fails to load ("undefined symbol"), too new a
-# one loads but reads shifted struct fields (llama_model_n_embd comes
-# back 0 and context creation aborts). yzma's README carries the
-# compatibility table; verify a bump by embedding with the real model.
-LLAMACPP_VERSION := b10620
+# llama.cpp release pin for the local embedder's shared libs; the source
+# of truth and its bump rules live in internal/indexer/llamacpp_release.go.
+LLAMACPP_VERSION := $(shell sed -n 's/^const llamaCppRelease = "\(.*\)"$$/\1/p' internal/indexer/llamacpp_release.go)
 
-.PHONY: build test vet tidy clean swagger llamacpp llamacpp-soft any docs docs-serve catalog-validate
+.PHONY: build test vet tidy clean swagger llamacpp llamacpp-soft any docs docs-serve catalog-validate check-deps
 
 swagger:
 	$(SWAG) init --v3.1 -g doc.go -d ./internal/server,./internal/api -o internal/server/docs --parseDependency --parseInternal --overridesFile $(CURDIR)/.swaggo
 
 build: swagger llamacpp-soft
 	@mkdir -p $(OUT)
-	go build -v -tags '$(INDEX_TAGS)' -ldflags '$(LDFLAGS)' -o $(OUT)/$(BINARY) ./cmd/any
+	go build -v -tags '$(BUILD_TAGS)' -ldflags '$(LDFLAGS)' -o $(OUT)/$(BINARY) ./cmd/any
 
 # Prebuilt llama.cpp shared libs for `index.embedder: local` — fetched
 # once into bin/llamacpp/ (cached tarball under third_party/llamacpp/);
@@ -56,10 +48,24 @@ llamacpp-soft:
 		|| echo "make: llamacpp libs unavailable — 'index.embedder: local' won't work until 'make llamacpp' succeeds or index.local.libDir is set" >&2
 
 test:
-	go test -tags '$(INDEX_TAGS)' ./...
+	go test -tags '$(BUILD_TAGS)' ./...
 
 vet:
-	go vet -tags '$(INDEX_TAGS)' ./...
+	go vet -tags '$(BUILD_TAGS)' ./...
+
+# The untagged build (`go install`) and the mobile targets must never
+# link the llama.cpp bindings: their ffi dependency loads libffi at
+# process start and panics without it (docs/13-index.md § Builds and the
+# local embedder). The mobile checks pass `llamacpp` to prove the GOOS
+# exclusion holds.
+FFI_PKG := github.com/jupiterrider/ffi
+check-deps:
+	@! go list -deps ./cmd/any | grep -qx '$(FFI_PKG)' \
+		|| { echo "check-deps: untagged ./cmd/any links $(FFI_PKG)" >&2; exit 1; }
+	@! GOOS=android GOARCH=arm64 CGO_ENABLED=1 go list -deps -tags 'gomobile llamacpp' ./mobile/android | grep -qx '$(FFI_PKG)' \
+		|| { echo "check-deps: android links $(FFI_PKG)" >&2; exit 1; }
+	@! GOOS=ios GOARCH=arm64 CGO_ENABLED=1 go list -deps -tags 'mobile llamacpp' ./mobile/ios | grep -qx '$(FFI_PKG)' \
+		|| { echo "check-deps: ios links $(FFI_PKG)" >&2; exit 1; }
 
 # Validate the embedded usecase catalog (internal/catalog/catalog.yml)
 # and any candidate files passed as FILES — every problem with its

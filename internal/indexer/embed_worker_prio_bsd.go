@@ -1,4 +1,4 @@
-//go:build vector && !gomobile && (darwin || freebsd || netbsd || openbsd)
+//go:build llamacpp && !android && !ios && (darwin || freebsd || netbsd || openbsd)
 
 package indexer
 

@@ -1,4 +1,4 @@
-//go:build vector && !gomobile
+//go:build llamacpp && !android && !ios
 
 package indexer
 
@@ -116,6 +116,16 @@ func newWorkerEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string,
 	}
 	w := newWorkerEmbedderFromSpec(spec, reqTimeout)
 	w.dl = dl
+	return w, nil
+}
+
+// newLocalEmbedder backs index.embedder "local" and the "auto" fallback
+// (embed_local_off.go is the build without it).
+func newLocalEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string, onProcess func(ProcessUpdate)) (Embedder, error) {
+	w, err := newWorkerEmbedder(cfg, modelsDir, legacyModelsDir, onProcess)
+	if err != nil {
+		return nil, err
+	}
 	return w, nil
 }
 

@@ -1,5 +1,3 @@
-//go:build fts && vector && !gomobile
-
 package indexer
 
 import (
@@ -35,8 +33,9 @@ import (
 // in CI) and, opt-in via ANY_EVAL_EMBEDDER=local|ollama|openai, the real
 // configured embedder (the only way to measure genuine semantic recall).
 //
-// Run: go test -tags 'fts vector' -run TestSearchEval -v ./internal/indexer
-//      ANY_EVAL_EMBEDDER=ollama go test -tags 'fts vector' -run TestSearchEval -v ./internal/indexer
+// Run: go test -run TestSearchEval -v ./internal/indexer
+//      ANY_EVAL_EMBEDDER=ollama go test -run TestSearchEval -v ./internal/indexer
+//      (ANY_EVAL_EMBEDDER=local needs -tags llamacpp)
 
 // evalObject is one logical object: an ordered list of blocks. A block
 // prefixed with "# " is a heading (the coalescer breaks windows there).

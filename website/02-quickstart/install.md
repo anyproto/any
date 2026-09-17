@@ -22,7 +22,7 @@ Releases ship one tarball per platform:
 Each tarball contains:
 
 ```
-any[.exe]        # the server + CLI (built with the full-text and vector search legs)
+any[.exe]        # the server + CLI (built with the local embedder)
 llamacpp/        # prebuilt llama.cpp shared libs for the local embedder
 manifest.json    # { version, os, arch, llamacpp_version, sha256: {path: hash} }
 ```
@@ -49,7 +49,23 @@ any version
 
 Run the `PATH` line in every terminal you use below, or put the repo's `bin` on `PATH` in your shell profile: the `any` commands then run the binary you just built, with `bin/llamacpp` next to it where the local embedder looks. Otherwise a bare `any` fails or runs an older install.
 
-Use `make build`, not `go build ./cmd/any`: the search index is behind build tags that the Makefile passes. A tag-less binary serves `/search` with zero hits and warns only once at boot. On NixOS (or any system without `libffi.so.8` on the loader path) run both the build and the binary through the repo's dev shell: `nix develop -c make build`, `nix develop -c any run`.
+On NixOS (or any system without `libffi.so.8` on the loader path) run both the build and the binary through the repo's dev shell: `nix develop -c make build`, `nix develop -c any run`.
+
+## With go install
+
+```bash
+go install github.com/anyproto/any/cmd/any@latest
+```
+
+This binary has full-text and vector search and embeds through the online embedder (`index.embedder: auto`). It has no local embedder: `index.embedder: local` fails at boot.
+
+For the local embedder, install with its build tag:
+
+```bash
+go install -tags llamacpp github.com/anyproto/any/cmd/any@latest
+```
+
+That binary needs a loadable `libffi.so.8` on Linux at startup, and the llama.cpp shared libraries of the release pinned in `internal/indexer/llamacpp_release.go`, either in `llamacpp/` next to the binary or at `index.local.libDir`. A release tarball or `make build` ships both ready to use ([Builds and CI](../operations/builds-and-ci.html)).
 
 ## Create an account
 

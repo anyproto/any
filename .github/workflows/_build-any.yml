@@ -409,7 +409,7 @@ jobs:
           DESKTOP_SHAS: ${{ steps.assets.outputs.desktop_shas }}
         run: |
           set -euo pipefail
-          LLAMACPP="$(sed -n 's/^LLAMACPP_VERSION := //p' Makefile)"
+          LLAMACPP="$(sed -n 's/^const llamaCppRelease = "\(.*\)"$/\1/p' internal/indexer/llamacpp_release.go)"
           # Notes lead with a sectioned asset list (Desktop / Android / iOS / Libs),
           # each asset as `<name>` sha256: `<sha>` so a client can pin without first
           # downloading. $DESKTOP_SHAS is the desktop list (one line per tarball). gh

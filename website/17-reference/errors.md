@@ -235,7 +235,6 @@ Panics are converted to `500 internal` with a generic message.
 | `index.disabled` | 409 | search index turned off (`index.enabled: false`); also the link and backlink reads |
 | `index.no_embedder` | 400 | `mode: vector` without an embedder |
 | `index.embedder_unavailable` | 503 | embedder configured but unreachable or over the query budget — retryable |
-| `index.terms_unsupported` | 409 | `require` / `exclude` on a build without the full-text index |
 | `search.bad_mode` | 400 | mode not `hybrid` \| `fts` \| `vector` |
 | `search.bad_scope` | 400 | scope not a valid slug (`[a-z0-9_-]`, max 64) |
 

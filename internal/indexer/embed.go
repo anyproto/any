@@ -35,12 +35,6 @@ type Embedder interface {
 	Dim(ctx context.Context) (int, error)
 }
 
-// NewEmbedder constructs the configured embedding client. Its two
-// build-tagged variants live in embed_factory_vector.go (the real
-// switch) and embed_factory_novector.go (a no-op returning nil, so the
-// indexer runs FTS-only when the `vector` tag is absent or the build is
-// gomobile). See docs/13-index.md § build tags.
-
 // Hardware is what the embedder actually runs on, as llama.cpp reports
 // it: the backends it registered, the devices they found, and the libs
 // they came from. The child collects it once at startup and hands it to

@@ -997,11 +997,7 @@ the mode: the FTS leg matches on them, and vector hits (hybrid and pure
 `vector`) are post-filtered against the FTS index before fusion, so
 fusion can never re-admit a hit the lexical leg would have refused.
 Terms are matched by the index analyzer — a `"phrase"` or `prefix*`
-term behaves as it does in `query`. Both legs enforce them through the
-full-text index, so a build compiled without it (`fts` build tag,
-`docs/13-index.md` § build tags) refuses a request carrying them with
-`409 index.terms_unsupported` rather than answering with the constraint
-ignored.
+term behaves as it does in `query`.
 
 `mode` in the reply is the mode that actually ran: `hybrid` degrades to
 `fts` when no embedder is configured, it is unreachable, or the query

@@ -70,9 +70,10 @@ Run under `nix develop -c …` when the flake is available: the local
 embedder's llama.cpp bindings need the system `libffi`.
 
 ```
-make build              # bin/any with -tags 'fts vector'; regenerates swagger, fetches llama.cpp libs
-make test               # go test -tags 'fts vector' ./...
+make build              # bin/any with -tags llamacpp; regenerates swagger, fetches llama.cpp libs
+make test               # go test -tags llamacpp ./...
 make vet
+make check-deps         # untagged and mobile builds must not link libffi
 make swagger            # regenerate the OpenAPI spec in internal/server/docs
 make catalog-validate   # validate internal/catalog/catalog.yml
 make llamacpp           # prebuilt llama.cpp libs into bin/llamacpp
@@ -80,10 +81,10 @@ make build-android      # dist/android/any.aar (needs an Android NDK)
 make docs-serve         # render and serve website/
 ```
 
-- **Never build a server with a bare `go build ./cmd/any`.** Without the
-  `fts vector` tags, `/search` returns zero hits and the only symptom is
-  one WARN at boot. The binary is `bin/any`. A `./any` at the repo root is
-  a stale leftover.
+- **A bare `go build ./cmd/any` has no local embedder.** Only
+  `-tags llamacpp` builds carry it: without the tag `index.embedder: local`
+  fails boot and `auto` embeds online only. The binary is `bin/any`. A
+  `./any` at the repo root is a stale leftover.
 - **Server and e2e tests skip silently without `staging.yml`**, a
   gitignored nodeconf at the repo root. A green run without it proves
   little.
@@ -238,7 +239,7 @@ server unreachable. When the server is down, print "start it with
 | `docs/08-clients.md` | client call patterns and recipes |
 | `docs/09-query.md` | query guide: filters, sort, paging, projection, paths, dates |
 | `docs/11-agent-memory.md` | agent data as harness-owned runtime datasets |
-| `docs/13-index.md` | search and link index: chunkers, indexer, embedders, `/search`, build tags |
+| `docs/13-index.md` | search and link index: chunkers, indexer, embedders, `/search`, the local embedder build |
 | `docs/14-aggregation.md` | aggregation pipelines: stages, pushdown, limits |
 | `docs/16-chat.md` | chat client guide: rendering, liveness, read tracking |
 | `docs/17-files.md` | files: storage tiers, durability, cache, variants |

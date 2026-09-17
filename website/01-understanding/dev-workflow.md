@@ -107,6 +107,6 @@ make build                                  # → bin/any (+ bin/llamacpp for th
 go test ./...
 ```
 
-Use `make build`, not a bare `go build`: the full-text and vector search legs are behind build tags that the Makefile passes, and a tag-less binary serves `/search` with zero hits and a single boot-time warning. On NixOS run builds and the binary through `nix develop -c …` so the local embedder finds `libffi` ([Builds and CI](../operations/builds-and-ci.html)).
+`make build` adds the local embedder (`-tags llamacpp`) and its llama.cpp libraries; a bare `go build` serves full-text and vector search through the online embedder only. `go test ./...` runs everything except the local-embedder tests, which `make test` adds. On NixOS run builds and the binary through `nix develop -c …` so the local embedder finds `libffi` ([Builds and CI](../operations/builds-and-ci.html)).
 
 > **Note.** An unconfigured binary syncs against the **production** network. For experiments use a staging or local nodeconf via `ANY_NETWORK_NODECONF_PATH`, or the embedded placeholder that joins no network at all ([Networks](../quickstart/networks.html)).

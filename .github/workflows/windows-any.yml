@@ -45,13 +45,13 @@ jobs:
       # it — so build the whole tree too, or a Windows-only break in the
       # CLI reaches a release having passed every gate.
       - name: go build
-        run: go build -tags 'fts vector' ./...
+        run: go build -tags llamacpp ./...
       # The llama.cpp release the Windows tarball ships. Its DLLs import
       # each other, which only a real load exercises.
       - name: fetch llama.cpp
         shell: bash
         run: |
-          version=$(sed -n 's/^LLAMACPP_VERSION := //p' Makefile)
+          version=$(sed -n 's/^const llamaCppRelease = "\(.*\)"$/\1/p' internal/indexer/llamacpp_release.go)
           scripts/fetch-llamacpp.sh "$version" bin/llamacpp win-vulkan-x64
       # internal/server owns the single-instance lock and boots the SDK on
       # an offline network, internal/config the paths it uses,
@@ -63,4 +63,4 @@ jobs:
         shell: bash
         env:
           ANY_TEST_LLAMACPP_LIBDIR: ${{ github.workspace }}/bin/llamacpp
-        run: go test -tags 'fts vector' ./internal/server/ ./internal/config/ ./internal/indexer/ ./internal/cli/ ./internal/client/ ./internal/push/
+        run: go test -tags llamacpp ./internal/server/ ./internal/config/ ./internal/indexer/ ./internal/cli/ ./internal/client/ ./internal/push/

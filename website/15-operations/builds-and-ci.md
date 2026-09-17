@@ -1,44 +1,43 @@
 ---
 title: Builds and CI
-description: Building the server with the search legs compiled in, the nix dev shell, and the release artifacts — desktop tarballs, the Android .aar and the iOS .xcframework.
+description: Building the server with or without the local embedder, the nix dev shell, and the release artifacts — desktop tarballs, the Android .aar and the iOS .xcframework.
 order: 60
 ---
 # Builds and CI
 
-The server is a CGO-free Go binary, but the search index legs are selected at compile time by build tags, and the local embedder loads shared libraries at runtime. `make build` handles all of it; a bare `go build` produces a server whose `/search` silently returns nothing.
+The server is a CGO-free Go binary. Full-text and vector search compile into every build; one build tag, `llamacpp`, adds the local embedder, which loads llama.cpp shared libraries at runtime. `make build` passes the tag and fetches the libraries; a plain `go build` or `go install` gives a server that embeds through the online embedder alone.
 
 ## Building
 
 ```bash
-make build            # bin/any with -tags 'fts vector'
+make build            # bin/any with -tags llamacpp
 make llamacpp         # prebuilt llama.cpp libs into bin/llamacpp (also part of make build)
-make test             # go test -tags 'fts vector' ./...
+make test             # go test -tags llamacpp ./...
 make vet
+make check-deps       # the untagged and mobile builds must not link libffi
 make swagger          # regenerate the OpenAPI spec (make build runs it too)
 make catalog-validate # check the embedded usecase catalog (FILES=… adds candidate files)
 ```
 
-`make build` regenerates the spec, passes the `fts vector` tags, writes `bin/any` and fetches the pinned llama.cpp release into `bin/llamacpp/` — a fetch failure there only warns, so an offline build still succeeds without the local embedder.
+`make build` regenerates the spec, passes the `llamacpp` tag, writes `bin/any` and fetches the pinned llama.cpp release into `bin/llamacpp/` — a fetch failure there only warns, so an offline build still succeeds without the local embedder.
 
 > **Note.** On Linux the local embedder's bindings need a loadable system `libffi.so.8` at startup. On NixOS run both the build and the binary through the repo's dev shell — `nix develop -c make build`, `nix develop -c bin/any run` — which puts libffi and the C++ runtime on the library path. Never hand-wire `LD_LIBRARY_PATH`.
 
-## Build tags
+## The local embedder
 
-The two search legs are independent, positive tags; a build opts each in.
+Search needs no build tag. The `llamacpp` tag adds the local llama.cpp embedder; `index.enabled` and `index.embedder` decide what runs.
 
-| Build | Tags | FTS | Vector |
-|---|---|---|---|
-| desktop / server (`make build`) | `fts vector` | on | on |
-| darwin `-sandbox` tarball | `fts vector ffi_no_embed` | on | on (full, incl. local embedder) |
-| FTS-only | `fts` | on | off |
-| plain `go build` | none | off | off |
-| mobile — `.aar` / `.xcframework` | `gomobile fts` / `mobile fts` | on | **off, forced** |
+| Build | Tags | Local embedder |
+|---|---|---|
+| desktop / server (`make build`), release tarballs | `llamacpp` | yes |
+| darwin `-sandbox` tarball | `llamacpp ffi_no_embed` | yes |
+| `go install` / `go build` | none | no |
+| mobile — `.aar` / `.xcframework` | `gomobile` / `mobile` | no |
 
-- `vector` is always off on mobile regardless of tags: the local embedder's bindings resolve a libffi symbol at package load that Android does not provide, and a runtime toggle cannot prevent a load-time crash. No embedder is constructed and no model is downloaded there.
-- `fts` works everywhere, including mobile — a few KB of binary.
+- Without the local embedder, `index.embedder: auto` embeds through the online primary alone, with no child process and no model download, and `index.embedder: local` fails at boot with an error naming the tag.
+- The tag is opt-in because the embedder's bindings load libffi at process start and crash without it. `make check-deps`, a PR check, fails if the untagged or a mobile build links them.
+- Mobile never builds it: the local-embedder files exclude `GOOS` android and ios, whatever the tags.
 - `ffi_no_embed` is a packaging flag, not a capability one: it changes where libffi comes from (the system `/usr/lib/libffi.dylib` instead of a copy extracted into the user Caches directory), which is what macOS library validation requires. Nothing is compiled out.
-
-Tags decide what is *compiled*; `index.enabled` and `index.embedder` decide what *runs*. A server built with neither leg but `index.enabled` logs a warning at startup so the empty-result state is observable.
 
 ## Release artifacts
 
@@ -49,7 +48,7 @@ One reusable workflow builds every platform on tag (release) and nightly (prerel
 `any-<version>-<os>-<arch>[-sandbox].tar.gz` for `darwin-arm64`, `darwin-x64`, `linux-x86_64`, `windows-x86_64`, plus `darwin-arm64-sandbox` and `darwin-x64-sandbox`:
 
 ```
-any[.exe]         the server, built with -tags fts,vector
+any[.exe]         the server, built with -tags llamacpp
 llamacpp/         prebuilt llama.cpp shared libs for this (os, arch)
 manifest.json     { version, os, arch, llamacpp_version, sha256: {path: hash} }
 ```
@@ -64,15 +63,15 @@ For hosts that run `any` as an App-Sandboxed or hardened-runtime helper without 
 
 | Artifact | Build | Notes |
 |---|---|---|
-| `any.aar` | `make build-android` — gomobile bind, `arm64-v8a`, tags `gomobile fts` | needs an Android NDK; version-stamped via ldflags with `VERSION= COMMIT= DATE=` passed as make variables |
-| `any.xcframework.zip` | `scripts/build-xcframework.sh` — device and simulator c-archive slices (`go build -buildmode=c-archive`), tags `mobile fts` | needs macOS with Xcode's iOS SDK; the header is `anylib.h`, the Swift module `AnyLib` |
+| `any.aar` | `make build-android` — gomobile bind, `arm64-v8a`, tag `gomobile` | needs an Android NDK; version-stamped via ldflags with `VERSION= COMMIT= DATE=` passed as make variables |
+| `any.xcframework.zip` | `scripts/build-xcframework.sh` — device and simulator c-archive slices (`go build -buildmode=c-archive`), tag `mobile` | needs macOS with Xcode's iOS SDK; the header is `anylib.h`, the Swift module `AnyLib` |
 
-Both are sha256-pinned in the release notes. On the embedded path the full-text index follows the compiled `fts` tag — it is not a host parameter — `index.embedder` is forced to `none`, and the `/ui` harness is off.
+Both are sha256-pinned in the release notes. On the embedded path the index runs full-text only — it is not a host parameter — `index.embedder` is forced to `none`, and the `/ui` harness is off.
 
 ## CI
 
 - **Build workflow** — fans out per-platform jobs (six desktop tarballs, `.aar`, `.xcframework`), the macOS smoke job, then fans in to `publish`, which creates the release and fires a `repository_dispatch` to the desktop, iOS and Android client repositories. The desktop job runs `make catalog-validate` before building, and `publish` depends on it, so a broken catalog cannot ship. The dispatch is best-effort: a failure warns but never unpublishes.
-- **PR checks** — `make test`, `go vet` over the module, `make catalog-validate`, and **swagger drift**: the OpenAPI spec is regenerated and the PR fails if the committed spec differs. The spec is a published contract (the runtime's drift check pins against it), so a handler change must come with a regenerated spec. The spec captures routes, shapes and status codes, not `error.code` strings.
+- **PR checks** — `make test`, `go vet` over the module, `make check-deps`, `make catalog-validate`, and **swagger drift**: the OpenAPI spec is regenerated and the PR fails if the committed spec differs. The spec is a published contract (the runtime's drift check pins against it), so a handler change must come with a regenerated spec. The spec captures routes, shapes and status codes, not `error.code` strings.
 - **Windows** — every release artifact is cross-compiled on Linux, so a separate workflow builds the tree and runs the server and config unit tests on a Windows runner on every push to `main` and daily before the nightly publishes.
 - **Secret** — one classic PAT with read/write across the organization, used to fetch the private SDK module in every job and to dispatch to the client repos. The built-in token can do neither.
 

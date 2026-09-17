@@ -1,10 +1,10 @@
-//go:build !vector || gomobile
+//go:build !llamacpp || android || ios
 
 package cli
 
 import "github.com/spf13/cobra"
 
-// embedderCmds registers nothing without the vector build tag: no
-// embedder is constructed in such a build, so there is no child to run
-// (see the `vector && !gomobile` variant in embed_worker.go).
+// embedderCmds registers nothing in a build without the local embedder
+// (no `llamacpp` tag, or a mobile target): there is no child to run
+// (see embed_worker.go).
 func embedderCmds() []*cobra.Command { return nil }

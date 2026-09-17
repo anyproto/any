@@ -59,7 +59,7 @@ windows-x86_64) GOOS=windows GOARCH=amd64 LLAMA=win-vulkan-x64 EXE=".exe" OS=win
     ;;
 esac
 
-LLAMACPP_VERSION="$(sed -n 's/^LLAMACPP_VERSION := //p' Makefile)"
+LLAMACPP_VERSION="$(sed -n 's/^const llamaCppRelease = "\(.*\)"$/\1/p' internal/indexer/llamacpp_release.go)"
 # The workflow passes the resolved release version (a real tag, or a
 # v<base>-nightly.<date>.<n> prerelease) so the asset name + embedded version
 # match the release; standalone runs fall back to git describe.
@@ -86,14 +86,13 @@ fi
 
 LDFLAGS="-s -w -X $PKG/internal/version.Version=$VERSION -X $PKG/internal/version.Commit=$COMMIT -X $PKG/internal/version.BuildDate=$DATE"
 
-# Both search legs are compile-time opt-in (docs/13-index.md § build tags):
-# `fts` = the BM25 full-text index, `vector` = the embedding + IVF-SQ ANN
-# leg with the embedder implementations. Both are pure Go — the llama.cpp
-# libs are loaded at runtime via purego from the llamacpp/ dir staged
-# below — so CGO_ENABLED=0 cross-builds keep working. With `vector` in,
-# the default `auto` embedder falls back to the local model, downloading
-# its GGUF (~639 MB) into the data dir on first use.
-TAGS=fts,vector
+# `llamacpp` compiles in the local embedder (docs/13-index.md § Builds and
+# the local embedder). It stays pure Go — the llama.cpp libs are loaded at
+# runtime via purego from the llamacpp/ dir staged below — so CGO_ENABLED=0
+# cross-builds keep working. With it, the default `auto` embedder falls
+# back to the local model, downloading its GGUF (~639 MB) into the data dir
+# on first use.
+TAGS=llamacpp
 
 # The sandbox variant: same legs, different libffi. Without these two flags
 # jupiterrider/ffi (reached via yzma) extracts an unsigned libffi.8.dylib into
