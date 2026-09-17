@@ -405,6 +405,6 @@ Device-local, non-CRDT collections that never sync — query, modifiers, indexes
 | POST | `/v1/local/aggregate` | `{coll, pipeline, groupLimit?, accumArrayLimit?, memoryLimitBytes?, explain?}` | `{records}` \| `{plan}` \| `{written}` | `$out` / `$merge` / `$lookup` name local collections by `storageName` only (`400 local.bad_sink_target`) |
 | POST | `/v1/local/indexes` | `{coll, ensure?: [{name?, fields, unique?, sparse?}], drop?: [name]}` | `{indexes}` | |
 
-`coll` is `{scope: "account" | "space", spaceId?, name}`, `name` matching `^[a-z0-9][a-z0-9_-]{0,63}$` (`400 local.bad_name`). An op on a local storage collection never ensured is `404 local.collection_not_found`; a space-scoped op answers `404 space.not_found` / `409 space.deleted` for its space.
+`coll` is `{scope: "account" | "space", spaceId?, name}`, `name` matching `^[a-z0-9][a-z0-9_-]{0,63}$` (`400 local.bad_name`). An op on a local storage collection never ensured is `404 local.collection_not_found`; a space-scoped write (ensure, insert, upsert, update, indexes, a pipeline's sink target) answers `404 space.not_found` / `409 space.deleted` for its space, while reads, delete, drop, list, export and import never check the space.
 
 > **Note.** Synced writes are not idempotent — each POST produces a new DAG change. The exceptions are `/upsert`, where the caller-supplied record id is the idempotency key, and the adopt-or-install routes (`…/bundles`, `/v1/catalog/:usecaseId/setup`), where a second call adopts. Pagination is offset-based on every list.

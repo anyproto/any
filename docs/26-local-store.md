@@ -191,8 +191,9 @@ POST /v1/local/import   (body = the file, exempt from the 1 MiB body cap)
 - **No space pre-flight on either side**, like every read: a gone
   space's collections must still export, and the file's spaces need
   not exist on the importing server — reads, aggregation and delete
-  work on the imported collections there; only writes that could grow
-  them (insert, upsert, update, indexes) answer `404 space.not_found`.
+  work on the imported collections there; only the pre-flighted writes
+  (ensure, insert, upsert, update, indexes, a sink target) answer `404
+  space.not_found`.
 - **One snapshot.** The export runs inside one any-store read
   transaction, so the collections are mutually consistent and every
   section's count is exact. Every name is resolved before the first
