@@ -37,9 +37,9 @@ type modelDownload struct {
 	sha    string // expected hex sha256; "" = skip verification (logged once)
 	lg     logger.CtxLogger
 	cancel context.CancelFunc
-	// finished closes when run returns; Close joins on it. The models
-	// dir outlives an engine, so the next download of the same file
-	// must not start while this one can still write the .part.
+	// finished closes when run returns; Close joins on it, so a closed
+	// download no longer writes the .part — the models dir outlives an
+	// engine and the next one resumes the same file.
 	finished chan struct{}
 	// rep reports the download onto the process view
 	// (ProcessKindModelDownload; Done/Total = bytes). Immediate gate:
