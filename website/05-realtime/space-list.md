@@ -69,10 +69,10 @@ any space subscribe --sort -createdAt --limit 100 \
   | jq 'select(.event=="changes") | .data[] | .updated[]? | {id, ownRole: .doc.ownRole}'
 ```
 
-The space list belongs to the account and syncs across its devices. It remains readable offline; joins, renames, and membership updates appear as their changes arrive.
+> **Why it matters.** There is no directory service answering "which spaces do I have". The list is CRDT data owned by the account, so every device converges on the same rows — offline joins, renames on a phone, a demotion by a co-owner — without a central lookup, and the list stays readable with no network at all.
 
 ## Space metadata is elsewhere
 
 A space's `name` / `description` / `icon` are **member-replicated**, not account-private: their source is a derived in-space `spaceIndex` object, which each device mirrors onto its own row asynchronously. To follow a space's title at the source, subscribe to that object in the space itself: take `spaceIndexObjectId` from `GET /v1/spaces/:id` and open `POST /v1/spaces/:id/objects/query/subscribe` filtered on that id. Write it with `PATCH /v1/spaces/:id`; write account-private settings with `PATCH /v1/spaces/:id/settings`. See [Spaces](../database/spaces.html).
 
-The frame set and `closed` reasons match other query subscriptions. After closure, EOF, or HTTP 401, check `GET /v1/auth` against the expected account before reopening. Stop and clear the list if the account changed or signed out; otherwise replace it with the new snapshot. See [Subscribe](subscribe.html#closing-and-recovery).
+> **Note.** The frame set and `closed` reasons are identical to every other windowed subscribe. Recover from `overflow` / `drifted` / `server_shutdown` / `sdk_closed` / `deauthorized` the same way: reopen the POST and take the fresh snapshot — after `GET /v1/auth` confirms the account you expect; a switched or signed-out account means clear the list and stop ([Subscribe](subscribe.html#closing-and-recovery)).

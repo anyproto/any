@@ -5,16 +5,7 @@ order: 5
 ---
 # Data model
 
-A page, person, or task is an **object**. Every object has exactly one **type**, which defines its properties, layout, and content. It can also belong to any number of **collections**, each adding another group of properties.
-
-An object has two places to store data:
-
-| Data | Where it lives | Example |
-|---|---|---|
-| Properties that describe the object | its row in the space-wide `objects` storage collection | name, status, due date |
-| Records that belong to the object | a per-object dataset | document blocks, chat messages, imported rows |
-
-A **dataset** is a named set of records with a schema. We call the underlying record store a **storage collection** to distinguish it from a collection that groups objects. On the API, the dataset name is the `dataset` field in query and write requests.
+An object is one **type** (what it is), any number of **collections** (what it is filed under) and any number of **datasets** it owns: one row in the space-wide `objects` storage collection for its property values, plus its own record storage collections (`chat_messages`, `editor_blocks`, your own runtime datasets…). Each dataset has its own schema, its own write path and the same read path. A *storage collection* is the place records live — the `dataset` field on a read or write — not something an object is filed under.
 
 ## One picture
 
@@ -32,19 +23,17 @@ Space
           └─ payloads              ← files attached to this object (on a derived child object)
 ```
 
-Use these rules when choosing where data belongs:
+Three consequences fall out of this shape:
 
-- **The type determines content and layout.** A part is a display unit, such as a document body or a table, backed by one or more datasets. Setting another type replaces the type; there is no inheritance.
-- **Collections add property groups.** A movie filed under the wiki keeps its movie type. Its row contains the universal `any` group, the movie properties, and the wiki properties. A collection adds no layout or dataset.
+- **One type, no contest.** The object renders with its type's layout and holds that type's parts — display units such as a document body or a table, each backed by datasets. Setting a type replaces the previous one; there is no inheritance and no primary-type rule to resolve.
+- **Collections stack.** Filing an object under a collection adds that collection's property group and nothing else. A movie in the wiki is one object with one type and one collection, carrying three property namespaces — `any`, the movie's and the wiki's.
 - **Datasets are per object.** A document's blocks are records *on that object*, not rows in a space-wide blocks table. The space-wide storage collection is `objects` only — the row per object that holds property values and the system stamps.
 
-Each object has its own history of changes. The sync engine merges concurrent changes using CRDT rules: every peer applying the same changes reaches the same result. The space supplies encryption and access control.
+> **Why it matters.** In a hosted document database you model "a document with comments" as two tables joined by a foreign key, and the server owns both. Here the object *is* the unit of sync and access: its datasets travel with it, merge as CRDTs with it, and are encrypted with the space it belongs to. There is nothing to join across.
 
 ## The `objects` storage collection
 
-Every regular object has one row whose `id` is the object ID. A property value lives at `<ownerId>.<propId>`: the owner's ID selects the type or collection, and `propId` selects its column.
-
-Resolve human-facing handles (`xKey`) through the definition APIs before querying or writing. Display names and handles are not storage keys. Renaming a property changes its definition; existing values stay at the same ID.
+Every regular object has exactly one row here, `id` = the object id. Values sit at `{ownerId}.{propId}`, where the owner is the object's type or one of its collections; the human property name lives only on the definition, so renaming a property never touches stored values. An `xKey` is a handle you resolve to a `propId` through the definition APIs — never a storage key.
 
 ```json
 {
@@ -72,9 +61,7 @@ A dataset is a Mongo-like record storage collection scoped to one object. Where 
 | `payloads` | files, on a derived child of the object | the SDK | `POST …/objects/:o/files`; rows read through `POST …/objects/:o/files/query` — [Files](../files/index.html) |
 | `<typeId>_<key>` | a runtime dataset declared under a part of a user type (the `records` module) | you, via the declaration | generic `POST …/modify` and `POST …/upsert` — [Runtime datasets](runtime-datasets.html) |
 
-**Content datasets come from the type.** Collections cannot declare them. Writes require the object's current type to own the dataset; otherwise they fail with `400 dataset.not_declared`. Retyping preserves old records as orphan data but does not keep their write access. Files use their separate payload child.
-
-In this example, `$SPACE` is an existing writable space, `$MOVIE` is a type whose parts declare the reviews dataset, and `$WIKI` is the wiki collection ID from [catalog setup](objects.html#the-wiki-tree). Set both memberships deliberately at create:
+**Datasets come from the type, never from a collection.** A storage collection lives on an object only while its type declares the part that owns it (`400 dataset.not_declared` otherwise — no write sets a type); retyping leaves the old records as orphan data with no write path. So pick the type at create — `$MOVIE` is a type whose part declares the reviews dataset, `$WIKI` the wiki collection from [catalog setup](objects.html#the-wiki-tree):
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
@@ -82,11 +69,11 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
   -d '{"type": "'$MOVIE'", "collections": ["'$WIKI'"], "initialProperties": {"any": {"name": "Heat"}}}'
 ```
 
-The movie and wiki properties share the object's row. Reviews live in the movie's per-object dataset, with their own records, ordering, and write rules. A type whose part declares a reserved module (the general chat) is carried only by its own root: naming it as `type` is `400 type.reserved_carrier`.
+That single object renders with the movie layout, carries the movie's properties and the wiki collection's columns, and holds the movie's reviews — and each concern is a separate storage collection with separate ordering, indexes and handlers. A type whose part declares a reserved module (the general chat) is carried only by its own root: naming it as `type` is `400 type.reserved_carrier`.
 
 ## One read path for every dataset
 
-Use IDs from the setup above. `$CHAT` is the [general chat root](../types/chat.html#finding-the-chat-object); `$OBJ` is the movie object ID and `$MOVIE` its declaring type ID. The server must be running with read access to `$SPACE`.
+`$CHAT` is the [general chat root](../types/chat.html#finding-the-chat-object); `$OBJ` is the movie above and `$MOVIE` its type.
 
 Whatever produced a dataset, it is read the same way: the per-object query with a `dataset` name, and its `/subscribe` twin for liveness. File rows are the one exception — they sit on a derived child whose id clients never see, so they have their own `…/files/query`.
 
@@ -134,7 +121,7 @@ The `x-scope` keyword says who writes a field and how far it travels:
 | `local` | this device, through the local-scope `modify` route; never enters the DAG | nowhere |
 | `account` | this account, through the private tech space | this account's other devices only |
 
-`additionalProperties: true` marks a dynamic dataset: undeclared keys are allowed and default to `synced`. Runtime datasets add behavioral keywords on top — `required`, `x-mutable-by`, `x-stamp`, `x-delete-by`, `x-id`, `x-search` — described in [Runtime datasets](runtime-datasets.html). `owners` on an entry lists the types whose parts declare the storage collection. Writes and search indexing require one of those types, or the definition root itself, which can host its own records; `module` names the serving module (`records`, `editor`, `chat`) and `shared` marks a module's canonical storage collection. The SDK's own datasets (`objects`) carry no owners.
+`additionalProperties: true` marks a dynamic dataset: undeclared keys are allowed and default to `synced`. Runtime datasets add behavioral keywords on top — `required`, `x-mutable-by`, `x-stamp`, `x-delete-by`, `x-id`, `x-search` — described in [Runtime datasets](runtime-datasets.html). `owners` on an entry lists the types whose parts declare the storage collection — records exist only on objects of one of those types, or on the definition root itself, which hosts its own records; that is also what the search indexer keys eviction on; `module` names the serving module (`records`, `editor`, `chat`) and `shared` marks a module's canonical storage collection. The SDK's own datasets (`objects`) carry no owners.
 
 Account-wide, `GET /v1/datasets` lists the tech-space system datasets (`spaces`, `profile`, `devices`, …); `spaces` and `profile` are the two the [space list](../realtime/space-list.html) query reads.
 

@@ -1,13 +1,11 @@
 ---
 title: anyrt
-description: Run the anybao agent runtime next to your any server — write anybao.toml, seed an LLM key, start anyrt serve, and schedule your first program with a trigger record.
+description: Run the anybao agent runtime next to your `any` server — write anybao.toml, seed an LLM key, start anyrt serve, and schedule your first program with a trigger record.
 order: 80
 ---
 # anyrt
 
-Run a program or agent beside the Any server. `anyrt` executes Python in a WebAssembly sandbox; `anyrt serve` watches chat and runs scheduled triggers. This page uses a separate runtime process. A desktop host can embed the runtime in-process.
-
-Complete the [HTTP quickstart](curl.html) first. Any remains the local data server. An agent's language-model provider is a separate choice from the server's search embedder; selecting local embeddings does not make agent model calls local.
+`anyrt` is the runtime that executes Python programs inside a wasm cage against your `any` server, and `anyrt serve` is the agent built on it: it watches a chat, answers, and runs scheduled triggers. This page gets one running standalone; the desktop app embeds the same runtime in-process. The agent's LLM provider (step 2) is a separate setting from the server's `index.embedder`: local embeddings do not make model calls local.
 
 ## Prerequisites
 
@@ -23,7 +21,7 @@ make runtime                # → runtime/target/release/anyrt
 export PATH="$PWD/runtime/target/release:$PATH"
 ```
 
-The kernel is compiled into the binary. Keep the shell in this checkout for the file examples below, and keep `runtime/target/release` on PATH when opening another terminal. Use a runtime revision compatible with your Any server; their preview contracts evolve together.
+The kernel is compiled into the binary; `anyrt` is one artifact. The file paths below are relative to this checkout, and a new terminal needs the `PATH` line again.
 
 ## 1. anybao.toml
 

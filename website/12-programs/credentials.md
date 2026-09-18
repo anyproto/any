@@ -5,9 +5,9 @@ order: 50
 ---
 # Credentials
 
-A program calls an authenticated API by naming a **credential reference**. The host resolves that reference and adds the secret header after recording the request. The program can use a configured credential without placing its value in source code or a model prompt.
+Guest code names a credential; the host resolves it. A program passes `credential: {ref, header, prefix?, about?}` on an HTTP call, the broker records the request, *then* reads the secret and sets the header. Key bytes never enter guest memory, the trace, or the model context.
 
-First configure the provider using [Connectors](../agents/connectors.html) or the [runtime quickstart](../quickstart/anyrt.html). Then use the injection pattern below. The credential descriptor is `credential: {ref, header, prefix?, about?}`; the secret itself belongs in the host-managed store.
+The secret itself is seeded host-side — through [Connectors](../agents/connectors.html) or the [runtime quickstart](../quickstart/anyrt.html) — before any program names it.
 
 ## Injection
 
@@ -58,7 +58,7 @@ On every `anyrt serve` start each ref in the file is written through: missing �
 
 The runtime refuses guest HTTP requests whose body names the secrets collection (any collection ending `_agent_secrets`, in any space) or that reference the secrets object, with a `forbidden` effect failure raised *before* execution — the refusal is the recorded fact. `config.get` refuses the `llm.key.*`, `connector.key.*` and `connector.oauth.*` namespaces wholesale.
 
-The read guard separates credential use from credential retrieval. An agent-authored program can request an existing reference; the host supplies its value to the destination. The destination service receives that credential as part of the authenticated request.
+> **Why it matters.** With hosted functions, a leaked environment variable is a leaked key. Here the guest has no channel through which a key could pass: not memory, not the log, not the config API. An agent-authored program may *use* an existing ref but cannot mint or read one.
 
 ## OAuth: consent as an effect that returns no tokens
 

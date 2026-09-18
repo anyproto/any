@@ -5,9 +5,9 @@ order: 30
 ---
 # Event triggers
 
-Use an `event` trigger to run a program when a new message arrives in a chat. This trigger supports `chat_messages`; it is not a general subscription to arbitrary datasets. It receives live arrivals while the owning runtime is watching, without replaying messages missed during downtime.
+An `event` trigger runs a program each time a new message lands in a chat. The owning device keeps one live subscription per watched chat next to its ticker, and every fire is a normal program run with a summary, a trace and the circuit breaker. The same mechanism carries the agent's own chat responder, so "which device answers" is a record you can read, pause and repin.
 
-Complete [Scheduling setup](index.html#before-you-write-a-trigger) before writing the record below. Each fire produces a run summary and trace, and failures count toward the circuit breaker. The agent's own chat responder is a special record described later on this page.
+The source is `chat_messages` only — not a general subscription over arbitrary datasets — and it is live arrivals only: messages that landed while the owner was down are not replayed. `$ANCHOR` and `$TRIGGERS` come from [Scheduling](index.html#before-you-write-a-trigger).
 
 ## Spec
 

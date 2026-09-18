@@ -1,52 +1,60 @@
 ---
 title: Quickstart
-description: Start the local Any server, create a page, and watch it change. Then choose a client or embed the server in your app.
+description: Install `any`, create an account, run the server, and make your first space, object, query, and live subscription — from curl, the CLI, JavaScript, Python, Android, iOS, or the anyrt runtime.
 order: 0
 ---
 # Quickstart
 
-Create a page, read it back, and watch a rename arrive over a live subscription. Start with **[Install](install.html)**, then **[Your first page with curl](curl.html)**. You need a terminal, `curl`, and `jq`.
-
-Any is in developer preview. Use an account and data directory for experiments; APIs and data formats can change. The release license is still TBD.
+Five minutes from nothing to a live subscription. Every path below drives the same local HTTP server; pick the client you will actually use.
 
 ## The shape of every quickstart
 
-Your client talks to the Any HTTP server on the same device. The server owns the data, handles writes, and syncs with other devices when they are reachable.
+```
+any init  ──▶  any run  ──▶  POST /v1/spaces  ──▶  POST …/objects  ──▶  POST …/objects/query  ──▶  POST …/objects/query/subscribe
+ (account)     (server)      (a space)             (an object)          (a snapshot)               (snapshot + live deltas)
+```
 
-| Step | What you get |
-|------|--------------|
-| `any init` | An account and a recovery phrase. |
-| `any run` | A server listening on `127.0.0.1:7001`. |
-| Create a space | A place to keep and share objects. |
-| Create a `page` | A named object with a document body. |
-| Query | The matching records now. |
-| Subscribe | An initial snapshot, then changes to that result window. |
+1. **Install** the binary and create an account. The mnemonic prints once — back it up.
+2. **Run** the server: `any run` listens on `http://127.0.0.1:7001`.
+3. **Create a space** — the unit of sharing and encryption.
+4. **Create an object** with its type and a name.
+5. **Query** the space's `objects` storage collection — an indexed read on your disk.
+6. **Subscribe** — the same query, plus `added` / `updated` / `removed` frames over SSE for as long as the connection is open.
 
-A type says what an object **is**. Every object has exactly one. Collections are optional groups you file it under. The first example needs only the built-in `page` type; the [tutorial](../tutorial/index.html) adds your own properties and datasets later.
+Everything you write is on your machine the moment the request returns; sync to other devices and members happens in the background ([Local-first](../understanding/local-first.html)).
 
 ## Before you start
 
-[Install](install.html) sets up a dedicated data directory and explicitly selects local embeddings. Keep its server running while following a client page.
+```bash
+any init                     # prints the mnemonic to stderr — save it
+any run                      # foreground; leave it running in this terminal
+any status                   # in another terminal: {"status":"ok", …}
+```
 
-Local HTTP, sync, and model calls are separate choices. The default sync network is production; [Networks](networks.html) shows how to choose a separate network before starting. Local embeddings compute search vectors on your device. An agent can still call whichever language-model provider you configure.
+> **Note.** A binary with no network configured joins the **production** any-sync network. To experiment without touching it, point `ANY_NETWORK_NODECONF_PATH` at a staging or local nodeconf first — see [Networks](networks.html).
 
 ## Pick a client
 
+| Page | You get |
+|------|---------|
+| [Install](install.html) | Release tarballs, building from source, first-run account creation. |
+| [curl](curl.html) | The four calls with raw JSON, including reading an SSE stream with `curl -N`. |
+| [CLI](cli.html) | The same flow with `any …` subcommands and `jq`. |
+| [JavaScript](javascript.html) | `fetch` + a streaming reader for the POST-based SSE. |
+| [Python](python.html) | `urllib` / `http.client`, no third-party packages. |
+| [Android](android.html) | Embedding the server as `any.aar` in an app process. |
+| [iOS](ios.html) | Embedding as `any.xcframework`. |
+| [anyrt](anyrt.html) | `anybao.toml`, `anyrt serve`, and a first trigger record. |
+| [Networks](networks.html) | Production vs staging vs local nodeconf, and the placeholder that joins nothing. |
+
 <div class="cards">
-<a href="install.html"><strong>1. Install</strong><span>Get the binary, create an account, and start the server.</span></a>
-<a href="curl.html"><strong>2. Create your first page</strong><span>Create, read, and watch a change using raw HTTP.</span></a>
-<a href="javascript.html"><strong>JavaScript</strong><span>A complete fetch client with a live, ordered result window.</span></a>
-<a href="python.html"><strong>Python</strong><span>A runnable standard-library client.</span></a>
-<a href="cli.html"><strong>CLI</strong><span>Use the any command for everyday operations.</span></a>
-<a href="anyrt.html"><strong>Programs and agents</strong><span>Run anyrt beside the server and schedule a program.</span></a>
+<a href="install.html"><strong>Install</strong><span>Get the binary and create an account.</span></a>
+<a href="curl.html"><strong>curl</strong><span>Space → object → query → subscribe with raw HTTP.</span></a>
+<a href="cli.html"><strong>CLI</strong><span>The same flow with the `any` command.</span></a>
+<a href="javascript.html"><strong>JavaScript</strong><span>fetch, ReadableStream, and SSE frames.</span></a>
+<a href="python.html"><strong>Python</strong><span>Standard library only.</span></a>
+<a href="android.html"><strong>Android</strong><span>Embed the server with any.aar.</span></a>
+<a href="ios.html"><strong>iOS</strong><span>Embed the server with any.xcframework.</span></a>
+<a href="anyrt.html"><strong>anyrt</strong><span>Run the agent runtime and schedule a program.</span></a>
+<a href="networks.html"><strong>Networks</strong><span>Which any-sync network you are talking to.</span></a>
 </div>
-
-## Embed the server
-
-The HTTP contract stays the same when the server runs inside your application.
-
-- [Android](android.html): add `any.aar`, start it, and use its bound address.
-- [iOS](ios.html): add `any.xcframework` and call it from Swift.
-- [Networks](networks.html): choose sync peers and isolate experiments.
-
-Next: **[Install](install.html)**. Already running? Go directly to **[curl](curl.html)**.

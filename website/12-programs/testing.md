@@ -5,9 +5,9 @@ order: 60
 ---
 # Testing
 
-Test a program by controlling the responses to its effects. The anybao test harness loads the guest kernel and replaces the host-call boundary, letting a test provide database or HTTP results without calling live services. It also exercises the guest builtins, import allowlist, spans, and module loading.
+Because a program touches the world only through effects, testing it means faking one function. The kernel-fidelity harness imports the **real** guest kernel host-side and stubs the single host call, so tests exercise the actual curated builtins, import allowlist, span machinery and `use()` loading — not plain CPython.
 
-These examples are for a development checkout of anybao with its test dependencies installed. Use [Writing a program](writing-a-program.html) for source conventions and [Traces and replay](traces-and-replay.html) to investigate an existing run.
+The examples assume a development checkout of anybao with its test dependencies installed.
 
 ## The harness
 

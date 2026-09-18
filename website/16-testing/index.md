@@ -5,9 +5,9 @@ order: 0
 ---
 # Testing
 
-Test the database server and the companion runtime with the tools appropriate to each. Server tests cover API behavior and convergence between replicas. Runtime tests use recorded or mocked effects to make program execution repeatable.
+Two codebases, two doctrines that fit their subject. The `any` server is tested by running the **real binary against a real network** — unit tests for the parts, then end-to-end suites that boot one or two servers and drive every endpoint over HTTP. The anybao runtime is tested around one property: **everything nondeterministic is an effect**, so a recorded trace replays the whole system deterministically, and every test layer exists to keep that cheap to assert.
 
-The commands under **Any** run in this repository. The commands under **anybao / anyrt** run in the companion runtime repository. Integration tests require an explicitly configured test environment; they may skip when that environment is missing.
+The `any` commands run in the server repository, the anybao / `anyrt` ones in the runtime repository. The server's e2e suites skip silently without a test nodeconf — a green run without one proves little.
 
 ## Testing against any
 

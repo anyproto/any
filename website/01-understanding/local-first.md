@@ -1,19 +1,17 @@
 ---
 title: Local-first
-description: Read and write local data, observe background sync, and understand which operations need a network connection.
+description: Every device holds the whole database; writes commit locally, sync happens when a peer is reachable, and convergence is guaranteed by the data model rather than by a server — plus which operations still need a network.
 order: 10
 ---
 # Local-first
 
-Any reads and writes database state on the device running the server. Sync exchanges changes in the background, so an application can keep working with its local data while disconnected.
+In `any`, "offline" is not a degraded mode — it is the normal one. Every read and write is served from the database on your disk. Sync is the background process that carries your changes to other devices and members, and theirs to you.
 
-A successful local write means this device has recorded the change. It does not mean other devices have received it or that a backup node holds it.
+A successful write means *this device* has appended the change. It does not mean another device has received it, or that a sync node holds a copy — `/sync-status` below is how you learn that.
 
 ## What "local" means here
 
-The `any` server process owns an any-store database under the account's data dir (`<data-dir>/<accountId>/sdk/`). Queries run against that local database. An ordinary data write validates the operation, appends a change to the object’s history, applies its CRDT operations to local records, and returns. Propagating that change is a separate step.
-
-The following example assumes the server is running and `$SPACE` names a space already available on this device. Use the [quickstart](../quickstart/curl.html) to create one.
+The `any` server process owns an any-store database under the account's data dir (`<data-dir>/<accountId>/sdk/`). A query is an indexed read against that file. A write validates, appends a change to the object's DAG, applies the CRDT ops to the rows, and returns — all before any network I/O.
 
 ```bash
 # works with the network cable unplugged
@@ -42,11 +40,11 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/sync        # → 204 when t
 any space sync $SPACE
 ```
 
-Convergence follows from the CRDT: once two peers have applied the same set of changes, in any order, they hold identical rows ([CRDTs and consistency](crdt-and-consistency.html)). Your application does not need to manually reconcile replicas. It still needs to understand the merge rules: deterministic convergence does not enforce every business invariant or preserve both competing values for the same field.
+Convergence follows from the CRDT: once two peers have applied the same set of changes, in any order, they hold identical rows ([CRDTs and consistency](crdt-and-consistency.html)). There is no reconciliation step, no conflict dialog, no server copy that wins. The merge is per-path last-writer-wins on DAG order, not a transaction: it does not enforce an invariant across fields, and two concurrent writes to the same field keep one value.
 
 ## Observing sync state
 
-Read the space’s current sync state:
+Sync state is a first-class read, cheap enough to poll on a render tick:
 
 ```bash
 curl http://127.0.0.1:7001/v1/spaces/$SPACE/sync-status
@@ -75,24 +73,26 @@ Per-object state lives at `…/sync-status/objects/:objectId`, and both levels s
 
 When the server starts, it binds the listener first and runs the space loading + offline catch-up on a background pass. `GET /v1/health` reports `"bootstrapping": true` while that pass runs; reads against a space that has not had its turn yet serve the pre-offline state. Per-space convergence is what `/sync-status` reports, not the health flag.
 
+> **Why it matters.** A hosted backend answers a query with the truth as the server sees it, and returns an error when it cannot. any answers with the truth as *this device* sees it, always. That is the property that makes an app usable on a plane, a phone in a tunnel, or a laptop whose owner simply never turned sync on — and it is why the API never asks you to handle a "not connected" error on a read or write.
+
 ## What still needs a network
 
 | Operation | Offline behavior |
 |---|---|
-| Query or edit data already on this device | Uses local state; writes can sync later. |
-| Receive changes from another device | Needs a reachable peer. |
-| Read a file whose bytes are cached locally | Works locally. |
-| Read an uncached file | Needs a peer or backup service that can supply its bytes. |
-| Search with local embeddings | Works locally once the model and libraries are available. |
-| Call an external model or connector | Depends on the configured service and connection. |
+| Query or edit data already on this device | Local state; the write syncs later. |
+| Receive changes from another device | Needs a reachable peer: LAN p2p or a sync node. |
+| Read a file whose bytes are cached locally | Local. |
+| Read an uncached file | Needs a peer or a file node that holds the bytes ([Files](../files/index.html)). |
+| Search with `index.embedder: local` | Local once the model and llama.cpp libraries are present. |
+| Call an external model or connector from a program | Needs that service; the effect is recorded either way. |
 
-A newly joined space may still be loading. The account’s space list and the materialized content of that space are separate states; see [space lifecycle](../database/spaces.html).
+A newly joined space may still be loading: the account's space list and the materialized content of that space are separate states ([space lifecycle](../database/spaces.html)).
 
-## Data with a narrower sync scope
+## What does not sync
 
 - **Local-scope fields** — dataset fields declared `local` (chat's `unread` flags, for example) are device-only; they never enter the DAG ([System fields](../database/system-fields.html)).
-- **Account-scope settings** — per-space `settings` sync across the account’s own devices through the tech space, rather than to other members.
+- **Account-scope settings** — per-space `settings` sync across the account's own devices through the tech space, never to other members.
 - **The search index** — derived state, rebuilt locally from the change feed ([Indexing](../search/indexing.html)).
-- **Run traces** kept by anyrt — trace bodies live in the server's device-local store; only a per-run summary syncs ([Traces and replay](../programs/traces-and-replay.html)).
+- **Run traces** kept by `anyrt` — trace bodies live in the server's device-local store; only a per-run summary syncs ([Traces and replay](../programs/traces-and-replay.html)).
 
 > **Note.** Timestamps such as `modifiedAt` are the *author's* clock. They converge (every peer ends up with the same value), but they are display and sort quality only — never use them as a fence for "has this synced yet". Use `/sync-status` for that.

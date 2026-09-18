@@ -5,7 +5,7 @@ order: 0
 ---
 # Notifications
 
-Choose between two mechanisms, depending on whether you need to notify a person or show progress for running work. Mobile push delivers chat messages to a phone even when the app — and the server inside it — is not running, without the push infrastructure ever seeing plaintext. The process helper reports long-running work (agent runs, index passes, imports) as live progress that any device of the account, or any member of a space, can watch and cancel.
+Two mechanisms cover "something happened that the user should notice". Mobile push delivers chat messages to a phone even when the app — and the server inside it — is not running, without the push infrastructure ever seeing plaintext. The process helper reports long-running work (agent runs, index passes, imports) as live progress that any device of the account, or any member of a space, can watch and cancel.
 
 ## Push: the sender encrypts, the receiver decrypts
 
@@ -20,7 +20,7 @@ sender's any ──encrypt+sign──▶ push node ──ciphertext──▶ FCM
 
 any owns the account policy — which topics to hold, when to re-sync subscriptions, the chat hooks that fire on send / mention / read — and delivers the key material clients must cache. Who gets notified is a two-level `notifyMode` setting (`all` / `mentions` / `none`) per space and per chat, private to the account.
 
-Push payloads stay encrypted through the push infrastructure. The receiving device needs the cached space key to decrypt them. This is separate from agent model calls or connector requests, which may send readable content to the configured provider.
+> **Why it matters.** Push is the one path where data leaves the device for a server you do not run. Keeping the payload encrypted under a key only space members can derive means the push provider learns that *something* arrived for a topic — never who wrote what to whom.
 
 ## Processes: progress over the event bus
 

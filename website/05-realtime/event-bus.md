@@ -38,7 +38,7 @@ Not everything belongs in the database. A "open this document" directive, a prog
 
 Network scopes ride any-sync's ephemeral pub/sub: read-key-encrypted, per-message signed, relayed through the responsible sync nodes and directly between LAN peers. `sender.identity` is taken from the message signature — a payload's claims about its sender are discarded, so presence-style signals cannot be spoofed. Members who are offline simply miss the event.
 
-Account and space events are encrypted under the corresponding space read key and signed by the account key. Relays forward ciphertext; local-network peers can exchange events without an online relay.
+> **Why it matters.** Account and space events are encrypted with the same space read key as the data and signed by the account key, so a relay node forwards ciphertext it cannot read. Cross-device signalling works without a broker that sees your traffic, and within a LAN it works with no server at all.
 
 ## Publish
 
@@ -80,7 +80,7 @@ Filters are repeatable query parameters — **AND across dimensions, OR within o
 | `type` | exact (`process.progress`) or prefix with a trailing `.*` (`process.*` matches `process` and everything under it) |
 | `target` | exact |
 
-The GET stream supports browser `EventSource`. This view fragment assumes the account has already been checked. Close on `closed` or `error` to prevent an automatic reconnect under another account; your lifecycle controller should check `GET /v1/auth` before creating a replacement stream ([Realtime](index.html)).
+The stream is `GET`, so a browser can mount a plain `EventSource`. Close it on `closed` and on `error`: an `EventSource` reconnects by itself, possibly under another account — re-read `GET /v1/auth` before opening a replacement ([Realtime](index.html)):
 
 ```js
 const es = new EventSource("http://127.0.0.1:7001/v1/events/subscribe?scope=device&type=ui.*");
@@ -114,7 +114,7 @@ event: closed
 data: {"reason":"overflow"}
 ```
 
-`ready` is emitted once on connect and **no snapshot follows** — there is nothing to snapshot. `closed` reasons are `overflow` (the subscriber's 16-deep buffer filled and it was dropped), `server_shutdown` and `deauthorized`. A stream can also end without a terminal frame. Check the expected account before reconnecting; a new stream has no replay of missed events. Reason strings are shared with every other stream.
+`ready` is emitted once on connect and **no snapshot follows** — there is nothing to snapshot. `closed` reasons are `overflow` (the subscriber's 16-deep buffer filled and it was dropped), `server_shutdown` and `deauthorized`: reconnect for a fresh stream, after checking the account — a stream can also end with no terminal frame, and nothing missed in between is replayed. Reason strings are shared with every other stream.
 
 Two extra rules for network scopes:
 
@@ -123,7 +123,7 @@ Two extra rules for network scopes:
 
 ## At-most-once, by design
 
-The bus has no snapshot or replay. An event published while nobody listens is dropped; reconnecting does not recover it. Make payloads idempotent or last-write-wins, and never use the bus to *know* something — query the database for state, use events to learn that it changed. The [process helper](../notifications/processes.html) shows the pattern: every progress frame carries the full descriptor, so a late joiner needs no history.
+A persisted event log would replay its history to every reconnecting subscriber — an hour-old "open document" firing on launch, a backlog of progress ticks re-rendering. The bus has no snapshot, no replay, no retry: an event fired while nobody listens is dropped. Make payloads idempotent or last-write-wins, and never use the bus to *know* something — query the database for state, use events to learn that it changed. The [process helper](../notifications/processes.html) shows the pattern: every progress frame carries the full descriptor, so a late joiner needs no history.
 
 ## Event types in use
 

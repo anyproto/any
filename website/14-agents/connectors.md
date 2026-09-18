@@ -5,9 +5,7 @@ order: 50
 ---
 # Connectors
 
-A connector is a program that calls an external service through its API. The supplied connectors are published in the `connectors` overlay; programs in your harness can use the same HTTP and credential interfaces.
-
-Before calling one, join its program repo and configure the service credential. Requests name a **credential reference** and the host injects the secret header after recording the request. The external service receives the API request; it must be reachable for the call to succeed. See [Credentials](../programs/credentials.html) for injection and OAuth.
+A connector is a tool program in the `connectors` overlay space that wraps one external API. The API key never enters guest code: every request names a **credential ref**, and the runtime injects the header after the request is recorded, so the key is absent from the trace and the model context. Your own programs get the same HTTP and credential surface ([Credentials](../programs/credentials.html) covers injection and OAuth).
 
 ## The connectors
 

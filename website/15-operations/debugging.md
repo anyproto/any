@@ -1,11 +1,11 @@
 ---
-title: Troubleshooting
-description: Diagnose server startup, missing data, rejected writes, search delays, and agent jobs using the right status surface.
+title: Debugging
+description: Where to look when something is off — health, sync status, the debug snapshots, the process view, logs, and how to read an error response.
 order: 70
 ---
-# Troubleshooting
+# Debugging
 
-Start with the status surface closest to the symptom. Health describes the server, sync status describes replicated data, search processes describe indexing, and agent run records describe program execution.
+Most problems are one of four things: the server is not up or not authorized, a space has not converged yet, the index has not caught up, or a request was malformed. Each has a dedicated read.
 
 | Symptom | First check |
 |---|---|
@@ -13,9 +13,9 @@ Start with the status surface closest to the symptom. Health describes the serve
 | a device cannot see a recent change | [Space sync status](#has-this-space-converged) |
 | an object exists but does not appear in search | [Index progress](#is-search-behind) |
 | an object or dataset write is rejected | [Error codes](#reading-an-error) |
-| a scheduled program did not run | [Agent run summaries and trigger state](../scheduling/runs-and-monitoring.html) |
+| a scheduled program did not run | [Runs and monitoring](../scheduling/runs-and-monitoring.html) — trigger state and `agent_runs` |
 
-The commands assume an installed CLI and a local server. Set `$SPACE`, `$OBJECT`, and `$CHAT` to IDs from your application before using the examples that need them. Use `--addr` when the server is on a different loopback port.
+`$SPACE`, `$OBJECT` and `$CHAT` below are ids from your own space; `--addr` points the CLI at a server on another loopback port.
 
 ## Is the server up and authorized?
 
@@ -95,7 +95,7 @@ any process list                       # GET /v1/processes
 
 ## Reading an error
 
-Every non-2xx response from the Any server has one shape:
+Every non-2xx response has one shape:
 
 ```json
 { "error": { "code": "space.not_found", "message": "space spc_xyz not found",
@@ -121,7 +121,7 @@ Every non-2xx response from the Any server has one shape:
 
 The full namespace is in the [error reference](../reference/errors.html). CLI exit codes: `0` success, `1` user error or 4xx, `2` 5xx, `3` cannot reach the server.
 
-For a custom type or dataset, also check [Types and properties](../database/types-and-properties.html) and [Runtime datasets](../database/runtime-datasets.html). Writing values does not assign a type or add collection membership as a side effect.
+No write sets a type or files a collection as a side effect — a value or dataset write is admitted only while the object's type or one of its collections declares it ([Types and properties](../database/types-and-properties.html), [Runtime datasets](../database/runtime-datasets.html)).
 
 ## Logs
 

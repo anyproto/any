@@ -1,11 +1,11 @@
 ---
 title: Programs and effects
-description: anybao in one page — Python programs stored in your space, executed by anyrt inside a WebAssembly sandbox, touching the world only through a recorded effect boundary, replayable bit-exact, scheduled by trigger records.
+description: anybao in one page — Python programs stored in your space, executed by anyrt inside a wasm cage, touching the world only through a recorded effect boundary, replayable bit-exact, scheduled by trigger records.
 order: 70
 ---
 # Programs and effects
 
-anybao is the agent, **anyrt** is its runtime. Programs are Python modules stored in a space; anyrt runs them in a componentized CPython guest inside WebAssembly. Operations that interact with the host use *effects*: a defined set of host functions whose results are recorded for inspection and replay.
+anybao is the agent, **anyrt** is its runtime. Programs are Python modules stored in a space; anyrt runs them in a componentized CPython guest inside wasm, and the only way out of the cage is a small set of host-provided *effects* that are recorded as they happen. That one rule gives you confinement and bit-exact replay from the same mechanism.
 
 ## Programs live in spaces
 
@@ -28,8 +28,6 @@ anyrt run hello@v1 --from-space bao --args '{"space":"bao","chatId":"…","name"
 `use("name@vN")` is the import: unqualified it resolves in the current space, `alias:name@vN` in the overlay behind the alias. Resolution is itself recorded, so the trace of a run names the exact versions that ran ([Modules and overlays](../programs/modules-and-overlays.html)).
 
 ## The effect boundary
-
-An effect is an operation the runtime performs for a program, such as reading data, requesting a model response, or checking the time. It makes external inputs and side effects explicit.
 
 The cell namespace is deny-by-default: curated pure builtins, an allowlist of pure stdlib (`json`, `re`, `math`, `datetime` arithmetic, …), and **shims** for everything that carries ambient authority. `now()`, `uuid4()`, `env(...)`, `http.get(...)`, `datetime.now()`, `time.sleep()` are effects (`rand()` draws from a per-run seeded stream); `open`, `socket`, `eval`, raw `__import__` do not exist. Every effect call flows through one pipeline on the host:
 
@@ -65,7 +63,7 @@ Because the trigger is a synced record, the agent creates reminders by writing o
 
 `anyrt serve` watches a chat, runs conversations through an LLM adapter that is itself guest code, keeps memory and history as datasets in the space, and exposes tools to the model that are ordinary programs. Sub-agents, connectors (Gmail, Linear, GitHub), and progress reporting are all programs running inside the same boundary ([Agents](../agents/index.html)).
 
-The runtime executes locally, but an effect can call an external service. The program’s capabilities and provider configuration determine which calls are allowed and where content goes. Local execution does not make a remote model call local.
+> **Why it matters.** A hosted agent platform runs your automations on its machines, with your credentials, against a copy of your data. anyrt runs them on your device, inside a cage that cannot reach the network or the clock except through a logged door, against the encrypted data that is already there — and hands you a replayable trace for every run.
 
 ## Where to go next
 

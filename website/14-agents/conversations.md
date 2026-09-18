@@ -1,15 +1,13 @@
 ---
 title: Conversations
-description: Follow a message through prompt assembly, model calls, tool execution, and persistence, then inspect or steer the run.
+description: How one chat message becomes one replayable run — the neutral message model, the run_cell tool, digests, ceilings, and steering a live run.
 order: 10
 ---
 # Conversations
 
-A conversation turn is one invocation of `toolcaller@v1`, the supplied agent loop. It assembles context, calls a model, executes requested Python cells, posts replies, and saves the turn. Each of those steps is part of the run's trace.
+A conversation turn is one invocation of the guest program `toolcaller@v1`. It drives the whole cycle — prompt assembly, model calls, cell execution, chat replies, turn persistence — inside the cage, so a recorded turn replays deterministically.
 
-Use this page to understand or customize the harness around a model. Start the agent through the [runtime quickstart](../quickstart/anyrt.html); use [Memory and recall](memory.html) for persistent facts and [Agent data](agent-data.html) for the stored record shapes.
-
-One run can make many model calls. Its Python kernel is shared across those calls' cells, but is discarded when the run ends. The next conversation turn rebuilds context from the database. A hosted provider receives whatever context and tool results the loop includes in its requests.
+One run can make many model calls. Its Python kernel is shared across the cells of those calls and discarded when the run ends; the next turn rebuilds its context from the database. Persistent facts are the job of [Memory and recall](memory.html), the stored record shapes are in [Agent data](agent-data.html).
 
 ## The message model
 
@@ -31,7 +29,7 @@ Usage    = {in, out, cacheRead, cacheWrite}
 | Adapter | Serves | Notes |
 |---|---|---|
 | `anthropic` | Claude models | thinking state round-tripped byte-exact; prompt-cache breakpoints set automatically at end of system and end of conversation |
-| `openai-compat` | OpenAI-compatible `/chat/completions` APIs, such as OpenAI, OpenRouter, Gemini, DeepSeek, Groq, Together, vLLM, llama.cpp, and Ollama | `cached_tokens` surfaces as `usage.cacheRead`; reasoning content is kept in the trace and resent only for models that need it for tool-call continuity; behavior depends on the provider and model profile |
+| `openai-compat` | every `/chat/completions` server — OpenAI, OpenRouter, Gemini, DeepSeek, Groq, Together, vLLM, llama.cpp, ollama | `cached_tokens` surfaces as `usage.cacheRead`; reasoning content is kept in the trace and resent only for models that need it for tool-call continuity |
 
 A per-model **profile** carries the traits the loop budgets from — context window, output cap, prompt style, how tool calls travel. Tool-weak models run under the `fenced` (or `xml`) tool mode: the loop parses a fenced `cell` block out of plain text into a ToolCall.
 
@@ -61,7 +59,7 @@ The cell's result is rendered into the ToolResult as a **digest**:
 
 The system prompt is composed by the program from the spaces: the identity (`_soul`, first and verbatim), the system skills (`_core`, `_any`, `_memory`, …), the list of user skills, each tool's docstring plus one line per method, the configured repos, the memory categories in use, and a runtime-context section (agent space, chat id, agent name, the installed apps). A fingerprint of the system block — and of the identity — is recorded on the turn, so prompt drift is diagnosable from data. Then the conversation prompt:
 
-1. **Boot window** (`history@v1`) — the newest raw turns at full resolution, then level-1 chunk summaries, then level-2, until a token budget fills (at most a quarter of the model's context window). Older history is represented at decreasing resolution.
+1. **Boot window** (`history@v1`) — the newest raw turns at full resolution, then level-1 chunk summaries, then level-2, until a token budget fills (at most a quarter of the model's context window). All history is present at decreasing resolution.
 2. **Auto-recall** (`autorecall@v1`) — topical memory and history hits injected as a synthetic `run_cell` call and result, so the model treats them as evidence, not doctrine. See [Memory and recall](memory.html).
 3. The current user message, with a timestamp and the user's view (which space and object they had open when they sent it).
 
@@ -82,7 +80,7 @@ Injections and soft breaks arrive through a mailbox the loop drains between turn
 
 The turn record (`agent_turns`, on the chat's log child) holds `userText`, `replies` (what the user saw), `fromAgent`, `traceRef` (the run id), `interrupted`, and an `llm` object with `stopReason` (`done`, `wrapup`, or `break_hard` for a run the host stopped), token and cell counts, and the prompt fingerprints. A hard-broken run gets a minimal turn written by the host, so the next boot window still sees the stopped exchange.
 
-Run these commands on the device that executed the conversation, against its Any server. The list returns run IDs; replace `run_<id>` with one of them:
+Trace bodies live in the local store of the device that ran the conversation, so run these against that device's `any` server; `ls` prints the run ids to feed `show`:
 
 ```sh
 anyrt trace ls --addr http://127.0.0.1:7001 --program toolcaller   # conversations, newest first

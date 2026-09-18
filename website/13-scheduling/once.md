@@ -5,9 +5,7 @@ order: 20
 ---
 # Once
 
-Use a `once` trigger for a reminder or delayed job. It runs when its scheduled time arrives and then disables itself. If the owning runtime is stopped at that time, an unconsumed trigger fires after the runtime starts again.
-
-Before running the reminder example, complete [Scheduling setup](index.html#before-you-write-a-trigger) and resolve the trigger anchor. The shipped `agent:remind@v1` program posts to an existing chat. After it runs, the trigger retains `lastRunAt` and `lastStatus` so you can check the outcome.
+A `once` trigger fires a single time when `now ≥ spec.at`, provided it has never run, then flips itself to `enabled: false`. The record stays behind with `lastRunAt` and `lastStatus` stamped — the reminder is its own receipt. An owner that was stopped at `spec.at` fires the unconsumed trigger as soon as it starts again.
 
 ## Spec
 

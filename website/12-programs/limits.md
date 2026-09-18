@@ -5,9 +5,9 @@ order: 70
 ---
 # Limits
 
-Each run has a compute budget and a wall-clock deadline. The runtime counts the guest's WebAssembly instructions, including CPython's interpreter work, and stops the run when a limit is reached. The outcome and metrics are recorded in the trace.
+Every guest instruction — CPython's interpreter loop included — is wasm compiled by wasmtime, so all of it can be counted and bounded. A runaway program is a clean, typed failure, never a hung process, and the outcome and its metrics land in the trace.
 
-Long-lived work belongs in persistent records: save a cursor, finish a bounded batch, and continue in a later run. A Python kernel is fresh for each invocation. Use this page to choose batch sizes and understand failures, then [schedule](../scheduling/index.html) repeated executions if needed.
+The kernel is fresh for every invocation, so long-lived work belongs in records: save a cursor, finish a bounded batch, continue in a later [scheduled](../scheduling/index.html) run.
 
 ## The bounds
 

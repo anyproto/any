@@ -5,9 +5,9 @@ order: 40
 ---
 # Traces and replay
 
-A trace records what a run requested, what came back, and how it ended. Use it to inspect a database write, understand a model call, or replay a program against recorded results. Records are appended in order as the run executes.
+Every run writes a trace: an append-only, ordered log with one record per effect call, streamed as it happens. The trace is the replay oracle, the mock source, the debug record and the run log behind every trigger fire — one format, one toolchain.
 
-For a completed run, find its ID in the CLI result or [run summary](../scheduling/runs-and-monitoring.html), then use the viewers below. First check where the body was stored: a synced summary can point to a trace held only on another device.
+A run's id is in the CLI envelope or its synced [run summary](../scheduling/runs-and-monitoring.html); the summary can point to a trace body held only on the device that ran it.
 
 ## Where traces live
 

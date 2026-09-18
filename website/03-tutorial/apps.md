@@ -1,13 +1,13 @@
 ---
 title: 4. Apps
-description: Build an app from parts and a bundle, add it to a space's app list, and use the catalog to install ready-made apps.
+description: The fourth level — parts let an object inherit a module's behaviour, a bundle makes every device converge on one definition, filing it under the miniapp collection puts it in the sidebar, and the catalog installs the well-known apps with one call.
 order: 40
 ---
 # 4. Apps
 
-Add a notes body to the mailbox and describe how a client renders it. Then register a reusable bundle so clients can resolve the same definition across devices, and add it to the space's app list.
+Everything so far was data. This part is about what a client does with it: how an object gains behaviour it never implements, how a type declared on one device becomes *the* type on every device, and how a thing in a space becomes an entry in the sidebar. The mailbox from [Part 3](datasets.html) ends up as an app.
 
-**Prerequisites:** finish [Part 3](datasets.html) and keep its `API`, `SPACE`, `MAILBOX`, and `INBOX` variables. The bundle example creates a separate app root; it does not move the sample messages out of your existing Inbox.
+`API`, `SPACE`, `MAILBOX` and `INBOX` carry over from Part 3. The bundle below creates a separate root; the sample messages stay in your existing inbox.
 
 ## Parts are inheritance, one level deep
 
@@ -42,7 +42,7 @@ Two rules keep this flat rather than a hierarchy:
 
 ## Telling the client what to render
 
-The client chooses the object interface from hints stored on its type. The server stores and validates these declarations:
+The server never renders anything, but the type carries the hints a client keys on:
 
 ```bash
 curl -s -X PATCH $API/spaces/$SPACE/types/$MAILBOX -H 'content-type: application/json' \
@@ -104,30 +104,30 @@ The reply's `rootId` is three things at once:
 
 1. **the type** — `typeId == rootId`; `GET …/types/<rootId>/properties` gives the `xKey → propId` map you cache;
 2. **the host of its own records** — a definition hosts itself, with no flag and no self-membership: `"objectId": "<rootId>", "dataset": "<rootId>_messages"` on `/upsert` and `/query` is the inbox. The root's own type slot holds the marker `__type__`, not its id, so the root never turns up among the objects of its type;
-3. **the app** — `rootCollections` filed the root under the built-in `miniapp` collection and `rootProperties` set its `bundle`, so it appears in the space's app list (next section).
+3. **the app** — `rootCollections` filed the root under the built-in `miniapp` collection and `rootProperties` set its `bundle`, so it is a sidebar entry (next section).
 
 Run the same call on the second device and it answers `installed: false` with the same `rootId`: an adopt, a pure read, safe for a member who could not create anything. Two devices that install while genuinely apart each register a root; after sync the registry names one winner and lists the other under `losers`, and the client merges and resolves ([Bundles](../collaboration/bundles.html)).
 
 Property ids on a bundle are derived from `(rootId, xKey)`, which is why two blind installs mint one `address` column per handle rather than two.
 
-## Apps in a space: `miniapp`
+## The sidebar: `miniapp`
 
-A space has a list of apps you install or enable there. Clients can show this list in a sidebar or elsewhere in the interface. The built-in hidden **collection** `miniapp` represents the list and can also include objects pinned for quick access. It adds three properties; an app root keeps its own type slot for its definition marker, and a pinned object keeps the type it already has:
+A space is, to its user, a list of apps. The marker is the built-in hidden **collection** `miniapp`, with three columns and nothing else — an app root keeps its own type slot for its definition marker, and a pinned object keeps the type it already has:
 
 | Property | Meaning |
 |----------|---------|
 | `bundle` | The installed bundle's id — what the client runs when the entry is opened. Absent on an object the user merely pinned. |
-| `pos` | Position in the space's app list, a lexid the client allocates. |
-| `hidden` | Hides the entry from the list without uninstalling it or disabling its runtime. |
+| `pos` | Sidebar position, a lexid the client allocates. |
+| `hidden` | Out of the sidebar without uninstalling anything. |
 
-Read the space's app list through a subscription. This command blocks; stop it with Ctrl-C before running the pin examples in the same terminal:
+The sidebar is one subscription (it blocks the terminal — Ctrl-C before the pin examples below):
 
 ```bash
 curl -s -N -X POST $API/spaces/$SPACE/objects/query/subscribe -H 'content-type: application/json' -d '{
   "filter": {"$and": [{"any.collections": "miniapp"},
                       {"any.collections": {"$nin": ["bin"]}},
                       {"miniapp.hidden": {"$ne": true}}]},
-  "sort": ["miniapp.pos", "id"], "limit": 100}'
+  "sort": ["miniapp.pos"]}'
 ```
 
 A row with `miniapp.bundle` is an installed app and the bundle id says what to run — `mail/v1` opens your mailbox UI, `system:wiki/v1` the wiki. A row without one is an object the user pinned, rendered as the object it is. Pinning the Part 3 inbox:
@@ -167,10 +167,10 @@ Every catalog entry is the same construction you just built by hand, and each sh
 
 | Usecase | The root is |
 |---------|-------------|
-| `wiki` | an app **and** a collection: an entry in the space's app list, and the hidden collection whose `parentId` / `pos` / `folder` place every page filed under it in the tree (a page keeps its own type) |
+| `wiki` | an app **and** a collection: the sidebar entry, and the hidden collection whose `parentId` / `pos` / `folder` place every page filed under it in the tree (a page keeps its own type) |
 | `collections` | an app only — a `page` root filed under `miniapp`, whose presence switches the types feature on in the client |
-| `journal` | an app **and** a type: an entry in the space's app list, and the hidden type whose one `date` property makes an object that day's page |
-| `meetings` | two roots: the `meeting` type, which is not an app entry — a meeting is one object whose three parts are its notes (the shared editor), a second editor for the summary, and a transcript dataset an agent fills — and a separate `page` root that appears in the space's app list |
+| `journal` | an app **and** a type: the sidebar entry, and the hidden type whose one `date` property makes an object that day's page |
+| `meetings` | two roots: the `meeting` type, outside the sidebar — a meeting is one object whose three parts are its notes (the shared editor), a second editor for the summary, and a transcript dataset an agent fills — and a separate `page` root that is the sidebar entry |
 | `general-chat` | the space's one chat: a **derived** root both sides of a partition compute, so it can never fork, carrying the reserved `chat` module |
 | `people`, `contact`, `contacts`, `crm` | a set: `crm` requires `contacts`, which requires `people` and `contact`; setup resolves the closure in order and the reply lists every bundle it touched, `typeId` for a type root and `collectionId` for a collection root |
 
@@ -184,6 +184,6 @@ What a usecase installs is ordinary definitions. `person` and `organization` are
 
 ## Where this ends
 
-An app belongs to a space. Its objects, types, parts and datasets describe the data and behaviour you can inspect or extend. This tutorial built those pieces step by step: a notebook in Part 1, a password manager in Part 2, a mailbox in Part 3, and an app registered as a bundle here. You can stop at any level or install a ready-made app from the catalog and explore its definitions when you need to change it.
+Read from the database up, an app is the complicated thing: a type, its parts, a bundle root, a sidebar marker. Read from the interface down, it is the simplest thing there is — one entry you tap — and objects, types and datasets are the details inside it that you can go and look at when you want to extend it. Both readings are true, and the levels of this tutorial are the path between them: stop at Part 1 with a notebook, at Part 2 with a password manager, at Part 3 with a mailbox, or take a ready bundle from the catalog and never think about what is inside until you need to.
 
 Reference: [Modules](../types/index.html), [Bundles](../collaboration/bundles.html), [Types and properties](../database/types-and-properties.html), [Collections](../database/collections.html).

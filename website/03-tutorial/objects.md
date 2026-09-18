@@ -5,9 +5,9 @@ order: 10
 ---
 # 1. Objects
 
-Create a page, give it a name, read it back, and watch a rename. You will then delete that example page. The later parts create their own objects.
+An object is a row in the space's `objects` storage collection. In the simplest case it is a plain `page`: a name, a description and the stamps the server derives. That is enough for a notebook, and it is the level every later part builds on.
 
-**Prerequisites:** the running server and `API` / `SPACE` variables from the [tutorial setup](index.html#before-you-start). An object is a row in the space's `objects` storage collection. The built-in `page` type gives it a document body without a schema of your own.
+`API` and `SPACE` come from the [tutorial setup](index.html#before-you-start).
 
 ## Create one
 
@@ -26,7 +26,7 @@ The create body has three keys: `type` — **required**, the one type the object
 
 `page` is the built-in plain document — the right type when the thing is just a note. Every object has exactly one type and it is never cleared; [Part 2](properties.html) defines a type of your own, then files objects under a collection.
 
-The command saved the returned ID in `OBJ`; later requests use it. The shortened ID shown in the response example is illustrative.
+`jq` kept the id in `OBJ`; every later call uses it.
 
 ## Read it back
 
@@ -62,7 +62,7 @@ Filters use the same grammar throughout the system — `{"any.name": "Groceries"
 
 ## Watch it change
 
-A query has a live form at the sibling `/subscribe` path. Before opening it, print the variables to copy into the terminal where you will rename the page:
+Every query has a live twin. Same body, sibling path, and the response is a server-sent event stream. The stream blocks this terminal, so first print the variables you will need in the second one:
 
 ```bash
 printf 'API=%s\nSPACE=%s\nOBJ=%s\n' "$API" "$SPACE" "$OBJ"
@@ -83,7 +83,7 @@ event: snapshot
 data: {"records":[{"id":"bafyreib…", "any": {"name": "Groceries", …}}]}
 ```
 
-Leave it open. In another terminal, paste the three assignments you printed, then rename the object with a write to the `any` group:
+Leave it open. From another terminal (paste the three assignments first), rename the object — a property write on the `any` group:
 
 ```bash
 curl -s -X POST $API/spaces/$SPACE/properties/$OBJ/set/any -H 'content-type: application/json' \
@@ -101,11 +101,11 @@ data: [{"versionId":"…",
 
 That is the whole reactive model: a snapshot, then `added` / `updated` / `removed` entries for as long as the connection is open — each batch carries only the lists that have something in them. Renames from your other devices, and from every member of the space, arrive on the same stream ([Subscribe](../realtime/subscribe.html)).
 
-> **Why it matters.** The write above does not wait for a remote peer. It lands in the object's change log on this device, the local query sees it, and sync to other devices runs in the background whenever a peer is reachable ([Local-first](../understanding/local-first.html)). Nothing in this part changes when you are offline.
+> **Why it matters.** The write above returned before any network traffic happened. It landed in the object's change log on this device, the query saw it immediately, and sync to other devices runs in the background whenever a peer is reachable ([Local-first](../understanding/local-first.html)). Nothing in this part changes when you are offline.
 
 ## What a write returns
 
-Property and dataset writes return a change receipt rather than the record. Object creation returns `objectId`, as above; deletion returns no content. A property write returns:
+No write echoes the record. Create answers with the new `objectId`, as above, delete with no content, and every property and dataset write returns the same small receipt:
 
 ```json
 { "versionId": "…", "changeId": "bafyreic…", "recordIds": ["bafyreib…"] }
@@ -115,7 +115,7 @@ Property and dataset writes return a change receipt rather than the record. Obje
 
 ## Delete
 
-Use the terminal holding `API`, `SPACE`, and `OBJ`. If it is still streaming, stop that subscription with Ctrl-C first. This deletes only the page created in this part:
+Back in the terminal that holds `OBJ` (Ctrl-C the stream first):
 
 ```bash
 curl -s -X DELETE $API/spaces/$SPACE/objects/$OBJ     # → 204
@@ -125,6 +125,6 @@ The row disappears from every query, and open subscriptions see the id under `re
 
 ## Where this level ends
 
-You now have named, described pages that sync and stream. What you do not have is a *shape*: nothing says a grocery list has a store and a budget, and nothing lets you ask "every list for the store on Main Street". So far, you have used only the universal property group. The next part adds columns — a type with properties — and that is already enough for a password manager.
+You now have named, described pages that sync and stream. What you do not have is a *shape*: nothing says a grocery list has a store and a budget, and nothing lets you ask "every list for the store on Main Street". A name and a description are all the columns there are. The next part adds columns — a type with properties — and that is already enough for a password manager.
 
 Next: [2. Properties](properties.html). Reference: [Objects](../database/objects.html).

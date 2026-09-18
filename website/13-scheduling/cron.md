@@ -5,9 +5,9 @@ order: 10
 ---
 # Cron
 
-Use a `cron` trigger for recurring work such as refreshing an inbox or summarizing history. Choose a cron expression or a fixed interval. The scheduler arms the next future occurrence when it adopts the record and after each fire.
+A `cron` trigger runs a program on a repeating schedule. The spec is either a cron expression or a fixed interval; the scheduler arms the next occurrence *forward from now* on adoption and after every fire, so occurrences missed while the owner was stopped are not replayed.
 
-Before using the examples, complete [Scheduling setup](index.html#before-you-write-a-trigger) and resolve `$ANCHOR` and `$TRIGGERS`. The example uses your own deployed `mailWatch@v1` program; its sample implementation appears below. Missed occurrences while the owner is stopped are not replayed.
+`$ANCHOR` and `$TRIGGERS` come from [Scheduling](index.html#before-you-write-a-trigger); `mailWatch@v1` is your own deployed program, sketched below.
 
 ## Spec
 
@@ -44,7 +44,7 @@ c.upsert_record(space, anchor, "agent_triggers", "inbox-watch", {
 })
 ```
 
-`program` can be anything resolvable from the agent space: a shipped program under its alias (`agent:rollup@v1`), a connector, or a program the agent authored into the working space (unqualified `mailWatch@v1`). A scheduled program can perform a bounded data task directly; it only calls a model if its code needs one.
+`program` can be anything resolvable from the agent space: a shipped program under its alias (`agent:rollup@v1`), a connector, or a program the agent authored into the working space (unqualified `mailWatch@v1`). A 40-line program on a cron beats scheduling a full reasoning turn every five minutes.
 
 ## The program side
 

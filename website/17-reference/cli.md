@@ -271,7 +271,7 @@ any file query-subscribe <spaceId> <objectId> [same flags]
 any file cache size | free <bytes> | sweep
 ```
 
-Attach attempts network backup synchronously, best-effort. With a reachable broker the receipt usually already shows `durable: true`; otherwise attach succeeds with `durable: false` and a persistent background queue retries. `any file subscribe` reports later local status changes. A reachable peer may serve a non-durable file, but `offload` still exits 1 with `file.not_durable` until network custody is confirmed.
+The attach receipt normally shows `durable: false` — backup is background work; `any file subscribe` shows the `inflight → durable` flip. `offload` exits 1 with `file.not_durable` while the local bytes are the only copy.
 
 ## Local store
 
@@ -291,7 +291,7 @@ any local export  [--scope account|space] [--space ID] [--names a,b] --out FILE
 any local import  FILE                               # - reads stdin
 ```
 
-For collection operations, omitting `--space` selects account scope; with it, the collection is bound to that space. Export without any scope or names selects all local collections. Nothing here syncs.
+Without `--space` a local storage collection is account-scoped; with it, bound to that space. `export` with neither scope nor names takes every local collection. Nothing here syncs.
 
 ```bash
 any local ensure scratch --index k,-at
@@ -306,9 +306,9 @@ any local export --scope account --names scratch --out scratch.anyenc.gz &&
 any local import scratch.anyenc.gz
 ```
 
-`--out -` writes the export to stdout; `any local import -` reads stdin. Without `--names`, export includes every collection in the selected scope; `--space ID` implies space scope. The gzip-compressed anyenc file preserves scope, space ID, names, indexes and documents. Import on another server with `any --addr http://127.0.0.1:7002 local import scratch.anyenc.gz` once that server is running and authorized. Space-scoped collections can be imported and read there even if their source space is absent.
+`--out -` writes the export to stdout; `any local import -` reads stdin. Without `--names`, export takes every collection in the selected scope; `--space ID` implies space scope. The file is a gzip-compressed anyenc stream carrying scope, space id, names, indexes and documents. Another authorized server imports it with `any --addr http://127.0.0.1:7002 local import scratch.anyenc.gz`; a space-scoped collection is readable there even when that server never had the space.
 
-Import ensures indexes and upserts documents; it retains existing documents whose IDs are absent from the file. A failed import can leave earlier chunks committed. This copies local collections, not the entire account or file bytes. See the [HTTP contract](http-api.html#export-and-import-local-collections) for responses and failure details.
+Import ensures indexes and upserts documents; documents whose ids are absent from the file stay. It commits in chunks, so a failed import can leave earlier chunks in place. It copies local collections only — no CRDT data, no file bytes. Responses and failure codes: [HTTP contract](http-api.html#export-and-import-local-collections).
 
 ## Members, invites, ACL
 

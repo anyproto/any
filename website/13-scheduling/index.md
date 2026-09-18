@@ -1,31 +1,17 @@
 ---
 title: Scheduling
-description: Run programs later, on a recurring schedule, or when a chat message arrives, with jobs stored in your database.
+description: Triggers are CRDT records — cron, one-shot and event definitions that fire programs on the device that owns them.
 order: 0
 ---
 # Scheduling
 
-Schedule a program by saving a **trigger**: a record containing the program, its arguments, when to run it, and the device that owns the job. The runtime reads these records every five seconds and updates its scheduler. You can create and edit them through your app, a program, or the HTTP API.
+A trigger is a record in the `agent_triggers` dataset of your agent space: a program spec, a schedule or event, arguments, and an `owner` naming the device that runs it. The running agent converges its scheduler on those records every tick, so creating, editing, pausing and moving a job is just writing a record — from the UI, from a program, or from `curl`.
 
-The schedule persists in the database. Execution happens on a device running anyrt; a stored trigger does not keep a stopped device running. A pinned device can execute local work without an internet connection, while programs that call a provider need that provider to be reachable.
-
-## Choose a trigger
-
-| You want to… | Use |
-|---|---|
-| deliver a reminder or start delayed work | [Once](once.html) — a single time, with late delivery after downtime |
-| refresh data or run a recurring job | [Cron](cron.html) — a recurring schedule without missed-run catch-up |
-| react to a new chat message | [Event triggers](event-triggers.html) — live messages only |
-| choose where a job runs | [Device pins](device-pins.html) |
-| check whether a job ran | [Runs and monitoring](runs-and-monitoring.html) |
-
-For a first visible result, [schedule a reminder](once.html#schedule-a-reminder). The rest of this page explains the shared record and how to locate its store.
+The record syncs; the execution does not. A trigger fires only on a device where `anyrt` is running, and a stored trigger keeps no stopped device alive. The pinned device runs local work offline; a program that calls a provider needs that provider reachable.
 
 ## Before you write a trigger
 
-Start the server and `anyrt serve` using the [runtime quickstart](../quickstart/anyrt.html). The runtime provisions the trigger store on boot. The program you name must be available in the working space or a configured overlay.
-
-The shell examples need `curl`, `jq`, `$SPACE` set to the agent space's ID, and `$CHAT` set to the target chat's object ID. A program that calls a model or connector also needs its provider configuration. Use the same program once with `anyrt run --from-space` to check its arguments before scheduling it.
+The server and `anyrt serve` are up ([runtime quickstart](../quickstart/anyrt.html)); the runtime provisions the trigger store on boot. The program you name resolves from the working space or a configured overlay. The shell examples use `$SPACE` (the agent space id) and `$CHAT` (the target chat's object id). `anyrt run --from-space` runs the same program once by hand — the way to check its arguments before scheduling it.
 
 ## A trigger record
 

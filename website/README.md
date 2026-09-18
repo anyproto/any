@@ -1,4 +1,4 @@
-# website/ — the Any docs site
+# website/ — the `any` docs site
 
 Markdown in, static HTML out. `make docs` renders into `website/dist/`
 (deploy that folder anywhere static); `make docs-serve` previews it.
@@ -44,9 +44,15 @@ per paragraph, a runnable `curl`/CLI example per feature, a "Why this
 matters" callout (`> **Why it matters.** …`) where any/anybao differs
 from hosted backends.
 
-Use **Any** for the product, `any` for the binary and `anyrt` for the
-companion runtime. Introduce the local server, database and runtime
-separately. Distinguish local embeddings from external model calls, and
-file availability from backup durability. Guides identify prerequisites
-and explain results; reference pages retain wire formats, limits, errors
-and lifecycle behavior.
+Naming: the product and the binary are both `any`, in code, never
+"Any"; the runtime is `anyrt`. Not "the local server" — it is the server,
+or `any run`.
+
+The reader is a technical tinkerer, not a buyer. Name the mechanism and
+the component (any-store, any-sync, the DAG, the ACL, the wasm cage)
+rather than the benefit; keep wire shapes, replies and error bodies
+visible in guides, not only in the reference; keep comparisons against
+hosted backends where they explain a design choice. A "Before you start"
+line earns its place only when it says which page sets a variable up.
+Distinguish local embeddings from external model calls, and file
+availability from backup durability.

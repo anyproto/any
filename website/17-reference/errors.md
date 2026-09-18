@@ -197,7 +197,7 @@ Panics are converted to `500 internal` with a generic message.
 | Code | Status | Meaning |
 |---|---|---|
 | `file.not_found` | 404 | unknown fileId/objectId, or files query before the first attach |
-| `file.not_durable` | 409 | offload refused: network custody is not confirmed, even if a peer holds a copy |
+| `file.not_durable` | 409 | offload refused: local bytes are the only copy |
 | `file.not_available` | 409 | content not local and not fetchable yet — retry |
 | `file.variant_invalid` | 400 | variant/variantOf pairing broken |
 | `device.not_found` | 404 | unknown peer id (or already pruned) |

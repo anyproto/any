@@ -5,14 +5,14 @@ order: 10
 ---
 # HTTP API
 
-The any server listens on `127.0.0.1:7001` and exposes its API under `/v1/`. The tables below give each route’s request and response shape. Dataset reads use `/query`; dataset writes share a write-result envelope. Consumer-side features built next to the SDK — search, links and backlinks, the event bus, processes and the local store — have their own routes and responses.
+The `any` server listens on `127.0.0.1:7001` and exposes one JSON API under `/v1/`. Endpoints map onto one SDK call each — the consumer-side features built next to the SDK (search, links and backlinks, the event bus, processes, the local store) are marked — reads always go through `/query`, and every dataset write returns the same result shape.
 
 ## Conventions
 
-- **Base path** `/v1/`. JSON requests and responses use `application/json; charset=utf-8`. File attach and content routes transfer raw file bytes; local-store export returns `application/gzip` and import accepts that file as its raw body. Subscription responses use `text/event-stream`.
+- **Base path** `/v1/`. Media type `application/json; charset=utf-8` for every request with a body and every response, except the raw routes: file attach and content carry file bytes, local-store export returns `application/gzip` and import takes that file as its body, and every `…/subscribe` answers `text/event-stream`.
 - **Status codes**: `200` reads, `201` creates, `204` side-effect-only endpoints. Errors always use the envelope in [Errors](errors.html).
 - **Ids in paths** are URL-safe strings; segments are URL-encoded (a bundle id like `favorites/v1` becomes `favorites%2Fv1`).
-- **Body limit** 1 MiB on every route except file attach and local-store import, whose raw bodies stream without this cap.
+- **Body limit** 1 MB on every route except file attach and local-store import, whose raw bodies stream past it.
 - **Strict bodies**: endpoints whose OpenAPI schema carries `additionalProperties: false` answer `400 request.unknown_field` for any unknown top-level key. `GET /v1/openapi.json` is the authoritative list.
 - **Unauthorized server**: until an account is booted, every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth` answers `401 auth.required`.
 - **Tech space**: `GET /v1/account` returns its id as `techSpaceId`. It is a valid `:spaceId` for bundles, for types, collections and records on bundle roots, and for the space read, sync-status, debug and sync routes; every other space-scoped route there answers `405 space.unsupported`.
@@ -26,7 +26,7 @@ Every dataset write — `/modify`, `/delete-records`, and the chat and editor ha
   "recordIds": ["<id>"], "rejections": [] }
 ```
 
-`recordIds` mirrors the input order (`recordIds[0]` is the server-derived id on a create); `rejections` appears only when a handler dropped an op. These dataset writes do not return the record body — read it back through `/query` or live through `/query/subscribe` (see [Reading data](../database/reading-data.html)).
+`recordIds` mirrors the input order (`recordIds[0]` is the server-derived id on a create); `rejections` appears only when a handler dropped an op. Writes never return the record body — read it back through `/query` or live through `/query/subscribe` (see [Reading data](../database/reading-data.html)).
 
 ## Meta
 
@@ -413,7 +413,7 @@ Device-local, non-CRDT collections that never sync — query, modifiers, indexes
 
 Export is a manual copy of selected local collections, including their scope, space ID, names, indexes and documents. It does not export the account's CRDT data or file bytes. The file is a gzip-compressed anyenc value stream, with a manifest followed by each collection's documents; use `.anyenc.gz` as its extension. An empty selection or missing named collection returns `404 local.collection_not_found` before the file response starts.
 
-**Before you start:** use an authorized server with the local store enabled and an existing account-scoped `scratch` collection; the [CLI example](cli.html#local-store) creates one. This example exports it and imports the same file back. Change `DEST` to another authorized server's address to copy the collection there.
+With the account-scoped `scratch` collection the [CLI example](cli.html#local-store) creates, export it and import the same file back; `DEST` pointed at another authorized server copies it there:
 
 ```bash
 SOURCE=http://127.0.0.1:7001

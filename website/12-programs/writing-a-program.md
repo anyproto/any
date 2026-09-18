@@ -5,9 +5,7 @@ order: 20
 ---
 # Writing a program
 
-A program is a Python file with a module docstring and a `main(args)` entry point when it is invoked directly. A program exposed as an agent tool also declares public `@span` functions. The runtime uses these declarations to list tools and record their calls.
-
-Start with [Run your first program](index.html#run-your-first-program), then use this page to prepare it for publication or agent use. Develop against a local `--programs` directory, [test it](testing.html), and [deploy](modules-and-overlays.html#publishing) it to a space. Deploy validates the rules below.
+A program is one Python file whose docstring is its documentation, whose `main(args)` is its entry point, and whose public `@span` functions are its tool surface. Deploy and the agent's own program writer both check the convention and reject violations, so the rules below are a contract rather than a style guide.
 
 ## Layout and naming
 

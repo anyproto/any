@@ -5,9 +5,7 @@ order: 60
 ---
 # Builds and CI
 
-Use `make build` to build the server with full-text and vector search. The Go binary is CGO-free; local embeddings use shared libraries loaded at runtime. The build target selects the required tags and fetches those libraries.
-
-Run these commands from the Any server repository. For the companion Rust runtime, use [Embedding anyrt](../agents/embedding-anyrt.html#build-order). A bare `go build` omits the search tags: the server warns at startup and search returns no hits.
+The server is a CGO-free Go binary, but the search index legs are selected at compile time by build tags, and the local embedder loads shared libraries at runtime. `make build` handles all of it; a bare `go build` produces a server whose `/search` silently returns nothing (one WARN at boot is the only symptom). Everything here runs in the `any` repository; the runtime's build order is under [Embedding anyrt](../agents/embedding-anyrt.html#build-order).
 
 ## Building
 

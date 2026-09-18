@@ -71,7 +71,7 @@ The same body on `POST …/collections/$COLL/properties` adds a column to a coll
 
 `GET …/types/:typeId/properties` returns `{properties: [{id, name, description?, xKey, kind, scope, meta?, xFormat?}]}` — this is where a client resolves `xKey → propId` before writing. Sort a property list by `xFormat.pos`, then `id`.
 
-Definitions are synced records. Renaming a property, changing its display order, or adding a choice option propagates to members without rewriting each object's values.
+> **Why it matters.** Definitions are synced records. A rename, a reorder via `xFormat.pos` or a new choice option written on one device converges on every member's device through the same CRDT as the data, with no schema-migration step.
 
 ## Choice options
 

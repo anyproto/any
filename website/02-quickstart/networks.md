@@ -1,13 +1,11 @@
 ---
 title: Networks
-description: Choose a sync network and data root, initialize an isolated account, and understand what the placeholder does and does not disable.
+description: Which any-sync network a server talks to — the embedded production default, a staging or local nodeconf via ANY_NETWORK_NODECONF_PATH, and the placeholder that joins nothing — and how the choice reaches embedded builds.
 order: 90
 ---
 # Networks
 
-Choose which sync network the server uses before its first run. With nothing configured, Any joins production. A separate network needs its own data root and an account initialized in that root.
-
-The local HTTP address and the sync network are different settings. A *nodeconf* YAML describes the coordinator, tree nodes, file nodes, and their addresses. It does not select an embedding or language-model provider.
+A server syncs against exactly one any-sync **network**: a coordinator, tree nodes, file nodes, and their addresses, described by a *nodeconf* YAML. With nothing configured, the binary joins **production**. Decide this before the first `any run` of an experiment, and give every network its own data root with an account initialised in it.
 
 ## The nodeconf
 
@@ -56,23 +54,23 @@ ANY_NETWORK_NODECONF_PATH=/etc/any/staging.yaml any run
 | **Production** — real data, real peers, other devices of your account | Configure nothing. The production nodeconf is compiled into the binary, so a packaged install boots from any working directory. |
 | **Staging** — the same topology on throwaway infrastructure | Point `network.nodeconfPath` / `ANY_NETWORK_NODECONF_PATH` at the staging nodeconf. |
 | **Local infra** — your own any-sync nodes on a LAN or in containers | Same knob, your own YAML. Everything works offline-first regardless, so partial deployments (no `fileV2`, no event relay) degrade feature by feature, never at boot. |
-| **Unreachable sync nodes** — tests or a single-machine demo | Use the sanitized **placeholder** below; LAN discovery and model downloads are separate settings. |
+| **No network at all** — tests, demos, a single machine | Use the sanitized **placeholder** below. |
 
 > **Note.** The production default is a convenience for installs, and a trap for experiments: a test script that forgets to set the env var creates real spaces on the real network under your real account. Set `ANY_NETWORK_NODECONF_PATH` in the shell you develop in, or put `network.nodeconfPath` in a per-experiment `config.yaml` passed with `--config`.
 
-## The placeholder: a local sandbox
+## The placeholder: boots, serves, joins nothing
 
-The source checkout includes `internal/config/nodeconf-placeholder.yml`, with a real `networkId` and fake configured peers. It cannot connect to those sync nodes. Start from the repository root and initialize an account in the same dedicated root you will run:
+The repo ships `internal/config/nodeconf-placeholder.yml`: a real `networkId` with fake peer ids and node addresses. A server started on it binds, serves every endpoint, and stores everything locally — but no peer is reachable, so nothing ever syncs and `/sync-status` stays `offline`. Tests use it (`config.NodeconfPlaceholder()`), and it is never selected at runtime by itself:
 
 ```bash
 export ANY_NETWORK_NODECONF_PATH="$PWD/internal/config/nodeconf-placeholder.yml"
 export ANY_DATA_DIR="$HOME/.any-sandbox"
-export ANY_INDEX_EMBEDDER=none
-any init
+export ANY_INDEX_EMBEDDER=none      # no embedding-model download either
+any init                            # an account in the sandbox root, or the server boots unauthorized
 any run
 ```
 
-An authorized server can now serve local data calls. Without `any init` in this root, it would start unauthorized and data calls would return `401 auth.required`. Two devices on the same LAN can still find each other: set `p2p.enabled: false` in the chosen config to disable that discovery. The example selects `none` to avoid an embedding-model download; node configuration alone is not a guarantee of zero network traffic.
+Without the `any init` in that root the server still boots, but every data call answers `401 auth.required`. Two devices on the same LAN still find each other over p2p discovery even on the placeholder — set `p2p.enabled: false` for full isolation. The nodeconf decides only who relays your changes: an online embedder or a model provider is a separate setting.
 
 ## Push pairs with the network
 
@@ -89,7 +87,7 @@ any sync-status space $SPACE        # networkPeers > 0 once a tree node is conne
 any debug space $SPACE              # per-peer head-sync counters (diagnostic, unstable)
 ```
 
-With no reachable network or LAN peer, sync status remains offline and `networkPeers` is zero. A server with reachable peers can move to `syncing` and `synced`; inspect the status rather than assuming a fixed startup time.
+A server on the placeholder reports `networkPeers: 0` and `state: "offline"` forever; a server on a real network moves to `syncing` / `synced` within a head-sync round.
 
 > **Why it matters.** Because every device holds the whole database, "which network" only decides *who relays your ciphertext and to whom*. The data model, the API, and the encryption are identical on production, staging, a LAN, or no network at all — which is what lets a test suite run the real server against a conf that goes nowhere.
 

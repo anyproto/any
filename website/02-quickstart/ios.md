@@ -7,9 +7,6 @@ order: 70
 
 On iOS the server is a static library. `any.xcframework` wraps a Go c-archive (device + simulator slices) exporting a handful of C functions; your app starts the server in-process and uses the normal HTTP API from Swift.
 
-
-**Before you start:** make the [HTTP quickstart](curl.html) work against a standalone server. Then use this page to move that server into your iOS host. The API is the same, but the host owns startup, account onboarding, and shutdown. Treat the integration as a developer preview.
-
 ## Get the artifact
 
 Every release publishes `any.xcframework.zip`, sha256-pinned in the release notes. Building it requires macOS with Xcode's iOS SDK:

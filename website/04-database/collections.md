@@ -5,9 +5,7 @@ order: 32
 ---
 # Collections
 
-Use a collection to group objects that keep their own types. Each collection defines properties for its members: a reading list might add a finished flag; a contact collection might add a relationship status.
-
-A collection has no layout, parts, or datasets. Those come from the object's one type. Filing an object under a collection gives it access to that collection's property group.
+An object **is** one type and is **filed under** any number of collections. A collection carries property definitions and nothing else — no parts, no layout, no datasets — so filing an object changes the columns it holds, never how it renders.
 
 A person who is also a contact and an investor is **one** object: `type: person`, `collections: [contact, investor]`. It renders with the person layout and carries three property groups — the person's, the contact's and the investor's — each in its own namespace on the row.
 
@@ -25,7 +23,7 @@ Reading list is a collection: the things in it are pages, people and links that 
 
 ## Create a collection
 
-**Before you start:** `$SPACE` is a space the running account can write. Save the returned `collectionId` as `$COLL`; later examples use `$OBJ` for an existing object in that space.
+`$SPACE` is a writable space; the reply's `collectionId` is `$COLL` below, and `$OBJ` is any existing object in the space.
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/collections \
@@ -35,7 +33,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/collections \
 any collection create $SPACE --name "Reading list" --xkey reading_list
 ```
 
-Body: `{name?, description?, iconCid?, xKey, hidden?, meta?}`. Collections do not accept `layout`. **`xKey` is required**: the stable handle the collection resolves by, a slug of the name that survives renames. An empty one is `400 type.xkey_required`.
+Body: `{name?, description?, iconCid?, xKey, hidden?, meta?}` — the type body minus `layout`. **`xKey` is required**: the stable handle the collection resolves by, a slug of the name that survives renames. An empty one is `400 type.xkey_required`.
 
 Types and collections share **one handle namespace**. An `xKey` (or id) a type already holds cannot be taken by a collection and the other way round — `409 type.xkey_conflict`, whose `details` name `existingTypeId` or `existingCollectionId`.
 
@@ -78,13 +76,13 @@ any object collection attach $SPACE $OBJ $COLL
 any object collection detach $SPACE $OBJ $COLL
 ```
 
-Both take no body and return the write receipt. Repeating them keeps the same membership: filing adds the ID to the `any.collections` set, and unfiling removes it. Filing admits writes to the collection's properties. The `bin` route also writes timestamps, so a repeated move refreshes its stamps even though membership stays unchanged.
+Both take no body, both are idempotent, and both return the write receipt. Filing appends to `any.collections` and admits writes to that collection's columns; unfiling removes the id. The one route with a side effect is `bin`: a repeated move re-stamps `movedAt` / `movedBy` even though membership does not change.
 
 The POST pre-flights its ids — `404 object.not_found`, `404 collection.not_found`, and `400 collection.not_a_collection` when the id names a user type (a built-in type such as `page` is `404 collection.not_found`) — because `any.collections` is a synced CRDT write with no validation behind it, so a typo would replicate permanently. The DELETE pre-flights nothing on purpose: it is the repair path for a row that already carries a bogus id.
 
-**Unfiling preserves values.** The property group stays readable on the row, but writes to it are refused until the object joins that collection again. Always filter a member list by `any.collections`; testing for a property value alone also finds unfiled objects.
+**Unfiling is not a delete.** That collection's values stay on the row as orphan data, read-tolerant, and filing the object again brings them back into view — writes to that group are refused in between. Filter a member list on `any.collections`, never on a property value alone: the orphan values still match.
 
-For a new object, pass memberships in the create body. Here `$PERSON` is its type ID, `$CONTACT` is the contact collection ID, and `$STATUS` is a choice property ID declared on that collection:
+An object that is new takes its collections in the create body instead — [Objects](objects.html). `$PERSON` is the type, `$CONTACT` the collection, `$STATUS` a choice property declared on it:
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
@@ -118,7 +116,7 @@ A collection definition's own row carries the marker `__collection__` in `any.ty
 
 `miniapp` and `bin` are registered collections, present in every space, hidden from the default listing and static — `400 collection.registered` on a metadata write. An object opts into them; nothing stamps them.
 
-**`miniapp`** represents the space's app list and pinned objects. Members carry `bundle` (the installed bundle's id, absent on an object the user pinned), `pos` (a client-allocated lexid for list order) and `hidden` (hides the entry from the list while keeping the installation). Pin and unpin are the plain filing routes; values go through `POST …/properties/:objectId/set/miniapp`.
+**`miniapp`** is the sidebar. Members carry `bundle` (the id of the installed app, absent on an object the user pinned), `pos` (a client-allocated lexid) and `hidden` (out of the sidebar, install kept). Pin and unpin are the plain filing routes; values go through `POST …/properties/:objectId/set/miniapp`.
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \

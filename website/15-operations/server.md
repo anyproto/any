@@ -5,9 +5,7 @@ order: 10
 ---
 # Server
 
-`any run` starts a foreground server. It loads configuration, opens the selected account, and serves HTTP on a loopback address. Keep it in a terminal or run it under your own supervisor. Ctrl-C and `any stop` request a graceful shutdown.
-
-Use **standalone** mode when you run the server yourself. Use **managed** mode when an app supplies the account on each launch and owns sign-out, account switching, and shutdown. The startup and ownership contracts below apply to those two modes.
+`any run` is a plain foreground process: it loads config, boots the selected account's engine, binds a loopback listener and serves until it receives SIGINT/SIGTERM (which `any stop` sends) or — on a managed server — its host's `POST /v1/shutdown`. No daemonization — run it under a terminal, `tmux`, `systemd --user` or whatever supervisor you prefer.
 
 `--mode` declares who owns the process: `standalone` (default) is the user's server — keys on disk, account resolved from the data dir, logout and HTTP shutdown refused; `managed` is a host's — the account arrives over `POST /v1/auth` on every launch and sign-out, account switching and `POST /v1/shutdown` are accepted behind a control token the host holds ([Accounts](../auth/accounts.html)).
 

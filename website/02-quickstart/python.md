@@ -1,13 +1,13 @@
 ---
 title: Python
-description: "A runnable Python client using only the standard library: create a page, read chat records, and watch live changes."
+description: The create → query → subscribe loop with the standard library only — urllib for calls, http.client for the streaming SSE subscription, plus a per-object dataset read with an absolute cursor.
 order: 50
 ---
 # Python
 
-Use the standard library to create a page, send a chat message, and keep a live window of pages. No third-party packages are needed.
+No third-party packages: `urllib.request` for ordinary calls, `http.client` to read the subscribe stream incrementally. Python 3.9+. The blocks form one file: create a space and a page, query, read the space's chat as a per-object dataset, then keep a live window of pages.
 
-**Before you start:** leave the authorized server from [Install](install.html) running. <a href="../assets/examples/client.py" download>Download client.py</a>, or copy the Python blocks below in order. Run `python3 client.py` with Python 3.9 or newer. Each run creates a new space. The subscription comes last because reading its socket blocks until another frame arrives.
+<a href="../assets/examples/client.py" download>Download client.py</a>, or copy the `python` blocks in order and run `python3 client.py` against the server from [Install](install.html). Each run creates a new space. The subscription comes last because `readline()` blocks on the socket until the next frame.
 
 ## 1. Connect and create a page
 
@@ -58,11 +58,11 @@ OBJ = call("POST", f"/spaces/{SPACE}/objects", {
 print("Space:", SPACE, "Object:", OBJ)
 ```
 
-Every object has one required `type`. `page` is the built-in document type. Optional `collections` file it under additional property groups; values are keyed by their owner under `initialProperties` ([Objects](../database/objects.html)).
+A document is an object carrying a type whose part declares the `editor` module — the built-in `page` for a plain body, or a document type of your own (registered as a bundle so every device agrees on one). `type` is required; `collections` (what the object is filed under) is optional; values ride `initialProperties` keyed by owner ([Objects](../database/objects.html)).
 
 ## 2. Read the space
 
-A query returns a snapshot. Use both a sort and a limit when the result will become a live window.
+A query is a POST with a Mongo-style body against the space's `objects` storage collection — an indexed read on your disk. A live window needs a sort and a limit, so the same body is reused for the subscription below.
 
 ```python
 query = {"filter": {"any.type": "page"}, "sort": ["-modifiedAt", "id"], "limit": 20}
@@ -77,11 +77,11 @@ def display(records):
     print("Live:", [r["any"]["name"] for r in sorted(records, key=order)])
 ```
 
-Expect `Pages: 1 ['Reading list']`. The renderer matches the query: newest modification first, then ascending object ID. Timestamps arrive as `{"$date":"…"}`. Use that wrapper in timestamp filters too; a bare string is a different data type and will not match an instant ([Data types](../database/data-types.html)).
+Expect `Pages: 1 ['Reading list']`. The renderer matches the query: newest modification first, then ascending object ID. Timestamps arrive as `{"$date":"…"}`, and a filter that compares one must use the same wrapper: `{"modifiedAt": {"$gte": {"$date": "2026-08-01T00:00:00Z"}}}`. A bare string does not error — it compares only within its own type bracket, so it matches nothing ([Data types](../database/data-types.html)).
 
 ## 3. Read a dataset
 
-A space query lists objects. A per-object query reads rows inside one object, such as chat messages. Install the space's general chat, then send a message before reading its history:
+The same body shape reads any dataset of one object — chat messages, editor blocks, a runtime dataset you declared — via the sibling per-object path. The space's one chat is the root of the `general-chat` usecase; install it (adopt-or-install, idempotent), send a message, then read the history:
 
 ```python
 setup = call("POST", "/catalog/general-chat/setup", {"spaceId": SPACE})
@@ -103,9 +103,9 @@ if msgs["records"]:
     print("Older messages:", len(older["records"]))
 ```
 
-Expect one message and no older messages in this new chat. The `_ver.id` creation marker is an absolute pagination cursor on this server; edits do not move a message to the start. An empty page has no cursor. Avoid `offset` for a history that can receive new messages while you page.
+Expect one message and no older messages in this new chat. Page history with an absolute cursor on `_ver.id` rather than `offset`, which floats under writes: the cursor is the oldest record on the current page, an edit does not move a message, and an empty page has nothing older.
 
-Dataset writes return `{versionId, changeId, recordIds}`, not the record. Read through a query or subscription. `versionId` identifies the write on that server's stream; do not compare it across devices.
+Writes return the change, not the record: `{versionId, changeId, recordIds}`. Read it back through a query or let the subscription deliver it; stamp `versionId` to recognise your own delta on that server's stream — it is not a version to compare across devices.
 
 ## 4. Watch the pages change
 
@@ -177,6 +177,8 @@ except KeyboardInterrupt:
 
 Paste the command the program printed into another terminal. It already includes the real IDs; no shell variables need to be copied. Expect `Live: ['Reading list 2026']`. Ctrl-C stops the client and leaves its objects in the space.
 
-This example ends on a terminal frame or EOF. A long-running application must check the account, reconnect, and replace its window with the next snapshot. [JavaScript](javascript.html) demonstrates that recovery loop; [Subscriptions](../realtime/subscribe.html) gives the full contract. Put the blocking stream on a separate thread or task if your application needs to do other work concurrently.
+This example ends on a terminal `closed` frame or EOF. A long-running client reads `GET /v1/auth`, reopens the POST and replaces its window with the next snapshot — there is no replay; [JavaScript](javascript.html) is that loop, [Subscriptions](../realtime/subscribe.html) the full contract.
 
-Next: [the tutorial](../tutorial/index.html) for properties and datasets, or [anyrt](anyrt.html) to run a program beside the database.
+> **Note.** Keep the subscription loop on its own thread or task; `res` blocks on the socket between frames, and the server sends a `: keepalive` comment every 25 s during silence so an idle stream never looks dead.
+
+Next: [the tutorial](../tutorial/index.html) for properties and datasets, or [anyrt](anyrt.html), which runs this kind of code *inside* the database as a sandboxed program.

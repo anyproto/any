@@ -1,40 +1,48 @@
 ---
-title: API & configuration
-description: Look up HTTP endpoints, CLI commands, stream frames, errors, configuration and runtime contracts.
+title: Reference
+description: Exhaustive catalogs of the `any` server and `anyrt` runtime surfaces — endpoints, commands, streams, error codes, config keys, effects and schemas.
 order: 0
 ---
 # Reference
 
-Use this section when you know what you want to do and need the exact request, response or setting. For an end-to-end introduction, start with [your first app](../quickstart/curl.html).
+The guides explain how to build with `any`; this section lists what exists. Every endpoint, command, frame, error code and config key is here once, in the shape you will see on the wire, so you can look something up without reading a chapter.
 
-## Database server
+## How the pieces fit
 
-| Look up | Contents |
-|---|---|
-| [HTTP API](http-api.html) | Endpoints, request bodies, responses and operation-specific errors. |
-| [CLI](cli.html) | `any` commands, flags, input formats and exit codes. |
-| [SSE streams](events.html) | Subscription frames, snapshots, deltas and close reasons. |
-| [Errors](errors.html) | HTTP statuses and machine-readable error codes. |
-| [Server configuration](config.html) | Configuration keys, defaults, environment variables and flags. |
+```
+your client / script / agent
+        │  HTTP + JSON, SSE           (http-api, events, errors)
+        ▼
+any server  127.0.0.1:7001            (config, cli)
+        │  encrypted CRDT sync
+        ▼
+sync network + your other devices
 
-## Companion runtime
+anyrt serve  127.0.0.1:7010           (anyrt-cli, anybao-toml)
+   └─ sandboxed programs ── effects ──▶ any server, LLM, web   (effects-catalog)
+   └─ triggers                                                 (trigger-schema)
+```
 
-| Look up | Contents |
-|---|---|
-| [anyrt CLI](anyrt-cli.html) | Run, serve, deploy, tracing and the runtime control API. |
-| [Effects catalog](effects-catalog.html) | Operations available to programs through the effect boundary. |
-| [Trigger schema](trigger-schema.html) | Schedules, device ownership and execution state. |
-| [anybao.toml](anybao-toml.html) | Runtime configuration and provider setup. |
+Two binaries, two config files, one API. The `any` CLI is a thin client over the HTTP API — every subcommand is one endpoint — and `anyrt` is a client of the same API from inside a sandbox.
 
-The standalone setup runs Any and anyrt as separate processes; application hosts can embed the server or runtime. The Any database API normally listens on `127.0.0.1:7001`; the anyrt control API normally listens on `127.0.0.1:7010`. The `any` CLI calls the database API. anyrt also uses that API when it works with your data.
+## Conventions used throughout
 
-## Read the examples correctly
+- Paths are relative to `http://127.0.0.1:7001`; `…` in a path stands for the `/v1/spaces/:spaceId` prefix already shown in that table.
+- `$SP`, `$OBJ`, `$CHAT` in examples are a space id, an object id and a chat object id you substitute.
+- Dates on the wire are instants: `{"$date": "2026-08-05T17:00:00.000Z"}` — a bare string is a different value type and silently matches nothing in a filter.
+- Property values are keyed by `propId`, never by `xKey`; resolve the handle before you write.
+- Dataset writes return `{versionId, changeId, recordIds}`, not the record — read it back through a query or subscription.
+- Every non-2xx response is `{"error": {"code", "message", "details?"}}`; batch routes can also report per-item `rejections` inside a 2xx.
 
-- **Base URL:** database routes use `http://127.0.0.1:7001/v1`. In endpoint tables, `…` abbreviates the prefix identified by that table.
-- **IDs:** `$SPACE` or `$SP` means a space ID; `$OBJ` means an object ID; `$CHAT` means the general chat’s object ID. Set them to values from your own setup. An object ID, a type ID and a property ID are different values.
-- **Property keys:** custom values use `propId`. Resolve an `xKey` to its property ID before writing.
-- **Dates:** instants use `{"$date": "2026-08-05T17:00:00.000Z"}`. A bare string is a different value type.
-- **Write receipts:** many writes return `versionId`, `changeId` and `recordIds`, rather than the updated record. Read the record through a query or subscription.
-- **Errors:** non-2xx responses use `{"error": {"code", "message", "details?"}}`. Some batch operations report individual rejections inside a successful HTTP response; check that endpoint’s contract.
-
-Definitions of the shared vocabulary are in the [glossary](glossary.html). For a particular operation, its endpoint entry is the authoritative request and response shape.
+<div class="cards">
+<a href="http-api.html"><strong>HTTP API</strong><span>Every endpoint, grouped, with bodies, returns and error codes</span></a>
+<a href="cli.html"><strong>CLI</strong><span>Every any command group with flags and exit codes</span></a>
+<a href="events.html"><strong>SSE streams</strong><span>Every live stream, its frames, and the shared close reasons</span></a>
+<a href="errors.html"><strong>Errors</strong><span>The envelope, status rules, and the full code namespace</span></a>
+<a href="config.html"><strong>Server configuration</strong><span>Every key, env var, flag, default and precedence</span></a>
+<a href="anyrt-cli.html"><strong>anyrt CLI</strong><span>run, serve, deploy, trace, drift — and the control API</span></a>
+<a href="effects-catalog.html"><strong>Effects catalog</strong><span>The complete sandbox syscall surface and its capabilities</span></a>
+<a href="trigger-schema.html"><strong>Trigger schema</strong><span>agent_trigger fields, kinds, runs, and control routes</span></a>
+<a href="anybao-toml.html"><strong>anybao.toml</strong><span>Every key of the runtime's host config</span></a>
+<a href="glossary.html"><strong>Glossary</strong><span>One-line definitions with a link to the page that covers each</span></a>
+</div>

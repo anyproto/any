@@ -5,9 +5,7 @@ order: 30
 ---
 # Modules and overlays
 
-Publish a program repo to a space so other devices can load its code through sync. Consumers join the space read-only and give it an **overlay alias**, such as `agent`. A call like `use("agent:llm@v1")` names a program in that repo.
-
-If you already have a local program, go to [Publishing](#publishing). If you are consuming an existing repo, start with [Joining an overlay](#joining-an-overlay). Both need a running Any server and a configured anyrt runtime. The sections below explain which source `use()` selects and how a trace preserves it.
+Programs load other programs with `use("name@vN")`. Resolution is host-mediated, version-exact and recorded, so the trace pins the exact bytes that ran — even after the program in the space has moved on. A **repo** is a folder of programs published to a space; other spaces join it read-only and address it by an **overlay alias** — `use("agent:llm@v1")` names a program in the repo aliased `agent`.
 
 ## `use()` versus `import`
 

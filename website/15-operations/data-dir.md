@@ -5,9 +5,7 @@ order: 30
 ---
 # Data directory
 
-The data directory is the device's working copy of your accounts. `dataDir` defaults to `~/.any` and can hold several accounts, each with its own keys, database, files, and search index. The server config and embedding model cache are shared at the root.
-
-Use this page when backing up an account, setting up another device, or deciding whether a cache can be removed. Start with [Backup and second devices](#backup-and-second-devices) for account recovery; the tables below distinguish rebuildable indexes from data with no other copy.
+`dataDir` (default `~/.any`) is a **root** that can hold several accounts. Each account keeps its wallet, network pin, instance lock, CRDT storage, file bytes and search index in its own subdirectory; the config file and the embedder model cache sit at the root and are shared.
 
 ## Layout
 
@@ -43,11 +41,11 @@ A `wallet.key` directly at the root is the legacy flat layout: it acts as the de
 | `server.pid` | server | the lock holder's pid, written after acquiring; names it in `409 auth.account_in_use` and nothing more | yes |
 | `server.addr` | server | the lock holder's bound address; the CLI reads it when `--addr` is not given | yes |
 | `sdk/` | SDK | the CRDT storage — every space's change DAGs, materialized records, the tech space — plus the device-local store's `l_*` collections | CRDT content re-syncs from peers; local collections need a manual export for backup |
-| `files/` | SDK | file bytes; durable files can be fetched again; non-durable files may have no other reachable copy | partly — see [Status and durability](../files/status-and-durability.html) |
+| `files/` | SDK | file bytes; a durable file's bytes are a cache, a non-durable file's bytes are the only copy | partly — see [Status and durability](../files/status-and-durability.html) |
 | `index/` | indexer | `index.db` — BM25 + vector index and link edges per space, cursors, schema version | yes — rebuilt from the synced data |
 | `models/` | indexer | the embedding model GGUF (~639 MB), one per root, not per account | yes — re-downloaded |
 
-Synced CRDT content can be restored from peers and sync nodes, but that does not back up this entire directory. Unsynced changes, device-local records, and non-durable file bytes may have no other copy. The materialized records and search index are not encrypted at rest, and a plain `wallet.key` contains the mnemonic itself. Protect access to the directory.
+> **Why it matters.** This directory *is* your database. There is no server-side copy to restore from — a device that syncs a space holds the whole space, and unsynced changes, the local store and non-durable file bytes exist nowhere else. It is not encrypted at rest: records, the local store and the search index are readable by anyone who can read the directory, and a plain `wallet.key` holds the mnemonic itself. Treat it the way you would treat a private key directory.
 
 ## What is safe to delete
 
@@ -57,7 +55,7 @@ Synced CRDT content can be restored from peers and sync nodes, but that does not
 | `models/` | safe; the model downloads again on next boot (a model already in a legacy `<account-dir>/index/models/` keeps being used from there) |
 | `server.lock` | safe when no server is running; the lock lives in the kernel, not in the file, so a leftover file blocks nothing |
 | `server.pid`, `server.addr` | safe any time; they only label the current holder |
-| `files/` | **may lose non-durable files** — a peer may hold a copy, but network backup is not confirmed. Do not rely on a peer remaining reachable. Use the cache endpoints or per-file offload instead ([Cache](../files/cache.html)). |
+| `files/` | **loses non-durable files** — bytes not yet backed up to the network have no other copy (a LAN peer that fetched them is luck, not custody). Use the cache endpoints or per-file offload instead ([Cache](../files/cache.html)). |
 | `sdk/` | loses every unsynced change, forces a full re-sync of shared spaces and **loses the local store** (`/v1/local` collections have no automatic backup; a manual export can restore exported records); a wiped storage also restarts the index generation, which the indexer detects and re-indexes |
 | `wallet.key` | **loses this device's key**. The account survives if you kept the mnemonic — `any init --mnemonic` derives the same account id with a fresh device key. |
 | `network.json` | only to repair the pin: when the account was first booted on the wrong network, or the pin is unreadable (`500 auth.network_pin_corrupt`). Start the server on the account's network afterwards; that boot pins it again. |
@@ -73,7 +71,7 @@ any run
 
 The new device then cold-restores its spaces from the network (or from a nearby device over the [local network](networks.html)). Details in [Accounts](../auth/accounts.html) and [Devices](../auth/devices.html).
 
-Device-local collections do not sync automatically. Use `any local export --out local.anyenc.gz` on the source server and `any local import local.anyenc.gz` on the authorized destination to copy them manually. With no scope or names, export includes all local collections; use `--scope account` or `--space ID` and optional `--names a,b` to select less. The file contains the selected collections and indexes, not CRDT data or `files/` bytes. Import overlays matching IDs and can partially commit on failure. See [Local store](../reference/cli.html#local-store) for examples and [the HTTP contract](../reference/http-api.html#export-and-import-local-collections) for details.
+The local store never syncs; it moves by hand. `any local export --out local.anyenc.gz` on the source server and `any local import local.anyenc.gz` on the authorized destination copy it. With no scope or names the export takes every local collection; `--scope account` or `--space ID` plus `--names a,b` narrows it. The file holds the selected collections and their indexes — no CRDT data, no `files/` bytes. Import overlays matching ids and commits in chunks, so a failure can leave earlier chunks committed. Examples: [Local store](../reference/cli.html#local-store); contract: [HTTP API](../reference/http-api.html#export-and-import-local-collections).
 
 ## Account selection
 

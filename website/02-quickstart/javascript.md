@@ -1,15 +1,15 @@
 ---
 title: JavaScript
-description: A complete fetch client that creates a page, watches a sorted result window, and recovers from an interrupted stream.
+description: A fetch-based client with no dependencies — create a space and an object, query, read the SSE subscription from a streaming POST, and keep an ordered window that survives a dropped stream.
 order: 40
 ---
 # JavaScript
 
-Create a page, subscribe to its space, and rename it while the subscription is open. The example maintains an ordered result window and reconnects after an interrupted stream.
+Everything is `fetch`. The one wrinkle is live reads: the subscribe endpoints are POSTs (the filter body does not fit a query string), so the browser's `EventSource` does not apply — you read the response body as a stream and split SSE frames yourself. The blocks below form one file: create a space and a page, keep an ordered live window over the space, rename the page while the subscription is open, and reopen the stream when it drops.
 
-**Before you start:** complete [Install](install.html) and leave the authorized server running. <a href="../assets/examples/client.mjs" download>Download client.mjs</a>, or copy the JavaScript blocks below in order. Run `node client.mjs` with Node 18 or newer. Each run creates a new space.
+<a href="../assets/examples/client.mjs" download>Download client.mjs</a>, or copy the `js` blocks in order; they run top to bottom as an ES module (top-level `await`) in Node 18+ (`node client.mjs`) or a browser (`<script type="module">`). Each run creates a new space on the server from [Install](install.html).
 
-The same file works in a browser module. Serve it from `http://localhost:5173` or `http://127.0.0.1:5173`, the allowed development origins. Other origins need an appropriate proxy and a same-origin `API` URL ([Security model](../operations/security-model.html)).
+> **Note.** In a browser the server's CORS allowlist covers the desktop-shell webview origins and the Vite dev origins (`http://localhost:5173`, `http://127.0.0.1:5173`); a page served from another origin is blocked by the browser even though the server is on loopback. Serve your dev page from Vite, or proxy `/v1` through your dev server ([Security model](../operations/security-model.html)).
 
 ## 1. Make an HTTP call
 
@@ -40,7 +40,7 @@ if (!account.authorized) throw new Error("Create or select an account before run
 
 ## 2. Create and read a page
 
-An object requires one `type`; `collections` is optional. Names and descriptions belong to the universal `any` property group.
+A document is an object whose type has a part declaring the `editor` module — the built-in `page` for a plain body, or a document type of your own (registered as a bundle so every device agrees on one). `type` is required; `collections` is optional; `name` and `description` live in the universal `any` property group.
 
 ```js
 const { id: SPACE } = await call("POST", "/spaces", { name: "JavaScript notebook" });
@@ -56,7 +56,7 @@ Expect `Pages: 1 [ 'Reading list' ]`. The query uses an explicit ascending ID as
 
 ## 3. Read the stream
 
-Subscriptions are POSTs, so use `fetch` instead of `EventSource`. This parser accepts LF or CRLF frames, joins multiple `data:` lines, ignores keepalive comments, and releases the reader when the loop exits.
+One POST returns `text/event-stream`. Parse it frame by frame: frames are separated by a blank line (LF or CRLF), each has `event:` and `data:` lines, several `data:` lines join, and `: keepalive` comments are ignored. The generator releases the reader when the loop exits.
 
 ```js
 async function* sse(path, body, signal) {
@@ -160,7 +160,7 @@ async function watch() {
 }
 ```
 
-The loop retries network failures, server errors, HTTP 429, EOF, and terminal frames. There is no event replay: reconnecting supplies a fresh snapshot.
+The loop retries network failures, server 5xx, HTTP 429, EOF and terminal frames. `closed` carries a reason — `server_shutdown`, `sdk_closed`, `overflow` (you drained too slowly), `drifted` (too much of the window left), `deauthorized` (the account was signed out or switched; read `GET /v1/auth` first). Each means the same thing for the stream: open a new POST and replace your window with the new `snapshot`. A stream that ends without `closed` means the same. There is no replay and nothing to reconcile.
 
 While `GET /auth` reports `authorized: false`, the loop clears the view and waits. This state can occur during a restart or while a managed host authorizes an account. It subscribes again only when the original account is authorized.
 
@@ -200,7 +200,7 @@ Expect the live output to contain `Reading list 2026`. Stop with Ctrl-C in Node,
 
 ## Writing and reading back
 
-Object creation returns `objectId`. Dataset writes, including chat messages, return `{versionId, changeId, recordIds}`; read the new record through a query or the open subscription. A change's `versionId` can identify your own write on that server's stream, but is not a version to compare across devices.
+Object creation returns `objectId`. Dataset writes, chat messages included, return `{versionId, changeId, recordIds}` and never the record. Read it back through a query, or let the open subscription deliver it — stamp `versionId` on what you wrote if you need to recognise your own change on the stream ([Best practices](../understanding/best-practices.html)); it is not a version to compare across devices.
 
 A chat uses the same pattern: install `general-chat` through `POST /catalog/general-chat/setup`, take `bundles[0].bundle.rootId`, and send to `POST /spaces/:spaceId/objects/:chatId/chat/messages`. [Python](python.html#3-read-a-dataset) shows the complete dataset write and pagination sequence.
 

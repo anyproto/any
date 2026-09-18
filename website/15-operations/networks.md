@@ -5,9 +5,7 @@ order: 40
 ---
 # Networks
 
-Choose a sync network before starting a separate test or private deployment. A **node configuration** (nodeconf) names its coordinator, consensus, sync, and file nodes. An authorized server uses the embedded production configuration unless you supply another one.
-
-Local-network sync is a separate path: devices of the same account can discover each other through mDNS and exchange changes directly. The sections below cover network selection, account network pins, and local peer settings.
+A server syncs through an **any-sync network**: coordinator, consensus, sync and file nodes described by a node configuration ("nodeconf"). With nothing configured the binary joins the production network from a configuration embedded at build time; one setting points it anywhere else — choose it before the first boot of a test or private account, because the account pins its network. Independently of that, devices of the same account on one LAN find each other over mDNS and sync directly.
 
 ## Choosing a network
 

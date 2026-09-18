@@ -98,7 +98,7 @@ Declare a property's scope at create (`"scope": "local"`); it is pinned like the
 
 Chat's read-tracking flags (`unread`, `unreadMention`, `unreadReactions`) are the canonical `local` fields: each device keeps its own, nothing leaves the machine.
 
-Scopes let one record contain shared content alongside device-local or account-private state. Check the declared scope before choosing the write route.
+> **Why it matters.** Scopes let one record hold shared content and private state side by side — a message everyone sees, a read flag only you see — without a second store or a server-side user table.
 
 ## Dataset schemas and `x-scope`
 

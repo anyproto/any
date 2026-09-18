@@ -5,16 +5,7 @@ order: 10
 ---
 # Subscribe
 
-A subscription sends the current results of a [query](../database/reading-data.html), then updates them as records change. Its **window** is the set selected by your filter, sort, and limit. The server maintains which records belong in that window.
-
-For a client, the core loop is small:
-
-1. Replace the local window with `snapshot.records`.
-2. Store the full `doc` for each added or updated record; remove IDs in `removed`.
-3. Render the retained records in the query's sort order.
-4. On reconnect, replace the window with the new snapshot.
-
-A `Map` keyed by record ID handles membership. It does not maintain query order when a sort key changes; your renderer must sort the retained records.
+A subscription is a live version of a [query](../database/reading-data.html): the same filter, sort and limit, but instead of one response you get a snapshot followed by a stream of windowed deltas over Server-Sent Events. The engine holds the window for you — no client-side diffing, buffering, or version bookkeeping. The client's whole loop is: replace the window with `snapshot.records`; on `changes`, store the full `doc` of each `added` / `updated` record and drop the `removed` ids; render in the query's sort order (a map keyed by id holds membership, not order); on reconnect, replace the window with the new snapshot.
 
 ## Endpoints
 
@@ -104,21 +95,15 @@ An object deletion can produce a synthetic removal with an empty `versionId`. Ap
 | `overflow` | events arrived faster than the client drained them and the mailbox (`mailboxCapacity`) filled; the engine closes the stream rather than drop events |
 | `drifted` | more than `driftBudgetPercent` of the window left without replacements; the engine refuses to re-query on the hot path |
 
-Recovery is **a new POST and a fresh snapshot**. Before every attempt, check `GET /v1/auth`: subscribe only when the account is authorized and matches the one the view belongs to. If it reports `authorized: false`, clear the old view and wait before checking again; this state can occur during a restart or while a managed host authorizes an account. If another account is authorized, clear the view and stop. Make the same check after HTTP 401, a failed request, or an end of stream without `closed`; an account switch can interrupt delivery of the terminal frame.
+Recovery is the same for all of them: **open a new POST and take the fresh snapshot**. There is no replay across reconnects and no resume cursor — the new snapshot already reflects current state, which is strictly cheaper than reconstructing it from a backlog. Before every attempt read `GET /v1/auth`: `authorized: false` means clear the view and wait (a restart, or a managed host between accounts — the example below waits for the original account to come back; a host cancels the watcher on a deliberate sign-out), a different `accountId` means clear the view and stop. Make the same check after a 401, a failed request or a stream that ends without `closed` — an account switch can swallow the terminal frame.
 
-An unauthorized status does not say whether the interruption is temporary or the user signed out. The example waits for the original account to return. A host application should cancel the watcher when the user deliberately signs out.
-
-There is no replay or resume cursor. Back off before retrying. Repeated `overflow` suggests the consumer cannot drain its mailbox quickly enough; inspect processing time or increase `mailboxCapacity`. Repeated `drifted` suggests widening `limit` or adjusting `driftBudgetPercent`.
+`overflow` and `drifted` are split only so you can log and back off sensibly: a burst of `overflow` on a hot storage collection is the hint to raise `mailboxCapacity` (or to look at how slowly the consumer drains), a stream of `drifted` on a churny list is the hint to raise `driftBudgetPercent` or widen `limit`.
 
 > **Note.** Drift detection needs a window to measure against: with `limit: 0` there is no window auto-shift and no drift safety net. Always subscribe with a limit.
 
 ## Client example: fetch streaming, no EventSource
 
-Windowed subscriptions use POST, so use streaming `fetch` rather than `EventSource`.
-
-**Before you start:** run this in Node.js 18+ or an allowed desktop renderer. The server must be authorized. Replace `SPACE`, `CHAT`, and `ACCOUNT` with your space ID, the [general chat's root ID](../types/chat.html#finding-the-chat-object), and the expected account ID from `GET /v1/auth`. Ordinary web pages are subject to the server's CORS policy.
-
-This example maintains the message window and logs changes in its size. Connect `windowChanged` to your renderer and sort the records by descending `_ver.id` for this query. Call `stop.abort()` when the view closes.
+Windowed subscribes are `POST`, so the browser's `EventSource` cannot open them. Parse the SSE frames from a streaming `fetch` body instead, and wrap the stream in one retry loop: a `closed` frame, a stream that ends without one, and a failed request all mean "open a new POST and replace the window with its snapshot". Node.js 18+ or an allowlisted desktop renderer (an ordinary web page hits the server's CORS policy); `SPACE` is a space id, `CHAT` the [general chat's root](../types/chat.html#finding-the-chat-object), `ACCOUNT` the `accountId` from `GET /v1/auth`. `windowChanged` is where your renderer goes — sort by `-_ver.id` for this query — and `stop.abort()` is what the view calls on close:
 
 ```js
 const API = "http://127.0.0.1:7001/v1";
@@ -256,4 +241,4 @@ any query-subscribe SPACE CHAT --dataset chat_messages --sort -_ver.id --limit 5
 - **`editor_blocks`** — the block tree of one document; every frame ships the full post-apply block, whether it came from a block write or a bulk markdown import. See [Editor](../types/editor.html).
 - **`chat_messages`** — one message per `added`; a reaction toggle arrives as an `updated` event with a `$set` / `$unset` op under `reactions.<emoji>.<accountId>`. See [Chat](../types/chat.html).
 
-Records ship their full stored form — `_ver` included (and `_traces` / `_deletedAt` when present) — unless you send a `projection`, which shapes the snapshot and every later `changes` record alike, so the stream cannot widen on you. Hold one subscription per open view and keep its limit close to what the UI needs. Both the subscription and the client retain window state.
+Records ship their full stored form — `_ver` included (and `_traces` / `_deletedAt` when present) — unless you send a `projection`, which shapes the snapshot and every later `changes` record alike, so the stream cannot widen on you. Hold one subscription per open view and size the window for the UI — the engine holds the window on the server side as well, so `limit` is memory on both ends.

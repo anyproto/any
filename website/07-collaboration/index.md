@@ -5,18 +5,18 @@ order: 0
 ---
 # Collaboration
 
-Share data by sharing a **space**. Its access-control list (ACL) identifies members and their permissions. Each member works with local data, and encrypted changes sync between devices.
+A space is the unit of sharing: one encrypted CRDT world with its own access-control list. Everything on these pages is about who is in a space, how they got there, what they may do, and how several devices or members converge on the same objects without a coordinator deciding for them.
 
-## Choose a sharing flow
+## Four ways in
 
-- **Invite someone to a team space:** create an invite, let them request to join, then approve the request. [Invites](invites.html)
-- **Grant access to a known account:** add its identity through the ACL. The recipient accepts the incoming space before loading it. [Access control](acl.html)
-- **Create a private space for two people:** use the deterministic one-to-one flow. [One-to-one spaces](one-to-one.html)
-- **Let people read without membership approval:** use a public guest key, which grants read-only access to anyone holding it. [Guest access](invites.html)
+- **A team space:** create an invite, the newcomer requests to join, an owner approves — [Invites](invites.html).
+- **A known account:** grant its identity through the ACL; the recipient accepts the incoming space before loading it — [Access control](acl.html).
+- **Two people:** the deterministic one-to-one derivation, no invite at all — [One-to-one spaces](one-to-one.html).
+- **Readers without approval:** a guest key, read-only for anyone holding it — [Guest access](invites.html).
 
-Check membership and space status before showing shared data. A successful join request means approval is pending; it does not mean the space is ready to query.
+A successful join request means approval is pending, not that the space is ready to query: read membership and space status before showing shared data.
 
-## Membership flows
+## The model in one picture
 
 ```
 owner ── mints invite ──► token ──► joiner: POST /v1/spaces/join  (status: joining)
@@ -50,9 +50,9 @@ me ── one-to-one {otherIdentity} ──► both derive the same space, both 
 
 Your own role in every space is mirrored onto the space list as `SpaceInfo.ownRole`, so a UI can gate role-dependent controls straight from `GET /v1/spaces` — no per-space fan-out. `GET /v1/spaces/:id/members/me` is the authoritative read when it matters.
 
-Granting membership delivers the space’s read key to the member through the ACL. Removing a member rotates that key for future changes; it does not erase content they already received. Sync nodes store encrypted space content without holding its read key. [Encryption boundaries](../understanding/encryption.html)
+> **Why it matters.** Access control is cryptographic, not a policy a server enforces: a grant hands the member the space's read key, a removal rotates it for every change from then on (what the member already received stays decryptable). A relay that stores the space cannot read it, and cannot quietly add itself as a member.
 
-## Shared objects with stable identities
+## Convergence without a coordinator
 
 Two themes recur across the section:
 

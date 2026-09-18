@@ -5,9 +5,9 @@ order: 40
 ---
 # Device pins
 
-A trigger's `owner` selects the device that runs it. Set a peer ID to pin the job; clear it to let the currently active device claim it. This lets you keep a job on a particular machine while using the agent from another device.
+Your account can run the agent on several devices. A trigger's `owner` field says which one fires it: a **peer id** pins the trigger to that device, election-independent; an empty owner is a transient **unassigned** state that the device currently holding the **active** role claims on its next tick. Moving a job is writing one field.
 
-A pin is independent of the active-agent election. A standby runtime still runs jobs pinned to its device. A stopped runtime runs nothing, and moving the active role does not move already pinned user jobs. Use [Runs and monitoring](runs-and-monitoring.html) to inspect a job before changing its owner.
+A standby runtime still fires the jobs pinned to its device; a stopped one fires nothing, and moving the active role moves no pinned job with it.
 
 ## The owner field
 

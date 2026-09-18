@@ -5,11 +5,9 @@ order: 20
 ---
 # Objects
 
-Create an object for a page, person, task, or another item in your app. Give it one type and, optionally, collections to file it under. Its properties describe the item; datasets hold its content.
+An object is a document in a space: exactly one **type** — what it is — any number of **collections** it is filed under, property values keyed by owner and property id, and any number of per-object datasets. A place in the space's tree is one of those collections — the wiki, below.
 
-This page covers creation, changing membership, reading the object row, placing objects in the wiki tree, and deletion. For the concepts behind those operations, see [Data model](data-model.html).
-
-**Before you start:** the local server must be running with an account allowed to write the space. Set `$SPACE` to its ID. Use IDs returned by the API for `$OBJ`, `$TYPE`, and `$COLL`; a display name or `xKey` is not an object ID.
+`$SPACE`, `$OBJ`, `$TYPE` and `$COLL` are ids the API returned; a name or an `xKey` is never an id.
 
 ## Create an object
 
@@ -21,7 +19,7 @@ OBJ=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
 # The 201 response is {"objectId":"…"}; jq saves that ID in $OBJ.
 ```
 
-This creates a plain page named Dune. Its body starts empty. The command uses `jq`; the CLI equivalent is:
+A plain page named Dune, body empty. CLI:
 
 ```bash
 any object create $SPACE --type page --properties '{"any":{"name":"Dune"}}'
@@ -37,7 +35,7 @@ The create body has exactly three keys:
 
 Any other top-level key answers `400 request.unknown_field` naming the accepted set; a wrong shape (a string where an array is expected) is `400 request.schema`. Nothing is silently dropped. Values under `initialProperties` are checked against each property's declared format (`400 property.format_violation`).
 
-For this example, `$PERSON` is a person type ID; `$CONTACT` and `$INVESTOR` are collection IDs; `$STATUS` is a property ID from the contact collection. Create the item and its starting values together:
+A person filed under two facets is one call — `$PERSON` the type, `$CONTACT` and `$INVESTOR` collections, `$STATUS` a property declared on the contact collection:
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
@@ -94,7 +92,7 @@ An illustrative row for a page filed under the wiki collection:
 
 ## The wiki tree
 
-The wiki tree is a hidden collection installed by the `wiki` catalog usecase. Its three columns store parent, position, and folder status. Any object can join the tree while keeping its own type. Run setup for the space and keep the returned collection and property IDs:
+The space's tree is the catalog usecase `wiki`: a hidden **collection** whose three columns place any object filed under it. There is no built-in tree type, nothing is stamped on create, and there is no tree endpoint. Set it up once per space and keep the reply — every client, device and member lands on the same ids:
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/catalog/wiki/setup \
@@ -132,7 +130,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
   }'
 ```
 
-List a node's children in order. Set `$NODE` to the parent object ID, or `""` for the top level. Include wiki membership and exclude the bin: removing a collection keeps its old property values, and moving to the bin preserves other memberships.
+List a node's children in order (`""` as the parent lists the top level). The membership clause is not decoration: an unfiled object keeps its orphan `parentId`, and a binned one keeps its collections.
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
@@ -148,7 +146,7 @@ The columns are plain properties: unindexed on the `objects` storage collection 
 
 ### Moving objects
 
-To move an object already filed under the wiki, set its parent and position together. `$NEW_PARENT` is the destination object ID, or an empty string for the top level. Reordering within a parent only needs a new `pos`:
+A drag-and-drop move is one property write in the wiki collection's namespace — both fields land in a single change (`$NEW_PARENT` is the destination, `""` for the top level); a reorder inside the same parent patches `pos` alone:
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/$WIKI \

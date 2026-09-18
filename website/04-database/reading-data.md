@@ -5,11 +5,9 @@ order: 50
 ---
 # Reading data
 
-Use a query to select records with a filter, put them in order, and return a page. The API supports MongoDB-style operators, but it reads Any's local embedded store.
+All reads go through one primitive: a windowed query over any-store, the embedded MongoDB-flavoured document store under every space. The same body serves a point-in-time snapshot and, on the `/subscribe` twin, a live stream.
 
-Choose the endpoint by the data you need: object properties across a space, or records in one object's dataset. Add `/subscribe` when the result needs to stay current.
-
-**Before you start:** `$SPACE` is a space the running account can read. For the block example, `$OBJ` is an object whose type declares `editor_blocks`, such as a built-in `page`.
+In the block example `$OBJ` is an object whose type declares `editor_blocks` — a built-in `page` does.
 
 ## Two scopes
 
@@ -60,9 +58,7 @@ Response:
   "hasNext": true }     // with includeTotal
 ```
 
-Without a `projection`, each result contains the stored record, including `_ver` (creation and field versions), and `_deletedAt` or `_traces` when present.
-
-Use `projection` to reduce the returned fields: `{"any": 1, "<typeId>": 1}` selects two property groups; `{"_ver": -1}` keeps user data while dropping version metadata. Marks are `1` for include and `-1` for exclude. `id` always ships, and `_ver` narrows automatically with the selected fields. A projection changes output only; filters and sorting still use the whole stored row.
+Without a `projection`, records ship their full stored form, including `_ver` (creation marker plus per-field high-water version ids) and `_deletedAt` / `_traces` when present. `projection` narrows them: a mongo-style map of field paths to `1` (include) or `-1` (exclude), e.g. `{"any": 1, "<typeId>": 1}`. `id` always ships, `_ver` narrows with the fields you asked for, and `{"_ver": -1}` drops it. A projection shapes the output only; filter and sort still run over the whole stored row.
 
 ## Filter operators
 
@@ -106,7 +102,7 @@ An object carries one type and any number of collections, so the two filter diff
 { "any.collections": { "$nin": ["bin"] } }           // not in the bin
 ```
 
-`any.type` is one string, so equality selects a type and `$in` selects any of several types. `any.collections` is an array, so a scalar selects its members. **No marker exclusion is ever needed:** a type definition's row carries `any.type: "__type__"` and a collection's carries `"__collection__"`, never its own id, so a definition never matches a member query even while it hosts its own values and records.
+`any.type` is plain equality on a scalar — no array matching, `$in` for a set. **No marker exclusion is ever needed:** a type definition's row carries `any.type: "__type__"` and a collection's carries `"__collection__"`, never its own id, so a definition never matches a member query even while it hosts its own values and records.
 
 ### Dates
 
@@ -124,7 +120,7 @@ Instants filter as instants. Wrap the literal in `{"$date": …}`:
 
 ## Sort
 
-`sort` is an array of dotted field paths. Prefix a path with `-` for descending order; otherwise it is ascending. Sort keys apply left to right: `["<wikiCollectionId>.<parentIdPropId>", "<wikiCollectionId>.<posPropId>"]` (the wiki tree's columns — [Objects](objects.html)). On `/subscribe`, `sort` is required whenever `limit > 0` so the window is well-defined. `{"sort": ["-modifiedAt"]}` is "recently modified first"; `-createdAt` is creation-time order. Add `id` as a final key when other values can tie. A client maintaining a live window must apply the same sort after updates; insertion order in a map is not query order.
+`sort` is an array of dotted paths, `-` prefix for descending, applied left to right: `["<wikiCollectionId>.<parentIdPropId>", "<wikiCollectionId>.<posPropId>"]` (the wiki tree's columns — [Objects](objects.html)). On `/subscribe`, `sort` is required whenever `limit > 0` so the window is well-defined. `{"sort": ["-modifiedAt"]}` is "recently modified first"; `-createdAt` is creation order. Add `id` as the last key when the others can tie, and re-apply the same sort client-side after each `changes` batch — a map's insertion order is not query order.
 
 ## Paths
 
@@ -143,7 +139,7 @@ A type's or collection's `xKey` is a client-side label, never a server path.
 
 **`offset` / `limit`** is fine for a frozen snapshot. It floats on a live storage collection: row 50 becomes row 51 the moment something lands ahead of it, so paging across writes skips and repeats rows.
 
-**Cursor paging** uses the last value seen instead of a row offset. Choose an indexed field whose order does not change and keep the same sort. For chat, `_ver.id` is assigned at message creation and stays unchanged by edits. Page backward with
+**Cursor paging** is stable: filter on an indexed, monotonic field and keep the same sort. For chat that field is `_ver.id`, assigned at creation and untouched by edits. Chat pages backward with
 
 ```json
 { "objectId": "<chat>", "dataset": "chat_messages",
@@ -153,7 +149,7 @@ A type's or collection's `xKey` is a client-side label, never a server path.
 
 `includeTotal` counts every filter match, ignoring `limit` and `offset`, from the same read as the page; `hasNext` is `offset + len(records) < total`. For counts per group, use a `$count` / `$group` [aggregation](aggregation.html).
 
-Set a limit for user-facing lists. An omitted or zero limit is unbounded: the client must receive the entire matching set. A subscription also needs a positive limit for window drift detection.
+> **Why it matters.** Every query runs against a local database, so the cost of a read is disk, not network. Always set a `limit` anyway: an omitted or zero limit is unbounded, an unbounded read builds a huge snapshot, and on a subscription it can overflow the mailbox.
 
 ## Tombstones
 
@@ -161,7 +157,7 @@ A deleted record is a tombstone: its content is wiped, its id is burned, and eve
 
 ## CLI
 
-`any query-subscribe` supports both query scopes. It prints one JSON object per SSE frame, including the initial snapshot, and then keeps listening. Stop it when you no longer need updates:
+`any query-subscribe` is the CLI form of both scopes — it prints one JSON object per SSE frame, so the `snapshot` frame is the one-shot read, and it keeps listening until you stop it:
 
 ```bash
 any query-subscribe $SPACE $OBJ --dataset editor_blocks --sort nav.pos --limit 50

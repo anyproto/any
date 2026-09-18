@@ -1,13 +1,11 @@
 ---
 title: Effects
-description: Call the database, HTTP services, and other host capabilities through recorded effects.
+description: The complete host syscall surface a program can reach, how each call is classified, and why the boundary is where the truth lives.
 order: 10
 ---
 # Effects
 
-An **effect** is a call from a program to its host: read the clock, query the database, contact an HTTP service, or use another supported capability. The host checks the call, executes it, and records the result for inspection and replay.
-
-Use the catalog below when writing a program that needs data or services outside its Python kernel. The Any client, model adapters, and memory helpers are Python programs built on these calls. For a first HTTP example, see [Pythonic surface](#pythonic-surface); for provider keys, see [Credentials](credentials.html).
+An effect is the only way guest code touches the world. The catalog below is the entire host surface — small and stable by design. Everything else a program uses (the `any` client, LLM adapters, memory, the conversation loop) is itself guest Python loaded with `use()`. Provider keys ride effects too, as [credentials](credentials.html).
 
 ## The catalog
 
@@ -74,7 +72,7 @@ normalize → key → capability check → replay/mock consult → execute → r
 - **Capability check** consults the active grant set before anything runs. The runtime ships a permissive default; a denial is recorded as `error.type: "capability_denied"`.
 - **Record always** — success, error, denial, mock. A failure is data in the record *and* a typed `EffectError` (`"<type>: <message>"`) raised into the guest, so a cell may catch it and nothing is silently swallowed.
 
-> **Why it matters.** The guest-side facade (`http.get`, `print()`) holds zero authority — bypassing it gains nothing. Classification, secrets and recording all happen on the host side of one serialized crossing. Agent policy lives above that boundary as deployed programs; adding a host capability requires a runtime change.
+> **Why it matters.** The guest-side facade (`http.get`, `print()`) holds zero authority — bypassing it gains nothing. Classification, secrets and recording all happen on the host side of one serialized crossing. The cage and its syscalls never change; everything the agent *is* lives above the boundary as deployed code.
 
 ## Fan-out
 
