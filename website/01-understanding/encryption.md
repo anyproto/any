@@ -5,7 +5,7 @@ order: 20
 ---
 # Encryption
 
-Space content is encrypted on the device before it syncs, under keys only space members hold: any-sync nodes store and relay changes but cannot read them, and see only the metadata listed below. Requests to outside providers — the online embedder of the default `index.embedder: auto`, an agent's model or connectors — carry readable content to that provider; `index.embedder: local` keeps search indexing on the device ([Embedders](../search/embedders.html)).
+Space content is encrypted on the device before it syncs, under keys only space members hold: any-sync nodes store and relay changes but cannot read them, and see only the metadata listed below. Requests to outside providers — the online embedder that `index.embedder: auto` uses once `index.openai.apiKey` is set, an agent's model or connectors — carry readable content to that provider; without a key, and with `index.embedder: local`, search indexing stays on the device ([Embedders](../search/embedders.html)).
 
 ## The key hierarchy
 

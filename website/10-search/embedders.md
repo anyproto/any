@@ -11,13 +11,13 @@ An embedder turns index documents and queries into vectors for the [semantic leg
 
 | `index.embedder` | What runs | Needs |
 |---|---|---|
-| `auto` (default) | an online OpenAI-compatible API as primary, the local model as fallback — same model both ways; indexed text and search queries go to the online API | nothing; the local model auto-downloads regardless |
+| `auto` (default) | the local model alone until `index.openai.apiKey` is set; with a key, an online OpenAI-compatible API as primary and the local model as fallback — same model both ways, and indexed text and search queries go to the online API | nothing; the local model auto-downloads regardless |
 | `local` | llama.cpp in a child process of the server, no external service | the llama.cpp shared libraries next to the binary; a system `libffi` on Linux |
 | `ollama` | a local Ollama server's `/api/embed` | Ollama running (default `http://localhost:11434`, model `embeddinggemma`) |
 | `openai` | any OpenAI-compatible `/embeddings` endpoint | `index.openai.{baseUrl, model, apiKey}` |
 | `none` | no embedder — the index is full-text only | — |
 
-> **Note.** An embedder reads the text it embeds. `auto` and `openai` send the text of every indexed document and every search query to `index.openai.baseUrl`; `ollama` sends them to the Ollama server. `local` keeps them on the device.
+> **Note.** An embedder reads the text it embeds. `openai`, and `auto` once it has a key, send the text of every indexed document and every search query to `index.openai.baseUrl`; `ollama` sends them to the Ollama server. `local` keeps them on the device.
 
 ```yaml
 index:
@@ -56,7 +56,7 @@ Platform notes: Linux needs a loadable system `libffi.so.8` (on NixOS use the re
 
 ## `auto` — online primary, local fallback
 
-`auto` prefers the online API for speed and falls back to the local model during an outage through a circuit breaker (repeated failures skip the primary for a cooldown, then re-probe), so vector search stays fresh instead of pausing. A semantic query gives the primary half of the remaining timeout budget so the local fallback still has time to answer.
+No key ships with the binary, so a fresh install's `auto` is the local model and nothing leaves the device. Set `index.openai.apiKey` (`ANY_INDEX_OPENAI_API_KEY`) and `auto` prefers the online API for speed and falls back to the local model during an outage through a circuit breaker (repeated failures skip the primary for a cooldown, then re-probe), so vector search stays fresh instead of pausing. A semantic query gives the primary half of the remaining timeout budget so the local fallback still has time to answer.
 
 > **Note.** Both sides must be the **same embedding model** — the index holds one vector space and one dimension, and mixing models yields incoherent similarity. The supported pairing is one model served two ways: `index.openai.model: Qwen/Qwen3-Embedding-0.6B` on a host that serves it, with the default local Qwen3-Embedding-0.6B. fp16-versus-Q8 drift is negligible. The packaged `openai` defaults are shared development credentials, marked temporary.
 
@@ -79,7 +79,7 @@ index:
     apiKey: sk-…            # sent as Bearer, never logged
 ```
 
-`index.embedConcurrency` embeds several batches in parallel — the throughput win for online APIs (default 4 for `openai`/`auto`, 1 for `local`, which serializes internally anyway). `index.embedBatch` (default 64) is the documents per request.
+`index.embedConcurrency` embeds several batches in parallel — the throughput win for online APIs (default 4 for `openai` and for `auto` with a key, 1 for `local`, which serializes internally anyway). `index.embedBatch` (default 64) is the documents per request.
 
 ## Outage semantics
 

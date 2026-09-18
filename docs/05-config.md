@@ -125,9 +125,9 @@ index:
     url: http://localhost:11434       # default
     model: embeddinggemma             # default
   openai:                             # online primary for embedder: openai/auto.
-                                      # The defaults carry shared DeepInfra dev
-                                      # credentials (Qwen3-Embedding-0.6B) so `auto`
-                                      # works with no config.
+                                      # No key ships with the binary: under `auto`
+                                      # the primary is on only when apiKey is set,
+                                      # otherwise `auto` is the local model alone.
     baseUrl: https://api.deepinfra.com/v1/openai
     model: Qwen/Qwen3-Embedding-0.6B  # for auto, MUST equal the local fallback model
     apiKey: ...                       # sent as Bearer; never logged
@@ -309,8 +309,9 @@ default value stays).
 
 ### `index.embedder: local` prerequisites
 
-The local embedder is the **fallback** under the default `auto` (and used
-directly with `index.embedder: local`; set `none` for FTS-only). It runs
+The local embedder is what the default `auto` runs — alone until
+`index.openai.apiKey` is set, as the fallback after — and is used
+directly with `index.embedder: local`; set `none` for FTS-only. It runs
 llama.cpp in a child process (`any run embedder`, this same binary; no
 CGO — yzma dlopens the shared libs at runtime), so a llama.cpp abort
 costs a round of embedding instead of the server

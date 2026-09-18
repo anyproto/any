@@ -39,6 +39,11 @@ func NewEmbedder(cfg config.Index, modelsDir, legacyModelsDir string, onProcess 
 		// (fast, batched), fall back to the always-downloaded local model on
 		// an outage. Both MUST be the same model (index.openai.model must
 		// name the same model the local embedder runs) — see fallbackEmbedder.
+		// Without an API key there is no primary: the text stays on the
+		// device instead of being posted to a host that will refuse it.
+		if cfg.OpenAI.ApiKey == "" {
+			return newWorkerEmbedder(cfg.Local, modelsDir, legacyModelsDir, onProcess)
+		}
 		if cfg.OpenAI.Model == "" {
 			return nil, fmt.Errorf("indexer: auto embedder needs index.openai.model (the online primary, same model as local)")
 		}

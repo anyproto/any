@@ -153,12 +153,13 @@ with objects and add your own properties.
 ## Embedding modes
 
 The quickstart explicitly selects `local`. The server's built-in default is
-`auto`; configuration files or environment variables can override it.
+`auto`, which is the local model until an `index.openai.apiKey` is
+configured; configuration files or environment variables can override it.
 
 | Mode | Where embedding inputs go |
 | --- | --- |
 | `local` | A local llama.cpp worker. Model files may be downloaded, but document text and queries are embedded on the device. |
-| `auto` | An online embedding provider first, with the local model as fallback. |
+| `auto` | The local model alone with no `index.openai.apiKey`; with one, the configured online endpoint first and the local model as fallback. |
 | `none` | No embeddings; full-text search remains available in builds that include it. |
 
 See [Embedders](website/10-search/embedders.md) for model settings, Ollama,

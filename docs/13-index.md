@@ -550,7 +550,7 @@ one updated to deleted, stops it and drops its index. A failed
 
 A second per-space goroutine drains `pending` docs: `EmbedDocs` in
 batches of `index.embedBatch` (default 64), `index.embedConcurrency`
-batches in parallel (default 1; 4 for `openai` / `auto`) → `SetVectors`
+batches in parallel (default 1; 4 for `openai`, and for `auto` with a key) → `SetVectors`
 (one write transaction, update-only — docs deleted meanwhile are
 skipped) → `EnsureVectorIndex`. Advance nudges it after each page with
 new text; a 1-minute ticker retries after embedder failures. A rewritten
@@ -559,10 +559,12 @@ run and the index is FTS-only.
 
 Embedders (`indexer.Embedder`), selected by `index.embedder`:
 
-- `auto` — **default**: an OpenAI-compatible primary with the `local`
-  embedder as fallback. Both MUST serve the same model (one vector space,
-  one dimension); the default pairing is Qwen3-Embedding-0.6B online and
-  locally (`index.openai.*` names the primary, required). A circuit
+- `auto` — **default**: the `local` embedder alone until
+  `index.openai.apiKey` is set; with a key, an OpenAI-compatible primary
+  with the `local` embedder as fallback. Both MUST serve the same model
+  (one vector space, one dimension); the default pairing is
+  Qwen3-Embedding-0.6B online and locally (`index.openai.*` names the
+  primary; `model` required once a key is set). A circuit
   breaker skips the primary for 30 s after 3 consecutive failures. A
   query gives the primary half of the remaining query budget, so the
   fallback still has time to decode.
