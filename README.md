@@ -196,4 +196,4 @@ server or inside the Any desktop application.
 
 ## License
 
-Any is released under the **MIT** license.
+Any is released under the **MIT** license ([LICENSE](LICENSE)).
