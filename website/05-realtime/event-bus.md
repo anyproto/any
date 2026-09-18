@@ -13,7 +13,6 @@ Not everything belongs in the database. A "open this document" directive, a prog
 {
   "type":    "ui.open_object",
   "scope":   "device",
-  "spaceId": "spc_…",
   "target":  "obj_…",
   "data":    { "spaceId": "spc_…", "objectId": "obj_…", "source": "cli" },
   "sender":  { "identity": "A5k…", "self": true }
@@ -81,7 +80,7 @@ Filters are repeatable query parameters — **AND across dimensions, OR within o
 | `type` | exact (`process.progress`) or prefix with a trailing `.*` (`process.*` matches `process` and everything under it) |
 | `target` | exact |
 
-The stream is `GET`, so a browser can mount a plain `EventSource`:
+The stream is `GET`, so a browser can mount a plain `EventSource`. Close it on `closed` and on `error`: an `EventSource` reconnects by itself, possibly under another account — re-read `GET /v1/auth` before opening a replacement ([Realtime](index.html)):
 
 ```js
 const es = new EventSource("http://127.0.0.1:7001/v1/events/subscribe?scope=device&type=ui.*");
@@ -89,6 +88,10 @@ es.addEventListener("event", (e) => {
   const ev = JSON.parse(e.data);
   if (ev.type === "ui.open_object") router.open(ev.data.spaceId, ev.data.objectId);
 });
+const closeStream = () => es.close();
+es.addEventListener("closed", closeStream);
+es.addEventListener("error", closeStream);
+// Also call es.close() when the view closes.
 ```
 
 ```bash
@@ -111,7 +114,7 @@ event: closed
 data: {"reason":"overflow"}
 ```
 
-`ready` is emitted once on connect and **no snapshot follows** — there is nothing to snapshot. `closed` reasons are `overflow` (the subscriber's 16-deep buffer filled and it was dropped), `server_shutdown` and `deauthorized`: reconnect for a fresh stream. Reason strings are shared with every other stream.
+`ready` is emitted once on connect and **no snapshot follows** — there is nothing to snapshot. `closed` reasons are `overflow` (the subscriber's 16-deep buffer filled and it was dropped), `server_shutdown` and `deauthorized`: reconnect for a fresh stream, after checking the account — a stream can also end with no terminal frame, and nothing missed in between is replayed. Reason strings are shared with every other stream.
 
 Two extra rules for network scopes:
 

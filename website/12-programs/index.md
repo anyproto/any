@@ -5,7 +5,7 @@ order: 0
 ---
 # Programs
 
-A program is a Python module stored as an object in a space and run by **anyrt**, the runtime that ships with any. It executes inside a wasm cage on your own device, reaches the world only through a small set of recorded *effects*, and leaves behind a trace that replays the run exactly. Think of hosted-backend "functions" — but local-first, encrypted with everything else, and auditable to the byte.
+A program is a Python module stored as an object in a space and run by **`anyrt`**, the companion runtime — a separate process beside the server, or a Rust library embedded in a host app (the desktop app embeds it); building the Go server does not build it. It executes inside a wasm cage on your own device, reaches the world only through a small set of recorded *effects*, and leaves behind a trace that replays the run exactly. Think of hosted-backend "functions" — but local-first, encrypted with everything else, and auditable to the byte.
 
 ## The shape of a program
 
@@ -36,7 +36,27 @@ Run it one-shot from a local checkout:
 anyrt run remind@v1 --args '{"space": "bao", "chatId": "<chatId>", "text": "stand up"}'
 ```
 
-The command prints one JSON envelope — `{status, value, error, traceRef, durationMs, fuelUsed}` — and writes `traces/run_<id>.jsonl`. Under `anyrt serve` the same trace lands in the any server's local store instead.
+The command prints one JSON envelope — `{status, value, error, traceRef, durationMs, fuelUsed}` — and writes `traces/run_<id>.jsonl`. Under `anyrt serve` the same trace lands in the `any` server's local store instead. Each invocation starts a fresh Python kernel: variables survive between cells within a run, and anything a later run needs goes to the database.
+
+### A first run with no account
+
+A program that only computes needs no server, account or model provider. Save this as `programs/hello@v1.py`:
+
+```python
+"""Return a greeting for the supplied name."""
+
+__any_tool__ = False
+
+
+def main(args):
+    return {"message": "Hello, " + args.get("name", "world")}
+```
+
+```sh
+anyrt run hello@v1 --programs ./programs --args '{"name":"Ada"}'
+```
+
+The envelope answers `status: "ok"`, `value: {"message": "Hello, Ada"}` and a `traceRef`; `anyrt trace show run_<id>` reads the trace it wrote. Building `anyrt` is covered in the [runtime quickstart](../quickstart/anyrt.html#prerequisites).
 
 ## How it runs
 
@@ -64,7 +84,7 @@ The guest has no network, no filesystem and no clock of its own. Everything nond
 
 ## Where programs live
 
-Programs are objects of the hidden `program` type, which the runtime declares in each space it writes programs to. A published set of programs is a **repo**: a folder deployed to a space with `anyrt deploy`, which other spaces join read-only and load from under an alias (`use("agent:llm@v1")`). Your working space can hold its own programs too — including ones written by the agent at runtime — and an unqualified `use("name@vN")` resolves there.
+Programs are objects of the hidden `program` type, which the runtime declares in each space it writes programs to. A published set of programs is a **repo**: a folder deployed to a space with `anyrt deploy`, which other spaces join read-only and load from under an alias (`use("agent:llm@v1")`). Your working space can hold its own programs too — including ones written by the agent at runtime — and an unqualified `use("name@vN")` resolves there; a dependency inside a loaded program resolves in that program's defining space.
 
 Programs load from spaces, not from disk: deploy is the only publish step, and a running agent picks up a redeploy on its next `use()`.
 
@@ -72,8 +92,10 @@ Programs load from spaces, not from disk: deploy is the only publish step, and a
 
 | Surface | What it is |
 |---|---|
-| `anyrt run <name@vN>` | one program, `main(args)`, from a local folder (`--from-space` runs the deployed copy instead) |
-| a trigger record | the same program on a schedule or an event — see [Scheduling](../scheduling/index.html) |
+| `anyrt run <name@vN>` | one program, `main(args)`, from a local `--programs` folder |
+| `anyrt run <name@vN> --from-space <space>` | the same, from the deployed copy |
+| a trigger record | the deployed program on a schedule or an event, run by its owning device — see [Scheduling](../scheduling/index.html) |
+| `anyrt serve` / the embedded runtime | deployed programs, used by the agent loop and the scheduler |
 
 The agent loop itself (`toolcaller@v1`) is just another program, and agent tools are programs that declare `__any_tool__ = True`. See [Agents](../agents/index.html) for that side.
 

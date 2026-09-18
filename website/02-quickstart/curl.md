@@ -5,18 +5,21 @@ order: 20
 ---
 # curl
 
-Every any client is an HTTP client. This page is the whole loop in raw JSON, so you know exactly what the CLI and the language recipes are sending.
+Every `any` client is an HTTP client. This page is the whole loop in raw JSON, so you know exactly what the CLI and the language recipes are sending.
 
 Assumes `any run` is up on `127.0.0.1:7001` ([Install](install.html)) and `jq` is installed.
 
 ```bash
 API=http://127.0.0.1:7001/v1
+curl -fsS "$API/auth" | jq -e '.authorized == true'   # an account is booted
 ```
+
+`-f` makes curl exit non-zero on a 4xx/5xx, so a broken step stops a script instead of feeding `""` into the next one. If the check prints `false`, finish [Create an account](install.html#create-an-account) first.
 
 ## 1. Create a space
 
 ```bash
-SPACE=$(curl -s -X POST $API/spaces -H 'content-type: application/json' \
+SPACE=$(curl -fsS -X POST $API/spaces -H 'content-type: application/json' \
   -d '{"name":"Notebook","description":"first space"}' | jq -er .id)
 ```
 
@@ -33,7 +36,7 @@ The reply is the space; `jq` keeps its id:
 A document is an object whose type has a part declaring the `editor` module. The built-in [`page`](../types/page.html) type is the plain one — hidden from the picker, present in every space, no properties — so `"type": "page"` is all it takes; a client that needs columns declares its own document type, normally registered as a [bundle](../collaboration/bundles.html) so every device agrees on it. **`type` is required** on create; `collections` (what the object is filed under) is optional. Properties always ride `initialProperties` keyed by owner; the universal `any` group owns `name` / `description`.
 
 ```bash
-OBJ=$(curl -s -X POST $API/spaces/$SPACE/objects -H 'content-type: application/json' \
+OBJ=$(curl -fsS -X POST $API/spaces/$SPACE/objects -H 'content-type: application/json' \
   -d '{"type":"page","initialProperties":{"any":{"name":"Reading list"}}}' | jq -er .objectId)
 ```
 
@@ -48,8 +51,8 @@ The three body keys `type`, `collections`, `initialProperties` are the whole voc
 Reads are POSTs with a Mongo-style body. The cross-object query reads the space's `objects` storage collection — one row per object with its property values and derived stamps:
 
 ```bash
-curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/json' \
-  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20,"includeTotal":true}'
+curl -fsS -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/json' \
+  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt","id"],"limit":20,"includeTotal":true}'
 ```
 
 ```json
@@ -64,15 +67,15 @@ curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/j
   "total": 1, "hasNext": false }
 ```
 
-`any.type` is a scalar, so filtering by type is plain equality (`{"any.type":"<typeId>"}`); `any.collections` is an array, where a scalar is the "contains" spelling (`{"any.collections":"<collectionId>"}`). Timestamps are `{"$date": …}` instants and must be written the same way in filters ([Reading data](../database/reading-data.html)).
+`any.type` is a scalar, so filtering by type is plain equality (`{"any.type":"<typeId>"}`); `any.collections` is an array, where a scalar is the "contains" spelling (`{"any.collections":"<collectionId>"}`). The trailing `id` in `sort` breaks timestamp ties, so a window stays stable across pages and subscriptions. Timestamps are `{"$date": …}` instants and must be written the same way in filters ([Reading data](../database/reading-data.html)).
 
 ## 4. Subscribe
 
 Same body, sibling path, `-N` to keep the stream open. The response is `text/event-stream`:
 
 ```bash
-curl -s -N -X POST $API/spaces/$SPACE/objects/query/subscribe -H 'content-type: application/json' \
-  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}'
+curl -fsS -N -X POST $API/spaces/$SPACE/objects/query/subscribe -H 'content-type: application/json' \
+  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt","id"],"limit":20}'
 ```
 
 ```
@@ -85,10 +88,10 @@ data: {"records":[{"id":"bafyreib…", …}]}
 : keepalive
 ```
 
-Now, from another terminal, rename the object:
+Now, from another terminal (with `API`, `SPACE` and `OBJ` set there too), rename the object:
 
 ```bash
-curl -s -X POST $API/spaces/$SPACE/properties/$OBJ/set/any \
+curl -fsS -X POST $API/spaces/$SPACE/properties/$OBJ/set/any \
   -H 'content-type: application/json' -d '{"patch":{"name":"Reading list 2026"}}'
 ```
 
@@ -118,13 +121,13 @@ Read it back with a query; that is the one read path for every dataset ([The zen
 Every non-2xx has one shape:
 
 ```bash
-curl -s $API/spaces/nope
+curl -sS $API/spaces/nope
 ```
 
 ```json
 { "error": { "code": "space.not_found", "message": "space not found", "details": { "spaceId": "nope" } } }
 ```
 
-`401 auth.required` means the server has no account booted yet — `any init` was skipped, or the data dir holds several accounts and none was selected. `POST $API/auth` with `{}` generates one in place ([Accounts](../auth/accounts.html)).
+Without `-f` curl prints the body and exits 0; with it, the body is dropped — recent curl has `--fail-with-body` for both. `401 auth.required` means the server has no account booted yet — `any init` was skipped, or the data dir holds several accounts and none was selected. `POST $API/auth` with `{}` generates one in place ([Accounts](../auth/accounts.html)).
 
 Next: the same four steps as [CLI](cli.html) commands, or in [JavaScript](javascript.html) / [Python](python.html).

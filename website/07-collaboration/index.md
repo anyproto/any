@@ -7,6 +7,15 @@ order: 0
 
 A space is the unit of sharing: one encrypted CRDT world with its own access-control list. Everything on these pages is about who is in a space, how they got there, what they may do, and how several devices or members converge on the same objects without a coordinator deciding for them.
 
+## Four ways in
+
+- **A team space:** create an invite, the newcomer requests to join, an owner approves — [Invites](invites.html).
+- **A known account:** grant its identity through the ACL; the recipient accepts the incoming space before loading it — [Access control](acl.html).
+- **Two people:** the deterministic one-to-one derivation, no invite at all — [One-to-one spaces](one-to-one.html).
+- **Readers without approval:** a guest key, read-only for anyone holding it — [Guest access](invites.html).
+
+A successful join request means approval is pending, not that the space is ready to query: read membership and space status before showing shared data.
+
 ## The model in one picture
 
 ```
@@ -41,7 +50,7 @@ me ── one-to-one {otherIdentity} ──► both derive the same space, both 
 
 Your own role in every space is mirrored onto the space list as `SpaceInfo.ownRole`, so a UI can gate role-dependent controls straight from `GET /v1/spaces` — no per-space fan-out. `GET /v1/spaces/:id/members/me` is the authoritative read when it matters.
 
-> **Why it matters.** Access control is cryptographic, not a policy a server enforces: a grant hands the member the space's read key, a removal rotates it. A relay that stores the space cannot read it, and cannot quietly add itself as a member.
+> **Why it matters.** Access control is cryptographic, not a policy a server enforces: a grant hands the member the space's read key, a removal rotates it for every change from then on (what the member already received stays decryptable). A relay that stores the space cannot read it, and cannot quietly add itself as a member.
 
 ## Convergence without a coordinator
 

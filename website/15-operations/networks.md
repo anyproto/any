@@ -5,7 +5,7 @@ order: 40
 ---
 # Networks
 
-A server syncs through an **any-sync network**: coordinator, consensus, sync and file nodes described by a node configuration ("nodeconf"). With nothing configured the binary joins the production network from a configuration embedded at build time; one setting points it anywhere else. Independently of that, devices of the same account on one LAN find each other over mDNS and sync directly.
+A server syncs through an **any-sync network**: coordinator, consensus, sync and file nodes described by a node configuration ("nodeconf"). With nothing configured the binary joins the production network from a configuration embedded at build time; one setting points it anywhere else — choose it before the first boot of a test or private account, because the account pins its network. Independently of that, devices of the same account on one LAN find each other over mDNS and sync directly.
 
 ## Choosing a network
 

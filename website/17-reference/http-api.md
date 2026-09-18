@@ -5,14 +5,14 @@ order: 10
 ---
 # HTTP API
 
-The any server listens on `127.0.0.1:7001` and exposes one JSON API under `/v1/`. Endpoints map onto one SDK call each — the consumer-side features built next to the SDK (search, links and backlinks, the event bus, processes, the local store) are marked — reads always go through `/query`, and every write returns the same result shape.
+The `any` server listens on `127.0.0.1:7001` and exposes one JSON API under `/v1/`. Endpoints map onto one SDK call each — the consumer-side features built next to the SDK (search, links and backlinks, the event bus, processes, the local store) are marked — reads always go through `/query`, and every dataset write returns the same result shape.
 
 ## Conventions
 
-- **Base path** `/v1/`. Media type `application/json; charset=utf-8` for every request with a body and every response, except the two raw file routes.
+- **Base path** `/v1/`. Media type `application/json; charset=utf-8` for every request with a body and every response, except the raw routes: file attach and content carry file bytes, local-store export returns `application/gzip` and import takes that file as its body, and every `…/subscribe` answers `text/event-stream`.
 - **Status codes**: `200` reads, `201` creates, `204` side-effect-only endpoints. Errors always use the envelope in [Errors](errors.html).
 - **Ids in paths** are URL-safe strings; segments are URL-encoded (a bundle id like `favorites/v1` becomes `favorites%2Fv1`).
-- **Body limit** 1 MB on every route except file attach.
+- **Body limit** 1 MB on every route except file attach and local-store import, whose raw bodies stream past it.
 - **Strict bodies**: endpoints whose OpenAPI schema carries `additionalProperties: false` answer `400 request.unknown_field` for any unknown top-level key. `GET /v1/openapi.json` is the authoritative list.
 - **Unauthorized server**: until an account is booted, every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth` answers `401 auth.required`.
 - **Tech space**: `GET /v1/account` returns its id as `techSpaceId`. It is a valid `:spaceId` for bundles, for types, collections and records on bundle roots, and for the space read, sync-status, debug and sync routes; every other space-scoped route there answers `405 space.unsupported`.
@@ -404,7 +404,29 @@ Device-local, non-CRDT collections that never sync — query, modifiers, indexes
 | POST | `/v1/local/query` | `{coll, filter?, sort?, limit?, offset?, includeTotal?, projection?}` | `{records, total?, hasNext?}` | `limit` default 100, cap 1000 |
 | POST | `/v1/local/aggregate` | `{coll, pipeline, groupLimit?, accumArrayLimit?, memoryLimitBytes?, explain?}` | `{records}` \| `{plan}` \| `{written}` | `$out` / `$merge` / `$lookup` name local collections by `storageName` only (`400 local.bad_sink_target`) |
 | POST | `/v1/local/indexes` | `{coll, ensure?: [{name?, fields, unique?, sparse?}], drop?: [name]}` | `{indexes}` | |
+| GET | `/v1/local/export` | `?scope=account\|space&spaceId&names=a,b` | `application/gzip` file | one consistent snapshot; `names` needs a scope (`spaceId` implies `space`); omit `names` for all collections in the selection |
+| POST | `/v1/local/import` | raw exported file | `{collections: [{scope, spaceId?, name, storageName, count, indexes}]}` | ensure indexes and upsert documents; body-limit exempt; `400 local.bad_export`, `400 local.bad_index` |
 
 `coll` is `{scope: "account" | "space", spaceId?, name}`, `name` matching `^[a-z0-9][a-z0-9_-]{0,63}$` (`400 local.bad_name`). An op on a local storage collection never ensured is `404 local.collection_not_found`; a space-scoped write (ensure, insert, upsert, update, indexes, a pipeline's sink target) answers `404 space.not_found` / `409 space.deleted` for its space, while reads, delete, drop, list, export and import never check the space.
+
+### Export and import local collections
+
+Export is a manual copy of selected local collections, including their scope, space ID, names, indexes and documents. It does not export the account's CRDT data or file bytes. The file is a gzip-compressed anyenc value stream, with a manifest followed by each collection's documents; use `.anyenc.gz` as its extension. An empty selection or missing named collection returns `404 local.collection_not_found` before the file response starts.
+
+With the account-scoped `scratch` collection the [CLI example](cli.html#local-store) creates, export it and import the same file back; `DEST` pointed at another authorized server copies it there:
+
+```bash
+SOURCE=http://127.0.0.1:7001
+DEST=http://127.0.0.1:7001
+curl --fail --get "$SOURCE/v1/local/export" \
+  --data-urlencode 'scope=account' --data-urlencode 'names=scratch' \
+  --output scratch.anyenc.gz &&
+curl --fail -X POST "$DEST/v1/local/import" \
+  -H 'Content-Type: application/gzip' --data-binary @scratch.anyenc.gz
+```
+
+The import response lists the resulting collections. For space-scoped traces, export with `scope=space`, `spaceId=<sourceSpaceId>` and `names=trace_runs,trace_records,trace_blobs`; the destination does not need that space to read the imported records.
+
+Import overlays existing collections: matching IDs are replaced, new IDs are inserted, and documents absent from the file remain. Indexes are ensured; a same-name index with a different definition is `400 local.bad_index`. Re-importing an unchanged file leaves the same stored data. Import commits in chunks of 256 documents, so a failure can leave earlier collections and chunks committed. Invalid gzip, format/version, document sections or storage names return `400 local.bad_export`; `details.imported` is the number of fully completed collections, not a rollback guarantee.
 
 > **Note.** Synced writes are not idempotent — each POST produces a new DAG change. The exceptions are `/upsert`, where the caller-supplied record id is the idempotency key, and the adopt-or-install routes (`…/bundles`, `/v1/catalog/:usecaseId/setup`), where a second call adopts. Pagination is offset-based on every list.

@@ -5,7 +5,7 @@ order: 50
 ---
 # Security model
 
-There are two boundaries. The HTTP socket is **localhost-only with no authentication**: anyone who can run a process on the machine can call it. The data is **end-to-end encrypted before it syncs**: sync nodes, coordinator, file nodes and the push node relay ciphertext they cannot read. Neither boundary covers the disk or outside providers — the data dir is not encrypted at rest, and an online embedder reads the text it embeds. Understanding which boundary protects what is most of operating `any` safely.
+There are two boundaries. The HTTP socket is **localhost-only and currently has no per-caller authentication** — proper auth and access capabilities are planned — so anyone who can run a process on the machine can call it. The data is **end-to-end encrypted before it syncs**: sync nodes, coordinator, file nodes and the push node relay ciphertext they cannot read. Neither boundary covers the disk or outside providers — the data dir is not encrypted at rest, and an online embedder reads the text it embeds. Understanding which boundary protects what is most of operating `any` safely.
 
 ## The socket: loopback, no auth
 
@@ -37,6 +37,10 @@ Custom schemes are unclaimable by web content and `.localhost` is pinned to loop
 - Search indexing is outside this boundary: with the default `index.embedder: auto` the text of indexed documents and search queries goes to the online embedding provider; `local` keeps it on the device ([Embedders](../search/embedders.html)).
 
 What the network can observe: which peer ids sync which space ids, each space's ACL (member public keys and permissions), object and change ids, DAG shape, sizes and timing, and push topics. What it cannot: field values, records, file contents and names, space names, profiles or message text ([Encryption](../understanding/encryption.html)).
+
+## Models and external services
+
+Neither boundary covers an inference request. A model provider reads the prompt the harness sends it — selected history, recalled memories, tool results — and a connector's service reads its API calls; end-to-end encryption protects the data at rest and between members, not the copy you hand to a provider. Search embeddings are the other outbound path and are configured apart from agent inference: `index.embedder: auto` embeds through the online primary with a local fallback, `local` keeps it on the device ([Configuration](configuration.html#local-embeddings), [Conversations](../agents/conversations.html#the-message-model)).
 
 ## Secrets on this machine
 

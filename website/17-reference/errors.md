@@ -216,7 +216,8 @@ Panics are converted to `500 internal` with a generic message.
 | `local.unique_violation` | 409 | a unique index rejected the write |
 | `local.too_many_docs` | 400 | insert/upsert over 1000 docs in one request (`details.max`, `got`) |
 | `local.bad_name` | 400 | scope, spaceId or name failed validation |
-| `local.bad_index` | 400 | an index was rejected (same name, different definition; invalid name) |
+| `local.bad_index` | 400 | an index was rejected (same name, different definition; invalid name), including during import |
+| `local.bad_export` | 400 | import file has invalid gzip, format/version, document sections or storage names; `details.imported` counts fully completed collections; earlier chunks may remain committed |
 | `local.bad_filter` / `local.bad_sort` / `local.bad_modifier` | 400 | the filter, sort key or modifier did not parse |
 | `local.bad_pipeline` | 400 | unparseable pipeline, a sink into the aggregated storage collection, a sink result without `id`, `$lookup` from another one |
 | `local.bad_sink_target` | 400 | `$out` / `$merge into` / `$lookup from` names a storage collection outside the local store |

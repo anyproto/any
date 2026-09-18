@@ -1,6 +1,6 @@
 ---
 title: Quickstart
-description: Install any, create an account, run the server, and make your first space, object, query, and live subscription — from curl, the CLI, JavaScript, Python, Android, iOS, or the anyrt runtime.
+description: Install `any`, create an account, run the server, and make your first space, object, query, and live subscription — from curl, the CLI, JavaScript, Python, Android, iOS, or the anyrt runtime.
 order: 0
 ---
 # Quickstart
@@ -50,7 +50,7 @@ any status                   # in another terminal: {"status":"ok", …}
 <div class="cards">
 <a href="install.html"><strong>Install</strong><span>Get the binary and create an account.</span></a>
 <a href="curl.html"><strong>curl</strong><span>Space → object → query → subscribe with raw HTTP.</span></a>
-<a href="cli.html"><strong>CLI</strong><span>The same flow with the any command.</span></a>
+<a href="cli.html"><strong>CLI</strong><span>The same flow with the `any` command.</span></a>
 <a href="javascript.html"><strong>JavaScript</strong><span>fetch, ReadableStream, and SSE frames.</span></a>
 <a href="python.html"><strong>Python</strong><span>Standard library only.</span></a>
 <a href="android.html"><strong>Android</strong><span>Embed the server with any.aar.</span></a>

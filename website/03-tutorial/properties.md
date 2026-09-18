@@ -1,19 +1,19 @@
 ---
 title: 2. Properties
-description: The second level — a type with typed properties gives objects columns you can validate, filter and sort on, and a collection adds a second group on top. Built here as a small password manager.
+description: The second level — a type with typed properties gives objects columns you can validate, filter and sort on; a collection categorises objects that keep their type, with columns of its own. Built here as a small password manager.
 order: 20
 ---
 # 2. Properties
 
 A type is what an object **is**: a named set of property definitions, plus the layout and the parts a client renders. Set it on an object and the object gains those columns — each with a kind the server checks, a descriptor that says how to render it, and a stable handle you resolve it by. This part builds a password manager — a `credential` type — and it never needs anything beyond this level.
 
+`API` and `SPACE` come from the [tutorial setup](index.html#before-you-start); this part creates its own type and object. Use the dummy values shown.
+
 ## Create the type
 
 ```bash
 CRED=$(curl -s -X POST $API/spaces/$SPACE/types -H 'content-type: application/json' \
   -d '{"name": "Credential", "xKey": "credential"}' | jq -r .typeId)
-
-any type create $SPACE --name Credential --xkey credential
 ```
 
 `xKey` is required: it is the programmatic handle the type resolves by, and it must survive renames — the display `name` can change freely. A handle already used by another type or collection in the space is `409 type.xkey_conflict` — the two share one namespace.
@@ -35,6 +35,8 @@ CATEGORY=$(add '{"name": "Category", "xKey": "category", "kind": "array",
     "work":    {"name": "Work",    "color": "blue",  "pos": "a0"},
     "personal":{"name": "Personal","color": "green", "pos": "a1"}}}}')
 ```
+
+The CLI spelling of the first one — an alternative, not a second step; `site` already exists once the HTTP call ran:
 
 ```bash
 any type property add $SPACE $CRED --name Site --xkey site --kind string --x-format '{"type":"url"}'
@@ -83,7 +85,7 @@ GH=$(curl -s -X POST $API/spaces/$SPACE/objects -H 'content-type: application/js
 
 Notice where the values went: under the type's id, not at the top of the object. A type is a **namespace** for properties, and there are no global properties. Every property belongs to exactly one owner, is defined there, and its value lives on the object under that owner's id — even `name` and `description` sit in the universal `any` namespace rather than on the object itself. The property list of an owner is the whole vocabulary you can write under its id, and nothing outside that list is a property at all.
 
-A value that does not fit its declared format — a number under `site`, a bare string under `rotated`, an option not wrapped in an array — is refused with `400 property.format_violation`, so the type is a contract, not a convention.
+A value that does not fit is refused: a number under `site` breaks the pinned kind (`400 property.kind_mismatch`); a bare string under `rotated` or an option not wrapped in an array breaks the descriptor (`400 property.format_violation`). The type is a contract, not a convention.
 
 Later writes go through the owner-scoped set:
 
@@ -119,7 +121,7 @@ The same body against `…/objects/query/subscribe` is a live list — the vault
 
 ## One object, one type and any number of collections
 
-The type says what the object **is**, and there is exactly one of it. Everything else an object belongs to is a **collection**: a group of columns you file objects under, with no layout and no parts of its own. An object can be filed under any number of them, each contributing its own group of columns keyed by its id, and none of them knows about the rest.
+The type says what the object **is**, and there is exactly one of it: it is the primary, and representation and behaviour come from it alone. Everything else an object belongs to is a **collection** — a category you file objects under. A collection says nothing about how its members render or behave — no layout, no parts. It carries only the columns that make sense for everything in that category, and filing an object under it adds those columns to the row under the collection's id. An object can be filed under any number of them, and none of them knows about the rest.
 
 Say the GitHub account is also something you pay for. "Paid subscription" is not what the object *is* — it is still a credential — so it is a collection, `subscription`, with a price and a renewal date:
 
@@ -136,10 +138,7 @@ curl -s -X POST $API/spaces/$SPACE/properties/$GH/set/$SUB -H 'content-type: app
   -d '{"patch": {"'$PRICE'": 4, "'$RENEWS'": {"$date": "2026-10-01T00:00:00Z"}}}'
 ```
 
-```bash
-any collection create $SPACE --name Subscription --xkey subscription
-any object collection attach $SPACE $GH $SUB
-```
+CLI: `any collection create $SPACE --name Subscription --xkey subscription` (the reply's id is `SUB`) and `any object collection attach $SPACE $GH $SUB` — alternatives to the two calls above, not a repeat.
 
 Creating a collection is the type create minus `layout`, and its four property routes are the type ones with a different owner segment — same bodies, same patch grammar, same error codes.
 
@@ -156,11 +155,11 @@ The object now answers to both questions: `{"any.type": "'$CRED'"}` lists it amo
 
 Three rules make this simple rather than clever:
 
-- **One type, any number of collections.** The type is what the object is — replacing it with `POST …/properties/:objectId/type/:typeId` swaps the whole answer, and there is no unset. Filing and unfiling a collection is additive and idempotent, and neither is a delete: the old group's values stay on the row as read-tolerant orphan data, and setting the owner again brings them back.
+- **One type, any number of collections.** The type is what the object is, and the only source of its layout and parts — replacing it with `POST …/properties/:objectId/type/:typeId` swaps the whole answer, and there is no unset. Filing and unfiling a collection is additive and idempotent, and neither is a delete: the old group's values stay on the row as read-tolerant orphan data, and setting the owner again brings them back.
 - **Column names never collide.** Each owner is its own namespace, so paths are `<ownerId>.<propId>` and a type and a collection can both have a `name` or a `date` property with the values kept apart. Filing an object is opening a second namespace on it, not merging columns into one flat row.
 - **Layout and parts come from the type alone; property groups come from every owner.** Collections have no layout and no parts, but each adds its columns. A client renders the credential layout and shows the subscription columns in the property panel next to the credential ones.
 
-Pick a type when the thing needs a layout, a body or any other part — Credential, Person, Task. Pick a collection when it is a facet on objects that keep their own type — Subscription, Reading list, Q3 launch ([Collections](../database/collections.html)).
+Pick a type when the thing needs a layout, a body or any other part — Credential, Person, Task. Pick a collection when it is a category over objects that keep their own type — Subscription, Reading list, Q3 launch ([Collections](../database/collections.html)).
 
 ## Change the definition, not the data
 
@@ -175,7 +174,7 @@ A choice value stores the option **key** (`work`), never its label, so renaming 
 
 ## Where this level ends
 
-You have objects with typed, validated, filterable columns — a schema that syncs with its data — and a way to stack a second group of columns on top without changing what the object is. It scales to hundreds of credentials, contacts or books: one object per thing, one row each in the `objects` storage collection.
+You have objects with typed, validated, filterable columns — a schema that syncs with its data — and collections that categorise objects, with columns of their own, without changing what the object is. It scales to hundreds of credentials, contacts or books: one object per thing, one row each in the `objects` storage collection.
 
 It does not scale to a mailbox. Ten thousand emails as ten thousand objects means ten thousand rows in the space-wide storage collection, each with its own change history, for things that belong together, arrive in bulk and are mostly read as one list. The next part keeps them as **records on a single object** — a dataset with its own enforced schema, ids you supply, and an import that is safe to re-run.
 

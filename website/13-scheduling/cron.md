@@ -5,7 +5,9 @@ order: 10
 ---
 # Cron
 
-A `cron` trigger runs a program on a repeating schedule. The spec is either a cron expression or a fixed interval; the scheduler arms the next occurrence *forward from now* on adoption and after every fire.
+A `cron` trigger runs a program on a repeating schedule. The spec is either a cron expression or a fixed interval; the scheduler arms the next occurrence *forward from now* on adoption and after every fire, so occurrences missed while the owner was stopped are not replayed.
+
+`$ANCHOR` and `$TRIGGERS` come from [Scheduling](index.html#before-you-write-a-trigger); `mailWatch@v1` is your own deployed program, sketched below.
 
 ## Spec
 

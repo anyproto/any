@@ -7,6 +7,8 @@ order: 30
 
 A file is *registered* the instant attach returns; it is *durable* once the network holds a verified backup. Every status surface speaks the same three-state vocabulary, and none of it blocks the write path — a device with no connectivity attaches files exactly like a connected one.
 
+Durability is about the *network* copy. Availability — whether the bytes can be read now — also counts this device and local-network peers, so a file can be fetchable from a peer while its backup is still `inflight` ([Downloading](downloading.html)).
+
 ## States
 
 | State | Meaning |
@@ -28,7 +30,7 @@ curl "http://127.0.0.1:7001/v1/spaces/$SP/files/$FILE/status"
   "attempts": 2, "lastErr": "…" }
 ```
 
-`attempts` counts failed background attempts since the last success or enqueue, and `lastErr` the last failure; both appear only while work is pending. The per-space rollup is cheap and safe to hold for a "not backed up" badge:
+`cached` reports a complete local copy. `attempts` counts failed background attempts since the last success or enqueue, and `lastErr` the last failure; both appear only while work is pending. The per-space rollup is cheap and safe to hold for a "not backed up" badge:
 
 ```bash
 curl "http://127.0.0.1:7001/v1/spaces/$SP/files/stats"
@@ -55,7 +57,7 @@ event: closed
 data: { "reason": "server_shutdown" }
 ```
 
-`any file subscribe $SP` prints one JSON line per frame. The frame payload is the same shape as the status GET. `lagged` means the forwarder overflowed and frames were dropped — re-read `stats` or the affected files' status. Refresh a badge from `stats` on every `status` frame rather than tracking counts yourself.
+`any file subscribe $SP` prints one JSON line per frame. The frame payload is the same shape as the status GET. `lagged` means the forwarder overflowed and frames were dropped — re-read `stats` or the affected files' status. After `closed` or a dropped connection, reopen the stream and re-read `stats` — callback streams carry no replacement snapshot ([Realtime](../realtime/index.html)). Refresh a badge from `stats` on every `status` frame rather than tracking counts yourself.
 
 > **Note.** The stream reports **local transitions only**. Another device of yours finishing a backup, or another member's file becoming fetchable, does not appear here — those are visible through GET reads and through the payload row itself, below.
 

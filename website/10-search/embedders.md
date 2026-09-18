@@ -52,11 +52,11 @@ The child exists so a llama.cpp fault costs a round of embedding, not the server
 
 **GPU offload** is automatic: the bundles carry Metal (macOS arm64) and Vulkan (Linux, Windows — NVIDIA/AMD/Intel) backends alongside the CPU variants, and a backend whose driver is missing simply does not register. Full offload of the default model takes ~2 GB of VRAM; set `gpuLayers: 0` if the embedder should not have it. CUDA/ROCm builds are not bundled — point `libDir` at your own llama.cpp build to use them.
 
-Platform notes: Linux needs a loadable system `libffi.so.8` (on NixOS use the repo's `nix develop` shell); macOS bundles it, and the `-sandbox` release variants load the system one instead so they work inside an App-Sandboxed host (see [Builds and CI](../operations/builds-and-ci.html)). Mobile builds never construct an embedder.
+Platform notes: Linux needs a loadable system `libffi.so.8` (on NixOS use the repo's `nix develop` shell); macOS bundles it, and the `-sandbox` release variants load the system one instead so they work inside an App-Sandboxed host (see [Builds and CI](../operations/builds-and-ci.html)). Mobile builds have full-text search and force vector search off; they never construct an embedder, even when the configuration names one.
 
 ## `auto` — online primary, local fallback
 
-`auto` prefers the online API for speed and falls back to the local model during an outage through a circuit breaker (repeated failures skip the primary for a cooldown, then re-probe), so vector search stays fresh instead of pausing.
+`auto` prefers the online API for speed and falls back to the local model during an outage through a circuit breaker (repeated failures skip the primary for a cooldown, then re-probe), so vector search stays fresh instead of pausing. A semantic query gives the primary half of the remaining timeout budget so the local fallback still has time to answer.
 
 > **Note.** Both sides must be the **same embedding model** — the index holds one vector space and one dimension, and mixing models yields incoherent similarity. The supported pairing is one model served two ways: `index.openai.model: Qwen/Qwen3-Embedding-0.6B` on a host that serves it, with the default local Qwen3-Embedding-0.6B. fp16-versus-Q8 drift is negligible. The packaged `openai` defaults are shared development credentials, marked temporary.
 
@@ -88,8 +88,10 @@ There is no boot-time probe. Whenever an embedder is *configured*, text-bearing 
 - an outage — at boot or mid-run — freezes only the vector side; full-text indexes and answers normally;
 - when the embedder returns, the next embed round (nudged by a page, or the 1-minute retry tick) drains the queue automatically;
 - `hybrid` queries degrade to full-text with `vectorStatus: "unavailable"`; `vector` queries answer `503 index.embedder_unavailable`;
-- the vector dimension is learned from the first successful batch (or `index.vector.dim`) and pinned in the index database — a later dimension change against a populated index is a loud boot error advising `rm <data-dir>/index`, never silent corruption.
+- the vector dimension is learned from the first successful batch (or `index.vector.dim`) and pinned in the index database — a later dimension change against a populated index is a loud boot error advising `rm <data-dir>/index`, never silent corruption. A model change is a rebuild for the same reason — never mix vectors from two models.
 
 "Model still downloading" and "GPU died mid-run" both ride the same path: affected documents stay `pending`. A child that crashes with GPU offload active also moves the server to CPU decoding for the rest of the run; the next start tries the GPU again, so a driver fix recovers on its own.
+
+To skip the download, point `index.local.modelPath` at an existing compatible GGUF; to run with no model at all, `index.embedder: none` keeps full-text search working.
 
 > **Why it matters.** The embedder is the only component of search that might live outside the process. Making it optional, swappable and outage-tolerant keeps the encrypted data searchable on every device — including one that never installs a model or never goes online.

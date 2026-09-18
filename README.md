@@ -63,7 +63,7 @@ One of the examples of apps which shows editor, chat and collaborative features 
 This example builds from source and creates a notebook in a dedicated data
 directory. It uses **local embeddings**.
 
-You need Go 1.26.2 or newer, `make`, `curl`, and `jq`. For release packages
+You need Git, Go 1.26.2 or newer, `make`, `curl`, and `jq`. For release packages
 and platform-specific prerequisites, see [Installation](website/02-quickstart/install.md).
 
 ### 1. Build
@@ -94,9 +94,9 @@ export ANY_INDEX_EMBEDDER=local
 ./bin/any run
 ```
 
-On first initialization, `init` creates an account and prints its recovery
+`init` creates an account in the new data directory and prints its recovery
 phrase. Save it: restoring on another device requires that phrase. Repeating
-`init` in this directory keeps the existing account.
+`init` in this directory keeps the existing account and lists it instead.
 
 Wait for `LISTENING 127.0.0.1:7001`, then leave the server running. The local
 embedding model downloads separately on first use of a fresh model cache;
@@ -116,7 +116,7 @@ SPACE=$(curl -fsS "$API/spaces" \
 
 OBJECT=$(curl -fsS "$API/spaces/$SPACE/objects" \
   -H 'Content-Type: application/json' \
-  -d '{"types":["page"],"initialProperties":{"any":{"name":"Reading list"}}}' \
+  -d '{"type":"page","initialProperties":{"any":{"name":"Reading list"}}}' \
   | jq -er '.objectId')
 
 printf 'Created page: %s\n' "$OBJECT"
@@ -131,7 +131,7 @@ In that same terminal, query the pages in your space:
 ```sh
 curl -fsS "$API/spaces/$SPACE/objects/query" \
   -H 'Content-Type: application/json' \
-  -d '{"filter":{"any.types":"page"},"sort":["-modifiedAt"],"limit":20}' | jq
+  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}' | jq
 ```
 
 The response's `records` array includes your Reading list page. To keep
@@ -140,7 +140,7 @@ that query live, open the matching subscription:
 ```sh
 curl -fsSN "$API/spaces/$SPACE/objects/query/subscribe" \
   -H 'Content-Type: application/json' \
-  -d '{"filter":{"any.types":"page"},"sort":["-modifiedAt"],"limit":20}'
+  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}'
 ```
 
 The stream sends `ready`, then a `snapshot` of the current records, followed
@@ -183,6 +183,7 @@ and [Configuration](docs/05-config.md) for file, environment, and flag precedenc
 ## Documentation
 
 - [Tutorial](website/03-tutorial/index.md) — objects, properties, datasets, and apps.
+- [Programs and agents](website/02-quickstart/anyrt.md) — set up the companion runtime.
 - [Client guide](docs/29-client-model.md) — types, property IDs, and the catalog.
 - [HTTP API](docs/03-api.md) and [CLI](docs/01-cli.md) — request shapes and commands.
 - [Live queries](docs/04-events.md) — snapshots, updates, and reconnect behavior.
@@ -195,5 +196,4 @@ server or inside the Any desktop application.
 
 ## License
 
-We plan to release Any under an open-source license. The specific license
-is **TBD** and will be added once that decision is made.
+Any is released under the **MIT** license ([LICENSE](LICENSE)).

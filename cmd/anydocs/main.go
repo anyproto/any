@@ -13,17 +13,22 @@ import (
 	gohtml "html"
 	"html/template"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
+	xhtml "golang.org/x/net/html"
 	"gopkg.in/yaml.v3"
 )
 
@@ -126,7 +131,10 @@ func run(src, out string) error {
 		if err != nil {
 			return err
 		}
-		fm, body := splitFront(raw)
+		fm, body, err := splitFront(raw)
+		if err != nil {
+			return fmt.Errorf("%s: %w", rel, err)
+		}
 		var buf bytes.Buffer
 		if err := md.Convert(body, &buf); err != nil {
 			return fmt.Errorf("%s: %w", rel, err)
@@ -206,8 +214,14 @@ func run(src, out string) error {
 	if err := os.RemoveAll(out); err != nil {
 		return err
 	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		return err
+	}
 	// assets
 	if err := copyDir(filepath.Join(src, "assets"), filepath.Join(out, "assets")); err != nil {
+		return err
+	}
+	if err := writeExamples(src, out, all, md); err != nil {
 		return err
 	}
 	// search index + llms.txt
@@ -223,7 +237,7 @@ func run(src, out string) error {
 		if p.Section != nil {
 			sec = p.Section.Title
 		}
-		index = append(index, idx{p.Title, p.URL, sec, p.Parts})
+		index = append(index, idx{p.Title, p.URL, sec, searchParts(p.Parts)})
 		fmt.Fprintf(&llms, "- [%s](%s)", p.Title, p.URL)
 		if p.Description != "" {
 			fmt.Fprintf(&llms, ": %s", p.Description)
@@ -273,18 +287,28 @@ func rootPrefix(url string) string {
 	return strings.TrimSuffix(strings.Repeat("../", depth), "/")
 }
 
-func splitFront(raw []byte) (front, []byte) {
+func splitFront(raw []byte) (front, []byte, error) {
 	var fm front
-	if !bytes.HasPrefix(raw, []byte("---\n")) {
-		return fm, raw
+	line, _, found := bytes.Cut(raw, []byte("\n"))
+	if !found || !bytes.Equal(bytes.TrimSuffix(line, []byte("\r")), []byte("---")) {
+		return fm, raw, nil
 	}
-	rest := raw[4:]
-	end := bytes.Index(rest, []byte("\n---\n"))
-	if end < 0 {
-		return fm, raw
+	start := len(line) + 1
+	for pos := start; pos < len(raw); {
+		line, _, found = bytes.Cut(raw[pos:], []byte("\n"))
+		next := pos + len(line)
+		if found {
+			next++
+		}
+		if bytes.Equal(bytes.TrimSuffix(line, []byte("\r")), []byte("---")) {
+			if err := yaml.Unmarshal(raw[start:pos], &fm); err != nil {
+				return fm, nil, fmt.Errorf("invalid front matter: %w", err)
+			}
+			return fm, raw[next:], nil
+		}
+		pos = next
 	}
-	_ = yaml.Unmarshal(rest[:end], &fm)
-	return fm, rest[end+5:]
+	return fm, nil, fmt.Errorf("front matter is missing its closing delimiter")
 }
 
 func firstHeading(body []byte, fallback string) string {
@@ -312,7 +336,7 @@ func plain(h string) string {
 }
 
 // split cuts a rendered page at its h2/h3 headings so a search hit links to
-// the section it matched, and indexes every section in full.
+// the section it matched. searchParts applies the text budget for the index.
 func split(h string) []part {
 	var parts []part
 	cur, last := part{}, 0
@@ -324,6 +348,40 @@ func split(h string) []part {
 	}
 	cur.Text = plain(h[last:])
 	return append(parts, cur)
+}
+
+// Keep every heading and search target, with a shared body-text budget per
+// page. Short sections keep their full text; longer ones share the remainder
+// equally so a large opening section cannot crowd out the end of a page.
+const searchTextLimit = 4000
+
+func searchParts(parts []part) []part {
+	bounded := append([]part(nil), parts...)
+	order := make([]int, len(parts))
+	lengths := make([]int, len(parts))
+	for i, p := range parts {
+		order[i] = i
+		lengths[i] = utf8.RuneCountInString(p.Text)
+	}
+	sort.SliceStable(order, func(i, j int) bool { return lengths[order[i]] < lengths[order[j]] })
+	remaining := searchTextLimit
+	for i, index := range order {
+		budget := min(lengths[index], remaining/(len(order)-i))
+		bounded[index].Text = truncate(parts[index].Text, budget)
+		remaining -= budget
+	}
+	return bounded
+}
+
+func truncate(s string, maxRunes int) string {
+	count := 0
+	for index := range s {
+		if count == maxRunes {
+			return s[:index]
+		}
+		count++
+	}
+	return s
 }
 
 func copyDir(from, to string) error {
@@ -345,6 +403,89 @@ func copyDir(from, to string) error {
 		}
 		return os.WriteFile(dst, b, 0o644)
 	})
+}
+
+// Resolve sources by their public URLs, which do not depend on section order.
+// Custom source trees may omit a client only when no page links to its download.
+func writeExamples(src, out string, pages []*page, md goldmark.Markdown) error {
+	byURL := make(map[string]*page, len(pages))
+	for _, p := range pages {
+		byURL[p.URL] = p
+	}
+	for _, example := range []struct{ url, lang, filename string }{
+		{"/quickstart/javascript.html", "js", "client.mjs"},
+		{"/quickstart/python.html", "python", "client.py"},
+	} {
+		p := byURL[example.url]
+		if p == nil {
+			if referrer := downloadReferrer(pages, "/assets/examples/"+example.filename); referrer != "" {
+				return fmt.Errorf("%s: download %s requires a source page at %s", referrer, example.filename, example.url)
+			}
+			continue
+		}
+		source, err := os.ReadFile(filepath.Join(src, p.Src))
+		if err != nil {
+			return fmt.Errorf("%s: %w", p.Src, err)
+		}
+		_, source, err = splitFront(source)
+		if err != nil {
+			return fmt.Errorf("%s: %w", p.Src, err)
+		}
+		// Use the renderer's fence rules, including longer and tilde fences.
+		doc := md.Parser().Parse(text.NewReader(source))
+		var body bytes.Buffer
+		blocks := 0
+		_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+			block, ok := n.(*ast.FencedCodeBlock)
+			if !entering || !ok || string(block.Language(source)) != example.lang {
+				return ast.WalkContinue, nil
+			}
+			code := block.Lines().Value(source)
+			body.Write(code)
+			if len(code) > 0 && code[len(code)-1] != '\n' {
+				body.WriteByte('\n')
+			}
+			body.WriteString("\n")
+			blocks++
+			return ast.WalkContinue, nil
+		})
+		if blocks == 0 {
+			return fmt.Errorf("no %s examples found in %s", example.lang, p.Src)
+		}
+		directory := filepath.Join(out, "assets", "examples")
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(directory, example.filename), body.Bytes(), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func downloadReferrer(pages []*page, download string) string {
+	for _, p := range pages {
+		base := &url.URL{Path: p.URL}
+		tokens := xhtml.NewTokenizer(strings.NewReader(string(p.Body)))
+		for tokenType := tokens.Next(); tokenType != xhtml.ErrorToken; tokenType = tokens.Next() {
+			if tokenType != xhtml.StartTagToken && tokenType != xhtml.SelfClosingTagToken {
+				continue
+			}
+			for _, attr := range tokens.Token().Attr {
+				if attr.Key != "href" {
+					continue
+				}
+				link, err := url.Parse(attr.Val)
+				if err != nil || link.IsAbs() || link.Host != "" {
+					continue
+				}
+				if base.ResolveReference(link).Path == download {
+					return p.Src
+				}
+			}
+		}
+	}
+	return ""
 }
 
 const pageTpl = `<!doctype html>

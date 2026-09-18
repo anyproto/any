@@ -5,7 +5,7 @@ order: 0
 ---
 # Agents
 
-anybao is an AI agent that lives *in* an any space. Its conversation loop is a Python program, its memory is a dataset, its tools are programs, and every run is a trace you can replay bit-exact. The runtime that hosts it — **anyrt** — is a Rust library or process that cages a CPython guest and lets nothing out except through a recorded effect boundary.
+anybao is an AI agent that lives *in* an `any` space. Its conversation loop is a Python program, its memory is a dataset, its tools are programs, and every run is a trace you can replay bit-exact. The runtime that hosts it — **anyrt** — is a Rust library or process that cages a CPython guest and lets nothing out except through a recorded effect boundary.
 
 ## What "space-resident" means
 
@@ -39,14 +39,16 @@ Every HTTP call, model call, clock read and random number the loop makes crosses
 
 > **Why it matters.** Hosted agent frameworks keep threads, messages, usage and a "playground" on their servers. Here the thread *is* your chat, the usage counters are fields on the turn record, and the playground is the trace on your own device — end-to-end encrypted where it syncs, and yours to delete.
 
+The one thing that leaves is the inference request: the model runs wherever its provider runs, and a hosted provider sees the prompt and the tool results the loop sends it. Sync encryption covers storage and transport between members, not that request. Search embeddings are a separate, local-capable setting ([Embedders](../search/embedders.html)).
+
 ## Two ways to run it
 
 | Mode | What it is | When |
 |---|---|---|
 | Embedded | `anyrt` as a Rust library inside an app (the desktop app bundles it this way) | one app, one device, no extra process |
-| Standalone | `anyrt serve` next to an any server, configured by `anybao.toml` | headless machines, browser UI, remote runners |
+| Standalone | `anyrt serve` next to an `any` server, configured by `anybao.toml` | headless machines, browser UI, remote runners |
 
-Both modes run the same agent against the same space. Run only one of them per chat — see [Embedding anyrt](embedding-anyrt.html).
+Both modes run the same agent against the same space. Run only one of them per chat on a device — two answer twice. Across devices the runtime elects the responder through the device registry, and a standby device still runs the jobs pinned to it — see [Embedding anyrt](embedding-anyrt.html).
 
 ## In this section
 

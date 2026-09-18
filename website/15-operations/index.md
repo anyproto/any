@@ -1,6 +1,6 @@
 ---
 title: Operations
-description: Running the any server — lifecycle, configuration, the data directory, networks, the security model, release builds and debugging.
+description: Running the `any` server — lifecycle, configuration, the data directory, networks, the security model, release builds and debugging.
 order: 0
 ---
 # Operations

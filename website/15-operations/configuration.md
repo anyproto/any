@@ -5,7 +5,22 @@ order: 20
 ---
 # Configuration
 
-Configuration comes from three layers, each overriding the last: a YAML file, `ANY_*` environment variables, then command-line flags. A missing file is not an error — every key has a default, and a bare `any run` works.
+Configuration comes from three layers, each overriding the last: a YAML file, `ANY_*` environment variables, then command-line flags. A missing file is not an error — every key has a default, and a bare `any run` works (with several accounts in the root and no selector it starts unauthorized and waits for `POST /v1/auth`). This page is the `any` server's; the runtime has its own [anybao.toml](../reference/anybao-toml.html).
+
+## Local embeddings
+
+The one setting most installs change: the default `index.embedder: auto` embeds through the online primary and falls back to the local model, `local` keeps every embedding on the device. Save this as `any-config.yml`:
+
+```yaml
+index:
+  embedder: local
+```
+
+```bash
+any run --config ./any-config.yml
+```
+
+The GGUF downloads on first boot if it is not in the root's model cache; full-text search works while it downloads and vector search reports `unavailable` until the model and the llama.cpp libraries are in place ([Embedders](../search/embedders.html) — model, platforms, other providers). The key governs search embeddings only: the sync network is [nodeconf](networks.html), and an agent's models are `anyrt`'s.
 
 ## Sources and precedence
 
@@ -26,7 +41,7 @@ ANY_LOG_LEVEL=debug any run --config ./any-config.yml --addr 127.0.0.1:7002
 | `--mode <standalone\|managed>` | who owns the server — fixed at launch ([Server](server.html)) |
 | `--account <accountId>` | which account to boot when the root holds several (standalone only) |
 | `--addr <host:port>` | listen address; must be loopback |
-| `--wallet <path>` | explicit wallet file (manual mode) |
+| `--wallet <path>` | explicit wallet file (manual wallet selection) |
 | `--passkey-stdin` | read the wallet passkey from stdin (one line) |
 | `--log-level <debug\|info\|warn\|error>` | log verbosity |
 
@@ -85,6 +100,8 @@ The passkey is the one secret the server may need at boot. It arrives from the e
 | `push.peerId` / `push.addrs` | `ANY_PUSH_PEER_ID` / `ANY_PUSH_ADDRS` | production node when the network is production | the push node, a direct out-of-band peer ([Push](../notifications/push.html)) |
 
 ## A complete example
+
+A staging nodeconf, local embeddings, periodic file-cache cleanup and a log file (paths are yours to replace):
 
 ```yaml
 dataDir: ~/.any

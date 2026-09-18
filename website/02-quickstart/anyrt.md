@@ -1,11 +1,11 @@
 ---
 title: anyrt
-description: Run the anybao agent runtime next to your any server — write anybao.toml, seed an LLM key, start anyrt serve, and schedule your first program with a trigger record.
+description: Run the anybao agent runtime next to your `any` server — write anybao.toml, seed an LLM key, start anyrt serve, and schedule your first program with a trigger record.
 order: 80
 ---
 # anyrt
 
-anyrt is the runtime that executes Python programs inside a wasm cage against your any server, and `anyrt serve` is the agent built on it: it watches a chat, answers, and runs scheduled triggers. This page gets one running standalone; the desktop app embeds the same runtime in-process.
+`anyrt` is the runtime that executes Python programs inside a wasm cage against your `any` server, and `anyrt serve` is the agent built on it: it watches a chat, answers, and runs scheduled triggers. This page gets one running standalone; the desktop app embeds the same runtime in-process. The agent's LLM provider (step 2) is a separate setting from the server's `index.embedder`: local embeddings do not make model calls local.
 
 ## Prerequisites
 
@@ -18,9 +18,10 @@ nix develop                 # canonical environment (or: direnv allow)
 uv sync
 make kernel                 # componentized CPython → bin/kernel.wasm (required before cargo)
 make runtime                # → runtime/target/release/anyrt
+export PATH="$PWD/runtime/target/release:$PATH"
 ```
 
-The kernel is compiled into the binary; `anyrt` is one artifact.
+The kernel is compiled into the binary; `anyrt` is one artifact. The file paths below are relative to this checkout, and a new terminal needs the `PATH` line again.
 
 ## 1. anybao.toml
 

@@ -5,7 +5,7 @@ order: 40
 ---
 # Cache
 
-Once a file is backed up to the network, its local bytes become a cache: droppable and refetchable. Until then they are the only copy, and the server refuses to throw them away. Nothing reclaims space on its own unless you configure it to.
+Once a file is backed up to the network, its local bytes become a cache: droppable and refetchable. Until then they are the only copy the network can vouch for — a peer that happens to hold them does not count — and the server refuses to throw them away. Nothing reclaims space on its own unless you configure it to.
 
 ## Pin
 
@@ -25,7 +25,7 @@ curl -X POST "http://127.0.0.1:7001/v1/spaces/$SP/files/$FILE/offload"
 any file offload $SP $FILE
 ```
 
-- Refused with **`409 file.not_durable`** while the local bytes are the only copy — the file has not been backed up yet.
+- Refused with **`409 file.not_durable`** while the local bytes are the only copy — the file has not been backed up yet. A peer copy alone does not satisfy this check.
 - A no-op on inline files (their bytes are the CRDT row).
 - Content shared through per-space deduplication loses its bytes for every file sharing that `rootCid`; each stays refetchable.
 

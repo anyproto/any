@@ -5,7 +5,7 @@ order: 20
 ---
 # Once
 
-A `once` trigger fires a single time when `now ≥ spec.at`, provided it has never run, then flips itself to `enabled: false`. The record stays behind with `lastRunAt` and `lastStatus` stamped — the reminder is its own receipt.
+A `once` trigger fires a single time when `now ≥ spec.at`, provided it has never run, then flips itself to `enabled: false`. The record stays behind with `lastRunAt` and `lastStatus` stamped — the reminder is its own receipt. An owner that was stopped at `spec.at` fires the unconsumed trigger as soon as it starts again.
 
 ## Spec
 

@@ -5,7 +5,7 @@ order: 60
 ---
 # Builds and CI
 
-The server is a CGO-free Go binary, but the search index legs are selected at compile time by build tags, and the local embedder loads shared libraries at runtime. `make build` handles all of it; a bare `go build` produces a server whose `/search` silently returns nothing.
+The server is a CGO-free Go binary, but the search index legs are selected at compile time by build tags, and the local embedder loads shared libraries at runtime. `make build` handles all of it; a bare `go build` produces a server whose `/search` silently returns nothing (one WARN at boot is the only symptom). Everything here runs in the `any` repository; the runtime's build order is under [Embedding anyrt](../agents/embedding-anyrt.html#build-order).
 
 ## Building
 
@@ -74,6 +74,7 @@ Both are sha256-pinned in the release notes. On the embedded path the full-text 
 - **Build workflow** — fans out per-platform jobs (six desktop tarballs, `.aar`, `.xcframework`), the macOS smoke job, then fans in to `publish`, which creates the release and fires a `repository_dispatch` to the desktop, iOS and Android client repositories. The desktop job runs `make catalog-validate` before building, and `publish` depends on it, so a broken catalog cannot ship. The dispatch is best-effort: a failure warns but never unpublishes.
 - **PR checks** — `make test`, `go vet` over the module, `make catalog-validate`, and **swagger drift**: the OpenAPI spec is regenerated and the PR fails if the committed spec differs. The spec is a published contract (the runtime's drift check pins against it), so a handler change must come with a regenerated spec. The spec captures routes, shapes and status codes, not `error.code` strings.
 - **Windows** — every release artifact is cross-compiled on Linux, so a separate workflow builds the tree and runs the server and config unit tests on a Windows runner on every push to `main` and daily before the nightly publishes.
+- **Docs** — `make docs-check` runs on every PR. It builds the site, runs renderer vet/tests, checks internal links and search targets, and tests the downloadable JavaScript and Python clients with mocked responses and streams.
 - **Secret** — one classic PAT with read/write across the organization, used to fetch the private SDK module in every job and to dispatch to the client repos. The built-in token can do neither.
 
 ## Versions

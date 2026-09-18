@@ -29,6 +29,8 @@ Every `any` server keeps a local search index — BM25 full-text plus semantic v
 
 ## A first query
 
+The server must be a search-enabled build (`make build` or a release tarball): a bare `go build` compiles search out and the only symptom is zero hits.
+
 ```bash
 curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/search \
   -H 'content-type: application/json' \
@@ -64,6 +66,12 @@ Hits carry identity, not full records — hydrate them with a [dataset query](..
 | Runtime-dataset records | the dataset's own name | `basic` (or the declared scope) | one record, by its `x-search` mapping — split into ~2000-rune chunks when long |
 
 Runtime datasets declared without an `x-search` mapping (a program's source, for one) and file bytes are never indexed.
+
+## Filtering by host object
+
+An objects-query `filter` in the search body restricts which objects may contribute hits — `{"any.collections":{"$nin":["bin"]}}` drops binned objects. The filter is evaluated against the host object's current row, not against the fields of the matching chat message or runtime record.
+
+`truncated: true` in the reply means a leg's read budget ran out under the filter before the page filled. More matches may exist: narrow the query or the filter, and never treat that short page as exhaustive. [Hybrid ranking](hybrid.html#filtering-by-host-object) has the full contract.
 
 ## Reading further
 

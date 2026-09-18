@@ -40,12 +40,12 @@ A `wallet.key` directly at the root is the legacy flat layout: it acts as the de
 | `server.lock` | server | the single-instance lock itself — an OS file lock, empty, released by the kernel when the process exits | yes |
 | `server.pid` | server | the lock holder's pid, written after acquiring; names it in `409 auth.account_in_use` and nothing more | yes |
 | `server.addr` | server | the lock holder's bound address; the CLI reads it when `--addr` is not given | yes |
-| `sdk/` | SDK | the CRDT storage — every space's change DAGs, materialized records, the tech space — plus the device-local store's `l_*` collections | CRDT content re-syncs from peers; the local store has no other copy |
+| `sdk/` | SDK | the CRDT storage — every space's change DAGs, materialized records, the tech space — plus the device-local store's `l_*` collections | CRDT content re-syncs from peers; local collections need a manual export for backup |
 | `files/` | SDK | file bytes; a durable file's bytes are a cache, a non-durable file's bytes are the only copy | partly — see [Status and durability](../files/status-and-durability.html) |
 | `index/` | indexer | `index.db` — BM25 + vector index and link edges per space, cursors, schema version | yes — rebuilt from the synced data |
 | `models/` | indexer | the embedding model GGUF (~639 MB), one per root, not per account | yes — re-downloaded |
 
-> **Why it matters.** This directory *is* your database. There is no server-side copy to restore from — a device that syncs a space holds the whole space. It is not encrypted at rest: records, the local store and the search index are readable by anyone who can read the directory, and a plain `wallet.key` holds the mnemonic itself. Treat it the way you would treat a private key directory.
+> **Why it matters.** This directory *is* your database. There is no server-side copy to restore from — a device that syncs a space holds the whole space, and unsynced changes, the local store and non-durable file bytes exist nowhere else. It is not encrypted at rest: records, the local store and the search index are readable by anyone who can read the directory, and a plain `wallet.key` holds the mnemonic itself. Treat it the way you would treat a private key directory.
 
 ## What is safe to delete
 
@@ -55,8 +55,8 @@ A `wallet.key` directly at the root is the legacy flat layout: it acts as the de
 | `models/` | safe; the model downloads again on next boot (a model already in a legacy `<account-dir>/index/models/` keeps being used from there) |
 | `server.lock` | safe when no server is running; the lock lives in the kernel, not in the file, so a leftover file blocks nothing |
 | `server.pid`, `server.addr` | safe any time; they only label the current holder |
-| `files/` | **loses non-durable files** — bytes not yet backed up to the network have no other copy. Use the cache endpoints or per-file offload instead ([Cache](../files/cache.html)). |
-| `sdk/` | loses every unsynced change, forces a full re-sync of shared spaces and **loses the local store** (`/v1/local` collections have no backup); a wiped storage also restarts the index generation, which the indexer detects and re-indexes |
+| `files/` | **loses non-durable files** — bytes not yet backed up to the network have no other copy (a LAN peer that fetched them is luck, not custody). Use the cache endpoints or per-file offload instead ([Cache](../files/cache.html)). |
+| `sdk/` | loses every unsynced change, forces a full re-sync of shared spaces and **loses the local store** (`/v1/local` collections have no automatic backup; a manual export can restore exported records); a wiped storage also restarts the index generation, which the indexer detects and re-indexes |
 | `wallet.key` | **loses this device's key**. The account survives if you kept the mnemonic — `any init --mnemonic` derives the same account id with a fresh device key. |
 | `network.json` | only to repair the pin: when the account was first booted on the wrong network, or the pin is unreadable (`500 auth.network_pin_corrupt`). Start the server on the account's network afterwards; that boot pins it again. |
 
@@ -70,6 +70,8 @@ any run
 ```
 
 The new device then cold-restores its spaces from the network (or from a nearby device over the [local network](networks.html)). Details in [Accounts](../auth/accounts.html) and [Devices](../auth/devices.html).
+
+The local store never syncs; it moves by hand. `any local export --out local.anyenc.gz` on the source server and `any local import local.anyenc.gz` on the authorized destination copy it. With no scope or names the export takes every local collection; `--scope account` or `--space ID` plus `--names a,b` narrows it. The file holds the selected collections and their indexes — no CRDT data, no `files/` bytes. Import overlays matching ids and commits in chunks, so a failure can leave earlier chunks committed. Examples: [Local store](../reference/cli.html#local-store); contract: [HTTP API](../reference/http-api.html#export-and-import-local-collections).
 
 ## Account selection
 

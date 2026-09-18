@@ -7,6 +7,8 @@ order: 40
 
 Every run writes a trace: an append-only, ordered log with one record per effect call, streamed as it happens. The trace is the replay oracle, the mock source, the debug record and the run log behind every trigger fire — one format, one toolchain.
 
+A run's id is in the CLI envelope or its synced [run summary](../scheduling/runs-and-monitoring.html); the summary can point to a trace body held only on the device that ran it.
+
 ## Where traces live
 
 Trace **bodies are device-local**. `anyrt serve` writes them into the any server's local store, as three never-synced collections of the agent's working space: `trace_records` (one document per record), `trace_blobs` (spilled values) and `trace_runs` (one summary per run). `anyrt run`, and a serve configured with `[traces] backend = "file"`, write `traces/run_<id>.jsonl` plus a `.blobs` sidecar in the `[paths].traces` directory instead. Raw bytes a run fetched or built sit beside either backend as files under `<traces dir>/blobs/`.

@@ -7,6 +7,8 @@ order: 0
 
 Two codebases, two doctrines that fit their subject. The `any` server is tested by running the **real binary against a real network** — unit tests for the parts, then end-to-end suites that boot one or two servers and drive every endpoint over HTTP. The anybao runtime is tested around one property: **everything nondeterministic is an effect**, so a recorded trace replays the whole system deterministically, and every test layer exists to keep that cheap to assert.
 
+The `any` commands run in the server repository, the anybao / `anyrt` ones in the runtime repository. The server's e2e suites skip silently without a test nodeconf — a green run without one proves little.
+
 ## Testing against any
 
 ```bash

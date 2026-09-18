@@ -7,6 +7,8 @@ order: 30
 
 A dataset is a table inside one object. Where properties give an object a handful of columns, a dataset gives it rows: thousands of records with a schema every peer enforces, ids you control, and the same query, subscribe, search and aggregation surface as everything else. This part builds a mailbox — one object holding ten thousand emails.
 
+`API` and `SPACE` come from the [tutorial setup](index.html#before-you-start). Keep `MAILBOX`, `INBOX` and `DS` in this terminal: [Part 4](apps.html) turns this mailbox into an app.
+
 ## Many objects, or many records?
 
 You already know one way to hold many things: [Part 2](properties.html) stored each credential as its own object, one row each in the space-wide `objects` storage collection, all of the same type. A dataset is the other way: **one** object, and the many things as records in a table that object owns.
@@ -60,9 +62,7 @@ curl -s -X POST $API/spaces/$SPACE/types/$MAILBOX/parts -H 'content-type: applic
 # → 201 {"partId": "…"}
 ```
 
-```bash
-any type part add $SPACE $MAILBOX --draft @messages-part.json
-```
+CLI: save the body as `messages-part.json` and run `any type part add $SPACE $MAILBOX --draft @messages-part.json` — instead of the curl, not after it.
 
 What the declaration says:
 
@@ -99,18 +99,19 @@ curl -s -X POST $API/spaces/$SPACE/upsert -H 'content-type: application/json' -d
        "subject": "Invoice 2026-09", "from": "billing@example.com",
        "body": "Please find attached…", "receivedAt": {"$date": "2026-09-08T09:12:00Z"},
        "read": false, "labels": ["finance"]}},
-    {"id": "imap:INBOX:4202", "fields": {"…": "…"}}
+    {"id": "imap:INBOX:4202", "fields": {
+       "subject": "Team lunch", "from": "ada@example.com",
+       "body": "Thursday at noon", "receivedAt": {"$date": "2026-09-08T10:00:00Z"},
+       "read": false, "labels": ["team"]}}
   ] }'
 ```
 
 ```json
 { "pages": [ {"versionId": "…", "changeId": "…", "recordIds": ["imap:INBOX:4201", "…"]} ],
-  "created": 500, "updated": 0, "skipped": 0 }
+  "created": 2, "updated": 0, "skipped": 0 }
 ```
 
-```bash
-any upsert $SPACE $INBOX --dataset $DS --records @batch.json
-```
+Two records so the call runs as written; the real import is the same call 500 records at a time, and from the CLI `any upsert $SPACE $INBOX --dataset $DS --records @batch.json` takes the array from a file.
 
 Each call writes one CRDT change per `pageSize` records (500 by default), not one per email. A record that breaks the schema — no subject, a string where an instant belongs, a write to `importedAt` — comes back in `rejections` with a code and a reason while the rest of the batch lands; a clean batch has no `rejections` key ([Upsert](../database/upsert.html)). Mark a message read later with the ordinary record write:
 
@@ -165,10 +166,10 @@ curl -s -X POST $API/spaces/$SPACE/aggregate -H 'content-type: application/json'
 ```
 
 ```json
-{ "records": [ {"id": "billing@example.com", "count": 212}, … ] }
+{ "records": [ {"id": "ada@example.com", "count": 1} ] }
 ```
 
-The group key comes back as `id`. Snapshot only — re-run to refresh ([Aggregation](../database/aggregation.html)).
+The group key comes back as `id` — with the invoice marked read, Ada's message is the one unread. Snapshot only — re-run to refresh ([Aggregation](../database/aggregation.html)).
 
 ## Where this level ends
 

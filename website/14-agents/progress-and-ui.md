@@ -5,7 +5,7 @@ order: 70
 ---
 # Progress and UI
 
-The agent talks to people through the same chat any client renders, reports long jobs through the account-wide process registry, and exposes small backend helpers a UI can call. None of it needs a bespoke protocol: a client that already handles chat, the [event bus](../realtime/event-bus.html) and [processes](../notifications/processes.html) can render the agent.
+The agent talks to people through the same chat any client renders, reports long jobs through the account-wide process registry, and exposes small backend helpers a UI can call. None of it needs a bespoke protocol: a client that already handles [chat](../types/chat.html), the [event bus](../realtime/event-bus.html) and [processes](../notifications/processes.html) can render the agent. `$SPACE` and `$CHAT` below are the agent space and its general chat.
 
 ## Agent-authored chat messages
 

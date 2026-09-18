@@ -23,6 +23,8 @@ Reading list is a collection: the things in it are pages, people and links that 
 
 ## Create a collection
 
+`$SPACE` is a writable space; the reply's `collectionId` is `$COLL` below, and `$OBJ` is any existing object in the space.
+
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/collections \
   -H 'Content-Type: application/json' \
@@ -74,13 +76,13 @@ any object collection attach $SPACE $OBJ $COLL
 any object collection detach $SPACE $OBJ $COLL
 ```
 
-Both take no body, both are idempotent, and both return the write receipt. Filing appends to `any.collections` and admits writes to that collection's columns; unfiling removes the id.
+Both take no body, both are idempotent, and both return the write receipt. Filing appends to `any.collections` and admits writes to that collection's columns; unfiling removes the id. The one route with a side effect is `bin`: a repeated move re-stamps `movedAt` / `movedBy` even though membership does not change.
 
 The POST pre-flights its ids — `404 object.not_found`, `404 collection.not_found`, and `400 collection.not_a_collection` when the id names a user type (a built-in type such as `page` is `404 collection.not_found`) — because `any.collections` is a synced CRDT write with no validation behind it, so a typo would replicate permanently. The DELETE pre-flights nothing on purpose: it is the repair path for a row that already carries a bogus id.
 
-**Unfiling is not a delete.** That collection's values stay on the row as orphan data, read-tolerant, and filing the object again brings them back into view.
+**Unfiling is not a delete.** That collection's values stay on the row as orphan data, read-tolerant, and filing the object again brings them back into view — writes to that group are refused in between. Filter a member list on `any.collections`, never on a property value alone: the orphan values still match.
 
-An object that is new takes its collections in the create body instead — [Objects](objects.html):
+An object that is new takes its collections in the create body instead — [Objects](objects.html). `$PERSON` is the type, `$CONTACT` the collection, `$STATUS` a choice property declared on it:
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \

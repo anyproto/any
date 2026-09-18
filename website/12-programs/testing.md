@@ -7,6 +7,8 @@ order: 60
 
 Because a program touches the world only through effects, testing it means faking one function. The kernel-fidelity harness imports the **real** guest kernel host-side and stubs the single host call, so tests exercise the actual curated builtins, import allowlist, span machinery and `use()` loading — not plain CPython.
 
+The examples assume a development checkout of anybao with its test dependencies installed.
+
 ## The harness
 
 `tests/kernelenv.py` in the anybao repo exposes one entry point:

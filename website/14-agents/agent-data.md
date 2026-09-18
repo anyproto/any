@@ -5,7 +5,9 @@ order: 60
 ---
 # Agent data
 
-Nothing agent-specific is compiled into the any server. The harness declares its stores as [runtime datasets](../database/runtime-datasets.html) on types it creates itself, homes them on objects it derives, owns the record shapes and validation, and reads and writes them through the generic query, modify and upsert surface. You can do the same.
+Nothing agent-specific is compiled into the `any` server. The harness declares its stores as [runtime datasets](../database/runtime-datasets.html) on types it creates itself, homes them on objects it derives, owns the record shapes and validation, and reads and writes them through the generic query, modify and upsert surface. You can do the same.
+
+The examples below take `$SPACE` as the agent space's id ([runtime quickstart](../quickstart/anyrt.html)). Each writer ensures its store on first use, so a dataset appears once the agent has written to it.
 
 ## Where it lives
 
@@ -29,15 +31,17 @@ TURNS=$(curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/datasets \
   | jq -r '.datasets[].name | select(endswith("_agent_turns"))')
 ```
 
-Resolve a child yourself — the route requires the child's `type`, the store's hidden harness type:
+Resolve a child yourself — the route requires the child's `type`, the store's hidden harness type. Keep the type id and the returned object id apart:
 
 ```bash
-BRAIN=$(curl -s "http://127.0.0.1:7001/v1/spaces/$SPACE/types?includeHidden=true" \
+BRAIN_TYPE=$(curl -s "http://127.0.0.1:7001/v1/spaces/$SPACE/types?includeHidden=true" \
   | jq -er '.types[] | select(.xKey=="agent_brain") | .id')
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/bao%2Fv1/children \
+BRAIN=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/bao%2Fv1/children \
   -H 'content-type: application/json' \
-  -d '{"seed": "bao/brain/v1", "type": "'$BRAIN'"}'
+  -d "{\"seed\":\"bao/brain/v1\",\"type\":\"$BRAIN_TYPE\"}" | jq -er .objectId)
 ```
+
+`$BRAIN` is the object holding the memory records; `$BRAIN_TYPE` is its schema. The child call is adopt-or-derive: repeating it resolves the same object.
 
 ## Datasets
 
@@ -81,14 +85,18 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
        "sort": ["-seq"], "limit": 5}'
 ```
 
-Every memory item in one category, live (`$MEMORY` resolved like `$TURNS`, with the `_agent_memory_items` suffix):
+Every memory item in one category, live (`$BRAIN` resolved above, `$MEMORY` discovered like `$TURNS`, with the `_agent_memory_items` suffix):
 
 ```bash
+MEMORY=$(curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/datasets \
+  | jq -er '.datasets[].name | select(endswith("_agent_memory_items"))')
 curl -N -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query/subscribe \
   -H 'content-type: application/json' \
   -d '{"objectId": "'$BRAIN'", "dataset": "'$MEMORY'",
        "filter": {"category": "decision"}, "sort": ["-createdAt"], "limit": 50}'
 ```
+
+The stream opens with the matching window, then the deltas; an empty window is a valid state. Frames and reconnect rules: [Subscribe](../realtime/subscribe.html).
 
 Memory and history also participate in [search](../search/index.html) under scopes `agent` and `history`.
 
@@ -108,4 +116,4 @@ c.upsert_record(space, anchor, "agent_triggers", "remind-standup", {
 
 The owning device adopts it on the next tick; a `once` fires when `now >= at`, then auto-disables and keeps its record as the audit trail. See [Once](../scheduling/once.html).
 
-> **Why it matters.** The agent's whole operational state is a handful of datasets in your encrypted space: queryable, subscribable, exportable, deletable, and synced to your other devices — with no schema you cannot read and no store you cannot leave.
+> **Why it matters.** The agent's whole operational state is a handful of datasets in your encrypted space: queryable, subscribable, exportable, deletable, and synced to your other devices — with no schema you cannot read and no store you cannot leave. The same pattern is open to your own harness: declare the record shape, derive a typed host object, and use the same data surface.

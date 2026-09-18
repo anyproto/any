@@ -7,9 +7,22 @@ order: 30
 
 The agent's memory is two channels with different jobs. **History** (turns and chunk summaries) keeps everything verbatim and drillable; **memory items** hold only distilled, stable facts. Recall composes both, plus the space's own content, through one surface.
 
+## Memory, history and context
+
+| Layer | What it holds | Lifetime |
+|---|---|---|
+| Application data | tasks, documents, contacts, and other structured records | stored in the space |
+| History | original conversation turns and summaries of older turns | stored on each chat's log object |
+| Memory items | selected facts, preferences, decisions, and lessons | stored on the agent's brain object |
+| Model context | instructions, selected history and memories, current message, tool results | assembled for a model call |
+
+A stored record becomes model context only when the harness selects it; a fresh run has no Python state and rebuilds its context from these records. The stores and runnable queries are in [Agent data](agent-data.html).
+
 ## Memory items
 
-A memory item is a record in the `agent_memory_items` dataset on the brain object of the bao space — memory has one home, and a fact about another space names that space in its `context` or `tags`. Required at save time: `category` (an open slug set — preference, decision, lesson, fact, …) and `context` (a one-line fact). Optional: `body`, `confidence` (user-stated facts outrank inferred ones), `importance`, `tags`, `entities`, `keywords`, `edges` (typed links to other objects), `validFrom`.
+A memory item is a record in the `agent_memory_items` dataset on the brain object of the bao space. A fact about another space names that space in its `context` or `tags`.
+
+Saving requires `category` (an open slug set such as preference, decision, lesson, or fact) and `context` (a one-line fact). Optional fields are `body`, `confidence`, `importance`, `tags`, `entities`, `keywords`, `edges` (typed links to other objects), and `validFrom`. User-stated facts outrank inferred ones.
 
 Save policy, taught by the `_memory` skill (the write path enforces the required fields and value ranges):
 
@@ -21,6 +34,10 @@ Save policy, taught by the `_memory` skill (the write path enforces the required
 | hard lessons, shipped outcomes | low-confidence speculation |
 
 Budget is ~1–2 saves per turn. Episodes and session summaries never become memory items — that is the history channel's job.
+
+### Save a fact from a program
+
+Guest code with the `agent` overlay configured. `space` is the space recall searches for context; the item itself always lands on the agent space's brain:
 
 ```python
 c = use("agent:any@v1")
@@ -49,7 +66,7 @@ Every memory item auto-recall injects gets its `accessCount` bumped, and so does
 
 ## Auto-recall
 
-Prompt guidance alone does not produce memory behaviour — an agent asked nicely saves and searches only when memory is the topic. So recall is structural: at the start of every turn `autorecall@v1` runs `recall.search(user_message)` (index-backed, no model call) and injects the top hits, budget-capped.
+Prompt guidance alone does not produce memory behaviour — an agent asked nicely saves and searches only when memory is the topic. So recall is structural: at the start of every turn `autorecall@v1` runs `recall.search(user_message)` (index-backed, no model call; the query embedding comes from the server's configured [embedder](../search/embedders.html)) and injects the top hits, budget-capped.
 
 The injection is framed as a synthetic `run_cell` call whose code is the literal recall idiom, plus a digest-shaped result — evidence the model weighs and can discount as stale, not prompt truth. Memory hits render as distilled facts with provenance date and confidence; history hits as "related past discussion, <date>" pointers with a drill-down handle. Guards: hits already inside the boot window are skipped (auto-recall is the topical channel; the window owns recency), a relevance threshold means generic messages inject nothing, and every injection is logged to `agent_roi_injections`.
 
@@ -66,7 +83,7 @@ Same-level chunks are contiguous and non-overlapping, and every summary keeps ex
 
 ## Background jobs
 
-All maintenance runs as standing [triggers](../scheduling/index.html) on the election-active device, each fire a traced run with an `agent_runs` summary; when the bird's-eye view is stale, a run says why.
+All maintenance runs as standing [triggers](../scheduling/index.html) on the election-active device, each fire a traced run with an `agent_runs` summary; when the bird's-eye view is stale, a run says why. A stopped device runs nothing, but the trigger records and everything they produced stay in the space.
 
 | Program | Schedule | State |
 |---|---|---|
@@ -79,4 +96,8 @@ All maintenance runs as standing [triggers](../scheduling/index.html) on the ele
 
 Disabled jobs ship their mechanism and activate one at a time behind an eval; scoring fields are recorded before they are consumed.
 
-> **Why it matters.** The memory is a dataset in your encrypted space, not a vendor's RAG store. You can query it (`dataset: "agent_memory_items"`), subscribe to it, audit what the extractor saved and from which turn, and delete an item with a normal record delete. See [Agent data](agent-data.html) for the fields.
+## What leaves the device
+
+Dedup, extraction and summarisation are model calls: whatever provider serves the configured tier reads their inputs. The recall index is a second path — the server's default `index.embedder: auto` embeds online with a local fallback, `local` keeps it on the device once the model is present ([Embedders](../search/embedders.html)).
+
+> **Why it matters.** The memory is a dataset in your encrypted space, not a vendor's RAG store. You can query it (guest code resolves the key `agent_memory_items`; raw HTTP uses the discovered `<typeId>_agent_memory_items` storage collection), subscribe to it, audit what the extractor saved and from which turn, and delete an item with a normal record delete. See [Agent data](agent-data.html#reading-it-yourself) for the fields and [Runs and monitoring](../scheduling/runs-and-monitoring.html) for a maintenance job's run.

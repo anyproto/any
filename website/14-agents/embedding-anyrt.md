@@ -5,11 +5,13 @@ order: 80
 ---
 # Embedding anyrt
 
-anyrt is a Rust crate with a thin CLI on top. Apps embed it as a library and run the agent in-process; a headless or browser-UI setup runs the same agent as `anyrt serve` next to an any server. Both modes need the wasm kernel built first, and both must obey one rule: one agent per chat.
+`anyrt` is a Rust crate with a thin CLI on top. Apps embed it as a library and run the agent in-process; a headless or browser-UI setup runs the same agent as `anyrt serve` next to an `any` server. Both modes need the wasm kernel built first, and both must obey one rule: [one agent per chat](#one-agent-per-chat). For a first standalone agent, the [runtime quickstart](../quickstart/anyrt.html) is the shorter path.
 
 ## Build order
 
-```
+From the anybao repository (the Go `any` build does not build the runtime):
+
+```sh
 nix develop        # canonical env (or: direnv allow)
 uv sync
 make kernel        # componentized CPython → bin/kernel.wasm
@@ -65,11 +67,15 @@ agent = { space = "<agentRepoSpaceId>", invite = "<inviteToken>" }
 traces = "traces"
 ```
 
-```
+Three processes, three terminals; `anyrt serve` reads `anybao.toml` from its working directory ([provider and overlay setup](../quickstart/anyrt.html)):
+
+```sh
 ./bin/any run --config ./any-config.yml        # 1. the any server, 127.0.0.1:7001
 anyrt serve                                     # 2. the agent (reads anybao.toml)
 cd ../any-ui && pnpm dev                        # 3. a browser UI proxying /v1
 ```
+
+A browser UI either proxies `/v1` or runs at one of the server's allowed origins ([Security model](../operations/security-model.html)).
 
 | Command | What it does |
 |---|---|
@@ -78,7 +84,7 @@ cd ../any-ui && pnpm dev                        # 3. a browser UI proxying /v1
 | `anyrt run <name@vN>` | run one program from the local directory (offline dev) |
 | `anyrt trace ls` / `show <run_id>` / `follow` | list, render, and live-render runs (`--addr` reads a server's trace store) |
 
-`deploy` is the only publish step; a running serve picks up changes on its next conversation. Serve also exposes a loopback control API (default port 7010): `GET /status`, `GET /election`, `POST /break/:runId`, `GET /triggers[/:id[/runs]]`, `PATCH /triggers/:id`, `POST /triggers/:id/enable|disable`, and `POST /run` — see [Progress and UI](progress-and-ui.html) and [Runs and monitoring](../scheduling/runs-and-monitoring.html). Full flag reference: [anyrt CLI](../reference/anyrt-cli.html) and [anybao.toml](../reference/anybao-toml.html).
+`deploy` publishes source to a space; a running serve resolves updated modules on its next `use()`. Serve also exposes a loopback control API (default port 7010): `GET /status`, `GET /election`, `POST /break/:runId`, `GET /triggers[/:id[/runs]]`, `PATCH /triggers/:id`, `POST /triggers/:id/enable|disable`, and `POST /run` — see [Progress and UI](progress-and-ui.html) and [Runs and monitoring](../scheduling/runs-and-monitoring.html). Full flag reference: [anyrt CLI](../reference/anyrt-cli.html) and [anybao.toml](../reference/anybao-toml.html).
 
 ## One agent per chat
 

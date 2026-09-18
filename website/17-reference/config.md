@@ -57,7 +57,7 @@ CLI-side flags (`--addr`, `--timeout`, `--verbose`, `--control-token` / `ANY_CON
 
 The passkey is the one secret the server may need at boot: it comes from the env var named by `auth.passkeyEnv`, or from stdin with `--passkey-stdin`. There is no interactive prompt.
 
-> **Why it matters.** Nothing here points at a hosted backend. `dataDir` is the whole database — copy it and you have moved your data; the network config only names the sync nodes that relay ciphertext between your devices. See [Networks](../operations/networks.html) for staging and self-hosted nodeconfs.
+> **Why it matters.** Nothing here points at a hosted backend. `dataDir` is the whole database — copy it and you have moved your data; the network config only names the sync nodes that relay ciphertext between your devices. See [Networks](../operations/networks.html) for staging and self-hosted nodeconfs, [Data directory](../operations/data-dir.html) for what the root holds.
 
 ## Search index (`index.*`)
 
