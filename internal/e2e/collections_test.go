@@ -188,8 +188,8 @@ func TestE2E_CollectionsSurface(t *testing.T) {
 		code := mustErrorCode(t, http.MethodPost,
 			spaceBase+"/properties/"+obj.ObjectId+"/set/"+collID,
 			`{"patch":{"`+posProp.PropId+`":"a1"}}`, http.StatusBadRequest)
-		if code != "dataset.validation" {
-			t.Errorf("write after detach: code = %q, want dataset.validation", code)
+		if code != "dataset.not_declared" {
+			t.Errorf("write after detach: code = %q, want dataset.not_declared", code)
 		}
 	})
 

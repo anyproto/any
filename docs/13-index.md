@@ -1115,7 +1115,8 @@ run).
   truncation, concurrency under `-race`.
 - `internal/indexer/embed_local_download_test.go` — the download manager
   against `httptest`: happy path, sha256 mismatch, Range resume,
-  progress strings.
+  progress strings, `Close` during a retry backoff (the goroutine is
+  joined and the process row ends cancelled).
 - `internal/indexer/embed_worker_test.go` — the child supervisor against
   a helper process (the test binary re-exec'd, speaking the frame
   protocol in place of a model): per-frame batching, a query jumping the

@@ -1,16 +1,22 @@
 # Any
 
-**A local-first backend for multiplayer apps and agents.**
+- local-first, e2e encrypted multiplayer database with HTTP interface
+- sync engine on top of [any-sync](https://github.com/anyproto/any-sync), which has been battle-tested on our infra for many years and millions of spaces and passed a security audit by Cure53.
+- mongo query language support, including aggregation framework via [any-store](https://github.com/anyproto/any-store)
+- full-text search, semantic search with HNSW/ivfsq index types, hybrid search.
+- local vector embedding via llama.cpp.
 
 Any combines a document database, live queries, search and end-to-end
 encrypted peer-to-peer (P2P) sync in a **local server that runs on
 users' devices**. Apps connect through an HTTP API and can read and write
 local data offline. The server and CLI ship together as the `any` binary.
 
-Programs and agents run through [anyrt](https://github.com/anyproto/anybao),
-a companion runtime that connects to Any as a client. Their code and state
-live in the same database as the data they work with. Its agent harness is
-designed for long-lived sessions over structured data, with persistent memory.
+Its companion runtime, [anyrt](https://github.com/anyproto/anybao), lets programs
+and agents live in the same database as the data they work with. The agent
+harness is designed for long-lived sessions, with persistent memory and
+direct access to the database's structured data. `any-rt` compliments `any` with: 
+- isolated CPython programs on top of Wasmtime with deterministic traces and fuel control
+- CRON-like triggers, event subscriptions
 
 [Quickstart](#quickstart) · [Documentation](#documentation) · [Example app](https://github.com/anyproto/any-ui)
 

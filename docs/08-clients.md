@@ -101,7 +101,7 @@ POST /v1/spaces/:spaceId/objects
   a bad write whole: a value of the wrong `kind` is `400
   property.kind_mismatch`, an undeclared property id `400
   property.not_found`, an owner the object does not carry `400
-  dataset.validation`, and a value that does not fit the descriptor's
+  dataset.not_declared`, and a value that does not fit the descriptor's
   current slug `400 property.format_violation` (`27-descriptors.md`).
   Check the same rules client-side so a form reports the problem
   before the round trip.
@@ -542,11 +542,11 @@ Content-Type: image/jpeg
 → 201 {fileId, size, inline, durable:true|false, cached:true, …}
 ```
 
-Know what attach latency includes: the network backup is attempted
-**synchronously inside the request** (with a reachable broker the attach
-takes the upload time and returns `durable: true`); when the broker is
-unreachable/refusing, attach returns fast with `durable: false` and a
-persistent queue retries in the background. Either way, don't block the UI on `durable`. For a
+Know what attach latency includes: local work only. Attach never waits
+on the network — it registers the file, queues the backup and returns
+`durable: false` (`true` only for inline files and content already
+backed up in the space); a persistent queue uploads in the background.
+Treat the 201 as done and don't block the UI on `durable`. For a
 "not backed up" badge, hold `GET …/files/stats` and refresh it on
 `GET …/files/subscribe` events (state `inflight`/`limited` →
 `durable`). `limited` means the network refused for quota — offer a
@@ -559,8 +559,8 @@ the object's payload rows
 shows up as an `added` row, and — the part that matters — the moment
 it becomes fetchable shows up as an **update on the same row when
 `networkSign` lands** (the broker's custody receipt is a synced
-cleartext row field; usually the row arrives already signed, since the
-sender's attach completes the backup synchronously). Then GET
+cleartext row field; the row usually arrives unsigned, since the
+sender's backup runs after its attach returns). Then GET
 `…/files/:fileId/content`. Downloading before that point returns
 `409 file.not_available` — a retry-later state, not an error to
 surface. Two things that do NOT signal remote availability: the

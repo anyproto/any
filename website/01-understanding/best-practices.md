@@ -50,7 +50,7 @@ Default `mode: "hybrid"`; pin `fts` for exact ids and error strings. Check `vect
 
 ## 9. Files: attach and move on, render by URL
 
-`POST …/files` returns 201 once the row is durable in the CRDT; the network backup runs inside the request when a broker is reachable, otherwise in the background. Do not block UI on `durable`. A member's incoming file becomes fetchable when its row gains `networkSign` on the files/query subscribe; `409 file.not_available` before that is "wait", not "error". Point `<img>` / `<video>` straight at `…/files/:id/content` — correct mime, Range support ([Files](../files/index.html)).
+`POST …/files` returns 201 once the row is durable in the CRDT; the network backup always runs in the background, so the receipt says `durable: false` for anything but an inline file or one deduplicated against an already backed-up file. Do not block UI on `durable`. A member's incoming file becomes fetchable when its row gains `networkSign` on the files/query subscribe; `409 file.not_available` before that is "wait", not "error". Point `<img>` / `<video>` straight at `…/files/:id/content` — correct mime, Range support ([Files](../files/index.html)).
 
 ## 10. Subscribe to views, not data
 

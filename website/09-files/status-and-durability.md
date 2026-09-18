@@ -17,7 +17,7 @@ Use durability for a backup badge and for deciding whether local bytes may be of
 | `inflight` | the file is registered; backup is queued, running, or being driven by another device |
 | `limited` | the network refused backup because of a storage limit; retried on a slow cadence or through `POST …/retry` |
 
-Files under 4096 bytes travel inline with the sealed row and start durable. Larger files start inflight. Attach attempts backup within the request, so a reachable broker may make the response durable already. On failure, a persistent background queue retries, including after a restart. A network with no file nodes leaves the file inflight.
+Inline files (under 4096 bytes) are born `durable`. Larger files start `inflight` and flip to `durable` on a persistent background queue that starts the upload as soon as attach returns, retries with backoff and survives restarts. The one exception is content already backed up in the space: an attach that deduplicates against an already-durable file is born `durable`.
 
 ## Reading status
 
@@ -71,10 +71,9 @@ Another device or member finishing a backup does not emit a local status event h
 
 Use the payload stream for attachment discovery and remote backup updates. Fetchability also depends on local bytes and peers, so there is no single backup event that proves every change in availability.
 
-1. Subscribe to `POST …/objects/:objectId/files/query/subscribe`, with a sort and limit. The initial snapshot and later `added` rows identify attachments.
-2. Read name and mime through `GET …/files/:fileId`, then attempt `GET …/files/:fileId/content`. Local bytes or a reachable peer can satisfy the request even without `networkSign`.
-3. A `409 file.not_available` means no usable source can serve the bytes. Retry on connectivity changes, a later open, or a payload update adding `networkSign`; use backoff between attempts.
-4. When `networkSign` arrives in an `updated` row, show the network backup as complete. A typed file GET will also report `durable: true`.
+1. Subscribe to the object's rows: `POST …/objects/:objectId/files/query/subscribe`. The sender's file arrives as an `added` row — usually without `networkSign` yet, because the sender's backup runs after its attach returns.
+2. The moment it becomes fetchable is an `updated` frame on the same row when `networkSign` lands (or `durable: true` on a re-GET of `…/files/:fileId`).
+3. Then `GET …/files/:fileId/content`. Downloading before that point returns `409 file.not_available` — a retry-later state to wait out, not an error to surface.
 
 The receipt is a synced cleartext field, so remote backup completion reaches every member with the row. Display metadata remains sealed and comes from the typed file GET. The raw rows cannot supply names or mime.
 
@@ -88,6 +87,4 @@ any file retry $SP $FILE
 
 ## What attach latency includes
 
-For a new large file, attach writes the registration and local bytes, then attempts the network backup. With a reachable broker, latency usually includes uploading those bytes. A transport failure or refusal returns a successful attach with `durable: false` and leaves the queue to retry.
-
-Treat a successful attach as complete; update the backup badge separately. A backup permits [offload](cache.html) and network reads. Peers may already be able to serve the file before that backup exists.
+Local work only: spooling the body, encrypting it and writing the local CAR. Attach never waits on the network — it queues the backup and returns `durable: false`, whether the broker is reachable or not, and the queue uploads in the background. The registration is already durable in the CRDT; the state only tells you whether the *network* has a copy yet — which is what decides whether [offload](cache.html) is allowed and whether other members can fetch.
