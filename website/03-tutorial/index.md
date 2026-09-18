@@ -7,8 +7,6 @@ order: 0
 
 `any` looks like a lot of machinery from the outside — types, properties, parts, datasets, modules, bundles, a catalog. Almost all of it is optional. In the simplest case you create an object and you are done; every further concept is one more thing you can add when you need it. This tutorial adds them in order, one part per level, with a working example at each step.
 
-**Before you start:** the [curl quickstart](../quickstart/curl.html) — a booted server, `curl`, `jq`, and one terminal that keeps the tutorial variables between parts.
-
 ## The four levels
 
 ```
@@ -23,7 +21,7 @@ Each level is complete on its own. A space full of plain objects with names is a
 | Part | You build | You learn |
 |------|-----------|-----------|
 | [1. Objects](objects.html) | a notebook of named objects | create, read back, subscribe, rename, delete; the universal `any` group |
-| [2. Properties](properties.html) | a password manager | types, the three ids, kinds and descriptors, choice options, filters on values, collections stacking a second group of columns |
+| [2. Properties](properties.html) | a password manager | types, the three ids, kinds and descriptors, choice options, filters on values, collections as categorisation with columns of their own |
 | [3. Datasets](datasets.html) | a mailbox holding 10 000 emails | a table inside one object: when to use it instead of many objects, an enforced schema, idempotent import, paging, search, aggregation |
 | [4. Apps](apps.html) | the mailbox as a sidebar app | parts and modules, bundles that converge across devices, `miniapp`, the usecase catalog |
 
@@ -71,7 +69,7 @@ Seen as a database, the simple things are objects, types and properties, and an 
 
 An object has exactly one type. The type contributes its property definitions — the columns the object can hold values for — and its **parts**: display units a client renders, each owning a dataset that a **module** serves. The `records` module serves a dataset whose schema you declare; the `editor` module serves block documents; the `chat` module serves messages.
 
-On top of that an object can be filed under any number of **collections**, each adding a second group of columns and nothing else — no parts, no layout. That is the closest thing any has to inheritance, and it is deliberately flat: behaviour comes from the one type, extra columns come from the collections, and neither inherits from the other. [Part 2](properties.html) files the first object under a collection and [Part 4](apps.html) spells out the rules.
+The type is the **primary**: it says what the object is, how it renders and what it can do. Everything else is **categorisation** — an object is *filed under* any number of **collections**: Reading list, Subscription, the wiki tree, the sidebar. A collection says nothing about representation or behaviour — no parts, no layout. Filing adds that category's columns to the row (a subscription's price, a page's position in the tree) and nothing else. That is the closest thing `any` has to inheritance, and it is deliberately flat: behaviour comes from the one type, labels and their columns come from the collections, and neither inherits from the other. [Part 2](properties.html) files the first object under a collection and [Part 4](apps.html) spells out the rules.
 
 > **Why it matters.** Every one of these levels is a CRDT record in an end-to-end encrypted space on your own device. A type definition, a choice option, a part declaration and the data they govern all sync the same way, so a schema change made offline on one device converges with data written on another without a migration step or a server that sees plaintext.
 

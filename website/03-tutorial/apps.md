@@ -112,7 +112,7 @@ Property ids on a bundle are derived from `(rootId, xKey)`, which is why two bli
 
 ## The sidebar: `miniapp`
 
-A space is, to its user, a list of apps. The marker is the built-in hidden **collection** `miniapp`, with three columns and nothing else — an app root keeps its own type slot for its definition marker, and a pinned object keeps the type it already has:
+A space is, to its user, a list of apps. Being in the sidebar is a categorisation of an object, not a change to what it is — so the marker is a **collection**: the built-in hidden `miniapp`, with three columns and nothing else. An app root keeps its own type slot for its definition marker, and a pinned object keeps the type it already has:
 
 | Property | Meaning |
 |----------|---------|

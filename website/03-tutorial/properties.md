@@ -1,6 +1,6 @@
 ---
 title: 2. Properties
-description: The second level — a type with typed properties gives objects columns you can validate, filter and sort on, and a collection adds a second group on top. Built here as a small password manager.
+description: The second level — a type with typed properties gives objects columns you can validate, filter and sort on; a collection categorises objects that keep their type, with columns of its own. Built here as a small password manager.
 order: 20
 ---
 # 2. Properties
@@ -121,7 +121,7 @@ The same body against `…/objects/query/subscribe` is a live list — the vault
 
 ## One object, one type and any number of collections
 
-The type says what the object **is**, and there is exactly one of it. Everything else an object belongs to is a **collection**: a group of columns you file objects under, with no layout and no parts of its own. An object can be filed under any number of them, each contributing its own group of columns keyed by its id, and none of them knows about the rest.
+The type says what the object **is**, and there is exactly one of it: it is the primary, and representation and behaviour come from it alone. Everything else an object belongs to is a **collection** — a category you file objects under. A collection says nothing about how its members render or behave — no layout, no parts. It carries only the columns that make sense for everything in that category, and filing an object under it adds those columns to the row under the collection's id. An object can be filed under any number of them, and none of them knows about the rest.
 
 Say the GitHub account is also something you pay for. "Paid subscription" is not what the object *is* — it is still a credential — so it is a collection, `subscription`, with a price and a renewal date:
 
@@ -155,11 +155,11 @@ The object now answers to both questions: `{"any.type": "'$CRED'"}` lists it amo
 
 Three rules make this simple rather than clever:
 
-- **One type, any number of collections.** The type is what the object is — replacing it with `POST …/properties/:objectId/type/:typeId` swaps the whole answer, and there is no unset. Filing and unfiling a collection is additive and idempotent, and neither is a delete: the old group's values stay on the row as read-tolerant orphan data, and setting the owner again brings them back.
+- **One type, any number of collections.** The type is what the object is, and the only source of its layout and parts — replacing it with `POST …/properties/:objectId/type/:typeId` swaps the whole answer, and there is no unset. Filing and unfiling a collection is additive and idempotent, and neither is a delete: the old group's values stay on the row as read-tolerant orphan data, and setting the owner again brings them back.
 - **Column names never collide.** Each owner is its own namespace, so paths are `<ownerId>.<propId>` and a type and a collection can both have a `name` or a `date` property with the values kept apart. Filing an object is opening a second namespace on it, not merging columns into one flat row.
 - **Layout and parts come from the type alone; property groups come from every owner.** Collections have no layout and no parts, but each adds its columns. A client renders the credential layout and shows the subscription columns in the property panel next to the credential ones.
 
-Pick a type when the thing needs a layout, a body or any other part — Credential, Person, Task. Pick a collection when it is a facet on objects that keep their own type — Subscription, Reading list, Q3 launch ([Collections](../database/collections.html)).
+Pick a type when the thing needs a layout, a body or any other part — Credential, Person, Task. Pick a collection when it is a category over objects that keep their own type — Subscription, Reading list, Q3 launch ([Collections](../database/collections.html)).
 
 ## Change the definition, not the data
 
@@ -174,7 +174,7 @@ A choice value stores the option **key** (`work`), never its label, so renaming 
 
 ## Where this level ends
 
-You have objects with typed, validated, filterable columns — a schema that syncs with its data — and a way to stack a second group of columns on top without changing what the object is. It scales to hundreds of credentials, contacts or books: one object per thing, one row each in the `objects` storage collection.
+You have objects with typed, validated, filterable columns — a schema that syncs with its data — and collections that categorise objects, with columns of their own, without changing what the object is. It scales to hundreds of credentials, contacts or books: one object per thing, one row each in the `objects` storage collection.
 
 It does not scale to a mailbox. Ten thousand emails as ten thousand objects means ten thousand rows in the space-wide storage collection, each with its own change history, for things that belong together, arrive in bulk and are mostly read as one list. The next part keeps them as **records on a single object** — a dataset with its own enforced schema, ids you supply, and an import that is safe to re-run.
 
