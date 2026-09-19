@@ -125,11 +125,15 @@ index:
     url: http://localhost:11434       # default
     model: embeddinggemma             # default
   openai:                             # online primary for embedder: openai/auto.
-                                      # The defaults carry shared DeepInfra dev
-                                      # credentials (Qwen3-Embedding-0.6B) so `auto`
-                                      # works with no config.
-    baseUrl: https://api.deepinfra.com/v1/openai
-    model: Qwen/Qwen3-Embedding-0.6B  # for auto, MUST equal the local fallback model
+                                      # No provider ships with the binary: under
+                                      # `auto` the primary is on only when apiKey
+                                      # is set, otherwise `auto` is the local model
+                                      # alone. Any OpenAI-compatible /embeddings host.
+    baseUrl: ""                       # required with a key (no default host)
+    model: Qwen/Qwen3-Embedding-0.6B  # default: the local model's name. Override with
+                                      # the provider's spelling, but it MUST be the same
+                                      # model — a different one makes the index's
+                                      # vectors incompatible with the local fallback
     apiKey: ...                       # sent as Bearer; never logged
   local:                              # llama.cpp in a child process — all fields optional;
                                       # the default embedder needs no config at all
@@ -220,10 +224,13 @@ push:
   peerId: ""                          # the push node's peer id
   addrs: []                           # dial addresses, e.g. ["quic://host:port"]
 
-# Alpha invite codes (any-invite). Base URL of the invite service;
-# empty disables POST /v1/account/access-code (409 access.disabled).
+# Alpha invite codes (any-invite). Base URL of the invite service. When
+# the config names none AND no nodeconf (the embedded production
+# network), the production service is filled in; a config that names a
+# nodeconf gets an invite service only by naming one. Without one
+# POST /v1/account/access-code returns 409 access.disabled.
 access:
-  redeemUrl: ""
+  redeemUrl: ""                       # production: https://prod-any-invite.anytype.io
 
 # Logger — passthrough to any-sync/app/logger.Config.
 log:
@@ -309,8 +316,9 @@ default value stays).
 
 ### `index.embedder: local` prerequisites
 
-The local embedder is the **fallback** under the default `auto` (and used
-directly with `index.embedder: local`; set `none` for FTS-only). It runs
+The local embedder is what the default `auto` runs — alone until
+`index.openai.apiKey` is set, as the fallback after — and is used
+directly with `index.embedder: local`; set `none` for FTS-only. It runs
 llama.cpp in a child process (`any run embedder`, this same binary; no
 CGO — yzma dlopens the shared libs at runtime), so a llama.cpp abort
 costs a round of embedding instead of the server
@@ -318,7 +326,8 @@ costs a round of embedding instead of the server
 macOS arm64 (Metal), macOS x64, Linux x86_64 and Windows x86_64 (Vulkan,
 with automatic CPU fallback). Only `-tags llamacpp` builds carry it
 (`make build` and the release tarballs; never mobile): elsewhere `auto`
-runs the online primary alone and `local` fails boot
+embeds only through an online primary (`index.openai.apiKey`), FTS-only
+without one, and `local` fails boot
 (docs/13-index.md § Builds and the local embedder). Missing prerequisites
 never break boot or FTS — the vector side reports `unavailable` until
 they're met.
@@ -348,15 +357,18 @@ instead of pausing. The online primary is configured by the `openai`
 block (`baseUrl` / `model` / `apiKey`, `model` required); the fallback
 by the `local` block (auto-downloaded at boot regardless, so it's
 ready). A build without the local embedder (no `-tags llamacpp`) runs the
-online primary alone, with no fallback and no model download. A circuit breaker skips the primary for a cooldown after
+online primary alone, with no fallback and no model download — and with no
+`apiKey` it has no embedder at all, so the index stays FTS-only. A circuit breaker skips the primary for a cooldown after
 repeated failures, then re-probes.
 
 **Both sides must be the SAME embedding model** — the index stores one
 vector space and one dimension; mixing models yields incoherent
-similarity. The supported pairing is one model served two ways, e.g.
-`index.openai.model: Qwen/Qwen3-Embedding-0.6B` (a host that serves it,
-e.g. DeepInfra) with the default local Qwen3-Embedding-0.6B. fp16-vs-Q8
-drift is negligible.
+similarity. The supported pairing is one model served two ways: the
+local Qwen3-Embedding-0.6B and any OpenAI-compatible host that serves
+the same model. `index.openai.model` defaults to that model's common
+name; a provider that spells it differently needs the override, and a
+provider that serves a *different* model is not a fallback pair — it is
+a second, incompatible vector space. fp16-vs-Q8 drift is negligible.
 
 ## Passkey
 

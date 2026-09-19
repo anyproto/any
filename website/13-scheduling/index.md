@@ -7,11 +7,17 @@ order: 0
 
 A trigger is a record in the `agent_triggers` dataset of your agent space: a program spec, a schedule or event, arguments, and an `owner` naming the device that runs it. The running agent converges its scheduler on those records every tick, so creating, editing, pausing and moving a job is just writing a record — from the UI, from a program, or from `curl`.
 
+The record syncs; the execution does not. A trigger fires only on a device where `anyrt` is running, and a stored trigger keeps no stopped device alive. The pinned device runs local work offline; a program that calls a provider needs that provider reachable.
+
+## Before you write a trigger
+
+The server and `anyrt serve` are up ([runtime quickstart](../quickstart/anyrt.html)); the runtime provisions the trigger store on boot. The program you name resolves from the working space or a configured overlay. The shell examples use `$SPACE` (the agent space id) and `$CHAT` (the target chat's object id). `anyrt run --from-space` runs the same program once by hand — the way to check its arguments before scheduling it.
+
 ## A trigger record
 
 ```json
 {
-  "name": "daily digest",
+  "name": "daily history rollup",
   "kind": "cron",
   "spec": {"cron": "0 8 * * *"},
   "program": "agent:rollup@v1",
@@ -52,12 +58,14 @@ curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/upsert \
   -H 'Content-Type: application/json' \
   -d "{\"objectId\": \"$ANCHOR\", \"dataset\": \"$TRIGGERS\",
        \"records\": [{\"id\": \"daily-digest\", \"fields\": {
-         \"name\": \"daily digest\", \"kind\": \"cron\", \"spec\": {\"cron\": \"0 8 * * *\"},
+         \"name\": \"daily history rollup\", \"kind\": \"cron\", \"spec\": {\"cron\": \"0 8 * * *\"},
          \"program\": \"agent:rollup@v1\", \"args\": {\"space\": \"$SPACE\", \"chatId\": \"$CHAT\"},
          \"enabled\": true}}]}"
 ```
 
 The record id is yours to choose (a slug). Guest code passes the store key instead — `c.upsert_record(space, anchor, "agent_triggers", …)` — and the `any@v1` client resolves the collection. The owning device adopts the record within one 5-second tick.
+
+This example schedules the shipped history rollup at 08:00 UTC. Adoption does not run it immediately: a cron arms its next future occurrence. Look for `daily-digest` in the [trigger registry](runs-and-monitoring.html#the-control-api), then read its `agent_runs` summaries after it fires.
 
 ## How a tick works
 
@@ -81,6 +89,8 @@ The dataset is the source of truth. A registry-only edit would be reverted by th
 | missed while owner down | does not exist — no catch-up burst | fires late on the next tick | does not exist — live only |
 | after firing | re-arms forward | auto-disables, stays as its audit trail | keeps watching |
 | failure | counts toward the breaker | consumes the shot — no retry | counts toward the breaker |
+
+Moving the active agent to another device does not move an already pinned user trigger. Change its `owner` to move it. For work that spans several executions, save a cursor or checkpoint in the database and resume it on the next run; each invocation still has the [runtime's limits](../programs/limits.html).
 
 <div class="cards">
 <a href="cron.html"><strong>Cron</strong><span>Recurring schedules — five-field expressions or every_s, strictly-forward arming</span></a>

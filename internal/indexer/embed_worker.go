@@ -99,10 +99,8 @@ type workerEmbedder struct {
 }
 
 func newWorkerEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string, onProcess func(ProcessUpdate)) (*workerEmbedder, error) {
-	spec, dl, err := resolveLocalSpec(cfg, modelsDir, legacyModelsDir, onProcess)
-	if err != nil {
-		return nil, err
-	}
+	// Config checks come first: resolveLocalSpec can start the model
+	// download, and only the returned embedder's Close stops it.
 	reqTimeout := workerDefaultRequestTimeout
 	if cfg.RequestTimeout != "" {
 		d, err := time.ParseDuration(cfg.RequestTimeout)
@@ -113,6 +111,10 @@ func newWorkerEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string,
 			return nil, fmt.Errorf("indexer: index.local.requestTimeout must be positive, got %q", cfg.RequestTimeout)
 		}
 		reqTimeout = d
+	}
+	spec, dl, err := resolveLocalSpec(cfg, modelsDir, legacyModelsDir, onProcess)
+	if err != nil {
+		return nil, err
 	}
 	w := newWorkerEmbedderFromSpec(spec, reqTimeout)
 	w.dl = dl

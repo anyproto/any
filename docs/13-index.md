@@ -550,7 +550,7 @@ one updated to deleted, stops it and drops its index. A failed
 
 A second per-space goroutine drains `pending` docs: `EmbedDocs` in
 batches of `index.embedBatch` (default 64), `index.embedConcurrency`
-batches in parallel (default 1; 4 for `openai` / `auto`) → `SetVectors`
+batches in parallel (default 1; 4 for `openai`, and for `auto` with a key) → `SetVectors`
 (one write transaction, update-only — docs deleted meanwhile are
 skipped) → `EnsureVectorIndex`. Advance nudges it after each page with
 new text; a 1-minute ticker retries after embedder failures. A rewritten
@@ -559,10 +559,16 @@ run and the index is FTS-only.
 
 Embedders (`indexer.Embedder`), selected by `index.embedder`:
 
-- `auto` — **default**: an OpenAI-compatible primary with the `local`
-  embedder as fallback (the primary alone in a build without `local`). Both MUST serve the same model (one vector space,
-  one dimension); the default pairing is Qwen3-Embedding-0.6B online and
-  locally (`index.openai.*` names the primary, required). A circuit
+- `auto` — **default**: the `local` embedder alone until
+  `index.openai.apiKey` is set; with a key, an OpenAI-compatible primary
+  with the `local` embedder as fallback — the primary alone in a build
+  without the local embedder, which without a key then embeds nothing and
+  the index runs FTS-only. Both MUST serve the same model
+  (one vector space, one dimension); the default pairing is
+  Qwen3-Embedding-0.6B online and locally. `index.openai.baseUrl` and
+  `apiKey` name the primary (any OpenAI-compatible host; neither has a
+  default); `model` defaults to the local model's name and is overridden
+  only for a provider that spells the same model differently. A circuit
   breaker skips the primary for 30 s after 3 consecutive failures. A
   query gives the primary half of the remaining query budget, so the
   fallback still has time to decode.
@@ -587,8 +593,8 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   call. Linux needs a system `libffi.so.8` (NixOS: `nix develop`).
 - `ollama` — local `/api/embed`, default `embeddinggemma`, doc/query
   task prompts.
-- `openai` — any OpenAI-compatible `/embeddings` API (`index.openai.model`
-  required).
+- `openai` — any OpenAI-compatible `/embeddings` API (`index.openai.baseUrl`
+  and `index.openai.model` required; no default provider).
 
 **An unavailable embedder never breaks the pipeline.** There is no
 boot-time probe: whenever an embedder is configured, text-bearing docs
@@ -721,9 +727,10 @@ Search needs no build tag. The full-text index, the vector index and the
 | iOS c-archive (`scripts/build-xcframework.sh`) | `mobile` | no |
 
 - **Without the local embedder**, `index.embedder: auto` runs the online
-  primary alone: no child process, no model download, and an outage
-  degrades hybrid search to FTS. `index.embedder: local` fails boot with
-  an error naming the tag.
+  primary alone once `index.openai.apiKey` names one: no child process, no
+  model download, and an outage degrades hybrid search to FTS. With no key
+  there is no embedder at all — the index runs FTS-only and says so once at
+  boot. `index.embedder: local` fails boot with an error naming the tag.
 - **The tag exists because of libffi.** The llama.cpp bindings (yzma →
   jupiterrider/ffi) load libffi at process start and panic without it,
   and they don't compile on every platform `any` does. `make check-deps`,
@@ -1118,7 +1125,8 @@ run).
   truncation, concurrency under `-race`.
 - `internal/indexer/embed_local_download_test.go` — the download manager
   against `httptest`: happy path, sha256 mismatch, Range resume,
-  progress strings.
+  progress strings, `Close` during a retry backoff (the goroutine is
+  joined and the process row ends cancelled).
 - `internal/indexer/embed_worker_test.go` — the child supervisor against
   a helper process (the test binary re-exec'd, speaking the frame
   protocol in place of a model): per-frame batching, a query jumping the

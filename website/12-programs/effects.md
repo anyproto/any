@@ -5,7 +5,7 @@ order: 10
 ---
 # Effects
 
-An effect is the only way guest code touches the world. The catalog below is the entire host surface — small and stable by design. Everything else a program uses (the any client, LLM adapters, memory, the conversation loop) is itself guest Python loaded with `use()`.
+An effect is the only way guest code touches the world. The catalog below is the entire host surface — small and stable by design. Everything else a program uses (the `any` client, LLM adapters, memory, the conversation loop) is itself guest Python loaded with `use()`. Provider keys ride effects too, as [credentials](credentials.html).
 
 ## The catalog
 

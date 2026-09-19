@@ -1,16 +1,16 @@
 ---
 title: Understanding any
-description: The three tiers — an encrypted local database, sync between devices and members, and a sandboxed runtime for programs and agents — and how data flows through them.
+description: The three pieces — an encrypted local database, sync between devices and members, and a sandboxed runtime for programs and agents — and how data flows through them.
 order: 0
 ---
 # Understanding any
 
-any is a reactive, local-first, end-to-end-encrypted database with Mongo-style queries, built-in chat and editor CRDTs, and a sandboxed Python runtime for jobs and agents that live inside your own data. This section explains the model; the quickstart gets you running in five minutes.
+`any` is a reactive, local-first, end-to-end-encrypted database with Mongo-style queries, built-in chat and editor CRDTs, and a sandboxed Python runtime for jobs and agents that live inside your own data. This section explains the model; the quickstart gets you running in five minutes.
 
-## The three tiers
+## The three pieces
 
-| Tier | Component | What it does |
-|------|-----------|--------------|
+| Piece | Component | What it does |
+|-------|-----------|--------------|
 | **Runtime** | anyrt | Programs in wasm, scheduled jobs, agents — talks to the database over the same HTTP API. |
 | **Sync** | any-sync | CRDT changes, ACLs, head-sync, p2p LAN; nodes relay ciphertext and keys never leave devices. |
 | **Database** | any-store | Local document DB: queries, indexes, live windowed subscriptions, full-text + vectors. |

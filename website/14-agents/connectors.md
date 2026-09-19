@@ -5,7 +5,7 @@ order: 50
 ---
 # Connectors
 
-A connector is a tool program in the `connectors` overlay space that wraps one external API. The API key never enters guest code: every request names a **credential ref**, and the runtime injects the header after the request is recorded, so the key is absent from the trace and the model context.
+A connector is a tool program in the `connectors` overlay space that wraps one external API. The API key never enters guest code: every request names a **credential ref**, and the runtime injects the header after the request is recorded, so the key is absent from the trace and the model context. Your own programs get the same HTTP and credential surface ([Credentials](../programs/credentials.html) covers injection and OAuth).
 
 ## The connectors
 

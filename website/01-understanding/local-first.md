@@ -1,11 +1,13 @@
 ---
 title: Local-first
-description: Every device holds the whole database; writes commit locally, sync happens when a peer is reachable, and convergence is guaranteed by the data model rather than by a server.
+description: Every device holds the whole database; writes commit locally, sync happens when a peer is reachable, and convergence is guaranteed by the data model rather than by a server — plus which operations still need a network.
 order: 10
 ---
 # Local-first
 
-In any, "offline" is not a degraded mode — it is the normal one. Every read and write is served from the database on your disk. Sync is the background process that carries your changes to other devices and members, and theirs to you.
+In `any`, "offline" is not a degraded mode — it is the normal one. Every read and write is served from the database on your disk. Sync is the background process that carries your changes to other devices and members, and theirs to you.
+
+A successful write means *this device* has appended the change. It does not mean another device has received it, or that a sync node holds a copy — `/sync-status` below is how you learn that.
 
 ## What "local" means here
 
@@ -38,7 +40,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/sync        # → 204 when t
 any space sync $SPACE
 ```
 
-Convergence follows from the CRDT: once two peers have applied the same set of changes, in any order, they hold identical rows ([CRDTs and consistency](crdt-and-consistency.html)). There is no reconciliation step, no conflict dialog, no server copy that wins.
+Convergence follows from the CRDT: once two peers have applied the same set of changes, in any order, they hold identical rows ([CRDTs and consistency](crdt-and-consistency.html)). There is no reconciliation step, no conflict dialog, no server copy that wins. The merge is per-path last-writer-wins on DAG order, not a transaction: it does not enforce an invariant across fields, and two concurrent writes to the same field keep one value.
 
 ## Observing sync state
 
@@ -73,11 +75,24 @@ When the server starts, it binds the listener first and runs the space loading +
 
 > **Why it matters.** A hosted backend answers a query with the truth as the server sees it, and returns an error when it cannot. any answers with the truth as *this device* sees it, always. That is the property that makes an app usable on a plane, a phone in a tunnel, or a laptop whose owner simply never turned sync on — and it is why the API never asks you to handle a "not connected" error on a read or write.
 
+## What still needs a network
+
+| Operation | Offline behavior |
+|---|---|
+| Query or edit data already on this device | Local state; the write syncs later. |
+| Receive changes from another device | Needs a reachable peer: LAN p2p or a sync node. |
+| Read a file whose bytes are cached locally | Local. |
+| Read an uncached file | Needs a peer or a file node that holds the bytes ([Files](../files/index.html)). |
+| Search with `index.embedder: local` | Local once the model and llama.cpp libraries are present. |
+| Call an external model or connector from a program | Needs that service; the effect is recorded either way. |
+
+A newly joined space may still be loading: the account's space list and the materialized content of that space are separate states ([space lifecycle](../database/spaces.html)).
+
 ## What does not sync
 
 - **Local-scope fields** — dataset fields declared `local` (chat's `unread` flags, for example) are device-only; they never enter the DAG ([System fields](../database/system-fields.html)).
 - **Account-scope settings** — per-space `settings` sync across the account's own devices through the tech space, never to other members.
 - **The search index** — derived state, rebuilt locally from the change feed ([Indexing](../search/indexing.html)).
-- **Run traces** kept by anyrt — trace bodies live in the server's device-local store; only a per-run summary syncs ([Traces and replay](../programs/traces-and-replay.html)).
+- **Run traces** kept by `anyrt` — trace bodies live in the server's device-local store; only a per-run summary syncs ([Traces and replay](../programs/traces-and-replay.html)).
 
 > **Note.** Timestamps such as `modifiedAt` are the *author's* clock. They converge (every peer ends up with the same value), but they are display and sort quality only — never use them as a fence for "has this synced yet". Use `/sync-status` for that.

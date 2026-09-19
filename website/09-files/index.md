@@ -16,6 +16,10 @@ A file in any is space data. It is attached to an object, encrypted under the sp
 
 > **Why it matters.** A hosted backend stores your files where the operator can read them and serves them through a URL anyone with the token can fetch. Here the file is encrypted before it is content-addressed; the network node holding the backup sees ciphertext, a size and a hash, and only members holding the space key can ever turn it back into a photo.
 
+## Available versus durable
+
+**Available** means the bytes can be read now — from this device, from a local-network peer holding the complete file, or from the network's public read base, which serves durable files only. **Durable** means a verified network-custody receipt is recorded on the row, or the file is inline. A peer can serve a file before its backup lands, so attempt the content GET as soon as the row arrives instead of waiting for `durable: true`; `409 file.not_available` means no source can serve it *yet*. [Offload](cache.html) has the stricter rule: it needs the network backup.
+
 ## The surface at a glance
 
 | Method | Path | Purpose |
@@ -26,7 +30,7 @@ A file in any is space data. It is attached to an object, encrypted under the sp
 | GET | `/v1/spaces/:spaceId/files/:fileId/content` | download the bytes (Range / 206) |
 | GET | `/v1/spaces/:spaceId/files/:fileId/status` | one file's durability status |
 | GET | `/v1/spaces/:spaceId/files/stats` | aggregate durability counts |
-| GET | `/v1/spaces/:spaceId/files/subscribe` | durability transitions (SSE) |
+| GET | `/v1/spaces/:spaceId/files/subscribe` | local durability transitions (SSE) |
 | POST | `/v1/spaces/:spaceId/objects/:objectId/files/query[/subscribe]` | windowed query over one object's payload rows |
 | POST | `/v1/spaces/:spaceId/files/:fileId/pin` / `retry` / `offload` | local-copy management → 204 |
 | DELETE | `/v1/spaces/:spaceId/files/:fileId` | delete for every member → 204 |
@@ -40,7 +44,7 @@ The file **bytes ride plain HTTP** — upload is a raw POST body, download a raw
 |------|--------|---------|
 | `file.not_found` | 404 | unknown fileId, unknown objectId on attach, or a payload query against an object with no files yet |
 | `file.not_durable` | 409 | offload refused: the local bytes are the only copy |
-| `file.not_available` | 409 | content not local and not fetchable yet — retry later |
+| `file.not_available` | 409 | content not local and no peer or network source can serve it yet — retry later |
 | `file.variant_invalid` | 400 | broken `variant` / `variantOf` pairing |
 
 CLI: the `any file …` group mirrors every endpoint (`attach`, `list`, `get`, `download`, `status`, `stats`, `subscribe`, `pin`, `retry`, `offload`, `delete --yes`, `query`, `query-subscribe`, `cache`).

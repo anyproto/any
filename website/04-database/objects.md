@@ -7,16 +7,21 @@ order: 20
 
 An object is a document in a space: exactly one **type** — what it is — any number of **collections** it is filed under, property values keyed by owner and property id, and any number of per-object datasets. A place in the space's tree is one of those collections — the wiki, below.
 
+`$SPACE`, `$OBJ`, `$TYPE` and `$COLL` are ids the API returned; a name or an `xKey` is never an id.
+
 ## Create an object
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
+OBJ=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
   -H 'Content-Type: application/json' \
-  -d '{
-    "type": "page",
-    "initialProperties": { "any": { "name": "Dune" } }
-  }'
-# → 201 {"objectId": "bafy…"}
+  -d '{"type": "page", "initialProperties": {"any": {"name": "Dune"}}}' \
+  | jq -r .objectId)
+# The 201 response is {"objectId":"…"}; jq saves that ID in $OBJ.
+```
+
+A plain page named Dune, body empty. CLI:
+
+```bash
 any object create $SPACE --type page --properties '{"any":{"name":"Dune"}}'
 ```
 
@@ -30,7 +35,7 @@ The create body has exactly three keys:
 
 Any other top-level key answers `400 request.unknown_field` naming the accepted set; a wrong shape (a string where an array is expected) is `400 request.schema`. Nothing is silently dropped. Values under `initialProperties` are checked against each property's declared format (`400 property.format_violation`).
 
-A person filed under two facets is one call:
+A person filed under two facets is one call — `$PERSON` the type, `$CONTACT` and `$INVESTOR` collections, `$STATUS` a property declared on the contact collection:
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
@@ -66,6 +71,8 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
   -H 'Content-Type: application/json' \
   -d '{"filter": {"id": "'$OBJ'"}}'
 ```
+
+An illustrative row for a page filed under the wiki collection:
 
 ```json
 { "records": [ {
@@ -123,19 +130,23 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
   }'
 ```
 
-List a node's children in order (`""` as the parent lists the top level):
+List a node's children in order (`""` as the parent lists the top level). The membership clause is not decoration: an unfiled object keeps its orphan `parentId`, and a binned one keeps its collections.
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
   -H 'Content-Type: application/json' \
-  -d '{"filter": {"'$WIKI.$PARENT_ID'": "'$NODE'"}, "sort": ["'$WIKI.$POS'"]}'
+  -d '{"filter": {"$and": [
+         {"'$WIKI.$PARENT_ID'": "'$NODE'"},
+         {"any.collections": "'$WIKI'"},
+         {"any.collections": {"$nin": ["bin"]}}
+       ]}, "sort": ["'$WIKI.$POS'"]}'
 ```
 
 The columns are plain properties: unindexed on the `objects` storage collection (a scan — [Indexes](indexes.html)), excluded from search, and strings rather than relations, so backlinks never report a parent link.
 
 ### Moving objects
 
-A drag-and-drop move is one property write in the wiki collection's namespace — both fields land in a single change; a reorder inside the same parent patches `pos` alone:
+A drag-and-drop move is one property write in the wiki collection's namespace — both fields land in a single change (`$NEW_PARENT` is the destination, `""` for the top level); a reorder inside the same parent patches `pos` alone:
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/$WIKI \

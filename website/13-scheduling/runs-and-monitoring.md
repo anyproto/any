@@ -7,6 +7,8 @@ order: 50
 
 Every fire is a normal program run: it writes a trace on the device that ran it, publishes a synced summary to the `agent_runs` dataset, and stamps the trigger record. "Did it run, how long did it take, what did it cost, why did it stop" are answered from records — no log grepping.
 
+`$SPACE` is the agent space id. The dataset query below is the synced history; [the control API](#the-control-api) is the live registry of one running runtime. A trigger that never ran is usually a question of its [owner](device-pins.html) or its [health markers](#health-markers).
+
 ## The run summary
 
 At the end of every run the runtime upserts one record into `agent_runs` on the `bao/runs/v1` child of the `bao/v1` bundle; the record id is the run id. Summaries sync, so every device sees every device's runs — trigger fires, conversations (under the chat responder's id) and control-API runs alike.

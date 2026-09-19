@@ -5,7 +5,7 @@ order: 60
 ---
 # Builds and CI
 
-The server is a CGO-free Go binary. Full-text and vector search compile into every build; one build tag, `llamacpp`, adds the local embedder, which loads llama.cpp shared libraries at runtime. `make build` passes the tag and fetches the libraries; a plain `go build` or `go install` gives a server that embeds through the online embedder alone.
+The server is a CGO-free Go binary. Full-text and vector search compile into every build; one build tag, `llamacpp`, adds the local embedder, which loads llama.cpp shared libraries at runtime. `make build` passes the tag and fetches the libraries; a plain `go build` or `go install` gives a server that embeds only through an online provider named by `index.openai.*`. Everything here runs in the `any` repository; the runtime's build order is under [Embedding anyrt](../agents/embedding-anyrt.html#build-order).
 
 ## Building
 
@@ -34,7 +34,7 @@ Search needs no build tag. The `llamacpp` tag adds the local llama.cpp embedder;
 | `go install` / `go build` | none | no |
 | mobile — `.aar` / `.xcframework` | `gomobile` / `mobile` | no |
 
-- Without the local embedder, `index.embedder: auto` embeds through the online primary alone, with no child process and no model download, and `index.embedder: local` fails at boot with an error naming the tag.
+- Without the local embedder, `index.embedder: auto` embeds through an online primary alone once `index.openai.apiKey` names one — no child process, no model download — and is full-text only without a key. `index.embedder: local` fails at boot with an error naming the tag.
 - The tag is opt-in because the embedder's bindings load libffi at process start and crash without it. `make check-deps`, a PR check, fails if the untagged or a mobile build links them.
 - Mobile never builds it: the local-embedder files exclude `GOOS` android and ios, whatever the tags.
 - `ffi_no_embed` is a packaging flag, not a capability one: it changes where libffi comes from (the system `/usr/lib/libffi.dylib` instead of a copy extracted into the user Caches directory), which is what macOS library validation requires. Nothing is compiled out.
@@ -73,6 +73,7 @@ Both are sha256-pinned in the release notes. On the embedded path the index runs
 - **Build workflow** — fans out per-platform jobs (six desktop tarballs, `.aar`, `.xcframework`), the macOS smoke job, then fans in to `publish`, which creates the release and fires a `repository_dispatch` to the desktop, iOS and Android client repositories. The desktop job runs `make catalog-validate` before building, and `publish` depends on it, so a broken catalog cannot ship. The dispatch is best-effort: a failure warns but never unpublishes.
 - **PR checks** — `make test`, `go vet` over the module, `make check-deps`, `make catalog-validate`, and **swagger drift**: the OpenAPI spec is regenerated and the PR fails if the committed spec differs. The spec is a published contract (the runtime's drift check pins against it), so a handler change must come with a regenerated spec. The spec captures routes, shapes and status codes, not `error.code` strings.
 - **Windows** — every release artifact is cross-compiled on Linux, so a separate workflow builds the tree and runs the server and config unit tests on a Windows runner on every push to `main` and daily before the nightly publishes.
+- **Docs** — `make docs-check` runs on every PR. It builds the site, runs renderer vet/tests, checks internal links and search targets, and tests the downloadable JavaScript and Python clients with mocked responses and streams.
 - **Secret** — one classic PAT with read/write across the organization, used to fetch the private SDK module in every job and to dispatch to the client repos. The built-in token can do neither.
 
 ## Versions

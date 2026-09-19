@@ -1,11 +1,11 @@
 ---
 title: Reference
-description: Exhaustive catalogs of the any server and anyrt runtime surfaces — endpoints, commands, streams, error codes, config keys, effects and schemas.
+description: Exhaustive catalogs of the `any` server and `anyrt` runtime surfaces — endpoints, commands, streams, error codes, config keys, effects and schemas.
 order: 0
 ---
 # Reference
 
-The guides explain how to build with any; this section lists what exists. Every endpoint, command, frame, error code and config key is here once, in the shape you will see on the wire, so you can look something up without reading a chapter.
+The guides explain how to build with `any`; this section lists what exists. Every endpoint, command, frame, error code and config key is here once, in the shape you will see on the wire, so you can look something up without reading a chapter.
 
 ## How the pieces fit
 
@@ -29,8 +29,10 @@ Two binaries, two config files, one API. The `any` CLI is a thin client over the
 
 - Paths are relative to `http://127.0.0.1:7001`; `…` in a path stands for the `/v1/spaces/:spaceId` prefix already shown in that table.
 - `$SP`, `$OBJ`, `$CHAT` in examples are a space id, an object id and a chat object id you substitute.
-- Dates on the wire are instants: `{"$date": "2026-08-05T17:00:00.000Z"}`.
-- Every non-2xx response is `{"error": {"code", "message", "details?"}}`.
+- Dates on the wire are instants: `{"$date": "2026-08-05T17:00:00.000Z"}` — a bare string is a different value type and silently matches nothing in a filter.
+- Property values are keyed by `propId`, never by `xKey`; resolve the handle before you write.
+- Dataset writes return `{versionId, changeId, recordIds}`, not the record — read it back through a query or subscription.
+- Every non-2xx response is `{"error": {"code", "message", "details?"}}`; batch routes can also report per-item `rejections` inside a 2xx.
 
 <div class="cards">
 <a href="http-api.html"><strong>HTTP API</strong><span>Every endpoint, grouped, with bodies, returns and error codes</span></a>

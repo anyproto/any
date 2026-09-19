@@ -5,7 +5,7 @@ order: 20
 ---
 # Tools
 
-The agent's declared tool is `run_cell` (plus `bash` in a shell-enabled build). Everything else it can do is a **program** the cell code loads with `use("name@vN")`. A program marked `__any_tool__ = True` is a tool: its docstring and method list enter the system prompt, and it is callable from any cell.
+The agent's declared tool is `run_cell` (plus `bash` in a shell-enabled build). Everything else it can do is a **program** the cell code loads with `use("name@vN")`. A program marked `__any_tool__ = True` is a tool: its docstring and method list enter the system prompt, and it is callable from any cell. Adding one is [writing a program](../programs/writing-a-program.html); the inventory below is what ships.
 
 ## How the model discovers a tool
 
@@ -17,7 +17,7 @@ ws = use("agent:webSearch@v1")
 ws.search("anyrt wasm component", "any-sync CRDT")
 ```
 
-Programs resolve from **spaces, not the filesystem**: the agent's own code lives in the `agent` overlay space (joined read-only), and a working-space program of the same name shadows it. See [Modules and overlays](../programs/modules-and-overlays.html).
+Programs resolve from **spaces, not the filesystem**: the agent's own code lives in the `agent` overlay space (joined read-only), and a working-space program of the same name shadows it; `agent:name@vN` pins the overlay explicitly. See [Modules and overlays](../programs/modules-and-overlays.html).
 
 ## Built-in agent programs
 

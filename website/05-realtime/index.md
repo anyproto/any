@@ -32,7 +32,7 @@ Every stream opens with `event: ready`, emits `: keepalive` comments every ~25 s
 
 The callback streams (sync status, members, identities, file status) never drop the subscriber: when their 16-deep forwarder overflows they emit an `event: lagged` frame before the next delivery and keep the stream open — re-read the matching GET to resync.
 
-All reasons mean the same thing for the client: the stream is over — open a fresh request. There is no replay and no resume cursor; the new snapshot already reflects current state, which is cheaper than shipping the gap.
+All reasons mean the same thing for the client: the stream is over — open a fresh request. There is no replay and no resume cursor; the new snapshot already reflects current state, which is cheaper than shipping the gap. A broken connection can end a stream with no `closed` frame at all — an account switch can swallow the final `deauthorized` — so re-read `GET /v1/auth` before every reconnect and stop if it is not the account the view belongs to.
 
 ```
 client                          any (127.0.0.1:7001)

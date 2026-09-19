@@ -5,7 +5,7 @@ order: 30
 ---
 # Modules and overlays
 
-Programs load other programs with `use("name@vN")`. Resolution is host-mediated, version-exact and recorded, so the trace pins the exact bytes that ran — even after the program in the space has moved on. A **repo** is a folder of programs published to a space; other spaces join it read-only and address it by an alias.
+Programs load other programs with `use("name@vN")`. Resolution is host-mediated, version-exact and recorded, so the trace pins the exact bytes that ran — even after the program in the space has moved on. A **repo** is a folder of programs published to a space; other spaces join it read-only and address it by an **overlay alias** — `use("agent:llm@v1")` names a program in the repo aliased `agent`.
 
 ## `use()` versus `import`
 

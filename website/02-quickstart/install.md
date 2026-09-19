@@ -1,15 +1,15 @@
 ---
 title: Install
-description: Get the any binary from a release tarball or build it from source, create your first account, and start the server.
+description: Get the `any` binary from a release tarball or build it from source, pick a data root and network, create your first account, and start the server.
 order: 10
 ---
 # Install
 
-any is a single binary. It runs the server (`any run`) and is the CLI client for everything else.
+`any` is a single binary. It runs the server (`any run`) and is the CLI client for everything else. The checks on this page and the quickstarts after it use `curl` and `jq`.
 
 ## From a release tarball
 
-Releases ship one tarball per platform:
+[Releases](https://github.com/anyproto/any/releases) ship one tarball per platform:
 
 | Artifact | Platform |
 |----------|----------|
@@ -30,14 +30,18 @@ manifest.json    # { version, os, arch, llamacpp_version, sha256: {path: hash} }
 Extract it somewhere on your `PATH`, keeping `llamacpp/` next to the binary — the local embedder looks for it at `<dir-of-any>/llamacpp` by default. The embedding model itself (~600 MB) is not bundled; it downloads on first boot into `<data-dir>/models/` without blocking the server.
 
 ```bash
-tar -xzf any-*-linux-x86_64.tar.gz -C ~/.local/opt/any
-ln -s ~/.local/opt/any/any ~/.local/bin/any
+mkdir -p "$HOME/.local/opt/any" "$HOME/.local/bin"
+tar -xzf any-*-linux-x86_64.tar.gz -C "$HOME/.local/opt/any"
+ln -s "$HOME/.local/opt/any/any" "$HOME/.local/bin/any"
+export PATH="$HOME/.local/bin:$PATH"      # put this in your shell profile too
 any version
 ```
 
+On macOS substitute your tarball's name; on Windows add the extracted directory to `PATH`.
+
 ## From source
 
-Requires Go 1.26 and `make`.
+Requires Git, Go 1.26.2 or newer, and `make`.
 
 ```bash
 git clone https://github.com/anyproto/any
@@ -47,7 +51,7 @@ export PATH="$PWD/bin:$PATH"
 any version
 ```
 
-Run the `PATH` line in every terminal you use below, or put the repo's `bin` on `PATH` in your shell profile: the `any` commands then run the binary you just built, with `bin/llamacpp` next to it where the local embedder looks. Otherwise a bare `any` fails or runs an older install.
+Run the `PATH` line in every terminal you use below, or put the repo's `bin` on `PATH` in your shell profile: the `any` commands then run the binary you just built, with `bin/llamacpp` next to it where the local embedder looks. Otherwise a bare `any` fails or runs an older install. If the llama.cpp download fails, `make llamacpp` retries it.
 
 On NixOS (or any system without `libffi.so.8` on the loader path) run both the build and the binary through the repo's dev shell: `nix develop -c make build`, `nix develop -c any run`.
 
@@ -57,7 +61,7 @@ On NixOS (or any system without `libffi.so.8` on the loader path) run both the b
 go install github.com/anyproto/any/cmd/any@latest
 ```
 
-This binary has full-text and vector search and embeds through the online embedder (`index.embedder: auto`): indexed text and search queries go to the online API. Set `index.embedder: none` to keep everything on the machine with full-text search only. It has no local embedder: `index.embedder: local` fails at boot.
+This binary has full-text search and can do vector search, but it has no local embedder: `index.embedder: local` fails at boot, and the default `auto` embeds only once `index.openai.baseUrl` / `apiKey` name an OpenAI-compatible provider — indexed text and search queries then go to that API. Until then the index is full-text only.
 
 For the local embedder, install with its build tag:
 
@@ -67,7 +71,22 @@ go install -tags llamacpp github.com/anyproto/any/cmd/any@latest
 
 That binary needs a loadable `libffi.so.8` on Linux at startup, and the llama.cpp shared libraries of the release pinned in `internal/indexer/llamacpp_release.go`, either in `llamacpp/` next to the binary or at `index.local.libDir`. A release tarball or `make build` ships both ready to use ([Builds and CI](../operations/builds-and-ci.html)).
 
+## Choose the data root and the network
+
+Everything below runs in a dedicated data root with the local embedder, so an experiment never touches `~/.any/` and never sends text to an online embedding provider:
+
+```bash
+export ANY_DATA_DIR="$HOME/.any-demo"
+export ANY_INDEX_EMBEDDER=local
+```
+
+Environment variables override the config file and flags override both ([Configuration](../operations/configuration.html)). `local` runs llama.cpp on this device; the ~600 MB model downloads into `$ANY_DATA_DIR/models/` on first boot and the object API serves while it does. `none` keeps full-text search and skips the model. An agent's LLM provider is a separate setting on the `anyrt` side ([Embedders](../search/embedders.html)).
+
+> **Note.** With nothing configured the server syncs against the **production** any-sync network under the account you are about to create. For a throwaway environment set `ANY_NETWORK_NODECONF_PATH` before `any init`, and keep one data root per network — see [Networks](networks.html).
+
 ## Create an account
+
+Same terminal, same exports:
 
 ```bash
 any init
@@ -82,7 +101,7 @@ The recovery phrase prints to stderr, once, between two rules; stdout carries th
 }
 ```
 
-The wallet lands at `~/.any/<accountId>/wallet.key`. A second `any init` on the same data dir changes nothing and lists the accounts it holds (`--new` adds another).
+The wallet lands at `$ANY_DATA_DIR/<accountId>/wallet.key` — plain JSON unless `ANY_WALLET_PASSKEY` is set ([Security model](../operations/security-model.html)). A second `any init` on the same data dir changes nothing and lists the accounts it holds (`--new` adds another).
 
 The mnemonic is the only way to restore the account on another device; there is no server-side recovery ([Encryption](../understanding/encryption.html)). To add a second device later:
 
@@ -100,10 +119,11 @@ any run
 LISTENING 127.0.0.1:7001
 ```
 
-Leave it in the foreground; it stops on Ctrl-C or `any stop`. In a second terminal:
+Leave it in the foreground; it stops on Ctrl-C, or on `any stop --data-dir "$HOME/.any-demo"` from a terminal without the exports. In a second terminal:
 
 ```bash
 any status
+curl -fsS http://127.0.0.1:7001/v1/auth | jq -e '.authorized == true'
 ```
 
 ```json
@@ -118,18 +138,17 @@ any status
 }
 ```
 
-The server serves as soon as it prints `LISTENING`; `bootstrapping` flips to `false` once the background space-loading pass finishes.
+The server serves as soon as it prints `LISTENING`; `bootstrapping` flips to `false` once the background space-loading pass finishes. The auth check prints `true`; `false` means `init` and `run` saw different data roots — a fresh root boots unauthorized until an account is created or selected ([Accounts](../auth/accounts.html)).
 
 ## Where things live
 
 | Path | What |
 |------|------|
-| `~/.any/` | Data root (`--data-dir` / `ANY_DATA_DIR`). |
-| `~/.any/<accountId>/` | This account's wallet, instance lock, databases, files, search index. |
+| `~/.any/` | Default data root (`--data-dir` / `ANY_DATA_DIR`); this page uses `~/.any-demo/`. |
+| `<data-dir>/<accountId>/` | This account's wallet, instance lock, databases, files, search index. |
+| `<data-dir>/models/` | Downloaded embedding models. |
 | `~/.config/any/config.yaml` | Optional config; also `<data-dir>/config.yaml` ([Configuration](../operations/configuration.html)). |
 | `http://127.0.0.1:7001` | The API (`--addr` / `ANY_LISTEN_ADDR`; loopback only). |
 | `http://127.0.0.1:7001/ui` | Built-in debug web UI. |
-
-> **Note.** With nothing configured the server syncs against the production any-sync network. For a throwaway environment set `ANY_NETWORK_NODECONF_PATH` before `any run` — see [Networks](networks.html).
 
 Next: [curl](curl.html) or [CLI](cli.html).

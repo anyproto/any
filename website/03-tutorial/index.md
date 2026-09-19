@@ -5,7 +5,7 @@ order: 0
 ---
 # Tutorial
 
-any looks like a lot of machinery from the outside — types, properties, parts, datasets, modules, bundles, a catalog. Almost all of it is optional. In the simplest case you create an object and you are done; every further concept is one more thing you can add when you need it. This tutorial adds them in order, one part per level, with a working example at each step.
+`any` looks like a lot of machinery from the outside — types, properties, parts, datasets, modules, bundles, a catalog. Almost all of it is optional. In the simplest case you create an object and you are done; every further concept is one more thing you can add when you need it. This tutorial adds them in order, one part per level, with a working example at each step.
 
 ## The four levels
 
@@ -16,18 +16,18 @@ any looks like a lot of machinery from the outside — types, properties, parts,
  4. Apps           parts, bundles, the sidebar, the catalog         the mailbox as an app
 ```
 
-Each level is complete on its own. A space full of plain objects with names is a valid space. A type with three properties and no parts is a valid type. You never have to reach the last level to use the first.
+Each level is complete on its own. A space full of plain objects with names is a valid space. A type with three properties and no parts is a valid type. You never have to reach the last level to use the first. Parts 1, 2 and 3 each create their own example in the shared tutorial space; Part 4 extends the mailbox from Part 3 and needs its `MAILBOX` and `INBOX` variables.
 
 | Part | You build | You learn |
 |------|-----------|-----------|
 | [1. Objects](objects.html) | a notebook of named objects | create, read back, subscribe, rename, delete; the universal `any` group |
-| [2. Properties](properties.html) | a password manager | types, the three ids, kinds and descriptors, choice options, filters on values, collections stacking a second group of columns |
+| [2. Properties](properties.html) | a password manager | types, the three ids, kinds and descriptors, choice options, filters on values, collections as categorisation with columns of their own |
 | [3. Datasets](datasets.html) | a mailbox holding 10 000 emails | a table inside one object: when to use it instead of many objects, an enforced schema, idempotent import, paging, search, aggregation |
 | [4. Apps](apps.html) | the mailbox as a sidebar app | parts and modules, bundles that converge across devices, `miniapp`, the usecase catalog |
 
 ## One model, two directions
 
-Seen as a database, the simple things are objects, types and properties, and an app is the complicated construction on top. Seen from the interface, it flips: the simple thing is the app in the sidebar — a wiki, a chat, a contacts directory — and the objects, types and properties inside it are the details. any has to serve both. The levels above are the database direction; Part 4 ends where the interface begins, at the [usecase catalog](../collaboration/bundles.html) that installs the well-known apps with one call.
+Seen as a database, the simple things are objects, types and properties, and an app is the complicated construction on top. Seen from the interface, it flips: the simple thing is the app in the sidebar — a wiki, a chat, a contacts directory — and the objects, types and properties inside it are the details. `any` has to serve both. The levels above are the database direction; Part 4 ends where the interface begins, at the [usecase catalog](../collaboration/bundles.html) that installs the well-known apps with one call.
 
 ## The picture to keep in mind
 
@@ -69,7 +69,7 @@ Seen as a database, the simple things are objects, types and properties, and an 
 
 An object has exactly one type. The type contributes its property definitions — the columns the object can hold values for — and its **parts**: display units a client renders, each owning a dataset that a **module** serves. The `records` module serves a dataset whose schema you declare; the `editor` module serves block documents; the `chat` module serves messages.
 
-On top of that an object can be filed under any number of **collections**, each adding a second group of columns and nothing else — no parts, no layout. That is the closest thing any has to inheritance, and it is deliberately flat: behaviour comes from the one type, extra columns come from the collections, and neither inherits from the other. [Part 2](properties.html) files the first object under a collection and [Part 4](apps.html) spells out the rules.
+The type is the **primary**: it says what the object is, how it renders and what it can do. Everything else is **categorisation** — an object is *filed under* any number of **collections**: Reading list, Subscription, the wiki tree, the sidebar. A collection says nothing about representation or behaviour — no parts, no layout. Filing adds that category's columns to the row (a subscription's price, a page's position in the tree) and nothing else. That is the closest thing `any` has to inheritance, and it is deliberately flat: behaviour comes from the one type, labels and their columns come from the collections, and neither inherits from the other. [Part 2](properties.html) files the first object under a collection and [Part 4](apps.html) spells out the rules.
 
 > **Why it matters.** Every one of these levels is a CRDT record in an end-to-end encrypted space on your own device. A type definition, a choice option, a part declaration and the data they govern all sync the same way, so a schema change made offline on one device converges with data written on another without a migration step or a server that sees plaintext.
 
@@ -79,11 +79,13 @@ The tutorial assumes a running server and one space, as in the [Quickstart](../q
 
 ```bash
 API=http://127.0.0.1:7001/v1
-SPACE=$(curl -s -X POST $API/spaces -H 'content-type: application/json' \
-  -d '{"name": "Tutorial"}' | jq -r .id)
+curl -fsS "$API/auth" | jq -e '.authorized == true'
+SPACE=$(curl -fsS "$API/spaces" -H 'content-type: application/json' \
+  -d '{"name": "Tutorial"}' | jq -er .id)
+printf 'Space: %s\n' "$SPACE"
 ```
 
-Keep `$SPACE` — every part uses it.
+Keep `$SPACE` — every part uses it. A CLI example is the alternative to the HTTP call above it, not a second step: running both mints a duplicate or hits `409 type.xkey_conflict`.
 
 <div class="cards">
 <a href="objects.html"><strong>1. Objects</strong><span>Create an object, read it back, watch it change live.</span></a>

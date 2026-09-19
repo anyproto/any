@@ -14,6 +14,8 @@ A program is one Python file whose docstring is its documentation, whose `main(a
 | flat | `programs/<name>@vN.py` | cron jobs, small tools |
 | folder | `programs/<name>@vN/program.py` | larger tools; tests and fixtures ride alongside and deploy ignores them |
 
+These paths are relative to a repo folder; `anyrt run --programs` selects the directory containing the versioned programs.
+
 The name is a valid identifier; the version is `@vN`, explicit and exact — there is no floating `latest`. A published overlay version is **frozen**: an edit ships as `name@vN+1`. Programs in your own working space are editable in place.
 
 ## The module docstring is the doc

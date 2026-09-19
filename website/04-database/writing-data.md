@@ -5,7 +5,7 @@ order: 60
 ---
 # Writing data
 
-Writes are purpose-built endpoints, not a generic document PUT: property values go through the owner-scoped `set`, dataset records through `/modify`, and the chat and editor modules through their own handlers. Every one of them returns the same receipt.
+Writes are purpose-built endpoints, not a generic document PUT: property values go through the owner-scoped `set`, dataset records through `/modify` (or [upsert](upsert.html) for repeatable imports), and the [chat](../types/chat.html) and [editor](../types/editor.html) modules through their own handlers. Every one of them returns the same receipt. No write adds a missing owner: set the object's type and collections first, then write their values.
 
 ## The write receipt
 
@@ -18,18 +18,18 @@ Writes are purpose-built endpoints, not a generic document PUT: property values 
 
 | Field | Meaning |
 |-------|---------|
-| `versionId` | The change's position in the object's DAG. Stamp `_ver.<path> = versionId` on the records you just wrote so the matching live event is recognised as your own and not double-applied. |
+| `versionId` | The change's position in the object's DAG on this peer — not comparable across peers. Stamp `_ver.<path> = versionId` on the records you just wrote so the matching live event is recognised as your own and not double-applied. |
 | `changeId` | The CID of the change — also the handle for [version history](version-history.html). Empty for local-scope writes. |
 | `recordIds` | Mirrors the input record order; `recordIds[0]` is the derived id of a created record. |
-| `rejections` | Per-op refusals: `{recordIndex, recordId?, opIndex, reason}`. `opIndex: -1` means the whole record was rejected. The write itself succeeded for everything else. |
+| `rejections` | When present, per-op refusals: `{recordIndex, recordId?, opIndex, reason}`. `opIndex: -1` means the whole record was rejected. The write itself succeeded for everything else. |
 
 No write returns the record body. Read it back through [`/query`](reading-data.html).
 
-> **Why it matters.** A write is a local append to the object's change DAG. It succeeds offline, is visible to the next query immediately, and syncs when a peer is reachable. `versionId` is what lets a client order its own writes against remote ones without a server clock.
+> **Why it matters.** A write is a local append to the object's change DAG. It succeeds offline, is visible to the next query immediately, and syncs when a peer is reachable. `versionId` is what lets a client order its own writes against remote ones without a server clock. Read `rejections` even on a 200: the request succeeded for everything else.
 
 ## Property values
 
-Values are stored at `record[ownerId][propId]`, the **owner** being the object's type or one of its collections. Write them with the owner-scoped set:
+Values are stored at `record[ownerId][propId]`, the **owner** being the object's type or one of its collections. Write them with the owner-scoped set — `$OWNER` is that id, `$PROP_AUTHOR` / `$PROP_YEAR` a string and a number property declared on it:
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/$OWNER \
@@ -47,7 +47,7 @@ Initial values ride object create instead — `initialProperties` keyed the same
 
 ## Dataset records: `/modify`
 
-`POST /v1/spaces/:spaceId/modify` is the generic write over one object's dataset — a batch of records, each a list of ops, all landing in one change.
+`POST /v1/spaces/:spaceId/modify` is the generic write over one object's dataset — a batch of records, each a list of ops, all landing in one change. Below, `$TYPE` declares an auto-id runtime dataset `notes` with `title`, `n`, `tags` and `draft` fields, `$OBJ` is of that type and `$NOTE` an existing record in it ([Runtime datasets](runtime-datasets.html) builds one).
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/modify \
@@ -60,7 +60,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/modify \
         "ops": [
           { "type": "$set",      "path": "",     "value": { "title": "x", "n": 1 } },
           { "type": "$addToSet", "path": "tags", "value": "idea" } ] },
-      { "id": "note_7",
+      { "id": "'$NOTE'",
         "ops": [ { "type": "$inc", "path": "n", "value": 1 },
                  { "type": "$unset", "path": "draft" } ] }
     ],
@@ -76,7 +76,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/modify \
 | `$addToSet` | Append `value` to the array at `path` if absent. |
 | `$pull` | Remove `value` from the array at `path`. |
 
-`path` is a dotted field path (`"style.level"` touches one sub-field; `"style"` replaces the object). A record with `id: ""` and `upsert: true` is created with a derived id; a named id with `upsert` creates-or-updates. `traceIds` are opaque labels stored on the change and filterable in history.
+`path` is a dotted field path (`"style.level"` touches one sub-field; `"style"` replaces the object; the empty path with an object value sets several root fields at once). A record with `id: ""` and `upsert: true` is created with a derived id; a named id with `upsert` creates-or-updates; a named id without `upsert` updates only an existing record and rejects a missing one. `traceIds` are opaque labels stored on the change and filterable in history.
 
 `dataset` is a storage collection name — `<typeId>_<key>` for a runtime dataset — that a part of the object's **type** declares, and the object must have that type — otherwise `400 dataset.not_declared` (a name the space does not serve at all is `400 dataset.unknown`). Collections declare no datasets. Module storage collections (`chat_messages`, `editor_blocks`) are written through their own handlers, which stamp derived fields and enforce authorship; `/modify` is for runtime datasets and other dynamic ones. Runtime-dataset rules (required fields, write-once, author-only) are enforced on apply — see [Runtime datasets](runtime-datasets.html).
 
@@ -97,14 +97,14 @@ Constraints (`400 request.schema`): explicit record ids, no `upsert` (local fiel
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/delete-records \
   -H 'Content-Type: application/json' \
-  -d '{"objectId": "'$OBJ'", "dataset": "'$TYPE'_notes", "recordIds": ["note_7"]}'
+  -d '{"objectId": "'$OBJ'", "dataset": "'$TYPE'_notes", "recordIds": ["'$NOTE'"]}'
 ```
 
 A record delete is a sticky tombstone — the id can never be re-created. A later `/modify` addressing it still answers `200`, with a whole-record `rejections` entry (`opIndex: -1`) and nothing stored, so an ensure-by-fixed-id always inspects `rejections`. Subscribers see the id in `removed`.
 
 ## Idempotency
 
-POSTs are not idempotent: each call produces a new change. The one exception is [`/upsert`](upsert.html), where the caller-supplied record id is the idempotency key and an identical re-run writes nothing.
+POSTs are not idempotent: each call produces a new change, so a blind retry of `/modify` after an uncertain response can duplicate an auto-id record or run `$inc` twice. There is no `Idempotency-Key`. The one exception is [`/upsert`](upsert.html), where the caller-supplied record id is the idempotency key and an identical re-run writes nothing.
 
 ## Preflight, don't hope
 

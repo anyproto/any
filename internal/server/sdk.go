@@ -279,7 +279,8 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 	// throughput win), stay sequential for the local child (it serves one
 	// frame at a time, so parallelism only adds goroutines).
 	embedConc := cfg.EmbedConcurrency
-	if embedConc == 0 && (cfg.Embedder == "openai" || cfg.Embedder == "auto") {
+	onlinePrimary := cfg.Embedder == "openai" || (cfg.Embedder == "auto" && cfg.OpenAI.ApiKey != "")
+	if embedConc == 0 && onlinePrimary {
 		embedConc = 4
 	}
 	ix := indexer.New(sdk, chunkers, st, indexer.Options{

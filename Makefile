@@ -15,7 +15,7 @@ SWAG := go tool github.com/swaggo/swag/v2/cmd/swag
 
 # `llamacpp` compiles in the local llama.cpp embedder (docs/13-index.md
 # § Builds and the local embedder). Search itself needs no tag; a build
-# without it runs `index.embedder: auto` on the online embedder alone.
+# without it embeds through the configured online provider, or not at all.
 BUILD_TAGS := llamacpp
 
 # llama.cpp release pin for the local embedder's shared libs; the source
@@ -26,7 +26,7 @@ LLAMACPP_VERSION := $(shell scripts/llamacpp-version.sh)
 # the tag after the untagged suite, which is the `go install` build.
 LLAMACPP_PKGS := $(addprefix ./,$(sort $(dir $(shell grep -rl --include='*.go' '^//go:build.*llamacpp' internal cmd mobile))))
 
-.PHONY: build test vet tidy clean swagger llamacpp llamacpp-soft any docs docs-serve catalog-validate check-deps
+.PHONY: build test vet tidy clean swagger llamacpp llamacpp-soft any docs docs-check docs-serve catalog-validate check-deps
 
 swagger:
 	$(SWAG) init --v3.1 -g doc.go -d ./internal/server,./internal/api -o internal/server/docs --parseDependency --parseInternal --overridesFile $(CURDIR)/.swaggo
@@ -96,6 +96,14 @@ include makefiles/android.mk
 ## Docs website: website/*.md -> website/dist (static, deploy as-is)
 docs:
 	go run ./cmd/anydocs -src website -out website/dist
+
+docs-check: docs
+	go vet ./cmd/anydocs
+	go test ./cmd/anydocs
+	python3 cmd/anydocs/check_site.py website/dist
+	node --check website/dist/assets/examples/client.mjs
+	node --test cmd/anydocs/client_js_test.mjs
+	python3 cmd/anydocs/client_python_test.py website/dist/assets/examples/client.py
 
 docs-serve: docs
 	@echo "http://0.0.0.0:8088/"; cd website/dist && python3 -m http.server 8088 --bind 0.0.0.0

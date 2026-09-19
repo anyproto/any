@@ -7,6 +7,8 @@ order: 50
 
 All reads go through one primitive: a windowed query over any-store, the embedded MongoDB-flavoured document store under every space. The same body serves a point-in-time snapshot and, on the `/subscribe` twin, a live stream.
 
+In the block example `$OBJ` is an object whose type declares `editor_blocks` — a built-in `page` does.
+
 ## Two scopes
 
 | Endpoint | Reads |
@@ -17,10 +19,12 @@ All reads go through one primitive: a windowed query over any-store, the embedde
 Both are POST because a filter does not fit a query string. Both have a `/subscribe` sibling with the same body — see [Subscribe](../realtime/subscribe.html) — and an `/aggregate` sibling for pipelines — see [Aggregation](aggregation.html).
 
 ```bash
-# every page in the space, newest edits first
+# plain pages outside the bin, newest edits first
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
   -H 'Content-Type: application/json' \
-  -d '{"filter": {"any.type": "page"}, "sort": ["-modifiedAt"], "limit": 20}'
+  -d '{"filter": {"$and": [{"any.type": "page"},
+                           {"any.collections": {"$nin": ["bin"]}}]},
+       "sort": ["-modifiedAt", "id"], "limit": 20}'
 
 # the blocks of one document, in order
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
@@ -54,7 +58,7 @@ Response:
   "hasNext": true }     // with includeTotal
 ```
 
-Without a `projection`, records ship their full stored form, including `_ver` (creation marker plus per-field high-water version ids) and `_deletedAt` / `_traces` when present. `projection` narrows them: a mongo-style map of field paths to `1` (include) or `-1` (exclude), e.g. `{"any": 1, "<typeId>": 1}`. `id` always ships, `_ver` narrows with the fields you asked for, and `{"_ver": -1}` drops it.
+Without a `projection`, records ship their full stored form, including `_ver` (creation marker plus per-field high-water version ids) and `_deletedAt` / `_traces` when present. `projection` narrows them: a mongo-style map of field paths to `1` (include) or `-1` (exclude), e.g. `{"any": 1, "<typeId>": 1}`. `id` always ships, `_ver` narrows with the fields you asked for, and `{"_ver": -1}` drops it. A projection shapes the output only; filter and sort still run over the whole stored row.
 
 ## Filter operators
 
@@ -116,7 +120,7 @@ Instants filter as instants. Wrap the literal in `{"$date": …}`:
 
 ## Sort
 
-`sort` is an array of dotted paths, `-` prefix for descending, applied left to right: `["<wikiCollectionId>.<parentIdPropId>", "<wikiCollectionId>.<posPropId>"]` (the wiki tree's columns — [Objects](objects.html)). On `/subscribe`, `sort` is required whenever `limit > 0` so the window is well-defined. `{"sort": ["-modifiedAt"]}` is "recently modified first"; `-createdAt` is creation order.
+`sort` is an array of dotted paths, `-` prefix for descending, applied left to right: `["<wikiCollectionId>.<parentIdPropId>", "<wikiCollectionId>.<posPropId>"]` (the wiki tree's columns — [Objects](objects.html)). On `/subscribe`, `sort` is required whenever `limit > 0` so the window is well-defined. `{"sort": ["-modifiedAt"]}` is "recently modified first"; `-createdAt` is creation order. Add `id` as the last key when the others can tie, and re-apply the same sort client-side after each `changes` batch — a map's insertion order is not query order.
 
 ## Paths
 
@@ -135,7 +139,7 @@ A type's or collection's `xKey` is a client-side label, never a server path.
 
 **`offset` / `limit`** is fine for a frozen snapshot. It floats on a live storage collection: row 50 becomes row 51 the moment something lands ahead of it, so paging across writes skips and repeats rows.
 
-**Cursor paging** is stable: filter on an indexed, monotonic field and keep the same sort. Chat pages backward with
+**Cursor paging** is stable: filter on an indexed, monotonic field and keep the same sort. For chat that field is `_ver.id`, assigned at creation and untouched by edits. Chat pages backward with
 
 ```json
 { "objectId": "<chat>", "dataset": "chat_messages",
@@ -145,7 +149,7 @@ A type's or collection's `xKey` is a client-side label, never a server path.
 
 `includeTotal` counts every filter match, ignoring `limit` and `offset`, from the same read as the page; `hasNext` is `offset + len(records) < total`. For counts per group, use a `$count` / `$group` [aggregation](aggregation.html).
 
-> **Why it matters.** Every query runs against a local database, so the cost of a read is disk, not network. Always set a `limit` anyway: an unbounded read builds a huge snapshot, and on a subscription it can overflow the mailbox.
+> **Why it matters.** Every query runs against a local database, so the cost of a read is disk, not network. Always set a `limit` anyway: an omitted or zero limit is unbounded, an unbounded read builds a huge snapshot, and on a subscription it can overflow the mailbox.
 
 ## Tombstones
 
@@ -153,7 +157,7 @@ A deleted record is a tombstone: its content is wiped, its id is burned, and eve
 
 ## CLI
 
-`any query-subscribe` is the CLI form of both scopes — it prints one JSON object per SSE frame, so the `snapshot` frame is the one-shot read:
+`any query-subscribe` is the CLI form of both scopes — it prints one JSON object per SSE frame, so the `snapshot` frame is the one-shot read, and it keeps listening until you stop it:
 
 ```bash
 any query-subscribe $SPACE $OBJ --dataset editor_blocks --sort nav.pos --limit 50

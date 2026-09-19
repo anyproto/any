@@ -287,15 +287,28 @@ any local get     <name> <id> [--space ID]
 any local query   <name> [--filter J] [--sort K] [--limit N] [--offset N] [--total] [--projection P] [--space ID]
 any local aggregate <name> --pipeline '<json>' [--group-limit N] [--accum-limit N] [--memory-limit N] [--explain] [--space ID]
 any local indexes <name> [--ensure 'a,-b']... [--unique-ensure 'k']... [--drop NAME]... [--space ID]
+any local export  [--scope account|space] [--space ID] [--names a,b] --out FILE
+any local import  FILE                               # - reads stdin
 ```
 
-Without `--space` a local storage collection is account-scoped; with it, bound to that space. Nothing here syncs.
+Without `--space` a local storage collection is account-scoped; with it, bound to that space. `export` with neither scope nor names takes every local collection. Nothing here syncs.
 
 ```bash
 any local ensure scratch --index k,-at
 any local insert scratch --doc '[{"id":"a","k":1},{"k":2}]'
 any local query scratch --filter '{"k":{"$gt":0}}' --sort -k --total
 ```
+
+With that collection on an authorized server, export and re-import it:
+
+```bash
+any local export --scope account --names scratch --out scratch.anyenc.gz &&
+any local import scratch.anyenc.gz
+```
+
+`--out -` writes the export to stdout; `any local import -` reads stdin. Without `--names`, export takes every collection in the selected scope; `--space ID` implies space scope. The file is a gzip-compressed anyenc stream carrying scope, space id, names, indexes and documents. Another authorized server imports it with `any --addr http://127.0.0.1:7002 local import scratch.anyenc.gz`; a space-scoped collection is readable there even when that server never had the space.
+
+Import ensures indexes and upserts documents; documents whose ids are absent from the file stay. It commits in chunks, so a failed import can leave earlier chunks in place. It copies local collections only — no CRDT data, no file bytes. Responses and failure codes: [HTTP contract](http-api.html#export-and-import-local-collections).
 
 ## Members, invites, ACL
 

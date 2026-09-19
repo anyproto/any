@@ -5,7 +5,9 @@ order: 70
 ---
 # Limits
 
-Every guest instruction — CPython's interpreter loop included — is wasm compiled by wasmtime, so all of it can be counted and bounded. A runaway program is a clean, typed failure, never a hung process.
+Every guest instruction — CPython's interpreter loop included — is wasm compiled by wasmtime, so all of it can be counted and bounded. A runaway program is a clean, typed failure, never a hung process, and the outcome and its metrics land in the trace.
+
+The kernel is fresh for every invocation, so long-lived work belongs in records: save a cursor, finish a bounded batch, continue in a later [scheduled](../scheduling/index.html) run.
 
 ## The bounds
 
@@ -70,7 +72,7 @@ Each run's terminal cell record carries `fuel_used` and `duration_ms`; each effe
 ## Other constraints
 
 - **Single-threaded, synchronous** Python. No `async`, no threads. Concurrency is the host's job — `batch` fan-out on [Effects](effects.html).
-- **Nothing survives the run.** Each run gets a fresh kernel; top-level assignments persist across the model's cells within one conversation. The state a program needs later goes in the space.
+- **Guest memory lasts for one run.** Each run gets a fresh kernel; assignments persist across the model's cells within that run. Records, program source, and checkpoints written to the database survive it.
 - **The value store is uncapped** — guest memory is its backstop.
 - **`oauth.connect` blocks up to 120 s** by default on a run thread; never call it from a cron program.
 

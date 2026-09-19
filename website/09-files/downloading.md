@@ -20,6 +20,8 @@ any file download $SP $FILE -o photo.jpg     # writes the file, prints a small J
 any file download $SP $FILE --variant thumb
 ```
 
+The `thumb` request needs a [variant](uploading.html#variants) attached to the original.
+
 The response carries the stored mime as `Content-Type` (octet-stream fallback — the type is resolved at attach, never here), `Content-Disposition: inline; filename=…` from the stored name, `Content-Length`, and full **`Range` / 206** support. The underlying reader is seekable and seeks map to DAG offsets, so scrubbing a video does not download the prefix. Browser tags work directly:
 
 ```html
@@ -29,9 +31,9 @@ The response carries the stored mime as `Content-Type` (octet-stream fallback �
 
 ## When the bytes are not local
 
-Content that is not yet local streams in from the network on demand, and every fetched block persists — repeated reads accrete toward a complete local copy. To fetch a whole file ahead of time, [pin](cache.html) it.
+Content that is not yet local streams in on demand, and every fetched block persists — repeated reads accrete toward a complete local copy. The SDK reads from a local-network peer that holds the complete file first (`p2p.enabled`, on by default) and otherwise from the network's public read base, which serves durable files only — so an `inflight` file can already be readable from a peer; try the content GET as soon as the row appears. To fetch a whole file ahead of time, [pin](cache.html) it.
 
-A file whose bytes are neither local nor fetchable yet answers **`409 file.not_available`**. This is a retry-later resource state, not a fault: the file is not durable yet (its sender's backup has not completed), or the network advertises no public read base for fetches. The signal that it became fetchable is the payload row gaining `networkSign` — an `updated` frame on `…/files/query/subscribe`, or `durable: true` on a re-GET of `…/files/:fileId`. Wait for that event rather than polling in a loop; see [status and durability](status-and-durability.html).
+A file whose bytes are neither local nor fetchable yet answers **`409 file.not_available`**. This is a retry-later resource state, not a fault: no peer holds the bytes and the file is not durable yet (its sender's backup has not completed), or the network advertises no public read base for fetches. The signal that it became fetchable is the payload row gaining `networkSign` — an `updated` frame on `…/files/query/subscribe`, or `durable: true` on a re-GET of `…/files/:fileId`. Wait for that event rather than polling in a loop; see [status and durability](status-and-durability.html).
 
 Downloads are plain HTTP responses, not SSE: one in flight when the server shuts down is cut by the drain deadline, and the client retries with a `Range` from where it stopped.
 
@@ -54,7 +56,7 @@ curl "http://127.0.0.1:7001/v1/spaces/$SP/files/$FILE"
                "name": "photo.jpg", "mime": "image/jpeg" } ] }
 ```
 
-`any file list $SP [--object OBJ] [--limit N]` and `any file get $SP $FILE` are the CLI forms. The unfiltered listing walks every file in the space — fine at human scale; page with `?limit=` for huge spaces.
+`any file list $SP [--object OBJ] [--limit N]` and `any file get $SP $FILE` are the CLI forms. The unfiltered listing walks every file in the space — fine at human scale. `?limit=` caps the response; it is not a pagination cursor — for an ordered, paged list on one object use the payload query below and join names from typed GETs.
 
 **Windowed payload-row query / subscribe** — the generic snapshot + SSE primitive over one object's rows, for live per-object file lists:
 
@@ -63,6 +65,6 @@ curl -N -X POST "http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/files/query/su
   -H 'Content-Type: application/json' -d '{"sort": ["-_ver.id"], "limit": 50}'
 ```
 
-Body and frames are identical to every other [query](../database/reading-data.html) and [subscribe](../realtime/subscribe.html): `filter`, `sort`, `limit`, `offset`, `includeTotal`; `ready` → `snapshot` → `changes`. It exists because the `payloads` dataset lives on a derived child object whose id clients don't know, so the generic `/query` cannot reach it. Rows expose the **cleartext fields only** — `id`, `rootCid`, `size`, `networkSign`, `objectId` — never name, mime or key; join names from a `GET /files` pass. It returns `404 file.not_found` until the object's first attach (the backing dataset materializes then) — treat that as an empty list.
+Body and frames are identical to every other [query](../database/reading-data.html) and [subscribe](../realtime/subscribe.html): `filter`, `sort`, `limit`, `offset`, `includeTotal`; `ready` → `snapshot` → `changes`; a positive `limit` on the subscribe requires a `sort`. It exists because the `payloads` dataset lives on a derived child object whose id clients don't know, so the generic `/query` cannot reach it. Rows expose the **cleartext fields only** — `id`, `rootCid`, `size`, `networkSign`, `objectId` — never name, mime or key; join names from a `GET /files` pass. It returns `404 file.not_found` until the object's first attach (the backing dataset materializes then) — treat that as an empty list.
 
 > **Note.** A file another member attached shows up as an `added` row on this stream, and the moment it becomes fetchable shows up as an update on the same row when `networkSign` lands. That is the receive-side signal — not the per-space status stream, which reports local transitions only.

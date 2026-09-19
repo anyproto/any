@@ -7,11 +7,15 @@ order: 10
 
 An object is a row in the space's `objects` storage collection. In the simplest case it is a plain `page`: a name, a description and the stamps the server derives. That is enough for a notebook, and it is the level every later part builds on.
 
+`API` and `SPACE` come from the [tutorial setup](index.html#before-you-start).
+
 ## Create one
 
 ```bash
-curl -s -X POST $API/spaces/$SPACE/objects -H 'content-type: application/json' \
-  -d '{"type": "page", "initialProperties": {"any": {"name": "Groceries", "description": "for Saturday"}}}'
+OBJ=$(curl -fsS "$API/spaces/$SPACE/objects" -H 'content-type: application/json' \
+  -d '{"type": "page", "initialProperties": {"any": {"name": "Groceries", "description": "for Saturday"}}}' \
+  | jq -er .objectId)
+printf 'Object: %s\n' "$OBJ"
 ```
 
 ```json
@@ -22,11 +26,7 @@ The create body has three keys: `type` — **required**, the one type the object
 
 `page` is the built-in plain document — the right type when the thing is just a note. Every object has exactly one type and it is never cleared; [Part 2](properties.html) defines a type of your own, then files objects under a collection.
 
-Keep the id:
-
-```bash
-OBJ=bafyreib…
-```
+`jq` kept the id in `OBJ`; every later call uses it.
 
 ## Read it back
 
@@ -62,7 +62,13 @@ Filters use the same grammar throughout the system — `{"any.name": "Groceries"
 
 ## Watch it change
 
-Every query has a live twin. Same body, sibling path, and the response is a server-sent event stream:
+Every query has a live twin. Same body, sibling path, and the response is a server-sent event stream. The stream blocks this terminal, so first print the variables you will need in the second one:
+
+```bash
+printf 'API=%s\nSPACE=%s\nOBJ=%s\n' "$API" "$SPACE" "$OBJ"
+```
+
+Then start the stream in your current terminal:
 
 ```bash
 curl -s -N -X POST $API/spaces/$SPACE/objects/query/subscribe -H 'content-type: application/json' \
@@ -77,7 +83,7 @@ event: snapshot
 data: {"records":[{"id":"bafyreib…", "any": {"name": "Groceries", …}}]}
 ```
 
-Leave it open. From another terminal, rename the object — a property write on the `any` group:
+Leave it open. From another terminal (paste the three assignments first), rename the object — a property write on the `any` group:
 
 ```bash
 curl -s -X POST $API/spaces/$SPACE/properties/$OBJ/set/any -H 'content-type: application/json' \
@@ -99,7 +105,7 @@ That is the whole reactive model: a snapshot, then `added` / `updated` / `remove
 
 ## What a write returns
 
-No write echoes the record. Every one returns the same small receipt:
+No write echoes the record. Create answers with the new `objectId`, as above, delete with no content, and every property and dataset write returns the same small receipt:
 
 ```json
 { "versionId": "…", "changeId": "bafyreic…", "recordIds": ["bafyreib…"] }
@@ -108,6 +114,8 @@ No write echoes the record. Every one returns the same small receipt:
 `changeId` is the content address of the change — the handle [version history](../database/version-history.html) works with. Read the row back through the query, or let your open subscription deliver it.
 
 ## Delete
+
+Back in the terminal that holds `OBJ` (Ctrl-C the stream first):
 
 ```bash
 curl -s -X DELETE $API/spaces/$SPACE/objects/$OBJ     # → 204

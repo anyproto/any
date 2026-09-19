@@ -8,13 +8,19 @@ description: Documentation for any — the reactive, local-first, end-to-end enc
 
 A reactive, **local-first** database. Documents live on your devices, merge as CRDTs, sync end-to-end encrypted, and answer Mongo-style queries with live subscriptions — online or not. Chat and a block editor are built in as CRDT modules, and **anyrt** runs sandboxed Python programs, scheduled jobs and agents next to your data instead of on someone else's server.
 
+**Developer preview.** APIs may change; MIT licensed. [Preview status](understanding/preview.html).
+
 <div class="pills"><span class="pill">local-first</span><span class="pill cyan">e2e encrypted</span><span class="pill amber">crdt</span><span class="pill magenta">mongo queries</span><span class="pill">sse live queries</span><span class="pill cyan">wasm-sandboxed programs</span><span class="pill amber">single go binary</span></div>
 
 </div>
 
 ## Get started
 
-<pre class="term"><code class="language-sh">$ any init
+The block below is the whole loop; [Install](quickstart/install.html) explains each line. A binary with nothing configured joins the **production** any-sync network — [Networks](quickstart/networks.html) if you want a sandbox.
+
+<pre class="term"><code class="language-sh">$ export ANY_DATA_DIR="$HOME/.any-demo"
+$ export ANY_INDEX_EMBEDDER=local
+$ any init
 <span class="out">  A new wallet was generated. Write down the recovery phrase below.
   You will NOT see it again. Anyone with this phrase owns the account.
 &lt;twelve words — your only way to restore the account&gt;
@@ -26,13 +32,13 @@ $ any run &
 <span class="out">LISTENING 127.0.0.1:7001</span>
 $ until any status >/dev/null 2>&1; do sleep 0.2; done
 $ API=http://127.0.0.1:7001/v1
-$ S=$(curl -s $API/spaces -H 'content-type: application/json' -d '{"name":"notes"}' | jq -er .id)
-$ curl -s $API/spaces/$S/objects -H 'content-type: application/json' \
+$ S=$(curl -fsS $API/spaces -H 'content-type: application/json' -d '{"name":"notes"}' | jq -er .id)
+$ curl -fsS $API/spaces/$S/objects -H 'content-type: application/json' \
     -d '{"type":"page","initialProperties":{"any":{"name":"hello"}}}'
 <span class="out">{
   "objectId": "bafyrei…"
 }</span>
-$ curl -sN $API/spaces/$S/objects/query/subscribe -H 'content-type: application/json' \
+$ curl -fsSN $API/spaces/$S/objects/query/subscribe -H 'content-type: application/json' \
     -d '{"sort":["-modifiedAt"],"limit":20}'
 <span class="out">event: ready
 data: {}

@@ -7,6 +7,8 @@ order: 50
 
 Guest code names a credential; the host resolves it. A program passes `credential: {ref, header, prefix?, about?}` on an HTTP call, the broker records the request, *then* reads the secret and sets the header. Key bytes never enter guest memory, the trace, or the model context.
 
+The secret itself is seeded host-side — through [Connectors](../agents/connectors.html) or the [runtime quickstart](../quickstart/anyrt.html) — before any program names it.
+
 ## Injection
 
 ```python

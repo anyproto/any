@@ -7,6 +7,8 @@ order: 40
 
 `subagent@v1.delegate(space, task, opts=None)` runs the same conversation loop in **quiet mode**: no chat bubbles, no boot window, no auto-recall, no persisted turn, and the parent's mailbox is left alone. The child's final reply returns to the calling cell as a value.
 
+The child starts from the task text alone — none of the parent's history or recalled memories. The call blocks: delegation is sequential, not a background worker.
+
 ## When to delegate
 
 Delegate when intermediate steps would only clutter the parent's context — a survey over many objects, a batch transformation, a research errand. Write the task like a good ticket: goal, inputs (ids, names), and what the report must contain. The child starts blank and knows nothing of the parent conversation.

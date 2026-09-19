@@ -380,12 +380,12 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 			"the account's data was written by a newer version — this server is read-only until it is upgraded",
 			crdtVersionDetails(err, details))
 	}
-	// A write to a collection none of the object's types declare: no
-	// type attaches on write, the caller attaches a declaring type first.
+	// A write to a storage collection the object's type does not declare:
+	// no write sets a type, the caller sets a declaring type first.
 	if errors.Is(err, space.ErrDatasetNotDeclared) {
 		return writeError(c, http.StatusBadRequest, "dataset.not_declared",
-			"the object carries no type whose parts declare this collection — attach a declaring type "+
-				"(POST /v1/spaces/{spaceId}/properties/{objectId}/attach/{typeId}) or declare the dataset on one of its types",
+			"no part of the object's type declares this collection — set a declaring type "+
+				"(POST /v1/spaces/{spaceId}/properties/{objectId}/type/{typeId}) or declare the dataset on its type",
 			details)
 	}
 	if errors.Is(err, handler.ErrValidation) {
@@ -466,17 +466,6 @@ func crdtVersionDetails(err error, details map[string]any) map[string]any {
 	return out
 }
 
-// sdkValidationError maps the SDK's write-time property schema rejection
-// (handler.ErrValidation) onto a 400. A rejected write is a caller error,
-// not a server fault, so it must not surface as 500. The SDK's message is
-// agent-readable and carries only caller-supplied type/property ids and
-// JSON kind names — no internal Go types or filesystem paths — so it is
-// safe to surface verbatim.
-//
-// The specific code comes from the SDK's structural classifier
-// (handler.ClassifyValidation), yielding the documented codes in
-// docs/06-errors.md. The status is always 400; an unclassifiable or
-// unmapped reason falls back to the generic dataset.validation.
 // unknownDatasetError maps a record write (modify / delete-records /
 // upsert) that names a dataset the target object does not carry to
 // dataset.unknown — a mistyped name or a dataset never declared on the
@@ -500,6 +489,18 @@ func unknownDatasetError(c echo.Context, err error, details map[string]any) (err
 		details), true
 }
 
+// sdkValidationError maps the SDK's write-time property schema rejection
+// (handler.ErrValidation) onto a 400. A rejected write is a caller error,
+// not a server fault, so it must not surface as 500. The SDK's message is
+// agent-readable and carries only caller-supplied type/property ids and
+// JSON kind names — no internal Go types or filesystem paths — so it is
+// safe to surface verbatim; only type.reserved_carrier carries the
+// server's own wording.
+//
+// The specific code comes from the SDK's structural classifier
+// (handler.ClassifyValidation), yielding the documented codes in
+// docs/06-errors.md. The status is always 400; an unclassifiable or
+// unmapped reason falls back to the generic dataset.validation.
 func sdkValidationError(c echo.Context, err error, details map[string]any) error {
 	code := "dataset.validation"
 	if reason, ok := handler.ClassifyValidation(err); ok {
@@ -508,6 +509,11 @@ func sdkValidationError(c echo.Context, err error, details map[string]any) error
 			code = "property.kind_mismatch"
 		case handler.ReasonUnknownProperty:
 			code = "property.not_found"
+		case handler.ReasonTypeNotImplemented:
+			// A value under an owner the object does not have: no write
+			// sets a type or files a collection. The SDK's message names
+			// the owner and the object's members.
+			code = "dataset.not_declared"
 		case handler.ReasonReservedCarrier:
 			// The server's own wording: the SDK's names the write path.
 			return writeError(c, http.StatusBadRequest, "type.reserved_carrier", reservedCarrierMessage, details)

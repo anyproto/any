@@ -7,6 +7,16 @@ order: 70
 
 Most problems are one of four things: the server is not up or not authorized, a space has not converged yet, the index has not caught up, or a request was malformed. Each has a dedicated read.
 
+| Symptom | First check |
+|---|---|
+| API connection fails or returns `auth.required` | [Server health](#is-the-server-up-and-authorized) |
+| a device cannot see a recent change | [Space sync status](#has-this-space-converged) |
+| an object exists but does not appear in search | [Index progress](#is-search-behind) |
+| an object or dataset write is rejected | [Error codes](#reading-an-error) |
+| a scheduled program did not run | [Runs and monitoring](../scheduling/runs-and-monitoring.html) — trigger state and `agent_runs` |
+
+`$SPACE`, `$OBJECT` and `$CHAT` below are ids from your own space; `--addr` points the CLI at a server on another loopback port.
+
 ## Is the server up and authorized?
 
 ```bash
@@ -98,6 +108,9 @@ Every non-2xx response has one shape:
 |---|---|---|
 | 400 | `request.bad_json` / `request.schema` / `request.missing_field` | the body did not parse or match the endpoint's shape; the message names what |
 | 400 | `request.unknown_field` | a top-level key outside the endpoint's accepted set — `details.accepted` lists them |
+| 400 | `request.missing_field` on object creation | supply the object's required `type`; collections are separate memberships |
+| 400 | `dataset.not_declared` | the object's type does not declare the dataset you are writing; set the intended type first |
+| 400 | `property.not_found` | resolve the property's `xKey` to its `propId`, and write under the owner that declares it |
 | 400 | `filter.unknown_operator` / `filter.invalid` | the query filter did not parse; `details.path` points at it |
 | 401 | `auth.required` | unauthorized server |
 | 404 | `space.not_found` / `object.not_found` / `type.not_found` | the target id is unknown or deleted |
@@ -107,6 +120,8 @@ Every non-2xx response has one shape:
 | 503 | `server.unavailable` / `index.embedder_unavailable` | shutting down / embedder outage; retry |
 
 The full namespace is in the [error reference](../reference/errors.html). CLI exit codes: `0` success, `1` user error or 4xx, `2` 5xx, `3` cannot reach the server.
+
+No write sets a type or files a collection as a side effect — a value or dataset write is admitted only while the object's type or one of its collections declares it ([Types and properties](../database/types-and-properties.html), [Runtime datasets](../database/runtime-datasets.html)).
 
 ## Logs
 

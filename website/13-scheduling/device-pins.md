@@ -7,6 +7,8 @@ order: 40
 
 Your account can run the agent on several devices. A trigger's `owner` field says which one fires it: a **peer id** pins the trigger to that device, election-independent; an empty owner is a transient **unassigned** state that the device currently holding the **active** role claims on its next tick. Moving a job is writing one field.
 
+A standby runtime still fires the jobs pinned to its device; a stopped one fires nothing, and moving the active role moves no pinned job with it.
+
 ## The owner field
 
 | `owner` | Meaning |

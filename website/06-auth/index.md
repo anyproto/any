@@ -42,7 +42,7 @@ One process serves one account at a time. A standalone server changes account by
 
 ## What is local, what is synced
 
-- The **keys** never leave the machine: a standalone server keeps them in `wallet.key`; a managed server holds the account key in memory for the session and caches only its device key (`device.key`).
+- The **keys** never leave the machine: a standalone server keeps them in `wallet.key`; a managed server holds the account key in memory for the session and caches only its device key (`device.key`). Space read keys reach members through encrypted ACL records, never through a server that can open them.
 - The **device registry** is a synced dataset in the account's tech space, so every device sees every other device — and can elect which one runs an app.
 - The **identities directory** is a device-local cache of every account you have encountered; the decryption keys behind it are synced but never exposed over HTTP.
 - The **profile** is pushed to the network encrypted; a contact resolves your name only after receiving the key through a shared space's ACL or a one-to-one invite.

@@ -11,7 +11,6 @@ import (
 	"time"
 )
 
-const openaiDefaultBaseURL = "https://api.openai.com/v1"
 
 // OpenAI talks to an OpenAI-compatible POST {baseURL}/embeddings API.
 // Any gateway implementing that shape works — set BaseUrl accordingly.
@@ -22,12 +21,10 @@ type OpenAI struct {
 	HTTP    *http.Client
 }
 
-// NewOpenAI returns a client for the given endpoint; model is required
-// (the API has no default).
+// NewOpenAI returns a client for the given endpoint. baseURL and model
+// are both required — there is no default provider — and the factory
+// checks them before constructing one.
 func NewOpenAI(baseURL, model, apiKey string) *OpenAI {
-	if baseURL == "" {
-		baseURL = openaiDefaultBaseURL
-	}
 	return &OpenAI{
 		BaseURL: baseURL,
 		Model:   model,

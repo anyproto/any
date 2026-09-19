@@ -5,7 +5,7 @@ order: 30
 ---
 # Hybrid ranking
 
-`hybrid` runs both legs and fuses them with reciprocal-rank fusion (k = 60). It is the default because it is the safe choice across corpora: it wins outright on lexical-friendly content and never collapses when one leg is weak — and when the embedder cannot help at all, it becomes full-text search by itself.
+`hybrid` runs both legs and fuses them with reciprocal-rank fusion (k = 60). It is the default because it is the safe choice across corpora: it wins outright on lexical-friendly content and never collapses when one leg is weak — and when the embedder cannot help at all, it becomes full-text search by itself and says so in `vectorStatus`.
 
 ## The default call
 

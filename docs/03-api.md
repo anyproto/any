@@ -356,7 +356,8 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 
 **Access codes.** `POST /v1/account/access-code {"code": "K7QX-4MDP-…"}`
 signs `{purpose, ownerAnyId, code, ts}` with the account key and posts it to
-the invite service configured as `access.redeemUrl` (docs/05-config.md);
+the invite service configured as `access.redeemUrl` (docs/05-config.md;
+the production service by default on the embedded production network);
 the key never leaves the server and the client never talks to that
 service. `200 {"status": "accepted", "redemptionId": "…"}` means the
 limits grant is on its way; `"already_redeemed"` means this account
@@ -3259,8 +3260,10 @@ one of its collections** — the namespace the values land in
 (`<ownerId>.<propId>`); a definition object may also use its own id.
 The route is scope-aware: every propId in the patch must resolve to the
 SAME declared scope (synced, account or local — inferred from the
-definitions); a mixed-scope or unknown-key patch is rejected. Values
-pass the descriptor gate (`400 property.format_violation`, § Types).
+definitions); a mixed-scope or unknown-key patch is rejected. A value
+set under an `ownerId` the object does not have — not its type, not a
+collection it is filed under — is `400 dataset.not_declared`. Values pass the
+descriptor gate (`400 property.format_violation`, § Types).
 
 **The type.** `POST …/type/:typeId` sets the object's one type
 (`any.type`, a `$set`): a previous type is replaced, and its values and

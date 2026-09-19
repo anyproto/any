@@ -7,6 +7,8 @@ order: 30
 
 An `event` trigger runs a program each time a new message lands in a chat. The owning device keeps one live subscription per watched chat next to its ticker, and every fire is a normal program run with a summary, a trace and the circuit breaker. The same mechanism carries the agent's own chat responder, so "which device answers" is a record you can read, pause and repin.
 
+The source is `chat_messages` only — not a general subscription over arbitrary datasets — and it is live arrivals only: messages that landed while the owner was down are not replayed. `$ANCHOR` and `$TRIGGERS` come from [Scheduling](index.html#before-you-write-a-trigger).
+
 ## Spec
 
 ```json

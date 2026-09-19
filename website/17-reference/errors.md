@@ -130,7 +130,7 @@ Panics are converted to `500 internal` with a generic message.
 | Code | Status | Meaning |
 |---|---|---|
 | `dataset.unknown` | 400 | a record write names a storage collection the space does not serve as a records dataset (a module's own is never upsertable); a read of an unknown dataset answers `200 {"records": []}` |
-| `dataset.not_declared` | 400 | a write into a storage collection the object's type does not declare — set the declaring type first (collections declare no datasets) |
+| `dataset.not_declared` | 400 | a write into a storage collection the object's type does not declare — set the declaring type first (collections declare no datasets); also a property value written under an owner the object does not have — set that type or file that collection first |
 | `dataset.not_found` | 404 | the editor route's `:collection` is not an editor storage collection in this space |
 | `dataset.validation` | 400 | schema or handler rejected the ops |
 | `dataset.key_conflict` | 409 | a part or dataset with this key already exists on the type (`details.key`) |
@@ -216,7 +216,8 @@ Panics are converted to `500 internal` with a generic message.
 | `local.unique_violation` | 409 | a unique index rejected the write |
 | `local.too_many_docs` | 400 | insert/upsert over 1000 docs in one request (`details.max`, `got`) |
 | `local.bad_name` | 400 | scope, spaceId or name failed validation |
-| `local.bad_index` | 400 | an index was rejected (same name, different definition; invalid name) |
+| `local.bad_index` | 400 | an index was rejected (same name, different definition; invalid name), including during import |
+| `local.bad_export` | 400 | import file has invalid gzip, format/version, document sections or storage names; `details.imported` counts fully completed collections; earlier chunks may remain committed |
 | `local.bad_filter` / `local.bad_sort` / `local.bad_modifier` | 400 | the filter, sort key or modifier did not parse |
 | `local.bad_pipeline` | 400 | unparseable pipeline, a sink into the aggregated storage collection, a sink result without `id`, `$lookup` from another one |
 | `local.bad_sink_target` | 400 | `$out` / `$merge into` / `$lookup from` names a storage collection outside the local store |

@@ -11,13 +11,13 @@ An embedder turns index documents and queries into vectors for the [semantic leg
 
 | `index.embedder` | What runs | Needs |
 |---|---|---|
-| `auto` (default) | an online OpenAI-compatible API as primary, the local model as fallback — same model both ways; indexed text and search queries go to the online API | nothing; the local model auto-downloads regardless. A build without the local embedder runs the online API alone |
+| `auto` (default) | the local model alone until `index.openai.apiKey` is set; with a key, an online OpenAI-compatible API as primary and the local model as fallback — same model both ways, and indexed text and search queries go to the online API | nothing in a build with the local embedder (its model auto-downloads); without one, a key, or the index is full-text only |
 | `local` | llama.cpp in a child process of the server, no external service | a build with the local embedder (`make build`, a release tarball, or `go install -tags llamacpp`); the llama.cpp shared libraries next to the binary; a system `libffi` on Linux |
 | `ollama` | a local Ollama server's `/api/embed` | Ollama running (default `http://localhost:11434`, model `embeddinggemma`) |
 | `openai` | any OpenAI-compatible `/embeddings` endpoint | `index.openai.{baseUrl, model, apiKey}` |
 | `none` | no embedder — the index is full-text only | — |
 
-> **Note.** An embedder reads the text it embeds. `auto` and `openai` send the text of every indexed document and every search query to `index.openai.baseUrl`; `ollama` sends them to the Ollama server. `local` keeps them on the device.
+> **Note.** An embedder reads the text it embeds. `openai`, and `auto` once it has a key, send the text of every indexed document and every search query to `index.openai.baseUrl`; `ollama` sends them to the Ollama server. `local` keeps them on the device.
 
 ```yaml
 index:
@@ -52,13 +52,13 @@ The child exists so a llama.cpp fault costs a round of embedding, not the server
 
 **GPU offload** is automatic: the bundles carry Metal (macOS arm64) and Vulkan (Linux, Windows — NVIDIA/AMD/Intel) backends alongside the CPU variants, and a backend whose driver is missing simply does not register. Full offload of the default model takes ~2 GB of VRAM; set `gpuLayers: 0` if the embedder should not have it. CUDA/ROCm builds are not bundled — point `libDir` at your own llama.cpp build to use them.
 
-Platform notes: only builds with `-tags llamacpp` carry the local embedder; without it `local` fails at boot ([Builds and CI](../operations/builds-and-ci.html)). Linux needs a loadable system `libffi.so.8` (on NixOS use the repo's `nix develop` shell); macOS bundles it, and the `-sandbox` release variants load the system one instead so they work inside an App-Sandboxed host (see [Builds and CI](../operations/builds-and-ci.html)). Mobile builds never construct an embedder.
+Platform notes: only builds with `-tags llamacpp` carry the local embedder; without it `local` fails at boot ([Builds and CI](../operations/builds-and-ci.html)). Linux needs a loadable system `libffi.so.8` (on NixOS use the repo's `nix develop` shell); macOS bundles it, and the `-sandbox` release variants load the system one instead so they work inside an App-Sandboxed host. Mobile builds have full-text search and force vector search off; they never construct an embedder, even when the configuration names one.
 
 ## `auto` — online primary, local fallback
 
-`auto` prefers the online API for speed and falls back to the local model during an outage through a circuit breaker (repeated failures skip the primary for a cooldown, then re-probe), so vector search stays fresh instead of pausing.
+No provider ships with the binary, so a fresh install's `auto` is the local model and nothing leaves the device. Point `index.openai.baseUrl` at any OpenAI-compatible `/embeddings` host and set `index.openai.apiKey` (`ANY_INDEX_OPENAI_BASE_URL` / `ANY_INDEX_OPENAI_API_KEY`), and `auto` prefers the online API for speed and falls back to the local model during an outage through a circuit breaker (repeated failures skip the primary for a cooldown, then re-probe), so vector search stays fresh instead of pausing. A semantic query gives the primary half of the remaining timeout budget so the local fallback still has time to answer.
 
-> **Note.** Both sides must be the **same embedding model** — the index holds one vector space and one dimension, and mixing models yields incoherent similarity. The supported pairing is one model served two ways: `index.openai.model: Qwen/Qwen3-Embedding-0.6B` on a host that serves it, with the default local Qwen3-Embedding-0.6B. fp16-versus-Q8 drift is negligible. The packaged `openai` defaults are shared development credentials, marked temporary.
+> **Note.** Both sides must be the **same embedding model** — the index holds one vector space and one dimension, and mixing models yields incoherent similarity. The supported pairing is one model served two ways: the local Qwen3-Embedding-0.6B and a host that serves the same model. `index.openai.model` defaults to that model's common name, `Qwen/Qwen3-Embedding-0.6B`; override it only when your provider spells the same model differently. A provider serving a different model is not a fallback pair but a second, incompatible vector space. fp16-versus-Q8 drift is negligible.
 
 ## `ollama` and `openai`
 
@@ -79,7 +79,7 @@ index:
     apiKey: sk-…            # sent as Bearer, never logged
 ```
 
-`index.embedConcurrency` embeds several batches in parallel — the throughput win for online APIs (default 4 for `openai`/`auto`, 1 for `local`, which serializes internally anyway). `index.embedBatch` (default 64) is the documents per request.
+`index.embedConcurrency` embeds several batches in parallel — the throughput win for online APIs (default 4 for `openai` and for `auto` with a key, 1 for `local`, which serializes internally anyway). `index.embedBatch` (default 64) is the documents per request.
 
 ## Outage semantics
 
@@ -88,8 +88,10 @@ There is no boot-time probe. Whenever an embedder is *configured*, text-bearing 
 - an outage — at boot or mid-run — freezes only the vector side; full-text indexes and answers normally;
 - when the embedder returns, the next embed round (nudged by a page, or the 1-minute retry tick) drains the queue automatically;
 - `hybrid` queries degrade to full-text with `vectorStatus: "unavailable"`; `vector` queries answer `503 index.embedder_unavailable`;
-- the vector dimension is learned from the first successful batch (or `index.vector.dim`) and pinned in the index database — a later dimension change against a populated index is a loud boot error advising `rm <data-dir>/index`, never silent corruption.
+- the vector dimension is learned from the first successful batch (or `index.vector.dim`) and pinned in the index database — a later dimension change against a populated index is a loud boot error advising `rm <data-dir>/index`, never silent corruption. A model change is a rebuild for the same reason — never mix vectors from two models.
 
 "Model still downloading" and "GPU died mid-run" both ride the same path: affected documents stay `pending`. A child that crashes with GPU offload active also moves the server to CPU decoding for the rest of the run; the next start tries the GPU again, so a driver fix recovers on its own.
+
+To skip the download, point `index.local.modelPath` at an existing compatible GGUF; to run with no model at all, `index.embedder: none` keeps full-text search working.
 
 > **Why it matters.** The embedder is the only component of search that might live outside the process. Making it optional, swappable and outage-tolerant keeps the encrypted data searchable on every device — including one that never installs a model or never goes online.

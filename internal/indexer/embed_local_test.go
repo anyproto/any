@@ -21,10 +21,12 @@ import (
 
 func TestNewEmbedder_AutoWithLocal(t *testing.T) {
 	dir := t.TempDir()
+	local := config.IndexLocal{ModelPath: filepath.Join(dir, "absent.gguf")}
+	// A key pairs the online primary with the local fallback.
 	e, err := NewEmbedder(config.Index{
 		Embedder: "auto",
-		OpenAI:   config.IndexOpenAI{Model: "m"},
-		Local:    config.IndexLocal{ModelPath: filepath.Join(dir, "absent.gguf")},
+		OpenAI:   config.IndexOpenAI{BaseUrl: "http://127.0.0.1:1/v1", Model: "m", ApiKey: "k"},
+		Local:    local,
 	}, filepath.Join(dir, "models"), "", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -36,6 +38,17 @@ func TestNewEmbedder_AutoWithLocal(t *testing.T) {
 	w, ok := f.fallback.(*workerEmbedder)
 	if !ok {
 		t.Fatalf("want a *workerEmbedder fallback, got %T", f.fallback)
+	}
+	w.Close()
+
+	// No key: the local embedder alone.
+	e, err = NewEmbedder(config.Index{Embedder: "auto", Local: local}, filepath.Join(dir, "models"), "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, ok = e.(*workerEmbedder)
+	if !ok {
+		t.Fatalf("auto without a key: want *workerEmbedder, got %T", e)
 	}
 	w.Close()
 }

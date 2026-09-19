@@ -7,6 +7,8 @@ order: 10
 
 A conversation turn is one invocation of the guest program `toolcaller@v1`. It drives the whole cycle — prompt assembly, model calls, cell execution, chat replies, turn persistence — inside the cage, so a recorded turn replays deterministically.
 
+One run can make many model calls. Its Python kernel is shared across the cells of those calls and discarded when the run ends; the next turn rebuilds its context from the database. Persistent facts are the job of [Memory and recall](memory.html), the stored record shapes are in [Agent data](agent-data.html).
+
 ## The message model
 
 The loop speaks a provider-neutral shape; adapters in `llm@v1` translate it to each provider's wire.
@@ -78,7 +80,9 @@ Injections and soft breaks arrive through a mailbox the loop drains between turn
 
 The turn record (`agent_turns`, on the chat's log child) holds `userText`, `replies` (what the user saw), `fromAgent`, `traceRef` (the run id), `interrupted`, and an `llm` object with `stopReason` (`done`, `wrapup`, or `break_hard` for a run the host stopped), token and cell counts, and the prompt fingerprints. A hard-broken run gets a minimal turn written by the host, so the next boot window still sees the stopped exchange.
 
-```
+Trace bodies live in the local store of the device that ran the conversation, so run these against that device's `any` server; `ls` prints the run ids to feed `show`:
+
+```sh
 anyrt trace ls --addr http://127.0.0.1:7001 --program toolcaller   # conversations, newest first
 anyrt trace show --addr http://127.0.0.1:7001 run_<id>             # turns, cells, effects, results
 anyrt trace show --addr http://127.0.0.1:7001 run_<id> --stats     # per-turn tokens / cache / cost

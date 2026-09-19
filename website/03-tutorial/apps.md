@@ -7,6 +7,8 @@ order: 40
 
 Everything so far was data. This part is about what a client does with it: how an object gains behaviour it never implements, how a type declared on one device becomes *the* type on every device, and how a thing in a space becomes an entry in the sidebar. The mailbox from [Part 3](datasets.html) ends up as an app.
 
+`API`, `SPACE`, `MAILBOX` and `INBOX` carry over from Part 3. The bundle below creates a separate root; the sample messages stay in your existing inbox.
+
 ## Parts are inheritance, one level deep
 
 A type is properties plus **parts**. A part is a display unit the client renders — a table, a body, a transcript — and each part owns storage collections that a **module** serves:
@@ -110,7 +112,7 @@ Property ids on a bundle are derived from `(rootId, xKey)`, which is why two bli
 
 ## The sidebar: `miniapp`
 
-A space is, to its user, a list of apps. The marker is the built-in hidden **collection** `miniapp`, with three columns and nothing else — an app root keeps its own type slot for its definition marker, and a pinned object keeps the type it already has:
+A space is, to its user, a list of apps. Being in the sidebar is a categorisation of an object, not a change to what it is — so the marker is a **collection**: the built-in hidden `miniapp`, with three columns and nothing else. An app root keeps its own type slot for its definition marker, and a pinned object keeps the type it already has:
 
 | Property | Meaning |
 |----------|---------|
@@ -118,7 +120,7 @@ A space is, to its user, a list of apps. The marker is the built-in hidden **col
 | `pos` | Sidebar position, a lexid the client allocates. |
 | `hidden` | Out of the sidebar without uninstalling anything. |
 
-The sidebar is one subscription:
+The sidebar is one subscription (it blocks the terminal — Ctrl-C before the pin examples below):
 
 ```bash
 curl -s -N -X POST $API/spaces/$SPACE/objects/query/subscribe -H 'content-type: application/json' -d '{

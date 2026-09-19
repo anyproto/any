@@ -5,7 +5,7 @@ order: 90
 ---
 # Networks
 
-A server syncs against exactly one any-sync **network**: a coordinator, tree nodes, file nodes, and their addresses, described by a *nodeconf* YAML. With nothing configured, the binary joins **production**. Decide this before the first `any run` of an experiment.
+A server syncs against exactly one any-sync **network**: a coordinator, tree nodes, file nodes, and their addresses, described by a *nodeconf* YAML. With nothing configured, the binary joins **production**. Decide this before the first `any run` of an experiment, and give every network its own data root with an account initialised in it.
 
 ## The nodeconf
 
@@ -63,11 +63,14 @@ ANY_NETWORK_NODECONF_PATH=/etc/any/staging.yaml any run
 The repo ships `internal/config/nodeconf-placeholder.yml`: a real `networkId` with fake peer ids and node addresses. A server started on it binds, serves every endpoint, and stores everything locally — but no peer is reachable, so nothing ever syncs and `/sync-status` stays `offline`. Tests use it (`config.NodeconfPlaceholder()`), and it is never selected at runtime by itself:
 
 ```bash
-ANY_NETWORK_NODECONF_PATH=$PWD/internal/config/nodeconf-placeholder.yml \
-ANY_DATA_DIR=/tmp/any-sandbox any run
+export ANY_NETWORK_NODECONF_PATH="$PWD/internal/config/nodeconf-placeholder.yml"
+export ANY_DATA_DIR="$HOME/.any-sandbox"
+export ANY_INDEX_EMBEDDER=none      # no embedding-model download either
+any init                            # an account in the sandbox root, or the server boots unauthorized
+any run
 ```
 
-Two devices on the same LAN still find each other over p2p discovery even on the placeholder — set `p2p.enabled: false` for full isolation.
+Without the `any init` in that root the server still boots, but every data call answers `401 auth.required`. Two devices on the same LAN still find each other over p2p discovery even on the placeholder — set `p2p.enabled: false` for full isolation. The nodeconf decides only who relays your changes: an online embedder or a model provider is a separate setting.
 
 ## Push pairs with the network
 
