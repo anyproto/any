@@ -24,6 +24,7 @@ Each tarball contains:
 ```
 any[.exe]        # the server + CLI (built with the local embedder)
 llamacpp/        # prebuilt llama.cpp shared libs for the local embedder
+LICENSE          # Any's MIT license and copyright notice
 manifest.json    # { version, os, arch, llamacpp_version, sha256: {path: hash} }
 ```
 

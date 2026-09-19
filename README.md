@@ -200,4 +200,7 @@ server or inside the Any desktop application.
 
 ## License
 
-Any is released under the **MIT** license ([LICENSE](LICENSE)).
+Any is open source under the **MIT** license ([LICENSE](LICENSE)). You can use,
+modify and distribute it in personal and commercial applications, provided you
+retain the copyright and license notice. Third-party dependencies and models
+retain their respective licenses.

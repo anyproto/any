@@ -9,7 +9,11 @@ order: 5
 
 ## License
 
-`any`, `anyrt` and the SDKs they build on ([any-sync](https://github.com/anyproto/any-sync), [any-store](https://github.com/anyproto/any-store), [any-sync-sdk](https://github.com/anyproto/any-sync-sdk)) are released under the **MIT** license.
+`any` is open source under the [**MIT license**](https://github.com/anyproto/any/blob/main/LICENSE). You can use, modify and distribute it in personal and commercial applications, provided you retain the copyright and license notice. This license applies to developer preview releases too.
+
+The companion runtime [anyrt](https://github.com/anyproto/anybao/blob/main/LICENSE) and the SDKs ([any-sync](https://github.com/anyproto/any-sync/blob/main/LICENSE.md), [any-store](https://github.com/anyproto/any-store/blob/main/LICENSE.md), [any-sync-sdk](https://github.com/anyproto/any-sync-sdk/blob/main/LICENSE.md)) are also MIT licensed.
+
+Third-party dependencies and models retain their respective licenses. For example, the yzma bindings and the default Qwen3 embedding model use Apache-2.0; see the [local embedder's license notes](https://github.com/anyproto/any/blob/main/third_party/llamacpp/README.md#licenses).
 
 ## What runs on your device
 
