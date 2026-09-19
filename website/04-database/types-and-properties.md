@@ -23,9 +23,9 @@ Body: `{name?, description?, iconCid?, xKey, layout?, hidden?, meta?}`. **`xKey`
 
 Property definitions are not part of the create body — a `properties` key, like any unknown key, is `400 request.unknown_field`. Create the type, then add properties one by one.
 
-Create a type when the thing needs a layout, parts or a body of its own; create a collection when it is a facet that only adds columns to objects keeping their own type ([Collections](collections.html)).
+Create a type only when the thing needs a layout or a part of its own; whatever only adds columns is a collection, and the objects filed under it keep their own type ([Collections](collections.html)).
 
-Well-known types — person, organization, meeting, journal, deal — are not created here: the server's usecase catalog installs them (`POST /v1/catalog/:usecaseId/setup`) so every client and member lands on one definition ([Bundles](../collaboration/bundles.html)). A type you create under a handle the catalog later installs blocks that install with `409 type.xkey_conflict`.
+Well-known definitions — the `profile`, `task` and `meeting` types, the `person`, `organization` and `deal` collections — are not created here: the server's usecase catalog installs them (`POST /v1/catalog/:usecaseId/setup`) so every client and member lands on one definition ([Bundles](../collaboration/bundles.html)). A type you create under a handle the catalog later installs blocks that install with `409 type.xkey_conflict`.
 
 ## List and read types
 

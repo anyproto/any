@@ -33,6 +33,12 @@ type compiledBundle struct {
 	// miniapp is the value map on the built-in `miniapp` collection the
 	// root is filed under (`bundle` filled in); nil when the bundle is no miniapp.
 	miniapp map[string]any
+	// meta is the collection's declared flag bag, written key by key
+	// where the installed definition lacks one.
+	meta map[string]any
+	// superseded marks a bundle another one stands in for: kept where a
+	// space already has it, never installed anew.
+	superseded bool
 }
 
 // compiledUsecase is one catalog entry with its bundles compiled.
@@ -101,7 +107,7 @@ func compileCatalog(src []byte) (*compiledCatalog, catalog.Problems) {
 		for bi := range u.Bundles {
 			b := u.Bundles[bi]
 			bp := fmt.Sprintf("usecases[%d].bundles[%d]", ui, bi)
-			cb := compiledBundle{CatalogBundle: b, usecase: u.Id}
+			cb := compiledBundle{CatalogBundle: b, usecase: u.Id, superseded: cat.Superseded(b.Id)}
 			inst := bundles.Install{
 				Id: b.Id, Name: b.Name, Derived: b.Derived, Hidden: b.Hidden,
 				RootType: b.RootType, SystemInstall: true,
@@ -109,6 +115,7 @@ func compileCatalog(src []byte) (*compiledCatalog, catalog.Problems) {
 			if b.Collection != nil {
 				inst.Collection = true
 				inst.XKey = b.Collection.XKey
+				cb.meta = b.Collection.Meta
 				for pi, req := range b.Collection.Properties {
 					draft, code, reason, _ := propertyDraftFromAPI(req)
 					if code != "" {

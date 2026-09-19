@@ -130,13 +130,12 @@ func TestServer_CatalogSetupSidebarState(t *testing.T) {
 	e := buildEcho(d)
 	sp := createSpaceInfo(t, e, "CatalogSidebar")
 
-	for _, id := range []string{"journal", "meetings"} {
+	for id, bundleId := range map[string]string{"journal": "system:journal/v2", "meetings": "system:meetings/v1"} {
 		t.Run(id, func(t *testing.T) {
 			res := setupUsecase(t, e, id, sp.Id)
 			if res.Usecase != id {
 				t.Fatalf("setup reply: %+v", res)
 			}
-			bundleId := "system:" + id + "/v1"
 			var b api.CatalogSetupBundle
 			for _, entry := range res.Bundles {
 				if entry.Id == bundleId {
@@ -187,40 +186,44 @@ func TestServer_CatalogSetupSidebarState(t *testing.T) {
 	}
 }
 
-// Journal brings its type: one root that is the sidebar entry AND the
-// hidden `journal` type, whose entries are dated pages in the shared
-// editor collection.
+// Journal brings a collection: one root that is the sidebar entry AND the
+// hidden `journal` collection. An entry is a `page` filed under it — the
+// collection carries the day, the page carries the body.
 func TestServer_CatalogSetupJournal(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
 	e := buildEcho(d)
 	sp := createSpaceInfo(t, e, "CatalogJournal")
 
-	b := setupUsecase(t, e, "journal", sp.Id).Bundles[0]
-	if b.TypeId != b.Bundle.RootId || b.Properties["date"] == "" {
+	res := setupUsecase(t, e, "journal", sp.Id)
+	if got := bundleIds(res); !slices.Equal(got, []string{"system:journal/v2"}) {
+		t.Fatalf("a new space receives the collection only: %v", got)
+	}
+	b := res.Bundles[0]
+	if b.TypeId != "" || b.CollectionId != b.Bundle.RootId || b.Properties["date"] == "" {
 		t.Fatalf("journal bundle: %+v", b)
 	}
-	// The root is the type DEFINITION plus the sidebar entry: the marker
-	// in any.type, `miniapp` among its collections. It never matches a
-	// query for its own type, or the app itself would read as an entry.
-	row := objectRow(t, e, sp.Id, b.TypeId)
-	if got := rowType(row); got != "__type__" {
+	// The root is the collection DEFINITION plus the sidebar entry: the
+	// marker in any.type, `miniapp` among its collections. It never
+	// matches a member query, or the app itself would read as an entry.
+	row := objectRow(t, e, sp.Id, b.CollectionId)
+	if got := rowType(row); got != "__collection__" {
 		t.Fatalf("journal root any.type = %q", got)
 	}
-	if cols := rowCollections(row); !slices.Contains(cols, "miniapp") || slices.Contains(cols, b.TypeId) {
+	if cols := rowCollections(row); !slices.Contains(cols, "miniapp") || slices.Contains(cols, b.CollectionId) {
 		t.Fatalf("journal root collections = %v", cols)
 	}
-	var info api.TypeInfo
-	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+b.TypeId, &info)
+	var info api.CollectionInfo
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/collections/"+b.CollectionId, &info)
 	if info.XKey != "journal" || !info.Hidden {
-		t.Fatalf("journal type info: %+v", info)
+		t.Fatalf("journal collection info: %+v", info)
 	}
 
-	// An entry is one object: the type carries the day, and its part
-	// shares the editor collection, so the body needs no second type.
+	// An entry is one object: a page, so its body is the shared editor
+	// collection, filed under the journal, which carries the day.
 	day := `{"$date":"2026-09-12T00:00:00.000Z"}`
-	entry := mustCreateObject(t, e, sp.Id, `{"type":"`+b.TypeId+`","initialProperties":{"`+
-		b.TypeId+`":{"`+b.Properties["date"]+`":`+day+`}}}`)
+	entry := mustCreateObject(t, e, sp.Id, `{"type":"page","collections":["`+b.CollectionId+`"],"initialProperties":{"`+
+		b.CollectionId+`":{"`+b.Properties["date"]+`":`+day+`}}}`)
 	rec := doJSON(t, e, http.MethodPost,
 		"/v1/spaces/"+sp.Id+"/objects/"+entry+"/editor/editor_blocks/blocks",
 		`{"type":"paragraph","text":"woke up"}`)
@@ -229,7 +232,7 @@ func TestServer_CatalogSetupJournal(t *testing.T) {
 	}
 	// The day is the query key the Journal surface reads by.
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/query",
-		`{"filter":{"any.type":"`+b.TypeId+`","`+b.TypeId+`.`+b.Properties["date"]+`":`+day+`}}`)
+		`{"filter":{"any.collections":"`+b.CollectionId+`","`+b.CollectionId+`.`+b.Properties["date"]+`":`+day+`}}`)
 	var q api.QueryResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &q); err != nil || len(q.Records) != 1 ||
 		!strings.Contains(string(q.Records[0]), entry) {
@@ -520,7 +523,7 @@ func TestServer_CatalogSetupDependencies(t *testing.T) {
 	sp := createSpaceInfo(t, e, "CatalogCRM")
 
 	res := setupUsecase(t, e, "crm", sp.Id)
-	want := []string{"system:person/v1", "system:organization/v1", "system:contact/v1", "system:contacts/v1", "system:deal/v1", "system:crm/v1"}
+	want := []string{"system:profile/v1", "system:person/v2", "system:organization/v2", "system:contact/v1", "system:contacts/v1", "system:deal/v2", "system:crm/v1"}
 	if got := bundleIds(res); !slices.Equal(got, want) {
 		t.Fatalf("setup order = %v, want %v", got, want)
 	}
@@ -531,29 +534,66 @@ func TestServer_CatalogSetupDependencies(t *testing.T) {
 			t.Fatalf("%s not installed on a fresh space", b.Id)
 		}
 	}
-	if byId["system:person/v1"].Usecase != "people" || byId["system:deal/v1"].Usecase != "crm" {
+	if byId["system:person/v2"].Usecase != "people" || byId["system:deal/v2"].Usecase != "crm" {
 		t.Fatalf("usecase attribution: %+v", res.Bundles)
 	}
 	// The mutual relation resolves by handle on both sides.
-	if byId["system:person/v1"].Properties["organization"] == "" || byId["system:organization/v1"].Properties["main_contact"] == "" {
-		t.Fatalf("relation properties unresolved: %+v %+v", byId["system:person/v1"].Properties, byId["system:organization/v1"].Properties)
+	if byId["system:person/v2"].Properties["organization"] == "" || byId["system:organization/v2"].Properties["main_contact"] == "" {
+		t.Fatalf("relation properties unresolved: %+v %+v", byId["system:person/v2"].Properties, byId["system:organization/v2"].Properties)
 	}
-	// A role facet is a COLLECTION: the reply names collectionId, and a
-	// person filed under it keeps `person` as its type while taking the
-	// facet's columns — initialProperties keyed by the collection.
-	facet := byId["system:contact/v1"]
-	if facet.TypeId != "" || facet.CollectionId != facet.Bundle.RootId || facet.Properties["status"] == "" {
-		t.Fatalf("contact facet: %+v", facet)
+	// The format is a TYPE with no columns of its own; an identity, a
+	// deal and a role facet are COLLECTIONS, so the reply names
+	// collectionId for each.
+	profile := byId["system:profile/v1"]
+	if profile.TypeId != profile.Bundle.RootId || profile.CollectionId != "" || len(profile.Properties) != 0 {
+		t.Fatalf("profile: %+v", profile)
 	}
-	person := byId["system:person/v1"]
-	who := mustCreateObject(t, e, sp.Id, `{"type":"`+person.TypeId+`","collections":["`+facet.CollectionId+
-		`"],"initialProperties":{"any":{"name":"Ada"},"`+facet.CollectionId+`":{"`+facet.Properties["status"]+`":["active"]}}}`)
+	var profileInfo api.TypeInfo
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+profile.TypeId, &profileInfo)
+	if profileInfo.XKey != "profile" || !strings.Contains(string(profileInfo.Layout), `"profile"`) {
+		t.Fatalf("profile type info: %+v", profileInfo)
+	}
+	for _, id := range []string{"system:person/v2", "system:organization/v2", "system:deal/v2", "system:contact/v1"} {
+		if b := byId[id]; b.TypeId != "" || b.CollectionId != b.Bundle.RootId {
+			t.Fatalf("%s is not a collection: %+v", id, b)
+		}
+	}
+	// A collection names the type a row created inside it gets: a
+	// profile for an identity and a facet, nothing (a page) for a deal.
+	for id, want := range map[string]any{"system:person/v2": "profile", "system:organization/v2": "profile",
+		"system:contact/v1": "profile", "system:deal/v2": nil} {
+		var info api.CollectionInfo
+		decodeGet(t, e, "/v1/spaces/"+sp.Id+"/collections/"+byId[id].CollectionId, &info)
+		if got := info.Meta["defaultType"]; got != want {
+			t.Fatalf("%s meta.defaultType = %v, want %v", id, got, want)
+		}
+	}
+	// A person is a profile filed under `person`; filed under a facet as
+	// well it takes that facet's columns — initialProperties keyed by
+	// each collection.
+	facet, person := byId["system:contact/v1"], byId["system:person/v2"]
+	if facet.Properties["status"] == "" || person.Properties["email"] == "" {
+		t.Fatalf("handles unresolved: %+v %+v", facet.Properties, person.Properties)
+	}
+	who := mustCreateObject(t, e, sp.Id, `{"type":"`+profile.TypeId+`","collections":["`+person.CollectionId+`","`+facet.CollectionId+
+		`"],"initialProperties":{"any":{"name":"Ada"},"`+person.CollectionId+`":{"`+person.Properties["email"]+`":"ada@example.com"},"`+
+		facet.CollectionId+`":{"`+facet.Properties["status"]+`":["active"]}}}`)
 	whoRow := objectRow(t, e, sp.Id, who)
-	if rowType(whoRow) != person.TypeId || !slices.Contains(rowCollections(whoRow), facet.CollectionId) {
-		t.Fatalf("contact membership: type=%q collections=%v", rowType(whoRow), rowCollections(whoRow))
+	cols := rowCollections(whoRow)
+	if rowType(whoRow) != profile.TypeId || !slices.Contains(cols, person.CollectionId) || !slices.Contains(cols, facet.CollectionId) {
+		t.Fatalf("identity membership: type=%q collections=%v", rowType(whoRow), cols)
+	}
+	if vals, _ := whoRow[person.CollectionId].(map[string]any); vals[person.Properties["email"]] == nil {
+		t.Fatalf("person value not stored: %v", whoRow[person.CollectionId])
 	}
 	if vals, _ := whoRow[facet.CollectionId].(map[string]any); vals[facet.Properties["status"]] == nil {
 		t.Fatalf("facet value not stored: %v", whoRow[facet.CollectionId])
+	}
+	// A profile's body is the shared editor collection.
+	rec0 := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/"+who+"/editor/editor_blocks/blocks",
+		`{"type":"paragraph","text":"met at the conference"}`)
+	if rec0.Code != http.StatusCreated && rec0.Code != http.StatusOK {
+		t.Fatalf("write a profile's notes: %d %s", rec0.Code, rec0.Body.String())
 	}
 
 	// The app root is hidden and its layouts collection is writable.
@@ -581,7 +621,7 @@ func TestServer_CatalogSetupDependencies(t *testing.T) {
 	// A role alone: people plus the role, no other role.
 	sp2 := createSpaceInfo(t, e, "CatalogInvestor")
 	res = setupUsecase(t, e, "investor", sp2.Id)
-	if got := bundleIds(res); !slices.Equal(got, []string{"system:person/v1", "system:organization/v1", "system:investor/v1"}) {
+	if got := bundleIds(res); !slices.Equal(got, []string{"system:profile/v1", "system:person/v2", "system:organization/v2", "system:investor/v1"}) {
 		t.Fatalf("investor setup order = %v", got)
 	}
 }
@@ -643,7 +683,7 @@ func TestServer_CatalogSetupXKeyConflict(t *testing.T) {
 	for _, b := range bl.Bundles {
 		ids = append(ids, b.Id)
 	}
-	if !slices.Contains(ids, "system:person/v1") || slices.Contains(ids, "system:contact/v1") {
+	if !slices.Contains(ids, "system:person/v2") || slices.Contains(ids, "system:contact/v1") {
 		t.Fatalf("bundles after the refusal: %v", ids)
 	}
 
@@ -683,7 +723,7 @@ usecases:
     bundles:
       - id: system:seam-tag/v1
         name: Tag
-        type: { xKey: seam_tag }
+        type: { xKey: seam_tag, layout: { type: page } }
   - id: seam-note
     name: Note
     requires: [ seam-tag ]
@@ -692,6 +732,7 @@ usecases:
         name: Note
         type:
           xKey: seam_note
+          layout: { type: page }
           properties:
             - { xKey: title, name: Title, kind: string }
             - { xKey: tags,  name: Tags,  kind: array,
@@ -716,7 +757,7 @@ usecases:
     bundles:
       - id: system:seam-tag/v1
         name: Tag
-        type: { xKey: seam_tag }
+        type: { xKey: seam_tag, layout: { type: page } }
   - id: seam-note
     name: Note
     requires: [ seam-tag ]
@@ -725,6 +766,7 @@ usecases:
         name: Note
         type:
           xKey: seam_note
+          layout: { type: page }
           properties:
             - { xKey: title, name: Title, kind: string }
             - { xKey: tags,  name: Tags,  kind: array,
@@ -844,6 +886,117 @@ func TestServer_CatalogEvolution(t *testing.T) {
 	}
 }
 
+// The shape a definition takes when it changes kind: `seam_item` was a
+// type and becomes a collection of a new `seam_card` format. The old
+// bundle stays declared, and the two that stand in for it supersede it.
+const testCatalogSuperseding = `
+usecases:
+  - id: seam-items
+    name: Items
+    bundles:
+      - id: system:seam-card/v1
+        name: Card
+        supersedes: [ system:seam-item/v1 ]
+        type: { xKey: seam_card, layout: { type: profile } }
+      - id: system:seam-item/v2
+        name: Items
+        supersedes: [ system:seam-item/v1 ]
+        collection:
+          xKey: seam_item
+          meta: { defaultType: seam_card }
+          properties:
+            - { xKey: title, name: Title, kind: string }
+      - id: system:seam-item/v1
+        name: Item
+        type:
+          xKey: seam_item
+          properties:
+            - { xKey: title, name: Title, kind: string }
+            - { xKey: note,  name: Note,  kind: string }
+`
+
+const testCatalogBeforeSuperseding = `
+usecases:
+  - id: seam-items
+    name: Items
+    bundles:
+      - id: system:seam-item/v1
+        name: Item
+        type:
+          xKey: seam_item
+          layout: { type: page }
+          properties:
+            - { xKey: title, name: Title, kind: string }
+`
+
+// TestServer_CatalogSuperseded pins the two halves of `supersedes`: a
+// space that has the superseded bundle keeps it — adopted, healed, and
+// never joined by what supersedes it — while every other space receives
+// the new bundles and never the old one. The two share a handle, so
+// installing both into one space would be a conflict; neither walk hits it.
+func TestServer_CatalogSuperseded(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	had := createSpaceInfo(t, e, "CatalogHadTheType")
+	d.catalog = catalogForTest(t, testCatalogBeforeSuperseding)
+	before := setupUsecase(t, e, "seam-items", had.Id)
+	if got := bundleIds(before); !slices.Equal(got, []string{"system:seam-item/v1"}) || !before.Bundles[0].Installed {
+		t.Fatalf("the type, installed: %+v", before)
+	}
+	item := before.Bundles[0]
+
+	d.catalog = catalogForTest(t, testCatalogSuperseding)
+	kept := setupUsecase(t, e, "seam-items", had.Id)
+	if got := bundleIds(kept); !slices.Equal(got, []string{"system:seam-item/v1"}) {
+		t.Fatalf("a space that has the type keeps it and nothing else: %v", got)
+	}
+	if b := kept.Bundles[0]; b.Installed || b.TypeId != item.TypeId || b.CollectionId != "" {
+		t.Fatalf("the kept bundle is adopted as the type it is: %+v", b)
+	}
+	// Kept is not frozen: a property the declaration gained still heals.
+	if kept.Bundles[0].Properties["note"] == "" {
+		t.Fatalf("the superseded bundle still heals: %+v", kept.Bundles[0].Properties)
+	}
+	var bl api.BundleListResponse
+	decodeGet(t, e, "/v1/spaces/"+had.Id+"/bundles", &bl)
+	for _, b := range bl.Bundles {
+		if b.Id == "system:seam-item/v2" || b.Id == "system:seam-card/v1" {
+			t.Fatalf("%s reached a space that has the bundle it supersedes", b.Id)
+		}
+	}
+
+	fresh := createSpaceInfo(t, e, "CatalogNeverHadIt")
+	got := setupUsecase(t, e, "seam-items", fresh.Id)
+	if ids := bundleIds(got); !slices.Equal(ids, []string{"system:seam-card/v1", "system:seam-item/v2"}) {
+		t.Fatalf("a new space receives what supersedes, never the superseded: %v", ids)
+	}
+	card, items := got.Bundles[0], got.Bundles[1]
+	if card.TypeId == "" || items.CollectionId == "" || items.TypeId != "" {
+		t.Fatalf("a format and a collection: %+v %+v", card, items)
+	}
+	// The declared flag is written on install, which carries no meta of
+	// its own, and a second setup leaves a value the space changed alone.
+	var info api.CollectionInfo
+	decodeGet(t, e, "/v1/spaces/"+fresh.Id+"/collections/"+items.CollectionId, &info)
+	if info.Meta["defaultType"] != "seam_card" {
+		t.Fatalf("meta after install: %+v", info.Meta)
+	}
+	rec := doJSON(t, e, http.MethodPatch, "/v1/spaces/"+fresh.Id+"/collections/"+items.CollectionId, `{"meta":{"defaultType":"page"}}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("patch meta: %d %s", rec.Code, rec.Body.String())
+	}
+	again := setupUsecase(t, e, "seam-items", fresh.Id)
+	if ids := bundleIds(again); !slices.Equal(ids, []string{"system:seam-card/v1", "system:seam-item/v2"}) || again.Bundles[1].Installed {
+		t.Fatalf("second setup adopts the same two: %+v", again)
+	}
+	decodeGet(t, e, "/v1/spaces/"+fresh.Id+"/collections/"+items.CollectionId, &info)
+	if info.Meta["defaultType"] != "page" {
+		t.Fatalf("setup overwrote a flag the space set: %+v", info.Meta)
+	}
+}
+
 // TestServer_CatalogValidateEmbedded is the build gate in test form:
 // the embedded catalog compiles through the server's own gate.
 func TestServer_CatalogValidateEmbedded(t *testing.T) {
@@ -855,7 +1008,7 @@ func TestServer_CatalogValidateEmbedded(t *testing.T) {
 	// to a registered type id.
 	bad := strings.Replace(testCatalogV2, "kind: string }", "kind: string, xFormat: { type: money } }", 1)
 	bad = strings.Replace(bad, "miniapp: {}", "miniapp: { entry: index.html }", 1)
-	bad = strings.Replace(bad, "xKey: seam_tag }", "xKey: page }", 1)
+	bad = strings.Replace(bad, "xKey: seam_tag,", "xKey: page,", 1)
 	problems := ValidateCatalog([]byte(bad))
 	var codes []string
 	for _, p := range problems {

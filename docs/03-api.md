@@ -1451,13 +1451,14 @@ installs anyway and any other member is `409 bundle.not_ready`.
 // CatalogSetupResponse — every bundle the call touched, dependencies
 // first, the requested usecase's bundles last
 { "usecase": "contact",
-  "bundles": [ { "usecase": "people", "id": "system:person/v1",
-                 "bundle": { "id": "system:person/v1", "rootId": "…", "roots": ["…"] },
-                 "installed": true, "typeId": "<rootId>", "properties": { "email": "<propId>", "…": "…" } },
+  "bundles": [ { "usecase": "people", "id": "system:profile/v1",
+                 "bundle": { "id": "system:profile/v1", "rootId": "…", "roots": ["…"] },
+                 "installed": true, "typeId": "<rootId>", "properties": {} },
+               { "usecase": "people", "id": "system:person/v2",
+                 "installed": true, "collectionId": "<rootId>", "properties": { "email": "<propId>", "…": "…" } },
+               { "usecase": "people", "id": "system:organization/v2", "…": "…" },
                { "usecase": "contact", "id": "system:contact/v1",
-                 "installed": true, "collectionId": "<rootId>", "properties": { "status": "<propId>", "…": "…" } },
-               { "usecase": "people", "id": "system:organization/v1", "…": "…" },
-               { "usecase": "contact", "id": "system:contact/v1", "…": "…" } ] }
+                 "installed": true, "collectionId": "<rootId>", "properties": { "status": "<propId>", "…": "…" } } ] }
 ```
 
 `typeId` (the root id) is present when the bundle declares a type —
