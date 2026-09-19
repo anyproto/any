@@ -122,8 +122,9 @@ func (p Push) Active() bool {
 }
 
 // Access is the alpha invite-code service (any-invite). RedeemUrl is
-// the base URL its POST /redeem lives under; empty disables
-// POST /v1/account/access-code (409 access.disabled).
+// the base URL its POST /redeem lives under. Empty on the embedded
+// production network means ProdRedeemUrl; empty on any other network
+// disables POST /v1/account/access-code (409 access.disabled).
 type Access struct {
 	RedeemUrl string `yaml:"redeemUrl"`
 }

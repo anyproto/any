@@ -224,10 +224,13 @@ push:
   peerId: ""                          # the push node's peer id
   addrs: []                           # dial addresses, e.g. ["quic://host:port"]
 
-# Alpha invite codes (any-invite). Base URL of the invite service;
-# empty disables POST /v1/account/access-code (409 access.disabled).
+# Alpha invite codes (any-invite). Base URL of the invite service. When
+# the config names none AND no nodeconf (the embedded production
+# network), the production service is filled in; a config that names a
+# nodeconf gets an invite service only by naming one. Without one
+# POST /v1/account/access-code returns 409 access.disabled.
 access:
-  redeemUrl: ""
+  redeemUrl: ""                       # production: https://prod-any-invite.anytype.io
 
 # Logger — passthrough to any-sync/app/logger.Config.
 log:
