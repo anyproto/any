@@ -4,8 +4,7 @@ description: Every device holds the whole database; writes commit locally, sync 
 order: 10
 ---
 # Local-first
-
-In `any`, "offline" is not a degraded mode — it is the normal one. Every read and write is served from the database on your disk. Sync is the background process that carries your changes to other devices and members, and theirs to you.
+In `any`, offline is the default. Every read and write is served from the database on your disk. Sync runs in the background, carrying your changes to other devices and members and bringing theirs to you.
 
 A successful write means *this device* has appended the change. It does not mean another device has received it, or that a sync node holds a copy — `/sync-status` below is how you learn that.
 
