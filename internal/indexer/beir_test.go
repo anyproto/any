@@ -1,5 +1,3 @@
-//go:build fts && vector && !gomobile
-
 package indexer
 
 import (
@@ -28,7 +26,7 @@ import (
 //	ANY_BEIR_DIR=/tmp/scifact \
 //	ANY_EVAL_EMBEDDER=local ANY_EVAL_LOCAL_MODEL=… ANY_EVAL_LOCAL_LIBDIR=… \
 //	[ANY_BEIR_MAX_DOCS=N] [ANY_BEIR_MAX_QUERIES=N] \
-//	go test -tags 'fts vector' -run TestSearchEvalBEIR -v -timeout 30m ./internal/indexer
+//	go test -tags llamacpp -run TestSearchEvalBEIR -v -timeout 30m ./internal/indexer
 func TestSearchEvalBEIR(t *testing.T) {
 	dir := os.Getenv("ANY_BEIR_DIR")
 	if dir == "" {

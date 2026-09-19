@@ -45,11 +45,9 @@ rm -rf build
 # simulator's -simulator triple, golang/go#57442). One function keeps the build
 # flags in a single place so the two slices can't drift apart.
 #
-# Tags `mobile fts`: `mobile` selects the iOS embedded build (pidlock no-op,
-# swaggo-free openapi stub, vector/embedding off); `fts` turns on the BM25
-# full-text leg (capFTS=true). Building without `fts` would ship an
-# FTS-disabled archive, contradicting the Phase B caps contract. `-trimpath`
-# for path-leak parity with build-any.sh.
+# Tag `mobile` selects the iOS embedded build (pidlock no-op, swaggo-free
+# openapi stub). The local embedder never builds for GOOS=ios, whatever the
+# tags. `-trimpath` for path-leak parity with build-any.sh.
 #
 # cgo names the generated header after the -o argument, not after the package
 # path, so `-o anylib.a` is what makes the header `anylib.h` — the name
@@ -61,7 +59,7 @@ build_slice() {
     echo "== building $name slice (CC=$cc) =="
     mkdir -p "build/$name/headers"
     CGO_ENABLED=1 GOOS=ios GOARCH=arm64 CC="$ROOT/scripts/$cc" \
-        go build -trimpath -tags 'mobile fts' -buildmode=c-archive -ldflags "$LDFLAGS" \
+        go build -trimpath -tags mobile -buildmode=c-archive -ldflags "$LDFLAGS" \
         -o "build/$name/anylib.a" ./mobile/ios
     cp "build/$name/anylib.h" "build/$name/headers/anylib.h"
     cp mobile/ios/module.modulemap "build/$name/headers/module.modulemap"

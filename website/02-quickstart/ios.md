@@ -15,7 +15,7 @@ Every release publishes `any.xcframework.zip`, sha256-pinned in the release note
 scripts/build-xcframework.sh dist/ios      # → dist/ios/any.xcframework.zip
 ```
 
-Unzip and add `any.xcframework` to your target as an embedded binary. The archive builds with the full-text search leg; vector search and the local embedder are off on iOS, so `/search` runs `fts` only.
+Unzip and add `any.xcframework` to your target as an embedded binary. The archive runs the index with no embedder, so `/search` runs `fts` only.
 
 ## The surface
 

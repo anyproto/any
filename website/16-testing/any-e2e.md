@@ -1,6 +1,6 @@
 ---
 title: any end-to-end
-description: The server's test layout — unit tests behind build tags, the real-binary e2e suite, the two-peer harness, and which tests are gated on external infrastructure.
+description: The server's test layout — unit tests, the real-binary e2e suite, the two-peer harness, and which tests are gated on external infrastructure.
 order: 10
 ---
 # any end-to-end
@@ -10,11 +10,11 @@ The server's confidence comes from running the compiled binary. Unit tests cover
 ## Unit tests
 
 ```bash
-make test        # go test -tags 'fts vector' ./...
+make test        # go test ./..., then the local-embedder packages with -tags llamacpp
 make vet
 ```
 
-The search legs are compile-time tags, and tests covering either leg are tagged to match — a bare `go test ./...` compiles but skips them. In-process handler tests boot a real SDK and the handlers without a binary or a socket — chat, editor, search, links, bundles, the catalog, local store, modify-scope and property surfaces — against the same staging fixture as the e2e suite, and skip without it. Tests that only need a server to boot and serve (the embedded host, the desktop-shell and managed-lifecycle contracts) use the sanitized **placeholder** node configuration instead, which joins no network.
+A bare `go test ./...` runs every unit test except the local-embedder ones, which carry the `llamacpp` tag; `make test` runs the untagged suite and then those packages with the tag. In-process handler tests boot a real SDK and the handlers without a binary or a socket — chat, editor, search, links, bundles, the catalog, local store, modify-scope and property surfaces — against the same staging fixture as the e2e suite, and skip without it. Tests that only need a server to boot and serve (the embedded host, the desktop-shell and managed-lifecycle contracts) use the sanitized **placeholder** node configuration instead, which joins no network.
 
 ## The staging fixture rule
 
@@ -101,4 +101,4 @@ ANY_DATA_DIR=/tmp/any-scratch ANY_NETWORK_NODECONF_PATH=./staging.yml \
 bin/any --addr 127.0.0.1:7009 status
 ```
 
-Build the binary with `make build` first — it writes `bin/any` — and run it through `nix develop -c` where the flake shell is available, so the search legs are compiled in — see [Builds and CI](../operations/builds-and-ci.html).
+Build the binary with `make build` first — it writes `bin/any` — and run it through `nix develop -c` where the flake shell is available, so the local embedder finds `libffi` — see [Builds and CI](../operations/builds-and-ci.html).

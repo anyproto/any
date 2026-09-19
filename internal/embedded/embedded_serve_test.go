@@ -23,9 +23,9 @@ import (
 //   - The "none" embedder path is true-nil (HasEmbedder()==false). This
 //     constructs the indexer directly via the same exported factory Start
 //     configures (Embedder="none") — a true-nil Embedder, not a typed-nil
-//     boxed into the interface — so the compiled-out llama.cpp embedder is
-//     never reached. Asserted by construction (the running engine's
-//     indexer is not reachable from this package), mirroring
+//     boxed into the interface — so no embedder is ever constructed.
+//     Asserted by construction (the running engine's indexer is not
+//     reachable from this package), mirroring
 //     internal/server/embed_boot_test.go on ios-embed-library.
 //
 //   - Headless boot-and-serve: Start binds an ephemeral port, then a real

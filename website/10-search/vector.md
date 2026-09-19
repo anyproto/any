@@ -68,7 +68,7 @@ A record longer than about 2000 runes is indexed as several chunk documents, and
 
 | Status | Code | When |
 |---|---|---|
-| 400 | `index.no_embedder` | `mode: vector` on a server with `index.embedder: none` (or a build without the vector leg) |
+| 400 | `index.no_embedder` | `mode: vector` on a server with `index.embedder: none` (always the case on mobile) |
 | 503 | `index.embedder_unavailable` | `mode: vector` while the embedder is down, the model is still downloading, or the query embedding exceeds `queryEmbedTimeout`; retry |
 | 409 | `index.disabled` | indexer off (`index.enabled: false`) |
 

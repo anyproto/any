@@ -1,5 +1,5 @@
 // Package main is the C-archive surface that embeds the `any` engine in
-// an iOS app. Built with `-tags 'mobile fts' -buildmode=c-archive` it
+// an iOS app. Built with `-tags mobile -buildmode=c-archive` it
 // links the full embedded dependency graph (any-sync + libp2p + QUIC +
 // the modernc SQLite shim) and exposes five C entry points the Swift
 // side calls over its lifecycle: AnyLibStart, AnyLibStartWithMode,
@@ -112,8 +112,8 @@ type startResult struct {
 // (returning a code and the underlying error's message). It is the
 // testable core behind the //export AnyLibStart wrapper.
 //
-// The search index is not a host parameter: it rides the compiled `fts`
-// cap alone, same as the Android bind. pushPeerId/pushAddrs configure the
+// The search index is not a host parameter: FTS on, no embedder, same as
+// the Android bind. pushPeerId/pushAddrs configure the
 // push node (addrs comma-separated, see embedded.Options) — empty strings
 // keep push off. mode/controlToken select the ownership mode ("" =
 // standalone; "managed" needs a non-empty controlToken).

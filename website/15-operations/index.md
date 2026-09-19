@@ -59,7 +59,7 @@ curl -s http://127.0.0.1:7001/v1/health
 | accounts, wallets and device keys, `sdk/`, `files/`, `index/`, `models/`, backups | [Data directory](data-dir.html) |
 | production default, staging and local nodeconfs, LAN p2p | [Networks](networks.html) |
 | loopback trust, CORS allowlist, E2E encryption, what is deferred | [Security model](security-model.html) |
-| `make build`, build tags, release tarballs, mobile artifacts, CI | [Builds and CI](builds-and-ci.html) |
+| `make build`, the local embedder build, release tarballs, mobile artifacts, CI | [Builds and CI](builds-and-ci.html) |
 | health, sync status, debug endpoints, processes, logs, error codes | [Debugging](debugging.html) |
 
 <div class="cards">
@@ -68,6 +68,6 @@ curl -s http://127.0.0.1:7001/v1/health
 <a href="data-dir.html"><strong>Data directory</strong><span>Per-account layout, what is owned by whom, what is safe to delete</span></a>
 <a href="networks.html"><strong>Networks</strong><span>Which any-sync network you join, and local-network sync</span></a>
 <a href="security-model.html"><strong>Security model</strong><span>Localhost-only, no socket auth, encryption as the boundary</span></a>
-<a href="builds-and-ci.html"><strong>Builds and CI</strong><span>Build tags, nix shell, tarballs, .aar and .xcframework</span></a>
+<a href="builds-and-ci.html"><strong>Builds and CI</strong><span>Local embedder build, nix shell, tarballs, .aar and .xcframework</span></a>
 <a href="debugging.html"><strong>Debugging</strong><span>Health, sync status, debug snapshots, logs, errors</span></a>
 </div>

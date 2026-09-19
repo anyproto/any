@@ -1,5 +1,3 @@
-//go:build fts && vector && !gomobile
-
 package indexer
 
 import (
@@ -159,7 +157,7 @@ func dirSize(dir string) int64 {
 // "is HNSW's recall worth giving up IVF's cheaper build?" with numbers.
 // Gated: ANY_VEC_BENCH=1.
 //
-//	ANY_VEC_BENCH=1 go test -tags 'fts vector' -run TestVectorModeProfile -v -timeout 30m ./internal/indexer
+//	ANY_VEC_BENCH=1 go test -run TestVectorModeProfile -v -timeout 30m ./internal/indexer
 func TestVectorModeProfile(t *testing.T) {
 	if os.Getenv("ANY_VEC_BENCH") == "" {
 		t.Skip("set ANY_VEC_BENCH=1 (builds vector indexes at several sizes)")

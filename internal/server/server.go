@@ -14,7 +14,6 @@ import (
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
-	"github.com/anyproto/any/internal/indexer"
 )
 
 const gracefulShutdownDeadline = 10 * time.Second
@@ -56,16 +55,6 @@ func Run(ctx context.Context, cfg config.Config) error {
 func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 	logConfigOnce.Do(cfg.Log.ApplyGlobal)
 	lg := logger.NewNamed("server")
-
-	// The search index is gated twice: build tags decide what is compiled
-	// (fts / vector — vector is always off on gomobile), config decides
-	// what runs. Warn once if the index is enabled but neither leg was
-	// compiled in, so the empty-result state is observable, not silent.
-	if cfg.Index.Enabled {
-		if fts, vec := indexer.CompiledCaps(); !fts && !vec {
-			lg.Warn("search index enabled (index.enabled) but built without the fts/vector tags — search returns no results; rebuild with -tags 'fts vector' (docs/13-index.md)")
-		}
-	}
 
 	if err := ValidateLoopback(cfg.Listen.Addr); err != nil {
 		return err

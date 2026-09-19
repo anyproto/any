@@ -1,4 +1,4 @@
-//go:build vector && !gomobile
+//go:build llamacpp && !android && !ios
 
 package indexer
 
@@ -23,7 +23,7 @@ import (
 //
 //	ANY_EVAL_LOCAL_MODEL=~/.any/models/<model>.gguf \
 //	ANY_EVAL_LOCAL_LIBDIR=./bin/llamacpp ANY_EVAL_LOCAL_THREADS=16 \
-//	go test -tags 'fts vector' -run TestWorkerEmbedder_RealChild_QueryLatency -v ./internal/indexer
+//	go test -tags llamacpp -run TestWorkerEmbedder_RealChild_QueryLatency -v ./internal/indexer
 func TestWorkerEmbedder_RealChild_QueryLatency(t *testing.T) {
 	modelPath := os.Getenv("ANY_EVAL_LOCAL_MODEL")
 	libDir := os.Getenv("ANY_EVAL_LOCAL_LIBDIR")

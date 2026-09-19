@@ -171,10 +171,9 @@ func newStore(db anystore.DB, path string, dim int, embedderConfigured bool) *St
 		db:   db,
 		path: path,
 		dim:  dim,
-		// capVector gates the whole vector pipeline at build time: without
-		// it, nothing is ever marked pending so the embed loop and vector
-		// index stay dormant even if a dim is configured.
-		markPending: capVector && (embedderConfigured || dim > 0),
+		// Without an embedder or a known dim nothing is ever marked
+		// pending, so the embed loop and vector index stay dormant.
+		markPending: embedderConfigured || dim > 0,
 		colls:       map[string]anystore.Collection{},
 		hasVec:      map[string]bool{},
 	}
@@ -332,32 +331,26 @@ func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collect
 	// planner can probe a small `objectId $in` residual per candidate
 	// instead of walking the posting lists (host_filter.go).
 	//
-	// Each leg's index is created only when its build tag compiled it in
-	// (docs/13-index.md § build tags): the fulltext index under `fts`, the
-	// sparse pending index (which backs the embed loop) under `vector`.
-	var indexes []anystore.IndexInfo
-	if capFTS || capVector {
-		indexes = append(indexes, anystore.IndexInfo{Name: objectIdIndex, Fields: []string{"objectId"}})
+	// BM25 over `data` (body). When titleWeight > 0, BM25F also covers
+	// the boosted `title` field (heading / method sig / memory context);
+	// otherwise the index stays single-field so default ranking is
+	// unchanged. b/k1 (if set) apply either way.
+	fts := anystore.IndexInfo{Name: "fts", Kind: anystore.IndexKindFulltext, Fields: []string{"data"}}
+	if s.titleWeight > 0 {
+		fts.Fields = []string{"data", "title"}
 	}
-	if capFTS {
-		// BM25 over `data` (body). When titleWeight > 0, BM25F also covers
-		// the boosted `title` field (heading / method sig / memory context);
-		// otherwise the index stays single-field so default ranking is
-		// unchanged. b/k1 (if set) apply either way.
-		fts := anystore.IndexInfo{Name: "fts", Kind: anystore.IndexKindFulltext, Fields: []string{"data"}}
-		if s.titleWeight > 0 {
-			fts.Fields = []string{"data", "title"}
-		}
-		fts.Fulltext = s.ftsParams()
-		indexes = append(indexes, fts)
+	fts.Fulltext = s.ftsParams()
+	indexes := []anystore.IndexInfo{
+		{Name: objectIdIndex, Fields: []string{"objectId"}},
+		fts,
 	}
-	if capVector {
+	// The sparse pending index backs the embed loop, which only a store
+	// that marks docs pending ever runs.
+	if s.markPending {
 		indexes = append(indexes, anystore.IndexInfo{Fields: []string{"pending"}, Sparse: true})
 	}
-	if len(indexes) > 0 {
-		if err := coll.EnsureIndex(ctx, indexes...); err != nil {
-			return nil, fmt.Errorf("indexer: ensure indexes for %s: %w", spaceId, err)
-		}
+	if err := coll.EnsureIndex(ctx, indexes...); err != nil {
+		return nil, fmt.Errorf("indexer: ensure indexes for %s: %w", spaceId, err)
 	}
 
 	s.mu.Lock()
@@ -415,9 +408,6 @@ func (s *Store) vectorIndexParams(dim int) *anystore.VectorParams {
 // churn-friendly); HNSW (btree) is opt-in for higher recall
 // (docs/search/README.md § index mode).
 func (s *Store) EnsureVectorIndex(ctx context.Context, spaceId string) (bool, error) {
-	if !capVector {
-		return false, nil
-	}
 	dim := s.Dim()
 	if dim == 0 {
 		return false, nil
@@ -930,9 +920,7 @@ func (s *Store) SearchFTSQuery(ctx context.Context, spaceId string, fq FTSQuery,
 // as deep as it needs and Close is O(1) at any point (BenchmarkCutoff,
 // TestIteratorEarlyCloseNoLeak). The cursor holds a
 // read tx — a reader slot, a page cache, a WAL read-mark — until Close:
-// pull, then close; never park one across another store call. A nil
-// iter is the FTS-compiled-out cursor: no fulltext index exists, so it
-// yields nothing rather than erroring against a missing index.
+// pull, then close; never park one across another store call.
 type ftsCursor struct {
 	iter anystore.Iterator
 }
@@ -944,9 +932,6 @@ type ftsCursor struct {
 // the residual drives a probe over the objectId index or trails the
 // posting walk.
 func (s *Store) openFTS(ctx context.Context, spaceId string, fq FTSQuery, scopes []string, residual query.Filter) (*ftsCursor, error) {
-	if !capFTS {
-		return &ftsCursor{}, nil
-	}
 	coll, err := s.spaceColl(ctx, spaceId)
 	if err != nil {
 		return nil, err
@@ -975,9 +960,6 @@ func (s *Store) openFTS(ctx context.Context, spaceId string, fq FTSQuery, scopes
 // Next yields the next hit in rank order; ok is false once the leg is
 // exhausted.
 func (c *ftsCursor) Next() (Hit, bool, error) {
-	if c.iter == nil {
-		return Hit{}, false, nil
-	}
 	if !c.iter.Next() {
 		return Hit{}, false, c.iter.Err()
 	}
@@ -988,11 +970,8 @@ func (c *ftsCursor) Next() (Hit, bool, error) {
 	return hitFromDoc(doc.Value(), c.iter.Score()), true, nil
 }
 
-// Close releases the read tx. A no-op on the compiled-out cursor.
+// Close releases the read tx.
 func (c *ftsCursor) Close() error {
-	if c.iter == nil {
-		return nil
-	}
 	return c.iter.Close()
 }
 
@@ -1006,15 +985,13 @@ func (c *ftsCursor) Close() error {
 // drove and this cost the term's whole posting list). The analyzer
 // decides "contains", so a phrase or prefix term behaves exactly as it
 // does in the lexical leg. Nothing to enforce (no terms, no hits)
-// returns hits unchanged, and so does a build with no FTS index — which
-// is why callers must refuse a request carrying terms in that build
-// (handlers_search.go), never treat the pass-through as enforcement.
+// returns hits unchanged.
 //
 // Negated clauses only tombstone docs a positive clause already scored,
 // so an exclude-only filter is run inverted: match the excluded terms as
 // shoulds and drop whatever comes back.
 func (s *Store) FilterTerms(ctx context.Context, spaceId string, hits []Hit, require, exclude []string) ([]Hit, error) {
-	if !capFTS || len(hits) == 0 || (len(require) == 0 && len(exclude) == 0) {
+	if len(hits) == 0 || (len(require) == 0 && len(exclude) == 0) {
 		return hits, nil
 	}
 	coll, err := s.spaceColl(ctx, spaceId)
@@ -1107,7 +1084,7 @@ func (s *Store) SearchVector(ctx context.Context, spaceId string, vec []float32,
 // exactly, instead of hoping the ANN beam reaches them. Meant for a
 // small residual, where the store's own cost model keeps the beam.
 func (s *Store) searchVector(ctx context.Context, spaceId string, vec []float32, scopes []string, limit int, minSim float64, residual query.Filter, hint bool) (hits []Hit, n int, err error) {
-	if !capVector || s.Dim() == 0 {
+	if s.Dim() == 0 {
 		return nil, 0, nil
 	}
 	ok, err := s.EnsureVectorIndex(ctx, spaceId)

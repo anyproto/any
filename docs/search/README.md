@@ -48,8 +48,8 @@ this for *why* and *how well*.
 
 ## Evaluation harnesses
 
-Gated / opt-in tests in `internal/indexer` (build tags `fts vector` unless
-noted):
+Gated / opt-in tests in `internal/indexer`. They need no build tag; the
+real `local` embedder needs `-tags llamacpp`:
 
 - **`eval_test.go`** — labeled-query harness over a small synthetic corpus,
   scoring recall@k / MRR / nDCG@k for one-doc-per-block vs coalesced ×
@@ -106,13 +106,14 @@ ANY_EVAL_OPENAI_MODEL=Qwen/Qwen3-Embedding-0.6B \
 ANY_EVAL_OPENAI_API_KEY=$EMBED_API_KEY \
 ANY_EVAL_QUERY_PREFIX=$'Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:' \
 ANY_BEIR_EMBED_CONCURRENCY=8 ANY_BEIR_EMBED_BATCH=100 \
-go test -tags 'fts vector' -run TestSearchEvalBEIR -v -timeout 20m ./internal/indexer
+go test -run TestSearchEvalBEIR -v -timeout 20m ./internal/indexer
 ```
 
 Provider notes: **OpenRouter** has no embeddings; **Together** lacks Qwen3
 and caps e5 at 512 tokens (rejects SciFact abstracts); pick a host that
 serves `Qwen/Qwen3-Embedding-0.6B` (fp16 vs the local Q8). For the local model,
-set `ANY_EVAL_EMBEDDER=local ANY_EVAL_LOCAL_MODEL=… ANY_EVAL_LOCAL_LIBDIR=…`.
+set `ANY_EVAL_EMBEDDER=local ANY_EVAL_LOCAL_MODEL=… ANY_EVAL_LOCAL_LIBDIR=…`
+and add `-tags llamacpp`.
 Other BEIR sets drop in by name (e.g. `fiqa.zip`, 57.6k docs); add
 `ANY_BEIR_EXACT=1` for the exact-vs-index comparison and
 `ANY_INDEX_VECTOR_MODE=btree|ivfsq|bruteforce` to compare ANN modes
@@ -122,7 +123,7 @@ Index-mode cost profile (random vectors; no API):
 
 ```bash
 ANY_VEC_BENCH=1 ANY_VEC_BENCH_SIZES=100000,200000 \
-go test -tags 'fts vector' -run TestVectorModeProfile -v -timeout 50m ./internal/indexer
+go test -run TestVectorModeProfile -v -timeout 50m ./internal/indexer
 ```
 
 Live cosine-distribution probe (server stopped — the probe opens the index
@@ -132,7 +133,7 @@ db itself):
 ANY_LIVE_INDEX=<data-dir>/index/index.db ANY_LIVE_SPACE=<spaceId> \
 ANY_EVAL_LOCAL_MODEL=… ANY_EVAL_LOCAL_LIBDIR=… \
 [ANY_LIVE_ONTOPIC="q1,q2" ANY_LIVE_OFFTOPIC="q3,q4"] \
-go test -tags 'fts vector' -run TestLiveVectorScoreProbe -v ./internal/indexer
+go test -tags llamacpp -run TestLiveVectorScoreProbe -v ./internal/indexer
 ```
 
 ## Results

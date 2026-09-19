@@ -324,9 +324,13 @@ CGO — yzma dlopens the shared libs at runtime), so a llama.cpp abort
 costs a round of embedding instead of the server
 (docs/13-index.md § The embedder child process). Prebuilt libs ship for
 macOS arm64 (Metal), macOS x64, Linux x86_64 and Windows x86_64 (Vulkan,
-with automatic CPU fallback). Builds without the `vector` tag (and every
-mobile build) carry no embedder. Missing prerequisites never break boot
-or FTS — the vector side reports `unavailable` until they're met.
+with automatic CPU fallback). Only `-tags llamacpp` builds carry it
+(`make build` and the release tarballs; never mobile): elsewhere `auto`
+embeds only through an online primary (`index.openai.apiKey`), FTS-only
+without one, and `local` fails boot
+(docs/13-index.md § Builds and the local embedder). Missing prerequisites
+never break boot or FTS — the vector side reports `unavailable` until
+they're met.
 
 - **llama.cpp libs**: `make llamacpp` (also run as part of
   `make build`; a fetch failure there only warns) downloads the pinned
@@ -352,7 +356,9 @@ local model during an outage, so vector search stays fresh
 instead of pausing. The online primary is configured by the `openai`
 block (`baseUrl` / `model` / `apiKey`, `model` required); the fallback
 by the `local` block (auto-downloaded at boot regardless, so it's
-ready). A circuit breaker skips the primary for a cooldown after
+ready). A build without the local embedder (no `-tags llamacpp`) runs the
+online primary alone, with no fallback and no model download — and with no
+`apiKey` it has no embedder at all, so the index stays FTS-only. A circuit breaker skips the primary for a cooldown after
 repeated failures, then re-probes.
 
 **Both sides must be the SAME embedding model** — the index stores one

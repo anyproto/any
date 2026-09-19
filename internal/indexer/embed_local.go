@@ -1,4 +1,4 @@
-//go:build vector && !gomobile
+//go:build llamacpp && !android && !ios
 
 package indexer
 
@@ -214,7 +214,7 @@ func loadLlamaRuntime(libDir string) error {
 		return nil
 	}
 	if _, err := os.Stat(libDir); err != nil {
-		return fmt.Errorf("indexer: local embedder: llama.cpp libs not found at %s (run 'make llamacpp' or set index.local.libDir): %w", libDir, err)
+		return fmt.Errorf("indexer: local embedder: llama.cpp %s libs not found at %s (run 'make llamacpp', or set index.local.libDir to that release's libs): %w", llamaCppRelease, libDir, err)
 	}
 	if err := addLibSearchDir(libDir); err != nil {
 		return fmt.Errorf("indexer: local embedder: add %s to the library search path: %w", libDir, err)

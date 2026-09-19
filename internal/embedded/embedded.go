@@ -15,8 +15,8 @@
 //   - the GOMEMLIMIT soft cap via debug.SetMemoryLimit (iOS jetsam AND
 //     Android's low-memory killer);
 //   - config assembly: config.Defaults() + DataDir + Listen.Addr +
-//     Network.Nodeconf + index policy (Embedder="none", Index.Enabled =
-//     the compiled FTS cap) + headless (WebUI.Enabled=false) +
+//     Network.Nodeconf + index policy (Embedder="none": FTS only) +
+//     headless (WebUI.Enabled=false) +
 //     the push node peer (Options.PushPeerId/PushAddrs → cfg.Push);
 //   - the run via main's canonical embedder seam, server.RunWith.
 //
@@ -36,7 +36,6 @@ import (
 	"sync"
 
 	"github.com/anyproto/any/internal/config"
-	"github.com/anyproto/any/internal/indexer"
 	"github.com/anyproto/any/internal/server"
 	"github.com/anyproto/any/internal/version"
 )
@@ -193,16 +192,10 @@ func assembleConfig(opts Options) config.Config {
 	// falls through to config's embedded production default, rather than
 	// reaching any-sync as an unparseable conf.
 	cfg.Network.Nodeconf = strings.TrimSpace(opts.NodeconfYAML)
-	// FTS-only index policy. "none" makes the embedder factory return a
-	// true-nil so the compiled-out local llama.cpp embedder is never
-	// reached. The compiled `fts` cap is the whole gate, and neither shim
-	// exposes it as a host parameter: config.Defaults() ships
-	// Index.Enabled=true, so this is a LOAD-BEARING override that keeps the
-	// indexer dormant in a build without the tag. (capFTS is unexported;
-	// CompiledCaps is the exported reader.)
+	// FTS-only index policy, not a host parameter: "none" makes the
+	// embedder factory return a true-nil, so no vector pipeline runs
+	// in-process. Index.Enabled keeps its config.Defaults() value (on).
 	cfg.Index.Embedder = "none"
-	fts, _ := indexer.CompiledCaps()
-	cfg.Index.Enabled = fts
 	// Every in-process boot is headless — no /ui debug harness, no
 	// advertising log.
 	cfg.WebUI.Enabled = false

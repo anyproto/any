@@ -1,4 +1,4 @@
-//go:build vector && !gomobile
+//go:build llamacpp && !android && !ios
 
 package indexer
 
@@ -1090,7 +1090,7 @@ func TestWorkerFrameRoundTrip(t *testing.T) {
 //
 //	ANY_EVAL_LOCAL_MODEL=~/.any/models/<model>.gguf \
 //	ANY_EVAL_LOCAL_LIBDIR=./bin/llamacpp \
-//	go test -tags 'fts vector' -run TestWorkerEmbedder_RealChild ./internal/indexer
+//	go test -tags llamacpp -run TestWorkerEmbedder_RealChild ./internal/indexer
 func TestWorkerEmbedder_RealChild(t *testing.T) {
 	modelPath := os.Getenv("ANY_EVAL_LOCAL_MODEL")
 	libDir := os.Getenv("ANY_EVAL_LOCAL_LIBDIR")

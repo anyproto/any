@@ -561,7 +561,9 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
 
 - `auto` — **default**: the `local` embedder alone until
   `index.openai.apiKey` is set; with a key, an OpenAI-compatible primary
-  with the `local` embedder as fallback. Both MUST serve the same model
+  with the `local` embedder as fallback — the primary alone in a build
+  without the local embedder, which without a key then embeds nothing and
+  the index runs FTS-only. Both MUST serve the same model
   (one vector space, one dimension); the default pairing is
   Qwen3-Embedding-0.6B online and locally. `index.openai.baseUrl` and
   `apiKey` name the primary (any OpenAI-compatible host; neither has a
@@ -571,7 +573,8 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   query gives the primary half of the remaining query budget, so the
   fallback still has time to decode.
 - `local` — llama.cpp in a child process (§ The embedder child process),
-  no external service. yzma purego bindings (no CGO) load the prebuilt
+  no external service; `-tags llamacpp` builds only (§ Builds and the
+  local embedder). yzma purego bindings (no CGO) load the prebuilt
   llama.cpp shared libs from `index.local.libDir` (else `$YZMA_LIB`,
   else `llamacpp/` next to the binary — populated by `make llamacpp`,
   which `make build` runs failure-tolerant; § GPU offload). Default
@@ -708,28 +711,41 @@ set `index.local.gpuLayers: 0`.
 CUDA and ROCm builds are not bundled; point `index.local.libDir` at a
 custom llama.cpp build to use them.
 
-### Build tags — `fts` and `vector` (selecting the legs at compile time)
+### Builds and the local embedder
 
-The two search legs are selected at build time by positive build tags:
+Search needs no build tag. The full-text index, the vector index and the
+`ollama` / `openai` embedders are pure Go and compile into every build;
+`index.enabled` and `index.embedder` decide what runs. One tag,
+`llamacpp`, adds the `local` llama.cpp embedder:
 
-| Build | Tags | FTS | Vector / embeds |
-|---|---|---|---|
-| Desktop / server (`make build`) | `fts vector` | on | on |
-| Darwin `-sandbox` tarball | `fts vector ffi_no_embed` | on | on (incl. `local`) |
-| FTS-only | `fts` | on | off |
-| Vector-only | `vector` | off | on |
-| Plain `go build` | *(none)* | off | off |
-| Android bind (`makefiles/android.mk`) | `gomobile fts` | on | **off (forced)** |
-| iOS c-archive (`scripts/build-xcframework.sh`) | `mobile fts` | on | **off (forced)** |
+| Build | Tags | Local embedder |
+|---|---|---|
+| `make build`, release tarballs | `llamacpp` | yes |
+| Darwin `-sandbox` tarball | `llamacpp ffi_no_embed` | yes |
+| `go install` / `go build` | *(none)* | no |
+| Android bind (`makefiles/android.mk`) | `gomobile` | no |
+| iOS c-archive (`scripts/build-xcframework.sh`) | `mobile` | no |
 
-- **The vector leg is always off on mobile.** `capVector` is
-  `vector && !gomobile && !mobile`. On Android the embedder
-  implementations are not linked at all (`NewEmbedder` has a no-op
-  variant under `!vector || gomobile`): the `local` embedder's libffi
-  bindings resolve `ffi_prep_cif` at package load, which Android doesn't
-  provide, so a runtime toggle could not prevent the crash. No embedder
-  is constructed and no model is downloaded on either platform.
-- **`fts` is a plain opt-in**, available everywhere including mobile.
+- **Without the local embedder**, `index.embedder: auto` runs the online
+  primary alone once `index.openai.apiKey` names one: no child process, no
+  model download, and an outage degrades hybrid search to FTS. With no key
+  there is no embedder at all — the index runs FTS-only and says so once at
+  boot. `index.embedder: local` fails boot with an error naming the tag.
+- **The tag exists because of libffi.** The llama.cpp bindings (yzma →
+  jupiterrider/ffi) load libffi at process start and panic without it,
+  and they don't compile on every platform `any` does. `make check-deps`,
+  run on every PR, fails if the untagged or a mobile build links them.
+- **The local embedder from `go install`:**
+  `go install -tags llamacpp github.com/anyproto/any/cmd/any@latest`.
+  The binary then needs the llama.cpp libs of the pinned release
+  (`internal/indexer/llamacpp_release.go`) in `llamacpp/` next to it or
+  at `index.local.libDir`, and on Linux a system `libffi.so.8`. Release
+  tarballs and `make build` ship the libs.
+- **Mobile never builds it.** Every local-embedder file carries
+  `llamacpp && !android && !ios`, and gomobile and the c-archive build set
+  `GOOS`, so a stray tag still leaves it out. The embedded path
+  (`internal/embedded.Start`) forces `index.embedder` to `"none"`: mobile
+  runs FTS-only.
 - **`ffi_no_embed` is a packaging flag.** It compiles nothing out: the
   `local` embedder, the ANN index and every mode keep working. It makes
   jupiterrider/ffi use the system `/usr/lib/libffi.dylib` instead of a
@@ -737,24 +753,15 @@ The two search legs are selected at build time by positive build tags:
   validation refuses to load. Mechanism and consumer contract:
   `18-ci.md` § The darwin `-sandbox` variants.
 
-Mechanics (`internal/indexer`): `capFTS` (`fts`) and `capVector` are
-build-tagged constants (`caps_fts_*.go`, `caps_vector_*.go`). When a cap
-is false the store creates no index for that leg (`spaceColl`) and the
-leg's search short-circuits to no hits; `capVector` false also stops
-docs being marked `pending`, so the embed loop never runs.
-`NewEmbedder` has the real switch in `embed_factory_vector.go` and the
-no-op in `embed_factory_novector.go`.
-
-Tags decide what is compiled; `index.enabled` / `index.embedder` decide
-what runs on top (there is no per-leg runtime flag). A server built with
-neither leg logs a warning at startup (`indexer.CompiledCaps`) — its
-`/search` returns no hits. A request carrying `require` / `exclude` on a
-build without the `fts` leg is refused (`409 index.terms_unsupported`):
-the terms could not be enforced. Tests covering a leg carry its tags
-(`make test` runs the `fts vector` suite).
-
-On the embedded path (`internal/embedded.Start`) the compiled `fts` cap
-is the whole gate, and `index.embedder` is forced to `"none"`.
+Mechanics (`internal/indexer`): `NewEmbedder` (`embed_factory.go`) gets
+the local embedder from `newLocalEmbedder`, which `embed_worker.go`
+implements and `embed_local_off.go` stubs with `errLocalNotBuilt`. The
+store marks docs `pending`, and creates the sparse pending index, only
+when an embedder is configured or a vector dimension is already known,
+so an FTS-only index never runs the embed loop. Tests that drive the
+local embedder carry the `llamacpp` constraint: `go test ./...` runs
+everything else, and `make test` reruns the packages that hold them with
+the tag.
 
 A host that can't open its index gets a distinguishable failure:
 `ErrIndexRebuildRequired` (schema version, vector dimension or chunk
@@ -886,7 +893,6 @@ Errors:
 | `filter.invalid` / `filter.unknown_operator` | 400 | a bad `filter` — the `/objects/query` grammar's own codes |
 | `index.no_embedder` | 400 | `mode=vector` with no embedder configured |
 | `index.disabled` | 409 | `index.enabled: false` |
-| `index.terms_unsupported` | 409 | `require` / `exclude` on a build without the `fts` leg |
 | `index.embedder_unavailable` | 503 | `mode=vector` while the embedder is unreachable or over the query budget — retryable; hybrid degrades instead |
 
 ### Filtering by object
@@ -1008,7 +1014,7 @@ corpus plus five 17-chunk records and one short record sharing a rare
 term, `limit 10` answers the six matching records in 0.19 ms (fts) and
 ten records in 0.42 ms (hybrid, 10k) / 0.51 ms (100k). Timings drift 2–3×
 on a busy machine; re-measure idle with
-`ANY_CUTOFF_BENCH_SIZES=10000,100000 go test -tags 'fts vector' -run '^$'
+`ANY_CUTOFF_BENCH_SIZES=10000,100000 go test -run '^$'
 -bench BenchmarkCutoff -benchmem -benchtime 100x -count 3
 ./internal/indexer`.
 
@@ -1028,7 +1034,7 @@ decode on average, never more than one.
 End to end on the 9950X CPU (server + 360-chunk backlog draining, 110
 hybrid `/search` calls over HTTP): p50 212 ms, p90 306 ms, max 446 ms,
 every reply `mode=hybrid` / `vectorStatus=used`. Re-measure the
-`Options` dials with `go test -tags 'fts vector' ./internal/indexer
+`Options` dials with `go test ./internal/indexer
 -bench . -benchtime 30x` (`ANY_BENCH_OLLAMA=1` adds the real-embedder
 run).
 

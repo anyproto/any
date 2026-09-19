@@ -92,7 +92,6 @@ BM25 scores are comparable only within one response, and never with the cosine o
 | Status | Code | When |
 |---|---|---|
 | 409 | `index.disabled` | the server runs with `index.enabled: false` |
-| 409 | `index.terms_unsupported` | `require` / `exclude` on a build without the full-text index, which is what enforces them |
 | 400 | `search.bad_mode` | `mode` is not `hybrid`, `fts` or `vector` |
 | 400 | `search.bad_scope` | a scope slug is malformed |
 

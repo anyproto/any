@@ -64,7 +64,7 @@ The passkey is the one secret the server may need at boot: it comes from the env
 | Key | Env | Default | Meaning |
 |---|---|---|---|
 | `index.enabled` | `ANY_INDEX_ENABLED` | `true` | `false` disables the indexer and `/search` (`409 index.disabled`) |
-| `index.embedder` | `ANY_INDEX_EMBEDDER` | `auto` | `auto` (local alone without `index.openai.apiKey`; with a key, online primary + local fallback, same model, and indexed text and queries go to `index.openai.baseUrl`) \| `local` (on-device) \| `ollama` \| `openai` \| `none` (FTS-only) |
+| `index.embedder` | `ANY_INDEX_EMBEDDER` | `auto` | `auto` (local alone without `index.openai.apiKey`; with a key, online primary + local fallback, same model, and indexed text and queries go to `index.openai.baseUrl`; a build without the local embedder needs the key) \| `local` (on-device) \| `ollama` \| `openai` \| `none` (FTS-only) |
 | `index.embedBatch` | `ANY_INDEX_EMBED_BATCH` | `64` | docs per embed request |
 | `index.embedConcurrency` | `ANY_INDEX_EMBED_CONCURRENCY` | `0` | parallel batches; 0 = 1 for local, 4 for online |
 | `index.ollama.url` | `ANY_INDEX_OLLAMA_URL` | `http://localhost:11434` | |
@@ -96,7 +96,7 @@ The passkey is the one secret the server may need at boot: it comes from the env
 | `index.search.titleWeight` | `ANY_INDEX_SEARCH_TITLE_WEIGHT` | `0` | BM25F title boost; 0 = no boost and no title field in the index (0 → non-zero needs a rebuild) |
 | `index.search.queryEmbedTimeout` | `ANY_INDEX_SEARCH_QUERY_EMBED_TIMEOUT` | `5s` | bound on embedding one search query; past it hybrid answers lexical-only and `mode: vector` answers `503 index.embedder_unavailable` |
 
-An unavailable embedder never breaks boot or FTS — the vector side reports `unavailable` until it recovers. The local model (639 MB) downloads on first boot into `<root>/models/`, resumable, without blocking. Details: [Embedders](../search/embedders.html).
+An unavailable embedder never breaks boot or FTS — the vector side reports `unavailable` until it recovers. In a build with the local embedder, its model (639 MB) downloads on first boot into `<root>/models/`, resumable, without blocking. Details: [Embedders](../search/embedders.html).
 
 ## Files and push
 

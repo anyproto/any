@@ -74,9 +74,12 @@ cd any
 make build
 ```
 
-The binary is written to `bin/any`. This build includes full-text and vector
-search and attempts to fetch the llama.cpp libraries needed for local
-embeddings. If that download fails, retry with `make llamacpp`.
+The binary is written to `bin/any`. This build includes the local embedder
+and attempts to fetch the llama.cpp libraries it needs. If that download
+fails, retry with `make llamacpp`. A plain
+`go install github.com/anyproto/any/cmd/any@latest` has no local embedder: it
+does full-text search, and vector search once `index.openai.*` names an
+online provider. See [Installation](website/02-quickstart/install.md).
 
 ### 2. Create an account and start the server
 
@@ -159,8 +162,8 @@ configured; configuration files or environment variables can override it.
 | Mode | Where embedding inputs go |
 | --- | --- |
 | `local` | A local llama.cpp worker. Model files may be downloaded, but document text and queries are embedded on the device. |
-| `auto` | The local model alone with no `index.openai.apiKey`; with one, the configured online endpoint first and the local model as fallback. |
-| `none` | No embeddings; full-text search remains available in builds that include it. |
+| `auto` | The local model alone with no `index.openai.apiKey`; with one, the configured online endpoint first and the local model as fallback. A build without the local embedder needs that key to embed at all. |
+| `none` | No embeddings; full-text search remains available. |
 
 See [Embedders](website/10-search/embedders.md) for model settings, Ollama,
 and other compatible providers.

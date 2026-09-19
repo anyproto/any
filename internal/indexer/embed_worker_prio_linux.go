@@ -1,4 +1,4 @@
-//go:build vector && !gomobile && linux
+//go:build llamacpp && !android && !ios && linux
 
 package indexer
 

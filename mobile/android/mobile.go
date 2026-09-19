@@ -32,8 +32,7 @@ import (
 //
 // The gomobile bind surface keeps the bound address out of the return tuple
 // (a flat `error`-only signature); read it back with Address(). Index policy:
-// BM25 on (the bind builds with `fts`), embedder "none" (vector is force-off
-// under gomobile).
+// BM25 on, embedder "none".
 func Start(dataDir, listenAddr, nodeconfYAML string) error {
 	return StartWithPush(dataDir, listenAddr, nodeconfYAML, "", "")
 }
@@ -58,8 +57,7 @@ func StartWithPush(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs stri
 // only with controlToken (X-Any-Control-Token). A managed start without
 // a token is an error (embedded.ErrBadOptions).
 func StartWithMode(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, mode, controlToken string) error {
-	// The FTS index rides the compiled `fts` cap alone (the bind builds with
-	// it); it is not a bind parameter.
+	// The index policy (FTS on, no embedder) is not a bind parameter.
 	_, err := embedded.Start(embedded.Options{
 		DataDir:      dataDir,
 		ListenAddr:   listenAddr,

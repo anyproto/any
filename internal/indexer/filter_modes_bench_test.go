@@ -1,5 +1,3 @@
-//go:build fts && vector && !gomobile
-
 package indexer
 
 // Store-level harness for the search `filter`: a condition on
@@ -22,7 +20,7 @@ package indexer
 // (vectors are written straight into the store). Gated on
 // ANY_FILTER_BENCH=1 so `go test ./...` never pays for it.
 //
-// Run: ANY_FILTER_BENCH=1 go test -tags 'fts vector' -run TestFilterModesBench \
+// Run: ANY_FILTER_BENCH=1 go test -run TestFilterModesBench \
 //		-v -count=1 -timeout 60m ./internal/indexer/
 //
 // Env: ANY_FILTER_BENCH_SIZES (total chunks per corpus, default
@@ -1192,7 +1190,7 @@ func fbEstimateFTS(t *testing.T, ctx context.Context, f *fbFixture, coll anystor
 //	ANY_FILTER_BENCH_REAL_SPACE=<spaceId> \
 //	ANY_FILTER_BENCH_REAL_FILTERS=<spec>.json \
 //	ANY_FILTER_BENCH_OUT=<report dir> \
-//	go test -tags 'fts vector' -run TestFilterModesBenchReal -v -count=1 \
+//	go test -tags llamacpp -run TestFilterModesBenchReal -v -count=1 \
 //		-timeout 180m ./internal/indexer/
 //
 // The spec file carries both the queries and the filters, so every
@@ -1846,7 +1844,8 @@ func fbE2ESearch(ctx context.Context, f *fbFixture, q fbQuery, filter query.Filt
 // `Local` — the same decoder the `any run embedder` child runs, minus
 // the child: NewLocal takes the model path and the llama.cpp lib dir
 // straight from the environment, so the test needs no server binary and
-// nothing is re-exec'd. It is closed as soon as the vectors are cached,
+// nothing is re-exec'd. It needs a `-tags llamacpp` build
+// (bench_local_test.go). It is closed as soon as the vectors are cached,
 // so the model does not hold memory or threads during the timed passes.
 //
 // Env: ANY_FILTER_BENCH_REAL_MODEL (GGUF path; absent = skip, the
@@ -1874,7 +1873,7 @@ func fbEmbedQueries(tb testing.TB, ctx context.Context, f *fbFixture, runs int) 
 		GpuLayers:   &gpu,
 		BatchDocs:   1,
 	}
-	emb, err := NewLocal(cfg, "", "", nil)
+	emb, err := benchLocalEmbedder(cfg)
 	if err != nil {
 		tb.Fatalf("local embedder: %v", err)
 	}

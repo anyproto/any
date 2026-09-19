@@ -11,8 +11,8 @@ An embedder turns index documents and queries into vectors for the [semantic leg
 
 | `index.embedder` | What runs | Needs |
 |---|---|---|
-| `auto` (default) | the local model alone until `index.openai.apiKey` is set; with a key, an online OpenAI-compatible API as primary and the local model as fallback — same model both ways, and indexed text and search queries go to the online API | nothing; the local model auto-downloads regardless |
-| `local` | llama.cpp in a child process of the server, no external service | the llama.cpp shared libraries next to the binary; a system `libffi` on Linux |
+| `auto` (default) | the local model alone until `index.openai.apiKey` is set; with a key, an online OpenAI-compatible API as primary and the local model as fallback — same model both ways, and indexed text and search queries go to the online API | nothing in a build with the local embedder (its model auto-downloads); without one, a key, or the index is full-text only |
+| `local` | llama.cpp in a child process of the server, no external service | a build with the local embedder (`make build`, a release tarball, or `go install -tags llamacpp`); the llama.cpp shared libraries next to the binary; a system `libffi` on Linux |
 | `ollama` | a local Ollama server's `/api/embed` | Ollama running (default `http://localhost:11434`, model `embeddinggemma`) |
 | `openai` | any OpenAI-compatible `/embeddings` endpoint | `index.openai.{baseUrl, model, apiKey}` |
 | `none` | no embedder — the index is full-text only | — |
@@ -52,7 +52,7 @@ The child exists so a llama.cpp fault costs a round of embedding, not the server
 
 **GPU offload** is automatic: the bundles carry Metal (macOS arm64) and Vulkan (Linux, Windows — NVIDIA/AMD/Intel) backends alongside the CPU variants, and a backend whose driver is missing simply does not register. Full offload of the default model takes ~2 GB of VRAM; set `gpuLayers: 0` if the embedder should not have it. CUDA/ROCm builds are not bundled — point `libDir` at your own llama.cpp build to use them.
 
-Platform notes: Linux needs a loadable system `libffi.so.8` (on NixOS use the repo's `nix develop` shell); macOS bundles it, and the `-sandbox` release variants load the system one instead so they work inside an App-Sandboxed host (see [Builds and CI](../operations/builds-and-ci.html)). Mobile builds have full-text search and force vector search off; they never construct an embedder, even when the configuration names one.
+Platform notes: only builds with `-tags llamacpp` carry the local embedder; without it `local` fails at boot ([Builds and CI](../operations/builds-and-ci.html)). Linux needs a loadable system `libffi.so.8` (on NixOS use the repo's `nix develop` shell); macOS bundles it, and the `-sandbox` release variants load the system one instead so they work inside an App-Sandboxed host. Mobile builds have full-text search and force vector search off; they never construct an embedder, even when the configuration names one.
 
 ## `auto` — online primary, local fallback
 
