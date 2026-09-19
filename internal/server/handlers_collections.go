@@ -188,7 +188,12 @@ func (d *deps) collectionPatch(c echo.Context) error {
 			if code, reason := checkTypeMetaEntry(k, v); code != "" {
 				return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": "meta." + k})
 			}
-			patch.Meta[k] = v // nil = unset
+			if v == nil {
+				// A clear keeps the key: catalog setup seeds only the keys
+				// a collection lacks, and a cleared one must stay cleared.
+				v = ""
+			}
+			patch.Meta[k] = v
 		}
 	}
 	if patch.Name == nil && patch.Description == nil && patch.IconCID == nil && patch.Hidden == nil && len(patch.Meta) == 0 {

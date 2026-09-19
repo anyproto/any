@@ -353,7 +353,7 @@ may, without a new bundle id:
 | parts declared on a type that never declared any | at the next setup by a writer: declared; a type with any part declaration (live or removed) is left alone |
 | an `xKey` on a root that has none | at the next setup by a writer: filled in, never changed |
 | a `miniapp` value added | at the next setup by a writer: written where absent, never overwritten; the root is filed under the built-in `miniapp` collection first when it is not already |
-| a `meta` key added to a collection | at the next setup by a writer: written where absent, never overwritten — a value the space set, `meta.defaultType` included, is the space's own. The install itself carries no meta, so the same write runs right after a fresh install |
+| a `meta` key added to a collection | at the next setup by a writer: written where absent, never overwritten — a value the space set, `meta.defaultType` included, is the space's own, a cleared one included (PATCH keeps it as `""`). The install itself carries no meta, so the same write runs right after a fresh install |
 | an option key added to a `choice` property | at the next setup by a writer: the key is written with all of its catalog leaves (`name`, `color`, `pos`, and each `meta.<k>` separately); a key the definition already carries is left exactly as the space has it — renamed, recoloured, reordered or not |
 | a bundle added to a usecase, a usecase added to `requires` | at the next setup: installed like any other step |
 
@@ -384,45 +384,54 @@ case, since relations name it — the two cannot share a space, and
 ## Superseding
 
 A bundle that takes another's place lists it in `supersedes`, and the
-old bundle stays declared in the same usecase. Setup then walks one of
-the two, decided per space:
+two are never in one space together. The listing marks the old one
+`superseded: true`. What a space receives follows from what it has:
 
-| the space | setup walks |
+| the space | receives |
 |---|---|
-| has the superseded bundle installed | the superseded bundle — adopted and healed like any install — and **not** the bundles that supersede it |
-| does not | the bundles that supersede it, and **not** the superseded one, which is never installed anew |
+| has any bundle of the old set installed | the old set — each adopted and healed like any install, a deleted one minted again — and **not** the bundles that supersede it |
+| has none | the bundles that supersede it, and **not** the old ones, which never reach a space on the new shape |
 
 So a space keeps the shape it was set up with for its lifetime, and
 only a space set up after the catalog changed receives the new one.
 Nothing migrates: objects in the first kind of space keep their type
 and their values where they are.
 
-Several bundles may supersede one — a type that splits into a format
-and a collection is superseded by both — and a space that has the old
-bundle receives none of them. A superseded bundle may share its xKey
-with a bundle that supersedes it, which is the point: every
+The `supersedes` edges of a usecase form **groups**, one per connected
+set: a type that splits into a format and a collection is superseded
+by both, and a format that replaces two types supersedes both, so
+`profile/v1`, `person/v2`, `organization/v2` and the two types they
+stand in for are one group. A group is decided as a whole. A space
+that still has `organization/v1` is on the old shape for `person` too,
+and uninstalling one old bundle brings that bundle back on the next
+setup rather than half of the new set; only a space with none of the
+old set left moves to the new one. A superseded bundle may share its
+xKey with a bundle that supersedes it, which is the point: every
 `relation.targetTypes` naming the handle stays valid in both kinds of
 space, resolving to the type in one and to the collection in the
 other. It is one step only: a superseded bundle supersedes nothing.
 
-"Does not have it installed" is only true of a converged registry. A
-member reading an unsynced one would install the new bundle next to
-the one it stands in for, and the two share a handle. So when neither
-side of a pair is present locally, setup runs the registry-convergence
-wait before it decides, and an expired wait is answered as the install
-gate answers it: the space's owner proceeds, any other member gets the
-retryable `409 bundle.not_ready`. When either side is already there
-the question is settled and nothing waits.
+"Has none" is only true of a converged registry. A member reading an
+unsynced one would install the new set next to the bundle it stands in
+for, and the two share a handle. So when a group is neither on its old
+shape nor already carrying its whole new set locally, setup runs the
+registry-convergence wait before it decides, and an expired wait is
+answered as the install gate answers it: the space's owner proceeds,
+any other member gets the retryable `409 bundle.not_ready`. A group
+settled either way waits for nothing.
 
 A client reads which shape a space has from the reply, or from the
 registry: the bundle id it finds installed, and whether that bundle
 answers `typeId` or `collectionId`.
 
 Uninstall is `DELETE …/objects/<rootId>`: the id then reads as not
-installed and a later setup mints a fresh root. There is no
-usecase-level uninstall and no reference counting — a dependency stays
-until its root is deleted, and deleting a definition other objects use
-leaves their values orphaned (readable, no schema).
+installed and a later setup mints a fresh root — for a superseded
+bundle only while the space stays on the old shape; once the last
+bundle of a group's old set is gone, the next setup installs the new
+set instead. There is no usecase-level uninstall and no reference
+counting — a dependency stays until its root is deleted, and deleting a
+definition other objects use leaves their values orphaned (readable, no
+schema).
 
 ## Shipped usecases
 

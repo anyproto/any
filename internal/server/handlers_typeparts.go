@@ -416,18 +416,14 @@ func (d *deps) typePatch(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// checkTypeMetaEntry validates one meta entry: a single-level key
-// (no '.', no '$', ≤64 bytes) and a scalar value — string, bool,
-// number, or nil (an unset on PATCH). Returns ("", "") when fine.
+// checkTypeMetaEntry validates one meta entry against the shared
+// grammar (api.CheckMetaEntry); nil is the clear on PATCH. Returns
+// ("", "") when fine.
 func checkTypeMetaEntry(key string, v any) (code, reason string) {
-	if key == "" || len(key) > 64 || strings.ContainsAny(key, ".$") {
-		return "request.invalid_field", "meta keys are single-level: no '.', no '$', at most 64 bytes"
+	if reason := api.CheckMetaEntry(key, v, true); reason != "" {
+		return "request.invalid_field", reason
 	}
-	switch v.(type) {
-	case nil, string, bool, float64, int, int64:
-		return "", ""
-	}
-	return "request.invalid_field", "meta values are strings, booleans or numbers"
+	return "", ""
 }
 
 // layoutFromWire validates a type's layout descriptor: an object whose

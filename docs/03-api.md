@@ -1393,7 +1393,8 @@ declaring a `type` objects have, a `collection` they are filed under, a
 (records on the root), or several of those — in any combination but
 type with collection, or collection with parts; the general chat is the
 one `derived` root and the one declaration of the reserved `chat`
-module. The catalog is read-only over HTTP, validated at
+module. A bundle another one `supersedes` is listed with `superseded:
+true`. The catalog is read-only over HTTP, validated at
 build time (`make catalog-validate`, CI, boot refusal), and installs
 nothing unless a client asks. Full client contract — model, setup
 semantics, handles, rendering, forks, evolution, the shipped entries —
@@ -3141,7 +3142,10 @@ type.xkey_conflict` (`details: {xKey, existingCollectionId}`, or
 are not part of collection create** — a `properties` key, or any other
 unknown top-level key, answers `400 request.unknown_field` pointing at
 `POST …/collections/:collectionId/properties`. `hidden` and `meta`
-mean what they mean on a type.
+mean what they mean on a type, with one difference on PATCH: `null`
+clears a collection meta key to `""` instead of removing it, so a
+catalog setup, which writes only the keys a collection lacks, does not
+seed a cleared key again.
 
 `GET …/collections` → `{"collections": […]}`, each entry
 `{id, name?, description?, iconCid?, xKey?, builtIn?, hidden?, meta?}`:

@@ -14,6 +14,7 @@ import (
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/bundles"
+	"github.com/anyproto/any/internal/catalog"
 	"github.com/anyproto/any/internal/miniapp"
 )
 
@@ -139,7 +140,7 @@ func (d *deps) catalogSetup(c echo.Context) error {
 		return spaceError(c, err, req.SpaceId)
 	}
 
-	kept, err := d.supersededInstalled(ctx, sp, order)
+	have, err := d.supersededInstalled(ctx, sp, order)
 	if err != nil {
 		return bundleErrorWith(c, err, map[string]any{"spaceId": sp.Id(), "usecaseId": usecaseId})
 	}
@@ -150,7 +151,7 @@ func (d *deps) catalogSetup(c echo.Context) error {
 	for _, cu := range order {
 		for i := range cu.bundles {
 			cb := &cu.bundles[i]
-			if !walksBundle(cb, kept) {
+			if !walksBundle(cb, have) {
 				continue
 			}
 			installs = append(installs, cb.install)
@@ -224,7 +225,7 @@ func (d *deps) catalogSetup(c echo.Context) error {
 		// On install as well as on adopt: the install carries no meta, so
 		// a fresh root lacks every declared key.
 		if len(cb.meta) > 0 {
-			if err := healCollectionMeta(ctx, sp, r.Bundle.RootId, cb.meta); err != nil {
+			if err := healCollectionMeta(ctx, sp, r.Bundle.RootId, cb.meta, r.Installed); err != nil {
 				handlerLog.Warn("catalog: collection meta heal deferred",
 					zap.String("spaceId", sp.Id()), zap.String("bundleId", r.Install.Id), zap.Error(err))
 			}
@@ -243,64 +244,58 @@ func (d *deps) catalogSetup(c echo.Context) error {
 	return c.JSON(http.StatusOK, out)
 }
 
-// walksBundle reports whether setup ensures the bundle in a space that
-// has the `kept` superseded bundles installed. A superseded bundle is
-// walked only where it is installed; a bundle that supersedes others is
-// skipped where any of them is. Everything else is always walked.
-func walksBundle(cb *compiledBundle, kept map[string]bool) bool {
-	if cb.superseded {
-		return kept[cb.install.Id]
+// walksBundle reports whether setup ensures the bundle in a space whose
+// installed bundles are `have`. A bundle no `supersedes` edge touches
+// is always walked. Within a supersede group the space is on the old
+// shape while any bundle of the old set is installed: setup then walks
+// the old set — a deleted old root is minted again like any bundle —
+// and skips the new set. Otherwise it walks the new set and skips the
+// old, which never reaches a space on the new shape.
+func walksBundle(cb *compiledBundle, have map[string]bool) bool {
+	if cb.group == nil {
+		return true
 	}
-	for _, old := range cb.Supersedes {
-		if kept[old] {
-			return false
-		}
-	}
-	return true
+	return cb.superseded == cb.group.OldKept(have)
 }
 
-// supersededInstalled reads which superseded bundles of the walk the
-// space has installed. A bundle that is there settles it at once, and so
-// does its replacement being there. Otherwise "not installed" is only
-// true of a converged registry: a member that reads an unsynced one
-// would install the replacement next to the bundle it stands in for,
-// and the two share a handle. The wait is the install gate's own, and it
-// fails the same way — the owner proceeds, any other member is refused.
+// supersededInstalled reads which bundles the space has installed, for
+// the supersede groups of the walk. A group is settled when the space
+// is on its old shape (any old bundle present) or already carries the
+// whole new set. Otherwise "not installed" is only true of a converged
+// registry: a member that reads an unsynced one would install the new
+// set next to the bundle it stands in for, and the two share a handle.
+// The wait is the install gate's own, and it fails the same way — the
+// owner proceeds, any other member is refused.
 func (d *deps) supersededInstalled(ctx context.Context, sp space.Space, order []*compiledUsecase) (map[string]bool, error) {
-	var walk []*compiledBundle
+	var groups []*catalog.SupersedeGroup
+	seen := map[*catalog.SupersedeGroup]bool{}
 	for _, cu := range order {
 		for i := range cu.bundles {
-			if cb := &cu.bundles[i]; cb.superseded || len(cb.Supersedes) > 0 {
-				walk = append(walk, cb)
+			if g := cu.bundles[i].group; g != nil && !seen[g] {
+				seen[g] = true
+				groups = append(groups, g)
 			}
 		}
 	}
-	if len(walk) == 0 {
+	if len(groups) == 0 {
 		return nil, nil
 	}
 	resolver := d.bundleResolver()
 	read := func() (map[string]bool, error) {
-		have := make(map[string]bool, len(walk))
-		for _, cb := range walk {
-			_, err := resolver.Get(ctx, sp, cb.install.Id)
-			switch {
-			case err == nil:
-				have[cb.install.Id] = true
-			case !errors.Is(err, bundles.ErrNotInstalled):
-				return nil, err
-			}
+		rows, err := resolver.List(ctx, sp)
+		if err != nil {
+			return nil, err
+		}
+		have := make(map[string]bool, len(rows))
+		for _, b := range rows {
+			have[b.Id] = true
 		}
 		return have, nil
 	}
 	settled := func(have map[string]bool) bool {
-		for _, cb := range walk {
-			if cb.superseded || have[cb.install.Id] {
-				continue
-			}
-			for _, old := range cb.Supersedes {
-				if !have[old] {
-					return false // neither side is here
-				}
+		for _, g := range groups {
+			if !g.OldKept(have) && !g.NewAll(have) {
+				return false
 			}
 		}
 		return true
@@ -316,13 +311,19 @@ func (d *deps) supersededInstalled(ctx context.Context, sp space.Space, order []
 }
 
 // healCollectionMeta writes the declared flags an installed collection
-// lacks. Never overwrites: a key the definition carries is the space's
-// own. Writers only; a reader's setup leaves the definition as it is.
-func healCollectionMeta(ctx context.Context, sp space.Space, rootId string, meta map[string]any) error {
+// lacks. A fresh install carries no meta, so the whole bag is written
+// without a read. On adopt only absent keys are written, never a key
+// the definition carries: that value is the space's own, a cleared one
+// included (a PATCH clear keeps the key as ""). Writers only; a
+// reader's setup leaves the definition as it is.
+func healCollectionMeta(ctx context.Context, sp space.Space, rootId string, meta map[string]any, installed bool) error {
 	switch sp.Info().OwnRole {
 	case space.PermissionOwner, space.PermissionAdmin, space.PermissionWriter:
 	default:
 		return nil
+	}
+	if installed {
+		return sp.Collections().Patch(ctx, rootId, space.CollectionPatch{Meta: meta})
 	}
 	info, err := sp.Collections().Get(ctx, rootId)
 	if err != nil {

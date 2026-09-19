@@ -995,6 +995,137 @@ func TestServer_CatalogSuperseded(t *testing.T) {
 	if info.Meta["defaultType"] != "page" {
 		t.Fatalf("setup overwrote a flag the space set: %+v", info.Meta)
 	}
+	// A cleared key stays in the bag as "", so the next setup does not
+	// seed the declared value again.
+	rec = doJSON(t, e, http.MethodPatch, "/v1/spaces/"+fresh.Id+"/collections/"+items.CollectionId, `{"meta":{"defaultType":null}}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("clear meta: %d %s", rec.Code, rec.Body.String())
+	}
+	decodeGet(t, e, "/v1/spaces/"+fresh.Id+"/collections/"+items.CollectionId, &info)
+	if v, ok := info.Meta["defaultType"]; !ok || v != "" {
+		t.Fatalf("cleared key: %+v", info.Meta)
+	}
+	setupUsecase(t, e, "seam-items", fresh.Id)
+	decodeGet(t, e, "/v1/spaces/"+fresh.Id+"/collections/"+items.CollectionId, &info)
+	if v, ok := info.Meta["defaultType"]; !ok || v != "" {
+		t.Fatalf("setup seeded a flag the space cleared: %+v", info.Meta)
+	}
+}
+
+// Two types before the change; after it one format supersedes both and
+// each type becomes a collection of that format.
+const testCatalogTwoTypes = `
+usecases:
+  - id: seam-people
+    name: People
+    bundles:
+      - id: system:seam-person/v1
+        name: Person
+        type: { xKey: seam_person, layout: { type: profile } }
+      - id: system:seam-firm/v1
+        name: Firm
+        type: { xKey: seam_firm, layout: { type: profile } }
+`
+
+const testCatalogOneFormat = `
+usecases:
+  - id: seam-people
+    name: People
+    bundles:
+      - id: system:seam-face/v1
+        name: Face
+        supersedes: [ system:seam-person/v1, system:seam-firm/v1 ]
+        type: { xKey: seam_face, layout: { type: profile } }
+      - id: system:seam-person/v2
+        name: People
+        supersedes: [ system:seam-person/v1 ]
+        collection: { xKey: seam_person, meta: { defaultType: seam_face } }
+      - id: system:seam-firm/v2
+        name: Firms
+        supersedes: [ system:seam-firm/v1 ]
+        collection: { xKey: seam_firm, meta: { defaultType: seam_face } }
+      - id: system:seam-person/v1
+        name: Person
+        type: { xKey: seam_person, layout: { type: profile } }
+      - id: system:seam-firm/v1
+        name: Firm
+        type: { xKey: seam_firm, layout: { type: profile } }
+`
+
+// TestServer_CatalogSupersedeGroup pins that bundles linked by
+// `supersedes` are decided as one: a space with any old bundle left
+// stays on the old shape — an uninstalled old bundle comes back rather
+// than half of the new set — and moves to the new shape only once the
+// whole old set is gone. The listing marks the old bundles.
+func TestServer_CatalogSupersedeGroup(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	sp := createSpaceInfo(t, e, "CatalogTwoTypes")
+	d.catalog = catalogForTest(t, testCatalogTwoTypes)
+	first := setupUsecase(t, e, "seam-people", sp.Id)
+	if got := bundleIds(first); !slices.Equal(got, []string{"system:seam-person/v1", "system:seam-firm/v1"}) {
+		t.Fatalf("two types: %v", got)
+	}
+	person, firm := first.Bundles[0], first.Bundles[1]
+
+	d.catalog = catalogForTest(t, testCatalogOneFormat)
+	kept := setupUsecase(t, e, "seam-people", sp.Id)
+	if got := bundleIds(kept); !slices.Equal(got, []string{"system:seam-person/v1", "system:seam-firm/v1"}) ||
+		kept.Bundles[0].Installed || kept.Bundles[1].Installed {
+		t.Fatalf("both kept: %+v", kept)
+	}
+
+	// One old bundle uninstalled: the space is still on the old shape,
+	// so the bundle is minted again and nothing of the new set arrives.
+	if rec := doJSON(t, e, http.MethodDelete, "/v1/spaces/"+sp.Id+"/objects/"+person.TypeId, ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("uninstall person: %d %s", rec.Code, rec.Body.String())
+	}
+	back := setupUsecase(t, e, "seam-people", sp.Id)
+	if got := bundleIds(back); !slices.Equal(got, []string{"system:seam-person/v1", "system:seam-firm/v1"}) {
+		t.Fatalf("old shape after one uninstall: %v", got)
+	}
+	if b := back.Bundles[0]; !b.Installed || b.TypeId == "" || b.TypeId == person.TypeId {
+		t.Fatalf("person minted again: %+v", b)
+	}
+	if back.Bundles[1].Installed || back.Bundles[1].TypeId != firm.TypeId {
+		t.Fatalf("firm kept: %+v", back.Bundles[1])
+	}
+
+	// The whole old set gone: the next setup installs the new one.
+	for _, id := range []string{back.Bundles[0].TypeId, firm.TypeId} {
+		if rec := doJSON(t, e, http.MethodDelete, "/v1/spaces/"+sp.Id+"/objects/"+id, ""); rec.Code != http.StatusNoContent {
+			t.Fatalf("uninstall %s: %d %s", id, rec.Code, rec.Body.String())
+		}
+	}
+	moved := setupUsecase(t, e, "seam-people", sp.Id)
+	if got := bundleIds(moved); !slices.Equal(got, []string{"system:seam-face/v1", "system:seam-person/v2", "system:seam-firm/v2"}) {
+		t.Fatalf("new shape: %v", got)
+	}
+	for _, b := range moved.Bundles {
+		if !b.Installed {
+			t.Fatalf("new set installed: %+v", b)
+		}
+	}
+	if moved.Bundles[0].TypeId == "" || moved.Bundles[1].CollectionId == "" || moved.Bundles[2].CollectionId == "" {
+		t.Fatalf("a format and two collections: %+v", moved.Bundles)
+	}
+	var info api.CollectionInfo
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/collections/"+moved.Bundles[1].CollectionId, &info)
+	if info.Meta["defaultType"] != "seam_face" {
+		t.Fatalf("meta on install: %+v", info.Meta)
+	}
+
+	var u api.CatalogUsecase
+	decodeGet(t, e, "/v1/catalog/seam-people", &u)
+	flags := map[string]bool{}
+	for _, b := range u.Bundles {
+		flags[b.Id] = b.Superseded
+	}
+	if !flags["system:seam-person/v1"] || !flags["system:seam-firm/v1"] || flags["system:seam-face/v1"] || flags["system:seam-person/v2"] {
+		t.Fatalf("listing flags: %v", flags)
+	}
 }
 
 // TestServer_CatalogValidateEmbedded is the build gate in test form:

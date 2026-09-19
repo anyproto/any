@@ -665,6 +665,10 @@
                         "description": "RootType is the root's type when the bundle declares nothing (a\nbare app root): a registered type id, `page` for a plain\ndocument. Required then, refused next to a declaration.",
                         "type": "string"
                     },
+                    "superseded": {
+                        "description": "Superseded marks a bundle another one of the usecase supersedes:\nkept where a space already has it, never what a new space\nreceives. Derived from the other bundles' `supersedes` — the\nlisting reports it, a catalog source does not declare it.",
+                        "type": "boolean"
+                    },
                     "supersedes": {
                         "description": "Supersedes names bundles of the same usecase this one stands in\nfor. A space that has any of them installed keeps them and never\nreceives this bundle; every other space receives this bundle and\nnever the ones it names. A superseded bundle may share its xKey\nwith the bundle that supersedes it — the two never meet in a space.",
                         "items": {

@@ -60,6 +60,11 @@ type CatalogBundle struct {
 	// never the ones it names. A superseded bundle may share its xKey
 	// with the bundle that supersedes it — the two never meet in a space.
 	Supersedes []string `json:"supersedes,omitempty"`
+	// Superseded marks a bundle another one of the usecase supersedes:
+	// kept where a space already has it, never what a new space
+	// receives. Derived from the other bundles' `supersedes` — the
+	// listing reports it, a catalog source does not declare it.
+	Superseded bool `json:"superseded,omitempty"`
 }
 
 // CatalogType is the type a catalog bundle declares on its root.

@@ -95,12 +95,51 @@ type Catalog struct {
 	types map[string]string
 	// superseded holds the id of every bundle another one supersedes.
 	superseded map[string]bool
+	// groups maps every bundle linked by `supersedes` to its group.
+	groups map[string]*SupersedeGroup
 }
 
 // Superseded reports whether another bundle of the catalog supersedes
 // the one with this id: it is kept where a space already has it and
-// never installed anew.
+// never what a new space receives.
 func (c *Catalog) Superseded(bundleId string) bool { return c.superseded[bundleId] }
+
+// SupersedeGroup is one connected set of bundles linked by
+// `supersedes`: the superseded ones (Old) and the ones standing in for
+// them (New), each in declaration order. A space is on the group's old
+// shape while any bundle of Old is installed — it then walks Old and
+// never receives New — and on the new shape otherwise. One group per
+// component, so a bundle superseded by two others and a bundle
+// superseding two others pull all of them into one decision.
+type SupersedeGroup struct {
+	Old []string
+	New []string
+}
+
+// OldKept reports whether the space is on the old shape: any bundle of
+// Old is among the installed ids.
+func (g *SupersedeGroup) OldKept(installed map[string]bool) bool {
+	for _, id := range g.Old {
+		if installed[id] {
+			return true
+		}
+	}
+	return false
+}
+
+// NewAll reports whether every bundle of New is among the installed ids.
+func (g *SupersedeGroup) NewAll(installed map[string]bool) bool {
+	for _, id := range g.New {
+		if !installed[id] {
+			return false
+		}
+	}
+	return true
+}
+
+// SupersedeGroup returns the group the bundle belongs to, nil when no
+// `supersedes` edge touches it.
+func (c *Catalog) SupersedeGroup(bundleId string) *SupersedeGroup { return c.groups[bundleId] }
 
 // Get returns the usecase with the id.
 func (c *Catalog) Get(id string) (api.CatalogUsecase, bool) {
@@ -168,10 +207,9 @@ const BundleIdPattern = "system:<name>/v<n>"
 // Bounds — the same the per-space ensure applies (bundle records are
 // permanent and ride the eagerly-loaded space index on every device).
 const (
-	maxNameBytes    = 1024
-	maxParts        = 32
-	maxProperties   = 64
-	maxMetaKeyBytes = 64
+	maxNameBytes  = 1024
+	maxParts      = 32
+	maxProperties = 64
 )
 
 // decode parses the yaml, refuses unknown keys against the api structs
@@ -328,7 +366,11 @@ func (c *Catalog) validate(opts Options) Problems {
 	supersedes := map[string]map[string]bool{}
 	superseded := map[string]bool{}
 	for ui := range c.Usecases {
-		for _, b := range c.Usecases[ui].Bundles {
+		for bi, b := range c.Usecases[ui].Bundles {
+			if b.Superseded {
+				add(fmt.Sprintf("usecases[%d].bundles[%d].superseded", ui, bi), CodeBadField,
+					"superseded is derived from the other bundles' supersedes — not declared")
+			}
 			for _, old := range b.Supersedes {
 				if supersedes[b.Id] == nil {
 					supersedes[b.Id] = map[string]bool{}
@@ -339,6 +381,13 @@ func (c *Catalog) validate(opts Options) Problems {
 		}
 	}
 	c.superseded = superseded
+	c.groupSupersedes(supersedes)
+	for ui := range c.Usecases {
+		for bi := range c.Usecases[ui].Bundles {
+			b := &c.Usecases[ui].Bundles[bi]
+			b.Superseded = superseded[b.Id]
+		}
+	}
 	sharesHandle := func(a, b string) bool { return supersedes[a][b] || supersedes[b][a] }
 	for ui := range c.Usecases {
 		u := &c.Usecases[ui]
@@ -416,7 +465,8 @@ func (c *Catalog) validate(opts Options) Problems {
 				c.validateType(bp+".type", u.Id, b, known, xkeys, sharesHandle, add)
 				// A type is a format: it brings a layout or a part. A
 				// definition that only adds properties is a collection. A
-				// superseded bundle is exempt — it is never installed anew.
+				// superseded bundle is exempt — it is the shape spaces that
+				// already have it keep, never what a new space receives.
 				if !superseded[b.Id] && !hasLayout(b.Type.Layout) && len(b.Parts) == 0 {
 					add(bp+".type", CodeBadField,
 						"a type declares a layout or a part — a definition that only adds properties is a collection")
@@ -525,6 +575,49 @@ func (c *Catalog) validateType(tp, usecase string, b *api.CatalogBundle, known m
 }
 
 // hasLayout reports whether a type declaration carries a layout.
+// groupSupersedes builds the supersede groups: the connected
+// components of the `supersedes` edges, members in declaration order.
+func (c *Catalog) groupSupersedes(supersedes map[string]map[string]bool) {
+	parent := map[string]string{}
+	var find func(string) string
+	find = func(id string) string {
+		if p, ok := parent[id]; ok && p != id {
+			parent[id] = find(p)
+			return parent[id]
+		}
+		if _, ok := parent[id]; !ok {
+			parent[id] = id
+		}
+		return id
+	}
+	for id, olds := range supersedes {
+		for old := range olds {
+			parent[find(old)] = find(id)
+		}
+	}
+	c.groups = map[string]*SupersedeGroup{}
+	byRoot := map[string]*SupersedeGroup{}
+	for ui := range c.Usecases {
+		for _, b := range c.Usecases[ui].Bundles {
+			if _, linked := parent[b.Id]; !linked {
+				continue
+			}
+			root := find(b.Id)
+			g := byRoot[root]
+			if g == nil {
+				g = &SupersedeGroup{}
+				byRoot[root] = g
+			}
+			if c.superseded[b.Id] {
+				g.Old = append(g.Old, b.Id)
+			} else {
+				g.New = append(g.New, b.Id)
+			}
+			c.groups[b.Id] = g
+		}
+	}
+}
+
 func hasLayout(raw json.RawMessage) bool {
 	return len(raw) > 0 && string(raw) != "null"
 }
@@ -539,17 +632,12 @@ func inUsecase(u *api.CatalogUsecase, bundleId string) bool {
 }
 
 // validateMeta checks a definition's flag bag against the grammar the
-// definition routes enforce: single-level keys, scalar values.
+// definition routes enforce (api.CheckMetaEntry): single-level keys,
+// scalar values, no nil — a catalog declares values, never clears.
 func validateMeta(mp string, meta map[string]any, add func(path, code, msg string)) {
 	for k, v := range meta {
-		if k == "" || len(k) > maxMetaKeyBytes || strings.ContainsAny(k, ".$") {
-			add(mp+"."+k, CodeBadField, fmt.Sprintf("meta keys are single-level: no '.', no '$', at most %d bytes", maxMetaKeyBytes))
-			continue
-		}
-		switch v.(type) {
-		case string, bool, float64, int, int64:
-		default:
-			add(mp+"."+k, CodeBadField, "meta values are strings, booleans or numbers")
+		if reason := api.CheckMetaEntry(k, v, false); reason != "" {
+			add(mp+"."+k, CodeBadField, reason)
 		}
 	}
 }

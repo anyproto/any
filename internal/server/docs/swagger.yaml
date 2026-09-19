@@ -635,6 +635,13 @@ components:
             bare app root): a registered type id, `page` for a plain
             document. Required then, refused next to a declaration.
           type: string
+        superseded:
+          description: |-
+            Superseded marks a bundle another one of the usecase supersedes:
+            kept where a space already has it, never what a new space
+            receives. Derived from the other bundles' `supersedes` — the
+            listing reports it, a catalog source does not declare it.
+          type: boolean
         supersedes:
           description: |-
             Supersedes names bundles of the same usecase this one stands in

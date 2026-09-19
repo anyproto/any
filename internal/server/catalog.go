@@ -37,8 +37,11 @@ type compiledBundle struct {
 	// where the installed definition lacks one.
 	meta map[string]any
 	// superseded marks a bundle another one stands in for: kept where a
-	// space already has it, never installed anew.
+	// space already has it, never what a new space receives.
 	superseded bool
+	// group is the supersede group the bundle belongs to; nil for a
+	// bundle no `supersedes` edge touches.
+	group *catalog.SupersedeGroup
 }
 
 // compiledUsecase is one catalog entry with its bundles compiled.
@@ -107,7 +110,8 @@ func compileCatalog(src []byte) (*compiledCatalog, catalog.Problems) {
 		for bi := range u.Bundles {
 			b := u.Bundles[bi]
 			bp := fmt.Sprintf("usecases[%d].bundles[%d]", ui, bi)
-			cb := compiledBundle{CatalogBundle: b, usecase: u.Id, superseded: cat.Superseded(b.Id)}
+			cb := compiledBundle{CatalogBundle: b, usecase: u.Id,
+				superseded: cat.Superseded(b.Id), group: cat.SupersedeGroup(b.Id)}
 			inst := bundles.Install{
 				Id: b.Id, Name: b.Name, Derived: b.Derived, Hidden: b.Hidden,
 				RootType: b.RootType, SystemInstall: true,

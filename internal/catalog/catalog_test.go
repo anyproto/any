@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -487,6 +488,13 @@ func TestCatalog_Problems(t *testing.T) {
 			code:   CodeCycle, path: "usecases[1].bundles[0].supersedes[0]",
 		},
 		{
+			name: "superseded is derived, not declared",
+			mutate: func(s string) string {
+				return strings.Replace(s, "        name: Company\n", "        name: Company\n        superseded: true\n", 1)
+			},
+			code: CodeBadField, path: "usecases[1].bundles[0].superseded", contains: "derived",
+		},
+		{
 			name: "two bundles share a handle without superseding",
 			mutate: func(s string) string {
 				return strings.Replace(withOldCompany(s), "        supersedes: [ system:firm/v1 ]\n", "", 1)
@@ -564,6 +572,47 @@ func TestCatalog_SupersededSharesItsHandle(t *testing.T) {
 	}
 	if !cat.Superseded("system:firm/v1") || cat.Superseded("system:company/v1") {
 		t.Fatalf("superseded set: firm=%v company=%v", cat.Superseded("system:firm/v1"), cat.Superseded("system:company/v1"))
+	}
+}
+
+// The `supersedes` edges form groups decided as a whole, and the
+// listing marks every superseded bundle.
+func TestCatalog_SupersedeGroups(t *testing.T) {
+	cat, problems := Load(Embedded(), knownTypes)
+	if len(problems) > 0 {
+		t.Fatal(problems)
+	}
+	g := cat.SupersedeGroup("system:profile/v1")
+	if g == nil {
+		t.Fatal("profile has no group")
+	}
+	if !slices.Equal(g.Old, []string{"system:person/v1", "system:organization/v1"}) ||
+		!slices.Equal(g.New, []string{"system:profile/v1", "system:person/v2", "system:organization/v2"}) {
+		t.Fatalf("people group: old=%v new=%v", g.Old, g.New)
+	}
+	for _, id := range append(g.Old, g.New...) {
+		if cat.SupersedeGroup(id) != g {
+			t.Fatalf("%s is not in the people group", id)
+		}
+	}
+	if cat.SupersedeGroup("system:contact/v1") != nil {
+		t.Fatal("contact is in a group")
+	}
+	if j := cat.SupersedeGroup("system:journal/v2"); j == nil ||
+		!slices.Equal(j.Old, []string{"system:journal/v1"}) || !slices.Equal(j.New, []string{"system:journal/v2"}) {
+		t.Fatalf("journal group: %+v", j)
+	}
+	have := map[string]bool{"system:organization/v1": true}
+	if !g.OldKept(have) || g.NewAll(have) {
+		t.Fatal("one old bundle keeps the group on the old shape")
+	}
+	people, _ := cat.Get("people")
+	flags := map[string]bool{}
+	for _, b := range people.Bundles {
+		flags[b.Id] = b.Superseded
+	}
+	if !flags["system:person/v1"] || !flags["system:organization/v1"] || flags["system:profile/v1"] || flags["system:person/v2"] {
+		t.Fatalf("superseded flags: %v", flags)
 	}
 }
 
