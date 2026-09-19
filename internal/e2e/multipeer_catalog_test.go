@@ -36,7 +36,7 @@ func TestE2E_MultipeerCatalog(t *testing.T) {
 	setupBody := `{"spaceId":"` + sp.Id + `"}`
 	var ownerSetup api.CatalogSetupResponse
 	mustJSON(t, http.MethodPost, owner.base+"/v1/catalog/crm/setup", setupBody, http.StatusOK, &ownerSetup)
-	want := []string{"system:person/v1", "system:organization/v1", "system:contact/v1", "system:contacts/v1", "system:deal/v1", "system:crm/v1"}
+	want := []string{"system:profile/v1", "system:person/v2", "system:organization/v2", "system:contact/v1", "system:contacts/v1", "system:deal/v2", "system:crm/v1"}
 	if len(ownerSetup.Bundles) != len(want) {
 		t.Fatalf("owner setup: %+v", ownerSetup)
 	}
@@ -52,12 +52,18 @@ func TestE2E_MultipeerCatalog(t *testing.T) {
 		}
 		byId[b.Id] = b
 	}
-	person := byId["system:person/v1"]
-	if person.TypeId == "" || person.Properties["email"] == "" {
-		t.Fatalf("person type unresolved: %+v", person)
+	// An identity is a profile — the format, a type with no columns —
+	// filed under the collection that says which identity it is.
+	profile := byId["system:profile/v1"]
+	if profile.TypeId == "" || profile.CollectionId != "" {
+		t.Fatalf("profile type unresolved: %+v", profile)
 	}
-	// The relationship facet is a COLLECTION: it reports a collectionId
-	// and no typeId, so a contact is a person filed under it.
+	person := byId["system:person/v2"]
+	if person.CollectionId == "" || person.TypeId != "" || person.Properties["email"] == "" {
+		t.Fatalf("person collection unresolved: %+v", person)
+	}
+	// The relationship facet is a COLLECTION too: a contact is a person
+	// filed under it as well.
 	contact := byId["system:contact/v1"]
 	if contact.CollectionId == "" || contact.TypeId != "" || contact.Properties["last_contact"] == "" {
 		t.Fatalf("contact collection unresolved: %+v", contact)
@@ -95,13 +101,13 @@ func TestE2E_MultipeerCatalog(t *testing.T) {
 	}
 
 	// The joiner writes a person filed under the contact facet — one
-	// type, one collection, a value in each namespace; the owner reads
-	// both under the same adopted columns.
+	// type, two collections, a value in each collection's namespace; the
+	// owner reads both under the same adopted columns.
 	lastContact := `{"$date":"2026-09-10T00:00:00.000Z"}`
 	var created api.ObjectsCreateResponse
 	mustJSON(t, http.MethodPost, joiner.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{"type":"`+person.TypeId+`","collections":["`+contact.CollectionId+`"],"initialProperties":{`+
-			`"`+person.TypeId+`":{"`+person.Properties["email"]+`":"joiner@example.com"},`+
+		`{"type":"`+profile.TypeId+`","collections":["`+person.CollectionId+`","`+contact.CollectionId+`"],"initialProperties":{`+
+			`"`+person.CollectionId+`":{"`+person.Properties["email"]+`":"joiner@example.com"},`+
 			`"`+contact.CollectionId+`":{"`+contact.Properties["last_contact"]+`":`+lastContact+`}}}`,
 		http.StatusCreated, &created)
 	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
@@ -112,10 +118,11 @@ func TestE2E_MultipeerCatalog(t *testing.T) {
 	}) {
 		t.Fatalf("the joiner's person did not reach the owner")
 	}
-	// Both membership queries find it on the owner, and neither needs a
+	// Every membership query finds it on the owner, and none needs a
 	// marker exclusion — a definition row never matches its own id.
 	for _, filter := range []string{
-		`{"any.type":"` + person.TypeId + `"}`,
+		`{"any.type":"` + profile.TypeId + `"}`,
+		`{"any.collections":"` + person.CollectionId + `"}`,
 		`{"any.collections":"` + contact.CollectionId + `"}`,
 	} {
 		resp, raw := doRequest(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects/query",
@@ -125,14 +132,14 @@ func TestE2E_MultipeerCatalog(t *testing.T) {
 		}
 	}
 
-	// A sidebar app that brings a type converges the same way: the
-	// journal type and its `date` column come from the install, so an
-	// entry one peer writes is a journal entry on the other — which is
-	// what a client-minted type per device could never guarantee.
+	// A sidebar app that brings a collection converges the same way:
+	// the journal collection and its `date` column come from the install,
+	// so an entry one peer writes is a journal entry on the other — which
+	// is what a client-minted definition per device could never guarantee.
 	var ownerJournal api.CatalogSetupResponse
 	mustJSON(t, http.MethodPost, owner.base+"/v1/catalog/journal/setup", setupBody, http.StatusOK, &ownerJournal)
 	oj := ownerJournal.Bundles[0]
-	if oj.TypeId == "" || oj.Properties["date"] == "" {
+	if oj.CollectionId == "" || oj.TypeId != "" || oj.Properties["date"] == "" {
 		t.Fatalf("owner journal setup: %+v", oj)
 	}
 	var joinerJournal api.CatalogSetupResponse
@@ -144,17 +151,17 @@ func TestE2E_MultipeerCatalog(t *testing.T) {
 		t.Fatalf("joiner never adopted the journal install: %+v", joinerJournal)
 	}
 	jj := joinerJournal.Bundles[0]
-	if jj.TypeId != oj.TypeId || jj.Properties["date"] != oj.Properties["date"] {
-		t.Fatalf("journal type diverged: owner=%+v joiner=%+v", oj, jj)
+	if jj.CollectionId != oj.CollectionId || jj.Properties["date"] != oj.Properties["date"] {
+		t.Fatalf("journal collection diverged: owner=%+v joiner=%+v", oj, jj)
 	}
 	day := `{"$date":"2026-09-12T00:00:00.000Z"}`
 	var entry api.ObjectsCreateResponse
 	mustJSON(t, http.MethodPost, joiner.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{"type":"`+jj.TypeId+`","initialProperties":{"`+jj.TypeId+`":{"`+jj.Properties["date"]+`":`+day+`}}}`,
+		`{"type":"page","collections":["`+jj.CollectionId+`"],"initialProperties":{"`+jj.CollectionId+`":{"`+jj.Properties["date"]+`":`+day+`}}}`,
 		http.StatusCreated, &entry)
 	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
 		resp, raw := doRequest(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects/query",
-			`{"filter":{"any.type":"`+oj.TypeId+`","`+oj.TypeId+`.`+oj.Properties["date"]+`":`+day+`}}`)
+			`{"filter":{"any.collections":"`+oj.CollectionId+`","`+oj.CollectionId+`.`+oj.Properties["date"]+`":`+day+`}}`)
 		return resp.StatusCode == http.StatusOK && strings.Contains(string(raw), entry.ObjectId)
 	}) {
 		t.Fatalf("the joiner's journal entry did not reach the owner's day query")

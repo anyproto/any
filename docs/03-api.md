@@ -1393,7 +1393,8 @@ declaring a `type` objects have, a `collection` they are filed under, a
 (records on the root), or several of those — in any combination but
 type with collection, or collection with parts; the general chat is the
 one `derived` root and the one declaration of the reserved `chat`
-module. The catalog is read-only over HTTP, validated at
+module. A bundle another one `supersedes` is listed with `superseded:
+true`. The catalog is read-only over HTTP, validated at
 build time (`make catalog-validate`, CI, boot refusal), and installs
 nothing unless a client asks. Full client contract — model, setup
 semantics, handles, rendering, forks, evolution, the shipped entries —
@@ -1451,13 +1452,14 @@ installs anyway and any other member is `409 bundle.not_ready`.
 // CatalogSetupResponse — every bundle the call touched, dependencies
 // first, the requested usecase's bundles last
 { "usecase": "contact",
-  "bundles": [ { "usecase": "people", "id": "system:person/v1",
-                 "bundle": { "id": "system:person/v1", "rootId": "…", "roots": ["…"] },
-                 "installed": true, "typeId": "<rootId>", "properties": { "email": "<propId>", "…": "…" } },
+  "bundles": [ { "usecase": "people", "id": "system:profile/v1",
+                 "bundle": { "id": "system:profile/v1", "rootId": "…", "roots": ["…"] },
+                 "installed": true, "typeId": "<rootId>", "properties": {} },
+               { "usecase": "people", "id": "system:person/v2",
+                 "installed": true, "collectionId": "<rootId>", "properties": { "email": "<propId>", "…": "…" } },
+               { "usecase": "people", "id": "system:organization/v2", "…": "…" },
                { "usecase": "contact", "id": "system:contact/v1",
-                 "installed": true, "collectionId": "<rootId>", "properties": { "status": "<propId>", "…": "…" } },
-               { "usecase": "people", "id": "system:organization/v1", "…": "…" },
-               { "usecase": "contact", "id": "system:contact/v1", "…": "…" } ] }
+                 "installed": true, "collectionId": "<rootId>", "properties": { "status": "<propId>", "…": "…" } } ] }
 ```
 
 `typeId` (the root id) is present when the bundle declares a type —
@@ -2521,7 +2523,7 @@ type objects have stays listed.
 `meta` (`type.meta`) is the open bag of consumer flags on a type — one
 string, bool or number per single-level key (no `.`, no `$`, ≤64
 bytes; `400 request.invalid_field` otherwise), opaque to the server.
-Create takes it whole; PATCH patches it **per key** — a scalar sets
+Create takes it whole, values only (`null` is refused); PATCH patches it **per key** — a scalar sets
 the key, `null` unsets it, keys not named are untouched — so two
 devices writing different keys merge instead of clobbering each
 other. Consumers read the keys they own; the server interprets none
@@ -3127,9 +3129,9 @@ no `layout`: an object of type `page` renders by the client's default.
 A **collection** is what an object is filed under — `any.collections`,
 an array — next to the one type it IS (`any.type`). It is a group of
 columns and nothing else: no parts, no layout, no datasets. A person
-who is also a contact is one object with `type: person` and
-`collections: [<contactId>]`, rendered by the person layout and
-carrying both property groups.
+who is also a contact is one object with `type: profile` and
+`collections: [<personId>, <contactId>]`, rendered by the profile
+layout and carrying both property groups.
 
 `POST …/collections` takes `{name?, description?, iconCid?, xKey,
 hidden?, meta?}` → `201 {"collectionId": "…"}`. **`xKey` is required**
@@ -3140,7 +3142,10 @@ type.xkey_conflict` (`details: {xKey, existingCollectionId}`, or
 are not part of collection create** — a `properties` key, or any other
 unknown top-level key, answers `400 request.unknown_field` pointing at
 `POST …/collections/:collectionId/properties`. `hidden` and `meta`
-mean what they mean on a type.
+mean what they mean on a type, with one difference on PATCH: `null`
+clears a collection meta key to `""` instead of removing it, so a
+catalog setup, which writes only the keys a collection lacks, does not
+seed a cleared key again.
 
 `GET …/collections` → `{"collections": […]}`, each entry
 `{id, name?, description?, iconCid?, xKey?, builtIn?, hidden?, meta?}`:

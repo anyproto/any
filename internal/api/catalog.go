@@ -54,6 +54,17 @@ type CatalogBundle struct {
 	// Parts declare records datasets on the root (the
 	// POST …/types/:typeId/parts draft shape).
 	Parts []PartDraftRequest `json:"parts,omitempty"`
+	// Supersedes names bundles of the same usecase this one stands in
+	// for. A space that has any of them installed keeps them and never
+	// receives this bundle; every other space receives this bundle and
+	// never the ones it names. A superseded bundle may share its xKey
+	// with the bundle that supersedes it — the two never meet in a space.
+	Supersedes []string `json:"supersedes,omitempty"`
+	// Superseded marks a bundle another one of the usecase supersedes:
+	// kept where a space already has it, never what a new space
+	// receives. Derived from the other bundles' `supersedes` — the
+	// listing reports it, a catalog source does not declare it.
+	Superseded bool `json:"superseded,omitempty"`
 }
 
 // CatalogType is the type a catalog bundle declares on its root.
@@ -75,6 +86,11 @@ type CatalogType struct {
 type CatalogCollection struct {
 	XKey       string               `json:"xKey"`
 	Properties []AddPropertyRequest `json:"properties,omitempty"`
+	// Meta is the definition's open bag of consumer flags (see
+	// CollectionsCreateRequest): one string, bool or number per
+	// single-level key, opaque to the server. Setup writes each key the
+	// installed definition lacks and never overwrites one it carries.
+	Meta map[string]any `json:"meta,omitempty"`
 }
 
 // CatalogListResponse is the body of GET /v1/catalog.

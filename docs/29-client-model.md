@@ -37,7 +37,7 @@ object row.
 
 A **usecase** is a set of well-known bundles the server installs on
 request. A **bundle** is one root object under a permanent id
-(`system:person/v1`) that can be the sidebar entry, a definition and the
+(`system:profile/v1`) that can be the sidebar entry, a definition and the
 host of its own records — up to all three at once (§ Reading data).
 Installing is idempotent and convergent: every device that asks lands on
 the same root and the same property ids.
@@ -88,7 +88,7 @@ with `{"spaceId": …}` installs one. Setup resolves the usecase's
 `requires` closure in dependency order and adopt-or-installs each bundle:
 
     POST /v1/catalog/crm/setup
-    → people (person, organization) → contact → contacts → crm
+    → people (profile, person, organization) → contact → contacts → crm
 
 The reply lists every bundle with `installed` (`true` = this call created
 the root, `false` = adopted an existing one), the `typeId` or the
@@ -101,6 +101,19 @@ byte-identical property ids.
 Evolution is additive. A catalog release that adds a property, a choice
 option, a miniapp value or a bundle heals it onto an existing install on
 the next setup; it never removes or renames what a space already has.
+
+**A definition may be a type in one space and a collection in another.**
+When a catalog definition changes kind, the old bundle stays declared
+and the new one supersedes it: a space that has the old bundle keeps it,
+and only a space set up afterwards receives the new one
+([`28-well-known-bundles.md`](28-well-known-bundles.md) § Superseding).
+Both carry the same xKey. So resolve a catalog definition by the bundle
+id the registry holds and read which kind it is — the setup reply names
+`typeId` or `collectionId`, never both — then list its objects by
+`any.type` or by `any.collections` accordingly, and key its values by
+that id either way. `person` is the worked case: a type (layout
+`profile`) in a space that has `system:person/v1`, a collection of
+`profile` objects in one that has `system:person/v2`.
 
 **Anything your product ships belongs in the catalog, types and
 collections included.** A well-known app declares the miniapp root AND
@@ -196,10 +209,22 @@ in place.
 
 ### Creating a type vs a collection
 
-Create a **type** when the thing needs a layout, parts or a body of its
-own — Person, Task, Journal entry. Create a **collection** when it is a
-facet or a label that only adds columns to objects that keep their own
-type — Reading list, Q3 launch, Archive.
+**A type is a format; a collection is a set of columns.** Create a
+**type** only when the thing needs a layout or a part of its own —
+Profile, Task, Meeting. "It needs different properties" is never the
+reason: that is a **collection**, and the objects filed under it keep
+the type they have — People and Organisations are collections of
+profiles; Deals, Projects and a Reading list are collections of pages.
+The catalog holds itself to this: a catalog type that declares neither a
+layout nor a part does not validate.
+
+A collection names the type of its rows in **`meta.defaultType`** — the
+xKey of a type, resolved against the space's type list like a relation
+target. Create an object INSIDE a collection with that type and the
+collection in `collections`; when the key is absent, or names a handle
+no type in the space carries, use `page`. The server does not enforce
+it — filing any object under any collection stays legal — and a user
+collection sets its own through `PATCH …/collections/:collectionId`.
 
     POST /v1/spaces/:spaceId/types
       {name?, description?, iconCid?, xKey, layout?, hidden?, meta?}

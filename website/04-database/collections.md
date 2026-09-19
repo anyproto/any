@@ -7,7 +7,7 @@ order: 32
 
 An object **is** one type and is **filed under** any number of collections. A collection carries property definitions and nothing else — no parts, no layout, no datasets — so filing an object changes the columns it holds, never how it renders.
 
-A person who is also a contact and an investor is **one** object: `type: person`, `collections: [contact, investor]`. It renders with the person layout and carries three property groups — the person's, the contact's and the investor's — each in its own namespace on the row.
+A person who is also a contact and an investor is **one** object: `type: profile`, `collections: [person, contact, investor]`. It renders with the profile layout and carries three property groups — the person's, the contact's and the investor's — each in its own namespace on the row.
 
 > **Note.** "Collection" on this site always means this object kind. The place records live in — `editor_blocks`, `chat_messages`, `<typeId>_<key>` — is a **storage collection**, the `dataset` name on reads and writes. See [Runtime datasets](runtime-datasets.html).
 
@@ -15,11 +15,13 @@ A person who is also a contact and an investor is **one** object: `type: person`
 
 | Make it a **type** when | Make it a **collection** when |
 |---|---|
-| the thing needs a layout, a body, a chat or any other part — Person, Task, Journal entry | it is a facet or a label on objects that keep their own type — Reading list, Q3 launch, Contact |
+| the thing needs a layout or a part of its own — Profile, Task, Meeting | it only adds columns to objects that keep their own type — People, Deals, Reading list, Contact |
 | it answers "what is this?" | it answers "where does this belong?" |
 | an object can have exactly one | an object can have any number |
 
-Reading list is a collection: the things in it are pages, people and links that keep being pages, people and links. Person is a type: it has a profile layout and a notes body.
+A type is a format. "It needs different properties" is never the reason for one: that is a collection. Reading list is a collection: the things in it are pages, profiles and links that keep being pages, profiles and links. Profile is a type: it has a profile layout and a notes body. People is a collection of profiles, and Deals a collection of pages.
+
+A collection names the type of its rows in `meta.defaultType` — the xKey of a type. Create an object inside a collection with that type; when the key is absent, or names a handle no type in the space carries, use `page`. The server does not enforce it.
 
 ## Create a collection
 

@@ -381,7 +381,7 @@ func (d *deps) typePatch(c echo.Context) error {
 	if len(req.Meta) > 0 {
 		patch.Meta = make(map[string]any, len(req.Meta))
 		for k, v := range req.Meta {
-			if code, reason := checkTypeMetaEntry(k, v); code != "" {
+			if code, reason := checkTypeMetaEntry(k, v, true); code != "" {
 				return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": "meta." + k})
 			}
 			patch.Meta[k] = v // nil = unset
@@ -416,18 +416,15 @@ func (d *deps) typePatch(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// checkTypeMetaEntry validates one meta entry: a single-level key
-// (no '.', no '$', ≤64 bytes) and a scalar value — string, bool,
-// number, or nil (an unset on PATCH). Returns ("", "") when fine.
-func checkTypeMetaEntry(key string, v any) (code, reason string) {
-	if key == "" || len(key) > 64 || strings.ContainsAny(key, ".$") {
-		return "request.invalid_field", "meta keys are single-level: no '.', no '$', at most 64 bytes"
+// checkTypeMetaEntry validates one meta entry against the shared
+// grammar (api.CheckMetaEntry). nilOK admits the clear a PATCH
+// carries; a create takes values only, since the SDK drops a nil there
+// and the key would silently end up absent. Returns ("", "") when fine.
+func checkTypeMetaEntry(key string, v any, nilOK bool) (code, reason string) {
+	if reason := api.CheckMetaEntry(key, v, nilOK); reason != "" {
+		return "request.invalid_field", reason
 	}
-	switch v.(type) {
-	case nil, string, bool, float64, int, int64:
-		return "", ""
-	}
-	return "request.invalid_field", "meta values are strings, booleans or numbers"
+	return "", ""
 }
 
 // layoutFromWire validates a type's layout descriptor: an object whose

@@ -27,9 +27,9 @@ needs belongs in `internal/catalog/catalog.yml`.
 ```
 usecase    = { id, name, description?, requires: [usecase id], bundles: [bundle] }
 bundle     = { id: "system:<name>/v<n>", name, description?, derived?, hidden?,
-               type?, collection?, miniapp?, parts? }
+               type?, collection?, miniapp?, parts?, supersedes?: [bundle id] }
 type       = { xKey, layout?, properties: [property draft with xKey] }
-collection = { xKey, properties: [property draft with xKey] }
+collection = { xKey, meta?, properties: [property draft with xKey] }
 miniapp    = { bundle?, <any other property of the built-in miniapp collection> }
 parts      = [ part draft ]                   # the POST …/types/:typeId/parts shape
 ```
@@ -49,10 +49,25 @@ and what the root IS follows from that:
 | `parts` | a type with datasets; the records live on the objects of that type — and on the root itself | having it; records in the storage collection `<typeId>_<key>` |
 | `collection` + `miniapp` | one object that is both (the wiki: the app, and the collection its pages are filed under) | both |
 
-`type: {xKey}` alone — no properties, no parts — is a valid **marker
-type**: what an object IS, resolvable by handle, with no columns.
-`collection: {xKey}` alone is the same on the other surface: a marker
-collection objects are filed under.
+**A type is a format.** It brings a layout or a part of its own — what
+an object of it looks like, or content it owns. A definition that only
+adds properties is a `collection`, and the objects filed under it keep
+the type they have. A `type` that declares neither a `layout` nor a
+bundle-level `parts` entry is refused as `catalog.bad_field`
+(§ Validation). `collection: {xKey}` alone — no properties — is a valid
+**marker collection**: what an object is filed under, resolvable by
+handle, with no columns.
+
+**A collection names the type of its rows.** `meta` is the definition's
+open flag bag (`03-api.md` § Collections), and `meta.defaultType` holds
+the xKey of the type an object created INSIDE the collection gets — a
+`profile` for a person, absent for a deal, which is a `page`. Clients
+read it; the server does not enforce it, and filing an object of any
+other type under the collection stays legal. The validator requires it
+to name a type of the usecase, its `requires` or a registered type. It
+is a handle, resolved
+per space like a relation target, and one no type in the space carries
+reads as absent.
 
 **A root defines a type or a collection, not both**, and **a
 collection declares no parts** — both are refused as
@@ -92,11 +107,12 @@ encoding in the path. Bundle ids are `system:<name>/v<n>` — the
 `409 bundle.reserved`), the version is part of the id, and a bundle
 that changes shape takes a new id (§ Evolution). Type and collection
 xKeys (`[a-z][a-z0-9_]*`) share one namespace — unique across the
-catalog, types and collections together, and disjoint from the
-registered type ids and the meta ids `any`, `type` and `collection`;
-property xKeys (`[A-Za-z][A-Za-z0-9_]*`) are unique within their
-definition. `relation.targetTypes` name types by xKey, so cross-bundle
-references need no id resolution.
+catalog, types and collections together, except between a bundle and
+one it supersedes (§ Superseding), and disjoint from the registered
+type ids and the meta ids `any`, `type` and `collection`; property
+xKeys (`[A-Za-z][A-Za-z0-9_]*`) are unique within their definition.
+`relation.targetTypes` name definitions by xKey — a type or a
+collection — so cross-bundle references need no id resolution.
 
 ## Endpoints
 
@@ -134,11 +150,14 @@ dependencies first, the requested usecase's bundles last:
 ```jsonc
 { "usecase": "contact",
   "bundles": [
-    { "usecase": "people", "id": "system:person/v1",
-      "bundle": { "id": "system:person/v1", "name": "Person", "rootId": "<rootId>", "roots": ["<rootId>"] },
-      "installed": true, "typeId": "<rootId>",
+    { "usecase": "people", "id": "system:profile/v1",
+      "bundle": { "id": "system:profile/v1", "name": "Profile", "rootId": "<rootId>", "roots": ["<rootId>"] },
+      "installed": true, "typeId": "<rootId>", "properties": {} },
+    { "usecase": "people", "id": "system:person/v2",
+      "bundle": { "id": "system:person/v2", "name": "People", "rootId": "<rootId>", "roots": ["<rootId>"] },
+      "installed": true, "collectionId": "<rootId>",
       "properties": { "email": "<propId>", "phone": "<propId>", "organization": "<propId>", "…": "…" } },
-    { "usecase": "people", "id": "system:organization/v1", "…": "…" },
+    { "usecase": "people", "id": "system:organization/v2", "…": "…" },
     { "usecase": "contact", "id": "system:contact/v1",
       "bundle": { "…": "…" }, "installed": true, "collectionId": "<rootId>",
       "properties": { "owner": "<propId>", "status": "<propId>", "…": "…" } } ] }
@@ -175,7 +194,10 @@ One call does, in order:
 1. **Dependency closure.** The usecase's transitive `requires`,
    dependencies first, each once, the requested usecase last;
    `requires` are walked in declaration order, so the order is
-   deterministic. Within a usecase, bundles in declaration order.
+   deterministic. Within a usecase, bundles in declaration order —
+   minus the ones this space does not walk (§ Superseding), so the same
+   usecase answers a different bundle list in a space that has a
+   superseded bundle than in one that does not.
 2. **One registry-convergence wait** for the whole list — the same
    wait a single ensure runs (30s with a peer connected, 3s with none;
    instant when already synced). The first bundle that needs the
@@ -306,7 +328,7 @@ and `GET …/collections?includeHidden=true`.
 
 Every catalog root except the chat is a created root, so two devices
 of one account that set a usecase up while apart each mint a root —
-two `person` types with one xKey. After sync the registry names one
+two `profile` types with one xKey. After sync the registry names one
 winner and lists the other in `losers`; objects that had the loser
 keep their values under the loser's id. The client that observes a
 loser re-homes those objects onto the winner **column by column
@@ -334,12 +356,13 @@ may, without a new bundle id:
 | parts declared on a type that never declared any | at the next setup by a writer: declared; a type with any part declaration (live or removed) is left alone |
 | an `xKey` on a root that has none | at the next setup by a writer: filled in, never changed |
 | a `miniapp` value added | at the next setup by a writer: written where absent, never overwritten; the root is filed under the built-in `miniapp` collection first when it is not already |
+| a `meta` key added to a collection | at the next setup by a writer: written where absent, never overwritten — a value the space set, `meta.defaultType` included, is the space's own, a cleared one included (PATCH keeps it as `""`). The install itself carries no meta, so the same write runs right after a fresh install |
 | an option key added to a `choice` property | at the next setup by a writer: the key is written with all of its catalog leaves (`name`, `color`, `pos`, and each `meta.<k>` separately); a key the definition already carries is left exactly as the space has it — renamed, recoloured, reordered or not |
 | a bundle added to a usecase, a usecase added to `requires` | at the next setup: installed like any other step |
 
-A failed `miniapp` value or option-key heal (a permission or sync
-race) is not an error: the setup still answers 200 and the next setup
-retries it.
+A failed `miniapp` value, `meta` key or option-key heal (a permission
+or sync race) is not an error: the setup still answers 200 and the next
+setup retries it.
 
 Everything else on an existing install — an option's leaves once
 present, other `xFormat` edits, display `name`, `layout` and
@@ -357,13 +380,61 @@ once, all-or-nothing), changing a property's `kind` or `scope`
 (pinned), renaming a type, collection or property xKey (the property
 id derives from it), turning a `type` declaration into a `collection`
 one or back (the root's marker is written once, at install), changing
-`derived`.
+`derived`. When the new bundle keeps the old one's xKey — the usual
+case, since relations name it — the two cannot share a space, and
+`supersedes` is what keeps them apart (§ Superseding).
+
+## Superseding
+
+A bundle that takes another's place lists it in `supersedes`, and the
+two are never in one space together. The listing marks the old one
+`superseded: true`. What a space receives follows from what it has:
+
+| the space | receives |
+|---|---|
+| has any bundle of the old set installed | the old set — each adopted and healed like any install, a deleted one minted again — and **not** the bundles that supersede it |
+| has none | the bundles that supersede it, and **not** the old ones, which never reach a space on the new shape |
+
+So a space keeps the shape it was set up with for its lifetime, and
+only a space set up after the catalog changed receives the new one.
+Nothing migrates: objects in the first kind of space keep their type
+and their values where they are.
+
+The `supersedes` edges of a usecase form **groups**, one per connected
+set: a type that splits into a format and a collection is superseded
+by both, and a format that replaces two types supersedes both, so
+`profile/v1`, `person/v2`, `organization/v2` and the two types they
+stand in for are one group. A group is decided as a whole. A space
+that still has `organization/v1` is on the old shape for `person` too,
+and uninstalling one old bundle brings that bundle back on the next
+setup rather than half of the new set; only a space with none of the
+old set left moves to the new one. A superseded bundle may share its
+xKey with a bundle that supersedes it, which is the point: every
+`relation.targetTypes` naming the handle stays valid in both kinds of
+space, resolving to the type in one and to the collection in the
+other. It is one step only: a superseded bundle supersedes nothing.
+
+"Has none" is only true of a converged registry. A member reading an
+unsynced one would install the new set next to the bundle it stands in
+for, and the two share a handle. So when a group has neither an old
+nor a new bundle present locally, setup runs the
+registry-convergence wait before it decides, and an expired wait is
+answered as the install gate answers it: the space's owner proceeds,
+any other member gets the retryable `409 bundle.not_ready`. A group
+settled either way waits for nothing.
+
+A client reads which shape a space has from the reply, or from the
+registry: the bundle id it finds installed, and whether that bundle
+answers `typeId` or `collectionId`.
 
 Uninstall is `DELETE …/objects/<rootId>`: the id then reads as not
-installed and a later setup mints a fresh root. There is no
-usecase-level uninstall and no reference counting — a dependency stays
-until its root is deleted, and deleting a definition other objects use
-leaves their values orphaned (readable, no schema).
+installed and a later setup mints a fresh root — for a superseded
+bundle only while the space stays on the old shape; once the last
+bundle of a group's old set is gone, the next setup installs the new
+set instead. There is no usecase-level uninstall and no reference
+counting — a dependency stays until its root is deleted, and deleting a
+definition other objects use leaves their values orphaned (readable, no
+schema).
 
 ## Shipped usecases
 
@@ -371,32 +442,42 @@ leaves their values orphaned (readable, no schema).
 |---|---|---|---|
 | `wiki` | — | `system:wiki/v1` | collection `wiki` (hidden; `parentId`, `pos` — both kept out of the search index — and `folder`, a checkbox) + miniapp |
 | `collections` | — | `system:collections/v1` | miniapp only, a `page` root — a feature switch: installing it turns on working with types in clients; it declares none of its own |
-| `journal` | — | `system:journal/v1` | type `journal` (hidden; one `date`, a `date`-slug datetime) + shared editor `body` part + miniapp — one dated page per day |
+| `journal` | — | `system:journal/v2` | collection `journal` (hidden; one `date`, a `date`-slug datetime) + miniapp — an entry is a `page` filed under it, one per day; supersedes `system:journal/v1` |
+| | | `system:journal/v1` | superseded: type `journal` with the same `date` + shared editor `body` part + miniapp |
 | `meetings` | — | `system:meeting/v1` | type `meeting` (layout `page`; date, duration, participants, labels, words, source) with three surfaces — `notes` (the shared editor body), `summary` (a second, namespaced editor) and `transcript` (records, `idRule: user`, author-mutable and author-deletable, `skipHistory`, dynamic, search `text` under scope `meetings`) |
 | | | `system:meetings/v1` | miniapp only, a `page` root — the sidebar entry that opens the meetings list |
-| `tasks` | — | `system:task/v1` | type `task` (`notes`, `parent` → `project` / `area`, `planning` — a `choice` of inbox / anytime / someday, `planned` and `deadline` — `date` days, `completed`, `completedAt`, `position` — a rank kept out of the index) |
-| | | `system:project/v1` | type `project` (`notes`, `parent` → `area`, `completed`, `completedAt`, `position`) |
-| | | `system:area/v1` | marker type `area` — an area is a name and an icon; all three are listed types the planner creates and a table may show |
+| `tasks` | — | `system:task/v1` | type `task` (layout `task`; `notes`, `parent` → `project` / `area`, `planning` — a `choice` of inbox / anytime / someday, `planned` and `deadline` — `date` days, `completed`, `completedAt`, `position` — a rank kept out of the index) |
+| | | `system:project/v2` | collection `project` (`notes`, `parent` → `area`, `completed`, `completedAt`, `position`) — a project is a `page` filed under it; supersedes `system:project/v1` |
+| | | `system:area/v2` | collection `area` (`notes`) — an area is a `page` filed under it; supersedes `system:area/v1`. A task, a project and an area are all listed: ordinary objects the planner creates and a table may show |
+| | | `system:project/v1` | superseded: type `project` with the same properties |
+| | | `system:area/v1` | superseded: type `area`, no properties |
 | | | `system:tasks/v1` | miniapp only, a `page` root — the sidebar entry that opens the planner |
 | `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one shared `chat` part — the reserved module's only declaration, the root its only host — + miniapp, so the chat is a sidebar entry |
-| `people` | — | `system:person/v1` | type `person` (layout `profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags) + shared editor `body` part |
-| | | `system:organization/v1` | type `organization` (layout `profile`; kind, domain, categories, location, size, linkedin, main_contact → `person`) + shared editor `body` part |
-| `contact` | `people` | `system:contact/v1` | collection `contact` (owner → `person`, status, source, referred_by → `person`, last_contact, next_follow_up) — the relationship facet a person or organisation is filed under |
+| `people` | — | `system:profile/v1` | type `profile` (layout `profile`, no properties) + shared editor `body` part — the one format a person and an organisation share; supersedes `system:person/v1` and `system:organization/v1` |
+| | | `system:person/v2` | collection `person` (`meta.defaultType: profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags); supersedes `system:person/v1` |
+| | | `system:organization/v2` | collection `organization` (`meta.defaultType: profile`; kind, domain, categories, location, size, linkedin, main_contact → `person`); supersedes `system:organization/v1` |
+| | | `system:person/v1` | superseded: type `person` (layout `profile`) with the same properties + shared editor `body` part |
+| | | `system:organization/v1` | superseded: type `organization` (layout `profile`) with the same properties + shared editor `body` part |
+| `contact` | `people` | `system:contact/v1` | collection `contact` (`meta.defaultType: profile`, as on every role below; owner → `person`, status, source, referred_by → `person`, last_contact, next_follow_up) — the relationship facet a person or organisation is filed under |
 | `investor` | `people` | `system:investor/v1` | collection `investor` (investor_type, investor_status, focus, stages, check_size, portfolio → `organization`) |
 | `customer` | `people` | `system:customer/v1` | collection `customer` (account_status, plan, annual_value, customer_since, renewal_date) |
 | `partner` | `people` | `system:partner/v1` | collection `partner` (partnership_type, partner_status, since, review_date) |
 | `vendor` | `people` | `system:vendor/v1` | collection `vendor` (services, vendor_status, contract_value, renewal_date) |
 | `cofounder` | `people` | `system:cofounder/v1` | collection `cofounder` (founded → `organization`, since, responsibilities, equity) |
 | `candidate` | `people` | `system:candidate/v1` | collection `candidate` (role, candidate_stage, next_interview, resume) |
-| `contacts` | `people`, `contact` | `system:contacts/v1` | miniapp, hidden; records part `layouts` (dataset `layouts`, `idRule: user` — the id is an identity type's xKey; field `blocks`, array) — a definition hosts itself, so the layouts live on the app root with no flag |
-| `crm` | `contacts` | `system:deal/v1` | type `deal` (layout `profile`; stage, owner → `person`, organization → `organization`, amount, close_date) + shared editor `body` part |
+| `contacts` | `people`, `contact` | `system:contacts/v1` | miniapp, hidden; records part `layouts` (dataset `layouts`, `idRule: user` — the id is an identity collection's xKey, `person` or `organization`; field `blocks`, array) — a definition hosts itself, so the layouts live on the app root with no flag |
+| `crm` | `contacts` | `system:deal/v2` | collection `deal` (stage, owner → `person`, organization → `organization`, amount, close_date) — a deal is a `page` filed under it; supersedes `system:deal/v1` |
+| | | `system:deal/v1` | superseded: type `deal` (layout `profile`) with the same properties + shared editor `body` part |
 | | | `system:crm/v1` | miniapp only, a `page` root |
 
-Sixteen usecases, twenty-two bundles: nine types and eight collections
-with an xKey. The identity is the type — `person`, `organization` —
-and the relationship is the collection it is filed under, so one
-person can be a customer and an investor at once, each facet carrying
-its own columns. The two identities are one usecase because
+Sixteen usecases, twenty-nine bundles, six of them superseded. What a
+space set up today receives is four types — `meeting`, `task`,
+`general_chat`, `profile` — and fourteen collections with an xKey. A
+type is there only for a format; everything that is a set of columns is
+a collection. An identity is a `profile` filed under `person` or
+`organization`, and a relationship is one more collection it is filed
+under, so one person can be a customer and an investor at once, each
+facet carrying its own columns. The two identities are one usecase because
 `person.organization` and `organization.main_contact` reference each
 other and the `requires` graph must stay acyclic; the roles are one
 usecase each so a role lands only when picked (`crm` does not require
@@ -522,12 +603,12 @@ Problem codes of the structural layer (`internal/catalog`):
 | `catalog.bad_yaml` | the source does not parse, or does not decode into the catalog shape |
 | `catalog.unknown_field` | a key no catalog struct declares (strict decoding) |
 | `catalog.bad_id` | a usecase id that is not a slug, a bundle id off `system:<name>/v<n>`, a type, collection or property xKey or a part key off its grammar |
-| `catalog.duplicate` | a usecase id, bundle id, xKey (types and collections share one namespace; also when it equals a built-in id), property xKey, part key, dataset key or `requires` entry declared twice |
+| `catalog.duplicate` | a usecase id, bundle id, xKey (types and collections share one namespace, except between a bundle and one it supersedes; also when it equals a built-in id), property xKey, part key, dataset key or `requires` entry declared twice |
 | `catalog.missing` | a required piece absent — an empty catalog, usecase name or bundles, bundle name, a declaration (`type` / `collection` / `miniapp` / `parts`), `rootType` on a bundle that declares nothing (every object has a type; `page` for a plain document), property xKey or kind, a dataset key, a relation's `targetTypes` |
-| `catalog.bad_field` | a field that contradicts the rest — `type` next to `collection` ("a root defines a type or a collection, not both"), `parts` next to `collection` ("a collection declares no parts"), `hidden` without `type`, `collection` or `parts`, `rootType` next to a declaration or naming an id that is not a registered type, `meta` beyond `index`, `relation.filter`, a wrong module, `chat` not shared, `records` shared, fields on a module dataset, `deleteBy: author` or a `mutableBy: author` field without a creator stamp, a `search` mapping naming a field the dataset does not declare, a mapping key that is not a string, a node of the wrong shape, and the bounds (name ≤1024 B, ≤32 parts, ≤64 properties per declaration) |
+| `catalog.bad_field` | a field that contradicts the rest — `type` next to `collection` ("a root defines a type or a collection, not both"), `parts` next to `collection` ("a collection declares no parts"), `hidden` without `type`, `collection` or `parts`, `rootType` next to a declaration or naming an id that is not a registered type, `meta` beyond `index`, `relation.filter`, a wrong module, `chat` not shared, `records` shared, fields on a module dataset, `deleteBy: author` or a `mutableBy: author` field without a creator stamp, a `search` mapping naming a field the dataset does not declare, a mapping key that is not a string, a node of the wrong shape, and the bounds (name ≤1024 B, ≤32 parts, ≤64 properties per declaration); a `type` that declares neither a `layout` nor a part ("a definition that only adds properties is a collection" — a superseded bundle is exempt); a `supersedes` entry naming a bundle that supersedes another (one step only); a collection `meta` key that is not single-level, or a value that is not a string, boolean or number |
 | `catalog.unknown_usecase` | a `requires` entry naming no usecase |
-| `catalog.cycle` | a self-require, or a cycle in `requires` — reported as its path (`a → b → a`) |
-| `catalog.broken_link` | a `relation.targetTypes` xKey that is no type of the usecase, its transitive `requires` or a built-in; names the usecase that would have to be required when the type exists elsewhere in the catalog |
+| `catalog.cycle` | a self-require, a bundle superseding itself, or a cycle in `requires` — reported as its path (`a → b → a`) |
+| `catalog.broken_link` | a `supersedes` entry naming no bundle of the same usecase; a collection `meta.defaultType` naming no type of the usecase, its transitive `requires` or a registered type (a collection's xKey is refused too); a `relation.targetTypes` xKey that is no type or collection of the usecase, its transitive `requires` or a built-in; names the usecase that would have to be required when the definition exists elsewhere in the catalog |
 | `catalog.bad_miniapp` | `miniapp.bundle` differing from the bundle id, a key the built-in `miniapp` collection lacks, or a value of the wrong kind |
 
 The server layer adds the descriptor gate and reports its own codes

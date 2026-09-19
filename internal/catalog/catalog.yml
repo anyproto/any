@@ -9,6 +9,16 @@
 # `collection` a collection objects are filed under (columns only),
 # `miniapp` the object a client opens, `parts` records on the root. Bundle
 # ids never change — a bundle that changes shape takes a new id.
+#
+# A type is a FORMAT: it brings a layout or a part of its own. A definition
+# that only adds properties is a collection, and its rows keep the type they
+# have — `page` unless the collection names another in `meta.defaultType`
+# (a type xKey; clients read it, the server does not enforce it).
+#
+# `supersedes` lists bundles of the same usecase a bundle stands in for. A
+# space that has one of them installed keeps it and never receives the
+# bundle superseding it; every other space receives the new bundle and never
+# the old one. The two may share an xKey: they never meet in a space.
 
 usecases:
 
@@ -41,14 +51,24 @@ usecases:
         rootType: page
         miniapp: {}
 
-  # ── Journal: one page per day. The app creates the entries, so the type is
-  #    hidden; its body is the shared editor collection,
-  #    which is why an entry needs no second type.
+  # ── Journal: one page per day. An entry is a `page` filed under the journal
+  #    collection, which carries its date. The app creates the entries, so the
+  #    collection is hidden. One object is both the app and the collection.
   - id: journal
     name: Journal
     description: One page per day, keyed by date
     bundles:
-      - id: system:journal/v1
+      - id: system:journal/v2
+        name: Journal
+        hidden: true
+        miniapp: {}
+        supersedes: [ system:journal/v1 ]
+        collection:
+          xKey: journal
+          properties:
+            - { xKey: date, name: Date, kind: datetime, xFormat: { type: date } }
+
+      - id: system:journal/v1                    # an entry typed `journal`, with its own body part
         name: Journal
         hidden: true
         miniapp: {}
@@ -129,9 +149,10 @@ usecases:
 
   # ── Tasks: a Things-style personal planner. A task is the unit of work; a
   #    project a finishable outcome that groups tasks; an area an ongoing
-  #    responsibility that groups projects and tasks. The three types are
-  #    listed — a task is an ordinary object a user may also meet in a table
-  #    or a picker; the fourth bundle is the sidebar entry.
+  #    responsibility that groups projects and tasks. A task is a type — it
+  #    has a layout of its own — while a project and an area are pages filed
+  #    under a collection. All three are listed: an ordinary object a user may
+  #    also meet in a table or a picker. The last bundle is the sidebar entry.
   #    The lists (inbox, today, upcoming, anytime, someday,
   #    logbook) are derived by clients from `planning`, `planned`, `deadline`
   #    and `completed`; `position` is a fractional rank shared by every list,
@@ -144,6 +165,7 @@ usecases:
         name: Task
         type:
           xKey: task
+          layout: { type: task }
           properties:
             - { xKey: notes,       name: Notes,           kind: string,   xFormat: { type: longtext } }
             - { xKey: parent,      name: Project or area, kind: array,
@@ -162,6 +184,26 @@ usecases:
             - { xKey: completedAt, name: Completed at,    kind: datetime, xFormat: { type: datetime } }
             - { xKey: position,    name: Order,           kind: number,   meta: { index: none },
                 description: Fractional rank shared by every list }
+      - id: system:project/v2
+        name: Projects
+        supersedes: [ system:project/v1 ]
+        collection:
+          xKey: project
+          properties:
+            - { xKey: notes,       name: Notes,        kind: string,   xFormat: { type: longtext } }
+            - { xKey: parent,      name: Area,         kind: array,
+                xFormat: { type: relation, config: { multiple: false },
+                           relation: { targetTypes: [ area ] } } }
+            - { xKey: completed,   name: Completed,    kind: boolean,  xFormat: { type: checkbox } }
+            - { xKey: completedAt, name: Completed at, kind: datetime, xFormat: { type: datetime } }
+            - { xKey: position,    name: Order,        kind: number,   meta: { index: none } }
+      - id: system:area/v2
+        name: Areas
+        supersedes: [ system:area/v1 ]
+        collection:
+          xKey: area
+          properties:
+            - { xKey: notes,       name: Notes,        kind: string,   xFormat: { type: longtext } }
       - id: system:project/v1
         name: Project
         type:
@@ -202,10 +244,69 @@ usecases:
   #    Organisation.main_contact reference each other and the requires graph
   #    must stay acyclic. Person already needs Organisation for its canonical
   #    edge, so nothing ever installed one without the other anyway.
+  #
+  #    An identity is a `profile` — the one format a person and an
+  #    organisation share — filed under the collection that says which it is
+  #    and carries its columns. The profile itself declares none: an email
+  #    belongs to a person, a domain to an organisation.
   - id: people
     name: People and organisations
     description: The two identities every relationship hangs off
     bundles:
+      - id: system:profile/v1
+        name: Profile
+        supersedes: [ system:person/v1, system:organization/v1 ]
+        type:
+          xKey: profile
+          layout: { type: profile }
+        parts:
+          - key: body                                  # the Notes tab; shared with page
+            ui: { type: document }
+            datasets: [ { module: editor, shared: true } ]
+
+      - id: system:person/v2
+        name: People
+        supersedes: [ system:person/v1 ]
+        collection:
+          xKey: person
+          meta: { defaultType: profile }
+          properties:
+            - { xKey: email,        name: Email,        kind: string,   xFormat: { type: email } }
+            - { xKey: phone,        name: Phone,        kind: string,   xFormat: { type: phone } }
+            - { xKey: organization, name: Organisation, kind: array,
+                xFormat: { type: relation, relation: { targetTypes: [ organization ] } } }
+            - { xKey: job_title,    name: Job title,    kind: string,   xFormat: { type: text } }
+            - { xKey: location,     name: Location,     kind: string,   xFormat: { type: text } }
+            - { xKey: linkedin,     name: LinkedIn,     kind: string,   xFormat: { type: url } }
+            - { xKey: birthday,     name: Birthday,     kind: datetime, xFormat: { type: date } }
+            - { xKey: tags,         name: Tags,         kind: array,
+                xFormat: { type: choice, options: {}, config: { multiple: true } } }
+
+      - id: system:organization/v2
+        name: Organisations
+        supersedes: [ system:organization/v1 ]
+        collection:
+          xKey: organization
+          meta: { defaultType: profile }
+          properties:
+            - { xKey: kind,         name: Kind,         kind: array,      # what it is; roles say why you care
+                xFormat: { type: choice, options: {
+                  company: { name: Company, pos: a0 },       school: { name: School, pos: a1 },
+                  university: { name: University, pos: a2 }, nonprofit: { name: Nonprofit, pos: a3 },
+                  government: { name: Government, pos: a4 }, community: { name: Community, pos: a5 } } } }
+            - { xKey: domain,       name: Domain,       kind: string, xFormat: { type: url } }
+            - { xKey: categories,   name: Categories,   kind: array,      # industry / sector tags
+                xFormat: { type: choice, options: {}, config: { multiple: true } } }
+            - { xKey: location,     name: Location,     kind: string, xFormat: { type: text } }
+            - { xKey: size,         name: Size,         kind: array,
+                xFormat: { type: choice, options: {
+                  xs: { name: 1–10, pos: a0 },   s: { name: 11–50, pos: a1 },
+                  m:  { name: 51–200, pos: a2 }, l: { name: 201–1000, pos: a3 },
+                  xl: { name: 1000+, pos: a4 } } } }
+            - { xKey: linkedin,     name: LinkedIn,     kind: string, xFormat: { type: url } }
+            - { xKey: main_contact, name: Main contact, kind: array,
+                xFormat: { type: relation, relation: { targetTypes: [ person ] } } }
+
       - id: system:person/v1
         name: Person
         type:
@@ -257,6 +358,7 @@ usecases:
 
   # ── The relationship facet: a collection a person or organisation you actively
   #    manage is filed under; the identity keeps its type and its profile layout.
+  #    A row created inside it is a profile, as it is for every role below.
   - id: contact
     name: Contact
     description: Owner, source, status and the last and next touch on a person or organisation
@@ -266,6 +368,7 @@ usecases:
         name: Contact
         collection:
           xKey: contact
+          meta: { defaultType: profile }
           properties:
             - { xKey: owner,          name: Owner,          kind: array,    # no member descriptor yet
                 xFormat: { type: relation, relation: { targetTypes: [ person ] } } }
@@ -294,6 +397,7 @@ usecases:
         name: Investor
         collection:
           xKey: investor
+          meta: { defaultType: profile }
           properties:
             - { xKey: investor_type,   name: Investor type,   kind: array, 
                 xFormat: { type: choice, options: {
@@ -324,6 +428,7 @@ usecases:
         name: Customer
         collection:
           xKey: customer
+          meta: { defaultType: profile }
           properties:
             - { xKey: account_status, name: Account status, kind: array, 
                 xFormat: { type: choice, options: {
@@ -344,6 +449,7 @@ usecases:
         name: Partner
         collection:
           xKey: partner
+          meta: { defaultType: profile }
           properties:
             - { xKey: partnership_type, name: Partnership type, kind: array, 
                 xFormat: { type: choice, options: {
@@ -365,6 +471,7 @@ usecases:
         name: Vendor
         collection:
           xKey: vendor
+          meta: { defaultType: profile }
           properties:
             - { xKey: services,       name: Services,       kind: array,
                 xFormat: { type: choice, config: { multiple: true }, options: {
@@ -386,6 +493,7 @@ usecases:
         name: Co-founder
         collection:
           xKey: cofounder
+          meta: { defaultType: profile }
           properties:
             - { xKey: founded,          name: Founded,          kind: array,    # may differ from Organisation once they move on
                 xFormat: { type: relation, relation: { targetTypes: [ organization ] } } }
@@ -405,6 +513,7 @@ usecases:
         name: Candidate
         collection:
           xKey: candidate
+          meta: { defaultType: profile }
           properties:
             - { xKey: role,            name: Role,            kind: string, xFormat: { type: text } }
             - { xKey: candidate_stage, name: Candidate stage, kind: array, 
@@ -431,17 +540,35 @@ usecases:
           - key: layouts
             datasets:
               - key: layouts
-                idRule: user                           # id = the identity type's xKey
+                idRule: user                           # id = the identity collection's xKey (person, organization)
                 fields:
                   - { key: blocks, kind: array, mutableBy: any }
 
-  # ── Deals only make sense inside a CRM: the type lives in the app's usecase.
-  #    Roles are NOT required here; the client sets a role usecase up on first pick.
+  # ── Deals only make sense inside a CRM: the collection lives in the app's
+  #    usecase. A deal is a page filed under it. Roles are NOT required here;
+  #    the client sets a role usecase up on first pick.
   - id: crm
     name: CRM
     description: Deals on top of the contacts directory
     requires: [ contacts ]
     bundles:
+      - id: system:deal/v2
+        name: Deals
+        supersedes: [ system:deal/v1 ]
+        collection:
+          xKey: deal
+          properties:
+            - { xKey: stage,        name: Stage,        kind: array,
+                xFormat: { type: choice, options: {
+                  lead: { name: Lead, pos: a0 },         qualified: { name: Qualified, pos: a1 },
+                  proposal: { name: Proposal, pos: a2 }, negotiation: { name: Negotiation, pos: a3 },
+                  won: { name: Won, pos: a4 },           lost: { name: Lost, pos: a5 } } } }
+            - { xKey: owner,        name: Owner,        kind: array,
+                xFormat: { type: relation, relation: { targetTypes: [ person ] } } }
+            - { xKey: organization, name: Organisation, kind: array,
+                xFormat: { type: relation, relation: { targetTypes: [ organization ] } } }
+            - { xKey: amount,       name: Amount,       kind: number,   xFormat: { type: currency } }
+            - { xKey: close_date,   name: Close date,   kind: datetime, xFormat: { type: date } }
       - id: system:deal/v1
         name: Deal
         type:

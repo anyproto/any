@@ -65,7 +65,7 @@ func (d *deps) typeCreate(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": "layout"})
 	}
 	for k, v := range req.Meta {
-		if code, reason := checkTypeMetaEntry(k, v); code != "" {
+		if code, reason := checkTypeMetaEntry(k, v, false); code != "" {
 			return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": "meta." + k})
 		}
 	}

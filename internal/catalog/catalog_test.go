@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -62,10 +63,11 @@ func TestCatalog_SidebarAppsDeclareTheirTypes(t *testing.T) {
 	defs := map[string]struct {
 		xKey       string
 		collection bool
+		sidebar    string
 	}{
-		"journal":  {xKey: "journal"},
-		"meetings": {xKey: "meeting"},
-		"wiki":     {xKey: "wiki", collection: true},
+		"journal":  {xKey: "journal", collection: true, sidebar: "system:journal/v2"},
+		"meetings": {xKey: "meeting", sidebar: "system:meetings/v1"},
+		"wiki":     {xKey: "wiki", collection: true, sidebar: "system:wiki/v1"},
 	}
 	for id, def := range defs {
 		t.Run(id, func(t *testing.T) {
@@ -76,6 +78,9 @@ func TestCatalog_SidebarAppsDeclareTheirTypes(t *testing.T) {
 			var declaring, sidebar *api.CatalogBundle
 			for i := range u.Bundles {
 				b := &u.Bundles[i]
+				if cat.Superseded(b.Id) {
+					continue // kept where installed, never what a new space gets
+				}
 				if def.collection {
 					if b.Collection != nil && b.Collection.XKey == def.xKey {
 						declaring = b
@@ -90,7 +95,7 @@ func TestCatalog_SidebarAppsDeclareTheirTypes(t *testing.T) {
 			if declaring == nil || sidebar == nil {
 				t.Fatalf("%s declares no %s or no sidebar root: %+v", id, def.xKey, u.Bundles)
 			}
-			if sidebar.Id != "system:"+id+"/v1" {
+			if sidebar.Id != def.sidebar {
 				t.Fatalf("%s sidebar root: %s", id, sidebar.Id)
 			}
 			// A collection is columns only — no parts, no type beside it.
@@ -99,12 +104,15 @@ func TestCatalog_SidebarAppsDeclareTheirTypes(t *testing.T) {
 			}
 		})
 	}
-	// Journal's entry is a dated page; a meeting is an object with three
-	// surfaces. Both are what a client used to mint for itself.
+	// Journal's entry is a page filed under a collection that carries its
+	// date; a meeting is an object with three surfaces.
 	journal, _ := cat.Get("journal")
-	if props := journal.Bundles[0].Type.Properties; len(props) != 1 || props[0].XKey != "date" ||
+	if journal.Bundles[0].Collection == nil {
+		t.Fatalf("journal's first bundle is the collection: %+v", journal.Bundles[0])
+	}
+	if props := journal.Bundles[0].Collection.Properties; len(props) != 1 || props[0].XKey != "date" ||
 		props[0].Kind != api.PropertyKindDatetime {
-		t.Fatalf("journal properties: %+v", journal.Bundles[0].Type.Properties)
+		t.Fatalf("journal properties: %+v", props)
 	}
 	meetings, _ := cat.Get("meetings")
 	parts := meetings.Bundles[0].Parts
@@ -168,6 +176,7 @@ usecases:
         name: Contact
         type:
           xKey: contact
+          layout: { type: profile }
           properties:
             - { xKey: email, name: Email, kind: string, xFormat: { type: email } }
   - id: company
@@ -178,6 +187,7 @@ usecases:
         name: Company
         type:
           xKey: company
+          layout: { type: profile }
           properties:
             - { xKey: contacts, name: Contacts, kind: array,
                 xFormat: { type: relation, relation: { targetTypes: [ contact ] }, config: { multiple: true } } }
@@ -414,7 +424,7 @@ func TestCatalog_Problems(t *testing.T) {
 		{
 			name: "collection xKey collides with a type xKey",
 			mutate: func(s string) string {
-				return strings.Replace(s, "        type:\n          xKey: company\n",
+				return strings.Replace(s, "        type:\n          xKey: company\n          layout: { type: profile }\n",
 					"        collection:\n          xKey: contact\n", 1)
 			},
 			code: CodeDuplicate, path: "usecases[1].bundles[0].collection.xKey", contains: "system:contact/v1",
@@ -453,6 +463,73 @@ func TestCatalog_Problems(t *testing.T) {
 			code:   CodeBadYAML,
 		},
 	}
+	cases = append(cases, []struct {
+		name     string
+		mutate   func(string) string
+		code     string
+		path     string
+		contains string
+	}{
+		{
+			name: "a type with no layout and no part is a collection",
+			mutate: func(s string) string {
+				return strings.Replace(s, "          xKey: company\n          layout: { type: profile }\n", "          xKey: company\n", 1)
+			},
+			code: CodeBadField, path: "usecases[1].bundles[0].type", contains: "is a collection",
+		},
+		{
+			name:   "supersedes names a bundle outside the usecase",
+			mutate: func(s string) string { return withSuperseded(s, "system:contact/v1") },
+			code:   CodeBrokenLink, path: "usecases[1].bundles[0].supersedes[0]", contains: "usecase company",
+		},
+		{
+			name:   "supersedes itself",
+			mutate: func(s string) string { return withSuperseded(s, "system:company/v1") },
+			code:   CodeCycle, path: "usecases[1].bundles[0].supersedes[0]",
+		},
+		{
+			name: "superseded is derived, not declared",
+			mutate: func(s string) string {
+				return strings.Replace(s, "        name: Company\n", "        name: Company\n        superseded: true\n", 1)
+			},
+			code: CodeBadField, path: "usecases[1].bundles[0].superseded", contains: "derived",
+		},
+		{
+			name: "two bundles share a handle without superseding",
+			mutate: func(s string) string {
+				return strings.Replace(withOldCompany(s), "        supersedes: [ system:firm/v1 ]\n", "", 1)
+			},
+			code: CodeDuplicate, path: "usecases[1].bundles[1].type.xKey",
+		},
+		{
+			name: "collection defaultType names a collection",
+			mutate: func(s string) string {
+				return strings.Replace(asCollection(s), "          xKey: company\n", "          xKey: company\n          meta: { defaultType: company }\n", 1)
+			},
+			code: CodeBrokenLink, path: "usecases[1].bundles[0].collection.meta.defaultType", contains: "is a collection",
+		},
+		{
+			name: "collection defaultType names no type",
+			mutate: func(s string) string {
+				return strings.Replace(asCollection(s), "          xKey: company\n", "          xKey: company\n          meta: { defaultType: nosuch }\n", 1)
+			},
+			code: CodeBrokenLink, path: "usecases[1].bundles[0].collection.meta.defaultType", contains: "no type",
+		},
+		{
+			name: "collection meta key is not single-level",
+			mutate: func(s string) string {
+				return strings.Replace(asCollection(s), "          xKey: company\n", "          xKey: company\n          meta: { a.b: x }\n", 1)
+			},
+			code: CodeBadField, path: "usecases[1].bundles[0].collection.meta.a.b", contains: "single-level",
+		},
+		{
+			name: "collection meta value is not a scalar",
+			mutate: func(s string) string {
+				return strings.Replace(asCollection(s), "          xKey: company\n", "          xKey: company\n          meta: { defaultType: [ page ] }\n", 1)
+			},
+			code: CodeBadField, path: "usecases[1].bundles[0].collection.meta.defaultType", contains: "strings, booleans or numbers",
+		},
+	}...)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			src := tc.mutate(base)
@@ -474,6 +551,182 @@ func TestCatalog_Problems(t *testing.T) {
 			}
 			t.Fatalf("no problem %s at %q containing %q; got:\n%v", tc.code, tc.path, tc.contains, ps)
 		})
+	}
+}
+
+// withSuperseded makes the company bundle supersede `old`.
+func withSuperseded(s, old string) string {
+	return strings.Replace(s, "        name: Company\n", "        name: Company\n        supersedes: [ "+old+" ]\n", 1)
+}
+
+// withOldCompany adds a bundle the company bundle supersedes, sharing
+// its handle — the shape a definition takes when it changes kind.
+func withOldCompany(s string) string {
+	s = withSuperseded(s, "system:firm/v1")
+	return strings.Replace(s, "  - id: crm\n", `      - id: system:firm/v1
+        name: Company
+        type:
+          xKey: company
+  - id: crm
+`, 1)
+}
+
+// asCollection turns the company type into a collection.
+func asCollection(s string) string {
+	return strings.Replace(s, "        type:\n          xKey: company\n          layout: { type: profile }\n",
+		"        collection:\n          xKey: company\n", 1)
+}
+
+// A bundle and the one it supersedes share a handle, and the superseded
+// one is exempt from the format rule: it is never installed anew.
+func TestCatalog_SupersededSharesItsHandle(t *testing.T) {
+	cat, problems := Load([]byte(withOldCompany(base)), knownTypes)
+	if len(problems) > 0 {
+		t.Fatalf("superseding pair: %v", problems)
+	}
+	if !cat.Superseded("system:firm/v1") || cat.Superseded("system:company/v1") {
+		t.Fatalf("superseded set: firm=%v company=%v", cat.Superseded("system:firm/v1"), cat.Superseded("system:company/v1"))
+	}
+}
+
+// The `supersedes` edges form groups decided as a whole, and the
+// listing marks every superseded bundle.
+func TestCatalog_SupersedeGroups(t *testing.T) {
+	cat, problems := Load(Embedded(), knownTypes)
+	if len(problems) > 0 {
+		t.Fatal(problems)
+	}
+	g := cat.SupersedeGroup("system:profile/v1")
+	if g == nil {
+		t.Fatal("profile has no group")
+	}
+	if !slices.Equal(g.Old, []string{"system:person/v1", "system:organization/v1"}) ||
+		!slices.Equal(g.New, []string{"system:profile/v1", "system:person/v2", "system:organization/v2"}) {
+		t.Fatalf("people group: old=%v new=%v", g.Old, g.New)
+	}
+	for _, id := range append(g.Old, g.New...) {
+		if cat.SupersedeGroup(id) != g {
+			t.Fatalf("%s is not in the people group", id)
+		}
+	}
+	if cat.SupersedeGroup("system:contact/v1") != nil {
+		t.Fatal("contact is in a group")
+	}
+	if j := cat.SupersedeGroup("system:journal/v2"); j == nil ||
+		!slices.Equal(j.Old, []string{"system:journal/v1"}) || !slices.Equal(j.New, []string{"system:journal/v2"}) {
+		t.Fatalf("journal group: %+v", j)
+	}
+	have := map[string]bool{"system:organization/v1": true}
+	if !g.OldKept(have) || g.NewAny(have) {
+		t.Fatal("one old bundle keeps the group on the old shape")
+	}
+	people, _ := cat.Get("people")
+	flags := map[string]bool{}
+	for _, b := range people.Bundles {
+		flags[b.Id] = b.Superseded
+	}
+	if !flags["system:person/v1"] || !flags["system:organization/v1"] || flags["system:profile/v1"] || flags["system:person/v2"] {
+		t.Fatalf("superseded flags: %v", flags)
+	}
+}
+
+// Two bundles superseding the same one may not both claim its handle:
+// a new space would install both. Declared new, old, new so the check
+// has to look past the last holder.
+func TestCatalog_HandleSharedByTwoSupersedersIsRefused(t *testing.T) {
+	src := `
+usecases:
+  - id: things
+    name: Things
+    bundles:
+      - id: system:thing-card/v1
+        name: Card
+        supersedes: [ system:thing/v1 ]
+        type: { xKey: thing, layout: { type: profile } }
+      - id: system:thing/v1
+        name: Thing
+        type: { xKey: thing }
+      - id: system:thing/v2
+        name: Things
+        supersedes: [ system:thing/v1 ]
+        collection: { xKey: thing }
+`
+	_, ps := Load([]byte(src), knownTypes)
+	for _, p := range ps {
+		if p.Code == CodeDuplicate && p.Path == "usecases[0].bundles[2].collection.xKey" {
+			return
+		}
+	}
+	t.Fatalf("no duplicate-handle problem; got:\n%v", ps)
+}
+
+// A chain would make "which one does a space keep" ambiguous.
+func TestCatalog_SupersedesIsOneStep(t *testing.T) {
+	src := strings.Replace(withOldCompany(base), "      - id: system:firm/v1\n        name: Company\n",
+		"      - id: system:firm/v1\n        name: Company\n        supersedes: [ system:business/v1 ]\n", 1)
+	src = strings.Replace(src, "  - id: crm\n", `      - id: system:business/v1
+        name: Company
+        type:
+          xKey: company
+  - id: crm
+`, 1)
+	_, ps := Load([]byte(src), knownTypes)
+	for _, p := range ps {
+		if p.Code == CodeBadField && strings.Contains(p.Message, "no chains") {
+			return
+		}
+	}
+	t.Fatalf("no chain problem; got:\n%v", ps)
+}
+
+// The shipped catalog follows the rule it enforces: every type a new
+// space receives is a format, and what only adds columns is a collection
+// whose rows are profiles or pages.
+func TestCatalog_TypesAreFormats(t *testing.T) {
+	cat, problems := Load(Embedded(), knownTypes)
+	if len(problems) > 0 {
+		t.Fatal(problems)
+	}
+	collections := map[string]string{} // xKey -> meta.defaultType
+	types := map[string]*api.CatalogBundle{}
+	for ui := range cat.Usecases {
+		for bi := range cat.Usecases[ui].Bundles {
+			b := &cat.Usecases[ui].Bundles[bi]
+			if cat.Superseded(b.Id) {
+				continue
+			}
+			if b.Collection != nil {
+				dt, _ := b.Collection.Meta["defaultType"].(string)
+				collections[b.Collection.XKey] = dt
+			}
+			if b.Type != nil {
+				types[b.Type.XKey] = b
+				if !hasLayout(b.Type.Layout) && len(b.Parts) == 0 {
+					t.Fatalf("type %s brings neither a layout nor a part", b.Type.XKey)
+				}
+			}
+		}
+	}
+	for xKey, defaultType := range map[string]string{
+		"person": "profile", "organization": "profile", "contact": "profile", "investor": "profile",
+		"deal": "", "project": "", "area": "", "journal": "",
+	} {
+		got, ok := collections[xKey]
+		if !ok {
+			t.Fatalf("%s is not a collection in what a new space receives", xKey)
+		}
+		if got != defaultType {
+			t.Fatalf("%s default row type: got %q, want %q", xKey, got, defaultType)
+		}
+	}
+	profile := types["profile"]
+	if profile == nil || len(profile.Type.Properties) != 0 || len(profile.Parts) != 1 {
+		t.Fatalf("profile is a format with a body and no columns: %+v", profile)
+	}
+	for _, xKey := range []string{"person", "organization", "deal", "project", "area", "journal"} {
+		if types[xKey] != nil {
+			t.Fatalf("%s is still a type a new space receives", xKey)
+		}
 	}
 }
 
