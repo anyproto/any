@@ -59,7 +59,7 @@ func (d *deps) spaceAggregate(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	if errResp, done := identityKeysReadRefused(c, objectId, dataset); done {
+	if errResp, done := keyDatasetReadRefused(c, objectId, dataset); done {
 		return errResp
 	}
 	// Aggregation output is caller-shaped, so withheld fields cannot

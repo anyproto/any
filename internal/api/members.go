@@ -63,13 +63,9 @@ type InviteInfo struct {
 	// Permission is "none" for the request-to-join invites v1 mints —
 	// the role is chosen at accept time, not carried by the invite.
 	Permission string `json:"permission"`
-	// InviteToken is the same share token POST /invites returned at
-	// mint time, recovered from the minting account's synced custody.
-	// Present only on that account's devices — other members (any
-	// role) never held the private key and get no token. Also omitted
-	// for invites minted before custody shipped (regenerate once to
-	// make the token durable) and for custody gone stale (invite
-	// replaced or revoked on another device).
+	// InviteToken is the active request-to-join link, recoverable by any
+	// member after its key syncs. Omitted for legacy or unavailable keys.
+	// Approval remains owner/admin-only; revoked keys are never returned.
 	InviteToken string `json:"inviteToken,omitempty"`
 }
 

@@ -1912,7 +1912,7 @@ const docTemplate = `{
             "api.InviteInfo": {
                 "properties": {
                     "inviteToken": {
-                        "description": "InviteToken is the same share token POST /invites returned at\nmint time, recovered from the minting account's synced custody.\nPresent only on that account's devices — other members (any\nrole) never held the private key and get no token. Also omitted\nfor invites minted before custody shipped (regenerate once to\nmake the token durable) and for custody gone stale (invite\nreplaced or revoked on another device).",
+                        "description": "InviteToken is the active request-to-join link, recoverable by any\nmember after its key syncs. Omitted for legacy or unavailable keys.\nApproval remains owner/admin-only; revoked keys are never returned.",
                         "type": "string"
                     },
                     "permission": {
@@ -10034,6 +10034,7 @@ const docTemplate = `{
                 ]
             },
             "post": {
+                "description": "Any active member can reuse the active request-to-join token. Only owners/admins can mint one. Revoke first to rotate.",
                 "parameters": [
                     {
                         "description": "Space ID",
@@ -10056,6 +10057,16 @@ const docTemplate = `{
                         },
                         "description": "Created"
                     },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Only owners/admins may mint an invite"
+                    },
                     "409": {
                         "content": {
                             "application/json": {
@@ -10077,7 +10088,7 @@ const docTemplate = `{
                         "description": "Internal Server Error"
                     }
                 },
-                "summary": "Create an invite",
+                "summary": "Create or reuse a request-to-join invite",
                 "tags": [
                     "invites"
                 ]

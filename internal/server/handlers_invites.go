@@ -14,11 +14,13 @@ import (
 
 // inviteCreate handles POST /v1/spaces/:spaceId/invites.
 //
-//	@Summary	Create an invite
+//	@Summary	Create or reuse a request-to-join invite
+//	@Description	Any active member can reuse the active request-to-join token. Only owners/admins can mint one. Revoke first to rotate.
 //	@Tags		invites
 //	@Produce	json
 //	@Param		spaceId	path		string	true	"Space ID"
 //	@Success	201		{object}	api.InviteCreateResponse
+//	@Failure	403		{object}	api.ErrorEnvelope	"Only owners/admins may mint an invite"
 //	@Failure	409		{object}	api.ErrorEnvelope	"Duplicate invite"
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/invites [post]
@@ -29,7 +31,7 @@ func (d *deps) inviteCreate(c echo.Context) error {
 	}
 	inv, err := sp.ACL().CreateInvite(c.Request().Context())
 	if err != nil {
-		if strings.Contains(err.Error(), "duplicate invites") {
+		if errors.Is(err, space.ErrDuplicateInvite) {
 			return writeError(c, http.StatusConflict, "invite.duplicate",
 				"an invite already exists for this space",
 				map[string]any{"spaceId": sp.Id()})
@@ -106,7 +108,7 @@ func (d *deps) inviteList(c echo.Context) error {
 }
 
 // inviteInfoToAPI maps one SDK invite row. When the SDK recovered the
-// invite key from this account's custody, re-encode it to the same
+// active invite key from shared or issuer custody, re-encode it to the same
 // share token the mint returned; encode failure just omits the token —
 // the row itself is still valid.
 func inviteInfoToAPI(spaceId string, inv space.InviteInfo) api.InviteInfo {

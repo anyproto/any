@@ -5,13 +5,13 @@ order: 20
 ---
 # Invites
 
-An invite is a shareable token. The owner mints it, passes the string out of band, and the joiner pastes it back to request membership. A guest key is the same mechanism for public read-only access — no request, no approval.
+An invite is a shareable token. An owner/admin mints it, any member can share it, and the joiner pastes it back to request membership. Approval stays with owners/admins. A guest key is the same mechanism for public read-only access — no request, no approval.
 
 ## Endpoints
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/v1/spaces/:spaceId/invites` | mint an invite → `201`; replaces any prior invite |
+| POST | `/v1/spaces/:spaceId/invites` | create or reuse an invite → `201`; members can share the active token |
 | GET | `/v1/spaces/:spaceId/invites` | list active invite records |
 | GET | `/v1/spaces/:spaceId/invites/:recordId` | one record; `404 invite.not_found` |
 | DELETE | `/v1/spaces/:spaceId/invites` | revoke all invites |
@@ -31,7 +31,7 @@ curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/invites
 { "spaceId": "bafyrei…", "inviteToken": "5ZHbdx…" }
 ```
 
-`inviteToken` is a base58-packed `(spaceId, invitePrivKey)`. Share the string however you like — a link, a QR code, a message.
+`inviteToken` is a base58-packed `(spaceId, invitePrivKey)`. Share the string however you like — a link, a QR code, a message. Repeated calls return the same active token, including for readers and writers. Only an owner/admin can mint an invite when none exists; other members receive `403 acl.forbidden`. Revoke first to rotate the token. An active legacy invite whose key cannot be recovered returns `409 invite.duplicate` to its owner/admin.
 
 ```bash
 any invite create <spaceId>
@@ -73,7 +73,7 @@ any invite revoke     <spaceId> <recordId>
 any invite revoke-all <spaceId>
 ```
 
-> **Note.** `inviteToken` on a read is the same string the mint returned, recovered from the minting account's synced custody — the ACL record itself carries only the invite public key. It is present only on the devices of the account that minted the invite; every other member gets the row without it. Treat the field as optional and offer "regenerate to get a shareable code".
+> **Note.** `inviteToken` is recovered from shared custody inside the encrypted space and checked against the active ACL. Every active member can retrieve it after sync. Existing issuer custody is backfilled when that device loads the space; legacy or lost keys remain optional and may require owner/admin revocation and a new invite. Generic query, subscribe, aggregate, and history endpoints cannot expose the internal `inviteKeys` dataset or its old keys.
 
 ## Guest key: public read-only access
 

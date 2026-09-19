@@ -112,6 +112,44 @@ func TestServer_MembersInvites_Owner(t *testing.T) {
 		t.Errorf("invite token looks too short: %q", minted.InviteToken)
 	}
 
+	// Repeated sharing returns the same token without another ACL invite.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/invites", "")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("reuse invite: %d %s", rec.Code, rec.Body.String())
+	}
+	var reused api.InviteCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &reused); err != nil {
+		t.Fatalf("decode reused invite: %v", err)
+	}
+	if reused != minted {
+		t.Fatalf("sharing changed the invite: got %+v, want %+v", reused, minted)
+	}
+
+	// Unfiltered history must not reveal raw custody (including after
+	// revocation). The invite API is the only route that checks live ACLs.
+	historyURL := "/v1/spaces/" + sp.Id + "/objects/" + sp.SpaceIndexObjectId + "/history"
+	rec = doJSON(t, e, http.MethodGet, historyURL, "")
+	var history api.HistoryListResponse
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &history) != nil {
+		t.Fatalf("invite history: %d %s", rec.Code, rec.Body.String())
+	}
+	var custodyVersion string
+	for _, change := range history.Changes {
+		if change.Dataset == inviteKeysDataset {
+			custodyVersion = change.Version
+			break
+		}
+	}
+	if custodyVersion == "" {
+		t.Fatal("shared invite custody was not written")
+	}
+	for _, path := range []string{"/" + custodyVersion, "/diff?version=" + custodyVersion} {
+		rec = doJSON(t, e, http.MethodGet, historyURL+path, "")
+		if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), inviteKeysDataset) {
+			t.Fatalf("history exposed custody: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+
 	// GET /invites → contains one record. Capture the record id for
 	// the revoke call.
 	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/invites", "")
@@ -181,7 +219,7 @@ func TestServer_MembersInvites_BadInputs(t *testing.T) {
 
 	cases := []struct {
 		name, method, path, body, wantCode string
-		wantStatus                          int
+		wantStatus                         int
 	}{
 		{
 			name:       "join missing token",

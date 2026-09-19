@@ -316,8 +316,8 @@ See [Files](../files/index.html).
 | GET | `/v1/spaces/:spaceId/members/requests` | — | `{requests: [{recordId, identity, name?, description?, iconCid?}]}` | pass `recordId` as `requestRecordId` to `acl/accept` |
 | GET | `/v1/spaces/:spaceId/members/subscribe` | — | SSE `member` frames | |
 | GET | `/v1/spaces/:spaceId/members/:identity` | — | `Member` | |
-| POST | `/v1/spaces/:spaceId/invites` | — | 201 `{spaceId, inviteToken}` | replaces any prior invite; `409 invite.duplicate` when the engine refuses a second one |
-| GET | `/v1/spaces/:spaceId/invites` | — | `{invites: [{recordId, permission, inviteToken?}]}` | token only on the minting account's devices |
+| POST | `/v1/spaces/:spaceId/invites` | — | 201 `{spaceId, inviteToken}` | reuses the active token for any member; only owners/admins mint; `409 invite.duplicate` for unavailable legacy custody |
+| GET | `/v1/spaces/:spaceId/invites` | — | `{invites: [{recordId, permission, inviteToken?}]}` | active token available to all members after sync |
 | GET | `/v1/spaces/:spaceId/invites/:recordId` | — | one invite | `404 invite.not_found` |
 | DELETE | `/v1/spaces/:spaceId/invites` | — | 204 | revoke all |
 | DELETE | `/v1/spaces/:spaceId/invites/:recordId` | — | 204 | |

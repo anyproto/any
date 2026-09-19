@@ -3827,7 +3827,7 @@ sync-status streams (`04-events.md` § Members stream).
 
 | Method | Path                                                 | Purpose                            |
 |--------|------------------------------------------------------|------------------------------------|
-| POST   | `/v1/spaces/:spaceId/invites`                        | `ACL.CreateInvite` — replaces any prior invite |
+| POST   | `/v1/spaces/:spaceId/invites`                        | `ACL.CreateInvite` — reuse the active invite, or mint one |
 | GET    | `/v1/spaces/:spaceId/invites`                        | `MembersAPI.Invites`               |
 | GET    | `/v1/spaces/:spaceId/invites/:recordId`              | `MembersAPI.Invites` — one record; `404 invite.not_found` |
 | DELETE | `/v1/spaces/:spaceId/invites`                        | `ACL.RevokeAllInvites`             |
@@ -3836,7 +3836,7 @@ sync-status streams (`04-events.md` § Members stream).
 | POST   | `/v1/spaces/:spaceId/guest-key`                      | `ACL.CreateGuestKey` — public read-only access; idempotent, owner only |
 | DELETE | `/v1/spaces/:spaceId/guest-key`                      | `ACL.RevokeGuestKey` — rotates the read key; old tokens die |
 
-Mint:
+Create or reuse:
 
 ```json
 // POST /v1/spaces/:id/invites
@@ -3845,11 +3845,16 @@ Mint:
 ```
 
 `inviteToken` is a base58-packed `(spaceId, invitePrivKey)` produced
-by `space.EncodeInvite`. Minted invites are request-to-join: a listed
-invite's `permission` is `"none"` — the role is chosen by the owner at
-`/acl/accept`, not carried by the invite. A mint the ACL refuses as a
-duplicate is `409 invite.duplicate`. Owners share the token
-out-of-band; joiners pass it back verbatim:
+by `space.EncodeInvite`. This operation is idempotent while the active
+key is available: any active member, including readers and writers,
+receives the same request-to-join token (`201`). Only owners/admins may
+mint an invite when none exists; other members receive `403 acl.forbidden`.
+Revoke first to rotate the token. An active legacy invite whose key is
+unavailable still returns `409 invite.duplicate` to its owner/admin.
+
+Sharing does not grant access. The invite's `permission` is `"none"`;
+an owner/admin chooses the role at `/acl/accept`. Joiners pass the token
+back verbatim:
 
 ```json
 // POST /v1/spaces/join
@@ -3897,14 +3902,15 @@ collection to revoke all in one batch.
 ] }
 ```
 
-`inviteToken` on a read is the SAME string the mint returned, recovered
-from the minting account's synced custody (the ACL record itself
-carries only the invite public key). It is present only on the devices
-of the account that minted the invite — every other member, whatever
-their role, gets the row without it — and absent too when custody is
-missing or stale (the invite was minted without it, or replaced or
-revoked on another device). Clients treat the field as optional and
-fall back to "regenerate to get a shareable code".
+`inviteToken` on a read is the same string the mint returned. The SDK
+recovers it from the encrypted space's shared custody and checks it against
+the active ACL, so every active member can retrieve it after sync. Existing
+issuer custody is backfilled when that device loads the space. The field
+remains optional for legacy invites whose key has not been published or
+was lost. A lost key requires owner/admin revocation and a fresh invite.
+Generic query, subscribe, aggregate, and history endpoints refuse the
+internal `inviteKeys` dataset; unfiltered history omits it. Revoked keys
+are never returned by the invite API.
 
 #### Guest key (public read-only access)
 

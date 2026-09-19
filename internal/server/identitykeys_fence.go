@@ -17,15 +17,23 @@ import (
 // it — the same rule the tech index's `identities` dataset follows.
 const identityKeysDataset = "identityKeys"
 
-// identityKeysReadRefused answers a per-object read that names the
+// Invite custody is exposed only through the invite API, which checks
+// active ACL records. Generic/history reads must not return revoked keys.
+const inviteKeysDataset = "inviteKeys"
+
+func isInternalKeyDataset(dataset string) bool {
+	return dataset == identityKeysDataset || dataset == inviteKeysDataset
+}
+
+// keyDatasetReadRefused answers a per-object read that names the
 // key-exchange dataset with 400 request.invalid_field. done=false for
 // any other dataset.
-func identityKeysReadRefused(c echo.Context, objectId, dataset string) (errResp error, done bool) {
-	if dataset != identityKeysDataset {
+func keyDatasetReadRefused(c echo.Context, objectId, dataset string) (errResp error, done bool) {
+	if !isInternalKeyDataset(dataset) {
 		return nil, false
 	}
 	return writeError(c, http.StatusBadRequest, "request.invalid_field",
-		"dataset "+identityKeysDataset+" is SDK-internal (resolve the peer via GET /v1/identities/:identity)",
+		"dataset "+dataset+" is SDK-internal; use the identities or invites API",
 		map[string]any{"objectId": objectId, "dataset": dataset}), true
 }
 
@@ -35,7 +43,7 @@ func identityKeysReadRefused(c echo.Context, objectId, dataset string) (errResp 
 func (d *deps) perObjectReadVet(c echo.Context, sp space.Space) perObjectVet {
 	tech := d.techIndexVet(c, sp)
 	return func(root *fastjson.Value, objectId, dataset string) ([]string, error, bool) {
-		if errResp, done := identityKeysReadRefused(c, objectId, dataset); done {
+		if errResp, done := keyDatasetReadRefused(c, objectId, dataset); done {
 			return nil, errResp, true
 		}
 		if tech == nil {

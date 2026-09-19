@@ -83,6 +83,9 @@ func aclOpError(c echo.Context, err error, details map[string]any) error {
 	if errors.Is(err, space.ErrNotFound) {
 		return writeError(c, http.StatusNotFound, "members.not_found", err.Error(), details)
 	}
+	if errors.Is(err, space.ErrInsufficientPermissions) {
+		return writeError(c, http.StatusForbidden, "acl.forbidden", err.Error(), details)
+	}
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "no permissions") || strings.Contains(msg, "permission denied"):

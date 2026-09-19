@@ -158,7 +158,7 @@ CI and release artifacts: `docs/18-ci.md`.
   reachable only through the closed policy tables in `techspace.go` and
   `handlers_spaces_query.go`, which also strip private-key fields. Every
   per-object read (query, subscribe, aggregate, history) calls
-  `identityKeysReadRefused`, and any new route that takes a dataset name
+  `keyDatasetReadRefused`, and any new route that takes a dataset name
   must call it too.
 - **The local store never writes an SDK collection** and never opens a
   transaction spanning an `l_*` collection and an SDK collection.
