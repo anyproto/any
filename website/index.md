@@ -9,7 +9,7 @@ description: Documentation for any — the reactive, local-first, end-to-end enc
 
 A reactive, **local-first** database. Documents live on your devices, merge as CRDTs, sync end-to-end encrypted, and answer Mongo-style queries with live subscriptions — online or not. Chat and a block editor are built in as CRDT modules, and anyrt runs sandboxed Python programs, scheduled jobs, and agents right alongside your data.
 
-**Developer preview.** APIs may change; MIT licensed. [Preview status](understanding/preview.html).
+**Developer preview.** APIs and data formats may change. Open source under the MIT license. [Preview status and license](understanding/preview.html).
 
 <div class="pills"><span class="pill">local-first</span><span class="pill cyan">e2e encrypted</span><span class="pill amber">crdt</span><span class="pill magenta">mongo queries</span><span class="pill">sse live queries</span><span class="pill cyan">wasm-sandboxed programs</span><span class="pill amber">single go binary</span></div>
 

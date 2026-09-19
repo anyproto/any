@@ -139,7 +139,7 @@ LIBDIR="third_party/llamacpp/staged/$LLAMA"
 scripts/fetch-llamacpp.sh "$LLAMACPP_VERSION" "$LIBDIR" "$LLAMA"
 mkdir -p "$STAGE/llamacpp"
 cp -a "$LIBDIR/." "$STAGE/llamacpp/"
-
+cp "$ROOT/LICENSE" "$STAGE/LICENSE"
 
 # manifest.json — sha256 of every staged file (relative paths) + metadata.
 sha256_of() {

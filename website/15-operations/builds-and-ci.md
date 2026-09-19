@@ -50,6 +50,7 @@ One reusable workflow builds every platform on tag (release) and nightly (prerel
 ```
 any[.exe]         the server, built with -tags llamacpp
 llamacpp/         prebuilt llama.cpp shared libs for this (os, arch)
+LICENSE           Any's MIT license and copyright notice
 manifest.json     { version, os, arch, llamacpp_version, sha256: {path: hash} }
 ```
 
