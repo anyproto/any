@@ -550,7 +550,7 @@ one updated to deleted, stops it and drops its index. A failed
 
 A second per-space goroutine drains `pending` docs: `EmbedDocs` in
 batches of `index.embedBatch` (default 64), `index.embedConcurrency`
-batches in parallel (default 1; 4 for `openai` / `auto`) → `SetVectors`
+batches in parallel (default 1; 4 for `openai`, and for `auto` with a key) → `SetVectors`
 (one write transaction, update-only — docs deleted meanwhile are
 skipped) → `EnsureVectorIndex`. Advance nudges it after each page with
 new text; a 1-minute ticker retries after embedder failures. A rewritten
@@ -559,10 +559,14 @@ run and the index is FTS-only.
 
 Embedders (`indexer.Embedder`), selected by `index.embedder`:
 
-- `auto` — **default**: an OpenAI-compatible primary with the `local`
-  embedder as fallback. Both MUST serve the same model (one vector space,
-  one dimension); the default pairing is Qwen3-Embedding-0.6B online and
-  locally (`index.openai.*` names the primary, required). A circuit
+- `auto` — **default**: the `local` embedder alone until
+  `index.openai.apiKey` is set; with a key, an OpenAI-compatible primary
+  with the `local` embedder as fallback. Both MUST serve the same model
+  (one vector space, one dimension); the default pairing is
+  Qwen3-Embedding-0.6B online and locally. `index.openai.baseUrl` and
+  `apiKey` name the primary (any OpenAI-compatible host; neither has a
+  default); `model` defaults to the local model's name and is overridden
+  only for a provider that spells the same model differently. A circuit
   breaker skips the primary for 30 s after 3 consecutive failures. A
   query gives the primary half of the remaining query budget, so the
   fallback still has time to decode.
@@ -586,8 +590,8 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   call. Linux needs a system `libffi.so.8` (NixOS: `nix develop`).
 - `ollama` — local `/api/embed`, default `embeddinggemma`, doc/query
   task prompts.
-- `openai` — any OpenAI-compatible `/embeddings` API (`index.openai.model`
-  required).
+- `openai` — any OpenAI-compatible `/embeddings` API (`index.openai.baseUrl`
+  and `index.openai.model` required; no default provider).
 
 **An unavailable embedder never breaks the pipeline.** There is no
 boot-time probe: whenever an embedder is configured, text-bearing docs

@@ -94,8 +94,14 @@ func TestNewEmbedder(t *testing.T) {
 	if _, err := NewEmbedder(config.Index{Embedder: "openai"}, dir, "", nil); err == nil {
 		t.Error("openai without model should error")
 	}
-	if _, err := NewEmbedder(config.Index{Embedder: "openai", OpenAI: config.IndexOpenAI{Model: "m"}}, dir, "", nil); err != nil {
-		t.Errorf("openai with model: %v", err)
+	if _, err := NewEmbedder(config.Index{Embedder: "openai", OpenAI: config.IndexOpenAI{Model: "m"}}, dir, "", nil); err == nil {
+		t.Error("openai without baseUrl should error: there is no default provider")
+	}
+	if _, err := NewEmbedder(config.Index{Embedder: "openai", OpenAI: config.IndexOpenAI{BaseUrl: "http://127.0.0.1:1/v1", Model: "m"}}, dir, "", nil); err != nil {
+		t.Errorf("openai with baseUrl and model: %v", err)
+	}
+	if _, err := NewEmbedder(config.Index{Embedder: "auto", OpenAI: config.IndexOpenAI{Model: "m", ApiKey: "k"}}, dir, "", nil); err == nil {
+		t.Error("auto with a key but no baseUrl should error")
 	}
 	if _, err := NewEmbedder(config.Index{Embedder: "bogus"}, dir, "", nil); err == nil {
 		t.Error("unknown embedder should error")

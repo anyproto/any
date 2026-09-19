@@ -64,14 +64,14 @@ The passkey is the one secret the server may need at boot: it comes from the env
 | Key | Env | Default | Meaning |
 |---|---|---|---|
 | `index.enabled` | `ANY_INDEX_ENABLED` | `true` | `false` disables the indexer and `/search` (`409 index.disabled`) |
-| `index.embedder` | `ANY_INDEX_EMBEDDER` | `auto` | `auto` (online primary + local fallback, same model; indexed text and queries go to `index.openai.baseUrl`) \| `local` (on-device) \| `ollama` \| `openai` \| `none` (FTS-only) |
+| `index.embedder` | `ANY_INDEX_EMBEDDER` | `auto` | `auto` (local alone without `index.openai.apiKey`; with a key, online primary + local fallback, same model, and indexed text and queries go to `index.openai.baseUrl`) \| `local` (on-device) \| `ollama` \| `openai` \| `none` (FTS-only) |
 | `index.embedBatch` | `ANY_INDEX_EMBED_BATCH` | `64` | docs per embed request |
 | `index.embedConcurrency` | `ANY_INDEX_EMBED_CONCURRENCY` | `0` | parallel batches; 0 = 1 for local, 4 for online |
 | `index.ollama.url` | `ANY_INDEX_OLLAMA_URL` | `http://localhost:11434` | |
 | `index.ollama.model` | `ANY_INDEX_OLLAMA_MODEL` | `embeddinggemma` | |
-| `index.openai.baseUrl` | `ANY_INDEX_OPENAI_BASE_URL` | `https://api.deepinfra.com/v1/openai` | OpenAI-compatible `/embeddings` host |
-| `index.openai.model` | `ANY_INDEX_OPENAI_MODEL` | `Qwen/Qwen3-Embedding-0.6B` | for `auto` must equal the local model |
-| `index.openai.apiKey` | `ANY_INDEX_OPENAI_API_KEY` | (shared dev credential) | sent as Bearer; never logged |
+| `index.openai.baseUrl` | `ANY_INDEX_OPENAI_BASE_URL` | empty | any OpenAI-compatible `/embeddings` host; required for `openai`, and for `auto` once a key is set |
+| `index.openai.model` | `ANY_INDEX_OPENAI_MODEL` | `Qwen/Qwen3-Embedding-0.6B` | the local model's name; override with the provider's spelling of the **same** model — a different model makes the index incompatible with the local fallback |
+| `index.openai.apiKey` | `ANY_INDEX_OPENAI_API_KEY` | empty | turns the `auto` primary on; sent as Bearer; never logged |
 | `index.local.modelPath` | `ANY_INDEX_LOCAL_MODEL_PATH` | `""` | existing GGUF; set ⇒ no download (air-gapped) |
 | `index.local.modelUrl` | `ANY_INDEX_LOCAL_MODEL_URL` | `""` | download-source override |
 | `index.local.modelSha256` | `ANY_INDEX_LOCAL_MODEL_SHA256` | `""` | checksum override |
