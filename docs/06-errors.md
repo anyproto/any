@@ -200,7 +200,7 @@ local.bad_pipeline               # 400 — unparseable pipeline, sink into the a
 local.limit_exceeded             # 400 — a blocking-stage bound blew (details.limit: group | accumArray | memory)
 local.bad_export                 # 400 — import of a file that is not an export this server reads: not gzip, foreign format/version, a section shorter than its count, a non-object or id-less document, bytes past the last section, an untagged collection name (details.imported = collections completed before it)
 
-access.disabled                  # 409 — no access.redeemUrl configured
+access.disabled                  # 409 — no access.redeemUrl configured (a named nodeconf gets no default)
 access.request_rejected          # 400 — the invite service refused the request (details.code)
 access.signature_rejected        # 401 — the invite service could not verify this account's signature
 access.code_not_found            # 404 — unknown invite code
