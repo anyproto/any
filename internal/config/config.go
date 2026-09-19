@@ -242,7 +242,7 @@ type IndexOllama struct {
 }
 
 type IndexOpenAI struct {
-	BaseUrl string `yaml:"baseUrl"` // default https://api.openai.com/v1
+	BaseUrl string `yaml:"baseUrl"` // no default; required for "openai", and for "auto" once apiKey is set
 	Model   string `yaml:"model"`
 	ApiKey  string `yaml:"apiKey"` // never logged
 }
@@ -322,14 +322,15 @@ type IndexVector struct {
 	Mode string `yaml:"mode"`
 }
 
-// The default online primary for "auto" and "openai": an OpenAI-compatible
-// host that serves the SAME model the local fallback runs. No key ships
-// with the binary — index.openai.apiKey (ANY_INDEX_OPENAI_API_KEY) turns
-// the online primary on; without it "auto" is the local model alone.
-const (
-	defaultEmbedBaseURL = "https://api.deepinfra.com/v1/openai"
-	defaultEmbedModel   = "Qwen/Qwen3-Embedding-0.6B" // must equal the local fallback model
-)
+// defaultEmbedModel is the online primary's model under "auto": the same
+// model the local fallback runs, spelled the way most OpenAI-compatible
+// providers list it. Providers differ in naming, so index.openai.model is
+// overridable — but it must still name the SAME model, or the online and
+// local vectors land in one index as two incompatible spaces. No provider
+// host and no key ship with the binary: index.openai.baseUrl and
+// index.openai.apiKey turn the online primary on; without them "auto" is
+// the local model alone.
+const defaultEmbedModel = "Qwen/Qwen3-Embedding-0.6B"
 
 // Defaults returns a Config populated with v1 defaults. Paths here are
 // unexpanded — Load resolves them against the process environment.
@@ -345,7 +346,7 @@ func Defaults() Config {
 		Index: Index{
 			Enabled:  true,
 			Embedder: "auto", // online primary + local fallback (same model)
-			OpenAI:   IndexOpenAI{BaseUrl: defaultEmbedBaseURL, Model: defaultEmbedModel},
+			OpenAI:   IndexOpenAI{Model: defaultEmbedModel},
 		},
 		Log: logger.Config{
 			DefaultLevel: "info",

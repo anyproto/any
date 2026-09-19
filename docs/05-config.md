@@ -125,11 +125,15 @@ index:
     url: http://localhost:11434       # default
     model: embeddinggemma             # default
   openai:                             # online primary for embedder: openai/auto.
-                                      # No key ships with the binary: under `auto`
-                                      # the primary is on only when apiKey is set,
-                                      # otherwise `auto` is the local model alone.
-    baseUrl: https://api.deepinfra.com/v1/openai
-    model: Qwen/Qwen3-Embedding-0.6B  # for auto, MUST equal the local fallback model
+                                      # No provider ships with the binary: under
+                                      # `auto` the primary is on only when apiKey
+                                      # is set, otherwise `auto` is the local model
+                                      # alone. Any OpenAI-compatible /embeddings host.
+    baseUrl: ""                       # required with a key (no default host)
+    model: Qwen/Qwen3-Embedding-0.6B  # default: the local model's name. Override with
+                                      # the provider's spelling, but it MUST be the same
+                                      # model — a different one makes the index's
+                                      # vectors incompatible with the local fallback
     apiKey: ...                       # sent as Bearer; never logged
   local:                              # llama.cpp in a child process — all fields optional;
                                       # the default embedder needs no config at all
@@ -350,10 +354,12 @@ repeated failures, then re-probes.
 
 **Both sides must be the SAME embedding model** — the index stores one
 vector space and one dimension; mixing models yields incoherent
-similarity. The supported pairing is one model served two ways, e.g.
-`index.openai.model: Qwen/Qwen3-Embedding-0.6B` (a host that serves it,
-e.g. DeepInfra) with the default local Qwen3-Embedding-0.6B. fp16-vs-Q8
-drift is negligible.
+similarity. The supported pairing is one model served two ways: the
+local Qwen3-Embedding-0.6B and any OpenAI-compatible host that serves
+the same model. `index.openai.model` defaults to that model's common
+name; a provider that spells it differently needs the override, and a
+provider that serves a *different* model is not a fallback pair — it is
+a second, incompatible vector space. fp16-vs-Q8 drift is negligible.
 
 ## Passkey
 

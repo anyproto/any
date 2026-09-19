@@ -28,8 +28,8 @@ func NewEmbedder(cfg config.Index, modelsDir, legacyModelsDir string, onProcess 
 	case "ollama":
 		return NewOllama(cfg.Ollama.Url, cfg.Ollama.Model), nil
 	case "openai":
-		if cfg.OpenAI.Model == "" {
-			return nil, fmt.Errorf("indexer: openai embedder needs index.openai.model")
+		if cfg.OpenAI.BaseUrl == "" || cfg.OpenAI.Model == "" {
+			return nil, fmt.Errorf("indexer: openai embedder needs index.openai.baseUrl and index.openai.model")
 		}
 		return NewOpenAI(cfg.OpenAI.BaseUrl, cfg.OpenAI.Model, cfg.OpenAI.ApiKey), nil
 	case "local":
@@ -44,8 +44,8 @@ func NewEmbedder(cfg config.Index, modelsDir, legacyModelsDir string, onProcess 
 		if cfg.OpenAI.ApiKey == "" {
 			return newWorkerEmbedder(cfg.Local, modelsDir, legacyModelsDir, onProcess)
 		}
-		if cfg.OpenAI.Model == "" {
-			return nil, fmt.Errorf("indexer: auto embedder needs index.openai.model (the online primary, same model as local)")
+		if cfg.OpenAI.BaseUrl == "" || cfg.OpenAI.Model == "" {
+			return nil, fmt.Errorf("indexer: auto embedder with an apiKey needs index.openai.baseUrl and index.openai.model (the online primary, same model as local)")
 		}
 		primary := NewOpenAI(cfg.OpenAI.BaseUrl, cfg.OpenAI.Model, cfg.OpenAI.ApiKey)
 		fallback, err := newWorkerEmbedder(cfg.Local, modelsDir, legacyModelsDir, onProcess)

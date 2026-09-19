@@ -399,7 +399,7 @@ func realEvalEmbedder(t *testing.T) (string, Embedder) {
 	cfg := config.Index{
 		Embedder: name,
 		OpenAI: config.IndexOpenAI{
-			BaseUrl: os.Getenv("ANY_EVAL_OPENAI_BASE_URL"), // e.g. https://api.deepinfra.com/v1/openai
+			BaseUrl: os.Getenv("ANY_EVAL_OPENAI_BASE_URL"), // an OpenAI-compatible host serving the eval model
 			Model:   os.Getenv("ANY_EVAL_OPENAI_MODEL"),    // e.g. Qwen/Qwen3-Embedding-0.6B
 			ApiKey:  os.Getenv("ANY_EVAL_OPENAI_API_KEY"),
 		},

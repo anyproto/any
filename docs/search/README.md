@@ -91,8 +91,8 @@ Live chunk-length distribution: open `<data-dir>/index/index.db` with the
 any-store CLI, read `data` and `dataset` from the space's collection (named
 by the space id), and bucket `len(data)` per `dataset`.
 
-BEIR with an OpenAI-compatible API (DeepInfra hosts the exact model;
-parallel batches take minutes instead of ~35 min on local CPU):
+BEIR with an OpenAI-compatible API (a provider that serves the exact
+model; parallel batches take minutes instead of ~35 min on local CPU):
 
 ```bash
 curl -sSL -o /tmp/scifact.zip \
@@ -101,17 +101,17 @@ unzip -d /tmp -o /tmp/scifact.zip
 
 ANY_BEIR_DIR=/tmp/scifact \
 ANY_EVAL_EMBEDDER=openai \
-ANY_EVAL_OPENAI_BASE_URL=https://api.deepinfra.com/v1/openai \
+ANY_EVAL_OPENAI_BASE_URL=https://<provider>/v1 \
 ANY_EVAL_OPENAI_MODEL=Qwen/Qwen3-Embedding-0.6B \
-ANY_EVAL_OPENAI_API_KEY=$DEEPINFRA_KEY \
+ANY_EVAL_OPENAI_API_KEY=$EMBED_API_KEY \
 ANY_EVAL_QUERY_PREFIX=$'Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:' \
 ANY_BEIR_EMBED_CONCURRENCY=8 ANY_BEIR_EMBED_BATCH=100 \
 go test -tags 'fts vector' -run TestSearchEvalBEIR -v -timeout 20m ./internal/indexer
 ```
 
 Provider notes: **OpenRouter** has no embeddings; **Together** lacks Qwen3
-and caps e5 at 512 tokens (rejects SciFact abstracts); **DeepInfra** hosts
-`Qwen/Qwen3-Embedding-0.6B` (fp16 vs the local Q8). For the local model,
+and caps e5 at 512 tokens (rejects SciFact abstracts); pick a host that
+serves `Qwen/Qwen3-Embedding-0.6B` (fp16 vs the local Q8). For the local model,
 set `ANY_EVAL_EMBEDDER=local ANY_EVAL_LOCAL_MODEL=… ANY_EVAL_LOCAL_LIBDIR=…`.
 Other BEIR sets drop in by name (e.g. `fiqa.zip`, 57.6k docs); add
 `ANY_BEIR_EXACT=1` for the exact-vs-index comparison and
@@ -363,8 +363,8 @@ the vector index inserts thousands per second. Two mechanisms address this
   zero setup and stays available through an outage instead of pausing on
   `pending`. **Hard constraint:** primary and fallback must be the *same
   model* (one vector space, one dimension) — Qwen3-Embedding-0.6B online
-  (fp16, DeepInfra) and local (Q8); the quantization drift is negligible.
-  The default online credentials are compiled into `internal/config`.
+  (fp16, any OpenAI-compatible host) and local (Q8); the quantization
+  drift is negligible. No provider or key is compiled in.
 - **Parallel embed loop** (`index.embedConcurrency`) — several batches per
   round in parallel. The win is online (parallel HTTP requests); the local
   child serves one frame at a time, so concurrency is safe for any

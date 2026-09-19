@@ -56,9 +56,9 @@ Platform notes: Linux needs a loadable system `libffi.so.8` (on NixOS use the re
 
 ## `auto` — online primary, local fallback
 
-No key ships with the binary, so a fresh install's `auto` is the local model and nothing leaves the device. Set `index.openai.apiKey` (`ANY_INDEX_OPENAI_API_KEY`) and `auto` prefers the online API for speed and falls back to the local model during an outage through a circuit breaker (repeated failures skip the primary for a cooldown, then re-probe), so vector search stays fresh instead of pausing. A semantic query gives the primary half of the remaining timeout budget so the local fallback still has time to answer.
+No provider ships with the binary, so a fresh install's `auto` is the local model and nothing leaves the device. Point `index.openai.baseUrl` at any OpenAI-compatible `/embeddings` host and set `index.openai.apiKey` (`ANY_INDEX_OPENAI_BASE_URL` / `ANY_INDEX_OPENAI_API_KEY`), and `auto` prefers the online API for speed and falls back to the local model during an outage through a circuit breaker (repeated failures skip the primary for a cooldown, then re-probe), so vector search stays fresh instead of pausing. A semantic query gives the primary half of the remaining timeout budget so the local fallback still has time to answer.
 
-> **Note.** Both sides must be the **same embedding model** — the index holds one vector space and one dimension, and mixing models yields incoherent similarity. The supported pairing is one model served two ways: `index.openai.model: Qwen/Qwen3-Embedding-0.6B` on a host that serves it, with the default local Qwen3-Embedding-0.6B. fp16-versus-Q8 drift is negligible. The packaged `openai` defaults are shared development credentials, marked temporary.
+> **Note.** Both sides must be the **same embedding model** — the index holds one vector space and one dimension, and mixing models yields incoherent similarity. The supported pairing is one model served two ways: the local Qwen3-Embedding-0.6B and a host that serves the same model. `index.openai.model` defaults to that model's common name, `Qwen/Qwen3-Embedding-0.6B`; override it only when your provider spells the same model differently. A provider serving a different model is not a fallback pair but a second, incompatible vector space. fp16-versus-Q8 drift is negligible.
 
 ## `ollama` and `openai`
 
