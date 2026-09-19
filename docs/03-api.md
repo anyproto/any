@@ -2523,7 +2523,7 @@ type objects have stays listed.
 `meta` (`type.meta`) is the open bag of consumer flags on a type — one
 string, bool or number per single-level key (no `.`, no `$`, ≤64
 bytes; `400 request.invalid_field` otherwise), opaque to the server.
-Create takes it whole; PATCH patches it **per key** — a scalar sets
+Create takes it whole, values only (`null` is refused); PATCH patches it **per key** — a scalar sets
 the key, `null` unsets it, keys not named are untouched — so two
 devices writing different keys merge instead of clobbering each
 other. Consumers read the keys they own; the server interprets none
@@ -3129,9 +3129,9 @@ no `layout`: an object of type `page` renders by the client's default.
 A **collection** is what an object is filed under — `any.collections`,
 an array — next to the one type it IS (`any.type`). It is a group of
 columns and nothing else: no parts, no layout, no datasets. A person
-who is also a contact is one object with `type: person` and
-`collections: [<contactId>]`, rendered by the person layout and
-carrying both property groups.
+who is also a contact is one object with `type: profile` and
+`collections: [<personId>, <contactId>]`, rendered by the profile
+layout and carrying both property groups.
 
 `POST …/collections` takes `{name?, description?, iconCid?, xKey,
 hidden?, meta?}` → `201 {"collectionId": "…"}`. **`xKey` is required**

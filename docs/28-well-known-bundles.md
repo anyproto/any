@@ -63,7 +63,9 @@ open flag bag (`03-api.md` § Collections), and `meta.defaultType` holds
 the xKey of the type an object created INSIDE the collection gets — a
 `profile` for a person, absent for a deal, which is a `page`. Clients
 read it; the server does not enforce it, and filing an object of any
-other type under the collection stays legal. It is a handle, resolved
+other type under the collection stays legal. The validator requires it
+to name a type of the usecase, its `requires` or a registered type. It
+is a handle, resolved
 per space like a relation target, and one no type in the space carries
 reads as absent.
 
@@ -105,11 +107,12 @@ encoding in the path. Bundle ids are `system:<name>/v<n>` — the
 `409 bundle.reserved`), the version is part of the id, and a bundle
 that changes shape takes a new id (§ Evolution). Type and collection
 xKeys (`[a-z][a-z0-9_]*`) share one namespace — unique across the
-catalog, types and collections together, and disjoint from the
-registered type ids and the meta ids `any`, `type` and `collection`;
-property xKeys (`[A-Za-z][A-Za-z0-9_]*`) are unique within their
-definition. `relation.targetTypes` name types by xKey, so cross-bundle
-references need no id resolution.
+catalog, types and collections together, except between a bundle and
+one it supersedes (§ Superseding), and disjoint from the registered
+type ids and the meta ids `any`, `type` and `collection`; property
+xKeys (`[A-Za-z][A-Za-z0-9_]*`) are unique within their definition.
+`relation.targetTypes` name definitions by xKey — a type or a
+collection — so cross-bundle references need no id resolution.
 
 ## Endpoints
 
@@ -325,7 +328,7 @@ and `GET …/collections?includeHidden=true`.
 
 Every catalog root except the chat is a created root, so two devices
 of one account that set a usecase up while apart each mint a root —
-two `person` types with one xKey. After sync the registry names one
+two `profile` types with one xKey. After sync the registry names one
 winner and lists the other in `losers`; objects that had the loser
 keep their values under the loser's id. The client that observes a
 loser re-homes those objects onto the winner **column by column
@@ -413,8 +416,8 @@ other. It is one step only: a superseded bundle supersedes nothing.
 
 "Has none" is only true of a converged registry. A member reading an
 unsynced one would install the new set next to the bundle it stands in
-for, and the two share a handle. So when a group is neither on its old
-shape nor already carrying its whole new set locally, setup runs the
+for, and the two share a handle. So when a group has neither an old
+nor a new bundle present locally, setup runs the
 registry-convergence wait before it decides, and an expired wait is
 answered as the install gate answers it: the space's owner proceeds,
 any other member gets the retryable `409 bundle.not_ready`. A group
@@ -462,7 +465,7 @@ schema).
 | `vendor` | `people` | `system:vendor/v1` | collection `vendor` (services, vendor_status, contract_value, renewal_date) |
 | `cofounder` | `people` | `system:cofounder/v1` | collection `cofounder` (founded → `organization`, since, responsibilities, equity) |
 | `candidate` | `people` | `system:candidate/v1` | collection `candidate` (role, candidate_stage, next_interview, resume) |
-| `contacts` | `people`, `contact` | `system:contacts/v1` | miniapp, hidden; records part `layouts` (dataset `layouts`, `idRule: user` — the id is an identity type's xKey; field `blocks`, array) — a definition hosts itself, so the layouts live on the app root with no flag |
+| `contacts` | `people`, `contact` | `system:contacts/v1` | miniapp, hidden; records part `layouts` (dataset `layouts`, `idRule: user` — the id is an identity collection's xKey, `person` or `organization`; field `blocks`, array) — a definition hosts itself, so the layouts live on the app root with no flag |
 | `crm` | `contacts` | `system:deal/v2` | collection `deal` (stage, owner → `person`, organization → `organization`, amount, close_date) — a deal is a `page` filed under it; supersedes `system:deal/v1` |
 | | | `system:deal/v1` | superseded: type `deal` (layout `profile`) with the same properties + shared editor `body` part |
 | | | `system:crm/v1` | miniapp only, a `page` root |
@@ -605,7 +608,7 @@ Problem codes of the structural layer (`internal/catalog`):
 | `catalog.bad_field` | a field that contradicts the rest — `type` next to `collection` ("a root defines a type or a collection, not both"), `parts` next to `collection` ("a collection declares no parts"), `hidden` without `type`, `collection` or `parts`, `rootType` next to a declaration or naming an id that is not a registered type, `meta` beyond `index`, `relation.filter`, a wrong module, `chat` not shared, `records` shared, fields on a module dataset, `deleteBy: author` or a `mutableBy: author` field without a creator stamp, a `search` mapping naming a field the dataset does not declare, a mapping key that is not a string, a node of the wrong shape, and the bounds (name ≤1024 B, ≤32 parts, ≤64 properties per declaration); a `type` that declares neither a `layout` nor a part ("a definition that only adds properties is a collection" — a superseded bundle is exempt); a `supersedes` entry naming a bundle that supersedes another (one step only); a collection `meta` key that is not single-level, or a value that is not a string, boolean or number |
 | `catalog.unknown_usecase` | a `requires` entry naming no usecase |
 | `catalog.cycle` | a self-require, a bundle superseding itself, or a cycle in `requires` — reported as its path (`a → b → a`) |
-| `catalog.broken_link` | a `supersedes` entry naming no bundle of the same usecase; a `relation.targetTypes` xKey that is no type of the usecase, its transitive `requires` or a built-in; names the usecase that would have to be required when the type exists elsewhere in the catalog |
+| `catalog.broken_link` | a `supersedes` entry naming no bundle of the same usecase; a collection `meta.defaultType` naming no type of the usecase, its transitive `requires` or a registered type (a collection's xKey is refused too); a `relation.targetTypes` xKey that is no type or collection of the usecase, its transitive `requires` or a built-in; names the usecase that would have to be required when the definition exists elsewhere in the catalog |
 | `catalog.bad_miniapp` | `miniapp.bundle` differing from the bundle id, a key the built-in `miniapp` collection lacks, or a value of the wrong kind |
 
 The server layer adds the descriptor gate and reports its own codes

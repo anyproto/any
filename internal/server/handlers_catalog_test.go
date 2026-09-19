@@ -1010,6 +1010,11 @@ func TestServer_CatalogSuperseded(t *testing.T) {
 	if v, ok := info.Meta["defaultType"]; !ok || v != "" {
 		t.Fatalf("setup seeded a flag the space cleared: %+v", info.Meta)
 	}
+	// A clear is a PATCH; create takes values only.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+fresh.Id+"/collections", `{"xKey":"seam_nulls","meta":{"defaultType":null}}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("create with a null meta value: %d %s", rec.Code, rec.Body.String())
+	}
 }
 
 // Two types before the change; after it one format supersedes both and

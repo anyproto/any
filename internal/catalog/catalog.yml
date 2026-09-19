@@ -540,7 +540,7 @@ usecases:
           - key: layouts
             datasets:
               - key: layouts
-                idRule: user                           # id = the identity type's xKey
+                idRule: user                           # id = the identity collection's xKey (person, organization)
                 fields:
                   - { key: blocks, kind: array, mutableBy: any }
 

@@ -7,7 +7,7 @@ order: 32
 
 An object **is** one type and is **filed under** any number of collections. A collection carries property definitions and nothing else — no parts, no layout, no datasets — so filing an object changes the columns it holds, never how it renders.
 
-A person who is also a contact and an investor is **one** object: `type: person`, `collections: [contact, investor]`. It renders with the person layout and carries three property groups — the person's, the contact's and the investor's — each in its own namespace on the row.
+A person who is also a contact and an investor is **one** object: `type: profile`, `collections: [person, contact, investor]`. It renders with the profile layout and carries three property groups — the person's, the contact's and the investor's — each in its own namespace on the row.
 
 > **Note.** "Collection" on this site always means this object kind. The place records live in — `editor_blocks`, `chat_messages`, `<typeId>_<key>` — is a **storage collection**, the `dataset` name on reads and writes. See [Runtime datasets](runtime-datasets.html).
 

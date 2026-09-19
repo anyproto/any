@@ -225,7 +225,7 @@ func (d *deps) catalogSetup(c echo.Context) error {
 		// On install as well as on adopt: the install carries no meta, so
 		// a fresh root lacks every declared key.
 		if len(cb.meta) > 0 {
-			if err := healCollectionMeta(ctx, sp, r.Bundle.RootId, cb.meta, r.Installed); err != nil {
+			if err := healCollectionMeta(ctx, sp, r.Bundle.RootId, cb.meta); err != nil {
 				handlerLog.Warn("catalog: collection meta heal deferred",
 					zap.String("spaceId", sp.Id()), zap.String("bundleId", r.Install.Id), zap.Error(err))
 			}
@@ -260,8 +260,8 @@ func walksBundle(cb *compiledBundle, have map[string]bool) bool {
 
 // supersededInstalled reads which bundles the space has installed, for
 // the supersede groups of the walk. A group is settled when the space
-// is on its old shape (any old bundle present) or already carries the
-// whole new set. Otherwise "not installed" is only true of a converged
+// is on its old shape (any old bundle present) or already on the new
+// one (any new bundle present). Otherwise "not installed" is only true of a converged
 // registry: a member that reads an unsynced one would install the new
 // set next to the bundle it stands in for, and the two share a handle.
 // The wait is the install gate's own, and it fails the same way — the
@@ -294,7 +294,7 @@ func (d *deps) supersededInstalled(ctx context.Context, sp space.Space, order []
 	}
 	settled := func(have map[string]bool) bool {
 		for _, g := range groups {
-			if !g.OldKept(have) && !g.NewAll(have) {
+			if !g.OldKept(have) && !g.NewAny(have) {
 				return false
 			}
 		}
@@ -311,19 +311,18 @@ func (d *deps) supersededInstalled(ctx context.Context, sp space.Space, order []
 }
 
 // healCollectionMeta writes the declared flags an installed collection
-// lacks. A fresh install carries no meta, so the whole bag is written
-// without a read. On adopt only absent keys are written, never a key
-// the definition carries: that value is the space's own, a cleared one
-// included (a PATCH clear keeps the key as ""). Writers only; a
-// reader's setup leaves the definition as it is.
-func healCollectionMeta(ctx context.Context, sp space.Space, rootId string, meta map[string]any, installed bool) error {
+// lacks. Always a read first, on install too: a declaring install
+// reports Installed from the SDK's registered bit, which an inbound
+// install landing mid-write can leave naming someone else's winner,
+// and that root may carry values the space set. Never overwrites a key
+// the definition carries — a cleared one included (a PATCH clear keeps
+// the key as ""). Writers only; a reader's setup leaves the definition
+// as it is.
+func healCollectionMeta(ctx context.Context, sp space.Space, rootId string, meta map[string]any) error {
 	switch sp.Info().OwnRole {
 	case space.PermissionOwner, space.PermissionAdmin, space.PermissionWriter:
 	default:
 		return nil
-	}
-	if installed {
-		return sp.Collections().Patch(ctx, rootId, space.CollectionPatch{Meta: meta})
 	}
 	info, err := sp.Collections().Get(ctx, rootId)
 	if err != nil {

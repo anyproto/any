@@ -502,6 +502,20 @@ func TestCatalog_Problems(t *testing.T) {
 			code: CodeDuplicate, path: "usecases[1].bundles[1].type.xKey",
 		},
 		{
+			name: "collection defaultType names a collection",
+			mutate: func(s string) string {
+				return strings.Replace(asCollection(s), "          xKey: company\n", "          xKey: company\n          meta: { defaultType: company }\n", 1)
+			},
+			code: CodeBrokenLink, path: "usecases[1].bundles[0].collection.meta.defaultType", contains: "is a collection",
+		},
+		{
+			name: "collection defaultType names no type",
+			mutate: func(s string) string {
+				return strings.Replace(asCollection(s), "          xKey: company\n", "          xKey: company\n          meta: { defaultType: nosuch }\n", 1)
+			},
+			code: CodeBrokenLink, path: "usecases[1].bundles[0].collection.meta.defaultType", contains: "no type",
+		},
+		{
 			name: "collection meta key is not single-level",
 			mutate: func(s string) string {
 				return strings.Replace(asCollection(s), "          xKey: company\n", "          xKey: company\n          meta: { a.b: x }\n", 1)
@@ -603,7 +617,7 @@ func TestCatalog_SupersedeGroups(t *testing.T) {
 		t.Fatalf("journal group: %+v", j)
 	}
 	have := map[string]bool{"system:organization/v1": true}
-	if !g.OldKept(have) || g.NewAll(have) {
+	if !g.OldKept(have) || g.NewAny(have) {
 		t.Fatal("one old bundle keeps the group on the old shape")
 	}
 	people, _ := cat.Get("people")
@@ -614,6 +628,36 @@ func TestCatalog_SupersedeGroups(t *testing.T) {
 	if !flags["system:person/v1"] || !flags["system:organization/v1"] || flags["system:profile/v1"] || flags["system:person/v2"] {
 		t.Fatalf("superseded flags: %v", flags)
 	}
+}
+
+// Two bundles superseding the same one may not both claim its handle:
+// a new space would install both. Declared new, old, new so the check
+// has to look past the last holder.
+func TestCatalog_HandleSharedByTwoSupersedersIsRefused(t *testing.T) {
+	src := `
+usecases:
+  - id: things
+    name: Things
+    bundles:
+      - id: system:thing-card/v1
+        name: Card
+        supersedes: [ system:thing/v1 ]
+        type: { xKey: thing, layout: { type: profile } }
+      - id: system:thing/v1
+        name: Thing
+        type: { xKey: thing }
+      - id: system:thing/v2
+        name: Things
+        supersedes: [ system:thing/v1 ]
+        collection: { xKey: thing }
+`
+	_, ps := Load([]byte(src), knownTypes)
+	for _, p := range ps {
+		if p.Code == CodeDuplicate && p.Path == "usecases[0].bundles[2].collection.xKey" {
+			return
+		}
+	}
+	t.Fatalf("no duplicate-handle problem; got:\n%v", ps)
 }
 
 // A chain would make "which one does a space keep" ambiguous.

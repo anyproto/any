@@ -169,7 +169,7 @@ Every catalog entry is the same construction you just built by hand, and each sh
 |---------|-------------|
 | `wiki` | an app **and** a collection: the sidebar entry, and the hidden collection whose `parentId` / `pos` / `folder` place every page filed under it in the tree (a page keeps its own type) |
 | `collections` | an app only — a `page` root filed under `miniapp`, whose presence switches the types feature on in the client |
-| `journal` | an app **and** a type: the sidebar entry, and the hidden type whose one `date` property makes an object that day's page |
+| `journal` | an app **and** a collection: the sidebar entry, and the hidden collection whose one `date` property makes a page filed under it that day's entry |
 | `meetings` | two roots: the `meeting` type, outside the sidebar — a meeting is one object whose three parts are its notes (the shared editor), a second editor for the summary, and a transcript dataset an agent fills — and a separate `page` root that is the sidebar entry |
 | `general-chat` | the space's one chat: a **derived** root both sides of a partition compute, so it can never fork, carrying the reserved `chat` module |
 | `people`, `contact`, `contacts`, `crm` | a set: `crm` requires `contacts`, which requires `people` and `contact`; setup resolves the closure in order and the reply lists every bundle it touched, `typeId` for a type root and `collectionId` for a collection root |
@@ -178,9 +178,9 @@ Every app that ships with a client belongs here, types included: the catalog is 
 
 Setup is idempotent — run it on every device that needs the feature and each adopts the same roots with byte-identical property ids. A space where the wiki was never set up has no wiki collection in it at all: nothing from a usecase you do not use lands in your space.
 
-What a usecase installs is ordinary definitions. `person` and `organization` are types that reference each other through relation properties; `contact` — like `investor`, `customer`, `partner`, `vendor`, `cofounder` and `candidate` — is a **collection**, so a person you actively manage stays `type: person` with the person profile rendering, and gains the contact columns by being filed under it. Splitting a base type into its own bundle is how several usecases share it: `people` is required by every role, and installing a role installs it ([Well-known bundles](../collaboration/bundles.html)).
+What a usecase installs is ordinary definitions. `profile` is the one format a person and an organisation share; `person` and `organization` are collections of profiles that reference each other through relation properties; `contact` — like `investor`, `customer`, `partner`, `vendor`, `cofounder` and `candidate` — is a **collection** too, so a person you actively manage stays a `profile` filed under `person`, and gains the contact columns by being filed under `contact`. Keeping the format and the base collections in their own usecase is how several usecases share them: `people` is required by every role, and installing a role installs it ([Well-known bundles](../collaboration/bundles.html)).
 
-> **Note.** Nothing here stops a user from opening the `person` type and editing it. Setup is additive: the next run writes what a later catalog added and the root lacks — a property under its deterministic id, an option key, a `miniapp` value — and leaves what the definition carries as the space has it, renamed or recoloured. A property the user removed stays removed; an option key the user deleted is absent, so setup writes it again ([Bundles](../collaboration/bundles.html)).
+> **Note.** Nothing here stops a user from opening the `person` collection and editing it. Setup is additive: the next run writes what a later catalog added and the root lacks — a property under its deterministic id, an option key, a `miniapp` value — and leaves what the definition carries as the space has it, renamed or recoloured. A property the user removed stays removed; an option key the user deleted is absent, so setup writes it again ([Bundles](../collaboration/bundles.html)).
 
 ## Where this ends
 

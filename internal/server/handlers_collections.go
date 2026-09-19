@@ -130,7 +130,7 @@ func (d *deps) collectionCreate(c echo.Context) error {
 		return errResp
 	}
 	for k, v := range req.Meta {
-		if code, reason := checkTypeMetaEntry(k, v); code != "" {
+		if code, reason := checkTypeMetaEntry(k, v, false); code != "" {
 			return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": "meta." + k})
 		}
 	}
@@ -185,7 +185,7 @@ func (d *deps) collectionPatch(c echo.Context) error {
 	if len(req.Meta) > 0 {
 		patch.Meta = make(map[string]any, len(req.Meta))
 		for k, v := range req.Meta {
-			if code, reason := checkTypeMetaEntry(k, v); code != "" {
+			if code, reason := checkTypeMetaEntry(k, v, true); code != "" {
 				return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": "meta." + k})
 			}
 			if v == nil {

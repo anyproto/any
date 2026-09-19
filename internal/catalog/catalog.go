@@ -127,14 +127,16 @@ func (g *SupersedeGroup) OldKept(installed map[string]bool) bool {
 	return false
 }
 
-// NewAll reports whether every bundle of New is among the installed ids.
-func (g *SupersedeGroup) NewAll(installed map[string]bool) bool {
+// NewAny reports whether the space is on the new shape already: any
+// bundle of New is among the installed ids. One is proof enough — the
+// two shapes never meet in a space.
+func (g *SupersedeGroup) NewAny(installed map[string]bool) bool {
 	for _, id := range g.New {
-		if !installed[id] {
-			return false
+		if installed[id] {
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 // SupersedeGroup returns the group the bundle belongs to, nil when no
@@ -359,7 +361,7 @@ func (c *Catalog) validate(opts Options) Problems {
 		add("usecases", CodeMissing, "at least one usecase")
 	}
 	bundleIds := map[string]string{}
-	xkeys := map[string]string{}
+	xkeys := map[string][]string{}
 	// supersedes[a][b]: bundle a stands in for bundle b. Read before the
 	// walk because the handle check needs it for a bundle declared
 	// earlier than the one that supersedes it.
@@ -515,6 +517,14 @@ func (c *Catalog) validate(opts Options) Problems {
 
 	// Links: every relation target is a type in the usecase, in its
 	// transitive requires, or a known built-in.
+	typeKeys := map[string]bool{}
+	for ui := range c.Usecases {
+		for _, b := range c.Usecases[ui].Bundles {
+			if b.Type != nil {
+				typeKeys[b.Type.XKey] = true
+			}
+		}
+	}
 	for ui := range c.Usecases {
 		u := &c.Usecases[ui]
 		if _, ok := c.byId[u.Id]; !ok {
@@ -530,6 +540,26 @@ func (c *Catalog) validate(opts Options) Problems {
 		}
 		for bi := range u.Bundles {
 			b := &u.Bundles[bi]
+			// meta.defaultType is the type rows get: a type xKey the
+			// space holds after setup, or a registered type. A handle
+			// that resolves to nothing degrades every row to page.
+			if b.Collection != nil {
+				if dt, ok := b.Collection.Meta["defaultType"]; ok {
+					dp := fmt.Sprintf("usecases[%d].bundles[%d].collection.meta.defaultType", ui, bi)
+					xk, isStr := dt.(string)
+					switch {
+					case !isStr:
+						add(dp, CodeBadField, "defaultType is a type xKey")
+					case rootTypes[xk] || (reach[xk] && typeKeys[xk]):
+					case c.types[xk] != "" && !typeKeys[xk]:
+						add(dp, CodeBrokenLink, "defaultType "+xk+" is a collection — rows need a type")
+					case c.types[xk] != "":
+						add(dp, CodeBrokenLink, "defaultType "+xk+" is declared by usecase "+c.types[xk]+": add it to requires")
+					default:
+						add(dp, CodeBrokenLink, "defaultType "+xk+" is no type of this usecase, its requires or a built-in")
+					}
+				}
+			}
 			props, group := declaredProperties(b)
 			if props == nil {
 				continue
@@ -569,7 +599,7 @@ func declaredProperties(b *api.CatalogBundle) ([]api.AddPropertyRequest, string)
 }
 
 func (c *Catalog) validateType(tp, usecase string, b *api.CatalogBundle, known map[string]bool,
-	xkeys map[string]string, sharesHandle func(a, b string) bool, add func(path, code, msg string)) {
+	xkeys map[string][]string, sharesHandle func(a, b string) bool, add func(path, code, msg string)) {
 	c.validateHandle(tp, usecase, b.Id, b.Type.XKey, known, xkeys, sharesHandle, add)
 	c.validateProperties(tp, b.Type.Properties, add)
 }
@@ -645,7 +675,7 @@ func validateMeta(mp string, meta map[string]any, add func(path, code, msg strin
 // validateCollection applies the type rules minus layout: a handle and
 // columns.
 func (c *Catalog) validateCollection(cp, usecase string, b *api.CatalogBundle, known map[string]bool,
-	xkeys map[string]string, sharesHandle func(a, b string) bool, add func(path, code, msg string)) {
+	xkeys map[string][]string, sharesHandle func(a, b string) bool, add func(path, code, msg string)) {
 	c.validateHandle(cp, usecase, b.Id, b.Collection.XKey, known, xkeys, sharesHandle, add)
 	c.validateProperties(cp, b.Collection.Properties, add)
 }
@@ -655,17 +685,30 @@ func (c *Catalog) validateCollection(cp, usecase string, b *api.CatalogBundle, k
 // one exception is a bundle and the bundle it supersedes: a space holds
 // one of the two, never both, so the handle still names one definition.
 func (c *Catalog) validateHandle(tp, usecase, bundleId, xKey string, known map[string]bool,
-	xkeys map[string]string, sharesHandle func(a, b string) bool, add func(path, code, msg string)) {
+	xkeys map[string][]string, sharesHandle func(a, b string) bool, add func(path, code, msg string)) {
 	if !xKeyRe.MatchString(xKey) {
 		add(tp+".xKey", CodeBadId, fmt.Sprintf("%q is not a handle ([a-z][a-z0-9_]*)", xKey))
 	} else if known[xKey] {
 		add(tp+".xKey", CodeDuplicate, xKey+" is a built-in id")
-	} else if prev, dup := xkeys[xKey]; dup && !sharesHandle(bundleId, prev) {
+	} else if prev := holderNotSharing(xkeys[xKey], bundleId, sharesHandle); prev != "" {
 		add(tp+".xKey", CodeDuplicate, "xKey "+xKey+" also on bundle "+prev)
 	} else {
-		xkeys[xKey] = bundleId
+		xkeys[xKey] = append(xkeys[xKey], bundleId)
 		c.types[xKey] = usecase
 	}
+}
+
+// holderNotSharing returns the first holder of a handle the claimant
+// may not share it with: one that neither supersedes it nor is
+// superseded by it. Checked against every holder, so two bundles that
+// both supersede a third cannot both claim its handle.
+func holderNotSharing(holders []string, bundleId string, sharesHandle func(a, b string) bool) string {
+	for _, h := range holders {
+		if !sharesHandle(bundleId, h) {
+			return h
+		}
+	}
+	return ""
 }
 
 func (c *Catalog) validateProperties(tp string, properties []api.AddPropertyRequest, add func(path, code, msg string)) {

@@ -381,7 +381,7 @@ func (d *deps) typePatch(c echo.Context) error {
 	if len(req.Meta) > 0 {
 		patch.Meta = make(map[string]any, len(req.Meta))
 		for k, v := range req.Meta {
-			if code, reason := checkTypeMetaEntry(k, v); code != "" {
+			if code, reason := checkTypeMetaEntry(k, v, true); code != "" {
 				return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": "meta." + k})
 			}
 			patch.Meta[k] = v // nil = unset
@@ -417,10 +417,11 @@ func (d *deps) typePatch(c echo.Context) error {
 }
 
 // checkTypeMetaEntry validates one meta entry against the shared
-// grammar (api.CheckMetaEntry); nil is the clear on PATCH. Returns
-// ("", "") when fine.
-func checkTypeMetaEntry(key string, v any) (code, reason string) {
-	if reason := api.CheckMetaEntry(key, v, true); reason != "" {
+// grammar (api.CheckMetaEntry). nilOK admits the clear a PATCH
+// carries; a create takes values only, since the SDK drops a nil there
+// and the key would silently end up absent. Returns ("", "") when fine.
+func checkTypeMetaEntry(key string, v any, nilOK bool) (code, reason string) {
+	if reason := api.CheckMetaEntry(key, v, nilOK); reason != "" {
 		return "request.invalid_field", reason
 	}
 	return "", ""
