@@ -50,7 +50,7 @@ jobs:
   version:
     # Never run from a fork; secrets must not be exposed.
     if: github.repository == 'anyproto/any'
-    runs-on: [self-hosted, github-runner-ubuntu]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       version: ${{ steps.ver.outputs.version }}
@@ -85,7 +85,7 @@ jobs:
   desktop:
     needs: version
     if: github.repository == 'anyproto/any'
-    runs-on: [self-hosted, github-runner-ubuntu]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -99,8 +99,6 @@ jobs:
       - uses: ./.github/actions/go-private-auth
         with:
           token: ${{ secrets.ANY_CI_TOKEN }}
-      - name: Install jq + unzip
-        run: sudo apt-get update && sudo apt-get install -y jq unzip
       - name: Validate the usecase catalog
         run: make catalog-validate
       - name: Build any for published desktop platforms
@@ -335,7 +333,7 @@ jobs:
   publish:
     needs: [version, desktop, desktop-smoke, android, ios]
     if: github.repository == 'anyproto/any'
-    runs-on: [self-hosted, github-runner-ubuntu]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write # only THIS job creates the Release
@@ -351,27 +349,6 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: artifacts
-      - name: Install gh CLI
-        # The self-hosted github-runner-ubuntu image ships without gh (the
-        # GitHub-hosted images preinstall it). Both the release-create and the
-        # dispatch steps below need it, so fetch a pinned binary into the
-        # runner temp dir — no sudo, no apt repo setup. Skipped once the
-        # runner image grows its own gh.
-        run: |
-          set -euo pipefail
-          if command -v gh >/dev/null 2>&1; then
-            gh --version
-            exit 0
-          fi
-          GH_VERSION=2.96.0
-          GH_SHA256=83d5c2ccad5498f58bf6368acb1ab32588cf43ab3a4b1c301bf36328b1c8bd60
-          curl -fsSL -o "$RUNNER_TEMP/gh.tar.gz" \
-            "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz"
-          echo "$GH_SHA256  $RUNNER_TEMP/gh.tar.gz" | sha256sum -c -
-          mkdir -p "$RUNNER_TEMP/gh"
-          tar -xzf "$RUNNER_TEMP/gh.tar.gz" -C "$RUNNER_TEMP/gh" --strip-components=1
-          echo "$RUNNER_TEMP/gh/bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/gh/bin/gh" --version
       - name: Collect assets + checksums
         id: assets
         run: |
