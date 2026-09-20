@@ -4,11 +4,10 @@
 # reference, a build-tagged stub, a path assumption — reaches a release
 # unseen. That is how the single-instance lock shipped broken.
 #
-# Not a PR gate: windows-latest is a GitHub-hosted runner billed at 2x,
-# and every other CI job here runs on the self-hosted ubuntu pool. On
-# push to main a break is known within minutes and always before the
-# 00:30 UTC nightly publishes; the daily run at 00:00 catches the breaks
-# that arrive without a commit — a toolchain or dependency bump.
+# Not a PR gate: windows-latest is billed at 2x the ubuntu rate every
+# other CI job here runs on. On push to main a break is known within
+# minutes and always before the 00:30 UTC nightly publishes; the daily
+# run at 00:00 catches the breaks that arrive without a commit — a toolchain or dependency bump.
 name: windows-any
 
 on:

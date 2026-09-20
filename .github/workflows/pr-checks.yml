@@ -1,4 +1,4 @@
-# PR gate on the self-hosted ubuntu pool.
+# PR gate on the GitHub-hosted ubuntu runners.
 #
 # swagger-drift — the generated OpenAPI spec (internal/server/docs) must
 # match the handler annotations. `anyrt drift` in anybao verifies its pin
@@ -8,7 +8,7 @@
 # runs it too).
 #
 # tests — the unit suite. Windows runs in its own workflow (windows-any),
-# off the PR path, because that runner is GitHub-hosted and billed at 2x.
+# off the PR path, because windows runners are billed at 2x the ubuntu rate.
 # docs — render the website, validate links and exercise the generated clients.
 name: pr-checks
 
@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   swagger-drift:
-    runs-on: [self-hosted, github-runner-ubuntu]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -59,7 +59,7 @@ jobs:
   # skips without ANY_LIVE_INDEX. Network-backed tests self-skip without a
   # staging config.
   tests:
-    runs-on: [self-hosted, github-runner-ubuntu]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -76,7 +76,7 @@ jobs:
         run: make test
 
   docs:
-    runs-on: [self-hosted, github-runner-ubuntu]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
