@@ -30,7 +30,7 @@ any run --account <id>                      # pick one when the data dir holds s
 any run --mode managed                      # a host-owned server: phrase per launch, control token
 ```
 
-`any run` is foreground-only: run it in a terminal, tmux, or a user service. It never creates a wallet — on a fresh data dir it starts *unauthorized* and every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json`, `/v1/auth` answers `401 auth.required` until `POST /v1/auth` (or `any auth login`) boots an account in place. The default `standalone` mode is the one to develop against; `managed` is how an app shell embeds the server ([Accounts](../auth/accounts.html)).
+`any run` is foreground-only: run it in a terminal, tmux, or a user service. It never creates a wallet — on a fresh data dir it starts *unauthorized* and every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json`, `/v1/auth`, `/v1/local-discovery` answers `401 auth.required` until `POST /v1/auth` (or `any auth login`) boots an account in place. The default `standalone` mode is the one to develop against; `managed` is how an app shell embeds the server ([Accounts](../auth/accounts.html)).
 
 Stop it with Ctrl-C or:
 

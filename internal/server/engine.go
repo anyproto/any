@@ -477,6 +477,10 @@ func (d *deps) publishEngine(eng *engine) {
 	d.shutdownCtx = eng.ctx
 	d.gate.reset()
 	d.ready.Store(true)
+	// A statement that landed during the boot missed bootConfig and
+	// found no engine to apply to; it is applied now, after ready, so
+	// no window is left between the two paths.
+	d.applyLocalDiscovery()
 	if d.boundAddr != "" && eng.lock != nil {
 		writeAddrFile(eng.dir, d.boundAddr)
 	}

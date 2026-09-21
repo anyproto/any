@@ -112,7 +112,7 @@ p2p:
                                       #   its own discovery namespace.
   localDiscovery: null                # mDNS announce + browse at boot; the QUIC
                                       #   listener stays up either way. null =
-                                      #   off for a managed server on macOS (the
+                                      #   off for a managed server on macOS/iOS (the
                                       #   host shell owns the Local Network
                                       #   permission flow and turns it on through
                                       #   PUT /v1/local-discovery), on elsewhere.

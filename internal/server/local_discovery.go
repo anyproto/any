@@ -29,14 +29,14 @@ type localDiscoverySwitch struct {
 	enabled bool
 }
 
-// set records the host's answer and reports whether it differs from
-// the previous statement, so a restatement never nudges the SDK.
-func (s *localDiscoverySwitch) set(enabled bool) (changed bool) {
+// set records the host's answer. Whether it differs from the last one
+// is not its concern: the SDK's switch is idempotent, and gating on a
+// change here would leave a statement made during an engine boot
+// unapplied and unrepeatable.
+func (s *localDiscoverySwitch) set(enabled bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	changed = !s.stated || s.enabled != enabled
 	s.stated, s.enabled = true, enabled
-	return changed
 }
 
 // get is the host's answer, and whether one was ever given.
@@ -52,7 +52,7 @@ func (s *localDiscoverySwitch) get() (enabled, stated bool) {
 func (d *deps) localDiscoveryState() bool {
 	if d.ready.Load() && d.gate.enter() {
 		defer d.gate.leave()
-		return d.sdk.P2PStatus().LocalDiscovery
+		return d.sdk.LocalDiscoveryEnabled()
 	}
 	if enabled, stated := d.localDiscovery.get(); stated {
 		return enabled
@@ -78,7 +78,7 @@ func (d *deps) localDiscoveryGet(c echo.Context) error {
 // guard): the answer is folded into the SDK config of every engine
 // boot, so discovery starts in the stated state and nothing is sent on
 // the LAN before the host allows it. With an engine live the switch is
-// applied at once, within the gate, and only on an actual change.
+// applied at once, within the gate.
 //
 //	@Summary	Switch local-network discovery (mDNS) on or off
 //	@Tags		p2p
@@ -93,9 +93,25 @@ func (d *deps) localDiscoverySet(c echo.Context) error {
 	if !ok {
 		return nil
 	}
-	if d.localDiscovery.set(req.Enabled) && d.ready.Load() && d.gate.enter() {
-		d.sdk.SetLocalDiscoveryEnabled(req.Enabled)
-		d.gate.leave()
+	if req.Enabled == nil {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "enabled required", nil)
 	}
-	return c.JSON(http.StatusOK, api.LocalDiscoveryResponse{Enabled: req.Enabled})
+	d.localDiscovery.set(*req.Enabled)
+	d.applyLocalDiscovery()
+	return c.JSON(http.StatusOK, api.LocalDiscoveryResponse{Enabled: *req.Enabled})
+}
+
+// applyLocalDiscovery forwards the host's statement, if any, to the
+// live engine, entered through the gate like the guard does. A no-op
+// without an engine, and idempotent: the SDK ignores a restatement.
+// Called on every PUT and once an engine is published, which is what
+// catches a statement made while that engine was booting (after
+// bootConfig read the switch, before ready flipped).
+func (d *deps) applyLocalDiscovery() {
+	enabled, stated := d.localDiscovery.get()
+	if !stated || !d.ready.Load() || !d.gate.enter() {
+		return
+	}
+	defer d.gate.leave()
+	d.sdk.SetLocalDiscoveryEnabled(enabled)
 }

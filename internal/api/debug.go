@@ -73,7 +73,8 @@ type ObjectDebugResponse struct {
 // per-space p2p state lives in SpaceSyncStatusResponse (p2p /
 // localPeers).
 //
-// Possibility is one of: unknown, possible, nointerfaces, restricted.
+// Possibility is one of: unknown, possible, nointerfaces, restricted,
+// disabled.
 // State is one of: unknown, notpossible, notconnected, connected,
 // restricted.
 type P2PStatusResponse struct {
@@ -98,10 +99,12 @@ type P2PStatusResponse struct {
 // QUIC listener and the global p2p layer are unaffected.
 type LocalDiscoveryRequest struct {
 	// Enabled false stops announce and browse within seconds and keeps
-	// them stopped; true starts them at once. Held for the process
-	// lifetime, across logout and account switches; a host restates it
-	// after a restart, and may state it before the first POST /v1/auth.
-	Enabled bool `json:"enabled"`
+	// them stopped; true starts them at once. Required: an absent value
+	// is 400 request.missing_field rather than a silent off. Held for
+	// the process lifetime, across logout and account switches; a host
+	// restates it after a restart, and may state it before the first
+	// POST /v1/auth.
+	Enabled *bool `json:"enabled"`
 }
 
 // LocalDiscoveryResponse is the switch state: what the live engine

@@ -10,30 +10,19 @@ import (
 	"github.com/anyproto/any/internal/config"
 )
 
-// set reports a CHANGE, not the new value: it decides whether the SDK is
-// nudged, and nudging on every restatement would tear down a healthy
-// discovery session each time the host repeats itself. The first
-// statement always counts, whatever the config default was.
-func TestLocalDiscoverySwitchSetReportsChange(t *testing.T) {
+func TestLocalDiscoverySwitchRecords(t *testing.T) {
 	var s localDiscoverySwitch
 
 	if _, stated := s.get(); stated {
 		t.Fatal("fresh switch reports a statement")
 	}
-	if !s.set(true) {
-		t.Error("first statement reported no change")
-	}
-	if s.set(true) {
-		t.Error("restating on reported a change")
-	}
-	if !s.set(false) {
-		t.Error("switching off reported no change")
-	}
-	if s.set(false) {
-		t.Error("restating off reported a change")
-	}
+	s.set(false)
 	if enabled, stated := s.get(); !stated || enabled {
 		t.Errorf("get = (%v, %v), want (false, true)", enabled, stated)
+	}
+	s.set(true)
+	if enabled, stated := s.get(); !stated || !enabled {
+		t.Errorf("get = (%v, %v), want (true, true)", enabled, stated)
 	}
 }
 
@@ -78,9 +67,52 @@ func TestLocalDiscoveryRoutesWorkUnauthorized(t *testing.T) {
 		t.Error("GET after disabling still reports enabled")
 	}
 
-	rec = doJSON(t, e, http.MethodPut, "/v1/local-discovery", `{"enabled":"yes"}`)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("bad body: want 400, got %d %s", rec.Code, rec.Body.String())
+	// An absent value is a 400, never a silent off.
+	for _, body := range []string{`{"enabled":"yes"}`, `{}`, ``} {
+		rec = doJSON(t, e, http.MethodPut, "/v1/local-discovery", body)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("body %q: want 400, got %d %s", body, rec.Code, rec.Body.String())
+		}
+	}
+	if enabled, _ := d.localDiscovery.get(); enabled {
+		t.Error("a rejected body changed the switch")
+	}
+}
+
+// With an engine live the switch reaches the SDK at once, and a
+// statement that missed the boot (recorded while the engine was coming
+// up) is applied when the engine is published.
+func TestLocalDiscoveryAppliesToLiveEngine(t *testing.T) {
+	d, cleanup := newTestDeps(t)
+	defer cleanup()
+	e := buildEcho(d)
+
+	if !d.sdk.LocalDiscoveryEnabled() {
+		t.Fatal("test engine must start with discovery on")
+	}
+	rec := doJSON(t, e, http.MethodPut, "/v1/local-discovery", `{"enabled":false}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT: want 200, got %d %s", rec.Code, rec.Body.String())
+	}
+	if d.sdk.LocalDiscoveryEnabled() {
+		t.Error("PUT false did not reach the live engine")
+	}
+	rec = doJSON(t, e, http.MethodGet, "/v1/local-discovery", "")
+	var res api.LocalDiscoveryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Enabled {
+		t.Error("GET reports the engine as on after PUT false")
+	}
+
+	// The boot race: the statement is recorded with no engine to apply
+	// to, then the engine is published — publishEngine's re-apply is
+	// what closes the window.
+	d.localDiscovery.set(true)
+	d.applyLocalDiscovery()
+	if !d.sdk.LocalDiscoveryEnabled() {
+		t.Error("statement recorded before publish was not applied")
 	}
 }
 

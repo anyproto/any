@@ -4313,9 +4313,12 @@ permission, and the user turned LAN discovery off. The server does not
 distinguish them; the client knows which one applies.
 
 Held for the process lifetime, across logout and account switches, not
-across a restart: a host restates it after every start. The start value
+across a restart: a host restates it after every start. `enabled` is
+required; an absent value is `400 request.missing_field`, never a
+silent off. The start value
 comes from `p2p.localDiscovery` in the config (`docs/05-config.md`),
-which resolves to off for a managed server on macOS and on elsewhere.
+which resolves to off for a managed server on macOS or iOS and on
+elsewhere.
 Distinct from `p2p.enabled`, which is fixed at boot and additionally
 keeps the QUIC listener down.
 
@@ -4337,6 +4340,7 @@ has synced in — normally within seconds of the join being approved.
   "port":            56187,
   "possibility":     "possible",
   "state":           "connected",
+  "localDiscovery":  true,
   "peers": [
     { "peerId":    "12D3Koo…",
       "spaceIds":  ["spc_…"],

@@ -2176,7 +2176,7 @@
             "api.LocalDiscoveryRequest": {
                 "properties": {
                     "enabled": {
-                        "description": "Enabled false stops announce and browse within seconds and keeps\nthem stopped; true starts them at once. Held for the process\nlifetime, across logout and account switches; a host restates it\nafter a restart, and may state it before the first POST /v1/auth.",
+                        "description": "Enabled false stops announce and browse within seconds and keeps\nthem stopped; true starts them at once. Required: an absent value\nis 400 request.missing_field rather than a silent off. Held for\nthe process lifetime, across logout and account switches; a host\nrestates it after a restart, and may state it before the first\nPOST /v1/auth.",
                         "type": "boolean"
                     }
                 },

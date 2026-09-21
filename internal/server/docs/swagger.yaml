@@ -1813,9 +1813,11 @@ components:
         enabled:
           description: |-
             Enabled false stops announce and browse within seconds and keeps
-            them stopped; true starts them at once. Held for the process
-            lifetime, across logout and account switches; a host restates it
-            after a restart, and may state it before the first POST /v1/auth.
+            them stopped; true starts them at once. Required: an absent value
+            is 400 request.missing_field rather than a silent off. Held for
+            the process lifetime, across logout and account switches; a host
+            restates it after a restart, and may state it before the first
+            POST /v1/auth.
           type: boolean
       type: object
     api.LocalDiscoveryResponse:

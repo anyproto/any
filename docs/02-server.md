@@ -140,7 +140,8 @@ account is standalone-only — a managed login with its phrase lands in
    config), remove `network.json` and start the server on the account's
    network.
 4. Without an account: start **unauthorized**. Every `/v1` route except
-   `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth`
+   `/v1/health`, `/v1/shutdown`, `/v1/openapi.json`, `/v1/auth` and
+   `/v1/local-discovery`
    returns `401 auth.required` until `POST /v1/auth` creates / restores
    / selects an account and boots the engine in place (no restart).
    See `03-api.md` § Auth.
