@@ -4283,6 +4283,38 @@ async and best-effort. Who-gets-what is controlled by the two `notifyMode` knobs
 | GET    | `/v1/spaces/:spaceId/debug/objects/:objectId`        | `Space.Debug().Object`                 |
 | GET    | `/v1/debug/p2p`                                       | `SDK.P2PStatus()` — account-wide local-network snapshot |
 
+### Local network
+
+| Method | Path                       | Purpose                                              |
+|--------|----------------------------|------------------------------------------------------|
+| PUT    | `/v1/p2p/local-network`    | Whether this device may use the local network at all |
+
+`PUT /v1/p2p/local-network` takes `{"enabled": bool}` and answers with
+the resulting state. `false` stops mDNS announce and browse within
+seconds — no restart, no reboot of the engine — and leaves them
+stopped; `true` hands the decision back to the SDK's own check for a
+usable multicast interface. The current value rides `GET /v1/debug/p2p`
+as `localNetwork`.
+
+It exists because the server cannot find this out for itself. The SDK's
+mDNS driver is raw-socket Go, and macOS enforces local-network privacy
+with a Network Extension packet filter that drops the packets and
+reports nothing — so a refused permission is indistinguishable from an
+empty LAN, and the device announces into a void for the whole session.
+Only the host (a desktop shell running Apple's own `NWBrowser`, which
+DOES report the refusal) can see it, so the host states it here.
+
+Two causes collapse into this one flag: the OS refused the permission,
+and the user turned LAN discovery off. The server does not distinguish
+them — `possibility` reads `restricted` either way — because the client
+already knows which one it is.
+
+Scope and lifetime: account-wide, held for the **process** lifetime. It
+survives logout and account switches, not a restart, so a host restates
+it after every start. Distinct from `p2p.enabled` in the config
+(`docs/05-config.md`), which is fixed at boot and additionally keeps the
+QUIC listener down; `enabled` in the snapshot is that one.
+
 **Diagnostic only — not a stable interface**: fields may grow or move
 with the SDK's `DebugAPI`. Production UI uses `/sync-status`.
 

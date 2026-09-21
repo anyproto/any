@@ -86,6 +86,30 @@ type P2PStatusResponse struct {
 	Possibility     string          `json:"possibility"`
 	State           string          `json:"state"`
 	Peers           []P2PPeerStatus `json:"peers"`
+	// LocalNetwork is the host's answer from PUT /v1/p2p/local-network:
+	// false means this process was told not to use the local network,
+	// and Possibility reads `restricted` because of it. Distinct from
+	// Enabled, which is the p2p.enabled config opt-out fixed at boot.
+	LocalNetwork bool `json:"localNetwork"`
+}
+
+// LocalNetworkRequest is the body of PUT /v1/p2p/local-network — the
+// host telling the server whether this device may use the local
+// network at all. Two causes collapse into this one flag: the OS
+// refused the permission, and the user turned LAN discovery off. The
+// server does not distinguish them; the client knows which it is.
+type LocalNetworkRequest struct {
+	// Enabled false stops mDNS announce and browse within seconds and
+	// leaves them stopped; true hands the decision back to the SDK's
+	// own interface check. Persisted for the process lifetime only —
+	// the host re-states it after every start.
+	Enabled bool `json:"enabled"`
+}
+
+// LocalNetworkResponse is the resulting state, echoed so a caller need
+// not re-read GET /v1/debug/p2p to confirm.
+type LocalNetworkResponse struct {
+	Enabled bool `json:"enabled"`
 }
 
 // P2PPeerStatus is one discovered LAN peer: the spaces it PROVED it

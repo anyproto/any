@@ -110,6 +110,12 @@ p2p:
   serviceName: ""                     # mDNS service type; empty = "_any._tcp".
                                       #   Override to isolate a deployment onto
                                       #   its own discovery namespace.
+#
+# `enabled` is a BOOT decision and takes the QUIC listener down with it.
+# A host that only wants to stop scanning — because the OS refused the
+# local-network permission, or the user turned discovery off — uses
+# PUT /v1/p2p/local-network instead (docs/03-api.md § Local network),
+# which applies at once and needs no restart.
 
 # Local search index (docs/13-index.md). FTS needs no external
 # dependency; vector search activates when an embedder is configured.

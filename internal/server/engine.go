@@ -416,6 +416,10 @@ func (d *deps) bootAccountLocked(id *Identity, open credential) (*engine, error)
 		}
 		return nil, errAccountMismatch
 	}
+	// Before the SDK opens: the probe is an SDK process global, the
+	// answer behind it is ours, and discovery reads it from its first
+	// cycle on.
+	d.installLocalNetworkProbe()
 	eng, err := bootEngine(d.runCtx, d.cfg, d.root, id, open, d.indexerProcessFor, d.indexerLinksFor)
 	if err != nil {
 		return nil, err

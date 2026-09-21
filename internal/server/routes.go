@@ -143,6 +143,12 @@ func buildEcho(d *deps) *echo.Echo {
 	// sync-status/subscribe.
 	v1.GET("/debug/p2p", d.debugP2P)
 
+	// The host's local-network answer — whether this device may use the
+	// LAN at all (p2p_local_network.go). Account-scoped like the
+	// snapshot above, and a product lever rather than a diagnostic, so
+	// it sits outside /debug.
+	v1.PUT("/p2p/local-network", d.localNetworkSet)
+
 	// Account-wide dataset discovery: the tech-space system datasets
 	// (spaces, profile) that back the generic space-list query/subscribe.
 	// Account-scoped, so like sync-status/subscribe it sits outside the

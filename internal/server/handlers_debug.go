@@ -74,7 +74,43 @@ func (d *deps) debugP2P(c echo.Context) error {
 		Possibility:     st.Possibility.String(),
 		State:           st.State.String(),
 		Peers:           peers,
+		LocalNetwork:    d.localNetwork().enabled(),
 	})
+}
+
+// localNetworkSet handles PUT /v1/p2p/local-network — the host telling
+// the server whether this device may use the local network.
+//
+// It exists because the server cannot find out for itself: the SDK's
+// mDNS driver is raw-socket Go, and macOS drops local-network packets
+// at a Network Extension filter without reporting anything, so a
+// refused permission looks exactly like an empty LAN. The host sees it
+// (Apple's own NWBrowser does report it) and says so here.
+//
+// Takes effect within seconds and without a restart, and survives
+// logout and account switches — but not a process restart, so the host
+// re-states it after every start.
+//
+//	@Summary	Set whether this device may use the local network
+//	@Tags		p2p
+//	@Accept		json
+//	@Produce	json
+//	@Param		body	body		api.LocalNetworkRequest	true	"Desired state"
+//	@Success	200		{object}	api.LocalNetworkResponse
+//	@Failure	400		{object}	api.ErrorEnvelope
+//	@Router		/p2p/local-network [put]
+func (d *deps) localNetworkSet(c echo.Context) error {
+	req, ok := bindBodyStrict[api.LocalNetworkRequest](c, "")
+	if !ok {
+		return nil
+	}
+	// Only on a real change, and only with an engine up: discovery is
+	// the SDK's, and there is none to nudge while unauthorized — the
+	// next boot reads the gate on its first cycle anyway.
+	if d.localNetwork().set(req.Enabled) && d.sdk != nil {
+		d.sdk.RefreshP2PPossibility()
+	}
+	return c.JSON(http.StatusOK, api.LocalNetworkResponse{Enabled: req.Enabled})
 }
 
 func spaceDebugToAPI(s space.SpaceDebug) api.SpaceDebugResponse {

@@ -57,6 +57,13 @@ type deps struct {
 	// nil means the compiled embedded one (server/catalog.go).
 	catalog *compiledCatalog
 
+	// localNetworkGate is the host's local-network answer behind the
+	// SDK's possibility probe (p2p_local_network.go). Created lazily
+	// via localNetwork(); lives on deps rather than on the engine so
+	// the answer survives logout and account switches.
+	localNetworkOnce sync.Once
+	localNetworkGate *localNetworkGate
+
 	// events is the account-wide in-memory event bus hub
 	// (POST /v1/events → GET /v1/events/subscribe). Created lazily via
 	// eventsHub() so every deps construction path gets one with no

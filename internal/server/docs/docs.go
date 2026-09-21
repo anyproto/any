@@ -2357,6 +2357,23 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.LocalNetworkRequest": {
+                "properties": {
+                    "enabled": {
+                        "description": "Enabled false stops mDNS announce and browse within seconds and\nleaves them stopped; true hands the decision back to the SDK's\nown interface check. Persisted for the process lifetime only —\nthe host re-states it after every start.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalNetworkResponse": {
+                "properties": {
+                    "enabled": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "api.LocalQueryRequest": {
                 "properties": {
                     "coll": {
@@ -2731,6 +2748,10 @@ const docTemplate = `{
                         "type": "boolean"
                     },
                     "listenerStarted": {
+                        "type": "boolean"
+                    },
+                    "localNetwork": {
+                        "description": "LocalNetwork is the host's answer from PUT /v1/p2p/local-network:\nfalse means this process was told not to use the local network,\nand Possibility reads ` + "`" + `restricted` + "`" + ` because of it. Distinct from\nEnabled, which is the p2p.enabled config opt-out fixed at boot.",
                         "type": "boolean"
                     },
                     "peerId": {
@@ -6276,6 +6297,56 @@ const docTemplate = `{
                 "summary": "Upsert documents into a local collection",
                 "tags": [
                     "local"
+                ]
+            }
+        },
+        "/p2p/local-network": {
+            "put": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.LocalNetworkRequest",
+                                        "summary": "body",
+                                        "description": "Desired state"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Desired state",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.LocalNetworkResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    }
+                },
+                "summary": "Set whether this device may use the local network",
+                "tags": [
+                    "p2p"
                 ]
             }
         },
