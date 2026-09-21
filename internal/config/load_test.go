@@ -392,6 +392,7 @@ func isolateEnv(t *testing.T) {
 		"ANY_DATA_DIR", "ANY_MODE", "ANY_ACCOUNT", "ANY_LISTEN_ADDR", "ANY_WALLET_PATH", "ANY_LOG_LEVEL",
 		"ANY_WALLET_PASSKEY", "XDG_CONFIG_HOME", "ANY_NETWORK_NODECONF_PATH",
 		"ANY_PUSH_ENABLED", "ANY_PUSH_PEER_ID", "ANY_PUSH_ADDRS",
+		"ANY_ACCESS_REDEEM_URL", "ANY_P2P_GLOBAL_ENABLED",
 		"ANY_INDEX_ENABLED", "ANY_INDEX_EMBEDDER",
 		"ANY_INDEX_OLLAMA_URL", "ANY_INDEX_OLLAMA_MODEL",
 		"ANY_INDEX_OPENAI_BASE_URL", "ANY_INDEX_OPENAI_MODEL",
@@ -409,4 +410,36 @@ func isolateEnv(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+}
+
+// ANY_P2P_GLOBAL_ENABLED is the only way off the internet-wide layer
+// for a host with nowhere to write a config file, so the whole Load
+// path has to honor it — and reject a value it cannot read, rather
+// than leaving a relay session up for someone who wrote "off".
+func TestLoad_GlobalP2PEnvOverride(t *testing.T) {
+	for _, tc := range []struct {
+		val  string
+		want bool
+	}{
+		{"false", false}, {"0", false}, {"true", true}, {"1", true},
+	} {
+		t.Run(tc.val, func(t *testing.T) {
+			isolateEnv(t)
+			t.Setenv("ANY_P2P_GLOBAL_ENABLED", tc.val)
+			cfg, err := Load(Flags{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cfg.P2P.GlobalEnabled(); got != tc.want {
+				t.Errorf("GlobalEnabled() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+	t.Run("unparseable", func(t *testing.T) {
+		isolateEnv(t)
+		t.Setenv("ANY_P2P_GLOBAL_ENABLED", "off")
+		if _, err := Load(Flags{}); err == nil {
+			t.Error("a value that cannot be read must fail, not silently keep the layer on")
+		}
+	})
 }

@@ -1444,7 +1444,11 @@ components:
           description: HomeRelay is the relay URL inside Ticket.
           type: string
         peers:
-          description: Peers are all peers known through records, connected or not.
+          description: |-
+            Peers are the peers known through records, connected or not —
+            except any in the disabled tier, which the SDK drops from this
+            list. A device silent for 30 days is therefore absent here, not
+            listed as disabled.
           items:
             $ref: '#/components/schemas/api.P2PPeerStatus'
           type: array
@@ -2308,7 +2312,10 @@ components:
             Sources that know the peer: "lan", "global" (a space's records),
             "account" (this account's own device record), in any
             combination. A peer in the top-level list always carries at
-            least "lan"; one in global.peers never does.
+            least "lan", and one in global.peers may also carry it — a
+            device on the same LAN that a space's records also name appears
+            in both lists, so presence under global is not proof that
+            traffic is relayed.
           items:
             type: string
           type: array

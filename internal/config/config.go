@@ -137,9 +137,9 @@ type Access struct {
 // localPeers / globalPeers) and `any debug p2p`.
 type P2P struct {
 	// Enabled is the LAN layer's opt-out: absent/null = on. An explicit
-	// false also suppresses the derived default for Global (see
+	// false also suppresses Global's PACKAGED default (see
 	// GlobalP2P.isEnabled), so turning peer-to-peer off with one line
-	// stays one line.
+	// stays one line; relays named by hand are kept.
 	Enabled *bool `yaml:"enabled"`
 	// Port fixes the QUIC listen port. 0 (default) = reuse the port
 	// persisted from the previous run, or pick an ephemeral one.
@@ -193,6 +193,13 @@ type GlobalP2P struct {
 	InsecureRelay bool `yaml:"insecureRelay"`
 	// InsecurePkarr admits http:// pkarr relay URLs. Development only.
 	InsecurePkarr bool `yaml:"insecurePkarr"`
+
+	// relaysDefaulted records that RelayUrls came from the packaged
+	// production values rather than from this config. Only a packaged
+	// default defers to an explicit `p2p.enabled: false`; relays an
+	// operator wrote are honored. Not a yaml key — set by
+	// ApplyGlobalP2PDefaults.
+	relaysDefaulted bool `yaml:"-"`
 	// Port fixes the UDP port of the iroh endpoint. 0 = ephemeral.
 	Port int `yaml:"port"`
 	// MaxConnections caps the global connections this device keeps
@@ -210,19 +217,27 @@ type GlobalP2P struct {
 // published ticket would otherwise carry this device's IP addresses
 // into every space's records.
 //
-// lanOptOut is P2P.Enabled read as an explicit false. The two layers
-// are independent by design and `p2p.enabled: false` with
-// `p2p.global.enabled: true` is a valid setup — but a config that
-// says only "p2p: {enabled: false}" was written to turn direct
-// peer-to-peer off, and must not acquire an iroh endpoint, a relay
-// session and a dialable ticket in every space's records from a
-// packaged default nested under the very key that was set to false.
-// An explicit global value still wins in both directions.
+// isEnabled resolves the tristate for this block. lanOptOut is
+// P2P.Enabled read as an explicit false.
+//
+// The two layers are independent by design, and `p2p.enabled: false`
+// with `p2p.global.enabled: true` is a valid setup. The one case the
+// opt-out reaches is relays this operator never asked for: a config
+// that says only "p2p: {enabled: false}" must not acquire an iroh
+// endpoint, a relay session and a dialable ticket in every space's
+// records from a PACKAGED default nested under the very key it set
+// false. Relays written by hand are a deliberate configuration and
+// are honored — turning the LAN layer off is a common thing to want
+// on a noisy datacenter network, and it must not silently discard
+// them. An explicit global value still wins in both directions.
 func (g GlobalP2P) isEnabled(lanOptOut bool) bool {
 	if g.Enabled != nil {
 		return *g.Enabled
 	}
-	return !lanOptOut && len(g.RelayUrls) > 0
+	if len(g.RelayUrls) == 0 {
+		return false
+	}
+	return !lanOptOut || !g.relaysDefaulted
 }
 
 // IsEnabled resolves the opt-out tristate: absent/null = on.

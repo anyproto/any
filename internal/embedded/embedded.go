@@ -146,6 +146,18 @@ type Options struct {
 	// "quic://host:port" or "host:port,host2:port2". Push activates only
 	// when both PushPeerId and PushAddrs are non-empty.
 	PushAddrs string
+	// GlobalP2PEnabled overrides the internet-wide p2p layer: an iroh
+	// UDP endpoint, a permanent relay session, and a dialable ticket
+	// published into the records of every space this account holds.
+	// nil takes the same default the CLI gets — on when the host
+	// supplied no NodeconfYAML, i.e. the production network. A host
+	// that does not want the endpoint sets this to false; there is no
+	// config file or env on this path, so this struct is the only way
+	// to say so. Publishing a ticket is one-way (docs/30-global-p2p.md
+	// § Advertising is a one-way door), so a host that is unsure
+	// should decide before the first boot, not after.
+	GlobalP2PEnabled *bool
+
 	// Mode is the server ownership mode: "" / "standalone" (the account
 	// resolves from the wallet on disk) or "managed" (the host states
 	// the account over POST /v1/auth on every boot, keys never touch
@@ -216,14 +228,17 @@ func assembleConfig(opts Options) config.Config {
 	// Same rule the CLI gets from config.Load: a host that supplied
 	// neither a push node nor a network lands on the production pair.
 	config.ApplyPushDefaults(&cfg)
-	// Global p2p rides the same pairing — and therefore reaches only a
-	// host that supplied no NodeconfYAML, since naming a network is
-	// what marks a boot as "not production". Every shipped shim passes
-	// one, so in practice this fills nothing: Options has no p2p field,
-	// so an embedded host can neither turn the layer on nor off. Kept
-	// so the two boot paths resolve config by one rule; giving mobile
-	// the layer means giving Options a knob for it.
+	// Global p2p rides the same pairing, so it reaches a host that
+	// supplied no NodeconfYAML — naming a network is what marks a boot
+	// as "not production". The shipped shims pass one today, so for
+	// them this fills nothing; a host on the production default gets
+	// the layer, and GlobalP2PEnabled is how it says otherwise, since
+	// this path reads neither a config file nor ANY_* env.
 	config.ApplyGlobalP2PDefaults(&cfg)
+	if opts.GlobalP2PEnabled != nil {
+		v := *opts.GlobalP2PEnabled
+		cfg.P2P.Global.Enabled = &v
+	}
 	return cfg
 }
 

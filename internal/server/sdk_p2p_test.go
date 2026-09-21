@@ -1,6 +1,7 @@
 package server
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/anyproto/any/internal/config"
@@ -21,8 +22,9 @@ func TestGlobalP2PMapping(t *testing.T) {
 		{"no relays, nothing stated", config.P2P{}, false},
 		{"global off beats relays", config.P2P{Global: config.GlobalP2P{Enabled: &off, RelayUrls: relays}}, false},
 		{"global on with no relays is still on (load rejects it)", config.P2P{Global: config.GlobalP2P{Enabled: &on}}, true},
-		{"lan off suppresses the derived default", config.P2P{Enabled: &off, Global: config.GlobalP2P{RelayUrls: relays}}, false},
+		{"lan off keeps hand-named relays", config.P2P{Enabled: &off, Global: config.GlobalP2P{RelayUrls: relays}}, true},
 		{"lan off, global stated on", config.P2P{Enabled: &off, Global: config.GlobalP2P{Enabled: &on, RelayUrls: relays}}, true},
+		{"lan off, global stated off", config.P2P{Enabled: &off, Global: config.GlobalP2P{Enabled: &off, RelayUrls: relays}}, false},
 		{"lan on stated, relays present", config.P2P{Enabled: &on, Global: config.GlobalP2P{RelayUrls: relays}}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -60,5 +62,20 @@ func TestGlobalP2PMappingCarriesEveryField(t *testing.T) {
 	}
 	if got.Port != 41234 || got.MaxConnections != 2 || got.MaxInbound != 3 {
 		t.Errorf("budget dropped: port=%d conns=%d inbound=%d", got.Port, got.MaxConnections, got.MaxInbound)
+	}
+}
+
+// A field added to config.GlobalP2P and forgotten in globalP2P() is
+// invisible until a deployment misbehaves, so count them: the mapping
+// below has to be revisited whenever the config grows.
+func TestGlobalP2PMappingCoversEveryConfigField(t *testing.T) {
+	const mapped = 8 // Enabled, RelayUrls, PkarrRelayUrls, InsecureRelay,
+	// InsecurePkarr, Port, MaxConnections, MaxInbound — plus the
+	// unexported relaysDefaulted marker, which is resolution state and
+	// deliberately not passed to the SDK.
+	const unexported = 1
+	if n := reflect.TypeOf(config.GlobalP2P{}).NumField(); n != mapped+unexported {
+		t.Fatalf("config.GlobalP2P has %d fields, the mapping covers %d — "+
+			"add the new one to globalP2P() (or to this count if it is not the SDK's)", n, mapped+unexported)
 	}
 }

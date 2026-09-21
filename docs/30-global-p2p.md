@@ -67,8 +67,7 @@ A row names a device's endpoint id and its home relay, nothing else — no
 address, and it is encrypted with the space read key, so only members read
 it. But shipping the layer on by default means every production device
 writes one, and no config change takes it back. `any` exposes no per-space
-advertising switch yet; the SDK's `Space.SetP2PAdvertise` gates only future
-rows.
+advertising switch; the SDK's `Space.SetP2PAdvertise` gates only future rows.
 
 ## The ticket never carries an IP
 
@@ -90,8 +89,11 @@ last resolve and publish, last error).
 
 Each peer in `global.peers` carries the sources that know it (`lan`,
 `global`, `account`), its `lastSeen` and the `tier` derived from it —
-`active`, `stale`, `dormant`, `disabled` — which is what sets how often
-it is dialed.
+`active`, `stale` or `dormant` — which is what sets how often it is
+dialed. A peer in the `disabled` tier is not listed at all, so a device
+silent for 30 days reads the same as one that was never advertised. A
+peer can carry `lan` here too: a device on the same LAN that a space's
+records also name appears in both lists.
 
 `GET /v1/spaces/{spaceId}/sync-status` counts the paths one space is
 syncing over right now: `networkPeers` (sync nodes), `localPeers` (LAN)
@@ -108,9 +110,9 @@ layer doing its job: no node in the path.
 - `account.enabled: false` means no pkarr relay is configured. Own
   devices are then found only through shared spaces, and a device
   holding only the mnemonic cannot find them at all.
-- A peer at tier `disabled` has not been seen for 30 days. Its record
-  stays (records are never deleted) and is ignored until its timestamp
-  moves.
+- A device silent for 30 days is in the `disabled` tier and is left
+  out of `global.peers` entirely. Its record stays (records are never
+  deleted) and is ignored until its timestamp moves.
 - `account.clockAheadMs` non-zero means a sibling device's clock runs
   ahead of this one's; the record is signed past it so a slow clock is
   not locked out.

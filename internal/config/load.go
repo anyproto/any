@@ -68,7 +68,9 @@ func load(flags Flags, validate bool) (Config, error) {
 	}
 
 	// 2. Environment.
-	applyEnv(&cfg)
+	if err := applyEnv(&cfg); err != nil {
+		return Config{}, err
+	}
 
 	// 3. Flags — highest precedence.
 	applyFlags(&cfg, flags)
@@ -96,7 +98,7 @@ func load(flags Flags, validate bool) (Config, error) {
 	return cfg, nil
 }
 
-func applyEnv(cfg *Config) {
+func applyEnv(cfg *Config) error {
 	if v := os.Getenv("ANY_DATA_DIR"); v != "" {
 		cfg.DataDir = v
 	}
@@ -146,11 +148,16 @@ func applyEnv(cfg *Config) {
 	// The one switch for the internet-wide layer that needs no file:
 	// a managed host, a read-only image or a CI job has nowhere to
 	// write config.yaml, and this is the knob that decides whether the
-	// process holds a relay session at all.
+	// process holds a relay session at all. Unlike the others it
+	// REPORTS a value it cannot parse: someone who writes "off" here
+	// means to opt out of network exposure, and silently keeping the
+	// relay session is the one outcome they did not ask for.
 	if v := os.Getenv("ANY_P2P_GLOBAL_ENABLED"); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			cfg.P2P.Global.Enabled = &b
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("ANY_P2P_GLOBAL_ENABLED=%q is not a boolean", v)
 		}
+		cfg.P2P.Global.Enabled = &b
 	}
 	if v := os.Getenv("ANY_LOCAL_ENABLED"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
@@ -292,6 +299,7 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ANY_INDEX_SEARCH_QUERY_EMBED_TIMEOUT"); v != "" {
 		cfg.Index.Search.QueryEmbedTimeout = v
 	}
+	return nil
 }
 
 // splitNonEmpty splits a comma-separated env value into trimmed,

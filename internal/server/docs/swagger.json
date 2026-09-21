@@ -1683,7 +1683,7 @@
                         "type": "string"
                     },
                     "peers": {
-                        "description": "Peers are all peers known through records, connected or not.",
+                        "description": "Peers are the peers known through records, connected or not —\nexcept any in the disabled tier, which the SDK drops from this\nlist. A device silent for 30 days is therefore absent here, not\nlisted as disabled.",
                         "items": {
                             "$ref": "#/components/schemas/api.P2PPeerStatus"
                         },
@@ -2808,7 +2808,7 @@
                         "type": "string"
                     },
                     "sources": {
-                        "description": "Sources that know the peer: \"lan\", \"global\" (a space's records),\n\"account\" (this account's own device record), in any\ncombination. A peer in the top-level list always carries at\nleast \"lan\"; one in global.peers never does.",
+                        "description": "Sources that know the peer: \"lan\", \"global\" (a space's records),\n\"account\" (this account's own device record), in any\ncombination. A peer in the top-level list always carries at\nleast \"lan\", and one in global.peers may also carry it — a\ndevice on the same LAN that a space's records also name appears\nin both lists, so presence under global is not proof that\ntraffic is relayed.",
                         "items": {
                             "type": "string"
                         },

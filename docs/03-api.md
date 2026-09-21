@@ -4304,8 +4304,9 @@ until the relay session is up, and relay-only by construction: it never
 carries this device's addresses. `global.peers` are the peers known
 through records — space rows and the account record — each with the
 `sources` that know it, its `lastSeen` and the `tier` derived from it
-(`active` / `stale` / `dormant` / `disabled`), which sets how often it
-is dialed. `global.account` is the pkarr record through which this
+(`active` / `stale` / `dormant`), which sets how often it is dialed. A
+peer in the `disabled` tier, silent for 30 days, is left out of the
+list entirely. `global.account` is the pkarr record through which this
 account's own devices find each other; `enabled: false` there means no
 pkarr relay is configured and own devices are found only through the
 spaces they share. See `30-global-p2p.md`.

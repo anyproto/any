@@ -130,7 +130,10 @@ type P2PPeerStatus struct {
 	// Sources that know the peer: "lan", "global" (a space's records),
 	// "account" (this account's own device record), in any
 	// combination. A peer in the top-level list always carries at
-	// least "lan"; one in global.peers never does.
+	// least "lan", and one in global.peers may also carry it — a
+	// device on the same LAN that a space's records also name appears
+	// in both lists, so presence under global is not proof that
+	// traffic is relayed.
 	Sources []string `json:"sources,omitempty"`
 	// LastSeen is the newest liveness evidence — a record heartbeat or
 	// a local connection. Zero for LAN-only peers.
@@ -157,7 +160,10 @@ type GlobalP2PStatus struct {
 	// RelayConnected — the session to the home relay is up. Until it
 	// is, this device can dial out but cannot be reached.
 	RelayConnected bool `json:"relayConnected"`
-	// Peers are all peers known through records, connected or not.
+	// Peers are the peers known through records, connected or not —
+	// except any in the disabled tier, which the SDK drops from this
+	// list. A device silent for 30 days is therefore absent here, not
+	// listed as disabled.
 	Peers []P2PPeerStatus `json:"peers"`
 	// Account is the account-level discovery record (pkarr).
 	Account AccountDiscoveryStatus `json:"account"`

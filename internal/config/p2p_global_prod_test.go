@@ -212,14 +212,29 @@ func TestValidateGlobalP2P(t *testing.T) {
 			t.Fatal("a scheme-less relay must be refused, not silently dialed")
 		}
 	})
-	t.Run("a disabled layer is never validated", func(t *testing.T) {
+	// The SDK validates the URL lists whether or not the layer is on,
+	// so a malformed URL in a disabled block still aborts the boot —
+	// from inside the SDK, naming neither the key nor the file. It has
+	// to be caught here too.
+	t.Run("a disabled layer's urls are still checked", func(t *testing.T) {
 		cfg := Defaults()
 		cfg.Network = custom
 		off := false
 		cfg.P2P.Global.Enabled = &off
 		cfg.P2P.Global.RelayUrls = []string{"nonsense"}
+		if err := validateGlobalP2P(&cfg); err == nil {
+			t.Error("a malformed url must be refused even with the layer off")
+		}
+	})
+	// ...but a disabled EMPTY block is the ordinary opt-out and must
+	// not trip the "enabled without relays" rule.
+	t.Run("a disabled empty layer loads", func(t *testing.T) {
+		cfg := Defaults()
+		cfg.Network = custom
+		off := false
+		cfg.P2P.Global.Enabled = &off
 		if err := validateGlobalP2P(&cfg); err != nil {
-			t.Errorf("an off layer must not fail boot: %v", err)
+			t.Errorf("an off, unconfigured layer must load: %v", err)
 		}
 	})
 	t.Run("the packaged production default validates", func(t *testing.T) {
@@ -229,4 +244,27 @@ func TestValidateGlobalP2P(t *testing.T) {
 			t.Errorf("the shipped default must load: %v", err)
 		}
 	})
+}
+
+// Relays an operator wrote are a deliberate configuration: turning the
+// LAN layer off — common on a noisy datacenter network — must not
+// silently discard them. Only the PACKAGED default defers.
+func TestGlobalP2PLanOptOutKeepsHandConfiguredRelays(t *testing.T) {
+	cfg := Defaults()
+	cfg.Network = Network{NodeconfPath: "staging.yml"}
+	off := false
+	cfg.P2P.Enabled = &off
+	cfg.P2P.Global.RelayUrls = []string{"https://relay.internal"}
+	ApplyGlobalP2PDefaults(&cfg)
+	if !cfg.P2P.GlobalEnabled() {
+		t.Error("hand-named relays must survive p2p.enabled:false")
+	}
+
+	// The packaged default still defers to it.
+	packaged := Defaults()
+	packaged.P2P.Enabled = &off
+	ApplyGlobalP2PDefaults(&packaged)
+	if packaged.P2P.GlobalEnabled() {
+		t.Error("a packaged default must not survive p2p.enabled:false")
+	}
 }

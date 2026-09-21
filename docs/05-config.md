@@ -305,12 +305,16 @@ ANY_FILES_PUBLIC_READ_BASE_URL=https://files.example.com  # files.publicReadBase
 ANY_FILES_GC_INTERVAL=1h              # files.gcInterval ("" = no background sweep)
 
 ANY_PUSH_ENABLED=false                # push.enabled (tristate; unset = iff peerId).
-ANY_P2P_GLOBAL_ENABLED=false          # p2p.global.enabled — the one switch for the
-                                      # internet-wide layer that needs no config file.
                                       # false opts out of the production default
                                       # (docs/20-push.md § Config).
 ANY_PUSH_PEER_ID=12D3Koo...           # push.peerId (the push node)
 ANY_PUSH_ADDRS=quic://push:1234       # push.addrs (comma-separated)
+
+ANY_P2P_GLOBAL_ENABLED=false          # p2p.global.enabled — the one switch for the
+                                      # internet-wide layer that needs no config
+                                      # file (docs/30-global-p2p.md). A value that
+                                      # is not a boolean fails startup rather than
+                                      # leaving the layer on.
 
 ANY_LOCAL_ENABLED=false               # local.enabled
 

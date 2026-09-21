@@ -26,10 +26,10 @@ var (
 		"https://relay-de-1.anytype.io",
 	}
 
-	// ProdPkarrRelayUrls is n0's public iroh-dns-server, used until
-	// Anytype hosts its own. Records reach it already signed and
-	// encrypted, so it learns an opaque key and an opaque blob, but it
-	// is a third party in the discovery path and carries no SLA.
+	// ProdPkarrRelayUrls is the configured pkarr relay: n0's public
+	// iroh-dns-server. Records reach it already signed and encrypted,
+	// so it learns an opaque key and an opaque blob, but it is a third
+	// party in the discovery path and carries no SLA.
 	ProdPkarrRelayUrls = []string{
 		"https://dns.iroh.link",
 	}
@@ -52,14 +52,16 @@ var (
 // line asks for, and it would fail silently.
 //
 // `p2p.global.enabled: false` still wins afterwards, through the
-// tristate, as does an explicit `p2p.enabled: false` (see
-// GlobalP2P.IsEnabled).
+// tristate, as does an explicit `p2p.enabled: false` — but only
+// against these packaged values, not against relays an operator wrote
+// (see GlobalP2P.isEnabled).
 func ApplyGlobalP2PDefaults(cfg *Config) {
 	if !UsesEmbeddedNodeconf(cfg.Network) {
 		return
 	}
 	if len(cfg.P2P.Global.RelayUrls) == 0 {
 		cfg.P2P.Global.RelayUrls = append([]string(nil), ProdRelayUrls...)
+		cfg.P2P.Global.relaysDefaulted = true
 	}
 	if len(cfg.P2P.Global.PkarrRelayUrls) == 0 {
 		cfg.P2P.Global.PkarrRelayUrls = append([]string(nil), ProdPkarrRelayUrls...)
@@ -74,13 +76,14 @@ func ApplyGlobalP2PDefaults(cfg *Config) {
 // operator actually wrote.
 func validateGlobalP2P(cfg *Config) error {
 	g := cfg.P2P.Global
-	if !cfg.P2P.GlobalEnabled() {
-		return nil
-	}
-	if len(g.RelayUrls) == 0 {
+	if cfg.P2P.GlobalEnabled() && len(g.RelayUrls) == 0 {
 		return errors.New("p2p.global.enabled is true but p2p.global.relayUrls is empty: " +
 			"the layer needs a relay, or the published ticket would carry this device's addresses")
 	}
+	// URLs are checked whether or not the layer is on: the SDK
+	// validates them unconditionally, so a malformed one in a disabled
+	// block still aborts the boot — from inside the SDK, naming
+	// neither the key nor the file the operator wrote it in.
 	for _, list := range []struct {
 		name     string
 		urls     []string
