@@ -118,6 +118,26 @@ p2p:
                                       #   PUT /v1/local-discovery), on elsewhere.
                                       #   Env: ANY_P2P_LOCAL_DISCOVERY.
 
+  # Internet-wide direct sync (docs/30-global-p2p.md). Independent of
+  # the LAN layer above. Same pairing as push and access: when the
+  # config names NEITHER relay list AND no nodeconf (the embedded
+  # production network), the production relays below are filled in and
+  # the layer runs; a config that names a nodeconf gets relays only by
+  # naming them, so staging, local infra and every test stay off them.
+  global:
+    enabled: true                     # absent = on exactly when relayUrls are
+                                      #   set. false = no iroh endpoint at all.
+    relayUrls:                        # home-relay candidates; the nearest wins
+      - https://relay-fr-1.anytype.io
+      - https://relay-de-1.anytype.io
+    pkarrRelayUrls:                   # holds this account's device record —
+      - https://dns.iroh.link         #   how own devices and a mnemonic-only
+                                      #   device find each other. Empty = space
+                                      #   records only, no account discovery.
+    port: 0                           # iroh UDP port. 0 = ephemeral.
+    maxConnections: 0                 # global connections kept open; 0 = 4
+    maxInbound: 0                     # headroom for inbound ones; 0 = 8
+
 # Local search index (docs/13-index.md). FTS needs no external
 # dependency; vector search activates when an embedder is configured.
 index:

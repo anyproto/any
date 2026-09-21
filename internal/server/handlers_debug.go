@@ -2,9 +2,11 @@ package server
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/anyproto/any-sync-sdk/p2p"
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
@@ -47,25 +49,13 @@ func (d *deps) debugObject(c echo.Context) error {
 	return c.JSON(http.StatusOK, objectDebugToAPI(snap))
 }
 
-// @Summary	Local-network (p2p) layer snapshot (diagnostic, unstable)
+// @Summary	Direct (p2p) layer snapshot — local network and global (diagnostic, unstable)
 // @Tags		debug
 // @Produce	json
 // @Success	200	{object}	api.P2PStatusResponse
 // @Router		/debug/p2p [get]
 func (d *deps) debugP2P(c echo.Context) error {
 	st := d.sdk.P2PStatus()
-	peers := make([]api.P2PPeerStatus, 0, len(st.Peers))
-	for _, p := range st.Peers {
-		spaceIds := p.SpaceIds
-		if spaceIds == nil {
-			spaceIds = []string{}
-		}
-		peers = append(peers, api.P2PPeerStatus{
-			PeerId:    p.PeerId,
-			SpaceIds:  spaceIds,
-			Connected: p.Connected,
-		})
-	}
 	return c.JSON(http.StatusOK, api.P2PStatusResponse{
 		PeerId:          st.PeerId,
 		Enabled:         st.Enabled,
@@ -73,9 +63,59 @@ func (d *deps) debugP2P(c echo.Context) error {
 		Port:            st.Port,
 		Possibility:     st.Possibility.String(),
 		State:           st.State.String(),
-		Peers:           peers,
+		Peers:           p2pPeersToAPI(st.Peers),
 		LocalDiscovery:  st.LocalDiscovery,
+		Global: api.GlobalP2PStatus{
+			Enabled:        st.Global.Enabled,
+			EndpointId:     st.Global.EndpointId,
+			Ticket:         st.Global.Ticket,
+			HomeRelay:      st.Global.HomeRelay,
+			RelayConnected: st.Global.RelayConnected,
+			Peers:          p2pPeersToAPI(st.Global.Peers),
+			Account: api.AccountDiscoveryStatus{
+				Enabled:       st.Global.Account.Enabled,
+				Relays:        orEmpty(st.Global.Account.Relays),
+				Devices:       st.Global.Account.Devices,
+				OwnEntry:      st.Global.Account.OwnEntry,
+				LastResolved:  nonZeroTime(st.Global.Account.LastResolved),
+				LastPublished: nonZeroTime(st.Global.Account.LastPublished),
+				LastError:     st.Global.Account.LastError,
+				ClockAheadMs:  st.Global.Account.ClockAhead.Milliseconds(),
+			},
+		},
 	})
+}
+
+func p2pPeersToAPI(peers []p2p.PeerStatus) []api.P2PPeerStatus {
+	out := make([]api.P2PPeerStatus, 0, len(peers))
+	for _, p := range peers {
+		out = append(out, api.P2PPeerStatus{
+			PeerId:    p.PeerId,
+			SpaceIds:  orEmpty(p.SpaceIds),
+			Connected: p.Connected,
+			Sources:   p.Sources,
+			LastSeen:  nonZeroTime(p.LastSeen),
+			Tier:      p.Tier,
+			Failures:  p.Failures,
+		})
+	}
+	return out
+}
+
+// nonZeroTime keeps a never-set timestamp off the wire entirely rather
+// than sending the zero year, which reads as a real date to a client.
+func nonZeroTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
+}
+
+func orEmpty(v []string) []string {
+	if v == nil {
+		return []string{}
+	}
+	return v
 }
 
 func spaceDebugToAPI(s space.SpaceDebug) api.SpaceDebugResponse {

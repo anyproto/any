@@ -216,6 +216,11 @@ func assembleConfig(opts Options) config.Config {
 	// Same rule the CLI gets from config.Load: a host that supplied
 	// neither a push node nor a network lands on the production pair.
 	config.ApplyPushDefaults(&cfg)
+	// Global p2p rides the same pairing, so an in-process boot on the
+	// production network reaches the account's other devices directly.
+	// A host that wants the endpoint off — no UDP socket, no relay
+	// session — sets p2p.global.enabled false in its config file.
+	config.ApplyGlobalP2PDefaults(&cfg)
 	return cfg
 }
 

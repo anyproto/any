@@ -238,6 +238,7 @@ func spaceSyncStatusToAPI(s space.SpaceSyncStatus) api.SpaceSyncStatusResponse {
 		Total:        s.Total,
 		NetworkPeers: s.NetworkPeers,
 		LocalPeers:   s.LocalPeers,
+		GlobalPeers:  s.GlobalPeers,
 		P2P:          s.P2P.String(),
 		LastSyncedAt: s.LastSyncedAt,
 	}

@@ -255,5 +255,6 @@ server unreachable. When the server is down, print "start it with
 | `docs/27-descriptors.md` | property and field descriptors (`xFormat`) |
 | `docs/28-well-known-bundles.md` | the usecase catalog |
 | `docs/29-client-model.md` | the object model: types, collections, properties |
+| `docs/30-global-p2p.md` | global p2p: packaged relays, config block, debug and sync-status surfaces |
 | `docs/search/` | search evaluation and tuning decisions |
 | `website/` | public docs site (`website/README.md` has its rules) |

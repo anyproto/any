@@ -74,11 +74,12 @@ func load(flags Flags, validate bool) (Config, error) {
 	applyFlags(&cfg, flags)
 
 	// 4. Defaults that depend on the resolved layers, not just on
-	//    Defaults(): the production push node and invite service ride
-	//    the production network, so they can only be decided once the
-	//    network is final.
+	//    Defaults(): the production push node, invite service and
+	//    global-p2p relays ride the production network, so they can
+	//    only be decided once the network is final.
 	ApplyPushDefaults(&cfg)
 	ApplyAccessDefaults(&cfg)
+	ApplyGlobalP2PDefaults(&cfg)
 
 	// 5. Mode is validated against the fully layered result: a managed
 	//    server refuses the standalone-only selectors wherever they came

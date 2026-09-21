@@ -97,6 +97,7 @@ func OpenSDK(ctx context.Context, cfg config.Config, nodeconf []byte, dataDir st
 			Port:           cfg.P2P.Port,
 			ServiceName:    cfg.P2P.ServiceName,
 			LocalDiscovery: &localDiscovery,
+			Global:         globalP2P(cfg.P2P.Global),
 		},
 		Types:       serverTypes(),
 		Collections: serverCollections(),
@@ -130,6 +131,23 @@ func OpenSDK(ctx context.Context, cfg config.Config, nodeconf []byte, dataDir st
 	}
 
 	return anysyncsdk.Open(ctx, sdkCfg, provider)
+}
+
+// globalP2P maps the project's global-p2p block onto the SDK's. The
+// enablement tristate is resolved here — the SDK's own default is
+// "off", while this server turns the layer on as soon as relays are
+// known — and the budget fields pass through zero so the SDK fills its
+// own defaults.
+func globalP2P(g config.GlobalP2P) sdkconfig.GlobalP2P {
+	enabled := g.IsEnabled()
+	return sdkconfig.GlobalP2P{
+		Enabled:        &enabled,
+		RelayURLs:      g.RelayUrls,
+		PkarrRelayURLs: g.PkarrRelayUrls,
+		Port:           g.Port,
+		MaxConnections: g.MaxConnections,
+		MaxInbound:     g.MaxInbound,
+	}
 }
 
 // extraCatalog is the test seam for the compiled-in catalog: types and

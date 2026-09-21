@@ -69,14 +69,15 @@ type ObjectDebugResponse struct {
 }
 
 // P2PStatusResponse is the wire shape of SDK.P2PStatus() — the
-// account-wide local-network (LAN) layer snapshot. Diagnostic; the
-// per-space p2p state lives in SpaceSyncStatusResponse (p2p /
+// account-wide snapshot of both direct layers: the local network (the
+// top-level fields) and the internet-wide one (global). Diagnostic;
+// the per-space p2p state lives in SpaceSyncStatusResponse (p2p /
 // localPeers).
 //
 // Possibility is one of: unknown, possible, nointerfaces, restricted,
 // disabled.
 // State is one of: unknown, notpossible, notconnected, connected,
-// restricted.
+// restricted; it is connected when ANY direct peer is, LAN or global.
 type P2PStatusResponse struct {
 	// PeerId is THIS device's peer id. Devices of one account must
 	// each have a distinct peerId — devices sharing one cannot pair.
@@ -92,6 +93,8 @@ type P2PStatusResponse struct {
 	// Distinct from Enabled, the p2p.enabled config opt-out fixed at
 	// boot, which also takes the QUIC listener down.
 	LocalDiscovery bool `json:"localDiscovery"`
+	// Global is the internet-wide layer (iroh over the relays).
+	Global GlobalP2PStatus `json:"global"`
 }
 
 // LocalDiscoveryRequest is the body of PUT /v1/local-discovery: whether
@@ -113,12 +116,68 @@ type LocalDiscoveryResponse struct {
 	Enabled bool `json:"enabled"`
 }
 
-// P2PPeerStatus is one discovered LAN peer: the spaces it PROVED it
-// shares with this account in the space exchange (the handshake reveals
-// only the intersection of the two space sets, not everything the peer
-// holds) and whether a connection is live right now.
+// P2PPeerStatus is one discovered peer. For a LAN peer, SpaceIds are
+// the spaces it PROVED it shares with this account in the space
+// exchange (the handshake reveals only the intersection of the two
+// space sets, not everything the peer holds); for a global peer they
+// are the spaces whose records name it.
 type P2PPeerStatus struct {
 	PeerId    string   `json:"peerId"`
 	SpaceIds  []string `json:"spaceIds"`
 	Connected bool     `json:"connected"`
+	// Sources that know the peer: "lan", "global" (a space's records),
+	// "account" (this account's own device record), in any
+	// combination. Empty in the LAN-only list.
+	Sources []string `json:"sources,omitempty"`
+	// LastSeen is the newest liveness evidence — a record heartbeat or
+	// a local connection. Zero for LAN-only peers.
+	LastSeen *time.Time `json:"lastSeen,omitempty"`
+	// Tier derived from LastSeen: active, stale, dormant, disabled. It
+	// sets how often the peer is dialed. Empty for LAN-only peers.
+	Tier string `json:"tier,omitempty"`
+	// Failures counts consecutive failed global dials.
+	Failures int `json:"failures,omitempty"`
+}
+
+// GlobalP2PStatus is the internet-wide layer: this device's iroh
+// endpoint, its relay session, and every peer known through records.
+type GlobalP2PStatus struct {
+	Enabled bool `json:"enabled"`
+	// EndpointId is this device's iroh endpoint id (its device key).
+	EndpointId string `json:"endpointId"`
+	// Ticket is what this device publishes for others to dial; empty
+	// until the relay session is up. Relay-only by construction — it
+	// never carries this device's IP addresses.
+	Ticket string `json:"ticket,omitempty"`
+	// HomeRelay is the relay URL inside Ticket.
+	HomeRelay string `json:"homeRelay,omitempty"`
+	// RelayConnected — the session to the home relay is up. Until it
+	// is, this device can dial out but cannot be reached.
+	RelayConnected bool `json:"relayConnected"`
+	// Peers are all peers known through records, connected or not.
+	Peers []P2PPeerStatus `json:"peers"`
+	// Account is the account-level discovery record (pkarr).
+	Account AccountDiscoveryStatus `json:"account"`
+}
+
+// AccountDiscoveryStatus is the pkarr record through which this
+// account's own devices find each other — including a device that
+// holds nothing but the mnemonic. Disabled when no pkarr relay is
+// configured; devices then know each other only through the records of
+// the spaces they share.
+type AccountDiscoveryStatus struct {
+	Enabled bool     `json:"enabled"`
+	Relays  []string `json:"relays"`
+	// Devices is how many sibling devices the record names.
+	Devices int `json:"devices"`
+	// OwnEntry — the record names this device with its current relay.
+	OwnEntry      bool       `json:"ownEntry"`
+	LastResolved  *time.Time `json:"lastResolved,omitempty"`
+	LastPublished *time.Time `json:"lastPublished,omitempty"`
+	// LastError is the last failed cycle; empty after a good one.
+	LastError string `json:"lastError,omitempty"`
+	// ClockAheadMs is how far the relays' record was dated past this
+	// device's clock — a sibling whose clock runs ahead. Zero when it
+	// was not.
+	ClockAheadMs int64 `json:"clockAheadMs,omitempty"`
 }
