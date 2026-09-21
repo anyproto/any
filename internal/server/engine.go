@@ -416,12 +416,25 @@ func (d *deps) bootAccountLocked(id *Identity, open credential) (*engine, error)
 		}
 		return nil, errAccountMismatch
 	}
-	eng, err := bootEngine(d.runCtx, d.cfg, d.root, id, open, d.indexerProcessFor, d.indexerLinksFor)
+	eng, err := bootEngine(d.runCtx, d.bootConfig(), d.root, id, open, d.indexerProcessFor, d.indexerLinksFor)
 	if err != nil {
 		return nil, err
 	}
 	d.publishEngine(eng)
 	return eng, nil
+}
+
+// bootConfig is the config the next engine boots with: the process
+// config, with the host's local-discovery statement (PUT
+// /v1/local-discovery) outranking the config default. The statement
+// reaches discovery before its first cycle, so nothing is sent on the
+// LAN that the host has said not to send.
+func (d *deps) bootConfig() config.Config {
+	cfg := d.cfg
+	if enabled, stated := d.localDiscovery.get(); stated {
+		cfg.P2P.LocalDiscovery = &enabled
+	}
+	return cfg
 }
 
 // switchAccount replaces the live engine with one for id under a single

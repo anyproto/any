@@ -143,6 +143,11 @@ type P2P struct {
 	// ServiceName overrides the mDNS service type (default "_any._tcp").
 	// Set it to isolate a deployment onto its own discovery namespace.
 	ServiceName string `yaml:"serviceName"`
+	// LocalDiscovery switches mDNS announce and browse alone; the QUIC
+	// listener stays up. Absent/null resolves per platform and mode
+	// (LocalDiscoveryEnabled): off for a managed server on macOS, on
+	// everywhere else. Flipped at runtime through PUT /v1/local-discovery.
+	LocalDiscovery *bool `yaml:"localDiscovery"`
 }
 
 // Local configures the local store — device-local, non-CRDT any-store

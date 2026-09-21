@@ -74,6 +74,7 @@ func (d *deps) debugP2P(c echo.Context) error {
 		Possibility:     st.Possibility.String(),
 		State:           st.State.String(),
 		Peers:           peers,
+		LocalDiscovery:  st.LocalDiscovery,
 	})
 }
 

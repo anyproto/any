@@ -91,7 +91,7 @@ func buildEcho(d *deps) *echo.Echo {
 	v1.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			switch c.Path() {
-			case "/v1/health", "/v1/shutdown", "/v1/openapi.json", "/v1/auth":
+			case "/v1/health", "/v1/shutdown", "/v1/openapi.json", "/v1/auth", "/v1/local-discovery":
 				return next(c)
 			case "/v1/*":
 				// Unmatched route — echo's not-found pattern. Pass it
@@ -124,6 +124,12 @@ func buildEcho(d *deps) *echo.Echo {
 	// Registered before the tech-space guard: the auth routes take no
 	// spaceId, and the guard's engine read belongs inside the gate.
 	registerAuthRoutes(v1, d)
+	// The local-discovery switch is exempt from the guard like /v1/auth:
+	// the host states it BEFORE the first boot, so that boot starts
+	// discovery in the right state (local_discovery.go). The handlers
+	// enter the gate themselves when an engine is live.
+	v1.GET("/local-discovery", d.localDiscoveryGet)
+	v1.PUT("/local-discovery", d.localDiscoverySet)
 
 	v1.Use(d.techSpaceRouteGuard)
 

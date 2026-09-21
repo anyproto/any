@@ -110,6 +110,13 @@ p2p:
   serviceName: ""                     # mDNS service type; empty = "_any._tcp".
                                       #   Override to isolate a deployment onto
                                       #   its own discovery namespace.
+  localDiscovery: null                # mDNS announce + browse at boot; the QUIC
+                                      #   listener stays up either way. null =
+                                      #   off for a managed server on macOS (the
+                                      #   host shell owns the Local Network
+                                      #   permission flow and turns it on through
+                                      #   PUT /v1/local-discovery), on elsewhere.
+                                      #   Env: ANY_P2P_LOCAL_DISCOVERY.
 
 # Local search index (docs/13-index.md). FTS needs no external
 # dependency; vector search activates when an embedder is configured.

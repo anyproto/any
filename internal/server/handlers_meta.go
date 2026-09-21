@@ -57,6 +57,12 @@ type deps struct {
 	// nil means the compiled embedded one (server/catalog.go).
 	catalog *compiledCatalog
 
+	// localDiscovery is the host's answer to PUT /v1/local-discovery
+	// (local_discovery.go). On deps rather than on the engine so it
+	// survives logout and account switches, and can be given before the
+	// first boot.
+	localDiscovery localDiscoverySwitch
+
 	// events is the account-wide in-memory event bus hub
 	// (POST /v1/events → GET /v1/events/subscribe). Created lazily via
 	// eventsHub() so every deps construction path gets one with no
