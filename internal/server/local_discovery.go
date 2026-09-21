@@ -18,7 +18,7 @@ func (d *deps) localDiscoveryState() bool {
 		defer d.gate.leave()
 		return d.sdk.LocalDiscoveryEnabled()
 	}
-	if p2p := d.cfg.P2P.Enabled; p2p != nil && !*p2p {
+	if !d.cfg.P2P.IsEnabled() {
 		return false
 	}
 	return d.bootConfig().LocalDiscoveryEnabled()

@@ -150,6 +150,9 @@ type P2P struct {
 	LocalDiscovery *bool `yaml:"localDiscovery"`
 }
 
+// IsEnabled resolves the opt-out tristate: absent/null = on.
+func (p P2P) IsEnabled() bool { return p.Enabled == nil || *p.Enabled }
+
 // Local configures the local store — device-local, non-CRDT any-store
 // collections in the SDK's sdk.db under the "l_" tag, served at
 // /v1/local
