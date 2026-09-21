@@ -97,7 +97,7 @@ func OpenSDK(ctx context.Context, cfg config.Config, nodeconf []byte, dataDir st
 			Port:           cfg.P2P.Port,
 			ServiceName:    cfg.P2P.ServiceName,
 			LocalDiscovery: &localDiscovery,
-			Global:         globalP2P(cfg.P2P.Global),
+			Global:         globalP2P(cfg.P2P),
 		},
 		Types:       serverTypes(),
 		Collections: serverCollections(),
@@ -138,12 +138,18 @@ func OpenSDK(ctx context.Context, cfg config.Config, nodeconf []byte, dataDir st
 // "off", while this server turns the layer on as soon as relays are
 // known — and the budget fields pass through zero so the SDK fills its
 // own defaults.
-func globalP2P(g config.GlobalP2P) sdkconfig.GlobalP2P {
-	enabled := g.IsEnabled()
+//
+// Takes the whole P2P block because the resolution reads the LAN
+// opt-out too (config.P2P.GlobalEnabled).
+func globalP2P(p config.P2P) sdkconfig.GlobalP2P {
+	enabled := p.GlobalEnabled()
+	g := p.Global
 	return sdkconfig.GlobalP2P{
 		Enabled:        &enabled,
 		RelayURLs:      g.RelayUrls,
 		PkarrRelayURLs: g.PkarrRelayUrls,
+		InsecureRelay:  g.InsecureRelay,
+		InsecurePkarr:  g.InsecurePkarr,
 		Port:           g.Port,
 		MaxConnections: g.MaxConnections,
 		MaxInbound:     g.MaxInbound,

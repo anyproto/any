@@ -33,6 +33,7 @@ any sync-status space SPACE
   "total":        3,
   "networkPeers": 0,
   "localPeers":   1,
+  "globalPeers":  0,
   "p2p":          "connected",
   "lastSyncedAt": "0001-01-01T00:00:00Z" }
 ```
@@ -43,10 +44,11 @@ any sync-status space SPACE
 | `synced`, `total` | objects converged vs. objects tracked in the space |
 | `networkPeers` | responsible sync nodes with a live connection |
 | `localPeers` | LAN peers sharing this space that are connected right now |
-| `p2p` | local-network state: `unknown` / `notpossible` / `notconnected` / `connected` / `restricted` (OS denied local-network access) |
+| `globalPeers` | internet-wide direct peers — relayed or hole-punched — connected right now |
+| `p2p` | direct-layer state, covering both: `unknown` / `notpossible` / `notconnected` / `connected` / `restricted` (OS denied local-network access) |
 | `lastSyncedAt` | time of the last completed round; zero value until one has run |
 
-A space can be `synced` with `networkPeers: 0` — it converged entirely over the LAN.
+A space can be `synced` with `networkPeers: 0` — it converged entirely over the LAN, or over the global layer.
 
 Per object:
 

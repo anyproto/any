@@ -20,12 +20,22 @@ that show it working.
   only by naming them — the same pairing push and access use, and what
   keeps staging, local infra, self-hosted networks and every test off
   Anytype's relays.
+- **Each relay list defaults independently.** Naming your own relays
+  keeps the packaged pkarr relay and the other way round, so no
+  half-configured block can leave the transport empty and silently
+  resolve the whole layer off.
 - **Enablement is derived, not defaulted.** `p2p.global.enabled` absent
   means "on exactly when relay URLs are known". An explicit `false`
   always wins and leaves no iroh endpoint, no UDP socket and no relay
-  session.
-- **Both layers are independent.** `p2p.enabled: false` with the global
-  layer on is a valid setup, and the reverse too.
+  session; `ANY_P2P_GLOBAL_ENABLED` is the same switch without a file.
+- **An explicit `p2p.enabled: false` turns both layers off.** The two
+  are independent and `p2p.enabled: false` with
+  `p2p.global.enabled: true` remains a valid setup — but a config whose
+  whole content is "turn peer-to-peer off" must not acquire an iroh
+  endpoint from a packaged default nested under the key it set false.
+- **A block the layer cannot run with fails at config load**
+  (`validateGlobalP2P`), naming the key the operator wrote, rather than
+  aborting the boot from inside the SDK.
 
 ## Relays
 
@@ -43,6 +53,22 @@ identity. That record is how this account's own devices find each
 other, and how a device holding nothing but the mnemonic finds them.
 Without it the account layer stays off and devices know each other only
 through the records of the spaces they share.
+
+## Advertising is a one-way door
+
+The first boot with the layer on writes this device's ticket row into the
+records of every space it holds, and records are never deleted — the store
+has no delete. Turning the layer off afterwards stops the heartbeat and
+stops new rows; it does not remove the ones already written, and they stay
+replicated to every member of those spaces until they age past the disable
+threshold and are ignored.
+
+A row names a device's endpoint id and its home relay, nothing else — no
+address, and it is encrypted with the space read key, so only members read
+it. But shipping the layer on by default means every production device
+writes one, and no config change takes it back. `any` exposes no per-space
+advertising switch yet; the SDK's `Space.SetP2PAdvertise` gates only future
+rows.
 
 ## The ticket never carries an IP
 

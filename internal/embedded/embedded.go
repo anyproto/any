@@ -216,10 +216,13 @@ func assembleConfig(opts Options) config.Config {
 	// Same rule the CLI gets from config.Load: a host that supplied
 	// neither a push node nor a network lands on the production pair.
 	config.ApplyPushDefaults(&cfg)
-	// Global p2p rides the same pairing, so an in-process boot on the
-	// production network reaches the account's other devices directly.
-	// A host that wants the endpoint off — no UDP socket, no relay
-	// session — sets p2p.global.enabled false in its config file.
+	// Global p2p rides the same pairing — and therefore reaches only a
+	// host that supplied no NodeconfYAML, since naming a network is
+	// what marks a boot as "not production". Every shipped shim passes
+	// one, so in practice this fills nothing: Options has no p2p field,
+	// so an embedded host can neither turn the layer on nor off. Kept
+	// so the two boot paths resolve config by one rule; giving mobile
+	// the layer means giving Options a knob for it.
 	config.ApplyGlobalP2PDefaults(&cfg)
 	return cfg
 }

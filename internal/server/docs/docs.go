@@ -2815,7 +2815,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "sources": {
-                        "description": "Sources that know the peer: \"lan\", \"global\" (a space's records),\n\"account\" (this account's own device record), in any\ncombination. Empty in the LAN-only list.",
+                        "description": "Sources that know the peer: \"lan\", \"global\" (a space's records),\n\"account\" (this account's own device record), in any\ncombination. A peer in the top-level list always carries at\nleast \"lan\"; one in global.peers never does.",
                         "items": {
                             "type": "string"
                         },

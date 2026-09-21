@@ -111,6 +111,9 @@ func nonZeroTime(t time.Time) *time.Time {
 	return &t
 }
 
+// orEmpty keeps a nil slice off the wire as [] rather than null: a
+// client iterating the field should not have to special-case the
+// absence of peers, heads or relays.
 func orEmpty(v []string) []string {
 	if v == nil {
 		return []string{}
@@ -133,20 +136,12 @@ func spaceDebugToAPI(s space.SpaceDebug) api.SpaceDebugResponse {
 }
 
 func objectDebugToAPI(o space.ObjectDebug) api.ObjectDebugResponse {
-	heads := o.Heads
-	if heads == nil {
-		heads = []string{}
-	}
-	pending := o.Pending
-	if pending == nil {
-		pending = []string{}
-	}
 	return api.ObjectDebugResponse{
 		ObjectId:        o.ObjectId,
 		SyncState:       o.SyncState.String(),
-		Pending:         pending,
+		Pending:         orEmpty(o.Pending),
 		LastSyncAt:      o.LastSyncAt,
-		Heads:           heads,
+		Heads:           orEmpty(o.Heads),
 		HeadsCount:      o.HeadsCount,
 		BranchCount:     o.BranchCount,
 		TreeLen:         o.TreeLen,

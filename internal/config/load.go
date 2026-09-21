@@ -88,6 +88,9 @@ func load(flags Flags, validate bool) (Config, error) {
 		if err := validateMode(&cfg); err != nil {
 			return Config{}, err
 		}
+		if err := validateGlobalP2P(&cfg); err != nil {
+			return Config{}, err
+		}
 	}
 
 	return cfg, nil
@@ -138,6 +141,15 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ANY_P2P_LOCAL_DISCOVERY"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			cfg.P2P.LocalDiscovery = &b
+		}
+	}
+	// The one switch for the internet-wide layer that needs no file:
+	// a managed host, a read-only image or a CI job has nowhere to
+	// write config.yaml, and this is the knob that decides whether the
+	// process holds a relay session at all.
+	if v := os.Getenv("ANY_P2P_GLOBAL_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.P2P.Global.Enabled = &b
 		}
 	}
 	if v := os.Getenv("ANY_LOCAL_ENABLED"); v != "" {

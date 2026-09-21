@@ -1,5 +1,11 @@
 package config
 
+import (
+	"errors"
+	"fmt"
+	"net/url"
+)
+
 // The production global-p2p infrastructure: the iroh relays that
 // forward encrypted QUIC between two devices that cannot reach each
 // other directly, and the pkarr relay that holds each account's
@@ -29,24 +35,77 @@ var (
 	}
 )
 
-// ApplyGlobalP2PDefaults fills in the production relays when the config
-// names none AND the network is the embedded production default.
+// ApplyGlobalP2PDefaults fills in the production relays when the
+// network is the embedded production default.
 //
 // Same pairing as ApplyPushDefaults: a device on staging, local infra
 // or a self-hosted network reaches Anytype's relays only by naming
 // them, and tests — which always name a nodeconf — never do. Without
 // the pairing every test run would hold a relay session.
 //
-// Only a config that names NEITHER relay list is filled: a partly
-// configured layer stays the caller's to finish. `p2p.global.enabled:
-// false` still wins afterwards, through the tristate.
+// The two lists fill independently, so every combination on the
+// production network is coherent: naming your own relays keeps the
+// packaged pkarr relay, naming your own pkarr relay keeps the packaged
+// relays. Filling only together would make "pkarr relays, nothing
+// else" resolve the layer OFF — the SDK cannot run account discovery
+// without the transport — which is the opposite of what writing that
+// line asks for, and it would fail silently.
+//
+// `p2p.global.enabled: false` still wins afterwards, through the
+// tristate, as does an explicit `p2p.enabled: false` (see
+// GlobalP2P.IsEnabled).
 func ApplyGlobalP2PDefaults(cfg *Config) {
-	if len(cfg.P2P.Global.RelayUrls) > 0 || len(cfg.P2P.Global.PkarrRelayUrls) > 0 {
-		return
-	}
 	if !UsesEmbeddedNodeconf(cfg.Network) {
 		return
 	}
-	cfg.P2P.Global.RelayUrls = append([]string(nil), ProdRelayUrls...)
-	cfg.P2P.Global.PkarrRelayUrls = append([]string(nil), ProdPkarrRelayUrls...)
+	if len(cfg.P2P.Global.RelayUrls) == 0 {
+		cfg.P2P.Global.RelayUrls = append([]string(nil), ProdRelayUrls...)
+	}
+	if len(cfg.P2P.Global.PkarrRelayUrls) == 0 {
+		cfg.P2P.Global.PkarrRelayUrls = append([]string(nil), ProdPkarrRelayUrls...)
+	}
+}
+
+// validateGlobalP2P refuses a global block the layer cannot run with,
+// at config load rather than from inside the SDK at boot: without a
+// relay the published ticket would have to carry this device's IP
+// addresses into every space's records, so the SDK errors out and
+// takes the whole server with it. Catching it here names the key the
+// operator actually wrote.
+func validateGlobalP2P(cfg *Config) error {
+	g := cfg.P2P.Global
+	if !cfg.P2P.GlobalEnabled() {
+		return nil
+	}
+	if len(g.RelayUrls) == 0 {
+		return errors.New("p2p.global.enabled is true but p2p.global.relayUrls is empty: " +
+			"the layer needs a relay, or the published ticket would carry this device's addresses")
+	}
+	for _, list := range []struct {
+		name     string
+		urls     []string
+		insecure bool
+		flag     string
+	}{
+		{"relayUrls", g.RelayUrls, g.InsecureRelay, "insecureRelay"},
+		{"pkarrRelayUrls", g.PkarrRelayUrls, g.InsecurePkarr, "insecurePkarr"},
+	} {
+		for _, raw := range list.urls {
+			u, err := url.Parse(raw)
+			if err != nil || u.Host == "" {
+				return fmt.Errorf("p2p.global.%s: %q is not a URL", list.name, raw)
+			}
+			switch u.Scheme {
+			case "https":
+			case "http":
+				if !list.insecure {
+					return fmt.Errorf("p2p.global.%s: %q is plaintext; set p2p.global.%s to allow it",
+						list.name, raw, list.flag)
+				}
+			default:
+				return fmt.Errorf("p2p.global.%s: %q must be http(s)", list.name, raw)
+			}
+		}
+	}
+	return nil
 }

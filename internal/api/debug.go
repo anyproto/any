@@ -116,18 +116,21 @@ type LocalDiscoveryResponse struct {
 	Enabled bool `json:"enabled"`
 }
 
-// P2PPeerStatus is one discovered peer. For a LAN peer, SpaceIds are
-// the spaces it PROVED it shares with this account in the space
-// exchange (the handshake reveals only the intersection of the two
-// space sets, not everything the peer holds); for a global peer they
-// are the spaces whose records name it.
+// P2PPeerStatus is one discovered peer. SpaceIds is the union over
+// every source that knows the peer: for a LAN-only peer, the spaces it
+// PROVED it shares in the space exchange (the handshake reveals only
+// the intersection of the two space sets, not everything the peer
+// holds); for a peer also known through records, the spaces those
+// records name as well. Read Sources before treating the set as the
+// LAN handshake's proof.
 type P2PPeerStatus struct {
 	PeerId    string   `json:"peerId"`
 	SpaceIds  []string `json:"spaceIds"`
 	Connected bool     `json:"connected"`
 	// Sources that know the peer: "lan", "global" (a space's records),
 	// "account" (this account's own device record), in any
-	// combination. Empty in the LAN-only list.
+	// combination. A peer in the top-level list always carries at
+	// least "lan"; one in global.peers never does.
 	Sources []string `json:"sources,omitempty"`
 	// LastSeen is the newest liveness evidence — a record heartbeat or
 	// a local connection. Zero for LAN-only peers.

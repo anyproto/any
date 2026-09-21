@@ -27,8 +27,9 @@ A change is a signed, encrypted node in a per-object DAG (a git-like history: ea
 
 - **Network sync** — the space's responsible any-sync nodes store ciphertext changes and relay them. A device that comes online pulls what it missed and pushes what it wrote.
 - **Local-network sync** — devices on one LAN discover each other over mDNS and exchange changes directly for the spaces they share, including while the nodes are unreachable (config `p2p.enabled`, on by default).
+- **Global sync** — devices anywhere on the internet connect directly through Anytype's relays, which forward encrypted traffic until the two sides find a direct path. Same guarantee without the same LAN (config `p2p.global`, on by default). See [Networks](../operations/networks.html).
 
-Both paths deliver the same changes; a space can be fully `synced` with `networkPeers: 0` when everything converged over the LAN.
+All three deliver the same changes; a space can be fully `synced` with `networkPeers: 0` when everything converged over the LAN or the relays.
 
 ## Head-sync and convergence
 

@@ -2307,7 +2307,8 @@ components:
           description: |-
             Sources that know the peer: "lan", "global" (a space's records),
             "account" (this account's own device record), in any
-            combination. Empty in the LAN-only list.
+            combination. A peer in the top-level list always carries at
+            least "lan"; one in global.peers never does.
           items:
             type: string
           type: array
