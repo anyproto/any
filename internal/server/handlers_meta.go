@@ -62,6 +62,11 @@ type deps struct {
 	// survives logout and account switches, and can be given before the
 	// first boot.
 	localDiscovery localDiscoverySwitch
+	// bootingSDK is the SDK of the engine currently booting, from the
+	// moment it opens until the engine is published or the boot fails,
+	// so a local-discovery statement reaches it without waiting for
+	// the rest of the boot. Nil otherwise.
+	bootingSDK atomic.Pointer[anysyncsdk.SDK]
 
 	// events is the account-wide in-memory event bus hub
 	// (POST /v1/events → GET /v1/events/subscribe). Created lazily via

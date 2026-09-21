@@ -357,6 +357,7 @@ any push subscriptions
 any debug space  <spaceId>                          # per-peer headsync counters
 any debug object <spaceId> <objectId>               # tree + sync snapshot (walks the tree)
 any debug p2p                                       # LAN discovery snapshot
+any local-discovery [on|off]                        # mDNS announce+browse switch (works before auth)
 ```
 
 ```bash

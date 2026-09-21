@@ -196,7 +196,11 @@ type linksHook func(*engine) func(spaceId string, targets []string)
 // to the caller) would linger and be auto-selected on the next start.
 // A pre-existing dir (an account reached under the other custody, or
 // one holding data from an earlier boot) is left untouched.
-func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identity, open credential, onProcess processHook, onLinks linksHook) (_ *engine, err error) {
+// sdkHook observes the SDK as soon as it opens, before the rest of the
+// boot; nil to skip.
+type sdkHook func(*anysyncsdk.SDK)
+
+func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identity, open credential, onProcess processHook, onLinks linksHook, onSDK sdkHook) (_ *engine, err error) {
 	// One read of the nodeconf feeds both the pin and the SDK, so the
 	// pinned network is the one the SDK joins.
 	nodeconf, networkId, err := configuredNetwork(cfg.Network)
@@ -272,6 +276,9 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 		return nil, fmt.Errorf("open sdk: %w", err)
 	}
 	eng.sdk = sdk
+	if onSDK != nil {
+		onSDK(sdk)
+	}
 	// A dir without a pin (new, or from before pins) adopts this network.
 	// The pin guards later boots, so failing to write it never fails this
 	// one.
@@ -416,12 +423,20 @@ func (d *deps) bootAccountLocked(id *Identity, open credential) (*engine, error)
 		}
 		return nil, errAccountMismatch
 	}
-	eng, err := bootEngine(d.runCtx, d.bootConfig(), d.root, id, open, d.indexerProcessFor, d.indexerLinksFor)
+	defer d.bootingSDK.Store(nil)
+	eng, err := bootEngine(d.runCtx, d.bootConfig(), d.root, id, open, d.indexerProcessFor, d.indexerLinksFor, d.noteBootingSDK)
 	if err != nil {
 		return nil, err
 	}
 	d.publishEngine(eng)
 	return eng, nil
+}
+
+// noteBootingSDK exposes a booting engine's SDK to applyLocalDiscovery
+// and applies any statement already made to it.
+func (d *deps) noteBootingSDK(sdk *anysyncsdk.SDK) {
+	d.bootingSDK.Store(sdk)
+	d.applyLocalDiscovery()
 }
 
 // bootConfig is the config the next engine boots with: the process
@@ -477,9 +492,9 @@ func (d *deps) publishEngine(eng *engine) {
 	d.shutdownCtx = eng.ctx
 	d.gate.reset()
 	d.ready.Store(true)
-	// A statement that landed during the boot missed bootConfig and
-	// found no engine to apply to; it is applied now, after ready, so
-	// no window is left between the two paths.
+	// A statement that landed during the boot reached the booting
+	// engine through bootingSDK; one that lands between that pointer
+	// being cleared and ready flipping is applied now, after ready.
 	d.applyLocalDiscovery()
 	if d.boundAddr != "" && eng.lock != nil {
 		writeAddrFile(eng.dir, d.boundAddr)

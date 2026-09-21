@@ -145,8 +145,8 @@ type P2P struct {
 	ServiceName string `yaml:"serviceName"`
 	// LocalDiscovery switches mDNS announce and browse alone; the QUIC
 	// listener stays up. Absent/null resolves per platform and mode
-	// (LocalDiscoveryEnabled): off for a managed server on macOS or iOS,
-	// on everywhere else. Flipped at runtime through PUT /v1/local-discovery.
+	// (LocalDiscoveryEnabled): off for a managed server on macOS, on
+	// everywhere else. Flipped at runtime through PUT /v1/local-discovery.
 	LocalDiscovery *bool `yaml:"localDiscovery"`
 }
 

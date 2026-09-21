@@ -3,8 +3,12 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"runtime"
+	"strings"
 	"testing"
+
+	"github.com/labstack/echo/v4"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
@@ -79,9 +83,51 @@ func TestLocalDiscoveryRoutesWorkUnauthorized(t *testing.T) {
 	}
 }
 
+// A managed server treats the switch as host-owned: PUT needs the
+// control token, GET does not. And the state is what p2p.enabled
+// allows, not what was asked.
+func TestLocalDiscoveryManagedAndP2PDisabled(t *testing.T) {
+	d := newUnauthorizedDeps(t)
+	d.cfg.Mode = config.ModeManaged
+	d.controlToken = "tok"
+	off := false
+	d.cfg.P2P.Enabled = &off
+	e := buildEcho(d)
+
+	rec := doJSON(t, e, http.MethodPut, "/v1/local-discovery", `{"enabled":true}`)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("PUT without the control token: want 403, got %d %s", rec.Code, rec.Body.String())
+	}
+	if _, stated := d.localDiscovery.get(); stated {
+		t.Error("a refused PUT changed the switch")
+	}
+	if rec := doJSON(t, e, http.MethodGet, "/v1/local-discovery", ""); rec.Code != http.StatusOK {
+		t.Errorf("GET without the control token: want 200, got %d %s", rec.Code, rec.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/v1/local-discovery", strings.NewReader(`{"enabled":true}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req.Header.Set(api.ControlTokenHeader, "tok")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT with the control token: want 200, got %d %s", rec.Code, rec.Body.String())
+	}
+	var res api.LocalDiscoveryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Enabled {
+		t.Error("PUT true reports on while p2p.enabled is off")
+	}
+	if enabled, stated := d.localDiscovery.get(); !stated || !enabled {
+		t.Error("the statement itself must still be recorded for a later boot")
+	}
+}
+
 // With an engine live the switch reaches the SDK at once, and a
-// statement that missed the boot (recorded while the engine was coming
-// up) is applied when the engine is published.
+// statement made while an engine boots reaches that engine as soon as
+// its SDK is open.
 func TestLocalDiscoveryAppliesToLiveEngine(t *testing.T) {
 	d, cleanup := newTestDeps(t)
 	defer cleanup()
@@ -106,12 +152,23 @@ func TestLocalDiscoveryAppliesToLiveEngine(t *testing.T) {
 		t.Error("GET reports the engine as on after PUT false")
 	}
 
-	// The boot race: the statement is recorded with no engine to apply
-	// to, then the engine is published — publishEngine's re-apply is
-	// what closes the window.
-	d.localDiscovery.set(true)
-	d.applyLocalDiscovery()
+	// During a boot: not ready, but the SDK is open. The statement goes
+	// to it directly rather than waiting for the rest of the boot.
+	d.ready.Store(false)
+	d.bootingSDK.Store(d.sdk)
+	rec = doJSON(t, e, http.MethodPut, "/v1/local-discovery", `{"enabled":true}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT during boot: want 200, got %d %s", rec.Code, rec.Body.String())
+	}
 	if !d.sdk.LocalDiscoveryEnabled() {
+		t.Error("statement during boot did not reach the booting SDK")
+	}
+	// Publish: the hook re-applies whatever is recorded.
+	d.bootingSDK.Store(nil)
+	d.localDiscovery.set(false)
+	d.ready.Store(true)
+	d.applyLocalDiscovery()
+	if d.sdk.LocalDiscoveryEnabled() {
 		t.Error("statement recorded before publish was not applied")
 	}
 }

@@ -48,11 +48,16 @@ func (s *localDiscoverySwitch) get() (enabled, stated bool) {
 
 // localDiscoveryState is the switch as the caller sees it: the live
 // engine's reading when one is up (entered through the gate, like the
-// guard does), otherwise what the next boot will start with.
+// guard does), otherwise what the next boot will start with. False
+// whenever p2p.enabled is off: the switch cannot turn on what never
+// runs.
 func (d *deps) localDiscoveryState() bool {
 	if d.ready.Load() && d.gate.enter() {
 		defer d.gate.leave()
 		return d.sdk.LocalDiscoveryEnabled()
+	}
+	if p2p := d.cfg.P2P.Enabled; p2p != nil && !*p2p {
+		return false
 	}
 	if enabled, stated := d.localDiscovery.get(); stated {
 		return enabled
@@ -77,8 +82,9 @@ func (d *deps) localDiscoveryGet(c echo.Context) error {
 // Works before the first POST /v1/auth (the route is exempt from the
 // guard): the answer is folded into the SDK config of every engine
 // boot, so discovery starts in the stated state and nothing is sent on
-// the LAN before the host allows it. With an engine live the switch is
-// applied at once, within the gate.
+// the LAN before the host allows it. With an engine live, or booting,
+// the switch is applied at once. Host-owned, so a managed server asks
+// for the control token like the other host operations.
 //
 //	@Summary	Switch local-network discovery (mDNS) on or off
 //	@Tags		p2p
@@ -87,8 +93,12 @@ func (d *deps) localDiscoveryGet(c echo.Context) error {
 //	@Param		body	body		api.LocalDiscoveryRequest	true	"Desired state"
 //	@Success	200		{object}	api.LocalDiscoveryResponse
 //	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	403		{object}	api.ErrorEnvelope
 //	@Router		/local-discovery [put]
 func (d *deps) localDiscoverySet(c echo.Context) error {
+	if !d.requireControl(c) {
+		return nil
+	}
 	req, ok := bindBodyStrict[api.LocalDiscoveryRequest](c, "")
 	if !ok {
 		return nil
@@ -98,20 +108,27 @@ func (d *deps) localDiscoverySet(c echo.Context) error {
 	}
 	d.localDiscovery.set(*req.Enabled)
 	d.applyLocalDiscovery()
-	return c.JSON(http.StatusOK, api.LocalDiscoveryResponse{Enabled: *req.Enabled})
+	return c.JSON(http.StatusOK, api.LocalDiscoveryResponse{Enabled: d.localDiscoveryState()})
 }
 
 // applyLocalDiscovery forwards the host's statement, if any, to the
-// live engine, entered through the gate like the guard does. A no-op
-// without an engine, and idempotent: the SDK ignores a restatement.
-// Called on every PUT and once an engine is published, which is what
-// catches a statement made while that engine was booting (after
-// bootConfig read the switch, before ready flipped).
+// engine: the live one, entered through the gate like the guard does,
+// else the one booting right now (bootingSDK), so a statement is
+// honoured within seconds even during a long restore. A no-op with
+// neither, and idempotent: the SDK ignores a restatement. Called on
+// every PUT and once an engine is published, which closes the window
+// between the booting pointer being cleared and ready flipping.
 func (d *deps) applyLocalDiscovery() {
 	enabled, stated := d.localDiscovery.get()
-	if !stated || !d.ready.Load() || !d.gate.enter() {
+	if !stated {
 		return
 	}
-	defer d.gate.leave()
-	d.sdk.SetLocalDiscoveryEnabled(enabled)
+	if d.ready.Load() && d.gate.enter() {
+		d.sdk.SetLocalDiscoveryEnabled(enabled)
+		d.gate.leave()
+		return
+	}
+	if sdk := d.bootingSDK.Load(); sdk != nil {
+		sdk.SetLocalDiscoveryEnabled(enabled)
+	}
 }

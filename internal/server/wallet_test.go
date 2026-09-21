@@ -81,7 +81,7 @@ func TestBootEngine_CleansOrphanOnFailure(t *testing.T) {
 
 	ctx := context.Background()
 	cfg := bogusTopologyConfig(root)
-	_, err = bootEngine(ctx, cfg, root, identity, fileCredential(cfg, identity.WalletPath, walletSeed{mnemonic: m}), nil, nil)
+	_, err = bootEngine(ctx, cfg, root, identity, fileCredential(cfg, identity.WalletPath, walletSeed{mnemonic: m}), nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected boot failure on bogus topology")
 	}
@@ -112,7 +112,7 @@ func TestBootEngine_KeepsExistingWalletOnFailure(t *testing.T) {
 	identity := &Identity{Account: id, Dir: dir, WalletPath: walletPath}
 	ctx := context.Background()
 	cfg := bogusTopologyConfig(root)
-	_, err = bootEngine(ctx, cfg, root, identity, fileCredential(cfg, identity.WalletPath, walletSeed{}), nil, nil)
+	_, err = bootEngine(ctx, cfg, root, identity, fileCredential(cfg, identity.WalletPath, walletSeed{}), nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected boot failure on bogus topology")
 	}
