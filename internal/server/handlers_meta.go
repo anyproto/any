@@ -58,10 +58,18 @@ type deps struct {
 	catalog *compiledCatalog
 
 	// localDiscovery is the host's answer to PUT /v1/local-discovery
-	// (local_discovery.go). On deps rather than on the engine so it
-	// survives logout and account switches, and can be given before the
-	// first boot.
-	localDiscovery localDiscoverySwitch
+	// (local_discovery.go), nil until one is given. On deps rather than
+	// on the engine so it survives logout and account switches, and can
+	// be given before the first boot.
+	//
+	// It exists because the server cannot find out for itself whether
+	// it may use the local network: the SDK's mDNS driver is raw-socket
+	// Go, macOS drops local-network packets at a filter without
+	// reporting anything, and the Local Network prompt fires on the
+	// first multicast send, so only the host that runs Apple's own
+	// stack knows when to ask and what the user answered. "Off" and
+	// "the OS said no" both mean "do not scan"; the client knows which.
+	localDiscovery atomic.Pointer[bool]
 	// bootingSDK is the SDK of the engine currently booting, from the
 	// moment it opens until the engine is published or the boot fails,
 	// so a local-discovery statement reaches it without waiting for

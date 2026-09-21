@@ -441,13 +441,13 @@ func (d *deps) noteBootingSDK(sdk *anysyncsdk.SDK) {
 
 // bootConfig is the config the next engine boots with: the process
 // config, with the host's local-discovery statement (PUT
-// /v1/local-discovery) outranking the config default. The statement
-// reaches discovery before its first cycle, so nothing is sent on the
-// LAN that the host has said not to send.
+// /v1/local-discovery) outranking the config default. A statement
+// made after this snapshot reaches the engine through bootingSDK once
+// its SDK is open.
 func (d *deps) bootConfig() config.Config {
 	cfg := d.cfg
-	if enabled, stated := d.localDiscovery.get(); stated {
-		cfg.P2P.LocalDiscovery = &enabled
+	if enabled := d.localDiscovery.Load(); enabled != nil {
+		cfg.P2P.LocalDiscovery = enabled
 	}
 	return cfg
 }

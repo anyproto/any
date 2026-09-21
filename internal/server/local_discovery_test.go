@@ -14,21 +14,7 @@ import (
 	"github.com/anyproto/any/internal/config"
 )
 
-func TestLocalDiscoverySwitchRecords(t *testing.T) {
-	var s localDiscoverySwitch
-
-	if _, stated := s.get(); stated {
-		t.Fatal("fresh switch reports a statement")
-	}
-	s.set(false)
-	if enabled, stated := s.get(); !stated || enabled {
-		t.Errorf("get = (%v, %v), want (false, true)", enabled, stated)
-	}
-	s.set(true)
-	if enabled, stated := s.get(); !stated || !enabled {
-		t.Errorf("get = (%v, %v), want (true, true)", enabled, stated)
-	}
-}
+func boolp(v bool) *bool { return &v }
 
 // The whole point of the endpoint is that it works with no engine and
 // before auth: the host states its answer first, and the next boot
@@ -59,8 +45,8 @@ func TestLocalDiscoveryRoutesWorkUnauthorized(t *testing.T) {
 	if res.Enabled {
 		t.Error("PUT response says enabled after disabling")
 	}
-	if enabled, stated := d.localDiscovery.get(); !stated || enabled {
-		t.Errorf("switch after PUT = (%v, %v), want (false, true)", enabled, stated)
+	if enabled := d.localDiscovery.Load(); enabled == nil || *enabled {
+		t.Errorf("switch after PUT = %v, want false", enabled)
 	}
 
 	rec = doJSON(t, e, http.MethodGet, "/v1/local-discovery", "")
@@ -78,7 +64,7 @@ func TestLocalDiscoveryRoutesWorkUnauthorized(t *testing.T) {
 			t.Errorf("body %q: want 400, got %d %s", body, rec.Code, rec.Body.String())
 		}
 	}
-	if enabled, _ := d.localDiscovery.get(); enabled {
+	if enabled := d.localDiscovery.Load(); enabled == nil || *enabled {
 		t.Error("a rejected body changed the switch")
 	}
 }
@@ -98,7 +84,7 @@ func TestLocalDiscoveryManagedAndP2PDisabled(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("PUT without the control token: want 403, got %d %s", rec.Code, rec.Body.String())
 	}
-	if _, stated := d.localDiscovery.get(); stated {
+	if d.localDiscovery.Load() != nil {
 		t.Error("a refused PUT changed the switch")
 	}
 	if rec := doJSON(t, e, http.MethodGet, "/v1/local-discovery", ""); rec.Code != http.StatusOK {
@@ -120,7 +106,7 @@ func TestLocalDiscoveryManagedAndP2PDisabled(t *testing.T) {
 	if res.Enabled {
 		t.Error("PUT true reports on while p2p.enabled is off")
 	}
-	if enabled, stated := d.localDiscovery.get(); !stated || !enabled {
+	if enabled := d.localDiscovery.Load(); enabled == nil || !*enabled {
 		t.Error("the statement itself must still be recorded for a later boot")
 	}
 }
@@ -165,7 +151,7 @@ func TestLocalDiscoveryAppliesToLiveEngine(t *testing.T) {
 	}
 	// Publish: the hook re-applies whatever is recorded.
 	d.bootingSDK.Store(nil)
-	d.localDiscovery.set(false)
+	d.localDiscovery.Store(boolp(false))
 	d.ready.Store(true)
 	d.applyLocalDiscovery()
 	if d.sdk.LocalDiscoveryEnabled() {
@@ -194,11 +180,11 @@ func TestLocalDiscoveryBootConfig(t *testing.T) {
 	if got := d.bootConfig().P2P.LocalDiscovery; got != d.cfg.P2P.LocalDiscovery {
 		t.Errorf("boot config with no statement = %v, want the process config's %v", got, d.cfg.P2P.LocalDiscovery)
 	}
-	d.localDiscovery.set(false)
+	d.localDiscovery.Store(boolp(false))
 	if got := d.bootConfig(); got.P2P.LocalDiscovery == nil || got.LocalDiscoveryEnabled() {
 		t.Error("host statement false must reach the boot config as off")
 	}
-	d.localDiscovery.set(true)
+	d.localDiscovery.Store(boolp(true))
 	if !d.bootConfig().LocalDiscoveryEnabled() {
 		t.Error("host statement true must reach the boot config as on")
 	}

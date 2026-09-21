@@ -38,7 +38,7 @@ curl -s http://127.0.0.1:7001/v1/health
 | two devices list different spaces for the same account | compare `networkId` — each network holds its own copy of the account ([Networks](networks.html)) |
 | `409 auth.account_in_use` on auth | another process holds this account's instance lock |
 | `"crdtVersion": {"newer": true}` and `409 sdk.crdt_version_newer` on writes | another device raised the account's data version — upgrade this server; reads keep working |
-| `403 control.forbidden` | a managed server's auth or shutdown call without its control token (`ANY_CONTROL_TOKEN` for the CLI) |
+| `403 control.forbidden` | a managed server's auth, shutdown or local-discovery call without its control token (`ANY_CONTROL_TOKEN` for the CLI) |
 
 Add `--verbose` to any CLI command to see the HTTP exchange on stderr. Without `--addr` the CLI connects to the address the account's running server recorded in `server.addr`, so a server on an ephemeral port is found too; with several servers under one root, pass `--addr`.
 

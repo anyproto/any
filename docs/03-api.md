@@ -4395,8 +4395,9 @@ required; an absent value is `400 request.missing_field`, never a
 silent off. The start value
 comes from `p2p.localDiscovery` in the config (`docs/05-config.md`),
 which resolves to off for a managed server on macOS and on elsewhere.
-An iOS shell, whose embedded start carries no config, has the same
-prompt and states the switch here before its first `POST /v1/auth`.
+An embedded host with the same prompt (iOS) passes the value in
+`embedded.Options.LocalDiscovery` instead: with an account on disk its
+server boots before the listener is up, so no PUT could precede it.
 Distinct from `p2p.enabled`, which is fixed at boot and additionally
 keeps the QUIC listener down.
 

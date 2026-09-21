@@ -7,9 +7,9 @@ import "runtime"
 // the Local Network prompt fires on the first multicast send, and the
 // host shell owns that permission flow, so it turns discovery on
 // through PUT /v1/local-discovery once the user has answered. Every
-// other setup starts on, including the iOS shell, whose embedded start
-// carries no config: it states the switch over HTTP before its first
-// POST /v1/auth.
+// other setup starts on; an embedded host with the same prompt (iOS)
+// passes the value in embedded.Options, since its account may boot
+// before the listener is up.
 func (c Config) LocalDiscoveryEnabled() bool {
 	if c.P2P.LocalDiscovery != nil {
 		return *c.P2P.LocalDiscovery

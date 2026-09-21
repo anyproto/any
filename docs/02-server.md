@@ -58,8 +58,9 @@ load. Clients never branch on the mode
 string: `GET /v1/auth` reports the operations the server accepts as
 `capabilities` bits (`03-api.md` § Auth).
 
-**Control token.** A managed server accepts `POST`/`DELETE /v1/auth`
-and `POST /v1/shutdown` only with the `X-Any-Control-Token` header —
+**Control token.** A managed server accepts `POST`/`DELETE /v1/auth`,
+`POST /v1/shutdown` and `PUT /v1/local-discovery` only with the
+`X-Any-Control-Token` header —
 otherwise any same-user process on the loopback could log it into a
 different account or stop it. A CLI-spawned managed server mints the
 token and prints it as the second line of the stdout handshake
