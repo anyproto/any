@@ -51,6 +51,9 @@ The pkarr relay is different in kind: it holds one small signed,
 encrypted record per account, keyed by a key derived from the account
 identity. That record is how this account's own devices find each
 other, and how a device holding nothing but the mnemonic finds them.
+It is the one piece of this the project does not host: the packaged
+default is n0's public server, which sees an opaque key and an opaque
+blob, and the address that published it.
 Without it the account layer stays off and devices know each other only
 through the records of the spaces they share.
 

@@ -27,9 +27,12 @@ var (
 	}
 
 	// ProdPkarrRelayUrls is the configured pkarr relay: n0's public
-	// iroh-dns-server. Records reach it already signed and encrypted,
-	// so it learns an opaque key and an opaque blob, but it is a third
-	// party in the discovery path and carries no SLA.
+	// iroh-dns-server, which n0 sanctions for production use (unlike
+	// their public relays) with no uptime guarantee. Records reach it
+	// already signed and encrypted, so it learns an opaque key and an
+	// opaque blob — but it also learns the publisher's address, which
+	// over time correlates the devices of one account by IP. That, not
+	// capacity, is the reason to host our own.
 	ProdPkarrRelayUrls = []string{
 		"https://dns.iroh.link",
 	}
