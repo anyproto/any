@@ -175,8 +175,9 @@ type GlobalP2PStatus struct {
 // configured; devices then know each other only through the records of
 // the spaces they share.
 type AccountDiscoveryStatus struct {
-	Enabled bool     `json:"enabled"`
-	Relays  []string `json:"relays"`
+	Enabled bool `json:"enabled"`
+	// Relays are the configured pkarr relays, as hosts.
+	Relays []string `json:"relays"`
 	// Devices is how many sibling devices the record names.
 	Devices int `json:"devices"`
 	// OwnEntry — the record names this device with its current relay.

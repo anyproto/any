@@ -15,13 +15,13 @@ that show it working.
 
 - **The relays are packaged.** An unconfigured binary joins the
   production network, so it gets the production relays and the pkarr
-  relay with it (`internal/config/p2p_global_prod.go`), and the layer
+  relays with it (`internal/config/p2p_global_prod.go`), and the layer
   runs with no config file. A config that names a nodeconf gets relays
   only by naming them — the same pairing push and access use, and what
   keeps staging, local infra, self-hosted networks and every test off
   Anytype's relays.
 - **Each relay list defaults independently.** Naming your own relays
-  keeps the packaged pkarr relay and the other way round, so no
+  keeps the packaged pkarr relays and the other way round, so no
   half-configured block can leave the transport empty and silently
   resolve the whole layer off.
 - **Enablement is derived, not defaulted.** `p2p.global.enabled` absent
@@ -51,11 +51,13 @@ The pkarr relay is different in kind: it holds one small signed,
 encrypted record per account, keyed by a key derived from the account
 identity. That record is how this account's own devices find each
 other, and how a device holding nothing but the mnemonic finds them.
-It is the one piece of this the project does not host: the packaged
-default is n0's public server, which sees an opaque key and an opaque
-blob, and the address that published it.
-Without it the account layer stays off and devices know each other only
-through the records of the spaces they share.
+The packaged default is two Anytype hosts, equal peers with no
+replication between them: a device publishes to every configured pkarr
+relay and reads the newest packet any of them holds, so either one
+alone keeps discovery and cold recovery working. A host sees an opaque
+key, an opaque blob and the address that published it.
+Without a pkarr relay the account layer stays off and devices know each
+other only through the records of the spaces they share.
 
 ## Advertising is a one-way door
 

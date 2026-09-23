@@ -168,6 +168,7 @@ const docTemplate = `{
                         "type": "boolean"
                     },
                     "relays": {
+                        "description": "Relays are the configured pkarr relays, as hosts.",
                         "items": {
                             "type": "string"
                         },

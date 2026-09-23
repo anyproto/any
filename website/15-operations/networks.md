@@ -89,7 +89,7 @@ configuration. Any other network gets it only by naming its own.
 |---|---|---|
 | `p2p.global.enabled` | on when relays are known | false = no iroh endpoint, no relay session, nothing published |
 | `p2p.global.relayUrls` | the production relays | home-relay candidates; the device keeps a session to the nearest |
-| `p2p.global.pkarrRelayUrls` | the production pkarr relay | holds the account's device record; empty = no account-level discovery |
+| `p2p.global.pkarrRelayUrls` | the production pkarr relays | hold the account's device record, published to every one; empty = no account-level discovery |
 | `p2p.global.insecureRelay` / `insecurePkarr` | false | admit `http://` URLs — a local relay without a certificate, development only |
 | `p2p.global.port` | 0 | iroh UDP port; 0 = ephemeral |
 | `p2p.global.maxConnections` / `maxInbound` | 4 / 8 | global connections kept open, and the headroom for inbound ones |

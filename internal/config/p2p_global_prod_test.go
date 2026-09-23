@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 // An unconfigured binary joins the production network, so it gets the
 // production relays with it — and the tristate then resolves the layer
@@ -16,7 +19,7 @@ func TestGlobalP2PDefaultsAppliedWithEmbeddedNodeconf(t *testing.T) {
 			t.Errorf("relayUrls[%d] = %q, want %q", i, cfg.P2P.Global.RelayUrls[i], want)
 		}
 	}
-	if got := cfg.P2P.Global.PkarrRelayUrls; len(got) != 1 || got[0] != ProdPkarrRelayUrls[0] {
+	if got := cfg.P2P.Global.PkarrRelayUrls; !slices.Equal(got, ProdPkarrRelayUrls) {
 		t.Errorf("pkarrRelayUrls = %v, want %v", got, ProdPkarrRelayUrls)
 	}
 	if !cfg.P2P.GlobalEnabled() {
@@ -89,7 +92,7 @@ func TestGlobalP2PDefaultsFillEachListIndependently(t *testing.T) {
 		if len(cfg.P2P.Global.RelayUrls) != 1 || cfg.P2P.Global.RelayUrls[0] != "https://relay.example" {
 			t.Errorf("relayUrls overwritten to %v", cfg.P2P.Global.RelayUrls)
 		}
-		if len(cfg.P2P.Global.PkarrRelayUrls) != 1 || cfg.P2P.Global.PkarrRelayUrls[0] != ProdPkarrRelayUrls[0] {
+		if !slices.Equal(cfg.P2P.Global.PkarrRelayUrls, ProdPkarrRelayUrls) {
 			t.Errorf("pkarrRelayUrls = %v, want the packaged default", cfg.P2P.Global.PkarrRelayUrls)
 		}
 		if !cfg.P2P.GlobalEnabled() {

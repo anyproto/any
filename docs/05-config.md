@@ -133,10 +133,12 @@ p2p:
     relayUrls:                        # home-relay candidates; the nearest wins
       - https://relay-fr-1.anytype.io
       - https://relay-de-1.anytype.io
-    pkarrRelayUrls:                   # holds this account's device record —
-      - https://dns.iroh.link         #   how own devices and a mnemonic-only
-                                      #   device find each other. Empty = space
-                                      #   records only, no account discovery.
+    pkarrRelayUrls:                   # hold this account's device record —
+      - https://pkarr-fr-1.anytype.io #   how own devices and a mnemonic-only
+      - https://pkarr-de-1.anytype.io #   device find each other. Published to
+                                      #   every one, newest read wins. Empty =
+                                      #   space records only, no account
+                                      #   discovery.
     insecureRelay: false              # admit http:// relays (a local relay with
     insecurePkarr: false              #   no certificate). Development only.
     port: 0                           # iroh UDP port. 0 = ephemeral.

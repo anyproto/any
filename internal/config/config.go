@@ -168,7 +168,7 @@ func (p P2P) GlobalEnabled() bool {
 // pkarr record. Independent of the LAN layer above — either can be off
 // while the other runs.
 //
-// On the embedded production network the relays and the pkarr relay
+// On the embedded production network the relays and the pkarr relays
 // default in (p2p_global_prod.go); every other network gets the layer
 // only by naming its own.
 type GlobalP2P struct {

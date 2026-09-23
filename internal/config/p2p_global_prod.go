@@ -8,7 +8,7 @@ import (
 
 // The production global-p2p infrastructure: the iroh relays that
 // forward encrypted QUIC between two devices that cannot reach each
-// other directly, and the pkarr relay that holds each account's
+// other directly, and the pkarr relays that hold each account's
 // device-discovery record.
 //
 // Packaged as config the way the push node and the invite service are:
@@ -26,15 +26,14 @@ var (
 		"https://relay-de-1.anytype.io",
 	}
 
-	// ProdPkarrRelayUrls is the configured pkarr relay: n0's public
-	// iroh-dns-server, which n0 sanctions for production use (unlike
-	// their public relays) with no uptime guarantee. Records reach it
-	// already signed and encrypted, so it learns an opaque key and an
-	// opaque blob — but it also learns the publisher's address, which
-	// over time correlates the devices of one account by IP. That, not
-	// capacity, is the reason to host our own.
+	// ProdPkarrRelayUrls are Anytype's pkarr relays (iroh-dns-server,
+	// pkarr HTTP API only). They are equal peers with no replication
+	// between them: a device PUTs its record to every one and reads the
+	// newest packet any of them holds, so one host down or wiped costs
+	// nothing while the other answers.
 	ProdPkarrRelayUrls = []string{
-		"https://dns.iroh.link",
+		"https://pkarr-fr-1.anytype.io",
+		"https://pkarr-de-1.anytype.io",
 	}
 )
 
@@ -48,7 +47,7 @@ var (
 //
 // The two lists fill independently, so every combination on the
 // production network is coherent: naming your own relays keeps the
-// packaged pkarr relay, naming your own pkarr relay keeps the packaged
+// packaged pkarr relays, naming your own pkarr relays keeps the packaged
 // relays. Filling only together would make "pkarr relays, nothing
 // else" resolve the layer OFF — the SDK cannot run account discovery
 // without the transport — which is the opposite of what writing that

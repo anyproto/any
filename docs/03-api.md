@@ -4341,7 +4341,7 @@ spaces they share. See `30-global-p2p.md`.
     ],
     "account": {
       "enabled":       true,
-      "relays":        ["https://dns.iroh.link"],
+      "relays":        ["pkarr-fr-1.anytype.io", "pkarr-de-1.anytype.io"],
       "devices":       2,
       "ownEntry":      true,
       "lastResolved":  "2026-05-15T12:00:00Z",

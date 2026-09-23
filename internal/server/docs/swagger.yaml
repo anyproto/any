@@ -115,6 +115,7 @@ components:
           description: OwnEntry — the record names this device with its current relay.
           type: boolean
         relays:
+          description: Relays are the configured pkarr relays, as hosts.
           items:
             type: string
           type: array
