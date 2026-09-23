@@ -25,6 +25,7 @@ require (
 	github.com/zeebo/xxh3 v1.1.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/mobile v0.0.0-20260508232728-bebd421c7fa8
+	golang.org/x/net v0.58.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/text v0.42.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -155,7 +156,6 @@ require (
 	golang.org/x/exp v0.0.0-20260718201538-764159d718ef // indirect
 	golang.org/x/image v0.40.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
@@ -171,3 +171,5 @@ require (
 )
 
 tool github.com/swaggo/swag/v2/cmd/swag
+
+replace github.com/brutella/dnssd => github.com/anyproto/dnssd v1.2.15-0.20260923145437-add77669e40b
