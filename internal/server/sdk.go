@@ -84,14 +84,20 @@ func OpenSDK(ctx context.Context, cfg config.Config, nodeconf []byte, dataDir st
 
 	logConfigOnce.Do(cfg.Log.ApplyGlobal)
 
+	localDiscovery := cfg.LocalDiscoveryEnabled()
 	sdkCfg := sdkconfig.Config{
 		Storage: sdkconfig.Storage{
 			DataDir:  filepath.Join(dataDir, "sdk"),
 			Topology: topology,
 		},
-		Network:     sdkconfig.Network{NodeConfYAML: nodeconf},
-		Sync:        sdkconfig.Sync{ChangeBatchSize: cfg.Sync.ChangeBatchSize},
-		P2P:         sdkconfig.P2P{Enabled: cfg.P2P.Enabled, Port: cfg.P2P.Port, ServiceName: cfg.P2P.ServiceName},
+		Network: sdkconfig.Network{NodeConfYAML: nodeconf},
+		Sync:    sdkconfig.Sync{ChangeBatchSize: cfg.Sync.ChangeBatchSize},
+		P2P: sdkconfig.P2P{
+			Enabled:        cfg.P2P.Enabled,
+			Port:           cfg.P2P.Port,
+			ServiceName:    cfg.P2P.ServiceName,
+			LocalDiscovery: &localDiscovery,
+		},
 		Types:       serverTypes(),
 		Collections: serverCollections(),
 		Modules:     serverModules(),

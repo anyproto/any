@@ -804,6 +804,17 @@ any debug object <spaceId> <objectId>       # tree + sync snapshot (one-shot; wa
 any debug p2p                               # GET /v1/debug/p2p — LAN listener, discovery, known peers
 ```
 
+### Local discovery
+
+```
+any local-discovery                         # GET /v1/local-discovery — is mDNS announce+browse on
+any local-discovery on|off                  # PUT /v1/local-discovery — switch it, no restart
+```
+
+Works before `any auth login`: the answer is held for the process and
+every engine boot starts discovery in that state (`03-api.md` § Local
+discovery). On a managed server `off`/`on` needs the control token.
+
 Diagnostic surface; **not stable** — fields move with the SDK's
 `DebugAPI`. Production callers read `any sync-status`. `any debug
 object` locks the object tree and walks every change, so don't poll it

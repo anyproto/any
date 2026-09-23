@@ -152,8 +152,16 @@ type Options struct {
 	// disk, and logout / switch / shutdown are allowed behind
 	// ControlToken). Fixed for the server's lifetime.
 	Mode string
+	// LocalDiscovery is p2p.localDiscovery: whether mDNS announce and
+	// browse start with the engine. nil resolves per platform and mode
+	// (config.LocalDiscoveryEnabled). An embedded host that owns a
+	// Local Network permission flow passes false here rather than over
+	// HTTP: a standalone server with an account on disk boots before the
+	// listener is up, so a PUT /v1/local-discovery could not precede it.
+	LocalDiscovery *bool
 	// ControlToken gates the managed control operations (POST/DELETE
-	// /v1/auth, POST /v1/shutdown). Required when Mode is "managed":
+	// /v1/auth, POST /v1/shutdown, PUT /v1/local-discovery). Required
+	// when Mode is "managed":
 	// an in-process host has no stdout handshake to receive a minted
 	// one, and without a token any other process on the device could
 	// switch the account. Ignored in standalone.
@@ -204,6 +212,7 @@ func assembleConfig(opts Options) config.Config {
 	// Active). Empty inputs leave the defaults and push stays off.
 	cfg.Push.PeerId = opts.PushPeerId
 	cfg.Push.Addrs = splitAddrs(opts.PushAddrs)
+	cfg.P2P.LocalDiscovery = opts.LocalDiscovery
 	// Same rule the CLI gets from config.Load: a host that supplied
 	// neither a push node nor a network lands on the production pair.
 	config.ApplyPushDefaults(&cfg)

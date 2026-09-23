@@ -2180,6 +2180,23 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.LocalDiscoveryRequest": {
+                "properties": {
+                    "enabled": {
+                        "description": "Enabled false stops announce and browse within seconds and keeps\nthem stopped; true starts them at once. Required: an absent value\nis 400 request.missing_field rather than a silent off. Held for\nthe process lifetime, across logout and account switches; a host\nrestates it after a restart, and may state it before the first\nPOST /v1/auth.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalDiscoveryResponse": {
+                "properties": {
+                    "enabled": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "api.LocalDocsRequest": {
                 "properties": {
                     "coll": {
@@ -2731,6 +2748,10 @@ const docTemplate = `{
                         "type": "boolean"
                     },
                     "listenerStarted": {
+                        "type": "boolean"
+                    },
+                    "localDiscovery": {
+                        "description": "LocalDiscovery is the mDNS switch (PUT /v1/local-discovery): false\nmeans announce and browse are off and Possibility reads ` + "`" + `disabled` + "`" + `.\nDistinct from Enabled, the p2p.enabled config opt-out fixed at\nboot, which also takes the QUIC listener down.",
                         "type": "boolean"
                     },
                     "peerId": {
@@ -5356,6 +5377,84 @@ const docTemplate = `{
                 "summary": "Get a known identity by account address",
                 "tags": [
                     "identities"
+                ]
+            }
+        },
+        "/local-discovery": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.LocalDiscoveryResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "Whether this device announces and browses on the local network",
+                "tags": [
+                    "p2p"
+                ]
+            },
+            "put": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.LocalDiscoveryRequest",
+                                        "summary": "body",
+                                        "description": "Desired state"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Desired state",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.LocalDiscoveryResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "summary": "Switch local-network discovery (mDNS) on or off",
+                "tags": [
+                    "p2p"
                 ]
             }
         },

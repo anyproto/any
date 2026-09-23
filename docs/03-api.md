@@ -4304,6 +4304,7 @@ has synced in — normally within seconds of the join being approved.
   "port":            56187,
   "possibility":     "possible",
   "state":           "connected",
+  "localDiscovery":  true,
   "peers": [
     { "peerId":    "12D3Koo…",
       "spaceIds":  ["spc_…"],
@@ -4359,6 +4360,46 @@ restore states and is local to this peer — `VersionIds` are not
 comparable across peers. `maxAddSeq` is the controller's
 delivery-order watermark, surfaced as a sanity check against tree
 length — it is not a cross-peer primitive.
+
+### Local discovery
+
+| Method | Path                    | Purpose                                                  |
+|--------|-------------------------|----------------------------------------------------------|
+| GET    | `/v1/local-discovery`   | Whether this device announces and browses on the LAN     |
+| PUT    | `/v1/local-discovery`   | Switch mDNS announce and browse on or off, no restart    |
+
+`PUT /v1/local-discovery` takes `{"enabled": bool}` and answers with the
+resulting state, which is `false` whatever was asked while `p2p.enabled`
+is off. On a managed server it needs the control token, like the other
+host-owned operations. `false` stops mDNS announce and browse within seconds
+and keeps them stopped; `true` starts them at once. The QUIC listener
+stays up, already-known LAN peers stay connected, and the global p2p
+layer is untouched. `GET /v1/debug/p2p` shows the switch as
+`localDiscovery`, with `possibility` reading `disabled` while it is off.
+
+Both routes work **before `POST /v1/auth`**, unlike the rest of `/v1`:
+the host states the answer first, and every engine boot starts
+discovery in that state, so nothing is sent on the LAN before the host
+allows it. That is the point for a macOS shell: the Local Network
+prompt fires on the first multicast send, the SDK cannot see a refused
+permission (the packets are silently dropped), and only the shell knows
+what the user answered.
+
+Two causes collapse into this one switch: the OS refused the
+permission, and the user turned LAN discovery off. The server does not
+distinguish them; the client knows which one applies.
+
+Held for the process lifetime, across logout and account switches, not
+across a restart: a host restates it after every start. `enabled` is
+required; an absent value is `400 request.missing_field`, never a
+silent off. The start value
+comes from `p2p.localDiscovery` in the config (`docs/05-config.md`),
+which resolves to off for a managed server on macOS and on elsewhere.
+An embedded host with the same prompt (iOS) passes the value in
+`embedded.Options.LocalDiscovery` instead: with an account on disk its
+server boots before the listener is up, so no PUT could precede it.
+Distinct from `p2p.enabled`, which is fixed at boot and additionally
+keeps the QUIC listener down.
 
 ## Middleware
 

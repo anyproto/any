@@ -112,7 +112,7 @@ then any other 'any <cmd>' makes HTTP calls to it.`,
 	root.PersistentFlags().StringVar(&flags.Addr, "addr", "", "server address (bind addr for `run`, connect addr otherwise)")
 	root.PersistentFlags().DurationVar(&flags.Timeout, "timeout", 30*time.Second, "request timeout for CLI calls")
 	root.PersistentFlags().BoolVar(&flags.Verbose, "verbose", false, "log HTTP request/response to stderr")
-	root.PersistentFlags().StringVar(&flags.ControlToken, "control-token", "", "managed-mode control token; prefer ANY_CONTROL_TOKEN (a flag value is visible in the process list). Gates auth and shutdown on a managed server")
+	root.PersistentFlags().StringVar(&flags.ControlToken, "control-token", "", "managed-mode control token; prefer ANY_CONTROL_TOKEN (a flag value is visible in the process list). Gates auth, shutdown and local-discovery on a managed server")
 
 	root.AddCommand(
 		newRunCmd(),
@@ -146,6 +146,7 @@ then any other 'any <cmd>' makes HTTP calls to it.`,
 		newOneToOneCmd(),
 		newACLCmd(),
 		newDebugCmd(),
+		newLocalDiscoveryCmd(),
 		newSyncStatusCmd(),
 		newEventsCmd(),
 		newProcessCmd(),
