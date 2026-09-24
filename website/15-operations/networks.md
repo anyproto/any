@@ -91,7 +91,7 @@ configuration. Any other network gets it only by naming its own.
 | `p2p.global.relayUrls` | the production relays | home-relay candidates; the device keeps a session to the nearest |
 | `p2p.global.pkarrRelayUrls` | the production pkarr relays | hold the account's device record, published to every one; empty = no account-level discovery |
 | `p2p.global.insecureRelay` / `insecurePkarr` | false | admit `http://` URLs — a local relay without a certificate, development only |
-| `p2p.global.port` | 0 | iroh UDP port; 0 = ephemeral |
+| `p2p.global.port` | 0 | iroh UDP port; 0 = reuse the port persisted from the previous run, or pick an ephemeral one; with the LAN layer on, its port is never reused |
 | `p2p.global.maxConnections` / `maxInbound` | 4 / 8 | global connections kept open, and the headroom for inbound ones |
 
 `ANY_P2P_GLOBAL_ENABLED=false` turns the layer off without a config file.

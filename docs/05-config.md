@@ -141,7 +141,12 @@ p2p:
                                       #   discovery.
     insecureRelay: false              # admit http:// relays (a local relay with
     insecurePkarr: false              #   no certificate). Development only.
-    port: 0                           # iroh UDP port. 0 = ephemeral.
+    port: 0                           # iroh UDP port. 0 = reuse the port
+                                      #   persisted from the previous run,
+                                      #   or pick an ephemeral one. With
+                                      #   p2p on, the LAN's port (p2p.port
+                                      #   or its remembered one) is never
+                                      #   reused.
     maxConnections: 0                 # global connections kept open; 0 = 4
     maxInbound: 0                     # headroom for inbound ones; 0 = 8
 

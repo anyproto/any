@@ -200,7 +200,10 @@ type GlobalP2P struct {
 	// operator wrote are honored. Not a yaml key — set by
 	// ApplyGlobalP2PDefaults.
 	relaysDefaulted bool `yaml:"-"`
-	// Port fixes the UDP port of the iroh endpoint. 0 = ephemeral.
+	// Port fixes the UDP port of the iroh endpoint. 0 (default) = reuse
+	// the port persisted from the previous run, or pick an ephemeral one;
+	// with the LAN layer on, its port (configured or remembered) is never
+	// reused.
 	Port int `yaml:"port"`
 	// MaxConnections caps the global connections this device keeps
 	// open, chosen to cover the loaded spaces. 0 = the SDK default (4).
