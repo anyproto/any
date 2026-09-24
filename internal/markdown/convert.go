@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/anyproto/any/internal/editor"
@@ -75,14 +76,18 @@ func ParseBlock(raw string) ParsedBlock {
 		return ParsedBlock{
 			Type:  editor.TypeCheckListItem,
 			Style: map[string]any{editor.StyleChecked: checked},
-			Text:  joinListBody(text, lines[1:]),
+			Text:  joinListBody(text, alignContinuation(lines, len("- "))),
 		}
 	}
-	if ordered, text, ok := parseListItem(lines[0]); ok {
+	if ordered, number, text, ok := parseListItem(lines[0]); ok {
+		style := map[string]any{editor.StyleOrdered: ordered}
+		if ordered && number != 1 {
+			style[editor.StyleNumber] = number
+		}
 		return ParsedBlock{
 			Type:  editor.TypeListItem,
-			Style: map[string]any{editor.StyleOrdered: ordered},
-			Text:  joinListBody(text, lines[1:]),
+			Style: style,
+			Text:  joinListBody(text, alignContinuation(lines, len(listMarker(style))+1)),
 		}
 	}
 
@@ -113,11 +118,7 @@ func RenderBlock(b ParsedBlock) string {
 		}
 		return strings.Repeat("#", level) + " " + b.Text
 	case editor.TypeListItem:
-		marker := "-"
-		if boolStyle(b.Style, editor.StyleOrdered, false) {
-			marker = "1."
-		}
-		return marker + " " + b.Text
+		return listMarker(b.Style) + " " + b.Text
 	case editor.TypeCheckListItem:
 		marker := "- [ ]"
 		if boolStyle(b.Style, editor.StyleChecked, false) {
@@ -223,10 +224,10 @@ func parseFencedCode(lines []string) (lang, body string) {
 	return lang, body
 }
 
-func parseListItem(line string) (ordered bool, text string, ok bool) {
+func parseListItem(line string) (ordered bool, number int, text string, ok bool) {
 	cont, m := listItemMarker(line)
 	if !m {
-		return false, "", false
+		return false, 0, "", false
 	}
 	// contIndent is the continuation COLUMN (marker end + 2) and may
 	// exceed the line itself when the marker is the whole line ("1.",
@@ -239,11 +240,100 @@ func parseListItem(line string) (ordered bool, text string, ok bool) {
 		leading++
 	}
 	if leading >= len(line) {
-		return false, body, true
+		return false, 0, body, true
 	}
 	c := line[leading]
 	ordered = c >= '0' && c <= '9'
-	return ordered, body, true
+	if ordered {
+		// The marker ends at cont-1 with its `.` or `)`.
+		number, _ = strconv.Atoi(line[leading : cont-2])
+	}
+	return ordered, number, body, true
+}
+
+// listMarker is the marker a list item renders with: "-", or its number
+// (style.number, 1 when missing or out of range) and a period.
+func listMarker(style map[string]any) string {
+	if !boolStyle(style, editor.StyleOrdered, false) {
+		return "-"
+	}
+	n := intStyle(style, editor.StyleNumber, 1)
+	if n < 0 || n > 999999999 {
+		n = 1
+	}
+	return strconv.Itoa(n) + "."
+}
+
+// alignContinuation returns a list item's continuation lines (lines[1:])
+// moved left by as many columns as the item's source content column
+// lies right of contentCol, the content column of the marker it renders
+// with — the columns an extra-wide marker spacing, leading indentation
+// or leading zeros added. A line never moves left of contentCol. With a
+// marker written as it renders, the lines stay verbatim.
+func alignContinuation(lines []string, contentCol int) []string {
+	shift := listContentCol(lines[0]) - contentCol
+	if shift <= 0 {
+		return lines[1:]
+	}
+	out := make([]string, len(lines)-1)
+	for i, l := range lines[1:] {
+		out[i] = dropColumns(l, min(shift, max(indentColumns(l)-contentCol, 0)))
+	}
+	return out
+}
+
+// listContentCol is the column a list item's content starts at: past the
+// marker and its 1–4 columns of separator, or one column past the marker
+// when the line ends there or its content is indented code.
+func listContentCol(line string) int {
+	cont, _ := listItemMarker(line)
+	end := cont - 1 // byte just past the marker
+	leading := len(line) - len(strings.TrimLeft(line, " \t"))
+	markerEnd := indentColumns(line[:leading]) + end - leading
+	rest := line[min(end, len(line)):]
+	if isBlank(rest) {
+		return markerEnd + 1
+	}
+	if sep := columnAfter(markerEnd, rest) - markerEnd; sep <= 4 {
+		return markerEnd + sep
+	}
+	return markerEnd + 1
+}
+
+// columnAfter returns the column reached by s's leading whitespace when
+// s starts at column col (tab stops every 4 columns).
+func columnAfter(col int, s string) int {
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case ' ':
+			col++
+		case '\t':
+			col += 4 - col%4
+		default:
+			return col
+		}
+	}
+	return col
+}
+
+// dropColumns removes n columns of l's leading whitespace. A tab that
+// straddles the cut leaves its remaining columns as spaces.
+func dropColumns(l string, n int) string {
+	col := 0
+	for i := 0; i < len(l); i++ {
+		if col >= n {
+			return strings.Repeat(" ", col-n) + l[i:]
+		}
+		switch l[i] {
+		case ' ':
+			col++
+		case '\t':
+			col += 4 - col%4
+		default:
+			return l[i:]
+		}
+	}
+	return strings.Repeat(" ", max(col-n, 0))
 }
 
 // parseCheckListItem matches `- [ ] x` / `- [x] x`. Runs before

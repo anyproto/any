@@ -1659,6 +1659,7 @@ route below; the examples use the canonical name). Nest via
            "divider" | "html" | "table" | "image",
   "style": { "level": 1..6,         /* heading */
              "ordered": true|false, /* list_item */
+             "number":  10,         /* ordered list_item; omitted when 1 */
              "checked": true|false, /* check_list_item */
              "lang":    "go" },     /* code */
   "text":  "**bold** inline markdown",
@@ -1671,6 +1672,12 @@ route below; the examples use the canonical name). Nest via
 strikethrough. Block-level syntax (heading hashes, list bullets,
 fences, quote `>` prefixes) lives in `type` + `style` instead so
 clients render blocks structurally without re-parsing.
+
+An ordered list item renders with its own `style.number` (1 when
+absent). A list item's continuation lines stay in its `text`, indented
+for the marker it renders with: the markdown bridge moves them left by
+the columns a wider written marker added (extra spacing, indentation,
+leading zeros), so they keep their place under `N. `.
 
 ##### Read blocks
 
