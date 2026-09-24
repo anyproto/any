@@ -72,6 +72,13 @@ func AddrPath(dataDir string) string {
 	return filepath.Join(dataDir, "server.addr")
 }
 
+// ListenPortPath returns <root>/listen.port — the port the last server
+// started with a port-0 listen address bound, tried first on the next
+// such start so the server keeps its origin across restarts.
+func ListenPortPath(root string) string {
+	return filepath.Join(root, "listen.port")
+}
+
 // AccountDir returns the per-account data dir <root>/<accountId>.
 func AccountDir(root, accountId string) string {
 	return filepath.Join(root, accountId)

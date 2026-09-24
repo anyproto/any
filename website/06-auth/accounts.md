@@ -137,6 +137,7 @@ The data dir is a root that can hold several accounts:
 <root>/                     # default ~/.any
 ├── config.yaml
 ├── models/                 # embedder model cache, shared by all accounts
+├── listen.port             # last port a port-0 listen address bound
 ├── wallet.key              # legacy flat layout = the DEFAULT account
 ├── server.lock server.pid  #   (its sdk/ and index/ sit directly at the root)
 └── <accountId>/

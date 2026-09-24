@@ -54,7 +54,7 @@ CLI (client) flags: `--addr` (default: the address the running server recorded i
 | `dataDir` | `ANY_DATA_DIR` | `~/.any` | the multi-account root ([Data directory](data-dir.html)) |
 | `mode` | `ANY_MODE` | `standalone` | `standalone` or `managed`; managed refuses `account` and `auth.walletPath` |
 | `account` | `ANY_ACCOUNT` | "" | account selector (standalone only); empty = the default account |
-| `listen.addr` | `ANY_LISTEN_ADDR` | `127.0.0.1:7001` | loopback only |
+| `listen.addr` | `ANY_LISTEN_ADDR` | `127.0.0.1:7001` | loopback only; port 0 = reuse the last port-0 start's port, or pick an ephemeral one |
 | `webUI.enabled` | — | true | serve the embedded debug UI at `/ui`; app-embedded boots force it off |
 | `auth.walletPath` | `ANY_WALLET_PATH` | "" | explicit wallet = manual mode, no per-account nesting |
 | `auth.passkeyEnv` | — | `ANY_WALLET_PASSKEY` | name of the env var holding the wallet passkey |

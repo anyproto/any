@@ -35,7 +35,7 @@ CLI-side flags (`--addr`, `--timeout`, `--verbose`, `--control-token` / `ANY_CON
 | `dataDir` | `ANY_DATA_DIR` | `~/.any` | data ROOT; each account lives at `<root>/<accountId>/` (wallet.key or device.key, server.lock, server.pid, server.addr, sdk/, files/, index/); a root-level `wallet.key` is the default account with flat layout; `models/` is shared |
 | `mode` | `ANY_MODE` | `standalone` | `standalone` (the user owns the server: keys on disk, account resolved from disk, logout and HTTP shutdown refused) \| `managed` (a host owns it: the account arrives over `POST /v1/auth` on every boot, logout, switch and `POST /v1/shutdown` behind the control token); managed refuses `account` and `auth.walletPath` |
 | `account` | `ANY_ACCOUNT` | `""` | account to boot when the root holds several (standalone only); empty = the default account or the sole nested dir; ambiguous ⇒ the server starts unauthorized |
-| `listen.addr` | `ANY_LISTEN_ADDR` | `127.0.0.1:7001` | loopback only — any other bind address is refused |
+| `listen.addr` | `ANY_LISTEN_ADDR` | `127.0.0.1:7001` | loopback only — any other bind address is refused; port 0 = reuse the last port-0 start's port, or pick an ephemeral one |
 | `webUI.enabled` | — | `true` | serve the embedded `/ui` debug harness; embedded mobile hosts force it off |
 | `auth.walletPath` | `ANY_WALLET_PATH` | `""` | explicit wallet file = manual mode, no per-account nesting |
 | `auth.passkeyEnv` | — | `ANY_WALLET_PASSKEY` | name of the env var holding the wallet passkey |

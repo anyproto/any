@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/anyproto/any-sync/app/logger"
@@ -110,13 +109,5 @@ func (e *ErrLocked) Error() string {
 // readHolderPID reads the holder's pid, reporting 0 for every failure —
 // an absent, empty or malformed file only costs the pid in the message.
 func readHolderPID(path string) int {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return 0
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
-	if err != nil || pid < 0 {
-		return 0
-	}
-	return pid
+	return max(readIntFile(path), 0)
 }

@@ -25,7 +25,7 @@ any init --mnemonic-stdin < phrase.txt      # never copy wallet.key between mach
 
 ```bash
 any run                                     # foreground, 127.0.0.1:7001
-any run --addr 127.0.0.1:0                  # ephemeral port; prints "LISTENING <addr>" on stdout
+any run --addr 127.0.0.1:0                  # sticky ephemeral port; prints "LISTENING <addr>" on stdout
 any run --account <id>                      # pick one when the data dir holds several
 any run --mode managed                      # a host-owned server: phrase per launch, control token
 ```
@@ -85,6 +85,7 @@ Without `--addr` the CLI finds the server serving the data dir's account through
 ~/.any/                         # dataDir — a ROOT that can hold several accounts
 ├── config.yaml                 # optional
 ├── models/                     # shared embedder model cache (~600 MB, downloaded once)
+├── listen.port                 # last port a port-0 listen address bound
 └── <accountId>/
     ├── wallet.key              # standalone: account + device keys (0600)
     ├── device.key              # managed: this device's key only (0600)

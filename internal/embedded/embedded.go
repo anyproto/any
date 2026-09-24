@@ -129,8 +129,9 @@ type Options struct {
 	// DataDir is the server's data root (Context.getFilesDir() on
 	// Android, the app container on iOS). Required.
 	DataDir string
-	// ListenAddr is the loopback listen address; "127.0.0.1:0" lets the
-	// OS pick a free port (read it back with Address()).
+	// ListenAddr is the loopback listen address; "127.0.0.1:0" reuses the
+	// previous run's port when free, else the OS picks one (read it back
+	// with Address()).
 	ListenAddr string
 	// NodeconfYAML is the any-sync network config contents (staging/prod
 	// yml). Required — there is no filesystem fallback on this path.
@@ -364,8 +365,8 @@ func Stop(graceful bool) {
 func StopNow() { Stop(false) }
 
 // Address returns the actually-bound listen address (host:port). Differs
-// from the listenAddr passed to Start when ":0" was used and the OS
-// picked a port. Empty when the server is not running.
+// from the listenAddr passed to Start when ":0" was used. Empty when the
+// server is not running.
 func Address() string {
 	handleMu.Lock()
 	defer handleMu.Unlock()

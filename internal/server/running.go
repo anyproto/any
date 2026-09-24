@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -165,4 +166,14 @@ func readAddrFile(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(raw))
+}
+
+// readIntFile returns the decimal integer path holds, 0 for every
+// failure.
+func readIntFile(path string) int {
+	n, err := strconv.Atoi(readAddrFile(path))
+	if err != nil {
+		return 0
+	}
+	return n
 }

@@ -211,8 +211,9 @@ func fillC(dst []C.char, s string) {
 var versionString = C.CString(embedded.Version())
 
 // AnyLibStart boots the embedded engine with its data under dataDir,
-// listening on listenAddr (pass "127.0.0.1:0" for an OS-assigned
-// ephemeral port), joining the network described by nodeconfYAML.
+// listening on listenAddr (pass "127.0.0.1:0" for the previous run's
+// port when free, else an OS-assigned one), joining the network
+// described by nodeconfYAML.
 //
 // pushPeerId / pushAddrs configure the push-notification node. It is a
 // direct out-of-band peer, not part of nodeconfYAML, but it pairs with

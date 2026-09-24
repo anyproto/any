@@ -31,7 +31,7 @@ import (
 	"github.com/anyproto/any/internal/indexer"
 )
 
-const loopbackEphemeral = "127.0.0.1:0" // OS-assigned free port
+const loopbackEphemeral = "127.0.0.1:0" // the previous port when free, else an OS-assigned one
 
 // addressLen / messageLen mirror the C buffer sizes in the
 // AnyLibStartResult typedef. The truncation tests run copyBounded at

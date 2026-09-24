@@ -49,7 +49,7 @@ class AnyService : Service() {
     override fun onCreate() {
         super.onCreate()
         Thread {
-            Mobile.start(filesDir.absolutePath, "127.0.0.1:0", "")   // OS picks a free port
+            Mobile.start(filesDir.absolutePath, "127.0.0.1:0", "")   // last run's port if free, else OS picks
             val addr = Mobile.address()                              // e.g. 127.0.0.1:41823
             AnyClient.baseUrl = "http://$addr/v1"
         }.start()

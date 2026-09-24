@@ -36,7 +36,9 @@ mode: standalone
 # and waits for POST /v1/auth.
 account: ""
 
-# HTTP server listen address. Loopback IP only.
+# HTTP server listen address. Loopback IP only. Port 0 reuses the port
+# the previous port-0 start under this root bound, else an ephemeral one
+# (02-server.md § Listen address).
 listen:
   addr: 127.0.0.1:7001
 

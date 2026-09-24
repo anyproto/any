@@ -14,7 +14,7 @@ import (
 	"github.com/anyproto/any/internal/config"
 )
 
-const loopbackEphemeral = "127.0.0.1:0" // OS-assigned free port
+const loopbackEphemeral = "127.0.0.1:0" // the previous port when free, else an OS-assigned one
 
 // nodeconfFixture is the in-repo sanitized placeholder
 // (internal/config/nodeconf-placeholder.yml). It boots + binds but joins

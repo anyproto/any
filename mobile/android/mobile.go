@@ -18,8 +18,9 @@ import (
 )
 
 // Start boots the any server. dataDir maps to Context.getFilesDir() on Android.
-// listenAddr is typically "127.0.0.1:7001"; pass "127.0.0.1:0" to let the OS
-// pick a free port (read it back with Address()). nodeconfYAML overrides
+// listenAddr is typically "127.0.0.1:7001"; pass "127.0.0.1:0" for the
+// previous run's port when free, else an OS-picked one (read it back with
+// Address()). nodeconfYAML overrides
 // the network: pass "" for the embedded PRODUCTION nodeconf that ships in
 // the AAR, or a conf's YAML text to join another network (staging, local
 // infra). Hosts targeting production need not vendor a copy of the conf —
@@ -85,8 +86,8 @@ func StopNow() {
 }
 
 // Address returns the actually-bound listen address (host:port). Differs
-// from the listenAddr passed to Start when ":0" was used and the OS picked
-// a port. Empty when the server is not running.
+// from the listenAddr passed to Start when ":0" was used. Empty when the
+// server is not running.
 func Address() string {
 	return embedded.Address()
 }

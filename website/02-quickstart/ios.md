@@ -68,7 +68,7 @@ final class AnyBackend {
 
         // The parameters are `char *`, not `const char *`, so Swift won't
         // bridge a String for you. NULL reads as "" on the Go side.
-        let dir = strdup(dataDir), addr = strdup("127.0.0.1:0")   // ":0" → OS picks a port
+        let dir = strdup(dataDir), addr = strdup("127.0.0.1:0")   // ":0" → last run's port if free, else OS picks
         defer { free(dir); free(addr) }
 
         var res = AnyLibStart(dir, addr, nil, nil, nil)        // nil nodeconf = production; nil push pair = off

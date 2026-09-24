@@ -18,7 +18,7 @@ order: 10
    - no selector → the root `wallet.key` if one exists, else a sole `<root>/<id>/` directory, else **no account**.
 3. **With an account, boot its engine** before the listener binds, so boot failures surface immediately: take the instance lock in the account dir → open the wallet → derive the account id → open the SDK → open the search indexer. `any run` never generates a wallet; create accounts with `any init` or over HTTP. Opening checks the account's **CRDT version mark** first: data written by a newer release refuses the boot (`any run` exits with the reason; over HTTP `409 sdk.crdt_version_newer`), so an older server never writes into data shaped by rules it does not know.
 4. **Without an account, start unauthorized.** Every `/v1` route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth` returns `401 auth.required` until `POST /v1/auth` creates, restores or selects an account and boots the engine in place — no restart. See [Accounts](../auth/accounts.html).
-5. **Bind** `127.0.0.1:<port>` (default 7001), print `LISTENING <addr>` on stdout — followed by `CONTROL_TOKEN <hex>` on a managed server that minted its token — record the address in the account dir's `server.addr` once an engine is up, and serve.
+5. **Bind** `127.0.0.1:<port>` (default 7001; port 0 reuses the previous port-0 start's port when it is free), print `LISTENING <addr>` on stdout — followed by `CONTROL_TOKEN <hex>` on a managed server that minted its token — record the address in the account dir's `server.addr` once an engine is up, and serve.
 
 ```bash
 any run --data-dir ~/.any --addr 127.0.0.1:7001 --log-level info
@@ -53,7 +53,7 @@ The SDK returns from `Open` after local wiring only. Eager space loading and off
 |---|---|
 | default | `127.0.0.1:7001`, plain HTTP, no TLS, no auth |
 | `listen.addr` / `--addr host:port` | any loopback address and port |
-| `--addr 127.0.0.1:0` | ephemeral port; the `LISTENING <resolved-addr>` stdout line is the readiness handshake the desktop shell relies on, and `server.addr` lets the CLI find the port without `--addr` |
+| `--addr 127.0.0.1:0` | sticky ephemeral port: the port the previous `:0` start under the root bound (`<root>/listen.port`) when it is free, else a fresh one that replaces the record; the `LISTENING <resolved-addr>` stdout line is the readiness handshake the desktop shell relies on, and `server.addr` lets the CLI find the port without `--addr` |
 | a non-loopback address | refused with a clear error: remote access is not supported |
 
 ## Shutdown

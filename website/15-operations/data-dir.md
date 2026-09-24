@@ -13,6 +13,7 @@ order: 30
 <root>/                          # dataDir, default ~/.any (mode 0700)
 ├── config.yaml                  # optional, if not passed via --config
 ├── models/                      # shared embedder model cache (all accounts)
+├── listen.port                  # last port a port-0 listen address bound
 ├── wallet.key                   # LEGACY flat layout = the DEFAULT account;
 ├── network.json  server.*       #   its data stays directly at the root
 ├── sdk/  index/  files/         #   exactly as below
@@ -44,6 +45,7 @@ A `wallet.key` directly at the root is the legacy flat layout: it acts as the de
 | `files/` | SDK | file bytes; a durable file's bytes are a cache, a non-durable file's bytes are the only copy | partly — see [Status and durability](../files/status-and-durability.html) |
 | `index/` | indexer | `index.db` — BM25 + vector index and link edges per space, cursors, schema version | yes — rebuilt from the synced data |
 | `models/` | indexer | the embedding model GGUF (~639 MB), one per root, not per account | yes — re-downloaded |
+| `listen.port` | server | the port the last server started with a port-0 listen address bound; the next such start tries it first | yes |
 
 > **Why it matters.** This directory *is* your database. There is no server-side copy to restore from — a device that syncs a space holds the whole space, and unsynced changes, the local store and non-durable file bytes exist nowhere else. It is not encrypted at rest: records, the local store and the search index are readable by anyone who can read the directory, and a plain `wallet.key` holds the mnemonic itself. Treat it the way you would treat a private key directory.
 
@@ -55,6 +57,7 @@ A `wallet.key` directly at the root is the legacy flat layout: it acts as the de
 | `models/` | safe; the model downloads again on next boot (a model already in a legacy `<account-dir>/index/models/` keeps being used from there) |
 | `server.lock` | safe when no server is running; the lock lives in the kernel, not in the file, so a leftover file blocks nothing |
 | `server.pid`, `server.addr` | safe any time; they only label the current holder |
+| `listen.port` | safe any time; the next port-0 start picks a fresh port |
 | `files/` | **loses non-durable files** — bytes not yet backed up to the network have no other copy (a LAN peer that fetched them is luck, not custody). Use the cache endpoints or per-file offload instead ([Cache](../files/cache.html)). |
 | `sdk/` | loses every unsynced change, forces a full re-sync of shared spaces and **loses the local store** (`/v1/local` collections have no automatic backup; a manual export can restore exported records); a wiped storage also restarts the index generation, which the indexer detects and re-indexes |
 | `wallet.key` | **loses this device's key**. The account survives if you kept the mnemonic — `any init --mnemonic` derives the same account id with a fresh device key. |

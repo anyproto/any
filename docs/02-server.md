@@ -146,7 +146,8 @@ account is standalone-only — a managed login with its phrase lands in
    returns `401 auth.required` until `POST /v1/auth` creates / restores
    / selects an account and boots the engine in place (no restart).
    See `03-api.md` § Auth.
-5. Bind HTTP listener on `127.0.0.1:<port>` (default `7001`). Print
+5. Bind HTTP listener on `127.0.0.1:<port>` (default `7001`; port `0`
+   reuses the previous port, § Listen address). Print
    `LISTENING <addr>` (and, managed with a minted token,
    `CONTROL_TOKEN <hex>`) on stdout; record the address in the
    account dir's `server.addr` once an engine is up.
@@ -177,7 +178,13 @@ out-of-band `POST /v1/spaces/one-to-one/register-incoming` path. See
 ## Listen address
 
 - **Default**: `127.0.0.1:7001`. Plain HTTP, no TLS, no auth.
-- **Ephemeral port**: `--addr 127.0.0.1:0` asks the kernel for a free port.
+- **Sticky ephemeral port**: `--addr 127.0.0.1:0` (an empty port counts
+  as `0`) first tries the port the previous port-0 start under the root
+  bound, recorded in `<root>/listen.port`, so a host that always passes
+  `:0` keeps its origin across restarts. When that port is taken the
+  kernel picks a free one, which replaces the record. The record is
+  shared by every server under the root, and a non-zero port is never
+  recorded: it gets one bind attempt and a taken port fails the start.
   The server prints `LISTENING <resolved-addr>` as a plain stdout line
   before serving — a machine-parseable contract the any-ui desktop shell
   uses as its port handshake + readiness gate; a managed server with a
@@ -251,6 +258,7 @@ instance) takes no lock.
 <root>/                          # dataDir, default ~/.any
 ├── config.yaml                  # optional, if not passed via --config
 ├── models/                      # shared embedder model cache (all accounts)
+├── listen.port                  # last port a port-0 listen address bound
 ├── wallet.key                   # LEGACY flat layout = the DEFAULT account;
 ├── server.lock  server.pid      #   its files and data sit directly at the
 ├── server.addr                  #   root, same names as in an account dir

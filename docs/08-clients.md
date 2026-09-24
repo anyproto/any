@@ -876,7 +876,9 @@ auth UI may offer. These rules are normative for every client:
    boot. A managed server can return to unauthorized mid-session; route
    back to the auth gate.
 9. **Re-read the bound address after any lifecycle transition.** A
-   `:0` server gets a different port on respawn.
+   `:0` server reuses its previous port when it is free and takes
+   another one when it is not, so never send to a remembered address:
+   the old port may belong to another process.
 10. **Never treat loopback as authenticated.** Any same-user process can
     reach the API; the mode gates express ownership, not
     authentication. A managed host keeps its control token to itself.

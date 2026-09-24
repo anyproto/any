@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"time"
 
@@ -23,7 +22,7 @@ const gracefulShutdownDeadline = 10 * time.Second
 type RunOptions struct {
 	// Ready, if non-nil, is invoked once the TCP listener has bound but
 	// before Echo starts serving. It receives the actually-bound address
-	// (resolving "127.0.0.1:0" to the OS-picked host:port) so embedders
+	// (resolving "127.0.0.1:0" to the host:port it got) so embedders
 	// like the gomobile wrapper can hand the real port back to the
 	// caller. The hook runs on the goroutine that called Run, so keep it
 	// quick — long work blocks server startup.
@@ -143,9 +142,9 @@ func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 	e := buildEcho(deps)
 
 	// Bind explicitly so the RESOLVED address is known before serving —
-	// `--addr 127.0.0.1:0` asks the kernel for an ephemeral port, and the
-	// desktop shell needs the real one.
-	ln, err := net.Listen("tcp", cfg.Listen.Addr)
+	// `--addr 127.0.0.1:0` reuses the previous port or asks the kernel
+	// for an ephemeral one, and the desktop shell needs the real one.
+	ln, err := listen(cfg.Listen.Addr, root)
 	if err != nil {
 		return err
 	}

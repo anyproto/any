@@ -28,7 +28,7 @@ func nodeconfFixture(t *testing.T) string {
 	return string(raw)
 }
 
-const loopbackEphemeral = "127.0.0.1:0" // OS-assigned free port
+const loopbackEphemeral = "127.0.0.1:0" // the previous port when free, else an OS-assigned one
 
 // start is the lifecycle tests' shorthand for the common Options shape:
 // ephemeral loopback listen, no push node.
@@ -148,6 +148,29 @@ func TestSuppliedNodeconfWins(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "fileV2") {
 		t.Error("supplied placeholder was overridden by the production default")
+	}
+}
+
+// A host that restarts on the same data dir with a port-0 address gets
+// its previous address back: Start hands the data root to the sticky
+// listener.
+func TestRestartKeepsAddress(t *testing.T) {
+	resetState(t)
+	defer resetState(t)
+
+	dataDir := t.TempDir()
+	nodeconf := nodeconfFixture(t)
+	first, err := start(dataDir, nodeconf)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	Stop(true)
+	second, err := start(dataDir, nodeconf)
+	if err != nil {
+		t.Fatalf("restart: %v", err)
+	}
+	if second != first {
+		t.Fatalf("restart bound %s, want the previous %s", second, first)
 	}
 }
 
