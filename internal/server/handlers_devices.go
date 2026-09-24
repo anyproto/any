@@ -96,19 +96,22 @@ func (d *deps) deviceUpdateMe(c echo.Context) error {
 }
 
 // deviceActivate handles POST /v1/devices/activate — claim the active
-// role for one app slug on THIS device (Spaces.ClaimActive). The claim
-// is writer-supplied data (`{seq: max visible + 1, at: now}`), never a
+// role for one app slug (Spaces.ClaimActive) on the device `peerId`
+// names, or on THIS device when it is absent. The claim is
+// writer-supplied data (`{seq: max visible + 1, at: now}`), never a
 // CRDT version id — versionIds are peer-local and cannot arbitrate
-// across devices. The SDK also self-heals the `apps.<slug>` installed
-// marker so a claim never dangles. Winners are read back from
-// GET /v1/devices `active`.
+// across devices. A self claim also self-heals the `apps.<slug>`
+// installed marker so it never dangles; a claim for another device
+// writes only the claim and needs that device to carry the app
+// already. Winners are read back from GET /v1/devices `active`.
 //
-//	@Summary	Claim the active role for an app on this device
+//	@Summary	Claim the active role for an app on this or another device
 //	@Tags		devices
 //	@Accept		json
-//	@Param		body	body	api.DeviceActivateRequest	true	"App slug"
+//	@Param		body	body	api.DeviceActivateRequest	true	"App slug; optional target peer id"
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	404	{object}	api.ErrorEnvelope
 //	@Failure	409	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/devices/activate [post]
@@ -120,8 +123,19 @@ func (d *deps) deviceActivate(c echo.Context) error {
 	if req.App == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "app required", nil)
 	}
-	if err := d.sdk.Spaces().ClaimActive(c.Request().Context(), req.App); err != nil {
-		return deviceError(c, err, map[string]any{"app": req.App})
+	details := map[string]any{"app": req.App}
+	remote := req.PeerId != "" && req.PeerId != d.sdk.PeerId()
+	if remote {
+		details["peerId"] = req.PeerId
+	}
+	if err := d.sdk.Spaces().ClaimActive(c.Request().Context(), req.App, req.PeerId); err != nil {
+		// A target pruned between the SDK's read and its write is
+		// absorbed by the tombstone; to the caller it is simply gone.
+		// device.pruned stays reserved for this server's own row.
+		if remote && errors.Is(err, space.ErrDevicePruned) {
+			err = space.ErrDeviceUnknown
+		}
+		return deviceError(c, err, details)
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -279,6 +293,9 @@ func deviceError(c echo.Context, err error, details map[string]any) error {
 	case errors.Is(err, space.ErrDeviceUnknown):
 		return writeError(c, http.StatusNotFound, "device.not_found",
 			"no device with this peer id", details)
+	case errors.Is(err, space.ErrDeviceAppNotInstalled):
+		return writeError(c, http.StatusConflict, "device.app_not_installed",
+			"the target device does not have this app installed", details)
 	case errors.Is(err, space.ErrDeviceSelfDelete):
 		return writeError(c, http.StatusBadRequest, "device.self_delete",
 			"refusing to prune this server's own row (sticky tombstone would lock this installation out) — prune it from another device", details)

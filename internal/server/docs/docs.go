@@ -1434,6 +1434,9 @@ const docTemplate = `{
                 "properties": {
                     "app": {
                         "type": "string"
+                    },
+                    "peerId": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -4838,13 +4841,13 @@ const docTemplate = `{
                                     {
                                         "$ref": "#/components/schemas/api.DeviceActivateRequest",
                                         "summary": "body",
-                                        "description": "App slug"
+                                        "description": "App slug; optional target peer id"
                                     }
                                 ]
                             }
                         }
                     },
-                    "description": "App slug",
+                    "description": "App slug; optional target peer id",
                     "required": true
                 },
                 "responses": {
@@ -4860,6 +4863,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
                     },
                     "409": {
                         "content": {
@@ -4882,7 +4895,7 @@ const docTemplate = `{
                         "description": "Internal Server Error"
                     }
                 },
-                "summary": "Claim the active role for an app on this device",
+                "summary": "Claim the active role for an app on this or another device",
                 "tags": [
                     "devices"
                 ]

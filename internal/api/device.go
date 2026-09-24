@@ -68,7 +68,9 @@ type DeviceUpdateRequest struct {
 }
 
 // DeviceActivateRequest is the body of POST /v1/devices/activate —
-// claim the active role for one app slug on THIS device.
+// claim the active role for one app slug on the device PeerId names,
+// or on THIS device when PeerId is empty.
 type DeviceActivateRequest struct {
-	App string `json:"app"`
+	App    string `json:"app"`
+	PeerId string `json:"peerId,omitempty"`
 }

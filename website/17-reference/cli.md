@@ -58,7 +58,7 @@ any identities list | get <identity> | subscribe     # alias: any contacts
 
 any devices list                                     # rows + active map + self
 any devices register [--name N] [--app slug[=ver]]... [--remove-app slug]...
-any devices activate <app>
+any devices activate <app> [--peer <peerId>]
 any devices remove <peerId> --yes                    # permanent for that peer id
 any devices query     [--filter J] [--sort K] [--limit N] [--offset N] [--total] [--projection P]
 any devices subscribe [same flags]

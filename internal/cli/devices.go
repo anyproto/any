@@ -91,15 +91,18 @@ func newDevicesRegisterCmd() *cobra.Command {
 }
 
 func newDevicesActivateCmd() *cobra.Command {
-	return &cobra.Command{
+	var peer string
+	cmd := &cobra.Command{
 		Use:   "activate <app>",
-		Short: "claim the active role for an app on THIS device",
+		Short: "claim the active role for an app on THIS device, or on --peer",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := newClient(flags.Timeout)
-			return cl.DeviceActivate(cmd.Context(), args[0])
+			return cl.DeviceActivate(cmd.Context(), args[0], peer)
 		},
 	}
+	cmd.Flags().StringVar(&peer, "peer", "", "peer id of the device to hand the role to (must have the app installed)")
+	return cmd
 }
 
 // newDevicesRemoveCmd: DELETE /v1/devices/:peerId. Guarded by --yes

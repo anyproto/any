@@ -74,8 +74,8 @@ Properties that follow:
 - **Dangling claims never win**: uninstalling an app (or pruning a
   device's row) silently forfeits its claim — no un-claim write
   exists, or is needed.
-- Nobody ever *deactivates another* device: the role only moves via a
-  newer claim or the current winner's row losing the app.
+- There is no un-claim: the role only moves via a newer claim (for
+  any device, see below) or the current winner's row losing the app.
 
 The rule is implemented **once**, in the SDK (`space.ActiveDevice`),
 and surfaced pre-resolved as the `active` map on `GET /v1/devices`.
@@ -94,9 +94,9 @@ consumer):
 | Boot; no other row carries `apps.S` | runtime | claim (`POST /v1/devices/activate`) — the majority case, valid even if a dangling claim nominally points elsewhere |
 | Boot; `active.S` is another live device | runtime | nothing — second-device install stays passive |
 | Active device's row pruned / app uninstalled | runtime (any survivor observing the change) | claim |
-| Manual switch | user via UI → `activate` **on the target device** | newest claim wins by `seq` |
+| Manual switch | user via UI on any device → `activate {app, peerId}` naming the target | newest claim wins by `seq`; the target's runtime sees itself win and the old winner stands down |
 | Concurrent claims | every reader, same rule | `(seq, at, peerId)` tiebreak; the loser observes via subscribe and stands down |
-| Un-claiming another device | nobody | never happens — only claims and row/app removal move the role |
+| Un-claiming a device | nobody | never happens — only claims and row/app removal move the role |
 | Claim minted on a stale replica | claimer, after sync | a not-yet-synced replica computes `seq` without the newest claims, so its claim can lose once heads converge (SDK [`docs/02-tech-space.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/02-tech-space.md) § Devices registry) — observe `active.S` after sync and re-claim if the role didn't land |
 
 The runtime's loop: upsert self (`apps.S`) → read `active.S` +
@@ -113,13 +113,21 @@ or away from `self`. The UI works off the same endpoint and the same
 | POST   | `/v1/devices/query` | raw windowed snapshot (standard query body, dataset fixed to `devices`; body optional) |
 | POST   | `/v1/devices/query/subscribe` | raw windowed live view (SSE, standard frames — `04-events.md`) |
 | PUT    | `/v1/devices/me` | `Spaces.SetDevice` — self-row only: `{name?, apps?}`; only present fields are written, `apps` merges per slug, `"apps": {"slug": null}` uninstalls (204) |
-| POST   | `/v1/devices/activate` | `Spaces.ClaimActive` — `{app}`; also self-heals `apps.<app>` (204) |
+| POST   | `/v1/devices/activate` | `Spaces.ClaimActive` — `{app, peerId?}`; claims for `peerId`, or for this device when absent; a self claim also self-heals `apps.<app>` (204) |
 | DELETE | `/v1/devices/:peerId` | `Spaces.DeleteDevice` — prune a row (204) |
 
 Account-scoped (no `:spaceId`), behind the `/v1` auth guard. The
-self-row restriction is structural, not checked: the SDK resolves its
-own peer id for every write, so `PUT /me` / `activate` cannot touch
-another device's row.
+self-row restriction on `PUT /me` is structural, not checked: the SDK
+resolves its own peer id for the write, so it cannot touch another
+device's row.
+
+`activate` with a `peerId` is the one write that lands on another
+device's row, and it writes only `activeClaims.<app>` there: never
+`apps`, since the claimer can't know what the target has installed.
+The target must be a live row (`device.not_found`, 404) that already
+carries the app (`device.app_not_installed`, 409) — a claim on a row
+without the app would never win. A `peerId` equal to `self` is a self
+claim.
 
 **Deletion is permanent for that peer id.** Record tombstones are
 sticky: a pruned device can never re-register — a device that comes
@@ -131,7 +139,9 @@ Writes from an already-pruned device fail `device.pruned` (409): the
 tombstone absorbs them, so `PUT /me` / `activate` can never silently
 no-op.
 
-Errors: `device.not_found` (404, unknown peer id on DELETE);
+Errors: `device.not_found` (404, unknown or pruned peer id on DELETE
+or on `activate` with a `peerId`); `device.app_not_installed` (409,
+`activate` for a device without the app);
 `device.self_delete` (400, DELETE of the own row);
 `device.pruned` (409, self-row write after the row was pruned);
 `request.invalid_field` (bad slug — empty or containing `.` — or a
@@ -146,6 +156,7 @@ any devices list                         # rows + active map + self
 any devices register --name laptop --app bao=1.2
 any devices register --remove-app bao   # uninstall
 any devices activate bao                 # claim on THIS device
+any devices activate bao --peer <peerId> # hand the role to another device
 any devices remove <peerId> --yes        # permanent prune
 any devices query --filter '…'           # raw rows
 any devices subscribe                    # raw live stream

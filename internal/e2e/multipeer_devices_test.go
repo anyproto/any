@@ -3,7 +3,8 @@
 // the tech-space `devices` dataset end-to-end — boot self-registration
 // converging across devices, CONCURRENT active claims resolving to the
 // same winner on both readers (the core claim of the election design),
-// the winner losing the role by uninstalling the app, and row pruning.
+// the winner losing the role by uninstalling the app, one device
+// handing the role to the other by peer id, and row pruning.
 package e2e
 
 import (
@@ -141,6 +142,41 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 			devicesOn(t, devA.base).Active, devicesOn(t, devB.base).Active)
 	}
 
+	// Remote switch: the winner reinstalls bao, so its higher claim
+	// counts again and it wins back the role; then, from that same
+	// server, it hands the role to the other device by naming its peer
+	// id. Both readers must move to the target.
+	resp, raw = doRequest(t, http.MethodPut, winnerBase+"/v1/devices/me", `{"apps":{"bao":{}}}`)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("PUT /v1/devices/me (reinstall): status %d: %s", resp.StatusCode, raw)
+	}
+	if !pollUntil(3*time.Minute, func() bool {
+		return devicesOn(t, devA.base).Active["bao"] == winner &&
+			devicesOn(t, devB.base).Active["bao"] == winner
+	}) {
+		t.Fatalf("reinstall never restored the winner: A=%v B=%v",
+			devicesOn(t, devA.base).Active, devicesOn(t, devB.base).Active)
+	}
+	resp, raw = doRequest(t, http.MethodPost, winnerBase+"/v1/devices/activate", `{"app":"bao","peerId":"`+loser+`"}`)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("POST /v1/devices/activate for %s: status %d: %s", loser, resp.StatusCode, raw)
+	}
+	if !pollUntil(3*time.Minute, func() bool {
+		return devicesOn(t, devA.base).Active["bao"] == loser &&
+			devicesOn(t, devB.base).Active["bao"] == loser
+	}) {
+		t.Fatalf("remote claim never moved the role to %s: A=%v B=%v", loser,
+			devicesOn(t, devA.base).Active, devicesOn(t, devB.base).Active)
+	}
+	resp, _ = doRequest(t, http.MethodPost, winnerBase+"/v1/devices/activate", `{"app":"notinstalled","peerId":"`+loser+`"}`)
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("remote activate of an app the target lacks: status %d, want 409", resp.StatusCode)
+	}
+	resp, _ = doRequest(t, http.MethodPost, winnerBase+"/v1/devices/activate", `{"app":"bao","peerId":"nonexistent-peer"}`)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("remote activate of an unknown device: status %d, want 404", resp.StatusCode)
+	}
+
 	// Prune devB's row from devA; the registry drops to one row on both
 	// peers (sticky tombstone — devB stays unlisted even though its
 	// server is still running).
@@ -168,6 +204,10 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 	resp, _ = doRequest(t, http.MethodDelete, devA.base+"/v1/devices/nonexistent-peer", "")
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("DELETE unknown device: status %d, want 404", resp.StatusCode)
+	}
+	resp, _ = doRequest(t, http.MethodPost, devA.base+"/v1/devices/activate", `{"app":"bao","peerId":"`+selfB+`"}`)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("remote activate of a pruned device: status %d, want 404", resp.StatusCode)
 	}
 	resp, _ = doRequest(t, http.MethodPost, devA.base+"/v1/devices/activate", `{}`)
 	if resp.StatusCode != http.StatusBadRequest {

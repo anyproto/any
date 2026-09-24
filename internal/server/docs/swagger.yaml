@@ -1264,6 +1264,8 @@ components:
       properties:
         app:
           type: string
+        peerId:
+          type: string
       type: object
     api.DeviceActiveClaim:
       properties:
@@ -3859,9 +3861,9 @@ paths:
               oneOf:
               - type: object
               - $ref: '#/components/schemas/api.DeviceActivateRequest'
-                description: App slug
+                description: App slug; optional target peer id
                 summary: body
-        description: App slug
+        description: App slug; optional target peer id
         required: true
       responses:
         "204":
@@ -3872,6 +3874,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
         "409":
           content:
             application/json:
@@ -3884,7 +3892,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Internal Server Error
-      summary: Claim the active role for an app on this device
+      summary: Claim the active role for an app on this or another device
       tags:
       - devices
   /devices/me:
