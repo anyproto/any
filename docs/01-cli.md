@@ -801,7 +801,7 @@ override).
 ```
 any debug space  <spaceId>                  # per-peer headsync counters (in-memory)
 any debug object <spaceId> <objectId>       # tree + sync snapshot (one-shot; walks the tree)
-any debug p2p                               # GET /v1/debug/p2p — LAN listener, discovery, known peers
+any debug p2p                               # GET /v1/debug/p2p — LAN + global layers, known peers
 ```
 
 ### Local discovery

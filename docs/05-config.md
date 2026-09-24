@@ -96,11 +96,13 @@ storage:
 sync:
   dialTimeout: 10s                    # peer dial timeout; empty = 10s
 
-# Local-network (p2p) discovery + sync. Devices of the same account on
-# the same LAN discover each other over mDNS and sync shared spaces
-# directly — including while the sync nodes are unreachable (offline
-# LAN sync and account cold-restore from a nearby device). Surfaced in
-# `any sync-status` (p2p / localPeers fields) and `any debug p2p`.
+# Direct (p2p) discovery + sync, in two independent layers. On the LAN,
+# devices of the same account discover each other over mDNS; beyond it,
+# `global` connects them through relays. Either way a shared space syncs
+# directly, including while the sync nodes are unreachable (offline LAN
+# sync, internet-wide sync and account cold-restore from another
+# device). Surfaced in `any sync-status` (p2p / localPeers / globalPeers
+# fields) and `any debug p2p`.
 p2p:
   enabled: true                       # opt-out; absent/true = on. false =
                                       #   no listener, no discovery.
@@ -117,6 +119,37 @@ p2p:
                                       #   permission flow and turns it on through
                                       #   PUT /v1/local-discovery), on elsewhere.
                                       #   Env: ANY_P2P_LOCAL_DISCOVERY.
+
+  # Internet-wide direct sync (docs/30-global-p2p.md). Independent of
+  # the LAN layer above. Same pairing as push and access: when the
+  # config names NEITHER relay list AND no nodeconf (the embedded
+  # production network), the production relays below are filled in and
+  # the layer runs; a config that names a nodeconf gets relays only by
+  # naming them, so staging, local infra and every test stay off them.
+  global:
+    enabled: true                     # absent = on exactly when relayUrls are
+                                      #   set AND p2p.enabled is not an explicit
+                                      #   false. false = no iroh endpoint at all.
+    relayUrls:                        # home-relay candidates; the nearest wins
+      - https://relay-fr-1.anytype.io
+      - https://relay-de-1.anytype.io
+    pkarrRelayUrls:                   # hold this account's device record —
+      - https://pkarr-fr-1.anytype.io #   how own devices and a mnemonic-only
+      - https://pkarr-de-1.anytype.io #   device find each other. Published to
+                                      #   every one, newest read wins. Empty =
+                                      #   space records only, no account
+                                      #   discovery.
+    insecureRelay: false              # admit http:// relays (a local relay with
+    insecurePkarr: false              #   no certificate). Development only.
+    port: 0                           # iroh UDP port. 0 = ephemeral.
+    maxConnections: 0                 # global connections kept open; 0 = 4
+    maxInbound: 0                     # headroom for inbound ones; 0 = 8
+
+  # The two lists default in independently, so naming only one keeps the
+  # packaged value for the other — a pkarr relay with no transport would
+  # resolve the whole layer off. A block the layer cannot run with
+  # (enabled with no relays, an http:// URL without its opt-in) is
+  # refused at config load, not at SDK boot.
 
 # Local search index (docs/13-index.md). FTS needs no external
 # dependency; vector search activates when an embedder is configured.
@@ -278,6 +311,12 @@ ANY_PUSH_ENABLED=false                # push.enabled (tristate; unset = iff peer
                                       # (docs/20-push.md § Config).
 ANY_PUSH_PEER_ID=12D3Koo...           # push.peerId (the push node)
 ANY_PUSH_ADDRS=quic://push:1234       # push.addrs (comma-separated)
+
+ANY_P2P_GLOBAL_ENABLED=false          # p2p.global.enabled — the one switch for the
+                                      # internet-wide layer that needs no config
+                                      # file (docs/30-global-p2p.md). A value that
+                                      # is not a boolean fails startup rather than
+                                      # leaving the layer on.
 
 ANY_LOCAL_ENABLED=false               # local.enabled
 

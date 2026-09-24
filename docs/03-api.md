@@ -4043,6 +4043,7 @@ checks go through `GET …/objects/:objectId`.
   "total":        3,
   "networkPeers": 0,
   "localPeers":   1,
+  "globalPeers":  0,
   "p2p":          "connected",
   "lastSyncedAt": "0001-01-01T00:00:00Z" }
 
@@ -4052,13 +4053,15 @@ checks go through `GET …/objects/:objectId`.
   "lastSyncAt": "2026-05-15T12:00:00Z" }
 ```
 
-`networkPeers` counts responsible sync nodes with a live connection;
-`localPeers` counts local-network (LAN) peers sharing this space that
-are connected right now. `p2p` summarizes the local-network state:
+The three peer counts are the paths this space is syncing over right
+now: `networkPeers` the responsible sync nodes, `localPeers` the
+local-network (LAN) peers, `globalPeers` the internet-wide direct peers
+(relayed or hole-punched, `30-global-p2p.md`), each with a live
+connection. `p2p` summarizes the two direct counts as one state:
 `unknown` / `notpossible` (disabled or no usable interface) /
 `notconnected` / `connected` / `restricted` (OS denied local-network
 access). A space can be `synced` with `networkPeers: 0` when it
-converged entirely over the LAN.
+converged entirely over the LAN or over the global layer.
 
 The two `/subscribe` endpoints are SSE streams. Wire shape and
 lifecycle are documented in `04-events.md` § Sync-status streams —
@@ -4281,20 +4284,32 @@ async and best-effort. Who-gets-what is controlled by the two `notifyMode` knobs
 |--------|------------------------------------------------------|----------------------------------------|
 | GET    | `/v1/spaces/:spaceId/debug`                          | `Space.Debug().Space()`                |
 | GET    | `/v1/spaces/:spaceId/debug/objects/:objectId`        | `Space.Debug().Object`                 |
-| GET    | `/v1/debug/p2p`                                       | `SDK.P2PStatus()` — account-wide local-network snapshot |
+| GET    | `/v1/debug/p2p`                                       | `SDK.P2PStatus()` — account-wide direct-layer snapshot (LAN + global) |
 
 **Diagnostic only — not a stable interface**: fields may grow or move
 with the SDK's `DebugAPI`. Production UI uses `/sync-status`.
 
-`GET /v1/debug/p2p` returns the account-wide local-network layer: this
-device's own peer id, listener state, discovery possibility, and every
-discovered LAN peer with the spaces it shares with this account and
-whether a connection is live. Account-scoped (no `:spaceId`), so it
-sits outside the space group. `spaceIds` is the SHARED set only — the
-space exchange proves membership per space and reveals nothing else, so
-a stranger on the LAN shows up (if it runs any-sync p2p) with an empty
-list. A freshly joined space appears once the joiner's ACL read key
-has synced in — normally within seconds of the join being approved.
+`GET /v1/debug/p2p` returns both direct layers in one snapshot: this
+device's own peer id, listener state and discovery possibility, every
+discovered LAN peer at the top level, and the internet-wide layer under
+`global`. Account-scoped (no `:spaceId`), so it sits outside the space
+group. `spaceIds` is the SHARED set only — the space exchange proves
+membership per space and reveals nothing else, so a stranger on the LAN
+shows up (if it runs any-sync p2p) with an empty list. A freshly joined
+space appears once the joiner's ACL read key has synced in — normally
+within seconds of the join being approved.
+
+`global.ticket` is what this device publishes for others to dial, empty
+until the relay session is up, and relay-only by construction: it never
+carries this device's addresses. `global.peers` are the peers known
+through records — space rows and the account record — each with the
+`sources` that know it, its `lastSeen` and the `tier` derived from it
+(`active` / `stale` / `dormant`), which sets how often it is dialed. A
+peer in the `disabled` tier, silent for 30 days, is left out of the
+list entirely. `global.account` is the pkarr record through which this
+account's own devices find each other; `enabled: false` there means no
+pkarr relay is configured and own devices are found only through the
+spaces they share. See `30-global-p2p.md`.
 
 ```json
 {
@@ -4309,7 +4324,30 @@ has synced in — normally within seconds of the join being approved.
     { "peerId":    "12D3Koo…",
       "spaceIds":  ["spc_…"],
       "connected": true }
-  ]
+  ],
+  "global": {
+    "enabled":        true,
+    "endpointId":     "3d0c7d61…",
+    "ticket":         "endpoint…",
+    "homeRelay":      "https://relay-de-1.anytype.io./",
+    "relayConnected": true,
+    "peers": [
+      { "peerId":    "12D3Koo…",
+        "spaceIds":  ["spc_…"],
+        "connected": true,
+        "sources":   ["account", "global"],
+        "lastSeen":  "2026-05-15T12:00:00Z",
+        "tier":      "active" }
+    ],
+    "account": {
+      "enabled":       true,
+      "relays":        ["pkarr-fr-1.anytype.io", "pkarr-de-1.anytype.io"],
+      "devices":       2,
+      "ownEntry":      true,
+      "lastResolved":  "2026-05-15T12:00:00Z",
+      "lastPublished": "2026-05-15T12:00:00Z"
+    }
+  }
 }
 ```
 

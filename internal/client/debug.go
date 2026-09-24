@@ -34,9 +34,10 @@ func (c *Client) DebugObject(ctx context.Context, spaceId, objectId string) (*ap
 	return &out, nil
 }
 
-// DebugP2P fetches the account-wide local-network layer snapshot:
-// listener state, discovery possibility, and every discovered LAN
-// peer with its shared spaces and live-connection flag.
+// DebugP2P fetches the account-wide snapshot of both direct layers:
+// the LAN listener and its discovered peers, and under Global the iroh
+// endpoint, its relay session, the peers records name and the account
+// discovery record.
 func (c *Client) DebugP2P(ctx context.Context) (*api.P2PStatusResponse, error) {
 	var out api.P2PStatusResponse
 	if err := c.do(ctx, http.MethodGet, "/v1/debug/p2p", nil, &out); err != nil {

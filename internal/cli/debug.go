@@ -20,7 +20,7 @@ func newDebugCmd() *cobra.Command {
 func newDebugP2PCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "p2p",
-		Short: "local-network layer snapshot: listener, discovery state, discovered LAN peers",
+		Short: "direct-layer snapshot: LAN listener and peers, plus the global (relay) layer",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := newClient(flags.Timeout)

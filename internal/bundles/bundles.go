@@ -535,7 +535,9 @@ func (r *Resolver) converge(ctx context.Context, sp space.Space, inst Install, w
 }
 
 // waitFor is how long to hold the convergence wait open: the full
-// bound while a peer is connected, the offline bound while none is.
+// bound while a peer is connected — a sync node, a LAN peer or a
+// global one, since a space that converges only over the relays is
+// not offline — and the offline bound while none is.
 // A head-sync round against nobody answers the same way every time,
 // so the long wait would spend an offline device's whole deadline
 // learning what its first attempt already told it — and the install
@@ -543,7 +545,7 @@ func (r *Resolver) converge(ctx context.Context, sp space.Space, inst Install, w
 // either way (any other member).
 func (r *Resolver) waitFor(sp space.Space) time.Duration {
 	st := sp.SyncStatus().Space()
-	if st.NetworkPeers == 0 && st.LocalPeers == 0 {
+	if st.NetworkPeers == 0 && st.LocalPeers == 0 && st.GlobalPeers == 0 {
 		return r.OfflineIndexWait
 	}
 	return r.IndexWait

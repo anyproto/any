@@ -74,7 +74,35 @@ Devices of the same account on the same LAN discover each other over mDNS and sy
 | `p2p.port` | 0 | QUIC listen port; 0 = reuse the port persisted from the previous run, or pick an ephemeral one |
 | `p2p.serviceName` | "" | mDNS service type, default `_any._tcp`; override to isolate a deployment onto its own discovery namespace |
 
-The state is visible on `any sync-status` (`p2p` / `localPeers` fields) and in detail on the diagnostic snapshot:
+### Global (internet-wide) p2p
+
+Beyond the LAN, devices reach each other through relays: a relay forwards
+end-to-end-encrypted traffic and helps the two sides hole-punch a direct
+path. It has no identity and stores nothing. A second, separate relay holds
+one signed, encrypted record per account — how your own devices find each
+other, and how a device holding only your recovery phrase finds them.
+
+On the production network the relays are packaged and the layer runs with no
+configuration. Any other network gets it only by naming its own.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `p2p.global.enabled` | on when relays are known | false = no iroh endpoint, no relay session, nothing published |
+| `p2p.global.relayUrls` | the production relays | home-relay candidates; the device keeps a session to the nearest |
+| `p2p.global.pkarrRelayUrls` | the production pkarr relays | hold the account's device record, published to every one; empty = no account-level discovery |
+| `p2p.global.insecureRelay` / `insecurePkarr` | false | admit `http://` URLs — a local relay without a certificate, development only |
+| `p2p.global.port` | 0 | iroh UDP port; 0 = ephemeral |
+| `p2p.global.maxConnections` / `maxInbound` | 4 / 8 | global connections kept open, and the headroom for inbound ones |
+
+`ANY_P2P_GLOBAL_ENABLED=false` turns the layer off without a config file.
+Setting `p2p.enabled: false` turns both layers off — the global one follows
+the explicit opt-out unless you name `p2p.global.enabled` yourself.
+
+Idle cost is a relay session of roughly 315 B/min per device, whether or not
+anything is connected.
+
+The state is visible on `any sync-status` (`p2p` / `localPeers` / `globalPeers`
+fields) and in detail on the diagnostic snapshot:
 
 ```bash
 curl -s http://127.0.0.1:7001/v1/debug/p2p
@@ -89,10 +117,27 @@ curl -s http://127.0.0.1:7001/v1/debug/p2p
   "possibility": "possible",
   "state": "connected",
   "peers": [
-    { "peerId": "12D3Koo…", "spaceIds": ["spc_…"], "connected": true }
-  ]
+    { "peerId": "12D3Koo…", "spaceIds": ["spc_…"], "connected": true, "sources": ["lan"] }
+  ],
+  "global": {
+    "enabled": true,
+    "endpointId": "3d0c7d61…",
+    "homeRelay": "https://relay-de-1.anytype.io./",
+    "relayConnected": true,
+    "peers": [
+      { "peerId": "12D3Koo…", "spaceIds": ["spc_…"], "connected": true,
+        "sources": ["account"], "tier": "active" }
+    ],
+    "account": { "enabled": true, "devices": 2, "ownEntry": true }
+  }
 }
 ```
+
+Under `global`, `sources` says how a peer was found — `global` for a space's
+own records, `account` for one of your own devices — and `tier` how fresh it
+is (`active` / `stale` / `dormant` / `disabled`), which sets how often it is
+dialed. `account.enabled: false` means no pkarr relay is configured, so your
+own devices are found only through the spaces they share.
 
 `spaceIds` is the **shared** set only — the exchange proves membership per space and reveals nothing else, so a stranger on the LAN running any-sync shows up with an empty list. A freshly joined space appears once the joiner's read key has synced in.
 

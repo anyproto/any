@@ -339,7 +339,7 @@ Permissions: `none`, `reader`, `guest`, `writer`, `admin`, `owner`. Member statu
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| GET | `/v1/spaces/:spaceId/sync-status` | — | `{spaceId, state, synced, total, networkPeers, localPeers, p2p, lastSyncedAt}` | `state`: `unknown\|offline\|syncing\|synced\|error` |
+| GET | `/v1/spaces/:spaceId/sync-status` | — | `{spaceId, state, synced, total, networkPeers, localPeers, globalPeers, p2p, lastSyncedAt}` | `state`: `unknown\|offline\|syncing\|synced\|error` |
 | GET | `…/sync-status/objects/:objectId` | — | `{objectId, state, lastSyncAt}` | unknown ids answer `state: "unknown"` |
 | GET | `…/sync-status/objects/:objectId/subscribe` | — | SSE `status` frames | |
 | GET | `/v1/sync-status/subscribe` | — | SSE, every space | account-scoped |

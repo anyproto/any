@@ -139,6 +139,45 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.AccountDiscoveryStatus": {
+                "description": "Account is the account-level discovery record (pkarr).",
+                "properties": {
+                    "clockAheadMs": {
+                        "description": "ClockAheadMs is how far the relays' record was dated past this\ndevice's clock — a sibling whose clock runs ahead. Zero when it\nwas not.",
+                        "type": "integer"
+                    },
+                    "devices": {
+                        "description": "Devices is how many sibling devices the record names.",
+                        "type": "integer"
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "lastError": {
+                        "description": "LastError is the last failed cycle; empty after a good one.",
+                        "type": "string"
+                    },
+                    "lastPublished": {
+                        "type": "string"
+                    },
+                    "lastResolved": {
+                        "type": "string"
+                    },
+                    "ownEntry": {
+                        "description": "OwnEntry — the record names this device with its current relay.",
+                        "type": "boolean"
+                    },
+                    "relays": {
+                        "description": "Relays are the configured pkarr relays, as hosts.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "api.AccountMetadata": {
                 "properties": {
                     "description": {
@@ -1634,6 +1673,42 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.GlobalP2PStatus": {
+                "description": "Global is the internet-wide layer (iroh over the relays).",
+                "properties": {
+                    "account": {
+                        "$ref": "#/components/schemas/api.AccountDiscoveryStatus"
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "endpointId": {
+                        "description": "EndpointId is this device's iroh endpoint id (its device key).",
+                        "type": "string"
+                    },
+                    "homeRelay": {
+                        "description": "HomeRelay is the relay URL inside Ticket.",
+                        "type": "string"
+                    },
+                    "peers": {
+                        "description": "Peers are the peers known through records, connected or not —\nexcept any in the disabled tier, which the SDK drops from this\nlist. A device silent for 30 days is therefore absent here, not\nlisted as disabled.",
+                        "items": {
+                            "$ref": "#/components/schemas/api.P2PPeerStatus"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "relayConnected": {
+                        "description": "RelayConnected — the session to the home relay is up. Until it\nis, this device can dial out but cannot be reached.",
+                        "type": "boolean"
+                    },
+                    "ticket": {
+                        "description": "Ticket is what this device publishes for others to dial; empty\nuntil the relay session is up. Relay-only by construction — it\nnever carries this device's IP addresses.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.HealthResponse": {
                 "properties": {
                     "account": {
@@ -2729,8 +2804,24 @@ const docTemplate = `{
                     "connected": {
                         "type": "boolean"
                     },
+                    "failures": {
+                        "description": "Failures counts consecutive failed global dials.",
+                        "type": "integer"
+                    },
+                    "lastSeen": {
+                        "description": "LastSeen is the newest liveness evidence — a record heartbeat or\na local connection. Zero for LAN-only peers.",
+                        "type": "string"
+                    },
                     "peerId": {
                         "type": "string"
+                    },
+                    "sources": {
+                        "description": "Sources that know the peer: \"lan\", \"global\" (a space's records),\n\"account\" (this account's own device record), in any\ncombination. A peer in the top-level list always carries at\nleast \"lan\", and one in global.peers may also carry it — a\ndevice on the same LAN that a space's records also name appears\nin both lists, so presence under global is not proof that\ntraffic is relayed.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "spaceIds": {
                         "items": {
@@ -2738,6 +2829,10 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "tier": {
+                        "description": "Tier derived from LastSeen: active, stale, dormant, disabled. It\nsets how often the peer is dialed. Empty for LAN-only peers.",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -2746,6 +2841,9 @@ const docTemplate = `{
                 "properties": {
                     "enabled": {
                         "type": "boolean"
+                    },
+                    "global": {
+                        "$ref": "#/components/schemas/api.GlobalP2PStatus"
                     },
                     "listenerStarted": {
                         "type": "boolean"
@@ -3775,6 +3873,9 @@ const docTemplate = `{
             },
             "api.SpaceSyncStatusResponse": {
                 "properties": {
+                    "globalPeers": {
+                        "type": "integer"
+                    },
                     "lastSyncedAt": {
                         "type": "string"
                     },
@@ -4688,7 +4789,7 @@ const docTemplate = `{
                         "description": "OK"
                     }
                 },
-                "summary": "Local-network (p2p) layer snapshot (diagnostic, unstable)",
+                "summary": "Direct (p2p) layer snapshot — local network and global (diagnostic, unstable)",
                 "tags": [
                     "debug"
                 ]

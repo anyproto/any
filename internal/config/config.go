@@ -129,13 +129,17 @@ type Access struct {
 	RedeemUrl string `yaml:"redeemUrl"`
 }
 
-// P2P controls local-network discovery and sync (mDNS + QUIC between
-// devices on the same LAN). Enabled by default; spaces shared with a
-// discovered peer sync directly, including while sync nodes are
-// unreachable. Surfaced in `any sync-status` (p2p / localPeers) and
-// `any debug p2p`.
+// P2P controls the two direct layers — local-network discovery and
+// sync (mDNS + QUIC between devices on the same LAN), and the
+// internet-wide one under Global. Both enabled by default; spaces
+// shared with a discovered peer sync directly, including while sync
+// nodes are unreachable. Surfaced in `any sync-status` (p2p /
+// localPeers / globalPeers) and `any debug p2p`.
 type P2P struct {
-	// Enabled is an opt-out: absent/null = on.
+	// Enabled is the LAN layer's opt-out: absent/null = on. An explicit
+	// false also suppresses Global's PACKAGED default (see
+	// GlobalP2P.isEnabled), so turning peer-to-peer off with one line
+	// stays one line; relays named by hand are kept.
 	Enabled *bool `yaml:"enabled"`
 	// Port fixes the QUIC listen port. 0 (default) = reuse the port
 	// persisted from the previous run, or pick an ephemeral one.
@@ -148,6 +152,92 @@ type P2P struct {
 	// (LocalDiscoveryEnabled): off for a managed server on macOS, on
 	// everywhere else. Flipped at runtime through PUT /v1/local-discovery.
 	LocalDiscovery *bool `yaml:"localDiscovery"`
+	// Global is the internet-wide layer, independent of the LAN one.
+	Global GlobalP2P `yaml:"global"`
+}
+
+// GlobalEnabled resolves whether the internet-wide layer runs, given
+// this P2P block as a whole. See GlobalP2P.isEnabled.
+func (p P2P) GlobalEnabled() bool {
+	return p.Global.isEnabled(p.Enabled != nil && !*p.Enabled)
+}
+
+// GlobalP2P controls the internet-wide device-to-device layer: iroh
+// (QUIC over a relay, with hole punching to a direct path), peers
+// discovered through each space's records and through the account's own
+// pkarr record. Independent of the LAN layer above — either can be off
+// while the other runs.
+//
+// On the embedded production network the relays and the pkarr relays
+// default in (p2p_global_prod.go); every other network gets the layer
+// only by naming its own.
+type GlobalP2P struct {
+	// Enabled is an opt-out on the production network, where the
+	// defaults supply relays, and an opt-in anywhere else: absent
+	// resolves to on only once relayUrls are known. False always wins.
+	Enabled *bool `yaml:"enabled"`
+	// RelayUrls are the home-relay candidates. The device probes them
+	// and keeps a session to the nearest; a relay forwards encrypted
+	// QUIC and helps the two sides find a direct path.
+	RelayUrls []string `yaml:"relayUrls"`
+	// PkarrRelayUrls hold the account's device-discovery record — how
+	// this account's own devices find each other, and how a device
+	// holding only the mnemonic finds them. Empty leaves the account
+	// layer off; devices then know each other only through the records
+	// of the spaces they share.
+	PkarrRelayUrls []string `yaml:"pkarrRelayUrls"`
+	// InsecureRelay admits http:// relay URLs — plaintext to the relay,
+	// for a self-hosted or local relay without a certificate. The
+	// end-to-end encryption between the two devices is unaffected;
+	// what leaks is which endpoints are talking. Development only.
+	InsecureRelay bool `yaml:"insecureRelay"`
+	// InsecurePkarr admits http:// pkarr relay URLs. Development only.
+	InsecurePkarr bool `yaml:"insecurePkarr"`
+
+	// relaysDefaulted records that RelayUrls came from the packaged
+	// production values rather than from this config. Only a packaged
+	// default defers to an explicit `p2p.enabled: false`; relays an
+	// operator wrote are honored. Not a yaml key — set by
+	// ApplyGlobalP2PDefaults.
+	relaysDefaulted bool `yaml:"-"`
+	// Port fixes the UDP port of the iroh endpoint. 0 = ephemeral.
+	Port int `yaml:"port"`
+	// MaxConnections caps the global connections this device keeps
+	// open, chosen to cover the loaded spaces. 0 = the SDK default (4).
+	MaxConnections int `yaml:"maxConnections"`
+	// MaxInbound is the headroom above MaxConnections for connections
+	// other devices opened. 0 = the SDK default (8).
+	MaxInbound int `yaml:"maxInbound"`
+}
+
+// IsEnabled resolves the tristate: an explicit value wins, and an
+// absent one turns the layer on exactly when relays are configured —
+// so the production defaults enable it and a bare custom network does
+// not. The SDK refuses to start the layer without a relay, since the
+// published ticket would otherwise carry this device's IP addresses
+// into every space's records.
+//
+// isEnabled resolves the tristate for this block. lanOptOut is
+// P2P.Enabled read as an explicit false.
+//
+// The two layers are independent by design, and `p2p.enabled: false`
+// with `p2p.global.enabled: true` is a valid setup. The one case the
+// opt-out reaches is relays this operator never asked for: a config
+// that says only "p2p: {enabled: false}" must not acquire an iroh
+// endpoint, a relay session and a dialable ticket in every space's
+// records from a PACKAGED default nested under the very key it set
+// false. Relays written by hand are a deliberate configuration and
+// are honored — turning the LAN layer off is a common thing to want
+// on a noisy datacenter network, and it must not silently discard
+// them. An explicit global value still wins in both directions.
+func (g GlobalP2P) isEnabled(lanOptOut bool) bool {
+	if g.Enabled != nil {
+		return *g.Enabled
+	}
+	if len(g.RelayUrls) == 0 {
+		return false
+	}
+	return !lanOptOut || !g.relaysDefaulted
 }
 
 // IsEnabled resolves the opt-out tristate: absent/null = on.
