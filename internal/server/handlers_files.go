@@ -48,6 +48,7 @@ import (
 //	@Success	201	{object}	api.FileInfo
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	410	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/files [post]
 func (d *deps) fileAttach(c echo.Context) error {
@@ -566,6 +567,8 @@ func (d *deps) resolveSpaceFile(c echo.Context) (space.Space, string, error, boo
 
 // fileError maps SDK files-surface errors to the canonical envelope
 // via the SDK's exported sentinels (errors.Is, never by message).
+// Anything else falls through to sdkOpError — an attach on a deleted
+// object fails on the object, not the file.
 func fileError(c echo.Context, err error, details map[string]any) error {
 	switch {
 	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
@@ -584,7 +587,7 @@ func fileError(c echo.Context, err error, details map[string]any) error {
 	case errors.Is(err, space.ErrFileVariantInvalid):
 		return writeError(c, http.StatusBadRequest, api.ErrFileVariantInvalid, err.Error(), details)
 	}
-	return writeError(c, http.StatusInternalServerError, "internal", err.Error(), details)
+	return sdkOpError(c, err, details)
 }
 
 func fileInfoToAPI(info space.FileInfo) api.FileInfo {

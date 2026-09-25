@@ -52,6 +52,10 @@ func TestResolveMime(t *testing.T) {
 		{"mp3 without id3", "", "song.mp3", mp3Bytes, "audio/mpeg"},
 		{"jpeg", "", "", jpegBytes, "image/jpeg"},
 		{"pdf", "", "", pdfBytes, "application/pdf"},
+		// The registered names the sniffer answers with.
+		{"apng", "", "", apngBytes, "image/apng"},
+		{"mkv", "", "", mkvBytes, "video/matroska"},
+		{"rar", "", "", rarBytes, "application/vnd.rar"},
 		{"name never overrides binary content", "", "fake.png", pdfBytes, "application/pdf"},
 
 		// 4. within text the name decides.
@@ -144,6 +148,7 @@ func TestEnsureNameExt(t *testing.T) {
 		{"pasted", "image/png", "pasted.png"},
 		{"pasted", "image/jpeg", "pasted.jpg"}, // canonical, not .jfif
 		{"pasted", "application/pdf", "pasted.pdf"},
+		{"pasted", "image/apng", "pasted.png"}, // not .apng
 		{"shot.png", "image/png", "shot.png"},  // already has one
 		{"shot.txt", "image/png", "shot.txt"},  // never rewritten
 		{"pasted", "", "pasted"},               // mime unresolved

@@ -16,11 +16,12 @@ import (
 // docs/03-api.md § Files (Mime precedence).
 
 // sniffLimit is the window the content sniffer reads. It is mimetype's
-// own default, and init pins the library to it: a peek window shorter
-// than the limit the detectors assume does not fail loudly — the ones
-// that check whether the tail is truncated (csv, tsv) misclassify
-// silently.
-const sniffLimit = 3072
+// own default (its unexported defaultLimit — recheck on a mimetype
+// bump), and init pins the library to it: a peek window shorter than the limit the detectors
+// assume does not fail loudly — the ones that check whether the tail
+// is truncated (csv, tsv) or parse the OLE directory (doc, xls, msi)
+// misclassify silently.
+const sniffLimit = 4096
 
 func init() { mimetype.SetLimit(sniffLimit) }
 
@@ -197,9 +198,19 @@ func ensureNameExt(name, mimeType string) string {
 	if m == nil || isText(m) {
 		return name
 	}
+	if ext, ok := extByMime[m.String()]; ok {
+		return name + ext
+	}
 	// Extension() is the canonical single answer (.jpg), not the list
 	// mime.ExtensionsByType sorts .jfif to the front of.
 	return name + m.Extension()
+}
+
+// extByMime overrides the sniffer's canonical extension where it is one
+// few systems associate: an animated PNG is a PNG every viewer opens,
+// but .apng is not.
+var extByMime = map[string]string{
+	"image/apng": ".png",
 }
 
 // hasExt reports whether name ends in something that reads as a file

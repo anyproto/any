@@ -302,6 +302,31 @@ func TestE2E_FilesBinary(t *testing.T) {
 	if stats.Total != 0 {
 		t.Errorf("post-delete stats = %+v, want total 0", stats)
 	}
+
+	// --- attach to a deleted object ----------------------------------
+	// Both an object that never had files and one that did: the attach
+	// fails on the object, never as a 500.
+	var bare api.ObjectsCreateResponse
+	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+sp.Id+"/objects",
+		`{"type":"page"}`, http.StatusCreated, &bare)
+	for _, id := range []string{bare.ObjectId, obj.ObjectId} {
+		mustStatus(t, http.MethodDelete, base+"/v1/spaces/"+sp.Id+"/objects/"+id, "", http.StatusNoContent)
+		// Which of the two answers depends on how far the delete has
+		// progressed locally.
+		resp, err := http.Post(base+"/v1/spaces/"+sp.Id+"/objects/"+id+"/files?name=late.txt",
+			"text/plain", bytes.NewReader([]byte("late")))
+		if err != nil {
+			t.Fatalf("attach to deleted object: %v", err)
+		}
+		raw, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		code := errorCode(t, raw)
+		if !(resp.StatusCode == http.StatusGone && code == "object.deleted") &&
+			!(resp.StatusCode == http.StatusNotFound && code == "object.not_found") {
+			t.Errorf("attach to deleted object %s = %d %s, want 410 object.deleted or 404 object.not_found",
+				id, resp.StatusCode, raw)
+		}
+	}
 }
 
 // attachFile POSTs raw bytes to url with the given content type and

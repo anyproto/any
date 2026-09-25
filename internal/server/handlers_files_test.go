@@ -28,6 +28,12 @@ var (
 	heicBytes = append(append([]byte{0, 0, 0, 0x18}, []byte("ftypheic")...), []byte("\x00\x00\x00\x00mif1heic")...)
 	mp3Bytes  = append([]byte{0xff, 0xfb, 0x90, 0x00}, bytes.Repeat([]byte{0}, 128)...)
 	movBytes  = append(append([]byte{0, 0, 0, 0x14}, []byte("ftypqt  ")...), []byte("\x00\x00\x02\x00qt  ")...)
+	// PNG signature, a 13-byte IHDR chunk, then an acTL chunk — the
+	// animation control chunk that makes it an APNG.
+	apngBytes = append([]byte("\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR"), append(bytes.Repeat([]byte{0}, 17), []byte("\x00\x00\x00\x08acTL\x00\x00\x00\x01\x00\x00\x00\x00")...)...)
+	// EBML header with the matroska doctype.
+	mkvBytes = append([]byte("\x1a\x45\xdf\xa3\x9f\x42\x86\x81\x01\x42\x82\x88matroska"), bytes.Repeat([]byte{0}, 32)...)
+	rarBytes = append([]byte("Rar!\x1a\x07\x01\x00"), bytes.Repeat([]byte{0}, 32)...)
 )
 
 // TestFileErrorMapping pins the SDK sentinel → wire code map
@@ -44,6 +50,8 @@ func TestFileErrorMapping(t *testing.T) {
 		{space.ErrFileNotAvailable, http.StatusConflict, api.ErrFileNotAvailable},
 		{fmt.Errorf("files: variant original A: %w", space.ErrFileVariantInvalid), http.StatusBadRequest, api.ErrFileVariantInvalid},
 		{fmt.Errorf("files: attach to X: %w", space.ErrNotFound), http.StatusNotFound, api.ErrFileNotFound},
+		{fmt.Errorf("payloads: derive under X: %w", space.ErrObjectDeleted), http.StatusGone, codeObjectDeleted},
+		{fmt.Errorf("files: attach to X: %w", space.ErrObjectNotFound), http.StatusNotFound, "object.not_found"},
 		{errors.New("something else entirely"), http.StatusInternalServerError, "internal"},
 	}
 	e := echo.New()
@@ -60,6 +68,9 @@ func TestFileErrorMapping(t *testing.T) {
 		}
 		if rec.Code != tc.wantStatus || env.Error.Code != tc.wantCode {
 			t.Errorf("fileError(%v) = %d %s, want %d %s", tc.err, rec.Code, env.Error.Code, tc.wantStatus, tc.wantCode)
+		}
+		if rec.Code == http.StatusInternalServerError && env.Error.Message != "internal error" {
+			t.Errorf("fileError(%v) leaks %q", tc.err, env.Error.Message)
 		}
 	}
 }
