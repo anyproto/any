@@ -1448,6 +1448,9 @@ const docTemplate = `{
                     },
                     "seq": {
                         "type": "integer"
+                    },
+                    "target": {
+                        "type": "string"
                     }
                 },
                 "type": "object"

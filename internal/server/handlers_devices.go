@@ -16,8 +16,8 @@ import (
 // account's device registry: one row per device (peer), row id =
 // peerId. Like the space list it lives on the tech-space index object
 // and is system-owned — reads go through the endpoints below, writes
-// only through the restricted self-row surface (never the generic
-// modify path). See docs/23-devices.md.
+// only through PUT me and activate (both the own row) and the prune
+// route (never the generic modify path). See docs/23-devices.md.
 const DevicesDataset = "devices"
 
 // registerDevicesRoutes wires the account-global device registry.
@@ -96,14 +96,15 @@ func (d *deps) deviceUpdateMe(c echo.Context) error {
 }
 
 // deviceActivate handles POST /v1/devices/activate — claim the active
-// role for one app slug (Spaces.ClaimActive) on the device `peerId`
-// names, or on THIS device when it is absent. The claim is
-// writer-supplied data (`{seq: max visible + 1, at: now}`), never a
-// CRDT version id — versionIds are peer-local and cannot arbitrate
-// across devices. A self claim also self-heals the `apps.<slug>`
-// installed marker so it never dangles; a claim for another device
-// writes only the claim and needs that device to carry the app
-// already. Winners are read back from GET /v1/devices `active`.
+// role for one app slug (Spaces.ClaimActive) for the device `peerId`
+// names, or for THIS device when it is absent. The claim always lands
+// on this device's own row as writer-supplied data (`{seq: max visible
+// + 1, at: now, target?}`), never a CRDT version id — versionIds are
+// peer-local and cannot arbitrate across devices. A self claim also
+// self-heals the `apps.<slug>` installed marker so it never dangles; a
+// claim for another device needs that device's row, in this device's
+// registry, to carry the app already. Nothing checks that the target
+// is running. Winners are read back from GET /v1/devices `active`.
 //
 //	@Summary	Claim the active role for an app on this or another device
 //	@Tags		devices
@@ -124,17 +125,16 @@ func (d *deps) deviceActivate(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "app required", nil)
 	}
 	details := map[string]any{"app": req.App}
-	remote := req.PeerId != "" && req.PeerId != d.sdk.PeerId()
-	if remote {
-		details["peerId"] = req.PeerId
-	}
-	if err := d.sdk.Spaces().ClaimActive(c.Request().Context(), req.App, req.PeerId); err != nil {
-		// A target pruned between the SDK's read and its write is
-		// absorbed by the tombstone; to the caller it is simply gone.
-		// device.pruned stays reserved for this server's own row.
-		if remote && errors.Is(err, space.ErrDevicePruned) {
-			err = space.ErrDeviceUnknown
+	var peerId string
+	if req.PeerId != nil {
+		if *req.PeerId == "" {
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"peerId must name a device; omit it to claim for this device", nil)
 		}
+		peerId = *req.PeerId
+		details["peerId"] = peerId
+	}
+	if err := d.sdk.Spaces().ClaimActive(c.Request().Context(), req.App, peerId); err != nil {
 		return deviceError(c, err, details)
 	}
 	return c.NoContent(http.StatusNoContent)
@@ -248,7 +248,7 @@ func deviceToAPI(dev space.Device) api.DeviceInfo {
 	if len(dev.ActiveClaims) > 0 {
 		info.ActiveClaims = make(map[string]api.DeviceActiveClaim, len(dev.ActiveClaims))
 		for slug, claim := range dev.ActiveClaims {
-			info.ActiveClaims[slug] = api.DeviceActiveClaim{Seq: claim.Seq, At: claim.At}
+			info.ActiveClaims[slug] = api.DeviceActiveClaim{Seq: claim.Seq, At: claim.At, Target: claim.Target}
 		}
 	}
 	return info
@@ -292,10 +292,10 @@ func deviceError(c echo.Context, err error, details map[string]any) error {
 			"at least one of name or apps is required", details)
 	case errors.Is(err, space.ErrDeviceUnknown):
 		return writeError(c, http.StatusNotFound, "device.not_found",
-			"no device with this peer id", details)
+			"no device with this peer id in this device's registry (pruned, or not synced here yet)", details)
 	case errors.Is(err, space.ErrDeviceAppNotInstalled):
 		return writeError(c, http.StatusConflict, "device.app_not_installed",
-			"the target device does not have this app installed", details)
+			"the target device's row does not carry this app in this device's registry (not installed, or not synced here yet)", details)
 	case errors.Is(err, space.ErrDeviceSelfDelete):
 		return writeError(c, http.StatusBadRequest, "device.self_delete",
 			"refusing to prune this server's own row (sticky tombstone would lock this installation out) — prune it from another device", details)

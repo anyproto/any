@@ -3,8 +3,9 @@
 // the tech-space `devices` dataset end-to-end — boot self-registration
 // converging across devices, CONCURRENT active claims resolving to the
 // same winner on both readers (the core claim of the election design),
-// the winner losing the role by uninstalling the app, one device
-// handing the role to the other by peer id, and row pruning.
+// one device handing the role to the other by peer id, the role
+// following the target's installed app rather than the claimer's, and
+// row pruning — including a pruned device unable to move the role.
 package e2e
 
 import (
@@ -123,58 +124,102 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 	}
 	t.Logf("concurrent claims converged: winner=%s", winner)
 
-	// The winner uninstalls bao: its (higher) claim dangles and must
-	// stop counting — the loser's surviving claim wins on both readers,
-	// with no un-claim write anywhere.
-	winnerBase, loser := devA.base, selfB
+	winnerBase, loserBase, loser := devA.base, devB.base, selfB
 	if winner == selfB {
-		winnerBase, loser = devB.base, selfA
+		winnerBase, loserBase, loser = devB.base, devA.base, selfA
 	}
+	claimOn := func(base, peer string) api.DeviceActiveClaim {
+		for _, dev := range devicesOn(t, base).Devices {
+			if dev.PeerId == peer {
+				return dev.ActiveClaims["bao"]
+			}
+		}
+		return api.DeviceActiveClaim{}
+	}
+	bothActive := func(want string) bool {
+		return devicesOn(t, devA.base).Active["bao"] == want &&
+			devicesOn(t, devB.base).Active["bao"] == want
+	}
+	activate := func(base, body string, wantStatus int, wantCode string) {
+		t.Helper()
+		resp, raw := doRequest(t, http.MethodPost, base+"/v1/devices/activate", body)
+		if resp.StatusCode != wantStatus {
+			t.Errorf("activate %s on %s: status %d, want %d: %s", body, base, resp.StatusCode, wantStatus, raw)
+			return
+		}
+		if wantCode != "" {
+			if code := errorCode(t, raw); code != wantCode {
+				t.Errorf("activate %s on %s: code %q, want %q", body, base, code, wantCode)
+			}
+		}
+	}
+
+	// Remote switch: the winner hands the role to the other device by
+	// naming its peer id. The claim lands on the winner's own row with
+	// the target; the target's row is never written.
+	loserClaim := claimOn(winnerBase, loser)
+	activate(winnerBase, `{"app":"bao","peerId":"`+loser+`"}`, http.StatusNoContent, "")
+	if !pollUntil(3*time.Minute, func() bool { return bothActive(loser) }) {
+		t.Fatalf("remote claim never moved the role to %s: A=%v B=%v", loser,
+			devicesOn(t, devA.base).Active, devicesOn(t, devB.base).Active)
+	}
+	for _, base := range []string{devA.base, devB.base} {
+		if got := claimOn(base, winner); got.Target != loser {
+			t.Errorf("on %s the claimer's claim = %+v, want target %s", base, got, loser)
+		}
+		if got := claimOn(base, loser); got != loserClaim {
+			t.Errorf("on %s the target's claim = %+v, want it untouched (%+v)", base, got, loserClaim)
+		}
+	}
+
+	// The claimer needs no app: the old winner uninstalls bao and the
+	// role stays with the target.
 	resp, raw := doRequest(t, http.MethodPut, winnerBase+"/v1/devices/me", `{"apps":{"bao":null}}`)
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("PUT /v1/devices/me (uninstall): status %d: %s", resp.StatusCode, raw)
 	}
-	if !pollUntil(3*time.Minute, func() bool {
-		return devicesOn(t, devA.base).Active["bao"] == loser &&
-			devicesOn(t, devB.base).Active["bao"] == loser
-	}) {
-		t.Fatalf("winner's uninstall never moved the role: A=%v B=%v",
+	uninstalledEverywhere := func(peer string) bool {
+		for _, base := range []string{devA.base, devB.base} {
+			for _, dev := range devicesOn(t, base).Devices {
+				if _, has := dev.Apps["bao"]; dev.PeerId == peer && has {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	if !pollUntil(3*time.Minute, func() bool { return uninstalledEverywhere(winner) }) {
+		t.Fatalf("the claimer's uninstall never converged")
+	}
+	if !bothActive(loser) {
+		t.Errorf("claimer's uninstall moved the role: A=%v B=%v",
 			devicesOn(t, devA.base).Active, devicesOn(t, devB.base).Active)
 	}
 
-	// Remote switch: the winner reinstalls bao, so its higher claim
-	// counts again and it wins back the role; then, from that same
-	// server, it hands the role to the other device by naming its peer
-	// id. Both readers must move to the target.
-	resp, raw = doRequest(t, http.MethodPut, winnerBase+"/v1/devices/me", `{"apps":{"bao":{}}}`)
+	activate(winnerBase, `{"app":"notinstalled","peerId":"`+loser+`"}`, http.StatusConflict, "device.app_not_installed")
+	activate(loserBase, `{"app":"bao","peerId":"`+winner+`"}`, http.StatusConflict, "device.app_not_installed")
+	activate(winnerBase, `{"app":"bao","peerId":"nonexistent-peer"}`, http.StatusNotFound, "device.not_found")
+	activate(winnerBase, `{"app":"bao","peerId":""}`, http.StatusBadRequest, "request.invalid_field")
+
+	// The target uninstalls bao: no claim names a device that has it,
+	// so no device is active — with no un-claim write anywhere.
+	resp, raw = doRequest(t, http.MethodPut, loserBase+"/v1/devices/me", `{"apps":{"bao":null}}`)
 	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("PUT /v1/devices/me (reinstall): status %d: %s", resp.StatusCode, raw)
+		t.Fatalf("PUT /v1/devices/me (target uninstall): status %d: %s", resp.StatusCode, raw)
 	}
-	if !pollUntil(3*time.Minute, func() bool {
-		return devicesOn(t, devA.base).Active["bao"] == winner &&
-			devicesOn(t, devB.base).Active["bao"] == winner
-	}) {
-		t.Fatalf("reinstall never restored the winner: A=%v B=%v",
+	if !pollUntil(3*time.Minute, func() bool { return bothActive("") }) {
+		t.Fatalf("target's uninstall left a winner: A=%v B=%v",
 			devicesOn(t, devA.base).Active, devicesOn(t, devB.base).Active)
 	}
-	resp, raw = doRequest(t, http.MethodPost, winnerBase+"/v1/devices/activate", `{"app":"bao","peerId":"`+loser+`"}`)
+
+	// devA carries bao again so a claim for it passes the write-time
+	// checks below.
+	resp, raw = doRequest(t, http.MethodPut, devA.base+"/v1/devices/me", `{"apps":{"bao":{}}}`)
 	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("POST /v1/devices/activate for %s: status %d: %s", loser, resp.StatusCode, raw)
+		t.Fatalf("PUT /v1/devices/me (reinstall on A): status %d: %s", resp.StatusCode, raw)
 	}
-	if !pollUntil(3*time.Minute, func() bool {
-		return devicesOn(t, devA.base).Active["bao"] == loser &&
-			devicesOn(t, devB.base).Active["bao"] == loser
-	}) {
-		t.Fatalf("remote claim never moved the role to %s: A=%v B=%v", loser,
-			devicesOn(t, devA.base).Active, devicesOn(t, devB.base).Active)
-	}
-	resp, _ = doRequest(t, http.MethodPost, winnerBase+"/v1/devices/activate", `{"app":"notinstalled","peerId":"`+loser+`"}`)
-	if resp.StatusCode != http.StatusConflict {
-		t.Errorf("remote activate of an app the target lacks: status %d, want 409", resp.StatusCode)
-	}
-	resp, _ = doRequest(t, http.MethodPost, winnerBase+"/v1/devices/activate", `{"app":"bao","peerId":"nonexistent-peer"}`)
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("remote activate of an unknown device: status %d, want 404", resp.StatusCode)
+	if !pollUntil(3*time.Minute, func() bool { return !uninstalledEverywhere(selfA) }) {
+		t.Fatalf("devA's reinstall never reached devB")
 	}
 
 	// Prune devB's row from devA; the registry drops to one row on both
@@ -205,14 +250,12 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("DELETE unknown device: status %d, want 404", resp.StatusCode)
 	}
-	resp, _ = doRequest(t, http.MethodPost, devA.base+"/v1/devices/activate", `{"app":"bao","peerId":"`+selfB+`"}`)
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("remote activate of a pruned device: status %d, want 404", resp.StatusCode)
-	}
-	resp, _ = doRequest(t, http.MethodPost, devA.base+"/v1/devices/activate", `{}`)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("activate without app: status %d, want 400", resp.StatusCode)
-	}
+	activate(devA.base, `{"app":"bao","peerId":"`+selfB+`"}`, http.StatusNotFound, "device.not_found")
+	// A pruned device can't move the role: its claim lands on its own
+	// tombstoned row.
+	activate(devB.base, `{"app":"bao","peerId":"`+selfA+`"}`, http.StatusConflict, "device.pruned")
+	activate(devB.base, `{"app":"bao"}`, http.StatusConflict, "device.pruned")
+	activate(devA.base, `{}`, http.StatusBadRequest, "request.missing_field")
 	resp, _ = doRequest(t, http.MethodPut, devA.base+"/v1/devices/me", `{}`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("empty self-update: status %d, want 400", resp.StatusCode)

@@ -4094,7 +4094,7 @@ rule: `docs/23-devices.md`.
 | POST   | `/v1/devices/query`            | raw windowed snapshot over the `devices` dataset (standard query body) |
 | POST   | `/v1/devices/query/subscribe`  | raw windowed live view (SSE, standard frames)              |
 | PUT    | `/v1/devices/me`               | `Spaces.SetDevice` — this device's row only: `{name?, apps?}`; `"apps": {"slug": null}` uninstalls → 204 |
-| POST   | `/v1/devices/activate`         | `Spaces.ClaimActive` — `{app, peerId?}`; claims for `peerId`, or for this device when absent (a self claim also sets `apps.<app>`) → 204 |
+| POST   | `/v1/devices/activate`         | `Spaces.ClaimActive` — `{app, peerId?}`; writes this device's claim for `peerId`, or for this device when absent (a self claim also sets `apps.<app>`) → 204 |
 | DELETE | `/v1/devices/:peerId`          | `Spaces.DeleteDevice` — prune a row, permanently for that peer id → 204 |
 
 `active` is the election already resolved (`space.ActiveDevice`) —
@@ -4102,8 +4102,9 @@ clients read it instead of reimplementing the rule; `self` is this
 server's peer id. Errors: `404 device.not_found` (unknown peer id on
 DELETE or `activate`), `409 device.app_not_installed` (`activate` for
 a device without the app), `400 device.self_delete` (DELETE of this server's own row),
-`409 device.pruned` (a self-row write after the row was pruned),
-`400 request.invalid_field` (bad slug / non-scalar app value),
+`409 device.pruned` (`PUT /me` or `activate` after this device's row
+was pruned), `400 request.invalid_field` (bad slug / non-scalar app
+value / empty `peerId`),
 `400 request.missing_field` (empty update / missing `app`).
 
 ### Events

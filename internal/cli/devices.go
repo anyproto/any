@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -94,11 +95,21 @@ func newDevicesActivateCmd() *cobra.Command {
 	var peer string
 	cmd := &cobra.Command{
 		Use:   "activate <app>",
-		Short: "claim the active role for an app on THIS device, or on --peer",
-		Args:  cobra.ExactArgs(1),
+		Short: "claim the active role for an app for THIS device, or for --peer",
+		Long: "Claim the active role for an app for this device, or hand it to the device --peer names.\n" +
+			"The target must have the app installed. Nothing checks that it is running: handing the\n" +
+			"role to a device that is off leaves the app unanswered until someone claims it again.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			var target *string
+			if cmd.Flags().Changed("peer") {
+				if peer == "" {
+					return errors.New("--peer must name a device; omit it to claim for this device")
+				}
+				target = &peer
+			}
 			cl := newClient(flags.Timeout)
-			return cl.DeviceActivate(cmd.Context(), args[0], peer)
+			return cl.DeviceActivate(cmd.Context(), args[0], target)
 		},
 	}
 	cmd.Flags().StringVar(&peer, "peer", "", "peer id of the device to hand the role to (must have the app installed)")

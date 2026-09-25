@@ -27,7 +27,7 @@ The `devices` dataset lives in the account's tech space — the same place the s
 | `name` | client (`PUT /v1/devices/me`); seeded from the hostname on first registration | display name — a user-set name is never clobbered |
 | `os`, `version` | the server, on every boot | `runtime.GOOS` vocabulary and the `any` build |
 | `apps` | client | open slug set; presence means "installed here"; the value is a scalar bag, conventionally `{version}` |
-| `activeClaims.<slug>` | `POST /v1/devices/activate` | the claim for this device to be the slug's active instance (written by this device, or by another one handing it the role): `seq` (max of all visible seqs + 1) and `at` (unix seconds) |
+| `activeClaims.<slug>` | `POST /v1/devices/activate` | the claim this device made for the slug: `seq` (max of all visible seqs + 1), `at` (unix seconds) and `target`, the device it hands the slug to (absent = this device). A device writes only its own row |
 
 Online status is deliberately not a field — a liveness bit would churn CRDT history on every heartbeat.
 
@@ -35,13 +35,13 @@ Online status is deliberately not a field — a liveness bit would churn CRDT hi
 
 Two devices can claim the same slug concurrently; the design makes that survivable by resolving it at read time:
 
-> Candidates for a slug are the live rows that carry the slug under `apps` **and** hold a claim for it. The winner is the candidate with the highest `seq`; ties fall to the highest `at`, then to the lexicographically largest peer id.
+> The claims for a slug on all live rows rank by highest `seq`, then highest `at`, then the lexicographically largest claimer peer id. The winner is the target of the best claim whose target is a live row carrying the slug under `apps`. The claimer needs no `apps` entry of its own.
 
 Consequences:
 
 - **Deterministic on converged data.** Every reader computes the same winner. The claim is writer-supplied data, not a CRDT version id — version ids are allocated per peer and would split-brain an election.
-- **Dangling claims never win.** Uninstalling an app (or pruning a row) forfeits its claim; there is no un-claim write.
-- **No un-claim.** The role moves only through a newer claim (for any device) or the winner's row losing the app.
+- **Dangling claims never win.** A claim whose target uninstalled the app or was pruned is skipped, and the next claim decides. Pruning a claimer drops its claims with its row. There is no un-claim write.
+- **No un-claim.** The role moves only through a newer claim, or when the winning claim's claimer or target is pruned or the target loses the app.
 
 The rule is implemented once, inside the SDK, and returned pre-resolved as the `active` map on `GET /v1/devices`. Read that map; do not reimplement the rule.
 
@@ -57,7 +57,7 @@ Account-scoped, behind the `/v1` auth guard.
 | POST | `/v1/devices/query` | raw windowed snapshot, standard [query body](../database/reading-data.html) |
 | POST | `/v1/devices/query/subscribe` | raw live view over SSE, standard [frames](../realtime/subscribe.html) |
 | PUT | `/v1/devices/me` | self row only: `{name?, apps?}`; `"apps": {"slug": null}` uninstalls → `204` |
-| POST | `/v1/devices/activate` | `{app, peerId?}` — claim the slug on the device `peerId` names, or on this device when absent; a self claim also self-heals `apps.<app>` → `204` |
+| POST | `/v1/devices/activate` | `{app, peerId?}` — write this device's claim for the device `peerId` names, or for this device when absent; a self claim also self-heals `apps.<app>` → `204` |
 | DELETE | `/v1/devices/:peerId` | prune a row → `204` |
 
 ```bash
@@ -88,7 +88,7 @@ any devices remove <peerId> --yes
 any devices subscribe
 ```
 
-`PUT /me` is self-row only by construction: the SDK resolves its own peer id for the write. `activate` with a `peerId` is the one write that lands on another device's row, and it writes only `activeClaims.<app>` there — never `apps`, since the claimer can't know what the target has installed. The target must be a live row that already carries the app.
+`PUT /me` and `activate` are self-row only by construction: the SDK resolves its own peer id for the write. `activate` with a `peerId` records the target in this device's claim and never writes `apps`. The target must be a row in this device's registry that carries the app; a device registered moments ago elsewhere may not have synced here yet. Nothing checks that the target is running, so a UI should offer only devices it sees alive.
 
 ## A runtime's loop
 
@@ -110,9 +110,9 @@ Record tombstones are sticky: a pruned peer id can never re-register. A device t
 
 | Status | Code | When |
 |--------|------|------|
-| 404 | `device.not_found` | unknown or pruned peer id on DELETE or on `activate` with a `peerId` |
+| 404 | `device.not_found` | peer id not in this device's registry (pruned, unknown, or not synced here yet) on DELETE or on `activate` with a `peerId` |
 | 400 | `device.self_delete` | DELETE of this server's own row |
-| 409 | `device.pruned` | a self-row write after the row was pruned |
-| 409 | `device.app_not_installed` | `activate` with a `peerId` whose row doesn't carry the app |
-| 400 | `request.invalid_field` | bad slug, or a non-scalar app value |
+| 409 | `device.pruned` | `PUT /me` or `activate` after this device's row was pruned |
+| 409 | `device.app_not_installed` | `activate` with a `peerId` whose row doesn't carry the app here |
+| 400 | `request.invalid_field` | bad slug, a non-scalar app value, or an empty `peerId` |
 | 400 | `request.missing_field` | empty update, or `activate` without `app` |

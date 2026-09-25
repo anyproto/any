@@ -377,7 +377,7 @@ See [Event bus](../realtime/event-bus.html) and [Processes](../notifications/pro
 | POST | `/v1/devices/query` | snapshot body | `{records}` | raw `devices` rows |
 | POST | `/v1/devices/query/subscribe` | snapshot body | SSE | |
 | PUT | `/v1/devices/me` | `{name?, apps?}` | 204 | `"apps": {"slug": null}` uninstalls; `409 device.pruned` |
-| POST | `/v1/devices/activate` | `{app, peerId?}` | 204 | claim the active role on the `peerId` device, or on this device; `404 device.not_found`, `409 device.app_not_installed` |
+| POST | `/v1/devices/activate` | `{app, peerId?}` | 204 | claim the active role for the `peerId` device, or for this device; `400 request.invalid_field` (empty `peerId`), `404 device.not_found`, `409 device.app_not_installed`, `409 device.pruned` |
 | DELETE | `/v1/devices/:peerId` | — | 204 | sticky tombstone; `404 device.not_found`, `400 device.self_delete` |
 | POST | `/v1/push/token` | `{platform: ios\|android, token}` | 204 | `409 push.disabled` without a push node |
 | GET | `/v1/push/token` | — | `{registered, platform}` | local state |

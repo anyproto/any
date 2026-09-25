@@ -1273,6 +1273,8 @@ components:
           type: integer
         seq:
           type: integer
+        target:
+          type: string
       type: object
     api.DeviceInfo:
       properties:

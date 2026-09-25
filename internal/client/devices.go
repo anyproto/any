@@ -48,10 +48,10 @@ func (c *Client) DeviceUpdateMe(ctx context.Context, req api.DeviceUpdateRequest
 	return c.do(ctx, http.MethodPut, "/v1/devices/me", req, nil)
 }
 
-// DeviceActivate claims the active role for one app slug on the
-// device peerId names, or on THIS device when peerId is empty.
+// DeviceActivate claims the active role for one app slug for the
+// device peerId names, or for THIS device when peerId is nil.
 // POST /v1/devices/activate.
-func (c *Client) DeviceActivate(ctx context.Context, app, peerId string) error {
+func (c *Client) DeviceActivate(ctx context.Context, app string, peerId *string) error {
 	return c.do(ctx, http.MethodPost, "/v1/devices/activate", api.DeviceActivateRequest{App: app, PeerId: peerId}, nil)
 }
 

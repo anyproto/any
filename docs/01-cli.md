@@ -112,7 +112,7 @@ profile decryption key arrives (shared space / 1-1) and resolves.
 any devices list                                    # GET /v1/devices — rows + active map + self
 any devices register [--name N] [--app slug[=ver]]... [--remove-app slug]...
                                                     # PUT /v1/devices/me (self-row only)
-any devices activate <app> [--peer <peerId>]        # POST /v1/devices/activate — claim on THIS device, or on --peer
+any devices activate <app> [--peer <peerId>]        # POST /v1/devices/activate — claim for THIS device, or hand to --peer
 any devices remove <peerId> --yes                   # DELETE /v1/devices/:peerId (permanent for that peer id)
 any devices query [--filter ...] [--sort ...] [--limit N] [--offset N] [--total] [--projection ...]
                                                     # POST /v1/devices/query — raw rows
