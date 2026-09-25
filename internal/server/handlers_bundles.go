@@ -14,7 +14,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
 
-
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
@@ -671,10 +670,11 @@ func (d *deps) bundleChild(c echo.Context) error {
 			return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "collectionId": id})
 		}
 	}
-	// A winner that has not reached this device fails the derive with
-	// ErrObjectNotFound, which bundleError reports as the retryable
-	// bundle.not_ready. A child that synced before its root is already
-	// stored, so its id comes back.
+	// Under a created root, a winner that has not reached this device
+	// fails the derive with ErrObjectNotFound, which bundleError reports
+	// as the retryable bundle.not_ready; a child that synced before its
+	// root is already stored, so its id comes back. A derived root binds
+	// its children by seed, with no parent to wait for.
 	objectId, err := bundles.Child(ctx, sp, b, req.Seed, req.Type, req.Collections...)
 	if err != nil {
 		return bundleError(c, err, sp.Id(), bundleId)

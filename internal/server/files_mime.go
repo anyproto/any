@@ -6,6 +6,7 @@ import (
 	"mime"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gabriel-vasile/mimetype"
 )
@@ -16,14 +17,31 @@ import (
 // docs/03-api.md § Files (Mime precedence).
 
 // sniffLimit is the window the content sniffer reads. It is mimetype's
-// own default (its unexported defaultLimit — recheck on a mimetype
-// bump), and init pins the library to it: a peek window shorter than the limit the detectors
+// own default (TestSniffLimitIsLibraryDefault compares it with
+// libraryLimit), and init pins the library to it: a peek window shorter than the limit the detectors
 // assume does not fail loudly — the ones that check whether the tail
 // is truncated (csv, tsv) or parse the OLE directory (doc, xls, msi)
 // misclassify silently.
 const sniffLimit = 4096
 
 func init() { mimetype.SetLimit(sniffLimit) }
+
+// libraryLimit is how many bytes mimetype reads by default, measured
+// before init pins the limit (package variables initialize first).
+var libraryLimit = func() int {
+	r := &countingReader{}
+	_, _ = mimetype.DetectReader(io.LimitReader(r, 1<<20))
+	return r.n
+}()
+
+// countingReader yields zero bytes and counts how many were asked for.
+type countingReader struct{ n int }
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	clear(p)
+	r.n += len(p)
+	return len(p), nil
+}
 
 // unsetContentTypes are the Content-Type spellings a tool sends when
 // the caller did not name a type — curl -T, fetch() with a typeless
@@ -121,7 +139,16 @@ func resolveMime(contentType, name string, peek func() []byte) string {
 		return ""
 	}
 	if !isText(m) {
-		return bareType(m.String())
+		mt := bareType(m.String())
+		if claimed, weak := weakBinaryTypes[mt]; weak && ext != claimed.ext {
+			if refined, ok := textByExt[ext]; ok {
+				return refined
+			}
+			if utf8.Valid(head) {
+				return "text/plain"
+			}
+		}
+		return mt
 	}
 	if refined, ok := textByExt[ext]; ok {
 		return refined
@@ -131,6 +158,14 @@ func resolveMime(contentType, name string, peek func() []byte) string {
 		return "text/plain"
 	}
 	return mt
+}
+
+// weakBinaryTypes are binary verdicts that rest on a signature short
+// enough for text to carry: Python bytecode is four bytes, two of any
+// value then \r\n. Unless the name claims the format, a known text
+// extension or text-shaped content (valid UTF-8) outranks them.
+var weakBinaryTypes = map[string]struct{ ext string }{
+	"application/x-bytecode.python": {ext: ".pyc"},
 }
 
 // isText reports whether m descends from text/plain in the sniffer's
@@ -198,19 +233,14 @@ func ensureNameExt(name, mimeType string) string {
 	if m == nil || isText(m) {
 		return name
 	}
-	if ext, ok := extByMime[m.String()]; ok {
-		return name + ext
+	// An animated PNG is a PNG every viewer opens; .apng is an
+	// extension few systems associate.
+	if m.Is("image/apng") {
+		return name + ".png"
 	}
 	// Extension() is the canonical single answer (.jpg), not the list
 	// mime.ExtensionsByType sorts .jfif to the front of.
 	return name + m.Extension()
-}
-
-// extByMime overrides the sniffer's canonical extension where it is one
-// few systems associate: an animated PNG is a PNG every viewer opens,
-// but .apng is not.
-var extByMime = map[string]string{
-	"image/apng": ".png",
 }
 
 // hasExt reports whether name ends in something that reads as a file

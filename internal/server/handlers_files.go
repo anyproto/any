@@ -567,12 +567,21 @@ func (d *deps) resolveSpaceFile(c echo.Context) (space.Space, string, error, boo
 
 // fileError maps SDK files-surface errors to the canonical envelope
 // via the SDK's exported sentinels (errors.Is, never by message).
-// Anything else falls through to sdkOpError — an attach on a deleted
-// object fails on the object, not the file.
+// Anything else falls through to sdkOpError.
 func fileError(c echo.Context, err error, details map[string]any) error {
 	switch {
-	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded),
+		c.Request().Context().Err() != nil:
+		// The request itself was cancelled — a client abort mid-upload
+		// surfaces as a body read error, not as a context error.
 		return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
+	case errors.Is(err, space.ErrObjectDeleted):
+		// Attach refuses a deleted owner before reading the body.
+		return writeError(c, http.StatusGone, codeObjectDeleted, "object is deleted", details)
+	case errors.Is(err, space.ErrObjectNotFound):
+		// A file whose owner was deleted: its payloads object is gone
+		// with it, and the file is as gone as an unknown one.
+		return writeError(c, http.StatusNotFound, api.ErrFileNotFound, "file not found (unknown, or its object was deleted)", details)
 	case errors.Is(err, space.ErrNotFound):
 		return writeError(c, http.StatusNotFound, api.ErrFileNotFound, err.Error(), details)
 	case errors.Is(err, space.ErrFileNotBackedUp):
