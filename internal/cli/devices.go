@@ -97,8 +97,9 @@ func newDevicesActivateCmd() *cobra.Command {
 		Use:   "activate <app>",
 		Short: "claim the active role for an app for THIS device, or for --peer",
 		Long: "Claim the active role for an app for this device, or hand it to the device --peer names.\n" +
-			"The target must have the app installed. Nothing checks that it is running: handing the\n" +
-			"role to a device that is off leaves the app unanswered until someone claims it again.",
+			"The target, this device included when --peer names it, must have the app installed.\n" +
+			"Nothing checks that it is running: handing the role to a device that is off leaves\n" +
+			"the app unanswered until someone claims it again.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var target *string

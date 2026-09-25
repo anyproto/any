@@ -1,13 +1,8 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
-
-	"github.com/labstack/echo/v4"
 
 	"github.com/anyproto/any-sync-sdk/space"
 
@@ -80,20 +75,11 @@ func TestActiveDevicesMapTargetedClaim(t *testing.T) {
 }
 
 // An explicitly empty peerId is refused before the SDK is reached,
-// never read as a self claim. A null one is an absent one.
+// never read as a self claim.
 func TestDeviceActivateEmptyPeerId(t *testing.T) {
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/v1/devices/activate", strings.NewReader(`{"app":"bao","peerId":""}`))
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-	rec := httptest.NewRecorder()
-	if err := (&deps{}).deviceActivate(e.NewContext(req, rec)); err != nil {
+	c, rec := newTestContext(`{"app":"bao","peerId":""}`)
+	if err := (&deps{}).deviceActivate(c); err != nil {
 		t.Fatalf("deviceActivate: %v", err)
 	}
-	var env api.ErrorEnvelope
-	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
-	}
-	if rec.Code != http.StatusBadRequest || env.Error.Code != "request.invalid_field" {
-		t.Errorf("empty peerId = %d %s, want 400 request.invalid_field", rec.Code, env.Error.Code)
-	}
+	assertStatusCode(t, rec, http.StatusBadRequest, "request.invalid_field")
 }

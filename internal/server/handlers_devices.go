@@ -97,7 +97,7 @@ func (d *deps) deviceUpdateMe(c echo.Context) error {
 
 // deviceActivate handles POST /v1/devices/activate — claim the active
 // role for one app slug (Spaces.ClaimActive) for the device `peerId`
-// names, or for THIS device when it is absent. The claim always lands
+// names, or for THIS device when it is absent (or null). The claim always lands
 // on this device's own row as writer-supplied data (`{seq: max visible
 // + 1, at: now, target?}`), never a CRDT version id — versionIds are
 // peer-local and cannot arbitrate across devices. A self claim also
@@ -129,12 +129,17 @@ func (d *deps) deviceActivate(c echo.Context) error {
 	if req.PeerId != nil {
 		if *req.PeerId == "" {
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
-				"peerId must name a device; omit it to claim for this device", nil)
+				"peerId must name a device; omit it to claim for this device",
+				map[string]any{"field": "peerId", "app": req.App})
 		}
 		peerId = *req.PeerId
 		details["peerId"] = peerId
 	}
 	if err := d.sdk.Spaces().ClaimActive(c.Request().Context(), req.App, peerId); err != nil {
+		if errors.Is(err, space.ErrDevicePruned) {
+			// The pruned device is this one, not the target.
+			delete(details, "peerId")
+		}
 		return deviceError(c, err, details)
 	}
 	return c.NoContent(http.StatusNoContent)
@@ -256,9 +261,8 @@ func deviceToAPI(dev space.Device) api.DeviceInfo {
 
 // activeDevicesMap resolves every claimed app slug to its winning
 // peerId via the SDK's canonical election rule (space.ActiveDevice —
-// the ONE implementation; never reimplement it here). A slug whose
-// only claims are dangling (app no longer installed anywhere) gets no
-// entry.
+// the ONE implementation; never reimplement it here). A slug gets no
+// entry when no claim names a device that has the app.
 func activeDevicesMap(devices []space.Device) map[string]string {
 	var active map[string]string
 	for _, dev := range devices {
@@ -292,7 +296,7 @@ func deviceError(c echo.Context, err error, details map[string]any) error {
 			"at least one of name or apps is required", details)
 	case errors.Is(err, space.ErrDeviceUnknown):
 		return writeError(c, http.StatusNotFound, "device.not_found",
-			"no device with this peer id in this device's registry (pruned, or not synced here yet)", details)
+			"no device with this peer id in this device's registry (unknown, pruned, or not synced here yet)", details)
 	case errors.Is(err, space.ErrDeviceAppNotInstalled):
 		return writeError(c, http.StatusConflict, "device.app_not_installed",
 			"the target device's row does not carry this app in this device's registry (not installed, or not synced here yet)", details)

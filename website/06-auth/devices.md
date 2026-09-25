@@ -41,7 +41,8 @@ Consequences:
 
 - **Deterministic on converged data.** Every reader computes the same winner. The claim is writer-supplied data, not a CRDT version id — version ids are allocated per peer and would split-brain an election.
 - **Dangling claims never win.** A claim whose target uninstalled the app or was pruned is skipped, and the next claim decides. Pruning a claimer drops its claims with its row. There is no un-claim write.
-- **No un-claim.** The role moves only through a newer claim, or when the winning claim's claimer or target is pruned or the target loses the app.
+- **No un-claim.** The winner changes when a better claim appears, or when a claim starts or stops qualifying: its claimer or target is pruned, or its target uninstalls or reinstalls the app.
+- **One claim per device and app.** Handing the app away replaces the device's own claim. Pruning the device that made the winning hand-off moves the role back to the best remaining claim, and when a hand-off's target stops qualifying the fallback skips the device that handed it away. Switch again to repair either.
 
 The rule is implemented once, inside the SDK, and returned pre-resolved as the `active` map on `GET /v1/devices`. Read that map; do not reimplement the rule.
 
@@ -88,7 +89,7 @@ any devices remove <peerId> --yes
 any devices subscribe
 ```
 
-`PUT /me` and `activate` are self-row only by construction: the SDK resolves its own peer id for the write. `activate` with a `peerId` records the target in this device's claim and never writes `apps`. The target must be a row in this device's registry that carries the app; a device registered moments ago elsewhere may not have synced here yet. Nothing checks that the target is running, so a UI should offer only devices it sees alive.
+`PUT /me` and `activate` are self-row only by construction: the SDK resolves its own peer id for the write. `activate` with a `peerId` records the target in this device's claim and never writes `apps`. The target must be a row in this device's registry that carries the app, this device included when `peerId` names it; only a claim without `peerId` (absent or `null`) marks the app installed. A device registered moments ago elsewhere may not have synced here yet. Nothing checks that the target is running, so a UI should offer only devices it sees alive.
 
 ## A runtime's loop
 

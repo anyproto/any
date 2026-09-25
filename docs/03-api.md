@@ -4103,8 +4103,8 @@ server's peer id. Errors: `404 device.not_found` (unknown peer id on
 DELETE or `activate`), `409 device.app_not_installed` (`activate` for
 a device without the app), `400 device.self_delete` (DELETE of this server's own row),
 `409 device.pruned` (`PUT /me` or `activate` after this device's row
-was pruned), `400 request.invalid_field` (bad slug / non-scalar app
-value / empty `peerId`),
+was pruned, whatever `peerId` names), `400 request.invalid_field` (bad
+slug / non-scalar app value / empty `peerId`),
 `400 request.missing_field` (empty update / missing `app`).
 
 ### Events

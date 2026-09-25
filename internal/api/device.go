@@ -72,8 +72,8 @@ type DeviceUpdateRequest struct {
 
 // DeviceActivateRequest is the body of POST /v1/devices/activate —
 // claim the active role for one app slug for the device PeerId names,
-// or for THIS device when PeerId is absent. A present but empty PeerId
-// is refused rather than read as a self claim.
+// or for THIS device when PeerId is absent or null. An empty PeerId is
+// refused rather than read as a self claim.
 type DeviceActivateRequest struct {
 	App    string  `json:"app"`
 	PeerId *string `json:"peerId,omitempty"`

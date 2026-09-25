@@ -79,17 +79,22 @@ Properties that follow:
   app or was pruned is skipped and the next claim decides. Pruning the
   claimer drops its claims with its row. No un-claim write exists, or
   is needed.
-- There is no un-claim: the role moves only through a newer claim, or
-  when the winning claim's claimer or target is pruned or the target
-  loses the app. A claim that stops counting can count again, for
-  example when its target reinstalls the app.
+- There is no un-claim: the winner changes when a better claim
+  appears, or when a claim starts or stops qualifying — its claimer or
+  target is pruned, or its target uninstalls or reinstalls the app.
+- A device holds one claim per app, so handing the app away replaces
+  the device's own claim. Pruning the device that made the winning
+  hand-off moves the role back to the best remaining claim, and when a
+  hand-off's target stops qualifying, the fallback skips the device
+  that handed it away. Both are repaired the same way as any other
+  surprise: switch again.
 
 The rule is implemented **once**, in the SDK (`space.ActiveDevice`),
 and surfaced pre-resolved as the `active` map on `GET /v1/devices`.
 Consumers must read that map rather than reimplementing the rule —
 the one real risk in this design is the UI and a runtime computing
-different winners from private copies of the logic. A slug with no
-qualifying candidate has no `active` entry.
+different winners from private copies of the logic. A slug has no
+`active` entry when no claim names a device that has the app.
 
 ## Decision matrix (runtime vs UI)
 
@@ -103,8 +108,8 @@ consumer):
 | Active device's row pruned / app uninstalled | runtime (any survivor observing the change) | claim |
 | Manual switch | user via UI on any device → `activate {app, peerId}` naming the target | newest claim wins by `seq`; the target's runtime sees itself win and the old winner stands down. Nothing checks that the target runs: a UI offers only targets it sees alive |
 | Concurrent claims | every reader, same rule | `(seq, at, peerId)` tiebreak; the loser observes via subscribe and stands down |
-| Un-claiming a device | nobody | never happens — only claims and row/app removal move the role |
-| Claim minted on a stale replica | the client that asked for the switch, after sync | a not-yet-synced replica computes `seq` without the newest claims, so its claim can lose once heads converge (SDK [`docs/02-tech-space.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/02-tech-space.md) § Devices registry) — observe `active.S` after sync and re-claim if the role didn't land; a one-shot CLI call does not |
+| Un-claiming a device | nobody | never happens — only claims, prunes and app installs/uninstalls move the role |
+| Claim minted on a stale replica | the client that asked for the switch, after sync | a not-yet-synced replica computes `seq` without the newest claims, so its claim can lose once heads converge (SDK [`docs/tech-space.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/tech-space.md) § Devices registry) — observe `active.S` after sync and re-claim if the role didn't land; a one-shot CLI call does not |
 
 The runtime's loop: upsert self (`apps.S`) → read `active.S` +
 `self` from `GET /v1/devices` → claim or stand by → watch
@@ -133,8 +138,10 @@ and never touches `apps`, anywhere. The target must be a row in this
 device's registry (`device.not_found`, 404) that carries the app
 (`device.app_not_installed`, 409); a device that registered elsewhere
 moments ago may not have synced here yet, so both can pass on a
-retry. A `peerId` equal to `self` is a self claim; an empty one is
-refused (`request.invalid_field`, 400). Nothing checks that the target
+retry. A `peerId` equal to `self` gets the same check: only a claim
+with no `peerId` (absent or `null`) marks the app installed. An empty
+`peerId` is refused (`request.invalid_field`, 400). A pruned device
+gets `device.pruned` whatever it names. Nothing checks that the target
 is running: handing the role to a device that is off leaves the app
 unanswered until something claims again.
 

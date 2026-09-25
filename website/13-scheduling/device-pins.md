@@ -47,7 +47,7 @@ The reconcile touches only records it should: foreign-pinned records are left al
 
 ## The active-instance election
 
-Two agent processes on one account would both answer the chat. The devices registry settles that: each agent registers itself under the app slug `bao` (`PUT /v1/devices/me {"apps": {"bao": {"version": …}}}`), and the server computes one winner per slug from the devices' claims — highest claim `seq`, then `at`, then peer id — returned as `active.bao` on `GET /v1/devices`. The runtime polls that verdict every 10 seconds and never reimplements the rule.
+Two agent processes on one account would both answer the chat. The devices registry settles that: each agent registers itself under the app slug `bao` (`PUT /v1/devices/me {"apps": {"bao": {"version": …}}}`), and the server computes one winner per slug from the devices' claims — the device named by the best claim (highest `seq`, then `at`, then claimer peer id) that has the app — returned as `active.bao` on `GET /v1/devices`. The runtime polls that verdict every 10 seconds and never reimplements the rule.
 
 | Verdict | The agent process… |
 |---|---|
