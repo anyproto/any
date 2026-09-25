@@ -27,7 +27,7 @@ One record per block in the object's editor storage collection:
 | Field | Meaning |
 |-------|---------|
 | `type` | Required, ≤ 64 bytes. Known values: `paragraph`, `heading`, `list_item`, `check_list_item`, `code`, `quote`, `divider`, `html`, `table`, `image`; any other non-empty string is accepted, so clients can add block kinds. |
-| `style` | Open-ended object. Known keys: `level` (heading, 1–6), `ordered` (list_item), `checked` (check_list_item), `lang` (code). |
+| `style` | Open-ended object. Known keys: `level` (heading, 1–6), `ordered` and `number` (list_item; `number` omitted when 1), `checked` (check_list_item), `lang` (code). |
 | `text` | **Inline** markdown only — bold, italic, inline code, links, strikethrough. ≤ 64 KiB per block. |
 | `nav.parentId` | Parent block id; `""` for top-level. |
 | `nav.pos` | Lexid ordering siblings. |
