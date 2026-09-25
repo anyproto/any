@@ -47,7 +47,7 @@ The reconcile touches only records it should: foreign-pinned records are left al
 
 ## The active-instance election
 
-Two agent processes on one account would both answer the chat. The devices registry settles that: each agent registers itself under the app slug `bao` (`PUT /v1/devices/me {"apps": {"bao": {"version": …}}}`), and the server computes one winner per slug from the devices' claims — highest claim `seq`, then `at`, then peer id — returned as `active.bao` on `GET /v1/devices`. The runtime polls that verdict every 10 seconds and never reimplements the rule.
+Two agent processes on one account would both answer the chat. The devices registry settles that: each agent registers itself under the app slug `bao` (`PUT /v1/devices/me {"apps": {"bao": {"version": …}}}`), and the server computes one winner per slug from the devices' claims — the device named by the best claim (highest `seq`, then `at`, then claimer peer id) that has the app — returned as `active.bao` on `GET /v1/devices`. The runtime polls that verdict every 10 seconds and never reimplements the rule.
 
 | Verdict | The agent process… |
 |---|---|
@@ -55,7 +55,7 @@ Two agent processes on one account would both answer the chat. The devices regis
 | standby | **still fires its pinned triggers**; claims nothing |
 | pruned (its device row tombstoned) | fires nothing at all, pins included — permanent standby until a fresh `any init` |
 
-A device claims the role when no other device row carries `apps.bao`, or when the recorded winner's row is gone; `POST /v1/devices/activate {"app": "bao"}` sent to the target device's own server moves the role by hand.
+A device claims the role when no other device row carries `apps.bao`, or when the recorded winner's row is gone; `POST /v1/devices/activate {"app": "bao", "peerId": "<target>"}` on any of the account's servers moves the role by hand.
 
 Only the "this is the agent" set follows the election: the standing built-ins and the `chat-watch` record ([Event triggers](event-triggers.html)). A takeover re-arms the standing crons strictly forward (no wake-and-replay burst), re-stamps their records and `chat-watch`, and the chat watch connects — its snapshot backlog then answers messages that arrived meanwhile. A stand-down lets in-flight runs finish, drops deferred conversations, and clears the owner of `chat-watch` on the record so the new winner can take it. **Moving the active device never moves user triggers**: a claimed trigger stays on its device until someone repins or reassigns it.
 

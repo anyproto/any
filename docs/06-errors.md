@@ -150,7 +150,8 @@ property.immutable               # 400 — PATCH a pinned path (kind/scope/items
 property.format_invalid          # 400 — descriptor vocabulary problem on create/PATCH, property or dataset field: slug does not fit the pinned kind, reserved slug/key (tags, validate, compute), unparseable relation.filter, empty slug
 property.format_violation        # 400 — a property VALUE write does not fit its descriptor's current slug (details.propId, format = the slug, reason)
 
-device.not_found                 # 404 — unknown peer id in the devices registry (or already pruned; tombstones are sticky)
+device.not_found                 # 404 — peer id not in this device's registry: pruned (tombstones are sticky), unknown, or not synced here yet
+device.app_not_installed         # 409 — activate with a peerId whose row doesn't carry the app in this device's registry (may pass after sync)
 device.self_delete               # 400 — DELETE of this server's own row refused (the sticky tombstone would lock the installation out; prune from another device)
 device.pruned                    # 409 — self-row write (PUT /me, activate) absorbed by the row's tombstone; the peer id can never re-register (fresh `any init` to re-derive keys)
 

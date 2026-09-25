@@ -23,7 +23,7 @@ account. A raw row (`POST /v1/devices/query`):
   "os": "linux",                         // runtime.GOOS vocabulary
   "version": "0.9.1",                    // any build version
   "apps": { "bao": { "version": "1.2" } },
-  "activeClaims": { "bao": { "seq": 3, "at": 1755450000 } }
+  "activeClaims": { "bao": { "seq": 3, "at": 1755450000, "target": "12D3KooWbox…" } }
 }
 ```
 
@@ -35,9 +35,12 @@ account. A raw row (`POST /v1/devices/query`):
   free-form scalar bag (string / number / bool — conventionally a
   `version`). Nothing app-specific is baked into `any` or the SDK —
   `bao` is just a slug its runtime uses.
-- `activeClaims.<slug>` is this device's claim to be the slug's active
-  instance: `seq` (writer-supplied monotonic counter — a claim writes
-  `max of all visible seqs + 1`, starting at 1) and `at` (unix seconds).
+- `activeClaims.<slug>` is the claim this device made for the slug:
+  `seq` (writer-supplied monotonic counter — a claim writes `max of all
+  visible seqs + 1`, starting at 1), `at` (unix seconds) and `target`,
+  the peer id of the device the claim hands the slug to. No `target`
+  means the claimer itself. Every device writes only its own row, so
+  each claim has exactly one writer.
 
 The server maintains its own row automatically: once the SDK's
 bootstrap pass completes, each boot upserts `os` and `version`, and
@@ -58,10 +61,11 @@ the same slug concurrently and dataset handlers cannot prevent it; the
 rule makes that state survivable by resolving it deterministically at
 read time:
 
-> Candidates for a slug are the live rows that carry the slug under
-> `apps` **and** hold a claim for it (`seq` ≥ 1). The winner is the
-> candidate with the highest `seq`; ties fall to the highest `at`, then
-> to the lexicographically largest peer id.
+> The claims for a slug (`seq` ≥ 1) on all live rows rank by highest
+> `seq`, then highest `at`, then lexicographically largest claimer peer
+> id. The winner is the target of the best claim whose target is a live
+> row carrying the slug under `apps`. The claimer needs no `apps` entry
+> of its own.
 
 Properties that follow:
 
@@ -71,18 +75,26 @@ Properties that follow:
   peer-locally allocated, so two peers holding the same logical state
   can read different `_ver` values, and an election keyed on them
   would split-brain.
-- **Dangling claims never win**: uninstalling an app (or pruning a
-  device's row) silently forfeits its claim — no un-claim write
-  exists, or is needed.
-- Nobody ever *deactivates another* device: the role only moves via a
-  newer claim or the current winner's row losing the app.
+- **Dangling claims never win**: a claim whose target uninstalled the
+  app or was pruned is skipped and the next claim decides. Pruning the
+  claimer drops its claims with its row. No un-claim write exists, or
+  is needed.
+- There is no un-claim: the winner changes when a better claim
+  appears, or when a claim starts or stops qualifying — its claimer or
+  target is pruned, or its target uninstalls or reinstalls the app.
+- A device holds one claim per app, so handing the app away replaces
+  the device's own claim. Pruning the device that made the winning
+  hand-off moves the role back to the best remaining claim, and when a
+  hand-off's target stops qualifying, the fallback skips the device
+  that handed it away. Both are repaired the same way as any other
+  surprise: switch again.
 
 The rule is implemented **once**, in the SDK (`space.ActiveDevice`),
 and surfaced pre-resolved as the `active` map on `GET /v1/devices`.
 Consumers must read that map rather than reimplementing the rule —
 the one real risk in this design is the UI and a runtime computing
-different winners from private copies of the logic. A slug with no
-qualifying candidate has no `active` entry.
+different winners from private copies of the logic. A slug has no
+`active` entry when no claim names a device that has the app.
 
 ## Decision matrix (runtime vs UI)
 
@@ -94,10 +106,10 @@ consumer):
 | Boot; no other row carries `apps.S` | runtime | claim (`POST /v1/devices/activate`) — the majority case, valid even if a dangling claim nominally points elsewhere |
 | Boot; `active.S` is another live device | runtime | nothing — second-device install stays passive |
 | Active device's row pruned / app uninstalled | runtime (any survivor observing the change) | claim |
-| Manual switch | user via UI → `activate` **on the target device** | newest claim wins by `seq` |
+| Manual switch | user via UI on any device → `activate {app, peerId}` naming the target | newest claim wins by `seq`; the target's runtime sees itself win and the old winner stands down. Nothing checks that the target runs: a UI offers only targets it sees alive |
 | Concurrent claims | every reader, same rule | `(seq, at, peerId)` tiebreak; the loser observes via subscribe and stands down |
-| Un-claiming another device | nobody | never happens — only claims and row/app removal move the role |
-| Claim minted on a stale replica | claimer, after sync | a not-yet-synced replica computes `seq` without the newest claims, so its claim can lose once heads converge (SDK [`docs/02-tech-space.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/02-tech-space.md) § Devices registry) — observe `active.S` after sync and re-claim if the role didn't land |
+| Un-claiming a device | nobody | never happens — only claims, prunes and app installs/uninstalls move the role |
+| Claim minted on a stale replica | the client that asked for the switch, after sync | a not-yet-synced replica computes `seq` without the newest claims, so its claim can lose once heads converge (SDK [`docs/tech-space.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/tech-space.md) § Devices registry) — observe `active.S` after sync and re-claim if the role didn't land; a one-shot CLI call does not |
 
 The runtime's loop: upsert self (`apps.S`) → read `active.S` +
 `self` from `GET /v1/devices` → claim or stand by → watch
@@ -113,13 +125,25 @@ or away from `self`. The UI works off the same endpoint and the same
 | POST   | `/v1/devices/query` | raw windowed snapshot (standard query body, dataset fixed to `devices`; body optional) |
 | POST   | `/v1/devices/query/subscribe` | raw windowed live view (SSE, standard frames — `04-events.md`) |
 | PUT    | `/v1/devices/me` | `Spaces.SetDevice` — self-row only: `{name?, apps?}`; only present fields are written, `apps` merges per slug, `"apps": {"slug": null}` uninstalls (204) |
-| POST   | `/v1/devices/activate` | `Spaces.ClaimActive` — `{app}`; also self-heals `apps.<app>` (204) |
+| POST   | `/v1/devices/activate` | `Spaces.ClaimActive` — `{app, peerId?}`; writes this device's claim for `peerId`, or for this device when absent; a self claim also self-heals `apps.<app>` (204) |
 | DELETE | `/v1/devices/:peerId` | `Spaces.DeleteDevice` — prune a row (204) |
 
 Account-scoped (no `:spaceId`), behind the `/v1` auth guard. The
-self-row restriction is structural, not checked: the SDK resolves its
-own peer id for every write, so `PUT /me` / `activate` cannot touch
-another device's row.
+self-row restriction on `PUT /me` and `activate` is structural, not
+checked: the SDK resolves its own peer id for the write, so neither
+can touch another device's row. Only `DELETE` writes another row.
+
+`activate` with a `peerId` writes `target` into this device's claim
+and never touches `apps`, anywhere. The target must be a row in this
+device's registry (`device.not_found`, 404) that carries the app
+(`device.app_not_installed`, 409); a device that registered elsewhere
+moments ago may not have synced here yet, so both can pass on a
+retry. A `peerId` equal to `self` gets the same check: only a claim
+with no `peerId` (absent or `null`) marks the app installed. An empty
+`peerId` is refused (`request.invalid_field`, 400). A pruned device
+gets `device.pruned` whatever it names. Nothing checks that the target
+is running: handing the role to a device that is off leaves the app
+unanswered until something claims again.
 
 **Deletion is permanent for that peer id.** Record tombstones are
 sticky: a pruned device can never re-register — a device that comes
@@ -129,13 +153,16 @@ this server's own row (`device.self_delete`, 400): self-pruning would
 permanently lock the installation out — prune it from another device.
 Writes from an already-pruned device fail `device.pruned` (409): the
 tombstone absorbs them, so `PUT /me` / `activate` can never silently
-no-op.
+no-op, and a pruned device cannot move the role.
 
-Errors: `device.not_found` (404, unknown peer id on DELETE);
+Errors: `device.not_found` (404, peer id not in this device's registry
+— pruned, never registered, or not synced here yet — on DELETE or on
+`activate` with a `peerId`); `device.app_not_installed` (409,
+`activate` for a device whose row doesn't carry the app here);
 `device.self_delete` (400, DELETE of the own row);
-`device.pruned` (409, self-row write after the row was pruned);
-`request.invalid_field` (bad slug — empty or containing `.` — or a
-non-scalar app value); `request.missing_field` (empty update / missing
+`device.pruned` (409, `PUT /me` or `activate` after this device's row
+was pruned); `request.invalid_field` (bad slug — empty or containing
+`.` — a non-scalar app value, or an empty `peerId`); `request.missing_field` (empty update / missing
 app); `request.unknown_field` (unknown body key). See
 [errors](06-errors.md).
 
@@ -146,6 +173,7 @@ any devices list                         # rows + active map + self
 any devices register --name laptop --app bao=1.2
 any devices register --remove-app bao   # uninstall
 any devices activate bao                 # claim on THIS device
+any devices activate bao --peer <peerId> # hand the role to another device
 any devices remove <peerId> --yes        # permanent prune
 any devices query --filter '…'           # raw rows
 any devices subscribe                    # raw live stream

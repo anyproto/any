@@ -12,9 +12,10 @@ package api
 // (conventionally a `version` string). Nothing app-specific is baked
 // into the server.
 //
-// ActiveClaims carries this device's per-app claim to be the app's
-// active instance. Winners are resolved reader-side — see
-// DevicesListResponse.Active and docs/23-devices.md § Election.
+// ActiveClaims carries the per-app claim this device made — for
+// itself, or for the device its Target names. Winners are resolved
+// reader-side — see DevicesListResponse.Active and docs/23-devices.md
+// § Election.
 type DeviceInfo struct {
 	PeerId  string `json:"peerId"`
 	Name    string `json:"name,omitempty"`
@@ -25,27 +26,29 @@ type DeviceInfo struct {
 	ActiveClaims map[string]DeviceActiveClaim `json:"activeClaims,omitempty"`
 }
 
-// DeviceActiveClaim is one device's claim to be the active instance of
-// one app slug. Seq is a writer-supplied monotonic counter (claim =
-// max of all visible seqs + 1); At is the claim's unix-seconds
-// timestamp. Deliberately NOT a CRDT version id: versionIds are
-// peer-locally allocated, so they cannot arbitrate across devices —
-// the claim data itself is what every reader resolves on.
+// DeviceActiveClaim is one device's claim that a device — itself, or
+// the one Target names — is the active instance of one app slug. Seq
+// is a writer-supplied monotonic counter (claim = max of all visible
+// seqs + 1); At is the claim's unix-seconds timestamp. Deliberately
+// NOT a CRDT version id: versionIds are peer-locally allocated, so
+// they cannot arbitrate across devices — the claim data itself is what
+// every reader resolves on.
 type DeviceActiveClaim struct {
-	Seq int64 `json:"seq"`
-	At  int64 `json:"at"`
+	Seq    int64  `json:"seq"`
+	At     int64  `json:"at"`
+	Target string `json:"target,omitempty"`
 }
 
 // DevicesListResponse is the body of GET /v1/devices.
 //
 // Active maps app slug → the peerId of that app's active device,
-// resolved server-side by the canonical election rule (highest claim
-// Seq, tiebreak highest At, final tiebreak lexicographically-largest
-// peerId, candidates limited to devices whose row still carries the
-// app slug). Both the UI and agent runtimes MUST consume this field
-// rather than reimplementing the rule — one implementation, no
-// divergent winners. A slug is absent when no installed device has
-// claimed it.
+// resolved server-side by the canonical election rule (claims rank by
+// highest Seq, then highest At, then lexicographically-largest claimer
+// peerId; the winner is the target of the best claim whose target's
+// row still carries the app slug). Both the UI and agent runtimes MUST
+// consume this field rather than reimplementing the rule — one
+// implementation, no divergent winners. A slug is absent when no claim
+// names a device that has the app.
 //
 // Self is THIS server's own peerId — how a consumer (UI, agent
 // runtime) tells whether it is the active device without a separate
@@ -68,7 +71,10 @@ type DeviceUpdateRequest struct {
 }
 
 // DeviceActivateRequest is the body of POST /v1/devices/activate —
-// claim the active role for one app slug on THIS device.
+// claim the active role for one app slug for the device PeerId names,
+// or for THIS device when PeerId is absent or null. An empty PeerId is
+// refused rather than read as a self claim.
 type DeviceActivateRequest struct {
-	App string `json:"app"`
+	App    string  `json:"app"`
+	PeerId *string `json:"peerId,omitempty"`
 }

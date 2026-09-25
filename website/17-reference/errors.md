@@ -200,7 +200,8 @@ Panics are converted to `500 internal` with a generic message.
 | `file.not_durable` | 409 | offload refused: local bytes are the only copy |
 | `file.not_available` | 409 | content not local and not fetchable yet — retry |
 | `file.variant_invalid` | 400 | variant/variantOf pairing broken |
-| `device.not_found` | 404 | unknown peer id (or already pruned) |
+| `device.not_found` | 404 | peer id not in this device's registry (pruned, unknown, or not synced here yet) |
+| `device.app_not_installed` | 409 | `activate` for a device whose row doesn't carry the app |
 | `device.self_delete` | 400 | refusing to prune this server's own row |
 | `device.pruned` | 409 | self-row write absorbed by a sticky tombstone |
 | `push.disabled` | 409 | no push node configured |
