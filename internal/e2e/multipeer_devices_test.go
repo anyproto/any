@@ -86,14 +86,18 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 	// Concurrent claims — the survivable "bug-shaped state" the design
 	// must resolve deterministically: both devices claim `bao` at once;
 	// after convergence BOTH readers must elect the SAME winner.
+	// devB sends `"peerId": null`, which must be the same self claim.
 	var wg sync.WaitGroup
-	for _, base := range []string{devA.base, devB.base} {
+	for base, body := range map[string]string{
+		devA.base: `{"app":"bao"}`,
+		devB.base: `{"app":"bao","peerId":null}`,
+	} {
 		wg.Add(1)
-		go func(base string) {
+		go func(base, body string) {
 			defer wg.Done()
 			// Off the test goroutine: t.Fatalf would only Goexit this worker
 			// and let the test run on half-failed — use tryRequest + Errorf.
-			resp, raw, err := tryRequest(http.MethodPost, base+"/v1/devices/activate", `{"app":"bao"}`)
+			resp, raw, err := tryRequest(http.MethodPost, base+"/v1/devices/activate", body)
 			if err != nil {
 				t.Errorf("POST /v1/devices/activate on %s: %v", base, err)
 				return
@@ -101,7 +105,7 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 			if resp.StatusCode != http.StatusNoContent {
 				t.Errorf("POST /v1/devices/activate on %s: status %d: %s", base, resp.StatusCode, raw)
 			}
-		}(base)
+		}(base, body)
 	}
 	wg.Wait()
 	if t.Failed() {
@@ -270,8 +274,13 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 	}
 	activate(devA.base, `{"app":"bao","peerId":"`+selfB+`"}`, http.StatusNotFound, "device.not_found")
 	// A pruned device can't move the role, and learns it was pruned
-	// whatever it names.
+	// whatever it names; the error is about this device, not the target.
 	activate(devB.base, `{"app":"bao","peerId":"`+selfA+`"}`, http.StatusConflict, "device.pruned")
+	_, raw := doRequest(t, http.MethodPost, devB.base+"/v1/devices/activate", `{"app":"bao","peerId":"`+selfA+`"}`)
+	var pruned api.ErrorEnvelope
+	if err := json.Unmarshal(raw, &pruned); err != nil || pruned.Error.Details["peerId"] != nil {
+		t.Errorf("device.pruned names the target: %s", raw)
+	}
 	activate(devB.base, `{"app":"notinstalled","peerId":"`+selfA+`"}`, http.StatusConflict, "device.pruned")
 	activate(devB.base, `{"app":"bao"}`, http.StatusConflict, "device.pruned")
 	activate(devA.base, `{}`, http.StatusBadRequest, "request.missing_field")

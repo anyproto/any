@@ -107,7 +107,7 @@ consumer):
 | Boot; `active.S` is another live device | runtime | nothing — second-device install stays passive |
 | Active device's row pruned / app uninstalled | runtime (any survivor observing the change) | claim |
 | Manual switch | user via UI on any device → `activate {app, peerId}` naming the target | newest claim wins by `seq`; the target's runtime sees itself win and the old winner stands down. Nothing checks that the target runs: a UI offers only targets it sees alive |
-| Concurrent claims | every reader, same rule | `(seq, at, peerId)` tiebreak; the loser observes via subscribe and stands down |
+| Concurrent claims | every reader, same rule | `(seq, at, claimer peerId)` tiebreak; the loser observes via subscribe and stands down |
 | Un-claiming a device | nobody | never happens — only claims, prunes and app installs/uninstalls move the role |
 | Claim minted on a stale replica | the client that asked for the switch, after sync | a not-yet-synced replica computes `seq` without the newest claims, so its claim can lose once heads converge (SDK [`docs/tech-space.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/tech-space.md) § Devices registry) — observe `active.S` after sync and re-claim if the role didn't land; a one-shot CLI call does not |
 
@@ -154,8 +154,8 @@ this server's own row (`device.self_delete`, 400): self-pruning would
 permanently lock the installation out — prune it from another device.
 Writes from an already-pruned device fail `device.pruned` (409): the
 tombstone absorbs `PUT /me`, which can never silently no-op, and
-`activate` is refused before anything is written, so a pruned device
-cannot move the role.
+`activate` from a device already known to be pruned is refused without
+writing, so a pruned device cannot move the role.
 
 Errors: `device.not_found` (404, peer id not in this device's registry
 — pruned, never registered, or not synced here yet — on DELETE or on

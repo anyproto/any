@@ -133,12 +133,12 @@ func (d *deps) deviceActivate(c echo.Context) error {
 				map[string]any{"field": "peerId", "app": req.App})
 		}
 		peerId = *req.PeerId
-		details["peerId"] = peerId
 	}
 	if err := d.sdk.Spaces().ClaimActive(c.Request().Context(), req.App, peerId); err != nil {
-		if errors.Is(err, space.ErrDevicePruned) {
-			// The pruned device is this one, not the target.
-			delete(details, "peerId")
+		// Only the target errors are about peerId; the rest are about
+		// this device.
+		if errors.Is(err, space.ErrDeviceUnknown) || errors.Is(err, space.ErrDeviceAppNotInstalled) {
+			details["peerId"] = peerId
 		}
 		return deviceError(c, err, details)
 	}

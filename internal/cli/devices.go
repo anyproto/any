@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -104,9 +103,6 @@ func newDevicesActivateCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var target *string
 			if cmd.Flags().Changed("peer") {
-				if peer == "" {
-					return errors.New("--peer must name a device; omit it to claim for this device")
-				}
 				target = &peer
 			}
 			cl := newClient(flags.Timeout)
