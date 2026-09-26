@@ -171,8 +171,9 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 		if env.Error.Code != wantCode {
 			t.Errorf("activate %s on %s: code %q, want %q", body, base, env.Error.Code, wantCode)
 		}
-		if got, _ := env.Error.Details["peerId"].(string); got != wantPeer {
-			t.Errorf("activate %s on %s: details.peerId %q, want %q", body, base, got, wantPeer)
+		got, present := env.Error.Details["peerId"]
+		if wantPeer == "" && present || wantPeer != "" && got != wantPeer {
+			t.Errorf("activate %s on %s: details.peerId %v, want %q", body, base, got, wantPeer)
 		}
 	}
 
