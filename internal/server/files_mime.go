@@ -2,11 +2,11 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"io"
 	"mime"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/gabriel-vasile/mimetype"
 )
@@ -144,7 +144,7 @@ func resolveMime(contentType, name string, peek func() []byte) string {
 			if refined, ok := textByExt[ext]; ok {
 				return refined
 			}
-			if utf8.Valid(head) {
+			if bytes.IndexByte(head, 0) < 0 {
 				return "text/plain"
 			}
 		}
@@ -163,7 +163,10 @@ func resolveMime(contentType, name string, peek func() []byte) string {
 // weakBinaryTypes are binary verdicts that rest on a signature short
 // enough for text to carry: Python bytecode is four bytes, two of any
 // value then \r\n. Unless the name claims the format, a known text
-// extension or text-shaped content (valid UTF-8) outranks them.
+// extension or text-shaped content outranks them. Text-shaped means no
+// NUL byte in the window: a .pyc header's flags word is zero, while text
+// in any 8-bit encoding, or cut mid-character at the window's end, has
+// none.
 var weakBinaryTypes = map[string]struct{ ext string }{
 	"application/x-bytecode.python": {ext: ".pyc"},
 }

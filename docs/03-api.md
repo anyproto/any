@@ -3655,8 +3655,9 @@ fileId/objectId → `404 file.not_found`, offload of the only copy →
 `409 file.not_durable`, content not fetchable yet →
 `409 file.not_available` (retry later), broken variant pairing →
 `400 file.variant_invalid`. An attach to a deleted object answers
-`410 object.deleted`, before the body is read; a file whose object was
-deleted answers `404 file.not_found`.
+`410 object.deleted` (a typed upload before its body is read); a file
+whose object was deleted answers `404 file.not_found`, and the object
+lists no files.
 
 #### Upload (attach)
 

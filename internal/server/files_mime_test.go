@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"io"
+	"strings"
 	"testing"
 )
 
@@ -19,6 +20,9 @@ func TestResolveMime(t *testing.T) {
 	readme := []byte("<p align=\"center\"><img src=\"logo.png\"></p>\n\n# Project\n\nSome words.\n")
 	commaProse := []byte("Hi Bob, see attached\nThanks, Alice\n")
 	tabSnippet := []byte("a\tb\tc\n1\t2\t3\n")
+	// A full sniff window of Cyrillic text that ends inside a two-byte
+	// character.
+	pycLookingCyrillic := []byte("1\r\r\n" + strings.Repeat("ж", sniffLimit))[:sniffLimit-1]
 
 	cases := []struct {
 		name        string
@@ -60,6 +64,9 @@ func TestResolveMime(t *testing.T) {
 		{"pyc-looking text without a name", "", "notes", []byte("1\r\r\nhello\r\r\n"), "text/plain"},
 		{"pyc named .pyc", "", "mod.pyc", []byte("1\r\r\nhello\r\r\n"), "application/x-bytecode.python"},
 		{"pyc with binary body", "", "", append([]byte("1\r\r\n"), 0xff, 0xfe, 0x00, 0x81), "application/x-bytecode.python"},
+		{"pyc-looking text cut mid-character", "", "notes", pycLookingCyrillic, "text/plain"},
+		{"pyc-looking text named .py", "", "notes.py", pycLookingCyrillic, "text/plain"},
+		{"pyc-looking windows-1252 text", "", "notes", []byte("1\r\r\ncaf\xe9 cr\xe8me\r\r\n"), "text/plain"},
 		// The registered names the sniffer answers with.
 		{"apng", "", "", apngBytes, "image/apng"},
 		{"mkv", "", "", mkvBytes, "video/matroska"},
