@@ -1,4 +1,4 @@
-// Multi-device devices-registry e2e (SYN-165): two `any` servers
+// Multi-device devices-registry e2e: two `any` servers
 // sharing ONE account (same mnemonic, distinct device keys) exercise
 // the tech-space `devices` dataset end-to-end — boot self-registration
 // converging across devices, CONCURRENT active claims resolving to the
@@ -31,6 +31,17 @@ func devicesOn(t *testing.T, base string) api.DevicesListResponse {
 		t.Fatalf("decode devices list: %v", err)
 	}
 	return out
+}
+
+// rowOn returns peer's row in base's registry.
+func rowOn(t *testing.T, base, peer string) (api.DeviceInfo, bool) {
+	t.Helper()
+	for _, dev := range devicesOn(t, base).Devices {
+		if dev.PeerId == peer {
+			return dev, true
+		}
+	}
+	return api.DeviceInfo{}, false
 }
 
 func TestE2E_MultideviceDevicesElection(t *testing.T) {
@@ -129,12 +140,8 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 		winnerBase, loserBase, loser = devB.base, devA.base, selfA
 	}
 	claimOn := func(base, peer string) api.DeviceActiveClaim {
-		for _, dev := range devicesOn(t, base).Devices {
-			if dev.PeerId == peer {
-				return dev.ActiveClaims["bao"]
-			}
-		}
-		return api.DeviceActiveClaim{}
+		dev, _ := rowOn(t, base, peer)
+		return dev.ActiveClaims["bao"]
 	}
 	bothActive := func(want string) bool {
 		return devicesOn(t, devA.base).Active["bao"] == want &&
@@ -155,12 +162,9 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 	}
 
 	hasAppOn := func(base, peer string) bool {
-		for _, dev := range devicesOn(t, base).Devices {
-			if _, has := dev.Apps["bao"]; dev.PeerId == peer && has {
-				return true
-			}
-		}
-		return false
+		dev, ok := rowOn(t, base, peer)
+		_, has := dev.Apps["bao"]
+		return ok && has
 	}
 	// setApp installs or uninstalls bao on base's own row and waits until
 	// both readers see the change.
@@ -252,17 +256,9 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 	// server is still running).
 	mustStatus(t, http.MethodDelete, devA.base+"/v1/devices/"+selfB, "", http.StatusNoContent)
 	if !pollUntil(3*time.Minute, func() bool {
-		for _, dev := range devicesOn(t, devA.base).Devices {
-			if dev.PeerId == selfB {
-				return false
-			}
-		}
-		for _, dev := range devicesOn(t, devB.base).Devices {
-			if dev.PeerId == selfB {
-				return false
-			}
-		}
-		return true
+		_, onA := rowOn(t, devA.base, selfB)
+		_, onB := rowOn(t, devB.base, selfB)
+		return !onA && !onB
 	}) {
 		t.Fatalf("pruned device row still listed: A=%+v", devicesOn(t, devA.base).Devices)
 	}

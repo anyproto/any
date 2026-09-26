@@ -153,7 +153,7 @@ property.format_violation        # 400 — a property VALUE write does not fit i
 device.not_found                 # 404 — peer id not in this device's registry: pruned (tombstones are sticky), unknown, or not synced here yet
 device.app_not_installed         # 409 — activate with a peerId whose row doesn't carry the app in this device's registry (may pass after sync)
 device.self_delete               # 400 — DELETE of this server's own row refused (the sticky tombstone would lock the installation out; prune from another device)
-device.pruned                    # 409 — self-row write (PUT /me, activate) absorbed by the row's tombstone; the peer id can never re-register (fresh `any init` to re-derive keys)
+device.pruned                    # 409 — this device was pruned: PUT /me is absorbed by the row's tombstone, activate is refused before writing; the peer id can never re-register (fresh `any init` to re-derive keys)
 
 file.not_found                   # 404 — unknown fileId / objectId, or files query before the first attach
 file.not_durable                 # 409 — offload refused: local bytes are the only copy (not backed up yet)

@@ -203,7 +203,7 @@ Panics are converted to `500 internal` with a generic message.
 | `device.not_found` | 404 | peer id not in this device's registry (pruned, unknown, or not synced here yet) |
 | `device.app_not_installed` | 409 | `activate` for a device whose row doesn't carry the app |
 | `device.self_delete` | 400 | refusing to prune this server's own row |
-| `device.pruned` | 409 | self-row write absorbed by a sticky tombstone |
+| `device.pruned` | 409 | this device was pruned: `PUT /me` is absorbed by the sticky tombstone, `activate` is refused |
 | `push.disabled` | 409 | no push node configured |
 
 ### Local store

@@ -133,8 +133,9 @@ self-row restriction on `PUT /me` and `activate` is structural, not
 checked: the SDK resolves its own peer id for the write, so neither
 can touch another device's row. Only `DELETE` writes another row.
 
-`activate` with a `peerId` writes `target` into this device's claim
-and never touches `apps`, anywhere. The target must be a row in this
+`activate` with another device's `peerId` writes it as `target` in
+this device's claim; naming this device writes no `target`. A claim
+with a `peerId` never touches `apps`, anywhere. The target must be a row in this
 device's registry (`device.not_found`, 404) that carries the app
 (`device.app_not_installed`, 409); a device that registered elsewhere
 moments ago may not have synced here yet, so both can pass on a
@@ -152,8 +153,9 @@ back stays unlisted until it derives fresh peer keys (a new
 this server's own row (`device.self_delete`, 400): self-pruning would
 permanently lock the installation out — prune it from another device.
 Writes from an already-pruned device fail `device.pruned` (409): the
-tombstone absorbs them, so `PUT /me` / `activate` can never silently
-no-op, and a pruned device cannot move the role.
+tombstone absorbs `PUT /me`, which can never silently no-op, and
+`activate` is refused before anything is written, so a pruned device
+cannot move the role.
 
 Errors: `device.not_found` (404, peer id not in this device's registry
 — pruned, never registered, or not synced here yet — on DELETE or on
