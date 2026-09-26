@@ -90,4 +90,4 @@ Store the `fileId` in your records — plus whatever you want denormalized for i
 
 A chat attachment entry is the same URI: `{"type": "image", "link": "any://f/<spaceId>/<fileId>"}`.
 
-> **Note.** Unknown `objectId` on attach is `404 file.not_found`.
+> **Note.** Unknown `objectId` on attach is `404 file.not_found`; a deleted one is `410 object.deleted`.

@@ -117,7 +117,7 @@ curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/notes%2Fv1/childr
 # → { "objectId": "bafy…" }
 ```
 
-A child is a setup object derived under the bundle's current winner: `type` is required and set on first materialization, `collections` the child lacks are added on every call. It is deterministic per (space, root, seed), materialized on the first call, the same id on every device — a restored device reaches the whole install from the winner alone. Seeds are permanent and ≤256 B. Under a created root the child binds to the parent's tree and cascade-deletes with it; on a member whose copy of the winner has not landed, the call is `409 bundle.not_ready`. Under a derived root the child binds by seed instead — same ids everywhere, and the cascade is moot on a root that can never be deleted.
+A child is a setup object derived under the bundle's current winner: `type` is required and set on first materialization, `collections` the child lacks are added on every call. It is deterministic per (space, root, seed), materialized on the first call, the same id on every device — a restored device reaches the whole install from the winner alone. Seeds are permanent and ≤256 B. Under a created root the child binds to the parent's tree and cascade-deletes with it; on a member whose copy of the winner has not landed, the call is `409 bundle.not_ready`, unless the child itself has already synced (then its id comes back). Under a derived root the child binds by seed instead — same ids everywhere, and the cascade is moot on a root that can never be deleted.
 
 ## Reads
 
