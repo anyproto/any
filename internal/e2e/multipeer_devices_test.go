@@ -151,17 +151,28 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 		return devicesOn(t, devA.base).Active["bao"] == want &&
 			devicesOn(t, devB.base).Active["bao"] == want
 	}
-	activate := func(base, body string, wantStatus int, wantCode string) {
+	// activate posts body and checks the status, the error code and
+	// details.peerId (wantPeer; "" = absent).
+	activate := func(base, body string, wantStatus int, wantCode, wantPeer string) {
 		t.Helper()
 		resp, raw := doRequest(t, http.MethodPost, base+"/v1/devices/activate", body)
 		if resp.StatusCode != wantStatus {
 			t.Errorf("activate %s on %s: status %d, want %d: %s", body, base, resp.StatusCode, wantStatus, raw)
 			return
 		}
-		if wantCode != "" {
-			if code := errorCode(t, raw); code != wantCode {
-				t.Errorf("activate %s on %s: code %q, want %q", body, base, code, wantCode)
-			}
+		if wantCode == "" {
+			return
+		}
+		var env api.ErrorEnvelope
+		if err := json.Unmarshal(raw, &env); err != nil {
+			t.Errorf("activate %s on %s: decode error envelope: %v: %s", body, base, err, raw)
+			return
+		}
+		if env.Error.Code != wantCode {
+			t.Errorf("activate %s on %s: code %q, want %q", body, base, env.Error.Code, wantCode)
+		}
+		if got, _ := env.Error.Details["peerId"].(string); got != wantPeer {
+			t.Errorf("activate %s on %s: details.peerId %q, want %q", body, base, got, wantPeer)
 		}
 	}
 
@@ -237,11 +248,11 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 			devicesOn(t, devA.base).Active, devicesOn(t, devB.base).Active)
 	}
 
-	activate(winnerBase, `{"app":"notinstalled","peerId":"`+loser+`"}`, http.StatusConflict, "device.app_not_installed")
-	activate(winnerBase, `{"app":"bao","peerId":"`+loser+`"}`, http.StatusConflict, "device.app_not_installed")
-	activate(loserBase, `{"app":"bao","peerId":"`+loser+`"}`, http.StatusConflict, "device.app_not_installed")
-	activate(winnerBase, `{"app":"bao","peerId":"nonexistent-peer"}`, http.StatusNotFound, "device.not_found")
-	activate(winnerBase, `{"app":"bao","peerId":""}`, http.StatusBadRequest, "request.invalid_field")
+	activate(winnerBase, `{"app":"notinstalled","peerId":"`+loser+`"}`, http.StatusConflict, "device.app_not_installed", loser)
+	activate(winnerBase, `{"app":"bao","peerId":"`+loser+`"}`, http.StatusConflict, "device.app_not_installed", loser)
+	activate(loserBase, `{"app":"bao","peerId":"`+loser+`"}`, http.StatusConflict, "device.app_not_installed", loser)
+	activate(winnerBase, `{"app":"bao","peerId":"nonexistent-peer"}`, http.StatusNotFound, "device.not_found", "nonexistent-peer")
+	activate(winnerBase, `{"app":"bao","peerId":""}`, http.StatusBadRequest, "request.invalid_field", "")
 
 	// The winner uninstalls too: no claim names a device that has bao, so
 	// no device is active — with no un-claim write anywhere.
@@ -272,18 +283,13 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("DELETE unknown device: status %d, want 404", resp.StatusCode)
 	}
-	activate(devA.base, `{"app":"bao","peerId":"`+selfB+`"}`, http.StatusNotFound, "device.not_found")
+	activate(devA.base, `{"app":"bao","peerId":"`+selfB+`"}`, http.StatusNotFound, "device.not_found", selfB)
 	// A pruned device can't move the role, and learns it was pruned
 	// whatever it names; the error is about this device, not the target.
-	activate(devB.base, `{"app":"bao","peerId":"`+selfA+`"}`, http.StatusConflict, "device.pruned")
-	_, raw := doRequest(t, http.MethodPost, devB.base+"/v1/devices/activate", `{"app":"bao","peerId":"`+selfA+`"}`)
-	var pruned api.ErrorEnvelope
-	if err := json.Unmarshal(raw, &pruned); err != nil || pruned.Error.Details["peerId"] != nil {
-		t.Errorf("device.pruned names the target: %s", raw)
-	}
-	activate(devB.base, `{"app":"notinstalled","peerId":"`+selfA+`"}`, http.StatusConflict, "device.pruned")
-	activate(devB.base, `{"app":"bao"}`, http.StatusConflict, "device.pruned")
-	activate(devA.base, `{}`, http.StatusBadRequest, "request.missing_field")
+	activate(devB.base, `{"app":"bao","peerId":"`+selfA+`"}`, http.StatusConflict, "device.pruned", "")
+	activate(devB.base, `{"app":"notinstalled","peerId":"`+selfA+`"}`, http.StatusConflict, "device.pruned", "")
+	activate(devB.base, `{"app":"bao"}`, http.StatusConflict, "device.pruned", "")
+	activate(devA.base, `{}`, http.StatusBadRequest, "request.missing_field", "")
 	resp, _ = doRequest(t, http.MethodPut, devA.base+"/v1/devices/me", `{}`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("empty self-update: status %d, want 400", resp.StatusCode)

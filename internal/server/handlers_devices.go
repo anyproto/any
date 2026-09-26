@@ -135,8 +135,8 @@ func (d *deps) deviceActivate(c echo.Context) error {
 		peerId = *req.PeerId
 	}
 	if err := d.sdk.Spaces().ClaimActive(c.Request().Context(), req.App, peerId); err != nil {
-		// Only the target errors are about peerId; the rest are about
-		// this device.
+		// Only the two target errors carry peerId; no other error is
+		// about the target.
 		if errors.Is(err, space.ErrDeviceUnknown) || errors.Is(err, space.ErrDeviceAppNotInstalled) {
 			details["peerId"] = peerId
 		}
