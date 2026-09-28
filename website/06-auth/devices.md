@@ -89,7 +89,7 @@ any devices remove <peerId> --yes
 any devices subscribe
 ```
 
-`PUT /me` and `activate` are self-row only by construction: the SDK resolves its own peer id for the write. `activate` with a `peerId` records the target in this device's claim and never writes `apps`. The target must be a row in this device's registry that carries the app, this device included when `peerId` names it; only a claim without `peerId` (absent or `null`) marks the app installed. A device registered moments ago elsewhere may not have synced here yet. Nothing checks that the target is running, so a UI should offer only devices it sees alive.
+`PUT /me` and `activate` are self-row only by construction: the SDK resolves its own peer id for the write. `activate` with another device's `peerId` records it as the target of this device's claim; a claim with any `peerId` never writes `apps`. The target must be a row in this device's registry that carries the app, this device included when `peerId` names it; only a claim without `peerId` (absent or `null`) marks the app installed. A device registered moments ago elsewhere may not have synced here yet. Nothing checks that the target is running, so a UI should offer only devices it sees alive.
 
 ## A runtime's loop
 

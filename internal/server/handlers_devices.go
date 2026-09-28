@@ -133,12 +133,12 @@ func (d *deps) deviceActivate(c echo.Context) error {
 				map[string]any{"field": "peerId", "app": req.App})
 		}
 		peerId = *req.PeerId
-		details["peerId"] = peerId
 	}
 	if err := d.sdk.Spaces().ClaimActive(c.Request().Context(), req.App, peerId); err != nil {
-		if errors.Is(err, space.ErrDevicePruned) {
-			// The pruned device is this one, not the target.
-			delete(details, "peerId")
+		// Only the two target errors carry peerId; no other error is
+		// about the target.
+		if errors.Is(err, space.ErrDeviceUnknown) || errors.Is(err, space.ErrDeviceAppNotInstalled) {
+			details["peerId"] = peerId
 		}
 		return deviceError(c, err, details)
 	}
@@ -305,7 +305,7 @@ func deviceError(c echo.Context, err error, details map[string]any) error {
 			"refusing to prune this server's own row (sticky tombstone would lock this installation out) — prune it from another device", details)
 	case errors.Is(err, space.ErrDevicePruned):
 		return writeError(c, http.StatusConflict, "device.pruned",
-			"this device's row was deleted; the sticky tombstone absorbs all writes — re-derive peer keys with a fresh `any init` to re-register", details)
+			"this device's row was deleted and its peer id can never re-register — re-derive peer keys with a fresh `any init`", details)
 	}
 	return sdkOpError(c, err, details)
 }

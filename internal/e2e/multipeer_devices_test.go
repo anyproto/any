@@ -1,4 +1,4 @@
-// Multi-device devices-registry e2e (SYN-165): two `any` servers
+// Multi-device devices-registry e2e: two `any` servers
 // sharing ONE account (same mnemonic, distinct device keys) exercise
 // the tech-space `devices` dataset end-to-end — boot self-registration
 // converging across devices, CONCURRENT active claims resolving to the
@@ -31,6 +31,17 @@ func devicesOn(t *testing.T, base string) api.DevicesListResponse {
 		t.Fatalf("decode devices list: %v", err)
 	}
 	return out
+}
+
+// rowOn returns peer's row in base's registry.
+func rowOn(t *testing.T, base, peer string) (api.DeviceInfo, bool) {
+	t.Helper()
+	for _, dev := range devicesOn(t, base).Devices {
+		if dev.PeerId == peer {
+			return dev, true
+		}
+	}
+	return api.DeviceInfo{}, false
 }
 
 func TestE2E_MultideviceDevicesElection(t *testing.T) {
@@ -75,14 +86,18 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 	// Concurrent claims — the survivable "bug-shaped state" the design
 	// must resolve deterministically: both devices claim `bao` at once;
 	// after convergence BOTH readers must elect the SAME winner.
+	// devB sends `"peerId": null`, which must be the same self claim.
 	var wg sync.WaitGroup
-	for _, base := range []string{devA.base, devB.base} {
+	for base, body := range map[string]string{
+		devA.base: `{"app":"bao"}`,
+		devB.base: `{"app":"bao","peerId":null}`,
+	} {
 		wg.Add(1)
-		go func(base string) {
+		go func(base, body string) {
 			defer wg.Done()
 			// Off the test goroutine: t.Fatalf would only Goexit this worker
 			// and let the test run on half-failed — use tryRequest + Errorf.
-			resp, raw, err := tryRequest(http.MethodPost, base+"/v1/devices/activate", `{"app":"bao"}`)
+			resp, raw, err := tryRequest(http.MethodPost, base+"/v1/devices/activate", body)
 			if err != nil {
 				t.Errorf("POST /v1/devices/activate on %s: %v", base, err)
 				return
@@ -90,7 +105,7 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 			if resp.StatusCode != http.StatusNoContent {
 				t.Errorf("POST /v1/devices/activate on %s: status %d: %s", base, resp.StatusCode, raw)
 			}
-		}(base)
+		}(base, body)
 	}
 	wg.Wait()
 	if t.Failed() {
@@ -129,38 +144,43 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 		winnerBase, loserBase, loser = devB.base, devA.base, selfA
 	}
 	claimOn := func(base, peer string) api.DeviceActiveClaim {
-		for _, dev := range devicesOn(t, base).Devices {
-			if dev.PeerId == peer {
-				return dev.ActiveClaims["bao"]
-			}
-		}
-		return api.DeviceActiveClaim{}
+		dev, _ := rowOn(t, base, peer)
+		return dev.ActiveClaims["bao"]
 	}
 	bothActive := func(want string) bool {
 		return devicesOn(t, devA.base).Active["bao"] == want &&
 			devicesOn(t, devB.base).Active["bao"] == want
 	}
-	activate := func(base, body string, wantStatus int, wantCode string) {
+	// activate posts body and checks the status, the error code and
+	// details.peerId (wantPeer; "" = absent).
+	activate := func(base, body string, wantStatus int, wantCode, wantPeer string) {
 		t.Helper()
 		resp, raw := doRequest(t, http.MethodPost, base+"/v1/devices/activate", body)
 		if resp.StatusCode != wantStatus {
 			t.Errorf("activate %s on %s: status %d, want %d: %s", body, base, resp.StatusCode, wantStatus, raw)
 			return
 		}
-		if wantCode != "" {
-			if code := errorCode(t, raw); code != wantCode {
-				t.Errorf("activate %s on %s: code %q, want %q", body, base, code, wantCode)
-			}
+		if wantCode == "" {
+			return
+		}
+		var env api.ErrorEnvelope
+		if err := json.Unmarshal(raw, &env); err != nil {
+			t.Errorf("activate %s on %s: decode error envelope: %v: %s", body, base, err, raw)
+			return
+		}
+		if env.Error.Code != wantCode {
+			t.Errorf("activate %s on %s: code %q, want %q", body, base, env.Error.Code, wantCode)
+		}
+		got, present := env.Error.Details["peerId"]
+		if wantPeer == "" && present || wantPeer != "" && got != wantPeer {
+			t.Errorf("activate %s on %s: details.peerId %v, want %q", body, base, got, wantPeer)
 		}
 	}
 
 	hasAppOn := func(base, peer string) bool {
-		for _, dev := range devicesOn(t, base).Devices {
-			if _, has := dev.Apps["bao"]; dev.PeerId == peer && has {
-				return true
-			}
-		}
-		return false
+		dev, ok := rowOn(t, base, peer)
+		_, has := dev.Apps["bao"]
+		return ok && has
 	}
 	// setApp installs or uninstalls bao on base's own row and waits until
 	// both readers see the change.
@@ -229,11 +249,11 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 			devicesOn(t, devA.base).Active, devicesOn(t, devB.base).Active)
 	}
 
-	activate(winnerBase, `{"app":"notinstalled","peerId":"`+loser+`"}`, http.StatusConflict, "device.app_not_installed")
-	activate(winnerBase, `{"app":"bao","peerId":"`+loser+`"}`, http.StatusConflict, "device.app_not_installed")
-	activate(loserBase, `{"app":"bao","peerId":"`+loser+`"}`, http.StatusConflict, "device.app_not_installed")
-	activate(winnerBase, `{"app":"bao","peerId":"nonexistent-peer"}`, http.StatusNotFound, "device.not_found")
-	activate(winnerBase, `{"app":"bao","peerId":""}`, http.StatusBadRequest, "request.invalid_field")
+	activate(winnerBase, `{"app":"notinstalled","peerId":"`+loser+`"}`, http.StatusConflict, "device.app_not_installed", loser)
+	activate(winnerBase, `{"app":"bao","peerId":"`+loser+`"}`, http.StatusConflict, "device.app_not_installed", loser)
+	activate(loserBase, `{"app":"bao","peerId":"`+loser+`"}`, http.StatusConflict, "device.app_not_installed", loser)
+	activate(winnerBase, `{"app":"bao","peerId":"nonexistent-peer"}`, http.StatusNotFound, "device.not_found", "nonexistent-peer")
+	activate(winnerBase, `{"app":"bao","peerId":""}`, http.StatusBadRequest, "request.invalid_field", "")
 
 	// The winner uninstalls too: no claim names a device that has bao, so
 	// no device is active — with no un-claim write anywhere.
@@ -252,17 +272,9 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 	// server is still running).
 	mustStatus(t, http.MethodDelete, devA.base+"/v1/devices/"+selfB, "", http.StatusNoContent)
 	if !pollUntil(3*time.Minute, func() bool {
-		for _, dev := range devicesOn(t, devA.base).Devices {
-			if dev.PeerId == selfB {
-				return false
-			}
-		}
-		for _, dev := range devicesOn(t, devB.base).Devices {
-			if dev.PeerId == selfB {
-				return false
-			}
-		}
-		return true
+		_, onA := rowOn(t, devA.base, selfB)
+		_, onB := rowOn(t, devB.base, selfB)
+		return !onA && !onB
 	}) {
 		t.Fatalf("pruned device row still listed: A=%+v", devicesOn(t, devA.base).Devices)
 	}
@@ -272,13 +284,13 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("DELETE unknown device: status %d, want 404", resp.StatusCode)
 	}
-	activate(devA.base, `{"app":"bao","peerId":"`+selfB+`"}`, http.StatusNotFound, "device.not_found")
+	activate(devA.base, `{"app":"bao","peerId":"`+selfB+`"}`, http.StatusNotFound, "device.not_found", selfB)
 	// A pruned device can't move the role, and learns it was pruned
-	// whatever it names.
-	activate(devB.base, `{"app":"bao","peerId":"`+selfA+`"}`, http.StatusConflict, "device.pruned")
-	activate(devB.base, `{"app":"notinstalled","peerId":"`+selfA+`"}`, http.StatusConflict, "device.pruned")
-	activate(devB.base, `{"app":"bao"}`, http.StatusConflict, "device.pruned")
-	activate(devA.base, `{}`, http.StatusBadRequest, "request.missing_field")
+	// whatever it names; the error is about this device, not the target.
+	activate(devB.base, `{"app":"bao","peerId":"`+selfA+`"}`, http.StatusConflict, "device.pruned", "")
+	activate(devB.base, `{"app":"notinstalled","peerId":"`+selfA+`"}`, http.StatusConflict, "device.pruned", "")
+	activate(devB.base, `{"app":"bao"}`, http.StatusConflict, "device.pruned", "")
+	activate(devA.base, `{}`, http.StatusBadRequest, "request.missing_field", "")
 	resp, _ = doRequest(t, http.MethodPut, devA.base+"/v1/devices/me", `{}`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("empty self-update: status %d, want 400", resp.StatusCode)
