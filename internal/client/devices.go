@@ -48,10 +48,11 @@ func (c *Client) DeviceUpdateMe(ctx context.Context, req api.DeviceUpdateRequest
 	return c.do(ctx, http.MethodPut, "/v1/devices/me", req, nil)
 }
 
-// DeviceActivate claims the active role for one app slug on THIS
-// device. POST /v1/devices/activate.
-func (c *Client) DeviceActivate(ctx context.Context, app string) error {
-	return c.do(ctx, http.MethodPost, "/v1/devices/activate", api.DeviceActivateRequest{App: app}, nil)
+// DeviceActivate claims the active role for one app slug for the
+// device peerId names, or for THIS device when peerId is nil.
+// POST /v1/devices/activate.
+func (c *Client) DeviceActivate(ctx context.Context, app string, peerId *string) error {
+	return c.do(ctx, http.MethodPost, "/v1/devices/activate", api.DeviceActivateRequest{App: app, PeerId: peerId}, nil)
 }
 
 // DeviceDelete prunes a device's registry row. Permanent for that

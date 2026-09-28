@@ -1,9 +1,12 @@
 package server
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/anyproto/any-sync-sdk/space"
+
+	"github.com/anyproto/any/internal/api"
 )
 
 // activeDevicesMap defers the per-slug winner to the SDK's canonical
@@ -54,4 +57,29 @@ func TestActiveDevicesMapEmpty(t *testing.T) {
 	if got := activeDevicesMap(noClaims); got != nil {
 		t.Errorf("activeDevicesMap(no claims) = %v, want nil", got)
 	}
+}
+
+// A claim with a target elects the target even when the claimer lacks
+// the app, and the wire row carries the target.
+func TestActiveDevicesMapTargetedClaim(t *testing.T) {
+	devices := []space.Device{
+		{PeerId: "phone", ActiveClaims: map[string]space.DeviceClaim{"bao": {Seq: 3, At: 10, Target: "box"}}},
+		{PeerId: "box", Apps: map[string]map[string]any{"bao": {}}},
+	}
+	if got := activeDevicesMap(devices)["bao"]; got != "box" {
+		t.Errorf("active[bao] = %q, want box", got)
+	}
+	if got := deviceToAPI(devices[0]).ActiveClaims["bao"]; got != (api.DeviceActiveClaim{Seq: 3, At: 10, Target: "box"}) {
+		t.Errorf("wire claim = %+v, want target box", got)
+	}
+}
+
+// An explicitly empty peerId is refused before the SDK is reached,
+// never read as a self claim.
+func TestDeviceActivateEmptyPeerId(t *testing.T) {
+	c, rec := newTestContext(`{"app":"bao","peerId":""}`)
+	if err := (&deps{}).deviceActivate(c); err != nil {
+		t.Fatalf("deviceActivate: %v", err)
+	}
+	assertStatusCode(t, rec, http.StatusBadRequest, "request.invalid_field")
 }
