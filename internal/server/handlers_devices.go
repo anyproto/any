@@ -120,7 +120,7 @@ func (d *deps) deviceActivate(c echo.Context) error {
 	if req.App == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "app required", nil)
 	}
-	if err := d.sdk.Spaces().ClaimActive(c.Request().Context(), req.App); err != nil {
+	if err := d.sdk.Spaces().ClaimActive(c.Request().Context(), req.App, ""); err != nil {
 		return deviceError(c, err, map[string]any{"app": req.App})
 	}
 	return c.NoContent(http.StatusNoContent)
