@@ -2,9 +2,11 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -51,7 +53,7 @@ func TestFileErrorMapping(t *testing.T) {
 		{fmt.Errorf("files: variant original A: %w", space.ErrFileVariantInvalid), http.StatusBadRequest, api.ErrFileVariantInvalid},
 		{fmt.Errorf("files: attach to X: %w", space.ErrNotFound), http.StatusNotFound, api.ErrFileNotFound},
 		{fmt.Errorf("payloads: derive under X: %w", space.ErrObjectDeleted), http.StatusGone, codeObjectDeleted},
-		{fmt.Errorf("files: attach to X: %w", space.ErrObjectNotFound), http.StatusNotFound, "object.not_found"},
+		{fmt.Errorf("files: variant original X: %w", space.ErrObjectNotFound), http.StatusNotFound, api.ErrFileNotFound},
 		{errors.New("something else entirely"), http.StatusInternalServerError, "internal"},
 	}
 	e := echo.New()
@@ -73,6 +75,20 @@ func TestFileErrorMapping(t *testing.T) {
 			t.Errorf("fileError(%v) leaks %q", tc.err, env.Error.Message)
 		}
 	}
+}
+
+// TestFileErrorAbortedRequest: a client that goes away mid-upload
+// surfaces as a body read error, not a context error; the cancelled
+// request context classifies it instead of the unclassified-error 500.
+func TestFileErrorAbortedRequest(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodPost, "/", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	if err := fileError(echo.New().NewContext(req, rec), io.ErrUnexpectedEOF, nil); err != nil {
+		t.Fatalf("fileError returned %v", err)
+	}
+	assertStatusCode(t, rec, http.StatusServiceUnavailable, "server.unavailable")
 }
 
 // doRaw sends a request with a raw (non-JSON) body and content type.

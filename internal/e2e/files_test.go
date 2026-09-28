@@ -304,28 +304,44 @@ func TestE2E_FilesBinary(t *testing.T) {
 	}
 
 	// --- attach to a deleted object ----------------------------------
-	// Both an object that never had files and one that did: the attach
-	// fails on the object, never as a 500.
-	var bare api.ObjectsCreateResponse
+	// An object that never had files, one whose files were deleted, and
+	// one deleted with a live file: the attach is refused on the object,
+	// before the body is read.
+	var bare, holder api.ObjectsCreateResponse
 	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+sp.Id+"/objects",
 		`{"type":"page"}`, http.StatusCreated, &bare)
-	for _, id := range []string{bare.ObjectId, obj.ObjectId} {
+	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+sp.Id+"/objects",
+		`{"type":"page"}`, http.StatusCreated, &holder)
+	held := attachFile(t, base+"/v1/spaces/"+sp.Id+"/objects/"+holder.ObjectId+"/files?name=held.txt",
+		"text/plain", []byte("held"))
+	for _, id := range []string{bare.ObjectId, obj.ObjectId, holder.ObjectId} {
 		mustStatus(t, http.MethodDelete, base+"/v1/spaces/"+sp.Id+"/objects/"+id, "", http.StatusNoContent)
-		// Which of the two answers depends on how far the delete has
-		// progressed locally.
-		resp, err := http.Post(base+"/v1/spaces/"+sp.Id+"/objects/"+id+"/files?name=late.txt",
+		resp, err := e2eClient.Post(base+"/v1/spaces/"+sp.Id+"/objects/"+id+"/files?name=late.txt",
 			"text/plain", bytes.NewReader([]byte("late")))
 		if err != nil {
 			t.Fatalf("attach to deleted object: %v", err)
 		}
 		raw, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
-		code := errorCode(t, raw)
-		if !(resp.StatusCode == http.StatusGone && code == "object.deleted") &&
-			!(resp.StatusCode == http.StatusNotFound && code == "object.not_found") {
-			t.Errorf("attach to deleted object %s = %d %s, want 410 object.deleted or 404 object.not_found",
-				id, resp.StatusCode, raw)
+		if code := errorCode(t, raw); resp.StatusCode != http.StatusGone || code != "object.deleted" {
+			t.Errorf("attach to deleted object %s = %d %s, want 410 object.deleted", id, resp.StatusCode, raw)
 		}
+	}
+
+	// The deleted object's live file stops resolving at once, and the
+	// object lists no files.
+	mustJSON(t, http.MethodGet, filesBase+"?objectId="+holder.ObjectId, "", http.StatusOK, &list)
+	if len(list.Files) != 0 {
+		t.Errorf("deleted object lists %d files, want 0: %+v", len(list.Files), list.Files)
+	}
+	resp, err := e2eClient.Get(filesBase + "/" + held.FileId)
+	if err != nil {
+		t.Fatalf("get file of deleted object: %v", err)
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if code := errorCode(t, raw); resp.StatusCode != http.StatusNotFound || code != "file.not_found" {
+		t.Errorf("get file of deleted object = %d %s, want 404 file.not_found", resp.StatusCode, raw)
 	}
 }
 
