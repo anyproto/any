@@ -43,6 +43,7 @@ The file **bytes ride plain HTTP** — upload is a raw POST body, download a raw
 | Code | Status | Meaning |
 |------|--------|---------|
 | `file.not_found` | 404 | unknown fileId, unknown objectId on attach, or a payload query against an object with no files yet |
+| `object.deleted` | 410 | attach to a deleted object |
 | `file.not_durable` | 409 | offload refused: the local bytes are the only copy |
 | `file.not_available` | 409 | content not local and no peer or network source can serve it yet — retry later |
 | `file.variant_invalid` | 400 | broken `variant` / `variantOf` pairing |

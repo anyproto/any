@@ -93,7 +93,7 @@ object (`files/query/subscribe`), or ride the status stream.
 
 The stored mime is resolved once, at attach: an explicit
 `Content-Type` wins, else the content's magic numbers over the first
-3072 bytes for binary formats, while for text the name's extension
+4096 bytes for binary formats, while for text the name's extension
 decides (text has no signatures, only heuristics). Unplaceable
 content stays unset. Full precedence in `docs/03-api.md` § Files.
 

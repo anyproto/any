@@ -283,7 +283,7 @@ Reads: `POST /v1/spaces/:spaceId/query` with `dataset: "chat_messages"`, `sort: 
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| POST | `…/objects/:objectId/files` | raw body; `Content-Type`; `?name&variant&variantOf` | 201 `FileInfo` | body-limit exempt; `400 file.variant_invalid` |
+| POST | `…/objects/:objectId/files` | raw body; `Content-Type`; `?name&variant&variantOf` | 201 `FileInfo` | body-limit exempt; `400 file.variant_invalid`; deleted object `410 object.deleted` |
 | POST | `…/objects/:objectId/files/query` | snapshot body | `{records, total?, hasNext?}` | cleartext payload rows; `404 file.not_found` before first attach |
 | POST | `…/objects/:objectId/files/query/subscribe` | snapshot body | SSE | |
 | GET | `/v1/spaces/:spaceId/files` | `?objectId&limit` | `{files}` | |

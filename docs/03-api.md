@@ -1341,7 +1341,8 @@ the whole install from the winner alone — and cascade-deleted with the
 root. Seeds are permanent. A child binds to
 its parent's tree, so on a member whose copy of the winner has not
 landed yet the call is `409 bundle.not_ready` — the same retryable
-state Ensure reports. Under a **derived** root the child binds by seed
+state Ensure reports — unless the child itself has already synced,
+in which case its id comes back. Under a **derived** root the child binds by seed
 instead (any-sync rejects a derived object as a parent): same
 determinism, same ids everywhere, and the cascade the parent binding
 buys is moot on a root that can never be deleted.
@@ -3653,7 +3654,10 @@ Errors use the `file.*` namespace (`docs/06-errors.md`): unknown
 fileId/objectId → `404 file.not_found`, offload of the only copy →
 `409 file.not_durable`, content not fetchable yet →
 `409 file.not_available` (retry later), broken variant pairing →
-`400 file.variant_invalid`.
+`400 file.variant_invalid`. An attach to a deleted object answers
+`410 object.deleted` (a typed upload before its body is read); a file
+whose object was deleted answers `404 file.not_found`, and the object
+lists no files.
 
 #### Upload (attach)
 
@@ -3687,7 +3691,7 @@ Metadata rides outside the body:
    `text/plain` is honoured as text but refined by the name as in
    step 3: it is what `fetch()` sends for a string body, and it says
    "text", not which text.
-2. **The content** — magic numbers over the first 3072 bytes. Covers
+2. **The content** — magic numbers over the first 4096 bytes. Covers
    png/jpeg/gif/webp/heic/avif/tiff, pdf, mp4/quicktime/webm,
    mp3/m4a/flac/ogg, zip/OOXML and more. A binary signature beats the
    name: a file *named* `.png` whose bytes are a PDF stores
@@ -3707,7 +3711,7 @@ Metadata rides outside the body:
 Content that cannot be placed leaves the mime **unset** rather than
 asserting `application/octet-stream`: absent and "unknown" are
 different claims, and the download route already falls back. The body
-still streams — at most the 3072-byte sniff window is buffered, and
+still streams — at most the 4096-byte sniff window is buffered, and
 only when the header left the type open (a typed upload is never
 read before the SDK's own checks run).
 

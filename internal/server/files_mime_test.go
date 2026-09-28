@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"io"
+	"strings"
 	"testing"
 )
 
@@ -19,6 +20,9 @@ func TestResolveMime(t *testing.T) {
 	readme := []byte("<p align=\"center\"><img src=\"logo.png\"></p>\n\n# Project\n\nSome words.\n")
 	commaProse := []byte("Hi Bob, see attached\nThanks, Alice\n")
 	tabSnippet := []byte("a\tb\tc\n1\t2\t3\n")
+	// A full sniff window of Cyrillic text that ends inside a two-byte
+	// character.
+	pycLookingCyrillic := []byte("1\r\r\n" + strings.Repeat("ж", sniffLimit))[:sniffLimit-1]
 
 	cases := []struct {
 		name        string
@@ -52,6 +56,21 @@ func TestResolveMime(t *testing.T) {
 		{"mp3 without id3", "", "song.mp3", mp3Bytes, "audio/mpeg"},
 		{"jpeg", "", "", jpegBytes, "image/jpeg"},
 		{"pdf", "", "", pdfBytes, "application/pdf"},
+		// A Python-bytecode signature is four bytes text can carry: a
+		// text name or text-shaped content outranks it, a .pyc name
+		// keeps it.
+		{"pyc-looking text named .txt", "", "notes.txt", []byte("1\r\r\nhello\r\r\n"), "text/plain"},
+		{"pyc-looking text named .md", "", "list.md", []byte("1\r\r\n- a\r\r\n"), "text/markdown"},
+		{"pyc-looking text without a name", "", "notes", []byte("1\r\r\nhello\r\r\n"), "text/plain"},
+		{"pyc named .pyc", "", "mod.pyc", []byte("1\r\r\nhello\r\r\n"), "application/x-bytecode.python"},
+		{"pyc with binary body", "", "", append([]byte("1\r\r\n"), 0xff, 0xfe, 0x00, 0x81), "application/x-bytecode.python"},
+		{"pyc-looking text cut mid-character", "", "notes", pycLookingCyrillic, "text/plain"},
+		{"pyc-looking text named .py", "", "notes.py", pycLookingCyrillic, "text/plain"},
+		{"pyc-looking windows-1252 text", "", "notes", []byte("1\r\r\ncaf\xe9 cr\xe8me\r\r\n"), "text/plain"},
+		// The registered names the sniffer answers with.
+		{"apng", "", "", apngBytes, "image/apng"},
+		{"mkv", "", "", mkvBytes, "video/matroska"},
+		{"rar", "", "", rarBytes, "application/vnd.rar"},
 		{"name never overrides binary content", "", "fake.png", pdfBytes, "application/pdf"},
 
 		// 4. within text the name decides.
@@ -144,6 +163,7 @@ func TestEnsureNameExt(t *testing.T) {
 		{"pasted", "image/png", "pasted.png"},
 		{"pasted", "image/jpeg", "pasted.jpg"}, // canonical, not .jfif
 		{"pasted", "application/pdf", "pasted.pdf"},
+		{"pasted", "image/apng", "pasted.png"}, // not .apng
 		{"shot.png", "image/png", "shot.png"},  // already has one
 		{"shot.txt", "image/png", "shot.txt"},  // never rewritten
 		{"pasted", "", "pasted"},               // mime unresolved
@@ -165,5 +185,14 @@ func TestEnsureNameExt(t *testing.T) {
 		if got := ensureNameExt(c.name, c.mime); got != c.want {
 			t.Errorf("ensureNameExt(%q, %q) = %q, want %q", c.name, c.mime, got, c.want)
 		}
+	}
+}
+
+// TestSniffLimitIsLibraryDefault: init pins the sniffer to sniffLimit,
+// which silently overrides the library default — so a mimetype bump
+// that changes the default must fail here, not go unnoticed.
+func TestSniffLimitIsLibraryDefault(t *testing.T) {
+	if sniffLimit != libraryLimit {
+		t.Errorf("sniffLimit = %d, mimetype reads %d by default", sniffLimit, libraryLimit)
 	}
 }
