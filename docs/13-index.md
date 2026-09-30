@@ -434,7 +434,9 @@ The consumer of the chunker feed: a background service started with the
 account engine when `index.enabled` (default true), holding one
 any-store database at `<data-dir>/index/index.db` (per account,
 `02-server.md` § Data dir layout), and serving
-`POST /v1/spaces/:spaceId/search` / `any search`.
+`POST /v1/spaces/:spaceId/search` / `any search`. The store shares the
+SDK's process-global page pool and runs the same idle checkpoint (20 s
+after the last write) and dirty sentinel as `sdk.db`.
 
 **Observability**: long-running work is reported on the process view
 (`GET /v1/processes`, `22-processes.md` § Internal producers) as

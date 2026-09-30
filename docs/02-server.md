@@ -271,7 +271,7 @@ instance) takes no lock.
     │                            #   holds the local store's l_* collections
     ├── files/                   # file content (one CARv2 per rootCid) — owned
     │                            #   by the SDK (files v2, docs/17-files.md)
-    └── index/                   # local search index (index.db) — owned by the indexer
+    └── index/                   # local search index (index.db, dirty sentinel index.db.lock) — owned by the indexer
 ```
 
 **Upgrading is one-way.** A data dir opened by this build is refused by

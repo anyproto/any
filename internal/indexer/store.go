@@ -10,10 +10,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	anystore "github.com/anyproto/any-store/v2"
 	"github.com/anyproto/any-store/v2/anyenc"
 	"github.com/anyproto/any-store/v2/query"
+	"github.com/anyproto/any-sync-sdk"
 
 	"github.com/anyproto/any/internal/index"
 )
@@ -140,8 +142,28 @@ func OpenStore(ctx context.Context, path string, dim int, embedderConfigured boo
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("indexer: create index dir: %w", err)
 	}
-	db, err := anystore.Open(ctx, path, nil)
+	// The durability and page-pool settings the SDK gives sdk.db: the pool
+	// (sized by the SDK, first caller wins) is shared by both stores, with
+	// overflow falling back to the heap. Without the idle flush the WAL is
+	// checkpointed only at the commit-path threshold and the whole backlog
+	// is replayed on every open; the sentinel adds a quick check after an
+	// unclean shutdown.
+	anysyncsdk.InitPageBuffer()
+	db, err := anystore.Open(ctx, path, &anystore.Config{
+		UseGlobalPageBuffer: true,
+		Durability: anystore.DurabilityConfig{
+			AutoFlush: true,
+			IdleAfter: 20 * time.Second,
+			FlushMode: anystore.FlushModeCheckpointPassive,
+			Sentinel:  true,
+		},
+	})
 	if err != nil {
+		// A check cut short by the caller's ctx or by any-store's own
+		// check timeout is not a torn index.
+		if errors.Is(err, anystore.ErrQuickCheckFailed) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			return nil, quickCheckRebuildErr(path, err)
+		}
 		return nil, fmt.Errorf("indexer: open index db: %w", err)
 	}
 	s := newStore(db, path, dim, embedderConfigured)
@@ -150,6 +172,12 @@ func OpenStore(ctx context.Context, path string, dim int, embedderConfigured boo
 		return nil, err
 	}
 	return s, nil
+}
+
+// quickCheckRebuildErr maps a failed integrity check on open. The index
+// is derived state: a torn index.db is rebuilt, not repaired.
+func quickCheckRebuildErr(path string, cause error) error {
+	return fmt.Errorf("%w: index db failed its integrity check (%v) — remove %s to rebuild from scratch", ErrIndexRebuildRequired, cause, filepath.Dir(path))
 }
 
 // OpenStoreInMemory opens a throwaway in-memory store (tests).

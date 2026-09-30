@@ -16,6 +16,7 @@ package indexer
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -40,6 +41,7 @@ func TestAndroidMatcherStillRecognizesRebuildFailures(t *testing.T) {
 		"schema mismatch": openStoreErrText(t, ctx, indexSchemaVersion+1),
 		"dim mismatch":    dimMismatchErrText(t, ctx),
 		"EnsureDim":       ensureDimErrText(t, ctx),
+		"quick check":     quickCheckRebuildErr(filepath.Join(t.TempDir(), "index.db"), errors.New("page 7: checksum mismatch")).Error(),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if !isRebuildableIndexFailure(msg) {
