@@ -224,7 +224,7 @@ func TestMemoryLimitApplied(t *testing.T) {
 	defer Stop(true)
 
 	if got := debug.SetMemoryLimit(-1); got != gomemlimitBytes {
-		t.Fatalf("GOMEMLIMIT = %d after Start, want %d (256 MiB)", got, gomemlimitBytes)
+		t.Fatalf("GOMEMLIMIT = %d after Start, want %d (2 GiB)", got, gomemlimitBytes)
 	}
 }
 

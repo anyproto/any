@@ -88,19 +88,17 @@ func (e *BootError) Error() string {
 func (e *BootError) Unwrap() error { return e.Err }
 
 // gomemlimitBytes is the GOMEMLIMIT soft cap applied at the start of
-// Start to keep Go's GC pacing from letting RSS drift into iOS jetsam
-// (and Android low-memory-killer) territory.
+// Start so Go's GC pacing keeps RSS clear of iOS jetsam and Android's
+// low-memory killer.
 //
-// Basis: Phase 0 measured ~90 MB steady-state RSS on the host with one
-// space and embedder="none" (FTS-only). 256 MiB gives ~2.8x headroom over
-// that baseline — enough that transient allocation spikes (a query
-// fan-out, an SSE burst) don't thrash GC against the limit, while still
-// well under the per-app memory ceiling iOS enforces before jetsam on
-// modern devices. It is a SOFT limit: Go runs GC harder as it approaches
-// the cap rather than failing. This number is a host-derived starting
-// point — on-device profiling may justify re-tuning it (a device under
-// memory pressure has a tighter real budget than the host).
-const gomemlimitBytes = 256 << 20 // 256 MiB
+// The cap must sit well above the live heap of a large account, or the
+// runtime enters limit-driven collection: a cycle per fraction of a
+// megabyte allocated, each marking the whole live heap, at the GC CPU
+// limiter's 50% of every core. A 22-space account holds ~250 MB live
+// (any-store v2 page buffers alone are ~120 MB), so 256 MiB measured
+// 15 GC cycles/s and 4 of 8 cores in mark work for the whole cold sync.
+// 2 GiB leaves normal GOGC pacing in charge and still bounds a runaway.
+const gomemlimitBytes = 2 << 30 // 2 GiB
 
 // handle is the package-level, mutex-guarded server handle. Only one
 // server runs per process; Start guards against a double-start, and the
