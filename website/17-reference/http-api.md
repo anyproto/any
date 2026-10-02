@@ -80,7 +80,7 @@ curl -X POST http://127.0.0.1:7001/v1/auth -d '{}'      # any auth login
 | PATCH | `/v1/spaces/:spaceId/settings` | `{set: {k: scalar}, unset: [k]}` | 204 | account-private per-space settings; `notifyMode` = `all\|mentions\|none` |
 | POST | `/v1/spaces/:spaceId/sync` | — | 204 | forces one head-sync round; blocks until done |
 | DELETE | `/v1/spaces/:spaceId` | — | 204 | real offline-first deletion; on a `joining` row it withdraws the request; `409 space.derived_undeletable`, `404 space.not_found` |
-| POST | `/v1/spaces/join` | `{inviteToken, metadata?}` | 201 \| 202 `SpaceInfo` | 202 while the request awaits approval (status `joining`); guest tokens auto-detected (201 once loaded, 202 while loading); `400 invite.invalid`; `409 space.deleted` on a space this account deleted; `409 space.already_member` for a guest token of a space already tracked |
+| POST | `/v1/spaces/join` | `{inviteToken, metadata?}` | 201 \| 202 `SpaceInfo` | 202 while the request awaits approval (status `joining`); guest tokens auto-detected (201 once loaded, 202 while loading); `400 invite.invalid`; `410 invite.revoked` once the owner revoked or replaced the invite; `409 space.deleted` on a space this account deleted; `409 space.already_member` for a guest token of a space already tracked |
 | GET | `/v1/spaces/derived` | — | `{spaces: [{name, spaceId, created, status?}]}` | resolves, never creates |
 | POST | `/v1/spaces/derived/:name` | — | 201 `SpaceInfo` | idempotent; `404 space.derived_unknown`, `409 space.deleted` |
 | GET | `/v1/spaces/:spaceId/datasets` | — | `{datasets: [{name, schema, owners?, module, shared?}]}` | JSON Schema with `x-scope` per field; `owners` = the types whose parts declare the storage collection |
@@ -138,7 +138,7 @@ Full semantics in [Bundles](../collaboration/bundles.html).
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| POST | `/v1/spaces/:spaceId/objects` | `{type, collections?, initialProperties?}` | 201 `{objectId}` | closed vocabulary (`400 request.unknown_field`); `type` required (`400 request.missing_field`; `page` is the plain document), `initialProperties` keyed by owner; nothing appended server-side — the tree is the wiki usecase's collection ([Objects](../database/objects.html)); `400 type.not_a_type` for a collection id in `type`, `400 collection.not_a_collection` for a type id in `collections`, `400 type.reserved_carrier` for a type only its own root may carry |
+| POST | `/v1/spaces/:spaceId/objects` | `{type, collections?, initialProperties?}` | 201 `{objectId}` | closed vocabulary (`400 request.unknown_field`); `type` required (`400 request.missing_field`; `page` is the plain document), `initialProperties` keyed by owner; nothing appended server-side — the tree is the wiki usecase's collection ([Objects](../database/objects.html)); `400 type.not_a_type` for a collection id in `type`, `400 collection.not_a_collection` for a type id in `collections`, `400 type.reserved_carrier` for a type only its own root may carry, `400 membership.meta_type` for a meta id (`any`, `type`, `collection`, `spaceIndex`) |
 | POST | `/v1/spaces/:spaceId/objects/query` | snapshot body | `{records, total?, hasNext?}` | cross-object `objects` storage collection |
 | POST | `/v1/spaces/:spaceId/objects/query/subscribe` | snapshot body | SSE | |
 | POST | `/v1/spaces/:spaceId/objects/aggregate` | `{pipeline, groupLimit?, accumArrayLimit?, memoryLimitBytes?, explain?}` | `{records}` \| `{plan}` | `400 aggregate.bad_pipeline`, `400 aggregate.limit_exceeded` |
@@ -251,7 +251,7 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 | GET/POST/PATCH/DELETE | `…/collections/:collectionId/properties[/:propId]` | as the `…/types` twins | as the `…/types` twins | one property surface: same bodies, same codes; a column write on a built-in is `400 type.registered` |
 | GET | `/v1/spaces/:spaceId/properties/:objectId` | — | `{record}` | raw `objects` row |
 | POST | `/v1/spaces/:spaceId/properties/:objectId/set/:ownerId` | `{patch: {propId: value}}` | write result | `ownerId` is the object's type, one of its collections, or a module namespace its type grants (`chat` for `chat.notifyMode`); routes by the props' declared scope; `400 property.format_violation`, `property.kind_mismatch`, `property.not_found`; `400 dataset.not_declared` for an owner the object does not have |
-| POST | `…/properties/:objectId/type/:typeId` | — | write result | `$set any.type`, replacing the previous one (no unset; a raw `$unset` is `400 membership.type_required`); checks both ids (`404 object.not_found`, `404 type.not_found`, `400 type.not_a_type`); `400 type.reserved_carrier` |
+| POST | `…/properties/:objectId/type/:typeId` | — | write result | `$set any.type`, replacing the previous one (no unset; a raw `$unset` is `400 membership.type_required`); checks both ids (`404 object.not_found`, `404 type.not_found`, `400 type.not_a_type`); `400 type.reserved_carrier`; `400 membership.meta_type` for a meta id |
 | POST | `…/properties/:objectId/collections/:collectionId` | — | write result | idempotent `$addToSet any.collections`; checks both ids (`404 object.not_found`, `404 collection.not_found`, `400 collection.not_a_collection`); `collections/bin` also stamps `bin.movedAt` / `bin.movedBy` |
 | DELETE | `…/properties/:objectId/collections/:collectionId` | — | write result | idempotent `$pull`; checks neither id (the repair path); values and records stay as orphan data; `collections/bin` clears the stamps |
 
@@ -316,7 +316,7 @@ See [Files](../files/index.html).
 | GET | `/v1/spaces/:spaceId/members/requests` | — | `{requests: [{recordId, identity, name?, description?, iconCid?}]}` | pass `recordId` as `requestRecordId` to `acl/accept` |
 | GET | `/v1/spaces/:spaceId/members/subscribe` | — | SSE `member` frames | |
 | GET | `/v1/spaces/:spaceId/members/:identity` | — | `Member` | |
-| POST | `/v1/spaces/:spaceId/invites` | — | 201 `{spaceId, inviteToken}` | replaces any prior invite; `409 invite.duplicate` when the engine refuses a second one |
+| POST | `/v1/spaces/:spaceId/invites` | — | 201 `{spaceId, inviteToken}` | replaces any prior invite; owner only (`403 acl.forbidden`); `409 invite.duplicate` when the engine refuses a second one |
 | GET | `/v1/spaces/:spaceId/invites` | — | `{invites: [{recordId, permission, inviteToken?}]}` | token only on the minting account's devices |
 | GET | `/v1/spaces/:spaceId/invites/:recordId` | — | one invite | `404 invite.not_found` |
 | DELETE | `/v1/spaces/:spaceId/invites` | — | 204 | revoke all |

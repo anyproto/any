@@ -155,8 +155,9 @@ registered **collections**. All four resolve by their literal id and are
 `GET …/types` also lists the meta rows `any`, `spaceIndex`, `type` and
 `collection`: the universal property group, the space-metadata type, and
 the two meta-types whose namespaces hold a definition's own metadata
-(`type.layout`, `collection.xkey`). None of them is a type a user puts on
-an object — never offer them in a type picker.
+(`type.layout`, `collection.xkey`). None of them is an object's type:
+every write that sets one as `any.type` is `400 membership.meta_type`,
+and a type picker never offers them.
 
 ### Rendering an object
 

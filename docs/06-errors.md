@@ -29,7 +29,7 @@ Every error response — regardless of status code — has the same body:
 | 404    | Target not found (space, object, type, record, route)          |
 | 405    | Route not available on the tech space (`space.unsupported`), or wrong method for the route |
 | 409    | Conflict (duplicate, precondition failed, state not ready)     |
-| 410    | Deleted for good (`object.deleted`, `record.deleted`)          |
+| 410    | Deleted for good (`object.deleted`, `record.deleted`, `invite.revoked`) |
 | 413    | Body over the 1 MiB cap (`request.too_large`; file attach is exempt), or `history.view_too_large` |
 | 429    | `access.rate_limited`                                          |
 | 500    | Internal error — unexpected SDK or server failure              |
@@ -92,11 +92,12 @@ space.derived_undeletable        # 409 — DELETE on a derived space; derived sp
 space.unsupported                # 405 — the route is not available on the tech space (allowed there: bundles, type reads and dataset declarations on bundle roots, records on bundle roots, GET space, sync-status, debug)
 
 members.not_found                # 404 — the member a members / ACL operation names is unknown (e.g. GET …/members/:identity)
-acl.forbidden                    # 403 — the ACL refuses the operation for this account's permissions
+acl.forbidden                    # 403 — the ACL refuses the operation for this account's permissions, or the coordinator refuses it (make-shareable on invite create is owner-only)
 acl.record_not_found             # 404 — the ACL record the operation names does not exist
 invite.invalid                   # 400 — invite token malformed or unrecognized
 invite.duplicate                 # 409 — POST …/invites while an invite already exists
 invite.not_found                 # 404 — GET …/invites/:recordId for an unknown record
+invite.revoked                   # 410 — POST /v1/spaces/join with an invite the space's ACL no longer holds: revoked, replaced or never minted
 guest_key.not_found              # 404 — revoke with no active guest key
 identity.not_found               # 404 — GET /v1/identities/:identity for an identity not in the directory
 
@@ -135,6 +136,7 @@ filter.invalid                   # 400 — any other filter-grammar violation (w
 type.not_found                   # 404 — unknown typeId on GET …/types/:typeId, GET …/types/:typeId/properties (existence-checked: a real type with no properties answers 200 [], an unknown id never does) POST …/properties/:objectId/type/:typeId, POST …/objects and POST …/bundles/:bundleId/children (`type` names a type the space does not have); 400 when a bundle ensure's rootType does — an unknown rootProperties owner is collection.not_found
 membership.wrong_slot            # 400 — a write put a known collection id in any.type or a known type id in any.collections through a raw route (POST …/modify on the objects row, a bundle child); the membership routes and POST …/objects answer type.not_a_type / collection.not_a_collection instead
 membership.type_required         # 400 — a raw write cleared any.type; every object has exactly one type (POST …/objects without `type` and a bare bundle body without `rootType` answer request.missing_field)
+membership.meta_type             # 400 — a write set a meta id (`any`, `type`, `collection`, `spaceIndex`) as any.type: on create, retype, a raw write, a bundle root or a bundle child
 type.not_a_type                  # 400 — a …/types route, or POST …/properties/:objectId/type/:typeId, names a user COLLECTION (details.collectionId): use the …/collections routes, or file the object with POST …/properties/:objectId/collections/:collectionId. A registered collection's id (miniapp, bin) has no type row at all and answers type.not_found
 type.xkey_required               # 400 — a type or a collection created without an xKey (both need a stable handle)
 type.reserved_carrier            # 400 — object create `type`, POST …/properties/:objectId/type/:typeId, a bundle's rootType or a bundle child's type, or an `any.type` op through …/modify names a type whose part declares a reserved module (the general-chat root): that type is carried only by its own root (details.typeId)
