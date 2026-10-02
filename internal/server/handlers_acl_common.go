@@ -84,7 +84,7 @@ func aclOpError(c echo.Context, err error, details map[string]any) error {
 		return writeError(c, http.StatusNotFound, "members.not_found", err.Error(), details)
 	}
 	// The coordinator's own refusal: make-shareable, the precondition
-	// of invite create, guest-key create and direct add, is owner-only.
+	// of invite create and direct add, is owner-only.
 	if errors.Is(err, space.ErrCoordinatorForbidden) {
 		return writeError(c, http.StatusForbidden, "acl.forbidden",
 			"the coordinator refuses this operation for this account", details)

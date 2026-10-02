@@ -3877,9 +3877,11 @@ out-of-band; joiners pass it back verbatim:
 ```
 
 A malformed or unrecognized `inviteToken` returns `400 invite.invalid`. A
-well-formed token whose invite the space's ACL no longer holds (the owner
-revoked or replaced it) returns `410 invite.revoked`. The code also covers
-an invite that never existed: any-sync cannot tell the two apart. A
+request-to-join token whose invite the space's ACL no longer holds (the
+owner revoked or replaced it) returns `410 invite.revoked`. The code also
+covers an invite that never existed: any-sync cannot tell the two apart.
+A revoked guest key is not refused here; the joined copy reads
+`guest_revoked` (§ Guest key). A
 token for a space this account deleted returns `409 space.deleted` before
 anything reaches the network — the tombstone is sticky. A guest token for
 a space this account already tracks is `409 space.already_member`. A join

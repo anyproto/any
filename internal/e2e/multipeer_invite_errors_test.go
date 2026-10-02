@@ -12,9 +12,9 @@ import (
 
 // TestE2E_MultipeerInviteRefusals covers the two invite refusals that
 // carry a typed 4xx: a join with an invite the owner revoked is
-// 410 invite.revoked and posts no request, and a mint by a non-owner
-// member is 403 acl.forbidden (the coordinator's make-shareable is
-// owner-only).
+// 410 invite.revoked and posts no request, and a mint by an admin is
+// 403 acl.forbidden. The ACL lets an admin mint; the coordinator's
+// make-shareable is what refuses.
 func TestE2E_MultipeerInviteRefusals(t *testing.T) {
 	if _, err := os.Stat(stagingFixture); err != nil {
 		t.Skipf("staging fixture not present at %s: %v", stagingFixture, err)
@@ -46,10 +46,26 @@ func TestE2E_MultipeerInviteRefusals(t *testing.T) {
 		owner.base+"/v1/spaces/"+sp.Id+"/invites/"+invs.Invites[0].RecordId,
 		"", http.StatusNoContent)
 
+	// A node that has not applied the revoke yet builds the request,
+	// and consensus then refuses it: a 500 that posts nothing. Retry
+	// until the joiner reads an ACL with the revoke.
 	body, _ := json.Marshal(api.SpaceJoinRequest{InviteToken: minted.InviteToken})
+	var (
+		status int
+		raw    []byte
+	)
+	pollUntil(30*time.Second, func() bool {
+		resp, b := doRequest(t, http.MethodPost, joiner.base+"/v1/spaces/join", string(body))
+		status, raw = resp.StatusCode, b
+		return status != http.StatusInternalServerError
+	})
+	if status != http.StatusGone {
+		t.Fatalf("join with a revoked invite: %d %s, want 410", status, raw)
+	}
 	var env api.ErrorEnvelope
-	mustJSON(t, http.MethodPost, joiner.base+"/v1/spaces/join",
-		string(body), http.StatusGone, &env)
+	if err := json.Unmarshal(raw, &env); err != nil {
+		t.Fatalf("decode error envelope: %v (%s)", err, raw)
+	}
 	if env.Error.Code != "invite.revoked" {
 		t.Fatalf("join with a revoked invite: code = %q, want invite.revoked (%+v)", env.Error.Code, env.Error)
 	}
@@ -67,10 +83,10 @@ func TestE2E_MultipeerInviteRefusals(t *testing.T) {
 		t.Fatalf("owner saw a join request from a revoked invite")
 	}
 
-	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionWriter)
+	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionAdmin)
 
 	if code := mustErrorCode(t, http.MethodPost, joiner.base+"/v1/spaces/"+sp.Id+"/invites",
 		"", http.StatusForbidden); code != "acl.forbidden" {
-		t.Fatalf("non-owner invite create: code = %q, want acl.forbidden", code)
+		t.Fatalf("admin invite create: code = %q, want acl.forbidden", code)
 	}
 }

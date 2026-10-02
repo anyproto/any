@@ -94,7 +94,7 @@ space.unsupported                # 405 — the route is not available on the tec
 members.not_found                # 404 — the member a members / ACL operation names is unknown (e.g. GET …/members/:identity)
 acl.forbidden                    # 403 — the ACL refuses the operation for this account's permissions, or the coordinator refuses it (make-shareable on invite create is owner-only)
 acl.record_not_found             # 404 — the ACL record the operation names does not exist
-invite.invalid                   # 400 — invite token malformed or unrecognized
+invite.invalid                   # 400 — invite token malformed or not decodable as an invite
 invite.duplicate                 # 409 — POST …/invites while an invite already exists
 invite.not_found                 # 404 — GET …/invites/:recordId for an unknown record
 invite.revoked                   # 410 — POST /v1/spaces/join with an invite the space's ACL no longer holds: revoked, replaced or never minted
