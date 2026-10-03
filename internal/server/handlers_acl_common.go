@@ -83,6 +83,12 @@ func aclOpError(c echo.Context, err error, details map[string]any) error {
 	if errors.Is(err, space.ErrNotFound) {
 		return writeError(c, http.StatusNotFound, "members.not_found", err.Error(), details)
 	}
+	// The coordinator's own refusal: make-shareable, the precondition
+	// of invite create and direct add, is owner-only.
+	if errors.Is(err, space.ErrCoordinatorForbidden) {
+		return writeError(c, http.StatusForbidden, "acl.forbidden",
+			"the coordinator refuses this operation for this account", details)
+	}
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "no permissions") || strings.Contains(msg, "permission denied"):

@@ -19,6 +19,7 @@ import (
 //	@Produce	json
 //	@Param		spaceId	path		string	true	"Space ID"
 //	@Success	201		{object}	api.InviteCreateResponse
+//	@Failure	403		{object}	api.ErrorEnvelope	"acl.forbidden — only the space owner can make the space shareable"
 //	@Failure	409		{object}	api.ErrorEnvelope	"Duplicate invite"
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/invites [post]
@@ -231,6 +232,7 @@ func (d *deps) guestKeyRevoke(c echo.Context) error {
 //	@Success	202		{object}	api.SpaceInfo			"Join pending owner approval (member) or space load pending (guest)"
 //	@Failure	400		{object}	api.ErrorEnvelope
 //	@Failure	409		{object}	api.ErrorEnvelope	"space.deleted — the space was deleted on this account (any token); space.already_member — guest token for a space this account already tracks"
+//	@Failure	410		{object}	api.ErrorEnvelope	"invite.revoked — the invite was revoked or no longer exists"
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/join [post]
 func (d *deps) spaceJoin(c echo.Context) error {
@@ -320,6 +322,14 @@ func (d *deps) spaceJoin(c echo.Context) error {
 	if errors.Is(err, space.ErrSpaceDeleted) {
 		return writeError(c, http.StatusConflict, "space.deleted",
 			"the space was deleted on this account", map[string]any{"spaceId": inv.SpaceId})
+	}
+	// The space's ACL no longer holds the invite. A revoked and a
+	// never-minted invite are the same error, so the message names
+	// both. Matched here only: on a revoke the same sentinel means
+	// "unknown record".
+	if errors.Is(err, space.ErrInviteNotFound) {
+		return writeError(c, http.StatusGone, "invite.revoked",
+			"the invite was revoked or no longer exists", map[string]any{"spaceId": inv.SpaceId})
 	}
 	return aclOpError(c, err, nil)
 }

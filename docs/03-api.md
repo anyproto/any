@@ -1810,7 +1810,8 @@ the object gets exactly the type and collections it names. Initial
 values pass the descriptor value gate
 (`400 property.format_violation`, § Types), and a type that declares a
 reserved module is refused (`400 type.reserved_carrier`, § Parts and
-modules). → `201 {"objectId": "…"}`.
+modules), and so is a meta id as `type` — `any`, `type`, `collection`
+or `spaceIndex` (`400 membership.meta_type`). → `201 {"objectId": "…"}`.
 
 `GET …/objects/:objectId` → `{objectId, record}` — the object's row
 from the `objects` storage collection: `any.type`, `any.collections`
@@ -3282,7 +3283,9 @@ descriptor gate (`400 property.format_violation`, § Types).
 (`any.type`, a `$set`): a previous type is replaced, and its values and
 dataset records stay as orphan data, read-tolerant. There is no unset:
 every object has exactly one type (a raw `$unset` of `any.type` is
-`400 membership.type_required`). Takes no body, returns `ModifyResult`.
+`400 membership.type_required`), and a meta id (`any`, `type`,
+`collection`, `spaceIndex`) is never one (`400 membership.meta_type`).
+Takes no body, returns `ModifyResult`.
 
 **The collections.** `POST …/collections/:collectionId` files the
 object under a collection (`any.collections`, `$addToSet`, idempotent),
@@ -3859,7 +3862,9 @@ Mint:
 by `space.EncodeInvite`. Minted invites are request-to-join: a listed
 invite's `permission` is `"none"` — the role is chosen by the owner at
 `/acl/accept`, not carried by the invite. A mint the ACL refuses as a
-duplicate is `409 invite.duplicate`. Owners share the token
+duplicate is `409 invite.duplicate`. A mint by a non-owner is
+`403 acl.forbidden`: the coordinator's make-shareable, which the mint
+runs first, is owner-only. Owners share the token
 out-of-band; joiners pass it back verbatim:
 
 ```json
@@ -3872,6 +3877,11 @@ out-of-band; joiners pass it back verbatim:
 ```
 
 A malformed or unrecognized `inviteToken` returns `400 invite.invalid`. A
+request-to-join token whose invite the space's ACL no longer holds (the
+owner revoked or replaced it) returns `410 invite.revoked`. The code also
+covers an invite that never existed: any-sync cannot tell the two apart.
+A revoked guest key is not refused here; the joined copy reads
+`guest_revoked` (§ Guest key). A
 token for a space this account deleted returns `409 space.deleted` before
 anything reaches the network — the tombstone is sticky. A guest token for
 a space this account already tracks is `409 space.already_member`. A join
