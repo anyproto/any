@@ -91,7 +91,7 @@ Long-running index work shows up in the process view:
 any process list                       # GET /v1/processes
 ```
 
-`index.fts.<spaceId>` is the change backlog (done counts changes, total unknown), `index.embed.<spaceId>` the vector drain with done/total, `index.links_backfill.<spaceId>` a rebuild of the link index, `index.model_download` the model fetch in bytes. Indexing announces itself only past three seconds of work, so ordinary edits never appear. On a search reply, `vectorStatus: "unavailable"` means the embedder is down or the model is still downloading; `disabled` means this server has none ([Hybrid ranking](../search/hybrid.html)). If boot fails with an index schema-version or dimension mismatch, remove `<account-dir>/index/` and restart: every space then re-indexes from the beginning, visible as the processes above ([How indexing works](../search/indexing.html)).
+`index.fts.<spaceId>` is the change backlog (done counts changes, total unknown), `index.embed.<spaceId>` the vector drain with done/total, `index.links_backfill.<spaceId>` a rebuild of the link index, `index.model_download` the model fetch in bytes. Indexing announces itself only past three seconds of work, so ordinary edits never appear. On a search reply, `vectorStatus: "unavailable"` means the embedder is down or the model is still downloading; `disabled` means this server has none ([Hybrid ranking](../search/hybrid.html)). If boot fails with an index schema-version or dimension mismatch, or with an integrity-check failure after a crash, remove `<account-dir>/index/` and restart: every space then re-indexes from the beginning, visible as the processes above ([How indexing works](../search/indexing.html)).
 
 ## Reading an error
 
