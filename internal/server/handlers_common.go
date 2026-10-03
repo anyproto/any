@@ -349,6 +349,10 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 		return writeError(c, http.StatusBadRequest, "membership.wrong_slot",
 			"a type goes in any.type, a collection in any.collections", details)
 	}
+	if errors.Is(err, space.ErrMetaType) {
+		return writeError(c, http.StatusBadRequest, "membership.meta_type",
+			"any, type, collection and spaceIndex are not an object's type", details)
+	}
 	if errors.Is(err, space.ErrRecordDeleted) {
 		// A write addressed a tombstoned record: the id is burned for
 		// good (docs/24-data-views.md), so the rejection is permanent.

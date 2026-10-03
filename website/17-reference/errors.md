@@ -35,7 +35,7 @@ Every error response from the any server — whatever the status code — has th
 | 404 | target not found (space, object, type, collection, record, version, route) |
 | 405 | the surface is not available on the tech space (`space.unsupported`) |
 | 409 | conflict — duplicate, precondition failed, not converged yet, feature disabled |
-| 410 | the target existed and is gone for good (`object.deleted`, `record.deleted`) |
+| 410 | the target is gone for good (`object.deleted`, `record.deleted`, `invite.revoked`) |
 | 413 | history view too large; request body over the 1 MB limit |
 | 429 | the invite service is throttling this client (`access.rate_limited`) |
 | 500 | unexpected engine or server failure (`internal`); the stack goes to the server log only |
@@ -102,11 +102,12 @@ Panics are converted to `500 internal` with a generic message.
 | `space.read_only` | 403 | a guest or reader tried to write |
 | `space.unsupported` | 405 | the surface is not available on the tech space (object and type lifecycle, members, files, chat, editor, history, search, metadata, settings, non-bundle writes, catalog setup) |
 | `members.not_found` | 404 | unknown member identity in this space |
-| `acl.forbidden` | 403 | the caller's role does not allow this ACL operation |
+| `acl.forbidden` | 403 | the caller's role does not allow this ACL operation (minting an invite is owner-only) |
 | `acl.record_not_found` | 404 | the ACL record named (a join request) does not exist |
-| `invite.invalid` | 400 | invite token malformed or unrecognized |
+| `invite.invalid` | 400 | invite token malformed or not decodable as an invite |
 | `invite.not_found` | 404 | unknown invite record |
 | `invite.duplicate` | 409 | an invite already exists for this space |
+| `invite.revoked` | 410 | join with an invite the space no longer holds: revoked, replaced or never minted |
 | `guest_key.not_found` | 404 | revoke with no active guest key |
 
 ### Objects, bundles, catalog
@@ -162,6 +163,7 @@ Panics are converted to `500 internal` with a generic message.
 | `collection.registered` | 400 | PATCH the metadata of a registered built-in collection (`miniapp`, `bin`) |
 | `membership.wrong_slot` | 400 | a raw `…/modify` write put a known collection id in `any.type` or a known type id in `any.collections` |
 | `membership.type_required` | 400 | a raw write cleared `any.type`; every object has exactly one type |
+| `membership.meta_type` | 400 | a write set a meta id (`any`, `type`, `collection`, `spaceIndex`) as `any.type` |
 | `property.not_found` | 400 | a value write names a property the owner — the object's type or one of its collections — does not declare |
 | `property.kind_mismatch` | 400 | write violated the immutable kind |
 | `property.xkey_conflict` | 409 | another property of the same type or collection holds this `xKey` (`details.xKey`, `details.existingPropId`) |

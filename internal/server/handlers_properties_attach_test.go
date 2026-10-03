@@ -228,6 +228,43 @@ func TestServer_PropertiesSlotsAreTyped(t *testing.T) {
 	}
 }
 
+// TestServer_MetaIdsAreNotTypes pins that the meta rows `GET …/types`
+// lists are never an object's type: on create, retype, a raw write and
+// a bundle root, created or derived.
+func TestServer_MetaIdsAreNotTypes(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	sp := createSpaceInfo(t, e, "MetaTypes")
+
+	obj := mustCreateObject(t, e, sp.Id, `{"type":"page"}`)
+	for _, meta := range []string{"any", "type", "collection", "spaceIndex"} {
+		rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects", fmt.Sprintf(`{"type":%q}`, meta))
+		if rec.Code != http.StatusBadRequest || errEnvCode(t, rec.Body.Bytes()) != "membership.meta_type" {
+			t.Errorf("create with type %s: %d %s, want 400 membership.meta_type", meta, rec.Code, rec.Body.String())
+		}
+		rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/properties/"+obj+"/type/"+meta, "")
+		if rec.Code != http.StatusBadRequest || errEnvCode(t, rec.Body.Bytes()) != "membership.meta_type" {
+			t.Errorf("set type %s: %d %s, want 400 membership.meta_type", meta, rec.Code, rec.Body.String())
+		}
+		rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/modify",
+			`{"objectId":"`+obj+`","dataset":"objects","records":[{"id":"`+obj+`","ops":[{"type":"$set","path":"any.type","value":"`+meta+`"}]}]}`)
+		if rec.Code != http.StatusBadRequest || errEnvCode(t, rec.Body.Bytes()) != "membership.meta_type" {
+			t.Errorf("raw modify %s: %d %s, want 400 membership.meta_type", meta, rec.Code, rec.Body.String())
+		}
+		for _, derived := range []bool{false, true} {
+			rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/bundles",
+				fmt.Sprintf(`{"id":"meta-%s/v1","name":"Meta","rootType":%q,"derived":%t}`, meta, meta, derived))
+			if rec.Code != http.StatusBadRequest || errEnvCode(t, rec.Body.Bytes()) != "membership.meta_type" {
+				t.Errorf("bundle root %s (derived=%t): %d %s, want 400 membership.meta_type", meta, derived, rec.Code, rec.Body.String())
+			}
+		}
+	}
+	if tp, _ := objectMembers(t, e, sp.Id, obj); tp != "page" {
+		t.Fatalf("a refused meta id reached the row: type=%q", tp)
+	}
+}
+
 // A definition object is an object: a dataview can be hosted on one,
 // which is what "views on a type" relies on.
 func TestServer_PropertiesDataviewHostsADefinition(t *testing.T) {

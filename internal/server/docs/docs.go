@@ -7222,6 +7222,16 @@ const docTemplate = `{
                         },
                         "description": "space.deleted — the space was deleted on this account (any token); space.already_member — guest token for a space this account already tracks"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "invite.revoked — the invite was revoked or no longer exists"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -10271,6 +10281,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Created"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "acl.forbidden — only the space owner can make the space shareable"
                     },
                     "409": {
                         "content": {
