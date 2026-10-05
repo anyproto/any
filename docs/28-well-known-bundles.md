@@ -258,10 +258,8 @@ settle. The registered type ids and the meta ids `any`, `type` and
 cannot collide at setup.
 
 A definition that holds a catalog handle before the usecase is set up
-— a user's own `contact` — blocks that usecase in that space: neither
-types nor collections can be deleted over HTTP (`DELETE
-…/types/:typeId` and `DELETE …/collections/:collectionId` are `501`).
-To free the handle, rename it: `xkey` is an ordinary value in the
+— a user's own `contact` — blocks that usecase in that space. To free
+the handle, rename it: `xkey` is an ordinary value in the
 meta-type's namespace, so `POST …/properties/<typeId>/set/type` (or
 `…/properties/<collectionId>/set/collection`) with `{"patch":
 {"xkey": "contact_own"}}` renames it and the next setup proceeds. That

@@ -121,8 +121,8 @@ the types, collections, properties and datasets its content uses, so the
 journal on a phone and the journal on a desktop are the same type with
 the same ids, and an ingest agent writes where the reader reads. Minting
 the definition client-side races on `409 type.xkey_conflict` and can end
-with one device's entries invisible on the other — and a definition
-cannot be deleted.
+with one device's entries invisible on the other — and deleting a
+definition leaves its id on every object that carries it.
 
 Full contract: [`28-well-known-bundles.md`](28-well-known-bundles.md).
 Clients register their own bundles the same way through
@@ -208,6 +208,15 @@ Retyping is not a delete. The old type's values stay on the row as orphan
 data, read-tolerant, and so do its datasets' records — which its parts no
 longer admit writes to. Unfiling likewise leaves that collection's values
 in place.
+
+Deleting a collection (`DELETE …/objects/:collectionId`) unfiles
+nothing. Its members keep the id in `any.collections` and their values
+in its namespace, and a membership query on the id still matches them.
+A list never meets a dead id — a client filters only on collections it
+can list — but an object's own `any.collections` does: skip an id that
+resolves to no collection when rendering property groups, filed-under
+chips or a picker's ticked state. The unfile `DELETE` above removes it;
+any client may run it, none has to.
 
 ### Creating a type vs a collection
 
