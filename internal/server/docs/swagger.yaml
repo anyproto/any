@@ -973,9 +973,9 @@ components:
           description: |-
             Invalid marks a definition whose folded declaration fails
             validation (invalidReason says why) — a records fold missing a
-            creator stamp behind an author rule, an unknown module, a shared
-            rule violation. Invalid definitions never register or accept data
-            but stay listed so they can be repaired or removed.
+            creator stamp behind an author rule, an unknown module, a
+            collection rule violation. Invalid definitions never register or
+            accept data but stay listed so they can be repaired or removed.
           type: boolean
         invalidReason:
           type: string
@@ -983,8 +983,8 @@ components:
           description: |-
             Key is the slug inside the type; collection is the name reads and
             writes address (`dataset` on /query, /modify, /upsert …) — the
-            module's canonical collection when shared, `<typeId>_<key>`
-            otherwise. Server-computed, never client-set.
+            module's canonical collection when the key names it,
+            `<typeId>_<key>` otherwise. Server-computed, never client-set.
           type: string
         module:
           type: string
@@ -993,8 +993,6 @@ components:
           type: string
         search:
           $ref: '#/components/schemas/api.DatasetSearchFields'
-        shared:
-          type: boolean
         skipHistory:
           type: boolean
       type: object
@@ -1034,9 +1032,12 @@ components:
         key:
           description: |-
             Key is the dataset's slug inside its type ([a-z][a-z0-9_]*, ≤ 64)
-            — pinned. A namespaced dataset lives in the collection
-            `<typeId>_<key>`; a shared dataset's key is its module's canonical
-            collection name and may be omitted.
+            — pinned — and decides the collection. A module's canonical
+            collection name (editor_blocks) is that collection, the one every
+            type declaring it addresses, so retyping an object keeps its
+            body. Any other key is the collection `<typeId>_<key>`, this
+            type's own. Omitted on a module dataset, it is the canonical
+            name; a records dataset requires one.
           type: string
         module:
           description: |-
@@ -1047,13 +1048,6 @@ components:
           type: string
         search:
           $ref: '#/components/schemas/api.DatasetSearchFields'
-        shared:
-          description: |-
-            Shared makes the type participate in the module's canonical
-            collection (editor_blocks) instead of a namespaced one, so two
-            types sharing the editor give an object carrying both a single
-            body. Editor: either; records: never.
-          type: boolean
         skipHistory:
           description: SkipHistory keeps the dataset out of the version-history index.
           type: boolean
@@ -1173,16 +1167,15 @@ components:
         module:
           description: |-
             Module is the serving module ("records", "editor", "chat"; empty
-            for built-ins and registered-type datasets); Shared marks a
-            module's canonical collection.
+            for built-ins and registered-type datasets).
           type: string
         name:
           type: string
         owners:
           description: |-
             Owners are the types that declare the dataset: one for a
-            registered-type or namespaced dataset, every type sharing the
-            module for a canonical collection (empty while nothing declares
+            registered-type or namespaced dataset, every type declaring it
+            for a module's canonical collection (empty while nothing declares
             it), none for space-level built-ins. Records exist only on objects
             carrying one of them; consumers gate indexing/eviction on it.
           items:
@@ -1192,8 +1185,6 @@ components:
         schema:
           additionalProperties: {}
           type: object
-        shared:
-          type: boolean
       type: object
     api.DatasetSearchFields:
       description: |-

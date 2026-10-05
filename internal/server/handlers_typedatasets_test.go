@@ -280,7 +280,7 @@ func TestTypeDatasets_Lifecycle(t *testing.T) {
 		}
 		def := list.Datasets[0]
 		if def.Id != defId || def.Key != "articles" || def.Collection != collection ||
-			def.Module != "records" || def.Shared || def.PartId != partId || def.IdRule != "user" ||
+			def.Module != "records" || def.PartId != partId || def.IdRule != "user" ||
 			def.DeleteBy != "author" || def.Invalid || len(def.Fields) != 7 {
 			t.Errorf("def = %+v", def)
 		}
@@ -327,7 +327,7 @@ func TestTypeDatasets_Lifecycle(t *testing.T) {
 				continue
 			}
 			found = true
-			if len(s.Owners) != 1 || s.Owners[0] != typeId || s.Module != "records" || s.Shared {
+			if len(s.Owners) != 1 || s.Owners[0] != typeId || s.Module != "records" {
 				t.Errorf("discovery row = %+v, want owner %q", s, typeId)
 			}
 			var doc struct {
@@ -644,11 +644,11 @@ func TestTypeDatasets_Lifecycle(t *testing.T) {
 	})
 }
 
-// TestTypeParts_ModuleDatasets pins the module side of a part: a
-// shared dataset is the module's canonical collection (one per module
-// per type, no field declarations — the module owns the schema), a
-// namespaced one is <typeId>_<key>; records never shares; an unknown
-// module is refused at declaration.
+// TestTypeParts_ModuleDatasets pins the module side of a part. The key
+// decides the collection: a module dataset with no key is the module's
+// canonical collection (once per type, no field declarations — the
+// module owns the schema), any other key is <typeId>_<key>; records
+// requires a key; an unknown module is refused at declaration.
 func TestTypeParts_ModuleDatasets(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -662,13 +662,13 @@ func TestTypeParts_ModuleDatasets(t *testing.T) {
 		status int
 		code   string
 	}{
-		"unknown module":         {`{"key":"x","datasets":[{"key":"x","module":"nope"}]}`, http.StatusBadRequest, "dataset.module_unknown"},
-		"records shared":         {`{"key":"x","datasets":[{"module":"records","shared":true}]}`, http.StatusBadRequest, "dataset.shared_conflict"},
-		"module with fields":     {`{"key":"x","datasets":[{"module":"editor","shared":true,"fields":[{"key":"x","kind":"string"}]}]}`, http.StatusConflict, "dataset.module_owned"},
-		"shared key mismatch":    {`{"key":"x","datasets":[{"key":"blocks","module":"editor","shared":true}]}`, http.StatusBadRequest, "dataset.shared_conflict"},
-		"chat reserved":          {`{"key":"x","datasets":[{"key":"thread","module":"chat"}]}`, http.StatusBadRequest, "dataset.module_reserved"},
-		"chat shared":            {`{"key":"x","datasets":[{"module":"chat","shared":true}]}`, http.StatusBadRequest, "dataset.module_reserved"},
-		"shared-only namespaced": {`{"key":"x","datasets":[{"key":"thread","module":"shared_notes"}]}`, http.StatusBadRequest, "dataset.shared_conflict"},
+		"unknown module":            {`{"key":"x","datasets":[{"key":"x","module":"nope"}]}`, http.StatusBadRequest, "dataset.module_unknown"},
+		"records without a key":     {`{"key":"x","datasets":[{"module":"records"}]}`, http.StatusBadRequest, "dataset.decl_invalid"},
+		"unknown field shared":      {`{"key":"x","datasets":[{"module":"editor","shared":true}]}`, http.StatusBadRequest, "request.unknown_field"},
+		"module with fields":        {`{"key":"x","datasets":[{"module":"editor","fields":[{"key":"x","kind":"string"}]}]}`, http.StatusConflict, "dataset.module_owned"},
+		"chat reserved":             {`{"key":"x","datasets":[{"key":"thread","module":"chat"}]}`, http.StatusBadRequest, "dataset.module_reserved"},
+		"chat unkeyed":              {`{"key":"x","datasets":[{"module":"chat"}]}`, http.StatusBadRequest, "dataset.module_reserved"},
+		"canonical-only namespaced": {`{"key":"x","datasets":[{"key":"thread","module":"solo_notes"}]}`, http.StatusBadRequest, "dataset.decl_invalid"},
 	} {
 		rec := doJSON(t, e, http.MethodPost, partsBase, tc.body)
 		if rec.Code != tc.status {
@@ -683,10 +683,10 @@ func TestTypeParts_ModuleDatasets(t *testing.T) {
 		t.Fatalf("parts after refusals: %v %s", err, rec.Body.String())
 	}
 
-	// Shared editor + a namespaced editor instance under one part (chat
-	// is reserved to the catalog, refused above).
+	// The canonical editor dataset + a namespaced editor instance under
+	// one part (chat is reserved to the catalog, refused above).
 	bodyPart := mustAddPart(t, e, spaceId, typeId,
-		`{"key":"body","name":"Body","datasets":[{"module":"editor","shared":true},{"key":"notes","module":"editor"}]}`)
+		`{"key":"body","name":"Body","datasets":[{"module":"editor"},{"key":"notes","module":"editor"}]}`)
 	rec = doJSON(t, e, http.MethodGet, partsBase, "")
 	if err := json.Unmarshal(rec.Body.Bytes(), &parts); err != nil || len(parts.Parts) != 1 {
 		t.Fatalf("parts: %v %s", err, rec.Body.String())
@@ -695,19 +695,21 @@ func TestTypeParts_ModuleDatasets(t *testing.T) {
 	for _, ds := range parts.Parts[0].Datasets {
 		byKey[ds.Key] = ds
 	}
-	if ds := byKey["editor_blocks"]; ds.Collection != "editor_blocks" || ds.Module != "editor" || !ds.Shared || ds.PartId != bodyPart {
-		t.Errorf("shared editor = %+v", ds)
+	if ds := byKey["editor_blocks"]; ds.Collection != "editor_blocks" || ds.Module != "editor" || ds.PartId != bodyPart {
+		t.Errorf("canonical editor = %+v", ds)
 	}
-	if ds := byKey["notes"]; ds.Collection != typeId+"_notes" || ds.Module != "editor" || ds.Shared {
+	if ds := byKey["notes"]; ds.Collection != typeId+"_notes" || ds.Module != "editor" {
 		t.Errorf("namespaced editor = %+v", ds)
 	}
-	// A second shared editor on the same type collides on the
-	// canonical key — one shared dataset per module per type.
-	rec = doJSON(t, e, http.MethodPost, partsBase+"/"+bodyPart+"/datasets", `{"module":"editor","shared":true}`)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("second shared editor: %d %s", rec.Code, rec.Body.String())
+	// The canonical editor dataset again on the same type, unkeyed or
+	// with its name spelled out, collides on the key.
+	for _, body := range []string{`{"module":"editor"}`, `{"key":"editor_blocks","module":"editor"}`} {
+		rec = doJSON(t, e, http.MethodPost, partsBase+"/"+bodyPart+"/datasets", body)
+		if rec.Code != http.StatusConflict {
+			t.Fatalf("second canonical editor %s: %d %s", body, rec.Code, rec.Body.String())
+		}
+		assertErrorCode(t, rec, "dataset.key_conflict")
 	}
-	assertErrorCode(t, rec, "dataset.key_conflict")
 
 	// Discovery: the canonical collection lists the type among its
 	// owners; the instance is owned by it alone and served by editor.
@@ -720,12 +722,12 @@ func TestTypeParts_ModuleDatasets(t *testing.T) {
 	for _, s := range ds.Datasets {
 		seen[s.Name] = s
 	}
-	// The built-in page shares the canonical collection in every space,
-	// so the user type joins it as a second owner.
-	if s := seen["editor_blocks"]; s.Module != "editor" || !s.Shared || !slices.Contains(s.Owners, typeId) || !slices.Contains(s.Owners, page.TypeId) {
+	// The built-in page declares the canonical collection in every
+	// space, so the user type joins it as a second owner.
+	if s := seen["editor_blocks"]; s.Module != "editor" || !slices.Contains(s.Owners, typeId) || !slices.Contains(s.Owners, page.TypeId) {
 		t.Errorf("editor_blocks discovery = %+v", s)
 	}
-	if s := seen[typeId+"_notes"]; s.Module != "editor" || s.Shared || len(s.Owners) != 1 || s.Owners[0] != typeId {
+	if s := seen[typeId+"_notes"]; s.Module != "editor" || len(s.Owners) != 1 || s.Owners[0] != typeId {
 		t.Errorf("notes discovery = %+v", s)
 	}
 

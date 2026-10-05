@@ -1,12 +1,12 @@
 // Package page registers the built-in `page` type: the plain document.
 //
 // Hidden, no properties, one part — `body` — whose dataset is the
-// editor module's shared collection, so an object of type `page` holds
-// `editor_blocks` (docs/03-api.md § Parts and modules). Every object
-// has exactly one type; `page` is the answer for a plain document, a
-// client's own document types with an editor part share the same
-// collection. Nothing stamps it: a client decides the type of each
-// object it creates.
+// editor module's canonical collection, so an object of type `page`
+// holds `editor_blocks` (docs/03-api.md § Parts and modules). Every
+// object has exactly one type; `page` is the answer for a plain
+// document, and a client's own document type whose editor part names
+// no other key addresses the same collection. Nothing stamps it: a
+// client decides the type of each object it creates.
 //
 // Registered, not a bundle: the id is reserved and the declaration
 // static, so every space has it by construction and no install can
@@ -25,7 +25,7 @@ const (
 	// produce it, and the xKey guard refuses user types claiming it.
 	TypeId      = "page"
 	Name        = "Page"
-	Description = "A document: one body in the shared editor collection"
+	Description = "A document: one body in the editor's canonical collection"
 
 	// PartBody is the type's single part; its dataset is the editor's
 	// canonical collection.
@@ -47,7 +47,7 @@ func NewType() handler.Type {
 			Key:      PartBody,
 			Name:     "Body",
 			UI:       map[string]any{"type": "document"},
-			Datasets: []handler.PartDataset{{Module: editor.Module, Shared: true}},
+			Datasets: []handler.PartDataset{{Module: editor.Module}},
 		}},
 	}
 }

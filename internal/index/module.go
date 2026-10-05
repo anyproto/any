@@ -18,7 +18,7 @@ type ModuleStream func(ctx context.Context, sp space.Space, objectId, collection
 type ModuleReconcile func(ctx context.Context, sp space.Space, objectId, collection string) ([]IndexEntry, error)
 
 // ModuleChunker indexes every collection a dataset module serves in a
-// space: the module's shared canonical collection and each namespaced
+// space: the module's canonical collection and each namespaced
 // `<typeId>_<key>` instance a type declares. One registered chunker per
 // module, resolved per space from Space.Datasets (the `Module` of each
 // discovered dataset) — the same in-memory snapshot the SDK refreshes

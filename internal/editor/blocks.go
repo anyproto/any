@@ -51,8 +51,8 @@ import (
 
 // Module is the module slug a type names in a part's dataset
 // declaration (`{"module": "editor"}`). The SDK instantiates the block
-// handler once for the shared canonical collection (Dataset) and once
-// per namespaced `<typeId>_<key>` instance a type declares.
+// handler once for the canonical collection (Dataset) and once per
+// namespaced `<typeId>_<key>` instance a type declares.
 const Module = "editor"
 
 // Dataset is the per-object dataset that holds the block records.
@@ -122,9 +122,8 @@ const (
 
 // NewModule returns the handler.Module to add to config.Config.Modules
 // so the SDK serves every editor collection — the canonical
-// `editor_blocks` shared by every type declaring `{"module": "editor",
-// "shared": true}` and each namespaced instance — with the block
-// handler.
+// `editor_blocks` every type declaring `{"module": "editor"}`
+// addresses, and each namespaced instance — with the block handler.
 //
 //	cfg := config.Config{
 //	    Modules: []handler.Module{ editor.NewModule(), chat.NewModule() },

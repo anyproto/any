@@ -5,7 +5,7 @@ order: 10
 ---
 # Chat
 
-The `chat` module turns an object into a conversation: one `chat_messages` storage collection, one record per message, edits and reactions that merge on every peer, and read state the SDK maintains for you. The general chat's root declares its own type with a part `{"module": "chat", "shared": true}` ([modules](index.html)) and hosts its own messages; chat is shared-only, one conversation per object. You write through a handful of chat endpoints and read everything — including live updates and unread flags — through the ordinary query primitive.
+The `chat` module turns an object into a conversation: one `chat_messages` storage collection, one record per message, edits and reactions that merge on every peer, and read state the SDK maintains for you. The general chat's root declares its own type with a part `{"module": "chat"}` ([modules](index.html)) and hosts its own messages; chat has one dataset, so one conversation per object. You write through a handful of chat endpoints and read everything — including live updates and unread flags — through the ordinary query primitive.
 
 > **Note.** The `chat` module is reserved to the server: a space has exactly one chat, the general chat that the catalog's `general-chat` usecase installs (`system:general-chat/v1`, a derived root). A client cannot declare its own chat — a part, dataset or bundle body naming `chat` is `400 dataset.module_reserved` — and the chat's type is carried only by its own root: creating or attaching another object with it is `400 type.reserved_carrier`.
 

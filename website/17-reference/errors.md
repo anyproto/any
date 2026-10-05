@@ -135,7 +135,6 @@ Panics are converted to `500 internal` with a generic message.
 | `dataset.not_found` | 404 | the editor route's `:collection` is not an editor storage collection in this space |
 | `dataset.validation` | 400 | schema or handler rejected the ops |
 | `dataset.key_conflict` | 409 | a part or dataset with this key already exists on the type (`details.key`) |
-| `dataset.shared_conflict` | 400 | `shared` on a module without a canonical storage collection, a shared key that is not the canonical name, or a namespaced dataset on a shared-only module |
 | `dataset.module_unknown` | 400 | the dataset names a module the server does not compile in |
 | `dataset.module_owned` | 409 | fields declared on a module-served dataset |
 | `dataset.module_reserved` | 400 | a part, dataset or bundle draft names a module reserved to the server's own installs (`chat`) |

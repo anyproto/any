@@ -108,8 +108,8 @@ set, and a row's members are read once per page from the row itself.
   per editor storage collection the object holds, and the indexer diffs
   each set against that collection's stored docs by content hash (§ Content
   hashes) — only changed or new windows re-embed. An append re-embeds
-  one window; an edit in a part's own editor never touches the shared
-  body's docs. Forming windows is an O(doc) read per edit; embedding is
+  one window; an edit in a part's own editor never touches the
+  canonical body's docs. Forming windows is an O(doc) read per edit; embedding is
   incremental.
 - **Scopes are an open set** of slugs (`index.ValidScope`: 1..64 chars
   of `[a-z0-9_-]`); `basic` / `chat` / `props` are the established

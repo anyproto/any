@@ -89,9 +89,9 @@ func (d *deps) typeAddDataset(c echo.Context) error {
 	if !ok {
 		return nil
 	}
-	if req.Key == "" && !req.Shared {
+	if req.Key == "" && (req.Module == "" || req.Module == api.ModuleRecords) {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",
-			"key required (a shared dataset may omit it — it is the module's canonical collection)", nil)
+			"key required (a module dataset may omit it — it is then the module's canonical collection)", nil)
 	}
 	// Existence preflight: the SDK writes to whatever object :typeId
 	// names, so without it a non-type objectId gets a 201 and a
@@ -661,11 +661,6 @@ func (d *deps) datasetWriteError(c echo.Context, err error, details map[string]a
 	case strings.Contains(msg, "unknown module"):
 		return writeError(c, http.StatusBadRequest, "dataset.module_unknown",
 			sanitizeSDKMessage(err), details)
-	case strings.Contains(msg, "already declares a shared"), strings.Contains(msg, "two shared"),
-		strings.Contains(msg, "admits only shared"), strings.Contains(msg, "has no shared collection"),
-		strings.Contains(msg, "is keyed"):
-		return writeError(c, http.StatusBadRequest, "dataset.shared_conflict",
-			sanitizeSDKMessage(err), details)
 	case strings.Contains(msg, "already declared on type"), strings.Contains(msg, "declared twice"):
 		return writeError(c, http.StatusConflict, "dataset.key_conflict",
 			"a part or dataset with this key already exists on the type", details)
@@ -733,7 +728,6 @@ func systemDatasetDraftFromAPI(req api.DatasetDraftRequest) (space.DatasetDraft,
 	draft := space.DatasetDraft{
 		Key:         req.Key,
 		Module:      req.Module,
-		Shared:      req.Shared,
 		DisplayName: req.DisplayName,
 		Description: req.Description,
 		Dynamic:     req.Dynamic,
@@ -875,7 +869,6 @@ func datasetDefToAPI(def space.DatasetDef) api.DatasetDefResponse {
 		Key:           def.Key,
 		Collection:    def.Collection,
 		Module:        def.Module,
-		Shared:        def.Shared,
 		PartId:        def.PartId,
 		DisplayName:   def.DisplayName,
 		Description:   def.Description,

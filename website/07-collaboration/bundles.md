@@ -30,7 +30,7 @@ Bundle ids carry a slash — the version suffix is part of the id (`favorites/v1
 ```bash
 curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles \
   -d '{"id": "notes/v1", "name": "Notes", "xKey": "notes", "hidden": true,
-       "parts": [{"key": "body", "datasets": [{"module": "editor", "shared": true}]}]}'
+       "parts": [{"key": "body", "datasets": [{"module": "editor"}]}]}'
 ```
 
 ```json

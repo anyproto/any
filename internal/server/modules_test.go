@@ -12,7 +12,7 @@ import (
 // Module-declaring types for tests. A chat or editor collection is
 // writable on an object only when one of the object's types declares
 // the module in a part. For the editor the tests mint a plain user
-// type with one shared part; for chat — a reserved module — the only
+// type with one editor part; for chat — a reserved module — the only
 // declaration is the catalog's general-chat install, so the chat
 // "type" is the general-chat root and the chat object is the root
 // itself (one chat per space).
@@ -48,7 +48,7 @@ func installModuleType(t testing.TB, e http.Handler, spaceId, module string) str
 		t.Fatalf("decode type: %v", err)
 	}
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types/"+created.TypeId+"/parts",
-		`{"key":"`+module+`","name":"`+module+`","datasets":[{"module":"`+module+`","shared":true}]}`)
+		`{"key":"`+module+`","name":"`+module+`","datasets":[{"module":"`+module+`"}]}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("declare %s part: %d %s", module, rec.Code, rec.Body.String())
 	}

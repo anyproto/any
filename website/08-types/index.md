@@ -14,19 +14,19 @@ A module is not a type. A **type** is properties plus **parts** — the display 
 Parts are a **type's** alone. A collection — what an object is filed under — carries property definitions and nothing else, so it never brings a body, a chat or a records dataset with it ([Collections](../database/collections.html)).
 
 ```bash
-# a document type: one part sharing the editor module
+# a document type: one part with the editor module's canonical dataset
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/types/$DOC/parts \
   -H 'Content-Type: application/json' \
-  -d '{"key": "body", "datasets": [{"module": "editor", "shared": true}]}'
+  -d '{"key": "body", "datasets": [{"module": "editor"}]}'
 ```
 
 | Module | Storage collection | Writes via | Reads via |
 |------|---------|-----------|-----------|
-| `chat` | `chat_messages` (shared) | `…/objects/:objectId/chat/messages[…]` | `/query` with `"dataset": "chat_messages"` |
-| `editor` | `editor_blocks` (shared), or `<typeId>_<key>` for a part with its own editor | `…/objects/:objectId/editor/:collection/blocks[…]` and `…/editor/:collection/markdown` | `/query` with `"dataset": "<collection>"` |
+| `chat` | `chat_messages` (canonical) | `…/objects/:objectId/chat/messages[…]` | `/query` with `"dataset": "chat_messages"` |
+| `editor` | `editor_blocks` (canonical), or `<typeId>_<key>` for a part with its own editor | `…/objects/:objectId/editor/:collection/blocks[…]` and `…/editor/:collection/markdown` | `/query` with `"dataset": "<collection>"` |
 | `records` | `<typeId>_<key>` | generic `/modify` and `/upsert` | `/query` with `"dataset": "<collection>"` — [Runtime datasets](../database/runtime-datasets.html) |
 
-A **shared** dataset is the module's canonical storage collection: every type that shares the editor writes the same body, so retyping an object from one document type to another keeps its body instead of stranding it. A **namespaced** dataset (`<typeId>_<key>`) belongs to one type — a meeting's `summary` editor next to its shared notes. Chat is shared-only. An object holds a storage collection only while its type declares the part that owns it: a write without it is `400 dataset.not_declared`, and no write sets a type for you.
+The dataset's `key` decides the storage collection. A module dataset with **no key** is the module's **canonical** storage collection: every type that declares the editor this way writes the same body, so retyping an object from one document type to another keeps its body instead of stranding it. **Any other key** is a **namespaced** dataset (`<typeId>_<key>`) that belongs to one type — a meeting's `summary` editor next to its notes. Chat admits its canonical dataset only. An object holds a storage collection only while its type declares the part that owns it: a write without it is `400 dataset.not_declared`, and no write sets a type for you.
 
 The `any://` link grammar is not a type, but it is the glue between them: a mention in a chat message, an image in a document and a citation of a property value are all `any://` URIs in markdown link destinations.
 

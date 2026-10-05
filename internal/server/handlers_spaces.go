@@ -91,8 +91,8 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.PATCH("/spaces/:spaceId/objects/:objectId/editor/:collection/blocks/:blockId", d.blocksPatch)
 	g.DELETE("/spaces/:spaceId/objects/:objectId/editor/:collection/blocks/:blockId", d.blocksDelete)
 
-	// Chat (module — see internal/chat; shared-only, so the collection
-	// is always chat_messages). Writes only here;
+	// Chat (module — see internal/chat; canonical-only, so the
+	// collection is always chat_messages). Writes only here;
 	// reads + liveness go through /query and /query/subscribe with
 	// dataset=chat_messages.
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages", d.chatSend)

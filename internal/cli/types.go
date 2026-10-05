@@ -369,9 +369,9 @@ search.text is a bare field key or a non-empty array of keys, e.g.
 joins the mapped fields into one body. A field's xFormat is the same
 descriptor a property carries (docs/27-descriptors.md).
 A module-served dataset names its module instead of fields:
-  {"module": "editor", "shared": true}          the shared editor body
+  {"module": "editor"}                          the editor body (editor_blocks)
   {"key": "summary", "module": "editor"}        a second, namespaced editor
-Behavioral parts (key, module, shared, idRule, deleteBy, field
+Behavioral parts (key, module, idRule, deleteBy, field
 kinds/flags) are pinned; display parts patch via 'type part dataset
 patch' and 'type part dataset field patch'. Declare required fields
 here — fields added later cannot be required. The reply carries the
@@ -403,8 +403,8 @@ func newTypeDatasetPatchCmd() *cobra.Command {
 		Use:   "patch <spaceId> <typeId> <defId>",
 		Short: "PATCH a dataset definition's display leaves",
 		Long: `Mutable paths: description, displayName, search.title,
-search.text, search.scope. Everything else (key, module, shared, id
-rule, delete gate) is pinned — remove and re-add. Values are strings; search.text also takes a non-empty array
+search.text, search.scope. Everything else (key, module, id rule,
+delete gate) is pinned — remove and re-add. Values are strings; search.text also takes a non-empty array
 of field keys.
 
 Examples:

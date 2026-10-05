@@ -83,7 +83,7 @@ curl -X POST http://127.0.0.1:7001/v1/auth -d '{}'      # any auth login
 | POST | `/v1/spaces/join` | `{inviteToken, metadata?}` | 201 \| 202 `SpaceInfo` | 202 while the request awaits approval (status `joining`); guest tokens auto-detected (201 once loaded, 202 while loading); `400 invite.invalid`; `410 invite.revoked` once the owner revoked or replaced a request-to-join invite; `409 space.deleted` on a space this account deleted; `409 space.already_member` for a guest token of a space already tracked |
 | GET | `/v1/spaces/derived` | — | `{spaces: [{name, spaceId, created, status?}]}` | resolves, never creates |
 | POST | `/v1/spaces/derived/:name` | — | 201 `SpaceInfo` | idempotent; `404 space.derived_unknown`, `409 space.deleted` |
-| GET | `/v1/spaces/:spaceId/datasets` | — | `{datasets: [{name, schema, owners?, module, shared?}]}` | JSON Schema with `x-scope` per field; `owners` = the types whose parts declare the storage collection |
+| GET | `/v1/spaces/:spaceId/datasets` | — | `{datasets: [{name, schema, owners?, module}]}` | JSON Schema with `x-scope` per field; `owners` = the types whose parts declare the storage collection |
 | GET | `/v1/datasets` | — | `{datasets: [{name, schema}]}` | tech-space system datasets |
 | POST | `/v1/spaces/:spaceId/search` | `{query, scopes?, limit?, mode?, require?, exclude?, maxData?, passages?, filter?}` | `{hits, mode, vectorStatus, truncated?}` | local index, not an SDK method; `limit` counts records (default 10), `passages` ≤ 10; `filter` is an objects-query filter on the host object's row, `truncated` marks a short filtered page that may not be exhaustive; `400 filter.invalid`, `400 filter.unknown_operator`, `409 index.disabled`, `400 index.no_embedder`, `503 index.embedder_unavailable`, `400 search.bad_mode`, `400 search.bad_scope` |
 
@@ -119,7 +119,7 @@ Pending rows are discovered through `GET /v1/spaces?status=one_to_one_pending` /
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/bundles \
-  -d '{"id":"notes/v1","name":"Notes","xKey":"notes","hidden":true,"parts":[{"key":"body","datasets":[{"module":"editor","shared":true}]}]}'
+  -d '{"id":"notes/v1","name":"Notes","xKey":"notes","hidden":true,"parts":[{"key":"body","datasets":[{"module":"editor"}]}]}'
 ```
 
 Full semantics in [Bundles](../collaboration/bundles.html).
@@ -233,11 +233,11 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 | DELETE | `…/types/:typeId/properties/:propId` | — | 204 | tombstone; values not cleaned up |
 | PATCH | `…/types/:typeId` | `{name?, description?, iconCid?, layout?, hidden?, meta?}` | 204 | rendering slice, the hidden flag and the per-key meta bag (`null` unsets a key); `400 type.registered`, `404 type.not_found` |
 | GET | `…/types/:typeId/parts` | — | `{parts: [{id, key, name?, icon?, pos?, hidden?, ui?, uses?, datasets: [DatasetDef]}]}` | |
-| POST | `…/types/:typeId/parts` | `{key, name?, icon?, pos?, hidden?, ui?, uses?, datasets?: [dataset draft]}` | 201 `{partId}` | one change; `409 dataset.key_conflict`, `400 dataset.module_unknown`, `400 dataset.module_reserved`, `400 dataset.shared_conflict`, `409 dataset.module_owned` |
+| POST | `…/types/:typeId/parts` | `{key, name?, icon?, pos?, hidden?, ui?, uses?, datasets?: [dataset draft]}` | 201 `{partId}` | one change; `409 dataset.key_conflict`, `400 dataset.module_unknown`, `400 dataset.module_reserved`, `409 dataset.module_owned` |
 | PATCH | `…/types/:typeId/parts/:partId` | `{set, unset}` | 204 | `name`, `icon`, `pos`, `hidden`, `ui`, `uses`; `400 dataset.immutable` |
 | DELETE | `…/types/:typeId/parts/:partId` | — | 204 | removes the part and its datasets |
-| POST | `…/types/:typeId/parts/:partId/datasets` | `{key?, module?, shared?, displayName?, idRule?, deleteBy?, search?, fields, …}` | 201 `{datasetDefId, collection}` | the storage collection is `<typeId>_<key>` (or the module's canonical one when shared); `409 dataset.key_conflict`, `400 dataset.decl_invalid` |
-| GET | `…/types/:typeId/datasets` | — | `{datasets: [DatasetDef]}` | flat compiled view; each carries its storage `collection`, `module`, `shared`, `partId` |
+| POST | `…/types/:typeId/parts/:partId/datasets` | `{key?, module?, displayName?, idRule?, deleteBy?, search?, fields, …}` | 201 `{datasetDefId, collection}` | the storage collection is `<typeId>_<key>` (or the module's canonical one when a module dataset names no key); `409 dataset.key_conflict`, `400 dataset.decl_invalid` |
+| GET | `…/types/:typeId/datasets` | — | `{datasets: [DatasetDef]}` | flat compiled view; each carries its storage `collection`, `module`, `partId` |
 | PATCH | `…/types/:typeId/datasets/:defId` | `{set, unset}` | 204 | display leaves only; `400 dataset.immutable` |
 | DELETE | `…/types/:typeId/datasets/:defId` | — | 204 | |
 | POST | `…/types/:typeId/datasets/:defId/fields` | field def | 201 `{fieldDefId}` | never `required` |

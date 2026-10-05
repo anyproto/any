@@ -126,13 +126,13 @@ func TestCatalog_SidebarAppsDeclareTheirTypes(t *testing.T) {
 		}
 		surfaces[p.Key] = p.Datasets[0]
 	}
-	// The notes are the COMMON editor (shared with page); the summary is a
-	// second editor of its own; the transcript is upserted by segment id.
-	if surfaces["notes"].Module != "editor" || !surfaces["notes"].Shared {
+	// The notes are the COMMON editor (unkeyed: the body a page has);
+	// the summary is a second editor of its own; the transcript is
+	// upserted by segment id.
+	if surfaces["notes"].Module != "editor" || surfaces["notes"].Key != "" {
 		t.Fatalf("notes: %+v", surfaces["notes"])
 	}
-	if surfaces["summary"].Module != "editor" || surfaces["summary"].Shared ||
-		surfaces["summary"].Key != "summary" {
+	if surfaces["summary"].Module != "editor" || surfaces["summary"].Key != "summary" {
 		t.Fatalf("summary: %+v", surfaces["summary"])
 	}
 	if surfaces["transcript"].Key != "transcript" || surfaces["transcript"].IdRule != "user" {
@@ -437,16 +437,16 @@ func TestCatalog_Problems(t *testing.T) {
 			code: CodeUnknownField, path: "usecases[1].bundles[0].type.weight",
 		},
 		{
-			name: "chat dataset not shared",
+			name: "chat dataset under another key",
 			mutate: func(s string) string {
-				return strings.Replace(s, "- key: settings\n                idRule: user\n                fields: [ { key: pipeline, kind: string, mutableBy: any } ]", "- { module: chat }", 1)
+				return strings.Replace(s, "- key: settings\n                idRule: user\n                fields: [ { key: pipeline, kind: string, mutableBy: any } ]", "- { module: chat, key: thread }", 1)
 			},
-			code: CodeBadField, path: "usecases[2].bundles[0].parts[0].datasets[0]", contains: "shared only",
+			code: CodeBadField, path: "usecases[2].bundles[0].parts[0].datasets[0].key", contains: "one dataset",
 		},
 		{
 			name: "fields on an editor dataset",
 			mutate: func(s string) string {
-				return strings.Replace(s, "- key: settings\n                idRule: user\n                fields:", "- module: editor\n                shared: true\n                fields:", 1)
+				return strings.Replace(s, "- key: settings\n                idRule: user\n                fields:", "- module: editor\n                fields:", 1)
 			},
 			code: CodeBadField, path: "usecases[2].bundles[0].parts[0].datasets[0].fields",
 		},

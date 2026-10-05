@@ -1093,14 +1093,14 @@
                         "type": "string"
                     },
                     "invalid": {
-                        "description": "Invalid marks a definition whose folded declaration fails\nvalidation (invalidReason says why) — a records fold missing a\ncreator stamp behind an author rule, an unknown module, a shared\nrule violation. Invalid definitions never register or accept data\nbut stay listed so they can be repaired or removed.",
+                        "description": "Invalid marks a definition whose folded declaration fails\nvalidation (invalidReason says why) — a records fold missing a\ncreator stamp behind an author rule, an unknown module, a\ncollection rule violation. Invalid definitions never register or\naccept data but stay listed so they can be repaired or removed.",
                         "type": "boolean"
                     },
                     "invalidReason": {
                         "type": "string"
                     },
                     "key": {
-                        "description": "Key is the slug inside the type; collection is the name reads and\nwrites address (`dataset` on /query, /modify, /upsert …) — the\nmodule's canonical collection when shared, `\u003ctypeId\u003e_\u003ckey\u003e`\notherwise. Server-computed, never client-set.",
+                        "description": "Key is the slug inside the type; collection is the name reads and\nwrites address (`dataset` on /query, /modify, /upsert …) — the\nmodule's canonical collection when the key names it,\n`\u003ctypeId\u003e_\u003ckey\u003e` otherwise. Server-computed, never client-set.",
                         "type": "string"
                     },
                     "module": {
@@ -1112,9 +1112,6 @@
                     },
                     "search": {
                         "$ref": "#/components/schemas/api.DatasetSearchFields"
-                    },
-                    "shared": {
-                        "type": "boolean"
                     },
                     "skipHistory": {
                         "type": "boolean"
@@ -1157,7 +1154,7 @@
                         "type": "string"
                     },
                     "key": {
-                        "description": "Key is the dataset's slug inside its type ([a-z][a-z0-9_]*, ≤ 64)\n— pinned. A namespaced dataset lives in the collection\n`\u003ctypeId\u003e_\u003ckey\u003e`; a shared dataset's key is its module's canonical\ncollection name and may be omitted.",
+                        "description": "Key is the dataset's slug inside its type ([a-z][a-z0-9_]*, ≤ 64)\n— pinned — and decides the collection. A module's canonical\ncollection name (editor_blocks) is that collection, the one every\ntype declaring it addresses, so retyping an object keeps its\nbody. Any other key is the collection `\u003ctypeId\u003e_\u003ckey\u003e`, this\ntype's own. Omitted on a module dataset, it is the canonical\nname; a records dataset requires one.",
                         "type": "string"
                     },
                     "module": {
@@ -1166,10 +1163,6 @@
                     },
                     "search": {
                         "$ref": "#/components/schemas/api.DatasetSearchFields"
-                    },
-                    "shared": {
-                        "description": "Shared makes the type participate in the module's canonical\ncollection (editor_blocks) instead of a namespaced one, so two\ntypes sharing the editor give an object carrying both a single\nbody. Editor: either; records: never.",
-                        "type": "boolean"
                     },
                     "skipHistory": {
                         "description": "SkipHistory keeps the dataset out of the version-history index.",
@@ -1313,14 +1306,14 @@
             "api.DatasetSchema": {
                 "properties": {
                     "module": {
-                        "description": "Module is the serving module (\"records\", \"editor\", \"chat\"; empty\nfor built-ins and registered-type datasets); Shared marks a\nmodule's canonical collection.",
+                        "description": "Module is the serving module (\"records\", \"editor\", \"chat\"; empty\nfor built-ins and registered-type datasets).",
                         "type": "string"
                     },
                     "name": {
                         "type": "string"
                     },
                     "owners": {
-                        "description": "Owners are the types that declare the dataset: one for a\nregistered-type or namespaced dataset, every type sharing the\nmodule for a canonical collection (empty while nothing declares\nit), none for space-level built-ins. Records exist only on objects\ncarrying one of them; consumers gate indexing/eviction on it.",
+                        "description": "Owners are the types that declare the dataset: one for a\nregistered-type or namespaced dataset, every type declaring it\nfor a module's canonical collection (empty while nothing declares\nit), none for space-level built-ins. Records exist only on objects\ncarrying one of them; consumers gate indexing/eviction on it.",
                         "items": {
                             "type": "string"
                         },
@@ -1330,9 +1323,6 @@
                     "schema": {
                         "additionalProperties": {},
                         "type": "object"
-                    },
-                    "shared": {
-                        "type": "boolean"
                     }
                 },
                 "type": "object"

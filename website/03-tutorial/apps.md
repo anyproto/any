@@ -16,7 +16,7 @@ A type is properties plus **parts**. A part is a display unit the client renders
 | Module | Serves | You declared one in |
 |--------|--------|---------------------|
 | `records` | records whose schema you declare, in `<typeId>_<key>` | Part 3 — the `messages` part |
-| `editor` | block documents with a lossless markdown bridge, in the shared `editor_blocks` | below |
+| `editor` | block documents with a lossless markdown bridge, in `editor_blocks` | below |
 | `chat` | messages with reactions, mentions and read tracking, in `chat_messages` | reserved to the server — the space's one chat |
 
 Giving the mailbox a notes body is one more part on the type:
@@ -24,7 +24,7 @@ Giving the mailbox a notes body is one more part on the type:
 ```bash
 curl -s -X POST $API/spaces/$SPACE/types/$MAILBOX/parts -H 'content-type: application/json' \
   -d '{"key": "notes", "name": "Notes", "pos": "a1", "ui": {"type": "document"},
-       "datasets": [{"module": "editor", "shared": true}]}'
+       "datasets": [{"module": "editor"}]}'
 
 curl -s -X POST $API/spaces/$SPACE/objects/$INBOX/editor/editor_blocks/markdown/append \
   -H 'content-type: application/json' \
@@ -36,7 +36,7 @@ The mailbox object did not learn how to store blocks, merge concurrent edits or 
 Two rules keep this flat rather than a hierarchy:
 
 - **Types never inherit from types.** An object has exactly one type, and that type's parts are the object's parts. There is no chain to resolve and no primary-type contest.
-- **A shared storage collection is the same body everywhere.** `"shared": true` puts the body in the module's canonical storage collection, `editor_blocks` — the one the built-in `page` uses too. Retype an object from `mailbox` to `page` and its notes are still there, because both parts name the same place ([Modules](../types/index.html)).
+- **An editor dataset with no key is the same body everywhere.** It lives in the module's canonical storage collection, `editor_blocks` — the one the built-in `page` uses too. Retype an object from `mailbox` to `page` and its notes are still there, because both parts name the same place ([Modules](../types/index.html)).
 
 > **Why it matters.** The modules are the shapes that are hardest to get right as CRDTs — a block document, a messenger — shipped once and inherited everywhere. Your type gets a real collaborative body by naming a module; the merge rules run on every peer and never reach a server.
 
@@ -86,7 +86,7 @@ curl -s -X POST $API/spaces/$SPACE/bundles -H 'content-type: application/json' -
                               {"key": "receivedAt", "kind": "datetime", "required": true},
                               {"key": "read", "kind": "boolean", "mutableBy": "any"}]}]},
     {"key": "notes", "ui": {"type": "document"},
-     "datasets": [{"module": "editor", "shared": true}]} ],
+     "datasets": [{"module": "editor"}]} ],
   "rootCollections": ["miniapp"],
   "rootProperties": {"miniapp": {"bundle": "mail/v1", "pos": "a0"}} }'
 ```
@@ -170,7 +170,7 @@ Every catalog entry is the same construction you just built by hand, and each sh
 | `wiki` | an app **and** a collection: the sidebar entry, and the hidden collection whose `parentId` / `pos` / `folder` place every page filed under it in the tree (a page keeps its own type) |
 | `collections` | an app only — a `page` root filed under `miniapp`, whose presence switches the types feature on in the client |
 | `journal` | an app **and** a collection: the sidebar entry, and the hidden collection whose one `date` property makes a page filed under it that day's entry |
-| `meetings` | two roots: the `meeting` type, outside the sidebar — a meeting is one object whose three parts are its notes (the shared editor), a second editor for the summary, and a transcript dataset an agent fills — and a separate `page` root that is the sidebar entry |
+| `meetings` | two roots: the `meeting` type, outside the sidebar — a meeting is one object whose three parts are its notes (the canonical editor body), a second editor for the summary, and a transcript dataset an agent fills — and a separate `page` root that is the sidebar entry |
 | `general-chat` | the space's one chat: a **derived** root both sides of a partition compute, so it can never fork, carrying the reserved `chat` module |
 | `people`, `contact`, `contacts`, `crm` | a set: `crm` requires `contacts`, which requires `people` and `contact`; setup resolves the closure in order and the reply lists every bundle it touched, `typeId` for a type root and `collectionId` for a collection root |
 

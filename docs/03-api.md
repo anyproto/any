@@ -758,8 +758,8 @@ in arrives as an `added` change.
 #### Dataset schema discovery
 
 ```
-GET /v1/spaces/:spaceId/datasets   → { datasets: [ { name, schema, owners?, module?, shared? } ] }   Space.Datasets
-GET /v1/datasets                   → { datasets: [ { name, schema } ] }                              Service.Datasets
+GET /v1/spaces/:spaceId/datasets   → { datasets: [ { name, schema, owners?, module? } ] }   Space.Datasets
+GET /v1/datasets                   → { datasets: [ { name, schema } ] }                     Service.Datasets
 ```
 
 `schema` is a standard **JSON Schema** object per dataset
@@ -770,9 +770,8 @@ runtime datasets, `chat` / `editor` for the compiled-in ones); it is
 absent on built-in datasets (`objects`, the SDK's system datasets) and
 on a registered type's statically declared datasets. `owners` lists the
 types whose parts declare the storage collection: the one declaring
-type of a namespaced `<typeId>_<key>` instance, every type sharing a
-module's canonical one (`shared: true` — `editor_blocks`,
-`chat_messages`). A storage collection lives on an object only while
+type of a namespaced `<typeId>_<key>` instance, every type declaring a
+module's canonical one (`editor_blocks`, `chat_messages`). A storage collection lives on an object only while
 the object's type is one of its owners (a type definition object counts
 as its own), so consumers gate indexing/eviction on that set; a
 canonical one nothing declares yet is listed without `owners`, and no
@@ -1167,8 +1166,8 @@ holds the marker.
   the parts list), and records go through `POST …/upsert` / `…/modify`
   / `…/query[/subscribe]` with that storage collection as `dataset` and
   `objectId` = an object of the type — the root itself included, since a
-  definition hosts itself. A part naming a module (`{"module": "editor", "shared":
-  true}`) makes the root's type own that module's canonical storage
+  definition hosts itself. A part naming a module (`{"module":
+  "editor"}`) makes the root's type own that module's canonical storage
   collection — this is how a client's document bundle gives its
   objects a body. A part
   naming a module reserved to the server (`chat`, § Parts and modules)
@@ -1508,11 +1507,11 @@ storage collection** (one record per block) served by the compiled-in
 `editor` module, and exposed through the `…/editor/:collection/**`
 route namespace. `:collection` is the storage collection a type's part
 declared with `{"module": "editor"}` (§ Parts and modules): the canonical
-`editor_blocks` for a shared part — the body every document type
-shares, so an object that changes from one document type to another
-keeps its body — or a
+`editor_blocks` for a part that names no other key — the body every
+document type addresses, so an object that changes from one document
+type to another keeps its body — or a
 namespaced `<typeId>_<key>` instance for a part that wants its own
-editor (the catalog's `meeting`: its notes are the shared body, its
+editor (the catalog's `meeting`: its notes are the canonical body, its
 summary a second editor at `<typeId>_summary`). An object holds a
 storage collection only while its type declares it: a
 write into one the object's type does not declare is `400
@@ -2694,21 +2693,22 @@ part is what the client renders; the module is what the server
 enforces.
 
 Where a dataset's records live is its **storage collection** — the
-`dataset` value on every read and write:
+`dataset` value on every read and write. The dataset's `key` decides
+it:
 
-- **namespaced** (the default): `<typeId>_<key>`. Owned by this type
+- **canonical**: a module dataset with no `key`, or with the module's
+  canonical name as its key — `editor_blocks`, `chat_messages`. Every
+  type declaring it addresses the same storage collection, so an
+  object that takes another document type keeps the body it already
+  has. A type declares it at most once (a second is `409
+  dataset.key_conflict`). `chat` admits no other key.
+- **namespaced**: any other key — `<typeId>_<key>`. Owned by this type
   alone; two types each declaring a `notes` editor part have two
-  bodies. `records` datasets are always namespaced.
-- **shared** (`"shared": true`): the module's canonical storage
-  collection — `editor_blocks`, `chat_messages`. Every type declaring a
-  shared editor part writes the same body, so an object that takes
-  another document-ish type keeps the one it already has. The key is
-  the canonical
-  name (omit it or spell it exactly; anything else is `400
-  dataset.shared_conflict`); one shared dataset per module per type
-  (a second is `409 dataset.key_conflict` on the canonical key); only
-  modules with a canonical storage collection share (`records` never
-  does — `400 dataset.shared_conflict`). `chat` is shared-only.
+  bodies. `records` has no canonical storage collection, so a records
+  dataset always names a key.
+
+A client tells the two apart by `module` and `collection` on the
+dataset listing.
 
 A module may be **reserved** to the server's own installs: a part or
 dataset draft naming it — on a type, or in a bundle body — is `400
@@ -2743,7 +2743,7 @@ dataset under it land in one change:
 ```json
 { "key": "body", "name": "Description", "pos": "a0",
   "ui": { "type": "document" },
-  "datasets": [ { "module": "editor", "shared": true } ] }
+  "datasets": [ { "module": "editor" } ] }
 ```
 
 ```json
@@ -2767,8 +2767,8 @@ dataset under it land in one change:
   whole; absent = the first dataset's module default.
 - `uses` — keys of other datasets **of this type** the part renders
   without owning (a transcript part reading the `speakers` dataset).
-- `datasets` — the initial declarations, each `{key?, module?, shared?,
-  …}` plus the records-module schema fields below. `module` defaults to
+- `datasets` — the initial declarations, each `{key?, module?, …}`
+  plus the records-module schema fields below. `module` defaults to
   `records`; an unknown module is `400 dataset.module_unknown`. A
   module-served dataset (`editor`, `chat`) carries **no** `fields` —
   the module owns the schema — so any field declaration on it is `409
@@ -2776,7 +2776,7 @@ dataset under it land in one change:
 
 `GET …/types/:typeId/parts` → `{parts: [{id, key, name?, icon?, pos?,
 hidden?, ui?, uses?, datasets: [<DatasetDef>…]}]}` — the compiled
-view, each dataset carrying its `collection`, `module`, `shared` and
+view, each dataset carrying its `collection`, `module` and
 `partId` (the same `DatasetDef` shape `GET …/datasets` lists flat).
 Parts and datasets fold by key across replicas (two devices declaring
 the same key while apart converge on one definition; a disagreement on
@@ -2897,7 +2897,7 @@ without a creator stamp, duplicate stamp kinds, …) → `400
 request.invalid_field` or `400 dataset.decl_invalid`.
 
 **Semantics of the pinning model:** behavioral parts — `key` (and with
-it the storage collection name), `module`, `shared`, `dynamic`,
+it the storage collection name), `module`, `dynamic`,
 `idRule`/`idPattern`/`idMaxLen`, `deleteBy`, `skipHistory`, field
 `key`/`kind`/`shape`/`scope`/`required`/`mutableBy`/`stamp` — are
 pinned for the definition's life; remove and re-add under a new
@@ -2927,7 +2927,7 @@ dataset — is refused). The SDK keys field definitions by (typeId,
 fieldId) — `:defId` rides the URI for hierarchy only.
 
 `GET …/types/:typeId/datasets` returns the compiled view:
-`{datasets: [{id, key, collection, module, shared?, partId,
+`{datasets: [{id, key, collection, module, partId,
 displayName?, description?, dynamic?, idRule, idPattern?, idMaxLen?,
 deleteBy, skipHistory?, search?, fields: [<field>…], invalid?,
 invalidReason?}]}` with each field read back whole as above.
@@ -3113,12 +3113,12 @@ object: a client decides what type its objects have (`type` on
 
 It is the plain document. No properties; one part `body`
 (`ui: {"type": "document"}`) whose dataset is the editor module's
-shared storage collection, so an object of type `page` holds
+canonical storage collection, so an object of type `page` holds
 `editor_blocks` and every `…/editor/editor_blocks/**` route works on
 it. Optional: a client that wants a plain body uses it; one with its
 own document types declares them with an editor part (§ Parts and
-modules) — both share the storage collection, and `page` is always
-among the `owners` of `editor_blocks`. Being registered, `page` carries
+modules) — both address the same storage collection, and `page` is
+always among the `owners` of `editor_blocks`. Being registered, `page` carries
 no `layout`: an object of type `page` renders by the client's default.
 
 ### Collections
@@ -3328,7 +3328,7 @@ the DELETE clears them, in the same change as the membership op
 
 A chat is an object holding the `chat_messages` storage collection —
 served by the compiled-in `chat` module, which an object holds while
-its type has a part declaring `{"module": "chat", "shared": true}`
+its type has a part declaring `{"module": "chat"}`
 (§ Parts and modules). The module is **reserved to the server**: no
 client part, dataset or bundle may declare it (`400
 dataset.module_reserved`), and the one declaration is the catalog's
@@ -3350,7 +3350,7 @@ POST /v1/catalog/general-chat/setup
 
 The install is `system:general-chat/v1`: a **derived**, **hidden**
 root that is its own type definition (handle `general_chat`, `layout
-{"type": "chat"}`) with one shared `chat` part — a definition hosts
+{"type": "chat"}`) with one `chat` part — a definition hosts
 itself, so it takes
 `chat/messages` writes from the first call — and is filed under the
 `miniapp` collection (`bundle = system:general-chat/v1`), so the chat

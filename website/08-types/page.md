@@ -27,10 +27,10 @@ DOC=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SP/types \
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/types/$DOC/parts \
   -H 'Content-Type: application/json' \
   -d '{"key": "body", "name": "Body", "ui": {"type": "document"},
-       "datasets": [{"module": "editor", "shared": true}]}'
+       "datasets": [{"module": "editor"}]}'
 ```
 
-The `xKey` must not collide with another type's or collection's handle, nor with a built-in id — `page` and `dataview` are taken as types, `miniapp` and `bin` as collections (`409 type.xkey_conflict`; the two surfaces share one namespace). `"shared": true` puts the body in the module's canonical storage collection, `editor_blocks` — the one every document type writes, so an object retyped from `page` to `article` keeps the body it had. `layout` is the descriptor a client renders the object with, opaque client vocabulary. The type carries properties like any other — a status, a priority, a relation — which is what the registered built-in cannot.
+The `xKey` must not collide with another type's or collection's handle, nor with a built-in id — `page` and `dataview` are taken as types, `miniapp` and `bin` as collections (`409 type.xkey_conflict`; the two surfaces share one namespace). An editor dataset with no `key` is the module's canonical storage collection, `editor_blocks` — the one every document type writes, so an object retyped from `page` to `article` keeps the body it had. `layout` is the descriptor a client renders the object with, opaque client vocabulary. The type carries properties like any other — a status, a priority, a relation — which is what the registered built-in cannot.
 
 ## What a page is made of
 

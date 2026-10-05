@@ -275,7 +275,7 @@ any editor edit          <spaceId> <objectId> --edits JSON|@FILE|- [--collection
 `editor blocks` maps 1:1 onto the atomic block write endpoints
 (reads go through `any query-subscribe … --dataset <collection>`). Every
 editor command takes `--collection` (default `editor_blocks`, the
-canonical storage collection a shared editor part declares); pass a
+canonical storage collection an unkeyed editor part declares); pass a
 namespaced `<typeId>_<key>` to address a part's own editor. The object
 must carry a type whose part declares it (`dataset.not_declared`
 otherwise — see `03-api.md` § Parts and modules).
@@ -454,7 +454,7 @@ as such, `k=` unsets); `--hidden=false` unhides. `type list` omits
 hidden types (a records-hosting bundle root, a type marked hidden)
 without `--include-hidden`. A part draft is the
 `PartDraftRequest` shape — `{"key": "body", "datasets": [{"module":
-"editor", "shared": true}]}` declares a shared editor body; `{"key":
+"editor"}]}` declares the editor body in `editor_blocks`; `{"key":
 "transcript", "ui": {"type": "table"}, "datasets": [{"key":
 "segments", "idRule": "user", "fields": […]}]}` a records dataset in
 the namespaced storage collection `<typeId>_segments`.

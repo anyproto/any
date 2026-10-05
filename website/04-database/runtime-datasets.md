@@ -50,9 +50,8 @@ any type part dataset add $SPACE $TYPE $PART --draft @articles.json
 
 | Field | Meaning |
 |---|---|
-| `key` | The dataset's slug inside the type (`[a-z][a-z0-9_]*`), pinned, unique among the type's parts and datasets → `409 dataset.key_conflict`. The storage collection is `<typeId>_<key>`. |
+| `key` | The dataset's slug inside the type (`[a-z][a-z0-9_]*`), pinned, unique among the type's parts and datasets → `409 dataset.key_conflict`. The storage collection is `<typeId>_<key>`. A module dataset may omit it and is then the module's canonical storage collection (`editor_blocks`). |
 | `module` | The serving module; absent = `records`. An `editor` dataset carries no `fields` (the module owns the schema — `409 dataset.module_owned`); `chat` is reserved to the server's catalog install (`400 dataset.module_reserved`); an unknown module is `400 dataset.module_unknown`. |
-| `shared` | Use the module's canonical storage collection instead of a namespaced one (`editor_blocks`, `chat_messages`); never for `records` → `400 dataset.shared_conflict`. |
 | `idRule` | `auto` (default: ids derived from the change, explicit client ids rejected) or `user` (caller-supplied, matched against `idPattern` / `idMaxLen`, defaults `[A-Za-z0-9._:-]+` / 128). |
 | `deleteBy` | `anyone` (default) or `author` — requires a `stamp: creator` field; deletes by anyone else are dropped at apply. |
 | `search` | `{title, text, scope?}` — which fields the search indexer extracts. `text` is one key or a non-empty array of keys joined in order. `scope` picks the index scope (default `basic`). |
@@ -74,7 +73,7 @@ A malformed declaration — unknown enum labels, `mutableBy: author` without a c
 
 ## What's pinned and what patches
 
-Behavioral parts are pinned for the definition's life: `key`, `module`, `shared`, `dynamic`, `idRule`/`idPattern`/`idMaxLen`, `deleteBy`, `skipHistory`, and every field's `key`/`kind`/`shape`/`scope`/`required`/`mutableBy`/`stamp`. To change one, remove the definition and add a new one. The part's own display slice — `name`, `icon`, `pos`, `hidden`, `ui`, `uses` — patches through `PATCH …/types/:typeId/parts/:partId`; `DELETE …/parts/:partId` removes the part and every dataset under it.
+Behavioral parts are pinned for the definition's life: `key`, `module`, `dynamic`, `idRule`/`idPattern`/`idMaxLen`, `deleteBy`, `skipHistory`, and every field's `key`/`kind`/`shape`/`scope`/`required`/`mutableBy`/`stamp`. To change one, remove the definition and add a new one. The part's own display slice — `name`, `icon`, `pos`, `hidden`, `ui`, `uses` — patches through `PATCH …/types/:typeId/parts/:partId`; `DELETE …/parts/:partId` removes the part and every dataset under it.
 
 Display parts patch through `PATCH …/datasets/:defId` with the same `{set, unset}` shape as a property patch, over `description`, `displayName`, `search.title`, `search.text`, `search.scope`:
 

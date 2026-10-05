@@ -51,15 +51,16 @@ func newTypePartAddCmd() *cobra.Command {
 and every dataset under it:
   {"key": "body", "name": "Description", "pos": "a0",
    "ui": {"type": "document"},
-   "datasets": [{"module": "editor", "shared": true}]}
+   "datasets": [{"module": "editor"}]}
   {"key": "transcript", "name": "Transcript", "ui": {"type": "table"},
    "uses": ["speakers"],
    "datasets": [{"key": "segments", "idRule": "user",
      "fields": [{"key": "time", "kind": "number"},
                 {"key": "speaker", "kind": "string"},
                 {"key": "text", "kind": "string", "mutableBy": "any"}]}]}
-A shared dataset is the module's canonical collection (editor_blocks,
-chat_messages); a namespaced one lives in <typeId>_<key>. The part key
+The dataset key decides the collection: a module dataset with no key
+is the module's canonical collection (editor_blocks), any other key
+lives in <typeId>_<key>. The part key
 is pinned; name, icon, pos, hidden, ui and uses patch via 'type part
 patch'; datasets are added with 'type part dataset add'.`,
 		Args: cobra.ExactArgs(2),

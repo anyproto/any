@@ -748,6 +748,13 @@ func (c *Catalog) validateProperties(tp string, properties []api.AddPropertyRequ
 	}
 }
 
+// canonicalCollection is the collection a module dataset is when it
+// names no other key.
+var canonicalCollection = map[string]string{
+	api.ModuleEditor: api.CollectionEditorBlocks,
+	api.ModuleChat:   api.CollectionChatMessages,
+}
+
 // validateParts applies the module rules the server would refuse at
 // setup, with paths.
 func validateParts(pp string, parts []api.PartDraftRequest, add func(path, code, msg string)) {
@@ -773,22 +780,21 @@ func validateParts(pp string, parts []api.PartDraftRequest, add func(path, code,
 			default:
 				add(dp+".module", CodeBadField, "module is records, editor or chat")
 			}
-			if module == "chat" && !ds.Shared {
-				add(dp, CodeBadField, "chat is shared only")
+			// A module dataset with no key is the module's canonical
+			// collection; chat admits no other.
+			key := ds.Key
+			if key == "" {
+				key = canonicalCollection[module]
 			}
-			if module == "records" && ds.Shared {
-				add(dp, CodeBadField, "records is never shared")
+			if module == "chat" && key != canonicalCollection[module] {
+				add(dp+".key", CodeBadField, "chat has one dataset — omit the key")
 			}
 			if module != "records" && len(ds.Fields) > 0 {
 				add(dp+".fields", CodeBadField, "fields only on a records dataset — the module owns the schema")
 			}
-			key := ds.Key
-			if key == "" && ds.Shared {
-				key = module
-			}
 			switch {
 			case key == "":
-				add(dp+".key", CodeMissing, "key required on a namespaced dataset")
+				add(dp+".key", CodeMissing, "key required on a records dataset")
 			case datasetKeys[key]:
 				add(dp+".key", CodeDuplicate, "dataset "+key+" declared twice")
 			}

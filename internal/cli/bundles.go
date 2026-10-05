@@ -65,7 +65,7 @@ rootProperties ride a derived root or a created root — rootType is
 refused next to a declaration, the declaring root's any.type holding
 the marker.
   {"id": "notes/v1", "name": "Notes", "hidden": true,
-   "parts": [{"key": "body", "datasets": [{"module": "editor", "shared": true}]}]}
+   "parts": [{"key": "body", "datasets": [{"module": "editor"}]}]}
   {"id": "wiki/v1", "name": "Wiki", "derived": true, "collection": true,
    "properties": [{"xKey": "parentId", "name": "Parent", "kind": "string"},
                   {"xKey": "pos", "name": "Position", "kind": "string"}]}

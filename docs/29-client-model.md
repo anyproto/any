@@ -138,8 +138,8 @@ registered **collections**. All four resolve by their literal id and are
 `hidden` — absent from the default listing unless you pass
 `?includeHidden=true`. An object opts into them; nothing stamps them.
 
-- **`page`** (type) — one part `body` owning the shared `editor_blocks`
-  storage collection. Set it to make an object a document.
+- **`page`** (type) — one part `body` owning the canonical
+  `editor_blocks` storage collection. Set it to make an object a document.
 - **`dataview`** (type) — saved views. A dataview is its own object of
   this type, pointed at the host its views are over
   ([`24-data-views.md`](24-data-views.md)).
@@ -418,7 +418,7 @@ answer with the new id under a per-kind key (`objectId`, `typeId`,
 
 | surface | how |
 |---|---|
-| **Document** | set a type with an editor part — `page` is the built-in one. Blocks: `…/objects/:o/editor/:collection/blocks`; whole body: `GET/PUT/PATCH …/editor/:collection/markdown`. Read with `dataset` set to **the same `:collection`** — the storage collection — sorted on `nav.pos`: `editor_blocks` for the shared part `page` uses, `<typeId>_<key>` for a type that declares its own namespaced editor part. |
+| **Document** | set a type with an editor part — `page` is the built-in one. Blocks: `…/objects/:o/editor/:collection/blocks`; whole body: `GET/PUT/PATCH …/editor/:collection/markdown`. Read with `dataset` set to **the same `:collection`** — the storage collection — sorted on `nav.pos`: `editor_blocks` for the unkeyed part `page` uses, `<typeId>_<key>` for a type that declares its own keyed editor part. |
 | **Chat** | one per space, the `general-chat` usecase; its root is filed under `miniapp`, so it sits in the sidebar with the other apps. Writes: `…/objects/:chatRoot/chat/messages`. Read via `dataset=chat_messages` sorted on `_ver.id`. |
 | **Wiki tree** | the `wiki` usecase's three properties on objects of its type: `parentId` (`""` = top level), `pos` (lexid), `folder`. Children = objects query filtered on the parent property, sorted on the pos property. The server allocates no positions. |
 | **Saved views** | one `dataview` object per host, holding `dataviews` (tables on the host) and `views` (views of a table). |

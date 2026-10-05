@@ -95,7 +95,7 @@ Every dataset the space hosts is discoverable with its JSON Schema:
 
 ```bash
 curl http://127.0.0.1:7001/v1/spaces/$SPACE/datasets
-# → { "datasets": [ { "name": "chat_messages", "module": "chat", "shared": true, "owners": ["<chatRootId>"], "schema": {…} }, … ] }
+# → { "datasets": [ { "name": "chat_messages", "module": "chat", "owners": ["<chatRootId>"], "schema": {…} }, … ] }
 any datasets $SPACE
 ```
 
@@ -121,7 +121,7 @@ The `x-scope` keyword says who writes a field and how far it travels:
 | `local` | this device, through the local-scope `modify` route; never enters the DAG | nowhere |
 | `account` | this account, through the private tech space | this account's other devices only |
 
-`additionalProperties: true` marks a dynamic dataset: undeclared keys are allowed and default to `synced`. Runtime datasets add behavioral keywords on top — `required`, `x-mutable-by`, `x-stamp`, `x-delete-by`, `x-id`, `x-search` — described in [Runtime datasets](runtime-datasets.html). `owners` on an entry lists the types whose parts declare the storage collection — records exist only on objects of one of those types, or on the definition root itself, which hosts its own records; that is also what the search indexer keys eviction on; `module` names the serving module (`records`, `editor`, `chat`) and `shared` marks a module's canonical storage collection. The SDK's own datasets (`objects`) carry no owners.
+`additionalProperties: true` marks a dynamic dataset: undeclared keys are allowed and default to `synced`. Runtime datasets add behavioral keywords on top — `required`, `x-mutable-by`, `x-stamp`, `x-delete-by`, `x-id`, `x-search` — described in [Runtime datasets](runtime-datasets.html). `owners` on an entry lists the types whose parts declare the storage collection — records exist only on objects of one of those types, or on the definition root itself, which hosts its own records; that is also what the search indexer keys eviction on; `module` names the serving module (`records`, `editor`, `chat`). The SDK's own datasets (`objects`) carry no owners.
 
 Account-wide, `GET /v1/datasets` lists the tech-space system datasets (`spaces`, `profile`, `devices`, …); `spaces` and `profile` are the two the [space list](../realtime/space-list.html) query reads.
 

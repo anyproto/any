@@ -14,7 +14,7 @@ bespoke handler endpoints — never through a generic write path:
   and `…/:msgId/reactions/:emoji`
 - editor: `POST/PATCH/DELETE /v1/spaces/:s/objects/:o/editor/:collection/blocks[/:id]`
   — `:collection` is the storage collection: `editor_blocks` for the
-  shared body, or the namespaced `<typeId>_<key>` of a part with its
+  canonical body, or the namespaced `<typeId>_<key>` of a part with its
   own editor
 
 The endpoints build the ops the module's handler accepts — it stamps
