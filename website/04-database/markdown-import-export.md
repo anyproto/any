@@ -51,13 +51,13 @@ When the document moved on, nothing is written and the reply is `409`:
 
 ```json
 { "error": { "code": "markdown.conflict",
-             "message": "the body changed after ifVersion — merge details.content and retry with details.version",
+             "message": "the body changed — merge details.content and retry with details.version",
              "details": { "content": "# Title\n\n…", "version": "…" } } }
 ```
 
 Merge your edit into `details.content` and `PUT` again with `ifVersion` set to `details.version`. A `200` returns the version of the body as saved, which is the next save's `ifVersion`, so consecutive saves chain without a `GET`.
 
-Markdown writes to one document run one at a time on the server, so two saves carrying the same `ifVersion` never both write: the later one gets the `409`.
+A save is one change, written only if the document is unchanged since the read it was computed from; the check and the write are one step under the object's write lock. Any write landing in between — another save, a `…/blocks` call, a change from another device — gets the save a `409` with nothing written, so two saves carrying the same `ifVersion` never both land.
 
 `version` moves on every write to the document's block records — text, style, a field the markdown does not render, a nested block, a delete — and never on a read. It is opaque and valid only against the server that issued it.
 

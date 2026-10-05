@@ -23,25 +23,27 @@ type Document struct {
 	Version string
 }
 
-// ConflictError is Set's answer to an ifVersion the document has moved
-// past. Current is the body and version the check read.
+// ConflictError: the body changed — Set's answer to an ifVersion the
+// document has moved past, or a write other writers kept beating
+// (writeAgainstRead). Current is the latest body and version read.
 type ConflictError struct {
 	Current Document
 }
 
 func (e ConflictError) Error() string {
-	return "markdown: the body changed after ifVersion"
+	return "markdown: the body changed"
 }
 
 // readDocument renders objectId's body and its version from one read of
-// the collection, and returns the top-level blocks it rendered.
-func readDocument(ctx context.Context, sp space.Space, objectId, collection, gen string) (Document, []existingBlock, error) {
-	existing, seq, err := listTopLevelWithSeq(ctx, sp, objectId, collection)
+// the collection, and returns the top-level blocks it rendered and the
+// collection's highest _applySeq.
+func readDocument(ctx context.Context, sp space.Space, objectId, collection, gen string) (Document, []existingBlock, uint64, error) {
+	existing, seq, err := listTopLevel(ctx, sp, objectId, collection)
 	if err != nil {
-		return Document{}, nil, err
+		return Document{}, nil, 0, err
 	}
 	content := Join(renderExisting(existing))
-	return Document{Content: content, Version: formatVersion(gen, seq, content)}, existing, nil
+	return Document{Content: content, Version: formatVersion(gen, seq, content)}, existing, seq, nil
 }
 
 func formatVersion(gen string, seq uint64, content string) string {

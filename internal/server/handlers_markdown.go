@@ -233,7 +233,7 @@ func markdownWriteError(c echo.Context, err error, spaceId, objectId string) err
 	switch {
 	case errors.As(err, &conflict):
 		return writeError(c, http.StatusConflict, api.ErrMarkdownConflict,
-			"the body changed after ifVersion — merge details.content and retry with details.version",
+			"the body changed — merge details.content and retry with details.version",
 			map[string]any{"content": conflict.Current.Content, "version": conflict.Current.Version})
 	case errors.As(err, &tooLarge):
 		return writeError(c, http.StatusBadRequest, api.ErrMarkdownBlockTooLarge,

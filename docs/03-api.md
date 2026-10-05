@@ -1573,30 +1573,23 @@ merge the edit into `details.content` and `PUT` again with
 
 ```json
 { "error": { "code": "markdown.conflict",
-             "message": "the body changed after ifVersion — merge details.content and retry with details.version",
+             "message": "the body changed — merge details.content and retry with details.version",
              "details": { "content": "…", "version": "…" } } }
 ```
 
 A `200` carries the `version` of the body as saved, which is the next
-save's `ifVersion` — consecutive saves chain without a `GET`. The
-server re-reads the document after writing; when the stored body is
-not exactly what was saved because another write landed while the
-`PUT` ran, the reply carries the version the save started from
-instead, so the next save gets a `409` and merges that write rather
-than overwriting it. A `PUT` without `ifVersion` writes
-unconditionally and still returns `version`. The other markdown routes
+save's `ifVersion` — consecutive saves chain without a `GET`. A `PUT`
+without `ifVersion` still returns `version`; the other markdown routes
 answer without one.
 
-The markdown writes to one document — `PUT`, `PATCH` and `append` —
-run one at a time on a server, so a save waits for the one before it
-and two saves carrying the same `ifVersion` never both write. The
-`…/blocks` routes and changes synced from other devices do not wait.
-While the diff runs, one of those landing on a field the `PUT` also
-writes is last-writer-wins, and an edit to a block the `PUT` deletes
-is lost to the delete. A delete wins the other way too: when one lands
-on a block the `PUT` edits, the rest of the save lands, the edit to
-that block does not, and the reply carries the version the save
-started from.
+A save is one change, written only if the document is unchanged since
+the read its diff was computed from. The check and the write are one
+step in the SDK, under the lock every writer of the object takes, so a
+write landing in between — another markdown save, a `…/blocks` call, a
+change synced from another device — makes a `PUT` with `ifVersion`
+answer `409` with nothing written. A `PUT` without `ifVersion` and a
+`PATCH` are redone against the new state instead, and answer the same
+`409` only when other writers keep landing first.
 
 `PATCH …/editor/:collection/markdown` is the surgical variant of `PUT` — for
 callers (LLM agents above all) that know the *text* they want changed

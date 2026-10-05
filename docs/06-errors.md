@@ -184,7 +184,7 @@ markdown.no_match                # 400 — an edits[i].oldText not found in the 
 markdown.ambiguous_match         # 400 — oldText occurs >1 times without replaceAll (details.editIndex, details.occurrences); add context or set replaceAll
 markdown.overlapping_edits       # 400 — two edits matched intersecting text (details.editIndices); merge them into one edit
 markdown.block_too_large         # 400 — a block's text is over the per-block cap on PUT, PATCH or append; nothing written (details.blockIndex, details.gotBytes, details.maxBytes); split the block
-markdown.conflict                # 409 — PUT .../editor/:collection/markdown with an ifVersion the document moved past; nothing written (details.content, details.version); merge and retry with details.version
+markdown.conflict                # 409 — the body changed: a markdown PUT whose ifVersion the document moved past, or a PUT / PATCH other writers kept beating; nothing written (details.content, details.version); merge and retry with details.version
 
 aggregate.bad_pipeline           # 400 — unparseable pipeline, unknown stage, or $text/vector outside the pushdown prefix
 aggregate.limit_exceeded         # 400 — a blocking-stage bound blew (details.limit: group | accumArray | memory)

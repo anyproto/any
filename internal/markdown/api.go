@@ -45,15 +45,8 @@ type SetResult struct {
 //     Delete.
 //  4. Allocate nav.pos lexids for new inserts so they slot between
 //     their kept neighbours in document order.
-//  5. Submit one ModifyBatch (creates + updates) followed by one
-//     DeleteBatch (tombstones). Same two-write split the old md_blocks
-//     path used.
-//
-// The two writes are NOT a single atomic any-sync change. Because the
-// CRDT resolves concurrent update-vs-delete as delete-wins, the
-// observable end state is correct regardless of partial-failure
-// retry, but a reader that catches the gap between (1) and (2) sees
-// a transient state with both old-deleted and new-created blocks.
+//  5. Submit creates, updates and tombstones as one ModifyBatch — one
+//     atomic any-sync change.
 //
 // content is stored as INLINE markdown inside each block's `text`
 // field — no full-block markdown bytes survive on disk. Empty
@@ -66,47 +59,65 @@ type SetResult struct {
 // document is still at that version, Set writes nothing and returns a
 // ConflictError carrying the current body and version.
 //
-// Markdown writes to one document run one at a time (lockDocument). The
-// reported Version is re-read after the writes and describes the saved
-// body only when the stored body is exactly what was saved; when another
-// writer (a …/blocks call, another device) changed it meanwhile, or the
-// re-read fails, Set reports the version it read instead, so the
-// caller's next ifVersion conflicts and merges that write.
+// The diff is written as one change, conditional on the collection
+// being unchanged since the read it was computed from, so no other
+// writer — a markdown write, a …/blocks call, another device — lands
+// in between; the reported Version is the saved body's. Without
+// ifVersion, a write that lost that race is redone against the new
+// state (writeAgainstRead).
 func Set(ctx context.Context, sp space.Space, objectId, collection, content, ifVersion string) (SetResult, error) {
 	parsed, rendered, err := parseContent(content)
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Set: %w", err)
 	}
-
-	unlock, err := lockDocument(ctx, sp.Id(), objectId, collection)
-	if err != nil {
-		return SetResult{}, fmt.Errorf("markdown: Set: wait for the document: %w", err)
-	}
-	defer unlock()
-
 	gen, err := sp.Changes().Generation(ctx)
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Set: generation: %w", err)
 	}
-	read, existing, err := readDocument(ctx, sp, objectId, collection, gen)
-	if err != nil {
-		return SetResult{}, fmt.Errorf("markdown: Set: list existing: %w", err)
-	}
-	if ifVersion != "" && ifVersion != read.Version {
-		return SetResult{}, ConflictError{Current: read}
-	}
-	res, err := applyDiff(ctx, sp, objectId, collection, existing, parsed, rendered)
-	if err != nil {
-		return res, err
-	}
-	res.Version = read.Version
-	if len(res.Inserted)+len(res.Updated)+len(res.Deleted) == 0 {
+	saved := Join(rendered)
+	return writeAgainstRead(ctx, sp, objectId, collection, gen, func(read Document, existing []existingBlock, seq uint64) (SetResult, error) {
+		if ifVersion != "" && ifVersion != read.Version {
+			return SetResult{}, ConflictError{Current: read}
+		}
+		res, applied, err := applyDiff(ctx, sp, objectId, collection, existing, seq, parsed, rendered)
+		if err != nil {
+			return SetResult{}, err
+		}
+		res.Version = read.Version
+		if applied > 0 {
+			res.Version = formatVersion(gen, applied, saved)
+		}
 		return res, nil
+	})
+}
+
+// maxWriteAttempts bounds how often writeAgainstRead redoes a write
+// that other writers keep beating.
+const maxWriteAttempts = 3
+
+// writeAgainstRead reads the document and runs write against that read;
+// a write that lost the race to another writer
+// (space.ErrPreconditionFailed) is redone against a fresh read. When the
+// writers keep winning, the answer is a ConflictError with the current
+// body.
+func writeAgainstRead(ctx context.Context, sp space.Space, objectId, collection, gen string, write func(read Document, existing []existingBlock, seq uint64) (SetResult, error)) (SetResult, error) {
+	for attempt := 1; ; attempt++ {
+		read, existing, seq, err := readDocument(ctx, sp, objectId, collection, gen)
+		if err != nil {
+			return SetResult{}, fmt.Errorf("markdown: list existing: %w", err)
+		}
+		res, err := write(read, existing, seq)
+		if !errors.Is(err, space.ErrPreconditionFailed) {
+			return res, err
+		}
+		if attempt == maxWriteAttempts {
+			current, _, _, err := readDocument(ctx, sp, objectId, collection, gen)
+			if err != nil {
+				return SetResult{}, fmt.Errorf("markdown: list existing: %w", err)
+			}
+			return SetResult{}, ConflictError{Current: current}
+		}
 	}
-	if after, _, err := readDocument(ctx, sp, objectId, collection, gen); err == nil && after.Content == Join(rendered) {
-		res.Version = after.Version
-	}
-	return res, nil
 }
 
 // parseContent splits content into blocks and parses them (parseBlocks).
@@ -162,11 +173,13 @@ func checkPositions(positions []string) error {
 }
 
 // applyDiff is the shared write pipeline behind Set and EditContent:
-// diff the parsed new document against the already-listed existing
-// blocks, then emit the create / update / delete ops. Taking `existing`
-// (instead of listing internally) lets EditContent resolve matches and
-// diff against the same listing.
-func applyDiff(ctx context.Context, sp space.Space, objectId, collection string, existing []existingBlock, newParsed []ParsedBlock, newRendered []string) (SetResult, error) {
+// diff the parsed new document against the existing blocks, read at
+// readSeq, and write the creates, updates and deletes as one change,
+// conditional on the collection being unchanged since that read
+// (ModifyBatch.IfUnchangedSince). A write that lost that race is
+// space.ErrPreconditionFailed with nothing written. appliedSeq is the
+// change's _applySeq, 0 when the diff wrote nothing.
+func applyDiff(ctx context.Context, sp space.Space, objectId, collection string, existing []existingBlock, readSeq uint64, newParsed []ParsedBlock, newRendered []string) (result SetResult, appliedSeq uint64, err error) {
 	oldRendered := renderExisting(existing)
 
 	plan := Diff(oldRendered, newRendered)
@@ -176,16 +189,13 @@ func applyDiff(ctx context.Context, sp space.Space, objectId, collection string,
 	// the left/right of an insert run).
 	posByNewIdx, err := allocateInsertPositions(existing, plan)
 	if err != nil {
-		return SetResult{}, fmt.Errorf("markdown: apply: allocate pos: %w", err)
+		return SetResult{}, 0, fmt.Errorf("markdown: apply: allocate pos: %w", err)
 	}
 	if err := checkPositions(slices.Collect(maps.Values(posByNewIdx))); err != nil {
-		return SetResult{}, fmt.Errorf("markdown: apply: %w", err)
+		return SetResult{}, 0, fmt.Errorf("markdown: apply: %w", err)
 	}
 
-	var (
-		records []space.RecordModify
-		result  SetResult
-	)
+	var records []space.RecordModify
 	for i, op := range plan.NewSeq {
 		switch op.Kind {
 		case OpKeep:
@@ -206,61 +216,49 @@ func applyDiff(ctx context.Context, sp space.Space, objectId, collection string,
 			result.Updated = append(result.Updated, old.Id)
 		}
 	}
+	for _, oldIdx := range plan.Deletes {
+		id := existing[oldIdx].Id
+		records = append(records, space.RecordModify{Id: id, Ops: []space.Op{{Type: space.OpDelete}}})
+		result.Deleted = append(result.Deleted, id)
+	}
+	if len(records) == 0 {
+		return result, 0, nil
+	}
 
-	if len(records) > 0 {
-		res, err := sp.Modify(ctx, space.ModifyBatch{
-			ObjectId: objectId,
-			Dataset:  collection,
-			Records:  records,
-		})
-		if err != nil {
-			return result, fmt.Errorf("markdown: apply: modify: %w", err)
-		}
-		// The change committed whatever was not rejected, so stopping here
-		// would leave the save half applied. A block deleted after the
-		// read absorbs its update (delete wins) and the save goes on; the
-		// block sizes and positions the handler validates are checked
-		// before writing.
-		for _, rej := range res.Rejections {
-			if !errors.Is(rej.ReasonErr, space.ErrRecordDeleted) {
-				return result, fmt.Errorf("markdown: apply: rejected: %s", rej.Reason)
-			}
-			result.Updated = slices.DeleteFunc(result.Updated, func(id string) bool { return id == rej.RecordId })
-		}
-		// Fill in the auto-derived ids for the Inserted slots, aligned
-		// to records[] by position. result.Inserted's slot-per-insert
-		// shape was already populated above.
-		insertIdx := 0
-		for i, rec := range records {
-			if rec.Id == "" {
-				if i < len(res.RecordIds) {
-					for insertIdx < len(result.Inserted) && result.Inserted[insertIdx] != "" {
-						insertIdx++
-					}
-					if insertIdx < len(result.Inserted) {
-						result.Inserted[insertIdx] = res.RecordIds[i]
-						insertIdx++
-					}
+	res, err := sp.Modify(ctx, space.ModifyBatch{
+		ObjectId:         objectId,
+		Dataset:          collection,
+		Records:          records,
+		IfUnchangedSince: &readSeq,
+	})
+	if err != nil {
+		return SetResult{}, 0, fmt.Errorf("markdown: apply: modify: %w", err)
+	}
+	// Nothing else wrote the collection between the read and this
+	// change, and the block sizes and positions the editor validates
+	// are checked before writing, so a rejection is a refusal those
+	// checks missed.
+	if len(res.Rejections) > 0 {
+		return SetResult{}, 0, fmt.Errorf("markdown: apply: rejected: %s", res.Rejections[0].Reason)
+	}
+	// Fill in the auto-derived ids for the Inserted slots, aligned
+	// to records[] by position. result.Inserted's slot-per-insert
+	// shape was already populated above.
+	insertIdx := 0
+	for i, rec := range records {
+		if rec.Id == "" {
+			if i < len(res.RecordIds) {
+				for insertIdx < len(result.Inserted) && result.Inserted[insertIdx] != "" {
+					insertIdx++
+				}
+				if insertIdx < len(result.Inserted) {
+					result.Inserted[insertIdx] = res.RecordIds[i]
+					insertIdx++
 				}
 			}
 		}
 	}
-
-	if len(plan.Deletes) > 0 {
-		ids := make([]string, len(plan.Deletes))
-		for i, oldIdx := range plan.Deletes {
-			ids[i] = existing[oldIdx].Id
-		}
-		result.Deleted = ids
-		if _, err := sp.Delete(ctx, space.DeleteBatch{
-			ObjectId:  objectId,
-			Dataset:   collection,
-			RecordIds: ids,
-		}); err != nil {
-			return result, fmt.Errorf("markdown: apply: delete tombstones: %w", err)
-		}
-	}
-	return result, nil
+	return result, res.ApplySeq, nil
 }
 
 // Append parses content into blocks and appends them all after the
@@ -297,12 +295,6 @@ func Append(ctx context.Context, sp space.Space, objectId, collection, content s
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Append: %w", err)
 	}
-
-	unlock, err := lockDocument(ctx, sp.Id(), objectId, collection)
-	if err != nil {
-		return SetResult{}, fmt.Errorf("markdown: Append: wait for the document: %w", err)
-	}
-	defer unlock()
 
 	maxPos, err := editor.MaxPos(ctx, sp, objectId, collection, editor.RootParentId)
 	if err != nil {
@@ -357,7 +349,7 @@ func Get(ctx context.Context, sp space.Space, objectId, collection string) (Docu
 	if err != nil {
 		return Document{}, fmt.Errorf("markdown: Get: generation: %w", err)
 	}
-	doc, _, err := readDocument(ctx, sp, objectId, collection, gen)
+	doc, _, _, err := readDocument(ctx, sp, objectId, collection, gen)
 	return doc, err
 }
 
@@ -400,22 +392,12 @@ type existingBlock struct {
 }
 
 // listTopLevel returns the object's top-level editor_blocks
-// (nav.parentId == "") sorted by nav.pos ascending. The markdown path
-// stays flat: nested blocks (children of list items, for example)
-// live under their parents but the markdown round-trip only walks the
-// top level. Mirrors today's md_blocks behaviour.
-func listTopLevel(ctx context.Context, sp space.Space, objectId, collection string) ([]existingBlock, error) {
-	all, err := editor.List(ctx, sp, objectId, collection)
-	if err != nil {
-		return nil, err
-	}
-	return topLevel(all), nil
-}
-
-// listTopLevelWithSeq is listTopLevel plus the collection's highest
-// _applySeq from the same read, nested blocks and tombstones included
-// (editor.ListWithSeq).
-func listTopLevelWithSeq(ctx context.Context, sp space.Space, objectId, collection string) ([]existingBlock, uint64, error) {
+// (nav.parentId == "") sorted by nav.pos ascending, and the collection's
+// highest _applySeq from the same read, nested blocks and tombstones
+// included (editor.ListWithSeq). The markdown path stays flat: nested
+// blocks (children of list items, for example) live under their
+// parents but the markdown round-trip only walks the top level.
+func listTopLevel(ctx context.Context, sp space.Space, objectId, collection string) ([]existingBlock, uint64, error) {
 	all, seq, err := editor.ListWithSeq(ctx, sp, objectId, collection)
 	if err != nil {
 		return nil, 0, err
