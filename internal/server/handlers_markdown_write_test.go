@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json"
 	"net/http"
-	"slices"
 	"strings"
 	"testing"
 
@@ -114,11 +113,12 @@ func TestServer_MarkdownRefusesOversizedBlock(t *testing.T) {
 	}
 }
 
-// TestServer_MarkdownDeleteTakesNestedBlocks pins that a markdown save
-// deleting a top-level block deletes the blocks nested under it, at any
-// depth, in the same write, and leaves a block whose parent was already
-// gone alone.
-func TestServer_MarkdownDeleteTakesNestedBlocks(t *testing.T) {
+// TestServer_MarkdownKeepsNestedBlocksOfReplacedBlocks pins that a
+// markdown save deleting a block — here one rewritten past recognition,
+// which the diff reads as a delete plus a create, as it reads a move —
+// leaves the blocks nested under it live: their content is nothing the
+// markdown shows, and the …/blocks routes still reach it.
+func TestServer_MarkdownKeepsNestedBlocksOfReplacedBlocks(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
 	e := buildEcho(d)
@@ -128,31 +128,17 @@ func TestServer_MarkdownDeleteTakesNestedBlocks(t *testing.T) {
 	md := base + "/editor/editor_blocks/markdown"
 
 	markdownSet(t, e, md, "alpha\n\nbeta")
-	top := blocksList(t, e, base).Records
-	if len(top) != 2 {
-		t.Fatalf("seed: %d blocks, want 2", len(top))
-	}
-	alpha, beta := top[0], top[1]
+	beta := blocksList(t, e, base).Records[1]
 	child := blocksCreate(t, e, base, `{"type":"paragraph","text":"child","nav":{"parentId":"`+beta.Id+`"}}`)
-	grand := blocksCreate(t, e, base, `{"type":"paragraph","text":"grand","nav":{"parentId":"`+child.Id+`"}}`)
-	orphan := blocksCreate(t, e, base, `{"type":"paragraph","text":"orphan","nav":{"parentId":"no-such-block"}}`)
 
-	res := markdownSet(t, e, md, "alpha")
-	slices.Sort(res.Deleted)
-	want := []string{beta.Id, child.Id, grand.Id}
-	slices.Sort(want)
-	if !slices.Equal(res.Deleted, want) {
-		t.Fatalf("deleted %v, want beta with its child and grandchild %v", res.Deleted, want)
+	res := markdownSet(t, e, md, "alpha\n\nsomething else entirely, nothing like the old text")
+	if len(res.Deleted) != 1 || res.Deleted[0] != beta.Id {
+		t.Fatalf("deleted %v, want only the replaced block %s", res.Deleted, beta.Id)
 	}
-
-	var left []string
 	for _, b := range blocksList(t, e, base).Records {
-		left = append(left, b.Id)
+		if b.Id == child.Id {
+			return
+		}
 	}
-	slices.Sort(left)
-	keep := []string{alpha.Id, orphan.Id}
-	slices.Sort(keep)
-	if !slices.Equal(left, keep) {
-		t.Fatalf("blocks left %v, want alpha and the existing orphan %v", left, keep)
-	}
+	t.Fatalf("the nested block %s under the replaced block was deleted", child.Id)
 }
