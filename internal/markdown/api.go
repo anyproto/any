@@ -2,7 +2,9 @@ package markdown
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/anyproto/any-sync-sdk/space"
 
@@ -70,6 +72,11 @@ type SetResult struct {
 // re-read fails, Set reports the version it read instead, so the
 // caller's next ifVersion conflicts and merges that write.
 func Set(ctx context.Context, sp space.Space, objectId, collection, content, ifVersion string) (SetResult, error) {
+	parsed, rendered, err := parseContent(content)
+	if err != nil {
+		return SetResult{}, fmt.Errorf("markdown: Set: %w", err)
+	}
+
 	unlock, err := lockDocument(ctx, sp.Id(), objectId, collection)
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Set: wait for the document: %w", err)
@@ -87,7 +94,6 @@ func Set(ctx context.Context, sp space.Space, objectId, collection, content, ifV
 	if ifVersion != "" && ifVersion != read.Version {
 		return SetResult{}, ConflictError{Current: read}
 	}
-	parsed, rendered := parseContent(content)
 	res, err := applyDiff(ctx, sp, objectId, collection, existing, parsed, rendered)
 	if err != nil {
 		return res, err
@@ -103,8 +109,8 @@ func Set(ctx context.Context, sp space.Space, objectId, collection, content, ifV
 }
 
 // parseContent splits content into blocks and parses each, returning the
-// parsed blocks and their canonical renderings.
-func parseContent(content string) ([]ParsedBlock, []string) {
+// parsed blocks and their canonical renderings, or a BlockTooLargeError.
+func parseContent(content string) ([]ParsedBlock, []string, error) {
 	raw := Split(content)
 	parsed := make([]ParsedBlock, len(raw))
 	rendered := make([]string, len(raw))
@@ -112,7 +118,31 @@ func parseContent(content string) ([]ParsedBlock, []string) {
 		parsed[i] = ParseBlock(r)
 		rendered[i] = RenderBlock(parsed[i])
 	}
-	return parsed, rendered
+	if err := checkBlockSizes(parsed); err != nil {
+		return nil, nil, err
+	}
+	return parsed, rendered, nil
+}
+
+// BlockTooLargeError: a block's text is over the editor's per-block cap.
+// The markdown writes refuse it before writing anything; the editor
+// would reject it mid-change and leave the rest of the save applied.
+type BlockTooLargeError struct {
+	Index int // the block's position in the parsed document
+	Bytes int
+}
+
+func (e BlockTooLargeError) Error() string {
+	return fmt.Sprintf("block %d: text is %d bytes, over the %d-byte cap", e.Index, e.Bytes, editor.MaxTextBytes)
+}
+
+func checkBlockSizes(parsed []ParsedBlock) error {
+	for i, p := range parsed {
+		if len(p.Text) > editor.MaxTextBytes {
+			return BlockTooLargeError{Index: i, Bytes: len(p.Text)}
+		}
+	}
+	return nil
 }
 
 // applyDiff is the shared write pipeline behind Set and EditContent:
@@ -167,8 +197,15 @@ func applyDiff(ctx context.Context, sp space.Space, objectId, collection string,
 		if err != nil {
 			return result, fmt.Errorf("markdown: apply: modify: %w", err)
 		}
-		if len(res.Rejections) > 0 {
-			return result, fmt.Errorf("markdown: apply: rejected: %s", res.Rejections[0].Reason)
+		// The change committed whatever was not rejected, so stopping here
+		// would leave the save half applied. A block deleted after the
+		// read absorbs its update (delete wins) and the save goes on; the
+		// parse validated everything else the handler checks.
+		for _, rej := range res.Rejections {
+			if !errors.Is(rej.ReasonErr, space.ErrRecordDeleted) {
+				return result, fmt.Errorf("markdown: apply: rejected: %s", rej.Reason)
+			}
+			result.Updated = slices.DeleteFunc(result.Updated, func(id string) bool { return id == rej.RecordId })
 		}
 		// Fill in the auto-derived ids for the Inserted slots, aligned
 		// to records[] by position. result.Inserted's slot-per-insert
@@ -236,6 +273,13 @@ func Append(ctx context.Context, sp space.Space, objectId, collection, content s
 	if len(rawNew) == 0 {
 		return SetResult{}, nil
 	}
+	parsed := make([]ParsedBlock, len(rawNew))
+	for i, raw := range rawNew {
+		parsed[i] = ParseBlock(raw)
+	}
+	if err := checkBlockSizes(parsed); err != nil {
+		return SetResult{}, fmt.Errorf("markdown: Append: %w", err)
+	}
 
 	unlock, err := lockDocument(ctx, sp.Id(), objectId, collection)
 	if err != nil {
@@ -252,9 +296,9 @@ func Append(ctx context.Context, sp space.Space, objectId, collection, content s
 		return SetResult{}, fmt.Errorf("markdown: Append: allocate pos: %w", err)
 	}
 
-	records := make([]space.RecordModify, len(rawNew))
-	for i, raw := range rawNew {
-		records[i] = buildCreateRecord(ParseBlock(raw), positions[i])
+	records := make([]space.RecordModify, len(parsed))
+	for i, p := range parsed {
+		records[i] = buildCreateRecord(p, positions[i])
 	}
 
 	// Attach the editor type before the membership-gated editor_blocks
@@ -404,10 +448,16 @@ func buildCreateRecord(p ParsedBlock, pos string) space.RecordModify {
 	}
 }
 
-// buildUpdateRecord emits one $set op per changed field. text and
-// type are always set; style replaces whole-cloth when the new value
-// differs (no per-style-sub-key diffing, which keeps the diff
-// boundary aligned with what Update means at the markdown layer).
+// markdownStyleKeys are the style keys the markdown expresses. An update
+// owns these and nothing else: a key set through …/blocks that the
+// markdown cannot express (a color, say) survives every save.
+var markdownStyleKeys = []string{
+	editor.StyleLevel, editor.StyleOrdered, editor.StyleNumber, editor.StyleChecked, editor.StyleLang,
+}
+
+// buildUpdateRecord emits one op per changed field: $set on type and
+// text when they differ, and per style key, $set for a markdown key whose
+// value changed and $unset for one the new block no longer carries.
 func buildUpdateRecord(old existingBlock, p ParsedBlock) space.RecordModify {
 	var ops []space.Op
 	if old.Type != p.Type {
@@ -416,11 +466,15 @@ func buildUpdateRecord(old existingBlock, p ParsedBlock) space.RecordModify {
 	if old.Text != p.Text {
 		ops = append(ops, space.Op{Type: space.OpSet, Path: editor.FieldText, Value: p.Text})
 	}
-	if !styleEqual(old.Style, p.Style) {
-		if p.Style == nil {
-			ops = append(ops, space.Op{Type: space.OpUnset, Path: editor.FieldStyle})
-		} else {
-			ops = append(ops, space.Op{Type: space.OpSet, Path: editor.FieldStyle, Value: p.Style})
+	for _, key := range markdownStyleKeys {
+		path := editor.FieldStyle + "." + key
+		nv, inNew := p.Style[key]
+		ov, inOld := old.Style[key]
+		switch {
+		case inNew && (!inOld || !scalarEqual(ov, nv)):
+			ops = append(ops, space.Op{Type: space.OpSet, Path: path, Value: nv})
+		case !inNew && inOld:
+			ops = append(ops, space.Op{Type: space.OpUnset, Path: path})
 		}
 	}
 	if len(ops) == 0 {
@@ -432,22 +486,6 @@ func buildUpdateRecord(old existingBlock, p ParsedBlock) space.RecordModify {
 		Id:  old.Id,
 		Ops: ops,
 	}
-}
-
-func styleEqual(a, b map[string]any) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, va := range a {
-		vb, ok := b[k]
-		if !ok {
-			return false
-		}
-		if !scalarEqual(va, vb) {
-			return false
-		}
-	}
-	return true
 }
 
 // scalarEqual compares two style values for equality. Numbers can

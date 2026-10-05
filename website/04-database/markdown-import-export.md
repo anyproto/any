@@ -77,7 +77,7 @@ any editor edit $SPACE $OBJ --edits @edits.json
 any editor edit $SPACE $OBJ --collection "${TYPE}_summary" --old 'draft' --new 'final'
 ```
 
-The server renders the current canonical markdown (the exact bytes `GET` returns), resolves every edit against it, splices, and feeds the result through `PUT`'s diff. A checkbox tick therefore lands as a single `$set style.checked` on one block; ids and untouched blocks stay stable; the reply is `PUT`'s shape.
+The server renders the current canonical markdown (the exact bytes `GET` returns), resolves every edit against it, splices, and feeds the result through `PUT`'s diff. A checkbox tick therefore lands as a single `$set style.checked` on one block; ids and untouched blocks stay stable; the reply is `PUT`'s shape without `version`.
 
 Matching rules:
 

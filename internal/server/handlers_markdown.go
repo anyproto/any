@@ -8,6 +8,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/editor"
 	"github.com/anyproto/any/internal/markdown"
 )
 
@@ -100,13 +101,7 @@ func (d *deps) markdownSet(c echo.Context) error {
 	}
 	res, err := markdown.Set(c.Request().Context(), sp, objectId, collection, req.Content, req.IfVersion)
 	if err != nil {
-		var conflict markdown.ConflictError
-		if errors.As(err, &conflict) {
-			return writeError(c, http.StatusConflict, api.ErrMarkdownConflict,
-				"the body changed after ifVersion — merge details.content and retry with details.version",
-				map[string]any{"content": conflict.Current.Content, "version": conflict.Current.Version})
-		}
-		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
+		return markdownWriteError(c, err, sp.Id(), objectId)
 	}
 	return c.JSON(http.StatusOK, markdownSetResponseToAPI(res))
 }
@@ -168,7 +163,7 @@ func (d *deps) markdownAppend(c echo.Context) error {
 	}
 	res, err := markdown.Append(c.Request().Context(), sp, objectId, collection, req.Content)
 	if err != nil {
-		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
+		return markdownWriteError(c, err, sp.Id(), objectId)
 	}
 	// Append only ever inserts; updated/deleted are always empty.
 	return c.JSON(http.StatusOK, markdownSetResponseToAPI(res))
@@ -219,21 +214,31 @@ func (d *deps) markdownEdit(c echo.Context) error {
 	}
 	res, err := markdown.EditContent(c.Request().Context(), sp, objectId, collection, edits)
 	if err != nil {
-		return markdownEditError(c, err, sp.Id(), objectId)
+		return markdownWriteError(c, err, sp.Id(), objectId)
 	}
 	return c.JSON(http.StatusOK, markdownSetResponseToAPI(res))
 }
 
-// markdownEditError maps EditContent's typed match errors to the
+// markdownWriteError maps the markdown writes' typed errors to the
 // canonical envelope; messages carry the recovery step so an agent
 // caller can fix its request without extra discovery.
-func markdownEditError(c echo.Context, err error, spaceId, objectId string) error {
+func markdownWriteError(c echo.Context, err error, spaceId, objectId string) error {
 	var (
+		conflict  markdown.ConflictError
+		tooLarge  markdown.BlockTooLargeError
 		noMatch   markdown.NoMatchError
 		ambiguous markdown.AmbiguousMatchError
 		overlap   markdown.OverlapError
 	)
 	switch {
+	case errors.As(err, &conflict):
+		return writeError(c, http.StatusConflict, api.ErrMarkdownConflict,
+			"the body changed after ifVersion — merge details.content and retry with details.version",
+			map[string]any{"content": conflict.Current.Content, "version": conflict.Current.Version})
+	case errors.As(err, &tooLarge):
+		return writeError(c, http.StatusBadRequest, api.ErrMarkdownBlockTooLarge,
+			fmt.Sprintf("block %d is %d bytes, over the %d-byte cap per block — split it", tooLarge.Index, tooLarge.Bytes, editor.MaxTextBytes),
+			map[string]any{"blockIndex": tooLarge.Index, "gotBytes": tooLarge.Bytes, "maxBytes": editor.MaxTextBytes})
 	case errors.As(err, &noMatch):
 		return writeError(c, http.StatusBadRequest, api.ErrMarkdownNoMatch,
 			fmt.Sprintf("edits[%d].oldText not found in the current document — GET .../editor/markdown and quote the exact text", noMatch.Index),

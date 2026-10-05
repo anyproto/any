@@ -1540,9 +1540,15 @@ plus the document version (*Versions and conflicts* below). `PUT`
 takes `{"content": "…", "ifVersion": "…"}`, parses `content`, diffs it
 against the current block tree by (type + position + text), and emits
 per-block create / update / delete ops through the same write path the
-`…/blocks` routes use, so the same collection events fire. `PUT`
-replies with `{"inserted": [...], "updated": [...], "deleted": [...],
-"unchanged": N, "version": "…"}` where the slices contain block ids.
+`…/blocks` routes use, so the same collection events fire. An update
+writes only the fields that changed, and of `style` only the keys the
+markdown expresses (`level`, `ordered`, `number`, `checked`, `lang`):
+a style key set through `…/blocks` that markdown cannot express
+survives every save. `PUT` replies with `{"inserted": [...],
+"updated": [...], "deleted": [...], "unchanged": N, "version": "…"}`
+where the slices contain block ids. A block whose text is over the
+per-block cap (64 KiB) is `400 markdown.block_too_large` on every
+markdown write, and nothing is written.
 
 ##### Versions and conflicts
 
@@ -1581,8 +1587,9 @@ The markdown writes to one document — `PUT`, `PATCH` and `append` —
 run one at a time on a server, so a save waits for the one before it
 and two saves carrying the same `ifVersion` never both write. The
 `…/blocks` routes and changes synced from other devices do not wait.
-One of those landing on a block the `PUT` also writes, in the same
-field, while the diff runs is last-writer-wins.
+While the diff runs, one of those landing on a field the `PUT` also
+writes is last-writer-wins, and an edit to a block the `PUT` deletes
+is lost to the delete.
 
 `PATCH …/editor/:collection/markdown` is the surgical variant of `PUT` — for
 callers (LLM agents above all) that know the *text* they want changed
@@ -1602,7 +1609,7 @@ The server renders the current canonical markdown (the exact bytes
 replacements, and feeds the result through `PUT`'s diff pipeline — so
 a checkbox tick lands as a single `$set style.checked` on the matched
 block, ids and untouched blocks stay stable, and the reply is `PUT`'s
-shape. Matching rules:
+shape without `version`. Matching rules:
 
 - Every `oldText` matches against the ORIGINAL document,
   independently of the other edits; matched regions must not overlap.

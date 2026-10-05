@@ -125,7 +125,7 @@ any editor edit $SP $OBJ --old '- [ ] buy milk' --new '- [x] buy milk'
 any editor edit $SP $OBJ --edits @edits.json
 ```
 
-The server renders the current canonical markdown (exactly the bytes GET returns), resolves every edit against it, splices, and feeds the result through PUT's diff — so a checkbox tick lands as one `$set style.checked` on the matched block, and the reply is PUT's shape. Matching rules:
+The server renders the current canonical markdown (exactly the bytes GET returns), resolves every edit against it, splices, and feeds the result through PUT's diff — so a checkbox tick lands as one `$set style.checked` on the matched block, and the reply is PUT's shape without `version`. Matching rules:
 
 - Every `oldText` matches against the **original** document, independently of the other edits; matched regions must not overlap.
 - Without `replaceAll` the match must be unique. `newText` may be empty; deleting a whole block takes one blank-line separator with it so the neighbours become adjacent.

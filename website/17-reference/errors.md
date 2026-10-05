@@ -190,6 +190,7 @@ Panics are converted to `500 internal` with a generic message.
 | `markdown.no_match` | 400 | `edits[i].oldText` not in the current rendering (`details.editIndex`) |
 | `markdown.ambiguous_match` | 400 | `oldText` occurs more than once without `replaceAll` (`details.occurrences`) |
 | `markdown.overlapping_edits` | 400 | two edits matched intersecting text (`details.editIndices`) |
+| `markdown.block_too_large` | 400 | a block's text is over the per-block cap on a markdown write; nothing written (`details.blockIndex`, `details.gotBytes`, `details.maxBytes`) |
 | `markdown.conflict` | 409 | markdown `PUT` with an `ifVersion` the document moved past; nothing written (`details.content`, `details.version`) |
 | `history.version_not_found` | 404 | unknown version, or not in this object's DAG |
 | `history.view_too_large` | 413 | narrow with `dataset` / `recordId` |

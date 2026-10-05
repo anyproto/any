@@ -32,6 +32,9 @@ func EditContent(ctx context.Context, sp space.Space, objectId, collection strin
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Edit: %w", err)
 	}
-	parsed, rendered := parseContent(edited)
+	parsed, rendered, err := parseContent(edited)
+	if err != nil {
+		return SetResult{}, fmt.Errorf("markdown: Edit: %w", err)
+	}
 	return applyDiff(ctx, sp, objectId, collection, existing, parsed, rendered)
 }
