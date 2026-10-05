@@ -57,7 +57,7 @@ When the document moved on, nothing is written and the reply is `409`:
 
 Merge your edit into `details.content` and `PUT` again with `ifVersion` set to `details.version`. A `200` returns the version of the body as saved, which is the next save's `ifVersion`, so consecutive saves chain without a `GET`.
 
-A save is one change, written only if the document is unchanged since the read it was computed from; the check and the write are one step under the object's write lock. Any write landing in between — another save, a `…/blocks` call, a change from another device — gets the save a `409` with nothing written, so two saves carrying the same `ifVersion` never both land.
+A save is one change, written only if the document is unchanged since the read it was computed from; the check and the write are one step under the object's write lock. Any write landing in between — another save, a `…/blocks` call, a change from another device — gets a save carrying `ifVersion` a `409` with nothing written, so two saves carrying the same `ifVersion` never both land. A save without `ifVersion` is redone against the new state instead, and when other writers keep landing first its last attempt is written without the check.
 
 A version holds within one run of the server: after a restart — a crash included — a version from before it may match a different state. When `startedAt` in `GET /v1/health` changes, `GET` the document again before the next save.
 

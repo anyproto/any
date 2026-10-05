@@ -102,7 +102,8 @@ const maxWriteAttempts = 3
 // (space.ErrPreconditionFailed) is redone against a fresh read. When the
 // writers keep winning, a caller that asked for no condition
 // (unconditional) gets its last attempt written without one, as it
-// asked; any other caller gets a ConflictError with the current body.
+// asked; a conditional caller's write closure answers a moved read with
+// a ConflictError.
 func writeAgainstRead(ctx context.Context, sp space.Space, objectId, collection, gen string, unconditional bool, write func(read Document, existing []existingBlock, ifUnchangedSince *uint64) (SetResult, error)) (SetResult, error) {
 	for attempt := 1; ; attempt++ {
 		read, existing, seq, err := readDocument(ctx, sp, objectId, collection, gen)
@@ -117,12 +118,11 @@ func writeAgainstRead(ctx context.Context, sp space.Space, objectId, collection,
 		if !errors.Is(err, space.ErrPreconditionFailed) {
 			return res, err
 		}
+		// Not reached in practice: an unconditional caller's last attempt
+		// has no precondition, and a conditional caller's next read no
+		// longer matches its ifVersion.
 		if attempt == maxWriteAttempts {
-			current, _, _, err := readDocument(ctx, sp, objectId, collection, gen)
-			if err != nil {
-				return SetResult{}, fmt.Errorf("markdown: list existing: %w", err)
-			}
-			return SetResult{}, ConflictError{Current: current}
+			return res, err
 		}
 	}
 }
@@ -244,12 +244,18 @@ func applyDiff(ctx context.Context, sp space.Space, objectId, collection string,
 	if err != nil {
 		return SetResult{}, 0, fmt.Errorf("markdown: apply: modify: %w", err)
 	}
-	// Nothing else wrote the collection between the read and this
-	// change, and the block sizes and positions the editor validates
-	// are checked before writing, so a rejection is a refusal those
-	// checks missed.
-	if len(res.Rejections) > 0 {
-		return SetResult{}, 0, fmt.Errorf("markdown: apply: rejected: %s", res.Rejections[0].Reason)
+	// The block sizes and positions the editor validates are checked
+	// before writing. With a precondition nothing else wrote the
+	// collection since the read, so any rejection is a refusal those
+	// checks missed. Without one (writeAgainstRead's last attempt), a
+	// block deleted after the read absorbs its update — delete wins —
+	// and the rest of the change has landed.
+	for _, rej := range res.Rejections {
+		if ifUnchangedSince == nil && errors.Is(rej.ReasonErr, space.ErrRecordDeleted) {
+			result.Updated = slices.DeleteFunc(result.Updated, func(id string) bool { return id == rej.RecordId })
+			continue
+		}
+		return SetResult{}, 0, fmt.Errorf("markdown: apply: rejected: %s", rej.Reason)
 	}
 	// Fill in the auto-derived ids for the Inserted slots, aligned
 	// to records[] by position. result.Inserted's slot-per-insert
