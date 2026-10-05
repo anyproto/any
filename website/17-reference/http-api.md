@@ -233,10 +233,10 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 | DELETE | `…/types/:typeId/properties/:propId` | — | 204 | tombstone; values not cleaned up |
 | PATCH | `…/types/:typeId` | `{name?, description?, iconCid?, layout?, hidden?, meta?}` | 204 | rendering slice, the hidden flag and the per-key meta bag (`null` unsets a key); `400 type.registered`, `404 type.not_found` |
 | GET | `…/types/:typeId/parts` | — | `{parts: [{id, key, name?, icon?, pos?, hidden?, ui?, uses?, datasets: [DatasetDef]}]}` | |
-| POST | `…/types/:typeId/parts` | `{key, name?, icon?, pos?, hidden?, ui?, uses?, datasets?: [dataset draft]}` | 201 `{partId}` | one change; `409 dataset.key_conflict`, `400 dataset.module_unknown`, `400 dataset.module_reserved`, `409 dataset.module_owned` |
+| POST | `…/types/:typeId/parts` | `{key, name?, icon?, pos?, hidden?, ui?, uses?, datasets?: [dataset draft]}` | 201 `{partId}` | one change; `409 dataset.key_conflict`, `400 dataset.decl_invalid`, `400 dataset.module_unknown`, `400 dataset.module_reserved`, `409 dataset.module_owned` |
 | PATCH | `…/types/:typeId/parts/:partId` | `{set, unset}` | 204 | `name`, `icon`, `pos`, `hidden`, `ui`, `uses`; `400 dataset.immutable` |
 | DELETE | `…/types/:typeId/parts/:partId` | — | 204 | removes the part and its datasets |
-| POST | `…/types/:typeId/parts/:partId/datasets` | `{key?, module?, displayName?, idRule?, deleteBy?, search?, fields, …}` | 201 `{datasetDefId, collection}` | the storage collection is `<typeId>_<key>` (or the module's canonical one when a module dataset names no key); `409 dataset.key_conflict`, `400 dataset.decl_invalid` |
+| POST | `…/types/:typeId/parts/:partId/datasets` | `{key?, module?, displayName?, idRule?, deleteBy?, search?, fields, …}` | 201 `{datasetDefId, collection}` | the storage collection is `<typeId>_<key>`, or the module's canonical one when a module dataset names no key or that canonical name; a records dataset without a key is `400 request.missing_field`; `409 dataset.key_conflict`, `400 dataset.decl_invalid` |
 | GET | `…/types/:typeId/datasets` | — | `{datasets: [DatasetDef]}` | flat compiled view; each carries its storage `collection`, `module`, `partId` |
 | PATCH | `…/types/:typeId/datasets/:defId` | `{set, unset}` | 204 | display leaves only; `400 dataset.immutable` |
 | DELETE | `…/types/:typeId/datasets/:defId` | — | 204 | |

@@ -1161,7 +1161,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "key": {
-                        "description": "Key is the dataset's slug inside its type ([a-z][a-z0-9_]*, ≤ 64)\n— pinned — and decides the collection. A module's canonical\ncollection name (editor_blocks) is that collection, the one every\ntype declaring it addresses, so retyping an object keeps its\nbody. Any other key is the collection ` + "`" + `\u003ctypeId\u003e_\u003ckey\u003e` + "`" + `, this\ntype's own. Omitted on a module dataset, it is the canonical\nname; a records dataset requires one.",
+                        "description": "Key is the dataset's slug inside its type ([a-z][a-z0-9_]*, ≤ 64)\n— pinned — and decides the collection. The canonical collection\nname of the dataset's own module (editor_blocks for editor) is\nthat collection, the one every type declaring it addresses, so\nretyping an object keeps its body. Any other key is the\ncollection ` + "`" + `\u003ctypeId\u003e_\u003ckey\u003e` + "`" + `, this type's own. Omitted on a\nmodule dataset, it is the canonical name; a records dataset\nrequires one.",
                         "type": "string"
                     },
                     "module": {

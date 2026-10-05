@@ -59,7 +59,7 @@ request.bad_json                 # 400 — request body is not valid JSON; messa
 request.schema                   # 400 — JSON shape doesn't match endpoint schema
 request.missing_field            # 400 — required field absent
 request.invalid_field            # 400 — a field is present but out of range / malformed (details.field names it)
-request.unknown_field            # 400 — a top-level body key outside the endpoint's accepted set (details.fields, details.accepted); message enumerates the accepted fields and, where one exists, the right home for the value (e.g. object properties → initialProperties, type properties → POST …/types/:typeId/properties). The strict endpoints are the ones whose request schemas carry additionalProperties: false in /v1/openapi.json.
+request.unknown_field            # 400 — a body key outside the endpoint's accepted set, at the top level or inside a nested draft (details.fields; details.accepted lists the top-level set); message enumerates the accepted fields and, where one exists, the right home for the value (e.g. object properties → initialProperties, type properties → POST …/types/:typeId/properties). The strict endpoints are the ones whose request schemas carry additionalProperties: false in /v1/openapi.json.
 request.bad                      # 400 — rejected by the HTTP layer before a handler ran
 request.not_found                # 404 — no such route
 request.method_not_allowed       # 405 — the route exists, not with this method
@@ -118,11 +118,11 @@ dataset.unknown                  # 400 — a record write (modify / delete-recor
 dataset.not_declared             # 400 — a write into a storage collection the object's type does not declare (details.dataset, details.objectId): the space serves it, but no part of the object's type owns it — set that type first (a definition object owns its own datasets); no write sets one; also a property value written under an owner the object does not have — neither its type nor a collection it is filed under (the message names the owner and the object's current type and collections)
 dataset.not_found                # 404 — the :collection segment of an editor route names no editor dataset in this space (details.collection): neither editor_blocks nor a namespaced <typeId>_<key> instance a part declares with module "editor"
 dataset.validation               # 400 — schema or handler rejected ops
-dataset.key_conflict             # 409 — a part or dataset with this key already exists on the type (details.key); a module's canonical dataset declared a second time collides on its key
+dataset.key_conflict             # 409 — a part or dataset with this key already exists on the type (details.key when the draft names one); a module's canonical dataset declared a second time collides on its key
 dataset.module_unknown           # 400 — the dataset names a module this server does not compile in (records, editor, chat)
 dataset.module_owned             # 409 — a field declaration on a module-served dataset (editor, chat): the module owns the schema, the dataset declares no fields
 dataset.module_reserved          # 400 — a part or dataset draft (on a type, or in a bundle body) names a module reserved to the server's own installs (`chat` — the catalog's general-chat usecase is its one declaration)
-dataset.decl_invalid             # 400 — malformed part or dataset declaration (non-slug key, author mutability without a creator stamp, duplicate stamp kind, required additive field, …)
+dataset.decl_invalid             # 400 — malformed part or dataset declaration (non-slug key, a records dataset without a key in a part draft, author mutability without a creator stamp, duplicate stamp kind, required additive field, …)
 dataset.immutable                # 400 — PATCH a pinned part or dataset-def path (part: name, icon, pos, hidden, ui, uses are mutable; head: description, displayName, search.title/text/scope; field: name, description, xFormat.*); details.path
 
 upsert.requires_user_ids         # 400 — upsert on a dataset not declared idRule "user"

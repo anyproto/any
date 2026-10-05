@@ -1166,9 +1166,9 @@ holds the marker.
   the parts list), and records go through `POST …/upsert` / `…/modify`
   / `…/query[/subscribe]` with that storage collection as `dataset` and
   `objectId` = an object of the type — the root itself included, since a
-  definition hosts itself. A part naming a module (`{"module":
-  "editor"}`) makes the root's type own that module's canonical storage
-  collection — this is how a client's document bundle gives its
+  definition hosts itself. A part whose dataset names a module and no
+  key (`{"module": "editor"}`) makes the root's type own that module's
+  canonical storage collection — this is how a client's document bundle gives its
   objects a body. A part
   naming a module reserved to the server (`chat`, § Parts and modules)
   is `400 dataset.module_reserved`. Refused with `collection`
@@ -1507,8 +1507,8 @@ storage collection** (one record per block) served by the compiled-in
 `editor` module, and exposed through the `…/editor/:collection/**`
 route namespace. `:collection` is the storage collection a type's part
 declared with `{"module": "editor"}` (§ Parts and modules): the canonical
-`editor_blocks` for a part that names no other key — the body every
-document type addresses, so an object that changes from one document
+`editor_blocks` for a part whose editor dataset names no other key —
+the body every document type addresses, so an object that changes from one document
 type to another keeps its body — or a
 namespaced `<typeId>_<key>` instance for a part that wants its own
 editor (the catalog's `meeting`: its notes are the canonical body, its
@@ -1519,7 +1519,7 @@ dataset.not_declared` (set the type first — the write never sets
 one); a `:collection` no editor part in the space declares is `404
 dataset.not_found`. The built-in `page` type (§ Built-in hidden type:
 `page`)
-is the plain document — hidden, one part sharing this storage
+is the plain document — hidden, one part on this storage
 collection; a
 client with its own document types declares them with an editor part,
 registered as a bundle so every peer lands on one, and an object
@@ -2703,12 +2703,15 @@ it:
   has. A type declares it at most once (a second is `409
   dataset.key_conflict`). `chat` admits no other key.
 - **namespaced**: any other key — `<typeId>_<key>`. Owned by this type
-  alone; two types each declaring a `notes` editor part have two
-  bodies. `records` has no canonical storage collection, so a records
-  dataset always names a key.
+  alone; two types each declaring an editor dataset keyed `notes` have
+  two bodies. `records` has no canonical storage collection, so a
+  records dataset always names a key: without one it is `400
+  request.missing_field` on the dataset route, `400
+  dataset.decl_invalid` in a part draft and `400 request.invalid_field`
+  in a bundle body.
 
-A client tells the two apart by `module` and `collection` on the
-dataset listing.
+A dataset is canonical when its `collection` — `name` on `GET
+…/datasets` — is its module's canonical name.
 
 A module may be **reserved** to the server's own installs: a part or
 dataset draft naming it — on a type, or in a bundle body — is `400
@@ -3002,7 +3005,7 @@ object's type does not declare it).
 #### Documents and chats
 
 There is no built-in `editor` or `chat` type. "This object is a
-document" is a type whose part shares the editor module — the built-in
+document" is a type whose part declares the editor module — the built-in
 `page` (§ Built-in hidden type: `page`) or a user type; a client's own
 document type is registered as a bundle-declared type with an editor
 part (§ Bundles), so every device converges on one type per space

@@ -1,11 +1,11 @@
 ---
 title: Page
-description: How a document is declared — a type whose part shares the editor module — what fields a page is made of, and how to list and file pages.
+description: How a document is declared — a type whose part declares the editor module — what fields a page is made of, and how to list and file pages.
 order: 30
 ---
 # Page
 
-A page is an object whose type is a **document type**: a type with one part whose dataset names the `editor` module. Two kinds qualify. The built-in `page` type is the plain document — hidden from the type picker, present in every space, no properties of its own; pass it as `type` at create and the object holds a body. A **user document type** is one you declare yourself, with the same kind of part, and normally register as a [bundle](../collaboration/bundles.html) so every client and device converges on one — that is the type to use when a page needs columns or a layout. Both write the one `editor_blocks` storage collection, so retyping between them keeps the body.
+A page is an object whose type is a **document type**: a type with one part whose dataset names the `editor` module and no key. Two kinds qualify. The built-in `page` type is the plain document — hidden from the type picker, present in every space, no properties of its own; pass it as `type` at create and the object holds a body. A **user document type** is one you declare yourself, with the same kind of part, and normally register as a [bundle](../collaboration/bundles.html) so every client and device converges on one — that is the type to use when a page needs columns or a layout. Both write the one `editor_blocks` storage collection, so retyping between them keeps the body.
 
 ## The built-in `page`
 
@@ -73,7 +73,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/query \
        "sort": ["-modifiedAt"], "limit": 50}'
 ```
 
-The same body against `…/objects/query/subscribe` gives a live document list. Filter by label with `{"any.tags": "books"}` — array fields match on any element. "Every object with a body, whatever its type" is a filter on every type that shares the editor: the `owners` of `editor_blocks` in `GET /v1/spaces/:spaceId/datasets` (the built-in `page` is always among them), matched with `{"$and": [{"any.type": {"$in": [...]}}, {"any.collections": {"$nin": ["bin"]}}]}`. A type's own definition row carries the marker in `any.type`, so it never matches and needs no exclusion.
+The same body against `…/objects/query/subscribe` gives a live document list. Filter by label with `{"any.tags": "books"}` — array fields match on any element. "Every object with a body, whatever its type" is a filter on every type that declares the editor body: the `owners` of `editor_blocks` in `GET /v1/spaces/:spaceId/datasets` (the built-in `page` is always among them), matched with `{"$and": [{"any.type": {"$in": [...]}}, {"any.collections": {"$nin": ["bin"]}}]}`. A type's own definition row carries the marker in `any.type`, so it never matches and needs no exclusion.
 
 ## Built-in or bundle
 

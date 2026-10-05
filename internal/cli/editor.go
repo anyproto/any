@@ -205,9 +205,9 @@ func newBlocksDeleteCmd() *cobra.Command {
 }
 
 // addCollectionFlag adds --collection: the editor collection the
-// command writes — the canonical editor_blocks a type shares (the
-// default), or a namespaced <typeId>_<key> instance a part declares.
+// command writes — the canonical editor_blocks (the default), or a
+// namespaced <typeId>_<key> instance a part declares.
 func addCollectionFlag(cmd *cobra.Command, dst *string) {
 	cmd.Flags().StringVar(dst, "collection", api.CollectionEditorBlocks,
-		"editor collection: editor_blocks (shared) or a namespaced <typeId>_<key> instance")
+		"editor collection: editor_blocks (canonical) or a namespaced <typeId>_<key> instance")
 }

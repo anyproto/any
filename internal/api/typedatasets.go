@@ -113,12 +113,13 @@ type PartPatchRequest struct {
 // via PATCH …/datasets/:defId.
 type DatasetDraftRequest struct {
 	// Key is the dataset's slug inside its type ([a-z][a-z0-9_]*, ≤ 64)
-	// — pinned — and decides the collection. A module's canonical
-	// collection name (editor_blocks) is that collection, the one every
-	// type declaring it addresses, so retyping an object keeps its
-	// body. Any other key is the collection `<typeId>_<key>`, this
-	// type's own. Omitted on a module dataset, it is the canonical
-	// name; a records dataset requires one.
+	// — pinned — and decides the collection. The canonical collection
+	// name of the dataset's own module (editor_blocks for editor) is
+	// that collection, the one every type declaring it addresses, so
+	// retyping an object keeps its body. Any other key is the
+	// collection `<typeId>_<key>`, this type's own. Omitted on a
+	// module dataset, it is the canonical name; a records dataset
+	// requires one.
 	Key string `json:"key,omitempty"`
 	// Module is the serving module: "records" (the default) or
 	// "editor". "chat" is reserved to the server (400

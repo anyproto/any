@@ -275,7 +275,7 @@ any editor edit          <spaceId> <objectId> --edits JSON|@FILE|- [--collection
 `editor blocks` maps 1:1 onto the atomic block write endpoints
 (reads go through `any query-subscribe … --dataset <collection>`). Every
 editor command takes `--collection` (default `editor_blocks`, the
-canonical storage collection an unkeyed editor part declares); pass a
+canonical storage collection an editor dataset with no key declares); pass a
 namespaced `<typeId>_<key>` to address a part's own editor. The object
 must carry a type whose part declares it (`dataset.not_declared`
 otherwise — see `03-api.md` § Parts and modules).

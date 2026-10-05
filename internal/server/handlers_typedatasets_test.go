@@ -775,6 +775,149 @@ func TestTypeParts_ModuleDatasets(t *testing.T) {
 	}
 }
 
+// TestTypeParts_CanonicalEditorKey pins the key rule across the
+// dataset, part and bundle routes: an unkeyed editor dataset and one
+// keyed editor_blocks are the same canonical collection, a records
+// dataset needs a key, and a draft carrying `shared` is refused.
+func TestTypeParts_CanonicalEditorKey(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	spaceId, _, _ := setupSubscribeFixture(t, e)
+	base := "/v1/spaces/" + spaceId
+
+	// newType creates a type with no parts, so each scenario declares
+	// its first editor dataset on a type of its own.
+	newType := func(t *testing.T, xKey string) string {
+		t.Helper()
+		rec := doJSON(t, e, http.MethodPost, base+"/types", `{"name":"`+xKey+`","xKey":"`+xKey+`"}`)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
+		}
+		var created api.TypesCreateResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+			t.Fatal(err)
+		}
+		return created.TypeId
+	}
+	datasetsOf := func(t *testing.T, typeId string) []api.DatasetDefResponse {
+		t.Helper()
+		var list api.TypeDatasetsListResponse
+		decodeGet(t, e, base+"/types/"+typeId+"/datasets", &list)
+		return list.Datasets
+	}
+	partsOf := func(t *testing.T, typeId string) []api.PartDefResponse {
+		t.Helper()
+		var list api.TypePartsListResponse
+		decodeGet(t, e, base+"/types/"+typeId+"/parts", &list)
+		return list.Parts
+	}
+	addDataset := func(t *testing.T, typeId, partId, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		return doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/parts/"+partId+"/datasets", body)
+	}
+	// assertSharedRefused checks the refusal names `shared` as the
+	// unknown field.
+	assertSharedRefused := func(t *testing.T, rec *httptest.ResponseRecorder) {
+		t.Helper()
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("draft with shared: %d %s", rec.Code, rec.Body.String())
+		}
+		assertErrorCode(t, rec, "request.unknown_field")
+		var env api.ErrorEnvelope
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatal(err)
+		}
+		if fs, _ := env.Error.Details["fields"].([]any); len(fs) != 1 || fs[0] != "shared" {
+			t.Errorf("unknown fields = %v, want [shared]", env.Error.Details["fields"])
+		}
+	}
+
+	t.Run("dataset route refusals", func(t *testing.T) {
+		typeId := newType(t, "refusals")
+		partId := mustAddPart(t, e, spaceId, typeId, `{"key":"body"}`)
+		// No key and no module, or records named outright: records
+		// needs a key.
+		for _, body := range []string{`{}`, `{"module":"records"}`} {
+			rec := addDataset(t, typeId, partId, body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("%s: %d %s", body, rec.Code, rec.Body.String())
+			}
+			assertErrorCode(t, rec, "request.missing_field")
+		}
+		assertSharedRefused(t, addDataset(t, typeId, partId, `{"module":"editor","shared":true}`))
+		if defs := datasetsOf(t, typeId); len(defs) != 0 {
+			t.Fatalf("datasets after refusals: %+v", defs)
+		}
+	})
+
+	t.Run("unkeyed editor is canonical", func(t *testing.T) {
+		typeId := newType(t, "unkeyed")
+		partId := mustAddPart(t, e, spaceId, typeId, `{"key":"body"}`)
+		rec := addDataset(t, typeId, partId, `{"module":"editor"}`)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("unkeyed editor: %d %s", rec.Code, rec.Body.String())
+		}
+		var out api.AddDatasetResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || out.Collection != api.CollectionEditorBlocks {
+			t.Fatalf("collection: %v %s", err, rec.Body.String())
+		}
+	})
+
+	t.Run("spelled-out editor key is canonical", func(t *testing.T) {
+		typeId := newType(t, "spelled")
+		partId := mustAddPart(t, e, spaceId, typeId, `{"key":"body"}`)
+		rec := addDataset(t, typeId, partId, `{"key":"editor_blocks","module":"editor"}`)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("keyed editor_blocks: %d %s", rec.Code, rec.Body.String())
+		}
+		var out api.AddDatasetResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || out.Collection != api.CollectionEditorBlocks {
+			t.Fatalf("collection: %v %s", err, rec.Body.String())
+		}
+		defs := datasetsOf(t, typeId)
+		if len(defs) != 1 || defs[0].Key != "editor_blocks" || defs[0].Collection != "editor_blocks" ||
+			defs[0].Module != api.ModuleEditor || defs[0].PartId != partId {
+			t.Fatalf("datasets = %+v", defs)
+		}
+
+		// An object of the type writes and reads back the canonical body
+		// through the editor route.
+		objectId := mustCreateObject(t, e, spaceId, `{"type":"`+typeId+`"}`)
+		b := blocksCreate(t, e, base+"/objects/"+objectId, `{"type":"paragraph","text":"spelled out"}`)
+		if b.Text != "spelled out" {
+			t.Fatalf("block read back = %+v", b)
+		}
+	})
+
+	t.Run("part route refuses a second canonical editor", func(t *testing.T) {
+		typeId := newType(t, "twice")
+		for _, body := range []string{
+			`{"key":"body","datasets":[{"module":"editor"},{"module":"editor"}]}`,
+			`{"key":"body","datasets":[{"module":"editor"},{"key":"editor_blocks","module":"editor"}]}`,
+		} {
+			rec := doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/parts", body)
+			if rec.Code != http.StatusConflict {
+				t.Fatalf("%s: %d %s", body, rec.Code, rec.Body.String())
+			}
+			assertErrorCode(t, rec, "dataset.key_conflict")
+		}
+		if parts := partsOf(t, typeId); len(parts) != 0 {
+			t.Fatalf("parts after refusals: %+v", parts)
+		}
+	})
+
+	t.Run("bundle route refuses shared", func(t *testing.T) {
+		assertSharedRefused(t, doJSON(t, e, http.MethodPost, base+"/bundles",
+			`{"id":"shared-flag/v1","derived":true,"parts":[{"key":"body","datasets":[{"module":"editor","shared":true}]}]}`))
+		rec := doJSON(t, e, http.MethodGet, base+"/bundles/"+escapedBundleId("shared-flag/v1"), "")
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("refused bundle must not be installed: %d %s", rec.Code, rec.Body.String())
+		}
+	})
+}
+
 // TestTypeDatasets_SearchTextMultiField covers the string-or-array
 // search.text leaf: array declaration, wire read-back on
 // both surfaces, drift-patch of the array leaf, single-element

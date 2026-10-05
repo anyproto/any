@@ -58,7 +58,7 @@ Panics are converted to `500 internal` with a generic message.
 | `request.bad_json` | 400 | body is not valid JSON |
 | `request.schema` | 400 | JSON shape does not match the endpoint schema |
 | `request.missing_field` | 400 | a required field is absent — object create without `type`, a bundle body that declares nothing and has no `rootType` |
-| `request.unknown_field` | 400 | a top-level key outside the accepted set (`details.fields`, `details.accepted`) |
+| `request.unknown_field` | 400 | a key outside the accepted set, at the top level or inside a nested draft (`details.fields`; `details.accepted` lists the top-level set) |
 | `request.invalid_field` | 400 | a field value the endpoint refuses (bad identity, dataset outside an allowlist, …; `details.field`) |
 | `request.bad` | 400 | a malformed request the framework or a query parameter check rejected |
 | `request.not_found` | 404 | no route matches the path |

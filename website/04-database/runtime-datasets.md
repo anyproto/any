@@ -50,7 +50,7 @@ any type part dataset add $SPACE $TYPE $PART --draft @articles.json
 
 | Field | Meaning |
 |---|---|
-| `key` | The dataset's slug inside the type (`[a-z][a-z0-9_]*`), pinned, unique among the type's parts and datasets → `409 dataset.key_conflict`. The storage collection is `<typeId>_<key>`. A module dataset may omit it and is then the module's canonical storage collection (`editor_blocks`). |
+| `key` | The dataset's slug inside the type (`[a-z][a-z0-9_]*`), pinned, unique among the type's parts and datasets → `409 dataset.key_conflict`. The storage collection is `<typeId>_<key>`. A records dataset requires it. An `editor` dataset may omit it, or name `editor_blocks`, and is then the module's canonical storage collection. |
 | `module` | The serving module; absent = `records`. An `editor` dataset carries no `fields` (the module owns the schema — `409 dataset.module_owned`); `chat` is reserved to the server's catalog install (`400 dataset.module_reserved`); an unknown module is `400 dataset.module_unknown`. |
 | `idRule` | `auto` (default: ids derived from the change, explicit client ids rejected) or `user` (caller-supplied, matched against `idPattern` / `idMaxLen`, defaults `[A-Za-z0-9._:-]+` / 128). |
 | `deleteBy` | `anyone` (default) or `author` — requires a `stamp: creator` field; deletes by anyone else are dropped at apply. |

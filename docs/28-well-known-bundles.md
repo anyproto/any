@@ -317,9 +317,9 @@ and `GET …/collections?includeHidden=true`.
   (`{"type": "chat"}`) over the parts it hosts.
 - Then the type's parts in `pos` order, each as its `ui` says: a
   `records` part over the storage collection `<typeId>_<key>` on the
-  object, an `editor` part a document (`editor_blocks` when unkeyed —
-  the body `page` has — `<typeId>_<key>` when keyed), a `chat`
-  part a chat.
+  object, an `editor` part a document (`editor_blocks` when its dataset
+  names no key — the body `page` has — `<typeId>_<key>` when it names
+  one), a `chat` part a chat.
 - A type picker lists the catalog's listed types like any user type,
   a collection picker its listed collections, and both hide the roots
   the registry reports as losers.
@@ -531,8 +531,8 @@ the same owner (`03-api.md` § The wiki tree).
 
 **Journal** is one dated page per day: an entry's type is `journal`,
 with a `date` value (a `date` slug on `kind: datetime` — midnight
-UTC, `{"$date": …}`), and the type's `body` part shares the editor's
-storage collection, so the entry has the same document a page has. The
+UTC, `{"$date": …}`), and the type's `body` part is on the editor's
+canonical storage collection, so the entry has the same document a page has. The
 type is hidden: the app creates entries, nothing picks the type from a
 picker.
 

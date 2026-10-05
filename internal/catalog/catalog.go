@@ -793,12 +793,14 @@ func validateParts(pp string, parts []api.PartDraftRequest, add func(path, code,
 				add(dp+".fields", CodeBadField, "fields only on a records dataset — the module owns the schema")
 			}
 			switch {
-			case key == "":
+			case key == "" && module == "records":
 				add(dp+".key", CodeMissing, "key required on a records dataset")
-			case datasetKeys[key]:
+			case key != "" && datasetKeys[key]:
 				add(dp+".key", CodeDuplicate, "dataset "+key+" declared twice")
 			}
-			datasetKeys[key] = true
+			if key != "" {
+				datasetKeys[key] = true
+			}
 			// Author gates need somebody to compare against: the SDK
 			// refuses a declaration where an author-only delete OR an
 			// author-mutable field has no creator stamp. Catch both here

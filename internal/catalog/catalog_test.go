@@ -451,6 +451,29 @@ func TestCatalog_Problems(t *testing.T) {
 			code: CodeBadField, path: "usecases[2].bundles[0].parts[0].datasets[0].fields",
 		},
 		{
+			name: "unkeyed editor then editor_blocks",
+			mutate: func(s string) string {
+				return strings.Replace(s, "- key: settings\n                idRule: user\n                fields: [ { key: pipeline, kind: string, mutableBy: any } ]",
+					"- { module: editor }\n              - { key: editor_blocks, module: editor }", 1)
+			},
+			code: CodeDuplicate, path: "usecases[2].bundles[0].parts[0].datasets[1].key", contains: "declared twice",
+		},
+		{
+			name: "editor_blocks then unkeyed editor",
+			mutate: func(s string) string {
+				return strings.Replace(s, "- key: settings\n                idRule: user\n                fields: [ { key: pipeline, kind: string, mutableBy: any } ]",
+					"- { key: editor_blocks, module: editor }\n              - { module: editor }", 1)
+			},
+			code: CodeDuplicate, path: "usecases[2].bundles[0].parts[0].datasets[1].key", contains: "declared twice",
+		},
+		{
+			name: "records dataset without a key",
+			mutate: func(s string) string {
+				return strings.Replace(s, "- key: settings\n                idRule: user\n", "- idRule: user\n", 1)
+			},
+			code: CodeMissing, path: "usecases[2].bundles[0].parts[0].datasets[0].key", contains: "key required",
+		},
+		{
 			name: "relation filter",
 			mutate: func(s string) string {
 				return strings.Replace(s, "relation: { targetTypes: [ contact ] }", "relation: { targetTypes: [ contact ], filter: '{}' }", 1)
@@ -551,6 +574,24 @@ func TestCatalog_Problems(t *testing.T) {
 			}
 			t.Fatalf("no problem %s at %q containing %q; got:\n%v", tc.code, tc.path, tc.contains, ps)
 		})
+	}
+}
+
+// An unkeyed dataset naming an unknown module is one problem, the
+// module: it is not also reported as a records dataset missing its key.
+func TestCatalog_UnknownModuleIsOneProblem(t *testing.T) {
+	src := strings.Replace(base, "- key: settings\n                idRule: user\n                fields: [ { key: pipeline, kind: string, mutableBy: any } ]",
+		"- { module: nope }", 1)
+	_, ps := Load([]byte(src), knownTypes)
+	const dp = "usecases[2].bundles[0].parts[0].datasets[0]"
+	var got []Problem
+	for _, p := range ps {
+		if strings.HasPrefix(p.Path, dp) {
+			got = append(got, p)
+		}
+	}
+	if len(got) != 1 || got[0].Code != CodeBadField || got[0].Path != dp+".module" {
+		t.Fatalf("problems on the dataset = %v; all:\n%v", got, ps)
 	}
 }
 
