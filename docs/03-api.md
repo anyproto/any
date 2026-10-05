@@ -1897,6 +1897,9 @@ storage collection, so it disappears from `objects/query` and leaves every
 `reason: "deleted"` — the signal subscribers use to drop the id from
 local state. See `04-events.md`.
 
+Deleting a collection's own object deletes the collection; its
+members keep the id (§ Collections).
+
 A **derived** object is permanent — any bundle root installed with
 `derived: true`, so the general chat (§ Bundles → Derived roots) —
 and answers `409 object.derived_undeletable`; the row stays readable.
@@ -2437,7 +2440,6 @@ diffs are leaf-level; an absent side is omitted (`added` has no
 | POST   | `/v1/spaces/:spaceId/types`                                   | `TypesAPI.Create`      |
 | GET    | `/v1/spaces/:spaceId/types/:typeId`                           | `TypesAPI.Get`         |
 | PATCH  | `/v1/spaces/:spaceId/types/:typeId`                           | `TypesAPI.Patch` — name / description / icon / layout |
-| DELETE | `/v1/spaces/:spaceId/types/:typeId`                           | `501 sdk.not_implemented` |
 | GET    | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.Properties`  |
 | POST   | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.AddProperty` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.RemoveProperty` |
@@ -3129,7 +3131,6 @@ no `layout`: an object of type `page` renders by the client's default.
 | POST   | `/v1/spaces/:spaceId/collections`                             | `CollectionsAPI.Create` |
 | GET    | `/v1/spaces/:spaceId/collections/:collectionId`               | `CollectionsAPI.Get`   |
 | PATCH  | `/v1/spaces/:spaceId/collections/:collectionId`               | `CollectionsAPI.Patch` — name / description / icon / hidden / meta |
-| DELETE | `/v1/spaces/:spaceId/collections/:collectionId`               | `501 sdk.not_implemented` |
 | GET    | `/v1/spaces/:spaceId/collections/:collectionId/properties`    | list the columns       |
 | POST   | `/v1/spaces/:spaceId/collections/:collectionId/properties`    | add a column           |
 | PATCH  | `/v1/spaces/:spaceId/collections/:collectionId/properties/:propId` | patch a column    |
@@ -3191,6 +3192,17 @@ marker exclusion.
 
 Filing an object is `POST …/properties/:objectId/collections/:collectionId`,
 unfiling the matching DELETE (§ Properties).
+
+**Deleting a collection** is `DELETE …/objects/:collectionId` (§ Object
+deletion), and it does not unfile the members: each keeps the id in
+`any.collections` and its `<collectionId>.<propId>` values, and
+`{"any.collections": "<collectionId>"}` still matches it. A bundle
+uninstall or conflict resolve leaves members the same way, and no
+cascade could be complete: a peer's offline filing syncs after the
+delete and is admitted. A reader of an object's `any.collections`
+skips an id that resolves to no collection. Re-filing under it is
+`404 collection.not_found`; unfiling removes it — the DELETE
+pre-flights nothing, so any client may run it as the repair.
 
 #### Built-in collections: `miniapp`, `bin`
 

@@ -385,7 +385,6 @@ func TestServer_NotImplementedRoutes(t *testing.T) {
 	e := buildEcho(d)
 
 	cases := []struct{ method, path string }{
-		{http.MethodDelete, "/v1/spaces/spc/types/t1"},
 		{http.MethodGet, "/v1/spaces/spc/sync-status/peers"},
 	}
 	for _, tc := range cases {

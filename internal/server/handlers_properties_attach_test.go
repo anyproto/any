@@ -177,6 +177,61 @@ func TestServer_PropertiesCollectionBinding(t *testing.T) {
 	assertStatusCode(t, rec, http.StatusBadRequest, "dataset.not_declared")
 }
 
+// TestServer_CollectionDeleteKeepsMemberships: a collection is deleted
+// through the generic object route and the delete does not cascade.
+// Members keep the dead id and its values, still match a membership
+// filter and stay writable; re-filing is refused, unfiling repairs.
+func TestServer_CollectionDeleteKeepsMemberships(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	sp := createSpaceInfo(t, e, "CollectionDelete")
+	base := "/v1/spaces/" + sp.Id
+
+	shelf := mustCreateCollection(t, e, sp.Id, `{"name":"Shelf","xKey":"shelf"}`)
+	rec := doJSON(t, e, http.MethodPost, base+"/collections/"+shelf+"/properties",
+		`{"xKey":"note","name":"Note","kind":"string"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add collection property: %d %s", rec.Code, rec.Body.String())
+	}
+	var prop api.AddPropertyResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &prop)
+
+	obj := mustCreateObject(t, e, sp.Id, `{"type":"page","collections":["`+shelf+`"]}`)
+	mustModify(t, e, http.MethodPost, base+"/properties/"+obj+"/set/"+shelf,
+		`{"patch":{"`+prop.PropId+`":"kept"}}`, http.StatusOK)
+
+	if rec = doJSON(t, e, http.MethodDelete, base+"/objects/"+shelf, ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete collection: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodGet, base+"/collections/"+shelf, "")
+	assertStatusCode(t, rec, http.StatusNotFound, "collection.not_found")
+
+	if cols := objectCollections(t, e, sp.Id, obj); !slices.Contains(cols, shelf) {
+		t.Errorf("collections = %v, want the dead id kept", cols)
+	}
+	if row := propertiesRecord(t, e, sp.Id, obj); row[shelf] == nil {
+		t.Errorf("delete dropped the member's values: %v", row)
+	}
+	rec = doJSON(t, e, http.MethodPost, base+"/objects/query", `{"filter":{"any.collections":"`+shelf+`"}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("objects query: %d %s", rec.Code, rec.Body.String())
+	}
+	var members api.QueryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &members); err != nil || len(members.Records) != 1 {
+		t.Errorf("members of the dead id = %s, want the one member", rec.Body.String())
+	}
+	mustModify(t, e, http.MethodPost, base+"/properties/"+obj+"/set/any", `{"patch":{"name":"still writable"}}`, http.StatusOK)
+
+	url := base + "/properties/" + obj + "/collections/" + shelf
+	rec = doJSON(t, e, http.MethodPost, url, "")
+	assertStatusCode(t, rec, http.StatusNotFound, "collection.not_found")
+	mustModify(t, e, http.MethodDelete, url, "", http.StatusOK)
+	if cols := objectCollections(t, e, sp.Id, obj); slices.Contains(cols, shelf) {
+		t.Errorf("collections = %v after the repair unfile", cols)
+	}
+}
+
 // The two slots refuse each other's ids: a collection cannot be the
 // object's type and a type cannot be a collection it is filed under.
 func TestServer_PropertiesSlotsAreTyped(t *testing.T) {

@@ -33,7 +33,7 @@ Every error response — regardless of status code — has the same body:
 | 413    | Body over the 1 MiB cap (`request.too_large`; file attach is exempt), or `history.view_too_large` |
 | 429    | `access.rate_limited`                                          |
 | 500    | Internal error — unexpected SDK or server failure              |
-| 501    | `sdk.not_implemented` — `DELETE …/types/:typeId`, `DELETE …/collections/:collectionId` and `GET …/sync-status/peers` |
+| 501    | `sdk.not_implemented` — `GET …/sync-status/peers` |
 | 502    | `access.unavailable`                                           |
 | 503    | Request cancelled or the engine tearing down (`server.unavailable`); embedder unreachable (`index.embedder_unavailable`) |
 
@@ -227,7 +227,7 @@ index.embedder_unavailable       # 503 — mode=vector while the embedder is unr
 search.bad_mode                  # 400 — mode not hybrid | fts | vector
 search.bad_scope                 # 400 — scope not a valid slug ([a-z0-9_-], max 64; scopes are an open set)
 
-sdk.not_implemented              # 501 — DELETE …/types/:typeId, DELETE …/collections/:collectionId, GET …/sync-status/peers
+sdk.not_implemented              # 501 — GET …/sync-status/peers
 sdk.not_found                    # 404 — the SDK reports the target is gone (object, type, property, part or dataset definition)
 sdk.crdt_version_newer           # 409 — the account's data was written by a newer release (details.stored > details.supported): POST /v1/auth refuses to boot it; a running server whose account is raised by another device turns read-only — every synced write answers this until the server is upgraded (GET /v1/health.crdtVersion)
 

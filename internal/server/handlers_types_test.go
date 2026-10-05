@@ -612,9 +612,4 @@ func TestServer_CollectionsRoutes(t *testing.T) {
 		}
 		assertErrorCode(t, rec, tc.code)
 	}
-
-	// Deleting a collection is not implemented yet and says so.
-	if rec = doJSON(t, e, http.MethodDelete, base+"/collections/"+stash, ""); rec.Code != http.StatusNotImplemented {
-		t.Errorf("delete collection: %d %s, want 501", rec.Code, rec.Body.String())
-	}
 }

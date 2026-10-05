@@ -226,7 +226,6 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 | GET | `/v1/spaces/:spaceId/types` | `includeHidden?` | `{types}` | built-ins `any`, `spaceIndex`, `type`, `collection` first, then the registered hidden `page` / `dataview`, then user types; hidden types (the hidden built-ins, and any type created, patched or installed with `hidden: true`) only with `includeHidden=true` |
 | POST | `/v1/spaces/:spaceId/types` | `{name?, description?, iconCid?, xKey, layout?, hidden?, meta?}` | 201 `{typeId}` | `400 type.xkey_required`, `409 type.xkey_conflict` (one handle namespace with collections); properties and parts are added through their own routes |
 | GET | `/v1/spaces/:spaceId/types/:typeId` | — | `TypeInfo` | `404 type.not_found`; `400 type.not_a_type` for a user collection id |
-| DELETE | `/v1/spaces/:spaceId/types/:typeId` | — | — | `501 sdk.not_implemented` |
 | GET | `…/types/:typeId/properties` | — | `{properties: [PropertyDef]}` | `404 type.not_found`; `200 []` means "no properties yet" |
 | POST | `…/types/:typeId/properties` | `{name?, description?, kind, xKey?, xFormat?, meta?, scope?}` | 201 `{propId}` | `kind` required and pinned (`string`, `number`, `boolean`, `array`, `object`, `datetime`); `xFormat` is the descriptor ([Types and properties](../database/types-and-properties.html)); `meta` takes only `index`; `400 property.format_invalid`, `409 property.xkey_conflict`, `400 type.registered` |
 | PATCH | `…/types/:typeId/properties/:propId` | `{set, unset}` | 204 | `name`, `description`, `xKey`, `meta.index`, `xFormat.*` leaves; `400 property.immutable`, `400 property.format_invalid`, `409 property.xkey_conflict`, `404 sdk.not_found` |
@@ -247,7 +246,6 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 | POST | `/v1/spaces/:spaceId/collections` | `{name?, description?, iconCid?, xKey, hidden?, meta?}` | 201 `{collectionId}` | the type body minus `layout`; `400 type.xkey_required`, `409 type.xkey_conflict` |
 | GET | `/v1/spaces/:spaceId/collections/:collectionId` | — | `CollectionInfo` | `404 collection.not_found`; `400 collection.not_a_collection` for a user type id |
 | PATCH | `…/collections/:collectionId` | `{name?, description?, iconCid?, hidden?, meta?}` | 204 | `400 collection.registered` on a built-in, `404 collection.not_found` |
-| DELETE | `…/collections/:collectionId` | — | — | `501 sdk.not_implemented` |
 | GET/POST/PATCH/DELETE | `…/collections/:collectionId/properties[/:propId]` | as the `…/types` twins | as the `…/types` twins | one property surface: same bodies, same codes; a column write on a built-in is `400 type.registered` |
 | GET | `/v1/spaces/:spaceId/properties/:objectId` | — | `{record}` | raw `objects` row |
 | POST | `/v1/spaces/:spaceId/properties/:objectId/set/:ownerId` | `{patch: {propId: value}}` | write result | `ownerId` is the object's type, one of its collections, or a module namespace its type grants (`chat` for `chat.notifyMode`); routes by the props' declared scope; `400 property.format_violation`, `property.kind_mismatch`, `property.not_found`; `400 dataset.not_declared` for an owner the object does not have |

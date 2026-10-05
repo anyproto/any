@@ -50,7 +50,7 @@ any collection list $SPACE
 
 `{"collections": [{id, name?, description?, iconCid?, xKey?, builtIn?, hidden?, meta?}]}` — the synthetic meta row `collection` (the shape of collection objects themselves; a picker skips it), then the registered built-ins, then your own. Flags are omitted when false. Hidden collections appear only with `?includeHidden=true`; `GET …/collections/:collectionId` resolves them always.
 
-`PATCH …/collections/:collectionId` takes `{name?, description?, iconCid?, hidden?, meta?}`, at least one, and answers `204`. A built-in refuses it with `400 collection.registered`. Deleting a collection is not implemented (`501 sdk.not_implemented`) — hide it instead.
+`PATCH …/collections/:collectionId` takes `{name?, description?, iconCid?, hidden?, meta?}`, at least one, and answers `204`. A built-in refuses it with `400 collection.registered`.
 
 Passing a user **type**'s id to any of these routes is `400 collection.not_a_collection`; an id the space has no collection for — including a built-in type such as `page` — is `404 collection.not_found`.
 
@@ -83,6 +83,8 @@ Both take no body, both are idempotent, and both return the write receipt. Filin
 The POST pre-flights its ids — `404 object.not_found`, `404 collection.not_found`, and `400 collection.not_a_collection` when the id names a user type (a built-in type such as `page` is `404 collection.not_found`) — because `any.collections` is a synced CRDT write with no validation behind it, so a typo would replicate permanently. The DELETE pre-flights nothing on purpose: it is the repair path for a row that already carries a bogus id.
 
 **Unfiling is not a delete.** That collection's values stay on the row as orphan data, read-tolerant, and filing the object again brings them back into view — writes to that group are refused in between. Filter a member list on `any.collections`, never on a property value alone: the orphan values still match.
+
+**Deleting a collection unfiles nothing.** `DELETE …/objects/$COLL` deletes the definition; its members keep the id in `any.collections` and their values, and a membership filter on the id still matches them. A list never meets that id — you filter only on collections you can list — but an object's own `any.collections` does: skip an id that resolves to no collection when rendering property groups, chips or a picker. Unfiling removes it; re-filing under it is `404 collection.not_found`.
 
 An object that is new takes its collections in the create body instead — [Objects](objects.html). `$PERSON` is the type, `$CONTACT` the collection, `$STATUS` a choice property declared on it:
 
