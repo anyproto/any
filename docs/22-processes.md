@@ -215,8 +215,8 @@ late heartbeat can resurrect a finished row. Work stopped mid-pass
   `dataset.index`, target the dataset's storage collection. The
   build of a shared dataset's declared indexes on this device
   (`03-api.md` § Declared indexes): announced when it starts, no
-  counters, one terminal. Every write on the server waits while it
-  runs. A failed build is tried again at the next definition change
+  counters, one terminal. Every write to the account's data waits
+  while it runs. A failed build is tried again at the next definition change
   or server start. Reported by the search indexer's space workers, so
   only while `index.enabled`.
 - **Embedding-model download** — id `index.model_download`, kind

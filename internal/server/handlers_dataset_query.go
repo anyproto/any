@@ -12,10 +12,15 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-// datasetQueryFields is the closed top-level vocabulary of the
-// dataset-scope query body, derived from the api struct like the other
-// query surfaces.
-var datasetQueryFields = jsonFieldNames(reflect.TypeFor[api.SpaceDatasetQueryRequest]())
+// datasetQueryFields and datasetAggFields are the closed top-level
+// vocabularies of the dataset-scope bodies, derived from the api
+// structs like the other query surfaces. The aggregate body is closed
+// too: a stray `objectId` would otherwise read as a pipeline over one
+// object and run over every object's records.
+var (
+	datasetQueryFields = jsonFieldNames(reflect.TypeFor[api.SpaceDatasetQueryRequest]())
+	datasetAggFields   = jsonFieldNames(reflect.TypeFor[api.SpaceDatasetAggregateRequest]())
+)
 
 // spaceQueryDataset handles POST /v1/spaces/:spaceId/datasets/query.
 //
@@ -96,6 +101,9 @@ func (d *deps) spaceAggregateDataset(c echo.Context) error {
 	}
 	root, errResp, done := parseAggBody(c)
 	if done {
+		return errResp
+	}
+	if errResp, done := checkUnknownFields(c, root, "", datasetAggFields...); done {
 		return errResp
 	}
 	dataset, errResp, done := requireSharedDataset(c, root)

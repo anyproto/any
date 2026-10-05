@@ -74,9 +74,9 @@ any type part dataset index add $SPACE $TYPE $DEF --index '{"key":"by_start","fi
 - A per-object dataset's reads are bounded by that object's records rather than the whole space. An `idRule: user` dataset is keyed by the caller-supplied id, which is what [upsert](upsert.html) diffs against.
 - In a [shared dataset](runtime-datasets.html#shared-datasets), `id` starts with the object id, so one object's records are a range of `id` — the per-object scope reads exactly that. Reading by a field across all objects needs a declared index led by that field; without one the dataset scope scans every record.
 - A count and every aggregation read the matched records, indexed or not.
-- An index is built per device. Until a shared dataset's build ends, queries on it scan, and every write on the server waits for it.
+- An index is built per device. Until a shared dataset's build ends, queries on it scan, and every write to the account's data waits for it.
 
-An index holds one to four fields, a dataset at most eight indexes, and none is unique. `_objectId` is indexable only on a shared dataset.
+An index holds one to four fields, a dataset at most eight indexes, and none is unique. `_objectId` is indexable only on a shared dataset. An indexed field's key is letters, digits and `_`, starts with a letter and is at most 48 bytes.
 
 ## The search index is separate
 

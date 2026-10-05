@@ -359,8 +359,9 @@ A runtime `records` dataset is indexed by its declared indexes
   pinned by equality.
 - In a shared dataset `id` starts with the object id, so one object's
   records are a range of `id` — the per-object scope reads exactly that.
-  In the dataset scope a filter on `_objectId` scans every record: read
-  one object through the per-object scope.
+  A filter on `id` compares that whole value. In the dataset scope a
+  filter on `_objectId` scans every record unless a declared index
+  leads with `_objectId`: read one object through the per-object scope.
   Reading by a field across all objects needs a declared index led by that
   field; without one the dataset scope scans every record.
 - A count and every aggregation read the matched records, indexed or not.

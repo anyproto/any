@@ -537,6 +537,7 @@ func (d *deps) typeAddDatasetIndex(c echo.Context) error {
 //	@Param		defId	path	string	true	"Dataset definition ID"
 //	@Param		indexId	path	string	true	"Index definition ID"
 //	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/datasets/{defId}/indexes/{indexId} [delete]
@@ -721,7 +722,7 @@ func (d *deps) datasetWriteError(c echo.Context, err error, details map[string]a
 		return writeError(c, http.StatusBadRequest, "dataset.immutable", "a patched path is pinned", details)
 	case errors.Is(err, space.ErrModuleOwned):
 		return writeError(c, http.StatusConflict, "dataset.module_owned",
-			"the module owns this dataset's schema — it declares no fields", details)
+			"the module owns this dataset's schema — it declares no fields and no indexes", details)
 	case errors.Is(err, space.ErrModuleReserved):
 		return writeError(c, http.StatusBadRequest, api.ErrDatasetModuleReserved,
 			"the module is reserved to the server's own installs — a runtime declaration cannot name it", details)

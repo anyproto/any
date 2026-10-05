@@ -186,7 +186,7 @@ curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$DAY/parts \
 HOURS=${DAY}_hours
 ```
 
-`any type part add $SPACE $DAY --draft @activity-part.json` declares the same part from a file. The record ids are fixed-width hours (`2026-01-05T14`): with `idRule: user`, one object's time range is a range of `id` with no index, and a re-import through [upsert](upsert.html) is idempotent. Store a dense series in chunks like this — one record per hour, not one per sample — because every record carries its own version map and keys.
+`any type part add $SPACE $DAY --draft @activity-part.json` declares the same part from a file. The record ids are fixed-width hours (`2026-01-05T14`): with `idRule: user`, one object's time range is a range of `id` with no index — filter `id` from `<objectId>/2026-01-05T00` up to `<objectId>/2026-01-06T00`, the form a read returns — and a re-import through [upsert](upsert.html) is idempotent. Store a dense series in chunks like this — one record per hour, not one per sample — because every record carries its own version map and keys.
 
 ### Writing
 
@@ -332,16 +332,16 @@ any type part dataset index remove $SPACE $DAY $DEF $INDEX
 
 A dataset holds at most eight indexes, and none is unique. Every part of an index is pinned: replace one by removing it and adding another. A filter or sort on a leading run of `fields` is a range read; a field deeper in the index helps only once the fields before it are pinned by equality ([Indexes](indexes.html#runtime-datasets)).
 
-A malformed or unsatisfiable draft — an unknown field, a field of another kind, a taken key, a ninth index — is `400 dataset.decl_invalid`; an index on a module dataset is `409 dataset.module_owned`; an unknown `defId` or `indexId` is `404 sdk.not_found`.
+A malformed or unsatisfiable draft — an unknown field, a field of another kind, a taken key, a ninth index — is `400 dataset.decl_invalid`; an index on a module dataset is `409 dataset.module_owned`; an unknown `defId` on POST, or an unknown `indexId`, is `404 sdk.not_found`. On DELETE the index is found by `indexId` within the type; `:defId` rides the URI for hierarchy only.
 
 ### How each device builds them
 
 Definitions sync, so every device holds the same set, and each device builds its own indexes:
 
-- **A shared dataset** is indexed once per space, in the background, when the definition reaches the device. The build reads the whole collection, and **every write on the server waits until it ends**; queries on the dataset scan until then. While `index.enabled`, the build shows in the [process view](../notifications/processes.html) as `dataset.index.<spaceId>`.
+- **A shared dataset** is indexed once per space, in the background, when the definition reaches the device. The build reads the whole collection, and **every write to the account's data waits until it ends**; queries on the dataset scan until then. While `index.enabled`, the build shows in the [process view](../notifications/processes.html) as `dataset.index.<spaceId>`.
 - **A per-object dataset** indexes each object's records the next time that object's dataset is read or written.
 
-Declare the index a cross-object read needs with the dataset, while it is empty: an index added later is built over every record, and every write on the device waits for that build.
+Declare the index a cross-object read needs with the dataset, while it is empty: an index added later is built over every record, and every write to the account's data waits for that build.
 
 `GET …/types/:typeId/datasets` lists every index, an invalid one included: an index naming a field that is not a declared scalar field of the dataset is built nowhere and stays listed, with `invalid: true` and `invalidReason`, until removed. The discovery document, `GET /v1/spaces/:spaceId/datasets`, lists only the built ones.
 

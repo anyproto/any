@@ -296,7 +296,7 @@ func TestServer_SharedDatasetDeclare(t *testing.T) {
 		}
 	})
 
-	t.Run("shared is pinned", func(t *testing.T) {
+	t.Run("patch refuses shared", func(t *testing.T) {
 		for key, body := range map[string]string{
 			"samples": `{"set":{"shared":false}}`,
 			"notes":   `{"set":{"shared":true}}`,
@@ -1273,5 +1273,49 @@ func TestServer_SharedDatasetHistory(t *testing.T) {
 	if len(diff.Datasets) != 1 || len(diff.Datasets[0].Records) != 1 ||
 		diff.Datasets[0].Records[0].Id != sharedId(a, "r1") || diff.Datasets[0].Records[0].Kind != "changed" {
 		t.Errorf("diff = %+v", diff)
+	}
+}
+
+// TestServer_HistoryRecordIdEscapes: the one-record history route reads
+// the record the path names — a percent sign in a record id is decoded
+// once, whether or not the path also carries an escaped slash.
+func TestServer_HistoryRecordIdEscapes(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	l := setupSharedLab(t, e)
+	mustAddPart(t, e, l.spaceId, l.typeId, `{"key":"codes","datasets":[
+		{"key":"codes","idRule":"user","idPattern":"[a-zA-Z0-9%]+","fields":[
+			{"key":"label","kind":"string","mutableBy":"any"}]}]}`)
+	codes := l.typeId + "_codes"
+	a := l.objs[0]
+	l.put(t, e, a, codes, "a%41", map[string]any{"label": "percent"})
+	last := l.put(t, e, a, codes, "aA", map[string]any{"label": "letter"})
+
+	for _, tc := range []struct{ segment, id, label string }{
+		{"a%2541", "a%41", "percent"},
+		{"aA", "aA", "letter"},
+	} {
+		var at api.HistoryRecordResponse
+		decodeGet(t, e, l.base()+"/objects/"+a+"/history/"+last.ChangeId+"/datasets/"+codes+"/records/"+tc.segment, &at)
+		var row map[string]any
+		if err := json.Unmarshal(at.Record, &row); err != nil || !at.Exists || at.RecordId != tc.id || row["label"] != tc.label {
+			t.Errorf("records/%s = %+v %v", tc.segment, at, row)
+		}
+	}
+}
+
+// TestServer_SharedDatasetAggregateBodyIsClosed: the dataset-scope
+// aggregate refuses a key its body does not take — an `objectId` there
+// would read as a pipeline over one object.
+func TestServer_SharedDatasetAggregateBodyIsClosed(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	l := setupSharedLab(t, e)
+	for _, key := range []string{"objectId", "filter"} {
+		body, _ := json.Marshal(map[string]any{"dataset": l.samples, "pipeline": []any{}, key: l.objs[0]})
+		rec := doJSON(t, e, http.MethodPost, l.base()+"/datasets/aggregate", string(body))
+		assertStatusCode(t, rec, http.StatusBadRequest, "request.unknown_field")
 	}
 }

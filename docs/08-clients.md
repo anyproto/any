@@ -969,8 +969,10 @@ Call patterns:
   that already exists keeps its storage.
 - **Key records by what orders them.** With `idRule: user`, a
   fixed-width sortable id (`2026-01-05T14`) makes one object's time
-  range a range of `id` with no index, and makes a re-import through
-  `upsert` idempotent.
+  range a range of `id` with no index — filter `id` from
+  `<objectId>/2026-01-05T00` up to `<objectId>/2026-01-06T00`, the
+  form a read returns — and makes a re-import through `upsert`
+  idempotent.
 - **Store a dense series in chunks.** One record per hour holding an
   array of samples, not one record per sample: every record carries
   its own version map and keys.

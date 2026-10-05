@@ -3019,11 +3019,15 @@ POST /v1/spaces/:spaceId/datasets/aggregate         { dataset, pipeline, groupLi
 - **Live.** A dataset-scope subscription carries the changes of every
   object's records. Deleting an object arrives as `removed` entries
   for the records it held, in batches with an empty `versionId`.
+- **Filters on `id`** compare the whole `<objectId>/<recordId>`
+  value, in both scopes: one object's record ids from `a` up to `b`
+  are `{"id": {"$gte": "<objectId>/a", "$lt": "<objectId>/b"}}`.
 - **Order.** `_ver` orders the changes of one object. Records of
   different objects share no version order: sort on a declared field.
 - **Errors.** `400 dataset.not_shared` — the dataset is not shared, or
-  the space does not hold it. `405 space.unsupported` on the tech
-  space.
+  the space does not hold it. `400 request.unknown_field` — a key the
+  body does not take, `objectId` included. `405 space.unsupported` on
+  the tech space.
 - **Links and search.** In an `any://` record link, a search hit and a
   link source, `recordId` is the plain record id next to its
   `objectId`.
@@ -3046,9 +3050,10 @@ DELETE /v1/spaces/:spaceId/types/:typeId/datasets/:defId/indexes/:indexId   → 
 - `fields` — one to four paths in order; a `-` prefix keeps a path
   descending. Each names a declared field of kind `string`, `number`,
   `boolean` or `datetime`, or `_ver.id` (creation order within one
-  object); a shared dataset also takes `_objectId`. A filter or sort on
-  a leading run of the fields is a range read (`09-query.md` § Indexes
-  & cost).
+  object); a shared dataset also takes `_objectId`. An indexed field's
+  key is letters, digits and `_`, starts with a letter and is at most
+  48 bytes. A filter or sort on a leading run of the fields is a range
+  read (`09-query.md` § Indexes & cost).
 - `sparse` — leaves a record out of the index unless it carries every
   indexed field.
 - At most eight indexes per dataset. No unique index.
@@ -3057,15 +3062,18 @@ DELETE /v1/spaces/:spaceId/types/:typeId/datasets/:defId/indexes/:indexId   → 
 - A malformed or unsatisfiable draft — unknown field, a field of
   another kind, a taken key, a ninth index — is
   `400 dataset.decl_invalid`; a module dataset is
-  `409 dataset.module_owned`; an unknown `defId` or `indexId` is
-  `404 sdk.not_found`.
+  `409 dataset.module_owned`; an unknown `defId` on POST, or an
+  unknown `indexId`, is `404 sdk.not_found`. On DELETE the index is
+  found by `indexId` within the type — `:defId` rides the URI for
+  hierarchy only.
 
 Definitions sync, so every device holds the same set, and each device
 builds its own indexes:
 
 - **A shared dataset** is indexed once per space, in the background,
   when the definition reaches the device. The build reads the whole
-  collection, and **every write on the server waits until it ends**.
+  collection, and **every write to the account's data waits until it
+  ends**.
   It shows in the process view as `dataset.index.<spaceId>`
   (`22-processes.md`). Queries scan until it ends.
 - **A per-object dataset** indexes each object's records the next time

@@ -1218,7 +1218,9 @@ components:
             Fields are the indexed paths in order, one to four; a "-" prefix
             keeps that path descending. Each names a declared field of kind
             string, number, boolean or datetime, or `_ver.id` (creation order
-            within one object); a shared dataset also takes `_objectId`.
+            within one object); a shared dataset also takes `_objectId`. An
+            indexed field's key is letters, digits and `_`, starts with a
+            letter and is at most 48 bytes.
           items:
             type: string
           type: array
@@ -10117,6 +10119,12 @@ paths:
       responses:
         "204":
           description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
         "404":
           content:
             application/json:

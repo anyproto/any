@@ -228,6 +228,7 @@ unless listed here. The two most common surprises first:
 | `request.bad_json` | 400 | missing, unreadable or invalid JSON body |
 | `request.missing_field` | 400 | no `pipeline` (or missing `objectId` / `dataset` on the per-object variant, `dataset` on the shared-dataset one) |
 | `dataset.not_shared` | 400 | the shared-dataset variant names a dataset that is not declared `shared`, or one the space does not hold |
+| `request.unknown_field` | 400 | the shared-dataset variant got a key its body does not take (`objectId` among them) |
 | `request.schema` | 400 | `pipeline` is not a JSON array |
 | `request.invalid_field` | 400 | per-object aggregate on the tech space's index object over a dataset other than `profile` / `bundles` |
 | `aggregate.bad_pipeline` | 400 | unparseable pipeline, unknown stage / accumulator / operator, `$text` / `$knn`, `$out` / `$merge` |

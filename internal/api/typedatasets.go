@@ -171,7 +171,9 @@ type DatasetIndexDraft struct {
 	// Fields are the indexed paths in order, one to four; a "-" prefix
 	// keeps that path descending. Each names a declared field of kind
 	// string, number, boolean or datetime, or `_ver.id` (creation order
-	// within one object); a shared dataset also takes `_objectId`.
+	// within one object); a shared dataset also takes `_objectId`. An
+	// indexed field's key is letters, digits and `_`, starts with a
+	// letter and is at most 48 bytes.
 	Fields []string `json:"fields"`
 	// Sparse leaves a record out of the index unless it carries every
 	// indexed field.

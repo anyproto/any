@@ -1352,7 +1352,7 @@
             "api.DatasetIndexDraft": {
                 "properties": {
                     "fields": {
-                        "description": "Fields are the indexed paths in order, one to four; a \"-\" prefix\nkeeps that path descending. Each names a declared field of kind\nstring, number, boolean or datetime, or `_ver.id` (creation order\nwithin one object); a shared dataset also takes `_objectId`.",
+                        "description": "Fields are the indexed paths in order, one to four; a \"-\" prefix\nkeeps that path descending. Each names a declared field of kind\nstring, number, boolean or datetime, or `_ver.id` (creation order\nwithin one object); a shared dataset also takes `_objectId`. An\nindexed field's key is letters, digits and `_`, starts with a\nletter and is at most 48 bytes.",
                         "items": {
                             "type": "string"
                         },
@@ -15480,6 +15480,16 @@
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
                     },
                     "404": {
                         "content": {
