@@ -3,6 +3,7 @@ package markdown
 import (
 	"context"
 	"errors"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -31,14 +32,26 @@ func TestDocLocks(t *testing.T) {
 		t.Fatalf("lock a while held: %v, want DeadlineExceeded", err)
 	}
 
-	acquired := make(chan func())
+	// A waiter registered while a is held gets the lock only on release.
+	acquired := make(chan func(), 1)
 	go func() {
 		unlock, err := l.lock(ctx, "a")
 		if err != nil {
 			t.Errorf("waiter: %v", err)
+			unlock = func() {}
 		}
 		acquired <- unlock
 	}()
+	for refs := 0; refs != 2; runtime.Gosched() {
+		l.mu.Lock()
+		refs = l.held["a"].refs
+		l.mu.Unlock()
+	}
+	select {
+	case <-acquired:
+		t.Fatal("the waiter took the lock while it was held")
+	default:
+	}
 	unlockA()
 	(<-acquired)()
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/anyproto/any-sync-sdk/space"
@@ -108,10 +109,14 @@ func Set(ctx context.Context, sp space.Space, objectId, collection, content, ifV
 	return res, nil
 }
 
-// parseContent splits content into blocks and parses each, returning the
-// parsed blocks and their canonical renderings, or a BlockTooLargeError.
+// parseContent splits content into blocks and parses them (parseBlocks).
 func parseContent(content string) ([]ParsedBlock, []string, error) {
-	raw := Split(content)
+	return parseBlocks(Split(content))
+}
+
+// parseBlocks parses raw markdown blocks, returning the parsed blocks
+// and their canonical renderings, or a BlockTooLargeError.
+func parseBlocks(raw []string) ([]ParsedBlock, []string, error) {
 	parsed := make([]ParsedBlock, len(raw))
 	rendered := make([]string, len(raw))
 	for i, r := range raw {
@@ -145,6 +150,17 @@ func checkBlockSizes(parsed []ParsedBlock) error {
 	return nil
 }
 
+// checkPositions refuses insert positions over the editor's nav.pos cap
+// before writing: the editor would reject that insert mid-change.
+func checkPositions(positions []string) error {
+	for _, pos := range positions {
+		if len(pos) > editor.MaxPosBytes {
+			return fmt.Errorf("insert position is %d bytes, over the %d-byte cap", len(pos), editor.MaxPosBytes)
+		}
+	}
+	return nil
+}
+
 // applyDiff is the shared write pipeline behind Set and EditContent:
 // diff the parsed new document against the already-listed existing
 // blocks, then emit the create / update / delete ops. Taking `existing`
@@ -161,6 +177,9 @@ func applyDiff(ctx context.Context, sp space.Space, objectId, collection string,
 	posByNewIdx, err := allocateInsertPositions(existing, plan)
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: apply: allocate pos: %w", err)
+	}
+	if err := checkPositions(slices.Collect(maps.Values(posByNewIdx))); err != nil {
+		return SetResult{}, fmt.Errorf("markdown: apply: %w", err)
 	}
 
 	var (
@@ -200,7 +219,8 @@ func applyDiff(ctx context.Context, sp space.Space, objectId, collection string,
 		// The change committed whatever was not rejected, so stopping here
 		// would leave the save half applied. A block deleted after the
 		// read absorbs its update (delete wins) and the save goes on; the
-		// parse validated everything else the handler checks.
+		// block sizes and positions the handler validates are checked
+		// before writing.
 		for _, rej := range res.Rejections {
 			if !errors.Is(rej.ReasonErr, space.ErrRecordDeleted) {
 				return result, fmt.Errorf("markdown: apply: rejected: %s", rej.Reason)
@@ -273,11 +293,8 @@ func Append(ctx context.Context, sp space.Space, objectId, collection, content s
 	if len(rawNew) == 0 {
 		return SetResult{}, nil
 	}
-	parsed := make([]ParsedBlock, len(rawNew))
-	for i, raw := range rawNew {
-		parsed[i] = ParseBlock(raw)
-	}
-	if err := checkBlockSizes(parsed); err != nil {
+	parsed, _, err := parseBlocks(rawNew)
+	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Append: %w", err)
 	}
 
@@ -294,6 +311,9 @@ func Append(ctx context.Context, sp space.Space, objectId, collection, content s
 	positions, err := editor.AllocateRun(maxPos, "", len(rawNew))
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Append: allocate pos: %w", err)
+	}
+	if err := checkPositions(positions); err != nil {
+		return SetResult{}, fmt.Errorf("markdown: Append: %w", err)
 	}
 
 	records := make([]space.RecordModify, len(parsed))
@@ -448,16 +468,21 @@ func buildCreateRecord(p ParsedBlock, pos string) space.RecordModify {
 	}
 }
 
-// markdownStyleKeys are the style keys the markdown expresses. An update
-// owns these and nothing else: a key set through …/blocks that the
-// markdown cannot express (a color, say) survives every save.
-var markdownStyleKeys = []string{
-	editor.StyleLevel, editor.StyleOrdered, editor.StyleNumber, editor.StyleChecked, editor.StyleLang,
+// markdownStyleKeys are the style keys the markdown expresses, per block
+// type. An update owns these and nothing else: any other key set through
+// …/blocks — a paragraph's level used as indentation, a color — survives
+// a save that updates the block.
+var markdownStyleKeys = map[string][]string{
+	editor.TypeHeading:       {editor.StyleLevel},
+	editor.TypeListItem:      {editor.StyleOrdered, editor.StyleNumber},
+	editor.TypeCheckListItem: {editor.StyleChecked},
+	editor.TypeCode:          {editor.StyleLang},
 }
 
 // buildUpdateRecord emits one op per changed field: $set on type and
-// text when they differ, and per style key, $set for a markdown key whose
-// value changed and $unset for one the new block no longer carries.
+// text when they differ, and per owned style key (the old and the new
+// type's, plus any the parse produced), $set for one whose value changed
+// and $unset for one the new block no longer carries.
 func buildUpdateRecord(old existingBlock, p ParsedBlock) space.RecordModify {
 	var ops []space.Op
 	if old.Type != p.Type {
@@ -466,7 +491,12 @@ func buildUpdateRecord(old existingBlock, p ParsedBlock) space.RecordModify {
 	if old.Text != p.Text {
 		ops = append(ops, space.Op{Type: space.OpSet, Path: editor.FieldText, Value: p.Text})
 	}
-	for _, key := range markdownStyleKeys {
+	owned := slices.Concat(markdownStyleKeys[old.Type], markdownStyleKeys[p.Type])
+	for key := range p.Style {
+		owned = append(owned, key)
+	}
+	slices.Sort(owned)
+	for _, key := range slices.Compact(owned) {
 		path := editor.FieldStyle + "." + key
 		nv, inNew := p.Style[key]
 		ov, inOld := old.Style[key]

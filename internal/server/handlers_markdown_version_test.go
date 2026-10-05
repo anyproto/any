@@ -110,8 +110,8 @@ func TestServer_MarkdownVersionConcurrentSaves(t *testing.T) {
 
 // TestServer_MarkdownVersionMovesOnEveryBlockWrite pins that the
 // version moves on writes the rendered body does not show — a style
-// key, a nested block — and on a delete, so a save from before a delete
-// is a 409 and cannot bring the block back.
+// key, a nested block and its delete — and on a delete, so a save from
+// before a delete is a 409 and cannot bring the block back.
 func TestServer_MarkdownVersionMovesOnEveryBlockWrite(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -145,8 +145,22 @@ func TestServer_MarkdownVersionMovesOnEveryBlockWrite(t *testing.T) {
 	}
 	moved("style key the markdown does not render", "alpha\n\nbeta")
 
-	blocksCreate(t, e, base, `{"type":"paragraph","text":"child","nav":{"parentId":"`+blocks[0].Id+`"}}`)
+	child := blocksCreate(t, e, base, `{"type":"paragraph","text":"child","nav":{"parentId":"`+blocks[0].Id+`"}}`)
 	moved("nested block", "alpha\n\nbeta")
+
+	// A later write to another block leaves the child below the highest
+	// stamp. Deleting it changes no body and no live stamp, so only the
+	// child's tombstone can move the version: deleted records count.
+	rec = doJSON(t, e, http.MethodPatch, base+"/editor/editor_blocks/blocks/"+blocks[0].Id, `{"set":{"style.color":"blue"}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch style again: %d %s", rec.Code, rec.Body.String())
+	}
+	moved("another style write", "alpha\n\nbeta")
+	rec = doJSON(t, e, http.MethodDelete, base+"/editor/editor_blocks/blocks/"+child.Id, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete nested block: %d %s", rec.Code, rec.Body.String())
+	}
+	moved("nested block delete", "alpha\n\nbeta")
 
 	beforeDelete := prev
 	rec = doJSON(t, e, http.MethodDelete, base+"/editor/editor_blocks/blocks/"+blocks[1].Id, "")

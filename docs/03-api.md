@@ -1542,9 +1542,13 @@ against the current block tree by (type + position + text), and emits
 per-block create / update / delete ops through the same write path the
 `…/blocks` routes use, so the same collection events fire. An update
 writes only the fields that changed, and of `style` only the keys the
-markdown expresses (`level`, `ordered`, `number`, `checked`, `lang`):
-a style key set through `…/blocks` that markdown cannot express
-survives every save. `PUT` replies with `{"inserted": [...],
+markdown expresses for the block's type — `level` on a heading,
+`ordered` and `number` on a list item, `checked` on a checklist item,
+`lang` on code. Any other style key, set through `…/blocks`, is kept.
+That holds while the diff matches a block as an update: a block
+rewritten past recognition, or moved, is deleted and created anew, and
+the new one has a new id, only the parsed style and no nested blocks.
+`PUT` replies with `{"inserted": [...],
 "updated": [...], "deleted": [...], "unchanged": N, "version": "…"}`
 where the slices contain block ids. A block whose text is over the
 per-block cap (64 KiB) is `400 markdown.block_too_large` on every
@@ -1589,7 +1593,10 @@ and two saves carrying the same `ifVersion` never both write. The
 `…/blocks` routes and changes synced from other devices do not wait.
 While the diff runs, one of those landing on a field the `PUT` also
 writes is last-writer-wins, and an edit to a block the `PUT` deletes
-is lost to the delete.
+is lost to the delete. A delete wins the other way too: when one lands
+on a block the `PUT` edits, the rest of the save lands, the edit to
+that block does not, and the reply carries the version the save
+started from.
 
 `PATCH …/editor/:collection/markdown` is the surgical variant of `PUT` — for
 callers (LLM agents above all) that know the *text* they want changed

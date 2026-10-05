@@ -65,6 +65,17 @@ func TestServer_MarkdownKeepsStyleKeysItCannotExpress(t *testing.T) {
 			t.Errorf("%q: style %v lost the color the markdown cannot express", s.content, b.Style)
 		}
 	}
+
+	// A paragraph's level (indentation set through …/blocks) is not the
+	// markdown's to clear: a text edit keeps it.
+	rec = doJSON(t, e, http.MethodPatch, base+"/editor/editor_blocks/blocks/"+id, `{"set":{"style.level":2}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch paragraph level: %d %s", rec.Code, rec.Body.String())
+	}
+	markdownSet(t, e, md, "plain text changed again")
+	if b := only("paragraph text edit"); b.Id != id || b.Style["level"] != float64(2) || b.Style["color"] != "red" {
+		t.Errorf("paragraph text edit: id %s style %v, want id %s with level 2 and the color kept", b.Id, b.Style, id)
+	}
 }
 
 // TestServer_MarkdownRefusesOversizedBlock pins that a block over the
