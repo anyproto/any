@@ -65,9 +65,9 @@ func TestServer_MarkdownVersion(t *testing.T) {
 }
 
 // TestServer_MarkdownVersionConcurrentSaves pins that conditional saves
-// carrying one ifVersion do not both write: markdown writes to a
-// document run one at a time, so the later save sees the version the
-// earlier one moved and answers 409.
+// carrying one ifVersion do not both write: each save's write is
+// conditional on the read it was computed from, so once one lands the
+// others are refused and answer 409.
 func TestServer_MarkdownVersionConcurrentSaves(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()

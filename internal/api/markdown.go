@@ -38,6 +38,6 @@ const (
 	ErrMarkdownNoMatch       = "markdown.no_match"          // 400 — oldText not found in the current rendering
 	ErrMarkdownAmbiguous     = "markdown.ambiguous_match"   // 400 — >1 occurrences without replaceAll
 	ErrMarkdownOverlap       = "markdown.overlapping_edits" // 400 — two edits matched intersecting text
-	ErrMarkdownConflict      = "markdown.conflict"          // 409 — the body changed under the write (details: content, version)
+	ErrMarkdownConflict      = "markdown.conflict"          // 409 — the body changed after ifVersion (details: content, version)
 	ErrMarkdownBlockTooLarge = "markdown.block_too_large"   // 400 — a block's text is over the per-block cap (details: blockIndex, gotBytes, maxBytes)
 )

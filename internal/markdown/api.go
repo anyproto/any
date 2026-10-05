@@ -64,7 +64,8 @@ type SetResult struct {
 // writer — a markdown write, a …/blocks call, another device — lands
 // in between; the reported Version is the saved body's. Without
 // ifVersion, a write that lost that race is redone against the new
-// state (writeAgainstRead).
+// state, and written unconditionally when other writers keep landing
+// first (writeAgainstRead).
 func Set(ctx context.Context, sp space.Space, objectId, collection, content, ifVersion string) (SetResult, error) {
 	parsed, rendered, err := parseContent(content)
 	if err != nil {
@@ -75,16 +76,16 @@ func Set(ctx context.Context, sp space.Space, objectId, collection, content, ifV
 		return SetResult{}, fmt.Errorf("markdown: Set: generation: %w", err)
 	}
 	saved := Join(rendered)
-	return writeAgainstRead(ctx, sp, objectId, collection, gen, func(read Document, existing []existingBlock, seq uint64) (SetResult, error) {
+	return writeAgainstRead(ctx, sp, objectId, collection, gen, ifVersion == "", func(read Document, existing []existingBlock, ifUnchangedSince *uint64) (SetResult, error) {
 		if ifVersion != "" && ifVersion != read.Version {
 			return SetResult{}, ConflictError{Current: read}
 		}
-		res, applied, err := applyDiff(ctx, sp, objectId, collection, existing, seq, parsed, rendered)
+		res, applied, err := applyDiff(ctx, sp, objectId, collection, existing, ifUnchangedSince, parsed, rendered)
 		if err != nil {
 			return SetResult{}, err
 		}
 		res.Version = read.Version
-		if applied > 0 {
+		if len(res.Inserted)+len(res.Updated)+len(res.Deleted) > 0 {
 			res.Version = formatVersion(gen, applied, saved)
 		}
 		return res, nil
@@ -95,18 +96,24 @@ func Set(ctx context.Context, sp space.Space, objectId, collection, content, ifV
 // that other writers keep beating.
 const maxWriteAttempts = 3
 
-// writeAgainstRead reads the document and runs write against that read;
-// a write that lost the race to another writer
+// writeAgainstRead reads the document and runs write against that read,
+// conditional on the collection being unchanged since it
+// (ifUnchangedSince); a write that lost the race to another writer
 // (space.ErrPreconditionFailed) is redone against a fresh read. When the
-// writers keep winning, the answer is a ConflictError with the current
-// body.
-func writeAgainstRead(ctx context.Context, sp space.Space, objectId, collection, gen string, write func(read Document, existing []existingBlock, seq uint64) (SetResult, error)) (SetResult, error) {
+// writers keep winning, a caller that asked for no condition
+// (unconditional) gets its last attempt written without one, as it
+// asked; any other caller gets a ConflictError with the current body.
+func writeAgainstRead(ctx context.Context, sp space.Space, objectId, collection, gen string, unconditional bool, write func(read Document, existing []existingBlock, ifUnchangedSince *uint64) (SetResult, error)) (SetResult, error) {
 	for attempt := 1; ; attempt++ {
 		read, existing, seq, err := readDocument(ctx, sp, objectId, collection, gen)
 		if err != nil {
 			return SetResult{}, fmt.Errorf("markdown: list existing: %w", err)
 		}
-		res, err := write(read, existing, seq)
+		ifUnchangedSince := &seq
+		if unconditional && attempt == maxWriteAttempts {
+			ifUnchangedSince = nil
+		}
+		res, err := write(read, existing, ifUnchangedSince)
 		if !errors.Is(err, space.ErrPreconditionFailed) {
 			return res, err
 		}
@@ -173,13 +180,13 @@ func checkPositions(positions []string) error {
 }
 
 // applyDiff is the shared write pipeline behind Set and EditContent:
-// diff the parsed new document against the existing blocks, read at
-// readSeq, and write the creates, updates and deletes as one change,
-// conditional on the collection being unchanged since that read
-// (ModifyBatch.IfUnchangedSince). A write that lost that race is
-// space.ErrPreconditionFailed with nothing written. appliedSeq is the
-// change's _applySeq, 0 when the diff wrote nothing.
-func applyDiff(ctx context.Context, sp space.Space, objectId, collection string, existing []existingBlock, readSeq uint64, newParsed []ParsedBlock, newRendered []string) (result SetResult, appliedSeq uint64, err error) {
+// diff the parsed new document against the existing blocks and write the
+// creates, updates and deletes as one change, conditional — when
+// ifUnchangedSince is set — on the collection being unchanged since the
+// read the blocks came from (ModifyBatch.IfUnchangedSince). A write that
+// lost that race is space.ErrPreconditionFailed with nothing written.
+// appliedSeq is the change's _applySeq, 0 when the diff wrote nothing.
+func applyDiff(ctx context.Context, sp space.Space, objectId, collection string, existing []existingBlock, ifUnchangedSince *uint64, newParsed []ParsedBlock, newRendered []string) (result SetResult, appliedSeq uint64, err error) {
 	oldRendered := renderExisting(existing)
 
 	plan := Diff(oldRendered, newRendered)
@@ -229,7 +236,7 @@ func applyDiff(ctx context.Context, sp space.Space, objectId, collection string,
 		ObjectId:         objectId,
 		Dataset:          collection,
 		Records:          records,
-		IfUnchangedSince: &readSeq,
+		IfUnchangedSince: ifUnchangedSince,
 	})
 	if err != nil {
 		return SetResult{}, 0, fmt.Errorf("markdown: apply: modify: %w", err)

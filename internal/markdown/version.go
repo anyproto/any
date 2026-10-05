@@ -23,9 +23,8 @@ type Document struct {
 	Version string
 }
 
-// ConflictError: the body changed — Set's answer to an ifVersion the
-// document has moved past, or a write other writers kept beating
-// (writeAgainstRead). Current is the latest body and version read.
+// ConflictError is Set's answer to an ifVersion the document has moved
+// past. Current is the latest body and version read.
 type ConflictError struct {
 	Current Document
 }

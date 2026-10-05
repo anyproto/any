@@ -155,9 +155,7 @@ func (d *deps) markdownAppend(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	req, ok := bindBodyStrict[struct {
-		Content string `json:"content"`
-	}](c, "")
+	req, ok := bindBodyStrict[api.MarkdownContent](c, "")
 	if !ok {
 		return nil
 	}

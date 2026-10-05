@@ -1588,8 +1588,8 @@ step in the SDK, under the lock every writer of the object takes, so a
 write landing in between — another markdown save, a `…/blocks` call, a
 change synced from another device — makes a `PUT` with `ifVersion`
 answer `409` with nothing written. A `PUT` without `ifVersion` and a
-`PATCH` are redone against the new state instead, and answer the same
-`409` only when other writers keep landing first.
+`PATCH` are redone against the new state instead; when other writers
+keep landing first, the last attempt is written without the check.
 
 `PATCH …/editor/:collection/markdown` is the surgical variant of `PUT` — for
 callers (LLM agents above all) that know the *text* they want changed
