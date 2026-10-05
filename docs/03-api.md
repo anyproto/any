@@ -3196,15 +3196,19 @@ Filing an object is `POST …/properties/:objectId/collections/:collectionId`,
 unfiling the matching DELETE (§ Properties).
 
 **Deleting a collection** is `DELETE …/objects/:collectionId` (§ Object
-deletion), and it does not unfile the members: each keeps the id in
-`any.collections` and its `<collectionId>.<propId>` values, and
-`{"any.collections": "<collectionId>"}` still matches it. A bundle
-uninstall or conflict resolve leaves members the same way, and no
-cascade could be complete: a peer's offline filing syncs after the
-delete and is admitted. A reader of an object's `any.collections`
-skips an id that resolves to no collection. Re-filing under it is
-`404 collection.not_found`; unfiling removes it — the DELETE
-pre-flights nothing, so any client may run it as the repair.
+deletion). Its members are not touched: each keeps the collection id in
+`any.collections` and its values for the collection's columns, and
+`{"any.collections": "<collectionId>"}` still returns them. The server
+does not clean them up because it cannot do it reliably: a device that
+was offline can file an object under the collection after the delete,
+and that change still syncs in. A bundle uninstall or conflict resolve
+leaves members the same way.
+
+So a client showing an object's collections ignores an id that is not a
+known collection. Lists are not affected: no client lists the members
+of a collection that no longer exists. To clean up, unfile the object
+from the dead id — the unfile route does not check that the collection
+exists. Filing under the dead id again is `404 collection.not_found`.
 
 #### Built-in collections: `miniapp`, `bin`
 

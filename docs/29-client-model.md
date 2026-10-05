@@ -209,14 +209,16 @@ data, read-tolerant, and so do its datasets' records — which its parts no
 longer admit writes to. Unfiling likewise leaves that collection's values
 in place.
 
-Deleting a collection (`DELETE …/objects/:collectionId`) unfiles
-nothing. Its members keep the id in `any.collections` and their values
-in its namespace, and a membership query on the id still matches them.
-A list never meets a dead id — a client filters only on collections it
-can list — but an object's own `any.collections` does: skip an id that
-resolves to no collection when rendering property groups, filed-under
-chips or a picker's ticked state. The unfile `DELETE` above removes it;
-any client may run it, none has to.
+Deleting a collection (`DELETE …/objects/:collectionId`) leaves its
+members as they are: each keeps the collection id in `any.collections`
+and its values for the collection's columns. The server cannot clean
+them up reliably — a device that was offline can file an object under
+the collection after the delete. When you show an object's collections
+(its property groups, its collection chips, the ticked boxes in a
+picker), ignore an id that is not a known collection. Lists are not
+affected: nobody lists the members of a collection that no longer
+exists. To clean up, unfile the object from the dead id with the
+`DELETE` above; any client may, none has to.
 
 ### Creating a type vs a collection
 
