@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/anyproto/any/internal/api"
@@ -60,6 +61,50 @@ func TestServer_MarkdownVersion(t *testing.T) {
 	}
 	if after := getMarkdownDoc(t, e, md); after != current {
 		t.Fatalf("a rejected save wrote: %+v, want %+v", after, current)
+	}
+}
+
+// TestServer_MarkdownVersionConcurrentSaves pins that conditional saves
+// carrying one ifVersion do not both write: markdown writes to a
+// document run one at a time, so the later save sees the version the
+// earlier one moved and answers 409.
+func TestServer_MarkdownVersionConcurrentSaves(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	spaceId, objectId := setupBlocksFixture(t, e)
+	md := "/v1/spaces/" + spaceId + "/objects/" + objectId + "/editor/editor_blocks/markdown"
+	markdownSet(t, e, md, "alpha\n\nbeta")
+	base := getMarkdownDoc(t, e, md)
+
+	const savers = 4
+	codes := make(chan int, savers)
+	for i := range savers {
+		go func() {
+			body, _ := json.Marshal(api.MarkdownSetRequest{
+				Content:   base.Content + "\n\nsaver " + strconv.Itoa(i),
+				IfVersion: base.Version,
+			})
+			codes <- doJSON(t, e, http.MethodPut, md, string(body)).Code
+		}()
+	}
+	var ok, conflict int
+	for range savers {
+		switch code := <-codes; code {
+		case http.StatusOK:
+			ok++
+		case http.StatusConflict:
+			conflict++
+		default:
+			t.Errorf("concurrent save: status %d", code)
+		}
+	}
+	if ok != 1 || conflict != savers-1 {
+		t.Fatalf("concurrent saves: %d written, %d conflicts; want 1 and %d", ok, conflict, savers-1)
+	}
+	if got := len(blocksList(t, e, "/v1/spaces/"+spaceId+"/objects/"+objectId).Records); got != 3 {
+		t.Fatalf("%d blocks after the saves, want 3 (one saver's paragraph)", got)
 	}
 }
 

@@ -2617,6 +2617,7 @@ const docTemplate = `{
                         "uniqueItems": false
                     },
                     "version": {
+                        "description": "Version is set by PUT only: the version of the body as saved, the\nnext PUT's ifVersion.",
                         "type": "string"
                     }
                 },

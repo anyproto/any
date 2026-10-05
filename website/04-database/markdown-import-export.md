@@ -57,6 +57,8 @@ When the document moved on, nothing is written and the reply is `409`:
 
 Merge your edit into `details.content` and `PUT` again with `ifVersion` set to `details.version`. A `200` returns the version of the body as saved, which is the next save's `ifVersion`, so consecutive saves chain without a `GET`.
 
+Markdown writes to one document run one at a time on the server, so two saves carrying the same `ifVersion` never both write: the later one gets the `409`.
+
 `version` moves on every write to the document's block records — text, style, a field the markdown does not render, a nested block, a delete — and never on a read. It is opaque and valid only against the server that issued it.
 
 ## Targeted edits — `PATCH`

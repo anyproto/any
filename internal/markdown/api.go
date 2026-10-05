@@ -62,47 +62,66 @@ type SetResult struct {
 // A non-empty ifVersion makes the write conditional: unless the
 // document is still at that version, Set writes nothing and returns a
 // ConflictError carrying the current body and version.
+//
+// Markdown writes to one document run one at a time (lockDocument). The
+// reported Version is re-read after the writes and describes the saved
+// body only when the stored body is exactly what was saved; when another
+// writer (a …/blocks call, another device) changed it meanwhile, or the
+// re-read fails, Set reports the version it read instead, so the
+// caller's next ifVersion conflicts and merges that write.
 func Set(ctx context.Context, sp space.Space, objectId, collection, content, ifVersion string) (SetResult, error) {
+	unlock, err := lockDocument(ctx, sp.Id(), objectId, collection)
+	if err != nil {
+		return SetResult{}, fmt.Errorf("markdown: Set: wait for the document: %w", err)
+	}
+	defer unlock()
+
 	gen, err := sp.Changes().Generation(ctx)
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Set: generation: %w", err)
 	}
-	existing, seq, err := listTopLevel(ctx, sp, objectId, collection)
+	read, existing, err := readDocument(ctx, sp, objectId, collection, gen)
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Set: list existing: %w", err)
 	}
-	read := formatVersion(gen, seq)
-	if ifVersion != "" && ifVersion != read {
-		return SetResult{}, ConflictError{Current: Document{
-			Content: Join(renderExisting(existing)),
-			Version: read,
-		}}
+	if ifVersion != "" && ifVersion != read.Version {
+		return SetResult{}, ConflictError{Current: read}
 	}
-	res, err := applyDiff(ctx, sp, objectId, collection, existing, content)
+	parsed, rendered := parseContent(content)
+	res, err := applyDiff(ctx, sp, objectId, collection, existing, parsed, rendered)
 	if err != nil {
 		return res, err
 	}
-	if res.Version, err = savedVersion(ctx, sp, objectId, collection, gen, seq, res); err != nil {
-		return res, fmt.Errorf("markdown: Set: saved version: %w", err)
+	res.Version = read.Version
+	if len(res.Inserted)+len(res.Updated)+len(res.Deleted) == 0 {
+		return res, nil
+	}
+	if after, _, err := readDocument(ctx, sp, objectId, collection, gen); err == nil && after.Content == Join(rendered) {
+		res.Version = after.Version
 	}
 	return res, nil
 }
 
-// applyDiff is the shared write pipeline behind Set and EditContent:
-// diff content against the already-listed existing blocks, then emit
-// the create / update / delete ops. Taking `existing` (instead of
-// listing internally) lets EditContent resolve matches and diff
-// against the same listing.
-func applyDiff(ctx context.Context, sp space.Space, objectId, collection string, existing []existingBlock, content string) (SetResult, error) {
-	oldRendered := renderExisting(existing)
-
-	rawNew := Split(content)
-	newParsed := make([]ParsedBlock, len(rawNew))
-	newRendered := make([]string, len(rawNew))
-	for i, raw := range rawNew {
-		newParsed[i] = ParseBlock(raw)
-		newRendered[i] = RenderBlock(newParsed[i])
+// parseContent splits content into blocks and parses each, returning the
+// parsed blocks and their canonical renderings.
+func parseContent(content string) ([]ParsedBlock, []string) {
+	raw := Split(content)
+	parsed := make([]ParsedBlock, len(raw))
+	rendered := make([]string, len(raw))
+	for i, r := range raw {
+		parsed[i] = ParseBlock(r)
+		rendered[i] = RenderBlock(parsed[i])
 	}
+	return parsed, rendered
+}
+
+// applyDiff is the shared write pipeline behind Set and EditContent:
+// diff the parsed new document against the already-listed existing
+// blocks, then emit the create / update / delete ops. Taking `existing`
+// (instead of listing internally) lets EditContent resolve matches and
+// diff against the same listing.
+func applyDiff(ctx context.Context, sp space.Space, objectId, collection string, existing []existingBlock, newParsed []ParsedBlock, newRendered []string) (SetResult, error) {
+	oldRendered := renderExisting(existing)
 
 	plan := Diff(oldRendered, newRendered)
 
@@ -218,6 +237,12 @@ func Append(ctx context.Context, sp space.Space, objectId, collection, content s
 		return SetResult{}, nil
 	}
 
+	unlock, err := lockDocument(ctx, sp.Id(), objectId, collection)
+	if err != nil {
+		return SetResult{}, fmt.Errorf("markdown: Append: wait for the document: %w", err)
+	}
+	defer unlock()
+
 	maxPos, err := editor.MaxPos(ctx, sp, objectId, collection, editor.RootParentId)
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Append: max pos: %w", err)
@@ -268,14 +293,8 @@ func Get(ctx context.Context, sp space.Space, objectId, collection string) (Docu
 	if err != nil {
 		return Document{}, fmt.Errorf("markdown: Get: generation: %w", err)
 	}
-	existing, seq, err := listTopLevel(ctx, sp, objectId, collection)
-	if err != nil {
-		return Document{}, err
-	}
-	return Document{
-		Content: Join(renderExisting(existing)),
-		Version: formatVersion(gen, seq),
-	}, nil
+	doc, _, err := readDocument(ctx, sp, objectId, collection, gen)
+	return doc, err
 }
 
 // trimEdgeEmpties drops leading and trailing empty entries, keeping
@@ -320,14 +339,27 @@ type existingBlock struct {
 // (nav.parentId == "") sorted by nav.pos ascending. The markdown path
 // stays flat: nested blocks (children of list items, for example)
 // live under their parents but the markdown round-trip only walks the
-// top level. Mirrors today's md_blocks behaviour. seq is the
-// collection's highest _applySeq from the same read, nested blocks and
-// tombstones included (editor.ListWithSeq).
-func listTopLevel(ctx context.Context, sp space.Space, objectId, collection string) ([]existingBlock, uint64, error) {
+// top level. Mirrors today's md_blocks behaviour.
+func listTopLevel(ctx context.Context, sp space.Space, objectId, collection string) ([]existingBlock, error) {
+	all, err := editor.List(ctx, sp, objectId, collection)
+	if err != nil {
+		return nil, err
+	}
+	return topLevel(all), nil
+}
+
+// listTopLevelWithSeq is listTopLevel plus the collection's highest
+// _applySeq from the same read, nested blocks and tombstones included
+// (editor.ListWithSeq).
+func listTopLevelWithSeq(ctx context.Context, sp space.Space, objectId, collection string) ([]existingBlock, uint64, error) {
 	all, seq, err := editor.ListWithSeq(ctx, sp, objectId, collection)
 	if err != nil {
 		return nil, 0, err
 	}
+	return topLevel(all), seq, nil
+}
+
+func topLevel(all []editor.Block) []existingBlock {
 	out := make([]existingBlock, 0, len(all))
 	for _, b := range all {
 		if b.Nav.ParentId != editor.RootParentId {
@@ -341,7 +373,7 @@ func listTopLevel(ctx context.Context, sp space.Space, objectId, collection stri
 			Pos:   b.Nav.Pos,
 		})
 	}
-	return out, seq, nil
+	return out
 }
 
 // buildCreateRecord assembles the RecordModify for an Insert op. Id

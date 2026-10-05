@@ -142,7 +142,7 @@ Because the match runs server-side against current state, a stale quote fails lo
 
 ### Append
 
-`POST …/editor/editor_blocks/markdown/append` with `{"content": "…"}` is the append-only fast path: it parses the fragment, looks up only the tail position (one indexed query, never the existing block bodies), and creates the new blocks in one batch. Cost is O(appended content) regardless of document size, which makes a run of N appends O(N) rather than the O(N²) of repeated PUTs — the right tool for grow-by-append pages such as logs. It is purely additive (it will happily create a block identical to an existing one), inserts no leading separator, and answers PUT's shape with only `inserted` populated. Blank content is a 200 no-op.
+`POST …/editor/editor_blocks/markdown/append` with `{"content": "…"}` is the append-only fast path: it parses the fragment, looks up only the tail position (one indexed query, never the existing block bodies), and creates the new blocks in one batch. Cost is O(appended content) regardless of document size, which makes a run of N appends O(N) rather than the O(N²) of repeated PUTs — the right tool for grow-by-append pages such as logs. It is purely additive (it will happily create a block identical to an existing one), inserts no leading separator, and answers PUT's shape with only `inserted` populated and no `version`. Blank content is a 200 no-op.
 
 ## Empty paragraphs and blank lines
 

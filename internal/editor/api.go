@@ -66,21 +66,8 @@ type PatchInput struct {
 // Empty result for objects with no body blocks yet (the dataset is
 // empty until the first create).
 func List(ctx context.Context, sp space.Space, objectId, collection string) ([]Block, error) {
-	docs, err := sp.Query(objectId, collection).
-		All(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("blocks: List: query: %w", err)
-	}
-
-	blocks := make([]Block, 0, len(docs))
-	for _, d := range docs {
-		b, ok := recordToBlock(d)
-		if !ok {
-			continue
-		}
-		blocks = append(blocks, b)
-	}
-	return treeOrder(blocks), nil
+	blocks, _, err := list(ctx, sp, objectId, collection, false)
+	return blocks, err
 }
 
 // ListWithSeq is List plus the highest _applySeq across the
@@ -89,11 +76,19 @@ func List(ctx context.Context, sp space.Space, objectId, collection string) ([]B
 // the collection — a delete, a nested block, a field the caller ignores
 // — raises the sequence.
 func ListWithSeq(ctx context.Context, sp space.Space, objectId, collection string) ([]Block, uint64, error) {
-	docs, err := sp.Query(objectId, collection).
-		Projection(space.ProjectionOpts{IncludeDeleted: true}).
-		All(ctx)
+	return list(ctx, sp, objectId, collection, true)
+}
+
+// list reads the collection's live blocks in tree order. withTombstones
+// also scans deleted records, so the returned sequence counts deletes.
+func list(ctx context.Context, sp space.Space, objectId, collection string, withTombstones bool) ([]Block, uint64, error) {
+	q := sp.Query(objectId, collection)
+	if withTombstones {
+		q = q.Projection(space.ProjectionOpts{IncludeDeleted: true})
+	}
+	docs, err := q.All(ctx)
 	if err != nil {
-		return nil, 0, fmt.Errorf("blocks: ListWithSeq: query: %w", err)
+		return nil, 0, fmt.Errorf("blocks: List: query: %w", err)
 	}
 
 	var seq uint64

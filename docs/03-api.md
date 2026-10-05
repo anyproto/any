@@ -1568,12 +1568,21 @@ merge the edit into `details.content` and `PUT` again with
 ```
 
 A `200` carries the `version` of the body as saved, which is the next
-save's `ifVersion` — consecutive saves chain without a `GET`. When
-another write landed while the `PUT` ran, the reply carries the
-version the save started from instead, so the next save gets a `409`
-and merges that write rather than overwriting it. A `PUT` without
-`ifVersion` writes unconditionally and still returns `version`. The
-other markdown routes answer without one.
+save's `ifVersion` — consecutive saves chain without a `GET`. The
+server re-reads the document after writing; when the stored body is
+not exactly what was saved because another write landed while the
+`PUT` ran, the reply carries the version the save started from
+instead, so the next save gets a `409` and merges that write rather
+than overwriting it. A `PUT` without `ifVersion` writes
+unconditionally and still returns `version`. The other markdown routes
+answer without one.
+
+The markdown writes to one document — `PUT`, `PATCH` and `append` —
+run one at a time on a server, so a save waits for the one before it
+and two saves carrying the same `ifVersion` never both write. The
+`…/blocks` routes and changes synced from other devices do not wait.
+One of those landing on a block the `PUT` also writes, in the same
+field, while the diff runs is last-writer-wins.
 
 `PATCH …/editor/:collection/markdown` is the surgical variant of `PUT` — for
 callers (LLM agents above all) that know the *text* they want changed
@@ -1633,7 +1642,7 @@ parsed block in a single ModifyBatch. Cost is O(appended content),
 independent of how large the document already is — unlike `PUT`, which
 renders and diffs the whole document on every call. The reply uses the
 same shape as `PUT` with only `inserted` populated (`updated` and
-`deleted` are always empty). Trade-offs the caller accepts: it is
+`deleted` are always empty, and there is no `version`). Trade-offs the caller accepts: it is
 purely additive (no update/delete, and it will create a block
 identical to an existing one), and it inserts no leading separator —
 `content` is appended structurally after the current last block.

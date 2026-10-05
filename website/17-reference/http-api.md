@@ -172,8 +172,8 @@ Reads over the link index the search indexer maintains — not SDK methods. All 
 |---|---|---|---|---|
 | GET | `…/objects/:objectId/editor/:collection/markdown` | — | `{content, version}` | render transform over the editor storage collection (`editor_blocks` or `<typeId>_<key>`); `404 dataset.not_found` when no editor part in the space declares `:collection` |
 | PUT | `…/objects/:objectId/editor/:collection/markdown` | `{content, ifVersion?}` | `{inserted, updated, deleted, unchanged, version}` | parse → diff → per-block ops; `409 markdown.conflict` when the document moved past `ifVersion`; every editor write answers `400 dataset.not_declared` when the object's type does not declare that storage collection |
-| PATCH | `…/objects/:objectId/editor/:collection/markdown` | `{edits: [{oldText, newText, replaceAll?}]}` | PUT shape | all-or-nothing; `400 markdown.no_match`, `markdown.ambiguous_match`, `markdown.overlapping_edits` |
-| POST | `…/objects/:objectId/editor/:collection/markdown/append` | `{content}` | PUT shape (`inserted` only) | O(fragment), no diff |
+| PATCH | `…/objects/:objectId/editor/:collection/markdown` | `{edits: [{oldText, newText, replaceAll?}]}` | PUT shape without `version` | all-or-nothing; `400 markdown.no_match`, `markdown.ambiguous_match`, `markdown.overlapping_edits` |
+| POST | `…/objects/:objectId/editor/:collection/markdown/append` | `{content}` | PUT shape, `inserted` only, no `version` | O(fragment), no diff |
 | POST | `…/objects/:objectId/editor/:collection/blocks` | `{type, style?, text?, nav?}` | 201 write result | `recordIds[0]` is the block id; `400 blocks.type_required` |
 | PATCH | `…/objects/:objectId/editor/:collection/blocks/:blockId` | `{set: {"dotted.path": v}, unset: [path]}` | write result | required fields cannot be unset; `404 blocks.not_found` |
 | DELETE | `…/objects/:objectId/editor/:collection/blocks/:blockId` | — | write result | no cascade to children; `404 blocks.not_found` |

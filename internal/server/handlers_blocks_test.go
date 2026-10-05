@@ -526,17 +526,7 @@ func blocksList(t *testing.T, e http.Handler, base string) blocksListResp {
 
 func getMarkdown(t *testing.T, e http.Handler, path string) string {
 	t.Helper()
-	rec := doJSON(t, e, http.MethodGet, path, "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET markdown: %d %s", rec.Code, rec.Body.String())
-	}
-	var resp struct {
-		Content string `json:"content"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode markdown: %v", err)
-	}
-	return resp.Content
+	return getMarkdownDoc(t, e, path).Content
 }
 
 type windowedKind int

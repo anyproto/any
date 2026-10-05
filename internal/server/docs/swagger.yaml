@@ -2141,6 +2141,9 @@ components:
           type: array
           uniqueItems: false
         version:
+          description: |-
+            Version is set by PUT only: the version of the body as saved, the
+            next PUT's ifVersion.
           type: string
       type: object
     api.Member:

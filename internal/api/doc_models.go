@@ -187,5 +187,7 @@ type MarkdownSetResponse struct {
 	Updated   []string `json:"updated"`
 	Deleted   []string `json:"deleted"`
 	Unchanged int      `json:"unchanged"`
-	Version   string   `json:"version,omitempty"`
+	// Version is set by PUT only: the version of the body as saved, the
+	// next PUT's ifVersion.
+	Version string `json:"version,omitempty"`
 }
