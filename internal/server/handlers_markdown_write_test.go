@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -110,5 +111,48 @@ func TestServer_MarkdownRefusesOversizedBlock(t *testing.T) {
 	}
 	if after := getMarkdownDoc(t, e, md); after != before {
 		t.Fatalf("a refused write changed the document: %+v, want %+v", after, before)
+	}
+}
+
+// TestServer_MarkdownDeleteTakesNestedBlocks pins that a markdown save
+// deleting a top-level block deletes the blocks nested under it, at any
+// depth, in the same write, and leaves a block whose parent was already
+// gone alone.
+func TestServer_MarkdownDeleteTakesNestedBlocks(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	spaceId, objectId := setupBlocksFixture(t, e)
+	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
+	md := base + "/editor/editor_blocks/markdown"
+
+	markdownSet(t, e, md, "alpha\n\nbeta")
+	top := blocksList(t, e, base).Records
+	if len(top) != 2 {
+		t.Fatalf("seed: %d blocks, want 2", len(top))
+	}
+	alpha, beta := top[0], top[1]
+	child := blocksCreate(t, e, base, `{"type":"paragraph","text":"child","nav":{"parentId":"`+beta.Id+`"}}`)
+	grand := blocksCreate(t, e, base, `{"type":"paragraph","text":"grand","nav":{"parentId":"`+child.Id+`"}}`)
+	orphan := blocksCreate(t, e, base, `{"type":"paragraph","text":"orphan","nav":{"parentId":"no-such-block"}}`)
+
+	res := markdownSet(t, e, md, "alpha")
+	slices.Sort(res.Deleted)
+	want := []string{beta.Id, child.Id, grand.Id}
+	slices.Sort(want)
+	if !slices.Equal(res.Deleted, want) {
+		t.Fatalf("deleted %v, want beta with its child and grandchild %v", res.Deleted, want)
+	}
+
+	var left []string
+	for _, b := range blocksList(t, e, base).Records {
+		left = append(left, b.Id)
+	}
+	slices.Sort(left)
+	keep := []string{alpha.Id, orphan.Id}
+	slices.Sort(keep)
+	if !slices.Equal(left, keep) {
+		t.Fatalf("blocks left %v, want alpha and the existing orphan %v", left, keep)
 	}
 }

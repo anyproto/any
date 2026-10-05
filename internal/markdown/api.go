@@ -223,10 +223,13 @@ func applyDiff(ctx context.Context, sp space.Space, objectId, collection string,
 			result.Updated = append(result.Updated, old.Id)
 		}
 	}
+	// A deleted block takes its nested blocks with it, in the same change.
 	for _, oldIdx := range plan.Deletes {
-		id := existing[oldIdx].Id
-		records = append(records, space.RecordModify{Id: id, Ops: []space.Op{{Type: space.OpDelete}}})
-		result.Deleted = append(result.Deleted, id)
+		old := existing[oldIdx]
+		for _, id := range append([]string{old.Id}, old.Descendants...) {
+			records = append(records, space.RecordModify{Id: id, Ops: []space.Op{{Type: space.OpDelete}}})
+			result.Deleted = append(result.Deleted, id)
+		}
 	}
 	if len(records) == 0 {
 		return result, 0, nil
@@ -396,6 +399,9 @@ type existingBlock struct {
 	Style map[string]any
 	Text  string
 	Pos   string
+	// Descendants are the ids of the live blocks nested under this one,
+	// at any depth; a save that deletes the block deletes them with it.
+	Descendants []string
 }
 
 // listTopLevel returns the object's top-level editor_blocks
@@ -413,18 +419,45 @@ func listTopLevel(ctx context.Context, sp space.Space, objectId, collection stri
 }
 
 func topLevel(all []editor.Block) []existingBlock {
+	children := map[string][]string{}
+	for _, b := range all {
+		if b.Nav.ParentId != editor.RootParentId {
+			children[b.Nav.ParentId] = append(children[b.Nav.ParentId], b.Id)
+		}
+	}
 	out := make([]existingBlock, 0, len(all))
 	for _, b := range all {
 		if b.Nav.ParentId != editor.RootParentId {
 			continue
 		}
 		out = append(out, existingBlock{
-			Id:    b.Id,
-			Type:  b.Type,
-			Style: b.Style,
-			Text:  b.Text,
-			Pos:   b.Nav.Pos,
+			Id:          b.Id,
+			Type:        b.Type,
+			Style:       b.Style,
+			Text:        b.Text,
+			Pos:         b.Nav.Pos,
+			Descendants: descendants(children, b.Id),
 		})
+	}
+	return out
+}
+
+// descendants walks the parent links down from id. Blocks whose parent
+// is not live (orphans) hang under no top-level block and are left
+// alone; seen guards against a parent cycle in malformed data.
+func descendants(children map[string][]string, id string) []string {
+	var out []string
+	seen := map[string]bool{id: true}
+	stack := slices.Clone(children[id])
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+		stack = append(stack, children[n]...)
 	}
 	return out
 }

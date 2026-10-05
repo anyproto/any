@@ -1547,7 +1547,8 @@ markdown expresses for the block's type — `level` on a heading,
 `lang` on code. Any other style key, set through `…/blocks`, is kept.
 That holds while the diff matches a block as an update: a block
 rewritten past recognition, or moved, is deleted and created anew, and
-the new one has a new id, only the parsed style and no nested blocks.
+the new one has a new id and only the parsed style. A block the save
+deletes takes its nested blocks with it, in the same change.
 `PUT` replies with `{"inserted": [...],
 "updated": [...], "deleted": [...], "unchanged": N, "version": "…"}`
 where the slices contain block ids. A block whose text is over the
@@ -1807,9 +1808,7 @@ Response: `200` with the shared write result (`recordIds=[blockId]`,
 → 200 with the shared write result `{versionId, changeId, recordIds}`
 (`recordIds=[blockId]`). Tombstones the record (sticky — re-creating
 the same id is rejected). Children of the deleted block are NOT
-cascaded; the client either deletes the descendants explicitly or
-rewrites the document via `PUT …/editor/:collection/markdown`, which
-diffs the whole body.
+cascaded; the client deletes the descendants explicitly.
 
 ##### Subscribe
 
