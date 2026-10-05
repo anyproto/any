@@ -2535,6 +2535,17 @@
                 },
                 "type": "object"
             },
+            "api.MarkdownDocument": {
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.MarkdownEdit": {
                 "properties": {
                     "newText": {
@@ -2557,6 +2568,17 @@
                         },
                         "type": "array",
                         "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.MarkdownSetRequest": {
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    },
+                    "ifVersion": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -2586,6 +2608,9 @@
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "version": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -12139,7 +12164,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/api.MarkdownContent"
+                                    "$ref": "#/components/schemas/api.MarkdownDocument"
                                 }
                             }
                         },
@@ -12297,15 +12322,15 @@
                                         "type": "object"
                                     },
                                     {
-                                        "$ref": "#/components/schemas/api.MarkdownContent",
+                                        "$ref": "#/components/schemas/api.MarkdownSetRequest",
                                         "summary": "body",
-                                        "description": "Markdown content"
+                                        "description": "Markdown content and the version it was edited from"
                                     }
                                 ]
                             }
                         }
                     },
-                    "description": "Markdown content",
+                    "description": "Markdown content and the version it was edited from",
                     "required": true
                 },
                 "responses": {
@@ -12328,6 +12353,16 @@
                             }
                         },
                         "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "markdown.conflict — details carry the current content and version"
                     },
                     "500": {
                         "content": {

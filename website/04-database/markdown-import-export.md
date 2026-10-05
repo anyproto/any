@@ -20,10 +20,10 @@ All four write through the same block write path a per-block edit would, so the 
 
 ```sh
 curl http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/markdown
-# → {"content": "# Title\n\nFirst paragraph…"}
+# → {"content": "# Title\n\nFirst paragraph…", "version": "…"}
 ```
 
-Returns `{"content": "<markdown>"}`: every top-level block rendered to its canonical markdown and joined with a blank line. Block `text` holds inline markdown only; block-level structure (headings, list items, checkboxes) comes from the block's `type` and `style`.
+Returns `{"content": "<markdown>", "version": "<version>"}`: every top-level block rendered to its canonical markdown and joined with a blank line, plus the version of that state ([Saving an edited body](#saving-an-edited-body--ifversion)). Block `text` holds inline markdown only; block-level structure (headings, list items, checkboxes) comes from the block's `type` and `style`.
 
 ## Import — `PUT`
 
@@ -31,10 +31,33 @@ Returns `{"content": "<markdown>"}`: every top-level block rendered to its canon
 curl -X PUT http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/markdown \
   -H 'Content-Type: application/json' \
   -d "$(jq -n --rawfile md doc.md '{content: $md}')"
-# → {"inserted": ["blk_…"], "updated": [], "deleted": ["blk_…"], "unchanged": 12}
+# → {"inserted": ["blk_…"], "updated": [], "deleted": ["blk_…"], "unchanged": 12, "version": "…"}
 ```
 
 The server parses the markdown, diffs against the current block tree by type + position + text, and emits per-block create / update / delete ops. Unchanged blocks keep their ids. Re-`PUT`ting what `GET` returned writes nothing — `unchanged` equals the block count.
+
+## Saving an edited body — `ifVersion`
+
+`PUT` makes the stored body equal `content`, so a save built from an older read would revert every change made since. A caller that edits what it read sends that read's `version` as `ifVersion`; the server writes only while the document is still at it:
+
+```sh
+curl -X PUT http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/markdown \
+  -H 'Content-Type: application/json' \
+  -d "$(jq -n --rawfile md doc.md --arg v "$VERSION" '{content: $md, ifVersion: $v}')"
+# → {"inserted": [], "updated": ["blk_…"], "deleted": [], "unchanged": 11, "version": "…"}
+```
+
+When the document moved on, nothing is written and the reply is `409`:
+
+```json
+{ "error": { "code": "markdown.conflict",
+             "message": "the body changed after ifVersion — merge details.content and retry with details.version",
+             "details": { "content": "# Title\n\n…", "version": "…" } } }
+```
+
+Merge your edit into `details.content` and `PUT` again with `ifVersion` set to `details.version`. A `200` returns the version of the body as saved, which is the next save's `ifVersion`, so consecutive saves chain without a `GET`.
+
+`version` moves on every write to the document's block records — text, style, a field the markdown does not render, a nested block, a delete — and never on a read. It is opaque and valid only against the server that issued it.
 
 ## Targeted edits — `PATCH`
 

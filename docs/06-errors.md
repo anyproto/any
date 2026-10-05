@@ -183,6 +183,7 @@ blocks.not_found                 # 404 — unknown block id
 markdown.no_match                # 400 — an edits[i].oldText not found in the current rendering (details.editIndex); GET .../editor/:collection/markdown and quote exactly
 markdown.ambiguous_match         # 400 — oldText occurs >1 times without replaceAll (details.editIndex, details.occurrences); add context or set replaceAll
 markdown.overlapping_edits       # 400 — two edits matched intersecting text (details.editIndices); merge them into one edit
+markdown.conflict                # 409 — PUT .../editor/:collection/markdown with an ifVersion the document moved past; nothing written (details.content, details.version); merge and retry with details.version
 
 aggregate.bad_pipeline           # 400 — unparseable pipeline, unknown stage, or $text/vector outside the pushdown prefix
 aggregate.limit_exceeded         # 400 — a blocking-stage bound blew (details.limit: group | accumArray | memory)

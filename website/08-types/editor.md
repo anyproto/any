@@ -94,14 +94,16 @@ The `…/editor/editor_blocks/markdown` routes are a lossless import/export laye
 | PATCH | `…/editor/editor_blocks/markdown` | targeted `oldText → newText` replacements |
 | POST | `…/editor/editor_blocks/markdown/append` | append a fragment at the tail without reading the document |
 
-**GET** reads every top-level block, renders each to its canonical bytes, joins them with `\n\n` and returns `{"content": "<markdown>"}`. **PUT** takes the same `{"content": …}` body, parses the markdown, diffs it against the current tree by (type + position + text), and emits per-block create / update / delete ops through the same write path a block PATCH uses — so the same subscribe events fire, untouched blocks keep their ids, and the reply lists what changed:
+**GET** reads every top-level block, renders each to its canonical bytes, joins them with `\n\n` and returns `{"content": "<markdown>", "version": "<version>"}`. **PUT** takes `{"content": …, "ifVersion": …}`, parses the markdown, diffs it against the current tree by (type + position + text), and emits per-block create / update / delete ops through the same write path a block PATCH uses — so the same subscribe events fire, untouched blocks keep their ids, and the reply lists what changed:
 
 ```bash
 curl -X PUT http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/markdown \
   -H 'Content-Type: application/json' \
   -d "$(jq -Rs '{content: .}' notes.md)"
-# → { "inserted": ["…"], "updated": ["…"], "deleted": [], "unchanged": 12 }
+# → { "inserted": ["…"], "updated": ["…"], "deleted": [], "unchanged": 12, "version": "…" }
 ```
+
+An editor that saves what it read sends that read's `version` as `ifVersion`: the PUT writes only while the document is still at it, and answers `409 markdown.conflict` with the current `content` and `version` otherwise, so a stale save cannot revert a newer change. Each 200's `version` is the next save's `ifVersion` ([Saving an edited body](../database/markdown-import-export.html#saving-an-edited-body--ifversion)).
 
 Re-PUTting a GET writes nothing (`unchanged` equals the block count), so a client that hydrates from GET never sees its own save come back reshaped. The wider import/export story is on [markdown import & export](../database/markdown-import-export.html).
 

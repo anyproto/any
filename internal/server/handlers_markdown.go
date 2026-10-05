@@ -30,7 +30,10 @@ import (
 // supplied content, diffs against the stored blocks, and emits the
 // same per-record create / update / delete ops the /blocks endpoints
 // would — so the same `editor_blocks` SSE events fire regardless of
-// which path produced the change. PATCH is the surgical variant:
+// which path produced the change. GET also returns the document's
+// version, and a PUT carrying it as ifVersion writes only while the
+// document is still at it (409 markdown.conflict otherwise), so a stale
+// save cannot revert a newer body. PATCH is the surgical variant:
 // oldText → newText replacements resolved against the CURRENT
 // rendering, then fed through PUT's diff — minimal block ops, and a
 // stale quote fails loudly instead of clobbering concurrent edits.
@@ -46,7 +49,7 @@ import (
 //	@Produce	json
 //	@Param		spaceId		path		string	true	"Space ID"
 //	@Param		objectId	path		string	true	"Object ID"
-//	@Success	200			{object}	api.MarkdownContent
+//	@Success	200			{object}	api.MarkdownDocument
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/editor/{collection}/markdown [get]
@@ -59,14 +62,15 @@ func (d *deps) markdownGet(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	content, err := markdown.Get(c.Request().Context(), sp, objectId, collection)
+	doc, err := markdown.Get(c.Request().Context(), sp, objectId, collection)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
-	return c.JSON(http.StatusOK, api.MarkdownContent{Content: content})
+	return c.JSON(http.StatusOK, api.MarkdownDocument{Content: doc.Content, Version: doc.Version})
 }
 
-// markdownSet replaces the markdown content of an object.
+// markdownSet replaces the markdown content of an object, optionally
+// only while the document is still at ifVersion.
 //
 //	@Summary	Set markdown content (diff-based)
 //	@Tags		editor
@@ -75,9 +79,10 @@ func (d *deps) markdownGet(c echo.Context) error {
 //	@Param		spaceId		path		string					true	"Space ID"
 //	@Param		objectId	path		string					true	"Object ID"
 //	@Param		collection	path		string					true	"Editor collection (editor_blocks or <typeId>_<key>)"
-//	@Param		body		body		api.MarkdownContent		true	"Markdown content"
+//	@Param		body		body		api.MarkdownSetRequest	true	"Markdown content and the version it was edited from"
 //	@Success	200			{object}	api.MarkdownSetResponse
 //	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	409			{object}	api.ErrorEnvelope	"markdown.conflict — details carry the current content and version"
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/editor/{collection}/markdown [put]
 func (d *deps) markdownSet(c echo.Context) error {
@@ -89,14 +94,18 @@ func (d *deps) markdownSet(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	req, ok := bindBodyStrict[struct {
-		Content string `json:"content"`
-	}](c, "")
+	req, ok := bindBodyStrict[api.MarkdownSetRequest](c, "")
 	if !ok {
 		return nil
 	}
-	res, err := markdown.Set(c.Request().Context(), sp, objectId, collection, req.Content)
+	res, err := markdown.Set(c.Request().Context(), sp, objectId, collection, req.Content, req.IfVersion)
 	if err != nil {
+		var conflict markdown.ConflictError
+		if errors.As(err, &conflict) {
+			return writeError(c, http.StatusConflict, api.ErrMarkdownConflict,
+				"the body changed after ifVersion — merge details.content and retry with details.version",
+				map[string]any{"content": conflict.Current.Content, "version": conflict.Current.Version})
+		}
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
 	return c.JSON(http.StatusOK, markdownSetResponseToAPI(res))
@@ -123,6 +132,7 @@ func markdownSetResponseToAPI(res markdown.SetResult) api.MarkdownSetResponse {
 		Updated:   updated,
 		Deleted:   deleted,
 		Unchanged: res.Unchanged,
+		Version:   res.Version,
 	}
 }
 

@@ -1533,15 +1533,47 @@ query/subscribe endpoint with `dataset=<collection>`.
 
 The `editor/markdown` routes are aggregating endpoints (each one
 bundles several SDK calls), an exception to the "endpoints map 1:1
-onto SDK methods" rule. `GET` → `{"content": "…"}`: every top-level
-block rendered to its canonical markdown and joined with `\n\n` (see
-*Empty paragraphs* below for the blank-line rule). `PUT` takes
-`{"content": "…"}`, parses it, diffs against the current block tree by
-(type + position + text), and emits per-block create / update / delete
-ops through the same write path the `…/blocks` routes use, so the same
-collection events fire. `PUT` replies with `{"inserted": [...],
-"updated": [...], "deleted": [...], "unchanged": N}` where the slices
-contain block ids.
+onto SDK methods" rule. `GET` → `{"content": "…", "version": "…"}`:
+every top-level block rendered to its canonical markdown and joined
+with `\n\n` (see *Empty paragraphs* below for the blank-line rule),
+plus the document version (*Versions and conflicts* below). `PUT`
+takes `{"content": "…", "ifVersion": "…"}`, parses `content`, diffs it
+against the current block tree by (type + position + text), and emits
+per-block create / update / delete ops through the same write path the
+`…/blocks` routes use, so the same collection events fire. `PUT`
+replies with `{"inserted": [...], "updated": [...], "deleted": [...],
+"unchanged": N, "version": "…"}` where the slices contain block ids.
+
+##### Versions and conflicts
+
+`version` names one state of the document. Any write to a record in
+the object's editor collection moves it: a text or style change, a
+field the markdown does not render, a nested block, a block delete.
+Reads never move it. It is opaque and valid only against the server
+that issued it; a rebuild of that server's store changes it.
+
+`PUT` diffs `content` against the blocks the server holds now, so a
+save built from an older read would revert whatever changed since.
+`ifVersion` prevents that: it is the `version` of the body the edit
+started from, and the `PUT` writes only while the document is still
+at it. Otherwise the reply is `409 markdown.conflict`, nothing is
+written, and `details` carry the current `content` and `version`:
+merge the edit into `details.content` and `PUT` again with
+`ifVersion: details.version`.
+
+```json
+{ "error": { "code": "markdown.conflict",
+             "message": "the body changed after ifVersion — merge details.content and retry with details.version",
+             "details": { "content": "…", "version": "…" } } }
+```
+
+A `200` carries the `version` of the body as saved, which is the next
+save's `ifVersion` — consecutive saves chain without a `GET`. When
+another write landed while the `PUT` ran, the reply carries the
+version the save started from instead, so the next save gets a `409`
+and merges that write rather than overwriting it. A `PUT` without
+`ifVersion` writes unconditionally and still returns `version`. The
+other markdown routes answer without one.
 
 `PATCH …/editor/:collection/markdown` is the surgical variant of `PUT` — for
 callers (LLM agents above all) that know the *text* they want changed

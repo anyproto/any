@@ -181,6 +181,7 @@ type mdEditResp struct {
 	Updated   []string `json:"updated"`
 	Deleted   []string `json:"deleted"`
 	Unchanged int      `json:"unchanged"`
+	Version   string   `json:"version"`
 }
 
 // markdownEdit PATCHes .../editor/editor_blocks/markdown and decodes the response.

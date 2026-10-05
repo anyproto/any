@@ -11,6 +11,8 @@ import (
 	"github.com/anyproto/any-store/v2/anyenc"
 
 	"github.com/anyproto/any-sync-sdk/space"
+
+	"github.com/anyproto/any/internal/index"
 )
 
 // ErrNotFound signals that a referenced blockId does not exist on the
@@ -79,6 +81,35 @@ func List(ctx context.Context, sp space.Space, objectId, collection string) ([]B
 		blocks = append(blocks, b)
 	}
 	return treeOrder(blocks), nil
+}
+
+// ListWithSeq is List plus the highest _applySeq across the
+// collection's records, tombstones included. One query serves both, so
+// the blocks and the sequence describe the same state, and any write to
+// the collection — a delete, a nested block, a field the caller ignores
+// — raises the sequence.
+func ListWithSeq(ctx context.Context, sp space.Space, objectId, collection string) ([]Block, uint64, error) {
+	docs, err := sp.Query(objectId, collection).
+		Projection(space.ProjectionOpts{IncludeDeleted: true}).
+		All(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("blocks: ListWithSeq: query: %w", err)
+	}
+
+	var seq uint64
+	blocks := make([]Block, 0, len(docs))
+	for _, d := range docs {
+		seq = max(seq, uint64(d.GetInt(index.ApplySeqField)))
+		if index.IsDeleted(d) {
+			continue
+		}
+		b, ok := recordToBlock(d)
+		if !ok {
+			continue
+		}
+		blocks = append(blocks, b)
+	}
+	return treeOrder(blocks), seq, nil
 }
 
 // Get fetches one block by id and returns its wire shape (with _ver).

@@ -23,6 +23,9 @@ type SetResult struct {
 	// Unchanged is the count of blocks that were kept verbatim — no
 	// DB write touched them.
 	Unchanged int
+	// Version is the document version of the body as saved (see
+	// Document). Set fills it; EditContent and Append leave it empty.
+	Version string
 }
 
 // Set replaces the markdown content of objectId with content,
@@ -55,12 +58,34 @@ type SetResult struct {
 // beyond the one separating two blocks become empty paragraph
 // records, so a document's vertical spacing survives the round trip
 // (see Split).
-func Set(ctx context.Context, sp space.Space, objectId, collection, content string) (SetResult, error) {
-	existing, err := listTopLevel(ctx, sp, objectId, collection)
+//
+// A non-empty ifVersion makes the write conditional: unless the
+// document is still at that version, Set writes nothing and returns a
+// ConflictError carrying the current body and version.
+func Set(ctx context.Context, sp space.Space, objectId, collection, content, ifVersion string) (SetResult, error) {
+	gen, err := sp.Changes().Generation(ctx)
+	if err != nil {
+		return SetResult{}, fmt.Errorf("markdown: Set: generation: %w", err)
+	}
+	existing, seq, err := listTopLevel(ctx, sp, objectId, collection)
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Set: list existing: %w", err)
 	}
-	return applyDiff(ctx, sp, objectId, collection, existing, content)
+	read := formatVersion(gen, seq)
+	if ifVersion != "" && ifVersion != read {
+		return SetResult{}, ConflictError{Current: Document{
+			Content: Join(renderExisting(existing)),
+			Version: read,
+		}}
+	}
+	res, err := applyDiff(ctx, sp, objectId, collection, existing, content)
+	if err != nil {
+		return res, err
+	}
+	if res.Version, err = savedVersion(ctx, sp, objectId, collection, gen, seq, res); err != nil {
+		return res, fmt.Errorf("markdown: Set: saved version: %w", err)
+	}
+	return res, nil
 }
 
 // applyDiff is the shared write pipeline behind Set and EditContent:
@@ -233,16 +258,24 @@ func Append(ctx context.Context, sp space.Space, objectId, collection, content s
 }
 
 // Get returns the full markdown content of objectId by rendering each
-// top-level block and joining with "\n\n". Round-trip is canonical:
-// blank lines between two content blocks are exactly one plus one per
-// empty paragraph between them, and block-type canonicalisation
-// (setext → ATX, `+` → `-`) applies the same way as on Set.
-func Get(ctx context.Context, sp space.Space, objectId, collection string) (string, error) {
-	existing, err := listTopLevel(ctx, sp, objectId, collection)
+// top-level block and joining with "\n\n", plus the version it was read
+// at. Round-trip is canonical: blank lines between two content blocks
+// are exactly one plus one per empty paragraph between them, and
+// block-type canonicalisation (setext → ATX, `+` → `-`) applies the
+// same way as on Set.
+func Get(ctx context.Context, sp space.Space, objectId, collection string) (Document, error) {
+	gen, err := sp.Changes().Generation(ctx)
 	if err != nil {
-		return "", err
+		return Document{}, fmt.Errorf("markdown: Get: generation: %w", err)
 	}
-	return Join(renderExisting(existing)), nil
+	existing, seq, err := listTopLevel(ctx, sp, objectId, collection)
+	if err != nil {
+		return Document{}, err
+	}
+	return Document{
+		Content: Join(renderExisting(existing)),
+		Version: formatVersion(gen, seq),
+	}, nil
 }
 
 // trimEdgeEmpties drops leading and trailing empty entries, keeping
@@ -287,11 +320,13 @@ type existingBlock struct {
 // (nav.parentId == "") sorted by nav.pos ascending. The markdown path
 // stays flat: nested blocks (children of list items, for example)
 // live under their parents but the markdown round-trip only walks the
-// top level. Mirrors today's md_blocks behaviour.
-func listTopLevel(ctx context.Context, sp space.Space, objectId, collection string) ([]existingBlock, error) {
-	all, err := editor.List(ctx, sp, objectId, collection)
+// top level. Mirrors today's md_blocks behaviour. seq is the
+// collection's highest _applySeq from the same read, nested blocks and
+// tombstones included (editor.ListWithSeq).
+func listTopLevel(ctx context.Context, sp space.Space, objectId, collection string) ([]existingBlock, uint64, error) {
+	all, seq, err := editor.ListWithSeq(ctx, sp, objectId, collection)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	out := make([]existingBlock, 0, len(all))
 	for _, b := range all {
@@ -306,7 +341,7 @@ func listTopLevel(ctx context.Context, sp space.Space, objectId, collection stri
 			Pos:   b.Nav.Pos,
 		})
 	}
-	return out, nil
+	return out, seq, nil
 }
 
 // buildCreateRecord assembles the RecordModify for an Insert op. Id

@@ -32,6 +32,10 @@ dataset writes. Pick by change shape:
   concurrent edits and a stale quote fails loudly
   (`markdown.no_match` → re-`GET` and quote the exact text).
 - **Full rewrite / import** → `PUT …/editor/:collection/markdown`.
+  A save of a body you read sends that read's `version` as
+  `ifVersion`; on `409 markdown.conflict` merge into
+  `details.content` and retry with `ifVersion: details.version`
+  (`03-api.md` § Versions and conflicts).
 - **Tail growth** (logs, transcripts) → `POST …/editor/:collection/markdown/append`.
 
 An editor that renders empty paragraphs must emit and parse blank
