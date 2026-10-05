@@ -1897,6 +1897,9 @@ storage collection, so it disappears from `objects/query` and leaves every
 `reason: "deleted"` — the signal subscribers use to drop the id from
 local state. See `04-events.md`.
 
+Deleting a collection's own object deletes the collection; its
+members keep the id (§ Collections).
+
 A **derived** object is permanent — any bundle root installed with
 `derived: true`, so the general chat (§ Bundles → Derived roots) —
 and answers `409 object.derived_undeletable`; the row stays readable.
@@ -3191,6 +3194,21 @@ marker exclusion.
 
 Filing an object is `POST …/properties/:objectId/collections/:collectionId`,
 unfiling the matching DELETE (§ Properties).
+
+**Deleting a collection** is `DELETE …/objects/:collectionId` (§ Object
+deletion). Its members are not touched: each keeps the collection id in
+`any.collections` and its values for the collection's columns, and
+`{"any.collections": "<collectionId>"}` still returns them. The server
+does not clean them up because it cannot do it reliably: a device that
+was offline can file an object under the collection after the delete,
+and that change still syncs in. A bundle uninstall or conflict resolve
+leaves members the same way.
+
+So a client showing an object's collections ignores an id that is not a
+known collection. Lists are not affected: no client lists the members
+of a collection that no longer exists. To clean up, unfile the object
+from the dead id — the unfile route does not check that the collection
+exists. Filing under the dead id again is `404 collection.not_found`.
 
 #### Built-in collections: `miniapp`, `bin`
 

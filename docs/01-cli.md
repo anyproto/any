@@ -518,8 +518,7 @@ keeps the value, an empty string clears it, `--hidden=false` unhides.
 `collection list` omits hidden collections (the built-in `miniapp` /
 `bin`, a collection marked hidden) without `--include-hidden`;
 `collection get` resolves hidden ones too. A registered built-in
-refuses a metadata write (`400 collection.registered`), and deleting a
-collection is not implemented (`501 sdk.not_implemented`).
+refuses a metadata write (`400 collection.registered`).
 
 ```
 any collection create $SPID --name Contacts --xkey contact
