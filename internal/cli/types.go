@@ -329,6 +329,7 @@ func newTypeDatasetCmd() *cobra.Command {
 		newTypeDatasetPatchCmd(),
 		newTypeDatasetRemoveCmd(),
 		newTypeDatasetFieldCmd(),
+		newTypeDatasetIndexCmd(),
 	)
 	return cmd
 }
@@ -448,6 +449,57 @@ func newTypeDatasetFieldCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newTypeDatasetFieldAddCmd(), newTypeDatasetFieldPatchCmd(), newTypeDatasetFieldRemoveCmd())
 	return cmd
+}
+
+func newTypeDatasetIndexCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "index",
+		Short: "add / remove declared indexes of a records dataset",
+	}
+	cmd.AddCommand(newTypeDatasetIndexAddCmd(), newTypeDatasetIndexRemoveCmd())
+	return cmd
+}
+
+func newTypeDatasetIndexAddCmd() *cobra.Command {
+	var index string
+	cmd := &cobra.Command{
+		Use:   "add <spaceId> <typeId> <defId>",
+		Short: "declare an index on a records dataset",
+		Long: `Declare one index (api.DatasetIndexDraft shape):
+  {"key": "by_start", "fields": ["start", "_objectId"]}
+  {"key": "top", "fields": ["-score"], "sparse": true}
+One to four fields, each a declared string, number, boolean or datetime
+field, or _ver.id; a shared dataset also takes _objectId. A "-" prefix
+keeps a field descending.`,
+		Args: cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var req api.DatasetIndexDraft
+			if err := readJSONBody(index, &req); err != nil {
+				return err
+			}
+			cl := newClient(flags.Timeout)
+			out, err := cl.TypeAddDatasetIndex(cmd.Context(), args[0], args[1], args[2], req)
+			if err != nil {
+				return err
+			}
+			return printJSON(out)
+		},
+	}
+	cmd.Flags().StringVar(&index, "index", "", "index draft (inline JSON, @FILE, or - for stdin)")
+	return cmd
+}
+
+func newTypeDatasetIndexRemoveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "remove <spaceId> <typeId> <defId> <indexId>",
+		Aliases: []string{"delete", "rm"},
+		Short:   "remove a declared index",
+		Args:    cobra.ExactArgs(4),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cl := newClient(flags.Timeout)
+			return cl.TypeRemoveDatasetIndex(cmd.Context(), args[0], args[1], args[2], args[3])
+		},
+	}
 }
 
 func newTypeDatasetFieldPatchCmd() *cobra.Command {

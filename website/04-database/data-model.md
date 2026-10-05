@@ -27,7 +27,7 @@ Three consequences fall out of this shape:
 
 - **One type, no contest.** The object renders with its type's layout and holds that type's parts — display units such as a document body or a table, each backed by datasets. Setting a type replaces the previous one; there is no inheritance and no primary-type rule to resolve.
 - **Collections stack.** Filing an object under a collection adds that collection's property group and nothing else. A movie in the wiki is one object with one type and one collection, carrying three property namespaces — `any`, the movie's and the wiki's.
-- **Datasets are per object.** A document's blocks are records *on that object*, not rows in a space-wide blocks table. The space-wide storage collection is `objects` only — the row per object that holds property values and the system stamps.
+- **Datasets are per object.** A document's blocks are records *on that object*, not rows in a space-wide blocks table. The one space-wide storage collection every object has a row in is `objects` — the row per object that holds property values and the system stamps. A runtime dataset declared [`shared`](runtime-datasets.html#shared-datasets) keeps every object's records in one storage collection per space, readable across objects, and each record still belongs to the object it is written on.
 
 > **Why it matters.** In a hosted document database you model "a document with comments" as two tables joined by a foreign key, and the server owns both. Here the object *is* the unit of sync and access: its datasets travel with it, merge as CRDTs with it, and are encrypted with the space it belongs to. There is nothing to join across.
 
@@ -52,7 +52,7 @@ Cross-object questions ("every movie from 1995", "all pages under this folder") 
 
 ## Per-object datasets
 
-A dataset is a Mongo-like record storage collection scoped to one object. Where it comes from decides who defines its shape:
+A dataset is a Mongo-like record storage collection scoped to one object — or, for a shared runtime dataset, one storage collection per space whose records each belong to one object. Where it comes from decides who defines its shape:
 
 | Storage collection | Contributed by | Schema owner | Write path |
 |---|---|---|---|
@@ -75,7 +75,7 @@ That single object renders with the movie layout, carries the movie's properties
 
 `$CHAT` is the [general chat root](../types/chat.html#finding-the-chat-object); `$OBJ` is the movie above and `$MOVIE` its type.
 
-Whatever produced a dataset, it is read the same way: the per-object query with a `dataset` name, and its `/subscribe` twin for liveness. File rows are the one exception — they sit on a derived child whose id clients never see, so they have their own `…/files/query`.
+Whatever produced a dataset, it is read the same way: the per-object query with a `dataset` name, and its `/subscribe` twin for liveness. A [shared dataset](runtime-datasets.html#shared-datasets) is also read across its objects through `POST …/datasets/query` with the `dataset` alone. File rows are the one exception — they sit on a derived child whose id clients never see, so they have their own `…/files/query`.
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \

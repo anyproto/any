@@ -2,7 +2,9 @@ package indexer
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -241,5 +243,79 @@ func TestEmbedDrainAnnounceGate(t *testing.T) {
 	}
 	if len(updates) != 0 {
 		t.Fatalf("fast drain reported %+v, want silence", updates)
+	}
+}
+
+// The SDK's build of a shared dataset's declared indexes is reported
+// as one process per build: started when it begins, done or failed
+// when it ends, naming the dataset. A terminal without a start, or a
+// second one, reports nothing.
+func TestIndexBuildOnProcess(t *testing.T) {
+	var mu sync.Mutex
+	var updates []ProcessUpdate
+	ix := &Indexer{opts: Options{OnProcess: func(u ProcessUpdate) {
+		mu.Lock()
+		updates = append(updates, u)
+		mu.Unlock()
+	}}.withDefaults()}
+	w := &spaceWorker{ix: ix, sp: staticIdSpace{}, ctx: context.Background()}
+
+	w.onIndexBuild(space.IndexBuild{Dataset: "type_samples", Phase: space.IndexBuildDone})
+	w.onIndexBuild(space.IndexBuild{Dataset: "type_samples", Phase: space.IndexBuildStarted})
+	w.onIndexBuild(space.IndexBuild{Dataset: "type_samples", Phase: space.IndexBuildDone})
+	w.onIndexBuild(space.IndexBuild{Dataset: "type_samples", Phase: space.IndexBuildDone})
+	w.onIndexBuild(space.IndexBuild{Dataset: "type_events", Phase: space.IndexBuildStarted})
+	w.onIndexBuild(space.IndexBuild{Dataset: "type_events", Phase: space.IndexBuildFailed, Err: errors.New("disk full")})
+
+	mu.Lock()
+	defer mu.Unlock()
+	type frame struct{ name, phase string }
+	var got []frame
+	for _, u := range updates {
+		if u.Kind != ProcessKindDatasetIndex || u.SpaceId != "sp1" {
+			t.Fatalf("unexpected update %+v", u)
+		}
+		got = append(got, frame{u.Name, u.Phase})
+	}
+	want := []frame{
+		{"type_samples", ProcessStarted}, {"type_samples", ProcessDone},
+		{"type_events", ProcessStarted}, {"type_events", ProcessFailed},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("frames = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("frames = %+v, want %+v", got, want)
+		}
+	}
+	if len(w.builds) != 0 {
+		t.Fatalf("open reports left: %d", len(w.builds))
+	}
+}
+
+// A worker that stops while a build runs ends its report as cancelled,
+// and reports nothing for events that still reach it.
+func TestIndexBuildOnProcess_WorkerStops(t *testing.T) {
+	var mu sync.Mutex
+	var phases []string
+	ix := &Indexer{opts: Options{OnProcess: func(u ProcessUpdate) {
+		mu.Lock()
+		phases = append(phases, u.Phase)
+		mu.Unlock()
+	}}.withDefaults()}
+	w := &spaceWorker{ix: ix, sp: staticIdSpace{}}
+	w.ctx, w.cancel = context.WithCancel(context.Background())
+
+	w.onIndexBuild(space.IndexBuild{Dataset: "type_samples", Phase: space.IndexBuildStarted})
+	w.stop()
+	w.onIndexBuild(space.IndexBuild{Dataset: "type_samples", Phase: space.IndexBuildDone})
+	w.onIndexBuild(space.IndexBuild{Dataset: "type_events", Phase: space.IndexBuildStarted})
+	w.stop()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(phases) != 2 || phases[0] != ProcessStarted || phases[1] != ProcessCancelled {
+		t.Fatalf("phases = %v, want started then cancelled", phases)
 	}
 }

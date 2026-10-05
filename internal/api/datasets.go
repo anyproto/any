@@ -40,6 +40,13 @@ type DatasetSchema struct {
 	// Module is the serving module ("records", "editor", "chat"; empty
 	// for built-ins and registered-type datasets).
 	Module string `json:"module,omitempty"`
+	// Shared marks a records dataset whose records from every object
+	// live in one collection per space: readable across objects through
+	// POST …/datasets/query, each record's `id` is
+	// `<objectId>/<recordId>`.
+	Shared bool `json:"shared,omitempty"`
+	// Indexes are the dataset's valid declared indexes.
+	Indexes []DatasetIndexDraft `json:"indexes,omitempty"`
 }
 
 // DatasetsResponse is the body of GET /v1/spaces/:spaceId/datasets and

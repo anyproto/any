@@ -3,7 +3,8 @@
 MongoDB-style aggregation over any dataset: an ordered pipeline of stages
 that filters, reshapes, unwinds, groups and sorts records inside one
 snapshot read. Wraps the SDK's `Space.Aggregate` /
-`Space.AggregateObjects` (any-store's aggregation framework underneath).
+`Space.AggregateObjects` / `Space.AggregateDataset` (any-store's
+aggregation framework underneath).
 Use it when one `/query` isn't enough — counts per group, top-N rollups,
 tag distributions — instead of pulling every record over HTTP and
 reducing client-side.
@@ -17,15 +18,16 @@ pipeline to refresh. For live windows over raw records use
 ```
 POST /v1/spaces/:spaceId/objects/aggregate    cross-object — the per-space `objects` storage collection
 POST /v1/spaces/:spaceId/aggregate            per-object dataset (objectId + dataset required)
+POST /v1/spaces/:spaceId/datasets/aggregate   a shared dataset across its objects (dataset required)
 ```
 
-Same two scopes as `/query` (`docs/03-api.md` § Data plane). Request
+Same three scopes as `/query` (`docs/03-api.md` § Data plane). Request
 body:
 
 ```json
 {
   "objectId": "obj_abc",            // per-object variant only
-  "dataset":  "chat_messages",      // per-object variant only
+  "dataset":  "chat_messages",      // per-object and shared-dataset variants
   "pipeline": [ { "$match": {} }, { "$group": {} } ],   // required, array of stages
   "groupLimit":       50000,        // optional — max unique $group keys
   "accumArrayLimit":  10000,        // optional — max $push/$addToSet length
@@ -224,7 +226,8 @@ unless listed here. The two most common surprises first:
 | code | status | meaning |
 |---|---|---|
 | `request.bad_json` | 400 | missing, unreadable or invalid JSON body |
-| `request.missing_field` | 400 | no `pipeline` (or missing `objectId` / `dataset` on the per-object variant) |
+| `request.missing_field` | 400 | no `pipeline` (or missing `objectId` / `dataset` on the per-object variant, `dataset` on the shared-dataset one) |
+| `dataset.not_shared` | 400 | the shared-dataset variant names a dataset that is not declared `shared`, or one the space does not hold |
 | `request.schema` | 400 | `pipeline` is not a JSON array |
 | `request.invalid_field` | 400 | per-object aggregate on the tech space's index object over a dataset other than `profile` / `bundles` |
 | `aggregate.bad_pipeline` | 400 | unparseable pipeline, unknown stage / accumulator / operator, `$text` / `$knn`, `$out` / `$merge` |
@@ -237,6 +240,7 @@ Standard envelope, see `docs/06-errors.md`.
 ```
 any aggregate <spaceId> <objectId> --dataset NAME --pipeline '<json>'   # per-object dataset
 any aggregate <spaceId> --properties --pipeline '<json>'               # objects storage collection
+any aggregate <spaceId> --all-objects --dataset NAME --pipeline '<json>'   # a shared dataset across its objects
 ```
 
 `--pipeline` takes inline JSON, `@FILE`, or `-` for stdin. Optional:

@@ -113,6 +113,27 @@ type SpaceListQueryRequest struct {
 	QueryBodyParams
 }
 
+// SpaceDatasetQueryRequest documents the body of
+// POST /v1/spaces/:spaceId/datasets/query[/subscribe] — a shared
+// dataset read across every object that holds it.
+type SpaceDatasetQueryRequest struct {
+	// Dataset names the shared dataset's storage collection
+	// (`<typeId>_<key>`, a declaration's `collection`). Required.
+	Dataset string `json:"dataset"`
+	QueryBodyParams
+}
+
+// SpaceDatasetAggregateRequest documents the body of
+// POST /v1/spaces/:spaceId/datasets/aggregate.
+type SpaceDatasetAggregateRequest struct {
+	Dataset          string           `json:"dataset"`
+	Pipeline         []map[string]any `json:"pipeline"`
+	GroupLimit       *int             `json:"groupLimit,omitempty"`
+	AccumArrayLimit  *int             `json:"accumArrayLimit,omitempty"`
+	MemoryLimitBytes *int             `json:"memoryLimitBytes,omitempty"`
+	Explain          bool             `json:"explain,omitempty"`
+}
+
 // SpaceAggregateObjectsRequest documents the body of
 // POST /v1/spaces/:spaceId/objects/aggregate.
 type SpaceAggregateObjectsRequest struct {

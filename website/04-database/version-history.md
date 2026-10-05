@@ -75,7 +75,7 @@ The view is opened, serialized and closed within the request. A version whose ma
 
 ## One record at a version
 
-`GET …/history/:version/datasets/:dataset/records/:recordId` reads a single record at the cut without materializing the full view, so it can never hit `view_too_large`. `exists: false` means the record wasn't present at that version; `deleted: true` means it was tombstoned, with the tombstone row in `record`.
+`GET …/history/:version/datasets/:dataset/records/:recordId` reads a single record at the cut without materializing the full view, so it can never hit `view_too_large`. `exists: false` means the record wasn't present at that version; `deleted: true` means it was tombstoned, with the tombstone row in `record`. For a record of a [shared dataset](runtime-datasets.html#shared-datasets), `:recordId` is the plain record id — the part of its `id` after `<objectId>/`.
 
 ## Diff
 

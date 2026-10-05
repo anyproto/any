@@ -7,16 +7,17 @@ order: 50
 
 All reads go through one primitive: a windowed query over any-store, the embedded MongoDB-flavoured document store under every space. The same body serves a point-in-time snapshot and, on the `/subscribe` twin, a live stream.
 
-In the block example `$OBJ` is an object whose type declares `editor_blocks` — a built-in `page` does.
+In the block example `$OBJ` is an object whose type declares `editor_blocks` — a built-in `page` does. `$HOURS` is the shared dataset from [Runtime datasets](runtime-datasets.html#shared-datasets).
 
-## Two scopes
+## Three scopes
 
 | Endpoint | Reads |
 |----------|-------|
 | `POST /v1/spaces/:spaceId/objects/query` | **Cross-object.** The space's `objects` storage collection — one row per object with its property values keyed `<ownerId>.<propId>` plus `any.*` and the row-root stamps. |
 | `POST /v1/spaces/:spaceId/query` | **Per-object.** One dataset of one object (`editor_blocks`, `chat_messages`, a runtime dataset…). Needs `objectId` + `dataset`. |
+| `POST /v1/spaces/:spaceId/datasets/query` | **Shared dataset.** Every object's records of one runtime dataset declared `shared`. Needs `dataset`. Each record's `id` is `<objectId>/<recordId>` and `_objectId` names its object. |
 
-Both are POST because a filter does not fit a query string. Both have a `/subscribe` sibling with the same body — see [Subscribe](../realtime/subscribe.html) — and an `/aggregate` sibling for pipelines — see [Aggregation](aggregation.html).
+All three are POST because a filter does not fit a query string. Each has a `/subscribe` sibling with the same body — see [Subscribe](../realtime/subscribe.html) — and an `/aggregate` sibling for pipelines — see [Aggregation](aggregation.html).
 
 ```bash
 # plain pages outside the bin, newest edits first
@@ -30,6 +31,11 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
   -d '{"objectId": "'$OBJ'", "dataset": "editor_blocks", "sort": ["nav.pos"]}'
+
+# one shared dataset across every object that holds it, latest hours first
+curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/datasets/query \
+  -H 'Content-Type: application/json' \
+  -d '{"dataset": "'$HOURS'", "sort": ["-start"], "limit": 48}'
 ```
 
 ## Request body
@@ -37,7 +43,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
 ```json
 {
   "objectId":     "<oid>",          // per-object only (required there)
-  "dataset":      "<name>",         // per-object only (required there)
+  "dataset":      "<name>",         // per-object and shared-dataset (required there)
   "filter":       { "…": "…" },     // mongo-style; omit = match all
   "sort":         ["-_ver.id"],
   "limit":        50,
@@ -48,7 +54,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
 }
 ```
 
-The vocabulary is closed. An unknown key — `"filters"`, say — answers `400 request.unknown_field` listing the accepted set rather than silently querying the whole space. A serialised nil `objectId` (`"null"`, `"undefined"`) is `400 object.id_required`. A per-object read of an object the space does not have answers `404 object.not_found`; the cross-object query just returns zero rows.
+The vocabulary is closed. An unknown key — `"filters"`, say — answers `400 request.unknown_field` listing the accepted set rather than silently querying the whole space. A serialised nil `objectId` (`"null"`, `"undefined"`) is `400 object.id_required`. A per-object read of an object the space does not have answers `404 object.not_found`; the cross-object query just returns zero rows. A shared-dataset read of a dataset that is not declared `shared`, or one the space does not hold, is `400 dataset.not_shared`.
 
 Response:
 
@@ -58,7 +64,7 @@ Response:
   "hasNext": true }     // with includeTotal
 ```
 
-Without a `projection`, records ship their full stored form, including `_ver` (creation marker plus per-field high-water version ids) and `_deletedAt` / `_traces` when present. `projection` narrows them: a mongo-style map of field paths to `1` (include) or `-1` (exclude), e.g. `{"any": 1, "<typeId>": 1}`. `id` always ships, `_ver` narrows with the fields you asked for, and `{"_ver": -1}` drops it. A projection shapes the output only; filter and sort still run over the whole stored row.
+Without a `projection`, records ship their full stored form, including `_ver` (creation marker plus per-field high-water version ids) and `_deletedAt` / `_traces` when present. `projection` narrows them: a mongo-style map of field paths to `1` (include) or `-1` (exclude), e.g. `{"any": 1, "<typeId>": 1}`. `id` always ships, `_ver` narrows with the fields you asked for, and `{"_ver": -1}` drops it. On a shared dataset, a projection that lists fields to include drops `_objectId` — `id` carries the object — and `{"_objectId": 1}` keeps it. A projection shapes the output only; filter and sort still run over the whole stored row.
 
 ## Filter operators
 
@@ -130,8 +136,9 @@ Instants filter as instants. Wrap the literal in `{"$date": …}`:
 | `any.type`, `any.collections`, `any.name`, `any.description`, `any.tags` | The universal built-in group. |
 | `<wikiCollectionId>.<propId>` — the wiki collection's `parentId` / `pos` / `folder` | Tree placement: ordinary columns of the hidden wiki collection, ids from `POST /v1/catalog/wiki/setup` ([Objects](objects.html)). |
 | `author`, `createdAt`, `modifiedAt`, `modifiedBy`, `spaceId` | Derived row-root stamps (`objects` storage collection only). `modifiedAt` is indexed; the rest, `modifiedBy` included, are scans. |
-| `_ver.id` | The record's creation version id — the logical DAG order. |
-| `id` | The record id. |
+| `_ver.id` | The record's creation version id — the logical DAG order of one object's records. |
+| `id` | The record id; `<objectId>/<recordId>` on a shared dataset. |
+| `_objectId` | The object a shared dataset's record belongs to. |
 
 A type's or collection's `xKey` is a client-side label, never a server path.
 
@@ -147,6 +154,8 @@ A type's or collection's `xKey` is a client-side label, never a server path.
   "sort": ["-_ver.id"], "limit": 50 }
 ```
 
+`_ver.id` orders one object's records only. Records of different objects share no version order, so across a shared dataset the cursor is a declared field that a declared [index](indexes.html#runtime-datasets) leads with.
+
 `includeTotal` counts every filter match, ignoring `limit` and `offset`, from the same read as the page; `hasNext` is `offset + len(records) < total`. For counts per group, use a `$count` / `$group` [aggregation](aggregation.html).
 
 > **Why it matters.** Every query runs against a local database, so the cost of a read is disk, not network. Always set a `limit` anyway: an omitted or zero limit is unbounded, an unbounded read builds a huge snapshot, and on a subscription it can overflow the mailbox.
@@ -157,11 +166,12 @@ A deleted record is a tombstone: its content is wiped, its id is burned, and eve
 
 ## CLI
 
-`any query-subscribe` is the CLI form of both scopes — it prints one JSON object per SSE frame, so the `snapshot` frame is the one-shot read, and it keeps listening until you stop it:
+`any query-subscribe` is the CLI form of all three scopes — it prints one JSON object per SSE frame, so the `snapshot` frame is the one-shot read, and it keeps listening until you stop it:
 
 ```bash
 any query-subscribe $SPACE $OBJ --dataset editor_blocks --sort nav.pos --limit 50
 any query-subscribe $SPACE --properties --filter '{"any.type": "page"}' --sort -modifiedAt --limit 20
+any query-subscribe $SPACE --all-objects --dataset $HOURS --sort -start --limit 48
 ```
 
 ## Related

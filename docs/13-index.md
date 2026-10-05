@@ -185,7 +185,10 @@ dataset in every space. Entries carry the real storage collection (doc ids
 `objectId:<collection>:<recordId>`) under `x-search.scope`, default
 `basic` (runtime records are user content and embed normally; a dataset
 that declares `props` inherits that scope's FTS-only rule). `Dataset()`
-returns the virtual name `schema`, used only for chunker identity.
+returns the virtual name `schema`, used only for chunker identity. A
+shared dataset's entry carries the plain record id — the record's `id`
+without its `<objectId>/` prefix — so a hit and a link source name a
+record the way an `any://` record link does.
 
 - **Mapping**: `x-search.title` → `IndexEntry.Title` and the leading
   line of `Data`; `x-search.text` → the rest of `Data`. `text` is a

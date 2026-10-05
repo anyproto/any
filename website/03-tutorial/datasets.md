@@ -36,7 +36,7 @@ Both are read, subscribed to and synced the same way. They differ in what a row 
 | Cost of many | one change per object | one change per page of 500 records |
 | Bulk import | one create per object | `/upsert` — safe to re-run, unchanged records skipped |
 
-The rule of thumb: a thing that stands on its own — that you would open, show in a list next to unrelated things, or file under a collection — is an object. Things that belong to one object and are read together as one list — the messages of a mailbox, the rows of a ledger, the entries of a log — are records in a dataset on that object. The test that settles most cases is the query you will need: "every credential in the space" is an objects filter; "every unread message in this inbox" is a dataset query. A dataset never answers across objects, and the `objects` storage collection never gives you a schema-enforced table.
+The rule of thumb: a thing that stands on its own — that you would open, show in a list next to unrelated things, or file under a collection — is an object. Things that belong to one object and are read together as one list — the messages of a mailbox, the rows of a ledger, the entries of a log — are records in a dataset on that object. The test that settles most cases is the query you will need: "every credential in the space" is an objects filter; "every unread message in this inbox" is a dataset query. A dataset answers across objects only when it is declared [`shared`](../database/runtime-datasets.html#shared-datasets), and the `objects` storage collection never gives you a schema-enforced table.
 
 ## Declare the dataset on a type
 
@@ -137,7 +137,7 @@ curl -s -X POST $API/spaces/$SPACE/query -H 'content-type: application/json' -d 
 
 `…/query/subscribe` with the same body is the live inbox: a snapshot of the window, then `added` / `updated` / `removed` frames as messages arrive or get marked read — on this device or any other. A `limit` on a subscription requires a `sort`, because a live window has to be ordered ([Subscribe](../realtime/subscribe.html)).
 
-> **Note.** A dataset is *per object*. "All unread mail across every mailbox in the space" is not one query — the space-wide storage collection is `objects` only. Model what you read together as one dataset on one object; a second mailbox is a second object with its own storage collection.
+> **Note.** This dataset is *per object*: a second mailbox is a second object with its own records, and "all unread mail across every mailbox in the space" is not one query on it. A dataset whose records are read across objects is declared `"shared": true` from the start — the flag is pinned — and read through `POST …/datasets/query` ([Shared datasets](../database/runtime-datasets.html#shared-datasets)).
 
 ## Search it
 

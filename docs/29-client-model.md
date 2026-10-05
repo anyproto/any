@@ -20,6 +20,9 @@ is the model plus the calls that follow from it.
   module's **canonical** storage collection (`editor_blocks`,
   `chat_messages`) is the one its dataset uses when it names no key;
   a dataset under any other key lives in `<typeId>_<key>`.
+- A **shared dataset** is a `records` dataset declared `shared`: the
+  records of every object of its type are readable together. A record
+  still belongs to one object; its `id` is `<objectId>/<recordId>`.
 
 A **space** holds objects. An **object** is a row in the space's
 `objects` storage collection: an id, its one type, the collections it is
@@ -322,9 +325,11 @@ writes.
 
 `POST /v1/spaces/:spaceId/objects/query` for object rows,
 `POST /v1/spaces/:spaceId/query` (with `objectId` + `dataset`) for a
-dataset's records. Both take `filter` / `sort` / `limit` / `offset` /
-`projection`, and both have a `…/subscribe` twin that streams a snapshot
-then live deltas. On a subscribe, `limit` requires `sort` — a live
+dataset's records on one object, and
+`POST /v1/spaces/:spaceId/datasets/query` (with `dataset`) for a shared
+dataset's records on every object. All take `filter` / `sort` / `limit` /
+`offset` / `projection`, and all have a `…/subscribe` twin that streams a
+snapshot then live deltas. On a subscribe, `limit` requires `sort` — a live
 window has to be ordered. Property paths are `"<ownerId>.<propId>"`,
 where the owner is the object's type or one of its collections.
 

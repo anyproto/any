@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -207,6 +208,11 @@ func (d *deps) historyRecordAt(c echo.Context) error {
 	if version == "" || dataset == "" || recordId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",
 			"version, dataset and recordId required", nil)
+	}
+	// A shared dataset's record id holds a "/", percent-encoded in the
+	// path.
+	if unescaped, err := url.PathUnescape(recordId); err == nil {
+		recordId = unescaped
 	}
 	if errResp, done := identityKeysReadRefused(c, objectId, dataset); done {
 		return errResp

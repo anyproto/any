@@ -215,6 +215,14 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.AddDatasetIndexResponse": {
+                "properties": {
+                    "indexDefId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.AddDatasetResponse": {
                 "properties": {
                     "collection": {
@@ -1099,6 +1107,14 @@ const docTemplate = `{
                     "idRule": {
                         "type": "string"
                     },
+                    "indexes": {
+                        "description": "Indexes are the declared indexes in creation order, invalid ones\nincluded.",
+                        "items": {
+                            "$ref": "#/components/schemas/api.DatasetIndexDef"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "invalid": {
                         "description": "Invalid marks a definition whose folded declaration fails\nvalidation (invalidReason says why) — a records fold missing a\ncreator stamp behind an author rule, an unknown module, a\ncollection rule violation. Invalid definitions never register or\naccept data but stay listed so they can be repaired or removed.",
                         "type": "boolean"
@@ -1119,6 +1135,10 @@ const docTemplate = `{
                     },
                     "search": {
                         "$ref": "#/components/schemas/api.DatasetSearchFields"
+                    },
+                    "shared": {
+                        "description": "Shared marks a records dataset whose records from every object\nlive in one collection per space (POST …/datasets/query).",
+                        "type": "boolean"
                     },
                     "skipHistory": {
                         "type": "boolean"
@@ -1160,6 +1180,14 @@ const docTemplate = `{
                         "description": "IdRule: \"auto\" (default — ids derived from the change) or \"user\"\n(caller-supplied ids, constrained by idPattern/idMaxLen; the id\ndoubles as the upsert idempotency key).",
                         "type": "string"
                     },
+                    "indexes": {
+                        "description": "Indexes are the initial declared indexes (records datasets only).",
+                        "items": {
+                            "$ref": "#/components/schemas/api.DatasetIndexDraft"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "key": {
                         "description": "Key is the dataset's slug inside its type ([a-z][a-z0-9_]*, ≤ 64)\n— pinned — and decides the collection. The canonical collection\nname of the dataset's own module (editor_blocks for editor) is\nthat collection, the one every type declaring it addresses, so\nretyping an object keeps its body. Any other key is the\ncollection ` + "`" + `\u003ctypeId\u003e_\u003ckey\u003e` + "`" + `, this type's own. Omitted on a\nmodule dataset, it is the canonical name; a records dataset\nrequires one.",
                         "type": "string"
@@ -1170,6 +1198,10 @@ const docTemplate = `{
                     },
                     "search": {
                         "$ref": "#/components/schemas/api.DatasetSearchFields"
+                    },
+                    "shared": {
+                        "description": "Shared keeps the records of every object of the type in one\nstorage collection per space, so POST …/datasets/query reads them\nacross objects. Records datasets only; pinned. Each record's ` + "`" + `id` + "`" + `\nis ` + "`" + `\u003cobjectId\u003e/\u003crecordId\u003e` + "`" + ` and ` + "`" + `_objectId` + "`" + ` names its object.",
+                        "type": "boolean"
                     },
                     "skipHistory": {
                         "description": "SkipHistory keeps the dataset out of the version-history index.",
@@ -1295,6 +1327,56 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.DatasetIndexDef": {
+                "properties": {
+                    "fields": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "id": {
+                        "description": "Id is the index definition record's id — what DELETE\n…/indexes/:indexId takes.",
+                        "type": "string"
+                    },
+                    "invalid": {
+                        "description": "Invalid marks an index no collection builds (invalidReason says\nwhy): a field it names is not a declared scalar field any more,\nor the dataset already holds its limit. It stays listed so it can\nbe removed.",
+                        "type": "boolean"
+                    },
+                    "invalidReason": {
+                        "type": "string"
+                    },
+                    "key": {
+                        "type": "string"
+                    },
+                    "sparse": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "api.DatasetIndexDraft": {
+                "properties": {
+                    "fields": {
+                        "description": "Fields are the indexed paths in order, one to four; a \"-\" prefix\nkeeps that path descending. Each names a declared field of kind\nstring, number, boolean or datetime, or ` + "`" + `_ver.id` + "`" + ` (creation order\nwithin one object); a shared dataset also takes ` + "`" + `_objectId` + "`" + `.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "key": {
+                        "description": "Key is the index's slug ([a-z][a-z0-9_]*, ≤ 64), unique within\nthe dataset.",
+                        "type": "string"
+                    },
+                    "sparse": {
+                        "description": "Sparse leaves a record out of the index unless it carries every\nindexed field.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "api.DatasetPatchRequest": {
                 "properties": {
                     "set": {
@@ -1312,6 +1394,14 @@ const docTemplate = `{
             },
             "api.DatasetSchema": {
                 "properties": {
+                    "indexes": {
+                        "description": "Indexes are the dataset's valid declared indexes.",
+                        "items": {
+                            "$ref": "#/components/schemas/api.DatasetIndexDraft"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "module": {
                         "description": "Module is the serving module (\"records\", \"editor\", \"chat\"; empty\nfor built-ins and registered-type datasets).",
                         "type": "string"
@@ -1330,6 +1420,10 @@ const docTemplate = `{
                     "schema": {
                         "additionalProperties": {},
                         "type": "object"
+                    },
+                    "shared": {
+                        "description": "Shared marks a records dataset whose records from every object\nlive in one collection per space: readable across objects through\nPOST …/datasets/query, each record's ` + "`" + `id` + "`" + ` is\n` + "`" + `\u003cobjectId\u003e/\u003crecordId\u003e` + "`" + `.",
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -3531,6 +3625,83 @@ const docTemplate = `{
                     },
                     "spaceType": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.SpaceDatasetAggregateRequest": {
+                "properties": {
+                    "accumArrayLimit": {
+                        "type": "integer"
+                    },
+                    "dataset": {
+                        "type": "string"
+                    },
+                    "explain": {
+                        "type": "boolean"
+                    },
+                    "groupLimit": {
+                        "type": "integer"
+                    },
+                    "memoryLimitBytes": {
+                        "type": "integer"
+                    },
+                    "pipeline": {
+                        "items": {
+                            "additionalProperties": {},
+                            "type": "object"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.SpaceDatasetQueryRequest": {
+                "properties": {
+                    "dataset": {
+                        "description": "Dataset names the shared dataset's storage collection\n(` + "`" + `\u003ctypeId\u003e_\u003ckey\u003e` + "`" + `, a declaration's ` + "`" + `collection` + "`" + `). Required.",
+                        "type": "string"
+                    },
+                    "driftBudgetPercent": {
+                        "description": "DriftBudgetPercent (subscribe only) bounds window drift before\nthe stream closes with reason \"drifted\". Default 30.",
+                        "type": "integer"
+                    },
+                    "filter": {
+                        "additionalProperties": {},
+                        "description": "Filter is a mongo-style condition over record fields; omitted or\nempty matches every record. Operator grammar: docs/09-query.md\n(a bad operator answers 400 filter.unknown_operator listing the\nfull set).",
+                        "type": "object"
+                    },
+                    "includeTotal": {
+                        "description": "IncludeTotal populates ` + "`" + `total` + "`" + ` (every match, regardless of\nlimit/offset) + ` + "`" + `hasNext` + "`" + ` in the snapshot reply.",
+                        "type": "boolean"
+                    },
+                    "limit": {
+                        "description": "Limit bounds the window; 0 or absent = unbounded.",
+                        "type": "integer"
+                    },
+                    "mailboxCapacity": {
+                        "description": "MailboxCapacity (subscribe only) sizes the event mailbox before\nthe stream closes with reason \"overflow\". Default 256, min 16.",
+                        "type": "integer"
+                    },
+                    "offset": {
+                        "description": "Offset skips past the first N matches of the sorted result.",
+                        "type": "integer"
+                    },
+                    "projection": {
+                        "additionalProperties": {
+                            "type": "integer"
+                        },
+                        "description": "Projection shapes the records that come back, mongo-style: a flat\nobject of dotted field paths to 1 (include) or -1 (exclude).\n` + "`" + `{\"any\":1,\"nav\":1}` + "`" + ` is include mode — nothing but those subtrees;\n` + "`" + `{\"_ver\":-1}` + "`" + ` is exclude mode — every user field but that one.\nOmitted, records ship their full form. Three rules worth knowing:\n` + "`" + `id` + "`" + ` always rides along and cannot be excluded, ` + "`" + `_ver` + "`" + ` is narrowed\nto the projection automatically (never name a ` + "`" + `_ver` + "`" + ` path), and\n` + "`" + `_addSeq` + "`" + `/` + "`" + `_applySeq` + "`" + ` drop unless named. Full grammar and the\ndivergences from mongo: docs/09-query.md § Projection.",
+                        "type": "object"
+                    },
+                    "sort": {
+                        "description": "Sort lists field paths, \"-\" prefix for descending (e.g.\n\"-createdAt\"). Required when limit \u003e 0 on subscribe, so the\nwindow is well-defined.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     }
                 },
                 "type": "object"
@@ -9221,6 +9392,219 @@ const docTemplate = `{
                     }
                 },
                 "summary": "List a space's dataset schemas",
+                "tags": [
+                    "data"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/datasets/aggregate": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.SpaceDatasetAggregateRequest",
+                                        "summary": "body",
+                                        "description": "Aggregation params (dataset required)"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Aggregation params (dataset required)",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AggregateResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Aggregate over a shared dataset across objects",
+                "tags": [
+                    "data"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/datasets/query": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.SpaceDatasetQueryRequest",
+                                        "summary": "body",
+                                        "description": "Query params (dataset required)"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Query params (dataset required)",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.QueryResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Query a shared dataset across objects",
+                "tags": [
+                    "data"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/datasets/query/subscribe": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.SpaceDatasetQueryRequest",
+                                        "summary": "body",
+                                        "description": "Query params (dataset required)"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Query params (dataset required)",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "500": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Subscribe to a windowed query over a shared dataset (SSE)",
                 "tags": [
                     "data"
                 ]
@@ -14946,6 +15330,186 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Patch a dataset field's display fields and descriptor",
+                "tags": [
+                    "types"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/types/{typeId}/datasets/{defId}/indexes": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Dataset definition ID",
+                        "in": "path",
+                        "name": "defId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.DatasetIndexDraft",
+                                        "summary": "body",
+                                        "description": "Index draft"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Index draft",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AddDatasetIndexResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Declare an index on a records dataset",
+                "tags": [
+                    "types"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/types/{typeId}/datasets/{defId}/indexes/{indexId}": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Dataset definition ID",
+                        "in": "path",
+                        "name": "defId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Index definition ID",
+                        "in": "path",
+                        "name": "indexId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Remove a declared index",
                 "tags": [
                     "types"
                 ]

@@ -46,6 +46,11 @@ type stubSpace struct {
 
 func (s *stubSpace) Id() string                    { return s.id }
 func (s *stubSpace) Changes() space.ChangeIndexAPI { return stubChanges{} }
+func (s *stubSpace) Types() space.TypesAPI         { return stubTypes{} }
+
+type stubTypes struct{ space.TypesAPI }
+
+func (stubTypes) SubscribeIndexBuilds(func(space.IndexBuild)) func() { return func() {} }
 
 type stubChanges struct{ space.ChangeIndexAPI }
 

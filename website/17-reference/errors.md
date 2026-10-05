@@ -100,7 +100,7 @@ Panics are converted to `500 internal` with a generic message.
 | `space.not_invite_pending` | 409 | invite accept on a row not awaiting approval |
 | `space.already_member` | 409 | a guest token for a space this account already tracks as a member |
 | `space.read_only` | 403 | a guest or reader tried to write |
-| `space.unsupported` | 405 | the surface is not available on the tech space (object and type lifecycle, members, files, chat, editor, history, search, metadata, settings, non-bundle writes, catalog setup) |
+| `space.unsupported` | 405 | the surface is not available on the tech space (object and type lifecycle, members, files, chat, editor, history, search, shared-dataset reads, metadata, settings, non-bundle writes, catalog setup) |
 | `members.not_found` | 404 | unknown member identity in this space |
 | `acl.forbidden` | 403 | the caller's role does not allow this ACL operation (minting an invite is owner-only) |
 | `acl.record_not_found` | 404 | the ACL record named (a join request) does not exist |
@@ -119,6 +119,7 @@ Panics are converted to `500 internal` with a generic message.
 | `object.derived_undeletable` | 409 | `DELETE` on a derived object (a bundle root installed with `derived: true`, such as the general chat) |
 | `object.id_required` | 400 | the object id is a serialized nil (`"None"`, `"null"`, `"undefined"`) |
 | `record.deleted` | 410 | a write addressed a tombstoned record; the id is burned for good |
+| `record.wrong_object` | 400 | a `modify` or `delete-records` on a shared dataset names a record of another object — a record id is the plain id or the `<objectId>/<recordId>` of the request's own `objectId`, and a plain id never holds `/` (`details.objectId`, `details.dataset`) |
 | `bundle.not_found` | 404 | no live install for the bundle id in this space |
 | `bundle.not_ready` | 409 | registry not converged, or the winner's tree is not local yet — retry |
 | `bundle.loser_not_ready` | 409 | losing root not fully synced / grace period not elapsed — retry |
@@ -132,13 +133,14 @@ Panics are converted to `500 internal` with a generic message.
 |---|---|---|
 | `dataset.unknown` | 400 | a record write names a storage collection the space does not serve as a records dataset (a module's own is never upsertable); a read of an unknown dataset answers `200 {"records": []}` |
 | `dataset.not_declared` | 400 | a write into a storage collection the object's type does not declare — set the declaring type first (collections declare no datasets); also a property value written under an owner the object does not have — set that type or file that collection first |
+| `dataset.not_shared` | 400 | a read across objects (`…/datasets/query[/subscribe]`, `…/datasets/aggregate`) names a dataset that is not declared `shared`, or one the space does not hold (`details.dataset`); read it per object through `…/query` |
 | `dataset.not_found` | 404 | the editor route's `:collection` is not an editor storage collection in this space |
 | `dataset.validation` | 400 | schema or handler rejected the ops |
 | `dataset.key_conflict` | 409 | a part or dataset with this key already exists on the type (`details.key`) |
 | `dataset.module_unknown` | 400 | the dataset names a module the server does not compile in |
-| `dataset.module_owned` | 409 | fields declared on a module-served dataset |
+| `dataset.module_owned` | 409 | fields or an index declared on a module-served dataset |
 | `dataset.module_reserved` | 400 | a part, dataset or bundle draft names a module reserved to the server's own installs (`chat`) |
-| `dataset.decl_invalid` | 400 | malformed part or dataset declaration |
+| `dataset.decl_invalid` | 400 | malformed part, dataset or index declaration — including `shared` on a module dataset, a ninth index, and removing a field a declared index names |
 | `dataset.immutable` | 400 | PATCH of a pinned part, definition or field path (`details.path`) |
 | `upsert.requires_user_ids` | 400 | dataset not declared `idRule: user` |
 | `upsert.immutable_field` / `upsert.not_author` / `upsert.record_deleted` / `upsert.rejected` | 200 | per-record codes inside `rejections[]` — never HTTP errors |

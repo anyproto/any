@@ -5,9 +5,9 @@ thin wrapper over **any-store** (a MongoDB-flavoured embedded document store),
 so the filter / sort language is mongo-style: operator filters, array
 matching, multi-key sort, and live windowed subscriptions.
 
-There are two endpoints; both POST (the filter / sort body doesn't fit a query
-string) and both have a `/subscribe` SSE twin (`docs/04-events.md`). For
-counts per group, rollups and tag distributions, both scopes also take
+There are three endpoints; all POST (the filter / sort body doesn't fit a query
+string) and all have a `/subscribe` SSE twin (`docs/04-events.md`). For
+counts per group, rollups and tag distributions, every scope also takes
 MongoDB-style aggregation pipelines at the sibling `…/aggregate` endpoints
 (snapshot-only) — [`docs/14-aggregation.md`](14-aggregation.md).
 
@@ -15,13 +15,14 @@ MongoDB-style aggregation pipelines at the sibling `…/aggregate` endpoints
 |----------|-------|-------|
 | `POST /v1/spaces/:spaceId/objects/query` | **cross-object** | the per-space `objects` storage collection — one row per object: its property values keyed `<ownerId>.<propId>`, `any.*` (its one type and the collections it is filed under), and the row-root stamps |
 | `POST /v1/spaces/:spaceId/query` | **per-object** | one storage collection of a single object (`editor_blocks`, `chat_messages`, a namespaced `<typeId>_<key>` storage collection, …); needs `objectId` + `dataset` |
+| `POST /v1/spaces/:spaceId/datasets/query` | **shared dataset** | every object's records of one runtime dataset declared `shared` (`docs/03-api.md` § Shared datasets); needs `dataset`. Each record's `id` is `<objectId>/<recordId>` and `_objectId` names its object |
 
 ## Request body
 
 ```json
 {
   "objectId": "<oid>",        // per-object only (required there)
-  "dataset":  "<name>",       // per-object only (required there)
+  "dataset":  "<name>",       // per-object and shared-dataset (required there)
   "filter":   { ... },        // mongo-style; omit/empty = match all
   "sort":     ["-_ver.id"],
   "limit":    50,             // 0 / absent = unbounded
@@ -96,6 +97,7 @@ defaults, so `{"_ver": -1}` alone still means "every user field":
 | `_ver` | included, narrowed to the projection | `{"_ver": -1}` to drop |
 | `_traces`, `_deletedAt` | included whole | `{"_traces": -1}` to drop |
 | `_addSeq`, `_applySeq` | dropped | `{"_applySeq": 1}` to keep |
+| `_objectId` (shared datasets) | dropped when the projection lists fields to include — `id` carries the object | `{"_objectId": 1}` to keep |
 
 `_traces` is the write-correlation map an optimistic client matches its own
 echo on (the `traceIds` it sent to `/modify`), so it rides along even when
@@ -347,5 +349,20 @@ Indexed paths:
 Property values on the `objects` storage collection have **no indexes**:
 filtering or sorting on an `<ownerId>.<propId>` path is a scan proportional
 to the space's object count — scope by `any.type` or `any.collections` so
-the index narrows the scan first. Runtime datasets carry no secondary
-indexes, and there is no create-index API.
+the index narrows the scan first.
+
+A runtime `records` dataset is indexed by its declared indexes
+(`docs/03-api.md` § Declared indexes) and by `id`:
+
+- A filter or sort on a leading run of an index's `fields` is a range read;
+  a field deeper in the index only helps once the fields before it are
+  pinned by equality.
+- In a shared dataset `id` starts with the object id, so one object's
+  records are a range of `id` — the per-object scope reads exactly that.
+  In the dataset scope a filter on `_objectId` scans every record: read
+  one object through the per-object scope.
+  Reading by a field across all objects needs a declared index led by that
+  field; without one the dataset scope scans every record.
+- A count and every aggregation read the matched records, indexed or not.
+- An index is built per device. Until a shared dataset's build ends,
+  queries on it scan.

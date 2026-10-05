@@ -107,7 +107,7 @@ type PartPatchRequest struct {
 // PartDraftRequest.Datasets or the body of POST
 // /v1/spaces/:spaceId/types/:typeId/parts/:partId/datasets. Mirrors
 // space.DatasetDraft. The behavioral parts (key, module,
-// idRule/idPattern/idMaxLen, deleteBy, skipHistory, field kinds/flags)
+// idRule/idPattern/idMaxLen, deleteBy, skipHistory, shared, field kinds/flags)
 // are pinned for the definition's life — remove and re-add to change
 // them; display parts (displayName, description, search leaves) patch
 // via PATCH …/datasets/:defId.
@@ -141,6 +141,11 @@ type DatasetDraftRequest struct {
 	DeleteBy string `json:"deleteBy,omitempty"`
 	// SkipHistory keeps the dataset out of the version-history index.
 	SkipHistory bool `json:"skipHistory,omitempty"`
+	// Shared keeps the records of every object of the type in one
+	// storage collection per space, so POST …/datasets/query reads them
+	// across objects. Records datasets only; pinned. Each record's `id`
+	// is `<objectId>/<recordId>` and `_objectId` names its object.
+	Shared bool `json:"shared,omitempty"`
 	// Search is the optional search-extraction annotation (x-search):
 	// which record fields feed the search index's title/text, and
 	// optionally which index scope the entries land under.
@@ -149,6 +154,50 @@ type DatasetDraftRequest struct {
 	// a module owns its schema). Declare required fields here — fields
 	// added later cannot be required.
 	Fields []DatasetFieldDraft `json:"fields,omitempty"`
+	// Indexes are the initial declared indexes (records datasets only).
+	Indexes []DatasetIndexDraft `json:"indexes,omitempty"`
+}
+
+// DatasetIndexDraft declares a secondary index of a records dataset —
+// an element of DatasetDraftRequest.Indexes, the body of POST
+// …/datasets/:defId/indexes, and one entry of a discovery listing.
+// Mirrors space.IndexDraft. A filter or sort on a leading run of its
+// fields is a range read. Every part is pinned: an index is replaced by
+// removing it and adding another.
+type DatasetIndexDraft struct {
+	// Key is the index's slug ([a-z][a-z0-9_]*, ≤ 64), unique within
+	// the dataset.
+	Key string `json:"key"`
+	// Fields are the indexed paths in order, one to four; a "-" prefix
+	// keeps that path descending. Each names a declared field of kind
+	// string, number, boolean or datetime, or `_ver.id` (creation order
+	// within one object); a shared dataset also takes `_objectId`.
+	Fields []string `json:"fields"`
+	// Sparse leaves a record out of the index unless it carries every
+	// indexed field.
+	Sparse bool `json:"sparse,omitempty"`
+}
+
+// DatasetIndexDef mirrors space.IndexDef — the compiled view of one
+// declared index.
+type DatasetIndexDef struct {
+	// Id is the index definition record's id — what DELETE
+	// …/indexes/:indexId takes.
+	Id     string   `json:"id"`
+	Key    string   `json:"key"`
+	Fields []string `json:"fields"`
+	Sparse bool     `json:"sparse,omitempty"`
+	// Invalid marks an index no collection builds (invalidReason says
+	// why): a field it names is not a declared scalar field any more,
+	// or the dataset already holds its limit. It stays listed so it can
+	// be removed.
+	Invalid       bool   `json:"invalid,omitempty"`
+	InvalidReason string `json:"invalidReason,omitempty"`
+}
+
+// AddDatasetIndexResponse is the body returned by POST …/datasets/:defId/indexes.
+type AddDatasetIndexResponse struct {
+	IndexDefId string `json:"indexDefId"`
 }
 
 // DatasetSearchFields mirrors space.SearchFields — the x-search
@@ -258,17 +307,23 @@ type DatasetDefResponse struct {
 	Collection string `json:"collection"`
 	Module     string `json:"module"`
 	// PartId is the owning part's id.
-	PartId      string               `json:"partId"`
-	DisplayName string               `json:"displayName,omitempty"`
-	Description string               `json:"description,omitempty"`
-	Dynamic     bool                 `json:"dynamic,omitempty"`
-	IdRule      string               `json:"idRule"`
-	IdPattern   string               `json:"idPattern,omitempty"`
-	IdMaxLen    int                  `json:"idMaxLen,omitempty"`
-	DeleteBy    string               `json:"deleteBy"`
-	SkipHistory bool                 `json:"skipHistory,omitempty"`
-	Search      *DatasetSearchFields `json:"search,omitempty"`
-	Fields      []DatasetFieldDef    `json:"fields"`
+	PartId      string `json:"partId"`
+	DisplayName string `json:"displayName,omitempty"`
+	Description string `json:"description,omitempty"`
+	Dynamic     bool   `json:"dynamic,omitempty"`
+	IdRule      string `json:"idRule"`
+	IdPattern   string `json:"idPattern,omitempty"`
+	IdMaxLen    int    `json:"idMaxLen,omitempty"`
+	DeleteBy    string `json:"deleteBy"`
+	SkipHistory bool   `json:"skipHistory,omitempty"`
+	// Shared marks a records dataset whose records from every object
+	// live in one collection per space (POST …/datasets/query).
+	Shared bool                 `json:"shared,omitempty"`
+	Search *DatasetSearchFields `json:"search,omitempty"`
+	Fields []DatasetFieldDef    `json:"fields"`
+	// Indexes are the declared indexes in creation order, invalid ones
+	// included.
+	Indexes []DatasetIndexDef `json:"indexes,omitempty"`
 	// Invalid marks a definition whose folded declaration fails
 	// validation (invalidReason says why) — a records fold missing a
 	// creator stamp behind an author rule, an unknown module, a

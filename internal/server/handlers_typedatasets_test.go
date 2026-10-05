@@ -664,7 +664,7 @@ func TestTypeParts_ModuleDatasets(t *testing.T) {
 	}{
 		"unknown module":            {`{"key":"x","datasets":[{"key":"x","module":"nope"}]}`, http.StatusBadRequest, "dataset.module_unknown"},
 		"records without a key":     {`{"key":"x","datasets":[{"module":"records"}]}`, http.StatusBadRequest, "dataset.decl_invalid"},
-		"unknown field shared":      {`{"key":"x","datasets":[{"module":"editor","shared":true}]}`, http.StatusBadRequest, "request.unknown_field"},
+		"shared module dataset":     {`{"key":"x","datasets":[{"module":"editor","shared":true}]}`, http.StatusBadRequest, "dataset.decl_invalid"},
 		"module with fields":        {`{"key":"x","datasets":[{"module":"editor","fields":[{"key":"x","kind":"string"}]}]}`, http.StatusConflict, "dataset.module_owned"},
 		"chat reserved":             {`{"key":"x","datasets":[{"key":"thread","module":"chat"}]}`, http.StatusBadRequest, "dataset.module_reserved"},
 		"chat unkeyed":              {`{"key":"x","datasets":[{"module":"chat"}]}`, http.StatusBadRequest, "dataset.module_reserved"},
@@ -817,21 +817,14 @@ func TestTypeParts_CanonicalEditorKey(t *testing.T) {
 		t.Helper()
 		return doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/parts/"+partId+"/datasets", body)
 	}
-	// assertSharedRefused checks the refusal names `shared` as the
-	// unknown field.
-	assertSharedRefused := func(t *testing.T, rec *httptest.ResponseRecorder) {
+	// assertSharedRefused checks a module dataset declared shared is
+	// refused: only a records dataset is shared.
+	assertSharedRefused := func(t *testing.T, rec *httptest.ResponseRecorder, code string) {
 		t.Helper()
 		if rec.Code != http.StatusBadRequest {
-			t.Fatalf("draft with shared: %d %s", rec.Code, rec.Body.String())
+			t.Fatalf("shared module dataset: %d %s", rec.Code, rec.Body.String())
 		}
-		assertErrorCode(t, rec, "request.unknown_field")
-		var env api.ErrorEnvelope
-		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-			t.Fatal(err)
-		}
-		if fs, _ := env.Error.Details["fields"].([]any); len(fs) != 1 || fs[0] != "shared" {
-			t.Errorf("unknown fields = %v, want [shared]", env.Error.Details["fields"])
-		}
+		assertErrorCode(t, rec, code)
 	}
 
 	t.Run("dataset route refusals", func(t *testing.T) {
@@ -846,7 +839,7 @@ func TestTypeParts_CanonicalEditorKey(t *testing.T) {
 			}
 			assertErrorCode(t, rec, "request.missing_field")
 		}
-		assertSharedRefused(t, addDataset(t, typeId, partId, `{"module":"editor","shared":true}`))
+		assertSharedRefused(t, addDataset(t, typeId, partId, `{"module":"editor","shared":true}`), "dataset.decl_invalid")
 		if defs := datasetsOf(t, typeId); len(defs) != 0 {
 			t.Fatalf("datasets after refusals: %+v", defs)
 		}
@@ -910,7 +903,8 @@ func TestTypeParts_CanonicalEditorKey(t *testing.T) {
 
 	t.Run("bundle route refuses shared", func(t *testing.T) {
 		assertSharedRefused(t, doJSON(t, e, http.MethodPost, base+"/bundles",
-			`{"id":"shared-flag/v1","derived":true,"parts":[{"key":"body","datasets":[{"module":"editor","shared":true}]}]}`))
+			`{"id":"shared-flag/v1","derived":true,"parts":[{"key":"body","datasets":[{"module":"editor","shared":true}]}]}`),
+			"request.invalid_field")
 		rec := doJSON(t, e, http.MethodGet, base+"/bundles/"+escapedBundleId("shared-flag/v1"), "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("refused bundle must not be installed: %d %s", rec.Code, rec.Body.String())

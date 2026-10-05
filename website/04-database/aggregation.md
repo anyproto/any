@@ -1,6 +1,6 @@
 ---
 title: Aggregation
-description: MongoDB-style pipelines — $match, $group, $unwind, $sort and friends — computed in one snapshot read over objects or a per-object dataset.
+description: MongoDB-style pipelines — $match, $group, $unwind, $sort and friends — computed in one snapshot read over objects, one object's dataset, or a shared dataset across its objects.
 order: 110
 ---
 # Aggregation
@@ -14,9 +14,10 @@ Aggregation is snapshot-only. There is no `/aggregate/subscribe`; re-run the pip
 ```
 POST /v1/spaces/:spaceId/objects/aggregate    cross-object — the space's objects storage collection
 POST /v1/spaces/:spaceId/aggregate            per-object dataset (objectId + dataset required)
+POST /v1/spaces/:spaceId/datasets/aggregate   a shared dataset across its objects (dataset required)
 ```
 
-The same two scopes as `/query`. Request body:
+The same three scopes as `/query`. Request body:
 
 ```json
 {
@@ -30,7 +31,7 @@ The same two scopes as `/query`. Request body:
 }
 ```
 
-`objectId` and `dataset` apply to the per-object variant only; `pipeline` is required; the three limits and `explain` are optional. The response is `{"records": [...]}` — pipeline **result documents**, not dataset rows. With `explain: true` you get `{"plan": "..."}` instead (diagnostic, not a stable format).
+`objectId` applies to the per-object variant only, `dataset` to the per-object and shared-dataset variants; `pipeline` is required; the three limits and `explain` are optional. The response is `{"records": [...]}` — pipeline **result documents**, not dataset rows. With `explain: true` you get `{"plan": "..."}` instead (diagnostic, not a stable format).
 
 Deleted records are excluded server-side: a `_deletedAt`-missing `$match` is prepended to every pipeline, so aggregates always agree with `/query`.
 
@@ -85,6 +86,21 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/aggregate -d '{
 ```
 
 Just a count: `any aggregate $SPACE --properties --pipeline '[{"$count": "objects"}]'` → `{"records": [{"objects": 128}]}`.
+
+Steps per day over a [shared dataset](runtime-datasets.html#shared-datasets) — every object's records in one pipeline, grouped by the `_objectId` each record carries (`$HOURS` is the dataset's storage collection):
+
+```sh
+curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/datasets/aggregate -d '{
+  "dataset": "'$HOURS'",
+  "pipeline": [
+    {"$group": {"_id": "$_objectId", "steps": {"$sum": "$steps"}}},
+    {"$sort":  {"steps": -1}}
+  ]}'
+# → {"records": [{"id": "bafy…mon", "steps": 2072}, {"id": "bafy…tue", "steps": 430}]}
+
+any aggregate $SPACE --all-objects --dataset $HOURS \
+  --pipeline '[{"$group":{"_id":"$_objectId","steps":{"$sum":"$steps"}}},{"$sort":{"steps":-1}}]'
+```
 
 ## Stages and operators
 
@@ -152,7 +168,8 @@ Negative values mean unlimited. There is no spill to disk — filter earlier or 
 
 | Code | Status | Meaning |
 |---|---|---|
-| `request.missing_field` | 400 | no `pipeline`, or missing `objectId`/`dataset` on the per-object variant |
+| `request.missing_field` | 400 | no `pipeline`, or missing `objectId`/`dataset` on the per-object variant, `dataset` on the shared-dataset one |
+| `dataset.not_shared` | 400 | the shared-dataset variant names a dataset that is not declared `shared` |
 | `request.schema` | 400 | `pipeline` is not a JSON array |
 | `aggregate.bad_pipeline` | 400 | unparseable pipeline, unknown stage/accumulator, `$text`/vector outside the prefix |
 | `aggregate.limit_exceeded` | 400 | a blocking-stage bound was exceeded — `details.limit` says which |
@@ -162,6 +179,7 @@ Negative values mean unlimited. There is no spill to disk — filter earlier or 
 ```
 any aggregate <spaceId> <objectId> --dataset NAME --pipeline '<json>'   # per-object dataset
 any aggregate <spaceId> --properties --pipeline '<json>'               # objects storage collection
+any aggregate <spaceId> --all-objects --dataset NAME --pipeline '<json>'   # a shared dataset across its objects
 ```
 
 `--pipeline` takes inline JSON, `@FILE`, or `-` for stdin. Optional: `--group-limit`, `--accum-limit`, `--memory-limit`, `--explain`.

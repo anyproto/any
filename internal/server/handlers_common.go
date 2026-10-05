@@ -392,6 +392,20 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 				"(POST /v1/spaces/{spaceId}/properties/{objectId}/type/{typeId}) or declare the dataset on its type",
 			details)
 	}
+	// A read across objects of a dataset that keeps its records per
+	// object, or that the space does not hold.
+	if errors.Is(err, space.ErrDatasetNotShared) {
+		return writeError(c, http.StatusBadRequest, "dataset.not_shared",
+			"the dataset is not a shared dataset of this space — read it per object (POST /v1/spaces/{spaceId}/query)",
+			details)
+	}
+	// A write named a record of another object: on a shared dataset a
+	// record id is `<objectId>/<recordId>`.
+	if errors.Is(err, space.ErrRecordIdOfAnotherObject) {
+		return writeError(c, http.StatusBadRequest, "record.wrong_object",
+			"the record id belongs to another object — pass the plain record id, or `<objectId>/<recordId>` of the request's own object",
+			details)
+	}
 	if errors.Is(err, handler.ErrValidation) {
 		return sdkValidationError(c, err, details)
 	}

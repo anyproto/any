@@ -41,6 +41,8 @@
   - [Types](#types)
     - [Parts and modules](#parts-and-modules)
     - [Runtime dataset schemas](#runtime-dataset-schemas)
+    - [Shared datasets](#shared-datasets)
+    - [Declared indexes](#declared-indexes)
     - [Upsert records](#upsert-records)
     - [Built-in `dataview` type](#built-in-dataview-type)
     - [Built-in hidden type: `page`](#built-in-hidden-type-page)
@@ -98,7 +100,9 @@
   *writes* only — POST/PATCH/DELETE and reactions. Reads always go
   through the per-object query primitive with the matching `dataset`
   value — the storage collection name (`chat_messages`,
-  `editor_blocks`, a namespaced `<typeId>_<key>`, …). One read path for every dataset,
+  `editor_blocks`, a namespaced `<typeId>_<key>`, …). A shared
+  dataset is also read across its objects through
+  `…/datasets/query[/subscribe]`. One read path for every dataset,
   one wire shape for every snapshot. The lone exception is
   `GET …/editor/:collection/markdown`, which renders blocks to
   markdown bytes — a transform, not a dataset read.
@@ -758,7 +762,7 @@ in arrives as an `added` change.
 #### Dataset schema discovery
 
 ```
-GET /v1/spaces/:spaceId/datasets   → { datasets: [ { name, schema, owners?, module? } ] }   Space.Datasets
+GET /v1/spaces/:spaceId/datasets   → { datasets: [ { name, schema, owners?, module?, shared?, indexes? } ] }   Space.Datasets
 GET /v1/datasets                   → { datasets: [ { name, schema } ] }                     Service.Datasets
 ```
 
@@ -776,8 +780,10 @@ the object's type is one of its owners (a type definition object counts
 as its own), so consumers gate indexing/eviction on that set; a
 canonical one nothing declares yet is listed without `owners`, and no
 object can hold it until a type declares the module (§ Parts and
-modules). Each property carries an `x-scope` extension keyword
-classifying the field:
+modules). `shared: true` marks a shared dataset (§ Shared datasets),
+and `indexes` lists its valid declared indexes
+(`[{key, fields, sparse?}]`, § Declared indexes). Each property carries
+an `x-scope` extension keyword classifying the field:
 
 - `synced` — user/DAG-written, synced to everyone in the space;
 - `derived` — handler-computed, read-only to writers (e.g. chat
@@ -1284,8 +1290,8 @@ settings — lives in bundles on the account's **tech space**, whose id
 - `DELETE …/objects/:objectId` on a bundle root (the SDK refuses any
   other object);
 - `GET …/types`, `GET …/types/:rootId`, `GET …/types/:rootId/properties`
-  and the `parts…` / `datasets…` / `POST|PATCH|DELETE properties…`
-  routes on bundle roots;
+  and the `parts…` / `datasets…` (fields and indexes included) /
+  `POST|PATCH|DELETE properties…` routes on bundle roots;
 - records on bundle roots: `query[/subscribe]`, `modify`, `upsert`,
   `delete-records`, `aggregate`, `objects/query[/subscribe]`,
   `objects/aggregate`; `GET …/objects/:objectId`; `GET …/datasets`;
@@ -1983,11 +1989,14 @@ drop their edges. The wiki tree's
 | POST   | `/v1/spaces/:spaceId/query`                               | `Space.Query.Snapshot`               |
 | POST   | `/v1/spaces/:spaceId/query/subscribe`                     | `Space.Query.Subscribe` (SSE)        |
 | POST   | `/v1/spaces/:spaceId/aggregate`                           | `Space.Aggregate` (pipeline)         |
+| POST   | `/v1/spaces/:spaceId/datasets/query`                      | `Space.QueryDataset.Snapshot`        |
+| POST   | `/v1/spaces/:spaceId/datasets/query/subscribe`            | `Space.QueryDataset.Subscribe` (SSE) |
+| POST   | `/v1/spaces/:spaceId/datasets/aggregate`                  | `Space.AggregateDataset` (pipeline)  |
 | POST   | `/v1/spaces/:spaceId/modify`                              | `Space.Modify`                       |
 | POST   | `/v1/spaces/:spaceId/upsert`                              | `Space.Upsert` (§ Upsert records)    |
 | POST   | `/v1/spaces/:spaceId/delete-records`                      | `Space.Delete`                       |
 
-Two query scopes:
+Three query scopes:
 
 - `POST /v1/spaces/:spaceId/objects/query` (+ `/subscribe`) —
   **cross-object**. Reads the per-space `objects` storage collection
@@ -2000,6 +2009,10 @@ Two query scopes:
   Reads one of an object's own datasets (`objectId` and `dataset`
   required): a definition object's `properties`, `editor_blocks`,
   `chat_messages`, a runtime `<typeId>_<key>` storage collection, etc.
+- `POST /v1/spaces/:spaceId/datasets/query` (+ `/subscribe`) — **a
+  shared dataset across its objects** (`dataset` required, no
+  `objectId`): every object's records of one runtime dataset declared
+  `shared` (§ Shared datasets).
 
 Every row in the per-space `objects` storage collection carries SDK-stamped
 row-root fields alongside `id`, all derived/read-only (client writes
@@ -2021,7 +2034,7 @@ addressing them are rejected):
 
 "Recently modified first" is `{"sort": ["-modifiedAt"]}`.
 
-All four take POST (the filter/sort body doesn't fit a query string).
+All six take POST (the filter/sort body doesn't fit a query string).
 The bare `…/query` returns a point-in-time snapshot;
 `…/query/subscribe` returns the same snapshot plus a live SSE stream of
 windowed transitions. See `04-events.md` for the subscribe contract.
@@ -2191,13 +2204,14 @@ deleted id is never reused.
 
 #### Aggregate
 
-The same two scopes take MongoDB-style aggregation pipelines — the
+The same three scopes take MongoDB-style aggregation pipelines — the
 aggregation siblings of the query endpoints, snapshot-only (no
 subscribe variant):
 
 ```
 POST /v1/spaces/:spaceId/objects/aggregate     Space.AggregateObjects
 POST /v1/spaces/:spaceId/aggregate             Space.Aggregate (objectId + dataset required)
+POST /v1/spaces/:spaceId/datasets/aggregate    Space.AggregateDataset (dataset required, a shared dataset)
 ```
 
 Body: `{objectId?, dataset?, pipeline: [...], groupLimit?,
@@ -2212,11 +2226,12 @@ Errors: `aggregate.bad_pipeline` / `aggregate.limit_exceeded`
 
 #### Subscribe (Server-Sent Events)
 
-Two endpoints — POST, body as documented above:
+Three endpoints — POST, body as documented above:
 
 ```
 POST /v1/spaces/:spaceId/objects/query/subscribe       (cross-object)
 POST /v1/spaces/:spaceId/query/subscribe               (per-object)
+POST /v1/spaces/:spaceId/datasets/query/subscribe      (a shared dataset across its objects)
 ```
 
 Response is `Content-Type: text/event-stream`. Errors before the
@@ -2397,7 +2412,9 @@ record-scope fast path: one record, no full-view materialization, so
 it can't hit `view_too_large`. `→ {version, dataset, recordId, exists,
 deleted?, record?}`. `exists: false` means the record wasn't
 present at that cut; `deleted: true` means it was tombstoned and
-`record` carries the tombstone row.
+`record` carries the tombstone row. For a record of a shared dataset
+`:recordId` is the plain record id — the part of its `id` after
+`<objectId>/` — or the `id` percent-encoded.
 
 #### Diff
 
@@ -2452,6 +2469,8 @@ diffs are leaf-level; an absent side is omitted (`added` has no
 | POST   | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields`    | `TypesAPI.AddDatasetField` |
 | PATCH  | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId` | `TypesAPI.PatchDatasetField` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId` | `TypesAPI.RemoveDatasetField` |
+| POST   | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId/indexes`   | `TypesAPI.AddDatasetIndex` |
+| DELETE | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId/indexes/:indexId` | `TypesAPI.RemoveDatasetIndex` |
 
 `POST …/types` **requires** a non-empty **`xKey`** — the stable
 programmatic handle a type is resolved by (the display `name` is not a
@@ -2872,6 +2891,10 @@ collection}` (or inline in the part's `datasets` on `POST …/parts`):
   `skipHistory` (out of version history; applies from the next time
   the object's history index opens) / per-field `scope` (`synced`
   default or `local`) and `shape` (`{kind, items?, properties?}`).
+- `shared` — every object's records in one storage collection per
+  space, readable across objects (§ Shared datasets).
+- `indexes` — declared secondary indexes, `[{key, fields, sparse?}]`
+  (§ Declared indexes).
 - per-field `description` and **`xFormat`** — the descriptive slice: the
   same descriptor a property carries (`docs/27-descriptors.md`),
   validated the same way against the field's kind (the wire `kind`, the
@@ -2901,8 +2924,9 @@ request.invalid_field` or `400 dataset.decl_invalid`.
 
 **Semantics of the pinning model:** behavioral parts — `key` (and with
 it the storage collection name), `module`, `dynamic`,
-`idRule`/`idPattern`/`idMaxLen`, `deleteBy`, `skipHistory`, field
-`key`/`kind`/`shape`/`scope`/`required`/`mutableBy`/`stamp` — are
+`idRule`/`idPattern`/`idMaxLen`, `deleteBy`, `skipHistory`, `shared`,
+field `key`/`kind`/`shape`/`scope`/`required`/`mutableBy`/`stamp`, and
+every part of an index — are
 pinned for the definition's life; remove and re-add under a new
 definition to change them. Display parts patch:
 **`PATCH …/datasets/:defId`** takes the same `{set, unset}` shape as
@@ -2926,14 +2950,16 @@ would silently no-op).
 (values stay stored; subsequent writes to the field are rejected as
 undeclared on non-dynamic datasets; a removal that would invalidate
 the remaining declaration — e.g. the creator stamp of an author-gated
-dataset — is refused). The SDK keys field definitions by (typeId,
+dataset — is refused, and so is the removal of a field a declared
+index names: `400 dataset.decl_invalid`, remove the index first). The SDK keys field definitions by (typeId,
 fieldId) — `:defId` rides the URI for hierarchy only.
 
 `GET …/types/:typeId/datasets` returns the compiled view:
 `{datasets: [{id, key, collection, module, partId,
 displayName?, description?, dynamic?, idRule, idPattern?, idMaxLen?,
-deleteBy, skipHistory?, search?, fields: [<field>…], invalid?,
-invalidReason?}]}` with each field read back whole as above.
+deleteBy, skipHistory?, shared?, search?, fields: [<field>…],
+indexes?: [{id, key, fields, sparse?, invalid?, invalidReason?}],
+invalid?, invalidReason?}]}` with each field read back whole as above.
 `invalid` marks a definition whose folded declaration fails validation
 — it never registers or accepts data but stays listed so it can be
 repaired (add the missing field) or removed. Runtime datasets also
@@ -2955,6 +2981,102 @@ on the declaring type object itself — the first write needs that type
 set, e.g. via object create `type`; `400 dataset.not_declared`
 otherwise). `id: user` datasets additionally get the batch upsert
 below.
+
+#### Shared datasets
+
+A `records` dataset declared `"shared": true` keeps the records of
+every object of its type in one storage collection per space. A record
+still belongs to the object it is written on; what changes is that the
+dataset can be read across objects. `shared` is pinned, and a module
+dataset refuses it (`400 dataset.decl_invalid`; `400
+request.invalid_field` in a bundle body).
+
+- **Record ids.** Every read returns a record with
+  `id: "<objectId>/<recordId>"` and `_objectId: "<objectId>"`. The
+  record id itself — auto-derived or caller-supplied — never holds a
+  `/`.
+- **Writes** go through the per-object routes (`modify`,
+  `delete-records`, `upsert`) and take the plain record id, or the
+  `id` of a record of the request's own `objectId`. A record id of
+  another object is `400 record.wrong_object` on `modify` and
+  `delete-records`, and a per-record `upsert.rejected` on `upsert`.
+  `modify` and `upsert` return `recordIds` in the
+  `<objectId>/<recordId>` form.
+- **One object** is read through `POST …/query[/subscribe]` and
+  `POST …/aggregate` with `objectId` + `dataset`, as any dataset.
+- **Every object** is read through the dataset scope:
+
+```
+POST /v1/spaces/:spaceId/datasets/query             { dataset, filter?, sort?, limit?, offset?, includeTotal?, projection? }
+POST /v1/spaces/:spaceId/datasets/query/subscribe   same body; SSE
+POST /v1/spaces/:spaceId/datasets/aggregate         { dataset, pipeline, groupLimit?, accumArrayLimit?, memoryLimitBytes?, explain? }
+```
+
+  `dataset` is the storage collection (`<typeId>_<key>`, the
+  definition's `collection`). The reply shapes and the SSE frames are
+  the per-object ones. The read covers the records this device has
+  synced; no object is opened for it.
+- **Live.** A dataset-scope subscription carries the changes of every
+  object's records. Deleting an object arrives as `removed` entries
+  for the records it held, in batches with an empty `versionId`.
+- **Order.** `_ver` orders the changes of one object. Records of
+  different objects share no version order: sort on a declared field.
+- **Errors.** `400 dataset.not_shared` — the dataset is not shared, or
+  the space does not hold it. `405 space.unsupported` on the tech
+  space.
+- **Links and search.** In an `any://` record link, a search hit and a
+  link source, `recordId` is the plain record id next to its
+  `objectId`.
+
+#### Declared indexes
+
+A `records` dataset declares secondary indexes: in the draft's
+`indexes`, or later — also on a dataset that holds records:
+
+```
+POST   /v1/spaces/:spaceId/types/:typeId/datasets/:defId/indexes            { key, fields, sparse? }  → 201 { indexDefId }
+DELETE /v1/spaces/:spaceId/types/:typeId/datasets/:defId/indexes/:indexId   → 204
+```
+
+```json
+{ "key": "by_start", "fields": ["start", "_objectId"] }
+```
+
+- `key` — the index's slug, unique within the dataset.
+- `fields` — one to four paths in order; a `-` prefix keeps a path
+  descending. Each names a declared field of kind `string`, `number`,
+  `boolean` or `datetime`, or `_ver.id` (creation order within one
+  object); a shared dataset also takes `_objectId`. A filter or sort on
+  a leading run of the fields is a range read (`09-query.md` § Indexes
+  & cost).
+- `sparse` — leaves a record out of the index unless it carries every
+  indexed field.
+- At most eight indexes per dataset. No unique index.
+- Every part is pinned: replace an index by removing it and adding
+  another.
+- A malformed or unsatisfiable draft — unknown field, a field of
+  another kind, a taken key, a ninth index — is
+  `400 dataset.decl_invalid`; a module dataset is
+  `409 dataset.module_owned`; an unknown `defId` or `indexId` is
+  `404 sdk.not_found`.
+
+Definitions sync, so every device holds the same set, and each device
+builds its own indexes:
+
+- **A shared dataset** is indexed once per space, in the background,
+  when the definition reaches the device. The build reads the whole
+  collection, and **every write on the server waits until it ends**.
+  It shows in the process view as `dataset.index.<spaceId>`
+  (`22-processes.md`). Queries scan until it ends.
+- **A per-object dataset** indexes each object's records the next time
+  that object's dataset is read or written.
+
+`GET …/types/:typeId/datasets` lists every definition, an `invalid`
+one included. Two devices editing one dataset at the same time can
+leave an index that names a field the other removed, or a ninth index:
+such a definition is built nowhere, carries `invalidReason`, and stays
+listed until removed. `GET …/datasets` (discovery) lists the valid
+ones.
 
 #### Upsert records
 
@@ -2994,7 +3116,8 @@ write-once field), `upsert.not_author` (author-mutable field on another
 author's record), `upsert.record_deleted` (stored tombstone — ids never
 reuse), `upsert.rejected` (creation screening: missing required field,
 id pattern/length violation, undeclared field on a non-dynamic dataset,
-write to a stamped field — the specific cause in `reason`). Whole-call
+write to a stamped field, on a shared dataset the id of another
+object's record — the specific cause in `reason`). Whole-call
 errors: `400 request.missing_field` (no `objectId`, `dataset` or
 `records`), `400 upsert.requires_user_ids` (dataset not declared
 `idRule: user`), `400 dataset.unknown` (no such records storage

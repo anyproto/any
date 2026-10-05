@@ -85,6 +85,8 @@ type schemaDataset struct {
 	// link fields and no search mapping is streamed for its edges only.
 	searchable bool
 	linkFields map[string]string
+	// shared: records are read under `<objectId>/<recordId>`.
+	shared bool
 }
 
 // NewSchemaChunker constructs the chunker. staticDatasets are the
@@ -156,7 +158,7 @@ func parseSchemaDatasets(list []space.DatasetSchema, skip map[string]bool) (sear
 				linkFields[field] = mode
 			}
 		}
-		sd := schemaDataset{name: ds.Name, typeId: ds.Owners[0], linkFields: linkFields}
+		sd := schemaDataset{name: ds.Name, typeId: ds.Owners[0], linkFields: linkFields, shared: ds.Shared}
 		textFields, ok := parseSearchTextFields(doc.Search.Text)
 		scope := doc.Search.Scope
 		if scope == "" {
@@ -314,11 +316,17 @@ func (c *SchemaChunker) ChunksSince(ctx context.Context, sp space.Space, objectI
 			continue // evicted by the worker via EvictDatasets
 		}
 		err := RecordsSince(ctx, sp.Query(objectId, ds.name), since, func(rec *anyenc.Value, seq uint64) error {
+			recordId := string(rec.GetStringBytes("id"))
+			if ds.shared {
+				// An entry names its record inside the object, as an
+				// any:// record link does.
+				recordId = space.PlainRecordId(objectId, recordId)
+			}
 			e := IndexEntry{
 				Scope:    ds.scope,
 				ObjectId: objectId,
 				Dataset:  ds.name,
-				RecordId: string(rec.GetStringBytes("id")),
+				RecordId: recordId,
 				ApplySeq: seq,
 			}
 			if !IsDeleted(rec) {

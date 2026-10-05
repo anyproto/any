@@ -42,7 +42,7 @@ Rules that hold for every stream:
 
 ## Windowed query/subscribe
 
-Endpoints: `POST /v1/spaces/:id/objects/query/subscribe` (cross-object), `POST /v1/spaces/:id/query/subscribe` (per-object dataset), `POST /v1/spaces/query/subscribe` (the account's space list), `POST /v1/spaces/:id/objects/:objectId/files/query/subscribe` (one object's payload rows), `POST /v1/devices/query/subscribe`.
+Endpoints: `POST /v1/spaces/:id/objects/query/subscribe` (cross-object), `POST /v1/spaces/:id/query/subscribe` (per-object dataset), `POST /v1/spaces/:id/datasets/query/subscribe` (a shared dataset across its objects), `POST /v1/spaces/query/subscribe` (the account's space list), `POST /v1/spaces/:id/objects/:objectId/files/query/subscribe` (one object's payload rows), `POST /v1/devices/query/subscribe`.
 
 | Frame | Payload | Notes |
 |---|---|---|
@@ -57,6 +57,14 @@ Endpoints: `POST /v1/spaces/:id/objects/query/subscribe` (cross-object), `POST /
 curl -N -X POST http://127.0.0.1:7001/v1/spaces/$SP/query/subscribe \
   -d '{"objectId":"'$CHAT'","dataset":"chat_messages","sort":["-_ver.id"],"limit":50}'
 # any query-subscribe $SP $CHAT --dataset chat_messages --sort=-_ver.id --limit 50
+```
+
+On the shared-dataset stream, record ids are `<objectId>/<recordId>`, and a deleted object's records leave as `removed` entries in batches with an empty `versionId`. Give that stream a `filter`, or a `sort` with a `limit`: an unbounded one holds every record of the dataset ([Shared datasets](../database/runtime-datasets.html#shared-datasets)). `$HOURS` is the dataset's storage collection, `<typeId>_<key>`:
+
+```bash
+curl -N -X POST http://127.0.0.1:7001/v1/spaces/$SP/datasets/query/subscribe \
+  -d '{"dataset":"'$HOURS'","sort":["-start"],"limit":48}'
+# any query-subscribe $SP --all-objects --dataset $HOURS --sort -start --limit 48
 ```
 
 Contract and client recipe: [Subscribe](../realtime/subscribe.html).
