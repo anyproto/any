@@ -1560,7 +1560,11 @@ markdown write, and nothing is written.
 the object's editor collection moves it: a text or style change, a
 field the markdown does not render, a nested block, a block delete.
 Reads never move it. It is opaque and valid only against the server
-that issued it; a rebuild of that server's store changes it.
+that issued it, and only within one run of it: a restart, a crash
+included, can renumber the sequence a version is built from, so a
+version from before the restart may match a different state. When
+`startedAt` in `GET /v1/health` changes, re-read the document with
+`GET` before the next save.
 
 `PUT` diffs `content` against the blocks the server holds now, so a
 save built from an older read would revert whatever changed since.

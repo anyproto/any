@@ -59,6 +59,8 @@ Merge your edit into `details.content` and `PUT` again with `ifVersion` set to `
 
 A save is one change, written only if the document is unchanged since the read it was computed from; the check and the write are one step under the object's write lock. Any write landing in between — another save, a `…/blocks` call, a change from another device — gets the save a `409` with nothing written, so two saves carrying the same `ifVersion` never both land.
 
+A version holds within one run of the server: after a restart — a crash included — a version from before it may match a different state. When `startedAt` in `GET /v1/health` changes, `GET` the document again before the next save.
+
 `version` moves on every write to the document's block records — text, style, a field the markdown does not render, a nested block, a delete — and never on a read. It is opaque and valid only against the server that issued it.
 
 ## Targeted edits — `PATCH`
