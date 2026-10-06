@@ -26,7 +26,7 @@ Every dataset write — `/modify`, `/delete-records`, and the chat and editor ha
   "recordIds": ["<id>"], "rejections": [] }
 ```
 
-`recordIds` mirrors the input order (`recordIds[0]` is the server-derived id on a create); `rejections` appears only when a handler dropped an op. Writes never return the record body — read it back through `/query` or live through `/query/subscribe` (see [Reading data](../database/reading-data.html)).
+`recordIds` mirrors the input order (`recordIds[0]` is the server-derived id on a create; on a shared dataset each is `<objectId>/<recordId>`); `rejections` appears only when a handler dropped an op. Writes never return the record body — read it back through `/query` or live through `/query/subscribe` (see [Reading data](../database/reading-data.html)).
 
 ## Meta
 
@@ -83,7 +83,7 @@ curl -X POST http://127.0.0.1:7001/v1/auth -d '{}'      # any auth login
 | POST | `/v1/spaces/join` | `{inviteToken, metadata?}` | 201 \| 202 `SpaceInfo` | 202 while the request awaits approval (status `joining`); guest tokens auto-detected (201 once loaded, 202 while loading); `400 invite.invalid`; `410 invite.revoked` once the owner revoked or replaced a request-to-join invite; `409 space.deleted` on a space this account deleted; `409 space.already_member` for a guest token of a space already tracked |
 | GET | `/v1/spaces/derived` | — | `{spaces: [{name, spaceId, created, status?}]}` | resolves, never creates |
 | POST | `/v1/spaces/derived/:name` | — | 201 `SpaceInfo` | idempotent; `404 space.derived_unknown`, `409 space.deleted` |
-| GET | `/v1/spaces/:spaceId/datasets` | — | `{datasets: [{name, schema, owners?, module, shared?}]}` | JSON Schema with `x-scope` per field; `owners` = the types whose parts declare the storage collection |
+| GET | `/v1/spaces/:spaceId/datasets` | — | `{datasets: [{name, schema, owners?, module, shared?, indexes?}]}` | JSON Schema with `x-scope` per field; `owners` = the types whose parts declare the storage collection; `shared: true` marks a shared dataset; `indexes` lists its valid declared indexes, `[{key, fields, sparse?}]` |
 | GET | `/v1/datasets` | — | `{datasets: [{name, schema}]}` | tech-space system datasets |
 | POST | `/v1/spaces/:spaceId/search` | `{query, scopes?, limit?, mode?, require?, exclude?, maxData?, passages?, filter?}` | `{hits, mode, vectorStatus, truncated?}` | local index, not an SDK method; `limit` counts records (default 10), `passages` ≤ 10; `filter` is an objects-query filter on the host object's row, `truncated` marks a short filtered page that may not be exhaustive; `400 filter.invalid`, `400 filter.unknown_operator`, `409 index.disabled`, `400 index.no_embedder`, `503 index.embedder_unavailable`, `400 search.bad_mode`, `400 search.bad_scope` |
 
@@ -119,7 +119,7 @@ Pending rows are discovered through `GET /v1/spaces?status=one_to_one_pending` /
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/bundles \
-  -d '{"id":"notes/v1","name":"Notes","xKey":"notes","hidden":true,"parts":[{"key":"body","datasets":[{"module":"editor","shared":true}]}]}'
+  -d '{"id":"notes/v1","name":"Notes","xKey":"notes","hidden":true,"parts":[{"key":"body","datasets":[{"module":"editor"}]}]}'
 ```
 
 Full semantics in [Bundles](../collaboration/bundles.html).
@@ -187,9 +187,14 @@ Reads: `POST /v1/spaces/:spaceId/query` with `{"objectId", "dataset": "editor_bl
 | POST | `/v1/spaces/:spaceId/query` | snapshot body + `objectId`, `dataset` | `{records, total?, hasNext?}` | per-object dataset; `404 object.not_found` |
 | POST | `/v1/spaces/:spaceId/query/subscribe` | same + `mailboxCapacity?`, `driftBudgetPercent?` | SSE | frames in [Events](events.html) |
 | POST | `/v1/spaces/:spaceId/aggregate` | `{objectId, dataset, pipeline, …}` | `{records}` \| `{plan}` | snapshot-only |
-| POST | `/v1/spaces/:spaceId/modify` | `{objectId, dataset, records: [{id, upsert?, ops}], traceIds?, scope?}` | write result | `scope: "local"` for device-local fields only; a write onto a tombstoned record comes back as a `rejections` entry; `400 dataset.unknown`, `400 dataset.not_declared` |
+| POST | `/v1/spaces/:spaceId/datasets/query` | snapshot body + `dataset` | `{records, total?, hasNext?}` | a shared dataset across its objects; each record's `id` is `<objectId>/<recordId>`, `_objectId` names its object; `400 dataset.not_shared`, `405 space.unsupported` on the tech space |
+| POST | `/v1/spaces/:spaceId/datasets/query/subscribe` | same + `mailboxCapacity?`, `driftBudgetPercent?` | SSE | a deleted object's records leave as `removed` in batches with an empty `versionId` |
+| POST | `/v1/spaces/:spaceId/datasets/aggregate` | `{dataset, pipeline, …}` | `{records}` \| `{plan}` | snapshot-only; `400 dataset.not_shared` |
+| POST | `/v1/spaces/:spaceId/modify` | `{objectId, dataset, records: [{id, upsert?, ops}], traceIds?, scope?}` | write result | `scope: "local"` for device-local fields only; a write onto a tombstoned record comes back as a `rejections` entry; `400 dataset.unknown`, `400 dataset.not_declared`, `400 record.wrong_object` |
 | POST | `/v1/spaces/:spaceId/upsert` | `{objectId, dataset, records: [{id, fields}], pageSize?, traceIds?}` | `{pages, created, updated, skipped, rejections}` | idempotent; `400 upsert.requires_user_ids`, `400 dataset.unknown`, `400 dataset.not_declared` |
-| POST | `/v1/spaces/:spaceId/delete-records` | `{objectId, dataset, recordIds}` | write result | |
+| POST | `/v1/spaces/:spaceId/delete-records` | `{objectId, dataset, recordIds}` | write result | `400 record.wrong_object` |
+
+On a [shared dataset](../database/runtime-datasets.html#shared-datasets) a write's record id is the plain record id, or the `<objectId>/<recordId>` of a record of the request's own `objectId`; another object's record is `400 record.wrong_object` on `modify` and `delete-records`, and a per-record rejection on `upsert`.
 
 Snapshot body (closed field set — unknown keys `400 request.unknown_field`):
 
@@ -206,6 +211,8 @@ Snapshot body (closed field set — unknown keys `400 request.unknown_field`):
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/modify -d '{
   "objectId":"'$OBJ'","dataset":"notes",
   "records":[{"id":"","upsert":true,"ops":[{"type":"$set","path":"","value":{"title":"x"}}]}]}'
+curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/datasets/query \
+  -d '{"dataset":"'$T'_hours","sort":["-start"],"limit":48}'   # any query-subscribe $SP --all-objects --dataset ${T}_hours --sort -start --limit 48
 ```
 
 ## Version history
@@ -215,7 +222,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/modify -d '{
 | GET | `…/objects/:objectId/history` | `?dataset&recordId&traceId&author&limit&cursor&coalesce&coalesceWindow` | `{changes, cursor}` | newest-first DAG order; `limit` default 50, cap 200 |
 | GET | `…/objects/:objectId/history/diff` | `?version&base?&dataset?&recordIds?` | `{base, version, datasets}` | no `base` = effect diff against parents |
 | GET | `…/objects/:objectId/history/:version` | `?dataset?` | records grouped by dataset | `413 history.view_too_large` |
-| GET | `…/objects/:objectId/history/:version/datasets/:dataset/records/:recordId` | — | `{exists, deleted?, record?}` | record fast path |
+| GET | `…/objects/:objectId/history/:version/datasets/:dataset/records/:recordId` | — | `{exists, deleted?, record?}` | record fast path; on a shared dataset `:recordId` is the plain record id |
 
 A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history.truncated` (reserved). `chat_messages` opts out of history. See [Version history](../database/version-history.html).
 
@@ -233,16 +240,18 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 | DELETE | `…/types/:typeId/properties/:propId` | — | 204 | tombstone; values not cleaned up |
 | PATCH | `…/types/:typeId` | `{name?, description?, iconCid?, layout?, hidden?, meta?}` | 204 | rendering slice, the hidden flag and the per-key meta bag (`null` unsets a key); `400 type.registered`, `404 type.not_found` |
 | GET | `…/types/:typeId/parts` | — | `{parts: [{id, key, name?, icon?, pos?, hidden?, ui?, uses?, datasets: [DatasetDef]}]}` | |
-| POST | `…/types/:typeId/parts` | `{key, name?, icon?, pos?, hidden?, ui?, uses?, datasets?: [dataset draft]}` | 201 `{partId}` | one change; `409 dataset.key_conflict`, `400 dataset.module_unknown`, `400 dataset.module_reserved`, `400 dataset.shared_conflict`, `409 dataset.module_owned` |
+| POST | `…/types/:typeId/parts` | `{key, name?, icon?, pos?, hidden?, ui?, uses?, datasets?: [dataset draft]}` | 201 `{partId}` | one change; `409 dataset.key_conflict`, `400 dataset.decl_invalid`, `400 dataset.module_unknown`, `400 dataset.module_reserved`, `409 dataset.module_owned` |
 | PATCH | `…/types/:typeId/parts/:partId` | `{set, unset}` | 204 | `name`, `icon`, `pos`, `hidden`, `ui`, `uses`; `400 dataset.immutable` |
 | DELETE | `…/types/:typeId/parts/:partId` | — | 204 | removes the part and its datasets |
-| POST | `…/types/:typeId/parts/:partId/datasets` | `{key?, module?, shared?, displayName?, idRule?, deleteBy?, search?, fields, …}` | 201 `{datasetDefId, collection}` | the storage collection is `<typeId>_<key>` (or the module's canonical one when shared); `409 dataset.key_conflict`, `400 dataset.decl_invalid` |
-| GET | `…/types/:typeId/datasets` | — | `{datasets: [DatasetDef]}` | flat compiled view; each carries its storage `collection`, `module`, `shared`, `partId` |
+| POST | `…/types/:typeId/parts/:partId/datasets` | `{key?, module?, displayName?, idRule?, deleteBy?, search?, shared?, fields, indexes?, …}` | 201 `{datasetDefId, collection}` | the storage collection is `<typeId>_<key>`, or the module's canonical one when a module dataset names no key or that canonical name; a records dataset without a key is `400 request.missing_field`; `shared` and `indexes` are records-only; `409 dataset.key_conflict`, `400 dataset.decl_invalid` |
+| GET | `…/types/:typeId/datasets` | — | `{datasets: [DatasetDef]}` | flat compiled view; each carries its storage `collection`, `module`, `partId`, and `shared?`, `indexes?: [{id, key, fields, sparse?, invalid?, invalidReason?}]` |
 | PATCH | `…/types/:typeId/datasets/:defId` | `{set, unset}` | 204 | display leaves only; `400 dataset.immutable` |
 | DELETE | `…/types/:typeId/datasets/:defId` | — | 204 | |
 | POST | `…/types/:typeId/datasets/:defId/fields` | field def | 201 `{fieldDefId}` | never `required` |
 | PATCH | `…/types/:typeId/datasets/:defId/fields/:fieldId` | `{set, unset}` | 204 | `name`, `description`, `xFormat.*`; `400 dataset.immutable` |
-| DELETE | `…/types/:typeId/datasets/:defId/fields/:fieldId` | — | 204 | |
+| DELETE | `…/types/:typeId/datasets/:defId/fields/:fieldId` | — | 204 | a field a declared index names is `400 dataset.decl_invalid` |
+| POST | `…/types/:typeId/datasets/:defId/indexes` | `{key, fields, sparse?}` | 201 `{indexDefId}` | one to four fields; at most eight indexes per dataset; pinned; `400 dataset.decl_invalid`, `409 dataset.module_owned`, `404 sdk.not_found` |
+| DELETE | `…/types/:typeId/datasets/:defId/indexes/:indexId` | — | 204 | `404 sdk.not_found` |
 | GET | `/v1/spaces/:spaceId/collections` | `includeHidden?` | `{collections}` | the meta row `collection` first, then the registered hidden `miniapp` / `bin`, then user collections |
 | POST | `/v1/spaces/:spaceId/collections` | `{name?, description?, iconCid?, xKey, hidden?, meta?}` | 201 `{collectionId}` | the type body minus `layout`; `400 type.xkey_required`, `409 type.xkey_conflict` |
 | GET | `/v1/spaces/:spaceId/collections/:collectionId` | — | `CollectionInfo` | `404 collection.not_found`; `400 collection.not_a_collection` for a user type id |

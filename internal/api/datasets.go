@@ -32,16 +32,21 @@ type DatasetSchema struct {
 	Name   string          `json:"name"`
 	Schema json.RawMessage `json:"schema"`
 	// Owners are the types that declare the dataset: one for a
-	// registered-type or namespaced dataset, every type sharing the
-	// module for a canonical collection (empty while nothing declares
+	// registered-type or namespaced dataset, every type declaring it
+	// for a module's canonical collection (empty while nothing declares
 	// it), none for space-level built-ins. Records exist only on objects
 	// carrying one of them; consumers gate indexing/eviction on it.
 	Owners []string `json:"owners,omitempty"`
 	// Module is the serving module ("records", "editor", "chat"; empty
-	// for built-ins and registered-type datasets); Shared marks a
-	// module's canonical collection.
+	// for built-ins and registered-type datasets).
 	Module string `json:"module,omitempty"`
-	Shared bool   `json:"shared,omitempty"`
+	// Shared marks a records dataset whose records from every object
+	// live in one collection per space: readable across objects through
+	// POST …/datasets/query, each record's `id` is
+	// `<objectId>/<recordId>`.
+	Shared bool `json:"shared,omitempty"`
+	// Indexes are the dataset's valid declared indexes.
+	Indexes []DatasetIndexDraft `json:"indexes,omitempty"`
 }
 
 // DatasetsResponse is the body of GET /v1/spaces/:spaceId/datasets and

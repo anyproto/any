@@ -45,6 +45,13 @@ type spaceWorker struct {
 	cancel    context.CancelFunc
 	cancelSub func()
 
+	// builds are the open reports of the SDK's index builds in this
+	// space, by dataset (onIndexBuild).
+	cancelBuilds func()
+	buildMu      sync.Mutex
+	builds       map[string]*procReporter
+	buildsClosed bool
+
 	// linksStamped: the cursor row already carries the link sink's
 	// layout stamp (written once per worker after the first landed
 	// page, or by the backfill).
@@ -68,6 +75,7 @@ func (w *spaceWorker) start() {
 		default:
 		}
 	})
+	w.cancelBuilds = w.sp.Types().SubscribeIndexBuilds(w.onIndexBuild)
 	// Before the loops: the alignment can drop this space's index, and
 	// the embed loop caches the space collection handle — a drop racing
 	// it would put a dropped handle back in the cache.
@@ -157,8 +165,56 @@ func (w *spaceWorker) stop() {
 	if w.cancelSub != nil {
 		w.cancelSub()
 	}
+	if w.cancelBuilds != nil {
+		w.cancelBuilds()
+	}
 	if w.cancel != nil {
 		w.cancel()
+	}
+	w.closeBuildReports()
+}
+
+// closeBuildReports ends the report of every build still running when
+// the worker stops — its terminal event no longer reaches this worker
+// — and refuses later ones.
+func (w *spaceWorker) closeBuildReports() {
+	w.buildMu.Lock()
+	open := w.builds
+	w.builds = nil
+	w.buildsClosed = true
+	w.buildMu.Unlock()
+	ctx := w.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for _, rep := range open {
+		rep.finish(ctx, context.Canceled)
+	}
+}
+
+// onIndexBuild reports the SDK's build of a shared dataset's declared
+// indexes on the process view: announced when the build starts, one
+// terminal when it ends. Runs on the SDK's build worker.
+func (w *spaceWorker) onIndexBuild(ev space.IndexBuild) {
+	w.buildMu.Lock()
+	defer w.buildMu.Unlock()
+	if w.buildsClosed {
+		return
+	}
+	switch ev.Phase {
+	case space.IndexBuildStarted:
+		rep := newProcReporter(w.ix.opts.OnProcess,
+			ProcessUpdate{Kind: ProcessKindDatasetIndex, SpaceId: w.sp.Id(), Name: ev.Dataset}, -1)
+		if w.builds == nil {
+			w.builds = make(map[string]*procReporter)
+		}
+		w.builds[ev.Dataset] = rep
+		rep.begin()
+	case space.IndexBuildDone, space.IndexBuildFailed:
+		if rep := w.builds[ev.Dataset]; rep != nil {
+			delete(w.builds, ev.Dataset)
+			rep.finish(w.ctx, ev.Err)
+		}
 	}
 }
 

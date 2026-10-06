@@ -99,10 +99,10 @@ import (
 )
 
 // Module is the module slug a type names in a part's dataset
-// declaration (`{"module": "chat", "shared": true}`). Chat is
-// shared-only: an object carries at most one chat collection — the
-// canonical Dataset — which is what keeps a single read frontier and a
-// single push group per object.
+// declaration (`{"module": "chat"}`). Chat is canonical-only: an
+// object carries at most one chat collection — the canonical Dataset —
+// which is what keeps a single read frontier and a single push group
+// per object.
 const Module = "chat"
 
 // Dataset is the per-object dataset that holds the message records.
@@ -212,9 +212,9 @@ const (
 
 // NewModule returns the handler.Module to add to config.Config.Modules
 // so the SDK serves the canonical chat_messages collection with the
-// message handler on every controller. SharedOnly: the one declaration
-// shape is `{"module": "chat", "shared": true}`; namespaced chat
-// instances are refused. Reserved: only the server's own catalog
+// message handler on every controller. CanonicalOnly: the one
+// declaration shape is `{"module": "chat"}`; namespaced chat instances
+// are refused. Reserved: only the server's own catalog
 // install (`system:general-chat/v1`, docs/16-chat.md) declares it —
 // a client part, dataset or bundle naming the module is refused, and
 // the install root is the type's only carrier.
@@ -227,7 +227,7 @@ func NewModule() handler.Module {
 	return handler.Module{
 		Name:           Module,
 		Canonical:      Dataset,
-		SharedOnly:     true,
+		CanonicalOnly:  true,
 		Reserved:       true,
 		DataVersion:    dataVersion,
 		HandlerVersion: handlerVersion,

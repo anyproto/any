@@ -147,6 +147,11 @@ components:
         fieldDefId:
           type: string
       type: object
+    api.AddDatasetIndexResponse:
+      properties:
+        indexDefId:
+          type: string
+      type: object
     api.AddDatasetResponse:
       properties:
         collection:
@@ -969,13 +974,21 @@ components:
           type: string
         idRule:
           type: string
+        indexes:
+          description: |-
+            Indexes are the declared indexes in creation order, invalid ones
+            included.
+          items:
+            $ref: '#/components/schemas/api.DatasetIndexDef'
+          type: array
+          uniqueItems: false
         invalid:
           description: |-
             Invalid marks a definition whose folded declaration fails
             validation (invalidReason says why) — a records fold missing a
-            creator stamp behind an author rule, an unknown module, a shared
-            rule violation. Invalid definitions never register or accept data
-            but stay listed so they can be repaired or removed.
+            creator stamp behind an author rule, an unknown module, a
+            collection rule violation. Invalid definitions never register or
+            accept data but stay listed so they can be repaired or removed.
           type: boolean
         invalidReason:
           type: string
@@ -983,8 +996,8 @@ components:
           description: |-
             Key is the slug inside the type; collection is the name reads and
             writes address (`dataset` on /query, /modify, /upsert …) — the
-            module's canonical collection when shared, `<typeId>_<key>`
-            otherwise. Server-computed, never client-set.
+            module's canonical collection when the key names it,
+            `<typeId>_<key>` otherwise. Server-computed, never client-set.
           type: string
         module:
           type: string
@@ -994,6 +1007,9 @@ components:
         search:
           $ref: '#/components/schemas/api.DatasetSearchFields'
         shared:
+          description: |-
+            Shared marks a records dataset whose records from every object
+            live in one collection per space (POST …/datasets/query).
           type: boolean
         skipHistory:
           type: boolean
@@ -1031,12 +1047,23 @@ components:
             (caller-supplied ids, constrained by idPattern/idMaxLen; the id
             doubles as the upsert idempotency key).
           type: string
+        indexes:
+          description: Indexes are the initial declared indexes (records datasets
+            only).
+          items:
+            $ref: '#/components/schemas/api.DatasetIndexDraft'
+          type: array
+          uniqueItems: false
         key:
           description: |-
             Key is the dataset's slug inside its type ([a-z][a-z0-9_]*, ≤ 64)
-            — pinned. A namespaced dataset lives in the collection
-            `<typeId>_<key>`; a shared dataset's key is its module's canonical
-            collection name and may be omitted.
+            — pinned — and decides the collection. The canonical collection
+            name of the dataset's own module (editor_blocks for editor) is
+            that collection, the one every type declaring it addresses, so
+            retyping an object keeps its body. Any other key is the
+            collection `<typeId>_<key>`, this type's own. Omitted on a
+            module dataset, it is the canonical name; a records dataset
+            requires one.
           type: string
         module:
           description: |-
@@ -1049,10 +1076,10 @@ components:
           $ref: '#/components/schemas/api.DatasetSearchFields'
         shared:
           description: |-
-            Shared makes the type participate in the module's canonical
-            collection (editor_blocks) instead of a namespaced one, so two
-            types sharing the editor give an object carrying both a single
-            body. Editor: either; records: never.
+            Shared keeps the records of every object of the type in one
+            storage collection per space, so POST …/datasets/query reads them
+            across objects. Records datasets only; pinned. Each record's `id`
+            is `<objectId>/<recordId>` and `_objectId` names its object.
           type: boolean
         skipHistory:
           description: SkipHistory keeps the dataset out of the version-history index.
@@ -1158,6 +1185,57 @@ components:
             $ref: '#/components/schemas/api.DatasetFieldShape'
           type: object
       type: object
+    api.DatasetIndexDef:
+      properties:
+        fields:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        id:
+          description: |-
+            Id is the index definition record's id — what DELETE
+            …/indexes/:indexId takes.
+          type: string
+        invalid:
+          description: |-
+            Invalid marks an index no collection builds (invalidReason says
+            why): a field it names is not a declared scalar field any more,
+            or the dataset already holds its limit. It stays listed so it can
+            be removed.
+          type: boolean
+        invalidReason:
+          type: string
+        key:
+          type: string
+        sparse:
+          type: boolean
+      type: object
+    api.DatasetIndexDraft:
+      properties:
+        fields:
+          description: |-
+            Fields are the indexed paths in order, one to four; a "-" prefix
+            keeps that path descending. Each names a declared field of kind
+            string, number, boolean or datetime, or `_ver.id` (creation order
+            within one object); a shared dataset also takes `_objectId`. An
+            indexed field's key is letters, digits and `_`, starts with a
+            letter and is at most 48 bytes.
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        key:
+          description: |-
+            Key is the index's slug ([a-z][a-z0-9_]*, ≤ 64), unique within
+            the dataset.
+          type: string
+        sparse:
+          description: |-
+            Sparse leaves a record out of the index unless it carries every
+            indexed field.
+          type: boolean
+      type: object
     api.DatasetPatchRequest:
       properties:
         set:
@@ -1170,19 +1248,24 @@ components:
       type: object
     api.DatasetSchema:
       properties:
+        indexes:
+          description: Indexes are the dataset's valid declared indexes.
+          items:
+            $ref: '#/components/schemas/api.DatasetIndexDraft'
+          type: array
+          uniqueItems: false
         module:
           description: |-
             Module is the serving module ("records", "editor", "chat"; empty
-            for built-ins and registered-type datasets); Shared marks a
-            module's canonical collection.
+            for built-ins and registered-type datasets).
           type: string
         name:
           type: string
         owners:
           description: |-
             Owners are the types that declare the dataset: one for a
-            registered-type or namespaced dataset, every type sharing the
-            module for a canonical collection (empty while nothing declares
+            registered-type or namespaced dataset, every type declaring it
+            for a module's canonical collection (empty while nothing declares
             it), none for space-level built-ins. Records exist only on objects
             carrying one of them; consumers gate indexing/eviction on it.
           items:
@@ -1193,6 +1276,11 @@ components:
           additionalProperties: {}
           type: object
         shared:
+          description: |-
+            Shared marks a records dataset whose records from every object
+            live in one collection per space: readable across objects through
+            POST …/datasets/query, each record's `id` is
+            `<objectId>/<recordId>`.
           type: boolean
       type: object
     api.DatasetSearchFields:
@@ -2877,6 +2965,85 @@ components:
           type: string
         spaceType:
           type: string
+      type: object
+    api.SpaceDatasetAggregateRequest:
+      properties:
+        accumArrayLimit:
+          type: integer
+        dataset:
+          type: string
+        explain:
+          type: boolean
+        groupLimit:
+          type: integer
+        memoryLimitBytes:
+          type: integer
+        pipeline:
+          items:
+            additionalProperties: {}
+            type: object
+          type: array
+          uniqueItems: false
+      type: object
+    api.SpaceDatasetQueryRequest:
+      properties:
+        dataset:
+          description: |-
+            Dataset names the shared dataset's storage collection
+            (`<typeId>_<key>`, a declaration's `collection`). Required.
+          type: string
+        driftBudgetPercent:
+          description: |-
+            DriftBudgetPercent (subscribe only) bounds window drift before
+            the stream closes with reason "drifted". Default 30.
+          type: integer
+        filter:
+          additionalProperties: {}
+          description: |-
+            Filter is a mongo-style condition over record fields; omitted or
+            empty matches every record. Operator grammar: docs/09-query.md
+            (a bad operator answers 400 filter.unknown_operator listing the
+            full set).
+          type: object
+        includeTotal:
+          description: |-
+            IncludeTotal populates `total` (every match, regardless of
+            limit/offset) + `hasNext` in the snapshot reply.
+          type: boolean
+        limit:
+          description: Limit bounds the window; 0 or absent = unbounded.
+          type: integer
+        mailboxCapacity:
+          description: |-
+            MailboxCapacity (subscribe only) sizes the event mailbox before
+            the stream closes with reason "overflow". Default 256, min 16.
+          type: integer
+        offset:
+          description: Offset skips past the first N matches of the sorted result.
+          type: integer
+        projection:
+          additionalProperties:
+            type: integer
+          description: |-
+            Projection shapes the records that come back, mongo-style: a flat
+            object of dotted field paths to 1 (include) or -1 (exclude).
+            `{"any":1,"nav":1}` is include mode — nothing but those subtrees;
+            `{"_ver":-1}` is exclude mode — every user field but that one.
+            Omitted, records ship their full form. Three rules worth knowing:
+            `id` always rides along and cannot be excluded, `_ver` is narrowed
+            to the projection automatically (never name a `_ver` path), and
+            `_addSeq`/`_applySeq` drop unless named. Full grammar and the
+            divergences from mongo: docs/09-query.md § Projection.
+          type: object
+        sort:
+          description: |-
+            Sort lists field paths, "-" prefix for descending (e.g.
+            "-createdAt"). Required when limit > 0 on subscribe, so the
+            window is well-defined.
+          items:
+            type: string
+          type: array
+          uniqueItems: false
       type: object
     api.SpaceDebugResponse:
       properties:
@@ -6215,6 +6382,132 @@ paths:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Internal Server Error
       summary: List a space's dataset schemas
+      tags:
+      - data
+  /spaces/{spaceId}/datasets/aggregate:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.SpaceDatasetAggregateRequest'
+                description: Aggregation params (dataset required)
+                summary: body
+        description: Aggregation params (dataset required)
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.AggregateResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Aggregate over a shared dataset across objects
+      tags:
+      - data
+  /spaces/{spaceId}/datasets/query:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.SpaceDatasetQueryRequest'
+                description: Query params (dataset required)
+                summary: body
+        description: Query params (dataset required)
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.QueryResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Query a shared dataset across objects
+      tags:
+      - data
+  /spaces/{spaceId}/datasets/query/subscribe:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.SpaceDatasetQueryRequest'
+                description: Query params (dataset required)
+                summary: body
+        description: Query params (dataset required)
+        required: true
+      responses:
+        "200":
+          content:
+            text/event-stream:
+              schema:
+                type: string
+          description: OK
+        "400":
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "500":
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Subscribe to a windowed query over a shared dataset (SSE)
       tags:
       - data
   /spaces/{spaceId}/debug:
@@ -9728,6 +10021,123 @@ paths:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Internal Server Error
       summary: Patch a dataset field's display fields and descriptor
+      tags:
+      - types
+  /spaces/{spaceId}/types/{typeId}/datasets/{defId}/indexes:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        schema:
+          type: string
+      - description: Dataset definition ID
+        in: path
+        name: defId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.DatasetIndexDraft'
+                description: Index draft
+                summary: body
+        description: Index draft
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.AddDatasetIndexResponse'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Declare an index on a records dataset
+      tags:
+      - types
+  /spaces/{spaceId}/types/{typeId}/datasets/{defId}/indexes/{indexId}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        schema:
+          type: string
+      - description: Dataset definition ID
+        in: path
+        name: defId
+        required: true
+        schema:
+          type: string
+      - description: Index definition ID
+        in: path
+        name: indexId
+        required: true
+        schema:
+          type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Remove a declared index
       tags:
       - types
   /spaces/{spaceId}/types/{typeId}/parts:

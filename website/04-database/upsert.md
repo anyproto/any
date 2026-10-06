@@ -29,7 +29,7 @@ any upsert $SPACE $OBJ --dataset "${TYPE}_articles" --records @batch.json --page
 |---|---|
 | `objectId` | The object hosting the dataset — it must carry the dataset's owning type. |
 | `dataset` | The runtime dataset's storage collection, `<typeId>_<key>` — the `collection` its declaration returned. |
-| `records[]` | `{id, fields}` — `id` must match the dataset's `idPattern` / `idMaxLen`. |
+| `records[]` | `{id, fields}` — `id` must match the dataset's `idPattern` / `idMaxLen`. On a [shared dataset](runtime-datasets.html#shared-datasets) it is the plain record id, or the `<objectId>/<recordId>` of a record of this `objectId`; another object's record comes back as a rejection. |
 | `pageSize` | Records per CRDT change, default 500. |
 | `traceIds` | Optional trace ids stamped on every page's change. |
 

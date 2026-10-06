@@ -123,8 +123,10 @@ any catalog setup wiki $SP
 ```
 any query-subscribe <spaceId> <objectId> --dataset NAME [--filter J] [--sort K] [--limit N] [--offset N] [--total] [--projection P]
 any query-subscribe <spaceId> --properties [same flags]      # per-space objects storage collection
+any query-subscribe <spaceId> --all-objects --dataset NAME [same flags]   # a shared dataset across its objects
 any aggregate <spaceId> <objectId> --dataset NAME --pipeline '<json>'|@FILE|-
 any aggregate <spaceId> --properties --pipeline '<json>'|@FILE|-
+any aggregate <spaceId> --all-objects --dataset NAME --pipeline '<json>'|@FILE|-
               [--group-limit N] [--accum-limit N] [--memory-limit N] [--explain]
 any upsert <spaceId> <objectId> --dataset NAME --records '<json>'|@FILE|- [--page-size N] [--trace-id T]...
 any backlinks <spaceId> <objectId> [--record R --dataset D | --prop P] [--kind K]... [--limit N]
@@ -219,6 +221,8 @@ any type part dataset remove <spaceId> <typeId> <defId>
 any type part dataset field add    <spaceId> <typeId> <defId> --field '<json>'|@FILE|-
 any type part dataset field patch  <spaceId> <typeId> <defId> <fieldId> --set '<json>' [--unset PATH]...
 any type part dataset field remove <spaceId> <typeId> <defId> <fieldId>
+any type part dataset index add    <spaceId> <typeId> <defId> --index '<json>'|@FILE|-   # {"key","fields",["sparse"]}
+any type part dataset index remove <spaceId> <typeId> <defId> <indexId>
 ```
 
 ```bash

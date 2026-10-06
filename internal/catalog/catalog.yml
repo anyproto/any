@@ -77,13 +77,13 @@ usecases:
           properties:
             - { xKey: date, name: Date, kind: datetime, xFormat: { type: date } }
         parts:
-          - key: body                                  # the entry itself; shared with page
+          - key: body                                  # the entry itself; the body a page has
             ui: { type: document }
-            datasets: [ { module: editor, shared: true } ]
+            datasets: [ { module: editor } ]
 
   # ── Meetings: one OBJECT per meeting. The type carries what a meeting IS
   #    (when, who, how long); its three surfaces are the notes (the common
-  #    editor, shared with page), the transcript (one record per spoken turn)
+  #    editor body a page has), the transcript (one record per spoken turn)
   #    and the summary (a second editor of its own). An ingest agent creates
   #    the objects and writes all three; readers render them.
   - id: meetings
@@ -111,9 +111,9 @@ usecases:
             - { xKey: source,       name: Source,       kind: string,
                 description: "Provenance of the recording, e.g. gmeet:<id>" }
         parts:
-          - key: notes                           # the editable document; shared with page
+          - key: notes                           # the editable document; the body a page has
             ui: { type: document }
-            datasets: [ { module: editor, shared: true } ]
+            datasets: [ { module: editor } ]
           - key: summary                         # a second editor, its own collection
             ui: { type: document }
             datasets: [ { key: summary, module: editor } ]
@@ -238,7 +238,7 @@ usecases:
         type: { xKey: general_chat, layout: { type: chat } }
         parts:
           - key: chat
-            datasets: [ { module: chat, shared: true } ]
+            datasets: [ { module: chat } ]
 
   # ── Identities: one usecase, because Person.organization and
   #    Organisation.main_contact reference each other and the requires graph
@@ -260,9 +260,9 @@ usecases:
           xKey: profile
           layout: { type: profile }
         parts:
-          - key: body                                  # the Notes tab; shared with page
+          - key: body                                  # the Notes tab; the body a page has
             ui: { type: document }
-            datasets: [ { module: editor, shared: true } ]
+            datasets: [ { module: editor } ]
 
       - id: system:person/v2
         name: People
@@ -324,9 +324,9 @@ usecases:
             - { xKey: tags,         name: Tags,         kind: array,
                 xFormat: { type: choice, options: {}, config: { multiple: true } } }
         parts:
-          - key: body                                  # the Notes tab; shared with page
+          - key: body                                  # the Notes tab; the body a page has
             ui: { type: document }
-            datasets: [ { module: editor, shared: true } ]
+            datasets: [ { module: editor } ]
 
       - id: system:organization/v1
         name: Organisation
@@ -354,7 +354,7 @@ usecases:
         parts:
           - key: body
             ui: { type: document }
-            datasets: [ { module: editor, shared: true } ]
+            datasets: [ { module: editor } ]
 
   # ── The relationship facet: a collection a person or organisation you actively
   #    manage is filed under; the identity keeps its type and its profile layout.
@@ -589,7 +589,7 @@ usecases:
         parts:
           - key: body
             ui: { type: document }
-            datasets: [ { module: editor, shared: true } ]
+            datasets: [ { module: editor } ]
       - id: system:crm/v1
         name: CRM
         rootType: page

@@ -329,6 +329,7 @@ func newTypeDatasetCmd() *cobra.Command {
 		newTypeDatasetPatchCmd(),
 		newTypeDatasetRemoveCmd(),
 		newTypeDatasetFieldCmd(),
+		newTypeDatasetIndexCmd(),
 	)
 	return cmd
 }
@@ -369,9 +370,9 @@ search.text is a bare field key or a non-empty array of keys, e.g.
 joins the mapped fields into one body. A field's xFormat is the same
 descriptor a property carries (docs/27-descriptors.md).
 A module-served dataset names its module instead of fields:
-  {"module": "editor", "shared": true}          the shared editor body
+  {"module": "editor"}                          the editor body (editor_blocks)
   {"key": "summary", "module": "editor"}        a second, namespaced editor
-Behavioral parts (key, module, shared, idRule, deleteBy, field
+Behavioral parts (key, module, idRule, deleteBy, field
 kinds/flags) are pinned; display parts patch via 'type part dataset
 patch' and 'type part dataset field patch'. Declare required fields
 here — fields added later cannot be required. The reply carries the
@@ -403,8 +404,8 @@ func newTypeDatasetPatchCmd() *cobra.Command {
 		Use:   "patch <spaceId> <typeId> <defId>",
 		Short: "PATCH a dataset definition's display leaves",
 		Long: `Mutable paths: description, displayName, search.title,
-search.text, search.scope. Everything else (key, module, shared, id
-rule, delete gate) is pinned — remove and re-add. Values are strings; search.text also takes a non-empty array
+search.text, search.scope. Everything else (key, module, id rule,
+delete gate) is pinned — remove and re-add. Values are strings; search.text also takes a non-empty array
 of field keys.
 
 Examples:
@@ -448,6 +449,57 @@ func newTypeDatasetFieldCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newTypeDatasetFieldAddCmd(), newTypeDatasetFieldPatchCmd(), newTypeDatasetFieldRemoveCmd())
 	return cmd
+}
+
+func newTypeDatasetIndexCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "index",
+		Short: "add / remove declared indexes of a records dataset",
+	}
+	cmd.AddCommand(newTypeDatasetIndexAddCmd(), newTypeDatasetIndexRemoveCmd())
+	return cmd
+}
+
+func newTypeDatasetIndexAddCmd() *cobra.Command {
+	var index string
+	cmd := &cobra.Command{
+		Use:   "add <spaceId> <typeId> <defId>",
+		Short: "declare an index on a records dataset",
+		Long: `Declare one index (api.DatasetIndexDraft shape):
+  {"key": "by_start", "fields": ["start", "_objectId"]}
+  {"key": "top", "fields": ["-score"], "sparse": true}
+One to four fields, each a declared string, number, boolean or datetime
+field, or _ver.id; a shared dataset also takes _objectId. A "-" prefix
+keeps a field descending.`,
+		Args: cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var req api.DatasetIndexDraft
+			if err := readJSONBody(index, &req); err != nil {
+				return err
+			}
+			cl := newClient(flags.Timeout)
+			out, err := cl.TypeAddDatasetIndex(cmd.Context(), args[0], args[1], args[2], req)
+			if err != nil {
+				return err
+			}
+			return printJSON(out)
+		},
+	}
+	cmd.Flags().StringVar(&index, "index", "", "index draft (inline JSON, @FILE, or - for stdin)")
+	return cmd
+}
+
+func newTypeDatasetIndexRemoveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "remove <spaceId> <typeId> <defId> <indexId>",
+		Aliases: []string{"delete", "rm"},
+		Short:   "remove a declared index",
+		Args:    cobra.ExactArgs(4),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cl := newClient(flags.Timeout)
+			return cl.TypeRemoveDatasetIndex(cmd.Context(), args[0], args[1], args[2], args[3])
+		},
+	}
 }
 
 func newTypeDatasetFieldPatchCmd() *cobra.Command {

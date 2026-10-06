@@ -36,16 +36,16 @@ func init() {
 		},
 	})
 	extraCatalog.modules = append(extraCatalog.modules, handler.Module{
-		Name: "reserved_notes", Canonical: "reserved_notes_shared",
-		SharedOnly: true, Reserved: true, DataVersion: "reserved_notes-v1",
+		Name: "reserved_notes", Canonical: "reserved_notes_body",
+		CanonicalOnly: true, Reserved: true, DataVersion: "reserved_notes-v1",
 		New: func(handler.ModuleInstance) handler.Dataset {
 			return handler.Dataset{Schema: handler.Schema{Dynamic: true}}
 		},
 	}, handler.Module{
-		// Shared-only without Reserved: pins the shared-only rule on
-		// its own (chat is both).
-		Name: "shared_notes", Canonical: "shared_notes_shared",
-		SharedOnly: true, DataVersion: "shared_notes-v1",
+		// Canonical-only without Reserved: pins that rule on its own
+		// (chat is both).
+		Name: "solo_notes", Canonical: "solo_notes_body",
+		CanonicalOnly: true, DataVersion: "solo_notes-v1",
 		New: func(handler.ModuleInstance) handler.Dataset {
 			return handler.Dataset{Schema: handler.Schema{Dynamic: true}}
 		},
@@ -111,7 +111,7 @@ func TestServer_RegisteredTypeParts(t *testing.T) {
 	if !info.Hidden || info.XKey != "testdoc" {
 		t.Errorf("get = %+v", info)
 	}
-	rec := doJSON(t, e, http.MethodPost, base+"/types/testdoc/parts", `{"key":"x","datasets":[{"module":"editor","shared":true}]}`)
+	rec := doJSON(t, e, http.MethodPost, base+"/types/testdoc/parts", `{"key":"x","datasets":[{"module":"editor"}]}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("add part on a registered type: %d %s", rec.Code, rec.Body.String())
 	}
@@ -145,22 +145,22 @@ func TestServer_ReservedModule(t *testing.T) {
 	spaceId, typeId, _ := setupSubscribeFixture(t, e)
 	base := "/v1/spaces/" + spaceId
 	rec := doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/parts",
-		`{"key":"secret","datasets":[{"module":"reserved_notes","shared":true}]}`)
+		`{"key":"secret","datasets":[{"module":"reserved_notes"}]}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("part naming a reserved module: %d %s", rec.Code, rec.Body.String())
 	}
 	assertErrorCode(t, rec, api.ErrDatasetModuleReserved)
 
-	partId := mustAddPart(t, e, spaceId, typeId, `{"key":"body","datasets":[{"module":"editor","shared":true}]}`)
+	partId := mustAddPart(t, e, spaceId, typeId, `{"key":"body","datasets":[{"module":"editor"}]}`)
 	rec = doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/parts/"+partId+"/datasets",
-		`{"module":"reserved_notes","shared":true}`)
+		`{"module":"reserved_notes"}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("dataset naming a reserved module: %d %s", rec.Code, rec.Body.String())
 	}
 	assertErrorCode(t, rec, api.ErrDatasetModuleReserved)
 
 	rec = doJSON(t, e, http.MethodPost, base+"/bundles",
-		`{"id":"secret/v1","derived":true,"parts":[{"key":"secret","datasets":[{"module":"reserved_notes","shared":true}]}]}`)
+		`{"id":"secret/v1","derived":true,"parts":[{"key":"secret","datasets":[{"module":"reserved_notes"}]}]}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bundle naming a reserved module: %d %s", rec.Code, rec.Body.String())
 	}

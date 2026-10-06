@@ -11,7 +11,7 @@ Everything live in any arrives over plain HTTP Server-Sent Events from the local
 
 | Stream | Endpoint | What it carries |
 |---|---|---|
-| Windowed query/subscribe | `POST /v1/spaces/:id/objects/query/subscribe`, `POST /v1/spaces/:id/query/subscribe` | snapshot + `added`/`updated`/`removed` deltas for a filtered, sorted window of records |
+| Windowed query/subscribe | `POST /v1/spaces/:id/objects/query/subscribe`, `POST /v1/spaces/:id/query/subscribe`, `POST /v1/spaces/:id/datasets/query/subscribe` | snapshot + `added`/`updated`/`removed` deltas for a filtered, sorted window of records |
 | Space list | `POST /v1/spaces/query/subscribe` | the same primitive over the account's own space list |
 | Sync status | `GET /v1/sync-status/subscribe`, `GET /v1/spaces/:id/sync-status/objects/:objectId/subscribe` | sparse state transitions (`syncing` → `synced` …), no records |
 | Event bus | `GET /v1/events/subscribe` | transient signals published through `POST /v1/events` — navigation, progress, presence |

@@ -1,6 +1,6 @@
 ---
 title: Indexes
-description: Which fields are indexed, which queries are scans, and how to keep hot reads cheap — no create-index API is needed for the built-in paths.
+description: Which fields are indexed, which queries are scans, how a runtime dataset declares its own indexes, and how to keep hot reads cheap.
 order: 70
 ---
 # Indexes
@@ -26,7 +26,7 @@ Every cross-object query should carry one of those two as its scope.
 
 The `objects` storage collection's other row-root stamps — `author`, `createdAt`, `spaceId`, `modifiedBy` — are unindexed, so a filter on one of them scans.
 
-`objects` has **no per-property indexes**. A cross-object filter or sort on `<ownerId>.<propId>` is a scan proportional to the space size. There is no create-index API for user properties; when a per-property read becomes hot, the options are an indexed built-in field, a dedicated per-object dataset, or a search over the [FTS / vector index](../search/index.html), which is maintained separately from the query engine.
+`objects` has **no per-property indexes**. A cross-object filter or sort on `<ownerId>.<propId>` is a scan proportional to the space size. There is no create-index API for user properties; when a per-property read becomes hot, the options are an indexed built-in field, a [runtime dataset](#runtime-datasets) that declares an index on the field, or a search over the [FTS / vector index](../search/index.html), which is maintained separately from the query engine.
 
 ## Cheap patterns
 
@@ -59,7 +59,24 @@ Datetime values are stored as native instants (unix milliseconds), so a range fi
 
 ## Runtime datasets
 
-A [runtime dataset](runtime-datasets.html) declared on a user type is a per-object storage collection like `chat_messages`, so its reads are bounded by that object's records rather than the whole space. An `idRule: user` dataset is keyed by the caller-supplied id, which is what [upsert](upsert.html) diffs against.
+A [runtime dataset](runtime-datasets.html) is indexed by `id` and by the secondary indexes it declares — `indexes: [{key, fields, sparse?}]` in the declaration, or added later to a dataset that already holds records ([Declared indexes](runtime-datasets.html#declared-indexes)). Here `$DEF` is the definition id of a shared dataset on `$TYPE` with a `datetime` field `start`:
+
+```bash
+curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/datasets/$DEF/indexes \
+  -H 'Content-Type: application/json' \
+  -d '{"key": "by_start", "fields": ["start", "_objectId"]}'
+# → 201 {"indexDefId": "…"}
+
+any type part dataset index add $SPACE $TYPE $DEF --index '{"key":"by_start","fields":["start","_objectId"]}'
+```
+
+- A filter or sort on a leading run of an index's `fields` is a range read; a field deeper in the index only helps once the fields before it are pinned by equality.
+- A per-object dataset's reads are bounded by that object's records rather than the whole space. An `idRule: user` dataset is keyed by the caller-supplied id, which is what [upsert](upsert.html) diffs against.
+- In a [shared dataset](runtime-datasets.html#shared-datasets), `id` starts with the object id, so one object's records are a range of `id` — the per-object scope reads exactly that. Reading by a field across all objects needs a declared index led by that field; without one the dataset scope scans every record.
+- A count and every aggregation read the matched records, indexed or not.
+- An index is built per device. Until a shared dataset's build ends, queries on it scan, and every write to the account's data waits for it.
+
+An index holds one to four fields, a dataset at most eight indexes, and none is unique. `_objectId` is indexable only on a shared dataset. An indexed field's key is letters, digits and `_`, starts with a letter and is at most 48 bytes.
 
 ## The search index is separate
 

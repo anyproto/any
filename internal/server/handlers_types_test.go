@@ -370,7 +370,7 @@ func TestServer_NoBuiltinContentTypes(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode type: %v", err)
 	}
-	mustAddPart(t, e, sp.Id, created.TypeId, `{"key":"body","datasets":[{"module":"editor","shared":true}]}`)
+	mustAddPart(t, e, sp.Id, created.TypeId, `{"key":"body","datasets":[{"module":"editor"}]}`)
 	obj := mustCreateObject(t, e, sp.Id, `{"type":"`+created.TypeId+`","initialProperties":{"any":{"name":"My page","tags":["draft","idea"]}}}`)
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/"+obj+"/editor/editor_blocks/blocks",
 		`{"type":"paragraph","text":"body"}`)
@@ -479,7 +479,7 @@ func TestServer_TypeHiddenAndMeta(t *testing.T) {
 	if root, ok := listIds("?includeHidden=true")[res.Bundle.RootId]; !ok || !root.Hidden {
 		t.Errorf("bundle root = %+v (ok=%v), want hidden", root, ok)
 	}
-	page := ensureBundle(t, e, sp.Id, `{"id":"page-test/v1","name":"Page","layout":{"type":"page"},"parts":[{"key":"body","datasets":[{"module":"editor","shared":true}]}]}`)
+	page := ensureBundle(t, e, sp.Id, `{"id":"page-test/v1","name":"Page","layout":{"type":"page"},"parts":[{"key":"body","datasets":[{"module":"editor"}]}]}`)
 	if root, ok := listIds("")[page.Bundle.RootId]; !ok || root.Hidden {
 		t.Errorf("declared type root = %+v (ok=%v), want listed", root, ok)
 	}

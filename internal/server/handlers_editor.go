@@ -13,8 +13,8 @@ import (
 // editorCollection resolves the `:collection` segment of the editor
 // write routes (`…/editor/:collection/{blocks,markdown}`): the
 // collection an editor part declared — the canonical `editor_blocks`
-// shared by every type declaring `{"module": "editor", "shared":
-// true}`, or a namespaced `<typeId>_<key>` instance. A name the space
+// every type declaring `{"module": "editor"}` addresses, or a
+// namespaced `<typeId>_<key>` instance. A name the space
 // does not serve with the editor module is `404 dataset.not_found`;
 // whether THIS object may hold it is the SDK's write-time gate (`400
 // dataset.not_declared`). done=true means the response was written.

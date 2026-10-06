@@ -110,7 +110,7 @@ any datasets $SPACE
 ```
 
 ```json
-{ "datasets": [ { "name": "chat_messages", "module": "chat", "shared": true, "owners": ["<typeId>"],
+{ "datasets": [ { "name": "chat_messages", "module": "chat", "owners": ["<typeId>"],
   "schema": { "type": "object", "additionalProperties": true,
     "properties": {
       "text":      { "type": "string",  "x-scope": "synced" },
@@ -120,7 +120,7 @@ any datasets $SPACE
 
 - `x-scope` — `synced` / `derived` / `local` / `account`, per field.
 - `additionalProperties: true` — a dynamic dataset: undeclared keys are permitted and default to synced (the `objects` storage collection, chat and editor).
-- `owners` — the types whose parts declare the storage collection; records exist only on objects carrying one of them. `module` names the serving module (`records`, `editor`, `chat`) and `shared` marks a module's canonical storage collection.
+- `owners` — the types whose parts declare the storage collection; records exist only on objects carrying one of them. `module` names the serving module (`records`, `editor`, `chat`).
 - `description` and `x-format` — the descriptive slice of each field, in the same vocabulary as a property's `xFormat`.
 - Runtime datasets add `required`, `x-mutable-by`, `x-stamp`, `x-delete-by`, `x-id` and `x-search` — see [Runtime datasets](runtime-datasets.html).
 

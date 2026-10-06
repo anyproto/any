@@ -14,7 +14,7 @@ import (
 // NewChunker constructs the chat module chunker: chat_messages records
 // as index entries under scope "chat", one entry per message, on every
 // chat collection the space declares (the canonical one, chat being
-// shared-only). Data is the message `text` only — creator, reactions,
+// canonical-only). Data is the message `text` only — creator, reactions,
 // and attachments are deliberately excluded. Deleted messages (and
 // empty-text messages) yield Data "".
 func NewChunker() *index.ModuleChunker {

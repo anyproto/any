@@ -11,10 +11,12 @@ import (
 	"github.com/anyproto/any/internal/client"
 )
 
-// newQuerySubscribeCmd surfaces both windowed query/subscribe endpoints
+// newQuerySubscribeCmd surfaces the windowed query/subscribe endpoints
 // behind one command. With `--properties` (no objectId/dataset), it
-// opens the per-space `objects` firehose; otherwise (objectId,
-// --dataset) is required and it opens the per-object dataset stream.
+// opens the per-space `objects` firehose; with `--all-objects` and
+// --dataset (no objectId), a shared dataset across its objects;
+// otherwise (objectId, --dataset) is required and it opens the
+// per-object dataset stream.
 //
 // Output is one JSON object per SSE frame on stdout. Each line is
 // `{"event": "<name>", "data": <payload>}`. Pipe through jq:
@@ -24,6 +26,7 @@ func newQuerySubscribeCmd() *cobra.Command {
 	var (
 		dataset    string
 		properties bool
+		allObjects bool
 		filter     string
 		sort       string
 		projection string
@@ -36,7 +39,9 @@ func newQuerySubscribeCmd() *cobra.Command {
 		Short: "open a windowed query/subscribe SSE stream",
 		Long: `Stream the windowed view of a query from the running server. With
 --properties, opens POST /v1/spaces/:id/objects/query/subscribe over the per-
-space objects collection; otherwise takes <objectId> + --dataset and opens
+space objects collection; with --all-objects + --dataset, opens
+POST /v1/spaces/:id/datasets/query/subscribe over a shared dataset across
+its objects; otherwise takes <objectId> + --dataset and opens
 POST /v1/spaces/:id/query/subscribe over a per-object dataset.
 
 Frames (one JSON object per line on stdout):
@@ -50,7 +55,7 @@ Frames (one JSON object per line on stdout):
 		RunE: func(cmd *cobra.Command, args []string) error {
 			spaceId := args[0]
 
-			body, err := buildQueryBody(properties, args, dataset, filter, sort, projection, limit, offset, includeTot)
+			body, err := buildQueryBody(properties, allObjects, args, dataset, filter, sort, projection, limit, offset, includeTot)
 			if err != nil {
 				return err
 			}
@@ -59,14 +64,18 @@ Frames (one JSON object per line on stdout):
 			handle := jsonFrameHandler()
 
 			ctx := cmd.Context()
-			if properties {
+			switch {
+			case properties:
 				return cl.StreamObjectsQuerySubscribe(ctx, spaceId, body, handle)
+			case allObjects:
+				return cl.StreamDatasetQuerySubscribe(ctx, spaceId, body, handle)
 			}
 			return cl.StreamQuerySubscribe(ctx, spaceId, body, handle)
 		},
 	}
 	cmd.Flags().StringVar(&dataset, "dataset", "", "dataset name (required without --properties)")
 	cmd.Flags().BoolVar(&properties, "properties", false, "subscribe to the per-space objects collection instead of a per-object dataset")
+	cmd.Flags().BoolVar(&allObjects, "all-objects", false, "subscribe to a shared dataset across every object that holds it (with --dataset, no objectId)")
 	addWindowQueryFlags(cmd, &filter, &sort, &projection, &limit, &offset, &includeTot)
 	return cmd
 }
@@ -103,20 +112,13 @@ func jsonFrameHandler() func(client.SSEFrame) error {
 	}
 }
 
-// buildQueryBody assembles the JSON request body for both query
+// buildQueryBody assembles the JSON request body for the query
 // endpoints. objectId / dataset are required for per-object queries;
-// --properties skips both.
-func buildQueryBody(properties bool, args []string, dataset, filter, sort, projection string, limit, offset int, includeTotal bool) ([]byte, error) {
+// --properties skips both, --all-objects takes the dataset alone.
+func buildQueryBody(properties, allObjects bool, args []string, dataset, filter, sort, projection string, limit, offset int, includeTotal bool) ([]byte, error) {
 	body := map[string]any{}
-	if !properties {
-		if len(args) != 2 {
-			return nil, fmt.Errorf("objectId is required (or pass --properties for the firehose)")
-		}
-		if dataset == "" {
-			return nil, fmt.Errorf("--dataset is required")
-		}
-		body["objectId"] = args[1]
-		body["dataset"] = dataset
+	if err := addressQueryBody(body, properties, allObjects, args, dataset); err != nil {
+		return nil, err
 	}
 	if filter != "" {
 		var f any
@@ -149,6 +151,37 @@ func buildQueryBody(properties bool, args []string, dataset, filter, sort, proje
 		return nil, err
 	}
 	return json.Marshal(body)
+}
+
+// addressQueryBody writes the addressing fields of a query or
+// aggregate body from the command's scope flags: nothing for
+// --properties, the dataset for --all-objects, objectId and dataset
+// otherwise.
+func addressQueryBody(body map[string]any, properties, allObjects bool, args []string, dataset string) error {
+	switch {
+	case properties && allObjects:
+		return fmt.Errorf("--properties and --all-objects are different scopes: pass one")
+	case properties:
+		return nil
+	case allObjects:
+		if len(args) != 1 {
+			return fmt.Errorf("--all-objects takes no objectId")
+		}
+		if dataset == "" {
+			return fmt.Errorf("--dataset is required")
+		}
+		body["dataset"] = dataset
+		return nil
+	}
+	if len(args) != 2 {
+		return fmt.Errorf("objectId is required (or pass --properties for the objects collection, --all-objects for a shared dataset)")
+	}
+	if dataset == "" {
+		return fmt.Errorf("--dataset is required")
+	}
+	body["objectId"] = args[1]
+	body["dataset"] = dataset
+	return nil
 }
 
 // applyProjection folds the --projection CSV shorthand into an

@@ -35,14 +35,14 @@ func TestServer_ChatModuleReserved(t *testing.T) {
 	}
 	typeId := created.TypeId
 	rec = doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/parts",
-		`{"key":"chat","datasets":[{"module":"chat","shared":true}]}`)
+		`{"key":"chat","datasets":[{"module":"chat"}]}`)
 	assertStatusCode(t, rec, http.StatusBadRequest, "dataset.module_reserved")
-	partId := mustAddPart(t, e, sp.Id, typeId, `{"key":"body","datasets":[{"module":"editor","shared":true}]}`)
+	partId := mustAddPart(t, e, sp.Id, typeId, `{"key":"body","datasets":[{"module":"editor"}]}`)
 	rec = doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/parts/"+partId+"/datasets",
-		`{"module":"chat","shared":true}`)
+		`{"module":"chat"}`)
 	assertStatusCode(t, rec, http.StatusBadRequest, "dataset.module_reserved")
 	rec = doJSON(t, e, http.MethodPost, base+"/bundles",
-		`{"id":"room/v1","derived":true,"parts":[{"key":"chat","datasets":[{"module":"chat","shared":true}]}]}`)
+		`{"id":"room/v1","derived":true,"parts":[{"key":"chat","datasets":[{"module":"chat"}]}]}`)
 	assertStatusCode(t, rec, http.StatusBadRequest, "dataset.module_reserved")
 	rec = doJSON(t, e, http.MethodGet, base+"/bundles/room%2Fv1", "")
 	assertStatusCode(t, rec, http.StatusNotFound, "bundle.not_found")
@@ -107,7 +107,7 @@ func TestServer_ChatModuleReserved(t *testing.T) {
 	assertStatusCode(t, rec, http.StatusBadRequest, "type.reserved_carrier")
 	rec = doJSON(t, e, http.MethodGet, base+"/bundles/carrier%2Fv1", "")
 	assertStatusCode(t, rec, http.StatusNotFound, "bundle.not_found")
-	notes := ensureBundle(t, e, sp.Id, `{"id":"notes/v1","parts":[{"key":"body","datasets":[{"module":"editor","shared":true}]}]}`)
+	notes := ensureBundle(t, e, sp.Id, `{"id":"notes/v1","parts":[{"key":"body","datasets":[{"module":"editor"}]}]}`)
 	if !notes.Installed {
 		t.Fatalf("notes install: %+v", notes)
 	}

@@ -103,7 +103,7 @@ func TestServer_BuiltinTypesHidden(t *testing.T) {
 			assertErrorCode(t, rec, "type.xkey_conflict")
 		}
 		// Registered: no runtime parts.
-		rec = doJSON(t, e, http.MethodPost, base+"/types/"+id+"/parts", `{"key":"x","datasets":[{"module":"editor","shared":true}]}`)
+		rec = doJSON(t, e, http.MethodPost, base+"/types/"+id+"/parts", `{"key":"x","datasets":[{"module":"editor"}]}`)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("add part on %s: %d %s, want 400", id, rec.Code, rec.Body.String())
 		} else {
@@ -186,7 +186,7 @@ func TestServer_PageType(t *testing.T) {
 	if body.Id != page.PartBody || body.Key != page.PartBody || string(body.UI) != `{"type":"document"}` || body.Hidden {
 		t.Errorf("body part = %+v", body)
 	}
-	if len(body.Datasets) != 1 || body.Datasets[0].Collection != editor.Dataset || body.Datasets[0].Module != editor.Module || !body.Datasets[0].Shared {
+	if len(body.Datasets) != 1 || body.Datasets[0].Collection != editor.Dataset || body.Datasets[0].Module != editor.Module {
 		t.Errorf("body datasets = %+v", body.Datasets)
 	}
 	var props api.PropertiesListResponse

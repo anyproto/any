@@ -7,15 +7,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newAggregateCmd surfaces both aggregation endpoints behind one
+// newAggregateCmd surfaces the aggregation endpoints behind one
 // command, mirroring query-subscribe's arg shape. With `--properties`
 // (no objectId/dataset), it runs over the per-space `objects`
-// collection; otherwise (objectId, --dataset) is required and it runs
-// over a per-object dataset.
+// collection; with `--all-objects` and --dataset (no objectId), over a
+// shared dataset across its objects; otherwise (objectId, --dataset)
+// is required and it runs over a per-object dataset.
 func newAggregateCmd() *cobra.Command {
 	var (
 		dataset    string
 		properties bool
+		allObjects bool
 		pipeline   string
 		groupLimit int
 		accumLimit int
@@ -27,7 +29,9 @@ func newAggregateCmd() *cobra.Command {
 		Short: "run a MongoDB-style aggregation pipeline (snapshot)",
 		Long: `Run an aggregation pipeline against the running server. With
 --properties, POSTs /v1/spaces/:id/objects/aggregate over the per-space
-objects collection; otherwise takes <objectId> + --dataset and POSTs
+objects collection; with --all-objects + --dataset, POSTs
+/v1/spaces/:id/datasets/aggregate over a shared dataset across its
+objects; otherwise takes <objectId> + --dataset and POSTs
 /v1/spaces/:id/aggregate over a per-object dataset.
 
 The pipeline is a JSON array of stages ($match / $sort / $skip /
@@ -38,6 +42,8 @@ and the MongoDB divergences.
   any aggregate SPACE OBJ --dataset chat_messages \
     --pipeline '[{"$group":{"_id":"$creator","n":{"$count":{}}}}]'
   any aggregate SPACE --properties --pipeline '[{"$count":"objects"}]'
+  any aggregate SPACE --all-objects --dataset TYPE_samples \
+    --pipeline '[{"$group":{"_id":"$_objectId","n":{"$count":{}}}}]'
 `,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -48,15 +54,8 @@ and the MongoDB divergences.
 				return fmt.Errorf("--pipeline: %w", err)
 			}
 			body := map[string]any{"pipeline": stages}
-			if !properties {
-				if len(args) != 2 {
-					return fmt.Errorf("objectId is required (or pass --properties for the objects collection)")
-				}
-				if dataset == "" {
-					return fmt.Errorf("--dataset is required")
-				}
-				body["objectId"] = args[1]
-				body["dataset"] = dataset
+			if err := addressQueryBody(body, properties, allObjects, args, dataset); err != nil {
+				return err
 			}
 			if cmd.Flags().Changed("group-limit") {
 				body["groupLimit"] = groupLimit
@@ -84,6 +83,13 @@ and the MongoDB divergences.
 				}
 				return printJSON(out)
 			}
+			if allObjects {
+				out, err := cl.AggregateDataset(ctx, spaceId, raw)
+				if err != nil {
+					return err
+				}
+				return printJSON(out)
+			}
 			out, err := cl.Aggregate(ctx, spaceId, raw)
 			if err != nil {
 				return err
@@ -93,6 +99,7 @@ and the MongoDB divergences.
 	}
 	cmd.Flags().StringVar(&dataset, "dataset", "", "dataset name (required without --properties)")
 	cmd.Flags().BoolVar(&properties, "properties", false, "aggregate over the per-space objects collection instead of a per-object dataset")
+	cmd.Flags().BoolVar(&allObjects, "all-objects", false, "aggregate over a shared dataset across every object that holds it (with --dataset, no objectId)")
 	cmd.Flags().StringVar(&pipeline, "pipeline", "", "JSON array of pipeline stages (inline, @FILE, or - for stdin)")
 	cmd.Flags().IntVar(&groupLimit, "group-limit", 0, "max unique $group keys (negative = unlimited; default: server-side 50000)")
 	cmd.Flags().IntVar(&accumLimit, "accum-limit", 0, "max $push/$addToSet array length (negative = unlimited; default: server-side 10000)")
