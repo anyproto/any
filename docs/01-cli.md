@@ -10,8 +10,8 @@
 - **Output is JSON.** Pretty-printed (easier for both humans and piping
   through `jq`); streams print one JSON object per frame. No table
   rendering.
-- **Exit codes**: 0 success, 1 user / 4xx error, 2 server / 5xx error,
-  3 can't reach server.
+- **Exit codes**: 0 success, 1 user / 4xx error, 2 server / 5xx error
+  or a response cut mid-stream, 3 can't reach server.
 
 ## Command surface
 

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,6 +33,32 @@ func (e *TransportError) Unwrap() error { return e.Err }
 // specific hint in that case.
 func (e *TransportError) IsConnectionRefused() bool {
 	return connRefused(e.Err)
+}
+
+// StreamError is a streamed response body that broke off after a 2xx
+// status: the transfer failed on the server's side. Maps to CLI exit
+// code 2.
+type StreamError struct {
+	Err error
+}
+
+func (e *StreamError) Error() string { return "response cut mid-stream: " + e.Err.Error() }
+
+func (e *StreamError) Unwrap() error { return e.Err }
+
+// streamBody reports a read error on a streamed body as a StreamError,
+// except EOF and the caller's own cancellation.
+type streamBody struct {
+	io.ReadCloser
+	ctx context.Context
+}
+
+func (b streamBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err != nil && err != io.EOF && b.ctx.Err() == nil {
+		err = &StreamError{Err: err}
+	}
+	return n, err
 }
 
 // ServerError is a 4xx/5xx response parsed out of the canonical envelope.

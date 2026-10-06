@@ -169,7 +169,7 @@ func (c *Client) LocalExport(ctx context.Context, scope, spaceId string, names [
 		defer resp.Body.Close()
 		return nil, parseServerError(resp)
 	}
-	return resp.Body, nil
+	return streamBody{resp.Body, ctx}, nil
 }
 
 // LocalImport — POST /v1/local/import: r is an export file, streamed

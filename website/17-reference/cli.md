@@ -21,7 +21,7 @@ order: 20
 |---|---|
 | `0` | success |
 | `1` | user error — bad arguments, or a 4xx from the server |
-| `2` | server error — a 5xx |
+| `2` | server error — a 5xx, or a download, export or stream cut mid-transfer |
 | `3` | transport error — the server cannot be reached |
 
 Output is pretty-printed JSON, always. The two deliberate exceptions are `any file download` (raw bytes to stdout) and streaming commands, which print one JSON object per SSE frame — `{"event": "<name>", "data": <payload>}` — so they pipe cleanly into `jq`. When the server is not running the CLI exits 3 and prints `start it with any run in another terminal`; there is no auto-start.

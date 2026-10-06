@@ -10,7 +10,7 @@ import (
 //
 //	0 — success (never reached here)
 //	1 — user / 4xx
-//	2 — server / 5xx
+//	2 — server / 5xx, or a response cut mid-stream
 //	3 — transport (can't reach server)
 func exitCode(err error) int {
 	if err == nil {
@@ -19,6 +19,10 @@ func exitCode(err error) int {
 	var transport *client.TransportError
 	if errors.As(err, &transport) {
 		return 3
+	}
+	var stream *client.StreamError
+	if errors.As(err, &stream) {
+		return 2
 	}
 	var server *client.ServerError
 	if errors.As(err, &server) {

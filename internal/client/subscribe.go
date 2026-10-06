@@ -88,7 +88,7 @@ func (c *Client) streamSSE(ctx context.Context, method, path string, body []byte
 	}
 	defer resp.Body.Close()
 
-	return parseSSEStream(resp.Body, fn)
+	return parseSSEStream(streamBody{resp.Body, ctx}, fn)
 }
 
 // streamHTTP is the long-lived client used for SSE. Distinct from
@@ -99,7 +99,8 @@ var streamHTTP = &http.Client{}
 // across lines and dispatching one frame per blank-line terminator.
 // Comment lines (starting with `:`) are skipped. A stream that ends
 // inside a line or a frame was cut: the frame is discarded, per the
-// spec, and the cut reported as io.ErrUnexpectedEOF.
+// spec, and the cut reported as a StreamError wrapping
+// io.ErrUnexpectedEOF.
 func parseSSEStream(r io.Reader, fn func(SSEFrame) error) error {
 	br := bufio.NewReader(r)
 	var (
@@ -126,7 +127,7 @@ func parseSSEStream(r io.Reader, fn func(SSEFrame) error) error {
 	for {
 		line, err := br.ReadBytes('\n')
 		if err == io.EOF && (len(line) > 0 || pending()) {
-			return io.ErrUnexpectedEOF
+			return &StreamError{Err: io.ErrUnexpectedEOF}
 		}
 		if len(line) > 0 {
 			// strip trailing CR / LF
