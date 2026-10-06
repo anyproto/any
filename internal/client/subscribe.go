@@ -97,9 +97,9 @@ var streamHTTP = &http.Client{}
 
 // parseSSEStream reads the SSE wire format off r, accumulating fields
 // across lines and dispatching one frame per blank-line terminator.
-// Comment lines (starting with `:`) are skipped. A frame no blank line
-// terminated is discarded, per the spec, and reported as
-// io.ErrUnexpectedEOF: the stream was cut.
+// Comment lines (starting with `:`) are skipped. A stream that ends
+// inside a line or a frame was cut: the frame is discarded, per the
+// spec, and the cut reported as io.ErrUnexpectedEOF.
 func parseSSEStream(r io.Reader, fn func(SSEFrame) error) error {
 	br := bufio.NewReader(r)
 	var (
@@ -107,8 +107,9 @@ func parseSSEStream(r io.Reader, fn func(SSEFrame) error) error {
 		id    string
 		data  bytes.Buffer
 	)
+	pending := func() bool { return data.Len() > 0 || event != "" || id != "" }
 	flush := func() error {
-		if data.Len() == 0 && event == "" && id == "" {
+		if !pending() {
 			return nil
 		}
 		// Trim the trailing newline left by data.WriteByte('\n')
@@ -124,6 +125,9 @@ func parseSSEStream(r io.Reader, fn func(SSEFrame) error) error {
 	}
 	for {
 		line, err := br.ReadBytes('\n')
+		if err == io.EOF && (len(line) > 0 || pending()) {
+			return io.ErrUnexpectedEOF
+		}
 		if len(line) > 0 {
 			// strip trailing CR / LF
 			if line[len(line)-1] == '\n' {
@@ -153,9 +157,6 @@ func parseSSEStream(r io.Reader, fn func(SSEFrame) error) error {
 		}
 		if err != nil {
 			if err == io.EOF {
-				if data.Len() > 0 || event != "" || id != "" {
-					return io.ErrUnexpectedEOF
-				}
 				return nil
 			}
 			return err

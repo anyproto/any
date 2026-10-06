@@ -24,6 +24,14 @@ func TestParseSSEStream_UnterminatedFrameIsACut(t *testing.T) {
 	}
 }
 
+// A last line without its newline is a cut even when it starts a frame.
+func TestParseSSEStream_UnterminatedLineIsACut(t *testing.T) {
+	err := parseSSEStream(strings.NewReader("event: a\ndata: 1\n\neve"), func(SSEFrame) error { return nil })
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("err = %v, want io.ErrUnexpectedEOF", err)
+	}
+}
+
 func TestParseSSEStream_CleanEnd(t *testing.T) {
 	var got int
 	err := parseSSEStream(strings.NewReader("event: a\ndata: 1\n\n: keepalive\n"), func(SSEFrame) error {

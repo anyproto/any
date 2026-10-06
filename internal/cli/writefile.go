@@ -9,66 +9,86 @@ import (
 )
 
 // writeFile streams r into path so that a failed transfer never
-// destroys what was there. An existing regular file is opened first,
-// so the usual permission checks and symlinks apply, and is
-// overwritten in place only once r is fully staged in a temp file: it
-// keeps its inode, links, owner and mode. A file this call created is
-// removed on failure. A device or pipe is written directly.
-func writeFile(path string, r io.Reader) (n int64, err error) {
-	_, err = os.Lstat(path)
-	created := errors.Is(err, fs.ErrNotExist)
-	if err != nil && !created {
+// destroys what was there. An existing regular file must be writable
+// and is replaced only once r is complete: the body goes to a temp file
+// next to it (next to a symlink's target), which is synced and renamed
+// over it. The replacement keeps the mode but is a new file, so hard
+// links keep the old content. When no temp file can be created there,
+// the file is overwritten in place. A file this call created is removed
+// on failure; a device, a pipe or a dangling symlink's target is
+// written directly.
+func writeFile(path string, r io.Reader) (int64, error) {
+	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+		return writeNew(path, r)
+	} else if err != nil {
 		return 0, err
 	}
-	flag := os.O_WRONLY | os.O_CREATE
-	if created {
-		flag |= os.O_EXCL
+	fi, err := os.Stat(path)
+	if err == nil && fi.Mode().IsRegular() {
+		return replaceFile(path, fi.Mode().Perm(), r)
 	}
-	f, err := os.OpenFile(path, flag, 0o666)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return 0, err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0o666)
 	if err != nil {
 		return 0, err
 	}
-	defer func() {
-		if cerr := f.Close(); err == nil {
-			err = cerr
-		}
-		if err != nil && created {
-			_ = os.Remove(path)
-		}
-	}()
-	fi, err := f.Stat()
-	if err != nil {
-		return 0, err
-	}
-	if created || !fi.Mode().IsRegular() {
-		return io.Copy(f, r)
-	}
-	return overwrite(f, path, r)
+	return copyClose(f, r)
 }
 
-// overwrite stages r in a temp file next to path, or in the system temp
-// dir when that fails, then copies it over f.
-func overwrite(f *os.File, path string, r io.Reader) (int64, error) {
+func writeNew(path string, r io.Reader) (int64, error) {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
+	if err != nil {
+		return 0, err
+	}
+	n, err := copyClose(f, r)
+	if err != nil {
+		_ = os.Remove(path)
+	}
+	return n, err
+}
+
+func replaceFile(path string, perm fs.FileMode, r io.Reader) (int64, error) {
+	// Opening applies the permission checks a rename would skip, and is
+	// the in-place fallback.
+	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		return 0, err
+	}
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
 	if err != nil {
-		if tmp, err = os.CreateTemp("", "any-transfer-*"); err != nil {
+		if err := f.Truncate(0); err != nil {
+			_ = f.Close()
 			return 0, err
 		}
+		return copyClose(f, r)
 	}
-	defer func() {
-		_ = tmp.Close()
-		_ = os.Remove(tmp.Name())
-	}()
+	_ = f.Close()
 	n, err := io.Copy(tmp, r)
+	if err == nil {
+		_ = tmp.Chmod(perm) // best effort: some filesystems refuse chmod
+		err = tmp.Sync()
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), path)
+	}
 	if err != nil {
-		return n, err
+		_ = os.Remove(tmp.Name())
 	}
-	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
-		return n, err
+	return n, err
+}
+
+func copyClose(f *os.File, r io.Reader) (int64, error) {
+	n, err := io.Copy(f, r)
+	if cerr := f.Close(); err == nil {
+		err = cerr
 	}
-	if err := f.Truncate(0); err != nil {
-		return n, err
-	}
-	_, err = io.Copy(f, tmp)
 	return n, err
 }

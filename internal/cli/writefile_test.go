@@ -61,9 +61,9 @@ func TestWriteFile_ReplacesExistingFileKeepingMode(t *testing.T) {
 	assertOnlyEntry(t, dir, "out.bin")
 }
 
-// The file keeps its identity: a symlink is written through and a hard
-// link sees the new content.
-func TestWriteFile_OverwritesInPlace(t *testing.T) {
+// A symlink stays a link: its target is replaced, and a dangling
+// link's target is created.
+func TestWriteFile_WritesThroughSymlink(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlinks need privileges on windows")
 	}
@@ -76,21 +76,51 @@ func TestWriteFile_OverwritesInPlace(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
-	hard := filepath.Join(dir, "hard.bin")
-	if err := os.Link(target, hard); err != nil {
+	dangling := filepath.Join(dir, "dangling.bin")
+	if err := os.Symlink(filepath.Join(dir, "missing.bin"), dangling); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := writeFile(link, strings.NewReader("new")); err != nil {
-		t.Fatal(err)
+	for _, p := range []string{link, dangling} {
+		if _, err := writeFile(p, strings.NewReader("new")); err != nil {
+			t.Fatalf("%s: %v", filepath.Base(p), err)
+		}
+		fi, err := os.Lstat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("%s replaced by a regular file", filepath.Base(p))
+		}
 	}
-	if fi, _ := os.Lstat(link); fi.Mode()&os.ModeSymlink == 0 {
-		t.Fatal("symlink replaced by a regular file")
-	}
-	for _, p := range []string{target, hard} {
+	for _, p := range []string{target, filepath.Join(dir, "missing.bin")} {
 		if b, _ := os.ReadFile(p); string(b) != "new" {
 			t.Fatalf("%s = %q, want new", filepath.Base(p), b)
 		}
+	}
+}
+
+// A writable file in a directory that takes no new file is overwritten
+// in place.
+func TestWriteFile_UnwritableDirOverwritesInPlace(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs unix permission checks")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.bin")
+	if err := os.WriteFile(path, []byte("previous, longer"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	if _, err := writeFile(path, strings.NewReader("new")); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "new" {
+		t.Fatalf("content = %q, want new", b)
 	}
 }
 
