@@ -1081,8 +1081,8 @@ func (d *deps) localIndexes(c echo.Context) error {
 // drop, this is a path that must still work for a space that is gone.
 // Every ref is resolved before the first byte, so a missing collection
 // is a JSON 404 and never a truncated stream; an error after the
-// headers are out cuts the body (the gzip trailer never lands, so the
-// reader rejects the file) and is logged.
+// headers are out is logged and aborts the connection, so the client
+// sees a cut body rather than a clean end.
 //
 //	@Summary	Export local collections as one file
 //	@Tags		local
@@ -1144,7 +1144,9 @@ func (d *deps) localExport(c echo.Context) error {
 	c.Response().WriteHeader(http.StatusOK)
 	if err := d.local.Export(ctx, refs, c.Response()); err != nil {
 		localLog.Warn("export cut mid-stream", zap.Int("collections", len(refs)), zap.Error(err))
-		return err
+		// Returning would end the chunked body cleanly; aborting skips
+		// the terminating chunk.
+		panic(http.ErrAbortHandler)
 	}
 	return nil
 }

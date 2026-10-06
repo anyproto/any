@@ -158,14 +158,7 @@ Content not yet local streams in from the network on demand.`,
 				_, err := io.Copy(os.Stdout, res.Body)
 				return err
 			}
-			f, err := os.Create(output)
-			if err != nil {
-				return err
-			}
-			n, err := io.Copy(f, res.Body)
-			if cerr := f.Close(); err == nil {
-				err = cerr
-			}
+			n, err := writeFile(output, res.Body)
 			if err != nil {
 				return err
 			}

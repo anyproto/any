@@ -97,7 +97,8 @@ var streamHTTP = &http.Client{}
 
 // parseSSEStream reads the SSE wire format off r, accumulating fields
 // across lines and dispatching one frame per blank-line terminator.
-// Comment lines (starting with `:`) are skipped per the spec.
+// Comment lines (starting with `:`) are skipped and a frame no blank
+// line terminated is discarded at EOF, per the spec.
 func parseSSEStream(r io.Reader, fn func(SSEFrame) error) error {
 	br := bufio.NewReader(r)
 	var (
@@ -151,7 +152,6 @@ func parseSSEStream(r io.Reader, fn func(SSEFrame) error) error {
 		}
 		if err != nil {
 			if err == io.EOF {
-				_ = flush()
 				return nil
 			}
 			return err

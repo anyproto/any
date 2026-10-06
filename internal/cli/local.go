@@ -442,16 +442,12 @@ a manifest first, then each collection's documents. Storage names stay tagged, s
 				return err
 			}
 			defer body.Close()
-			var dst io.Writer = os.Stdout
-			if out != "-" {
-				f, err := os.Create(out)
-				if err != nil {
-					return err
-				}
-				defer f.Close()
-				dst = f
+			var n int64
+			if out == "-" {
+				n, err = io.Copy(os.Stdout, body)
+			} else {
+				n, err = writeFile(out, body)
 			}
-			n, err := io.Copy(dst, body)
 			if err != nil {
 				return fmt.Errorf("export: %w", err)
 			}

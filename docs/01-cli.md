@@ -353,7 +353,8 @@ printed `FileInfo` receipt normally shows `durable: false` — backup is
 background work; watch `any file subscribe` for the `inflight →
 durable` flip. `download` writes raw bytes to stdout by default (pipe
 them) or to `-o PATH` with a small JSON receipt — the two deliberate
-non-JSON outputs in the CLI. `offload` exits non-zero with
+non-JSON outputs in the CLI. A failed `-o` download leaves an existing
+file at PATH untouched. `offload` exits non-zero with
 `file.not_durable` while the local bytes are the only copy. `delete`
 removes the file for every member (variants cascade with their
 original) and refuses to run without `--yes`. `query` /
@@ -777,7 +778,8 @@ Device-local, never-synced storage collections
 `drop` and `delete` refuse without `--yes` — local data has no automatic backup.
 Pipelines name sink / lookup collections by their `storageName` (shown
 by `collections`). `export` writes the named collections (all in scope
-without `--names`) as one gzip'd anyenc stream; `import` recreates
+without `--names`) as one gzip'd anyenc stream; a failed export exits
+non-zero and leaves an existing `--out` file untouched. `import` recreates
 them — same names, indexes, documents (upsert) — on the server it is
 pointed at, whether or not their spaces exist there.
 

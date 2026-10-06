@@ -310,7 +310,7 @@ any local export --scope account --names scratch --out scratch.anyenc.gz &&
 any local import scratch.anyenc.gz
 ```
 
-`--out -` writes the export to stdout; `any local import -` reads stdin. Without `--names`, export takes every collection in the selected scope; `--space ID` implies space scope. The file is a gzip-compressed anyenc stream carrying scope, space id, names, indexes and documents. Another authorized server imports it with `any --addr http://127.0.0.1:7002 local import scratch.anyenc.gz`; a space-scoped collection is readable there even when that server never had the space.
+`--out -` writes the export to stdout; `any local import -` reads stdin. A failed export exits non-zero and leaves an existing `--out` file untouched. Without `--names`, export takes every collection in the selected scope; `--space ID` implies space scope. The file is a gzip-compressed anyenc stream carrying scope, space id, names, indexes and documents. Another authorized server imports it with `any --addr http://127.0.0.1:7002 local import scratch.anyenc.gz`; a space-scoped collection is readable there even when that server never had the space.
 
 Import ensures indexes and upserts documents; documents whose ids are absent from the file stay. It commits in chunks, so a failed import can leave earlier chunks in place. It copies local collections only — no CRDT data, no file bytes. Responses and failure codes: [HTTP contract](http-api.html#export-and-import-local-collections).
 
