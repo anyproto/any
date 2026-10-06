@@ -1142,6 +1142,9 @@ func (d *deps) localExport(c echo.Context) error {
 	h.Set(echo.HeaderContentType, "application/gzip")
 	h.Set("Content-Disposition", `attachment; filename="local-export.anyenc.gz"`)
 	c.Response().WriteHeader(http.StatusOK)
+	// Send the headers now: an abort before the first flush would read
+	// as an unreachable server, not a cut body.
+	c.Response().Flush()
 	if err := d.local.Export(ctx, refs, c.Response()); err != nil {
 		localLog.Warn("export cut mid-stream", zap.Int("collections", len(refs)), zap.Error(err))
 		// Returning would end the chunked body cleanly; aborting skips

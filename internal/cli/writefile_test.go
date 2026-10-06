@@ -61,6 +61,56 @@ func TestWriteFile_ReplacesExistingFileKeepingMode(t *testing.T) {
 	assertOnlyEntry(t, dir, "out.bin")
 }
 
+// The file keeps its identity: a symlink is written through and a hard
+// link sees the new content.
+func TestWriteFile_OverwritesInPlace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on windows")
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.bin")
+	if err := os.WriteFile(target, []byte("previous"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link.bin")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	hard := filepath.Join(dir, "hard.bin")
+	if err := os.Link(target, hard); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := writeFile(link, strings.NewReader("new")); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Lstat(link); fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("symlink replaced by a regular file")
+	}
+	for _, p := range []string{target, hard} {
+		if b, _ := os.ReadFile(p); string(b) != "new" {
+			t.Fatalf("%s = %q, want new", filepath.Base(p), b)
+		}
+	}
+}
+
+func TestWriteFile_RefusesReadOnlyFile(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs unix permission checks")
+	}
+	path := filepath.Join(t.TempDir(), "out.bin")
+	if err := os.WriteFile(path, []byte("previous"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := writeFile(path, strings.NewReader("new")); !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("err = %v, want permission denied", err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "previous" {
+		t.Fatalf("content = %q, want the read-only file untouched", b)
+	}
+}
+
 func TestWriteFile_FailureLeavesNoNewFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "out.bin")
