@@ -21,7 +21,7 @@ order: 20
 |---|---|
 | `0` | success |
 | `1` | user error — bad arguments, or a 4xx from the server |
-| `2` | server error — a 5xx |
+| `2` | server error — a 5xx, or a download, export or stream cut mid-transfer |
 | `3` | transport error — the server cannot be reached |
 
 Output is pretty-printed JSON, always. The two deliberate exceptions are `any file download` (raw bytes to stdout) and streaming commands, which print one JSON object per SSE frame — `{"event": "<name>", "data": <payload>}` — so they pipe cleanly into `jq`. When the server is not running the CLI exits 3 and prints `start it with any run in another terminal`; there is no auto-start.
@@ -310,7 +310,7 @@ any local export --scope account --names scratch --out scratch.anyenc.gz &&
 any local import scratch.anyenc.gz
 ```
 
-`--out -` writes the export to stdout; `any local import -` reads stdin. Without `--names`, export takes every collection in the selected scope; `--space ID` implies space scope. The file is a gzip-compressed anyenc stream carrying scope, space id, names, indexes and documents. Another authorized server imports it with `any --addr http://127.0.0.1:7002 local import scratch.anyenc.gz`; a space-scoped collection is readable there even when that server never had the space.
+`--out -` writes the export to stdout; `any local import -` reads stdin. A failed export exits non-zero and leaves an existing `--out` file untouched when its directory is writable. Without `--names`, export takes every collection in the selected scope; `--space ID` implies space scope. The file is a gzip-compressed anyenc stream carrying scope, space id, names, indexes and documents. Another authorized server imports it with `any --addr http://127.0.0.1:7002 local import scratch.anyenc.gz`; a space-scoped collection is readable there even when that server never had the space.
 
 Import ensures indexes and upserts documents; documents whose ids are absent from the file stay. It commits in chunks, so a failed import can leave earlier chunks in place. It copies local collections only — no CRDT data, no file bytes. Responses and failure codes: [HTTP contract](http-api.html#export-and-import-local-collections).
 

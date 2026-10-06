@@ -198,6 +198,8 @@ POST /v1/local/import   (body = the file, exempt from the 1 MiB body cap)
   transaction, so the collections are mutually consistent and every
   section's count is exact. Every name is resolved before the first
   byte — a missing collection is a JSON 404, never a truncated file.
+  A failure after the first byte aborts the connection, so the client
+  sees a cut body, never a clean end.
 - **Import = ensure + upsert**, 256 documents per transaction like
   every other write here: an existing collection keeps what it has
   and is overlaid (re-importing the same file is a no-op; a newer

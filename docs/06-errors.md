@@ -253,5 +253,5 @@ body.
 
 - `0` — success
 - `1` — user error (bad args, 4xx from server)
-- `2` — server error (5xx)
+- `2` — server error (5xx, or a download, export or stream cut mid-transfer)
 - `3` — transport error (can't reach server)

@@ -1080,9 +1080,9 @@ func (d *deps) localIndexes(c echo.Context) error {
 // spaceId) listing would return is exported. No space pre-flight: like
 // drop, this is a path that must still work for a space that is gone.
 // Every ref is resolved before the first byte, so a missing collection
-// is a JSON 404 and never a truncated stream; an error after the
-// headers are out cuts the body (the gzip trailer never lands, so the
-// reader rejects the file) and is logged.
+// is a JSON 404 and never a truncated stream; an error after the first
+// byte is logged and aborts the connection, so the client sees a cut
+// body rather than a clean end.
 //
 //	@Summary	Export local collections as one file
 //	@Tags		local
@@ -1138,15 +1138,39 @@ func (d *deps) localExport(c echo.Context) error {
 				"names: at least one collection name", nil)
 		}
 	}
-	h := c.Response().Header()
-	h.Set(echo.HeaderContentType, "application/gzip")
-	h.Set("Content-Disposition", `attachment; filename="local-export.anyenc.gz"`)
-	c.Response().WriteHeader(http.StatusOK)
-	if err := d.local.Export(ctx, refs, c.Response()); err != nil {
+	w := &exportWriter{c: c}
+	if err := d.local.Export(ctx, refs, w); err != nil {
+		if !w.started {
+			return localError(c, err, localstore.Ref{Scope: scope, SpaceId: spaceId})
+		}
 		localLog.Warn("export cut mid-stream", zap.Int("collections", len(refs)), zap.Error(err))
-		return err
+		// Returning would end the chunked body cleanly; aborting skips
+		// the terminating chunk.
+		panic(http.ErrAbortHandler)
 	}
 	return nil
+}
+
+// exportWriter commits the 200 on the export's first byte, so a failure
+// before it still answers with a JSON error. It flushes the headers
+// then: an abort before the first flush would read as an unreachable
+// server, not a cut body.
+type exportWriter struct {
+	c       echo.Context
+	started bool
+}
+
+func (w *exportWriter) Write(p []byte) (int, error) {
+	resp := w.c.Response()
+	if !w.started {
+		w.started = true
+		h := resp.Header()
+		h.Set(echo.HeaderContentType, "application/gzip")
+		h.Set("Content-Disposition", `attachment; filename="local-export.anyenc.gz"`)
+		resp.WriteHeader(http.StatusOK)
+		resp.Flush()
+	}
+	return resp.Write(p)
 }
 
 // localImport handles POST /v1/local/import — the raw body is an

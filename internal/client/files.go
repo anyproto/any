@@ -105,7 +105,7 @@ func (c *Client) FileDownload(ctx context.Context, spaceId, fileId, variant stri
 		return nil, parseServerError(resp)
 	}
 	res := &FileDownloadResult{
-		Body: resp.Body,
+		Body: streamBody{resp.Body, ctx},
 		Size: resp.ContentLength,
 		Mime: resp.Header.Get("Content-Type"),
 	}
