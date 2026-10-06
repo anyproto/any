@@ -20,7 +20,7 @@ order: 30
 |------|---------|
 | `0` | success |
 | `1` | user error or a 4xx reply |
-| `2` | server error (5xx) |
+| `2` | server error (5xx, or a download, export or stream cut mid-transfer) |
 | `3` | cannot reach the server — `start it with any run in another terminal` |
 
 ## Lifecycle

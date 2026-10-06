@@ -47,7 +47,7 @@ Panics are converted to `500 internal` with a generic message.
 
 ## CLI exit codes
 
-`0` success · `1` user error or 4xx · `2` server error (5xx) · `3` cannot reach the server. See [CLI](cli.html).
+`0` success · `1` user error or 4xx · `2` server error (5xx, or a download, export or stream cut mid-transfer) · `3` cannot reach the server. See [CLI](cli.html).
 
 ## Code namespace
 

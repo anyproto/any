@@ -10,7 +10,7 @@ import (
 //
 //	0 — success (never reached here)
 //	1 — user / 4xx
-//	2 — server / 5xx, or a response cut mid-stream
+//	2 — server / 5xx, or a download, export or stream cut mid-transfer
 //	3 — transport (can't reach server)
 func exitCode(err error) int {
 	if err == nil {

@@ -11,7 +11,8 @@
   through `jq`); streams print one JSON object per frame. No table
   rendering.
 - **Exit codes**: 0 success, 1 user / 4xx error, 2 server / 5xx error
-  or a response cut mid-stream, 3 can't reach server.
+  or a download, export or stream cut mid-transfer, 3 can't reach
+  server.
 
 ## Command surface
 

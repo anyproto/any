@@ -100,6 +100,59 @@ func TestWriteFile_WritesThroughSymlink(t *testing.T) {
 	}
 }
 
+// A name too long to extend still stages beside the file, and a failed
+// transfer through a dangling symlink removes the target it created.
+func TestWriteFile_FailureEdgeCases(t *testing.T) {
+	dir := t.TempDir()
+	long := filepath.Join(dir, strings.Repeat("a", 250))
+	if err := os.WriteFile(long, []byte("previous"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeFile(long, &cutReader{strings.NewReader("partial")}); !errors.Is(err, errCut) {
+		t.Fatalf("long name: err = %v, want the read error", err)
+	}
+	if b, _ := os.ReadFile(long); string(b) != "previous" {
+		t.Fatalf("long name: content = %q, want the previous file untouched", b)
+	}
+	assertOnlyEntry(t, dir, filepath.Base(long))
+
+	if runtime.GOOS == "windows" {
+		return
+	}
+	dangling := filepath.Join(dir, "dangling.bin")
+	missing := filepath.Join(dir, "missing.bin")
+	if err := os.Symlink(missing, dangling); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeFile(dangling, &cutReader{strings.NewReader("partial")}); !errors.Is(err, errCut) {
+		t.Fatalf("dangling: err = %v, want the read error", err)
+	}
+	if _, err := os.Lstat(missing); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("dangling: target left behind (%v)", err)
+	}
+}
+
+// A refused rename (a bind-mounted file, another user's file in a
+// sticky directory) copies the staged body over the file in place.
+func TestWriteFile_RefusedRenameOverwritesInPlace(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.bin")
+	if err := os.WriteFile(path, []byte("previous, longer"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	renameFile = func(string, string) error { return os.ErrPermission }
+	t.Cleanup(func() { renameFile = os.Rename })
+
+	n, err := writeFile(path, strings.NewReader("new"))
+	if err != nil || n != 3 {
+		t.Fatalf("writeFile = %d, %v", n, err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "new" {
+		t.Fatalf("content = %q, want new", b)
+	}
+	assertOnlyEntry(t, dir, "out.bin")
+}
+
 // A writable file in a directory that takes no new file is overwritten
 // in place.
 func TestWriteFile_UnwritableDirOverwritesInPlace(t *testing.T) {
