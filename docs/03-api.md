@@ -41,6 +41,8 @@
   - [Types](#types)
     - [Parts and modules](#parts-and-modules)
     - [Runtime dataset schemas](#runtime-dataset-schemas)
+    - [Shared datasets](#shared-datasets)
+    - [Declared indexes](#declared-indexes)
     - [Upsert records](#upsert-records)
     - [Built-in `dataview` type](#built-in-dataview-type)
     - [Built-in hidden type: `page`](#built-in-hidden-type-page)
@@ -98,7 +100,9 @@
   *writes* only — POST/PATCH/DELETE and reactions. Reads always go
   through the per-object query primitive with the matching `dataset`
   value — the storage collection name (`chat_messages`,
-  `editor_blocks`, a namespaced `<typeId>_<key>`, …). One read path for every dataset,
+  `editor_blocks`, a namespaced `<typeId>_<key>`, …). A shared
+  dataset is also read across its objects through
+  `…/datasets/query[/subscribe]`. One read path for every dataset,
   one wire shape for every snapshot. The lone exception is
   `GET …/editor/:collection/markdown`, which renders blocks to
   markdown bytes — a transform, not a dataset read.
@@ -758,8 +762,8 @@ in arrives as an `added` change.
 #### Dataset schema discovery
 
 ```
-GET /v1/spaces/:spaceId/datasets   → { datasets: [ { name, schema, owners?, module?, shared? } ] }   Space.Datasets
-GET /v1/datasets                   → { datasets: [ { name, schema } ] }                              Service.Datasets
+GET /v1/spaces/:spaceId/datasets   → { datasets: [ { name, schema, owners?, module?, shared?, indexes? } ] }   Space.Datasets
+GET /v1/datasets                   → { datasets: [ { name, schema } ] }                     Service.Datasets
 ```
 
 `schema` is a standard **JSON Schema** object per dataset
@@ -770,15 +774,16 @@ runtime datasets, `chat` / `editor` for the compiled-in ones); it is
 absent on built-in datasets (`objects`, the SDK's system datasets) and
 on a registered type's statically declared datasets. `owners` lists the
 types whose parts declare the storage collection: the one declaring
-type of a namespaced `<typeId>_<key>` instance, every type sharing a
-module's canonical one (`shared: true` — `editor_blocks`,
-`chat_messages`). A storage collection lives on an object only while
+type of a namespaced `<typeId>_<key>` instance, every type declaring a
+module's canonical one (`editor_blocks`, `chat_messages`). A storage collection lives on an object only while
 the object's type is one of its owners (a type definition object counts
 as its own), so consumers gate indexing/eviction on that set; a
 canonical one nothing declares yet is listed without `owners`, and no
 object can hold it until a type declares the module (§ Parts and
-modules). Each property carries an `x-scope` extension keyword
-classifying the field:
+modules). `shared: true` marks a shared dataset (§ Shared datasets),
+and `indexes` lists its valid declared indexes
+(`[{key, fields, sparse?}]`, § Declared indexes). Each property carries
+an `x-scope` extension keyword classifying the field:
 
 - `synced` — user/DAG-written, synced to everyone in the space;
 - `derived` — handler-computed, read-only to writers (e.g. chat
@@ -1167,9 +1172,9 @@ holds the marker.
   the parts list), and records go through `POST …/upsert` / `…/modify`
   / `…/query[/subscribe]` with that storage collection as `dataset` and
   `objectId` = an object of the type — the root itself included, since a
-  definition hosts itself. A part naming a module (`{"module": "editor", "shared":
-  true}`) makes the root's type own that module's canonical storage
-  collection — this is how a client's document bundle gives its
+  definition hosts itself. A part whose dataset names a module and no
+  key (`{"module": "editor"}`) makes the root's type own that module's
+  canonical storage collection — this is how a client's document bundle gives its
   objects a body. A part
   naming a module reserved to the server (`chat`, § Parts and modules)
   is `400 dataset.module_reserved`. Refused with `collection`
@@ -1285,8 +1290,8 @@ settings — lives in bundles on the account's **tech space**, whose id
 - `DELETE …/objects/:objectId` on a bundle root (the SDK refuses any
   other object);
 - `GET …/types`, `GET …/types/:rootId`, `GET …/types/:rootId/properties`
-  and the `parts…` / `datasets…` / `POST|PATCH|DELETE properties…`
-  routes on bundle roots;
+  and the `parts…` / `datasets…` (fields and indexes included) /
+  `POST|PATCH|DELETE properties…` routes on bundle roots;
 - records on bundle roots: `query[/subscribe]`, `modify`, `upsert`,
   `delete-records`, `aggregate`, `objects/query[/subscribe]`,
   `objects/aggregate`; `GET …/objects/:objectId`; `GET …/datasets`;
@@ -1508,11 +1513,11 @@ storage collection** (one record per block) served by the compiled-in
 `editor` module, and exposed through the `…/editor/:collection/**`
 route namespace. `:collection` is the storage collection a type's part
 declared with `{"module": "editor"}` (§ Parts and modules): the canonical
-`editor_blocks` for a shared part — the body every document type
-shares, so an object that changes from one document type to another
-keeps its body — or a
+`editor_blocks` for a part whose editor dataset names no other key —
+the body every document type addresses, so an object that changes from one document
+type to another keeps its body — or a
 namespaced `<typeId>_<key>` instance for a part that wants its own
-editor (the catalog's `meeting`: its notes are the shared body, its
+editor (the catalog's `meeting`: its notes are the canonical body, its
 summary a second editor at `<typeId>_summary`). An object holds a
 storage collection only while its type declares it: a
 write into one the object's type does not declare is `400
@@ -1520,7 +1525,7 @@ dataset.not_declared` (set the type first — the write never sets
 one); a `:collection` no editor part in the space declares is `404
 dataset.not_found`. The built-in `page` type (§ Built-in hidden type:
 `page`)
-is the plain document — hidden, one part sharing this storage
+is the plain document — hidden, one part on this storage
 collection; a
 client with its own document types declares them with an editor part,
 registered as a bundle so every peer lands on one, and an object
@@ -1949,6 +1954,9 @@ storage collection, so it disappears from `objects/query` and leaves every
 `reason: "deleted"` — the signal subscribers use to drop the id from
 local state. See `04-events.md`.
 
+Deleting a collection's own object deletes the collection; its
+members keep the id (§ Collections).
+
 A **derived** object is permanent — any bundle root installed with
 `derived: true`, so the general chat (§ Bundles → Derived roots) —
 and answers `409 object.derived_undeletable`; the row stays readable.
@@ -2036,11 +2044,14 @@ drop their edges. The wiki tree's
 | POST   | `/v1/spaces/:spaceId/query`                               | `Space.Query.Snapshot`               |
 | POST   | `/v1/spaces/:spaceId/query/subscribe`                     | `Space.Query.Subscribe` (SSE)        |
 | POST   | `/v1/spaces/:spaceId/aggregate`                           | `Space.Aggregate` (pipeline)         |
+| POST   | `/v1/spaces/:spaceId/datasets/query`                      | `Space.QueryDataset.Snapshot`        |
+| POST   | `/v1/spaces/:spaceId/datasets/query/subscribe`            | `Space.QueryDataset.Subscribe` (SSE) |
+| POST   | `/v1/spaces/:spaceId/datasets/aggregate`                  | `Space.AggregateDataset` (pipeline)  |
 | POST   | `/v1/spaces/:spaceId/modify`                              | `Space.Modify`                       |
 | POST   | `/v1/spaces/:spaceId/upsert`                              | `Space.Upsert` (§ Upsert records)    |
 | POST   | `/v1/spaces/:spaceId/delete-records`                      | `Space.Delete`                       |
 
-Two query scopes:
+Three query scopes:
 
 - `POST /v1/spaces/:spaceId/objects/query` (+ `/subscribe`) —
   **cross-object**. Reads the per-space `objects` storage collection
@@ -2053,6 +2064,10 @@ Two query scopes:
   Reads one of an object's own datasets (`objectId` and `dataset`
   required): a definition object's `properties`, `editor_blocks`,
   `chat_messages`, a runtime `<typeId>_<key>` storage collection, etc.
+- `POST /v1/spaces/:spaceId/datasets/query` (+ `/subscribe`) — **a
+  shared dataset across its objects** (`dataset` required, no
+  `objectId`): every object's records of one runtime dataset declared
+  `shared` (§ Shared datasets).
 
 Every row in the per-space `objects` storage collection carries SDK-stamped
 row-root fields alongside `id`, all derived/read-only (client writes
@@ -2074,7 +2089,7 @@ addressing them are rejected):
 
 "Recently modified first" is `{"sort": ["-modifiedAt"]}`.
 
-All four take POST (the filter/sort body doesn't fit a query string).
+All six take POST (the filter/sort body doesn't fit a query string).
 The bare `…/query` returns a point-in-time snapshot;
 `…/query/subscribe` returns the same snapshot plus a live SSE stream of
 windowed transitions. See `04-events.md` for the subscribe contract.
@@ -2244,13 +2259,14 @@ deleted id is never reused.
 
 #### Aggregate
 
-The same two scopes take MongoDB-style aggregation pipelines — the
+The same three scopes take MongoDB-style aggregation pipelines — the
 aggregation siblings of the query endpoints, snapshot-only (no
 subscribe variant):
 
 ```
 POST /v1/spaces/:spaceId/objects/aggregate     Space.AggregateObjects
 POST /v1/spaces/:spaceId/aggregate             Space.Aggregate (objectId + dataset required)
+POST /v1/spaces/:spaceId/datasets/aggregate    Space.AggregateDataset (dataset required, a shared dataset)
 ```
 
 Body: `{objectId?, dataset?, pipeline: [...], groupLimit?,
@@ -2265,11 +2281,12 @@ Errors: `aggregate.bad_pipeline` / `aggregate.limit_exceeded`
 
 #### Subscribe (Server-Sent Events)
 
-Two endpoints — POST, body as documented above:
+Three endpoints — POST, body as documented above:
 
 ```
 POST /v1/spaces/:spaceId/objects/query/subscribe       (cross-object)
 POST /v1/spaces/:spaceId/query/subscribe               (per-object)
+POST /v1/spaces/:spaceId/datasets/query/subscribe      (a shared dataset across its objects)
 ```
 
 Response is `Content-Type: text/event-stream`. Errors before the
@@ -2450,7 +2467,9 @@ record-scope fast path: one record, no full-view materialization, so
 it can't hit `view_too_large`. `→ {version, dataset, recordId, exists,
 deleted?, record?}`. `exists: false` means the record wasn't
 present at that cut; `deleted: true` means it was tombstoned and
-`record` carries the tombstone row.
+`record` carries the tombstone row. For a record of a shared dataset
+`:recordId` is the plain record id — the part of its `id` after
+`<objectId>/` — or the `id` percent-encoded.
 
 #### Diff
 
@@ -2505,6 +2524,8 @@ diffs are leaf-level; an absent side is omitted (`added` has no
 | POST   | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields`    | `TypesAPI.AddDatasetField` |
 | PATCH  | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId` | `TypesAPI.PatchDatasetField` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId` | `TypesAPI.RemoveDatasetField` |
+| POST   | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId/indexes`   | `TypesAPI.AddDatasetIndex` |
+| DELETE | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId/indexes/:indexId` | `TypesAPI.RemoveDatasetIndex` |
 
 `POST …/types` **requires** a non-empty **`xKey`** — the stable
 programmatic handle a type is resolved by (the display `name` is not a
@@ -2746,21 +2767,25 @@ part is what the client renders; the module is what the server
 enforces.
 
 Where a dataset's records live is its **storage collection** — the
-`dataset` value on every read and write:
+`dataset` value on every read and write. The dataset's `key` decides
+it:
 
-- **namespaced** (the default): `<typeId>_<key>`. Owned by this type
-  alone; two types each declaring a `notes` editor part have two
-  bodies. `records` datasets are always namespaced.
-- **shared** (`"shared": true`): the module's canonical storage
-  collection — `editor_blocks`, `chat_messages`. Every type declaring a
-  shared editor part writes the same body, so an object that takes
-  another document-ish type keeps the one it already has. The key is
-  the canonical
-  name (omit it or spell it exactly; anything else is `400
-  dataset.shared_conflict`); one shared dataset per module per type
-  (a second is `409 dataset.key_conflict` on the canonical key); only
-  modules with a canonical storage collection share (`records` never
-  does — `400 dataset.shared_conflict`). `chat` is shared-only.
+- **canonical**: a module dataset with no `key`, or with the module's
+  canonical name as its key — `editor_blocks`, `chat_messages`. Every
+  type declaring it addresses the same storage collection, so an
+  object that takes another document type keeps the body it already
+  has. A type declares it at most once (a second is `409
+  dataset.key_conflict`). `chat` admits no other key.
+- **namespaced**: any other key — `<typeId>_<key>`. Owned by this type
+  alone; two types each declaring an editor dataset keyed `notes` have
+  two bodies. `records` has no canonical storage collection, so a
+  records dataset always names a key: without one it is `400
+  request.missing_field` on the dataset route, `400
+  dataset.decl_invalid` in a part draft and `400 request.invalid_field`
+  in a bundle body.
+
+A dataset is canonical when its `collection` — `name` on `GET
+…/datasets` — is its module's canonical name.
 
 A module may be **reserved** to the server's own installs: a part or
 dataset draft naming it — on a type, or in a bundle body — is `400
@@ -2795,7 +2820,7 @@ dataset under it land in one change:
 ```json
 { "key": "body", "name": "Description", "pos": "a0",
   "ui": { "type": "document" },
-  "datasets": [ { "module": "editor", "shared": true } ] }
+  "datasets": [ { "module": "editor" } ] }
 ```
 
 ```json
@@ -2819,8 +2844,8 @@ dataset under it land in one change:
   whole; absent = the first dataset's module default.
 - `uses` — keys of other datasets **of this type** the part renders
   without owning (a transcript part reading the `speakers` dataset).
-- `datasets` — the initial declarations, each `{key?, module?, shared?,
-  …}` plus the records-module schema fields below. `module` defaults to
+- `datasets` — the initial declarations, each `{key?, module?, …}`
+  plus the records-module schema fields below. `module` defaults to
   `records`; an unknown module is `400 dataset.module_unknown`. A
   module-served dataset (`editor`, `chat`) carries **no** `fields` —
   the module owns the schema — so any field declaration on it is `409
@@ -2828,7 +2853,7 @@ dataset under it land in one change:
 
 `GET …/types/:typeId/parts` → `{parts: [{id, key, name?, icon?, pos?,
 hidden?, ui?, uses?, datasets: [<DatasetDef>…]}]}` — the compiled
-view, each dataset carrying its `collection`, `module`, `shared` and
+view, each dataset carrying its `collection`, `module` and
 `partId` (the same `DatasetDef` shape `GET …/datasets` lists flat).
 Parts and datasets fold by key across replicas (two devices declaring
 the same key while apart converge on one definition; a disagreement on
@@ -2921,6 +2946,10 @@ collection}` (or inline in the part's `datasets` on `POST …/parts`):
   `skipHistory` (out of version history; applies from the next time
   the object's history index opens) / per-field `scope` (`synced`
   default or `local`) and `shape` (`{kind, items?, properties?}`).
+- `shared` — every object's records in one storage collection per
+  space, readable across objects (§ Shared datasets).
+- `indexes` — declared secondary indexes, `[{key, fields, sparse?}]`
+  (§ Declared indexes).
 - per-field `description` and **`xFormat`** — the descriptive slice: the
   same descriptor a property carries (`docs/27-descriptors.md`),
   validated the same way against the field's kind (the wire `kind`, the
@@ -2949,9 +2978,10 @@ without a creator stamp, duplicate stamp kinds, …) → `400
 request.invalid_field` or `400 dataset.decl_invalid`.
 
 **Semantics of the pinning model:** behavioral parts — `key` (and with
-it the storage collection name), `module`, `shared`, `dynamic`,
-`idRule`/`idPattern`/`idMaxLen`, `deleteBy`, `skipHistory`, field
-`key`/`kind`/`shape`/`scope`/`required`/`mutableBy`/`stamp` — are
+it the storage collection name), `module`, `dynamic`,
+`idRule`/`idPattern`/`idMaxLen`, `deleteBy`, `skipHistory`, `shared`,
+field `key`/`kind`/`shape`/`scope`/`required`/`mutableBy`/`stamp`, and
+every part of an index — are
 pinned for the definition's life; remove and re-add under a new
 definition to change them. Display parts patch:
 **`PATCH …/datasets/:defId`** takes the same `{set, unset}` shape as
@@ -2975,14 +3005,16 @@ would silently no-op).
 (values stay stored; subsequent writes to the field are rejected as
 undeclared on non-dynamic datasets; a removal that would invalidate
 the remaining declaration — e.g. the creator stamp of an author-gated
-dataset — is refused). The SDK keys field definitions by (typeId,
+dataset — is refused, and so is the removal of a field a declared
+index names: `400 dataset.decl_invalid`, remove the index first). The SDK keys field definitions by (typeId,
 fieldId) — `:defId` rides the URI for hierarchy only.
 
 `GET …/types/:typeId/datasets` returns the compiled view:
-`{datasets: [{id, key, collection, module, shared?, partId,
+`{datasets: [{id, key, collection, module, partId,
 displayName?, description?, dynamic?, idRule, idPattern?, idMaxLen?,
-deleteBy, skipHistory?, search?, fields: [<field>…], invalid?,
-invalidReason?}]}` with each field read back whole as above.
+deleteBy, skipHistory?, shared?, search?, fields: [<field>…],
+indexes?: [{id, key, fields, sparse?, invalid?, invalidReason?}],
+invalid?, invalidReason?}]}` with each field read back whole as above.
 `invalid` marks a definition whose folded declaration fails validation
 — it never registers or accepts data but stays listed so it can be
 repaired (add the missing field) or removed. Runtime datasets also
@@ -3004,6 +3036,110 @@ on the declaring type object itself — the first write needs that type
 set, e.g. via object create `type`; `400 dataset.not_declared`
 otherwise). `id: user` datasets additionally get the batch upsert
 below.
+
+#### Shared datasets
+
+A `records` dataset declared `"shared": true` keeps the records of
+every object of its type in one storage collection per space. A record
+still belongs to the object it is written on; what changes is that the
+dataset can be read across objects. `shared` is pinned, and a module
+dataset refuses it (`400 dataset.decl_invalid`; `400
+request.invalid_field` in a bundle body).
+
+- **Record ids.** Every read returns a record with
+  `id: "<objectId>/<recordId>"` and `_objectId: "<objectId>"`. The
+  record id itself — auto-derived or caller-supplied — never holds a
+  `/`.
+- **Writes** go through the per-object routes (`modify`,
+  `delete-records`, `upsert`) and take the plain record id, or the
+  `id` of a record of the request's own `objectId`. A record id of
+  another object is `400 record.wrong_object` on `modify` and
+  `delete-records`, and a per-record `upsert.rejected` on `upsert`.
+  `modify` and `upsert` return `recordIds` in the
+  `<objectId>/<recordId>` form.
+- **One object** is read through `POST …/query[/subscribe]` and
+  `POST …/aggregate` with `objectId` + `dataset`, as any dataset.
+- **Every object** is read through the dataset scope:
+
+```
+POST /v1/spaces/:spaceId/datasets/query             { dataset, filter?, sort?, limit?, offset?, includeTotal?, projection? }
+POST /v1/spaces/:spaceId/datasets/query/subscribe   same body; SSE
+POST /v1/spaces/:spaceId/datasets/aggregate         { dataset, pipeline, groupLimit?, accumArrayLimit?, memoryLimitBytes?, explain? }
+```
+
+  `dataset` is the storage collection (`<typeId>_<key>`, the
+  definition's `collection`). The reply shapes and the SSE frames are
+  the per-object ones. The read covers the records this device has
+  synced; no object is opened for it.
+- **Live.** A dataset-scope subscription carries the changes of every
+  object's records. Deleting an object arrives as `removed` entries
+  for the records it held, in batches with an empty `versionId`.
+- **Filters on `id`** compare the whole `<objectId>/<recordId>`
+  value, in both scopes: one object's record ids from `a` up to `b`
+  are `{"id": {"$gte": "<objectId>/a", "$lt": "<objectId>/b"}}`.
+- **Order.** `_ver` orders the changes of one object. Records of
+  different objects share no version order: sort on a declared field.
+- **Errors.** `400 dataset.not_shared` — the dataset is not shared, or
+  the space does not hold it. `400 request.unknown_field` — a key the
+  body does not take, `objectId` included. `405 space.unsupported` on
+  the tech space.
+- **Links and search.** In an `any://` record link, a search hit and a
+  link source, `recordId` is the plain record id next to its
+  `objectId`.
+
+#### Declared indexes
+
+A `records` dataset declares secondary indexes: in the draft's
+`indexes`, or later — also on a dataset that holds records:
+
+```
+POST   /v1/spaces/:spaceId/types/:typeId/datasets/:defId/indexes            { key, fields, sparse? }  → 201 { indexDefId }
+DELETE /v1/spaces/:spaceId/types/:typeId/datasets/:defId/indexes/:indexId   → 204
+```
+
+```json
+{ "key": "by_start", "fields": ["start", "_objectId"] }
+```
+
+- `key` — the index's slug, unique within the dataset.
+- `fields` — one to four paths in order; a `-` prefix keeps a path
+  descending. Each names a declared field of kind `string`, `number`,
+  `boolean` or `datetime`, or `_ver.id` (creation order within one
+  object); a shared dataset also takes `_objectId`. An indexed field's
+  key is letters, digits and `_`, starts with a letter and is at most
+  48 bytes. A filter or sort on a leading run of the fields is a range
+  read (`09-query.md` § Indexes & cost).
+- `sparse` — leaves a record out of the index unless it carries every
+  indexed field.
+- At most eight indexes per dataset. No unique index.
+- Every part is pinned: replace an index by removing it and adding
+  another.
+- A malformed or unsatisfiable draft — unknown field, a field of
+  another kind, a taken key, a ninth index — is
+  `400 dataset.decl_invalid`; a module dataset is
+  `409 dataset.module_owned`; an unknown `defId` on POST, or an
+  unknown `indexId`, is `404 sdk.not_found`. On DELETE the index is
+  found by `indexId` within the type — `:defId` rides the URI for
+  hierarchy only.
+
+Definitions sync, so every device holds the same set, and each device
+builds its own indexes:
+
+- **A shared dataset** is indexed once per space, in the background,
+  when the definition reaches the device. The build reads the whole
+  collection, and **every write to the account's data waits until it
+  ends**.
+  It shows in the process view as `dataset.index.<spaceId>`
+  (`22-processes.md`). Queries scan until it ends.
+- **A per-object dataset** indexes each object's records the next time
+  that object's dataset is read or written.
+
+`GET …/types/:typeId/datasets` lists every definition, an `invalid`
+one included. Two devices editing one dataset at the same time can
+leave an index that names a field the other removed, or a ninth index:
+such a definition is built nowhere, carries `invalidReason`, and stays
+listed until removed. `GET …/datasets` (discovery) lists the valid
+ones.
 
 #### Upsert records
 
@@ -3043,7 +3179,8 @@ write-once field), `upsert.not_author` (author-mutable field on another
 author's record), `upsert.record_deleted` (stored tombstone — ids never
 reuse), `upsert.rejected` (creation screening: missing required field,
 id pattern/length violation, undeclared field on a non-dynamic dataset,
-write to a stamped field — the specific cause in `reason`). Whole-call
+write to a stamped field, on a shared dataset the id of another
+object's record — the specific cause in `reason`). Whole-call
 errors: `400 request.missing_field` (no `objectId`, `dataset` or
 `records`), `400 upsert.requires_user_ids` (dataset not declared
 `idRule: user`), `400 dataset.unknown` (no such records storage
@@ -3054,7 +3191,7 @@ object's type does not declare it).
 #### Documents and chats
 
 There is no built-in `editor` or `chat` type. "This object is a
-document" is a type whose part shares the editor module — the built-in
+document" is a type whose part declares the editor module — the built-in
 `page` (§ Built-in hidden type: `page`) or a user type; a client's own
 document type is registered as a bundle-declared type with an editor
 part (§ Bundles), so every device converges on one type per space
@@ -3165,12 +3302,12 @@ object: a client decides what type its objects have (`type` on
 
 It is the plain document. No properties; one part `body`
 (`ui: {"type": "document"}`) whose dataset is the editor module's
-shared storage collection, so an object of type `page` holds
+canonical storage collection, so an object of type `page` holds
 `editor_blocks` and every `…/editor/editor_blocks/**` route works on
 it. Optional: a client that wants a plain body uses it; one with its
 own document types declares them with an editor part (§ Parts and
-modules) — both share the storage collection, and `page` is always
-among the `owners` of `editor_blocks`. Being registered, `page` carries
+modules) — both address the same storage collection, and `page` is
+always among the `owners` of `editor_blocks`. Being registered, `page` carries
 no `layout`: an object of type `page` renders by the client's default.
 
 ### Collections
@@ -3243,6 +3380,21 @@ marker exclusion.
 
 Filing an object is `POST …/properties/:objectId/collections/:collectionId`,
 unfiling the matching DELETE (§ Properties).
+
+**Deleting a collection** is `DELETE …/objects/:collectionId` (§ Object
+deletion). Its members are not touched: each keeps the collection id in
+`any.collections` and its values for the collection's columns, and
+`{"any.collections": "<collectionId>"}` still returns them. The server
+does not clean them up because it cannot do it reliably: a device that
+was offline can file an object under the collection after the delete,
+and that change still syncs in. A bundle uninstall or conflict resolve
+leaves members the same way.
+
+So a client showing an object's collections ignores an id that is not a
+known collection. Lists are not affected: no client lists the members
+of a collection that no longer exists. To clean up, unfile the object
+from the dead id — the unfile route does not check that the collection
+exists. Filing under the dead id again is `404 collection.not_found`.
 
 #### Built-in collections: `miniapp`, `bin`
 
@@ -3380,7 +3532,7 @@ the DELETE clears them, in the same change as the membership op
 
 A chat is an object holding the `chat_messages` storage collection —
 served by the compiled-in `chat` module, which an object holds while
-its type has a part declaring `{"module": "chat", "shared": true}`
+its type has a part declaring `{"module": "chat"}`
 (§ Parts and modules). The module is **reserved to the server**: no
 client part, dataset or bundle may declare it (`400
 dataset.module_reserved`), and the one declaration is the catalog's
@@ -3402,7 +3554,7 @@ POST /v1/catalog/general-chat/setup
 
 The install is `system:general-chat/v1`: a **derived**, **hidden**
 root that is its own type definition (handle `general_chat`, `layout
-{"type": "chat"}`) with one shared `chat` part — a definition hosts
+{"type": "chat"}`) with one `chat` part — a definition hosts
 itself, so it takes
 `chat/messages` writes from the first call — and is filed under the
 `miniapp` collection (`bundle = system:general-chat/v1`), so the chat

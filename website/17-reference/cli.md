@@ -123,8 +123,10 @@ any catalog setup wiki $SP
 ```
 any query-subscribe <spaceId> <objectId> --dataset NAME [--filter J] [--sort K] [--limit N] [--offset N] [--total] [--projection P]
 any query-subscribe <spaceId> --properties [same flags]      # per-space objects storage collection
+any query-subscribe <spaceId> --all-objects --dataset NAME [same flags]   # a shared dataset across its objects
 any aggregate <spaceId> <objectId> --dataset NAME --pipeline '<json>'|@FILE|-
 any aggregate <spaceId> --properties --pipeline '<json>'|@FILE|-
+any aggregate <spaceId> --all-objects --dataset NAME --pipeline '<json>'|@FILE|-
               [--group-limit N] [--accum-limit N] [--memory-limit N] [--explain]
 any upsert <spaceId> <objectId> --dataset NAME --records '<json>'|@FILE|- [--page-size N] [--trace-id T]...
 any backlinks <spaceId> <objectId> [--record R --dataset D | --prop P] [--kind K]... [--limit N]
@@ -219,6 +221,8 @@ any type part dataset remove <spaceId> <typeId> <defId>
 any type part dataset field add    <spaceId> <typeId> <defId> --field '<json>'|@FILE|-
 any type part dataset field patch  <spaceId> <typeId> <defId> <fieldId> --set '<json>' [--unset PATH]...
 any type part dataset field remove <spaceId> <typeId> <defId> <fieldId>
+any type part dataset index add    <spaceId> <typeId> <defId> --index '<json>'|@FILE|-   # {"key","fields",["sparse"]}
+any type part dataset index remove <spaceId> <typeId> <defId> <indexId>
 ```
 
 ```bash
@@ -246,7 +250,7 @@ any collection property remove <spaceId> <collectionId> <propId>
 
 A collection is what an object is filed under; a type is what it is. A collection takes a name, description, icon, `--xkey`, `--hidden`, `--meta` and property definitions — no parts, no layout. The property verbs are the type ones on a collection owner, same flags and same `{set, unset}` patch rules; the choice-option sugar is on the type group only, so patch the descriptor path directly here.
 
-`--xkey` is required on create and unique across the space's types and collections together (`409 type.xkey_conflict`). `collection list` omits hidden collections (the built-in `miniapp` / `bin`, and any you marked hidden) without `--include-hidden`; `collection get` resolves them always. A registered built-in refuses a metadata write (`400 collection.registered`), and deleting a collection is `501 sdk.not_implemented`.
+`--xkey` is required on create and unique across the space's types and collections together (`409 type.xkey_conflict`). `collection list` omits hidden collections (the built-in `miniapp` / `bin`, and any you marked hidden) without `--include-hidden`; `collection get` resolves them always. A registered built-in refuses a metadata write (`400 collection.registered`).
 
 ```bash
 any collection create $SP --name Contacts --xkey contact

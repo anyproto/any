@@ -27,7 +27,7 @@ account
 
 ## One read path, many write paths
 
-Reads always go through the windowed query primitive: `POST /v1/spaces/:spaceId/objects/query` for the cross-object `objects` storage collection and `POST /v1/spaces/:spaceId/query` for one object's dataset. Each has a `/subscribe` twin that returns the same snapshot plus a live stream of changes (see [Subscribe](../realtime/subscribe.html)). Writes go through purpose-built endpoints — property set, generic `/modify`, and the modules' own handlers — and each returns the same `{versionId, changeId, recordIds}` receipt; object create answers with the new `objectId`.
+Reads always go through the windowed query primitive: `POST /v1/spaces/:spaceId/objects/query` for the cross-object `objects` storage collection, `POST /v1/spaces/:spaceId/query` for one object's dataset, and `POST /v1/spaces/:spaceId/datasets/query` for a [shared dataset](runtime-datasets.html#shared-datasets) across its objects. Each has a `/subscribe` twin that returns the same snapshot plus a live stream of changes (see [Subscribe](../realtime/subscribe.html)). Writes go through purpose-built endpoints — property set, generic `/modify`, and the modules' own handlers — and each returns the same `{versionId, changeId, recordIds}` receipt; object create answers with the new `objectId`.
 
 > **Why it matters.** There is no server between you and your data. Queries run against a local any-store database, so a read is a local disk read, a write is immediately visible, and both work offline. Sync and merge happen underneath — the query you ran a second ago keeps answering while peers catch up.
 

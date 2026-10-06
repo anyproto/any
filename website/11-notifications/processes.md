@@ -105,15 +105,18 @@ A progress UI for a space keeps `GET /v1/events/subscribe?scope=space&spaceId=�
 
 ## Built-in producers
 
-The server reports its own long work through the same view, all at device scope and under `index.*` kinds. Ordinary indexing stays silent: the FTS and embedding passes announce only once they have been running for more than 3 s, so a single edit never appears while a cold re-index or a large catch-up shows up with its counters already carrying the work done so far.
+The server reports its own long work through the same view, all at device scope: search indexing under `index.*` kinds, and the build of a shared dataset's declared indexes under `dataset.index`. Ordinary indexing stays silent: the FTS and embedding passes announce only once they have been running for more than 3 s, so a single edit never appears while a cold re-index or a large catch-up shows up with its counters already carrying the work done so far.
 
 | Process id | `kind` | Counters |
 |---|---|---|
 | `index.embed.<spaceId>` | `index.embed` | `done` / `total` in documents; the total is re-read every round so late arrivals extend the bar |
 | `index.fts.<spaceId>` | `index.fts` | `done` in processed changes; `total` unknown |
 | `index.model_download` | `index.model_download` | `done` / `total` in bytes; announces at download start, even offline |
+| `dataset.index.<spaceId>` | `dataset.index` | none — announced when the build starts, one terminal; `target` is the dataset's storage collection |
 
-A failed download attempt is not terminal — it retries forever, keeping the row `running` with a generic message; the only terminals are `done` and, on shutdown, `cancelled`. A worker stopped mid-drain finishes as `cancelled` rather than leaving a ghost. Failure messages are generic on the wire (details go to the server log), and all three producers ignore cancel requests. This is how a client answers "why is semantic search empty right now" — see [Indexing](../search/indexing.html).
+A failed download attempt is not terminal — it retries forever, keeping the row `running` with a generic message; the only terminals are `done` and, on shutdown, `cancelled`. A worker stopped mid-drain finishes as `cancelled` rather than leaving a ghost. Failure messages are generic on the wire (details go to the server log), and the `index.*` producers ignore cancel requests. This is how a client answers "why is semantic search empty right now" — see [Indexing](../search/indexing.html).
+
+`dataset.index.<spaceId>` is this device's build of a [shared dataset's declared indexes](../database/runtime-datasets.html#declared-indexes). Every write on the server waits while it runs. A failed build is tried again at the next definition change or server start. The search indexer's space workers report it, so the row appears only while `index.enabled`.
 
 ## Errors
 

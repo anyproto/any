@@ -143,6 +143,10 @@ const (
 	// Done counts objects, Total is unknown. Reported past
 	// AnnounceAfter like an advance.
 	ProcessKindLinksBackfill = "links_backfill"
+	// ProcessKindDatasetIndex — the SDK building a shared dataset's
+	// declared indexes in a space: no counters, Name the dataset's
+	// storage collection. Every write waits while it runs.
+	ProcessKindDatasetIndex = "dataset_index"
 )
 
 // procHeartbeat paces the mid-work progress heartbeat: one embed call
@@ -163,7 +167,7 @@ const (
 type ProcessUpdate struct {
 	Kind    string // ProcessKind*
 	SpaceId string // per-space kinds; empty for model download
-	Name    string // model file name (model download only)
+	Name    string // model file name (model download); dataset collection (dataset index)
 	Phase   string
 	Done    int64
 	Total   int64 // 0 = unknown

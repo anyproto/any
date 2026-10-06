@@ -41,6 +41,15 @@ func (c *Client) StreamQuerySubscribe(ctx context.Context, spaceId string, body 
 	return c.streamSSE(ctx, http.MethodPost, path, body, fn)
 }
 
+// StreamDatasetQuerySubscribe opens
+// POST /v1/spaces/:spaceId/datasets/query/subscribe with body
+// containing dataset + standard query fields: a shared dataset across
+// every object that holds it.
+func (c *Client) StreamDatasetQuerySubscribe(ctx context.Context, spaceId string, body []byte, fn func(SSEFrame) error) error {
+	path := fmt.Sprintf("/v1/spaces/%s/datasets/query/subscribe", url.PathEscape(spaceId))
+	return c.streamSSE(ctx, http.MethodPost, path, body, fn)
+}
+
 // StreamSpaceListQuerySubscribe opens POST /v1/spaces/query/subscribe —
 // the windowed live view over the account's space list. body carries
 // the standard query fields plus an optional `dataset` override; an

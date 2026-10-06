@@ -67,7 +67,9 @@ any://o/<spaceId>/<objectId>/chat_messages/<msgId>      a message in a chat
 
 `<dataset>` is the dataset name (`editor_blocks`, `chat_messages`, …) exactly as
 it appears in `/query`'s `dataset` field; `<recordId>` is the record's derived
-id. **One rule covers editor blocks and chat messages alike** — dataset-name +
+id. For a record of a shared dataset it is the plain record id — the part of
+the record's `id` after `<objectId>/` — since the object is already in the
+link. **One rule covers editor blocks and chat messages alike** — dataset-name +
 record-id, same shape everywhere.
 
 A trailing `<propId>` segment (`…/<dataset>/<recordId>/<propId>`) to address a

@@ -25,6 +25,14 @@ func (c *Client) AggregateObjects(ctx context.Context, spaceId string, body []by
 	return c.postAggregate(ctx, path, body)
 }
 
+// AggregateDataset runs an aggregation pipeline over a shared dataset
+// across every object that holds it
+// (POST /v1/spaces/:spaceId/datasets/aggregate).
+func (c *Client) AggregateDataset(ctx context.Context, spaceId string, body []byte) (*api.AggregateResponse, error) {
+	path := fmt.Sprintf("/v1/spaces/%s/datasets/aggregate", url.PathEscape(spaceId))
+	return c.postAggregate(ctx, path, body)
+}
+
 func (c *Client) postAggregate(ctx context.Context, path string, body []byte) (*api.AggregateResponse, error) {
 	var out api.AggregateResponse
 	// json.RawMessage round-trips through do's json.Marshal unchanged,

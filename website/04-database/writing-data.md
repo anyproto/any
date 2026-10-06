@@ -80,6 +80,8 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/modify \
 
 `dataset` is a storage collection name — `<typeId>_<key>` for a runtime dataset — that a part of the object's **type** declares, and the object must have that type — otherwise `400 dataset.not_declared` (a name the space does not serve at all is `400 dataset.unknown`). Collections declare no datasets. Module storage collections (`chat_messages`, `editor_blocks`) are written through their own handlers, which stamp derived fields and enforce authorship; `/modify` is for runtime datasets and other dynamic ones. Runtime-dataset rules (required fields, write-once, author-only) are enforced on apply — see [Runtime datasets](runtime-datasets.html).
 
+On a [shared dataset](runtime-datasets.html#shared-datasets) a record `id` — on `/modify` and `/delete-records` alike — is the plain record id, or the `<objectId>/<recordId>` a read returned for a record of the request's own `objectId`. Another object's record is `400 record.wrong_object`, and `recordIds` in the reply carry the `<objectId>/<recordId>` form.
+
 ### Local-scope writes
 
 Add `"scope": "local"` to write fields the dataset schema declares `local` — device-only, no DAG change, never synced, still delivered to query/subscribe with a locally-minted `versionId` and an empty `changeId`:

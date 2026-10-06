@@ -34,8 +34,9 @@ const (
 	ModuleChat    = "chat"
 )
 
-// Canonical collections of the compiled-in modules — what a shared
-// dataset of the module is, and the default the editor CLI writes.
+// Canonical collections of the compiled-in modules — what a dataset of
+// the module is when it names no other key, and the default the editor
+// CLI writes.
 const (
 	CollectionEditorBlocks = "editor_blocks"
 	CollectionChatMessages = "chat_messages"
@@ -105,27 +106,26 @@ type PartPatchRequest struct {
 // DatasetDraftRequest is one dataset declaration — an element of
 // PartDraftRequest.Datasets or the body of POST
 // /v1/spaces/:spaceId/types/:typeId/parts/:partId/datasets. Mirrors
-// space.DatasetDraft. The behavioral parts (key, module, shared,
-// idRule/idPattern/idMaxLen, deleteBy, skipHistory, field kinds/flags)
+// space.DatasetDraft. The behavioral parts (key, module,
+// idRule/idPattern/idMaxLen, deleteBy, skipHistory, shared, field kinds/flags)
 // are pinned for the definition's life — remove and re-add to change
 // them; display parts (displayName, description, search leaves) patch
 // via PATCH …/datasets/:defId.
 type DatasetDraftRequest struct {
 	// Key is the dataset's slug inside its type ([a-z][a-z0-9_]*, ≤ 64)
-	// — pinned. A namespaced dataset lives in the collection
-	// `<typeId>_<key>`; a shared dataset's key is its module's canonical
-	// collection name and may be omitted.
+	// — pinned — and decides the collection. The canonical collection
+	// name of the dataset's own module (editor_blocks for editor) is
+	// that collection, the one every type declaring it addresses, so
+	// retyping an object keeps its body. Any other key is the
+	// collection `<typeId>_<key>`, this type's own. Omitted on a
+	// module dataset, it is the canonical name; a records dataset
+	// requires one.
 	Key string `json:"key,omitempty"`
 	// Module is the serving module: "records" (the default) or
 	// "editor". "chat" is reserved to the server (400
 	// dataset.module_reserved) — the catalog's general-chat usecase is
 	// its one declaration.
-	Module string `json:"module,omitempty"`
-	// Shared makes the type participate in the module's canonical
-	// collection (editor_blocks) instead of a namespaced one, so two
-	// types sharing the editor give an object carrying both a single
-	// body. Editor: either; records: never.
-	Shared      bool   `json:"shared,omitempty"`
+	Module      string `json:"module,omitempty"`
 	DisplayName string `json:"displayName,omitempty"`
 	Description string `json:"description,omitempty"`
 	// Dynamic keeps a free-form keyspace next to the declared fields.
@@ -141,6 +141,11 @@ type DatasetDraftRequest struct {
 	DeleteBy string `json:"deleteBy,omitempty"`
 	// SkipHistory keeps the dataset out of the version-history index.
 	SkipHistory bool `json:"skipHistory,omitempty"`
+	// Shared keeps the records of every object of the type in one
+	// storage collection per space, so POST …/datasets/query reads them
+	// across objects. Records datasets only; pinned. Each record's `id`
+	// is `<objectId>/<recordId>` and `_objectId` names its object.
+	Shared bool `json:"shared,omitempty"`
 	// Search is the optional search-extraction annotation (x-search):
 	// which record fields feed the search index's title/text, and
 	// optionally which index scope the entries land under.
@@ -149,6 +154,52 @@ type DatasetDraftRequest struct {
 	// a module owns its schema). Declare required fields here — fields
 	// added later cannot be required.
 	Fields []DatasetFieldDraft `json:"fields,omitempty"`
+	// Indexes are the initial declared indexes (records datasets only).
+	Indexes []DatasetIndexDraft `json:"indexes,omitempty"`
+}
+
+// DatasetIndexDraft declares a secondary index of a records dataset —
+// an element of DatasetDraftRequest.Indexes, the body of POST
+// …/datasets/:defId/indexes, and one entry of a discovery listing.
+// Mirrors space.IndexDraft. A filter or sort on a leading run of its
+// fields is a range read. Every part is pinned: an index is replaced by
+// removing it and adding another.
+type DatasetIndexDraft struct {
+	// Key is the index's slug ([a-z][a-z0-9_]*, ≤ 64), unique within
+	// the dataset.
+	Key string `json:"key"`
+	// Fields are the indexed paths in order, one to four; a "-" prefix
+	// keeps that path descending. Each names a declared field of kind
+	// string, number, boolean or datetime, or `_ver.id` (creation order
+	// within one object); a shared dataset also takes `_objectId`. An
+	// indexed field's key is letters, digits and `_`, starts with a
+	// letter and is at most 48 bytes.
+	Fields []string `json:"fields"`
+	// Sparse leaves a record out of the index unless it carries every
+	// indexed field.
+	Sparse bool `json:"sparse,omitempty"`
+}
+
+// DatasetIndexDef mirrors space.IndexDef — the compiled view of one
+// declared index.
+type DatasetIndexDef struct {
+	// Id is the index definition record's id — what DELETE
+	// …/indexes/:indexId takes.
+	Id     string   `json:"id"`
+	Key    string   `json:"key"`
+	Fields []string `json:"fields"`
+	Sparse bool     `json:"sparse,omitempty"`
+	// Invalid marks an index no collection builds (invalidReason says
+	// why): a field it names is not a declared scalar field any more,
+	// or the dataset already holds its limit. It stays listed so it can
+	// be removed.
+	Invalid       bool   `json:"invalid,omitempty"`
+	InvalidReason string `json:"invalidReason,omitempty"`
+}
+
+// AddDatasetIndexResponse is the body returned by POST …/datasets/:defId/indexes.
+type AddDatasetIndexResponse struct {
+	IndexDefId string `json:"indexDefId"`
 }
 
 // DatasetSearchFields mirrors space.SearchFields — the x-search
@@ -252,29 +303,34 @@ type DatasetDefResponse struct {
 	Id string `json:"id"`
 	// Key is the slug inside the type; collection is the name reads and
 	// writes address (`dataset` on /query, /modify, /upsert …) — the
-	// module's canonical collection when shared, `<typeId>_<key>`
-	// otherwise. Server-computed, never client-set.
+	// module's canonical collection when the key names it,
+	// `<typeId>_<key>` otherwise. Server-computed, never client-set.
 	Key        string `json:"key"`
 	Collection string `json:"collection"`
 	Module     string `json:"module"`
-	Shared     bool   `json:"shared,omitempty"`
 	// PartId is the owning part's id.
-	PartId      string               `json:"partId"`
-	DisplayName string               `json:"displayName,omitempty"`
-	Description string               `json:"description,omitempty"`
-	Dynamic     bool                 `json:"dynamic,omitempty"`
-	IdRule      string               `json:"idRule"`
-	IdPattern   string               `json:"idPattern,omitempty"`
-	IdMaxLen    int                  `json:"idMaxLen,omitempty"`
-	DeleteBy    string               `json:"deleteBy"`
-	SkipHistory bool                 `json:"skipHistory,omitempty"`
-	Search      *DatasetSearchFields `json:"search,omitempty"`
-	Fields      []DatasetFieldDef    `json:"fields"`
+	PartId      string `json:"partId"`
+	DisplayName string `json:"displayName,omitempty"`
+	Description string `json:"description,omitempty"`
+	Dynamic     bool   `json:"dynamic,omitempty"`
+	IdRule      string `json:"idRule"`
+	IdPattern   string `json:"idPattern,omitempty"`
+	IdMaxLen    int    `json:"idMaxLen,omitempty"`
+	DeleteBy    string `json:"deleteBy"`
+	SkipHistory bool   `json:"skipHistory,omitempty"`
+	// Shared marks a records dataset whose records from every object
+	// live in one collection per space (POST …/datasets/query).
+	Shared bool                 `json:"shared,omitempty"`
+	Search *DatasetSearchFields `json:"search,omitempty"`
+	Fields []DatasetFieldDef    `json:"fields"`
+	// Indexes are the declared indexes in creation order, invalid ones
+	// included.
+	Indexes []DatasetIndexDef `json:"indexes,omitempty"`
 	// Invalid marks a definition whose folded declaration fails
 	// validation (invalidReason says why) — a records fold missing a
-	// creator stamp behind an author rule, an unknown module, a shared
-	// rule violation. Invalid definitions never register or accept data
-	// but stay listed so they can be repaired or removed.
+	// creator stamp behind an author rule, an unknown module, a
+	// collection rule violation. Invalid definitions never register or
+	// accept data but stay listed so they can be repaired or removed.
 	Invalid       bool   `json:"invalid,omitempty"`
 	InvalidReason string `json:"invalidReason,omitempty"`
 }
@@ -340,9 +396,9 @@ type DatasetFieldPatchRequest struct {
 // Mutable paths: description, displayName, search.title, search.text,
 // search.scope
 // (string leaves; a whole `search` replace is pinned). Everything else
-// — the key, module, shared flag, id rule, delete gate, field
-// kinds/flags — is pinned and rejected with 400 dataset.immutable. At
-// least one entry across Set/Unset required.
+// — the key, module, id rule, delete gate, field kinds/flags — is
+// pinned and rejected with 400 dataset.immutable. At least one entry
+// across Set/Unset required.
 type DatasetPatchRequest struct {
 	Set   map[string]json.RawMessage `json:"set,omitempty" swaggertype:"object"`
 	Unset []string                   `json:"unset,omitempty"`

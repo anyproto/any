@@ -14,8 +14,8 @@ bespoke handler endpoints — never through a generic write path:
   and `…/:msgId/reactions/:emoji`
 - editor: `POST/PATCH/DELETE /v1/spaces/:s/objects/:o/editor/:collection/blocks[/:id]`
   — `:collection` is the storage collection: `editor_blocks` for the
-  shared body, or the namespaced `<typeId>_<key>` of a part with its
-  own editor
+  canonical body (an editor dataset with no key), or the namespaced
+  `<typeId>_<key>` of an editor dataset under a key of its own
 
 The endpoints build the ops the module's handler accepts — it stamps
 server-owned fields (`creator` / `createdAt` / `modifiedAt`), enforces
@@ -953,6 +953,55 @@ Call patterns:
   says so; the order is the index's own (source object, dataset,
   record), not recency, and there is no continuation — a popular
   object shows an arbitrary 500. Narrow with `?kind=` or a part.
+
+## 16. Shared datasets: records of many objects, one read
+
+A dataset whose records are read across objects — a series kept per
+day object, line items kept per order — is declared `shared`
+(`03-api.md` § Shared datasets). Each record still belongs to the
+object it is written on.
+
+```
+POST /v1/spaces/:s/types/:t/parts            declare: {"key":"series","datasets":[{…,"shared":true,"indexes":[…]}]}
+POST /v1/spaces/:s/upsert                    write one object's records: {objectId, dataset, records}
+POST /v1/spaces/:s/query                     one object:    {objectId, dataset, …}
+POST /v1/spaces/:s/datasets/query            every object:  {dataset, …}
+POST /v1/spaces/:s/datasets/query/subscribe  the same, live
+```
+
+Call patterns:
+
+- **Declare it shared from the start.** The flag is pinned; a dataset
+  that already exists keeps its storage.
+- **Key records by what orders them.** With `idRule: user`, a
+  fixed-width sortable id (`2026-01-05T14`) makes one object's time
+  range a range of `id` with no index — filter `id` from
+  `<objectId>/2026-01-05T00` up to `<objectId>/2026-01-06T00`, the
+  form a read returns — and makes a re-import through `upsert`
+  idempotent.
+- **Store a dense series in chunks.** One record per hour holding an
+  array of samples, not one record per sample: every record carries
+  its own version map and keys.
+- **Declare the index the cross-object read needs.** A filter or sort
+  on a field across all objects scans unless an index leads with that
+  field — `{"key":"by_start","fields":["start"]}` for a range on
+  `start`. Declare it with the dataset, while it is empty: an index
+  added later is built over every record, and all writes on the
+  device wait for that build (`dataset.index.<spaceId>` in the process
+  view).
+- **One known object: the per-object scope.** `…/query` with
+  `objectId` reads that object's range of the collection. The dataset
+  scope is for a read that spans objects.
+- **Match records by `id`.** A read returns
+  `id: "<objectId>/<recordId>"`; `modify` returns the same form in
+  `recordIds`. Pass either form back on a write to the same object.
+  For an `any://` link, the `recordId` segment is the part after the
+  `/`.
+- **Bound a live stream.** Subscribe to the dataset scope with a
+  `filter`, or a `sort` and a `limit`. An unbounded stream holds every
+  record of the dataset.
+- **Retention is deleting objects.** Deleting an object removes its
+  records; a live stream sees them leave as `removed`.
 
 ## See also
 

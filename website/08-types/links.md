@@ -39,6 +39,8 @@ any://o/<spaceId>/<objectId>/chat_messages/<msgId>      a message in a chat
 
 `<dataset>` is the name exactly as it appears in `/query`'s `dataset` field; `<recordId>` is the record's derived id. A multi-record citation is a comma-joined list of such URIs.
 
+For a record of a [shared dataset](../database/runtime-datasets.html#shared-datasets), `<recordId>` is the plain record id — the part of the record's `id` after `<objectId>/` — since the object is already in the link. A search hit and a link source name the record the same way, `recordId` next to its `objectId`.
+
 ## Mentions
 
 A mention in message or block text is a markdown link whose destination is an `m` URI:

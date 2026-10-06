@@ -176,9 +176,9 @@ observation** (this device's clock). There is no
 `any` itself reports through the same registry (device scope — each
 device indexes its own copy, other peers don't care; via the
 in-process hub, no HTTP). This is how clients answer "why is search
-incomplete right now": poll `GET /v1/processes`, or watch
-`any events subscribe --type 'process.*'` and pick the `index.*`
-kinds. The producers:
+incomplete right now" and "why are writes waiting": poll
+`GET /v1/processes`, or watch `any events subscribe --type 'process.*'`
+and pick the `index.*` kinds, or `dataset.index`. The producers:
 
 Usual indexing never appears: the fts, embed and links-backfill
 producers **announce only once the pass has been running past
@@ -188,7 +188,7 @@ One message or edit finishes in well under a second and stays silent;
 a cold (re)index or big catch-up crosses the gate and shows up, with
 the row's counters already carrying the work done so far.
 
-All four run on one shared reporter (`procReporter`,
+All five run on one shared reporter (`procReporter`,
 `internal/indexer/process_report.go`): a 500ms ticker re-checks the
 gate mid-operation (a single long embed call or chunker page
 announces on time) and emits a heartbeat after 10s without a frame, so
@@ -211,6 +211,14 @@ late heartbeat can resurrect a finished row. Work stopped mid-pass
   before it advances (docs/13-index.md § Links). `done` counts
   objects, `total` unknown; a failed backfill retries on the next
   start.
+- **Dataset index build** — id `dataset.index.<spaceId>`, kind
+  `dataset.index`, target the dataset's storage collection. The
+  build of a shared dataset's declared indexes on this device
+  (`03-api.md` § Declared indexes): announced when it starts, no
+  counters, one terminal. Every write to the account's data waits
+  while it runs. A failed build is tried again at the next definition change
+  or server start. Reported by the search indexer's space workers, so
+  only while `index.enabled`.
 - **Embedding-model download** — id `index.model_download`, kind
   `index.model_download`, target the model file name. Always
   announces, at download start — even fully offline (a download is
@@ -228,9 +236,10 @@ late heartbeat can resurrect a finished row. Work stopped mid-pass
 Common rules: failure messages are generic (`error.code` is
 `<kind>_failed`) — indexer errors carry filesystem paths and upstream
 response bodies, which never go on the wire; the detail is in the
-server log. Cancel requests are ignored by all four producers (a
+server log. Cancel requests are ignored by all five producers (a
 cancelled drain/pass would just restart on the next tick; the download
-must finish for search to work).
+must finish for search to work; an index build runs in one storage
+transaction).
 
 ## Errors
 

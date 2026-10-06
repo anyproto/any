@@ -245,12 +245,14 @@ Endpoints + state machine: `docs/03-api.md` § Spaces (and the SDK's
 ```
 any aggregate <spaceId> <objectId> --dataset <name> --pipeline JSON|@FILE|-
 any aggregate <spaceId> --properties --pipeline JSON|@FILE|-
+any aggregate <spaceId> --all-objects --dataset <name> --pipeline JSON|@FILE|-
 ```
 
 Runs a MongoDB-style aggregation pipeline (snapshot, no subscribe
-variant) — `POST …/aggregate` over a per-object dataset, or
+variant) — `POST …/aggregate` over a per-object dataset,
 `POST …/objects/aggregate` over the per-space `objects` storage
-collection with `--properties`. The pipeline is a JSON array of stages.
+collection with `--properties`, or `POST …/datasets/aggregate` over a
+shared dataset across its objects with `--all-objects`. The pipeline is a JSON array of stages.
 Optional:
 `--group-limit` / `--accum-limit` / `--memory-limit` (blocking-stage
 bounds; negative = unlimited) and `--explain` (print the access plan
@@ -275,7 +277,7 @@ any editor edit          <spaceId> <objectId> --edits JSON|@FILE|- [--collection
 `editor blocks` maps 1:1 onto the atomic block write endpoints
 (reads go through `any query-subscribe … --dataset <collection>`). Every
 editor command takes `--collection` (default `editor_blocks`, the
-canonical storage collection a shared editor part declares); pass a
+canonical storage collection an editor dataset with no key declares); pass a
 namespaced `<typeId>_<key>` to address a part's own editor. The object
 must carry a type whose part declares it (`dataset.not_declared`
 otherwise — see `03-api.md` § Parts and modules).
@@ -363,11 +365,14 @@ original) and refuses to run without `--yes`. `query` /
 ```
 any query-subscribe <spaceId> <objectId> --dataset <name> [--filter JSON] [--sort K] [--limit N] [--offset N] [--total] [--projection ...]
 any query-subscribe <spaceId> --properties [same flags]
+any query-subscribe <spaceId> --all-objects --dataset <name> [same flags]
 ```
 
 Opens the windowed query/subscribe stream — `POST …/query/subscribe`
-over a per-object dataset, or `POST …/objects/query/subscribe` over the
-per-space `objects` storage collection with `--properties` — and prints
+over a per-object dataset, `POST …/objects/query/subscribe` over the
+per-space `objects` storage collection with `--properties`, or
+`POST …/datasets/query/subscribe` over a shared dataset across its
+objects with `--all-objects` — and prints
 one JSON object per SSE frame on stdout, `{"event": "<name>", "data": <payload>}`:
 `ready`, `snapshot`, `changes`, `closed`. The first `snapshot` is the
 query's answer; the stream stays open for live changes. `--sort` is a
@@ -435,6 +440,8 @@ any type part dataset remove <spaceId> <typeId> <defId>
 any type part dataset field add    <spaceId> <typeId> <defId> --field '<json>|@FILE|-'
 any type part dataset field patch  <spaceId> <typeId> <defId> <fieldId> --set '<json>' [--unset <path> ...]
 any type part dataset field remove <spaceId> <typeId> <defId> <fieldId>
+any type part dataset index add    <spaceId> <typeId> <defId> --index '<json>|@FILE|-'   # {"key","fields",["sparse"]}
+any type part dataset index remove <spaceId> <typeId> <defId> <indexId>
 
 # batch ingest into an id:user dataset (the record id is the
 # idempotency key — identical re-runs are no-ops; NAME is the storage
@@ -454,7 +461,7 @@ as such, `k=` unsets); `--hidden=false` unhides. `type list` omits
 hidden types (a records-hosting bundle root, a type marked hidden)
 without `--include-hidden`. A part draft is the
 `PartDraftRequest` shape — `{"key": "body", "datasets": [{"module":
-"editor", "shared": true}]}` declares a shared editor body; `{"key":
+"editor"}]}` declares the editor body in `editor_blocks`; `{"key":
 "transcript", "ui": {"type": "table"}, "datasets": [{"key":
 "segments", "idRule": "user", "fields": […]}]}` a records dataset in
 the namespaced storage collection `<typeId>_segments`.
@@ -518,8 +525,7 @@ keeps the value, an empty string clears it, `--hidden=false` unhides.
 `collection list` omits hidden collections (the built-in `miniapp` /
 `bin`, a collection marked hidden) without `--include-hidden`;
 `collection get` resolves hidden ones too. A registered built-in
-refuses a metadata write (`400 collection.registered`), and deleting a
-collection is not implemented (`501 sdk.not_implemented`).
+refuses a metadata write (`400 collection.registered`).
 
 ```
 any collection create $SPID --name Contacts --xkey contact

@@ -91,8 +91,8 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.PATCH("/spaces/:spaceId/objects/:objectId/editor/:collection/blocks/:blockId", d.blocksPatch)
 	g.DELETE("/spaces/:spaceId/objects/:objectId/editor/:collection/blocks/:blockId", d.blocksDelete)
 
-	// Chat (module — see internal/chat; shared-only, so the collection
-	// is always chat_messages). Writes only here;
+	// Chat (module — see internal/chat; canonical-only, so the
+	// collection is always chat_messages). Writes only here;
 	// reads + liveness go through /query and /query/subscribe with
 	// dataset=chat_messages.
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages", d.chatSend)
@@ -123,6 +123,10 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	// Dataset schema discovery — JSON Schema (with per-field x-scope) for
 	// every dataset the space hosts. See Space.Datasets().
 	g.GET("/spaces/:spaceId/datasets", d.spaceDatasets)
+	// A shared dataset read across every object that holds it.
+	g.POST("/spaces/:spaceId/datasets/query", d.spaceQueryDataset)
+	g.POST("/spaces/:spaceId/datasets/query/subscribe", d.spaceQueryDatasetSubscribe)
+	g.POST("/spaces/:spaceId/datasets/aggregate", d.spaceAggregateDataset)
 
 	// Types.
 	g.GET("/spaces/:spaceId/types", d.typeList)
@@ -162,6 +166,8 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/types/:typeId/datasets/:defId/fields", d.typeAddDatasetField)
 	g.PATCH("/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId", d.typePatchDatasetField)
 	g.DELETE("/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId", d.typeRemoveDatasetField)
+	g.POST("/spaces/:spaceId/types/:typeId/datasets/:defId/indexes", d.typeAddDatasetIndex)
+	g.DELETE("/spaces/:spaceId/types/:typeId/datasets/:defId/indexes/:indexId", d.typeRemoveDatasetIndex)
 
 	// Properties. Scoped properties (v0.0.11) unified the former
 	// base/account/device set endpoints into one scope-aware Set — the

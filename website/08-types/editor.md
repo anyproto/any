@@ -7,7 +7,7 @@ order: 20
 
 The `editor` module stores an object's body as a tree of atomic blocks: one CRDT record per block, ordered by a lexicographic position, nested by parent id. Two members editing different paragraphs merge cleanly; an offline edit lands as a per-block change when the device reconnects. On top of the block storage collection sits a markdown bridge, so tools that think in text — exporters, importers, LLM agents — never have to walk the tree.
 
-An object holds an editor storage collection while its type declares the part that owns it ([modules](index.html)). Every editor route names that storage collection: `editor_blocks`, the canonical one a shared part declares — the body every document type writes, so retyping between document types keeps it — or `<typeId>_<key>` for a part that wants an editor of its own (a meeting's `summary` next to its shared notes). A write into one the object's type does not declare is `400 dataset.not_declared`; one no editor part in the space declares is `404 dataset.not_found`. The examples below use `editor_blocks`.
+An object holds an editor storage collection while its type declares the part that owns it ([modules](index.html)). Every editor route names that storage collection: `editor_blocks`, the canonical one an editor dataset with no key declares — the body every document type writes, so retyping between document types keeps it — or `<typeId>_<key>` for a part that wants an editor of its own (a meeting's `summary` next to its notes). A write into one the object's type does not declare is `400 dataset.not_declared`; one no editor part in the space declares is `404 dataset.not_found`. The examples below use `editor_blocks`.
 
 ## Blocks
 

@@ -56,7 +56,11 @@ func (d *deps) systemDatasets(c echo.Context) error {
 func datasetsToAPI(in []space.DatasetSchema) api.DatasetsResponse {
 	out := make([]api.DatasetSchema, 0, len(in))
 	for _, ds := range in {
-		out = append(out, api.DatasetSchema{Name: ds.Name, Schema: json.RawMessage(ds.JSONSchema), Owners: ds.Owners, Module: ds.Module, Shared: ds.Shared})
+		entry := api.DatasetSchema{Name: ds.Name, Schema: json.RawMessage(ds.JSONSchema), Owners: ds.Owners, Module: ds.Module, Shared: ds.Shared}
+		for _, x := range ds.Indexes {
+			entry.Indexes = append(entry.Indexes, api.DatasetIndexDraft{Key: x.Key, Fields: x.Fields, Sparse: x.Sparse})
+		}
+		out = append(out, entry)
 	}
 	return api.DatasetsResponse{Datasets: out}
 }

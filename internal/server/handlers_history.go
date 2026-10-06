@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -207,6 +208,18 @@ func (d *deps) historyRecordAt(c echo.Context) error {
 	if version == "" || dataset == "" || recordId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",
 			"version, dataset and recordId required", nil)
+	}
+	// A shared dataset's record id holds a "/", percent-encoded in the
+	// path. The router matches on the escaped path only when the URL
+	// carries one, and hands the segment over still escaped then;
+	// otherwise the segment is already decoded.
+	if c.Request().URL.RawPath != "" {
+		unescaped, err := url.PathUnescape(recordId)
+		if err != nil {
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"recordId must be percent-encoded", nil)
+		}
+		recordId = unescaped
 	}
 	if errResp, done := identityKeysReadRefused(c, objectId, dataset); done {
 		return errResp

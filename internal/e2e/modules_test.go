@@ -12,7 +12,7 @@ import (
 // Module-declaring types for the e2e suite: a chat or editor
 // collection is writable on an object only when one of its types
 // declares the module in a part. For the editor the tests mint one
-// plain user type per space with a single shared part; chat is a
+// plain user type per space with a single editor part; chat is a
 // reserved module, so the chat "type" is the catalog's general-chat
 // root and the chat object is that root (one chat per space).
 
@@ -45,7 +45,7 @@ func installModuleType(t *testing.T, base, spaceId, module string) string {
 		t.Fatalf("installModuleType %s: typeId empty: %+v", module, created)
 	}
 	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+spaceId+"/types/"+typeId+"/parts",
-		fmt.Sprintf(`{"key":%q,"datasets":[{"module":%q,"shared":true}]}`, module, module),
+		fmt.Sprintf(`{"key":%q,"datasets":[{"module":%q}]}`, module, module),
 		http.StatusCreated, new(map[string]any))
 	e2eModuleTypes[key] = typeId
 	return typeId
@@ -86,8 +86,8 @@ func setupGeneralChat(t *testing.T, base, spaceId string) string {
 }
 
 // modulePartsBody is the bundle `parts` declaration installing one
-// shared module part on the bundle root — the shape a client's
+// module part on the bundle root — the shape a client's
 // document bundle carries.
 func modulePartsBody(module string) string {
-	return fmt.Sprintf(`[{"key":%q,"datasets":[{"module":%q,"shared":true}]}]`, module, module)
+	return fmt.Sprintf(`[{"key":%q,"datasets":[{"module":%q}]}]`, module, module)
 }

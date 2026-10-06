@@ -89,9 +89,9 @@ func (d *deps) typeAddDataset(c echo.Context) error {
 	if !ok {
 		return nil
 	}
-	if req.Key == "" && !req.Shared {
+	if req.Key == "" && (req.Module == "" || req.Module == api.ModuleRecords) {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",
-			"key required (a shared dataset may omit it — it is the module's canonical collection)", nil)
+			"key required (a module dataset may omit it — it is then the module's canonical collection)", nil)
 	}
 	// Existence preflight: the SDK writes to whatever object :typeId
 	// names, so without it a non-type objectId gets a 201 and a
@@ -488,6 +488,78 @@ func (d *deps) typeRemoveDatasetField(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+// typeAddDatasetIndex handles POST /v1/spaces/:spaceId/types/:typeId/datasets/:defId/indexes.
+//
+//	@Summary	Declare an index on a records dataset
+//	@Tags		types
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId	path		string					true	"Space ID"
+//	@Param		typeId	path		string					true	"Type ID"
+//	@Param		defId	path		string					true	"Dataset definition ID"
+//	@Param		body	body		api.DatasetIndexDraft	true	"Index draft"
+//	@Success	201		{object}	api.AddDatasetIndexResponse
+//	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	409		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/types/{typeId}/datasets/{defId}/indexes [post]
+func (d *deps) typeAddDatasetIndex(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	typeId := c.Param("typeId")
+	defId := c.Param("defId")
+	if typeId == "" || defId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and defId required", nil)
+	}
+	req, ok := bindBodyStrict[api.DatasetIndexDraft](c, "")
+	if !ok {
+		return nil
+	}
+	if errResp, done := requireType(c, sp, typeId); done {
+		return errResp
+	}
+	indexId, err := sp.Types().AddDatasetIndex(c.Request().Context(), typeId, defId, datasetIndexDraftFromAPI(*req))
+	if err != nil {
+		return d.datasetWriteError(c, err, map[string]any{"typeId": typeId, "defId": defId, "key": req.Key})
+	}
+	return c.JSON(http.StatusCreated, api.AddDatasetIndexResponse{IndexDefId: indexId})
+}
+
+// typeRemoveDatasetIndex handles DELETE /v1/spaces/:spaceId/types/:typeId/datasets/:defId/indexes/:indexId.
+//
+//	@Summary	Remove a declared index
+//	@Tags		types
+//	@Param		spaceId	path	string	true	"Space ID"
+//	@Param		typeId	path	string	true	"Type ID"
+//	@Param		defId	path	string	true	"Dataset definition ID"
+//	@Param		indexId	path	string	true	"Index definition ID"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/types/{typeId}/datasets/{defId}/indexes/{indexId} [delete]
+func (d *deps) typeRemoveDatasetIndex(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	typeId := c.Param("typeId")
+	indexId := c.Param("indexId")
+	if typeId == "" || indexId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and indexId required", nil)
+	}
+	if errResp, done := requireType(c, sp, typeId); done {
+		return errResp
+	}
+	if err := sp.Types().RemoveDatasetIndex(c.Request().Context(), typeId, indexId); err != nil {
+		return d.datasetWriteError(c, err, map[string]any{"typeId": typeId, "indexId": indexId})
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
 // requireType 404s when :typeId doesn't resolve to a type in the space
 // (the SDK's dataset CRUD writes to whatever object the id names, so a
 // bad id would otherwise succeed and be unreadable). done=true means
@@ -650,7 +722,7 @@ func (d *deps) datasetWriteError(c echo.Context, err error, details map[string]a
 		return writeError(c, http.StatusBadRequest, "dataset.immutable", "a patched path is pinned", details)
 	case errors.Is(err, space.ErrModuleOwned):
 		return writeError(c, http.StatusConflict, "dataset.module_owned",
-			"the module owns this dataset's schema — it declares no fields", details)
+			"the module owns this dataset's schema — it declares no fields and no indexes", details)
 	case errors.Is(err, space.ErrModuleReserved):
 		return writeError(c, http.StatusBadRequest, api.ErrDatasetModuleReserved,
 			"the module is reserved to the server's own installs — a runtime declaration cannot name it", details)
@@ -661,16 +733,11 @@ func (d *deps) datasetWriteError(c echo.Context, err error, details map[string]a
 	case strings.Contains(msg, "unknown module"):
 		return writeError(c, http.StatusBadRequest, "dataset.module_unknown",
 			sanitizeSDKMessage(err), details)
-	case strings.Contains(msg, "already declares a shared"), strings.Contains(msg, "two shared"),
-		strings.Contains(msg, "admits only shared"), strings.Contains(msg, "has no shared collection"),
-		strings.Contains(msg, "is keyed"):
-		return writeError(c, http.StatusBadRequest, "dataset.shared_conflict",
-			sanitizeSDKMessage(err), details)
 	case strings.Contains(msg, "already declared on type"), strings.Contains(msg, "declared twice"):
 		return writeError(c, http.StatusConflict, "dataset.key_conflict",
 			"a part or dataset with this key already exists on the type", details)
 	case strings.Contains(msg, "not found on type"):
-		return writeError(c, http.StatusNotFound, "sdk.not_found", "dataset definition not found on this type", details)
+		return writeError(c, http.StatusNotFound, "sdk.not_found", "dataset, field or index definition not found on this type", details)
 	case strings.Contains(msg, "invalid dataset declaration"),
 		strings.Contains(msg, "invalid dataset definition"),
 		strings.Contains(msg, "cannot be required"),
@@ -733,13 +800,13 @@ func systemDatasetDraftFromAPI(req api.DatasetDraftRequest) (space.DatasetDraft,
 	draft := space.DatasetDraft{
 		Key:         req.Key,
 		Module:      req.Module,
-		Shared:      req.Shared,
 		DisplayName: req.DisplayName,
 		Description: req.Description,
 		Dynamic:     req.Dynamic,
 		IdPattern:   req.IdPattern,
 		IdMaxLen:    req.IdMaxLen,
 		SkipHistory: req.SkipHistory,
+		Shared:      req.Shared,
 	}
 	var ok bool
 	if draft.IdRule, ok = parseIdRule(req.IdRule); !ok {
@@ -761,7 +828,14 @@ func systemDatasetDraftFromAPI(req api.DatasetDraftRequest) (space.DatasetDraft,
 		}
 		draft.Fields = append(draft.Fields, fd)
 	}
+	for _, x := range req.Indexes {
+		draft.Indexes = append(draft.Indexes, datasetIndexDraftFromAPI(x))
+	}
 	return draft, "", ""
+}
+
+func datasetIndexDraftFromAPI(req api.DatasetIndexDraft) space.IndexDraft {
+	return space.IndexDraft{Key: req.Key, Fields: req.Fields, Sparse: req.Sparse}
 }
 
 func datasetFieldDraftFromAPI(req api.DatasetFieldDraft) (space.DatasetFieldDraft, string, string) {
@@ -875,7 +949,6 @@ func datasetDefToAPI(def space.DatasetDef) api.DatasetDefResponse {
 		Key:           def.Key,
 		Collection:    def.Collection,
 		Module:        def.Module,
-		Shared:        def.Shared,
 		PartId:        def.PartId,
 		DisplayName:   def.DisplayName,
 		Description:   def.Description,
@@ -885,12 +958,19 @@ func datasetDefToAPI(def space.DatasetDef) api.DatasetDefResponse {
 		IdMaxLen:      def.IdMaxLen,
 		DeleteBy:      def.DeleteBy.String(),
 		SkipHistory:   def.SkipHistory,
+		Shared:        def.Shared,
 		Fields:        make([]api.DatasetFieldDef, 0, len(def.Fields)),
 		Invalid:       def.Invalid,
 		InvalidReason: def.InvalidReason,
 	}
 	if def.Search != nil {
 		out.Search = &api.DatasetSearchFields{Title: def.Search.Title, Text: api.SearchText(def.Search.Text), Scope: def.Search.Scope}
+	}
+	for _, x := range def.Indexes {
+		out.Indexes = append(out.Indexes, api.DatasetIndexDef{
+			Id: x.Id, Key: x.Key, Fields: x.Fields, Sparse: x.Sparse,
+			Invalid: x.Invalid, InvalidReason: x.InvalidReason,
+		})
 	}
 	for _, f := range def.Fields {
 		scope := f.Scope

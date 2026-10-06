@@ -626,7 +626,9 @@ func (d *deps) holdProcessInterest(eng *engine) {
 // own copy, other devices don't care. Kinds: index.fts.<spaceId>
 // (chunk/advance backlog), index.embed.<spaceId> (vector drain, total
 // from the pending count), index.model_download (embedding-model
-// fetch, done/total bytes, target = model file name). Frames are
+// fetch, done/total bytes, target = model file name),
+// dataset.index.<spaceId> (the SDK building a shared dataset's declared
+// indexes, target = the dataset's storage collection). Frames are
 // stamped with the engine's own account, and dropped once its
 // resources are closed — a straggling download goroutine from a
 // torn-down engine must not report under the next account. Cancel
@@ -655,6 +657,11 @@ func (d *deps) indexerProcessFor(eng *engine) func(indexer.ProcessUpdate) {
 		case indexer.ProcessKindLinksBackfill:
 			id = "index.links_backfill." + u.SpaceId
 			data = processEventData{Kind: "index.links_backfill", Title: "Rebuilding the link index", Target: u.SpaceId}
+		case indexer.ProcessKindDatasetIndex:
+			// One build runs per space at a time; the dataset is the
+			// subject.
+			id = "dataset.index." + u.SpaceId
+			data = processEventData{Kind: "dataset.index", Title: "Building a dataset index", Target: u.Name}
 		default:
 			return
 		}
@@ -677,8 +684,13 @@ func (d *deps) indexerProcessFor(eng *engine) func(indexer.ProcessUpdate) {
 		case indexer.ProcessFailed:
 			typ = api.EventProcessFailed
 			data.Message = ""
-			data.Error = &api.ProcessError{Code: data.Kind + "_failed",
-				Message: "failed; retrying — see server log"}
+			msg := "failed; retrying — see server log"
+			if u.Kind == indexer.ProcessKindDatasetIndex {
+				// The SDK builds it again at the next definition
+				// change or space open, not on a timer.
+				msg = "failed — see server log"
+			}
+			data.Error = &api.ProcessError{Code: data.Kind + "_failed", Message: msg}
 		default:
 			return
 		}

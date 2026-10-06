@@ -138,7 +138,9 @@ CI and release artifacts: `docs/18-ci.md`.
   there is one log stream.
 - **Reads go through query.** Object rows are read via
   `…/objects/query[/subscribe]` and dataset records via
-  `…/query[/subscribe]`, with the storage collection as `dataset`. Module
+  `…/query[/subscribe]`, with the storage collection as `dataset`; a
+  shared dataset is also read across its objects via
+  `…/datasets/query[/subscribe]`. Module
   handlers (chat, editor) serve writes only, and the editor markdown
   render is the one read-side transform. Query routes are POST because
   the body carries the filter; don't turn them into GET.

@@ -258,10 +258,8 @@ settle. The registered type ids and the meta ids `any`, `type` and
 cannot collide at setup.
 
 A definition that holds a catalog handle before the usecase is set up
-— a user's own `contact` — blocks that usecase in that space: neither
-types nor collections can be deleted over HTTP (`DELETE
-…/types/:typeId` and `DELETE …/collections/:collectionId` are `501`).
-To free the handle, rename it: `xkey` is an ordinary value in the
+— a user's own `contact` — blocks that usecase in that space. To free
+the handle, rename it: `xkey` is an ordinary value in the
 meta-type's namespace, so `POST …/properties/<typeId>/set/type` (or
 `…/properties/<collectionId>/set/collection`) with `{"patch":
 {"xkey": "contact_own"}}` renames it and the next setup proceeds. That
@@ -292,8 +290,8 @@ and `GET …/collections?includeHidden=true`.
 4. Open a miniapp root by reading `miniapp.bundle` on it and running
    what that bundle id means to the client. A declaring root keeps the
    app's own state as records on itself — a namespaced records dataset
-   is the storage collection `<rootId>_<key>`, a shared module dataset
-   the module's canonical storage collection (`editor_blocks`,
+   is the storage collection `<rootId>_<key>`, an unkeyed module
+   dataset the module's canonical storage collection (`editor_blocks`,
    `chat_messages`); read either off `GET …/types/<rootId>/parts`.
 5. **Resolve catalog types and collections through the bundle
    registry** — bundle id → `rootId` — never by scanning the type or
@@ -317,9 +315,9 @@ and `GET …/collections?includeHidden=true`.
   (`{"type": "chat"}`) over the parts it hosts.
 - Then the type's parts in `pos` order, each as its `ui` says: a
   `records` part over the storage collection `<typeId>_<key>` on the
-  object, an `editor` part a document (`editor_blocks` when shared —
-  the body `page` has — `<typeId>_<key>` when namespaced), a `chat`
-  part a chat.
+  object, an `editor` part a document (`editor_blocks` when its dataset
+  names no key — the body `page` has — `<typeId>_<key>` when it names
+  one), a `chat` part a chat.
 - A type picker lists the catalog's listed types like any user type,
   a collection picker its listed collections, and both hide the roots
   the registry reports as losers.
@@ -443,8 +441,8 @@ schema).
 | `wiki` | — | `system:wiki/v1` | collection `wiki` (hidden; `parentId`, `pos` — both kept out of the search index — and `folder`, a checkbox) + miniapp |
 | `collections` | — | `system:collections/v1` | miniapp only, a `page` root — a feature switch: installing it turns on working with types in clients; it declares none of its own |
 | `journal` | — | `system:journal/v2` | collection `journal` (hidden; one `date`, a `date`-slug datetime) + miniapp — an entry is a `page` filed under it, one per day; supersedes `system:journal/v1` |
-| | | `system:journal/v1` | superseded: type `journal` with the same `date` + shared editor `body` part + miniapp |
-| `meetings` | — | `system:meeting/v1` | type `meeting` (layout `page`; date, duration, participants, labels, words, source) with three surfaces — `notes` (the shared editor body), `summary` (a second, namespaced editor) and `transcript` (records, `idRule: user`, author-mutable and author-deletable, `skipHistory`, dynamic, search `text` under scope `meetings`) |
+| | | `system:journal/v1` | superseded: type `journal` with the same `date` + editor `body` part + miniapp |
+| `meetings` | — | `system:meeting/v1` | type `meeting` (layout `page`; date, duration, participants, labels, words, source) with three surfaces — `notes` (the canonical editor body), `summary` (a second, namespaced editor) and `transcript` (records, `idRule: user`, author-mutable and author-deletable, `skipHistory`, dynamic, search `text` under scope `meetings`) |
 | | | `system:meetings/v1` | miniapp only, a `page` root — the sidebar entry that opens the meetings list |
 | `tasks` | — | `system:task/v1` | type `task` (layout `task`; `notes`, `parent` → `project` / `area`, `planning` — a `choice` of inbox / anytime / someday, `planned` and `deadline` — `date` days, `completed`, `completedAt`, `position` — a rank kept out of the index) |
 | | | `system:project/v2` | collection `project` (`notes`, `parent` → `area`, `completed`, `completedAt`, `position`) — a project is a `page` filed under it; supersedes `system:project/v1` |
@@ -452,12 +450,12 @@ schema).
 | | | `system:project/v1` | superseded: type `project` with the same properties |
 | | | `system:area/v1` | superseded: type `area`, no properties |
 | | | `system:tasks/v1` | miniapp only, a `page` root — the sidebar entry that opens the planner |
-| `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one shared `chat` part — the reserved module's only declaration, the root its only host — + miniapp, so the chat is a sidebar entry |
-| `people` | — | `system:profile/v1` | type `profile` (layout `profile`, no properties) + shared editor `body` part — the one format a person and an organisation share; supersedes `system:person/v1` and `system:organization/v1` |
+| `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one `chat` part — the reserved module's only declaration, the root its only host — + miniapp, so the chat is a sidebar entry |
+| `people` | — | `system:profile/v1` | type `profile` (layout `profile`, no properties) + editor `body` part — the one format a person and an organisation share; supersedes `system:person/v1` and `system:organization/v1` |
 | | | `system:person/v2` | collection `person` (`meta.defaultType: profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags); supersedes `system:person/v1` |
 | | | `system:organization/v2` | collection `organization` (`meta.defaultType: profile`; kind, domain, categories, location, size, linkedin, main_contact → `person`); supersedes `system:organization/v1` |
-| | | `system:person/v1` | superseded: type `person` (layout `profile`) with the same properties + shared editor `body` part |
-| | | `system:organization/v1` | superseded: type `organization` (layout `profile`) with the same properties + shared editor `body` part |
+| | | `system:person/v1` | superseded: type `person` (layout `profile`) with the same properties + editor `body` part |
+| | | `system:organization/v1` | superseded: type `organization` (layout `profile`) with the same properties + editor `body` part |
 | `contact` | `people` | `system:contact/v1` | collection `contact` (`meta.defaultType: profile`, as on every role below; owner → `person`, status, source, referred_by → `person`, last_contact, next_follow_up) — the relationship facet a person or organisation is filed under |
 | `investor` | `people` | `system:investor/v1` | collection `investor` (investor_type, investor_status, focus, stages, check_size, portfolio → `organization`) |
 | `customer` | `people` | `system:customer/v1` | collection `customer` (account_status, plan, annual_value, customer_since, renewal_date) |
@@ -467,7 +465,7 @@ schema).
 | `candidate` | `people` | `system:candidate/v1` | collection `candidate` (role, candidate_stage, next_interview, resume) |
 | `contacts` | `people`, `contact` | `system:contacts/v1` | miniapp, hidden; records part `layouts` (dataset `layouts`, `idRule: user` — the id is an identity collection's xKey, `person` or `organization`; field `blocks`, array) — a definition hosts itself, so the layouts live on the app root with no flag |
 | `crm` | `contacts` | `system:deal/v2` | collection `deal` (stage, owner → `person`, organization → `organization`, amount, close_date) — a deal is a `page` filed under it; supersedes `system:deal/v1` |
-| | | `system:deal/v1` | superseded: type `deal` (layout `profile`) with the same properties + shared editor `body` part |
+| | | `system:deal/v1` | superseded: type `deal` (layout `profile`) with the same properties + editor `body` part |
 | | | `system:crm/v1` | miniapp only, a `page` root |
 
 Sixteen usecases, twenty-nine bundles, six of them superseded. What a
@@ -531,8 +529,8 @@ the same owner (`03-api.md` § The wiki tree).
 
 **Journal** is one dated page per day: an entry's type is `journal`,
 with a `date` value (a `date` slug on `kind: datetime` — midnight
-UTC, `{"$date": …}`), and the type's `body` part shares the editor's
-storage collection, so the entry has the same document a page has. The
+UTC, `{"$date": …}`), and the type's `body` part is on the editor's
+canonical storage collection, so the entry has the same document a page has. The
 type is hidden: the app creates entries, nothing picks the type from a
 picker.
 
@@ -548,7 +546,7 @@ somebody's writing.
 it started, how long it ran, who took part, how it is classified — and
 its three parts are the surfaces a client renders:
 
-- **notes**, the editable document, on the editor's SHARED storage
+- **notes**, the editable document, on the editor's canonical storage
   collection, so a meeting's body is the same body a page has
   (`…/editor/editor_blocks/**` on the meeting object);
 - **summary**, a SECOND editor with a storage collection of its own
@@ -605,7 +603,7 @@ Problem codes of the structural layer (`internal/catalog`):
 | `catalog.bad_id` | a usecase id that is not a slug, a bundle id off `system:<name>/v<n>`, a type, collection or property xKey or a part key off its grammar |
 | `catalog.duplicate` | a usecase id, bundle id, xKey (types and collections share one namespace, except between a bundle and one it supersedes; also when it equals a built-in id), property xKey, part key, dataset key or `requires` entry declared twice |
 | `catalog.missing` | a required piece absent — an empty catalog, usecase name or bundles, bundle name, a declaration (`type` / `collection` / `miniapp` / `parts`), `rootType` on a bundle that declares nothing (every object has a type; `page` for a plain document), property xKey or kind, a dataset key, a relation's `targetTypes` |
-| `catalog.bad_field` | a field that contradicts the rest — `type` next to `collection` ("a root defines a type or a collection, not both"), `parts` next to `collection` ("a collection declares no parts"), `hidden` without `type`, `collection` or `parts`, `rootType` next to a declaration or naming an id that is not a registered type, `meta` beyond `index`, `relation.filter`, a wrong module, `chat` not shared, `records` shared, fields on a module dataset, `deleteBy: author` or a `mutableBy: author` field without a creator stamp, a `search` mapping naming a field the dataset does not declare, a mapping key that is not a string, a node of the wrong shape, and the bounds (name ≤1024 B, ≤32 parts, ≤64 properties per declaration); a `type` that declares neither a `layout` nor a part ("a definition that only adds properties is a collection" — a superseded bundle is exempt); a `supersedes` entry naming a bundle that supersedes another (one step only); a collection `meta` key that is not single-level, or a value that is not a string, boolean or number |
+| `catalog.bad_field` | a field that contradicts the rest — `type` next to `collection` ("a root defines a type or a collection, not both"), `parts` next to `collection` ("a collection declares no parts"), `hidden` without `type`, `collection` or `parts`, `rootType` next to a declaration or naming an id that is not a registered type, `meta` beyond `index`, `relation.filter`, a wrong module, a `chat` dataset under another key, fields on a module dataset, `deleteBy: author` or a `mutableBy: author` field without a creator stamp, a `search` mapping naming a field the dataset does not declare, a mapping key that is not a string, a node of the wrong shape, and the bounds (name ≤1024 B, ≤32 parts, ≤64 properties per declaration); a `type` that declares neither a `layout` nor a part ("a definition that only adds properties is a collection" — a superseded bundle is exempt); a `supersedes` entry naming a bundle that supersedes another (one step only); a collection `meta` key that is not single-level, or a value that is not a string, boolean or number |
 | `catalog.unknown_usecase` | a `requires` entry naming no usecase |
 | `catalog.cycle` | a self-require, a bundle superseding itself, or a cycle in `requires` — reported as its path (`a → b → a`) |
 | `catalog.broken_link` | a `supersedes` entry naming no bundle of the same usecase; a collection `meta.defaultType` naming no type of the usecase, its transitive `requires` or a registered type (a collection's xKey is refused too); a `relation.targetTypes` xKey that is no type or collection of the usecase, its transitive `requires` or a built-in; names the usecase that would have to be required when the definition exists elsewhere in the catalog |

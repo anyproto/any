@@ -13,6 +13,7 @@ A subscription is a live version of a [query](../database/reading-data.html): th
 |---|---|---|
 | Cross-object | `POST /v1/spaces/:spaceId/objects/query/subscribe` | one row per object in the space (the `objects` storage collection) |
 | Per-object dataset | `POST /v1/spaces/:spaceId/query/subscribe` | rows of one dataset on one object (`chat_messages`, `editor_blocks`, a runtime dataset…) |
+| Shared dataset | `POST /v1/spaces/:spaceId/datasets/query/subscribe` | every object's records of one runtime dataset declared `shared` — see [Shared datasets](../database/runtime-datasets.html#shared-datasets) |
 | Space list | `POST /v1/spaces/query/subscribe` | the account's spaces — see [Live space list](space-list.html) |
 | Files | `POST /v1/spaces/:spaceId/objects/:objectId/files/query/subscribe` | an object's payload rows — see [Downloading](../files/downloading.html) |
 | Devices | `POST /v1/devices/query/subscribe` | the account's devices — see [Devices](../auth/devices.html) |
@@ -35,7 +36,8 @@ The body is the same one `…/query` takes, plus two stream-only knobs:
 
 | Field | Notes |
 |---|---|
-| `objectId`, `dataset` | per-object variant only |
+| `objectId` | per-object variant only |
+| `dataset` | per-object and shared-dataset variants |
 | `filter`, `sort`, `limit`, `offset` | as in a snapshot query; `limit > 0` without `sort` is `400 request.invalid_field` — a live window has to be ordered |
 | `includeTotal` | populates `total` and `hasNext` in the snapshot frame |
 | `projection` | shapes the snapshot and every later `changes` record — see [Reading data](../database/reading-data.html) |
@@ -223,7 +225,7 @@ run(stop.signal).catch(e => { if (!stop.signal.aborted) console.error(e); });
 // When the view closes: stop.abort();
 ```
 
-From the shell, `curl -N` shows the raw frames, and the CLI prints one JSON object per frame (`{"event": …, "data": …}`) so the stream pipes through `jq`. `--properties` opens the cross-object stream; an object id plus `--dataset` opens a per-object one:
+From the shell, `curl -N` shows the raw frames, and the CLI prints one JSON object per frame (`{"event": …, "data": …}`) so the stream pipes through `jq`. `--properties` opens the cross-object stream; an object id plus `--dataset` opens a per-object one; `--all-objects` plus `--dataset` opens a shared dataset's:
 
 ```bash
 curl -N http://127.0.0.1:7001/v1/spaces/SPACE/objects/query/subscribe \
@@ -233,6 +235,7 @@ curl -N http://127.0.0.1:7001/v1/spaces/SPACE/objects/query/subscribe \
 any query-subscribe SPACE --properties --filter '{"any.type":"page"}' --sort -modifiedAt --limit 20
 any query-subscribe SPACE CHAT --dataset chat_messages --sort -_ver.id --limit 50 --total \
   | jq 'select(.event=="changes") | .data[]'
+any query-subscribe SPACE --all-objects --dataset TYPE_hours --sort -start --limit 48
 ```
 
 ## What to subscribe to
@@ -240,5 +243,6 @@ any query-subscribe SPACE CHAT --dataset chat_messages --sort -_ver.id --limit 5
 - **`objects`** (cross-object) — one row per object holding computed property values. Creates land as `added`, property writes as `updated`, deletes as `removed` with `reason: "deleted"` — the canonical place to observe deletion across a space.
 - **`editor_blocks`** — the block tree of one document; every frame ships the full post-apply block, whether it came from a block write or a bulk markdown import. See [Editor](../types/editor.html).
 - **`chat_messages`** — one message per `added`; a reaction toggle arrives as an `updated` event with a `$set` / `$unset` op under `reactions.<emoji>.<accountId>`. See [Chat](../types/chat.html).
+- **A shared dataset** (`…/datasets/query/subscribe`) — the changes of every object's records, ids `<objectId>/<recordId>`. Deleting an object arrives as `removed` entries for the records it held, in batches with an empty `versionId`. `_ver` orders one object's changes only, so sort on a declared field, and bound the stream with a `filter` or a `sort` and a `limit`: an unbounded one holds every record of the dataset. See [Shared datasets](../database/runtime-datasets.html#shared-datasets).
 
 Records ship their full stored form — `_ver` included (and `_traces` / `_deletedAt` when present) — unless you send a `projection`, which shapes the snapshot and every later `changes` record alike, so the stream cannot widen on you. Hold one subscription per open view and size the window for the UI — the engine holds the window on the server side as well, so `limit` is memory on both ends.

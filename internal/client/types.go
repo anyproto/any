@@ -178,6 +178,25 @@ func (c *Client) TypeRemoveDatasetField(ctx context.Context, spaceId, typeId, de
 	return c.do(ctx, http.MethodDelete, path, nil, nil)
 }
 
+// TypeAddDatasetIndex declares an index on a records dataset. Returns
+// the index definition id.
+func (c *Client) TypeAddDatasetIndex(ctx context.Context, spaceId, typeId, defId string, req api.DatasetIndexDraft) (*api.AddDatasetIndexResponse, error) {
+	var out api.AddDatasetIndexResponse
+	path := fmt.Sprintf("/v1/spaces/%s/types/%s/datasets/%s/indexes",
+		url.PathEscape(spaceId), url.PathEscape(typeId), url.PathEscape(defId))
+	if err := c.do(ctx, http.MethodPost, path, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// TypeRemoveDatasetIndex removes one index definition.
+func (c *Client) TypeRemoveDatasetIndex(ctx context.Context, spaceId, typeId, defId, indexId string) error {
+	path := fmt.Sprintf("/v1/spaces/%s/types/%s/datasets/%s/indexes/%s",
+		url.PathEscape(spaceId), url.PathEscape(typeId), url.PathEscape(defId), url.PathEscape(indexId))
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
 // Upsert batch-ingests records into an id:user dataset.
 func (c *Client) Upsert(ctx context.Context, spaceId string, req api.UpsertRequest) (*api.UpsertResult, error) {
 	var out api.UpsertResult
