@@ -158,19 +158,9 @@ func TestServer_MarkdownEditDeletesWholeBlock(t *testing.T) {
 	}
 }
 
-// markdownSet PUTs whole-document markdown and decodes the response.
-func markdownSet(t *testing.T, e http.Handler, path, content string) (out mdEditResp) {
+// markdownSet PUTs whole-document markdown unconditionally and decodes
+// the response.
+func markdownSet(t *testing.T, e http.Handler, path, content string) mdEditResp {
 	t.Helper()
-	body, err := json.Marshal(map[string]string{"content": content})
-	if err != nil {
-		t.Fatalf("encode content: %v", err)
-	}
-	rec := doJSON(t, e, http.MethodPut, path, string(body))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("PUT markdown %q: %d %s", content, rec.Code, rec.Body.String())
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatalf("decode set response: %v", err)
-	}
-	return out
+	return markdownPut(t, e, path, content, "")
 }

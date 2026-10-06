@@ -196,15 +196,19 @@ type PropertiesSetRequest struct {
 	Patch map[string]any `json:"patch"`
 }
 
-// MarkdownContent documents the body of GET/PUT .../editor/markdown.
+// MarkdownContent documents the body of POST .../editor/markdown/append.
 type MarkdownContent struct {
 	Content string `json:"content"`
 }
 
-// MarkdownSetResponse documents the response of PUT .../editor/markdown.
+// MarkdownSetResponse documents the response of PUT, PATCH and append
+// on .../editor/markdown. Version is set by PUT only.
 type MarkdownSetResponse struct {
 	Inserted  []string `json:"inserted"`
 	Updated   []string `json:"updated"`
 	Deleted   []string `json:"deleted"`
 	Unchanged int      `json:"unchanged"`
+	// Version is set by PUT only: the version of the body as saved, the
+	// next PUT's ifVersion.
+	Version string `json:"version,omitempty"`
 }

@@ -2178,6 +2178,13 @@ components:
         content:
           type: string
       type: object
+    api.MarkdownDocument:
+      properties:
+        content:
+          type: string
+        version:
+          type: string
+      type: object
     api.MarkdownEdit:
       properties:
         newText:
@@ -2194,6 +2201,13 @@ components:
             $ref: '#/components/schemas/api.MarkdownEdit'
           type: array
           uniqueItems: false
+      type: object
+    api.MarkdownSetRequest:
+      properties:
+        content:
+          type: string
+        ifVersion:
+          type: string
       type: object
     api.MarkdownSetResponse:
       properties:
@@ -2214,6 +2228,11 @@ components:
             type: string
           type: array
           uniqueItems: false
+        version:
+          description: |-
+            Version is set by PUT only: the version of the body as saved, the
+            next PUT's ifVersion.
+          type: string
       type: object
     api.Member:
       properties:
@@ -8177,7 +8196,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/api.MarkdownContent'
+                $ref: '#/components/schemas/api.MarkdownDocument'
           description: OK
         "400":
           content:
@@ -8273,10 +8292,10 @@ paths:
             schema:
               oneOf:
               - type: object
-              - $ref: '#/components/schemas/api.MarkdownContent'
-                description: Markdown content
+              - $ref: '#/components/schemas/api.MarkdownSetRequest'
+                description: Markdown content and the version it was edited from
                 summary: body
-        description: Markdown content
+        description: Markdown content and the version it was edited from
         required: true
       responses:
         "200":
@@ -8291,6 +8310,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Bad Request
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: markdown.conflict — details carry the current content and version
         "500":
           content:
             application/json:

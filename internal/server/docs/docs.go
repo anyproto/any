@@ -2626,6 +2626,17 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.MarkdownDocument": {
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.MarkdownEdit": {
                 "properties": {
                     "newText": {
@@ -2648,6 +2659,17 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.MarkdownSetRequest": {
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    },
+                    "ifVersion": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -2677,6 +2699,10 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "version": {
+                        "description": "Version is set by PUT only: the version of the body as saved, the\nnext PUT's ifVersion.",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -12520,7 +12546,7 @@ const docTemplate = `{
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/api.MarkdownContent"
+                                    "$ref": "#/components/schemas/api.MarkdownDocument"
                                 }
                             }
                         },
@@ -12678,15 +12704,15 @@ const docTemplate = `{
                                         "type": "object"
                                     },
                                     {
-                                        "$ref": "#/components/schemas/api.MarkdownContent",
+                                        "$ref": "#/components/schemas/api.MarkdownSetRequest",
                                         "summary": "body",
-                                        "description": "Markdown content"
+                                        "description": "Markdown content and the version it was edited from"
                                     }
                                 ]
                             }
                         }
                     },
-                    "description": "Markdown content",
+                    "description": "Markdown content and the version it was edited from",
                     "required": true
                 },
                 "responses": {
@@ -12709,6 +12735,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "markdown.conflict — details carry the current content and version"
                     },
                     "500": {
                         "content": {

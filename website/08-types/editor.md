@@ -94,14 +94,16 @@ The `…/editor/editor_blocks/markdown` routes are a lossless import/export laye
 | PATCH | `…/editor/editor_blocks/markdown` | targeted `oldText → newText` replacements |
 | POST | `…/editor/editor_blocks/markdown/append` | append a fragment at the tail without reading the document |
 
-**GET** reads every top-level block, renders each to its canonical bytes, joins them with `\n\n` and returns `{"content": "<markdown>"}`. **PUT** takes the same `{"content": …}` body, parses the markdown, diffs it against the current tree by (type + position + text), and emits per-block create / update / delete ops through the same write path a block PATCH uses — so the same subscribe events fire, untouched blocks keep their ids, and the reply lists what changed:
+**GET** reads every top-level block, renders each to its canonical bytes, joins them with `\n\n` and returns `{"content": "<markdown>", "version": "<version>"}`. **PUT** takes `{"content": …, "ifVersion": …}`, parses the markdown, diffs it against the current tree by (type + position + text), and emits per-block create / update / delete ops through the same write path a block PATCH uses — so the same subscribe events fire, untouched blocks keep their ids, and the reply lists what changed:
 
 ```bash
 curl -X PUT http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/markdown \
   -H 'Content-Type: application/json' \
   -d "$(jq -Rs '{content: .}' notes.md)"
-# → { "inserted": ["…"], "updated": ["…"], "deleted": [], "unchanged": 12 }
+# → { "inserted": ["…"], "updated": ["…"], "deleted": [], "unchanged": 12, "version": "…" }
 ```
+
+An editor that saves what it read sends that read's `version` as `ifVersion`: the PUT writes only while the document is still at it, and answers `409 markdown.conflict` with the current `content` and `version` otherwise, so a stale save cannot revert a newer change. Each 200's `version` is the next save's `ifVersion` ([Saving an edited body](../database/markdown-import-export.html#saving-an-edited-body--ifversion)).
 
 Re-PUTting a GET writes nothing (`unchanged` equals the block count), so a client that hydrates from GET never sees its own save come back reshaped. The wider import/export story is on [markdown import & export](../database/markdown-import-export.html).
 
@@ -123,7 +125,7 @@ any editor edit $SP $OBJ --old '- [ ] buy milk' --new '- [x] buy milk'
 any editor edit $SP $OBJ --edits @edits.json
 ```
 
-The server renders the current canonical markdown (exactly the bytes GET returns), resolves every edit against it, splices, and feeds the result through PUT's diff — so a checkbox tick lands as one `$set style.checked` on the matched block, and the reply is PUT's shape. Matching rules:
+The server renders the current canonical markdown (exactly the bytes GET returns), resolves every edit against it, splices, and feeds the result through PUT's diff — so a checkbox tick lands as one `$set style.checked` on the matched block, and the reply is PUT's shape without `version`. Matching rules:
 
 - Every `oldText` matches against the **original** document, independently of the other edits; matched regions must not overlap.
 - Without `replaceAll` the match must be unique. `newText` may be empty; deleting a whole block takes one blank-line separator with it so the neighbours become adjacent.
@@ -140,7 +142,7 @@ Because the match runs server-side against current state, a stale quote fails lo
 
 ### Append
 
-`POST …/editor/editor_blocks/markdown/append` with `{"content": "…"}` is the append-only fast path: it parses the fragment, looks up only the tail position (one indexed query, never the existing block bodies), and creates the new blocks in one batch. Cost is O(appended content) regardless of document size, which makes a run of N appends O(N) rather than the O(N²) of repeated PUTs — the right tool for grow-by-append pages such as logs. It is purely additive (it will happily create a block identical to an existing one), inserts no leading separator, and answers PUT's shape with only `inserted` populated. Blank content is a 200 no-op.
+`POST …/editor/editor_blocks/markdown/append` with `{"content": "…"}` is the append-only fast path: it parses the fragment, looks up only the tail position (one indexed query, never the existing block bodies), and creates the new blocks in one batch. Cost is O(appended content) regardless of document size, which makes a run of N appends O(N) rather than the O(N²) of repeated PUTs — the right tool for grow-by-append pages such as logs. It is purely additive (it will happily create a block identical to an existing one), inserts no leading separator, and answers PUT's shape with only `inserted` populated and no `version`. Blank content is a 200 no-op.
 
 ## Empty paragraphs and blank lines
 

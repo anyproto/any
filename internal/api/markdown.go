@@ -17,9 +17,27 @@ type MarkdownEditRequest struct {
 	Edits []MarkdownEdit `json:"edits"`
 }
 
-// Error code namespace for the markdown edit endpoint.
+// MarkdownDocument is the response of GET .../editor/markdown: the
+// rendered body and its version. Version is opaque and valid only
+// against the server that issued it.
+type MarkdownDocument struct {
+	Content string `json:"content"`
+	Version string `json:"version"`
+}
+
+// MarkdownSetRequest is the body of PUT .../editor/markdown. A
+// non-empty IfVersion makes the write conditional on the document
+// still being at that version (409 markdown.conflict otherwise).
+type MarkdownSetRequest struct {
+	Content   string `json:"content"`
+	IfVersion string `json:"ifVersion,omitempty"`
+}
+
+// Error code namespace for the markdown endpoints.
 const (
-	ErrMarkdownNoMatch   = "markdown.no_match"          // 400 — oldText not found in the current rendering
-	ErrMarkdownAmbiguous = "markdown.ambiguous_match"   // 400 — >1 occurrences without replaceAll
-	ErrMarkdownOverlap   = "markdown.overlapping_edits" // 400 — two edits matched intersecting text
+	ErrMarkdownNoMatch       = "markdown.no_match"          // 400 — oldText not found in the current rendering
+	ErrMarkdownAmbiguous     = "markdown.ambiguous_match"   // 400 — >1 occurrences without replaceAll
+	ErrMarkdownOverlap       = "markdown.overlapping_edits" // 400 — two edits matched intersecting text
+	ErrMarkdownConflict      = "markdown.conflict"          // 409 — the body changed after ifVersion (details: content, version)
+	ErrMarkdownBlockTooLarge = "markdown.block_too_large"   // 400 — a block's text is over the per-block cap (details: blockIndex, gotBytes, maxBytes)
 )

@@ -2,7 +2,10 @@ package markdown
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/anyproto/any-sync-sdk/space"
 
@@ -23,6 +26,9 @@ type SetResult struct {
 	// Unchanged is the count of blocks that were kept verbatim — no
 	// DB write touched them.
 	Unchanged int
+	// Version is the document version of the body as saved (see
+	// Document). Set fills it; EditContent and Append leave it empty.
+	Version string
 }
 
 // Set replaces the markdown content of objectId with content,
@@ -39,15 +45,8 @@ type SetResult struct {
 //     Delete.
 //  4. Allocate nav.pos lexids for new inserts so they slot between
 //     their kept neighbours in document order.
-//  5. Submit one ModifyBatch (creates + updates) followed by one
-//     DeleteBatch (tombstones). Same two-write split the old md_blocks
-//     path used.
-//
-// The two writes are NOT a single atomic any-sync change. Because the
-// CRDT resolves concurrent update-vs-delete as delete-wins, the
-// observable end state is correct regardless of partial-failure
-// retry, but a reader that catches the gap between (1) and (2) sees
-// a transient state with both old-deleted and new-created blocks.
+//  5. Submit creates, updates and tombstones as one ModifyBatch — one
+//     atomic any-sync change.
 //
 // content is stored as INLINE markdown inside each block's `text`
 // field — no full-block markdown bytes survive on disk. Empty
@@ -55,29 +54,140 @@ type SetResult struct {
 // beyond the one separating two blocks become empty paragraph
 // records, so a document's vertical spacing survives the round trip
 // (see Split).
-func Set(ctx context.Context, sp space.Space, objectId, collection, content string) (SetResult, error) {
-	existing, err := listTopLevel(ctx, sp, objectId, collection)
+//
+// A non-empty ifVersion makes the write conditional: unless the
+// document is still at that version, Set writes nothing and returns a
+// ConflictError carrying the current body and version.
+//
+// The diff is written as one change, conditional on the collection
+// being unchanged since the read it was computed from, so no other
+// writer — a markdown write, a …/blocks call, another device — lands
+// in between; the reported Version is the saved body's. Without
+// ifVersion, a write that lost that race is redone against the new
+// state, and written unconditionally when other writers keep landing
+// first (writeAgainstRead).
+func Set(ctx context.Context, sp space.Space, objectId, collection, content, ifVersion string) (SetResult, error) {
+	parsed, rendered, err := parseContent(content)
 	if err != nil {
-		return SetResult{}, fmt.Errorf("markdown: Set: list existing: %w", err)
+		return SetResult{}, fmt.Errorf("markdown: Set: %w", err)
 	}
-	return applyDiff(ctx, sp, objectId, collection, existing, content)
+	gen, err := sp.Changes().Generation(ctx)
+	if err != nil {
+		return SetResult{}, fmt.Errorf("markdown: Set: generation: %w", err)
+	}
+	saved := Join(rendered)
+	return writeAgainstRead(ctx, sp, objectId, collection, gen, ifVersion == "", func(read Document, existing []existingBlock, ifUnchangedSince *uint64) (SetResult, error) {
+		if ifVersion != "" && ifVersion != read.Version {
+			return SetResult{}, ConflictError{Current: read}
+		}
+		res, applied, err := applyDiff(ctx, sp, objectId, collection, existing, ifUnchangedSince, parsed, rendered)
+		if err != nil {
+			return SetResult{}, err
+		}
+		res.Version = read.Version
+		if len(res.Inserted)+len(res.Updated)+len(res.Deleted) > 0 {
+			res.Version = formatVersion(gen, applied, saved)
+		}
+		return res, nil
+	})
+}
+
+// maxWriteAttempts bounds how often writeAgainstRead redoes a write
+// that other writers keep beating.
+const maxWriteAttempts = 3
+
+// writeAgainstRead reads the document and runs write against that read,
+// conditional on the collection being unchanged since it
+// (ifUnchangedSince); a write that lost the race to another writer
+// (space.ErrPreconditionFailed) is redone against a fresh read. When the
+// writers keep winning, a caller that asked for no condition
+// (unconditional) gets its last attempt written without one, as it
+// asked; a conditional caller's write closure answers a moved read with
+// a ConflictError.
+func writeAgainstRead(ctx context.Context, sp space.Space, objectId, collection, gen string, unconditional bool, write func(read Document, existing []existingBlock, ifUnchangedSince *uint64) (SetResult, error)) (SetResult, error) {
+	for attempt := 1; ; attempt++ {
+		read, existing, seq, err := readDocument(ctx, sp, objectId, collection, gen)
+		if err != nil {
+			return SetResult{}, fmt.Errorf("markdown: list existing: %w", err)
+		}
+		ifUnchangedSince := &seq
+		if unconditional && attempt == maxWriteAttempts {
+			ifUnchangedSince = nil
+		}
+		res, err := write(read, existing, ifUnchangedSince)
+		if !errors.Is(err, space.ErrPreconditionFailed) {
+			return res, err
+		}
+		// Not reached in practice: an unconditional caller's last attempt
+		// has no precondition, and a conditional caller's next read no
+		// longer matches its ifVersion.
+		if attempt == maxWriteAttempts {
+			return res, err
+		}
+	}
+}
+
+// parseContent splits content into blocks and parses them (parseBlocks).
+func parseContent(content string) ([]ParsedBlock, []string, error) {
+	return parseBlocks(Split(content))
+}
+
+// parseBlocks parses raw markdown blocks, returning the parsed blocks
+// and their canonical renderings, or a BlockTooLargeError.
+func parseBlocks(raw []string) ([]ParsedBlock, []string, error) {
+	parsed := make([]ParsedBlock, len(raw))
+	rendered := make([]string, len(raw))
+	for i, r := range raw {
+		parsed[i] = ParseBlock(r)
+		rendered[i] = RenderBlock(parsed[i])
+	}
+	if err := checkBlockSizes(parsed); err != nil {
+		return nil, nil, err
+	}
+	return parsed, rendered, nil
+}
+
+// BlockTooLargeError: a block's text is over the editor's per-block cap.
+// The markdown writes refuse it before writing anything; the editor
+// would reject it mid-change and leave the rest of the save applied.
+type BlockTooLargeError struct {
+	Index int // the block's position in the parsed document
+	Bytes int
+}
+
+func (e BlockTooLargeError) Error() string {
+	return fmt.Sprintf("block %d: text is %d bytes, over the %d-byte cap", e.Index, e.Bytes, editor.MaxTextBytes)
+}
+
+func checkBlockSizes(parsed []ParsedBlock) error {
+	for i, p := range parsed {
+		if len(p.Text) > editor.MaxTextBytes {
+			return BlockTooLargeError{Index: i, Bytes: len(p.Text)}
+		}
+	}
+	return nil
+}
+
+// checkPositions refuses insert positions over the editor's nav.pos cap
+// before writing: the editor would reject that insert mid-change.
+func checkPositions(positions []string) error {
+	for _, pos := range positions {
+		if len(pos) > editor.MaxPosBytes {
+			return fmt.Errorf("insert position is %d bytes, over the %d-byte cap", len(pos), editor.MaxPosBytes)
+		}
+	}
+	return nil
 }
 
 // applyDiff is the shared write pipeline behind Set and EditContent:
-// diff content against the already-listed existing blocks, then emit
-// the create / update / delete ops. Taking `existing` (instead of
-// listing internally) lets EditContent resolve matches and diff
-// against the same listing.
-func applyDiff(ctx context.Context, sp space.Space, objectId, collection string, existing []existingBlock, content string) (SetResult, error) {
+// diff the parsed new document against the existing blocks and write the
+// creates, updates and deletes as one change, conditional — when
+// ifUnchangedSince is set — on the collection being unchanged since the
+// read the blocks came from (ModifyBatch.IfUnchangedSince). A write that
+// lost that race is space.ErrPreconditionFailed with nothing written.
+// appliedSeq is the change's _applySeq, 0 when the diff wrote nothing.
+func applyDiff(ctx context.Context, sp space.Space, objectId, collection string, existing []existingBlock, ifUnchangedSince *uint64, newParsed []ParsedBlock, newRendered []string) (result SetResult, appliedSeq uint64, err error) {
 	oldRendered := renderExisting(existing)
-
-	rawNew := Split(content)
-	newParsed := make([]ParsedBlock, len(rawNew))
-	newRendered := make([]string, len(rawNew))
-	for i, raw := range rawNew {
-		newParsed[i] = ParseBlock(raw)
-		newRendered[i] = RenderBlock(newParsed[i])
-	}
 
 	plan := Diff(oldRendered, newRendered)
 
@@ -86,13 +196,13 @@ func applyDiff(ctx context.Context, sp space.Space, objectId, collection string,
 	// the left/right of an insert run).
 	posByNewIdx, err := allocateInsertPositions(existing, plan)
 	if err != nil {
-		return SetResult{}, fmt.Errorf("markdown: apply: allocate pos: %w", err)
+		return SetResult{}, 0, fmt.Errorf("markdown: apply: allocate pos: %w", err)
+	}
+	if err := checkPositions(slices.Collect(maps.Values(posByNewIdx))); err != nil {
+		return SetResult{}, 0, fmt.Errorf("markdown: apply: %w", err)
 	}
 
-	var (
-		records []space.RecordModify
-		result  SetResult
-	)
+	var records []space.RecordModify
 	for i, op := range plan.NewSeq {
 		switch op.Kind {
 		case OpKeep:
@@ -113,53 +223,58 @@ func applyDiff(ctx context.Context, sp space.Space, objectId, collection string,
 			result.Updated = append(result.Updated, old.Id)
 		}
 	}
+	// Nested blocks of a deleted block stay: the diff reads a moved block
+	// as a delete plus a create, and their content is nothing the
+	// markdown shows.
+	for _, oldIdx := range plan.Deletes {
+		id := existing[oldIdx].Id
+		records = append(records, space.RecordModify{Id: id, Ops: []space.Op{{Type: space.OpDelete}}})
+		result.Deleted = append(result.Deleted, id)
+	}
+	if len(records) == 0 {
+		return result, 0, nil
+	}
 
-	if len(records) > 0 {
-		res, err := sp.Modify(ctx, space.ModifyBatch{
-			ObjectId: objectId,
-			Dataset:  collection,
-			Records:  records,
-		})
-		if err != nil {
-			return result, fmt.Errorf("markdown: apply: modify: %w", err)
+	res, err := sp.Modify(ctx, space.ModifyBatch{
+		ObjectId:         objectId,
+		Dataset:          collection,
+		Records:          records,
+		IfUnchangedSince: ifUnchangedSince,
+	})
+	if err != nil {
+		return SetResult{}, 0, fmt.Errorf("markdown: apply: modify: %w", err)
+	}
+	// The block sizes and positions the editor validates are checked
+	// before writing. With a precondition nothing else wrote the
+	// collection since the read, so any rejection is a refusal those
+	// checks missed. Without one (writeAgainstRead's last attempt), a
+	// block deleted after the read absorbs its update — delete wins —
+	// and the rest of the change has landed.
+	for _, rej := range res.Rejections {
+		if ifUnchangedSince == nil && errors.Is(rej.ReasonErr, space.ErrRecordDeleted) {
+			result.Updated = slices.DeleteFunc(result.Updated, func(id string) bool { return id == rej.RecordId })
+			continue
 		}
-		if len(res.Rejections) > 0 {
-			return result, fmt.Errorf("markdown: apply: rejected: %s", res.Rejections[0].Reason)
-		}
-		// Fill in the auto-derived ids for the Inserted slots, aligned
-		// to records[] by position. result.Inserted's slot-per-insert
-		// shape was already populated above.
-		insertIdx := 0
-		for i, rec := range records {
-			if rec.Id == "" {
-				if i < len(res.RecordIds) {
-					for insertIdx < len(result.Inserted) && result.Inserted[insertIdx] != "" {
-						insertIdx++
-					}
-					if insertIdx < len(result.Inserted) {
-						result.Inserted[insertIdx] = res.RecordIds[i]
-						insertIdx++
-					}
+		return SetResult{}, 0, fmt.Errorf("markdown: apply: rejected: %s", rej.Reason)
+	}
+	// Fill in the auto-derived ids for the Inserted slots, aligned
+	// to records[] by position. result.Inserted's slot-per-insert
+	// shape was already populated above.
+	insertIdx := 0
+	for i, rec := range records {
+		if rec.Id == "" {
+			if i < len(res.RecordIds) {
+				for insertIdx < len(result.Inserted) && result.Inserted[insertIdx] != "" {
+					insertIdx++
+				}
+				if insertIdx < len(result.Inserted) {
+					result.Inserted[insertIdx] = res.RecordIds[i]
+					insertIdx++
 				}
 			}
 		}
 	}
-
-	if len(plan.Deletes) > 0 {
-		ids := make([]string, len(plan.Deletes))
-		for i, oldIdx := range plan.Deletes {
-			ids[i] = existing[oldIdx].Id
-		}
-		result.Deleted = ids
-		if _, err := sp.Delete(ctx, space.DeleteBatch{
-			ObjectId:  objectId,
-			Dataset:   collection,
-			RecordIds: ids,
-		}); err != nil {
-			return result, fmt.Errorf("markdown: apply: delete tombstones: %w", err)
-		}
-	}
-	return result, nil
+	return result, res.ApplySeq, nil
 }
 
 // Append parses content into blocks and appends them all after the
@@ -192,6 +307,10 @@ func Append(ctx context.Context, sp space.Space, objectId, collection, content s
 	if len(rawNew) == 0 {
 		return SetResult{}, nil
 	}
+	parsed, _, err := parseBlocks(rawNew)
+	if err != nil {
+		return SetResult{}, fmt.Errorf("markdown: Append: %w", err)
+	}
 
 	maxPos, err := editor.MaxPos(ctx, sp, objectId, collection, editor.RootParentId)
 	if err != nil {
@@ -201,10 +320,13 @@ func Append(ctx context.Context, sp space.Space, objectId, collection, content s
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Append: allocate pos: %w", err)
 	}
+	if err := checkPositions(positions); err != nil {
+		return SetResult{}, fmt.Errorf("markdown: Append: %w", err)
+	}
 
-	records := make([]space.RecordModify, len(rawNew))
-	for i, raw := range rawNew {
-		records[i] = buildCreateRecord(ParseBlock(raw), positions[i])
+	records := make([]space.RecordModify, len(parsed))
+	for i, p := range parsed {
+		records[i] = buildCreateRecord(p, positions[i])
 	}
 
 	// Attach the editor type before the membership-gated editor_blocks
@@ -233,16 +355,18 @@ func Append(ctx context.Context, sp space.Space, objectId, collection, content s
 }
 
 // Get returns the full markdown content of objectId by rendering each
-// top-level block and joining with "\n\n". Round-trip is canonical:
-// blank lines between two content blocks are exactly one plus one per
-// empty paragraph between them, and block-type canonicalisation
-// (setext → ATX, `+` → `-`) applies the same way as on Set.
-func Get(ctx context.Context, sp space.Space, objectId, collection string) (string, error) {
-	existing, err := listTopLevel(ctx, sp, objectId, collection)
+// top-level block and joining with "\n\n", plus the version it was read
+// at. Round-trip is canonical: blank lines between two content blocks
+// are exactly one plus one per empty paragraph between them, and
+// block-type canonicalisation (setext → ATX, `+` → `-`) applies the
+// same way as on Set.
+func Get(ctx context.Context, sp space.Space, objectId, collection string) (Document, error) {
+	gen, err := sp.Changes().Generation(ctx)
 	if err != nil {
-		return "", err
+		return Document{}, fmt.Errorf("markdown: Get: generation: %w", err)
 	}
-	return Join(renderExisting(existing)), nil
+	doc, _, _, err := readDocument(ctx, sp, objectId, collection, gen)
+	return doc, err
 }
 
 // trimEdgeEmpties drops leading and trailing empty entries, keeping
@@ -284,15 +408,20 @@ type existingBlock struct {
 }
 
 // listTopLevel returns the object's top-level editor_blocks
-// (nav.parentId == "") sorted by nav.pos ascending. The markdown path
-// stays flat: nested blocks (children of list items, for example)
-// live under their parents but the markdown round-trip only walks the
-// top level. Mirrors today's md_blocks behaviour.
-func listTopLevel(ctx context.Context, sp space.Space, objectId, collection string) ([]existingBlock, error) {
-	all, err := editor.List(ctx, sp, objectId, collection)
+// (nav.parentId == "") sorted by nav.pos ascending, and the collection's
+// highest _applySeq from the same read, nested blocks and tombstones
+// included (editor.ListWithSeq). The markdown path stays flat: nested
+// blocks (children of list items, for example) live under their
+// parents but the markdown round-trip only walks the top level.
+func listTopLevel(ctx context.Context, sp space.Space, objectId, collection string) ([]existingBlock, uint64, error) {
+	all, seq, err := editor.ListWithSeq(ctx, sp, objectId, collection)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
+	return topLevel(all), seq, nil
+}
+
+func topLevel(all []editor.Block) []existingBlock {
 	out := make([]existingBlock, 0, len(all))
 	for _, b := range all {
 		if b.Nav.ParentId != editor.RootParentId {
@@ -306,7 +435,7 @@ func listTopLevel(ctx context.Context, sp space.Space, objectId, collection stri
 			Pos:   b.Nav.Pos,
 		})
 	}
-	return out, nil
+	return out
 }
 
 // buildCreateRecord assembles the RecordModify for an Insert op. Id
@@ -337,10 +466,21 @@ func buildCreateRecord(p ParsedBlock, pos string) space.RecordModify {
 	}
 }
 
-// buildUpdateRecord emits one $set op per changed field. text and
-// type are always set; style replaces whole-cloth when the new value
-// differs (no per-style-sub-key diffing, which keeps the diff
-// boundary aligned with what Update means at the markdown layer).
+// markdownStyleKeys are the style keys the markdown expresses, per block
+// type. An update owns these and nothing else: any other key set through
+// …/blocks — a paragraph's level used as indentation, a color — survives
+// a save that updates the block.
+var markdownStyleKeys = map[string][]string{
+	editor.TypeHeading:       {editor.StyleLevel},
+	editor.TypeListItem:      {editor.StyleOrdered, editor.StyleNumber},
+	editor.TypeCheckListItem: {editor.StyleChecked},
+	editor.TypeCode:          {editor.StyleLang},
+}
+
+// buildUpdateRecord emits one op per changed field: $set on type and
+// text when they differ, and per owned style key (the old and the new
+// type's, plus any the parse produced), $set for one whose value changed
+// and $unset for one the new block no longer carries.
 func buildUpdateRecord(old existingBlock, p ParsedBlock) space.RecordModify {
 	var ops []space.Op
 	if old.Type != p.Type {
@@ -349,11 +489,20 @@ func buildUpdateRecord(old existingBlock, p ParsedBlock) space.RecordModify {
 	if old.Text != p.Text {
 		ops = append(ops, space.Op{Type: space.OpSet, Path: editor.FieldText, Value: p.Text})
 	}
-	if !styleEqual(old.Style, p.Style) {
-		if p.Style == nil {
-			ops = append(ops, space.Op{Type: space.OpUnset, Path: editor.FieldStyle})
-		} else {
-			ops = append(ops, space.Op{Type: space.OpSet, Path: editor.FieldStyle, Value: p.Style})
+	owned := slices.Concat(markdownStyleKeys[old.Type], markdownStyleKeys[p.Type])
+	for key := range p.Style {
+		owned = append(owned, key)
+	}
+	slices.Sort(owned)
+	for _, key := range slices.Compact(owned) {
+		path := editor.FieldStyle + "." + key
+		nv, inNew := p.Style[key]
+		ov, inOld := old.Style[key]
+		switch {
+		case inNew && (!inOld || !scalarEqual(ov, nv)):
+			ops = append(ops, space.Op{Type: space.OpSet, Path: path, Value: nv})
+		case !inNew && inOld:
+			ops = append(ops, space.Op{Type: space.OpUnset, Path: path})
 		}
 	}
 	if len(ops) == 0 {
@@ -365,22 +514,6 @@ func buildUpdateRecord(old existingBlock, p ParsedBlock) space.RecordModify {
 		Id:  old.Id,
 		Ops: ops,
 	}
-}
-
-func styleEqual(a, b map[string]any) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, va := range a {
-		vb, ok := b[k]
-		if !ok {
-			return false
-		}
-		if !scalarEqual(va, vb) {
-			return false
-		}
-	}
-	return true
 }
 
 // scalarEqual compares two style values for equality. Numbers can

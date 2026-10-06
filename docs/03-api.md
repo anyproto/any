@@ -1538,15 +1538,69 @@ query/subscribe endpoint with `dataset=<collection>`.
 
 The `editor/markdown` routes are aggregating endpoints (each one
 bundles several SDK calls), an exception to the "endpoints map 1:1
-onto SDK methods" rule. `GET` → `{"content": "…"}`: every top-level
-block rendered to its canonical markdown and joined with `\n\n` (see
-*Empty paragraphs* below for the blank-line rule). `PUT` takes
-`{"content": "…"}`, parses it, diffs against the current block tree by
-(type + position + text), and emits per-block create / update / delete
-ops through the same write path the `…/blocks` routes use, so the same
-collection events fire. `PUT` replies with `{"inserted": [...],
-"updated": [...], "deleted": [...], "unchanged": N}` where the slices
-contain block ids.
+onto SDK methods" rule. `GET` → `{"content": "…", "version": "…"}`:
+every top-level block rendered to its canonical markdown and joined
+with `\n\n` (see *Empty paragraphs* below for the blank-line rule),
+plus the document version (*Versions and conflicts* below). `PUT`
+takes `{"content": "…", "ifVersion": "…"}`, parses `content`, diffs it
+against the current block tree by (type + position + text), and emits
+per-block create / update / delete ops through the same write path the
+`…/blocks` routes use, so the same collection events fire. An update
+writes only the fields that changed, and of `style` only the keys the
+markdown expresses for the block's type — `level` on a heading,
+`ordered` and `number` on a list item, `checked` on a checklist item,
+`lang` on code. Any other style key, set through `…/blocks`, is kept.
+That holds while the diff matches a block as an update: a block
+rewritten past recognition, or moved, is deleted and created anew, and
+the new one has a new id and only the parsed style. Nested blocks of a
+block the save deletes stay, as orphans the `…/blocks` routes still
+reach.
+`PUT` replies with `{"inserted": [...],
+"updated": [...], "deleted": [...], "unchanged": N, "version": "…"}`
+where the slices contain block ids. A block whose text is over the
+per-block cap (64 KiB) is `400 markdown.block_too_large` on every
+markdown write, and nothing is written.
+
+##### Versions and conflicts
+
+`version` names one state of the document. Any write to a record in
+the object's editor collection moves it: a text or style change, a
+field the markdown does not render, a nested block, a block delete.
+Reads never move it. It is opaque and valid only against the server
+that issued it, and only within one run of it: a restart, a crash
+included, can renumber the sequence a version is built from, so a
+version from before the restart may match a different state. When
+`startedAt` in `GET /v1/health` changes, re-read the document with
+`GET` before the next save.
+
+`PUT` diffs `content` against the blocks the server holds now, so a
+save built from an older read would revert whatever changed since.
+`ifVersion` prevents that: it is the `version` of the body the edit
+started from, and the `PUT` writes only while the document is still
+at it. Otherwise the reply is `409 markdown.conflict`, nothing is
+written, and `details` carry the current `content` and `version`:
+merge the edit into `details.content` and `PUT` again with
+`ifVersion: details.version`.
+
+```json
+{ "error": { "code": "markdown.conflict",
+             "message": "the body changed — merge details.content and retry with details.version",
+             "details": { "content": "…", "version": "…" } } }
+```
+
+A `200` carries the `version` of the body as saved, which is the next
+save's `ifVersion` — consecutive saves chain without a `GET`. A `PUT`
+without `ifVersion` still returns `version`; the other markdown routes
+answer without one.
+
+A save is one change, written only if the document is unchanged since
+the read its diff was computed from. The check and the write are one
+step in the SDK, under the lock every writer of the object takes, so a
+write landing in between — another markdown save, a `…/blocks` call, a
+change synced from another device — makes a `PUT` with `ifVersion`
+answer `409` with nothing written. A `PUT` without `ifVersion` and a
+`PATCH` are redone against the new state instead; when other writers
+keep landing first, the last attempt is written without the check.
 
 `PATCH …/editor/:collection/markdown` is the surgical variant of `PUT` — for
 callers (LLM agents above all) that know the *text* they want changed
@@ -1566,7 +1620,7 @@ The server renders the current canonical markdown (the exact bytes
 replacements, and feeds the result through `PUT`'s diff pipeline — so
 a checkbox tick lands as a single `$set style.checked` on the matched
 block, ids and untouched blocks stay stable, and the reply is `PUT`'s
-shape. Matching rules:
+shape without `version`. Matching rules:
 
 - Every `oldText` matches against the ORIGINAL document,
   independently of the other edits; matched regions must not overlap.
@@ -1606,7 +1660,7 @@ parsed block in a single ModifyBatch. Cost is O(appended content),
 independent of how large the document already is — unlike `PUT`, which
 renders and diffs the whole document on every call. The reply uses the
 same shape as `PUT` with only `inserted` populated (`updated` and
-`deleted` are always empty). Trade-offs the caller accepts: it is
+`deleted` are always empty, and there is no `version`). Trade-offs the caller accepts: it is
 purely additive (no update/delete, and it will create a block
 identical to an existing one), and it inserts no leading separator —
 `content` is appended structurally after the current last block.
@@ -1760,9 +1814,7 @@ Response: `200` with the shared write result (`recordIds=[blockId]`,
 → 200 with the shared write result `{versionId, changeId, recordIds}`
 (`recordIds=[blockId]`). Tombstones the record (sticky — re-creating
 the same id is rejected). Children of the deleted block are NOT
-cascaded; the client either deletes the descendants explicitly or
-rewrites the document via `PUT …/editor/:collection/markdown`, which
-diffs the whole body.
+cascaded; the client deletes the descendants explicitly.
 
 ##### Subscribe
 

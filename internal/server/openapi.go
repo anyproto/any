@@ -45,6 +45,7 @@ var strictBodySchemas = []string{
 	"api.BlockPatchRequest",
 	"api.MarkdownContent",
 	"api.MarkdownEditRequest",
+	"api.MarkdownSetRequest",
 	"api.SearchRequest",
 	"api.SpaceCreateRequest",
 	"api.SpaceUpdateRequest",

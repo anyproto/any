@@ -144,15 +144,11 @@ func TestE2E_MultipeerJoinerMarkdownWrite(t *testing.T) {
 }
 
 // TestE2E_MultipeerJoinerDeletePropagation isolates the joiner→owner
-// Delete path from markdown.Set's modify+delete pair. The joiner makes
-// a single sp.Delete call against a record the owner created, and the
-// owner must see the tombstone within the usual headsync window.
-//
-// markdown.Set masks this because its modify-then-delete pair on the
-// same broadcast cycle made it look like both reached the owner; in
-// practice only the modify did. Repro'ing with a bare Delete (no
-// Modify before it) makes the gap visible: if Delete tombstones don't
-// propagate, the record stays live on the owner forever.
+// Delete path: the joiner makes a single sp.Delete call against a record
+// the owner created, and the owner must see the tombstone within the
+// usual headsync window. A bare Delete, with no other write in the same
+// broadcast cycle, is what shows whether a tombstone propagates on its
+// own: if it doesn't, the record stays live on the owner forever.
 func TestE2E_MultipeerJoinerDeletePropagation(t *testing.T) {
 	if _, err := os.Stat(stagingFixture); err != nil {
 		t.Skipf("staging fixture not present at %s: %v", stagingFixture, err)

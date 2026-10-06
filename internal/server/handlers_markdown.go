@@ -8,6 +8,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/editor"
 	"github.com/anyproto/any/internal/markdown"
 )
 
@@ -30,7 +31,10 @@ import (
 // supplied content, diffs against the stored blocks, and emits the
 // same per-record create / update / delete ops the /blocks endpoints
 // would — so the same `editor_blocks` SSE events fire regardless of
-// which path produced the change. PATCH is the surgical variant:
+// which path produced the change. GET also returns the document's
+// version, and a PUT carrying it as ifVersion writes only while the
+// document is still at it (409 markdown.conflict otherwise), so a stale
+// save cannot revert a newer body. PATCH is the surgical variant:
 // oldText → newText replacements resolved against the CURRENT
 // rendering, then fed through PUT's diff — minimal block ops, and a
 // stale quote fails loudly instead of clobbering concurrent edits.
@@ -46,7 +50,7 @@ import (
 //	@Produce	json
 //	@Param		spaceId		path		string	true	"Space ID"
 //	@Param		objectId	path		string	true	"Object ID"
-//	@Success	200			{object}	api.MarkdownContent
+//	@Success	200			{object}	api.MarkdownDocument
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/editor/{collection}/markdown [get]
@@ -59,14 +63,15 @@ func (d *deps) markdownGet(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	content, err := markdown.Get(c.Request().Context(), sp, objectId, collection)
+	doc, err := markdown.Get(c.Request().Context(), sp, objectId, collection)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
-	return c.JSON(http.StatusOK, api.MarkdownContent{Content: content})
+	return c.JSON(http.StatusOK, api.MarkdownDocument{Content: doc.Content, Version: doc.Version})
 }
 
-// markdownSet replaces the markdown content of an object.
+// markdownSet replaces the markdown content of an object, optionally
+// only while the document is still at ifVersion.
 //
 //	@Summary	Set markdown content (diff-based)
 //	@Tags		editor
@@ -75,9 +80,10 @@ func (d *deps) markdownGet(c echo.Context) error {
 //	@Param		spaceId		path		string					true	"Space ID"
 //	@Param		objectId	path		string					true	"Object ID"
 //	@Param		collection	path		string					true	"Editor collection (editor_blocks or <typeId>_<key>)"
-//	@Param		body		body		api.MarkdownContent		true	"Markdown content"
+//	@Param		body		body		api.MarkdownSetRequest	true	"Markdown content and the version it was edited from"
 //	@Success	200			{object}	api.MarkdownSetResponse
 //	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	409			{object}	api.ErrorEnvelope	"markdown.conflict — details carry the current content and version"
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/editor/{collection}/markdown [put]
 func (d *deps) markdownSet(c echo.Context) error {
@@ -89,15 +95,13 @@ func (d *deps) markdownSet(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	req, ok := bindBodyStrict[struct {
-		Content string `json:"content"`
-	}](c, "")
+	req, ok := bindBodyStrict[api.MarkdownSetRequest](c, "")
 	if !ok {
 		return nil
 	}
-	res, err := markdown.Set(c.Request().Context(), sp, objectId, collection, req.Content)
+	res, err := markdown.Set(c.Request().Context(), sp, objectId, collection, req.Content, req.IfVersion)
 	if err != nil {
-		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
+		return markdownWriteError(c, err, sp.Id(), objectId)
 	}
 	return c.JSON(http.StatusOK, markdownSetResponseToAPI(res))
 }
@@ -123,6 +127,7 @@ func markdownSetResponseToAPI(res markdown.SetResult) api.MarkdownSetResponse {
 		Updated:   updated,
 		Deleted:   deleted,
 		Unchanged: res.Unchanged,
+		Version:   res.Version,
 	}
 }
 
@@ -150,15 +155,13 @@ func (d *deps) markdownAppend(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	req, ok := bindBodyStrict[struct {
-		Content string `json:"content"`
-	}](c, "")
+	req, ok := bindBodyStrict[api.MarkdownContent](c, "")
 	if !ok {
 		return nil
 	}
 	res, err := markdown.Append(c.Request().Context(), sp, objectId, collection, req.Content)
 	if err != nil {
-		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
+		return markdownWriteError(c, err, sp.Id(), objectId)
 	}
 	// Append only ever inserts; updated/deleted are always empty.
 	return c.JSON(http.StatusOK, markdownSetResponseToAPI(res))
@@ -209,21 +212,31 @@ func (d *deps) markdownEdit(c echo.Context) error {
 	}
 	res, err := markdown.EditContent(c.Request().Context(), sp, objectId, collection, edits)
 	if err != nil {
-		return markdownEditError(c, err, sp.Id(), objectId)
+		return markdownWriteError(c, err, sp.Id(), objectId)
 	}
 	return c.JSON(http.StatusOK, markdownSetResponseToAPI(res))
 }
 
-// markdownEditError maps EditContent's typed match errors to the
+// markdownWriteError maps the markdown writes' typed errors to the
 // canonical envelope; messages carry the recovery step so an agent
 // caller can fix its request without extra discovery.
-func markdownEditError(c echo.Context, err error, spaceId, objectId string) error {
+func markdownWriteError(c echo.Context, err error, spaceId, objectId string) error {
 	var (
+		conflict  markdown.ConflictError
+		tooLarge  markdown.BlockTooLargeError
 		noMatch   markdown.NoMatchError
 		ambiguous markdown.AmbiguousMatchError
 		overlap   markdown.OverlapError
 	)
 	switch {
+	case errors.As(err, &conflict):
+		return writeError(c, http.StatusConflict, api.ErrMarkdownConflict,
+			"the body changed — merge details.content and retry with details.version",
+			map[string]any{"content": conflict.Current.Content, "version": conflict.Current.Version})
+	case errors.As(err, &tooLarge):
+		return writeError(c, http.StatusBadRequest, api.ErrMarkdownBlockTooLarge,
+			fmt.Sprintf("block %d is %d bytes, over the %d-byte cap per block — split it", tooLarge.Index, tooLarge.Bytes, editor.MaxTextBytes),
+			map[string]any{"blockIndex": tooLarge.Index, "gotBytes": tooLarge.Bytes, "maxBytes": editor.MaxTextBytes})
 	case errors.As(err, &noMatch):
 		return writeError(c, http.StatusBadRequest, api.ErrMarkdownNoMatch,
 			fmt.Sprintf("edits[%d].oldText not found in the current document — GET .../editor/markdown and quote the exact text", noMatch.Index),
