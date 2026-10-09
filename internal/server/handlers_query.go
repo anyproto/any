@@ -396,6 +396,10 @@ func shapeRecords(docs []*anyenc.Value, shaper recordShaper) []json.RawMessage {
 	records := make([]json.RawMessage, 0, len(docs))
 	for _, doc := range docs {
 		records = append(records, renderQueryRecord(fa, doc, shaper))
+		// Each record is marshalled to its own bytes: reset per record,
+		// or the pooled arena goes back holding a skeleton the size of
+		// the whole page — a limit-0 snapshot's for the process lifetime.
+		fa.Reset()
 	}
 	return records
 }
