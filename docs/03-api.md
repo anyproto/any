@@ -2365,10 +2365,14 @@ data: {"reason": "overflow"}
   - `drifted` — more than `driftBudgetPercent` of the held window left
     without replacements, and the engine refuses to re-query on the
     hot path. Resubscribe.
+  - `object_deleted` — per-object streams only (one object's dataset,
+    one object's files): the object was deleted. Drop the view; a new
+    POST for it is refused.
 
-  Every reason means "the stream is over; for live state, open a new
-  POST." Recovery is identical for `overflow` and `drifted` — the
-  reason is split so clients can log and back off sensibly.
+  Every reason but `object_deleted` means "the stream is over; for
+  live state, open a new POST." Recovery is identical for `overflow`
+  and `drifted` — the reason is split so clients can log and back off
+  sensibly.
 
 Subscriptions deliver events from registration onward only — there is
 no replay. The bundled `snapshot` frame is the only point-in-time read.

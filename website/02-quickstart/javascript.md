@@ -160,7 +160,7 @@ async function watch() {
 }
 ```
 
-The loop retries network failures, server 5xx, HTTP 429, EOF and terminal frames. `closed` carries a reason — `server_shutdown`, `sdk_closed`, `overflow` (you drained too slowly), `drifted` (too much of the window left), `deauthorized` (the account was signed out or switched; read `GET /v1/auth` first). Each means the same thing for the stream: open a new POST and replace your window with the new `snapshot`. A stream that ends without `closed` means the same. There is no replay and nothing to reconcile.
+The loop retries network failures, server 5xx, HTTP 429, EOF and terminal frames. `closed` carries a reason — `server_shutdown`, `sdk_closed`, `overflow` (you drained too slowly), `drifted` (too much of the window left), `deauthorized` (the account was signed out or switched; read `GET /v1/auth` first), `object_deleted` (a per-object stream's object is gone; drop the view and stop). Each other reason means the same thing for the stream: open a new POST and replace your window with the new `snapshot`. A stream that ends without `closed` means the same. There is no replay and nothing to reconcile.
 
 While `GET /auth` reports `authorized: false`, the loop clears the view and waits. This state can occur during a restart or while a managed host authorizes an account. It subscribes again only when the original account is authorized.
 

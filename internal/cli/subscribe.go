@@ -49,7 +49,7 @@ Frames (one JSON object per line on stdout):
   {"event": "ready",    "data": {}}
   {"event": "snapshot", "data": {"records":[...], "total": 17, "hasNext": true}}
   {"event": "changes",  "data": [{"versionId":"...","added":[...],"updated":[...],"removed":[{"id":"...","reason":"deleted"}]}]}
-  {"event": "closed",   "data": {"reason": "server_shutdown" | "sdk_closed" | "overflow" | "drifted"}}
+  {"event": "closed",   "data": {"reason": "server_shutdown" | "deauthorized" | "sdk_closed" | "overflow" | "drifted" | "object_deleted"}}
 `,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
