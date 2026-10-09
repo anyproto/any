@@ -106,7 +106,7 @@ Recovery is the same for all of them but `object_deleted`: **open a new POST and
 
 ## Client example: fetch streaming, no EventSource
 
-Windowed subscribes are `POST`, so the browser's `EventSource` cannot open them. Parse the SSE frames from a streaming `fetch` body instead, and wrap the stream in one retry loop: a `closed` frame, a stream that ends without one, and a failed request all mean "open a new POST and replace the window with its snapshot". Node.js 18+ or an allowlisted desktop renderer (an ordinary web page hits the server's CORS policy); `SPACE` is a space id, `CHAT` the [general chat's root](../types/chat.html#finding-the-chat-object), `ACCOUNT` the `accountId` from `GET /v1/auth`. `windowChanged` is where your renderer goes — sort by `-_ver.id` for this query — and `stop.abort()` is what the view calls on close:
+Windowed subscribes are `POST`, so the browser's `EventSource` cannot open them. Parse the SSE frames from a streaming `fetch` body instead, and wrap the stream in one retry loop: a `closed` frame, a stream that ends without one, and a failed request all mean "open a new POST and replace the window with its snapshot" — except `closed{object_deleted}`, which ends the view: the object is gone and a new POST for it is refused. Node.js 18+ or an allowlisted desktop renderer (an ordinary web page hits the server's CORS policy); `SPACE` is a space id, `CHAT` the [general chat's root](../types/chat.html#finding-the-chat-object), `ACCOUNT` the `accountId` from `GET /v1/auth`. `windowChanged` is where your renderer goes — sort by `-_ver.id` for this query — and `stop.abort()` is what the view calls on close:
 
 ```js
 const API = "http://127.0.0.1:7001/v1";
@@ -185,7 +185,10 @@ async function subscribe(url, body, onFrame, signal) {
 }
 
 function onFrame(event, data) {
-  if (event === "closed" && data.reason === "deauthorized") {
+  if (event === "closed" && data.reason === "object_deleted") {
+    messages.clear();
+    stop.abort();                          // the object is gone: nothing to reopen
+  } else if (event === "closed" && data.reason === "deauthorized") {
     messages.clear();
   } else if (event === "snapshot") {
     messages = new Map((data.records ?? []).map(r => [r.id, r]));

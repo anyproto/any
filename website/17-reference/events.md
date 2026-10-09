@@ -5,7 +5,7 @@ order: 30
 ---
 # SSE streams
 
-Every live surface in any is a plain HTTP Server-Sent Events response: one request opens the stream, the server pushes frames, and a terminal `closed` frame tells the client to reconnect. All streams share one envelope and one reason vocabulary, so a client needs a single state machine.
+Every live surface in any is a plain HTTP Server-Sent Events response: one request opens the stream, the server pushes frames, and a terminal `closed` frame tells the client to reconnect (or, for `object_deleted`, to drop the view). All streams share one envelope and one reason vocabulary, so a client needs a single state machine.
 
 ## The envelope
 

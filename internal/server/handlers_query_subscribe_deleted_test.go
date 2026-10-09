@@ -70,18 +70,16 @@ func TestServer_QuerySubscribe_ObjectDeletedCloses(t *testing.T) {
 	}
 
 	// A new stream for the deleted object is refused; the sibling's
-	// stream is untouched.
+	// stream still delivers.
 	rec := doJSON(t, e, http.MethodPost, l.base()+"/query/subscribe",
 		`{"objectId":"`+c+`","dataset":"`+l.samples+`"}`)
-	if rec.Code != http.StatusNotFound && rec.Code != http.StatusGone {
-		t.Fatalf("subscribe to deleted object: %d %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("subscribe to deleted object: %d %s, want 404", rec.Code, rec.Body.String())
 	}
-	select {
-	case f := <-ownB:
-		if f.Event == "closed" {
-			t.Fatalf("sibling stream closed: %s", f.Data)
-		}
-	case <-time.After(200 * time.Millisecond):
+	l.put(t, e, b, l.samples, "r3", map[string]any{"label": "b3", "score": 45, "kind": "x"})
+	evs := collectChanges(t, ownB, func(evs []api.QuerySubscribeEvent) bool { return len(evs) > 0 })
+	if ids := changeIds(evs); len(ids) != 1 || ids[0] != sharedId(b, "r3") {
+		t.Fatalf("sibling changes = %v, want [%s]", ids, sharedId(b, "r3"))
 	}
 	streamCancel()
 	<-ownBDone

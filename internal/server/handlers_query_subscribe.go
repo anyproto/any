@@ -99,8 +99,8 @@ func (d *deps) spaceQuerySubscribe(c echo.Context) error {
 //	changes  — JSON array of QuerySubscribeEvent batches; Mailbox.Wait
 //	           coalesces concurrent events for free.
 //	closed   — terminal, with a reason mapped from Sub.Err() (overflow,
-//	           drifted, sdk_closed) or the engine's teardown
-//	           (server_shutdown, deauthorized).
+//	           drifted, object_deleted, sdk_closed) or the engine's
+//	           teardown (server_shutdown, deauthorized).
 //
 // The stream runs inside the engine gate (routes.go), so a teardown
 // waits for it to unwind — which it does as soon as shutdownCtx fires.
