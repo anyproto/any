@@ -30,14 +30,12 @@ Search needs no build tag. The `llamacpp` tag adds the local llama.cpp embedder;
 | Build | Tags | Local embedder |
 |---|---|---|
 | desktop / server (`make build`), release tarballs | `llamacpp` | yes |
-| darwin `-sandbox` tarball | `llamacpp ffi_no_embed` | yes |
 | `go install` / `go build` | none | no |
 | mobile — `.aar` / `.xcframework` | `gomobile` / `mobile` | no |
 
 - Without the local embedder, `index.embedder: auto` embeds through an online primary alone once `index.openai.apiKey` names one — no child process, no model download — and is full-text only without a key. `index.embedder: local` fails at boot with an error naming the tag.
 - The tag is opt-in because the embedder's bindings load libffi at process start and crash without it. `make check-deps`, a PR check, fails if the untagged or a mobile build links them.
 - Mobile never builds it: the local-embedder files exclude `GOOS` android and ios, whatever the tags.
-- `ffi_no_embed` is a packaging flag, not a capability one: it changes where libffi comes from (the system `/usr/lib/libffi.dylib` instead of a copy extracted into the user Caches directory), which is what macOS library validation requires. Nothing is compiled out.
 
 ## Release artifacts
 
@@ -45,7 +43,7 @@ One reusable workflow builds every platform on tag (release) and nightly (prerel
 
 ### Desktop tarballs
 
-`any-<version>-<os>-<arch>[-sandbox].tar.gz` for `darwin-arm64`, `darwin-x64`, `linux-x86_64`, `windows-x86_64`, plus `darwin-arm64-sandbox` and `darwin-x64-sandbox`:
+`any-<version>-<os>-<arch>.tar.gz` for `darwin-arm64`, `darwin-x64`, `linux-x86_64`, `windows-x86_64`:
 
 ```
 any[.exe]         the server, built with -tags llamacpp
@@ -55,10 +53,6 @@ manifest.json     { version, os, arch, llamacpp_version, sha256: {path: hash} }
 ```
 
 Consumers verify every file against `sha256` before use. The embedding model is **not** bundled — it downloads at runtime into the data root. Because the backend is CGO-free, one Linux job cross-builds every target and cross-fetches each platform's libraries.
-
-### The darwin `-sandbox` variants
-
-For hosts that run `any` as an App-Sandboxed or hardened-runtime helper without the disable-library-validation entitlement. The payload is identical to the plain darwin tarball; the only difference is the libffi source (`ffi_no_embed` plus a linker flag pinning `/usr/lib/libffi.dylib`), so the binary never writes an unsigned dylib to Caches. `manifest.json` gains `"variant": "sandbox"`. A post-build guard fails the build unless the binary lost the Caches path *and* gained the `/usr/lib` one, and a smoke job runs both sandbox binaries on a macOS runner (arm64 natively, x64 under Rosetta 2) asserting they start without creating the extraction directory. The plain tarballs are the desktop app's sidecar; the app signs them itself.
 
 ### Mobile
 
@@ -71,7 +65,7 @@ Both are sha256-pinned in the release notes. On the embedded path the index runs
 
 ## CI
 
-- **Build workflow** — fans out per-platform jobs (six desktop tarballs, `.aar`, `.xcframework`), the macOS smoke job, then fans in to `publish`, which creates the release and fires a `repository_dispatch` to the desktop, iOS and Android client repositories. The desktop job runs `make catalog-validate` before building, and `publish` depends on it, so a broken catalog cannot ship. The dispatch is best-effort: a failure warns but never unpublishes.
+- **Build workflow** — fans out per-platform jobs (four desktop tarballs, `.aar`, `.xcframework`), then fans in to `publish`, which creates the release and fires a `repository_dispatch` to the desktop, iOS and Android client repositories. The desktop job runs `make catalog-validate` before building, and `publish` depends on it, so a broken catalog cannot ship. The dispatch is best-effort: a failure warns but never unpublishes.
 - **PR checks** — `make test`, `go vet` over the module, `make check-deps`, `make catalog-validate`, and **swagger drift**: the OpenAPI spec is regenerated and the PR fails if the committed spec differs. The spec is a published contract (the runtime's drift check pins against it), so a handler change must come with a regenerated spec. The spec captures routes, shapes and status codes, not `error.code` strings.
 - **Windows** — every release artifact is cross-compiled on Linux, so a separate workflow builds the tree and runs the server and config unit tests on a Windows runner on every push to `main` and daily before the nightly publishes.
 - **Docs** — `make docs-check` runs on every PR. It builds the site, runs renderer vet/tests, checks internal links and search targets, and tests the downloadable JavaScript and Python clients with mocked responses and streams.
