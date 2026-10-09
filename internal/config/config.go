@@ -41,9 +41,7 @@ type Listen struct {
 // WebUI gates the embedded /ui debug harness (internal/server/web.go).
 // Enabled by default so standalone `any run` is unchanged; app-embedded
 // boots force it off (embedded.Start), so an in-process boot is headless
-// — no /ui routes, no "web ui" advertising log line. The yaml key path
-// `webUI.enabled` is a cross-repo contract: the any-swift subprocess host
-// writes exactly this key into its config.yaml (IOS-116).
+// — no /ui routes, no "web ui" advertising log line.
 type WebUI struct {
 	Enabled bool `yaml:"enabled"`
 }

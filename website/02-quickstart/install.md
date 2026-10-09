@@ -17,7 +17,6 @@ order: 10
 | `any-<version>-darwin-x86_64.tar.gz` | macOS Intel |
 | `any-<version>-linux-x86_64.tar.gz` | Linux |
 | `any-<version>-windows-x86_64.tar.gz` | Windows |
-| `any-<version>-darwin-{arm64,x86_64}-sandbox.tar.gz` | macOS, for App-Sandboxed host apps ([Builds and CI](../operations/builds-and-ci.html)) |
 
 Each tarball contains:
 

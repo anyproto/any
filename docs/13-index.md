@@ -726,7 +726,6 @@ Search needs no build tag. The full-text index, the vector index and the
 | Build | Tags | Local embedder |
 |---|---|---|
 | `make build`, release tarballs | `llamacpp` | yes |
-| Darwin `-sandbox` tarball | `llamacpp ffi_no_embed` | yes |
 | `go install` / `go build` | *(none)* | no |
 | Android bind (`makefiles/android.mk`) | `gomobile` | no |
 | iOS c-archive (`scripts/build-xcframework.sh`) | `mobile` | no |
@@ -751,12 +750,6 @@ Search needs no build tag. The full-text index, the vector index and the
   `GOOS`, so a stray tag still leaves it out. The embedded path
   (`internal/embedded.Start`) forces `index.embedder` to `"none"`: mobile
   runs FTS-only.
-- **`ffi_no_embed` is a packaging flag.** It compiles nothing out: the
-  `local` embedder, the ANN index and every mode keep working. It makes
-  jupiterrider/ffi use the system `/usr/lib/libffi.dylib` instead of a
-  copy extracted into the user Caches dir, which macOS library
-  validation refuses to load. Mechanism and consumer contract:
-  `18-ci.md` § The darwin `-sandbox` variants.
 
 Mechanics (`internal/indexer`): `NewEmbedder` (`embed_factory.go`) gets
 the local embedder from `newLocalEmbedder`, which `embed_worker.go`

@@ -1,8 +1,7 @@
 # The only place a Windows binary is built and executed. Every release
-# artifact is cross-compiled on an ubuntu runner and only the darwin
-# tarballs are smoke-tested, so a Windows-only break — a `syscall`
-# reference, a build-tagged stub, a path assumption — reaches a release
-# unseen. That is how the single-instance lock shipped broken.
+# artifact is cross-compiled on an ubuntu runner and never run, so a
+# Windows-only break — a `syscall` reference, a build-tagged stub, a path
+# assumption — reaches a release unseen. That is how the single-instance lock shipped broken.
 #
 # Not a PR gate: windows-latest is billed at 2x the ubuntu rate every
 # other CI job here runs on. On push to main a break is known within
