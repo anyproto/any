@@ -162,6 +162,7 @@ func (d *deps) streamQuerySubscribe(c echo.Context, res *space.QueryResult, incl
 //
 //   - mb.ErrClosed + Sub.Err()==ErrSubscriptionOverflow → closed{overflow}
 //   - mb.ErrClosed + Sub.Err()==ErrSubscriptionDrifted  → closed{drifted}
+//   - mb.ErrClosed + Sub.Err()==ErrObjectDeleted        → closed{object_deleted}
 //   - mb.ErrClosed + Sub.Err()==nil + engine teardown   → closed{server_shutdown | deauthorized}
 //   - mb.ErrClosed + Sub.Err()==nil + nothing else      → closed{sdk_closed}
 //   - context error + engine teardown                   → closed{server_shutdown | deauthorized}
@@ -190,6 +191,8 @@ func (d *deps) streamQuerySubscribeFinish(w http.ResponseWriter, sub space.Query
 		reason = api.SubscribeClosedOverflow
 	case errors.Is(sub.Err(), space.ErrSubscriptionDrifted):
 		reason = api.SubscribeClosedDrifted
+	case errors.Is(sub.Err(), space.ErrObjectDeleted):
+		reason = api.SubscribeClosedObjectDeleted
 	case teardown:
 		reason = d.engineCloseReason()
 	default:

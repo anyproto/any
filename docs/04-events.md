@@ -58,9 +58,13 @@ user-space. The CLI (`any query-subscribe`) and Go client
    - `drifted` — more than `driftBudgetPercent` of the held window
      left without replacements; the SDK refuses to re-query on the
      hot path. Resubscribe — the new snapshot reflects current state.
+   - `object_deleted` — the object behind a per-object stream (one
+     object's dataset or files) was deleted. Drop the view; a new
+     POST for it is refused.
 
-   Every reason means "open a fresh POST". `overflow` and `drifted`
-   are split so clients can log and back off; recovery is identical.
+   Every reason but `object_deleted` means "open a fresh POST".
+   `overflow` and `drifted` are split so clients can log and back
+   off; recovery is identical.
 3. **Wait for `ready` before treating the stream as live.** Errors
    that happen before the SDK Subscribe call returns surface as a
    regular JSON error envelope on the open response, not SSE.

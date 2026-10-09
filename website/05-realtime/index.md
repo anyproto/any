@@ -29,6 +29,7 @@ Every stream opens with `event: ready`, emits `: keepalive` comments every ~25 s
 | `sdk_closed` | the underlying subscription was released (space or engine closed; query/subscribe only) |
 | `overflow` | the subscriber fell behind and its buffer filled (query/subscribe and the event bus) |
 | `drifted` | too much of the held window left without replacement (query/subscribe only) |
+| `object_deleted` | the object behind a per-object stream was deleted; drop the view (query/subscribe only) |
 
 The callback streams (sync status, members, identities, file status) never drop the subscriber: when their 16-deep forwarder overflows they emit an `event: lagged` frame before the next delivery and keep the stream open — re-read the matching GET to resync.
 
