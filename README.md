@@ -1,5 +1,7 @@
 # Any
 
+Read full docs at [Docs](https://docs.any.org)
+
 - local-first, e2e encrypted multiplayer database with HTTP interface
 - sync engine on top of [any-sync](https://github.com/anyproto/any-sync), which has been battle-tested on our infra for many years and millions of spaces and passed a security audit by Cure53.
 - mongo query language support, including aggregation framework via [any-store](https://github.com/anyproto/any-store)
