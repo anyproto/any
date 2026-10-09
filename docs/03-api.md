@@ -1541,7 +1541,10 @@ bundles several SDK calls), an exception to the "endpoints map 1:1
 onto SDK methods" rule. `GET` → `{"content": "…", "version": "…"}`:
 every top-level block rendered to its canonical markdown and joined
 with `\n\n` (see *Empty paragraphs* below for the blank-line rule),
-plus the document version (*Versions and conflicts* below). `PUT`
+plus the document version (*Versions and conflicts* below). A code
+block renders with a backtick fence one longer than the longest run of
+three or more backticks in its text, and three at least, so no line of
+its text closes it. `PUT`
 takes `{"content": "…", "ifVersion": "…"}`, parses `content`, diffs it
 against the current block tree by (type + position + text), and emits
 per-block create / update / delete ops through the same write path the

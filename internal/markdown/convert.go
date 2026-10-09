@@ -128,10 +128,11 @@ func RenderBlock(b ParsedBlock) string {
 	case editor.TypeCode:
 		lang := stringStyle(b.Style, editor.StyleLang, "")
 		body := b.Text
+		fence := codeFence(body)
 		if body == "" {
-			return "```" + lang + "\n```"
+			return fence + lang + "\n" + fence
 		}
-		return "```" + lang + "\n" + body + "\n```"
+		return fence + lang + "\n" + body + "\n" + fence
 	case editor.TypeQuote:
 		return prefixLines(b.Text, "> ")
 	case editor.TypeDivider:
@@ -209,11 +210,12 @@ func parseFencedCode(lines []string) (lang, body string) {
 	}
 	lang = strings.TrimSpace(t[n:])
 
-	// Skip a closing fence on the final line if present.
+	// Skip a closing fence on the final line if present: the opener's
+	// character, at least as long as the opener.
 	end := len(lines)
 	if end >= 2 {
 		last := strings.TrimRight(trimLeadingSpaces(lines[end-1], 3), " \t")
-		if len(last) >= 3 && allByte(last, c) {
+		if len(last) >= n && allByte(last, c) {
 			end--
 		}
 	}
@@ -222,6 +224,25 @@ func parseFencedCode(lines []string) (lang, body string) {
 	}
 	body = strings.Join(lines[1:end], "\n")
 	return lang, body
+}
+
+// codeFence is the backtick fence a code block renders with: three
+// backticks, or one more than the longest run of three or more in body,
+// so no line of the body can close the block. The editor's markdown
+// export picks the same fence.
+func codeFence(body string) string {
+	n, run := 3, 0
+	for i := 0; i < len(body); i++ {
+		if body[i] != '`' {
+			run = 0
+			continue
+		}
+		run++
+		if run >= n {
+			n = run + 1
+		}
+	}
+	return strings.Repeat("`", n)
 }
 
 func parseListItem(line string) (ordered bool, number int, text string, ok bool) {
