@@ -122,6 +122,10 @@ func (d *deps) streamQuerySubscribe(c echo.Context, res *space.QueryResult, incl
 	if err := writeSnapshotFrame(w, res, includeTotal, shaper); err != nil {
 		return nil
 	}
+	// The snapshot is on the wire and res lives as long as the stream:
+	// drop the rows, or every open subscription pins a parsed copy of
+	// its whole result set.
+	res.Initial = nil
 	w.Flush()
 
 	// waitCtx fires on client disconnect or server shutdown.
