@@ -72,7 +72,7 @@ jobs:
       - uses: ./.github/actions/go-private-auth
         with:
           token: ${{ secrets.ANY_CI_TOKEN }}
-      - name: go test
+      - name: shell self-tests, then go test
         run: make test
 
   docs:

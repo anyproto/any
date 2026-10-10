@@ -2,8 +2,9 @@ name: _build-any
 
 # Reusable workflow (called by release-any + nightly-any): build `any` for the
 # publishable platforms — desktop tarballs, Android (any.aar), iOS
-# (any.xcframework.zip) — then publish them all in ONE GitHub Release and notify
-# the client repos.
+# (any.xcframework.zip) — then publish whatever built in ONE GitHub Release,
+# marked partial when a platform is missing, and tell each client repo either
+# that its asset is there or that its build failed.
 #
 # Shape: fan-out / fan-in (7 jobs).
 #   version  (ubuntu)                      resolve vX.Y.Z | v<base>-nightly.<date>.<n>
@@ -349,9 +350,8 @@ jobs:
 
   # Fan-in over whatever BUILT. `!cancelled()` instead of the implicit
   # all-success gate: one red leg must not skip the publish of the green ones
-  # (spec R2 — three nights without any nightly over an NDK glob). desktop
-  # counts only with its smoke green; every decision below is
-  # scripts/release-fanin.sh, tested by `make test`.
+  # (spec R2). desktop counts only with its smoke green; every decision below
+  # is scripts/release-fanin.sh, tested by `make test-scripts`.
   publish:
     needs: [version, desktop, desktop-smoke, android, ios]
     if: >-
@@ -419,7 +419,9 @@ jobs:
 
   # The invariant (spec R4): a run that ends without sending any-published to a
   # client sends that client any-build-failed — a red leg, a red version job,
-  # or a publish that failed before the release existed. Gated on `!cancelled()`,
+  # or a publish that failed (before OR after the release was created: a crash
+  # after `gh release create` leaves published_clients empty, and the release
+  # is then on GitHub with nobody told to build it). Gated on `!cancelled()`,
   # NOT `always()`: always() would run on a cancelled run too, read every leg as
   # `cancelled`, and tell all three clients a build failed that a newer run
   # merely superseded. A cancelled run is one accepted silence; an unset
