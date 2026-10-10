@@ -250,9 +250,15 @@ jobs:
           # absence fails here, loudly, not later.
           NDK_VERSION=30.0.16248370
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" "platforms;android-26" < /dev/null
-          test -f "$ANDROID_HOME/platforms/android-26/android.jar"
           NDK="$ANDROID_HOME/ndk/$NDK_VERSION"
-          test -x "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
+          # Both probes name the missing path: a bare `test` under set -e exits
+          # with no message, and sdkmanager can exit 0 having skipped a package.
+          # aarch64-linux-android26-clang is the wrapper gomobile actually stats
+          # for `-androidapi 26` (makefiles/android.mk), not bare clang.
+          CLANG="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang"
+          [ -x "$CLANG" ] || { echo "::error::Android NDK $NDK_VERSION did not install: $CLANG is missing (sdkmanager exited 0)"; exit 1; }
+          JAR="$ANDROID_HOME/platforms/android-26/android.jar"
+          [ -f "$JAR" ] || { echo "::error::platforms;android-26 did not install: $JAR is missing (sdkmanager exited 0)"; exit 1; }
           echo "Using Android NDK: $NDK"
           {
             echo "ANDROID_NDK=$NDK"
