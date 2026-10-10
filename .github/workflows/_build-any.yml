@@ -227,21 +227,24 @@ jobs:
       - uses: ./.github/actions/go-private-auth
         with:
           token: ${{ secrets.ANY_CI_TOKEN }}
-      - name: Resolve Android NDK 28.x
+      - name: Install Android NDK
         run: |
           set -euo pipefail
-          # Pin the 28.x line (matches anytype-heart). Export ALL THREE NDK env
-          # vars — different gomobile/NDK versions probe different ones — BEFORE
-          # `make build-android`, since `gomobile init` (on the build path)
+          # Installed by the job, never read off the runner image: GitHub
+          # dropped the NDK 28 line from ubuntu-24.04 on 2026-10-01
+          # (actions/runner-images#14796) and two nightlies failed at the old
+          # `ls -d "$ANDROID_HOME"/ndk/28.*` before anyone noticed. Latest
+          # stable on Google's SDK repository as of 2026-10-10 (r30). Export
+          # ALL THREE NDK env vars — different gomobile/NDK versions probe
+          # different ones — BEFORE `make build-android`, since `gomobile init`
           # needs them to locate the toolchain.
-          # SC2012: NDK dir names are toolchain-controlled (28.x.yyyyy), no
-          # non-alphanumeric filenames — ls -d | sort -V is the right tool here.
-          # shellcheck disable=SC2012
-          NDK="$(ls -d "$ANDROID_HOME"/ndk/28.* 2>/dev/null | sort -V | tail -1)" || true
-          if [ -z "$NDK" ]; then
-            echo "::error::No Android NDK 28.x found under $ANDROID_HOME/ndk/"
-            exit 1
-          fi
+          # stdin from /dev/null: an unaccepted licence prompt fails here
+          # instead of hanging to the job timeout. Not `yes |` — under
+          # pipefail the SIGPIPE from `yes` reads as a failed install.
+          NDK_VERSION=30.0.16248370
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" < /dev/null
+          NDK="$ANDROID_HOME/ndk/$NDK_VERSION"
+          test -x "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
           echo "Using Android NDK: $NDK"
           {
             echo "ANDROID_NDK=$NDK"
