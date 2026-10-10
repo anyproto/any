@@ -241,8 +241,16 @@ jobs:
           # stdin from /dev/null: an unaccepted licence prompt fails here
           # instead of hanging to the job timeout. Not `yes |` — under
           # pipefail the SIGPIPE from `yes` reads as a failed install.
+          # `platforms;android-26` is pinned the same way: gomobile resolves
+          # android.jar from $ANDROID_HOME/platforms for `-androidapi 26`
+          # (makefiles/android.mk), and an image that drops its platforms
+          # would break this leg exactly as the NDK did. Still image-provided,
+          # by necessity: `sdkmanager` itself (it IS the installer) and the
+          # JDK it runs on — both exercised by this very step, so their
+          # absence fails here, loudly, not later.
           NDK_VERSION=30.0.16248370
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" < /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" "platforms;android-26" < /dev/null
+          test -f "$ANDROID_HOME/platforms/android-26/android.jar"
           NDK="$ANDROID_HOME/ndk/$NDK_VERSION"
           test -x "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
           echo "Using Android NDK: $NDK"
