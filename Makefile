@@ -26,7 +26,7 @@ LLAMACPP_VERSION := $(shell scripts/llamacpp-version.sh)
 # the tag after the untagged suite, which is the `go install` build.
 LLAMACPP_PKGS := $(addprefix ./,$(sort $(dir $(shell grep -rl --include='*.go' '^//go:build.*llamacpp' internal cmd mobile))))
 
-.PHONY: build test vet tidy clean swagger llamacpp llamacpp-soft any docs docs-check docs-serve catalog-validate check-deps
+.PHONY: build test test-scripts vet tidy clean swagger llamacpp llamacpp-soft any docs docs-check docs-serve catalog-validate check-deps
 
 swagger:
 	$(SWAG) init --v3.1 -g doc.go -d ./internal/server,./internal/api -o internal/server/docs --parseDependency --parseInternal --overridesFile $(CURDIR)/.swaggo
@@ -51,7 +51,12 @@ llamacpp-soft:
 	@./scripts/fetch-llamacpp.sh $(LLAMACPP_VERSION) $(OUT)/llamacpp \
 		|| echo "make: llamacpp libs unavailable — 'index.embedder: local' won't work until 'make llamacpp' succeeds or index.local.libDir is set" >&2
 
-test:
+# Shell self-tests for the release scripts (scripts/*.test.sh). The first of
+# their kind here; the fan-in decisions used to live untested in the YAML.
+test-scripts:
+	bash scripts/release-fanin.test.sh
+
+test: test-scripts
 	go test ./...
 	go test -tags '$(BUILD_TAGS)' $(LLAMACPP_PKGS)
 
