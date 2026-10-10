@@ -41,7 +41,7 @@ Search needs no build tag. The `llamacpp` tag adds the local llama.cpp embedder;
 
 ## Release artifacts
 
-One reusable workflow builds every platform on tag (release) and nightly (prerelease), then a single publish job ships them all in one GitHub Release and notifies the client repositories.
+One reusable workflow builds every platform on tag (release) and nightly (prerelease), then a single publish job ships whatever built in one GitHub Release, with a `SHA256SUMS` manifest of the legs' own digests and a first-line marker naming any platform that is missing and notifies the client repositories.
 
 ### Desktop tarballs
 
@@ -71,7 +71,7 @@ Both are sha256-pinned in the release notes. On the embedded path the index runs
 
 ## CI
 
-- **Build workflow** — fans out per-platform jobs (six desktop tarballs, `.aar`, `.xcframework`), the macOS smoke job, then fans in to `publish`, which creates the release and fires a `repository_dispatch` to the desktop, iOS and Android client repositories. The desktop job runs `make catalog-validate` before building, and `publish` depends on it, so a broken catalog cannot ship. The dispatch is best-effort: a failure warns but never unpublishes.
+- **Build workflow** — fans out per-platform jobs (six desktop tarballs, `.aar`, `.xcframework`), the macOS smoke job, then fans in to `publish`, which creates the release, fires an `any-published` `repository_dispatch` to each client repository whose asset is on it (desktop, iOS, Android), and a following `notify-failed` job sends `any-build-failed` to every client that got no `any-published`. The desktop job runs `make catalog-validate` before building, and `publish` depends on it, so a broken catalog cannot ship. The dispatch is best-effort: a failure warns but never unpublishes.
 - **PR checks** — `make test`, `go vet` over the module, `make check-deps`, `make catalog-validate`, and **swagger drift**: the OpenAPI spec is regenerated and the PR fails if the committed spec differs. The spec is a published contract (the runtime's drift check pins against it), so a handler change must come with a regenerated spec. The spec captures routes, shapes and status codes, not `error.code` strings.
 - **Windows** — every release artifact is cross-compiled on Linux, so a separate workflow builds the tree and runs the server and config unit tests on a Windows runner on every push to `main` and daily before the nightly publishes.
 - **Docs** — `make docs-check` runs on every PR. It builds the site, runs renderer vet/tests, checks internal links and search targets, and tests the downloadable JavaScript and Python clients with mocked responses and streams.

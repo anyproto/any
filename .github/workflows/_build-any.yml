@@ -2,20 +2,24 @@ name: _build-any
 
 # Reusable workflow (called by release-any + nightly-any): build `any` for the
 # publishable platforms — desktop tarballs, Android (any.aar), iOS
-# (any.xcframework.zip) — then publish them all in ONE GitHub Release and notify
-# the client repos.
+# (any.xcframework.zip) — then publish whatever built in ONE GitHub Release,
+# marked partial when a platform is missing, and tell each client repo either
+# that its asset is there or that its build failed.
 #
-# Shape: fan-out / fan-in (6 jobs).
+# Shape: fan-out / fan-in (7 jobs).
 #   version  (ubuntu)                      resolve vX.Y.Z | v<base>-nightly.<date>.<n>
 #   desktop  (ubuntu,  needs: version)     build-any.sh per published target → upload-artifact tarballs
 #   desktop-smoke (macos-15, needs: desktop)  run the darwin binaries for real
 #            (sandbox runs + no-Caches-extraction probe, arm64 + Rosetta x86_64)
 #   android  (ubuntu,  needs: version)     NDK + make build-android → upload-artifact any.aar
 #   ios      (macos-15, needs: version)    build-xcframework.sh   → upload-artifact any.xcframework.zip
-#   publish  (ubuntu,  needs: [desktop,desktop-smoke,android,ios], contents:write)
-#            download all → sha256 the 2 mobile assets → ONE `gh release create`
-#            → repository_dispatch any-ui + anytype-swift +
-#            any-kotlin (best-effort).
+#   publish  (ubuntu, needs: every leg, runs when ≥1 platform passed, contents:write)
+#            verify the PASSED platforms' assets against their legs' digests,
+#            aggregate them into SHA256SUMS → ONE `gh release create`
+#            (partial marker first when a platform is missing)
+#            → repository_dispatch any-published to each client whose platform shipped
+#   notify-failed (ubuntu, needs: publish, gated on !cancelled())
+#            → repository_dispatch any-build-failed to each client that got no any-published
 #
 # One `version` job, threaded to every build, so all artifacts stamp an
 # IDENTICAL version (no per-platform drift). iOS rides the same v* tag as
@@ -122,11 +126,18 @@ jobs:
             # produced it, the rest reuse it.
             export ANY_SKIP_SWAG=1
           done
+          # Hash what was BUILT, beside each tarball, in sha256sum format with
+          # the bare name. publish verifies these on download and aggregates them
+          # into the SHA256SUMS release asset; nothing downstream rehashes
+          # (scripts/release-fanin.sh).
+          (cd dist && for f in any-*.tar.gz; do sha256sum "$f" > "$f.sha256"; done)
           ls -la dist
       - uses: actions/upload-artifact@v7
         with:
           name: desktop-tarballs
-          path: dist/any-*.tar.gz
+          path: |
+            dist/any-*.tar.gz
+            dist/any-*.tar.gz.sha256
           if-no-files-found: error
           retention-days: 7
       # The darwin subset again under its own name: desktop-smoke consumes 4
@@ -277,11 +288,15 @@ jobs:
             VERSION="$VERSION" \
             COMMIT="$(git rev-parse --short HEAD)" \
             DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # The leg's own digest of what it built — see the desktop job.
+          (cd dist/android && sha256sum any.aar > any.aar.sha256)
           ls -la dist/android
       - uses: actions/upload-artifact@v7
         with:
           name: android-aar
-          path: dist/android/any.aar
+          path: |
+            dist/android/any.aar
+            dist/android/any.aar.sha256
           if-no-files-found: error
           retention-days: 7
 
@@ -337,141 +352,126 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           scripts/build-xcframework.sh dist
+          # The leg's own digest of what it built — see the desktop job. shasum
+          # on macOS writes the same `digest  name` line sha256sum -c reads.
+          (cd dist && shasum -a 256 any.xcframework.zip > any.xcframework.zip.sha256)
           ls -la dist
       - uses: actions/upload-artifact@v7
         with:
           name: ios-xcframework
-          path: dist/any.xcframework.zip
+          path: |
+            dist/any.xcframework.zip
+            dist/any.xcframework.zip.sha256
           if-no-files-found: error
           retention-days: 7
 
-  # Fan-in: download every artifact, publish ONE GitHub Release with all assets,
-  # then notify the 3 client repos (best-effort).
+  # Fan-in over whatever BUILT. `!cancelled()` instead of the implicit
+  # all-success gate: one red leg must not skip the publish of the green ones
+  # (spec R2). desktop counts only with its smoke green; every decision below
+  # is scripts/release-fanin.sh, tested by `make test-scripts`.
   publish:
     needs: [version, desktop, desktop-smoke, android, ios]
-    if: github.repository == 'anyproto/any'
+    if: >-
+      ${{ !cancelled() && github.repository == 'anyproto/any'
+          && needs.version.result == 'success'
+          && ((needs.desktop.result == 'success' && needs.desktop-smoke.result == 'success')
+              || needs.android.result == 'success'
+              || needs.ios.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write # only THIS job creates the Release
+    outputs:
+      published_clients: ${{ steps.notify.outputs.published_clients }}
     env:
       CHANNEL: ${{ inputs.channel }}
       VERSION: ${{ needs.version.outputs.version }}
+      DESKTOP_RESULT: ${{ needs.desktop.result }}
+      DESKTOP_SMOKE_RESULT: ${{ needs.desktop-smoke.result }}
+      ANDROID_RESULT: ${{ needs.android.result }}
+      IOS_RESULT: ${{ needs.ios.result }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 1 # no git history needed here — reads only the Makefile pin + downloaded artifacts
           persist-credentials: false
-      - name: Download all build artifacts
+      - name: Download every artifact the run produced
         uses: actions/download-artifact@v8
         with:
           path: artifacts
-      - name: Collect assets + checksums
-        id: assets
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          # Flatten the per-job artifact dirs into one release-asset dir.
-          cp artifacts/desktop-tarballs/any-*.tar.gz dist/
-          cp artifacts/android-aar/any.aar dist/
-          cp artifacts/ios-xcframework/any.xcframework.zip dist/
-          ls -la dist
-          # sha256 the two mobile assets so the client fetch-scripts can verify
-          # them. aar/xcf stay discrete outputs — the dispatch step feeds them
-          # into client_payload[sha256].
-          AAR_SHA="$(sha256sum dist/any.aar | cut -d' ' -f1)"
-          XCF_SHA="$(sha256sum dist/any.xcframework.zip | cut -d' ' -f1)"
-          echo "aar_sha=$AAR_SHA" >> "$GITHUB_OUTPUT"
-          echo "xcf_sha=$XCF_SHA" >> "$GITHUB_OUTPUT"
-          echo "any.aar sha256:            $AAR_SHA"
-          echo "any.xcframework.zip sha256: $XCF_SHA"
-          # sha256 every desktop tarball too, as a multiline output, so a client
-          # (e.g. the macOS fetch-anyserver-macos.sh) can pin without downloading
-          # the asset first — same source-of-truth as the mobile shas.
-          {
-            echo "desktop_shas<<EOF"
-            for f in dist/any-*.tar.gz; do
-              printf "\`%s\` sha256: \`%s\`\n" "$(basename "$f")" "$(sha256sum "$f" | cut -d' ' -f1)"
-            done
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+      - name: Collect the passed platforms' assets
+        run: scripts/release-fanin.sh collect artifacts dist
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          AAR_SHA: ${{ steps.assets.outputs.aar_sha }}
-          XCF_SHA: ${{ steps.assets.outputs.xcf_sha }}
-          DESKTOP_SHAS: ${{ steps.assets.outputs.desktop_shas }}
         run: |
           set -euo pipefail
-          LLAMACPP="$(scripts/llamacpp-version.sh)"
-          # Notes lead with a sectioned asset list (Desktop / Android / iOS / Libs),
-          # each asset as `<name>` sha256: `<sha>` so a client can pin without first
-          # downloading. $DESKTOP_SHAS is the desktop list (one line per tarball). gh
-          # appends the auto "What's Changed" section below this (--generate-notes).
-          notes="$(cat <<EOF
-          ## Assets
-
-          ### Desktop
-          $DESKTOP_SHAS
-          ### Android
-          \`any.aar\` sha256: \`$AAR_SHA\`
-
-          ### iOS
-          \`any.xcframework.zip\` sha256: \`$XCF_SHA\`
-
-          ### Libs
-          llama.cpp: $LLAMACPP
-          EOF
-          )"
+          # Notes: the R2 partial marker first when a platform is missing, then
+          # the sectioned asset list (`<name>` sha256: `<sha>`, or `not built`),
+          # then the llama.cpp pin. gh appends its auto "What's Changed" after.
+          notes="$(scripts/release-fanin.sh notes dist)"
           # Per-channel flags: a nightly creates a NEW unique, sortable prerelease
-          # tag at this commit (--target), accumulating as history (we never delete
-          # the previous one); a release reuses the human-pushed vX.Y.Z tag.
-          # --generate-notes appends GitHub's auto "What's Changed" (merged PRs +
-          # new contributors + full changelog link) AFTER $notes, diffed against the
-          # previous tag: the prior nightly for a prerelease, the prior vX.Y.Z for a
-          # release. Generation is server-side (GitHub API), so it needs no local git
-          # history here. No .github/release.yml → a flat PR list (ungrouped).
+          # tag at this commit (--target); a release reuses the human-pushed vX.Y.Z tag.
           flags=(--title "any $VERSION" --notes "$notes" --generate-notes)
           if [ "$CHANNEL" = prerelease ]; then
             flags+=(--prerelease --target "$GITHUB_SHA")
           fi
-          gh release create "$VERSION" \
-            dist/any-*.tar.gz dist/any.aar dist/any.xcframework.zip "${flags[@]}"
-      - name: Notify client repos
+          gh release create "$VERSION" dist/* "${flags[@]}"
+      - name: Notify the clients whose platform shipped
+        id: notify
         env:
           GH_TOKEN: ${{ secrets.ANY_CI_TOKEN }}
-          AAR_SHA: ${{ steps.assets.outputs.aar_sha }}
-          XCF_SHA: ${{ steps.assets.outputs.xcf_sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::ANY_CI_TOKEN not set — skipping client dispatches."
+            echo "published_clients=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Best-effort: a failed dispatch must NOT fail the (already-published)
+          # release. any-ui gets version + channel; the mobile clients also get
+          # their asset name + sha256 to pin.
+          scripts/release-fanin.sh publish-dispatch dist "$GITHUB_OUTPUT"
+
+  # The invariant (spec R4): a run that ends without sending any-published to a
+  # client sends that client any-build-failed — a red leg, a red version job,
+  # or a publish that failed (before OR after the release was created: a crash
+  # after `gh release create` leaves published_clients empty, and the release
+  # is then on GitHub with nobody told to build it). Gated on `!cancelled()`,
+  # NOT `always()`: always() would run on a cancelled run too, read every leg as
+  # `cancelled`, and tell all three clients a build failed that a newer run
+  # merely superseded. A cancelled run is one accepted silence; an unset
+  # ANY_CI_TOKEN (warned below) is the other. One event per client, carrying
+  # that client's platform.
+  notify-failed:
+    needs: [version, desktop, desktop-smoke, android, ios, publish]
+    if: ${{ !cancelled() && github.repository == 'anyproto/any' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CHANNEL: ${{ inputs.channel }}
+      VERSION: ${{ needs.version.outputs.version || 'unresolved' }}
+      VERSION_RESULT: ${{ needs.version.result }}
+      DESKTOP_RESULT: ${{ needs.desktop.result }}
+      DESKTOP_SMOKE_RESULT: ${{ needs.desktop-smoke.result }}
+      ANDROID_RESULT: ${{ needs.android.result }}
+      IOS_RESULT: ${{ needs.ios.result }}
+      PUBLISH_RESULT: ${{ needs.publish.result }}
+      PUBLISHED_CLIENTS: ${{ needs.publish.outputs.published_clients }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Tell every client that got no any-published
+        env:
+          GH_TOKEN: ${{ secrets.ANY_CI_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN:-}" ]; then
             echo "::warning::ANY_CI_TOKEN not set — skipping client dispatches."
             exit 0
           fi
-          # Best-effort: a failed dispatch must NOT fail the (already-published)
-          # release. Each client computes its OWN release version (independent
-          # per repo) from this exact published version.
-          dispatch() {
-            repo="$1"; shift
-            if gh api "repos/$repo/dispatches" -f event_type=any-published "$@"; then
-              echo "dispatched any-published → $repo"
-            else
-              echo "::warning::repository_dispatch to $repo failed (release is already published)."
-            fi
-          }
-          # any-ui (desktop): unchanged payload — version + channel only.
-          dispatch anyproto/any-ui \
-            -f "client_payload[version]=$VERSION" \
-            -f "client_payload[channel]=$CHANNEL"
-          # anytype-swift (iOS): add the asset name + sha256 to pin.
-          dispatch anyproto/anytype-swift \
-            -f "client_payload[version]=$VERSION" \
-            -f "client_payload[channel]=$CHANNEL" \
-            -f "client_payload[asset]=any.xcframework.zip" \
-            -f "client_payload[sha256]=$XCF_SHA"
-          # any-kotlin (Android): add the asset name + sha256 to pin.
-          dispatch anyproto/any-kotlin \
-            -f "client_payload[version]=$VERSION" \
-            -f "client_payload[channel]=$CHANNEL" \
-            -f "client_payload[asset]=any.aar" \
-            -f "client_payload[sha256]=$AAR_SHA"
+          scripts/release-fanin.sh fail-dispatch
