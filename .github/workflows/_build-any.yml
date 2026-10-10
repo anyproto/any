@@ -227,21 +227,38 @@ jobs:
       - uses: ./.github/actions/go-private-auth
         with:
           token: ${{ secrets.ANY_CI_TOKEN }}
-      - name: Resolve Android NDK 28.x
+      - name: Install Android NDK
         run: |
           set -euo pipefail
-          # Pin the 28.x line (matches anytype-heart). Export ALL THREE NDK env
-          # vars — different gomobile/NDK versions probe different ones — BEFORE
-          # `make build-android`, since `gomobile init` (on the build path)
+          # Installed by the job, never read off the runner image: GitHub
+          # dropped the NDK 28 line from ubuntu-24.04 on 2026-10-01
+          # (actions/runner-images#14796) and two nightlies failed at the old
+          # `ls -d "$ANDROID_HOME"/ndk/28.*` before anyone noticed. Latest
+          # stable on Google's SDK repository as of 2026-10-10 (r30). Export
+          # ALL THREE NDK env vars — different gomobile/NDK versions probe
+          # different ones — BEFORE `make build-android`, since `gomobile init`
           # needs them to locate the toolchain.
-          # SC2012: NDK dir names are toolchain-controlled (28.x.yyyyy), no
-          # non-alphanumeric filenames — ls -d | sort -V is the right tool here.
-          # shellcheck disable=SC2012
-          NDK="$(ls -d "$ANDROID_HOME"/ndk/28.* 2>/dev/null | sort -V | tail -1)" || true
-          if [ -z "$NDK" ]; then
-            echo "::error::No Android NDK 28.x found under $ANDROID_HOME/ndk/"
-            exit 1
-          fi
+          # stdin from /dev/null: an unaccepted licence prompt fails here
+          # instead of hanging to the job timeout. Not `yes |` — under
+          # pipefail the SIGPIPE from `yes` reads as a failed install.
+          # `platforms;android-26` is pinned the same way: gomobile resolves
+          # android.jar from $ANDROID_HOME/platforms for `-androidapi 26`
+          # (makefiles/android.mk), and an image that drops its platforms
+          # would break this leg exactly as the NDK did. Still image-provided,
+          # by necessity: `sdkmanager` itself (it IS the installer) and the
+          # JDK it runs on — both exercised by this very step, so their
+          # absence fails here, loudly, not later.
+          NDK_VERSION=30.0.16248370
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" "platforms;android-26" < /dev/null
+          NDK="$ANDROID_HOME/ndk/$NDK_VERSION"
+          # Both probes name the missing path: a bare `test` under set -e exits
+          # with no message, and sdkmanager can exit 0 having skipped a package.
+          # aarch64-linux-android26-clang is the wrapper gomobile actually stats
+          # for `-androidapi 26` (makefiles/android.mk), not bare clang.
+          CLANG="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang"
+          [ -x "$CLANG" ] || { echo "::error::Android NDK $NDK_VERSION did not install: $CLANG is missing (sdkmanager exited 0)"; exit 1; }
+          JAR="$ANDROID_HOME/platforms/android-26/android.jar"
+          [ -f "$JAR" ] || { echo "::error::platforms;android-26 did not install: $JAR is missing (sdkmanager exited 0)"; exit 1; }
           echo "Using Android NDK: $NDK"
           {
             echo "ANDROID_NDK=$NDK"
