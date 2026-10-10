@@ -133,6 +133,42 @@ func TestRender_FencedCode(t *testing.T) {
 	assert.Equal(t, "```go\nfunc x() {}\n```", out)
 }
 
+func TestRender_FencedCodeOutrunsBodyFences(t *testing.T) {
+	cases := []struct{ body, want string }{
+		{"a `` b", "```\na `` b\n```"},
+		{"```js\nx\n```", "````\n```js\nx\n```\n````"},
+		{"say ``` mid-line", "````\nsay ``` mid-line\n````"},
+		{"`````", "``````\n`````\n``````"},
+	}
+	for _, c := range cases {
+		out := RenderBlock(ParsedBlock{Type: editor.TypeCode, Text: c.body})
+		assert.Equal(t, c.want, out)
+	}
+}
+
+// A fence written with tildes, or longer than three backticks, holds a
+// body with a backtick fence in it. The rendered document must read
+// back as that one block with that body.
+func TestRoundTrip_CodeHoldingAFence(t *testing.T) {
+	for _, in := range []string{
+		"~~~\n```js\nx\n```\n~~~",
+		"````md\n```\nnested\n```\n````\n\nafter",
+	} {
+		parsed, rendered, err := parseContent(in)
+		require.NoError(t, err)
+
+		reparsed, _, err := parseContent(Join(rendered))
+		require.NoError(t, err)
+		assert.Equal(t, parsed, reparsed, "in: %q\nrendered: %q", in, Join(rendered))
+	}
+}
+
+func TestParse_FencedCodeKeepsAShorterLastLine(t *testing.T) {
+	b := ParseBlock("````\nbody\n```")
+	assert.Equal(t, editor.TypeCode, b.Type)
+	assert.Equal(t, "body\n```", b.Text)
+}
+
 func TestRender_Quote(t *testing.T) {
 	out := RenderBlock(ParsedBlock{Type: editor.TypeQuote, Text: "a\nb"})
 	assert.Equal(t, "> a\n> b", out)
@@ -187,6 +223,7 @@ func TestRoundTrip_Canonical(t *testing.T) {
 		"###### Six",
 		"```go\nfunc x() {}\n```",
 		"```\nplain\n```",
+		"````\n```js\nx\n```\n````",
 		"> single line",
 		"> one\n> two",
 		"- foo",

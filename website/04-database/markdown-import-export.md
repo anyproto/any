@@ -23,7 +23,7 @@ curl http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/ma
 # → {"content": "# Title\n\nFirst paragraph…", "version": "…"}
 ```
 
-Returns `{"content": "<markdown>", "version": "<version>"}`: every top-level block rendered to its canonical markdown and joined with a blank line, plus the version of that state ([Saving an edited body](#saving-an-edited-body--ifversion)). Block `text` holds inline markdown only; block-level structure (headings, list items, checkboxes) comes from the block's `type` and `style`.
+Returns `{"content": "<markdown>", "version": "<version>"}`: every top-level block rendered to its canonical markdown and joined with a blank line, plus the version of that state ([Saving an edited body](#saving-an-edited-body--ifversion)). Block `text` holds inline markdown only; block-level structure (headings, list items, checkboxes) comes from the block's `type` and `style`. A code block renders with a backtick fence one longer than the longest run of three or more backticks in its text, and three at least, so no line of its text closes it.
 
 ## Import — `PUT`
 
