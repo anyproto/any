@@ -5,17 +5,19 @@ name: _build-any
 # (any.xcframework.zip) — then publish them all in ONE GitHub Release and notify
 # the client repos.
 #
-# Shape: fan-out / fan-in (6 jobs).
+# Shape: fan-out / fan-in (7 jobs).
 #   version  (ubuntu)                      resolve vX.Y.Z | v<base>-nightly.<date>.<n>
 #   desktop  (ubuntu,  needs: version)     build-any.sh per published target → upload-artifact tarballs
 #   desktop-smoke (macos-15, needs: desktop)  run the darwin binaries for real
 #            (sandbox runs + no-Caches-extraction probe, arm64 + Rosetta x86_64)
 #   android  (ubuntu,  needs: version)     NDK + make build-android → upload-artifact any.aar
 #   ios      (macos-15, needs: version)    build-xcframework.sh   → upload-artifact any.xcframework.zip
-#   publish  (ubuntu,  needs: [desktop,desktop-smoke,android,ios], contents:write)
-#            download all → sha256 the 2 mobile assets → ONE `gh release create`
-#            → repository_dispatch any-ui + anytype-swift +
-#            any-kotlin (best-effort).
+#   publish  (ubuntu, needs: every leg, runs when ≥1 platform passed, contents:write)
+#            collect the PASSED platforms' assets → ONE `gh release create`
+#            (partial marker first when a platform is missing)
+#            → repository_dispatch any-published to each client whose platform shipped
+#   notify-failed (ubuntu, needs: publish, gated on !cancelled())
+#            → repository_dispatch any-build-failed to each client that got no any-published
 #
 # One `version` job, threaded to every build, so all artifacts stamp an
 # IDENTICAL version (no per-platform drift). iOS rides the same v* tag as
@@ -397,3 +399,43 @@ jobs:
           # release. any-ui gets version + channel; the mobile clients also get
           # their asset name + sha256 to pin.
           scripts/release-fanin.sh publish-dispatch dist "$GITHUB_OUTPUT"
+
+  # The invariant (spec R4): a run that ends without sending any-published to a
+  # client sends that client any-build-failed — a red leg, a red version job,
+  # or a publish that failed before the release existed. Gated on `!cancelled()`,
+  # NOT `always()`: always() would run on a cancelled run too, read every leg as
+  # `cancelled`, and tell all three clients a build failed that a newer run
+  # merely superseded. A cancelled run is one accepted silence; an unset
+  # ANY_CI_TOKEN (warned below) is the other. One event per client, carrying
+  # that client's platform.
+  notify-failed:
+    needs: [version, desktop, desktop-smoke, android, ios, publish]
+    if: ${{ !cancelled() && github.repository == 'anyproto/any' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CHANNEL: ${{ inputs.channel }}
+      VERSION: ${{ needs.version.outputs.version || 'unresolved' }}
+      VERSION_RESULT: ${{ needs.version.result }}
+      DESKTOP_RESULT: ${{ needs.desktop.result }}
+      DESKTOP_SMOKE_RESULT: ${{ needs.desktop-smoke.result }}
+      ANDROID_RESULT: ${{ needs.android.result }}
+      IOS_RESULT: ${{ needs.ios.result }}
+      PUBLISH_RESULT: ${{ needs.publish.result }}
+      PUBLISHED_CLIENTS: ${{ needs.publish.outputs.published_clients }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Tell every client that got no any-published
+        env:
+          GH_TOKEN: ${{ secrets.ANY_CI_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::ANY_CI_TOKEN not set — skipping client dispatches."
+            exit 0
+          fi
+          scripts/release-fanin.sh fail-dispatch
