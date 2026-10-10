@@ -13,7 +13,8 @@ name: _build-any
 #   android  (ubuntu,  needs: version)     NDK + make build-android → upload-artifact any.aar
 #   ios      (macos-15, needs: version)    build-xcframework.sh   → upload-artifact any.xcframework.zip
 #   publish  (ubuntu, needs: every leg, runs when ≥1 platform passed, contents:write)
-#            collect the PASSED platforms' assets → ONE `gh release create`
+#            verify the PASSED platforms' assets against their legs' digests,
+#            aggregate them into SHA256SUMS → ONE `gh release create`
 #            (partial marker first when a platform is missing)
 #            → repository_dispatch any-published to each client whose platform shipped
 #   notify-failed (ubuntu, needs: publish, gated on !cancelled())
@@ -124,11 +125,18 @@ jobs:
             # produced it, the rest reuse it.
             export ANY_SKIP_SWAG=1
           done
+          # Hash what was BUILT, beside each tarball, in sha256sum format with
+          # the bare name. publish verifies these on download and aggregates them
+          # into the SHA256SUMS release asset; nothing downstream rehashes
+          # (scripts/release-fanin.sh).
+          (cd dist && for f in any-*.tar.gz; do sha256sum "$f" > "$f.sha256"; done)
           ls -la dist
       - uses: actions/upload-artifact@v7
         with:
           name: desktop-tarballs
-          path: dist/any-*.tar.gz
+          path: |
+            dist/any-*.tar.gz
+            dist/any-*.tar.gz.sha256
           if-no-files-found: error
           retention-days: 7
       # The darwin subset again under its own name: desktop-smoke consumes 4
@@ -262,11 +270,15 @@ jobs:
             VERSION="$VERSION" \
             COMMIT="$(git rev-parse --short HEAD)" \
             DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # The leg's own digest of what it built — see the desktop job.
+          (cd dist/android && sha256sum any.aar > any.aar.sha256)
           ls -la dist/android
       - uses: actions/upload-artifact@v7
         with:
           name: android-aar
-          path: dist/android/any.aar
+          path: |
+            dist/android/any.aar
+            dist/android/any.aar.sha256
           if-no-files-found: error
           retention-days: 7
 
@@ -322,11 +334,16 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           scripts/build-xcframework.sh dist
+          # The leg's own digest of what it built — see the desktop job. shasum
+          # on macOS writes the same `digest  name` line sha256sum -c reads.
+          (cd dist && shasum -a 256 any.xcframework.zip > any.xcframework.zip.sha256)
           ls -la dist
       - uses: actions/upload-artifact@v7
         with:
           name: ios-xcframework
-          path: dist/any.xcframework.zip
+          path: |
+            dist/any.xcframework.zip
+            dist/any.xcframework.zip.sha256
           if-no-files-found: error
           retention-days: 7
 

@@ -60,20 +60,44 @@ mkdir -p "$tmp/artifacts/desktop-tarballs" "$tmp/artifacts/android-aar" "$tmp/ar
 echo d > "$tmp/artifacts/desktop-tarballs/any-v9.9.9-linux-x86_64.tar.gz"
 echo a > "$tmp/artifacts/android-aar/any.aar"
 echo i > "$tmp/artifacts/ios-xcframework/any.xcframework.zip"
+# The legs hash what they BUILT, in sha256sum format with the bare name, and
+# ship the digest beside the artifact; publish verifies on download and never
+# rehashes. The test computes the expected digests independently.
+digest() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
+for f in "$tmp"/artifacts/*/any*; do printf '%s  %s\n' "$(digest "$f")" "$(basename "$f")" > "$f.sha256"; done
+D_TAR="$(digest "$tmp/artifacts/desktop-tarballs/any-v9.9.9-linux-x86_64.tar.gz")"
+D_AAR="$(digest "$tmp/artifacts/android-aar/any.aar")"
+D_XCF="$(digest "$tmp/artifacts/ios-xcframework/any.xcframework.zip")"
 VERSION_RESULT=success DESKTOP_RESULT=success DESKTOP_SMOKE_RESULT=failure ANDROID_RESULT=success IOS_RESULT=success PUBLISH_RESULT=success
 fanin_collect "$tmp/artifacts" "$tmp/dist" >/dev/null
 [ ! -e "$tmp/dist/any-v9.9.9-linux-x86_64.tar.gz" ] || { echo "FAIL: smoke red: desktop tarballs must not ship"; fail=1; }
 [ -e "$tmp/dist/any.aar" ] && [ -e "$tmp/dist/any.xcframework.zip" ] || { echo "FAIL: collect: mobile assets missing"; fail=1; }
+check "$(cat "$tmp/dist/SHA256SUMS")" "$(printf '%s  any.aar\n%s  any.xcframework.zip' "$D_AAR" "$D_XCF")" "collect: manifest carries the legs' digests of the shipped assets only"
+[ ! -e "$tmp/dist/any.aar.sha256" ] || { echo "FAIL: collect: per-asset .sha256 files must not ship, the manifest does"; fail=1; }
 notes="$(fanin_notes "$tmp/dist")"
 check "$(printf '%s\n' "$notes" | sed -n 1p)" "> **Partial release** — missing: desktop (run https://example.test/run/1)" "notes: partial line first"
 check "$(printf '%s\n' "$notes" | grep -c '^not built$')" "1" "notes: exactly one not-built section"
-check "$(printf '%s\n' "$notes" | grep -c 'any.aar` sha256')" "1" "notes: aar listed with sha"
+check "$(printf '%s\n' "$notes" | grep -c "^\`any.aar\` sha256: \`$D_AAR\`\$")" "1" "notes: aar line carries the leg digest"
+check "$(printf '%s\n' "$notes" | grep -c "^\`any.xcframework.zip\` sha256: \`$D_XCF\`\$")" "1" "notes: xcframework line carries the leg digest"
+check "$(printf '%s\n' "$notes" | grep -c 'sha256sum -c SHA256SUMS')" "1" "notes: name the manifest and how to verify"
 check "$(printf '%s\n' "$notes" | grep -c 'llama.cpp: b0')" "1" "notes: libs line"
 
 # --- complete notes carry no marker
 DESKTOP_SMOKE_RESULT=success
 rm -rf "$tmp/dist"; fanin_collect "$tmp/artifacts" "$tmp/dist" >/dev/null
 check "$(fanin_notes "$tmp/dist" | sed -n 1p)" "## Assets" "notes: complete release starts at the asset list"
+check "$(fanin_notes "$tmp/dist" | grep -c "^\`any-v9.9.9-linux-x86_64.tar.gz\` sha256: \`$D_TAR\`\$")" "1" "notes: tarball line carries the leg digest"
+check "$(wc -l < "$tmp/dist/SHA256SUMS" | tr -d ' ')" "3" "collect: complete manifest lists every shipped asset"
+[ -e "$tmp/dist/any-v9.9.9-linux-x86_64.tar.gz" ] || { echo "FAIL: collect: the desktop tarball must reach dist on a green desktop"; fail=1; }
+check "$(fanin_notes "$tmp/dist" | grep -c '^not built$')" "0" "notes: a complete release has no not-built section"
+( cd "$tmp/dist" && { command -v sha256sum >/dev/null 2>&1 && sha256sum -c --quiet SHA256SUMS || shasum -a 256 -c --quiet SHA256SUMS; } ) || { echo "FAIL: collect: the shipped manifest does not verify against the shipped files"; fail=1; }
+# --- a leg digest that does not match what arrived stops the collect (fail-closed), and a missing one does too
+printf '%s  any.aar\n' "0000000000000000000000000000000000000000000000000000000000000000" > "$tmp/artifacts/android-aar/any.aar.sha256"
+rm -rf "$tmp/dist"; fanin_collect "$tmp/artifacts" "$tmp/dist" >/dev/null 2>&1 && { echo "FAIL: collect: a digest mismatch must fail the collect"; fail=1; }
+printf '%s  any.aar\n' "$D_AAR" > "$tmp/artifacts/android-aar/any.aar.sha256"
+mv "$tmp/artifacts/ios-xcframework/any.xcframework.zip.sha256" "$tmp/xcf.sha256"
+rm -rf "$tmp/dist"; fanin_collect "$tmp/artifacts" "$tmp/dist" >/dev/null 2>&1 && { echo "FAIL: collect: a missing leg digest must fail the collect"; fail=1; }
+mv "$tmp/xcf.sha256" "$tmp/artifacts/ios-xcframework/any.xcframework.zip.sha256"
 
 # --- dispatch through a fake gh
 mkdir -p "$tmp/bin"
@@ -89,7 +113,7 @@ rm -rf "$tmp/dist"; fanin_collect "$tmp/artifacts" "$tmp/dist" >/dev/null
 fanin_publish_dispatch "$tmp/dist" "$tmp/out" >/dev/null
 check "$(grep -c 'event_type=any-published' "$GH_LOG")" "2" "publish-dispatch: two clients"
 grep -q 'repos/anyproto/any-kotlin/dispatches' "$GH_LOG" && { echo "FAIL: publish-dispatch: kotlin dispatched with android red"; fail=1; }
-grep -q 'client_payload\[asset\]=any.xcframework.zip' "$GH_LOG" || { echo "FAIL: publish-dispatch: swift payload lacks asset"; fail=1; }
+grep -q "client_payload\[asset\]=any.xcframework.zip -f client_payload\[sha256\]=$D_XCF" "$GH_LOG" || { echo "FAIL: publish-dispatch: swift payload must carry the manifest digest"; fail=1; }
 check "$(cat "$tmp/out")" "published_clients=anyproto/any-ui,anyproto/anytype-swift" "publish-dispatch: output"
 : > "$GH_LOG"
 PUBLISHED_CLIENTS=anyproto/any-ui,anyproto/anytype-swift fanin_fail_dispatch >/dev/null
@@ -98,6 +122,21 @@ grep -q 'repos/anyproto/any-kotlin/dispatches.*client_payload\[platform\]=androi
 : > "$GH_LOG"
 VERSION_RESULT=failure VERSION='' DESKTOP_RESULT=skipped DESKTOP_SMOKE_RESULT=skipped ANDROID_RESULT=skipped IOS_RESULT=skipped PUBLISH_RESULT=skipped PUBLISHED_CLIENTS='' fanin_fail_dispatch >/dev/null
 check "$(grep -c 'client_payload\[version\]=unresolved' "$GH_LOG")" "3" "fail-dispatch: version failed → unresolved to all three"
+check "$(grep -c 'client_payload\[failed_platforms\]=version' "$GH_LOG")" "3" "fail-dispatch: version failed → the version stage, to all three"
+
+# --- smoke red, mobile green: any-ui alone is told, with ITS platform (Review Focus 1, dispatch half)
+: > "$GH_LOG"
+VERSION_RESULT=success DESKTOP_RESULT=success DESKTOP_SMOKE_RESULT=failure ANDROID_RESULT=success IOS_RESULT=success PUBLISH_RESULT=success
+PUBLISHED_CLIENTS=anyproto/anytype-swift,anyproto/any-kotlin fanin_fail_dispatch >/dev/null
+check "$(grep -c 'event_type=any-build-failed' "$GH_LOG")" "1" "fail-dispatch smoke red: exactly one client told"
+grep -q 'repos/anyproto/any-ui/dispatches.*client_payload\[platform\]=desktop.*client_payload\[failed_platforms\]=desktop.*client_payload\[run_url\]=https://example.test/run/1' "$GH_LOG" || { echo "FAIL: fail-dispatch smoke red: any-ui must get platform=desktop, failed_platforms=desktop"; fail=1; }
+
+# --- legs green, publish failed before the release: every client told, stage publish
+: > "$GH_LOG"
+DESKTOP_SMOKE_RESULT=success PUBLISH_RESULT=failure
+PUBLISHED_CLIENTS='' fanin_fail_dispatch >/dev/null
+check "$(grep -c 'client_payload\[failed_platforms\]=publish' "$GH_LOG")" "3" "fail-dispatch publish failed: the publish stage, to all three"
+check "$(grep -c 'client_payload\[channel\]=prerelease' "$GH_LOG")" "3" "fail-dispatch: channel rides every failure payload"
 
 rm -rf "$tmp"
 [ "$fail" = 0 ] && echo "release-fanin: ok"

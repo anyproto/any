@@ -97,35 +97,73 @@ fanin_failed_stages() { # → the failed_platforms payload value: platforms, plu
     printf '%s' "$out"
 }
 
-_fanin_sha256() { # <file> → hex digest; macOS has shasum, Linux sha256sum
-    if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
+_fanin_sha256_check() { # <dir> <name.sha256> — verify the asset the leg hashed against the bytes that arrived
+    # sha256sum on the ubuntu publish runner; shasum where the test runs on a Mac.
+    if command -v sha256sum >/dev/null 2>&1; then (cd "$1" && sha256sum -c --quiet "$2"); else (cd "$1" && shasum -a 256 -c --quiet "$2"); fi
 }
 
-fanin_collect() { # <artifacts-dir> <dist-dir> — flatten the PASSED platforms' artifacts into one asset dir
+_fanin_digest_of() { # <dist-dir> <asset name> → the digest the manifest records for it; fails if absent
+    local d
+    d="$(awk -v n="$2" '$2 == n { print $1 }' "$1/SHA256SUMS")"
+    if [ -z "$d" ]; then
+        echo "fanin: $2 is not in $1/SHA256SUMS" >&2
+        return 1
+    fi
+    printf '%s' "$d"
+}
+
+# shellcheck disable=SC2086  # the glob IS the argument: which files of the artifact dir to ship
+_fanin_take() { # <artifact-dir> <dist-dir> <glob> — verify each file against the digest its leg wrote, ship it, record the line
+    local dir="$1" dst="$2" pattern="$3" f name
+    for f in "$dir"/$pattern; do
+        name="$(basename "$f")"
+        if [ ! -f "$f.sha256" ]; then
+            echo "fanin: $name arrived without the digest its leg writes beside it ($name.sha256) — refusing to ship an unverified asset" >&2
+            return 1
+        fi
+        if ! _fanin_sha256_check "$dir" "$name.sha256"; then
+            echo "fanin: $name does not match the digest its leg wrote — corrupted or substituted in transit, refusing to ship it" >&2
+            return 1
+        fi
+        cp "$f" "$dst/"
+        cat "$f.sha256" >> "$dst/SHA256SUMS"
+    done
+}
+
+fanin_collect() { # <artifacts-dir> <dist-dir> — flatten the PASSED platforms' artifacts into one asset dir + the SHA256SUMS manifest
     local src="$1" dst="$2"
     mkdir -p "$dst"
-    # A platform that passed but left no artifact is a publish failure, not a
-    # partial release: cp fails, the job fails, notify-failed reports `publish`.
-    if fanin_platform_ok desktop; then cp "$src"/desktop-tarballs/any-*.tar.gz "$dst"/; fi
-    if fanin_platform_ok android; then cp "$src"/android-aar/any.aar "$dst"/; fi
-    if fanin_platform_ok ios; then cp "$src"/ios-xcframework/any.xcframework.zip "$dst"/; fi
+    : > "$dst/SHA256SUMS"
+    # Every digest is the one the LEG computed over what it built; publish only
+    # verifies and aggregates. A platform that passed but left no artifact or no
+    # digest is a publish failure, not a partial release: the step fails,
+    # notify-failed reports `publish`. The manifest ships as a release asset
+    # (dist/*), so a client verifies with `sha256sum -c SHA256SUMS`.
+    # `|| return 1` on each: inside a `then` body a sourced caller under `set +e`
+    # would otherwise carry on past a refused asset and report success.
+    if fanin_platform_ok desktop; then _fanin_take "$src/desktop-tarballs" "$dst" 'any-*.tar.gz' || return 1; fi
+    if fanin_platform_ok android; then _fanin_take "$src/android-aar" "$dst" 'any.aar' || return 1; fi
+    if fanin_platform_ok ios; then _fanin_take "$src/ios-xcframework" "$dst" 'any.xcframework.zip' || return 1; fi
     ls -la "$dst"
 }
 
 # shellcheck disable=SC2016  # the backticks are markdown code spans in the release notes, not shell
-fanin_notes() { # <dist-dir> → release notes on stdout: partial marker first, then the sectioned asset list
-    local dst="$1" f line
+fanin_notes() { # <dist-dir> → release notes on stdout, rendered FROM the manifest: partial marker first, then the sectioned asset list
+    local dst="$1" line name digest
     line="$(fanin_partial_line)"
     [ -z "$line" ] || printf '%s\n\n' "$line"
     printf '## Assets\n\n### Desktop\n'
     if fanin_platform_ok desktop; then
-        for f in "$dst"/any-*.tar.gz; do printf '`%s` sha256: `%s`\n' "$(basename "$f")" "$(_fanin_sha256 "$f")"; done
+        while read -r digest name; do
+            case "$name" in any-*.tar.gz) printf '`%s` sha256: `%s`\n' "$name" "$digest" ;; esac
+        done < "$dst/SHA256SUMS"
     else echo 'not built'; fi
     printf '\n### Android\n'
-    if fanin_platform_ok android; then printf '`any.aar` sha256: `%s`\n' "$(_fanin_sha256 "$dst/any.aar")"; else echo 'not built'; fi
+    if fanin_platform_ok android; then printf '`any.aar` sha256: `%s`\n' "$(_fanin_digest_of "$dst" any.aar)"; else echo 'not built'; fi
     printf '\n### iOS\n'
-    if fanin_platform_ok ios; then printf '`any.xcframework.zip` sha256: `%s`\n' "$(_fanin_sha256 "$dst/any.xcframework.zip")"; else echo 'not built'; fi
-    printf '\n### Libs\nllama.cpp: %s\n' "${LLAMACPP_VERSION:-$(scripts/llamacpp-version.sh)}"
+    if fanin_platform_ok ios; then printf '`any.xcframework.zip` sha256: `%s`\n' "$(_fanin_digest_of "$dst" any.xcframework.zip)"; else echo 'not built'; fi
+    printf '\n### Libs\nllama.cpp: %s\n' "${LLAMACPP_VERSION:-$("$(dirname "${BASH_SOURCE[0]}")/llamacpp-version.sh")}"
+    printf '\n### Checksums\n`SHA256SUMS` lists every asset above, each digest computed by the leg that built it; verify with `sha256sum -c SHA256SUMS`.\n'
 }
 
 _fanin_dispatch() { # <repo> <event_type> [gh -f args…] — best-effort, warns on failure
@@ -148,11 +186,11 @@ fanin_publish_dispatch() { # <dist-dir> <github-output> — any-published to eve
             ;;
         anyproto/anytype-swift)
             _fanin_dispatch "$c" any-published -f "client_payload[version]=$VERSION" -f "client_payload[channel]=$CHANNEL" \
-                -f "client_payload[asset]=any.xcframework.zip" -f "client_payload[sha256]=$(_fanin_sha256 "$dst/any.xcframework.zip")" || true
+                -f "client_payload[asset]=any.xcframework.zip" -f "client_payload[sha256]=$(_fanin_digest_of "$dst" any.xcframework.zip)" || true
             ;;
         anyproto/any-kotlin)
             _fanin_dispatch "$c" any-published -f "client_payload[version]=$VERSION" -f "client_payload[channel]=$CHANNEL" \
-                -f "client_payload[asset]=any.aar" -f "client_payload[sha256]=$(_fanin_sha256 "$dst/any.aar")" || true
+                -f "client_payload[asset]=any.aar" -f "client_payload[sha256]=$(_fanin_digest_of "$dst" any.aar)" || true
             ;;
         esac
         # Attempted counts as published: the release IS out, and a client must
