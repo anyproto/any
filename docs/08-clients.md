@@ -534,15 +534,17 @@ device, before background resolution completes — surfaces **id-only**
 let the `updated` subscribe frame fill it in. Never block UI on a
 resolved name; the directory is the only resolution surface.
 
-**Avatars.** A row's `iconCid` is the content address of the account's
-avatar; the image itself comes from
+**Avatars.** A directory row's `iconCid` is the content address of the
+account's avatar; the image itself comes from
 `GET /v1/identities/:identity/icon` (own avatar:
 `GET /v1/account/icon`). Cache the bytes keyed on `iconCid` and refetch
 when an `updated` frame changes it. A `404` means no avatar yet (render
 the fallback); a `409 file.not_available` means the bytes are not
-fetchable on this network right now — keep the fallback and retry
-later. The own avatar is set with `PUT /v1/account/icon` (raw image
-body); `PUT /v1/account/metadata` carries name and description only.
+fetchable right now — a stale reference while the owner is replacing
+the avatar, or a network with no public read base — keep the fallback
+and retry later. The own avatar is set with `PUT /v1/account/icon`
+(raw raster-image body, 1 MiB cap); `PUT /v1/account/metadata` carries
+name and description only.
 
 ## 9. Files: attach fire-and-forget, download as plain HTTP
 

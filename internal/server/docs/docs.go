@@ -4589,6 +4589,16 @@ const docTemplate = `{
                         },
                         "description": "OK"
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
                     "413": {
                         "content": {
                             "application/json": {

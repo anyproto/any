@@ -15,7 +15,8 @@ const SpaceListDataset = "spaces"
 // spaceListAllowedDatasets is the allowlist of tech-space system
 // datasets reachable through the generic space-list query/subscribe.
 // It is deliberately closed: the tech-space index object also hosts the
-// `identities` directory dataset, whose rows carry a SYNCED symKey (the
+// `identities` directory dataset, whose rows carry a SYNCED symKey and
+// each contact's avatar file key (the
 // contact's profile-decryption secret). The public Identities API
 // (GET /v1/identities) strips that field; the raw query path would not,
 // so `identities` must never be reachable here. Read the directory

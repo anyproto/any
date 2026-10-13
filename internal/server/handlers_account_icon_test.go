@@ -18,7 +18,7 @@ import (
 // deterministic noise. The server never decodes the image.
 func fakePNG(n int) []byte {
 	b := make([]byte, n)
-	rand.New(rand.NewSource(146)).Read(b)
+	rand.New(rand.NewSource(7)).Read(b)
 	copy(b, "\x89PNG\r\n\x1a\n")
 	return b
 }
@@ -46,14 +46,28 @@ func TestServer_AccountIcon(t *testing.T) {
 	})
 
 	t.Run("not an image", func(t *testing.T) {
-		rec := doRaw(t, e, http.MethodPut, "/v1/account/icon?name=notes.txt", "text/plain", []byte("hello"))
-		if rec.Code != http.StatusUnsupportedMediaType {
-			t.Fatalf("status = %d, want 415; body=%s", rec.Code, rec.Body.String())
+		for name, body := range map[string][]byte{
+			"text":        []byte("hello"),
+			"html as png": []byte("<script>alert(1)</script>"),
+			"svg":         []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`),
+		} {
+			// The declared type is never trusted.
+			rec := doRaw(t, e, http.MethodPut, "/v1/account/icon?name=a.png", "image/png", body)
+			if rec.Code != http.StatusUnsupportedMediaType {
+				t.Fatalf("%s: status = %d, want 415; body=%s", name, rec.Code, rec.Body.String())
+			}
+			var env api.ErrorEnvelope
+			_ = json.Unmarshal(rec.Body.Bytes(), &env)
+			if env.Error.Code != api.ErrAccountIconNotImage {
+				t.Errorf("%s: code = %q, want %s", name, env.Error.Code, api.ErrAccountIconNotImage)
+			}
 		}
-		var env api.ErrorEnvelope
-		_ = json.Unmarshal(rec.Body.Bytes(), &env)
-		if env.Error.Code != api.ErrAccountIconNotImage {
-			t.Errorf("code = %q, want %s", env.Error.Code, api.ErrAccountIconNotImage)
+	})
+
+	t.Run("empty body", func(t *testing.T) {
+		rec := doRaw(t, e, http.MethodPut, "/v1/account/icon", "image/png", nil)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
 		}
 	})
 
@@ -106,6 +120,12 @@ func TestServer_AccountIcon(t *testing.T) {
 		}
 		if ct := rec.Header().Get("Content-Type"); ct != "image/png" {
 			t.Errorf("Content-Type = %q, want image/png", ct)
+		}
+		if v := rec.Header().Get("X-Content-Type-Options"); v != "nosniff" {
+			t.Errorf("X-Content-Type-Options = %q, want nosniff", v)
+		}
+		if v := rec.Header().Get("Content-Security-Policy"); v == "" {
+			t.Errorf("no Content-Security-Policy on an avatar response")
 		}
 		if !bytes.Equal(rec.Body.Bytes(), img) {
 			t.Errorf("body mismatch: %d bytes, want %d", rec.Body.Len(), len(img))

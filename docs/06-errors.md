@@ -30,7 +30,8 @@ Every error response — regardless of status code — has the same body:
 | 405    | Route not available on the tech space (`space.unsupported`), or wrong method for the route |
 | 409    | Conflict (duplicate, precondition failed, state not ready)     |
 | 410    | Deleted for good (`object.deleted`, `record.deleted`, `invite.revoked`) |
-| 413    | Body over the 1 MiB cap (`request.too_large`; file attach is exempt), or `history.view_too_large` |
+| 413    | Body over the 1 MiB cap (`request.too_large`; file attach and the avatar upload are exempt), `account.icon_too_large`, or `history.view_too_large` |
+| 415    | `account.icon_not_image` — the avatar upload is not a raster image |
 | 429    | `access.rate_limited`                                          |
 | 500    | Internal error — unexpected SDK or server failure              |
 | 501    | `sdk.not_implemented` — `DELETE …/types/:typeId`, `DELETE …/collections/:collectionId` and `GET …/sync-status/peers` |

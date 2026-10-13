@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gabriel-vasile/mimetype"
 	"github.com/labstack/echo/v4"
 
 	"github.com/anyproto/any-sync-sdk/space"
@@ -21,9 +22,10 @@ import (
 
 // accountIconPut handles PUT /v1/account/icon.
 //
-// The raw request body is the image. The media type is resolved like a
-// file attach (Content-Type header, then the content's signature, then
-// the name's extension) and must be image/*. The SDK caps the size.
+// The raw request body is the image. Its type is read from the bytes
+// alone — the declared Content-Type is not trusted — and must be a
+// raster image (imageType), because contacts' servers serve what is
+// stored here on their own API origin. The SDK caps the size.
 //
 //	@Summary	Set the account avatar (raw body upload)
 //	@Tags		account
@@ -31,21 +33,21 @@ import (
 //	@Produce	json
 //	@Param		name	query		string	false	"User-facing file name"
 //	@Success	200	{object}	api.AccountMetadata
+//	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	413	{object}	api.ErrorEnvelope
 //	@Failure	415	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/account/icon [put]
 func (d *deps) accountIconPut(c echo.Context) error {
 	name := c.QueryParam("name")
-	var body io.Reader = c.Request().Body
-	mimeType := resolveMime(c.Request().Header.Get(echo.HeaderContentType), name, func() []byte {
-		var head []byte
-		body, head = peekHead(body)
-		return head
-	})
-	if !strings.HasPrefix(mimeType, "image/") {
+	body, head := peekHead(c.Request().Body)
+	if len(head) == 0 {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "the request body is the image; it is empty", nil)
+	}
+	mimeType, ok := imageType(head)
+	if !ok {
 		return writeError(c, http.StatusUnsupportedMediaType, api.ErrAccountIconNotImage,
-			"the avatar must be an image", map[string]any{"mime": mimeType})
+			"the avatar must be a raster image", map[string]any{"detected": mimeType})
 	}
 	meta, err := d.sdk.Account().SetIcon(c.Request().Context(), body, space.IconOpts{
 		Name: ensureNameExt(name, mimeType),
@@ -73,7 +75,7 @@ func (d *deps) accountIconPut(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/account/icon [get]
 func (d *deps) accountIconGet(c echo.Context) error {
-	r, err := d.sdk.Identities().OpenIcon(c.Request().Context(), d.sdk.Account().Id())
+	r, err := d.sdk.Account().OpenIcon(c.Request().Context())
 	if err != nil {
 		return iconError(c, err, api.ErrAccountIconNotFound, "no avatar is set", nil)
 	}
@@ -127,21 +129,28 @@ func (d *deps) identityIconGet(c echo.Context) error {
 	return serveIcon(c, r)
 }
 
-// iconError maps an OpenIcon failure: ErrNotFound to the caller's 404
-// code, the fetch states like any file download.
+// iconError maps an OpenIcon failure: ErrNotFound and an avatar the
+// SDK refuses as oversized to the caller's 404 code, the fetch states
+// like any file download.
 func iconError(c echo.Context, err error, notFoundCode, notFoundMsg string, details map[string]any) error {
-	if errors.Is(err, space.ErrNotFound) {
+	switch {
+	case errors.Is(err, space.ErrNotFound):
 		return writeError(c, http.StatusNotFound, notFoundCode, notFoundMsg, details)
+	case errors.Is(err, space.ErrIconTooLarge):
+		return writeError(c, http.StatusNotFound, notFoundCode, "the avatar exceeds the size cap and is not served", details)
 	}
 	return fileError(c, err, details)
 }
 
-// serveIcon writes an avatar as an image response. The profile carries
-// no media type, so it is sniffed from the plaintext; Range/206 come
-// from ServeContent over the seekable reader.
+// serveIcon writes an avatar as an image response. The bytes were
+// chosen by another account, so the response never lets a browser
+// treat them as anything active: the type comes from the content's
+// own signature (a non-image serves as octet-stream), sniffing is
+// disabled, and a CSP forbids every load. Range/206 come from
+// ServeContent over the seekable reader.
 func serveIcon(c echo.Context, r space.FileReader) error {
 	defer r.Close()
-	head := make([]byte, 512)
+	head := make([]byte, sniffLimit)
 	n, err := io.ReadFull(r, head)
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
 		return fileError(c, err, nil)
@@ -149,9 +158,26 @@ func serveIcon(c echo.Context, r space.FileReader) error {
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
 		return fileError(c, err, nil)
 	}
-	c.Response().Header().Set(echo.HeaderContentType, http.DetectContentType(head[:n]))
+	contentType, ok := imageType(head[:n])
+	if !ok {
+		contentType = "application/octet-stream"
+	}
+	h := c.Response().Header()
+	h.Set(echo.HeaderContentType, contentType)
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	h.Set("Content-Disposition", "inline")
 	http.ServeContent(c.Response(), c.Request(), "", time.Time{}, r)
 	return nil
+}
+
+// imageType classifies head by its signature and reports whether it is
+// a raster image: image/* except SVG, which is a document that can
+// carry script and so is neither accepted as an avatar nor served as
+// one.
+func imageType(head []byte) (string, bool) {
+	mt := bareType(mimetype.Detect(head).String())
+	return mt, strings.HasPrefix(mt, "image/") && mt != "image/svg+xml"
 }
 
 func accountMetadataToAPI(meta space.AccountMetadata) api.AccountMetadata {

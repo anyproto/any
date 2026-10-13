@@ -358,22 +358,26 @@ identityRepo, so the new profile becomes visible in every space the
 caller is a member of without further per-space writes (read it back
 via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 `description` must be set; an all-empty body returns
-`400 request.missing_field`. `iconCid` is read-only on this route
-(`400 request.invalid_field`): the avatar is a file, and a name update
-keeps the stored one.
+`400 request.missing_field`. The body replaces both fields (an absent
+one is cleared). `iconCid` is read-only on this route
+(`400 request.invalid_field`): the avatar is a file, and this write
+leaves the stored one untouched. A NUL byte in either field is
+`400 request.invalid_field`.
 
 **Avatar.** `PUT /v1/account/icon` takes the image as the raw request
-body, like a file attach: `Content-Type` and the `?name=` query feed
-the media-type resolution, which must land on `image/*`
-(`415 account.icon_not_image`); the body is capped at 1 MiB
-(`413 account.icon_too_large`). The reply is the profile with the new
-`iconCid`, the image's content address — the value every reader sees
-on the members list and in the directory, and the key for an avatar
-cache (a new image is a new cid). The SDK stores the file in the
-account's tech space and republishes the profile with the avatar
-reference once the file's network backup is confirmed, so a contact
-never holds a reference it cannot fetch; until then the contact's row
-shows the previous `iconCid` (or none).
+body. Its type is read from the bytes alone — the `Content-Type`
+header is not trusted — and must be a raster image (`image/*` other
+than SVG, which can carry script): `415 account.icon_not_image`
+otherwise, `400 request.missing_field` for an empty body, and
+`413 account.icon_too_large` past the 1 MiB cap. `?name=` is the stored
+file name. The reply is the profile with the new `iconCid`, the
+image's content address — the value the directory and members rows
+carry once the profile resolves, and the key for an avatar cache (a
+new image is a new cid). The SDK stores the file in the account's tech
+space and publishes the profile with the avatar reference only once
+the file's network backup is confirmed, so a contact never holds a
+reference it cannot fetch; until then contacts see no avatar, so a
+replacement shows as a short gap rather than the old image.
 
 ```
 PUT /v1/account/icon?name=me.png
@@ -381,12 +385,20 @@ Content-Type: image/png
 <raw bytes>
 → 200 { "name":"Alice", "iconCid":"bafy…" }
 
-GET /v1/account/icon       → 200 image bytes (Range/206 supported); 404 account.icon_not_found
+GET /v1/account/icon       → 200 image bytes (Range/206); 404 account.icon_not_found; 409 file.not_available
 DELETE /v1/account/icon    → 204 (no-op without one)
 ```
 
-`GET /v1/account/icon` serves the own image like file content: the
-type is sniffed from the bytes, `Range` is honoured.
+`GET /v1/account/icon` (`Account.OpenIcon`) serves the own image.
+`409 file.not_available` is the state of another device of the same
+account that has synced the avatar's row but holds neither its bytes
+nor, yet, its backup receipt.
+
+Avatar responses — own and a contact's — carry the type the bytes
+themselves declare (a non-image serves as `application/octet-stream`),
+`X-Content-Type-Options: nosniff` and a `Content-Security-Policy` that
+forbids every load: the bytes were chosen by another account and must
+never run as a document on the API origin.
 
 **Access codes.** `POST /v1/account/access-code {"code": "K7QX-4MDP-…"}`
 signs `{purpose, ownerAnyId, code, ts}` with the account key and posts it to
@@ -443,15 +455,20 @@ publish theirs — are refused on every per-object read (`/query`,
 `400 request.invalid_field`.
 
 **Avatars.** `GET /v1/identities/:identity/icon` serves the image a
-row's `iconCid` names: the bytes are fetched by content address through
-the network's public read path and decrypted with the key sealed in
-the identity's profile — the reader never joins the owner's space. The
-response is the image like file content (type sniffed from the bytes,
-`Range`/206). `404 identity.icon_not_found` until the row carries an
-`iconCid` (unknown identity, or a profile that names no avatar);
-`409 file.not_available` while the bytes cannot be fetched (the
-network advertises no public read base) — retry later. Key an avatar
-cache on `iconCid` and refetch when an `updated` frame changes it.
+directory row's `iconCid` names: the bytes are fetched by content
+address through the network's public read path and decrypted with the
+key sealed in the identity's profile — the reader never joins the
+owner's space. The response is the image (type from the bytes,
+`Range`/206, `nosniff`, a load-forbidding CSP; see § Account).
+`404 identity.icon_not_found` until the row carries an `iconCid`
+(unknown identity, a profile that names no avatar, or one that names
+an object over the 1 MiB cap, which is refused unread);
+`409 file.not_available` while the bytes cannot be fetched — no public
+read base on this network, a stale reference after the owner replaced
+or removed the avatar, a transport failure — retry later. Key an
+avatar cache on `iconCid` and refetch when an `updated` frame changes
+it. A members row carries the same `iconCid` once the identity's
+profile resolves.
 
 **The directory carries no rights.** Roles
 (`owner`/`admin`/`writer`/`reader`) are per-space and live on the members

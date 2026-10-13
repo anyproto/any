@@ -39,13 +39,13 @@ curl -s -X PUT http://127.0.0.1:7001/v1/account/metadata \
 any account set-metadata --name "Alice" [--description "..."]
 ```
 
-At least one of `name` / `description` must be set; an all-empty body returns `400 request.missing_field`. The SDK persists the bytes to the local tech space and pushes them to the identity repository, so the new profile reaches every space you are a member of. Read it back from a space's roster with `GET /v1/spaces/:id/members/me`.
+At least one of `name` / `description` must be set; an all-empty body returns `400 request.missing_field`, and the body replaces both fields. The SDK persists the bytes to the local tech space and pushes them to the identity repository, so the new profile reaches every space you are a member of. Read it back from a space's roster with `GET /v1/spaces/:id/members/me`.
 
 `iconCid` is read-only on this route (`400 request.invalid_field`): the avatar is an image you upload, below. A name update keeps the avatar you have.
 
 ## Setting the avatar
 
-The image is the raw request body, like a [file upload](../files/uploading.html). It must be an image (`415 account.icon_not_image` otherwise) and at most 1 MiB (`413 account.icon_too_large`):
+The image is the raw request body, like a [file upload](../files/uploading.html). Its type is read from the bytes, not from the header: it must be a raster image — PNG, JPEG, GIF, WebP and the like, not SVG (`415 account.icon_not_image`) — and at most 1 MiB (`413 account.icon_too_large`):
 
 ```bash
 curl -s -X PUT "http://127.0.0.1:7001/v1/account/icon?name=me.png" \
@@ -57,9 +57,9 @@ any account icon -o me-back.png      # GET /v1/account/icon
 any account delete-icon              # DELETE /v1/account/icon
 ```
 
-The reply's `iconCid` is the image's content address — what every member and every directory row shows for you, and what a client keys its avatar cache on: a new image is a new cid. `GET /v1/account/icon` streams the bytes back (`Range` supported; `404 account.icon_not_found` when none is set).
+The reply's `iconCid` is the image's content address — what every directory row and members row shows for you once your profile resolves there, and what a client keys its avatar cache on: a new image is a new cid. `GET /v1/account/icon` streams the bytes back (`Range` supported; `404 account.icon_not_found` when none is set; `409 file.not_available` on another device of yours that has the avatar's row but not yet its bytes).
 
-The image is stored as a file in your account's tech space, encrypted with its own key, and published to contacts only once its network backup is confirmed — a contact never holds a reference it cannot fetch. The key is sealed inside your profile, so exactly the people who can read your name can see your picture; the sync nodes and the object store hold ciphertext.
+The image is stored as a file in your account's tech space, encrypted with its own key, and published to contacts only once its network backup is confirmed — a contact never holds a reference it cannot fetch. Until then contacts see no avatar, so replacing one shows as a short gap rather than the old picture. The key is sealed inside your profile, so exactly the people who can read your name can see your picture; the sync nodes and the object store hold ciphertext.
 
 ## Who can see it
 

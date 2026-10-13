@@ -53,7 +53,7 @@ The reply is the file's `FileInfo`:
 | `cached` | a complete local copy exists (always true right after attach) |
 | `name`, `mime`, `variant`, `variantOf` | the sealed, member-only metadata |
 
-This is one of the two routes exempt from the global 1 MiB request body limit — the body streams straight into the SDK. [Local-store import](../reference/http-api.html#export-and-import-local-collections) is also exempt.
+This is one of the routes exempt from the global 1 MiB request body limit — the body streams straight into the SDK. The [avatar upload](../auth/profile.html#setting-the-avatar) and the [local-store import](../reference/http-api.html#export-and-import-local-collections) are the others.
 
 ## What happens to the bytes
 

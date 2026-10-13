@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -49,7 +50,7 @@ func TestE2E_MultipeerAvatar(t *testing.T) {
 	mustJSON(t, http.MethodGet, owner.base+"/v1/account", "", http.StatusOK, &ownerAcct)
 
 	img := make([]byte, 3000)
-	rand.New(rand.NewSource(146)).Read(img)
+	rand.New(rand.NewSource(7)).Read(img)
 	copy(img, "\x89PNG\r\n\x1a\n")
 
 	mustStatus(t, http.MethodPut, owner.base+"/v1/account/metadata", `{"name":"Owner Alice"}`, http.StatusNoContent)
@@ -113,12 +114,11 @@ func TestE2E_MultipeerAvatar(t *testing.T) {
 // uploaded. Range requests are honoured, as a real object store would.
 type carStandin struct {
 	*httptest.Server
-	n *int32
+	n atomic.Int32
 }
 
 func newCarStandin(t *testing.T, dataDir string) *carStandin {
-	var n int32
-	s := &carStandin{n: &n}
+	s := &carStandin{}
 	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
 		if len(parts) != 3 || parts[0] != "blob" {
@@ -131,13 +131,13 @@ func newCarStandin(t *testing.T, dataDir string) *carStandin {
 			http.NotFound(w, r)
 			return
 		}
-		*s.n++
+		s.n.Add(1)
 		http.ServeFile(w, r, path)
 	}))
 	return s
 }
 
-func (s *carStandin) requests() int { return int(*s.n) }
+func (s *carStandin) requests() int { return int(s.n.Load()) }
 
 // findCar walks dataDir for <spaceId>/<shard>/<rootCid>.car.
 func findCar(dataDir, spaceId, rootCid string) string {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -71,6 +72,10 @@ func (d *deps) accountUpdateMetadata(c echo.Context) error {
 		Description: req.Description,
 	})
 	if err != nil {
+		if errors.Is(err, space.ErrProfileFieldInvalid) {
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"name and description must not contain NUL", nil)
+		}
 		return sdkOpError(c, err, nil)
 	}
 	return c.NoContent(http.StatusNoContent)
