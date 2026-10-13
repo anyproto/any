@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -176,9 +175,10 @@ func serveIcon(c echo.Context, r space.FileReader) error {
 }
 
 // iconReadError maps a failure while reading an opened avatar: the
-// caller's cancellation as such, anything else as retry-later.
+// caller's own cancellation as such, anything else — a peer's read
+// budget included — as retry-later.
 func iconReadError(c echo.Context, err error) error {
-	if c.Request().Context().Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if c.Request().Context().Err() != nil {
 		return fileError(c, err, nil)
 	}
 	return writeError(c, http.StatusConflict, api.ErrFileNotAvailable, "avatar bytes not available yet; retry later", nil)
@@ -195,19 +195,23 @@ func imageType(head []byte) (string, bool) {
 }
 
 // avatarTypes are the media types accepted as an avatar and served as
-// an image, by content signature.
+// an image, by content signature; the animated variants the sniffer
+// names separately are the same formats.
 var avatarTypes = map[string]bool{
-	"image/png":    true,
-	"image/jpeg":   true,
-	"image/gif":    true,
-	"image/webp":   true,
-	"image/avif":   true,
-	"image/heic":   true,
-	"image/heif":   true,
-	"image/bmp":    true,
-	"image/x-icon": true,
-	"image/tiff":   true,
-	"image/jxl":    true,
+	"image/png":           true,
+	"image/apng":          true,
+	"image/jpeg":          true,
+	"image/gif":           true,
+	"image/webp":          true,
+	"image/avif":          true,
+	"image/heic":          true,
+	"image/heic-sequence": true,
+	"image/heif":          true,
+	"image/heif-sequence": true,
+	"image/bmp":           true,
+	"image/x-icon":        true,
+	"image/tiff":          true,
+	"image/jxl":           true,
 }
 
 func accountMetadataToAPI(meta space.AccountMetadata) api.AccountMetadata {

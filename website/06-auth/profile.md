@@ -57,7 +57,7 @@ any account icon -o me-back.png      # GET /v1/account/icon
 any account delete-icon              # DELETE /v1/account/icon
 ```
 
-The reply's `iconCid` is the image's content address — what every directory row and members row shows for you once your profile resolves there, and what a client keys its avatar cache on: a new image is a new cid. `GET /v1/account/icon` streams the bytes back (`Range` supported; `404 account.icon_not_found` when none is set; `409 file.not_available` on another device of yours that has the avatar's row but not yet its bytes).
+The reply's `iconCid` is the image's content address — what every directory row and members row shows for you once your profile resolves there, and what a client keys its avatar cache on: a new image is a new cid. `GET /v1/account/icon` streams the bytes back (`Range` supported; `404 account.icon_not_found` when none is set; `409 file.not_available` on another device of yours that has synced the profile but not yet the avatar's file row or its bytes).
 
 The image is stored as a file in your account's tech space, encrypted with its own key, and published to contacts only once its network backup is confirmed — a contact never holds a reference it cannot fetch. Until then contacts see no avatar, so replacing one shows as a short gap rather than the old picture. The key is sealed inside your profile, so exactly the people who can read your name can see your picture; the sync nodes and the object store hold ciphertext.
 
@@ -73,7 +73,8 @@ On the receiving side this shows up in two places, both of which must tolerate a
 |---------|---------------|
 | `GET /v1/spaces/:id/members` | roster with roles; `name` / `iconCid` resolved from the same cache, with the join-time metadata as the baseline |
 | `GET /v1/identities` | the account-global [directory](identities.html); rows surface id-only until resolved |
-| `GET /v1/identities/:identity/icon` | the avatar behind a row's `iconCid`, as image bytes |
+
+The picture behind a row's `iconCid` comes from `GET /v1/identities/:identity/icon` ([identities](identities.html#avatars)).
 
 > **Note.** Profile writes are account-wide, not per space. There is no per-space display name; the join-time `metadata` passed to `POST /v1/spaces/join` seeds what members see before your profile key resolves, and is superseded once it does.
 

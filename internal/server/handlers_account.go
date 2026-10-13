@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 
@@ -67,6 +68,12 @@ func (d *deps) accountUpdateMetadata(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",
 			"at least one of name, description required", nil)
 	}
+	for field, v := range map[string]string{"name": req.Name, "description": req.Description} {
+		if strings.IndexByte(v, 0) >= 0 {
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				field+" must not contain NUL", map[string]any{"field": field})
+		}
+	}
 	err := d.sdk.Account().UpdateMetadata(c.Request().Context(), space.AccountMetadata{
 		Name:        req.Name,
 		Description: req.Description,
@@ -74,7 +81,7 @@ func (d *deps) accountUpdateMetadata(c echo.Context) error {
 	if err != nil {
 		if errors.Is(err, space.ErrProfileFieldInvalid) {
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
-				"name and description must not contain NUL", map[string]any{"field": "name|description"})
+				"name and description must not contain NUL", nil)
 		}
 		return sdkOpError(c, err, nil)
 	}
