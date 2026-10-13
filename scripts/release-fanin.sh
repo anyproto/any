@@ -8,10 +8,10 @@
 #        scripts/release-fanin.sh fail-dispatch
 #   or source it for the fanin_* functions (the test does).
 #
-# A platform is one of desktop | android | ios. desktop passes only when BOTH
-# the desktop and desktop-smoke jobs succeeded. Every function reads the job
-# results GitHub hands the publish / notify-failed jobs as env:
-#   VERSION_RESULT DESKTOP_RESULT DESKTOP_SMOKE_RESULT ANDROID_RESULT IOS_RESULT PUBLISH_RESULT
+# A platform is one of desktop | android | ios; it passes when its job
+# succeeded. Every function reads the job results GitHub hands the publish /
+# notify-failed jobs as env:
+#   VERSION_RESULT DESKTOP_RESULT ANDROID_RESULT IOS_RESULT PUBLISH_RESULT
 # plus VERSION, CHANNEL, RUN_URL and, for the failure dispatch, PUBLISHED_CLIENTS.
 #
 # Checksums are computed ONCE, by the leg that built the asset (`<asset>.sha256`
@@ -26,7 +26,7 @@
 # Contract: any-ui docs/specs/2026-10-10-any-nightly-per-platform-publish.md R2–R4.
 set -euo pipefail
 
-: "${DESKTOP_RESULT:=skipped}" "${DESKTOP_SMOKE_RESULT:=skipped}" "${ANDROID_RESULT:=skipped}" "${IOS_RESULT:=skipped}"
+: "${DESKTOP_RESULT:=skipped}" "${ANDROID_RESULT:=skipped}" "${IOS_RESULT:=skipped}"
 : "${VERSION_RESULT:=success}" "${PUBLISH_RESULT:=success}"
 
 readonly FANIN_CLIENTS="anyproto/any-ui anyproto/anytype-swift anyproto/any-kotlin"
@@ -37,7 +37,7 @@ _fanin_error() { # <message> — a refusal: an annotated ::error:: on stderr, so
 
 fanin_platform_ok() { # <desktop|android|ios> → 0 when the platform passed
     case "$1" in
-    desktop) [ "$DESKTOP_RESULT" = success ] && [ "$DESKTOP_SMOKE_RESULT" = success ] ;;
+    desktop) [ "$DESKTOP_RESULT" = success ] ;;
     android) [ "$ANDROID_RESULT" = success ] ;;
     ios) [ "$IOS_RESULT" = success ] ;;
     *)

@@ -137,7 +137,6 @@ for try await line in bytes.lines { /* accumulate until "" then dispatch on even
 
 - **One instance per process.** A second `AnyLibStart` while running fails; stop first.
 - **Background expiry.** Call `AnyLibStopNow()` from a deadline-bounded task expiration handler; `AnyLibStop()` drains open streams with a 10 s ceiling.
-- **App Sandbox helpers on macOS** use the `-sandbox` desktop tarball rather than this archive ([Builds and CI](../operations/builds-and-ci.html)).
 - **Push.** Start with the push node and cache each space's `SpaceInfo.push` keys in a shared-access-group keychain item so the Notification Service Extension can decrypt while the server is not running ([Push](../notifications/push.html)).
 
 > **Why it matters.** The app is not a client of a remote database — it *is* the database. Every screen reads local, indexed rows; the network is only ever the thing that brings other people's changes in.
