@@ -625,7 +625,7 @@ runtime `409 type.xkey_conflict` at setup), and the `derived` choice
 
 - `03-api.md` § Catalog (endpoints), § Bundles (registry, derived
   roots, bundle-declared types and collections, resolve), § Collections
-  (the built-in `miniapp` and `bin`), § The wiki tree
+  (the built-in `miniapp`, `bin` and `template`), § The wiki tree
 - `27-descriptors.md` (the `xFormat` vocabulary the catalog's
   properties use), `24-data-views.md` (views on a catalog definition: a
   `dataview` on the type or collection object)

@@ -12,7 +12,7 @@ An object is one **type** (what it is), any number of **collections** (what it i
 ```
 Space
  ├─ types                      user types + built-ins (any, type, collection, and the hidden page / dataview)
- ├─ collections                user collections + the built-in miniapp / bin
+ ├─ collections                user collections + the built-in miniapp / bin / template
  ├─ objects  (one storage collection)   one row per object: values keyed <ownerId>.<propId>
  └─ Object
      ├─ any.type        = movieTypeId           exactly one — the layout and the parts

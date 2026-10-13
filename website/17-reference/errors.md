@@ -154,14 +154,15 @@ Panics are converted to `500 internal` with a generic message.
 | Code | Status | Meaning |
 |---|---|---|
 | `type.not_found` | 404 | unknown typeId (400 inside a bundle ensure) |
-| `type.not_a_type` | 400 | a `…/types` route, or `POST …/properties/:objectId/type/:typeId`, names a user **collection** (`details.collectionId`) — use the `…/collections` routes. A registered collection id (`miniapp`, `bin`) answers `404 type.not_found` |
+| `type.not_a_type` | 400 | a `…/types` route, or `POST …/properties/:objectId/type/:typeId`, names a user **collection** (`details.collectionId`) — use the `…/collections` routes. A registered collection id (`miniapp`, `bin`, `template`) answers `404 type.not_found` |
 | `type.xkey_required` | 400 | a type or a collection created without an `xKey` |
 | `type.xkey_conflict` | 409 | `xKey` collides with an existing type's or collection's xKey or id (`details.xKey`, `details.existingTypeId` or `details.existingCollectionId`) — the two surfaces share one handle namespace; also raised by a bundle or catalog install |
 | `type.registered` | 400 | add/patch/remove a property, part or dataset, or PATCH the type, on a registered built-in type; also a column write on a registered built-in collection |
 | `type.reserved_carrier` | 400 | object create, `POST …/type/:typeId` or an `any.type` op names a type only its own root may carry (the general-chat root; `details.typeId`) |
 | `collection.not_found` | 404 | unknown collectionId (400 inside a bundle ensure) |
 | `collection.not_a_collection` | 400 | a `…/collections` route, or `POST …/properties/:objectId/collections/:collectionId`, names a user **type** (`details.typeId`). A registered type id (`page`, `dataview`) answers `404 collection.not_found` |
-| `collection.registered` | 400 | PATCH the metadata of a registered built-in collection (`miniapp`, `bin`) |
+| `collection.registered` | 400 | PATCH the metadata of a registered built-in collection (`miniapp`, `bin`, `template`) |
+| `template.type_mismatch` | 400 | `POST …/objects` with `from` and a `type` that is not the source's (`details.from`, `details.sourceType`, `details.type`) — a copy keeps the source's type; omit `type` |
 | `membership.wrong_slot` | 400 | a raw `…/modify` write put a known collection id in `any.type` or a known type id in `any.collections` |
 | `membership.type_required` | 400 | a raw write cleared `any.type`; every object has exactly one type |
 | `membership.meta_type` | 400 | a write set a meta id (`any`, `type`, `collection`, `spaceIndex`) as `any.type` |

@@ -84,7 +84,12 @@ func (d *deps) objectCreate(c echo.Context) error {
 			return writeError(c, http.StatusBadRequest, "request.schema",
 				"initialProperties must be an object keyed by type or collection id, e.g. {\"any\": {\"name\": \"…\"}}", nil)
 		}
+		if v := root.Get("from"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeString {
+			return writeError(c, http.StatusBadRequest, "request.schema",
+				"from must be the id of the object to copy", nil)
+		}
 		opts.Type = string(root.GetStringBytes("type"))
+		opts.From = string(root.GetStringBytes("from"))
 		if colls := root.GetArray("collections"); len(colls) > 0 {
 			opts.Collections = make([]string, 0, len(colls))
 			for _, v := range colls {
@@ -118,12 +123,16 @@ func (d *deps) objectCreate(c echo.Context) error {
 	// routes do it — a wrong slot or an unknown id answers a typed 4xx
 	// instead of a refused bootstrap on a minted tree. Every object has
 	// a type; a type declaring a reserved module is carried only by its
-	// own root.
-	if opts.Type == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field",
-			"type required: every object has exactly one type (page for a plain document)", nil)
+	// own root. A copy takes the source's type, so `type` is optional
+	// with `from` and is checked against the source by the SDK.
+	if opts.From != "" && isSerializedNil(opts.From) {
+		return serializedNilIdError(c, "from", opts.From)
 	}
-	{
+	if opts.Type == "" && opts.From == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field",
+			"type required: every object has exactly one type (page for a plain document), or from to copy one", nil)
+	}
+	if opts.Type != "" {
 		if _, err := sp.Types().Get(c.Request().Context(), opts.Type); err != nil {
 			if resp, done := typeLookupError(c, err, sp.Id(), opts.Type); done {
 				return resp
@@ -159,7 +168,19 @@ func (d *deps) objectCreate(c echo.Context) error {
 
 	objectId, err := sp.Objects().Create(c.Request().Context(), opts)
 	if err != nil {
-		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
+		details := map[string]any{"spaceId": sp.Id()}
+		if opts.From != "" {
+			details["from"] = opts.From
+			// The source is read inside the create: an unknown one is
+			// object.not_found and a deleted one object.deleted through
+			// the shared mapping, not a pre-flight.
+			if errors.Is(err, space.ErrFromTypeMismatch) {
+				details["type"] = opts.Type
+				return writeError(c, http.StatusBadRequest, "template.type_mismatch",
+					"type must be the source object's type: a copy keeps it, omit type", details)
+			}
+		}
+		return sdkOpError(c, err, details)
 	}
 	return c.JSON(http.StatusCreated, api.ObjectsCreateResponse{ObjectId: objectId})
 }

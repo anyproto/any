@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anyproto/any-sync-sdk/space"
+
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/bin"
 	"github.com/anyproto/any/internal/dataview"
@@ -125,7 +127,7 @@ func TestServer_BuiltinCollectionsHidden(t *testing.T) {
 	visible := collectionsById(t, e, base, "")
 	all := collectionsById(t, e, base, "?includeHidden=true")
 
-	for _, id := range []string{miniapp.Id, bin.Id} {
+	for _, id := range []string{miniapp.Id, bin.Id, space.TemplateCollectionId} {
 		if _, listed := visible[id]; listed {
 			t.Errorf("%s listed by default", id)
 		}

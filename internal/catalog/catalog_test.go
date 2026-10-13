@@ -9,7 +9,7 @@ import (
 )
 
 var knownTypes = Options{
-	KnownTypeIds: []string{"page", "miniapp", "bin", "dataview"},
+	KnownTypeIds: []string{"page", "miniapp", "bin", "template", "dataview"},
 	RootTypeIds:  []string{"page", "dataview"},
 }
 

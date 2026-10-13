@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/anyproto/any-sync-sdk/handler"
+	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/bundles"
@@ -87,6 +88,9 @@ func compileCatalog(src []byte) (*compiledCatalog, catalog.Problems) {
 	for _, col := range serverCollections() {
 		known = append(known, col.Id)
 	}
+	// The SDK registers the template marker itself; its id is taken
+	// like a server collection's.
+	known = append(known, space.TemplateCollectionId)
 	rootTypes := make([]string, 0, 4)
 	for _, t := range serverTypes() {
 		rootTypes = append(rootTypes, t.Id)

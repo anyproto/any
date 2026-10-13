@@ -206,7 +206,10 @@ lifecycle is in `04-events.md`.
   it restores as what it was. `/search` does not know about the bin: a
   binned object's text still surfaces as a hit, and a hit carries no
   membership, so drop binned hits by reading the hit's object row (or its
-  `any.collections` from a cached list) before rendering.
+  `any.collections` from a cached list) before rendering. Templates are
+  excluded by the same clause — `{"any.collections": {"$nin": ["bin",
+  "template"]}}` — because a template is an object of its target type
+  filed under the built-in `template` collection (`31-templates.md`).
 
 - **Aggregate server-side instead of reducing client-side.** Counts per
   group, top-N rollups, tag distributions: don't page the whole dataset

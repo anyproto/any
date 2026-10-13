@@ -543,6 +543,7 @@ group only; patch the descriptor path directly on a collection.
 
 ```
 any object create <spaceId> --type T [--collection C ...] [--properties '<json>|@FILE|-']
+any object create <spaceId> --from OBJ [--type T] [--collection C ...] [--properties '<json>|@FILE|-']
 
 any object type set   <spaceId> <objectId> <typeId>
 
@@ -583,6 +584,19 @@ any object collection detach $SPID $OBJID bin     # restore
 Attaching stamps `bin.movedAt` / `bin.movedBy`; detaching clears the
 `bin` namespace. Ordinary listings exclude bin members with
 `{"any.collections": {"$nin": ["bin"]}}` (`09-query.md`).
+
+`--from OBJ` copies an object instead of starting empty: its type, its
+collections, its values and its parts' records. `--type` is then
+optional and must match the source; `--collection` adds to the copied
+set; `--properties` overrides copied values. A source filed under the
+built-in `template` collection is a template — the marker is not
+copied and the new object is stamped `any.template` (`31-templates.md`):
+
+```
+any object create $SPID --from $TEMPLATE --properties '{"any":{"name":"Weekly review — 13 Oct"}}'
+any object create $SPID --from $OBJID --collection template \
+  --properties '{"template":{"title":"Weekly review","version":1}}'   # save as template
+```
 
 ### Bundles
 

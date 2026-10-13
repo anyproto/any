@@ -103,7 +103,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
 ```json
 {"any.collections": "<collectionId>"}                     // filed under it
 {"any.collections": {"$all": ["<c1>", "<c2>"]}}           // filed under both
-{"any.collections": {"$nin": ["bin"]}}                    // not in the bin
+{"any.collections": {"$nin": ["bin", "template"]}}        // not in the bin, not a template
 ```
 
 ```bash
@@ -118,7 +118,7 @@ A collection definition's own row carries the marker `__collection__` in `any.ty
 
 ## Built-in collections
 
-`miniapp` and `bin` are registered collections, present in every space, hidden from the default listing and static — `400 collection.registered` on a metadata write. An object opts into them; nothing stamps them.
+`miniapp`, `bin` and `template` are registered collections, present in every space, hidden from the default listing and static — `400 collection.registered` on a metadata write. An object opts into them; nothing stamps them.
 
 **`miniapp`** is the sidebar. Members carry `bundle` (the id of the installed app, absent on an object the user pinned), `pos` (a client-allocated lexid) and `hidden` (out of the sidebar, install kept). Pin and unpin are the plain filing routes; values go through `POST …/properties/:objectId/set/miniapp`.
 
@@ -139,6 +139,8 @@ any object collection detach $SPACE $OBJ bin     # restore
 ```
 
 List the bin with `{"any.collections": "bin"}` sorted `["-bin.movedAt"]`; exclude its members from ordinary lists with `{"any.collections": {"$nin": ["bin"]}}`.
+
+**`template`** marks a template: an object of the type it is for, filed under `template`, whose name, values, collections and body are the pre-fill. The collection adds `title` (the picker label) and `version`. `POST …/objects` with `from` copies it and stamps `any.template` on the new row — [Templates](templates.html). Ordinary lists exclude templates with the bin: `{"any.collections": {"$nin": ["bin", "template"]}}`.
 
 ## Collections the product ships
 

@@ -132,7 +132,7 @@ func TestDerivedAcceptedSets(t *testing.T) {
 		{"spaceListQueryFields", spaceListQueryFields,
 			[]string{"dataset", "filter", "sort", "limit", "offset", "includeTotal", "mailboxCapacity", "driftBudgetPercent", "projection"}},
 		{"objectCreateFields", objectCreateFields,
-			[]string{"type", "collections", "initialProperties"}},
+			[]string{"type", "collections", "initialProperties", "from"}},
 	}
 	for _, tc := range cases {
 		if len(tc.fields) != len(tc.want) {

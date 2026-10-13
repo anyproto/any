@@ -234,16 +234,18 @@ two filter differently:
 { "any.type":        { "$in": ["<t1>", "<t2>"] } }   // of any of those types
 { "any.collections": "<collectionId>" }              // filed under it
 { "any.collections": { "$all": ["<c1>", "<c2>"] } }  // filed under both
-{ "any.collections": { "$nin": ["bin"] } }           // not in the bin
+{ "any.collections": { "$nin": ["bin", "template"] } } // not in the bin, not a template
 ```
 
 `any.type` is **plain equality on a scalar** — no array matching, `$in` for a
 set of types. `any.collections` is **membership** (§ Arrays): a scalar value
 matches any element, `$all` requires several, `$nin` excludes.
 
-Ordinary listings exclude bin members with
-`{"any.collections": {"$nin": ["bin"]}}`; the bin itself is
-`{"any.collections": "bin"}` sorted `["-bin.movedAt"]`.
+Ordinary listings exclude bin members and templates with
+`{"any.collections": {"$nin": ["bin", "template"]}}`; the bin itself is
+`{"any.collections": "bin"}` sorted `["-bin.movedAt"]`, and the
+templates of a type are `{"any.collections": "template", "any.type":
+"<typeId>"}` (`31-templates.md`).
 
 **No marker exclusion is ever needed.** A type definition's own row carries
 `any.type: "__type__"` and a collection definition's carries

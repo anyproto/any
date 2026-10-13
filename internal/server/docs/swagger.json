@@ -2773,6 +2773,10 @@
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "from": {
+                        "description": "From copies an existing object: its type, its collections, its\nsynced `any.*` values, the value groups of every owner the new\nobject has and the records of every dataset its type's parts\ndeclare (a reserved module's excepted). `type` is then optional\nand must equal the source's (400 template.type_mismatch);\n`collections` are added to the copied set and `initialProperties`\noverride copied values. A source filed under the built-in\n`template` collection is a template: the marker is not carried\nover and the row is stamped `any.template` {id, version}\n(docs/31-templates.md). An unknown source is 404 object.not_found,\na deleted one 410 object.deleted.",
+                        "type": "string"
+                    },
                     "initialProperties": {
                         "additionalProperties": {
                             "additionalProperties": {},

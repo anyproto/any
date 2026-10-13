@@ -172,4 +172,5 @@ around it here.
 | [27-descriptors.md](27-descriptors.md) | property and field descriptors (`xFormat`) |
 | [28-well-known-bundles.md](28-well-known-bundles.md) | the usecase catalog |
 | [29-client-model.md](29-client-model.md) | the object model for clients |
+| [31-templates.md](31-templates.md) | templates: the `template` collection, copy with `from` |
 | [search/README.md](search/README.md) | search evaluation and tuning decisions |

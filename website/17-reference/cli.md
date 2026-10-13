@@ -175,6 +175,7 @@ any chat react  <spaceId> <objectId> <msgId> <emoji>          # toggle
 
 ```
 any object create <spaceId> --type T [--collection C]... [--properties '<json>'|@FILE|-]
+any object create <spaceId> --from OBJ [--type T] [--collection C]... [--properties '<json>'|@FILE|-]
 
 any object type set          <spaceId> <objectId> <typeId>
 any object collection attach <spaceId> <objectId> <collectionId>
@@ -250,7 +251,7 @@ any collection property remove <spaceId> <collectionId> <propId>
 
 A collection is what an object is filed under; a type is what it is. A collection takes a name, description, icon, `--xkey`, `--hidden`, `--meta` and property definitions — no parts, no layout. The property verbs are the type ones on a collection owner, same flags and same `{set, unset}` patch rules; the choice-option sugar is on the type group only, so patch the descriptor path directly here.
 
-`--xkey` is required on create and unique across the space's types and collections together (`409 type.xkey_conflict`). `collection list` omits hidden collections (the built-in `miniapp` / `bin`, and any you marked hidden) without `--include-hidden`; `collection get` resolves them always. A registered built-in refuses a metadata write (`400 collection.registered`).
+`--xkey` is required on create and unique across the space's types and collections together (`409 type.xkey_conflict`). `collection list` omits hidden collections (the built-in `miniapp` / `bin` / `template`, and any you marked hidden) without `--include-hidden`; `collection get` resolves them always. A registered built-in refuses a metadata write (`400 collection.registered`).
 
 ```bash
 any collection create $SP --name Contacts --xkey contact

@@ -47,7 +47,7 @@
     - [Built-in `dataview` type](#built-in-dataview-type)
     - [Built-in hidden type: `page`](#built-in-hidden-type-page)
   - [Collections](#collections)
-    - [Built-in collections: `miniapp`, `bin`](#built-in-collections-miniapp-bin)
+    - [Built-in collections: `miniapp`, `bin`, `template`](#built-in-collections-miniapp-bin-template)
   - [Properties (values on objects)](#properties-values-on-objects)
   - [Chat (the `chat` module)](#chat-the-chat-module)
     - [Message wire shape (read path)](#message-wire-shape-read-path)
@@ -1836,13 +1836,14 @@ rewrite. See `04-events.md`.
 
 #### Create an object
 
-`POST /v1/spaces/:spaceId/objects` takes three keys:
+`POST /v1/spaces/:spaceId/objects` takes four keys:
 
 ```json
 {
   "type": "<typeId>",
   "collections": ["<collectionId>"],
-  "initialProperties": { "<ownerId>": { "<propId>": "..." } }
+  "initialProperties": { "<ownerId>": { "<propId>": "..." } },
+  "from": "<objectId>"
 }
 ```
 
@@ -1850,10 +1851,25 @@ rewrite. See `04-events.md`.
 collections it is filed under (§ Collections), and every key of
 `initialProperties` is an **owner**: the type or one of the
 collections, whose namespace the values land in. `type` is required
-(`400 request.missing_field`; `page` for a plain document); the other
-two are optional.
+(`400 request.missing_field`; `page` for a plain document) unless
+`from` is set; the other keys are optional.
 
-These three keys are the **whole** create vocabulary. Any other
+`from` names an object to **copy**: the new object takes the source's
+type, its collections, its synced `any.*` values, the value groups of
+every owner the new object has and the records of every dataset the
+source's type declares through its parts, except a reserved module's.
+`type` must then be absent or equal to the source's
+(`400 template.type_mismatch`), `collections` are added to the copied
+ones and `initialProperties` are written over the copied values. A
+source filed under the built-in `template` collection is a template:
+that marker is not carried over and the row is stamped
+`any.template: {id, version}` (§ Built-in collections,
+`docs/31-templates.md`). An unknown source is `404 object.not_found`, a
+deleted one `410 object.deleted`, a definition's own row
+`400 membership.meta_type`, and a source whose type only its own root
+may carry `400 type.reserved_carrier`.
+
+These four keys are the **whole** create vocabulary. Any other
 top-level key — a bare owner group like `"any"`, a top-level `"name"`,
 a typo — is `400 request.unknown_field` naming the accepted set and
 where the value belongs: object properties always ride
@@ -2615,7 +2631,8 @@ of them.
 type.not_found` for an unknown typeId (deleted, never existed, or an id
 that resolves to a non-definition object), and `400 type.not_a_type`
 when the id names a user collection (§ Collections; a registered
-collection has no type row either, so `miniapp` / `bin` answer `404`),
+collection has no type row either, so `miniapp` / `bin` / `template`
+answer `404`),
 so a `200 []`
 properties list always means "the type exists and has no property
 definitions yet".
@@ -3396,13 +3413,13 @@ of a collection that no longer exists. To clean up, unfile the object
 from the dead id — the unfile route does not check that the collection
 exists. Filing under the dead id again is `404 collection.not_found`.
 
-#### Built-in collections: `miniapp`, `bin`
+#### Built-in collections: `miniapp`, `bin`, `template`
 
-Two registered collections an object **opts into**, both `hidden`: out
+Three registered collections an object **opts into**, all `hidden`: out
 of `GET …/collections` unless `?includeHidden=true`, resolvable by
 `GET …/collections/:collectionId` always, `builtIn: true` with `xKey`
-equal to the id (which reserves `miniapp` and `bin` against user
-definitions — `409 type.xkey_conflict`), static (`400
+equal to the id (which reserves `miniapp`, `bin` and `template` against
+user definitions — `409 type.xkey_conflict`), static (`400
 collection.registered` on a metadata write), and present in every space
 by construction.
 
@@ -3456,6 +3473,17 @@ type throughout. Permanent deletion stays
 properties: the server writes them, but a peer can write the namespace
 directly, so a reader treats an absent stamp as unknown, never as "not
 in the bin".
+
+**`template`** — the templates. A template is an object of the type it
+is for, filed under `template`; everything on it (name, values,
+collections, body) is the pre-fill, and the collection adds `title`
+(string — the picker label) and `version` (number — bumped by the
+client when the template changes). `POST …/objects` with `from`
+naming a template copies it, drops the marker and stamps
+`any.template: {"id": "<templateId>", "version": <template.version>}`
+on the new row. Ordinary lists exclude templates with the bin:
+`{"any.collections": {"$nin": ["bin", "template"]}}`. The client
+contract is `docs/31-templates.md`.
 
 ### Properties (values on objects)
 

@@ -30,6 +30,18 @@ type ObjectCreateRequest struct {
 	// ONLY home for them: {"initialProperties": {"any": {"name":
 	// "Dune"}}}. A top-level name/description/group key is rejected.
 	InitialProperties map[string]map[string]any `json:"initialProperties,omitempty"`
+	// From copies an existing object: its type, its collections, its
+	// synced `any.*` values, the value groups of every owner the new
+	// object has and the records of every dataset its type's parts
+	// declare (a reserved module's excepted). `type` is then optional
+	// and must equal the source's (400 template.type_mismatch);
+	// `collections` are added to the copied set and `initialProperties`
+	// override copied values. A source filed under the built-in
+	// `template` collection is a template: the marker is not carried
+	// over and the row is stamped `any.template` {id, version}
+	// (docs/31-templates.md). An unknown source is 404 object.not_found,
+	// a deleted one 410 object.deleted.
+	From string `json:"from,omitempty"`
 }
 
 // QueryBodyParams is the shared windowed query/subscribe vocabulary —
