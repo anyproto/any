@@ -477,8 +477,8 @@ func TestServer_DataView_DatasetDiscovery(t *testing.T) {
 			if got := ds.Schema.Properties[dataview.FieldModifiedAt].Stamp; got != "modifyTime" {
 				t.Errorf("modifiedAt x-stamp = %q, want modifyTime", got)
 			}
-			if got := fmt.Sprint(ds.Schema.Required); got != "[dataview name pos layout]" {
-				t.Errorf("views required = %v, want dataview+name+pos+layout", ds.Schema.Required)
+			if got := fmt.Sprint(ds.Schema.Required); got != "[dataview layout name pos]" {
+				t.Errorf("views required = %v, want dataview+layout+name+pos (sorted)", ds.Schema.Required)
 			}
 		case dataview.DatasetDataviews:
 			seen++
