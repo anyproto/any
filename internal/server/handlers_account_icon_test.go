@@ -1,0 +1,195 @@
+package server
+
+import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"math/rand"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/anyproto/any-sync-sdk/space"
+
+	"github.com/anyproto/any/internal/api"
+)
+
+// fakePNG is n bytes that sniff as image/png: the PNG signature over
+// deterministic noise. The server never decodes the image.
+func fakePNG(n int) []byte {
+	b := make([]byte, n)
+	rand.New(rand.NewSource(146)).Read(b)
+	copy(b, "\x89PNG\r\n\x1a\n")
+	return b
+}
+
+// TestServer_AccountIcon drives the avatar surface against the
+// in-process handler with a real SDK: upload → metadata carries the
+// cid → own download (full + Range) → a name update keeps it → delete.
+// Validation refusals (not an image, too large) leave the stored
+// avatar untouched.
+func TestServer_AccountIcon(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	t.Run("no avatar yet", func(t *testing.T) {
+		rec := doRaw(t, e, http.MethodGet, "/v1/account/icon", "", nil)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
+		}
+		var env api.ErrorEnvelope
+		_ = json.Unmarshal(rec.Body.Bytes(), &env)
+		if env.Error.Code != api.ErrAccountIconNotFound {
+			t.Errorf("code = %q, want %s", env.Error.Code, api.ErrAccountIconNotFound)
+		}
+	})
+
+	t.Run("not an image", func(t *testing.T) {
+		rec := doRaw(t, e, http.MethodPut, "/v1/account/icon?name=notes.txt", "text/plain", []byte("hello"))
+		if rec.Code != http.StatusUnsupportedMediaType {
+			t.Fatalf("status = %d, want 415; body=%s", rec.Code, rec.Body.String())
+		}
+		var env api.ErrorEnvelope
+		_ = json.Unmarshal(rec.Body.Bytes(), &env)
+		if env.Error.Code != api.ErrAccountIconNotImage {
+			t.Errorf("code = %q, want %s", env.Error.Code, api.ErrAccountIconNotImage)
+		}
+	})
+
+	t.Run("too large", func(t *testing.T) {
+		rec := doRaw(t, e, http.MethodPut, "/v1/account/icon", "image/png", fakePNG(space.MaxIconSize+1))
+		if rec.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("status = %d, want 413; body=%s", rec.Code, rec.Body.String())
+		}
+		var env api.ErrorEnvelope
+		_ = json.Unmarshal(rec.Body.Bytes(), &env)
+		if env.Error.Code != api.ErrAccountIconTooLarge {
+			t.Errorf("code = %q, want %s", env.Error.Code, api.ErrAccountIconTooLarge)
+		}
+		var acct api.AccountResponse
+		rec = doJSON(t, e, http.MethodGet, "/v1/account", "")
+		_ = json.Unmarshal(rec.Body.Bytes(), &acct)
+		if acct.Metadata != nil && acct.Metadata.IconCID != "" {
+			t.Errorf("a refused upload must not set an avatar: %+v", acct.Metadata)
+		}
+	})
+
+	// Under the inline cutoff on purpose: the avatar path must still
+	// mint a content address.
+	img := fakePNG(1500)
+	var meta api.AccountMetadata
+	t.Run("upload", func(t *testing.T) {
+		// Content sniffed: no Content-Type, no extension in the name.
+		rec := doRaw(t, e, http.MethodPut, "/v1/account/icon?name=me", "", img)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &meta); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if meta.IconCID == "" {
+			t.Fatalf("reply carries no iconCid: %s", rec.Body.String())
+		}
+		var acct api.AccountResponse
+		rec = doJSON(t, e, http.MethodGet, "/v1/account", "")
+		_ = json.Unmarshal(rec.Body.Bytes(), &acct)
+		if acct.Metadata == nil || acct.Metadata.IconCID != meta.IconCID {
+			t.Errorf("GET /v1/account metadata = %+v, want iconCid %s", acct.Metadata, meta.IconCID)
+		}
+	})
+
+	t.Run("download", func(t *testing.T) {
+		rec := doRaw(t, e, http.MethodGet, "/v1/account/icon", "", nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "image/png" {
+			t.Errorf("Content-Type = %q, want image/png", ct)
+		}
+		if !bytes.Equal(rec.Body.Bytes(), img) {
+			t.Errorf("body mismatch: %d bytes, want %d", rec.Body.Len(), len(img))
+		}
+
+		r := httptest.NewRequest(http.MethodGet, "/v1/account/icon", nil)
+		r.Header.Set("Range", "bytes=8-15")
+		rec = httptest.NewRecorder()
+		e.ServeHTTP(rec, r)
+		if rec.Code != http.StatusPartialContent {
+			t.Fatalf("Range status = %d, want 206", rec.Code)
+		}
+		if !bytes.Equal(rec.Body.Bytes(), img[8:16]) {
+			t.Errorf("Range body mismatch")
+		}
+
+		// The own identity resolves through the directory route too.
+		rec = doRaw(t, e, http.MethodGet, "/v1/identities/"+d.sdk.Account().Id()+"/icon", "", nil)
+		if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), img) {
+			t.Errorf("identities icon status = %d, %d bytes", rec.Code, rec.Body.Len())
+		}
+	})
+
+	t.Run("name update keeps the avatar", func(t *testing.T) {
+		rec := doJSON(t, e, http.MethodPut, "/v1/account/metadata", `{"name":"Alice"}`)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
+		}
+		var acct api.AccountResponse
+		rec = doJSON(t, e, http.MethodGet, "/v1/account", "")
+		_ = json.Unmarshal(rec.Body.Bytes(), &acct)
+		if acct.Metadata == nil || acct.Metadata.Name != "Alice" || acct.Metadata.IconCID != meta.IconCID {
+			t.Errorf("metadata = %+v, want name Alice + iconCid %s", acct.Metadata, meta.IconCID)
+		}
+	})
+
+	t.Run("replace", func(t *testing.T) {
+		img2 := fakePNG(2500)
+		rec := doRaw(t, e, http.MethodPut, "/v1/account/icon", "image/png", img2)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		var meta2 api.AccountMetadata
+		_ = json.Unmarshal(rec.Body.Bytes(), &meta2)
+		if meta2.IconCID == "" || meta2.IconCID == meta.IconCID {
+			t.Errorf("replace iconCid = %q, want a new cid", meta2.IconCID)
+		}
+		rec = doRaw(t, e, http.MethodGet, "/v1/account/icon", "", nil)
+		if got, _ := io.ReadAll(rec.Body); !bytes.Equal(got, img2) {
+			t.Errorf("download after replace returns the old bytes")
+		}
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		rec := doRaw(t, e, http.MethodDelete, "/v1/account/icon", "", nil)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
+		}
+		rec = doRaw(t, e, http.MethodGet, "/v1/account/icon", "", nil)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("status after delete = %d, want 404", rec.Code)
+		}
+		var acct api.AccountResponse
+		rec = doJSON(t, e, http.MethodGet, "/v1/account", "")
+		_ = json.Unmarshal(rec.Body.Bytes(), &acct)
+		if acct.Metadata == nil || acct.Metadata.IconCID != "" || acct.Metadata.Name != "Alice" {
+			t.Errorf("metadata after delete = %+v, want name kept and no iconCid", acct.Metadata)
+		}
+		// Idempotent.
+		rec = doRaw(t, e, http.MethodDelete, "/v1/account/icon", "", nil)
+		if rec.Code != http.StatusNoContent {
+			t.Errorf("second delete status = %d, want 204", rec.Code)
+		}
+	})
+
+	t.Run("unknown identity", func(t *testing.T) {
+		rec := doRaw(t, e, http.MethodGet, "/v1/identities/A00neverEncountered/icon", "", nil)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
+		}
+		var env api.ErrorEnvelope
+		_ = json.Unmarshal(rec.Body.Bytes(), &env)
+		if env.Error.Code != api.ErrIdentityIconNotFound {
+			t.Errorf("code = %q, want %s", env.Error.Code, api.ErrIdentityIconNotFound)
+		}
+	})
+}

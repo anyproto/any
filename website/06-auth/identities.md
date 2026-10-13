@@ -38,8 +38,15 @@ curl -s http://127.0.0.1:7001/v1/identities
 ```bash
 any identities list            # alias: any contacts
 any identities get A5k…
+any identities icon A5k… -o alice.png
 any identities subscribe
 ```
+
+## Avatars
+
+A row's `iconCid` names the account's avatar; the image comes from `GET /v1/identities/:identity/icon` as raw bytes (`Range` supported, type sniffed from the content). The server fetches the ciphertext by content address through the network's public read path and decrypts it with the key sealed in that account's profile — your server never joins the other account's space.
+
+Key an avatar cache on `iconCid` and refetch when an `updated` frame changes it. `404 identity.icon_not_found` means no avatar yet (unknown identity, or a profile that names none) — render your fallback. `409 file.not_available` means the bytes cannot be fetched on this network right now — keep the fallback and retry later.
 
 ## Profiles are encrypted
 
@@ -92,4 +99,5 @@ To show "Alice is an admin of space X", read space X's members. To show her role
 |----------|---------|
 | Who is in this space, with what rights? | `GET /v1/spaces/:id/members` |
 | What does this account id look like? | `GET /v1/identities/:identity` |
-| Keep an avatar cache fresh | `GET /v1/identities/subscribe` |
+| Show an account's avatar | `GET /v1/identities/:identity/icon` |
+| Keep an avatar cache fresh | `GET /v1/identities/subscribe` (refetch when `iconCid` changes) |

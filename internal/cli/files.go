@@ -153,21 +153,7 @@ Content not yet local streams in from the network on demand.`,
 				return err
 			}
 			defer res.Body.Close()
-
-			if output == "" || output == "-" {
-				_, err := io.Copy(os.Stdout, res.Body)
-				return err
-			}
-			n, err := writeFile(output, res.Body)
-			if err != nil {
-				return err
-			}
-			return printJSON(map[string]any{
-				"path":  output,
-				"bytes": n,
-				"mime":  res.Mime,
-				"name":  res.Name,
-			})
+			return writeDownload(output, res)
 		},
 	}
 	cmd.Flags().StringVarP(&output, "output", "o", "", "write content to this path (default: stdout)")
@@ -424,4 +410,23 @@ func newFileCacheCmd() *cobra.Command {
 		},
 	)
 	return cmd
+}
+
+// writeDownload sends a raw-body download to stdout, or to output with
+// a JSON receipt.
+func writeDownload(output string, res *client.FileDownloadResult) error {
+	if output == "" || output == "-" {
+		_, err := io.Copy(os.Stdout, res.Body)
+		return err
+	}
+	n, err := writeFile(output, res.Body)
+	if err != nil {
+		return err
+	}
+	return printJSON(map[string]any{
+		"path":  output,
+		"bytes": n,
+		"mime":  res.Mime,
+		"name":  res.Name,
+	})
 }

@@ -100,6 +100,10 @@ invite.not_found                 # 404 — GET …/invites/:recordId for an unkn
 invite.revoked                   # 410 — POST /v1/spaces/join with an invite the space's ACL no longer holds: revoked, replaced or never minted
 guest_key.not_found              # 404 — revoke with no active guest key
 identity.not_found               # 404 — GET /v1/identities/:identity for an identity not in the directory
+identity.icon_not_found          # 404 — GET /v1/identities/:identity/icon: identity unknown, or its resolved profile names no avatar
+account.icon_not_found           # 404 — GET /v1/account/icon with no avatar set
+account.icon_too_large           # 413 — PUT /v1/account/icon body over the 1 MiB avatar cap
+account.icon_not_image           # 415 — PUT /v1/account/icon whose resolved media type is not image/*
 
 bundle.not_found                 # 404 — no live install for the bundle id in this space
 bundle.not_ready                 # 409 — the winner's tree (or the registry) has not reached this device yet, incl. a tree the SDK does not hold at all right after a join; retry
@@ -160,7 +164,7 @@ device.pruned                    # 409 — this device was pruned: PUT /me is ab
 
 file.not_found                   # 404 — unknown fileId / objectId, or files query before the first attach
 file.not_durable                 # 409 — offload refused: local bytes are the only copy (not backed up yet)
-file.not_available               # 409 — content not local and not fetchable yet (not durable, or no public read base); retry after the row gains networkSign
+file.not_available               # 409 — content not local and not fetchable yet (not durable, or no public read base); retry after the row gains networkSign. Also an avatar download whose bytes the network cannot serve yet
 file.variant_invalid             # 400 — variant/variantOf pairing broken, or original on a different object
 
 history.version_not_found        # 404 — unknown version (ChangeId), or not in this object's DAG

@@ -13,6 +13,9 @@ import (
 func registerAccountRoutes(g *echo.Group, d *deps) {
 	g.GET("/account", d.accountGet)
 	g.PUT("/account/metadata", d.accountUpdateMetadata)
+	g.PUT("/account/icon", d.accountIconPut)
+	g.GET("/account/icon", d.accountIconGet)
+	g.DELETE("/account/icon", d.accountIconDelete)
 	g.POST("/account/access-code", d.accountRedeemAccessCode)
 }
 
@@ -31,21 +34,21 @@ func (d *deps) accountGet(c echo.Context) error {
 		return sdkOpError(c, err, nil)
 	}
 	if present && (meta.Name != "" || meta.Description != "" || meta.IconCID != "") {
-		resp.Metadata = &api.AccountMetadata{
-			Name:        meta.Name,
-			Description: meta.Description,
-			IconCID:     meta.IconCID,
-		}
+		m := accountMetadataToAPI(meta)
+		resp.Metadata = &m
 	}
 	return c.JSON(http.StatusOK, resp)
 }
 
 // accountUpdateMetadata handles PUT /v1/account/metadata.
 //
-//	@Summary	Update account metadata
+// Name and description only: the avatar is a file, written by
+// PUT /v1/account/icon, and the stored one is kept across this write.
+//
+//	@Summary	Update account metadata (name, description)
 //	@Tags		account
 //	@Accept		json
-//	@Param		body	body	api.AccountMetadata	true	"At least one field required"
+//	@Param		body	body	api.AccountMetadata	true	"At least one of name, description; iconCid is refused"
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
@@ -55,14 +58,17 @@ func (d *deps) accountUpdateMetadata(c echo.Context) error {
 	if !ok {
 		return nil
 	}
-	if req.Name == "" && req.Description == "" && req.IconCID == "" {
+	if req.IconCID != "" {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"iconCid is read-only here: upload the avatar with PUT /v1/account/icon", map[string]any{"field": "iconCid"})
+	}
+	if req.Name == "" && req.Description == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",
-			"at least one of name, description, iconCid required", nil)
+			"at least one of name, description required", nil)
 	}
 	err := d.sdk.Account().UpdateMetadata(c.Request().Context(), space.AccountMetadata{
 		Name:        req.Name,
 		Description: req.Description,
-		IconCID:     req.IconCID,
 	})
 	if err != nil {
 		return sdkOpError(c, err, nil)

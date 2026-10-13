@@ -31,17 +31,35 @@ curl -s http://127.0.0.1:7001/v1/account
 
 ```bash
 curl -s -X PUT http://127.0.0.1:7001/v1/account/metadata \
-  -d '{"name": "Alice", "description": "writer, reader, occasional debugger", "iconCid": "bafy…"}'
+  -d '{"name": "Alice", "description": "writer, reader, occasional debugger"}'
 # → 204
 ```
 
 ```bash
-any account set-metadata --name "Alice" [--description "..."] [--icon-cid CID]
+any account set-metadata --name "Alice" [--description "..."]
 ```
 
-At least one of `name` / `description` / `iconCid` must be set; an all-empty body returns `400 request.missing_field`. The SDK persists the bytes to the local tech space and pushes them to the identity repository, so the new profile reaches every space you are a member of. Read it back from a space's roster with `GET /v1/spaces/:id/members/me`.
+At least one of `name` / `description` must be set; an all-empty body returns `400 request.missing_field`. The SDK persists the bytes to the local tech space and pushes them to the identity repository, so the new profile reaches every space you are a member of. Read it back from a space's roster with `GET /v1/spaces/:id/members/me`.
 
-The icon is a file CID — upload the image as a [file](../files/uploading.html) first and pass its root CID.
+`iconCid` is read-only on this route (`400 request.invalid_field`): the avatar is an image you upload, below. A name update keeps the avatar you have.
+
+## Setting the avatar
+
+The image is the raw request body, like a [file upload](../files/uploading.html). It must be an image (`415 account.icon_not_image` otherwise) and at most 1 MiB (`413 account.icon_too_large`):
+
+```bash
+curl -s -X PUT "http://127.0.0.1:7001/v1/account/icon?name=me.png" \
+  -H "Content-Type: image/png" --data-binary @me.png
+# → {"name": "Alice", "iconCid": "bafy…"}
+
+any account set-icon me.png
+any account icon -o me-back.png      # GET /v1/account/icon
+any account delete-icon              # DELETE /v1/account/icon
+```
+
+The reply's `iconCid` is the image's content address — what every member and every directory row shows for you, and what a client keys its avatar cache on: a new image is a new cid. `GET /v1/account/icon` streams the bytes back (`Range` supported; `404 account.icon_not_found` when none is set).
+
+The image is stored as a file in your account's tech space, encrypted with its own key, and published to contacts only once its network backup is confirmed — a contact never holds a reference it cannot fetch. The key is sealed inside your profile, so exactly the people who can read your name can see your picture; the sync nodes and the object store hold ciphertext.
 
 ## Who can see it
 
@@ -55,6 +73,7 @@ On the receiving side this shows up in two places, both of which must tolerate a
 |---------|---------------|
 | `GET /v1/spaces/:id/members` | roster with roles; `name` / `iconCid` resolved from the same cache, with the join-time metadata as the baseline |
 | `GET /v1/identities` | the account-global [directory](identities.html); rows surface id-only until resolved |
+| `GET /v1/identities/:identity/icon` | the avatar behind a row's `iconCid`, as image bytes |
 
 > **Note.** Profile writes are account-wide, not per space. There is no per-space display name; the join-time `metadata` passed to `POST /v1/spaces/join` seeds what members see before your profile key resolves, and is superseded once it does.
 

@@ -10,6 +10,9 @@ package api
 // encrypted, so a known identity surfaces id-only until its decryption
 // key arrives (via a shared space's ACL or a 1-1 invite) and the
 // background fetch completes. Clients must tolerate an empty name.
+// IconCID is the avatar's content address; the bytes are served by
+// GET /v1/identities/:identity/icon, and a changed IconCID means a
+// changed image.
 //
 // SpaceIds is the set of spaces where this identity is currently seen
 // (pruned when we leave/offload a space). The directory carries NO

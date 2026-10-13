@@ -59,14 +59,15 @@ func buildEcho(d *deps) *echo.Echo {
 		// with (docs/08-clients.md § 14).
 		AllowHeaders: []string{echo.HeaderContentType, echo.HeaderAccept, "Range", api.ControlTokenHeader},
 	}))
-	// Global body cap for the JSON API. Two exemptions, both routes
+	// Global body cap for the JSON API. Three exemptions, all routes
 	// whose raw body IS a file streamed without buffering, so a byte
-	// cap would truncate it: file attach (into the SDK) and the local
-	// store import (into any-store, 256 documents per transaction).
+	// cap would truncate it: file attach (into the SDK), the account
+	// avatar (capped by the SDK itself) and the local store import
+	// (into any-store, 256 documents per transaction).
 	e.Use(middleware.BodyLimitWithConfig(middleware.BodyLimitConfig{
 		Skipper: func(c echo.Context) bool {
 			switch c.Path() {
-			case "/v1/spaces/:spaceId/objects/:objectId/files", "/v1/local/import":
+			case "/v1/spaces/:spaceId/objects/:objectId/files", "/v1/account/icon", "/v1/local/import":
 				return true
 			}
 			return false

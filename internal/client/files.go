@@ -92,6 +92,11 @@ func (c *Client) FileDownload(ctx context.Context, spaceId, fileId, variant stri
 	if variant != "" {
 		path += "?variant=" + url.QueryEscape(variant)
 	}
+	return c.openDownload(ctx, path)
+}
+
+// openDownload streams a raw-body GET (file content, avatars).
+func (c *Client) openDownload(ctx context.Context, path string) (*FileDownloadResult, error) {
 	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err

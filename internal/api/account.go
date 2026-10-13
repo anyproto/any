@@ -13,12 +13,28 @@ type AccountResponse struct {
 	TechSpaceId string `json:"techSpaceId"`
 }
 
-// AccountMetadata mirrors space.AccountMetadata.
+// AccountMetadata mirrors space.AccountMetadata. IconCID is the
+// avatar's content address, set by PUT /v1/account/icon and read-only
+// on PUT /v1/account/metadata.
 type AccountMetadata struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	IconCID     string `json:"iconCid,omitempty"`
 }
+
+// Error code namespace for the account avatar.
+const (
+	// ErrAccountIconNotFound — GET /v1/account/icon with no avatar set. 404.
+	ErrAccountIconNotFound = "account.icon_not_found"
+	// ErrAccountIconTooLarge — the upload exceeds the avatar size cap. 413.
+	ErrAccountIconTooLarge = "account.icon_too_large"
+	// ErrAccountIconNotImage — the upload's resolved media type is not
+	// image/*. 415.
+	ErrAccountIconNotImage = "account.icon_not_image"
+	// ErrIdentityIconNotFound — GET /v1/identities/:identity/icon for an
+	// identity not in the directory, or whose profile names no avatar. 404.
+	ErrIdentityIconNotFound = "identity.icon_not_found"
+)
 
 // AccessCodeRequest is the body of POST /v1/account/access-code.
 type AccessCodeRequest struct {
