@@ -367,8 +367,8 @@ leaves the stored one untouched. A NUL byte in either field is
 **Avatar.** `PUT /v1/account/icon` takes the image as the raw request
 body. Its type is read from the bytes alone — the `Content-Type`
 header is not trusted — and must be one of the raster formats PNG,
-JPEG, GIF, WebP, AVIF, HEIC, BMP, ICO, TIFF or JXL (SVG can carry
-script and is refused): `415 account.icon_not_image` otherwise, `400 request.missing_field` for an empty body, and
+JPEG, GIF, WebP, AVIF, HEIC, HEIF, BMP, ICO, TIFF or JXL (animated
+variants included; SVG can carry script and is refused): `415 account.icon_not_image` otherwise, `400 request.missing_field` for an empty body, and
 `413 account.icon_too_large` past the 1 MiB cap. `?name=` is the stored
 file name. The reply is the profile with the new `iconCid`, the
 image's content address — the value the directory and members rows
@@ -392,8 +392,10 @@ DELETE /v1/account/icon    → 204 (no-op without one)
 `GET /v1/account/icon` (`Account.OpenIcon`) serves the own image.
 `409 file.not_available` is the state of another device of the same
 account that has synced the profile row but not yet the avatar's file
-row or its bytes; it also answers any read that fails after the open,
-since the bytes exist and a retry fetches them.
+row or its bytes; it also answers a read that fails before the
+response starts, since the bytes exist and a retry fetches them. A
+fetch that fails while the body is streaming cuts the response like
+any file download: resume with `Range`.
 
 Avatar responses — own and a contact's — carry the type the bytes
 themselves declare (a non-image serves as `application/octet-stream`),
@@ -469,7 +471,9 @@ read base on this network, a stale reference after the owner replaced
 or removed the avatar, a transport failure — retry later. Key an
 avatar cache on `iconCid` and refetch when an `updated` frame changes
 it. A members row carries the same `iconCid` once the identity's
-profile resolves.
+profile resolves. The own id answers from the account's own avatar
+file, like `GET /v1/account/icon`, with its `409` while another
+device's upload has not reached this one.
 
 **The directory carries no rights.** Roles
 (`owner`/`admin`/`writer`/`reader`) are per-space and live on the members

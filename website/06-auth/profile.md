@@ -45,7 +45,7 @@ At least one of `name` / `description` must be set; an all-empty body returns `4
 
 ## Setting the avatar
 
-The image is the raw request body, like a [file upload](../files/uploading.html). Its type is read from the bytes, not from the header: it must be a PNG, JPEG, GIF, WebP, AVIF, HEIC, BMP, ICO, TIFF or JXL image — not SVG, which can carry script (`415 account.icon_not_image`) — and at most 1 MiB (`413 account.icon_too_large`):
+The image is the raw request body, like a [file upload](../files/uploading.html). Its type is read from the bytes, not from the header: it must be a PNG, JPEG, GIF, WebP, AVIF, HEIC, HEIF, BMP, ICO, TIFF or JXL image, animated variants included — not SVG, which can carry script (`415 account.icon_not_image`) — and at most 1 MiB (`413 account.icon_too_large`):
 
 ```bash
 curl -s -X PUT "http://127.0.0.1:7001/v1/account/icon?name=me.png" \

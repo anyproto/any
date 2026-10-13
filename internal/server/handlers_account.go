@@ -68,10 +68,10 @@ func (d *deps) accountUpdateMetadata(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",
 			"at least one of name, description required", nil)
 	}
-	for field, v := range map[string]string{"name": req.Name, "description": req.Description} {
-		if strings.IndexByte(v, 0) >= 0 {
+	for _, f := range [][2]string{{"name", req.Name}, {"description", req.Description}} {
+		if strings.IndexByte(f[1], 0) >= 0 {
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
-				field+" must not contain NUL", map[string]any{"field": field})
+				f[0]+" must not contain NUL", map[string]any{"field": f[0]})
 		}
 	}
 	err := d.sdk.Account().UpdateMetadata(c.Request().Context(), space.AccountMetadata{

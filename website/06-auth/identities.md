@@ -47,7 +47,7 @@ any identities subscribe
 
 A row's `iconCid` names the account's avatar; the image comes from `GET /v1/identities/:identity/icon` as raw bytes (`Range` supported; the type comes from the bytes themselves, with `nosniff` and a load-forbidding `Content-Security-Policy`, so a contact's bytes never run as a document on your API origin). The server fetches the ciphertext by content address through the network's public read path and decrypts it with the key sealed in that account's profile — your server never joins the other account's space, and refuses an object over the 1 MiB avatar cap unread.
 
-Key an avatar cache on `iconCid` and refetch when an `updated` frame changes it. `404 identity.icon_not_found` means no usable avatar (unknown identity, a profile that names none, or one over the cap) — render your fallback. `409 file.not_available` means the bytes cannot be fetched right now — the owner is replacing the avatar, or the network has no public read base — keep the fallback and retry later.
+Key an avatar cache on `iconCid` and refetch when an `updated` frame changes it. `404 identity.icon_not_found` means no usable avatar (unknown identity, a profile that names none, or one over the cap) — render your fallback. `409 file.not_available` means the bytes cannot be fetched right now — the owner is replacing the avatar, or the network has no public read base — keep the fallback and retry later. Your own id answers from your own avatar file, as `GET /v1/account/icon` does.
 
 ## Profiles are encrypted
 

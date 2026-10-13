@@ -83,7 +83,7 @@ Panics are converted to `500 internal` with a generic message.
 | `identity.icon_not_found` | 404 | no usable avatar for this identity: unknown, its profile names none, or the object is over the avatar cap |
 | `account.icon_not_found` | 404 | `GET /v1/account/icon` with no avatar set |
 | `account.icon_too_large` | 413 | the avatar upload is over 1 MiB |
-| `account.icon_not_image` | 415 | the avatar upload is not a PNG, JPEG, GIF, WebP, AVIF, HEIC, BMP, ICO, TIFF or JXL image by signature (SVG refused) |
+| `account.icon_not_image` | 415 | the avatar upload is not a PNG, JPEG, GIF, WebP, AVIF, HEIC, HEIF, BMP, ICO, TIFF or JXL image by signature (SVG refused) |
 | `access.disabled` | 409 | `POST /v1/account/access-code` with no `access.redeemUrl` configured |
 | `access.request_rejected` | 400 | the invite service refused the request (`details.code`) |
 | `access.signature_rejected` | 401 | the invite service could not verify this account's signature |

@@ -47,7 +47,7 @@ func (d *deps) accountIconPut(c echo.Context) error {
 	mimeType, ok := imageType(head)
 	if !ok {
 		return writeError(c, http.StatusUnsupportedMediaType, api.ErrAccountIconNotImage,
-			"the avatar must be a PNG, JPEG, GIF, WebP, AVIF, HEIC, BMP, ICO, TIFF or JXL image", map[string]any{"detected": mimeType})
+			"the avatar must be a PNG, JPEG, GIF, WebP, AVIF, HEIC, HEIF, BMP, ICO, TIFF or JXL image", map[string]any{"detected": mimeType})
 	}
 	meta, err := d.sdk.Account().SetIcon(c.Request().Context(), body, space.IconOpts{
 		Name: ensureNameExt(name, mimeType),
@@ -162,9 +162,11 @@ func serveIcon(c echo.Context, r space.FileReader) error {
 	if !ok {
 		contentType = "application/octet-stream"
 	}
-	// Past Open the bytes exist; a read that fails here is the fetch
-	// of a block that is not local yet — the same retry-later state
-	// as an Open that could not start.
+	// Past Open the bytes exist; a read that fails here, before the
+	// response starts, is the fetch of a block that is not local yet —
+	// the same retry-later state as an Open that could not start. A
+	// fetch that fails once ServeContent is streaming cuts the body
+	// like any file download; the client resumes with Range.
 	h := c.Response().Header()
 	h.Set(echo.HeaderContentType, contentType)
 	h.Set("X-Content-Type-Options", "nosniff")

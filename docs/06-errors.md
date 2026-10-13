@@ -104,7 +104,7 @@ identity.not_found               # 404 — GET /v1/identities/:identity for an i
 identity.icon_not_found          # 404 — GET /v1/identities/:identity/icon: identity unknown, its resolved profile names no usable avatar, or the avatar is over the size cap and refused unread
 account.icon_not_found           # 404 — GET /v1/account/icon with no avatar set
 account.icon_too_large           # 413 — PUT /v1/account/icon body over the 1 MiB avatar cap
-account.icon_not_image           # 415 — PUT /v1/account/icon whose bytes are not a PNG, JPEG, GIF, WebP, AVIF, HEIC, BMP, ICO, TIFF or JXL image (by signature; SVG refused)
+account.icon_not_image           # 415 — PUT /v1/account/icon whose bytes are not a PNG, JPEG, GIF, WebP, AVIF, HEIC, HEIF, BMP, ICO, TIFF or JXL image (by signature; SVG refused)
 
 bundle.not_found                 # 404 — no live install for the bundle id in this space
 bundle.not_ready                 # 409 — the winner's tree (or the registry) has not reached this device yet, incl. a tree the SDK does not hold at all right after a join; retry
