@@ -151,7 +151,7 @@ any events subscribe --scope space --space $SPACE
 any sync-status subscribe
 ```
 
-Streams end with `closed{reason}` — `server_shutdown`, `deauthorized`, `sdk_closed`, `overflow`, `drifted` — and recovery is always "reconnect for a fresh snapshot"; after `deauthorized`, re-read `GET /v1/auth` first ([Subscribe](../realtime/subscribe.html)).
+Streams end with `closed{reason}` — `server_shutdown`, `deauthorized`, `sdk_closed`, `overflow`, `drifted`, `object_deleted` — and recovery is "reconnect for a fresh snapshot" for all but `object_deleted` (the object is gone; drop the view); after `deauthorized`, re-read `GET /v1/auth` first ([Subscribe](../realtime/subscribe.html)).
 
 ## The embedded UI
 

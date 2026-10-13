@@ -34,7 +34,7 @@ Find the chat through the catalog (`POST /v1/catalog/general-chat/setup`, the ch
 
 ## 5. Hold a window; recover by resubscribing
 
-A subscription is a moving window, not a feed to accumulate. Keep the window in memory, apply `added` / `updated` / `removed`, and keep no second store to reconcile. Every `closed` reason is terminal — `drifted` (more than `driftBudgetPercent` of the window left without replacement, default 30) and `overflow` (mailbox of `mailboxCapacity` filled, default 256) included. The fresh snapshot already reflects current state; rebuilding it from a delta is the expensive path the server refuses. Window size costs the client memory, not the server ([Subscriptions](../realtime/subscribe.html)).
+A subscription is a moving window, not a feed to accumulate. Keep the window in memory, apply `added` / `updated` / `removed`, and keep no second store to reconcile. Every `closed` reason is terminal — `drifted` (more than `driftBudgetPercent` of the window left without replacement, default 30) and `overflow` (mailbox of `mailboxCapacity` filled, default 256) included; only `object_deleted` (a per-object stream whose object is gone) is not followed by a resubscribe. The fresh snapshot already reflects current state; rebuilding it from a delta is the expensive path the server refuses. Window size costs the client memory, not the server ([Subscriptions](../realtime/subscribe.html)).
 
 ## 6. Search: hybrid, then read `vectorStatus`
 

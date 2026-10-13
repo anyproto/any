@@ -5,7 +5,7 @@ order: 30
 ---
 # SSE streams
 
-Every live surface in any is a plain HTTP Server-Sent Events response: one request opens the stream, the server pushes frames, and a terminal `closed` frame tells the client to reconnect. All streams share one envelope and one reason vocabulary, so a client needs a single state machine.
+Every live surface in any is a plain HTTP Server-Sent Events response: one request opens the stream, the server pushes frames, and a terminal `closed` frame tells the client to reconnect (or, for `object_deleted`, to drop the view). All streams share one envelope and one reason vocabulary, so a client needs a single state machine.
 
 ## The envelope
 
@@ -37,6 +37,7 @@ Rules that hold for every stream:
 | `sdk_closed` | the engine released the underlying subscription (space or SDK closed) | query/subscribe |
 | `overflow` | the subscriber's mailbox filled before it drained (query/subscribe: capacity `mailboxCapacity`, default 256, min 16; event bus: 16-deep buffer) | query/subscribe, event bus |
 | `drifted` | more than `driftBudgetPercent` (default 30) of the held window left without replacement; the engine refuses to re-query on the hot path | query/subscribe |
+| `object_deleted` | the object behind a per-object stream (one object's dataset, one object's files) was deleted; drop the view, a new POST for it is refused | query/subscribe |
 
 `overflow` and `drifted` are split only so clients can log and back off sensibly — recovery is identical.
 
