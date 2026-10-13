@@ -74,7 +74,7 @@ func (d *deps) accountUpdateMetadata(c echo.Context) error {
 	if err != nil {
 		if errors.Is(err, space.ErrProfileFieldInvalid) {
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
-				"name and description must not contain NUL", nil)
+				"name and description must not contain NUL", map[string]any{"field": "name|description"})
 		}
 		return sdkOpError(c, err, nil)
 	}

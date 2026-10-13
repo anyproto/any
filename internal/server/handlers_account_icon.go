@@ -1,10 +1,10 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gabriel-vasile/mimetype"
@@ -17,8 +17,9 @@ import (
 
 // The account avatar: a files-v2 object in the owner's tech space that
 // contacts fetch by content address and decrypt with the key sealed in
-// the profile. Writes go through Account.SetIcon / DeleteIcon; every
-// read — own or a contact's — goes through Identities.OpenIcon.
+// the profile. Writes go through Account.SetIcon / DeleteIcon; the own
+// read through Account.OpenIcon, a contact's through
+// Identities.OpenIcon.
 
 // accountIconPut handles PUT /v1/account/icon.
 //
@@ -47,7 +48,7 @@ func (d *deps) accountIconPut(c echo.Context) error {
 	mimeType, ok := imageType(head)
 	if !ok {
 		return writeError(c, http.StatusUnsupportedMediaType, api.ErrAccountIconNotImage,
-			"the avatar must be a raster image", map[string]any{"detected": mimeType})
+			"the avatar must be a PNG, JPEG, GIF, WebP, AVIF, HEIC, BMP, ICO, TIFF or JXL image", map[string]any{"detected": mimeType})
 	}
 	meta, err := d.sdk.Account().SetIcon(c.Request().Context(), body, space.IconOpts{
 		Name: ensureNameExt(name, mimeType),
@@ -153,15 +154,18 @@ func serveIcon(c echo.Context, r space.FileReader) error {
 	head := make([]byte, sniffLimit)
 	n, err := io.ReadFull(r, head)
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
-		return fileError(c, err, nil)
+		return iconReadError(c, err)
 	}
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
-		return fileError(c, err, nil)
+		return iconReadError(c, err)
 	}
 	contentType, ok := imageType(head[:n])
 	if !ok {
 		contentType = "application/octet-stream"
 	}
+	// Past Open the bytes exist; a read that fails here is the fetch
+	// of a block that is not local yet — the same retry-later state
+	// as an Open that could not start.
 	h := c.Response().Header()
 	h.Set(echo.HeaderContentType, contentType)
 	h.Set("X-Content-Type-Options", "nosniff")
@@ -171,13 +175,39 @@ func serveIcon(c echo.Context, r space.FileReader) error {
 	return nil
 }
 
+// iconReadError maps a failure while reading an opened avatar: the
+// caller's cancellation as such, anything else as retry-later.
+func iconReadError(c echo.Context, err error) error {
+	if c.Request().Context().Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return fileError(c, err, nil)
+	}
+	return writeError(c, http.StatusConflict, api.ErrFileNotAvailable, "avatar bytes not available yet; retry later", nil)
+}
+
 // imageType classifies head by its signature and reports whether it is
-// a raster image: image/* except SVG, which is a document that can
-// carry script and so is neither accepted as an avatar nor served as
-// one.
+// one of the raster formats an avatar may be. The list is closed: SVG
+// is a document that can carry script, and the sniffer's other image
+// types (bitmap sources in C, CAD drawings, editor projects) are files
+// no client renders.
 func imageType(head []byte) (string, bool) {
 	mt := bareType(mimetype.Detect(head).String())
-	return mt, strings.HasPrefix(mt, "image/") && mt != "image/svg+xml"
+	return mt, avatarTypes[mt]
+}
+
+// avatarTypes are the media types accepted as an avatar and served as
+// an image, by content signature.
+var avatarTypes = map[string]bool{
+	"image/png":    true,
+	"image/jpeg":   true,
+	"image/gif":    true,
+	"image/webp":   true,
+	"image/avif":   true,
+	"image/heic":   true,
+	"image/heif":   true,
+	"image/bmp":    true,
+	"image/x-icon": true,
+	"image/tiff":   true,
+	"image/jxl":    true,
 }
 
 func accountMetadataToAPI(meta space.AccountMetadata) api.AccountMetadata {

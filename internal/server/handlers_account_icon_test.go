@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"math/rand"
@@ -124,8 +125,11 @@ func TestServer_AccountIcon(t *testing.T) {
 		if v := rec.Header().Get("X-Content-Type-Options"); v != "nosniff" {
 			t.Errorf("X-Content-Type-Options = %q, want nosniff", v)
 		}
-		if v := rec.Header().Get("Content-Security-Policy"); v == "" {
-			t.Errorf("no Content-Security-Policy on an avatar response")
+		if v := rec.Header().Get("Content-Security-Policy"); v != "default-src 'none'; sandbox" {
+			t.Errorf("Content-Security-Policy = %q", v)
+		}
+		if v := rec.Header().Get("Content-Disposition"); v != "inline" {
+			t.Errorf("Content-Disposition = %q, want inline", v)
 		}
 		if !bytes.Equal(rec.Body.Bytes(), img) {
 			t.Errorf("body mismatch: %d bytes, want %d", rec.Body.Len(), len(img))
@@ -198,6 +202,33 @@ func TestServer_AccountIcon(t *testing.T) {
 		rec = doRaw(t, e, http.MethodDelete, "/v1/account/icon", "", nil)
 		if rec.Code != http.StatusNoContent {
 			t.Errorf("second delete status = %d, want 204", rec.Code)
+		}
+	})
+
+	// The serve-side defence: bytes a contact chose that are not an
+	// image never come back with an active type. Stored through the
+	// SDK directly, as a modified client would.
+	t.Run("non-image bytes serve inert", func(t *testing.T) {
+		html := []byte("<!doctype html><script>alert(1)</script>")
+		if _, err := d.sdk.Account().SetIcon(context.Background(), bytes.NewReader(html), space.IconOpts{Name: "x.png"}); err != nil {
+			t.Fatalf("SetIcon: %v", err)
+		}
+		rec := doRaw(t, e, http.MethodGet, "/v1/account/icon", "", nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/octet-stream" {
+			t.Errorf("Content-Type = %q, want application/octet-stream", ct)
+		}
+		if v := rec.Header().Get("X-Content-Type-Options"); v != "nosniff" {
+			t.Errorf("X-Content-Type-Options = %q, want nosniff", v)
+		}
+		if !bytes.Equal(rec.Body.Bytes(), html) {
+			t.Errorf("body mismatch")
+		}
+		rec = doRaw(t, e, http.MethodDelete, "/v1/account/icon", "", nil)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("cleanup delete status = %d", rec.Code)
 		}
 	})
 

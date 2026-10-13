@@ -1081,7 +1081,7 @@
 
   // updateAccountMetadata wraps PUT /v1/account/metadata. The SDK
   // rejects empty bodies; the caller must include at least one of
-  // name / description / iconCid.
+  // name / description.
   async function updateAccountMetadata(meta) {
     const r = await api.put('/v1/account/metadata', meta);
     if (!r.ok) {

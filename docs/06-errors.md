@@ -101,10 +101,10 @@ invite.not_found                 # 404 — GET …/invites/:recordId for an unkn
 invite.revoked                   # 410 — POST /v1/spaces/join with an invite the space's ACL no longer holds: revoked, replaced or never minted
 guest_key.not_found              # 404 — revoke with no active guest key
 identity.not_found               # 404 — GET /v1/identities/:identity for an identity not in the directory
-identity.icon_not_found          # 404 — GET /v1/identities/:identity/icon: identity unknown, or its resolved profile names no avatar
+identity.icon_not_found          # 404 — GET /v1/identities/:identity/icon: identity unknown, its resolved profile names no usable avatar, or the avatar is over the size cap and refused unread
 account.icon_not_found           # 404 — GET /v1/account/icon with no avatar set
 account.icon_too_large           # 413 — PUT /v1/account/icon body over the 1 MiB avatar cap
-account.icon_not_image           # 415 — PUT /v1/account/icon whose resolved media type is not image/*
+account.icon_not_image           # 415 — PUT /v1/account/icon whose bytes are not a PNG, JPEG, GIF, WebP, AVIF, HEIC, BMP, ICO, TIFF or JXL image (by signature; SVG refused)
 
 bundle.not_found                 # 404 — no live install for the bundle id in this space
 bundle.not_ready                 # 409 — the winner's tree (or the registry) has not reached this device yet, incl. a tree the SDK does not hold at all right after a join; retry

@@ -28,11 +28,12 @@ const (
 	ErrAccountIconNotFound = "account.icon_not_found"
 	// ErrAccountIconTooLarge — the upload exceeds the avatar size cap. 413.
 	ErrAccountIconTooLarge = "account.icon_too_large"
-	// ErrAccountIconNotImage — the upload's resolved media type is not
-	// image/*. 415.
+	// ErrAccountIconNotImage — the upload's bytes do not carry the
+	// signature of an accepted raster image format (SVG is refused). 415.
 	ErrAccountIconNotImage = "account.icon_not_image"
 	// ErrIdentityIconNotFound — GET /v1/identities/:identity/icon for an
-	// identity not in the directory, or whose profile names no avatar. 404.
+	// identity not in the directory, whose profile names no avatar, or
+	// whose avatar is over the size cap and refused unread. 404.
 	ErrIdentityIconNotFound = "identity.icon_not_found"
 )
 

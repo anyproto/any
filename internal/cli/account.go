@@ -33,15 +33,15 @@ func newAccountCmd() *cobra.Command {
 	setMeta.Flags().StringVar(&name, "name", "", "display name")
 	setMeta.Flags().StringVar(&desc, "description", "", "short bio / description")
 
-	var iconName, iconMime string
+	var iconName string
 	setIcon := &cobra.Command{
 		Use:   "set-icon <path>",
 		Short: "upload the avatar image (PUT /v1/account/icon)",
 		Long: `Uploads the image at <path> (- for stdin) as the raw body of
 PUT /v1/account/icon and prints the profile with the new iconCid. The
-media type is resolved by the server from the content unless --mime
-overrides it; the avatar reaches contacts once its network backup is
-confirmed.`,
+server reads the image type from the bytes (PNG, JPEG, GIF, WebP and
+other raster formats; SVG is refused); the avatar reaches contacts
+once its network backup is confirmed.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := args[0]
@@ -60,7 +60,7 @@ confirmed.`,
 				}
 			}
 			cl := newClient(0) // uploads must not hit the request timeout
-			out, err := cl.AccountSetIcon(cmd.Context(), in, iconName, iconMime)
+			out, err := cl.AccountSetIcon(cmd.Context(), in, iconName)
 			if err != nil {
 				return err
 			}
@@ -68,7 +68,6 @@ confirmed.`,
 		},
 	}
 	setIcon.Flags().StringVar(&iconName, "name", "", "user-facing file name (default: basename of <path>)")
-	setIcon.Flags().StringVar(&iconMime, "mime", "", "content type (default: resolved by the server from the content)")
 
 	var output string
 	icon := &cobra.Command{

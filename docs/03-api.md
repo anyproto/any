@@ -336,7 +336,7 @@ which the next boot pins again).
 | GET    | `/v1/account`                | own id, `techSpaceId`, metadata        |
 | PUT    | `/v1/account/metadata`       | `Account.UpdateMetadata` (name, description) |
 | PUT    | `/v1/account/icon`           | `Account.SetIcon` — raw image body     |
-| GET    | `/v1/account/icon`           | `Identities.OpenIcon` on the own id — raw bytes |
+| GET    | `/v1/account/icon`           | `Account.OpenIcon` — raw bytes          |
 | DELETE | `/v1/account/icon`           | `Account.DeleteIcon`                   |
 | POST   | `/v1/account/access-code`    | redeem an alpha invite code (any-invite) |
 
@@ -366,9 +366,9 @@ leaves the stored one untouched. A NUL byte in either field is
 
 **Avatar.** `PUT /v1/account/icon` takes the image as the raw request
 body. Its type is read from the bytes alone — the `Content-Type`
-header is not trusted — and must be a raster image (`image/*` other
-than SVG, which can carry script): `415 account.icon_not_image`
-otherwise, `400 request.missing_field` for an empty body, and
+header is not trusted — and must be one of the raster formats PNG,
+JPEG, GIF, WebP, AVIF, HEIC, BMP, ICO, TIFF or JXL (SVG can carry
+script and is refused): `415 account.icon_not_image` otherwise, `400 request.missing_field` for an empty body, and
 `413 account.icon_too_large` past the 1 MiB cap. `?name=` is the stored
 file name. The reply is the profile with the new `iconCid`, the
 image's content address — the value the directory and members rows
@@ -391,8 +391,9 @@ DELETE /v1/account/icon    → 204 (no-op without one)
 
 `GET /v1/account/icon` (`Account.OpenIcon`) serves the own image.
 `409 file.not_available` is the state of another device of the same
-account that has synced the avatar's row but holds neither its bytes
-nor, yet, its backup receipt.
+account that has synced the profile row but not yet the avatar's file
+row or its bytes; it also answers any read that fails after the open,
+since the bytes exist and a retry fetches them.
 
 Avatar responses — own and a contact's — carry the type the bytes
 themselves declare (a non-image serves as `application/octet-stream`),
@@ -460,9 +461,9 @@ address through the network's public read path and decrypted with the
 key sealed in the identity's profile — the reader never joins the
 owner's space. The response is the image (type from the bytes,
 `Range`/206, `nosniff`, a load-forbidding CSP; see § Account).
-`404 identity.icon_not_found` until the row carries an `iconCid`
-(unknown identity, a profile that names no avatar, or one that names
-an object over the 1 MiB cap, which is refused unread);
+`404 identity.icon_not_found` when there is no usable avatar (unknown
+identity, a profile that names no avatar, a cid written before avatars
+were files, or an object over the 1 MiB cap, which is refused unread);
 `409 file.not_available` while the bytes cannot be fetched — no public
 read base on this network, a stale reference after the owner replaced
 or removed the avatar, a transport failure — retry later. Key an

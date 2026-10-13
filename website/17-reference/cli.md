@@ -52,7 +52,7 @@ any version                                                       # binary versi
 
 ```
 any account set-metadata [--name N] [--description D]                   # PUT /v1/account/metadata
-any account set-icon <path> [--name N] [--mime T]                       # PUT /v1/account/icon (raw image body; - = stdin)
+any account set-icon <path> [--name N]                                  # PUT /v1/account/icon (raw image body; - = stdin)
 any account icon [-o PATH]                                              # GET /v1/account/icon
 any account delete-icon                                                 # DELETE /v1/account/icon
 any account redeem <code>                                               # POST /v1/account/access-code

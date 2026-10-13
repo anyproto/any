@@ -15,6 +15,7 @@ Account-scoped — these routes sit outside the `/v1/spaces/:spaceId` group.
 |--------|------|---------|
 | GET | `/v1/identities` | every known identity |
 | GET | `/v1/identities/:identity` | one identity; `404 identity.not_found` when never seen |
+| GET | `/v1/identities/:identity/icon` | the avatar behind the row's `iconCid`, as image bytes |
 | GET | `/v1/identities/subscribe` | live directory changes over SSE |
 
 ```bash
@@ -99,6 +100,5 @@ To show "Alice is an admin of space X", read space X's members. To show her role
 |----------|---------|
 | Who is in this space, with what rights? | `GET /v1/spaces/:id/members` |
 | What does this account id look like? | `GET /v1/identities/:identity` |
-| `GET /v1/identities/:identity/icon` | the avatar behind the row's `iconCid`, as image bytes |
 | Show an account's avatar | `GET /v1/identities/:identity/icon` |
 | Keep an avatar cache fresh | `GET /v1/identities/subscribe` (refetch when `iconCid` changes) |

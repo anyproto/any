@@ -88,7 +88,7 @@ managed host's path, refused on a standalone server.
 ```
 any account                                         # GET /v1/account
 any account set-metadata --name "..." [--description "..."]
-any account set-icon <path> [--name N] [--mime T]   # PUT /v1/account/icon (raw image body; - = stdin)
+any account set-icon <path> [--name N]              # PUT /v1/account/icon (raw image body; - = stdin)
 any account icon [-o PATH]                          # GET /v1/account/icon (bytes to stdout, or PATH + receipt)
 any account delete-icon                             # DELETE /v1/account/icon
 any account redeem <code>                           # POST /v1/account/access-code

@@ -26,8 +26,9 @@ func (c *Client) AccountRedeemAccessCode(ctx context.Context, code string) (api.
 }
 
 // AccountSetIcon uploads r as the account avatar — the raw request body
-// IS the image, streamed without buffering. PUT /v1/account/icon.
-func (c *Client) AccountSetIcon(ctx context.Context, r io.Reader, name, mimeType string) (*api.AccountMetadata, error) {
+// IS the image, streamed without buffering; the server reads the type
+// from the bytes. PUT /v1/account/icon.
+func (c *Client) AccountSetIcon(ctx context.Context, r io.Reader, name string) (*api.AccountMetadata, error) {
 	path := "/v1/account/icon"
 	if name != "" {
 		path += "?name=" + url.QueryEscape(name)
@@ -35,9 +36,6 @@ func (c *Client) AccountSetIcon(ctx context.Context, r io.Reader, name, mimeType
 	req, err := c.newRequest(ctx, http.MethodPut, path, r)
 	if err != nil {
 		return nil, err
-	}
-	if mimeType != "" {
-		req.Header.Set("Content-Type", mimeType)
 	}
 	resp, err := streamHTTP.Do(req)
 	if err != nil {
