@@ -63,6 +63,12 @@ const (
 	// replacements; the SDK closes the subscription rather than
 	// re-Query the database on the hot path. Recovery is resubscribe.
 	SubscribeClosedDrifted = "drifted"
+
+	// SubscribeClosedObjectDeleted — only on per-object query/subscribe
+	// streams (one object's dataset, one object's files). The object
+	// was deleted; nothing will reach the stream again, and a new POST
+	// for it is refused. Drop the view.
+	SubscribeClosedObjectDeleted = "object_deleted"
 )
 
 // QuerySubscribeSnapshot is the data payload of the `event: snapshot`

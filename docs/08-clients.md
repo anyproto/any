@@ -307,7 +307,8 @@ accumulate. Treat it as one and the lifecycle stays simple.
   it's the thing that drifts out of sync with the wire.
 
 - **Recover from a `closed` stream by resubscribing, not reconciling.** Every
-  `closed` reason is terminal and means "open a fresh POST" (see `04-events.md`
+  `closed` reason is terminal; all but `object_deleted` (the object is gone,
+  drop the view) mean "open a fresh POST" (see `04-events.md`
   § Contract that clients must respect). For the two load-shedding reasons, the reopened
   snapshot *already* reflects current state — rebuilding it from a giant delta
   is the expensive path the engine is deliberately refusing:

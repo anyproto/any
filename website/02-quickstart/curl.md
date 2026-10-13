@@ -104,7 +104,7 @@ data: [{"versionId":"…",
                     "ops":[{"type":"$set","path":["any","name"],"payload":"Reading list 2026"}]}]}]
 ```
 
-Wait for `ready`, integrate `snapshot`, then apply each `changes` batch to your window. A batch carries only the non-empty lists among `added` / `updated` / `removed`, and each `removed` entry names its `reason` (`deleted`, `filtered-out`, `displaced`). A terminal `event: closed` (`server_shutdown`, `deauthorized`, `sdk_closed`, `overflow`, `drifted`) means "open a fresh POST" — there is no replay ([Subscriptions](../realtime/subscribe.html)).
+Wait for `ready`, integrate `snapshot`, then apply each `changes` batch to your window. A batch carries only the non-empty lists among `added` / `updated` / `removed`, and each `removed` entry names its `reason` (`deleted`, `filtered-out`, `displaced`). A terminal `event: closed` (`server_shutdown`, `deauthorized`, `sdk_closed`, `overflow`, `drifted`) means "open a fresh POST"; `object_deleted` on a per-object stream means the object is gone, drop the view — there is no replay ([Subscriptions](../realtime/subscribe.html)).
 
 ## A write's reply
 
