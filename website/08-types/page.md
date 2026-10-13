@@ -69,7 +69,7 @@ List a space's documents with a filter on the type, most recently edited first. 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/query \
   -H 'Content-Type: application/json' \
-  -d '{"filter": {"$and": [{"any.type": "'$DOC'"}, {"any.collections": {"$nin": ["bin"]}}]},
+  -d '{"filter": {"$and": [{"any.type": "'$DOC'"}, {"any.collections": {"$nin": ["bin", "template"]}}]},
        "sort": ["-modifiedAt"], "limit": 50}'
 ```
 

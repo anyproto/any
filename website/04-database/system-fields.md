@@ -63,7 +63,7 @@ Objects carry a few properties under the universal `any` group. Paths use litera
 | Path | Kind | Meaning |
 |---|---|---|
 | `any.type` | string | The object's one type — what it is. Required at create, never cleared. Plain equality: `{"any.type": "<typeId>"}`, `$in` for a set. A type definition's row carries the marker `__type__` here and a collection's carries `__collection__`, never its own id, so a member query needs no exclusion. |
-| `any.collections` | string array | The collections the object is filed under. A scalar filter is a *contains* test — `{"any.collections": "<collectionId>"}` — `$all` demands several, `$nin` excludes (`{"any.collections": {"$nin": ["bin"]}}` on every ordinary list). |
+| `any.collections` | string array | The collections the object is filed under. A scalar filter is a *contains* test — `{"any.collections": "<collectionId>"}` — `$all` demands several, `$nin` excludes (`{"any.collections": {"$nin": ["bin", "template"]}}` on every ordinary list). |
 | `any.name` | string | Display name. |
 | `any.description` | string | Description. Indexed with `any.name` under the search scope `basic`. |
 | `any.icon` | string | Display icon; the encoding is the client's. |

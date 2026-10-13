@@ -2781,7 +2781,7 @@ const docTemplate = `{
                         "uniqueItems": false
                     },
                     "from": {
-                        "description": "From copies an existing object: its type, its collections, its\nsynced ` + "`" + `any.*` + "`" + ` values, the value groups of every owner the new\nobject has and the records of every dataset its type's parts\ndeclare (a reserved module's excepted). ` + "`" + `type` + "`" + ` is then optional\nand must equal the source's (400 template.type_mismatch);\n` + "`" + `collections` + "`" + ` are added to the copied set and ` + "`" + `initialProperties` + "`" + `\noverride copied values. A source filed under the built-in\n` + "`" + `template` + "`" + ` collection is a template: the marker is not carried\nover and the row is stamped ` + "`" + `any.template` + "`" + ` {id, version}\n(docs/31-templates.md). An unknown source is 404 object.not_found,\na deleted one 410 object.deleted.",
+                        "description": "From copies an existing object: its type, its collections except\nthe built-in markers (` + "`" + `miniapp` + "`" + `, ` + "`" + `bin` + "`" + `, ` + "`" + `template` + "`" + `), its synced\n` + "`" + `any.*` + "`" + ` values, the declared values of every owner the new object\nhas and the records of every dataset its type's parts declare (a\nreserved module's excepted). ` + "`" + `type` + "`" + ` is then optional and must\nequal the source's (400 template.type_mismatch); ` + "`" + `collections` + "`" + `\nare added to the copied set and ` + "`" + `initialProperties` + "`" + ` override\ncopied values. A source filed under ` + "`" + `template` + "`" + ` is a template: the\nrow is stamped ` + "`" + `any.template` + "`" + ` {id, version} (docs/31-templates.md);\nany other source keeps the stamp it has. An unknown source is 404\nobject.not_found, a deleted one 410 object.deleted, a definition's\nrow 400 membership.meta_type, and a source record its dataset\nrefuses today 409 template.record_refused.",
                         "type": "string"
                     },
                     "initialProperties": {
@@ -2793,7 +2793,7 @@ const docTemplate = `{
                         "type": "object"
                     },
                     "type": {
-                        "description": "Type is the object's one type — what it IS: its parts, its layout\nand one column group. Required (400 request.missing_field);\n` + "`" + `page` + "`" + ` is the plain document. Nothing is stamped server-side.",
+                        "description": "Type is the object's one type — what it IS: its parts, its layout\nand one column group. Required unless ` + "`" + `from` + "`" + ` is set (400\nrequest.missing_field); ` + "`" + `page` + "`" + ` is the plain document. Nothing is\nstamped server-side.",
                         "type": "string"
                     }
                 },
@@ -11202,6 +11202,26 @@ const docTemplate = `{
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {

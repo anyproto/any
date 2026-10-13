@@ -162,7 +162,8 @@ Panics are converted to `500 internal` with a generic message.
 | `collection.not_found` | 404 | unknown collectionId (400 inside a bundle ensure) |
 | `collection.not_a_collection` | 400 | a `…/collections` route, or `POST …/properties/:objectId/collections/:collectionId`, names a user **type** (`details.typeId`). A registered type id (`page`, `dataview`) answers `404 collection.not_found` |
 | `collection.registered` | 400 | PATCH the metadata of a registered built-in collection (`miniapp`, `bin`, `template`) |
-| `template.type_mismatch` | 400 | `POST …/objects` with `from` and a `type` that is not the source's (`details.from`, `details.sourceType`, `details.type`) — a copy keeps the source's type; omit `type` |
+| `template.type_mismatch` | 400 | `POST …/objects` with `from` and a `type` that is not the source's (`details.from`, `details.type`) — a copy keeps the source's type; omit `type` |
+| `template.record_refused` | 409 | `POST …/objects` with `from`: a record of the source no longer passes its dataset's create rules, or a handler rejects it at apply (`details.from`); nothing is created — repair the source |
 | `membership.wrong_slot` | 400 | a raw `…/modify` write put a known collection id in `any.type` or a known type id in `any.collections` |
 | `membership.type_required` | 400 | a raw write cleared `any.type`; every object has exactly one type |
 | `membership.meta_type` | 400 | a write set a meta id (`any`, `type`, `collection`, `spaceIndex`) as `any.type` |

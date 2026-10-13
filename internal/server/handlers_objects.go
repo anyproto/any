@@ -38,6 +38,8 @@ const objectCreateFieldsHint = `object properties (name, description, custom fie
 //	@Success	201		{object}	api.ObjectsCreateResponse
 //	@Failure	400		{object}	api.ErrorEnvelope
 //	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	409		{object}	api.ErrorEnvelope
+//	@Failure	410		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects [post]
 func (d *deps) objectCreate(c echo.Context) error {
@@ -178,6 +180,14 @@ func (d *deps) objectCreate(c echo.Context) error {
 				details["type"] = opts.Type
 				return writeError(c, http.StatusBadRequest, "template.type_mismatch",
 					"type must be the source object's type: a copy keeps it, omit type", details)
+			}
+			if errors.Is(err, space.ErrMetaType) {
+				return writeError(c, http.StatusBadRequest, "membership.meta_type",
+					"from names a definition (a type's or a collection's own row), not an object", details)
+			}
+			if errors.Is(err, space.ErrFromRecordRefused) {
+				return writeError(c, http.StatusConflict, "template.record_refused",
+					"a record of the source no longer passes its dataset's create rules; repair the source, nothing was created", details)
 			}
 		}
 		return sdkOpError(c, err, details)

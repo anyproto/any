@@ -69,8 +69,8 @@ func TestE2E_CollectionsSurface(t *testing.T) {
 			t.Errorf("collection info = %+v", *seen)
 		}
 
-		// The two built-in collections are registered, hidden, and out
-		// of the types surface entirely.
+		// The built-in collections are registered, hidden, and out of
+		// the types surface entirely.
 		mustJSON(t, http.MethodGet, spaceBase+"/collections?includeHidden=true", "", http.StatusOK, &colls)
 		for _, want := range []string{miniapp.Id, bin.Id, space.TemplateCollectionId} {
 			idx := slices.IndexFunc(colls.Collections, func(c api.CollectionInfo) bool { return c.Id == want })

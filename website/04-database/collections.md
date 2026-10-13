@@ -110,7 +110,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
   -H 'Content-Type: application/json' \
   -d '{"filter": {"$and": [{"any.collections": "'$COLL'"},
-                           {"any.collections": {"$nin": ["bin"]}}]},
+                           {"any.collections": {"$nin": ["bin", "template"]}}]},
        "sort": ["-modifiedAt"], "limit": 50}'
 ```
 
@@ -138,7 +138,7 @@ any object collection attach $SPACE $OBJ bin     # to the bin
 any object collection detach $SPACE $OBJ bin     # restore
 ```
 
-List the bin with `{"any.collections": "bin"}` sorted `["-bin.movedAt"]`; exclude its members from ordinary lists with `{"any.collections": {"$nin": ["bin"]}}`.
+List the bin with `{"any.collections": "bin"}` sorted `["-bin.movedAt"]`; exclude its members from ordinary lists with `{"any.collections": {"$nin": ["bin", "template"]}}`, templates excluded by the same clause.
 
 **`template`** marks a template: an object of the type it is for, filed under `template`, whose name, values, collections and body are the pre-fill. The collection adds `title` (the picker label) and `version`. `POST …/objects` with `from` copies it and stamps `any.template` on the new row — [Templates](templates.html). Ordinary lists exclude templates with the bin: `{"any.collections": {"$nin": ["bin", "template"]}}`.
 

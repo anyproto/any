@@ -25,9 +25,9 @@ no template editor. Everything on it is the pre-fill:
 | on the template | becomes, on an object created from it |
 |---|---|
 | `any.name`, `any.description`, `any.icon`, `any.tags` | the same values; an empty one stays empty |
-| `any.collections` minus `template` | the new object's collections |
-| `<typeId>.<propId>` and `<collectionId>.<propId>` values | the same values, for every owner the new object has |
-| the records of every dataset the type's parts declare | copied records, same ids and fields |
+| `any.collections` minus the built-in markers (`template`, `bin`, `miniapp`) | the new object's collections |
+| `<typeId>.<propId>` and `<collectionId>.<propId>` values the definitions still declare | the same values, for every owner the new object has |
+| the live records of every dataset the type's parts declare | copied records: editor blocks keep their ids, so the tree holds; a `records` dataset with derived ids (`idRule: auto`, the default) gets fresh ones; stamps (`creator`, `createTime`, …) are re-derived for the copier |
 
 The collection carries two properties, under `template.<propId>` on the
 template only:
@@ -35,11 +35,13 @@ template only:
 | property | kind | |
 |---|---|---|
 | `title` | string | the label a template picker shows — not the pre-filled `any.name`, which may be empty |
-| `version` | number | the template's version; a client increments it when it changes the template, and an object records the one it was made from (below) |
+| `version` | number | the template's version; a client increments it after changing the template, and an object records the one it was made from (below) |
 
 A template for a collection's rows is the same thing with the
 collection in `any.collections`: the template holds that collection's
-column values and the new object is filed under it.
+column values and the new object is filed under it. Placement values
+travel verbatim — a wiki template's `parentId` / `pos` land on every
+copy — so a tree client sends its own placement in `initialProperties`.
 
 ## Make a template
 
@@ -66,13 +68,18 @@ and the marker:
   "initialProperties": { "template": { "title": "Weekly review", "version": 1 } } }
 ```
 
-Bump `template.version` when a template changes in a way objects made
-from it should follow:
+Bump `template.version` **after** a change objects made from the
+template should follow — the body and the version are separate writes,
+and a copy taken in between carries the new number with the old body:
 
 ```json
 POST /v1/spaces/:spaceId/properties/<templateId>/set/template
 { "patch": { "version": 2 } }
 ```
+
+The number is last-writer-wins. Two devices that both bump 1 → 2 with
+different edits leave one version naming two contents; treat it as a
+hint for "which objects to look at", not a proof of sameness.
 
 ## Copy an object: `from`
 
@@ -80,26 +87,36 @@ POST /v1/spaces/:spaceId/properties/<templateId>/set/template
 of an object to copy. With it, `type` is optional and must equal the
 source's type when given (`400 template.type_mismatch`), `collections`
 are **added** to the source's, and `initialProperties` are written over
-the copied values, owner by owner, so a request value wins. The copy
-takes the source's synced `any.*` values, its collections, the value
-groups of every owner the new object has, and the records of every
-dataset the source's type declares through its parts — except a
-reserved module's (the chat). Derived fields (`any.links`, the
-row-root stamps) are recomputed, not copied. An unknown `from` is
-`404 object.not_found`, a deleted one `410 object.deleted`, and a
-definition's own row (a type or collection root)
-`400 membership.meta_type`.
+the copied values, owner by owner, so a request value wins. A copied
+value can be replaced, never cleared: send an empty value of the kind,
+not `null`.
 
-When the source is a template — it is filed under `template` — two
-things differ: `template` is dropped from the copied collections, and
-the new row is stamped
+The copy takes the source's synced `any.*` values, its collections
+minus the built-in markers, the declared values of every owner the new
+object has (a value under a property its definition no longer declares,
+or under a collection the space no longer has, stays behind) and the
+records of every dataset the source's type declares through its parts,
+except a reserved module's (the chat). The derived row-root stamps
+(`createdAt`, `modifiedAt`, `modifiedBy`) are the copy's own, and the
+link index re-derives links from the copy's records.
+
+Errors: an unknown `from`, or one whose row has not synced to this
+device yet, is `404 object.not_found`; a deleted one `410
+object.deleted`; a definition's own row (a type or collection root, the
+general chat included) `400 membership.meta_type`; a record of the
+source its dataset refuses today (a required field unset since) `409
+template.record_refused` — nothing is created, the source needs repair.
+
+When the source is a template — it is filed under `template` — the new
+row is stamped
 
 ```json
 "any.template": { "id": "<templateId>", "version": 2 }
 ```
 
 with the template's `template.version` (`0` when it has none). Any
-other source is a plain duplicate: collections as they are, no stamp.
+other source is a plain duplicate: a stamp it carries is copied along,
+so a duplicate of an object made from a template keeps that lineage.
 
 ```json
 POST /v1/spaces/:spaceId/objects
@@ -108,8 +125,26 @@ POST /v1/spaces/:spaceId/objects
 → 201 {"objectId": "…"}
 ```
 
-One request, one object; the copy is whole before the id comes back.
-A later edit of the template never changes an object made from it.
+The reply comes after the whole copy. The row is one change and each
+dataset follows in changes of its own, so a subscriber, here or on a
+peer, can see the typed, named row before its body lands; a copy that
+fails midway is deleted. A later edit of the template never changes an
+object made from it.
+
+### Not copied
+
+- **Files.** A file is bound to the object it was attached to. A copy
+  keeps the template's file links (body images, a file-valued
+  property), which resolve while the template and its files exist and
+  break when either is deleted. Attach the file to the copy to make it
+  its own.
+- **Saved views.** Views live on the template's `dataview` object, not
+  on the template ([`24-data-views.md`](24-data-views.md)). Copy that
+  object with `from` too, with `initialProperties.dataview.host` set to
+  the new object. Never `from` a dataview object without re-pointing
+  its host: a host has one.
+- **Links into the template.** A relation value or a body link that
+  names the template itself keeps naming it.
 
 ## Pick, default, outdated
 
@@ -123,22 +158,35 @@ POST /v1/spaces/:spaceId/objects/query
   "sort": ["template.title"] }
 ```
 
-The default template of a type or a collection is a client convention
-on the definition's `meta`, next to `meta.defaultType`:
+For a collection's rows use `{"any.collections": {"$all": ["template",
+"<collectionId>"]}}` instead of the type clause.
+
+The default template of a user type or a collection is a client
+convention on the definition's `meta`, next to `meta.defaultType`:
 `meta.defaultTemplate: "<templateId>"`, through `PATCH …/types/:typeId`
-or `PATCH …/collections/:collectionId`. The server does not read it.
+or `PATCH …/collections/:collectionId`. The server does not read it. A
+registered type (`page`, `dataview`) takes no `meta`
+(`400 type.registered`): a default for plain pages lives on the
+collection the page is created in, or in the client's own state.
 
 Objects made from a template, and the ones behind its current version:
 
 ```json
-{ "filter": { "any.template.id": "<templateId>" } }
-{ "filter": { "any.template.id": "<templateId>",
-              "any.template.version": { "$lt": 2 } } }
+{ "filter": { "$and": [ { "any.type": "<typeId>" },
+                        { "any.template.id": "<templateId>" },
+                        { "any.collections": { "$nin": ["template"] } } ] } }
+{ "filter": { "$and": [ { "any.type": "<typeId>" },
+                        { "any.template.id": "<templateId>" },
+                        { "any.template.version": { "$lt": 2 } },
+                        { "any.collections": { "$nin": ["template"] } } ] } }
 ```
 
-`any.template` is an ordinary synced row field: the server writes it
-on create, a client may rewrite it after bringing an object up to date,
-and a reader treats an absent one as "not made from a template".
+`any.template` is not indexed: keep the `any.type` clause so the scan
+stays within the type. The `$nin` keeps out a template that was itself
+copied from the template. `any.template` is an ordinary synced row
+field: the server writes it on copy, a client may rewrite it after
+bringing an object up to date, and a reader treats an absent one as
+"not made from a template".
 
 ## Every list excludes templates
 
@@ -152,8 +200,11 @@ clause, one more id:
 { "any.collections": { "$nin": ["bin", "template"] } }
 ```
 
-`/search` does not know about templates either: a template's text
-surfaces as a hit unless the `filter` carries the clause.
+The sidebar is the exception: it lists what was pinned, a template
+included. Reads that carry no object membership cannot exclude
+templates: `/search` hits without the `filter`, a shared dataset read
+across its objects (`…/datasets/query`), backlinks and links. Filter
+those by the hit's object row.
 
 ## Remove
 

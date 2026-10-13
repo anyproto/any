@@ -582,8 +582,8 @@ any object collection detach $SPID $OBJID bin     # restore
 ```
 
 Attaching stamps `bin.movedAt` / `bin.movedBy`; detaching clears the
-`bin` namespace. Ordinary listings exclude bin members with
-`{"any.collections": {"$nin": ["bin"]}}` (`09-query.md`).
+`bin` namespace. Ordinary listings exclude bin members and templates
+with `{"any.collections": {"$nin": ["bin", "template"]}}` (`09-query.md`).
 
 `--from OBJ` copies an object instead of starting empty: its type, its
 collections, its values and its parts' records. `--type` is then

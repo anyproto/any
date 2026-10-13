@@ -80,7 +80,7 @@ func TestServer_TemplateCopy(t *testing.T) {
 	}
 
 	tpl := mustCreateObject(t, e, sp.Id, fmt.Sprintf(`{"type":"%s","collections":["%s","%s"],"initialProperties":{
-		"any":{"name":"Weekly review","description":"the ritual","tags":["ops"]},
+		"any":{"name":"Weekly review","description":"the ritual","icon":"📝","tags":["ops"]},
 		"%s":{"title":"Weekly","version":2},
 		"%s":{"%s":"calm"}}}`, page.TypeId, tplId, coll, tplId, coll, prop.PropId))
 	rec = doJSON(t, e, http.MethodPut, base+"/objects/"+tpl+"/editor/editor_blocks/markdown",
@@ -95,8 +95,11 @@ func TestServer_TemplateCopy(t *testing.T) {
 	obj := mustCreateObject(t, e, sp.Id, `{"from":"`+tpl+`","initialProperties":{"any":{"name":"Weekly review — 13 Oct"}}}`)
 	row := propertiesRecord(t, e, sp.Id, obj)
 	anyGroup, _ := row["any"].(map[string]any)
-	if anyGroup["type"] != page.TypeId || anyGroup["name"] != "Weekly review — 13 Oct" || anyGroup["description"] != "the ritual" {
+	if anyGroup["type"] != page.TypeId || anyGroup["name"] != "Weekly review — 13 Oct" || anyGroup["description"] != "the ritual" || anyGroup["icon"] != "📝" {
 		t.Errorf("copied any group = %v", anyGroup)
+	}
+	if tags, _ := anyGroup["tags"].([]any); len(tags) != 1 || tags[0] != "ops" {
+		t.Errorf("copied tags = %v", anyGroup["tags"])
 	}
 	if cols := objectCollections(t, e, sp.Id, obj); len(cols) != 1 || cols[0] != coll {
 		t.Errorf("copy collections = %v, want [%s] (marker dropped)", cols, coll)
@@ -155,13 +158,13 @@ func TestServer_TemplateCopy(t *testing.T) {
 		t.Errorf("outdated objects = %d, want 1", len(got))
 	}
 
-	// Duplicate: a plain object copies as it is, no stamp; and save as
-	// template files the copy under the marker.
+	// Duplicate: a plain object copies as it is, the stamp it carries
+	// included; and save as template files the copy under the marker.
 	dup := mustCreateObject(t, e, sp.Id, `{"from":"`+obj+`"}`)
 	dupRow := propertiesRecord(t, e, sp.Id, dup)
 	dupAny, _ := dupRow["any"].(map[string]any)
-	if dupAny["name"] != "Weekly review — 13 Oct" || dupAny["template"] != nil {
-		t.Errorf("duplicate any group = %v, want the name and no stamp", dupAny)
+	if dupStamp, _ := dupAny["template"].(map[string]any); dupAny["name"] != "Weekly review — 13 Oct" || dupStamp["id"] != tpl {
+		t.Errorf("duplicate any group = %v, want the name and the source's stamp", dupAny)
 	}
 	if cols := objectCollections(t, e, sp.Id, dup); len(cols) != 1 || cols[0] != coll {
 		t.Errorf("duplicate collections = %v", cols)
@@ -176,6 +179,46 @@ func TestServer_TemplateCopy(t *testing.T) {
 	}
 	if got := markdownOf(t, e, sp.Id, saved); got != body {
 		t.Errorf("saved template body = %q", got)
+	}
+
+	// A template without a version stamps 0; a duplicate keeps the
+	// stamp it has (lineage).
+	bare := mustCreateObject(t, e, sp.Id, fmt.Sprintf(`{"type":"%s","collections":["%s"],"initialProperties":{"%s":{"title":"Bare"}}}`, page.TypeId, tplId, tplId))
+	fromBare := mustCreateObject(t, e, sp.Id, `{"from":"`+bare+`"}`)
+	if row := propertiesRecord(t, e, sp.Id, fromBare); row["any"].(map[string]any)["template"].(map[string]any)["version"] != float64(0) {
+		t.Errorf("stamp of a versionless template = %v, want version 0", row["any"].(map[string]any)["template"])
+	}
+	lineage := mustCreateObject(t, e, sp.Id, `{"from":"`+obj+`"}`)
+	if row := propertiesRecord(t, e, sp.Id, lineage); row["any"].(map[string]any)["template"].(map[string]any)["id"] != tpl {
+		t.Errorf("duplicate lost the stamp: %v", row["any"].(map[string]any)["template"])
+	}
+
+	// The built-in markers are states of the source, never content: a
+	// binned or pinned template yields a copy that is neither.
+	for _, marker := range []string{bin.Id, "miniapp"} {
+		if rec := doJSON(t, e, http.MethodPost, fmt.Sprintf("%s/properties/%s/collections/%s", base, tpl, marker), ""); rec.Code != http.StatusOK {
+			t.Fatalf("file template under %s: %d %s", marker, rec.Code, rec.Body.String())
+		}
+	}
+	marked := mustCreateObject(t, e, sp.Id, `{"from":"`+tpl+`"}`)
+	if cols := objectCollections(t, e, sp.Id, marked); len(cols) != 1 || cols[0] != coll {
+		t.Errorf("copy of a binned, pinned template has collections %v, want [%s]", cols, coll)
+	}
+	if row := propertiesRecord(t, e, sp.Id, marked); row[bin.Id] != nil || row["miniapp"] != nil {
+		t.Errorf("copy carries a marker namespace: bin=%v miniapp=%v", row[bin.Id], row["miniapp"])
+	}
+	for _, marker := range []string{bin.Id, "miniapp"} {
+		if rec := doJSON(t, e, http.MethodDelete, fmt.Sprintf("%s/properties/%s/collections/%s", base, tpl, marker), ""); rec.Code != http.StatusOK {
+			t.Fatalf("unfile template from %s: %d %s", marker, rec.Code, rec.Body.String())
+		}
+	}
+
+	// Values under the dropped marker have no owner on the copy.
+	rec = doJSON(t, e, http.MethodPost, base+"/objects", fmt.Sprintf(`{"from":"%s","initialProperties":{"%s":{"title":"x"}}}`, tpl, tplId))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("template values without the marker: %d %s, want 400", rec.Code, rec.Body.String())
+	} else {
+		assertErrorCode(t, rec, "dataset.not_declared")
 	}
 
 	// Refusals.
@@ -201,6 +244,13 @@ func TestServer_TemplateCopy(t *testing.T) {
 			continue
 		}
 		assertErrorCode(t, rec, c.code)
+		if c.code == "template.type_mismatch" {
+			var env api.ErrorEnvelope
+			_ = json.Unmarshal(rec.Body.Bytes(), &env)
+			if env.Error.Details["from"] != tpl || env.Error.Details["type"] != "dataview" {
+				t.Errorf("type_mismatch details = %v, want from and type", env.Error.Details)
+			}
+		}
 	}
 	// The same type is fine.
 	if rec := doJSON(t, e, http.MethodPost, base+"/objects", `{"from":"`+tpl+`","type":"`+page.TypeId+`"}`); rec.Code != http.StatusCreated {

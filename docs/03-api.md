@@ -1855,19 +1855,21 @@ collections, whose namespace the values land in. `type` is required
 `from` is set; the other keys are optional.
 
 `from` names an object to **copy**: the new object takes the source's
-type, its collections, its synced `any.*` values, the value groups of
-every owner the new object has and the records of every dataset the
-source's type declares through its parts, except a reserved module's.
-`type` must then be absent or equal to the source's
+type, its collections minus the built-in markers (`miniapp`, `bin`,
+`template`), its synced `any.*` values, the declared values of every
+owner the new object has and the records of every dataset the source's
+type declares through its parts, except a reserved module's. `type`
+must then be absent or equal to the source's
 (`400 template.type_mismatch`), `collections` are added to the copied
 ones and `initialProperties` are written over the copied values. A
-source filed under the built-in `template` collection is a template:
-that marker is not carried over and the row is stamped
+source filed under `template` is a template: the row is stamped
 `any.template: {id, version}` (§ Built-in collections,
-`docs/31-templates.md`). An unknown source is `404 object.not_found`, a
-deleted one `410 object.deleted`, a definition's own row
-`400 membership.meta_type`, and a source whose type only its own root
-may carry `400 type.reserved_carrier`.
+`docs/31-templates.md`); any other source keeps the stamp it has. An
+unknown source, or one whose row has not synced here yet, is
+`404 object.not_found`, a deleted one `410 object.deleted`, a
+definition's own row `400 membership.meta_type`, and a record of the
+source its dataset refuses today `409 template.record_refused`
+(nothing is created).
 
 These four keys are the **whole** create vocabulary. Any other
 top-level key — a bare owner group like `"any"`, a top-level `"name"`,
@@ -1879,7 +1881,8 @@ enforced per field too (`type` a string, `collections` an array,
 `initialProperties` an object, every `initialProperties` group an
 object of `{propertyId: value}`) → `400 request.schema`. Nothing in
 this body is silently dropped, and nothing is added to it server-side:
-the object gets exactly the type and collections it names. Initial
+the object gets exactly the type and collections it names, or copies
+with `from`. Initial
 values pass the descriptor value gate
 (`400 property.format_violation`, § Types), and a type that declares a
 reserved module is refused (`400 type.reserved_carrier`, § Parts and
@@ -3464,7 +3467,8 @@ The membership op and the stamps ride **one** synced change, so the
 `changeId` the call returns names the move, a bin member never lacks
 its stamps and a restored object never keeps stale ones; a second move
 re-stamps. Clients filter members out of ordinary lists —
-`{"any.collections": {"$nin": ["bin"]}}` — and list the bin with
+`{"any.collections": {"$nin": ["bin", "template"]}}`, templates
+excluded by the same clause — and list the bin with
 `{"any.collections": "bin"}` sorted `-bin.movedAt` (not indexed; the
 bin is small). Restore brings the object back as it was: unfiling is
 not a delete, nothing else on the row changes, and the object keeps its
