@@ -66,11 +66,11 @@ The query embedding is bounded by `index.search.queryEmbedTimeout` (default 5 s)
 ```bash
 curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/search \
   -H 'content-type: application/json' \
-  -d '{"query": "reranker", "filter": {"any.collections": {"$nin": ["bin"]}}}'
+  -d '{"query": "reranker", "filter": {"any.collections": {"$nin": ["bin", "template"]}}}'
 ```
 
 ```bash
-any search $SPACE reranker --filter '{"any.collections": {"$nin": ["bin"]}}'
+any search $SPACE reranker --filter '{"any.collections": {"$nin": ["bin", "template"]}}'
 ```
 
 Two replies need care:

@@ -61,7 +61,7 @@ A later edit of the template never changes an object made from it. An agent find
 
 > **Why it matters.** The copy is one request and the reply comes after the whole of it: the row lands as one change, then each dataset as changes of its own, and a copy that fails midway is deleted. There is no template format to parse: a template renders, edits and syncs as the object it is.
 
-What a copy does not carry: **files** stay bound to the template (a copy's file links break when the template or the file is deleted — attach the file to the copy to make it its own); **saved views** live on the template's `dataview` object (copy that object with `from` too, with `initialProperties.dataview.host` set to the new object); a **link to the template itself** keeps pointing at it. A record the source's dataset refuses today (a required field unset since) is `409 template.record_refused` and nothing is created.
+What a copy does not carry: **files** stay bound to the template (a copy's file links break when the template or the file is deleted — attach the file to the copy to make it its own); **saved views** live on the template's `dataview` object (copy that object with `from` too, with `initialProperties.dataview.host` set to the new object); a **link to the template itself** keeps pointing at it. A record the source's dataset refuses today (a required field unset since) is `409 template.record_refused`, and the half copy is deleted. A value of local or account scope, a record field declared local, derived or stamped, and on a dataset that is not `dynamic` a field no definition declares any more, stay behind.
 
 ## Duplicate, and save as template
 

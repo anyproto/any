@@ -147,7 +147,7 @@ collection.not_found             # 404 — unknown collectionId on GET/PATCH …
 collection.not_a_collection      # 400 — a …/collections route, or POST …/properties/:objectId/collections/:collectionId, names a user TYPE (details.typeId): use the …/types routes, or set it with POST …/properties/:objectId/type/:typeId. A registered type's id (page, dataview) answers collection.not_found
 collection.registered            # 400 — PATCH the metadata of a registered built-in collection (miniapp, bin, template): it is statically declared (a column write on one is type.registered)
 template.type_mismatch           # 400 — POST …/objects with `from` and a `type` that is not the source's type (details.from, details.type): a copy keeps the source's type; omit `type`
-template.record_refused          # 409 — POST …/objects with `from`: a record of the source no longer passes its dataset's create rules (a required field unset since), or a handler rejects it at apply (details.from); nothing is created — repair the source
+template.record_refused          # 409 — POST …/objects with `from`: a record of the source no longer passes its dataset's create rules (a required field unset since), or a handler rejects it at apply (details.from); the half copy is deleted — repair the source
 property.not_found               # 400 — a value write names a property the owner — the object's type or one of its collections — does not declare
 property.kind_mismatch           # 400 — a value write violates the property's pinned kind
 property.xkey_conflict           # 409 — add/rename a property to an xKey another property of the same type or collection holds (details.xKey, details.existingPropId); a preflight, not a guarantee

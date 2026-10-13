@@ -187,7 +187,7 @@ func (d *deps) objectCreate(c echo.Context) error {
 			}
 			if errors.Is(err, space.ErrFromRecordRefused) {
 				return writeError(c, http.StatusConflict, "template.record_refused",
-					"a record of the source no longer passes its dataset's create rules; repair the source, nothing was created", details)
+					"a record of the source no longer passes its dataset's create rules; repair the source, the half copy is deleted", details)
 			}
 		}
 		return sdkOpError(c, err, details)

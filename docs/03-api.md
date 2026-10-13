@@ -927,7 +927,7 @@ Body:
   "exclude": ["fiction"],             // optional must-not terms
   "maxData": 512,                     // optional: runes of `data` per hit around the first match (default 512; -1 = whole chunk)
   "passages": 3,                      // optional: further matching chunks per record on hit.passages (default 0, max 10)
-  "filter": {"any.collections": {"$nin": ["bin"]}}  // optional: keep hits whose HOST OBJECT row matches (the /objects/query filter grammar); every mode
+  "filter": {"any.collections": {"$nin": ["bin", "template"]}}  // optional: keep hits whose HOST OBJECT row matches (the /objects/query filter grammar); every mode
 }
 ```
 
@@ -1868,8 +1868,8 @@ source filed under `template` is a template: the row is stamped
 unknown source, or one whose row has not synced here yet, is
 `404 object.not_found`, a deleted one `410 object.deleted`, a
 definition's own row `400 membership.meta_type`, and a record of the
-source its dataset refuses today `409 template.record_refused`
-(nothing is created).
+source its dataset refuses today `409 template.record_refused` (the
+half copy is deleted).
 
 These four keys are the **whole** create vocabulary. Any other
 top-level key — a bare owner group like `"any"`, a top-level `"name"`,
@@ -1877,9 +1877,9 @@ a typo — is `400 request.unknown_field` naming the accepted set and
 where the value belongs: object properties always ride
 `initialProperties` keyed by owner
 (`{"initialProperties": {"any": {"name": "Dune"}}}`). Shape is
-enforced per field too (`type` a string, `collections` an array,
-`initialProperties` an object, every `initialProperties` group an
-object of `{propertyId: value}`) → `400 request.schema`. Nothing in
+enforced per field too (`type` and `from` strings, `collections` an
+array, `initialProperties` an object, every `initialProperties` group
+an object of `{propertyId: value}`) → `400 request.schema`. Nothing in
 this body is silently dropped, and nothing is added to it server-side:
 the object gets exactly the type and collections it names, or copies
 with `from`. Initial

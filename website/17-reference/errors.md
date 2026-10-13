@@ -57,7 +57,7 @@ Panics are converted to `500 internal` with a generic message.
 |---|---|---|
 | `request.bad_json` | 400 | body is not valid JSON |
 | `request.schema` | 400 | JSON shape does not match the endpoint schema |
-| `request.missing_field` | 400 | a required field is absent — object create without `type`, a bundle body that declares nothing and has no `rootType` |
+| `request.missing_field` | 400 | a required field is absent — object create without `type` or `from`, a bundle body that declares nothing and has no `rootType` |
 | `request.unknown_field` | 400 | a key outside the accepted set, at the top level or inside a nested draft (`details.fields`; `details.accepted` lists the top-level set) |
 | `request.invalid_field` | 400 | a field value the endpoint refuses (bad identity, dataset outside an allowlist, …; `details.field`) |
 | `request.bad` | 400 | a malformed request the framework or a query parameter check rejected |
@@ -115,7 +115,7 @@ Panics are converted to `500 internal` with a generic message.
 | Code | Status | Meaning |
 |---|---|---|
 | `object.not_found` | 404 | object unknown or deleted in this space |
-| `object.deleted` | 410 | `GET …/objects/:objectId`, or a file attach, on a deleted object — distinct from never-existed |
+| `object.deleted` | 410 | `GET …/objects/:objectId`, a file attach, or `from` on `POST …/objects`, on a deleted object — distinct from never-existed |
 | `object.derived_undeletable` | 409 | `DELETE` on a derived object (a bundle root installed with `derived: true`, such as the general chat) |
 | `object.id_required` | 400 | the object id is a serialized nil (`"None"`, `"null"`, `"undefined"`) |
 | `record.deleted` | 410 | a write addressed a tombstoned record; the id is burned for good |
@@ -163,10 +163,10 @@ Panics are converted to `500 internal` with a generic message.
 | `collection.not_a_collection` | 400 | a `…/collections` route, or `POST …/properties/:objectId/collections/:collectionId`, names a user **type** (`details.typeId`). A registered type id (`page`, `dataview`) answers `404 collection.not_found` |
 | `collection.registered` | 400 | PATCH the metadata of a registered built-in collection (`miniapp`, `bin`, `template`) |
 | `template.type_mismatch` | 400 | `POST …/objects` with `from` and a `type` that is not the source's (`details.from`, `details.type`) — a copy keeps the source's type; omit `type` |
-| `template.record_refused` | 409 | `POST …/objects` with `from`: a record of the source no longer passes its dataset's create rules, or a handler rejects it at apply (`details.from`); nothing is created — repair the source |
+| `template.record_refused` | 409 | `POST …/objects` with `from`: a record of the source no longer passes its dataset's create rules, or a handler rejects it at apply (`details.from`); the half copy is deleted — repair the source |
 | `membership.wrong_slot` | 400 | a raw `…/modify` write put a known collection id in `any.type` or a known type id in `any.collections` |
 | `membership.type_required` | 400 | a raw write cleared `any.type`; every object has exactly one type |
-| `membership.meta_type` | 400 | a write set a meta id (`any`, `type`, `collection`, `spaceIndex`) as `any.type` |
+| `membership.meta_type` | 400 | a write set a meta id (`any`, `type`, `collection`, `spaceIndex`) as `any.type`; also `POST …/objects` whose `from` names a definition's own row |
 | `property.not_found` | 400 | a value write names a property the owner — the object's type or one of its collections — does not declare |
 | `property.kind_mismatch` | 400 | write violated the immutable kind |
 | `property.xkey_conflict` | 409 | another property of the same type or collection holds this `xKey` (`details.xKey`, `details.existingPropId`) |

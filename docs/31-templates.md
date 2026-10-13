@@ -70,7 +70,8 @@ and the marker:
 
 Bump `template.version` **after** a change objects made from the
 template should follow — the body and the version are separate writes,
-and a copy taken in between carries the new number with the old body:
+and bumping first would let a copy taken in between carry the new
+number with the old body:
 
 ```json
 POST /v1/spaces/:spaceId/properties/<templateId>/set/template
@@ -87,16 +88,21 @@ hint for "which objects to look at", not a proof of sameness.
 of an object to copy. With it, `type` is optional and must equal the
 source's type when given (`400 template.type_mismatch`), `collections`
 are **added** to the source's, and `initialProperties` are written over
-the copied values, owner by owner, so a request value wins. A copied
-value can be replaced, never cleared: send an empty value of the kind,
-not `null`.
+the copied values, property by property, so a request value wins and
+the rest of its group stays copied. A copied value can be replaced,
+never cleared: send an empty value of the kind, not `null`.
 
 The copy takes the source's synced `any.*` values, its collections
 minus the built-in markers, the declared values of every owner the new
-object has (a value under a property its definition no longer declares,
-or under a collection the space no longer has, stays behind) and the
-records of every dataset the source's type declares through its parts,
-except a reserved module's (the chat). The derived row-root stamps
+object has — a synced value; one of local or account scope, one under
+a property its definition no longer declares, or under a collection
+the space no longer has, stays behind, while a collection id the space
+no longer has is carried as it is — and the records of every dataset
+the source's type declares through its parts, except a reserved
+module's (the chat) and an invalid declaration. A record field
+declared local, derived or stamped stays behind too, and on a dataset
+that is not `dynamic` so does a field no definition declares any more.
+The derived row-root stamps
 (`createdAt`, `modifiedAt`, `modifiedBy`) are the copy's own, and the
 link index re-derives links from the copy's records.
 
@@ -105,7 +111,8 @@ device yet, is `404 object.not_found`; a deleted one `410
 object.deleted`; a definition's own row (a type or collection root, the
 general chat included) `400 membership.meta_type`; a record of the
 source its dataset refuses today (a required field unset since) `409
-template.record_refused` — nothing is created, the source needs repair.
+template.record_refused` — the half copy is deleted, the source needs
+repair.
 
 When the source is a template — it is filed under `template` — the new
 row is stamped

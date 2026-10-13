@@ -7,8 +7,8 @@
 // `movedBy` (the account identity, the encoding `author` / `modifiedBy`
 // use) on attach and clears both on detach, in the same change as the
 // membership op (internal/server/handlers_properties.go). Hidden.
-// Clients filter members out of ordinary lists
-// (`{"any.collections": {"$nin": ["bin"]}}`); a permanent delete stays
+// Clients filter members out of ordinary lists, templates with them
+// (`{"any.collections": {"$nin": ["bin", "template"]}}`); a permanent delete stays
 // DELETE …/objects/:id.
 //
 // The stamps are ordinary synced properties: the server writes them,

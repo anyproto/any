@@ -69,7 +69,7 @@ Runtime datasets declared without an `x-search` mapping (a program's source, for
 
 ## Filtering by host object
 
-An objects-query `filter` in the search body restricts which objects may contribute hits — `{"any.collections":{"$nin":["bin"]}}` drops binned objects. The filter is evaluated against the host object's current row, not against the fields of the matching chat message or runtime record.
+An objects-query `filter` in the search body restricts which objects may contribute hits — `{"any.collections":{"$nin":["bin","template"]}}` drops binned objects and templates. The filter is evaluated against the host object's current row, not against the fields of the matching chat message or runtime record.
 
 `truncated: true` in the reply means a leg's read budget ran out under the filter before the page filled. More matches may exist: narrow the query or the filter, and never treat that short page as exhaustive. [Hybrid ranking](hybrid.html#filtering-by-host-object) has the full contract.
 

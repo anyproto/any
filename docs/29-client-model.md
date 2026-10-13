@@ -406,8 +406,8 @@ Query grammar and index guidance: [`09-query.md`](09-query.md).
 
 **Object create** takes exactly four keys (`from` copies an object,
 [`31-templates.md`](31-templates.md)) — any other top-level key is
-`400 request.unknown_field`, and a wrong shape (`type` not a string,
-`collections` not an array, `initialProperties` not an object) is
+`400 request.unknown_field`, and a wrong shape (`type` or `from` not a
+string, `collections` not an array, `initialProperties` not an object) is
 `400 request.schema`:
 
 ```json

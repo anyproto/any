@@ -22,7 +22,7 @@ printf 'Object: %s\n' "$OBJ"
 { "objectId": "bafyreib…" }
 ```
 
-The create body has four keys: `type` — **required** unless `from` names an object to copy ([Templates](../database/templates.html)) — `collections` (optional, what it is filed under) and `initialProperties` (starting values, grouped by owner). The group `any` is the **universal** property group every object has: `name`, `description`, `icon`, `tags`, plus `type` and `collections`. It is not something you set; it is the base every object starts from, and it is where the system keeps track of the type and the collections the object does have.
+The create body has four keys: `type` — **required** unless `from` names an object to copy ([Templates](../database/templates.html)) — `collections` (optional, what it is filed under) and `initialProperties` (starting values, grouped by owner). The group `any` is the **universal** property group every object has: `name`, `description`, `icon`, `tags`, `template`, plus `type` and `collections`. It is not something you set; it is the base every object starts from, and it is where the system keeps track of the type and the collections the object does have.
 
 `page` is the built-in plain document — the right type when the thing is just a note. Every object has exactly one type and it is never cleared; [Part 2](properties.html) defines a type of your own, then files objects under a collection.
 

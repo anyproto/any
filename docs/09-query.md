@@ -244,8 +244,9 @@ matches any element, `$all` requires several, `$nin` excludes.
 Ordinary listings exclude bin members and templates with
 `{"any.collections": {"$nin": ["bin", "template"]}}`; the bin itself is
 `{"any.collections": "bin"}` sorted `["-bin.movedAt"]`, and the
-templates of a type are `{"any.collections": "template", "any.type":
-"<typeId>"}` (`31-templates.md`).
+templates of a type are `{"$and": [{"any.collections": "template"},
+{"any.type": "<typeId>"}, {"any.collections": {"$nin": ["bin"]}}]}`
+(`31-templates.md`).
 
 **No marker exclusion is ever needed.** A type definition's own row carries
 `any.type: "__type__"` and a collection definition's carries

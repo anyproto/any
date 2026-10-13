@@ -925,7 +925,7 @@ the request takes one of two paths (`internal/indexer/host_filter.go`):
    collection's tombstones. An equality or range
    on an indexed field (`any.type`, `any.collections`, `modifiedAt`,
    `id`) exits in microseconds; a dense predicate the index cannot bound
-   (`any.collections $nin [bin]` — the everyday shape) exits after the
+   (`any.collections $nin [bin, template]` — the everyday shape) exits after the
    first few hundred rows; only a narrow unindexed predicate (a property
    value held by a few objects) scans the collection, ~4 ms per 6k
    objects, which is what resolving its ids costs anyway.

@@ -43,11 +43,11 @@ optional.
 --properties seeds property values keyed owner → propId → value, the
 owner being the type or one of the collections.
 
---from copies an existing object: its type, its collections, its values
-and its parts' records. --type must then match the source, --collection
-adds to the copied set and --properties overrides copied values. A
-source filed under the built-in template collection is a template: the
-marker is not copied and the new object is stamped any.template.
+--from copies an existing object: its type, its collections minus the
+built-in markers (miniapp, bin, template), its values and its parts'
+records. --type must then match the source, --collection adds to the
+copied set and --properties overrides copied values. A source filed
+under template is a template: the new object is stamped any.template.
 
 Examples:
   any object create S --type page --collection wiki
