@@ -96,8 +96,9 @@ An object deletion can produce a synthetic removal with an empty `versionId`. Ap
 | `sdk_closed` | the space or the engine was closed |
 | `overflow` | events arrived faster than the client drained them and the mailbox (`mailboxCapacity`) filled; the engine closes the stream rather than drop events |
 | `drifted` | more than `driftBudgetPercent` of the window left without replacements; the engine refuses to re-query on the hot path |
+| `object_deleted` | the object behind a per-object stream (one object's dataset, one object's files) was deleted; the view is gone for good and a new POST for it is refused |
 
-Recovery is the same for all of them: **open a new POST and take the fresh snapshot**. There is no replay across reconnects and no resume cursor — the new snapshot already reflects current state, which is strictly cheaper than reconstructing it from a backlog. Before every attempt read `GET /v1/auth`: `authorized: false` means clear the view and wait (a restart, or a managed host between accounts — the example below waits for the original account to come back; a host cancels the watcher on a deliberate sign-out), a different `accountId` means clear the view and stop. Make the same check after a 401, a failed request or a stream that ends without `closed` — an account switch can swallow the terminal frame.
+Recovery is the same for all of them but `object_deleted`: **open a new POST and take the fresh snapshot**. There is no replay across reconnects and no resume cursor — the new snapshot already reflects current state, which is strictly cheaper than reconstructing it from a backlog. Before every attempt read `GET /v1/auth`: `authorized: false` means clear the view and wait (a restart, or a managed host between accounts — the example below waits for the original account to come back; a host cancels the watcher on a deliberate sign-out), a different `accountId` means clear the view and stop. Make the same check after a 401, a failed request or a stream that ends without `closed` — an account switch can swallow the terminal frame.
 
 `overflow` and `drifted` are split only so you can log and back off sensibly: a burst of `overflow` on a hot storage collection is the hint to raise `mailboxCapacity` (or to look at how slowly the consumer drains), a stream of `drifted` on a churny list is the hint to raise `driftBudgetPercent` or widen `limit`.
 
@@ -105,7 +106,7 @@ Recovery is the same for all of them: **open a new POST and take the fresh snaps
 
 ## Client example: fetch streaming, no EventSource
 
-Windowed subscribes are `POST`, so the browser's `EventSource` cannot open them. Parse the SSE frames from a streaming `fetch` body instead, and wrap the stream in one retry loop: a `closed` frame, a stream that ends without one, and a failed request all mean "open a new POST and replace the window with its snapshot". Node.js 18+ or an allowlisted desktop renderer (an ordinary web page hits the server's CORS policy); `SPACE` is a space id, `CHAT` the [general chat's root](../types/chat.html#finding-the-chat-object), `ACCOUNT` the `accountId` from `GET /v1/auth`. `windowChanged` is where your renderer goes — sort by `-_ver.id` for this query — and `stop.abort()` is what the view calls on close:
+Windowed subscribes are `POST`, so the browser's `EventSource` cannot open them. Parse the SSE frames from a streaming `fetch` body instead, and wrap the stream in one retry loop: a `closed` frame, a stream that ends without one, and a failed request all mean "open a new POST and replace the window with its snapshot" — except `closed{object_deleted}`, which ends the view: the object is gone and a new POST for it is refused. Node.js 18+ or an allowlisted desktop renderer (an ordinary web page hits the server's CORS policy); `SPACE` is a space id, `CHAT` the [general chat's root](../types/chat.html#finding-the-chat-object), `ACCOUNT` the `accountId` from `GET /v1/auth`. `windowChanged` is where your renderer goes — sort by `-_ver.id` for this query — and `stop.abort()` is what the view calls on close:
 
 ```js
 const API = "http://127.0.0.1:7001/v1";
@@ -184,7 +185,10 @@ async function subscribe(url, body, onFrame, signal) {
 }
 
 function onFrame(event, data) {
-  if (event === "closed" && data.reason === "deauthorized") {
+  if (event === "closed" && data.reason === "object_deleted") {
+    messages.clear();
+    stop.abort();                          // the object is gone: nothing to reopen
+  } else if (event === "closed" && data.reason === "deauthorized") {
     messages.clear();
   } else if (event === "snapshot") {
     messages = new Map((data.records ?? []).map(r => [r.id, r]));

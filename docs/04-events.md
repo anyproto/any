@@ -44,7 +44,8 @@ user-space. The CLI (`any query-subscribe`) and Go client
 1. **The bundled snapshot is the only point-in-time read.** Events
    deliver from registration onward. There is no replay across
    reconnects — opening a new POST gives you a fresh snapshot frame.
-2. **`closed` is terminal.** Reconnect after `closed`. Reasons:
+2. **`closed` is terminal.** Reconnect after `closed`, unless the
+   reason is `object_deleted`. Reasons:
    - `server_shutdown` — server is exiting (signal or `POST /v1/shutdown`).
    - `deauthorized` — the account behind the stream was torn down in
      place (`DELETE /v1/auth`, or a `POST /v1/auth` switch to another
@@ -58,9 +59,13 @@ user-space. The CLI (`any query-subscribe`) and Go client
    - `drifted` — more than `driftBudgetPercent` of the held window
      left without replacements; the SDK refuses to re-query on the
      hot path. Resubscribe — the new snapshot reflects current state.
+   - `object_deleted` — the object behind a per-object stream (one
+     object's dataset or files) was deleted. Drop the view; a new
+     POST for it is refused.
 
-   Every reason means "open a fresh POST". `overflow` and `drifted`
-   are split so clients can log and back off; recovery is identical.
+   Every reason but `object_deleted` means "open a fresh POST".
+   `overflow` and `drifted` are split so clients can log and back
+   off; recovery is identical.
 3. **Wait for `ready` before treating the stream as live.** Errors
    that happen before the SDK Subscribe call returns surface as a
    regular JSON error envelope on the open response, not SSE.
@@ -128,7 +133,8 @@ are present only when the body set `includeTotal`). Apply each
 subsequent `changes` batch to the local window: add new records,
 update mutated ones, drop ids in `removed` (only `reason:"deleted"`
 means the object is gone for good). A `: keepalive` comment arrives
-every 25s while idle. On `closed`, reconnect with a fresh POST.
+every 25s while idle. On `closed`, reconnect with a fresh POST —
+unless the reason is `object_deleted`: the object is gone, drop the view.
 
 > **Projection applies to the whole stream.** The body's `projection`
 > field (mongo grammar — [`docs/09-query.md` § Projection](09-query.md))

@@ -4,9 +4,9 @@ go 1.26.2
 
 require (
 	github.com/anyproto/any-store v1.0.3
-	github.com/anyproto/any-store/v2 v2.2.1
-	github.com/anyproto/any-sync v0.13.6
-	github.com/anyproto/any-sync-sdk v0.5.1-0.20261013165445-7392f6624da0
+	github.com/anyproto/any-store/v2 v2.3.0
+	github.com/anyproto/any-sync v0.13.8
+	github.com/anyproto/any-sync-sdk v0.6.1-0.20261013170450-45e0a951fce4
 	github.com/anyproto/anytype-push-server/pushclient v0.0.0-20250801122506-553f6c085a23
 	github.com/anyproto/lexid v0.0.6
 	github.com/cheggaaa/mb/v3 v3.0.3
