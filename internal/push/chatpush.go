@@ -86,9 +86,10 @@ const hookBudget = 30 * time.Second
 
 // defaultOwnDeviceDelay is how long the own-devices leg of an agent
 // reply waits for a read before it is sent. The desktop viewport rule
-// marks a visible message read within about a second; a reply the
-// owner is already looking at never reaches the phone.
-const defaultOwnDeviceDelay = 5 * time.Second
+// marks a visible message read within about a second plus one HTTP
+// hop; a reply the owner is already looking at never reaches the
+// phone, and one nobody is looking at arrives two seconds late.
+const defaultOwnDeviceDelay = 2 * time.Second
 
 // NotifyChatMessage is the chatSend hook: read the just-written
 // message back (for the server-derived `mentions` + text), then

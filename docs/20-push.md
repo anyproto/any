@@ -182,7 +182,7 @@ best-effort, never block or fail the HTTP response
 - **agent reply (own devices)** — a message with `agent.done: true` is
   signed with the owner's key, and the push node drops the publisher's
   own tokens on the loud path, so the broadcast above never reaches the
-  owner's phone. The send hook adds a second leg: after a 5 s grace
+  owner's phone. The send hook adds a second leg: after a 2 s grace
   period it checks the SDK's unread snapshot and, only if the message
   is still unread on this account, sends a loud notification with the
   node's own-devices flag on the owner's identity-scoped topics (bare
