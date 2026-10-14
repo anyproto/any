@@ -103,7 +103,7 @@ func TestE2E_FullFlow(t *testing.T) {
 	})
 
 	t.Run("PUT /v1/account/metadata", func(t *testing.T) {
-		body := `{"name":"E2E","description":"smoke","iconCid":"bafyfake"}`
+		body := `{"name":"E2E","description":"smoke"}`
 		mustStatus(t, http.MethodPut, base+"/v1/account/metadata", body, http.StatusNoContent)
 
 		// All fields empty → 400 request.missing_field.
@@ -112,6 +112,17 @@ func TestE2E_FullFlow(t *testing.T) {
 		errObj, _ := env["error"].(map[string]any)
 		if errObj["code"] != "request.missing_field" {
 			t.Errorf("empty body code = %v, want request.missing_field", errObj["code"])
+		}
+
+		// The avatar is set only through PUT /v1/account/icon; an iconCid
+		// here → 400 request.invalid_field naming the field.
+		var refused map[string]any
+		mustJSON(t, http.MethodPut, base+"/v1/account/metadata",
+			`{"name":"E2E","iconCid":"bafyfake"}`, http.StatusBadRequest, &refused)
+		errObj, _ = refused["error"].(map[string]any)
+		details, _ := errObj["details"].(map[string]any)
+		if errObj["code"] != "request.invalid_field" || details["field"] != "iconCid" {
+			t.Errorf("iconCid in metadata = %+v, want request.invalid_field on iconCid", errObj)
 		}
 	})
 
