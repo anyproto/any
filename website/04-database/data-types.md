@@ -64,7 +64,7 @@ Those six keys and `links` are the ones the server interprets; any other top-lev
 | `email` | `string` | One `local@domain`. | |
 | `choice` | `array` | Option keys — one unless `config.multiple`. | `options.<key>` = `{name, color, pos, meta?}`; the key is the stored value. |
 | `relation` | `array` | Plain `any://<objectId>` URIs — no space segment, no fragment; one unless `config.multiple`. | `relation.targetTypes` (type xKeys), `relation.filter` (a query condition as JSON text). |
-| `member` | `array` | `any://u/<identity>` URIs — space members by account identity, no fragment; one unless `config.multiple`. | Resolve the name and avatar from the [members list](../collaboration/members-and-roles.html), then the [identities directory](../auth/identities.html); a removed member keeps the value. |
+| `member` | `array` | `any://u/<identity>` URIs — space members by account identity: a base58 identity, no params, no fragment, not the legacy `m` form; one unless `config.multiple`. | Resolve the name and avatar through the [identities directory](../auth/identities.html); the [members list](../collaboration/members-and-roles.html) is the picker and the roster status; a removed member keeps the value. |
 | `number`, `currency`, `percent`, `duration` | `number` | A number. | `config` display settings (`decimals`, `currency`, `unit`, …). |
 | `rating` | `number` | A number; within `0..config.max` when `max` is set. | |
 | `checkbox` | `boolean` | A boolean. | |

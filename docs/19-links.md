@@ -105,17 +105,19 @@ A `member` property value is an array of `u` URIs
 
 The link **text** of a mention is the display name *at time of writing* — a
 snapshot, and the fallback a non-aware renderer (raw markdown, export, grep)
-shows. A client detects the `u/` prefix and resolves the current name and
-avatar: the space's members list (`GET /v1/spaces/:id/members`) when the
-identity is on the roster — active or removed — and the account-global
-directory (`GET /v1/identities/:identity`) otherwise. Identity profiles are
-encrypted — tolerate unresolved / id-only until the key arrives; fall back to
-the snapshot link text, or to the id.
+shows. A client detects the `u/` prefix and resolves the current name through
+the account-global directory (`GET /v1/identities/:identity`; the avatar
+bytes via `GET /v1/identities/:identity/icon`), like any identity it holds.
+The space's members list (`GET /v1/spaces/:id/members`) says whether the
+identity is on the roster and with what status — a removed member keeps its
+last name there. Identity profiles are encrypted — tolerate unresolved /
+id-only until the key arrives; fall back to the snapshot link text, or to the
+id.
 
 The legacy form `any://m/<spaceId>/<identity>` keeps parsing (kind `m`,
-`Legacy: true`) and canonicalises to `any://u/<identity>`, so a mention
-written before this form and one written after share a backlink key. Nothing
-writes it; `ExtractMentions` returns the identity from either.
+`Legacy: true`) and canonicalises to `any://u/<identity>`: text carrying
+either form keys the same backlink, and `ExtractMentions` returns the identity
+from either. Clients write `u`; a `member` value in the `m` form is refused.
 
 ### `s` — spaces
 
@@ -238,7 +240,7 @@ Stored values use them:
 
 The two-segment identity form `any://m/<spaceId>/<identity>` is legacy too:
 it parses as kind `m` (flagged `Legacy: true`) and means the identity, the
-space segment ignored. Mentions written in text before the `u` form carry it.
+space segment ignored.
 
 The link index (docs/13-index.md § Links) canonicalises every written form
 through `URI.Canonical` — bare and global object forms become

@@ -250,28 +250,32 @@ references, `["any://u/<identity>"]` (docs/19-links.md § `u`), and the
 identity is the same string the members list, a chat message's
 `creator` and the row's `modifiedBy` carry. No object stands in for the
 person: there is no Person record to mint or keep in step with the
-roster.
+roster. A person who is not a space member is an ordinary `relation` to
+a `person` record; `member` is for roster identities.
 
-The check is **format only**. The roster changes concurrently and
-offline, so membership is not verified: a value may name an identity
-that has left the space, or one that has not joined yet. The value is
-never rewritten — a departed member stays the assignee until someone
-changes it.
+The check is the **shape only**: a base58 identity in the `u` form,
+never decoded as an account id nor matched against the roster, which
+changes concurrently and offline. A value may name an identity that has
+left the space, or one that has not joined yet. The value is never
+rewritten — a departed member stays the assignee until someone changes
+it. A value in the legacy `any://m/…` form is refused.
 
-Rendering resolves the identity at read time: the space's members list
-(`GET /v1/spaces/:id/members`, which keeps removed members with their
-last name) first, the account-global directory
-(`GET /v1/identities/:identity`) for an identity the roster never had,
-the bare id when neither knows it. A picker offers the members list.
+Rendering resolves the identity at read time through the account-global
+directory (`GET /v1/identities/:identity`, the avatar via its `/icon`
+route), falling back to the bare id until the profile resolves. The
+space's members list (`GET /v1/spaces/:id/members`) is the picker's
+source — offer the `status: active` rows — and says what a stored
+identity is to the space now: active, removed, never a member.
 
 Reads: "assigned to me" in one space is a query on the property,
 `{"<ownerId>.<propId>": "any://u/<myIdentity>"}` (array membership;
-the own identity is `GET /v1/account` → `id`); across every space it
-is `GET /v1/backlinks?target=any://u/<myIdentity>` — the slug implies
-the `links` marker, so every member value is a `relation` edge to the
-identity, next to the `mention` edges from text (docs/13-index.md
-§ Links). `relation.targetTypes` does not apply: the target set is the
-roster.
+the own identity is `GET /v1/account` → `id`) — the paged list. Across
+every space it is `GET /v1/backlinks?target=any://u/<myIdentity>&kind=relation`:
+the slug implies the `links` marker, so every member value is a
+`relation` edge to the identity, next to the `mention` edges from text
+(docs/13-index.md § Links); the read is a cut at 500 edges per space,
+not a page. `relation.targetTypes` does not apply: the target set is
+the roster.
 
 ### Dates
 
@@ -467,7 +471,8 @@ Edit `xFormat` leaf by leaf (§ Editing: leaves only).
 1. Value does not match the slug — the slug changed after the values were written
 2. Option key absent from `options` — deleted, or the value predates it
 3. Unknown slug, or an unknown key inside `xFormat`
-4. Link target missing, deleted, or outside `relation.targetTypes`
+4. Link target missing, deleted, or outside `relation.targetTypes`; a
+   `member` identity not on the roster, or not yet resolved
 5. A value under a propId with no definition — the definition was removed
 6. No `xFormat` at all — an agent declared only `kind`
 7. `config` value of an unexpected type
@@ -604,7 +609,8 @@ contract:
   `xFormat` where the vocabulary above names its value (`text`,
   `longtext`, `markdown`, `datetime`, `checkbox`). Two value shapes
   have no slug and ship description-only: the bare account identities
-  on system fields (`creator`, `modifiedBy` — a string, not a `member`
-  array) and record ids (`replyToMessageId`, `views.dataview`). Icon
+  on system fields (`creator`, `modifiedBy`, `bin.movedBy` and the
+  like — a string, not a `member` array) and record ids
+  (`replyToMessageId`, `views.dataview`). Icon
   values, lexid `pos`, enum strings and opaque objects are system
   values and carry no slug.

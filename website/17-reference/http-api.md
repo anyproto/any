@@ -168,7 +168,7 @@ Reads over the link index the search indexer maintains — not SDK methods. All 
 | GET | `…/objects/:objectId/links` | same narrowing, `?dataset` alone | `{links: [Link], truncated?}` | edges whose source is the object |
 | GET | `/v1/backlinks` | `?target=<global any:// uri>`, `?kind`, `?limit` | `{spaces: [{spaceId, object, parts, truncated?}]}` | across every indexed space; a bare in-space URI is `400 request.invalid_field` |
 
-`Link` = `{source: {spaceId, objectId, dataset, recordId, typeId?}, kind, target: {uri, kind, spaceId, objectId?, dataset?, recordId?, propId?, identity?, fileId?}}`; `kind` is `mention`, `link`, `card`, `embed` or `relation`. A change publishes a device-scope `links.updated` event naming the moved targets. See [Links](../types/links.html).
+`Link` = `{source: {spaceId, objectId, dataset, recordId, typeId?}, kind, target: {uri, kind, spaceId?, objectId?, dataset?, recordId?, propId?, identity?, fileId?}}`; `kind` is `mention`, `link`, `card`, `embed` or `relation`; an identity target (`u`) has no `spaceId`. A change publishes a device-scope `links.updated` event naming the moved targets. See [Links](../types/links.html).
 
 ### Editor (blocks and markdown)
 

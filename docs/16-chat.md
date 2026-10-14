@@ -282,7 +282,7 @@ writes are born read.
 
 Rendering the mention chip — resolving the current display name via
 `GET /v1/identities`, falling back to the link text snapshot — is
-described in docs/19-links.md § `m` — mentions.
+described in docs/19-links.md § `u` — identities.
 
 ## Chat list
 

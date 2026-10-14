@@ -362,9 +362,8 @@ type LinkEntry struct {
   re-embeds; an unreadable object is skipped and its edges arrive with
   its next change. Reported as `index.links_backfill.<spaceId>` on the
   process view (`22-processes.md`). The layout changes when the
-  canonical form of a target does — identity targets moving from
-  `any://m/<sp>/<identity>` to `any://u/<identity>` was one — so a key a
-  reader asks for is the key every stored edge carries.
+  canonical form of a target does, so the key a reader asks for is the
+  key every stored edge carries.
 - After a page changed edges the indexer reports the affected target
   keys (`Options.OnLinks` — only targets an edge appeared for or
   vanished from); the server publishes them as one device-scope bus

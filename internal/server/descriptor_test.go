@@ -59,6 +59,7 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 	related := add(`{"name":"Related","xKey":"related","kind":"array","xFormat":{"type":"relation","icon":"link",
 		"config":{"multiple":true},"relation":{"targetTypes":["doc"],"filter":"{\"any.type\":\"page\"}"}}}`)
 	assignee := add(`{"name":"Assignee","xKey":"assignee","kind":"array","xFormat":{"type":"member","icon":"user"}}`)
+	reviewers := add(`{"name":"Reviewers","xKey":"reviewers","kind":"array","xFormat":{"type":"member","config":{"multiple":true}}}`)
 	due := add(`{"name":"Due","xKey":"due","kind":"datetime","xFormat":{"type":"date"}}`)
 	when := add(`{"name":"When","xKey":"when","kind":"datetime","xFormat":{"type":"datetime"}}`)
 	site := add(`{"name":"Site","xKey":"site","kind":"string","xFormat":{"type":"url"}}`)
@@ -156,6 +157,9 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 		r["relation"].(map[string]any)["targetTypes"].([]any)[0] != "doc" {
 		t.Errorf("related descriptor read-back = %s", props[related].XFormat)
 	}
+	if m := xf(props[assignee]); m["type"] != "member" || m["icon"] != "user" || props[assignee].Kind != api.PropertyKindArray {
+		t.Errorf("assignee descriptor read-back = %s", props[assignee].XFormat)
+	}
 	if c := xf(props[custom]); c["type"] != "acme.widget" || c["acme"] == nil {
 		t.Errorf("vendor descriptor must read back verbatim: %s", props[custom].XFormat)
 	}
@@ -212,6 +216,9 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 		{"member object ref", assignee, `["any://objabc"]`, 400},
 		{"member fragment", assignee, `["any://u/ident1abc#top"]`, 400},
 		{"member unknown identity is format-only", assignee, `["any://u/nobodyabc"]`, 200},
+		{"member not base58", assignee, `["any://u/ident1abc."]`, 400},
+		{"member two with multiple on", reviewers, `["any://u/ident1abc","any://u/ident2abc"]`, 200},
+		{"member empty", reviewers, `[]`, 200},
 		{"markdown string", notes, `"see [x](any://abc123def)"`, 200},
 		{"markdown not string", notes, `7`, 400},
 		{"link marker keeps text checks", ref, `"any://abc123def"`, 200},
@@ -283,6 +290,16 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("initialProperties valid: status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
+		`{"type":"`+tr.TypeId+`","initialProperties":{"`+tr.TypeId+`":{"`+assignee+`":["any://m/space1/ident1abc"]}}}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("initialProperties legacy member form: status=%d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
+		`{"type":"`+tr.TypeId+`","initialProperties":{"`+tr.TypeId+`":{"`+assignee+`":["any://u/ident1abc"]}}}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("initialProperties member: status=%d body=%s", rec.Code, rec.Body.String())
+	}
 
 	// --- PATCH --------------------------------------------------------------
 
@@ -309,6 +326,23 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 	}
 	if rec := patch(stage, `{"set":{"xFormat.type":"choice"}}`); rec.Code != http.StatusNoContent {
 		t.Fatalf("slug back: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	// member ↔ relation is a move within the array kind; the value gate
+	// follows the slug.
+	if rec := patch(assignee, `{"set":{"xFormat.type":"relation"}}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("member to relation: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := set(assignee, `["any://u/ident1abc"]`); got != http.StatusBadRequest {
+		t.Errorf("identity under the relation slug: status=%d, want 400", got)
+	}
+	if got := set(assignee, `["any://objabc"]`); got != http.StatusOK {
+		t.Errorf("object under the relation slug: status=%d", got)
+	}
+	if rec := patch(assignee, `{"set":{"xFormat.type":"member"}}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("relation back to member: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := set(assignee, `["any://objabc"]`); got != http.StatusBadRequest {
+		t.Errorf("object under the member slug: status=%d, want 400", got)
 	}
 	for name, tc := range map[string]struct {
 		prop, body string

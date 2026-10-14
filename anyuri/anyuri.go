@@ -320,15 +320,33 @@ func IsValid(s string) bool {
 // fragment-less "any://<objectId>".
 func IsPropertyValueRef(s string) bool {
 	u, err := Parse(s)
-	return err == nil && u.Legacy && u.Kind == KindObject && u.SpaceId == "" && u.Fragment == ""
+	return err == nil && u.Legacy && u.Kind == KindObject && u.SpaceId == "" && u.Fragment == "" && u.String() == s
 }
 
 // IsIdentityValueRef reports whether s is exactly the strict form
-// member property values require: "any://u/<identity>", no params, no
-// fragment. The legacy m form is not a value.
+// member property values require: "any://u/<identity>" with a base58
+// identity, no params, no fragment. The legacy m form is not a value.
 func IsIdentityValueRef(s string) bool {
 	u, err := Parse(s)
-	return err == nil && u.Kind == KindIdentity && u.Fragment == "" && u.String() == s
+	return err == nil && u.Kind == KindIdentity && u.Fragment == "" && isBase58(u.Identity) && u.String() == s
+}
+
+// isBase58 reports whether s is non-empty and drawn from the base58
+// alphabet account identities are encoded in (no 0, O, I, l).
+func isBase58(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= '1' && c <= '9', c >= 'a' && c <= 'k', c >= 'm' && c <= 'z',
+			c >= 'A' && c <= 'H', c >= 'J' && c <= 'N', c >= 'P' && c <= 'Z':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // isKindSlug reports whether a first path segment sits in the reserved

@@ -171,6 +171,9 @@ func TestIsPropertyValueRef(t *testing.T) {
 		"any://m/space1/ident1",  // legacy identity form
 		"any://u/ident1",         // identity
 		"any://s/space1",         // typed form
+		"any://object1?foo=bar",  // params
+		"any://object1?",         // empty params
+		"any://object1#",         // empty fragment
 		"any://",                 // garbage
 		"object1",                // no scheme
 		"any://abcd",             // kind-slug namespace, not an id
@@ -181,12 +184,20 @@ func TestIsPropertyValueRef(t *testing.T) {
 
 func TestIsIdentityValueRef(t *testing.T) {
 	assert.True(t, anyuri.IsIdentityValueRef("any://u/ident1"))
+	assert.True(t, anyuri.IsIdentityValueRef("any://u/A9FFFFFFFr7yXRqr9AwvJWpJ9ei6hct2QYpa3hSsbXR9igr9"))
 
 	for _, bad := range []string{
 		"any://m/space1/ident1",  // legacy form is not a value
 		"any://u/ident1#frag1",   // fragment
+		"any://u/ident1#",        // empty fragment
 		"any://u/ident1?foo=bar", // params
+		"any://u/ident1?",        // empty params
 		"any://u/",               // empty identity
+		"any://u/ident1.",        // not base58: a glued period
+		"any://u/ident 1",        // not base58: a space
+		"any://u/ident0",         // not base58: zero
+		"any://u/identOIl",       // not base58: O, I, l
+		"any://u/%41bc",          // not base58: percent-encoding
 		"any://object1",          // object reference
 		"any://o/space1/object1", // object reference
 		"ident1",                 // bare identity
