@@ -109,7 +109,9 @@ Rules that follow:
   endpoint after sending. The one exception is an agent's terminal
   message (`agent.done: true`): it is signed with your key but you have
   not seen it, so it counts unread on every device of yours until read,
-  in every space. Its `done: false` bubbles stay born read.
+  in every space. Its `done: false` bubbles stay born read, so the
+  unread divider lands on that final message and the run's earlier
+  bubbles sit above it as read.
 - Edits never re-flag a message's `unread`. The one exception is
   mentions: an edit whose new text mentions you sets `unreadMention`
   (a fresh ping is a ping), and repeated re-edits collapse into ONE
@@ -279,10 +281,12 @@ POST /v1/spaces/:spaceId/query
 
 Badge from the row's `chat.unreadMentions`, exactly like
 `chat.unreadCount`. Self-mentions and self-replies list you in
-`mentions` (it's an objective fact of the message — filter with
-`creator != me` if you don't want them) but never badge you: your own
-writes are born read. An agent's terminal message is the exception, so
-an agent that mentions you bumps `chat.unreadMentions` too.
+`mentions` (it's an objective fact of the message — filter them out
+client-side if you don't want them, but keep messages carrying `agent`)
+but never badge you: your own writes are born read. An agent's terminal
+message is the exception, so
+an agent that mentions you bumps `chat.unreadMentions` too — including
+through the reply fold-in, when it replies to one of your messages.
 
 Rendering the mention chip — resolving the current display name via
 `GET /v1/identities`, falling back to the link text snapshot — is
@@ -329,7 +333,8 @@ for `chat.unreadCount` / `chat.unreadMentions` changes:
   `POST /query` on that chat, `{"unread": true}`, sort `-_ver.id`,
   small limit. Keep a last-notified `_ver.id` per chat in the client's
   local store and toast only messages above it — that marker is your
-  entire notification cursor.
+  entire notification cursor. Skip the toast when that chat is open
+  and visible; the viewport rule marks it read instead.
 - **Counter went down** → the user read it here, in another window, or
   on another device — dismiss that chat's OS notifications. Cross-
   device dismissal falls out for free.
@@ -358,6 +363,9 @@ Same semantics as the HTTP recipe, one hop closer to the engine.)
 
 ## Things not to do
 
+- An agent never calls the read endpoints on a chat it serves. Its
+  server is one of the owner's devices, so a read-all after posting
+  would clear its own `done: true` reply on every device.
 - Don't call read endpoints on message receipt, on notification
   display, or unconditionally on chat open — only on actual
   visibility.

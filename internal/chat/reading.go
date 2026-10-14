@@ -113,6 +113,16 @@ func classifyRead(ctx *handler.ChangeCtx, rec *handler.RecordChange) handler.Rea
 	// the mention without the badge.
 	var reaction *handler.ReadClassification
 	textEdit := false
+	// An upsert is a create only when THIS change stamped the record's
+	// creation version; an upsert on an existing record is an edit and
+	// must classify as one (never re-flag `unread`, never re-read
+	// `agent`).
+	var post *anyenc.Value
+	creating := false
+	if rec.Upsert {
+		post = postApplyRecord(ctx)
+		creating = createdBy(post, ctx)
+	}
 	for i := range rec.Ops {
 		op := &rec.Ops[i]
 		switch op.Type {
@@ -136,16 +146,21 @@ func classifyRead(ctx *handler.ChangeCtx, rec *handler.RecordChange) handler.Rea
 				}
 			}
 			// text — an edit. Real creates carry a multi-field $set
-			// (empty path); the Upsert guard keeps any create shape on
-			// the create branch below. The record id is explicit on
+			// (empty path); the creating guard keeps any create shape
+			// on the create branch below. The record id is explicit on
 			// edits, so it's safe in the supersede key.
-			if !rec.Upsert && op.Type == handler.OpSet && len(op.Path) == 1 && op.Path[0] == FieldText {
+			if !creating && op.Type == handler.OpSet && len(op.Path) == 1 && op.Path[0] == FieldText {
 				textEdit = true
 			}
 		}
 	}
-	if textEdit && mentionsSelf(postApplyRecord(ctx), ctx) {
-		return handler.ReadClassification{Track: true, Tags: []string{TagMention}, Key: "mention:" + rec.Id}
+	if textEdit {
+		if post == nil {
+			post = postApplyRecord(ctx)
+		}
+		if mentionsSelf(post, ctx) {
+			return handler.ReadClassification{Track: true, Tags: []string{TagMention}, Key: "mention:" + rec.Id}
+		}
 	}
 	if reaction != nil {
 		return *reaction
@@ -154,8 +169,7 @@ func classifyRead(ctx *handler.ChangeCtx, rec *handler.RecordChange) handler.Rea
 		// Mention-less edit: clears a previously edit-tracked mention.
 		return handler.ReadClassification{Key: "mention:" + rec.Id}
 	}
-	if rec.Upsert {
-		post := postApplyRecord(ctx)
+	if creating {
 		tags := []string{TagMessage}
 		if mentionsSelf(post, ctx) {
 			tags = append(tags, TagMention)
@@ -167,6 +181,18 @@ func classifyRead(ctx *handler.ChangeCtx, rec *handler.RecordChange) handler.Rea
 		}
 	}
 	return handler.ReadClassification{}
+}
+
+// createdBy reports whether ctx's change created the record: the
+// creation version marker `_ver.id` is stamped once, by the creating
+// change, and equals that change's version on every replica (each
+// compares its own local ids). Without a resolvable record or change
+// an Upsert is taken at face value.
+func createdBy(post *anyenc.Value, ctx *handler.ChangeCtx) bool {
+	if post == nil || ctx == nil || ctx.Change == nil {
+		return true
+	}
+	return string(post.GetStringBytes("_ver", "id")) == string(ctx.Change.VersionId)
 }
 
 // postApplyRecord point-reads the just-applied record. Classification

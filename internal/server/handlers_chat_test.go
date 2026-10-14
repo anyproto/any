@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -551,7 +552,10 @@ func pollChatUnreadCount(t *testing.T, e http.Handler, spaceId, objectId string,
 // ONE account — the shape no multipeer test can reach: a human message
 // and a streaming agent bubble are born read, the agent's done:true
 // message counts unread for its own author (per-message `unread` flag
-// and the row's chat.unreadCount), and read-all clears it.
+// and the row's chat.unreadCount), read-all clears it, and an
+// upsert-flagged edit of the agent message does not re-flag it. The
+// SDK's unread snapshot is the synchronous truth; flags and the row
+// counter are its debounced materialization.
 func TestServer_Chat_AgentDoneUnread(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -559,6 +563,24 @@ func TestServer_Chat_AgentDoneUnread(t *testing.T) {
 
 	spaceId, objectId := setupChatFixture(t, e)
 	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
+
+	unreadIds := func() []string {
+		t.Helper()
+		ctx := context.Background()
+		sp, err := d.sdk.Spaces().Get(ctx, spaceId)
+		if err != nil {
+			t.Fatalf("Spaces().Get: %v", err)
+		}
+		snap, _, err := sp.ReadState().UnreadSnapshot(ctx, objectId)
+		if err != nil {
+			t.Fatalf("UnreadSnapshot: %v", err)
+		}
+		var ids []string
+		for _, ch := range snap {
+			ids = append(ids, ch.RecordIds...)
+		}
+		return ids
+	}
 
 	send := func(body string) string {
 		t.Helper()
@@ -582,6 +604,9 @@ func TestServer_Chat_AgentDoneUnread(t *testing.T) {
 	doneId := send(`{"text":"done: here it is","agent":{"name":"bao","done":true}}`)
 	followUpId := send(`{"text":"thanks"}`)
 
+	if ids := unreadIds(); len(ids) != 1 || ids[0] != doneId {
+		t.Fatalf("unread entries = %v, want exactly [%s]", ids, doneId)
+	}
 	pollChatUnreadCount(t, e, spaceId, objectId, 1)
 	got := flags()
 	want := map[string]bool{humanId: false, streamId: false, doneId: true, followUpId: false}
@@ -595,9 +620,30 @@ func TestServer_Chat_AgentDoneUnread(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("read-all: %d %s", rec.Code, rec.Body.String())
 	}
+	if ids := unreadIds(); len(ids) != 0 {
+		t.Fatalf("unread entries after read-all = %v, want none", ids)
+	}
 	pollChatUnreadCount(t, e, spaceId, objectId, 0)
 	if got := flags(); got[doneId] {
 		t.Errorf("read-all left the agent message unread: %v", got)
+	}
+
+	// An upsert-flagged edit through the generic modify route is an
+	// edit, not a create: the agent message must not be re-flagged.
+	body, _ := json.Marshal(map[string]any{
+		"objectId": objectId, "dataset": "chat_messages",
+		"records": []any{map[string]any{"id": doneId, "upsert": true,
+			"ops": []any{map[string]any{"type": "$set", "path": "text", "value": "done: edited"}}}},
+	})
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/modify", string(body))
+	if rec.Code/100 != 2 {
+		t.Fatalf("upsert edit: %d %s", rec.Code, rec.Body.String())
+	}
+	if msg := getChatMsg(t, e, base, doneId); msg.Text != "done: edited" {
+		t.Fatalf("upsert edit did not land: text = %q", msg.Text)
+	}
+	if ids := unreadIds(); len(ids) != 0 {
+		t.Errorf("upsert edit re-flagged the agent message: unread entries = %v", ids)
 	}
 }
 
