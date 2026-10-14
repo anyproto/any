@@ -97,6 +97,11 @@ func (d *deps) propertiesSet(c echo.Context) error {
 	}
 	patch := make(map[string]any, patchObj.Len())
 	patchObj.Visit(func(propId []byte, v *fastjson.Value) {
+		// A JSON null is the SDK's nil: an unset of the property.
+		if v.Type() == fastjson.TypeNull {
+			patch[string(propId)] = nil
+			return
+		}
 		patch[string(propId)] = v
 	})
 

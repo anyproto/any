@@ -1856,10 +1856,11 @@ collections, whose namespace the values land in. `type` is required
 
 `from` names an object to **copy**: the new object takes the source's
 type, its collections minus the built-in markers (`miniapp`, `bin`,
-`template`), its synced `any.*` values, the declared values of every
-owner the new object has and the records of every dataset the source's
-type declares through its parts, except a reserved module's. `type`
-must then be absent or equal to the source's
+`template`), its synced `any.*` values, the declared values under the
+source's type and its own non-marker collections (a collection the
+request adds brings no values) and the records of every dataset the
+source's type declares through its parts, except a reserved module's.
+`type` must then be absent or equal to the source's
 (`400 template.type_mismatch`), `collections` are added to the copied
 ones and `initialProperties` are written over the copied values. A
 source filed under `template` is a template: the row is stamped
@@ -1869,7 +1870,8 @@ unknown source, or one whose row has not synced here yet, is
 `404 object.not_found`, a deleted one `410 object.deleted`, a
 definition's own row `400 membership.meta_type`, and a record of the
 source its dataset refuses today `409 template.record_refused` (the
-half copy is deleted).
+half copy is deleted; a delete that fails too is logged and the object
+stays).
 
 These four keys are the **whole** create vocabulary. Any other
 top-level key — a bare owner group like `"any"`, a top-level `"name"`,
@@ -1879,10 +1881,11 @@ where the value belongs: object properties always ride
 (`{"initialProperties": {"any": {"name": "Dune"}}}`). Shape is
 enforced per field too (`type` and `from` strings, `collections` an
 array, `initialProperties` an object, every `initialProperties` group
-an object of `{propertyId: value}`) → `400 request.schema`. Nothing in
-this body is silently dropped, and nothing is added to it server-side:
-the object gets exactly the type and collections it names, or copies
-with `from`. Initial
+an object of `{propertyId: value}`) → `400 request.schema`. Nothing is
+added to the body server-side, and the one thing dropped from it is
+membership written as a value — `initialProperties.any.type` and
+`any.collections` are ignored: the object gets exactly the type and
+collections the top-level keys name, or copies with `from`. Initial
 values pass the descriptor value gate
 (`400 property.format_violation`, § Types), and a type that declares a
 reserved module is refused (`400 type.reserved_carrier`, § Parts and
@@ -1934,7 +1937,9 @@ Children of a node, in order (`""` as the parent lists the top level):
 ```
 POST /v1/spaces/:spaceId/objects/query
 {
-  "filter": { "<wikiCollectionId>.<parentIdPropId>": "<parentObjectId>" },
+  "filter": { "$and": [ { "<wikiCollectionId>.<parentIdPropId>": "<parentObjectId>" },
+                        { "any.collections": "<wikiCollectionId>" },
+                        { "any.collections": { "$nin": ["bin", "template"] } } ] },
   "sort":   [ "<wikiCollectionId>.<posPropId>" ]
 }
 ```

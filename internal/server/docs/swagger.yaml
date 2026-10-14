@@ -2292,9 +2292,10 @@ components:
           description: |-
             From copies an existing object: its type, its collections except
             the built-in markers (`miniapp`, `bin`, `template`), its synced
-            `any.*` values, the declared values of every owner the new object
-            has and the records of every dataset its type's parts declare (a
-            reserved module's excepted). `type` is then optional and must
+            `any.*` values, the declared values under its type and its own
+            non-marker collections and the records of every dataset its
+            type's parts declare (a reserved module's excepted). `type` is
+            then optional and must
             equal the source's (400 template.type_mismatch); `collections`
             are added to the copied set and `initialProperties` override
             copied values. A source filed under `template` is a template: the

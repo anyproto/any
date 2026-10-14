@@ -241,15 +241,24 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 		}
 	}
 
-	// A null value passes the descriptor gate (unsets are not its
-	// concern) — the SDK's own kind check rejects it downstream, proving
-	// the gate didn't intercept it.
+	// A null value is an unset: it passes the descriptor gate (unsets
+	// are not its concern) and the SDK clears the property.
 	rec = doJSON(t, e, http.MethodPost, setURL, `{"patch":{"`+due+`":null}}`)
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("null value: status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if code := errCode(t, rec.Body.Bytes()); code == "property.format_violation" {
-		t.Errorf("null value must not trip the descriptor gate (got %q)", code)
+	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/properties/"+objResp.ObjectId, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get properties: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Record map[string]any `json:"record"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode properties: %v", err)
+	}
+	if group, _ := got.Record[tr.TypeId].(map[string]any); group[due] != nil {
+		t.Errorf("null value must unset the property, still %v", group[due])
 	}
 
 	// initialProperties on object create go through the same gate.

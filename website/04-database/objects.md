@@ -34,7 +34,7 @@ The create body has exactly four keys:
 | `initialProperties` | Starting values, keyed by **owner** then property id: `{"<ownerId>": {"<propId>": value}}`, the owner being the type or one of the collections. The only home for property values — a top-level `name` is rejected. |
 | `from` | An object to copy: its type, collections minus the built-in markers, values and parts' records. `type` must then match the source (`400 template.type_mismatch`); a source record its dataset refuses today is `409 template.record_refused`. A source filed under `template` is a template — see [Templates](templates.html). |
 
-Any other top-level key answers `400 request.unknown_field` naming the accepted set; a wrong shape (a string where an array is expected) is `400 request.schema`. Nothing is silently dropped. Values under `initialProperties` are checked against each property's declared format (`400 property.format_violation`).
+Any other top-level key answers `400 request.unknown_field` naming the accepted set; a wrong shape (a string where an array is expected) is `400 request.schema`. Membership written as a value — `initialProperties.any.type` and `any.collections` — is ignored: the top-level keys decide it. Values under `initialProperties` are checked against each property's declared format (`400 property.format_violation`).
 
 A person filed under two facets is one call — `$PERSON` the type, `$CONTACT` and `$INVESTOR` collections, `$STATUS` a property declared on the contact collection:
 

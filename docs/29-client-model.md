@@ -446,7 +446,7 @@ answer with the new id under a per-kind key (`objectId`, `typeId`,
 |---|---|
 | **Document** | set a type with an editor part — `page` is the built-in one. Blocks: `…/objects/:o/editor/:collection/blocks`; whole body: `GET/PUT/PATCH …/editor/:collection/markdown`. Read with `dataset` set to **the same `:collection`** — the storage collection — sorted on `nav.pos`: `editor_blocks` for the canonical body `page` uses, `<typeId>_<key>` for an editor dataset a type declares under a key of its own. |
 | **Chat** | one per space, the `general-chat` usecase; its root is filed under `miniapp`, so it sits in the sidebar with the other apps. Writes: `…/objects/:chatRoot/chat/messages`. Read via `dataset=chat_messages` sorted on `_ver.id`. |
-| **Wiki tree** | the `wiki` usecase's three properties on objects of its type: `parentId` (`""` = top level), `pos` (lexid), `folder`. Children = objects query filtered on the parent property, sorted on the pos property. The server allocates no positions. |
+| **Wiki tree** | the `wiki` usecase's three properties on objects of its type: `parentId` (`""` = top level), `pos` (lexid), `folder`. Children = objects query filtered on the parent property, the collection and the shared `$nin` clause, sorted on the pos property. The server allocates no positions. |
 | **Saved views** | one `dataview` object per host, holding `dataviews` (tables on the host) and `views` (views of a table). |
 | **Favourites** | the client-registered `favorites/v1` bundle on the tech space. |
 | **Bin** | file the object under the `bin` collection, unfile to restore. |

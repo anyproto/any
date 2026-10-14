@@ -317,6 +317,12 @@ or by collection membership:
 {"filter": {"any.collections": "<collectionId>", "<collectionId>.<propId>": {"$in": ["urgent"]}}}
 ```
 
+The stored `filter` holds what the user chose. The exclusion every
+list carries — `{"any.collections": {"$nin": ["bin", "template"]}}`
+([`31-templates.md`](31-templates.md)) — is added by the client when
+it runs the view, so a view saved before a marker existed stays
+correct and binned rows never surface in a board or a group count.
+
 The scope is not optional politeness. `objects` is a per-space storage
 collection holding *every* object — definitions, chat objects, bundle
 roots, dataview objects — and the negation operators (`$ne`, `$nin`,
