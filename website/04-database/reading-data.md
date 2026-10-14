@@ -24,7 +24,7 @@ All three are POST because a filter does not fit a query string. Each has a `/su
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
   -H 'Content-Type: application/json' \
   -d '{"filter": {"$and": [{"any.type": "page"},
-                           {"any.collections": {"$nin": ["bin"]}}]},
+                           {"any.collections": {"$nin": ["bin", "template"]}}]},
        "sort": ["-modifiedAt", "id"], "limit": 20}'
 
 # the blocks of one document, in order
@@ -105,7 +105,7 @@ An object carries one type and any number of collections, so the two filter diff
 { "any.type":        "<typeId>" }                    // of that type
 { "any.type":        { "$in": ["<t1>", "<t2>"] } }   // of any of those types
 { "any.collections": "<collectionId>" }              // filed under it
-{ "any.collections": { "$nin": ["bin"] } }           // not in the bin
+{ "any.collections": { "$nin": ["bin", "template"] } } // not in the bin, not a template
 ```
 
 `any.type` is plain equality on a scalar — no array matching, `$in` for a set. **No marker exclusion is ever needed:** a type definition's row carries `any.type: "__type__"` and a collection's carries `"__collection__"`, never its own id, so a definition never matches a member query even while it hosts its own values and records.

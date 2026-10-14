@@ -175,13 +175,14 @@ any chat react  <spaceId> <objectId> <msgId> <emoji>          # toggle
 
 ```
 any object create <spaceId> --type T [--collection C]... [--properties '<json>'|@FILE|-]
+any object create <spaceId> --from OBJ [--type T] [--collection C]... [--properties '<json>'|@FILE|-]
 
 any object type set          <spaceId> <objectId> <typeId>
 any object collection attach <spaceId> <objectId> <collectionId>
 any object collection detach <spaceId> <objectId> <collectionId>
 ```
 
-`--type` is required (`page` is the plain document) and `object type set` replaces the previous one — there is no unset. `--collection` repeats; attach and detach are idempotent, and detaching is not a delete: that owner's values stay on the row as orphan data. `--properties` seeds values keyed owner → propId → value, the owner being the type or one of the collections.
+`--type` is required unless `--from` names an object to copy (`page` is the plain document) and `object type set` replaces the previous one — there is no unset. `--collection` repeats; attach and detach are idempotent, and detaching is not a delete: that owner's values stay on the row as orphan data. `--properties` seeds values keyed owner → propId → value, the owner being the type or one of the collections.
 
 `set` and `attach` pre-flight the id (`404 type.not_found` / `404 collection.not_found`, `400 type.not_a_type` / `400 collection.not_a_collection` when it names the other surface); `detach` pre-flights nothing, so it can repair a row that already carries a bogus id.
 
@@ -250,7 +251,7 @@ any collection property remove <spaceId> <collectionId> <propId>
 
 A collection is what an object is filed under; a type is what it is. A collection takes a name, description, icon, `--xkey`, `--hidden`, `--meta` and property definitions — no parts, no layout. The property verbs are the type ones on a collection owner, same flags and same `{set, unset}` patch rules; the choice-option sugar is on the type group only, so patch the descriptor path directly here.
 
-`--xkey` is required on create and unique across the space's types and collections together (`409 type.xkey_conflict`). `collection list` omits hidden collections (the built-in `miniapp` / `bin`, and any you marked hidden) without `--include-hidden`; `collection get` resolves them always. A registered built-in refuses a metadata write (`400 collection.registered`).
+`--xkey` is required on create and unique across the space's types and collections together (`409 type.xkey_conflict`). `collection list` omits hidden collections (the built-in `miniapp` / `bin` / `template`, and any you marked hidden) without `--include-hidden`; `collection get` resolves them always. A registered built-in refuses a metadata write (`400 collection.registered`).
 
 ```bash
 any collection create $SP --name Contacts --xkey contact

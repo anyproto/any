@@ -183,7 +183,8 @@ func serverTypes() []handler.Type {
 
 // serverCollections is the hardcoded collection set: the hidden
 // markers an object opts into next to its type — the sidebar entry
-// and the bin.
+// and the bin. The template marker is the SDK's own
+// (space.TemplateCollectionId), registered ahead of these.
 func serverCollections() []handler.Collection {
 	out := []handler.Collection{
 		miniapp.NewCollection(), // hidden: the installed bundle an object runs

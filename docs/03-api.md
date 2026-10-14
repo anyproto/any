@@ -47,7 +47,7 @@
     - [Built-in `dataview` type](#built-in-dataview-type)
     - [Built-in hidden type: `page`](#built-in-hidden-type-page)
   - [Collections](#collections)
-    - [Built-in collections: `miniapp`, `bin`](#built-in-collections-miniapp-bin)
+    - [Built-in collections: `miniapp`, `bin`, `template`](#built-in-collections-miniapp-bin-template)
   - [Properties (values on objects)](#properties-values-on-objects)
   - [Chat (the `chat` module)](#chat-the-chat-module)
     - [Message wire shape (read path)](#message-wire-shape-read-path)
@@ -927,7 +927,7 @@ Body:
   "exclude": ["fiction"],             // optional must-not terms
   "maxData": 512,                     // optional: runes of `data` per hit around the first match (default 512; -1 = whole chunk)
   "passages": 3,                      // optional: further matching chunks per record on hit.passages (default 0, max 10)
-  "filter": {"any.collections": {"$nin": ["bin"]}}  // optional: keep hits whose HOST OBJECT row matches (the /objects/query filter grammar); every mode
+  "filter": {"any.collections": {"$nin": ["bin", "template"]}}  // optional: keep hits whose HOST OBJECT row matches (the /objects/query filter grammar); every mode
 }
 ```
 
@@ -1836,13 +1836,14 @@ rewrite. See `04-events.md`.
 
 #### Create an object
 
-`POST /v1/spaces/:spaceId/objects` takes three keys:
+`POST /v1/spaces/:spaceId/objects` takes four keys:
 
 ```json
 {
   "type": "<typeId>",
   "collections": ["<collectionId>"],
-  "initialProperties": { "<ownerId>": { "<propId>": "..." } }
+  "initialProperties": { "<ownerId>": { "<propId>": "..." } },
+  "from": "<objectId>"
 }
 ```
 
@@ -1850,20 +1851,41 @@ rewrite. See `04-events.md`.
 collections it is filed under (§ Collections), and every key of
 `initialProperties` is an **owner**: the type or one of the
 collections, whose namespace the values land in. `type` is required
-(`400 request.missing_field`; `page` for a plain document); the other
-two are optional.
+(`400 request.missing_field`; `page` for a plain document) unless
+`from` is set; the other keys are optional.
 
-These three keys are the **whole** create vocabulary. Any other
+`from` names an object to **copy**: the new object takes the source's
+type, its collections minus the built-in markers (`miniapp`, `bin`,
+`template`), its synced `any.*` values, the declared values under the
+source's type and its own non-marker collections (a collection the
+request adds brings no values) and the records of every dataset the
+source's type declares through its parts, except a reserved module's.
+`type` must then be absent or equal to the source's
+(`400 template.type_mismatch`), `collections` are added to the copied
+ones and `initialProperties` are written over the copied values. A
+source filed under `template` is a template: the row is stamped
+`any.template: {id, version}` (§ Built-in collections,
+`docs/31-templates.md`); any other source keeps the stamp it has. An
+unknown source, or one whose row has not synced here yet, is
+`404 object.not_found`, a deleted one `410 object.deleted`, a
+definition's own row `400 membership.meta_type`, and a record of the
+source its dataset refuses today `409 template.record_refused` (the
+half copy is deleted; a delete that fails too is logged and the object
+stays).
+
+These four keys are the **whole** create vocabulary. Any other
 top-level key — a bare owner group like `"any"`, a top-level `"name"`,
 a typo — is `400 request.unknown_field` naming the accepted set and
 where the value belongs: object properties always ride
 `initialProperties` keyed by owner
 (`{"initialProperties": {"any": {"name": "Dune"}}}`). Shape is
-enforced per field too (`type` a string, `collections` an array,
-`initialProperties` an object, every `initialProperties` group an
-object of `{propertyId: value}`) → `400 request.schema`. Nothing in
-this body is silently dropped, and nothing is added to it server-side:
-the object gets exactly the type and collections it names. Initial
+enforced per field too (`type` and `from` strings, `collections` an
+array, `initialProperties` an object, every `initialProperties` group
+an object of `{propertyId: value}`) → `400 request.schema`. Nothing is
+added to the body server-side, and the one thing dropped from it is
+membership written as a value — `initialProperties.any.type` and
+`any.collections` are ignored: the object gets exactly the type and
+collections the top-level keys name, or copies with `from`. Initial
 values pass the descriptor value gate
 (`400 property.format_violation`, § Types), and a type that declares a
 reserved module is refused (`400 type.reserved_carrier`, § Parts and
@@ -1915,7 +1937,9 @@ Children of a node, in order (`""` as the parent lists the top level):
 ```
 POST /v1/spaces/:spaceId/objects/query
 {
-  "filter": { "<wikiCollectionId>.<parentIdPropId>": "<parentObjectId>" },
+  "filter": { "$and": [ { "<wikiCollectionId>.<parentIdPropId>": "<parentObjectId>" },
+                        { "any.collections": "<wikiCollectionId>" },
+                        { "any.collections": { "$nin": ["bin", "template"] } } ] },
   "sort":   [ "<wikiCollectionId>.<posPropId>" ]
 }
 ```
@@ -2619,7 +2643,8 @@ of them.
 type.not_found` for an unknown typeId (deleted, never existed, or an id
 that resolves to a non-definition object), and `400 type.not_a_type`
 when the id names a user collection (§ Collections; a registered
-collection has no type row either, so `miniapp` / `bin` answer `404`),
+collection has no type row either, so `miniapp` / `bin` / `template`
+answer `404`),
 so a `200 []`
 properties list always means "the type exists and has no property
 definitions yet".
@@ -3400,13 +3425,13 @@ of a collection that no longer exists. To clean up, unfile the object
 from the dead id — the unfile route does not check that the collection
 exists. Filing under the dead id again is `404 collection.not_found`.
 
-#### Built-in collections: `miniapp`, `bin`
+#### Built-in collections: `miniapp`, `bin`, `template`
 
-Two registered collections an object **opts into**, both `hidden`: out
+Three registered collections an object **opts into**, all `hidden`: out
 of `GET …/collections` unless `?includeHidden=true`, resolvable by
 `GET …/collections/:collectionId` always, `builtIn: true` with `xKey`
-equal to the id (which reserves `miniapp` and `bin` against user
-definitions — `409 type.xkey_conflict`), static (`400
+equal to the id (which reserves `miniapp`, `bin` and `template` against
+user definitions — `409 type.xkey_conflict`), static (`400
 collection.registered` on a metadata write), and present in every space
 by construction.
 
@@ -3451,7 +3476,8 @@ The membership op and the stamps ride **one** synced change, so the
 `changeId` the call returns names the move, a bin member never lacks
 its stamps and a restored object never keeps stale ones; a second move
 re-stamps. Clients filter members out of ordinary lists —
-`{"any.collections": {"$nin": ["bin"]}}` — and list the bin with
+`{"any.collections": {"$nin": ["bin", "template"]}}`, templates
+excluded by the same clause — and list the bin with
 `{"any.collections": "bin"}` sorted `-bin.movedAt` (not indexed; the
 bin is small). Restore brings the object back as it was: unfiling is
 not a delete, nothing else on the row changes, and the object keeps its
@@ -3460,6 +3486,17 @@ type throughout. Permanent deletion stays
 properties: the server writes them, but a peer can write the namespace
 directly, so a reader treats an absent stamp as unknown, never as "not
 in the bin".
+
+**`template`** — the templates. A template is an object of the type it
+is for, filed under `template`; everything on it (name, values,
+collections, body) is the pre-fill, and the collection adds `title`
+(string — the picker label) and `version` (number — bumped by the
+client when the template changes). `POST …/objects` with `from`
+naming a template copies it, drops the marker and stamps
+`any.template: {"id": "<templateId>", "version": <template.version>}`
+on the new row. Ordinary lists exclude templates with the bin:
+`{"any.collections": {"$nin": ["bin", "template"]}}`. The client
+contract is `docs/31-templates.md`.
 
 ### Properties (values on objects)
 

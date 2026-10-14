@@ -202,6 +202,14 @@ an unbounded one holds every record of the dataset.
   space, holding computed property values. Object creation lands as
   `added`, property writes as `updated`, object deletion as `removed`
   with `reason:"deleted"` and an empty `versionId` (contract item 6).
+  A copy (`POST …/objects` with `from`, `docs/31-templates.md`) is
+  `added` for the row, then one `updated` per dataset change — changes
+  of up to 1000 records, each moving `modifiedAt` — with no completion
+  marker on the row: the creating client opens the object from the
+  `201`, which follows the last change, and a peer sees the body
+  arrive in pieces. A copy that fails midway is deleted: `added`, then
+  `removed` with `reason:"deleted"`; a per-object stream opened in
+  between closes `object_deleted`.
 
 ### Known non-conforming consumers
 

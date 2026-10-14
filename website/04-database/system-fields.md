@@ -63,11 +63,12 @@ Objects carry a few properties under the universal `any` group. Paths use litera
 | Path | Kind | Meaning |
 |---|---|---|
 | `any.type` | string | The object's one type — what it is. Required at create, never cleared. Plain equality: `{"any.type": "<typeId>"}`, `$in` for a set. A type definition's row carries the marker `__type__` here and a collection's carries `__collection__`, never its own id, so a member query needs no exclusion. |
-| `any.collections` | string array | The collections the object is filed under. A scalar filter is a *contains* test — `{"any.collections": "<collectionId>"}` — `$all` demands several, `$nin` excludes (`{"any.collections": {"$nin": ["bin"]}}` on every ordinary list). |
+| `any.collections` | string array | The collections the object is filed under. A scalar filter is a *contains* test — `{"any.collections": "<collectionId>"}` — `$all` demands several, `$nin` excludes (`{"any.collections": {"$nin": ["bin", "template"]}}` on every ordinary list). |
 | `any.name` | string | Display name. |
 | `any.description` | string | Description. Indexed with `any.name` under the search scope `basic`. |
 | `any.icon` | string | Display icon; the encoding is the client's. |
 | `any.tags` | string array | Free-form labels; filter with `{"any.tags": "<label>"}`. |
+| `any.template` | object | `{"id": "<templateId>", "version": N}` — the template the object was created from, stamped by `POST …/objects` with `from` and kept by a duplicate; absent on an object never copied from a template. An ordinary synced field: a client rewrites it after bringing the object up to date, or sets it to `null` to detach. `{"$and": [{"any.type": "<typeId>"}, {"any.template.id": "<templateId>"}, {"any.template.version": {"$lt": N}}, {"any.collections": {"$nin": ["template"]}}]}` finds the objects behind the template\'s current version (`any.template` is not indexed: keep the type clause) ([Templates](templates.html)). |
 
 Tree placement is not a system field. The wiki usecase's `parentId` / `pos` / `folder` are ordinary columns of a hidden collection, at `<wikiCollectionId>.<propId>` on the objects filed under it, and nothing is stamped on create — [Objects](objects.html). The bin's `bin.movedAt` / `bin.movedBy` are the same kind of thing: ordinary synced properties of the built-in `bin` collection, written by the server in the same change as the membership op ([Collections](collections.html)).
 

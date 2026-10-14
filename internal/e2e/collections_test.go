@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anyproto/any-sync-sdk/space"
+
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/bin"
 	"github.com/anyproto/any/internal/miniapp"
@@ -67,10 +69,10 @@ func TestE2E_CollectionsSurface(t *testing.T) {
 			t.Errorf("collection info = %+v", *seen)
 		}
 
-		// The two built-in collections are registered, hidden, and out
-		// of the types surface entirely.
+		// The built-in collections are registered, hidden, and out of
+		// the types surface entirely.
 		mustJSON(t, http.MethodGet, spaceBase+"/collections?includeHidden=true", "", http.StatusOK, &colls)
-		for _, want := range []string{miniapp.Id, bin.Id} {
+		for _, want := range []string{miniapp.Id, bin.Id, space.TemplateCollectionId} {
 			idx := slices.IndexFunc(colls.Collections, func(c api.CollectionInfo) bool { return c.Id == want })
 			if idx < 0 {
 				t.Errorf("built-in collection %q missing: %+v", want, colls.Collections)

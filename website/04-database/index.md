@@ -23,7 +23,7 @@ account
 - A **space** is the unit of sharing and encryption. Every member holds the same data; every write is a change in a per-object DAG that syncs to everyone.
 - An **object** is a document. It has exactly one **type** in `any.type`, any number of **collections** in `any.collections`, property values keyed by `<ownerId>.<propId>` — the owner being the type or one of the collections — and any number of per-object **datasets** (records that belong to that object — chat messages, editor blocks, or a runtime dataset you declare).
 - A **type** is what an object is: property definitions (kind, descriptor, scope), a **layout**, and **parts** — display units owning datasets a module serves: `records` (a runtime schema), `editor` (a block body), `chat` (a conversation). The hidden built-in types `page` and `dataview` exist in every space; your own document types are registered as bundles, and the space's chat is installed by the server's catalog.
-- A **collection** is what an object is filed under: property definitions and nothing else. `miniapp` (the sidebar) and `bin` are built in; the wiki and the contact facets come from the catalog.
+- A **collection** is what an object is filed under: property definitions and nothing else. `miniapp` (the sidebar), `bin` and `template` are built in; the wiki and the contact facets come from the catalog.
 
 ## One read path, many write paths
 
@@ -46,6 +46,7 @@ Reads always go through the windowed query primitive: `POST /v1/spaces/:spaceId/
 <a href="objects.html"><strong>Objects</strong><span>Documents with one type, any number of collections, properties and per-object datasets.</span></a>
 <a href="types-and-properties.html"><strong>Types and properties</strong><span>Declare the one type an object is, with its layout, parts and property definitions.</span></a>
 <a href="collections.html"><strong>Collections</strong><span>File objects under facets that add columns — the wiki, the sidebar, the bin, your own.</span></a>
+<a href="templates.html"><strong>Templates</strong><span>Pre-filled objects of a type, copied with one key on create; duplicate and save-as-template.</span></a>
 <a href="property-lifecycle.html"><strong>Property lifecycle</strong><span>What is pinned, what patches, what removal does.</span></a>
 <a href="data-types.html"><strong>Data types</strong><span>Kinds, the xFormat descriptor, the `{"$date": …}` instant, and the synced / local / account scopes.</span></a>
 <a href="reading-data.html"><strong>Reading data</strong><span>Mongo-style filters, sort, limit/offset and cursor paging through /query.</span></a>

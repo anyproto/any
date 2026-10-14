@@ -104,7 +104,7 @@ Property paths on the wire are `<ownerId>.<propId>`. Filter and sort on them lik
 # every work credential, oldest rotation first
 curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/json' -d '{
   "filter": {"$and": [{"any.type": "'$CRED'"},
-                      {"any.collections": {"$nin": ["bin"]}},
+                      {"any.collections": {"$nin": ["bin", "template"]}},
                       {"'$CRED.$CATEGORY'": "work"}]},
   "sort": ["'$CRED.$ROTATED'"], "limit": 50}'
 ```
@@ -115,7 +115,7 @@ curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/j
   "filter": {"'$CRED.$ROTATED'": {"$lt": {"$date": "2026-06-10T00:00:00Z"}}}}'
 ```
 
-Two things to notice. `{"any.type": "<typeId>"}` is "objects of this type" — plain equality on a scalar, because an object has exactly one type. And the one exclusion. A type definition is itself an object row, but it carries the marker `__type__` in `any.type` rather than its own id, so it never turns up among its own objects and needs no exclusion clause. A binned object keeps its type, so an ordinary list leaves out `bin` members with `{"any.collections": {"$nin": ["bin"]}}` ([Reading data](../database/reading-data.html)).
+Two things to notice. `{"any.type": "<typeId>"}` is "objects of this type" — plain equality on a scalar, because an object has exactly one type. And the one exclusion. A type definition is itself an object row, but it carries the marker `__type__` in `any.type` rather than its own id, so it never turns up among its own objects and needs no exclusion clause. A binned object keeps its type, and so does a template, so an ordinary list leaves out both with `{"any.collections": {"$nin": ["bin", "template"]}}` ([Reading data](../database/reading-data.html), [Templates](../database/templates.html)).
 
 The same body against `…/objects/query/subscribe` is a live list — the vault view of your password manager updates as entries change on any device.
 

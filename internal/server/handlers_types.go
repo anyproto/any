@@ -222,7 +222,7 @@ func (d *deps) typeList(c echo.Context) error {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
 	}
 	// Hidden types (a client's choice, a bundle install's `hidden`, the
-	// built-in page/miniapp/bin/dataview) stay out of the default listing
+	// built-in page/miniapp/bin/template/dataview) stay out of the default listing
 	// — the picker view — and come back with includeHidden=true;
 	// GET …/types/:typeId resolves them always.
 	includeHidden := c.QueryParam("includeHidden") == "true"

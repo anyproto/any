@@ -166,7 +166,7 @@ records (one hit per record, default 10, max 100); `--passages N`
 (max 10) adds a record's next best matching chunks to its hit;
 `--filter` (inline JSON, `@FILE`, or `-` for stdin) keeps only hits
 whose host object matches an `/objects/query` filter — e.g.
-`'{"any.collections":{"$nin":["bin"]}}'` to search outside the bin, or
+`'{"any.collections":{"$nin":["bin","template"]}}'` to search outside the bin and the templates, or
 `'{"any.type":"<typeId>"}'` to search within one type's objects — in every mode
 (`docs/03-api.md` § search).
 
@@ -543,6 +543,7 @@ group only; patch the descriptor path directly on a collection.
 
 ```
 any object create <spaceId> --type T [--collection C ...] [--properties '<json>|@FILE|-']
+any object create <spaceId> --from OBJ [--type T] [--collection C ...] [--properties '<json>|@FILE|-']
 
 any object type set   <spaceId> <objectId> <typeId>
 
@@ -581,8 +582,21 @@ any object collection detach $SPID $OBJID bin     # restore
 ```
 
 Attaching stamps `bin.movedAt` / `bin.movedBy`; detaching clears the
-`bin` namespace. Ordinary listings exclude bin members with
-`{"any.collections": {"$nin": ["bin"]}}` (`09-query.md`).
+`bin` namespace. Ordinary listings exclude bin members and templates
+with `{"any.collections": {"$nin": ["bin", "template"]}}` (`09-query.md`).
+
+`--from OBJ` copies an object instead of starting empty: its type, its
+collections minus the built-in markers (`miniapp`, `bin`, `template`),
+its values and its parts' records. `--type` is then optional and must
+match the source; `--collection` adds to the copied set; `--properties`
+overrides copied values. A source filed under `template` is a template:
+the new object is stamped `any.template` (`31-templates.md`):
+
+```
+any object create $SPID --from $TEMPLATE --properties '{"any":{"name":"Weekly review — 13 Oct"}}'
+any object create $SPID --from $OBJID --collection template \
+  --properties '{"template":{"title":"Weekly review","version":1}}'   # save as template
+```
 
 ### Bundles
 

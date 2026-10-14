@@ -55,14 +55,14 @@ func TestNoObjectTypeUnset(t *testing.T) {
 }
 
 // TestObjectCreateFlags pins the create vocabulary: one --type, a
-// repeatable --collection.
+// repeatable --collection, one --from.
 func TestObjectCreateFlags(t *testing.T) {
 	root := newRootCmd()
 	cmd, _, err := root.Find([]string{"object", "create"})
 	if err != nil {
 		t.Fatalf("find object create: %v", err)
 	}
-	for flag, want := range map[string]string{"type": "string", "collection": "stringArray"} {
+	for flag, want := range map[string]string{"type": "string", "collection": "stringArray", "from": "string"} {
 		f := cmd.Flags().Lookup(flag)
 		if f == nil {
 			t.Errorf("object create has no --%s", flag)

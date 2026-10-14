@@ -25,15 +25,16 @@ A plain page named Dune, body empty. CLI:
 any object create $SPACE --type page --properties '{"any":{"name":"Dune"}}'
 ```
 
-The create body has exactly three keys:
+The create body has exactly four keys:
 
 | Key | Meaning |
 |-----|---------|
-| `type` | The object's one type. **Required** — `400 request.missing_field` without it. `page` is the plain document. |
-| `collections` | Ids the object is filed under. Optional; the object carries exactly these — nothing is appended server-side. |
+| `type` | The object's one type. **Required** — `400 request.missing_field` without it — unless `from` is set. `page` is the plain document. |
+| `collections` | Ids the object is filed under. Optional; the object carries exactly these — nothing is appended server-side. With `from`, they are added to the source's. |
 | `initialProperties` | Starting values, keyed by **owner** then property id: `{"<ownerId>": {"<propId>": value}}`, the owner being the type or one of the collections. The only home for property values — a top-level `name` is rejected. |
+| `from` | An object to copy: its type, collections minus the built-in markers, values and parts' records. `type` must then match the source (`400 template.type_mismatch`); a source record its dataset refuses today is `409 template.record_refused`. A source filed under `template` is a template — see [Templates](templates.html). |
 
-Any other top-level key answers `400 request.unknown_field` naming the accepted set; a wrong shape (a string where an array is expected) is `400 request.schema`. Nothing is silently dropped. Values under `initialProperties` are checked against each property's declared format (`400 property.format_violation`).
+Any other top-level key answers `400 request.unknown_field` naming the accepted set; a wrong shape (a string where an array is expected) is `400 request.schema`. Membership written as a value — `initialProperties.any.type` and `any.collections` — is ignored: the top-level keys decide it. Values under `initialProperties` are checked against each property's declared format (`400 property.format_violation`).
 
 A person filed under two facets is one call — `$PERSON` the type, `$CONTACT` and `$INVESTOR` collections, `$STATUS` a property declared on the contact collection:
 
@@ -138,7 +139,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
   -d '{"filter": {"$and": [
          {"'$WIKI.$PARENT_ID'": "'$NODE'"},
          {"any.collections": "'$WIKI'"},
-         {"any.collections": {"$nin": ["bin"]}}
+         {"any.collections": {"$nin": ["bin", "template"]}}
        ]}, "sort": ["'$WIKI.$POS'"]}'
 ```
 
@@ -186,7 +187,8 @@ The row receives a record-level tombstone, disappears from every `objects/query`
 ## Related
 
 - [Types and properties](types-and-properties.html) — what `type` and `initialProperties` refer to.
-- [Collections](collections.html) — what `collections` refer to, and the built-in `miniapp` / `bin`.
+- [Collections](collections.html) — what `collections` refer to, and the built-in `miniapp` / `bin` / `template`.
+- [Templates](templates.html) — copy an object with `from`; templates and the `any.template` stamp.
 - [Reading data](reading-data.html) — the filter grammar used above.
 - [Page](../types/page.html), [Chat](../types/chat.html), [Editor](../types/editor.html) — the modules a type's parts give an object.
 - [Links](../types/links.html) — the `any://` grammar behind `links` properties and backlinks.

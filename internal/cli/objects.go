@@ -30,24 +30,38 @@ func newObjectCreateCmd() *cobra.Command {
 		typeId      string
 		collections []string
 		propsRaw    string
+		from        string
 	)
 	cmd := &cobra.Command{
 		Use:   "create <spaceId>",
-		Short: "create an object with its type and its collections",
+		Short: "create an object with its type and its collections, or copy one",
 		Long: `An object has one type — what it is, its parts and its layout — and
 any number of collections it is filed under. The type is required
-(page is the plain document); collections are optional.
+(page is the plain document) unless --from is set; collections are
+optional.
 
 --properties seeds property values keyed owner → propId → value, the
 owner being the type or one of the collections.
 
+--from copies an existing object: its type, its collections minus the
+built-in markers (miniapp, bin, template), its values and its parts'
+records. --type must then match the source, --collection adds to the
+copied set and --properties overrides copied values. A source filed
+under template is a template: the new object is stamped any.template.
+
 Examples:
   any object create S --type page --collection wiki
   any object create S --type person --collection contact --collection investor \
-    --properties '{"any":{"name":"Ada"}}'`,
+    --properties '{"any":{"name":"Ada"}}'
+  any object create S --from TEMPLATE --properties '{"any":{"name":"Weekly review — 13 Oct"}}'
+  any object create S --from OBJ --collection template \
+    --properties '{"template":{"title":"Weekly review","version":1}}'`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			req := api.ObjectCreateRequest{Type: typeId, Collections: collections}
+			if typeId == "" && from == "" {
+				return fmt.Errorf("--type is required unless --from is set")
+			}
+			req := api.ObjectCreateRequest{Type: typeId, Collections: collections, From: from}
 			if propsRaw != "" {
 				if err := readJSONBody(propsRaw, &req.InitialProperties); err != nil {
 					return fmt.Errorf("--properties: %w", err)
@@ -61,10 +75,10 @@ Examples:
 			return printJSON(out)
 		},
 	}
-	cmd.Flags().StringVar(&typeId, "type", "", "the object's one type (required; page for a plain document)")
+	cmd.Flags().StringVar(&typeId, "type", "", "the object's one type (required unless --from; page for a plain document)")
 	cmd.Flags().StringArrayVar(&collections, "collection", nil, "collection id the object is filed under (repeatable)")
 	cmd.Flags().StringVar(&propsRaw, "properties", "", "initial property values (inline JSON, @FILE, or - for stdin)")
-	_ = cmd.MarkFlagRequired("type")
+	cmd.Flags().StringVar(&from, "from", "", "object id to copy (a template, or any object to duplicate)")
 	return cmd
 }
 

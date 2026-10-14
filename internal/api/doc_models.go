@@ -17,8 +17,9 @@ package api
 // create vocabulary.
 type ObjectCreateRequest struct {
 	// Type is the object's one type — what it IS: its parts, its layout
-	// and one column group. Required (400 request.missing_field);
-	// `page` is the plain document. Nothing is stamped server-side.
+	// and one column group. Required unless `from` is set (400
+	// request.missing_field); `page` is the plain document. Nothing is
+	// stamped server-side.
 	Type string `json:"type"`
 	// Collections lists the collections the object is filed under at
 	// create — column groups without parts (docs/28-well-known-bundles.md:
@@ -30,6 +31,21 @@ type ObjectCreateRequest struct {
 	// ONLY home for them: {"initialProperties": {"any": {"name":
 	// "Dune"}}}. A top-level name/description/group key is rejected.
 	InitialProperties map[string]map[string]any `json:"initialProperties,omitempty"`
+	// From copies an existing object: its type, its collections except
+	// the built-in markers (`miniapp`, `bin`, `template`), its synced
+	// `any.*` values, the declared values under its type and its own
+	// non-marker collections and the records of every dataset its
+	// type's parts declare (a reserved module's excepted). `type` is
+	// then optional and must
+	// equal the source's (400 template.type_mismatch); `collections`
+	// are added to the copied set and `initialProperties` override
+	// copied values. A source filed under `template` is a template: the
+	// row is stamped `any.template` {id, version} (docs/31-templates.md);
+	// any other source keeps the stamp it has. An unknown source is 404
+	// object.not_found, a deleted one 410 object.deleted, a definition's
+	// row 400 membership.meta_type, and a source record its dataset
+	// refuses today 409 template.record_refused.
+	From string `json:"from,omitempty"`
 }
 
 // QueryBodyParams is the shared windowed query/subscribe vocabulary —

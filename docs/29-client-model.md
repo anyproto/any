@@ -139,10 +139,11 @@ Clients register their own bundles the same way through
 
 ### Built-ins
 
-`page` and `dataview` are registered **types**; `miniapp` and `bin` are
-registered **collections**. All four resolve by their literal id and are
-`hidden` — absent from the default listing unless you pass
-`?includeHidden=true`. An object opts into them; nothing stamps them.
+`page` and `dataview` are registered **types**; `miniapp`, `bin` and
+`template` are registered **collections**. All five resolve by their
+literal id and are `hidden` — absent from the default listing unless
+you pass `?includeHidden=true`. An object opts into them; nothing stamps
+them.
 
 - **`page`** (type) — one part `body` owning the canonical
   `editor_blocks` storage collection. Set it to make an object a document.
@@ -157,6 +158,10 @@ registered **collections**. All four resolve by their literal id and are
   `POST …/properties/:objectId/collections/bin` and the matching
   `DELETE`; one change carries the membership and both stamps, so a row
   is never half-marked.
+- **`template`** (collection) — `title` + `version`. A template is an
+  object of the type it is for, filed here; `POST …/objects` with
+  `from` copies it and stamps `any.template` on the new row
+  ([`31-templates.md`](31-templates.md)).
 
 `GET …/types` also lists the meta rows `any`, `spaceIndex`, `type` and
 `collection`: the universal property group, the space-metadata type, and
@@ -375,11 +380,12 @@ definition row never matches `{"any.type": "<rootId>"}` or
 
 ```json
 {"$and": [{"any.type": "<typeId>"},
-          {"any.collections": {"$nin": ["bin"]}}]}
+          {"any.collections": {"$nin": ["bin", "template"]}}]}
 ```
 
-The `bin` clause is the one exclusion an ordinary list still needs: a
-binned object keeps its type and its collections (§ Content surfaces).
+That clause is the one exclusion an ordinary list still needs: a binned
+object and a template both keep their type and their collections
+(§ Content surfaces).
 
 ### Timestamps
 
@@ -398,9 +404,10 @@ Query grammar and index guidance: [`09-query.md`](09-query.md).
 
 ## Writing data
 
-**Object create** takes exactly three keys — any other top-level key is
-`400 request.unknown_field`, and a wrong shape (`type` not a string,
-`collections` not an array, `initialProperties` not an object) is
+**Object create** takes exactly four keys (`from` copies an object,
+[`31-templates.md`](31-templates.md)) — any other top-level key is
+`400 request.unknown_field`, and a wrong shape (`type` or `from` not a
+string, `collections` not an array, `initialProperties` not an object) is
 `400 request.schema`:
 
 ```json
@@ -439,10 +446,11 @@ answer with the new id under a per-kind key (`objectId`, `typeId`,
 |---|---|
 | **Document** | set a type with an editor part — `page` is the built-in one. Blocks: `…/objects/:o/editor/:collection/blocks`; whole body: `GET/PUT/PATCH …/editor/:collection/markdown`. Read with `dataset` set to **the same `:collection`** — the storage collection — sorted on `nav.pos`: `editor_blocks` for the canonical body `page` uses, `<typeId>_<key>` for an editor dataset a type declares under a key of its own. |
 | **Chat** | one per space, the `general-chat` usecase; its root is filed under `miniapp`, so it sits in the sidebar with the other apps. Writes: `…/objects/:chatRoot/chat/messages`. Read via `dataset=chat_messages` sorted on `_ver.id`. |
-| **Wiki tree** | the `wiki` usecase's three properties on objects of its type: `parentId` (`""` = top level), `pos` (lexid), `folder`. Children = objects query filtered on the parent property, sorted on the pos property. The server allocates no positions. |
+| **Wiki tree** | the `wiki` usecase's three properties on objects of its type: `parentId` (`""` = top level), `pos` (lexid), `folder`. Children = objects query filtered on the parent property, the collection and the shared `$nin` clause, sorted on the pos property. The server allocates no positions. |
 | **Saved views** | one `dataview` object per host, holding `dataviews` (tables on the host) and `views` (views of a table). |
 | **Favourites** | the client-registered `favorites/v1` bundle on the tech space. |
 | **Bin** | file the object under the `bin` collection, unfile to restore. |
+| **Templates** | an object of the target type filed under `template`; `POST …/objects` with `from` copies it ([`31-templates.md`](31-templates.md)). |
 | **Links panel** | what links here and what this links to: `GET …/objects/:o/backlinks` (`{object, parts}`), `GET …/objects/:o/links`, account-wide `GET /v1/backlinks?target=`; refresh on the device bus event `links.updated`. Edges come from editor blocks, chat messages and every property or field whose descriptor carries a link marker (`relation` / `markdown` slug, or `xFormat.links`). Recipe: [`08-clients.md`](08-clients.md) § 15; wire shape: [`03-api.md`](03-api.md) § Links and backlinks. |
 
 The markdown bridge round-trips exactly: re-PUTting what GET returned

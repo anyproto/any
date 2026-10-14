@@ -35,7 +35,7 @@ func (d *deps) collectionList(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
 	}
-	// Hidden collections (the built-in miniapp / bin, a bundle
+	// Hidden collections (the built-in miniapp / bin / template, a bundle
 	// install's `hidden`) stay out of the default listing and come back
 	// with includeHidden=true; GET …/collections/:id resolves them
 	// always.
