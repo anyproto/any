@@ -51,10 +51,13 @@ any version                                                       # binary versi
 ## Account, identities, devices
 
 ```
-any account set-metadata [--name N] [--description D] [--icon-cid CID]   # PUT /v1/account/metadata
+any account set-metadata [--name N] [--description D]                   # PUT /v1/account/metadata
+any account set-icon <path> [--name N]                                  # PUT /v1/account/icon (raw image body; - = stdin)
+any account icon [-o PATH]                                              # GET /v1/account/icon
+any account delete-icon                                                 # DELETE /v1/account/icon
 any account redeem <code>                                               # POST /v1/account/access-code
 
-any identities list | get <identity> | subscribe     # alias: any contacts
+any identities list | get <identity> | icon <identity> [-o PATH] | subscribe     # alias: any contacts
 
 any devices list                                     # rows + active map + self
 any devices register [--name N] [--app slug[=ver]]... [--remove-app slug]...

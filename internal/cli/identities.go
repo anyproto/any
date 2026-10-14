@@ -19,8 +19,33 @@ func newIdentitiesCmd() *cobra.Command {
 	cmd.AddCommand(
 		newIdentitiesListCmd(),
 		newIdentityGetCmd(),
+		newIdentityIconCmd(),
 		newIdentitiesSubscribeCmd(),
 	)
+	return cmd
+}
+
+func newIdentityIconCmd() *cobra.Command {
+	var output string
+	cmd := &cobra.Command{
+		Use:   "icon <identity>",
+		Short: "download a known identity's avatar (stdout by default, -o for a file)",
+		Long: `Streams GET /v1/identities/:identity/icon — the avatar the identity's
+resolved profile names, fetched by content address and decrypted with
+the key from the profile. 404 until the profile resolves with an
+avatar; 409 file.not_available while the bytes cannot be fetched yet.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cl := newClient(0) // downloads must not hit the request timeout
+			res, err := cl.IdentityIcon(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			defer res.Body.Close()
+			return writeDownload(output, res)
+		},
+	}
+	cmd.Flags().StringVarP(&output, "output", "o", "", "write the image to this path (default: stdout)")
 	return cmd
 }
 

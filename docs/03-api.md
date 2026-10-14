@@ -334,7 +334,10 @@ which the next boot pins again).
 | Method | Path                         | Purpose                                |
 |--------|------------------------------|----------------------------------------|
 | GET    | `/v1/account`                | own id, `techSpaceId`, metadata        |
-| PUT    | `/v1/account/metadata`       | `Account.UpdateMetadata`               |
+| PUT    | `/v1/account/metadata`       | `Account.UpdateMetadata` (name, description) |
+| PUT    | `/v1/account/icon`           | `Account.SetIcon` — raw image body     |
+| GET    | `/v1/account/icon`           | `Account.OpenIcon` — raw bytes          |
+| DELETE | `/v1/account/icon`           | `Account.DeleteIcon`                   |
 | POST   | `/v1/account/access-code`    | redeem an alpha invite code (any-invite) |
 
 `GET /v1/account` → `{id, techSpaceId, metadata?}`. `metadata`
@@ -346,8 +349,7 @@ bundles); it never appears in `GET /v1/spaces`.
 ```json
 // PUT /v1/account/metadata
 { "name":"Alice",
-  "description":"writer, reader, occasional debugger",
-  "iconCid":"bafy..." }
+  "description":"writer, reader, occasional debugger" }
 // → 204
 ```
 
@@ -355,8 +357,51 @@ The SDK persists the bytes to the local tech-space and pushes them to
 identityRepo, so the new profile becomes visible in every space the
 caller is a member of without further per-space writes (read it back
 via `GET /v1/spaces/:id/members/me`). At least one of `name` /
-`description` / `iconCid` must be set; an all-empty body returns
-`400 request.missing_field`.
+`description` must be set; an all-empty body returns
+`400 request.missing_field`. The body replaces both fields (an absent
+one is cleared). `iconCid` is read-only on this route
+(`400 request.invalid_field`): the avatar is a file, and this write
+leaves the stored one untouched. A NUL byte in either field is
+`400 request.invalid_field`.
+
+**Avatar.** `PUT /v1/account/icon` takes the image as the raw request
+body. Its type is read from the bytes alone — the `Content-Type`
+header is not trusted — and must be one of the raster formats PNG,
+JPEG, GIF, WebP, AVIF, HEIC, HEIF, BMP, ICO, TIFF or JXL (animated
+variants included; SVG can carry script and is refused): `415 account.icon_not_image` otherwise, `400 request.missing_field` for an empty body, and
+`413 account.icon_too_large` past the 1 MiB cap. `?name=` is the stored
+file name. The reply is the profile with the new `iconCid`, the
+image's content address — the value the directory and members rows
+carry once the profile resolves, and the key for an avatar cache (a
+new image is a new cid). The SDK stores the file in the account's tech
+space and publishes the profile with the avatar reference only once
+the file's network backup is confirmed, so a contact never holds a
+reference it cannot fetch; until then contacts see no avatar, so a
+replacement shows as a short gap rather than the old image.
+
+```
+PUT /v1/account/icon?name=me.png
+Content-Type: image/png
+<raw bytes>
+→ 200 { "name":"Alice", "iconCid":"bafy…" }
+
+GET /v1/account/icon       → 200 image bytes (Range/206); 404 account.icon_not_found; 409 file.not_available
+DELETE /v1/account/icon    → 204 (no-op without one)
+```
+
+`GET /v1/account/icon` (`Account.OpenIcon`) serves the own image.
+`409 file.not_available` is the state of another device of the same
+account that has synced the profile row but not yet the avatar's file
+row or its bytes; it also answers a read that fails before the
+response starts, since the bytes exist and a retry fetches them. A
+fetch that fails while the body is streaming cuts the response like
+any file download: resume with `Range`.
+
+Avatar responses — own and a contact's — carry the type the bytes
+themselves declare (a non-image serves as `application/octet-stream`),
+`X-Content-Type-Options: nosniff` and a `Content-Security-Policy` that
+forbids every load: the bytes were chosen by another account and must
+never run as a document on the API origin.
 
 **Access codes.** `POST /v1/account/access-code {"code": "K7QX-4MDP-…"}`
 signs `{purpose, ownerAnyId, code, ts}` with the account key and posts it to
@@ -385,6 +430,7 @@ redeemed a code before (nothing consumed). Refusals are relayed as
 |--------|-------------------------------|--------------------------------------|
 | GET    | `/v1/identities`              | `Identities.List` — every known id   |
 | GET    | `/v1/identities/:identity`    | `Identities.Get` (404 when unknown)  |
+| GET    | `/v1/identities/:identity/icon` | `Identities.OpenIcon` — the avatar, raw bytes |
 | GET    | `/v1/identities/subscribe`    | `Identities.Subscribe` (SSE)         |
 
 The directory is the account-global, device-local cache of **every
@@ -410,6 +456,24 @@ each row is **never** exposed: the directory strips it, and the SDK's
 publish theirs — are refused on every per-object read (`/query`,
 `/query/subscribe`, `/aggregate`, `/history`) with
 `400 request.invalid_field`.
+
+**Avatars.** `GET /v1/identities/:identity/icon` serves the image a
+directory row's `iconCid` names: the bytes are fetched by content
+address through the network's public read path and decrypted with the
+key sealed in the identity's profile — the reader never joins the
+owner's space. The response is the image (type from the bytes,
+`Range`/206, `nosniff`, a load-forbidding CSP; see § Account).
+`404 identity.icon_not_found` when there is no usable avatar (unknown
+identity, a profile that names no avatar, a cid written before avatars
+were files, or an object over the 1 MiB cap, which is refused unread);
+`409 file.not_available` while the bytes cannot be fetched — no public
+read base on this network, a stale reference after the owner replaced
+or removed the avatar, a transport failure — retry later. Key an
+avatar cache on `iconCid` and refetch when an `updated` frame changes
+it. A members row carries the same `iconCid` once the identity's
+profile resolves. The own id answers from the account's own avatar
+file, like `GET /v1/account/icon`, with its `409` while another
+device's upload has not reached this one.
 
 **The directory carries no rights.** Roles
 (`owner`/`admin`/`writer`/`reader`) are per-space and live on the members
@@ -3973,8 +4037,9 @@ curl -X POST -T photo.jpg -H 'Content-Type: image/jpeg' \
   "name": "photo.jpg", "mime": "image/jpeg" }
 ```
 
-This is the one route exempt from the global 1 MB body limit — the
-body streams straight into the SDK. Files < 4096 bytes take the
+This route is exempt from the global 1 MB body limit (as are the
+avatar upload and the local-store import) — the body streams straight
+into the SDK. Files < 4096 bytes take the
 **inline tier** (`inline: true`, no `rootCid`, durable by
 construction, riding the CRDT row itself); larger files are encrypted
 and content-addressed locally (`<account-dir>/files/`), then backed up
@@ -4713,8 +4778,10 @@ keeps the QUIC listener down.
 - `middleware.RequestID` — generate an id per request for the logs.
 - **Logger middleware** wired to `any-sync/app/logger` — one line per
   request (path, status, duration).
-- `middleware.BodyLimit("1M")` — reject larger bodies, except the file
-  attach route (§ Files), whose raw body streams into the SDK.
+- `middleware.BodyLimit("1M")` — reject larger bodies, except the
+  routes whose raw body streams into the SDK or the local store: file
+  attach (§ Files), the avatar upload (§ Account, capped by the SDK)
+  and the local-store import.
 - **Unauthorized guard + engine gate** (§ Auth): `401 auth.required`
   on every route except `/v1/health`, `/v1/shutdown`,
   `/v1/openapi.json` and `/v1/auth` until an account is booted — it

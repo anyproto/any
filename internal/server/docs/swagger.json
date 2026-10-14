@@ -4472,6 +4472,167 @@
                 ]
             }
         },
+        "/account/icon": {
+            "delete": {
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Remove the account avatar",
+                "tags": [
+                    "account"
+                ]
+            },
+            "get": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "format": "binary",
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "206": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "format": "binary",
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "Partial Content"
+                    },
+                    "404": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Download the account avatar (raw bytes, Range supported)",
+                "tags": [
+                    "account"
+                ]
+            },
+            "put": {
+                "parameters": [
+                    {
+                        "description": "User-facing file name",
+                        "in": "query",
+                        "name": "name",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/octet-stream": {
+                            "schema": {
+                                "format": "binary",
+                                "type": "string"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AccountMetadata"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Request Entity Too Large"
+                    },
+                    "415": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Unsupported Media Type"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Set the account avatar (raw body upload)",
+                "tags": [
+                    "account"
+                ]
+            }
+        },
         "/account/metadata": {
             "put": {
                 "requestBody": {
@@ -4485,13 +4646,13 @@
                                     {
                                         "$ref": "#/components/schemas/api.AccountMetadata",
                                         "summary": "body",
-                                        "description": "At least one field required"
+                                        "description": "At least one of name, description; iconCid is refused"
                                     }
                                 ]
                             }
                         }
                     },
-                    "description": "At least one field required",
+                    "description": "At least one of name, description; iconCid is refused",
                     "required": true
                 },
                 "responses": {
@@ -4519,7 +4680,7 @@
                         "description": "Internal Server Error"
                     }
                 },
-                "summary": "Update account metadata",
+                "summary": "Update account metadata (name, description)",
                 "tags": [
                     "account"
                 ]
@@ -5676,6 +5837,89 @@
                     }
                 },
                 "summary": "Get a known identity by account address",
+                "tags": [
+                    "identities"
+                ]
+            }
+        },
+        "/identities/{identity}/icon": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Account identity",
+                        "in": "path",
+                        "name": "identity",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "format": "binary",
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "206": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "format": "binary",
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "Partial Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Download a known identity's avatar (raw bytes, Range supported)",
                 "tags": [
                     "identities"
                 ]

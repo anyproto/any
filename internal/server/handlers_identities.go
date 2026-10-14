@@ -18,6 +18,7 @@ func registerIdentitiesRoutes(g *echo.Group, d *deps) {
 	g.GET("/identities", d.identitiesList)
 	g.GET("/identities/subscribe", d.identitiesSubscribe)
 	g.GET("/identities/:identity", d.identityGet)
+	g.GET("/identities/:identity/icon", d.identityIconGet)
 }
 
 // identitiesList handles GET /v1/identities.

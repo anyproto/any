@@ -15,6 +15,7 @@ Account-scoped — these routes sit outside the `/v1/spaces/:spaceId` group.
 |--------|------|---------|
 | GET | `/v1/identities` | every known identity |
 | GET | `/v1/identities/:identity` | one identity; `404 identity.not_found` when never seen |
+| GET | `/v1/identities/:identity/icon` | the avatar behind the row's `iconCid`, as image bytes |
 | GET | `/v1/identities/subscribe` | live directory changes over SSE |
 
 ```bash
@@ -38,8 +39,15 @@ curl -s http://127.0.0.1:7001/v1/identities
 ```bash
 any identities list            # alias: any contacts
 any identities get A5k…
+any identities icon A5k… -o alice.png
 any identities subscribe
 ```
+
+## Avatars
+
+A row's `iconCid` names the account's avatar; the image comes from `GET /v1/identities/:identity/icon` as raw bytes (`Range` supported; the type comes from the bytes themselves, with `nosniff` and a load-forbidding `Content-Security-Policy`, so a contact's bytes never run as a document on your API origin). The server fetches the ciphertext by content address through the network's public read path and decrypts it with the key sealed in that account's profile — your server never joins the other account's space, and refuses an object over the 1 MiB avatar cap unread.
+
+Key an avatar cache on `iconCid` and refetch when an `updated` frame changes it. `404 identity.icon_not_found` means no usable avatar (unknown identity, a profile that names none, or one over the cap) — render your fallback. `409 file.not_available` means the bytes cannot be fetched right now — the owner is replacing the avatar, or the network has no public read base — keep the fallback and retry later. Your own id answers from your own avatar file, as `GET /v1/account/icon` does.
 
 ## Profiles are encrypted
 
@@ -92,4 +100,5 @@ To show "Alice is an admin of space X", read space X's members. To show her role
 |----------|---------|
 | Who is in this space, with what rights? | `GET /v1/spaces/:id/members` |
 | What does this account id look like? | `GET /v1/identities/:identity` |
-| Keep an avatar cache fresh | `GET /v1/identities/subscribe` |
+| Show an account's avatar | `GET /v1/identities/:identity/icon` |
+| Keep an avatar cache fresh | `GET /v1/identities/subscribe` (refetch when `iconCid` changes) |

@@ -21,7 +21,7 @@ The tech space carries one derived **index object** whose datasets are the accou
 | Dataset | One row per | Read through | Written by |
 |---------|-------------|--------------|------------|
 | `spaces` | space the account participates in | `GET /v1/spaces`, `POST /v1/spaces/query[/subscribe]` | the SDK on create / join / delete, and the mirrors below |
-| `profile` | the account | `GET /v1/account`, `POST /v1/spaces/query` with `"dataset": "profile"` | `PUT /v1/account/metadata` |
+| `profile` | the account | `GET /v1/account`, `POST /v1/spaces/query` with `"dataset": "profile"` | `PUT /v1/account/metadata`, `PUT`/`DELETE /v1/account/icon` |
 | `devices` | device (row id = peer id) | `GET /v1/devices`, `POST /v1/devices/query[/subscribe]` | `PUT /v1/devices/me`, `POST /v1/devices/activate`, engine boot |
 | `identities` | account identity ever encountered | `GET /v1/identities[/…]` | the SDK, from ACL records, one-to-one invites and the identity repository |
 | `inboxCursor` | the account | — | the coordinator-inbox receiver (one-to-one and direct-add invites) |

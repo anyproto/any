@@ -38,3 +38,11 @@ func (c *Client) IdentityGet(ctx context.Context, identity string) (*api.Identit
 func (c *Client) StreamIdentities(ctx context.Context, fn func(SSEFrame) error) error {
 	return c.streamSSE(ctx, http.MethodGet, "/v1/identities/subscribe", nil, fn)
 }
+
+// IdentityIcon opens GET /v1/identities/:identity/icon — the avatar the
+// identity's resolved profile names, as a raw HTTP body. 404
+// (identity.icon_not_found) without one; 409 (file.not_available) while
+// the bytes cannot be fetched yet.
+func (c *Client) IdentityIcon(ctx context.Context, identity string) (*FileDownloadResult, error) {
+	return c.openDownload(ctx, "/v1/identities/"+url.PathEscape(identity)+"/icon")
+}

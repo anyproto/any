@@ -12,7 +12,7 @@ The `any` server listens on `127.0.0.1:7001` and exposes one JSON API under `/v1
 - **Base path** `/v1/`. Media type `application/json; charset=utf-8` for every request with a body and every response, except the raw routes: file attach and content carry file bytes, local-store export returns `application/gzip` and import takes that file as its body, and every `…/subscribe` answers `text/event-stream`.
 - **Status codes**: `200` reads, `201` creates, `204` side-effect-only endpoints. Errors always use the envelope in [Errors](errors.html).
 - **Ids in paths** are URL-safe strings; segments are URL-encoded (a bundle id like `favorites/v1` becomes `favorites%2Fv1`).
-- **Body limit** 1 MB on every route except file attach and local-store import, whose raw bodies stream past it.
+- **Body limit** 1 MB on every route except file attach, the avatar upload and local-store import, whose raw bodies stream past it.
 - **Strict bodies**: endpoints whose OpenAPI schema carries `additionalProperties: false` answer `400 request.unknown_field` for any unknown top-level key. `GET /v1/openapi.json` is the authoritative list.
 - **Unauthorized server**: until an account is booted, every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth` answers `401 auth.required`.
 - **Tech space**: `GET /v1/account` returns its id as `techSpaceId`. It is a valid `:spaceId` for bundles, for types, collections and records on bundle roots, and for the space read, sync-status, debug and sync routes; every other space-scoped route there answers `405 space.unsupported`.
@@ -59,10 +59,14 @@ curl -X POST http://127.0.0.1:7001/v1/auth -d '{}'      # any auth login
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
 | GET | `/v1/account` | — | `{id, metadata?, techSpaceId}` | |
-| PUT | `/v1/account/metadata` | `{name?, description?, iconCid?}` | 204 | at least one field (`400 request.missing_field`); the profile is encrypted — contacts see it only after a shared-space or 1-1 key exchange |
+| PUT | `/v1/account/metadata` | `{name?, description?}` | 204 | at least one field (`400 request.missing_field`), both replaced; `iconCid` is refused (`400 request.invalid_field`); the profile is encrypted — contacts see it only after a shared-space or 1-1 key exchange |
+| PUT | `/v1/account/icon` | raw raster-image body; `?name=` | `{name?, description?, iconCid}` | the avatar; type read from the bytes (`415 account.icon_not_image`), 1 MiB cap (`413 account.icon_too_large`), empty body `400 request.missing_field` |
+| GET | `/v1/account/icon` | — | image bytes (Range) | `404 account.icon_not_found`, `409 file.not_available` |
+| DELETE | `/v1/account/icon` | — | 204 | no-op without an avatar |
 | POST | `/v1/account/access-code` | `{code}` | `{status: accepted\|already_redeemed, redemptionId?}` | signs the code with the account key and relays it to the invite service at `access.redeemUrl`; `409 access.disabled` without one; refusals are `access.*` with the service's code in `details.code` |
 | GET | `/v1/identities` | — | `{identities: [IdentityInfo]}` | account-global directory of every identity encountered; carries no rights |
 | GET | `/v1/identities/:identity` | — | `IdentityInfo` | `404 identity.not_found` |
+| GET | `/v1/identities/:identity/icon` | — | image bytes (Range) | the avatar the row's `iconCid` names, fetched by content address; `404 identity.icon_not_found`, `409 file.not_available` |
 | GET | `/v1/identities/subscribe` | — | SSE `identities` frames | see [Events](events.html) |
 
 `IdentityInfo` = `{identity, name?, description?, iconCid?, spaceIds}`. Details: [Identities](../auth/identities.html).

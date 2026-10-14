@@ -28,7 +28,8 @@ const (
 // generic-read surface: which of its datasets are reachable at all,
 // and which row fields are withheld (guest / issued-invite PRIVATE
 // keys on `spaces` rows). `identities` rows carry a synced symKey and
-// stay behind GET /v1/identities; the remaining system datasets are
+// each contact's avatar file key, and stay behind GET /v1/identities;
+// the remaining system datasets are
 // typed-API-only. The account-level /v1/spaces/query keeps its own
 // narrower allowlist (no `bundles`) in handlers_spaces_query.go but
 // shares the strip list.

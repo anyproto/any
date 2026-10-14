@@ -87,7 +87,10 @@ managed host's path, refused on a standalone server.
 
 ```
 any account                                         # GET /v1/account
-any account set-metadata --name "..." [--description "..."] [--icon-cid CID]
+any account set-metadata --name "..." [--description "..."]
+any account set-icon <path> [--name N]              # PUT /v1/account/icon (raw image body; - = stdin)
+any account icon [-o PATH]                          # GET /v1/account/icon (bytes to stdout, or PATH + receipt)
+any account delete-icon                             # DELETE /v1/account/icon
 any account redeem <code>                           # POST /v1/account/access-code
 ```
 
@@ -96,6 +99,7 @@ any account redeem <code>                           # POST /v1/account/access-co
 ```
 any identities list                                 # GET /v1/identities
 any identities get <identity>                       # GET /v1/identities/:identity
+any identities icon <identity> [-o PATH]            # GET /v1/identities/:identity/icon (the avatar's bytes)
 any identities subscribe                            # SSE: added/updated/removed
 ```
 

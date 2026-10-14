@@ -600,7 +600,6 @@
     <div class="form-toggle collapsed" id="form-acct-meta" style="margin-top:10px">
       <div class="field"><label>name</label><input type="text" id="acct-name"></div>
       <div class="field"><label>description</label><input type="text" id="acct-desc"></div>
-      <div class="field"><label>icon CID</label><input type="text" id="acct-icon" placeholder="bafy…"></div>
       <div class="form-actions">
         <button id="btn-acct-save">save</button>
         <button class="ghost" id="btn-acct-cancel">cancel</button>
@@ -1082,7 +1081,7 @@
 
   // updateAccountMetadata wraps PUT /v1/account/metadata. The SDK
   // rejects empty bodies; the caller must include at least one of
-  // name / description / iconCid.
+  // name / description.
   async function updateAccountMetadata(meta) {
     const r = await api.put('/v1/account/metadata', meta);
     if (!r.ok) {
@@ -3927,13 +3926,11 @@
   document.getElementById('btn-acct-save').addEventListener('click', async () => {
     const name = document.getElementById('acct-name').value.trim();
     const description = document.getElementById('acct-desc').value.trim();
-    const iconCid = document.getElementById('acct-icon').value.trim();
     const meta = {};
     if (name) meta.name = name;
     if (description) meta.description = description;
-    if (iconCid) meta.iconCid = iconCid;
     if (Object.keys(meta).length === 0) {
-      toast('err', 'at least one of name / description / icon CID required');
+      toast('err', 'at least one of name / description required');
       return;
     }
     try {

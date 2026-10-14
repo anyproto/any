@@ -339,10 +339,24 @@ func TestServer_AccountUpdateMetadata(t *testing.T) {
 	e := buildEcho(d)
 
 	t.Run("happy path", func(t *testing.T) {
-		body := `{"name":"Alice","description":"writer, reader, occasional debugger","iconCid":"bafyfake"}`
+		body := `{"name":"Alice","description":"writer, reader, occasional debugger"}`
 		rec := doJSON(t, e, http.MethodPut, "/v1/account/metadata", body)
 		if rec.Code != http.StatusNoContent {
 			t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("iconCid is read-only", func(t *testing.T) {
+		rec := doJSON(t, e, http.MethodPut, "/v1/account/metadata", `{"name":"Alice","iconCid":"bafyfake"}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+		}
+		var env api.ErrorEnvelope
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatalf("unmarshal envelope: %v", err)
+		}
+		if env.Error.Code != "request.invalid_field" {
+			t.Errorf("code = %q, want request.invalid_field", env.Error.Code)
 		}
 	})
 
