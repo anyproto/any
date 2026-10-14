@@ -25,6 +25,7 @@ Sending has no endpoint. It is a sender-scoped side effect of the chat write han
 | send | the full topic superset below, with the message payload; mentions come from the server-derived `mentions` array, so they cannot be spoofed |
 | edit | only **newly added** mentions (mention topics, never the room-wide ones — an edit is not a new message) |
 | read / read-all | a silent, data-only notification to the account's own identity topic, waking its other devices to refresh badges |
+| agent reply (`agent.done: true`) | besides the broadcast, a notification to your own devices, sent after a 5-second grace period and only if the reply is still unread by then — a reply you are already reading never buzzes your phone |
 
 Reactions, ACL changes and invites are not pushed.
 

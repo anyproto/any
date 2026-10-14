@@ -16,6 +16,7 @@ package push
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"time"
 
 	"github.com/anyproto/any-store/v2/anyenc"
@@ -83,6 +84,12 @@ const maxPushTextRunes = 1024
 // store can't pin hook goroutines past shutdown attempts.
 const hookBudget = 30 * time.Second
 
+// defaultOwnDeviceDelay is how long the own-devices leg of an agent
+// reply waits for a read before it is sent. The desktop viewport rule
+// marks a visible message read within about a second; a reply the
+// owner is already looking at never reaches the phone.
+const defaultOwnDeviceDelay = 5 * time.Second
+
 // NotifyChatMessage is the chatSend hook: read the just-written
 // message back (for the server-derived `mentions` + text), then
 // enqueue a loud notification on the full topic superset —
@@ -94,6 +101,11 @@ const hookBudget = 30 * time.Second
 //
 // groupId = sha256hex(chatId). Asynchronous and non-blocking — safe
 // to call on the handler goroutine after chat.Send succeeds.
+//
+// An agent's terminal message (`agent.done: true`) gets a second,
+// deferred leg to the owner's own devices (notifyOwnDevices): it is
+// signed with the owner's key, so the broadcast above never reaches
+// the owner's phone.
 func (s *Service) NotifyChatMessage(sp space.Space, objectId, msgId string) {
 	s.goHook(func(ctx context.Context) {
 		rec, err := chatRecord(ctx, sp, objectId, msgId)
@@ -114,8 +126,45 @@ func (s *Service) NotifyChatMessage(sp space.Space, objectId, msgId string) {
 				zap.String("spaceId", sp.Id()), zap.Error(err))
 			return
 		}
-		s.Enqueue(sp.Id(), topics, payload, sha256hex(objectId), false)
+		s.Enqueue(sp.Id(), topics, payload, sha256hex(objectId), false, false)
+		if rec.GetBool(chat.FieldAgent, chat.FieldAgentDone) {
+			s.notifyOwnDevices(ctx, sp, objectId, msgId, payload)
+		}
 	})
+}
+
+// notifyOwnDevices is the own-devices leg of an agent's terminal
+// message: a loud push the push node delivers to the account's own
+// devices as well, on identity-scoped topics (bare identity for bulk
+// subscribers, the per-chat mention topic for per-chat ones) so nobody
+// else is pushed twice and a muted chat stays silent. It waits
+// ownDeviceDelay and sends only if the message is still unread on this
+// account — a read on the desktop arrives through this server, a read
+// on a phone through the synced frontier — so a reply the owner has
+// already seen never buzzes. Runs inside the send hook's goroutine
+// after the broadcast is enqueued.
+func (s *Service) notifyOwnDevices(ctx context.Context, sp space.Space, objectId, msgId string, payload []byte) {
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(s.ownDelay()):
+	}
+	snap, _, err := sp.ReadState().UnreadSnapshot(ctx, objectId)
+	if err != nil {
+		s.lg.Debug("push own devices: unread snapshot failed — push skipped",
+			zap.String("spaceId", sp.Id()), zap.Error(err))
+		return
+	}
+	unread := slices.ContainsFunc(snap, func(ch space.UnreadChange) bool {
+		return slices.Contains(ch.RecordIds, msgId)
+	})
+	if !unread {
+		s.lg.Debug("push own devices: message read within the delay — push skipped",
+			zap.String("spaceId", sp.Id()))
+		return
+	}
+	self := s.sdk.Account().Id()
+	s.Enqueue(sp.Id(), []string{self, topicChatMention(objectId, self)}, payload, sha256hex(objectId), false, true)
 }
 
 // ChatMentionsBefore snapshots a message's server-derived mentions —
@@ -163,7 +212,7 @@ func (s *Service) NotifyChatEdit(sp space.Space, objectId, msgId string, before 
 				zap.String("spaceId", sp.Id()), zap.Error(err))
 			return
 		}
-		s.Enqueue(sp.Id(), topics, payload, sha256hex(objectId), false)
+		s.Enqueue(sp.Id(), topics, payload, sha256hex(objectId), false, false)
 	})
 }
 
@@ -173,7 +222,7 @@ func (s *Service) NotifyChatEdit(sp space.Space, objectId, msgId string, before 
 // account's other devices wake and refresh their badges. Heart hooks
 // its read RPCs the same way. Non-blocking (plain Enqueue).
 func (s *Service) NotifyChatRead(spaceId, objectId string) {
-	s.Enqueue(spaceId, nil, nil, sha256hex(objectId), true)
+	s.Enqueue(spaceId, nil, nil, sha256hex(objectId), true, false)
 }
 
 // --- internals -------------------------------------------------------
@@ -226,9 +275,12 @@ func heartSpaceKinds(spaceType string) (uxType, kind int) {
 // (empty when unset), senderName from the account profile (empty when
 // no profile was ever written).
 func (s *Service) chatPayload(ctx context.Context, sp space.Space, objectId, msgId string, rec *anyenc.Value) ([]byte, error) {
-	senderName := ""
-	if meta, present, err := s.sdk.Account().Metadata(ctx); err == nil && present {
-		senderName = meta.Name
+	// An agent message shows the agent's name, not the signer's.
+	senderName := string(rec.GetStringBytes(chat.FieldAgent, chat.FieldAgentName))
+	if senderName == "" {
+		if meta, present, err := s.sdk.Account().Metadata(ctx); err == nil && present {
+			senderName = meta.Name
+		}
 	}
 	chatName := ""
 	if props, err := sp.Properties().Get(ctx, objectId); err == nil && props != nil {

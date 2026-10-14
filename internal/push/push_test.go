@@ -52,6 +52,10 @@ func (f *fakePushAPI) Notify(context.Context, string, []string, []byte, string) 
 	return nil
 }
 
+func (f *fakePushAPI) NotifyOwnDevices(context.Context, string, []string, []byte, string) error {
+	return nil
+}
+
 func (f *fakePushAPI) NotifySilent(context.Context, string, string) error { return nil }
 
 func (s *Service) forwarded() bool {

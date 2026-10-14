@@ -178,6 +178,19 @@ best-effort, never block or fail the HTTP response
 - **send** — read the record back for the server-derived `mentions`
   (spoof-proof, reply fold-in included; `docs/16-chat.md`), then notify
   the full topic superset above.
+- **agent reply (own devices)** — a message with `agent.done: true` is
+  signed with the owner's key, and the push node drops the publisher's
+  own tokens on the loud path, so the broadcast above never reaches the
+  owner's phone. The send hook adds a second leg: after a 5 s grace
+  period it checks the SDK's unread snapshot and, only if the message
+  is still unread on this account, sends a loud notification with the
+  node's own-devices flag on the owner's identity-scoped topics (bare
+  identity for bulk subscribers, the per-chat mention topic for
+  per-chat ones — nobody else matches, a muted chat stays silent). A
+  reply read within the window — the desktop viewport rule through
+  this server, or a phone whose read synced back — is never pushed.
+  Needs a push node that knows the flag; an older node delivers the
+  leg to nobody.
 - **edit** — diff mentions before/after; notify only **newly added**
   mentions (bare identity + per-chat mention topics; never the
   broadcast topics — an edit is not a new message for the room). When
