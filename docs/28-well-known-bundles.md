@@ -447,6 +447,8 @@ schema).
 | | | `system:project/v1` | superseded: type `project` with the same properties |
 | | | `system:area/v1` | superseded: type `area`, no properties |
 | | | `system:tasks/v1` | miniapp only, a `page` root — the sidebar entry that opens the planner |
+| `bookmarks` | `tasks` | `system:bookmark/v1` | collection `bookmark` (`meta.defaultType: page`; `url`, `purpose` — a single `choice` of read / buy / inspiration / try, `tags` — a multiple `choice` that starts empty, `contexts` → `project` / `area`, multiple, the independent `inbox` / `archived` / `completed` flags, `note`, `readerText`, `summary`) — a bookmark is a `page` filed under it; starring is the [native favorites](25-favorites.md) |
+| | | `system:bookmarks/v1` | miniapp only, a `page` root — the sidebar entry that opens Bookmarks |
 | `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one `chat` part hosted by the root itself, + miniapp, so the chat is a sidebar entry |
 | `people` | — | `system:profile/v1` | type `profile` (layout `profile`, no properties) + editor `body` part — the one format a person and an organisation share; supersedes `system:person/v1` and `system:organization/v1` |
 | | | `system:person/v2` | collection `person` (`meta.defaultType: profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags); supersedes `system:person/v1` |
@@ -465,9 +467,9 @@ schema).
 | | | `system:deal/v1` | superseded: type `deal` (layout `profile`) with the same properties + editor `body` part |
 | | | `system:crm/v1` | miniapp only, a `page` root |
 
-Sixteen usecases, twenty-nine bundles, six of them superseded. What a
+Seventeen usecases, thirty-one bundles, six of them superseded. What a
 space set up today receives is four types — `meeting`, `task`,
-`general_chat`, `profile` — and fourteen collections with an xKey. A
+`general_chat`, `profile` — and fifteen collections with an xKey. A
 type is there only for a format; everything that is a set of columns is
 a collection. An identity is a `profile` filed under `person` or
 `organization`, and a relationship is one more collection it is filed
@@ -498,6 +500,15 @@ App roots other than the general chat are created roots, so the
 ordinary permission, convergence and fork rules apply; a client
 renders the registry's winner when two offline installs converge
 (§ Forks).
+
+**A bookmark is a page filed under the bookmark collection.** Create
+it with `collections: ["<bookmarkCollectionId>"]` (the `collectionId`
+setup returns for `system:bookmark/v1`) and list members with
+`{"any.collections": "<bookmarkCollectionId>"}`. Its values live under
+`<bookmarkCollectionId>.<propId>`. The `contexts` relation holds object
+URIs of Tasks projects and areas; assigning one changes neither the
+bookmark's type nor its collections. The separate `system:bookmarks/v1`
+root is a `page` filed under `miniapp` and is not itself a bookmark.
 
 **A wiki page is an ordinary object filed under the wiki
 collection.** The wiki root is one object that is both the sidebar
