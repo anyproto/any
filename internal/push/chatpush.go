@@ -105,7 +105,9 @@ const defaultOwnDeviceDelay = 5 * time.Second
 // An agent's terminal message (`agent.done: true`) gets a second,
 // deferred leg to the owner's own devices (notifyOwnDevices): it is
 // signed with the owner's key, so the broadcast above never reaches
-// the owner's phone.
+// the owner's phone. Service nudges (agent name `trigger:*`) get the
+// broadcast only — they start a run, and the reply that follows is
+// the one worth a buzz.
 func (s *Service) NotifyChatMessage(sp space.Space, objectId, msgId string) {
 	s.goHook(func(ctx context.Context) {
 		rec, err := chatRecord(ctx, sp, objectId, msgId)
@@ -127,7 +129,8 @@ func (s *Service) NotifyChatMessage(sp space.Space, objectId, msgId string) {
 			return
 		}
 		s.Enqueue(sp.Id(), topics, payload, sha256hex(objectId), false, false)
-		if rec.GetBool(chat.FieldAgent, chat.FieldAgentDone) {
+		if rec.GetBool(chat.FieldAgent, chat.FieldAgentDone) &&
+			!chat.IsNudgeAgentName(string(rec.GetStringBytes(chat.FieldAgent, chat.FieldAgentName))) {
 			s.notifyOwnDevices(ctx, sp, objectId, msgId, payload)
 		}
 	})

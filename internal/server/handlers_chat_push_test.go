@@ -161,8 +161,9 @@ func wantPushTopics(t *testing.T, j pushJob, want ...string) {
 // TestServer_ChatPushHooks_AgentOwnDevices: an agent's terminal message
 // gets, besides the immediate broadcast, a deferred loud push to the
 // owner's own devices on identity-scoped topics — dropped when the
-// message is read within the delay. Streaming bubbles get the
-// broadcast only. Agent messages carry the agent's name as sender.
+// message is read within the delay. Streaming bubbles and service
+// nudges get the broadcast only. Agent messages carry the agent's
+// name as sender.
 func TestServer_ChatPushHooks_AgentOwnDevices(t *testing.T) {
 	d, teardown := newTestDepsCfg(t, func(cfg *config.Config) {
 		cfg.Push = config.Push{PeerId: "12D3KooWTestPushNode", Addrs: []string{"127.0.0.1:1"}}
@@ -229,7 +230,17 @@ func TestServer_ChatPushHooks_AgentOwnDevices(t *testing.T) {
 		t.Errorf("own-devices payload = %+v", p.NewMessagePayload)
 	}
 
-	// 3. Read within the delay: the own-devices leg is dropped. The
+	// 3. Service nudge (agent name `trigger:*`, done:true): broadcast
+	//    only — the agent's reply that follows is the one worth a buzz.
+	send(`{"text":"[trigger: progress] Job 'index-notes' in space 'bao' is DONE. Report this briefly to the user.","agent":{"name":"trigger:index-notes","done":true}}`)
+	job = waitPushJob(t, jobs)
+	if job.ownDevices || job.silent {
+		t.Fatalf("nudge job = %+v, want plain loud broadcast", job)
+	}
+	wantPushTopics(t, job, "chats", "chats/"+chatSha)
+	wantNoPushJob(t, jobs, 3*delay)
+
+	// 4. Read within the delay: the own-devices leg is dropped. The
 	//    read-all itself enqueues a silent job; nothing loud may follow.
 	//    A longer delay here keeps the read-all (a write tx plus the
 	//    frontier publish) safely inside the window on a loaded CI.

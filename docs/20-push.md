@@ -189,7 +189,10 @@ best-effort, never block or fail the HTTP response
   identity for bulk subscribers, the per-chat mention topic for
   per-chat ones — nobody else matches, a muted chat stays silent).
   Those are the mention topics, so an owner in `mentions` mode gets
-  every agent reply: a reply from your agent is addressed to you. A
+  every agent reply: a reply from your agent is addressed to you.
+  Service nudges (agent name `trigger:*`, see `internal/chat`) get the
+  broadcast only — they start a run, and the reply that follows is the
+  one worth a buzz. A
   reply read within the window — the desktop viewport rule through
   this server, or a phone whose read synced back — is never pushed.
   Needs a push node that knows the flag; an older node delivers the
