@@ -78,7 +78,7 @@ func shedGluedPeriod(u *URI) bool {
 			return cut(&u.RecordId)
 		}
 		return cut(&u.ObjectId)
-	case KindMention:
+	case KindIdentity, KindMention:
 		return cut(&u.Identity)
 	case KindProp:
 		return cut(&u.PropId)
@@ -90,17 +90,24 @@ func shedGluedPeriod(u *URI) bool {
 
 // Canonical returns the index-key form of u: the typed global shape
 // with the fragment and every param dropped, a legacy in-space
-// reference resolved against spaceId. Returns false for a URI that is
-// not a link target — a space reference, an unresolvable in-space
-// form (no spaceId in hand), an empty id.
+// reference resolved against spaceId, a legacy identity form stripped
+// of its space. Returns false for a URI that is not a link target — a
+// space reference, an unresolvable in-space form (no spaceId in hand),
+// an empty id.
 //
 //	any://<id>, any://<sp>/<id>, any://o/<sp>/<id>   → any://o/<sp>/<id>
 //	any://o/<sp>/<id>/<ds>/<rec>                   → unchanged
 //	any://p/<sp>/<id>/<prop>                        → unchanged
-//	any://m/<sp>/<identity>                          → unchanged
+//	any://u/<identity>, any://m/<sp>/<identity>      → any://u/<identity>
 //	any://f/<sp>/<file>[?variant=…]                  → any://f/<sp>/<file>
 //	any://s/<sp>                                     → not a target
 func (u URI) Canonical(spaceId string) (URI, bool) {
+	if u.Kind == KindIdentity || u.Kind == KindMention {
+		if u.Identity == "" {
+			return URI{}, false
+		}
+		return URI{Kind: KindIdentity, Identity: u.Identity}, true
+	}
 	c := URI{Kind: u.Kind, SpaceId: u.SpaceId}
 	if c.SpaceId == "" {
 		c.SpaceId = spaceId
@@ -119,11 +126,6 @@ func (u URI) Canonical(spaceId string) (URI, bool) {
 			return URI{}, false
 		}
 		c.ObjectId, c.PropId = u.ObjectId, u.PropId
-	case KindMention:
-		if u.Identity == "" {
-			return URI{}, false
-		}
-		c.Identity = u.Identity
 	case KindFile:
 		if u.FileId == "" {
 			return URI{}, false

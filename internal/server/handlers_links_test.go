@@ -91,7 +91,7 @@ func TestIndexer_Links(t *testing.T) {
 	blockRef := mustModify(t, e, http.MethodPost, blocks,
 		`{"type":"paragraph","text":"cites [a block](`+targetUri+`/editor_blocks/blk9) and [other](any://`+other+`)"}`, http.StatusCreated).RecordIds[0]
 	mustModify(t, e, http.MethodPost, blocks,
-		`{"type":"paragraph","text":"hey [Z](any://m/`+spaceId+`/identity1)"}`, http.StatusCreated)
+		`{"type":"paragraph","text":"hey [Z](any://u/identity1)"}`, http.StatusCreated)
 
 	// Chat: one message with a text link and an attachment.
 	chat := mustCreateModuleObject(t, e, spaceId, "chat")
@@ -180,7 +180,7 @@ func TestIndexer_Links(t *testing.T) {
 	if len(fwd) != 5 { // inline, card, blockRef×2, mention
 		t.Errorf("forward links of the page = %v, want 5", fwd)
 	}
-	if fwd["editor_blocks/"+blockRef+"→any://m/"+spaceId+"/identity1"] != "" {
+	if fwd["editor_blocks/"+blockRef+"→any://u/identity1"] != "" {
 		t.Errorf("mention attributed to the wrong block: %v", fwd)
 	}
 	one := getLinks(t, e, spaceId, page, "?record="+card+"&dataset=editor_blocks")

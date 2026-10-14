@@ -23,6 +23,7 @@ func TestLinkMode(t *testing.T) {
 		{"nil", nil, ""},
 		{"plain text", map[string]any{"type": "text"}, ""},
 		{"relation implies links", map[string]any{"type": "relation"}, LinkModeMany},
+		{"member implies links", map[string]any{"type": "member"}, LinkModeMany},
 		{"markdown implies markdown", map[string]any{"type": "markdown"}, LinkModeMarkdown},
 		{"explicit one", map[string]any{"type": "text", "links": "link"}, LinkModeOne},
 		{"explicit overrides slug", map[string]any{"type": "relation", "links": "markdown"}, LinkModeMarkdown},
@@ -42,14 +43,16 @@ func TestLinkMode(t *testing.T) {
 func TestTextLinks(t *testing.T) {
 	const sp, obj = "space1", "obj1abc"
 	text := "see [spec](any://o/space1/obj2abc) and [blk](any://o/space1/obj2abc/editor_blocks/blk9), " +
-		"ping [Z](any://m/space1/ident1), file ![x](any://f/space1/file1x?variant=thumb), " +
+		"ping [Z](any://u/ident1), legacy [Z](any://m/space1/ident1), [Y](any://m/space2/ident2), " +
+		"file ![x](any://f/space1/file1x?variant=thumb), " +
 		"self any://obj1abc, own block any://o/space1/obj1abc/editor_blocks/blk1, " +
 		"space any://s/space1, bare any://obj3abc, dup any://o/space1/obj2abc"
 	got := targets(TextLinks(sp, obj, "editor_blocks", "b1", text))
 	want := map[string]string{
 		"any://o/space1/obj2abc":                    LinkKindLink,
 		"any://o/space1/obj2abc/editor_blocks/blk9": LinkKindLink,
-		"any://m/space1/ident1":                     LinkKindMention,
+		"any://u/ident1":                            LinkKindMention, // the legacy form merges into it
+		"any://u/ident2":                            LinkKindMention, // whatever space the legacy form named
 		"any://f/space1/file1x":                     LinkKindLink,
 		"any://o/space1/obj1abc/editor_blocks/blk1": LinkKindLink, // a link to one's own block is a real link
 		"any://o/space1/obj3abc":                    LinkKindLink, // bare form resolved to the source space
@@ -93,9 +96,18 @@ func TestValueLinks(t *testing.T) {
 		t.Errorf("one on an array: %+v", got)
 	}
 
-	md := ValueLinks(sp, obj, "notes", "r1", LinkModeMarkdown, a.NewString("cc [Z](any://m/space1/ident1)"))
-	if len(md) != 1 || md[0].Kind != LinkKindMention {
+	md := ValueLinks(sp, obj, "notes", "r1", LinkModeMarkdown, a.NewString("cc [Z](any://u/ident1)"))
+	if len(md) != 1 || md[0].Kind != LinkKindMention || md[0].Target.String() != "any://u/ident1" {
 		t.Errorf("markdown: %+v", md)
+	}
+
+	members := a.NewArray()
+	members.SetArrayItem(0, a.NewString("any://u/ident1"))
+	members.SetArrayItem(1, a.NewString("any://m/space1/ident1")) // legacy form, same target
+	members.SetArrayItem(2, a.NewString("any://u/ident2"))
+	got = targets(ValueLinks(sp, obj, DatasetProp, "p3", LinkModeMany, members))
+	if len(got) != 2 || got["any://u/ident1"] != LinkKindRelation || got["any://u/ident2"] != LinkKindRelation {
+		t.Errorf("members: %v", got)
 	}
 	if got := ValueLinks(sp, obj, "notes", "r1", "", a.NewString("any://obj2abc")); got != nil {
 		t.Errorf("no mode: %+v", got)

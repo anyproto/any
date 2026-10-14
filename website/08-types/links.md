@@ -10,17 +10,18 @@ Every reference from inside any to something else inside any is an `any://` URI:
 ## The grammar
 
 ```
-any://<kind>/<spaceId>[/<rest…>][?<params>][#<fragment>]
+any://<kind>/<rest…>[?<params>][#<fragment>]
 ```
 
-The **kind** is the first path segment. Prefix-match `any://o/`, `any://m/`, `any://f/` and you know what you are pointing at before resolving anything. `spaceId` is present in every kind — links are global by design.
+The **kind** is the first path segment. Prefix-match `any://o/`, `any://u/`, `any://f/` and you know what you are pointing at before resolving anything. Every kind that points inside a space carries `spaceId` first — links are global by design. An identity is account-global, so `u` carries none.
 
 | Kind | Shape | Points at |
 |------|-------|-----------|
 | `o` | `any://o/<spaceId>/<objectId>` | an object |
 | `o` | `any://o/<spaceId>/<objectId>/<dataset>/<recordId>` | a record inside an object's dataset (a block, a message) |
 | `o` | `any://o/<spaceId>/<objectId>/<dataset>/<recordId>/<propId>` | *(reserved)* a field on a record |
-| `m` | `any://m/<spaceId>/<identity>` | an identity — a **mention** |
+| `u` | `any://u/<identity>` | an account **identity** — a member, a mention |
+| `m` | `any://m/<spaceId>/<identity>` | *(legacy)* an identity; parses, never written |
 | `s` | `any://s/<spaceId>` | a space |
 | `p` | `any://p/<spaceId>/<objectId>/<propId>` | a **property value** on an object |
 | `f` | `any://f/<spaceId>/<fileId>` | a file |
@@ -41,15 +42,19 @@ any://o/<spaceId>/<objectId>/chat_messages/<msgId>      a message in a chat
 
 For a record of a [shared dataset](../database/runtime-datasets.html#shared-datasets), `<recordId>` is the plain record id — the part of the record's `id` after `<objectId>/` — since the object is already in the link. A search hit and a link source name the record the same way, `recordId` next to its `objectId`.
 
-## Mentions
+## Identities
 
-A mention in message or block text is a markdown link whose destination is an `m` URI:
+`any://u/<identity>` names a person by account identity — the same string a members row, a message's `creator` and a row's `modifiedBy` carry. It has no space segment: the reference is the person, not their membership of one space, and it stays valid when an object is copied elsewhere.
+
+A mention in message or block text is a markdown link whose destination is a `u` URI, and a `member` property value is an array of them ([data types](../database/data-types.html)):
 
 ```
-Hey [Zarko](any://m/<spaceId>/<identity>), take a look
+Hey [Zarko](any://u/<identity>), take a look
 ```
 
-The link **text** is the display name at time of writing — a snapshot, and what a non-aware renderer (raw markdown, export, grep) shows. A mention-aware client detects the `m/` prefix, resolves the current display name through [identities](../auth/identities.html), and renders the "magic" chip. Profiles are encrypted, so tolerate an unresolved identity and fall back to the snapshot text until its key arrives. In chat, the server derives each message's `mentions` array from exactly these links — see [chat](chat.html).
+The link **text** is the display name at time of writing — a snapshot, and what a non-aware renderer (raw markdown, export, grep) shows. A client detects the `u/` prefix and resolves the current name and avatar from the space's [members list](../collaboration/members-and-roles.html) when the identity is on the roster, and from the account-global [identities directory](../auth/identities.html) otherwise. Profiles are encrypted, so tolerate an unresolved identity and fall back to the snapshot text, or the id, until its key arrives. In chat, the server derives each message's `mentions` array from exactly these links — see [chat](chat.html).
+
+The legacy `any://m/<spaceId>/<identity>` form still parses and canonicalises to `u`, so older mentions and new ones share a backlink key; nothing writes it.
 
 ## Files
 
@@ -98,7 +103,7 @@ any://<objectId>              in-space object reference (the relation property-v
 any://<spaceId>/<objectId>    global object reference
 ```
 
-Relation property values use the one-segment form, and agent `debugLink` fields on chat messages use `any://<spaceId>/<objectId>#turn_<n>`. Parsers accept both as kind `o`; the link index canonicalises every written form to `any://o/<spaceId>/<objectId>` before keying backlinks on it; new typed references (mentions, files, citations, records) always use the explicit-kind form. No stored value is rewritten.
+Relation property values use the one-segment form, and agent `debugLink` fields on chat messages use `any://<spaceId>/<objectId>#turn_<n>`. Parsers accept both as kind `o`; the link index canonicalises every written form to `any://o/<spaceId>/<objectId>` before keying backlinks on it; new typed references (identities, files, citations, records) always use the explicit-kind form. No stored value is rewritten.
 
 ## The link index
 
@@ -110,10 +115,10 @@ The server scans the data it indexes for `any://` references and keeps every one
 | chat messages | `text`, each attachment's `link`, `agent.debugLink` | `link`, `mention` |
 | property values and runtime-dataset fields | fields whose descriptor carries `xFormat.links` | `relation` for a `link` / `links` field; `link`, `mention` for a `markdown` field |
 
-`xFormat.links` is the marker: `link` (the string is one reference), `links` (the array lists references), `markdown` (the text is scanned) or `none` (never scanned). The `relation` slug implies `links` and the `markdown` slug implies `markdown`; plain `text` and `longtext` are never scanned. Canonical targets keep a record path a record path, drop params and fragments, and drop a link from an object to itself. Read the index with `GET …/objects/:objectId/backlinks`, `GET …/objects/:objectId/links` and the account-wide `GET /v1/backlinks?target=<uri>` — see [objects](../database/objects.html#links-and-backlinks) — and refresh an open panel on the device-scope `links.updated` [event](../realtime/event-bus.html).
+`xFormat.links` is the marker: `link` (the string is one reference), `links` (the array lists references), `markdown` (the text is scanned) or `none` (never scanned). The `relation` and `member` slugs imply `links` and the `markdown` slug implies `markdown`; plain `text` and `longtext` are never scanned. Canonical targets keep a record path a record path, drop params and fragments, fold the legacy `m` form into `u`, and drop a link from an object to itself. An identity target is one key in every space, so `GET /v1/backlinks?target=any://u/<identity>` is "everywhere this person is mentioned or assigned". Read the index with `GET …/objects/:objectId/backlinks`, `GET …/objects/:objectId/links` and the account-wide `GET /v1/backlinks?target=<uri>` — see [objects](../database/objects.html#links-and-backlinks) — and refresh an open panel on the device-scope `links.updated` [event](../realtime/event-bus.html).
 
 ## Use the package, not a regex
 
-The grammar ships as the public Go package `github.com/anyproto/any/anyuri` — builders (`BuildObject`, `BuildMention`, …), `Parse`, `IsValid`, `IsPropertyValueRef`, `ExtractLinks` (the sanctioned scanner the server's link index uses, with `Canonical` for the index-key form) and `ExtractMentions`, its filter the server uses to derive chat mentions. `Parse` distinguishes an unknown kind (`ErrKindUnknown`, degrade) from a malformed URI (`ErrInvalid`, reject); classify with `errors.Is`. Clients and agents import the rule rather than reimplementing it.
+The grammar ships as the public Go package `github.com/anyproto/any/anyuri` — builders (`BuildObject`, `BuildIdentity`, …), `Parse`, `IsValid`, `IsPropertyValueRef`, `IsIdentityValueRef`, `ExtractLinks` (the sanctioned scanner the server's link index uses, with `Canonical` for the index-key form) and `ExtractMentions`, its filter the server uses to derive chat mentions. `Parse` distinguishes an unknown kind (`ErrKindUnknown`, degrade) from a malformed URI (`ErrInvalid`, reject); classify with `errors.Is`. Clients and agents import the rule rather than reimplementing it.
 
 > **Note.** Invite deep links (`i`) are reserved but not implemented — invites are shared as raw text tokens (see [invites](../collaboration/invites.html)). Transclusion is not a link either: a synced block is an `html` block that *contains* an `any://` target rather than being one.

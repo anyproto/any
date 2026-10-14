@@ -24,8 +24,10 @@ func TestTypedRoundTrip(t *testing.T) {
 			anyuri.URI{Kind: anyuri.KindObject, SpaceId: "space1", ObjectId: "object1", Dataset: "chat_messages", RecordId: "msgid1"}},
 		{"any://o/space1/object1/editor_blocks/block1",
 			anyuri.URI{Kind: anyuri.KindObject, SpaceId: "space1", ObjectId: "object1", Dataset: "editor_blocks", RecordId: "block1"}},
-		{"any://m/space1/ident1",
-			anyuri.URI{Kind: anyuri.KindMention, SpaceId: "space1", Identity: "ident1"}},
+		{"any://u/ident1",
+			anyuri.URI{Kind: anyuri.KindIdentity, Identity: "ident1"}},
+		{"any://u/ident1#top",
+			anyuri.URI{Kind: anyuri.KindIdentity, Identity: "ident1", Fragment: "top"}},
 		{"any://s/space1",
 			anyuri.URI{Kind: anyuri.KindSpace, SpaceId: "space1"}},
 		{"any://p/space1/object1/prop1x",
@@ -57,12 +59,14 @@ func TestLegacyRoundTrip(t *testing.T) {
 		{"any://space1/object1", anyuri.URI{Kind: anyuri.KindObject, Legacy: true, SpaceId: "space1", ObjectId: "object1"}},
 		{"any://object1#turn_3", anyuri.URI{Kind: anyuri.KindObject, Legacy: true, ObjectId: "object1", Fragment: "turn_3"}},
 		{"any://space1/object1#turn_3", anyuri.URI{Kind: anyuri.KindObject, Legacy: true, SpaceId: "space1", ObjectId: "object1", Fragment: "turn_3"}},
+		{"any://m/space1/ident1", anyuri.URI{Kind: anyuri.KindMention, Legacy: true, SpaceId: "space1", Identity: "ident1"}},
+		{"any://m/space1/ident1#top", anyuri.URI{Kind: anyuri.KindMention, Legacy: true, SpaceId: "space1", Identity: "ident1", Fragment: "top"}},
 	}
 	for _, tc := range cases {
 		u, err := anyuri.Parse(tc.text)
 		require.NoError(t, err, tc.text)
 		assert.Equal(t, tc.want, u, tc.text)
-		assert.Equal(t, tc.text, u.String(), "legacy String must re-render bare: %q", tc.text)
+		assert.Equal(t, tc.text, u.String(), "legacy String must re-render as parsed: %q", tc.text)
 		assert.True(t, anyuri.IsValid(tc.text), tc.text)
 	}
 }
@@ -72,7 +76,8 @@ func TestBuilders(t *testing.T) {
 	assert.Equal(t, "any://o/space1/object1", anyuri.BuildObjectGlobal("space1", "object1"))
 	assert.Equal(t, "any://o/space1/object1/chat_messages/msgid1",
 		anyuri.BuildRecord("space1", "object1", "chat_messages", "msgid1"))
-	assert.Equal(t, "any://m/space1/ident1", anyuri.BuildMention("space1", "ident1"))
+	assert.Equal(t, "any://u/ident1", anyuri.BuildIdentity("ident1"))
+	assert.Equal(t, "any://u/ident1", anyuri.BuildMention("space1", "ident1"))
 	assert.Equal(t, "any://s/space1", anyuri.BuildSpace("space1"))
 	assert.Equal(t, "any://p/space1/object1/prop1x", anyuri.BuildProp("space1", "object1", "prop1x"))
 	assert.Equal(t, "any://f/space1/file1x", anyuri.BuildFile("space1", "file1x"))
@@ -84,7 +89,7 @@ func TestBuilders(t *testing.T) {
 		anyuri.BuildObject("object1"),
 		anyuri.BuildObjectGlobal("space1", "object1"),
 		anyuri.BuildRecord("space1", "object1", "chat_messages", "msgid1"),
-		anyuri.BuildMention("space1", "ident1"),
+		anyuri.BuildIdentity("ident1"),
 		anyuri.BuildSpace("space1"),
 		anyuri.BuildProp("space1", "object1", "prop1x"),
 		anyuri.BuildFile("space1", "file1x"),
@@ -127,7 +132,9 @@ func TestParseRejectsGarbage(t *testing.T) {
 		"any://o/space1",                       // o wants 2 or 4 segments after the kind
 		"any://o/space1/object1/chat_messages", // dangling dataset without recordId
 		"any://o/space1/object1/chat_messages/msgid1/prop1x", // reserved record-field form
-		"any://m/space1",         // mention without identity
+		"any://m/space1",         // legacy mention without identity
+		"any://u",                // identity wants 1
+		"any://u/ident1/extra1",  // identity takes no further segments
 		"any://s/space1/object1", // space takes no further segments
 		"any://p/space1/object1", // prop wants 3
 		"any://f/space1",         // file wants 2
@@ -161,12 +168,30 @@ func TestIsPropertyValueRef(t *testing.T) {
 		"any://space1/object1",   // global form
 		"any://object1#frag1",    // fragment
 		"any://o/space1/object1", // typed form
-		"any://m/space1/ident1",  // typed form
+		"any://m/space1/ident1",  // legacy identity form
+		"any://u/ident1",         // identity
 		"any://s/space1",         // typed form
 		"any://",                 // garbage
 		"object1",                // no scheme
 		"any://abcd",             // kind-slug namespace, not an id
 	} {
 		assert.False(t, anyuri.IsPropertyValueRef(bad), bad)
+	}
+}
+
+func TestIsIdentityValueRef(t *testing.T) {
+	assert.True(t, anyuri.IsIdentityValueRef("any://u/ident1"))
+
+	for _, bad := range []string{
+		"any://m/space1/ident1",  // legacy form is not a value
+		"any://u/ident1#frag1",   // fragment
+		"any://u/ident1?foo=bar", // params
+		"any://u/",               // empty identity
+		"any://object1",          // object reference
+		"any://o/space1/object1", // object reference
+		"ident1",                 // bare identity
+		"any://",                 // garbage
+	} {
+		assert.False(t, anyuri.IsIdentityValueRef(bad), bad)
 	}
 }

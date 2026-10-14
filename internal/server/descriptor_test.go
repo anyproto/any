@@ -58,6 +58,7 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 		"options":{"lead":{"name":"Lead","color":"grey","pos":"a0","meta":{"icon":"dot"}},"won":{"name":"Won","color":"green","pos":"a1"}}}}`)
 	related := add(`{"name":"Related","xKey":"related","kind":"array","xFormat":{"type":"relation","icon":"link",
 		"config":{"multiple":true},"relation":{"targetTypes":["doc"],"filter":"{\"any.type\":\"page\"}"}}}`)
+	assignee := add(`{"name":"Assignee","xKey":"assignee","kind":"array","xFormat":{"type":"member","icon":"user"}}`)
 	due := add(`{"name":"Due","xKey":"due","kind":"datetime","xFormat":{"type":"date"}}`)
 	when := add(`{"name":"When","xKey":"when","kind":"datetime","xFormat":{"type":"datetime"}}`)
 	site := add(`{"name":"Site","xKey":"site","kind":"string","xFormat":{"type":"url"}}`)
@@ -87,6 +88,7 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 		"option entry not object": {`{"name":"G","xKey":"g","kind":"array","xFormat":{"type":"choice","options":{"x":"nope"}}}`, 400, "request.invalid_field"},
 		"unknown option leaf":     {`{"name":"H","xKey":"h","kind":"array","xFormat":{"type":"choice","options":{"x":{"weight":1}}}}`, 400, "request.invalid_field"},
 		"unknown relation member": {`{"name":"I","xKey":"i","kind":"array","xFormat":{"type":"relation","relation":{"foo":1}}}`, 400, "request.invalid_field"},
+		"member on a string kind": {`{"name":"I2","xKey":"i2","kind":"string","xFormat":{"type":"member"}}`, 400, "property.format_invalid"},
 		"unparseable filter":      {`{"name":"J","xKey":"j","kind":"array","xFormat":{"type":"relation","relation":{"filter":"{\"a\":{\"$nope\":1}}"}}}`, 400, "property.format_invalid"},
 		"config object value":     {`{"name":"K","xKey":"k","kind":"number","xFormat":{"type":"number","config":{"a":{"b":1}}}}`, 400, "request.invalid_field"},
 		"meta unknown key":        {`{"name":"L","xKey":"l","kind":"string","meta":{"pos":"a0"}}`, 400, "request.invalid_field"},
@@ -201,6 +203,15 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 		{"relation global form", related, `["any://space1/objabc"]`, 400},
 		{"relation typed form", related, `["any://o/space1/objabc"]`, 400},
 		{"relation short id (kind namespace)", related, `["any://abc"]`, 400},
+		{"relation identity", related, `["any://u/ident1abc"]`, 400},
+		{"member one", assignee, `["any://u/ident1abc"]`, 200},
+		{"member two with multiple off", assignee, `["any://u/ident1abc","any://u/ident2abc"]`, 400},
+		{"member scalar", assignee, `"any://u/ident1abc"`, 400},
+		{"member bare identity", assignee, `["ident1abc"]`, 400},
+		{"member legacy form", assignee, `["any://m/space1/ident1abc"]`, 400},
+		{"member object ref", assignee, `["any://objabc"]`, 400},
+		{"member fragment", assignee, `["any://u/ident1abc#top"]`, 400},
+		{"member unknown identity is format-only", assignee, `["any://u/nobodyabc"]`, 200},
 		{"markdown string", notes, `"see [x](any://abc123def)"`, 200},
 		{"markdown not string", notes, `7`, 400},
 		{"link marker keeps text checks", ref, `"any://abc123def"`, 200},

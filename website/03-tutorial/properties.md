@@ -50,6 +50,7 @@ any type property add $SPACE $CRED --name Site --xkey site --kind string --x-for
 | `datetime` | `date`, `datetime` | `{"$date": "2026-09-08T00:00:00.000Z"}` — a `date` lands on midnight UTC |
 | `array` | `choice` | an array of option **keys**: `["work"]` even for a single choice |
 | `array` | `relation` | `["any://<objectId>"]` — links to other objects |
+| `array` | `member` | `["any://u/<identity>"]` — space members, by account identity |
 
 The kind is what the server enforces on every write; the descriptor is a hint for clients and can be changed later. The full vocabulary is in [Data types](../database/data-types.html).
 

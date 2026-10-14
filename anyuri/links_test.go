@@ -21,7 +21,9 @@ func TestExtractLinks(t *testing.T) {
 		{"bare global", "see any://space1/obj1abc", []string{"any://space1/obj1abc"}},
 		{"typed object", "[spec](any://o/space1/obj1abc)", []string{"any://o/space1/obj1abc"}},
 		{"record path", "[blk](any://o/space1/obj1abc/editor_blocks/blk9)", []string{"any://o/space1/obj1abc/editor_blocks/blk9"}},
-		{"mention", "hey [Zarko](any://m/space1/ident1)", []string{"any://m/space1/ident1"}},
+		{"identity", "hey [Zarko](any://u/ident1)", []string{"any://u/ident1"}},
+		{"legacy mention", "hey [Zarko](any://m/space1/ident1)", []string{"any://m/space1/ident1"}},
+		{"glued period on identity", "ping any://u/ident1.Next word", []string{"any://u/ident1"}},
 		{"prop", "from any://p/space1/obj1abc/prop1", []string{"any://p/space1/obj1abc/prop1"}},
 		{"file with variant", "![x](any://f/space1/file1x?variant=thumb)", []string{"any://f/space1/file1x?variant=thumb"}},
 		{"space", "go to any://s/space1", []string{"any://s/space1"}},
@@ -63,7 +65,10 @@ func TestCanonical(t *testing.T) {
 		{"any://o/space2/obj1abc#frag", "space1", "any://o/space2/obj1abc", true},
 		{"any://o/space2/obj1abc/editor_blocks/blk9", "space1", "any://o/space2/obj1abc/editor_blocks/blk9", true},
 		{"any://p/space2/obj1abc/prop1", "space1", "any://p/space2/obj1abc/prop1", true},
-		{"any://m/space2/ident1", "space1", "any://m/space2/ident1", true},
+		{"any://u/ident1", "space1", "any://u/ident1", true},
+		{"any://u/ident1#top", "", "any://u/ident1", true},
+		{"any://m/space2/ident1", "space1", "any://u/ident1", true},
+		{"any://m/space2/ident1", "", "any://u/ident1", true},
 		{"any://f/space2/file1x?variant=thumb", "space1", "any://f/space2/file1x", true},
 		{"any://s/space2", "space1", "", false},
 	}
@@ -84,6 +89,7 @@ func TestObjectKeyAndIsPart(t *testing.T) {
 	obj, _ := anyuri.Parse("any://o/space1/obj1abc")
 	rec, _ := anyuri.Parse("any://o/space1/obj1abc/editor_blocks/blk9")
 	prop, _ := anyuri.Parse("any://p/space1/obj1abc/prop1")
+	ident, _ := anyuri.Parse("any://u/ident1")
 	men, _ := anyuri.Parse("any://m/space1/ident1")
 	file, _ := anyuri.Parse("any://f/space1/file1x")
 
@@ -92,12 +98,13 @@ func TestObjectKeyAndIsPart(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, "any://o/space1/obj1abc", k)
 	}
-	for _, u := range []anyuri.URI{men, file} {
+	for _, u := range []anyuri.URI{ident, men, file} {
 		_, ok := u.ObjectKey()
 		assert.False(t, ok)
 	}
 	assert.False(t, obj.IsPart())
 	assert.True(t, rec.IsPart())
 	assert.True(t, prop.IsPart())
+	assert.False(t, ident.IsPart())
 	assert.False(t, men.IsPart())
 }

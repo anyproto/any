@@ -2109,7 +2109,7 @@ value, an identity, a file.
 - `GET /v1/backlinks?target=<uri>` — `{"spaces": [{"spaceId",
   "object", "parts", "truncated"?}…]}`: the edges pointing at one target from every
   space this device indexes, one entry per space with an edge. The
-  target must be a global form (`any://o/<sp>/…`, `any://m/…`,
+  target must be a global form (`any://o/<sp>/…`, `any://u/…`,
   `any://f/…`, `any://p/…`); the bare in-space form is
   `400 request.invalid_field`. The device holds only spaces this
   account is a member of, so the read is access-filtered by
@@ -3779,7 +3779,7 @@ is markdown; rendering is the client's.
 a client: the send route has no such field and a direct `$set` via
 `POST …/modify` is rejected (400 `dataset.validation`). At change
 materialization the handler extracts every mention link
-(`any://m/<spaceId>/<identity>`, docs/19-links.md) from `text`
+(`any://u/<identity>`, docs/19-links.md) from `text`
 (deduped, first-occurrence order, capped at 64 — with the reply
 fold-in always retained: when the cap is hit, the last text mention
 yields the slot, so link-stuffing can't squeeze the replied-to author

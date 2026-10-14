@@ -43,7 +43,7 @@ func TestServer_Chat_Mentions(t *testing.T) {
 
 	// Reply whose text ALSO mentions the replied-to author: one entry.
 	both := chatSend(t, e, base,
-		fmt.Sprintf("ping [again](any://m/%s/%s)", spaceId, self), plain.Id)
+		fmt.Sprintf("ping [again](any://u/%s)", self), plain.Id)
 	if len(both.Mentions) != 1 || both.Mentions[0] != self {
 		t.Errorf("reply+text dedup: mentions = %v, want [%s]", both.Mentions, self)
 	}

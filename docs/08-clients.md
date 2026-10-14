@@ -958,13 +958,15 @@ Call patterns:
   `[Name](any://o/…)` paragraph is a card; property references go
   into a `relation` property as bare `any://<objectId>` values — the
   only form a relation accepts, so a relation never points across
-  spaces or at a block; a text link does. A runtime dataset field
-  that carries references declares `xFormat.links`
+  spaces or at a block; a text link does. Member references go into a
+  `member` property as `any://u/<identity>` values. A runtime dataset
+  field that carries references declares `xFormat.links`
   (`27-descriptors.md`), or the index never reads it; `xFormat.links:
   "none"` keeps a field out of backlinks on purpose.
-- **Identity targets are per space.** `any://m/<sp>/<identity>` keys
-  mentions in one space; "everywhere I am mentioned" is one
-  `GET /v1/backlinks?target=` per space the client holds.
+- **Identity targets are account-global.** `any://u/<identity>` is the
+  same key in every space, so "everywhere I am mentioned or assigned"
+  is one `GET /v1/backlinks?target=any://u/<myIdentity>`; `kind` tells
+  a `mention` in text from a `relation` written by a `member` value.
 - **Above 500 backlinks the reply is a cut, not a page.** `truncated`
   says so; the order is the index's own (source object, dataset,
   record), not recency, and there is no continuation — a popular

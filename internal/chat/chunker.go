@@ -77,7 +77,7 @@ func MessageLinks(spaceId, objectId, collection, msgId string, rec *anyenc.Value
 		}
 		seen[key] = true
 		e.Kind = index.LinkKindLink
-		if e.Target.Kind == anyuri.KindMention {
+		if e.Target.Kind == anyuri.KindIdentity {
 			e.Kind = index.LinkKindMention
 		}
 		out = append(out, e)

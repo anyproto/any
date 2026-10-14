@@ -203,7 +203,7 @@ target.
 
 ```jsonc
 // type: "links.updated"
-{ "spaceId": "<the space whose edges changed>", "targets": ["any://o/<sp>/<obj>", "any://m/<sp>/<identity>", …] }
+{ "spaceId": "<the space whose edges changed>", "targets": ["any://o/<sp>/<obj>", "any://u/<identity>", …] }
 ```
 
 `spaceId` is the **source** space — where the writing records live.
