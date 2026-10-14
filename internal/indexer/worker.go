@@ -56,6 +56,10 @@ type spaceWorker struct {
 	// layout stamp (written once per worker after the first landed
 	// page, or by the backfill).
 	linksStamped bool
+	// linksBackfillFailed: this start's backfill did not finish. The
+	// stamp stays behind so the next start retries; an advance must not
+	// stamp over it.
+	linksBackfillFailed bool
 }
 
 func newSpaceWorker(ix *Indexer, sp space.Space) *spaceWorker {
@@ -365,7 +369,7 @@ func (w *spaceWorker) advancePages(ctx context.Context, onWork func(), progress 
 		if err := w.ix.store.SetCursor(ctx, spaceId, cursor, w.generation); err != nil {
 			return err
 		}
-		if !w.linksStamped {
+		if !w.linksStamped && !w.linksBackfillFailed {
 			// Edges written by an advance are on the current layout:
 			// stamp once so a restart never backfills this space.
 			if err := w.ix.store.StampLinksVersion(ctx, spaceId); err != nil {
@@ -923,6 +927,7 @@ func (w *spaceWorker) backfillLinks(ctx context.Context) {
 	rep.finish(ctx, err)
 	if err != nil {
 		w.ix.lg.Warn("links backfill failed; retried on next start", zap.String("spaceId", spaceId), zap.Error(err))
+		w.linksBackfillFailed = true
 		return
 	}
 	w.linksStamped = true

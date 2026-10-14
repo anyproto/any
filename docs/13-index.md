@@ -300,19 +300,21 @@ type LinkEntry struct {
 - **Canonical targets.** `URI.Canonical` resolves what was written to
   one key: the bare in-space form and the global form become
   `any://o/<sp>/<id>`; a record path stays a record path (a block link
-  is a block link — the object is not counted twice); `p` / `m` / `f`
-  keep their kind, params and fragments dropped; `s` and unknown kinds
-  are not targets. A link to the source object itself, as a whole, is
-  dropped (the parent is not a backlink).
+  is a block link — the object is not counted twice); `p` / `u` / `f`
+  keep their kind, params and fragments dropped; the legacy
+  `any://m/<sp>/<identity>` becomes `any://u/<identity>`, so an
+  identity is one key in every space; `s` and unknown kinds are not
+  targets. A link to the source object itself, as a whole, is dropped
+  (the parent is not a backlink).
 - **What reports edges**, by field descriptor (`27-descriptors.md`
   § `xFormat`): `xFormat.links` marks a field — `link` (the string is
   one reference), `links` (the array lists references), `markdown` (the
-  text is scanned), `none` (never scanned) — and the `relation` slug
-  implies `links`, the `markdown` slug implies `markdown`. Plain `text` /
-  `longtext` is never scanned; `meta.index: none` keeps a property out
-  of the TEXT index only. Kinds: a value field yields `relation`;
-  scanned text yields `mention` for an `m` reference and `link` for the
-  rest.
+  text is scanned), `none` (never scanned) — and the `relation` and
+  `member` slugs imply `links`, the `markdown` slug implies `markdown`.
+  Plain `text` / `longtext` is never scanned; `meta.index: none` keeps a
+  property out of the TEXT index only. Kinds: a value field yields
+  `relation`; scanned text yields `mention` for a `u` reference and
+  `link` for the rest.
 - **Catalog freshness.** A definition object changing in the feed (a
   property added, patched or removed) invalidates every `CatalogInvalidator`'s
   per-space snapshot before the rest of the object is extracted, so a
@@ -359,7 +361,9 @@ type LinkEntry struct {
   edges are kept, landed page by page — text docs untouched, nothing
   re-embeds; an unreadable object is skipped and its edges arrive with
   its next change. Reported as `index.links_backfill.<spaceId>` on the
-  process view (`22-processes.md`).
+  process view (`22-processes.md`). The layout changes when the
+  canonical form of a target does, so the key a reader asks for is the
+  key every stored edge carries.
 - After a page changed edges the indexer reports the affected target
   keys (`Options.OnLinks` — only targets an edge appeared for or
   vanished from); the server publishes them as one device-scope bus

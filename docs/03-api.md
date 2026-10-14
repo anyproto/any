@@ -2080,7 +2080,7 @@ value lives at `record[ownerId][propId]`).
 `source.field` names the field of a runtime record the reference was
 read from. `target` carries `uri`, `kind` and the ids its kind has
 (`spaceId`, `objectId`, `dataset`, `recordId`, `propId`, `identity`,
-`fileId`).
+`fileId`); an identity target has no `spaceId`.
 `kind` is one of
 `mention` (an identity in text), `link` (an object, record, value or
 file reference in text or a chat attachment), `card` (an editor
@@ -2088,7 +2088,7 @@ paragraph that is exactly one whole-line link to an object or file),
 `embed` (the editor's synced-block reference) and `relation` (a
 value of a link-bearing property or field); the set is open. `target`
 is the canonical form (`docs/19-links.md`): the object key for an
-object, the record path for a block or message, `p` / `m` / `f` for a
+object, the record path for a block or message, `p` / `u` / `f` for a
 value, an identity, a file.
 
 - `GET /v1/spaces/:spaceId/objects/:objectId/backlinks` —
@@ -2109,7 +2109,7 @@ value, an identity, a file.
 - `GET /v1/backlinks?target=<uri>` — `{"spaces": [{"spaceId",
   "object", "parts", "truncated"?}…]}`: the edges pointing at one target from every
   space this device indexes, one entry per space with an edge. The
-  target must be a global form (`any://o/<sp>/…`, `any://m/…`,
+  target must be a global form (`any://o/<sp>/…`, `any://u/…`,
   `any://f/…`, `any://p/…`); the bare in-space form is
   `400 request.invalid_field`. The device holds only spaces this
   account is a member of, so the read is access-filtered by
@@ -2782,12 +2782,14 @@ one (it renders structurally from `kind`).
 write — `POST …/set/:ownerId`, `initialProperties` on object create,
 bundle `rootProperties`: a `date` is an instant at midnight UTC, a
 `relation` an array of plain `any://<objectId>` URIs (no spaceId
-segment, no fragment), a `choice` an array of option keys (one unless
-`config.multiple`), a `period` / `money` / `geo` its exact shape, and so
-on per the vocabulary table → `400 property.format_violation`
-(`details: {propId, format, reason}`; `format` is the slug). Option
-membership is **not** enforced (dangling-tolerant), nor is object
-existence or type. An unknown slug gets no value checks. A raw
+segment, no fragment), a `member` an array of `any://u/<identity>` URIs
+(a base58 identity, no params, no fragment), a `choice` an array of
+option keys (one unless `config.multiple`), a `period` / `money` / `geo`
+its exact shape, and so on per the vocabulary table →
+`400 property.format_violation` (`details: {propId, format, reason}`;
+`format` is the slug). Option membership is **not** enforced
+(dangling-tolerant), nor is object existence or type, nor roster
+membership. An unknown slug gets no value checks. A raw
 `POST /v1/spaces/:spaceId/modify` against the `objects` dataset is not
 checked against the descriptor.
 
@@ -3779,7 +3781,8 @@ is markdown; rendering is the client's.
 a client: the send route has no such field and a direct `$set` via
 `POST …/modify` is rejected (400 `dataset.validation`). At change
 materialization the handler extracts every mention link
-(`any://m/<spaceId>/<identity>`, docs/19-links.md) from `text`
+(`any://u/<identity>`, the legacy `any://m/<spaceId>/<identity>` form
+included, docs/19-links.md) from `text`
 (deduped, first-occurrence order, capped at 64 — with the reply
 fold-in always retained: when the cap is hit, the last text mention
 yields the slot, so link-stuffing can't squeeze the replied-to author

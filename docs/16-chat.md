@@ -80,7 +80,7 @@ subscribe frames):
 | field | meaning |
 |---|---|
 | `unread: true` | the message itself is unread. Absent (not `false`) once read — filter with `{"unread": true}`. |
-| `unreadMention: true` | unread mention of you — the message's derived `mentions` contains your identity (a text `any://m/…` link or a reply to your message; see § Mentions). Sets alongside `unread` on new messages, and on its own when an edit adds a mention of you. |
+| `unreadMention: true` | unread mention of you — the message's derived `mentions` contains your identity (a text `any://u/…` link or a reply to your message; see § Mentions). Sets alongside `unread` on new messages, and on its own when an edit adds a mention of you. |
 | `unreadReactions: true` | someone reacted to this message and you haven't seen it. Only ever sets on messages **you authored** — a reaction is a signal to the message's author, so it badges only them. |
 
 Per chat (properties on the chat object's row, present in any
@@ -228,8 +228,8 @@ the history is.
 
 ## Mentions
 
-A mention is a markdown link whose destination is a mention URI
-(docs/19-links.md; build it with `anyuri.BuildMention`). Every
+A mention is a markdown link whose destination is an identity URI
+(docs/19-links.md § `u`; build it with `anyuri.BuildIdentity`). Every
 `any://` reference in a message — the text's links and mentions, each
 attachment's `link`, the agent group's `debugLink` — also lands in
 the link index, so "which messages mention this member" and "which
@@ -238,7 +238,7 @@ chats link this page" are backlinks reads (`GET /v1/backlinks?target=`,
 Mentions in the text:
 
 ```
-Hey [Zarko](any://m/<spaceId>/<identity>), take a look
+Hey [Zarko](any://u/<identity>), take a look
 ```
 
 The server derives a `mentions: ["<identity>", …]` array on every
@@ -247,8 +247,8 @@ message at change materialization — **clients never write it** (it's
 truth, so a spoofed array can neither silent-ping nor suppress a real
 ping). Two sources, one array:
 
-- every `any://m/…` link in the text (deduped, first-occurrence
-  order);
+- every `any://u/…` link in the text (deduped, first-occurrence
+  order; the legacy `any://m/<spaceId>/<identity>` form counts too);
 - **replies count as mentions**: the replied-to message's creator is
   folded in at write time, so "all pings for me" is one field check —
   reply-derived entries are not distinguished from text mentions.
@@ -282,7 +282,7 @@ writes are born read.
 
 Rendering the mention chip — resolving the current display name via
 `GET /v1/identities`, falling back to the link text snapshot — is
-described in docs/19-links.md § `m` — mentions.
+described in docs/19-links.md § `u` — identities.
 
 ## Chat list
 

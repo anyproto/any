@@ -60,7 +60,8 @@ const (
 	// xfLinks marks a field whose value carries any:// references for
 	// the link index (docs/13-index.md § Links): "link" (one string),
 	// "links" (an array), "markdown" (text scanned for references) or
-	// "none" (never scanned). The relation and markdown slugs imply it.
+	// "none" (never scanned). The relation, member and markdown slugs
+	// imply it.
 	xfLinks = "links"
 	// Reserved for future contracts; refused today.
 	xfValidate = "validate"
@@ -84,6 +85,7 @@ const (
 	slugPhone    = "phone"
 	slugChoice   = "choice"
 	slugRelation = "relation"
+	slugMember   = "member"
 	slugNumber   = "number"
 	slugCurrency = "currency"
 	slugPercent  = "percent"
@@ -104,7 +106,7 @@ const (
 var slugKinds = map[string]string{
 	slugText: api.PropertyKindString, slugLongtext: api.PropertyKindString, slugMarkdown: api.PropertyKindString,
 	slugURL: api.PropertyKindString, slugEmail: api.PropertyKindString, slugPhone: api.PropertyKindString,
-	slugChoice: api.PropertyKindArray, slugRelation: api.PropertyKindArray,
+	slugChoice: api.PropertyKindArray, slugRelation: api.PropertyKindArray, slugMember: api.PropertyKindArray,
 	slugNumber: api.PropertyKindNumber, slugCurrency: api.PropertyKindNumber, slugPercent: api.PropertyKindNumber,
 	slugRating: api.PropertyKindNumber, slugDuration: api.PropertyKindNumber,
 	slugCheckbox: api.PropertyKindBoolean,
@@ -730,6 +732,26 @@ func checkDescriptorValue(slug string, xf map[string]any, v *fastjson.Value) str
 		}
 		if len(arr) > 1 && !xfConfigBool(xf, xfConfigMultiple) {
 			return "relation holds one value (config.multiple is off)"
+		}
+	case slugMember:
+		arr, err := v.Array()
+		if err != nil {
+			return "member value must be an array of any://u/<identity> URIs (a single member is a one-element array)"
+		}
+		for _, el := range arr {
+			s, ok := fastjsonString(el)
+			if !ok {
+				return "member value must contain only strings"
+			}
+			// Format only: membership is not checked. The roster
+			// changes concurrently and a value may name an identity
+			// that has left or not yet joined.
+			if !anyuri.IsIdentityValueRef(s) {
+				return fmt.Sprintf("member %q must be an \"any://u/<identity>\" URI", s)
+			}
+		}
+		if len(arr) > 1 && !xfConfigBool(xf, xfConfigMultiple) {
+			return "member holds one value (config.multiple is off)"
 		}
 	case slugNumber, slugCurrency, slugPercent, slugDuration:
 		if v.Type() != fastjson.TypeNumber {

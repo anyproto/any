@@ -286,10 +286,11 @@ is the storage contract (`string`, `array`, `number`, `boolean`,
 interpreted keys are `type`, `icon`, `pos`, `options`, `relation`,
 `config`, `links` ([`27-descriptors.md`](27-descriptors.md)). A reference
 property is `kind: array` with `xFormat.type: "relation"` and values
-`["any://<objectId>", …]` — that slug is also what puts its values into
-the backlinks index; a property with neither that slug nor an
-`xFormat.links` marker indexes no links until it is patched with
-`{"set": {"xFormat.type": "relation"}}`.
+`["any://<objectId>", …]`; a member property is `kind: array` with
+`xFormat.type: "member"` and values `["any://u/<identity>", …]` — either
+slug is also what puts its values into the backlinks index; a property
+with neither slug nor an `xFormat.links` marker indexes no links until
+it is patched with `{"set": {"xFormat.type": "relation"}}`.
 
 ### Value shapes that bite
 
@@ -301,6 +302,7 @@ before relying on a slug not listed.
 | `text` / `url` / `email` / `phone` | `string` | a string |
 | `date` / `datetime` | `datetime` | `{"$date": "2026-08-05T17:00:00.000Z"}` — `date` must land on midnight UTC |
 | `relation` | `array` | `["any://<objectId>"]` — **a bare object id is rejected** |
+| `member` | `array` | `["any://u/<identity>"]` — a bare identity or the legacy `any://m/…` form is rejected |
 | `choice` | `array` | **always an array** of option **keys**, not names — a single choice is `["qualified"]`; `config.multiple` controls arity, not kind |
 | `number` / `currency` / `percent` | `number` | a number |
 | `checkbox` | `boolean` | a bool |

@@ -1094,6 +1094,7 @@ func TestTypeDatasets_FieldPatch(t *testing.T) {
 	}{
 		"slug/kind mismatch":    {`{"key":"bad1","fields":[{"key":"x","kind":"string","xFormat":{"type":"choice"}}]}`, "property.format_invalid"},
 		"stamped field slug":    {`{"key":"bad2","fields":[{"key":"author","stamp":"creator","xFormat":{"type":"date"}}]}`, "property.format_invalid"},
+		"stamped field member":  {`{"key":"bad2m","fields":[{"key":"author","stamp":"creator","xFormat":{"type":"member"}}]}`, "property.format_invalid"},
 		"descriptor not object": {`{"key":"bad3","fields":[{"key":"x","kind":"string","xFormat":"email"}]}`, "request.invalid_field"},
 		"reserved key":          {`{"key":"bad4","fields":[{"key":"x","kind":"string","xFormat":{"type":"text","validate":{}}}]}`, "property.format_invalid"},
 	} {

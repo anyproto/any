@@ -13,14 +13,14 @@ import (
 // Link kinds. An open slug set the extractors mint; these are the
 // established vocabulary.
 const (
-	// LinkKindMention — an identity referenced in text (`m` URI).
+	// LinkKindMention — an identity referenced in text (`u` URI).
 	LinkKindMention = "mention"
 	// LinkKindLink — an ordinary reference in text: an object, one of
 	// its records or property values, a file.
 	LinkKindLink = "link"
 	// LinkKindRelation — a value of a link-bearing property or dataset
-	// field (the `relation` slug, or an explicit `links` marker on a
-	// value field).
+	// field (the `relation` and `member` slugs, or an explicit `links`
+	// marker on a value field).
 	LinkKindRelation = "relation"
 	// LinkKindCard — an editor block that is exactly one link to an
 	// object or file, rendered as a card (the whole-line rule the web
@@ -67,15 +67,16 @@ const (
 	LinkModeNone     = "none"
 
 	slugRelation = "relation"
+	slugMember   = "member"
 	slugMarkdown = "markdown"
 )
 
 // LinkMode resolves a descriptor's link marker: the explicit `links`
 // key wins whatever it holds (`none`, an unknown or a malformed value
 // disable — the gate refuses the latter two on write, so they only
-// arrive from a vendor or a bypass), else the `relation` slug implies
-// `links` and the `markdown` slug implies `markdown`. Empty when the
-// field carries no links.
+// arrive from a vendor or a bypass), else the `relation` and `member`
+// slugs imply `links` and the `markdown` slug implies `markdown`.
+// Empty when the field carries no links.
 func LinkMode(xf map[string]any) string {
 	if xf == nil {
 		return ""
@@ -89,7 +90,7 @@ func LinkMode(xf map[string]any) string {
 		return ""
 	}
 	switch xf["type"] {
-	case slugRelation:
+	case slugRelation, slugMember:
 		return LinkModeMany
 	case slugMarkdown:
 		return LinkModeMarkdown
@@ -126,7 +127,7 @@ func TextLinks(spaceId, objectId, dataset, recordId, text string) []LinkEntry {
 		}
 		seen[key] = true
 		kind := LinkKindLink
-		if c.Kind == anyuri.KindMention {
+		if c.Kind == anyuri.KindIdentity {
 			kind = LinkKindMention
 		}
 		out = append(out, LinkEntry{ObjectId: objectId, Dataset: dataset, RecordId: recordId, Kind: kind, Target: c})

@@ -51,7 +51,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/$MOVIE \
 
 Three rules connect values to definitions:
 
-- **The server validates shape, not membership.** Every peer checks the value's kind against the pinned `kind` (`400 property.kind_mismatch` on a local write). The server checks the rest against the property's *current* slug — a well-formed `{"$date": …}` for a date, a plain `any://<objectId>` for a relation, a `period` / `money` / `geo` compound in its exact shape (`400 property.format_violation` otherwise). A `choice` value is *not* checked against `xFormat.options` — options are dangling-tolerant by design.
+- **The server validates shape, not membership.** Every peer checks the value's kind against the pinned `kind` (`400 property.kind_mismatch` on a local write). The server checks the rest against the property's *current* slug — a well-formed `{"$date": …}` for a date, a plain `any://<objectId>` for a relation, an `any://u/<identity>` for a member, a `period` / `money` / `geo` compound in its exact shape (`400 property.format_violation` otherwise). A `choice` value is *not* checked against `xFormat.options`, and a `member` value is not checked against the roster — both are dangling-tolerant by design.
 - **Read tolerance.** A value that violates the current definition, or sits under an unknown propId, is returned as-is. There is no `valid` flag and no re-validation cascade; clients decide how to render out-of-spec data.
 - **Same-name properties are not a conflict.** Two peers concurrently adding "Rating" produce two ids, both fully real. Consolidating is a user or agent decision, never a merge rule.
 

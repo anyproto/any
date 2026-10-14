@@ -135,7 +135,7 @@ datetime), and its slug is checked against that.
 | `options` | enumerated formats | the map **key is the stored value**; the entry is the display slice `{name, color, pos, meta.<k>}`, all strings. `color` is an open string — clients render the palette names they know |
 | `relation` | reference formats | `targetTypes` names target surfaces by handle (array of strings) — a type's xKey or a collection's, so a reference can be restricted to what an object **is** (`person`) or to what it is **filed under** (`contact`). `filter` is an additional condition over candidate objects, one JSON-text leaf that must parse as a query condition. |
 | `config` | per format | scalar settings (string / number / boolean), keyed by the vocabulary below |
-| `links` | any | the link-index marker: `link` (the string value is one `any://` reference, kind string), `links` (the array lists references, kind array), `markdown` (the text is scanned for references, kind string) or `none` (never scanned — the off-switch for a `relation` or `markdown` field whose references must stay out of backlinks). Implied by the `relation` slug (`links`) and the `markdown` slug (`markdown`); set it explicitly on any other shape that carries references. See docs/13-index.md § Links. |
+| `links` | any | the link-index marker: `link` (the string value is one `any://` reference, kind string), `links` (the array lists references, kind array), `markdown` (the text is scanned for references, kind string) or `none` (never scanned — the off-switch for a `relation`, `member` or `markdown` field whose references must stay out of backlinks). Implied by the `relation` and `member` slugs (`links`) and the `markdown` slug (`markdown`); set it explicitly on any other shape that carries references. See docs/13-index.md § Links. |
 
 Reserved: `validate` and `compute`. Both answer
 `400 property.format_invalid` on create and on a PATCH set.
@@ -207,6 +207,7 @@ prefix, and own their `config` keys.
 | `phone` | string | | | | string |
 | `choice` | array | ✓ | | `multiple` `optionSort` | non-empty option keys; one unless `multiple` |
 | `relation` | array | | ✓ | `multiple` | bare `any://<objectId>` URIs; one unless `multiple` |
+| `member` | array | | | `multiple` | `any://u/<identity>` URIs; one unless `multiple` |
 | `number` | number | | | `decimals` `separators` `showAs` `outOf` `color` | number |
 | `currency` | number | | | + `currency` | number |
 | `percent` | number | | | `decimals` `showAs` | number |
@@ -228,8 +229,8 @@ values are open (`manual` shown).
 
 ### One or many
 
-`choice` and `relation` store **an array, always** — a single-valued
-Choice holds `["qualified"]`, not `"qualified"`. Arity is
+`choice`, `relation` and `member` store **an array, always** — a
+single-valued Choice holds `["qualified"]`, not `"qualified"`. Arity is
 `config.multiple`, a mutable flag, not a kind; **absent means `false`**
 — one value, and a two-element write is refused.
 
@@ -240,6 +241,41 @@ pinned.
 Turning `multiple` off keeps every stored value. A client shows the
 first with a count and writes a one-element array on the next edit;
 never drop the rest silently.
+
+### Members
+
+A `member` property points at space members by account identity — an
+Assignee, an Owner, a Reviewer. The value is an array of identity
+references, `["any://u/<identity>"]` (docs/19-links.md § `u`), and the
+identity is the same string the members list, a chat message's
+`creator` and the row's `modifiedBy` carry. No object stands in for the
+person: there is no Person record to mint or keep in step with the
+roster. A person who is not a space member is an ordinary `relation` to
+a `person` record; `member` is for roster identities.
+
+The check is the **shape only**: a base58 identity in the `u` form,
+never decoded as an account id nor matched against the roster, which
+changes concurrently and offline. A value may name an identity that has
+left the space, or one that has not joined yet. The value is never
+rewritten — a departed member stays the assignee until someone changes
+it. A value in the legacy `any://m/…` form is refused.
+
+Rendering resolves the identity at read time through the account-global
+directory (`GET /v1/identities/:identity`, the avatar via its `/icon`
+route), falling back to the bare id until the profile resolves. The
+space's members list (`GET /v1/spaces/:id/members`) is the picker's
+source — offer the `status: active` rows — and says what a stored
+identity is to the space now: active, removed, never a member.
+
+Reads: "assigned to me" in one space is a query on the property,
+`{"<ownerId>.<propId>": "any://u/<myIdentity>"}` (array membership;
+the own identity is `GET /v1/account` → `id`) — the paged list. Across
+every space it is `GET /v1/backlinks?target=any://u/<myIdentity>&kind=relation`:
+the slug implies the `links` marker, so every member value is a
+`relation` edge to the identity, next to the `mention` edges from text
+(docs/13-index.md § Links); the read is a cut at 500 edges per space,
+not a page. `relation.targetTypes` does not apply: the target set is
+the roster.
 
 ### Dates
 
@@ -305,6 +341,13 @@ for any viewer west of UTC, so a birthday or a deadline reads wrong.
     "relation": { "targetTypes": ["contact"] } } }
 // "contact" is a collection handle — any object filed under it qualifies,
 // whatever its type
+
+// member — a space member by identity, not an object
+{ "kind": "array", "xKey": "assignee", "name": "Assignee",
+  "xFormat": {
+    "type": "member", "icon": "user", "pos": "a4",
+    "config": { "multiple": false } } }
+// value: ["any://u/A6uxkTGvWhqU7P4ZaYz7yhoC9ccTi5V8Y2JNscmxLKCvZcnK"]
 
 // currency
 { "kind": "number", "xKey": "deal_value", "name": "Deal value",
@@ -428,7 +471,8 @@ Edit `xFormat` leaf by leaf (§ Editing: leaves only).
 1. Value does not match the slug — the slug changed after the values were written
 2. Option key absent from `options` — deleted, or the value predates it
 3. Unknown slug, or an unknown key inside `xFormat`
-4. Link target missing, deleted, or outside `relation.targetTypes`
+4. Link target missing, deleted, or outside `relation.targetTypes`; a
+   `member` identity not on the roster, or not yet resolved
 5. A value under a propId with no definition — the definition was removed
 6. No `xFormat` at all — an agent declared only `kind`
 7. `config` value of an unexpected type
@@ -449,10 +493,11 @@ one kind**:
 | `number` | number · currency · percent · rating · duration | harmless, display only |
 | `datetime` | date · datetime | changes the render zone; see Dates |
 | `object` | period · money · geo | shape is pinned, so values survive an incoherent slug |
-| `array` | choice ↔ relation | option keys sit where `any://` URIs are expected |
+| `array` | choice · relation · member | option keys sit where `any://` URIs are expected; an object reference where an identity is |
 
-`choice ↔ relation` is the one lossy-looking move — both are arrays of
-strings, so it is structurally legal. Clients should not offer it.
+The moves among the array slugs are the lossy-looking ones — all three
+are arrays of strings, so they are structurally legal. Clients should
+not offer them.
 
 Reverting the slug restores the display of values written before the
 flip — nothing rewrote them. It does not undo values written *under*
@@ -532,8 +577,8 @@ alone.
   Raw `POST …/modify` on the `objects` dataset is not checked.
 - **The link index** reads references off every property and field
   whose top-level descriptor carries a `links` marker, implied or
-  explicit. A `relation` slug or `links` marker nested in a composite is
-  legal but invisible to it.
+  explicit. A `relation` or `member` slug or a `links` marker nested in
+  a composite is legal but invisible to it.
 - `meta` narrowed to `index`.
 
 ## Not covered
@@ -544,12 +589,6 @@ contract:
 - **File / image values.** A file is `any://f/<spaceId>/<fileId>` — a
   different URI kind, and files are not objects, so
   `relation.targetTypes` has nothing to bind to. No slug covers them.
-- **Person / identity values.** A `relation` pointing at objects of a
-  user-defined "Person" type is an ordinary object reference. Pointing
-  at a *space member* is not supported: identities are not objects,
-  `any://m/<spaceId>/<identity>` exists for mentions but is not wired to
-  `relation`, and `targetTypes` has no way to name them. An "Assignee"
-  that means a member rather than a contact record is unsupported.
 - **Computed values** — formula, rollup, lookup. Not expressible: a
   handler may read only its own object's datasets, and only fields
   immutable post-create, so a stored derived value cannot depend on an
@@ -569,7 +608,9 @@ contract:
   and the SDK's system datasets — carries a `description`, and an
   `xFormat` where the vocabulary above names its value (`text`,
   `longtext`, `markdown`, `datetime`, `checkbox`). Two value shapes
-  have no slug and ship description-only: account identities (the
-  "Person / identity values" item above) and record ids
-  (`replyToMessageId`, `views.dataview`). Icon values, lexid `pos`, enum
-  strings and opaque objects are system values and carry no slug.
+  have no slug and ship description-only: the bare account identities
+  on system fields (`creator`, `modifiedBy`, `bin.movedBy` and the
+  like — a string, not a `member` array) and record ids
+  (`replyToMessageId`, `views.dataview`). Icon
+  values, lexid `pos`, enum strings and opaque objects are system
+  values and carry no slug.
