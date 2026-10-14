@@ -70,3 +70,46 @@ func TestClassifyReadReactionAudience(t *testing.T) {
 		t.Errorf("message verdict must not carry an audience filter")
 	}
 }
+
+// TestClassifyRead_AgentDone pins the agent carve-out: a create whose
+// `agent.done` is true asks the SDK to track the entry on the signer's
+// own account (the agent writes under the owner's key); a streaming
+// bubble (done:false), a human message, or an unresolvable record do
+// not.
+func TestClassifyRead_AgentDone(t *testing.T) {
+	records := map[string]*anyenc.Value{
+		"done":   anyenc.MustParseJson(`{"id":"done","creator":"acc-me","text":"answer","agent":{"name":"bao","done":true}}`),
+		"stream": anyenc.MustParseJson(`{"id":"stream","creator":"acc-me","text":"thinking","agent":{"name":"bao","done":false}}`),
+		"human":  anyenc.MustParseJson(`{"id":"human","creator":"acc-me","text":"hi"}`),
+		"ping":   anyenc.MustParseJson(`{"id":"ping","creator":"acc-me","text":"@me","mentions":["acc-me"],"agent":{"name":"bao","done":true}}`),
+	}
+	for id, want := range map[string]bool{"done": true, "stream": false, "human": false} {
+		cl := classifyRead(classifyCtx("acc-me", id, records), createChange(id))
+		if !cl.Track || len(cl.Tags) != 1 || cl.Tags[0] != TagMessage {
+			t.Fatalf("%s: verdict = %+v, want tracked [message]", id, cl)
+		}
+		if cl.TrackSelfAuthored != want {
+			t.Errorf("%s: TrackSelfAuthored = %v, want %v", id, cl.TrackSelfAuthored, want)
+		}
+	}
+
+	// A terminal agent message that mentions the owner carries the
+	// mention tag as well — it badges unreadMentions too.
+	cl := classifyRead(classifyCtx("acc-me", "ping", records), createChange("ping"))
+	if !cl.TrackSelfAuthored || len(cl.Tags) != 2 || cl.Tags[1] != TagMention {
+		t.Errorf("ping: verdict = %+v, want TrackSelfAuthored [message mention]", cl)
+	}
+
+	// No getter: degrade to a plain born-read message, never panic.
+	cl = classifyRead(&handler.ChangeCtx{SelfIdentity: "acc-me", RecordId: "done"}, createChange("done"))
+	if cl.TrackSelfAuthored {
+		t.Errorf("nil getter must not set TrackSelfAuthored: %+v", cl)
+	}
+
+	// Edits never carry it: the group is create-only, and the rule is
+	// one unread per completed run.
+	cl = classifyRead(classifyCtx("acc-me", "ping", records), textEditChange("ping"))
+	if cl.TrackSelfAuthored {
+		t.Errorf("text edit must not set TrackSelfAuthored: %+v", cl)
+	}
+}

@@ -85,7 +85,7 @@
 // ping. Self-mentions are not filtered — the array is an objective
 // fact of the message; "not my own messages" is a client-side
 // creator != me filter (and read-tracking never badges self-authored
-// changes anyway).
+// changes, agent terminal messages excepted — see reading.go).
 //
 // Server-stamped fields land via sink.Derive in BeforeCreate /
 // BeforeModify; they are intentionally invisible to client payloads.

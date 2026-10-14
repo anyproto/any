@@ -106,7 +106,10 @@ Rules that follow:
   keeps both consistent, including across devices and after deletes.
 - **Your own messages are born read** — on every one of your devices
   (read state is per *account*, not per device). Never call a read
-  endpoint after sending.
+  endpoint after sending. The one exception is an agent's terminal
+  message (`agent.done: true`): it is signed with your key but you have
+  not seen it, so it counts unread on every device of yours until read,
+  in every space. Its `done: false` bubbles stay born read.
 - Edits never re-flag a message's `unread`. The one exception is
   mentions: an edit whose new text mentions you sets `unreadMention`
   (a fresh ping is a ping), and repeated re-edits collapse into ONE
@@ -278,7 +281,8 @@ Badge from the row's `chat.unreadMentions`, exactly like
 `chat.unreadCount`. Self-mentions and self-replies list you in
 `mentions` (it's an objective fact of the message — filter with
 `creator != me` if you don't want them) but never badge you: your own
-writes are born read.
+writes are born read. An agent's terminal message is the exception, so
+an agent that mentions you bumps `chat.unreadMentions` too.
 
 Rendering the mention chip — resolving the current display name via
 `GET /v1/identities`, falling back to the link text snapshot — is
@@ -331,7 +335,9 @@ for `chat.unreadCount` / `chat.unreadMentions` changes:
   device dismissal falls out for free.
 - The counters already encode the semantics, so no client-side
   filtering is needed: your own messages never bump them (born read),
-  edits never bump them, deleting an unseen message drops them.
+  an agent's `done: true` reply under your key does, edits never bump
+  them, deleting an unseen message drops them. "Your agent replied"
+  rides this same subscription in every space — no per-chat streams.
 
 Boot policy: on start, take the subscription's snapshot as badge
 state — don't toast the offline gap (the last-notified markers make

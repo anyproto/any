@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 
+	"github.com/anyproto/any-store/v2/anyenc"
 	"github.com/anyproto/any-store/v2/query"
 	"github.com/anyproto/any-sync-sdk/handler"
 	"github.com/anyproto/any-sync-sdk/space"
@@ -88,9 +89,17 @@ const PropNotifyMode = "notifyMode"
 //     never lights your counter (audienceAuthor below).
 //   - Deletes are untracked: the SDK clears a deleted record's unread
 //     entries itself.
+//   - An agent's terminal message (`agent.done == true` on a create)
+//     sets TrackSelfAuthored: the agent writes under the owner's key,
+//     so without it the reply is born read on every owner device and
+//     can never badge. Intermediate (`done: false`) bubbles stay born
+//     read — one unread per completed run, not per streamed chunk.
+//     `agent` is create-only and immutable, so the verdict replays
+//     deterministically.
 //
 // Self-mentions and self-replies never badge — self-authored changes
-// are born read account-wide regardless of the verdict.
+// are born read account-wide regardless of the verdict, agent
+// terminal messages excepted.
 func classifyRead(ctx *handler.ChangeCtx, rec *handler.RecordChange) handler.ReadClassification {
 	// One verdict per record change, so a crafted multi-op change must
 	// not let one op SHADOW another's verdict: scan every op first,
@@ -135,7 +144,7 @@ func classifyRead(ctx *handler.ChangeCtx, rec *handler.RecordChange) handler.Rea
 			}
 		}
 	}
-	if textEdit && mentionsSelf(ctx) {
+	if textEdit && mentionsSelf(postApplyRecord(ctx), ctx) {
 		return handler.ReadClassification{Track: true, Tags: []string{TagMention}, Key: "mention:" + rec.Id}
 	}
 	if reaction != nil {
@@ -146,30 +155,40 @@ func classifyRead(ctx *handler.ChangeCtx, rec *handler.RecordChange) handler.Rea
 		return handler.ReadClassification{Key: "mention:" + rec.Id}
 	}
 	if rec.Upsert {
+		post := postApplyRecord(ctx)
 		tags := []string{TagMessage}
-		if mentionsSelf(ctx) {
+		if mentionsSelf(post, ctx) {
 			tags = append(tags, TagMention)
 		}
-		return handler.ReadClassification{Track: true, Tags: tags}
+		return handler.ReadClassification{
+			Track:             true,
+			Tags:              tags,
+			TrackSelfAuthored: post.GetBool(FieldAgent, FieldAgentDone),
+		}
 	}
 	return handler.ReadClassification{}
 }
 
-// mentionsSelf reports whether the just-applied record's derived
-// `mentions` array contains this replica's account. Classification
+// postApplyRecord point-reads the just-applied record. Classification
 // runs after the record loop in the same tx, so ctx.Get sees the
-// array the handler stamped for this very change — one read covers
+// fields the handler stamped for this very change. nil when the
+// context cannot resolve it; anyenc accessors are nil-safe.
+func postApplyRecord(ctx *handler.ChangeCtx) *anyenc.Value {
+	if ctx == nil || ctx.Get == nil || ctx.RecordId == "" {
+		return nil
+	}
+	return ctx.Get(Dataset, ctx.RecordId)
+}
+
+// mentionsSelf reports whether the post-apply record's derived
+// `mentions` array contains this replica's account — one read covers
 // text mentions AND the reply fold-in, with no duplicate parsing. An
 // Audience filter can't express this: it gates the WHOLE verdict, and
 // on creates the mention tag rides next to the unconditional
 // "message" tag. Verdicts are device-local, so keying off
 // SelfIdentity here is sound.
-func mentionsSelf(ctx *handler.ChangeCtx) bool {
-	if ctx == nil || ctx.Get == nil || ctx.SelfIdentity == "" || ctx.RecordId == "" {
-		return false
-	}
-	rec := ctx.Get(Dataset, ctx.RecordId)
-	if rec == nil {
+func mentionsSelf(rec *anyenc.Value, ctx *handler.ChangeCtx) bool {
+	if rec == nil || ctx.SelfIdentity == "" {
 		return false
 	}
 	for _, v := range rec.GetArray(FieldMentions) {

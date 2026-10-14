@@ -497,10 +497,10 @@ func TestServer_Chat_ReactionsRead_Routing(t *testing.T) {
 	}
 }
 
-// chatRowUnreadReactions reads the chat object's row via POST
-// /objects/query and returns its unreadReactionsCount counter (stored
+// chatRowCounters reads the chat object's row via POST /objects/query
+// and returns its unreadCount / unreadReactionsCount counters (stored
 // under the chat type's xKey). Absent decodes as 0.
-func chatRowUnreadReactions(t *testing.T, e http.Handler, spaceId, objectId string) int {
+func chatRowCounters(t *testing.T, e http.Handler, spaceId, objectId string) (messages, reactions int) {
 	t.Helper()
 	body, _ := json.Marshal(map[string]any{"filter": map[string]any{"id": objectId}})
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects/query", string(body))
@@ -510,6 +510,7 @@ func chatRowUnreadReactions(t *testing.T, e http.Handler, spaceId, objectId stri
 	var qr struct {
 		Records []struct {
 			Chat struct {
+				UnreadCount          float64 `json:"unreadCount"`
 				UnreadReactionsCount float64 `json:"unreadReactionsCount"`
 			} `json:"chat"`
 		} `json:"records"`
@@ -518,9 +519,86 @@ func chatRowUnreadReactions(t *testing.T, e http.Handler, spaceId, objectId stri
 		t.Fatalf("decode objects/query: %v", err)
 	}
 	if len(qr.Records) == 0 {
-		return 0
+		return 0, 0
 	}
-	return int(qr.Records[0].Chat.UnreadReactionsCount)
+	return int(qr.Records[0].Chat.UnreadCount), int(qr.Records[0].Chat.UnreadReactionsCount)
+}
+
+func chatRowUnreadReactions(t *testing.T, e http.Handler, spaceId, objectId string) int {
+	t.Helper()
+	_, reactions := chatRowCounters(t, e, spaceId, objectId)
+	return reactions
+}
+
+// pollChatUnreadCount waits for the row's chat.unreadCount to reach
+// want — counter materialization is local but debounced.
+func pollChatUnreadCount(t *testing.T, e http.Handler, spaceId, objectId string, want int) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		got, _ := chatRowCounters(t, e, spaceId, objectId)
+		if got == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("chat.unreadCount = %d, want %d", got, want)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestServer_Chat_AgentDoneUnread pins the agent carve-out end to end on
+// ONE account — the shape no multipeer test can reach: a human message
+// and a streaming agent bubble are born read, the agent's done:true
+// message counts unread for its own author (per-message `unread` flag
+// and the row's chat.unreadCount), and read-all clears it.
+func TestServer_Chat_AgentDoneUnread(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	spaceId, objectId := setupChatFixture(t, e)
+	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
+
+	send := func(body string) string {
+		t.Helper()
+		rec := doJSON(t, e, http.MethodPost, base+"/chat/messages", body)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("send %s: %d %s", body, rec.Code, rec.Body.String())
+		}
+		return decodeModifyResult(t, rec.Body.Bytes()).RecordIds[0]
+	}
+	flags := func() map[string]bool {
+		t.Helper()
+		out := map[string]bool{}
+		for _, m := range chatList(t, e, base).Messages {
+			out[m.Id] = m.Unread
+		}
+		return out
+	}
+
+	humanId := send(`{"text":"do the thing"}`)
+	streamId := send(`{"text":"working on it","agent":{"name":"bao","done":false}}`)
+	doneId := send(`{"text":"done: here it is","agent":{"name":"bao","done":true}}`)
+	followUpId := send(`{"text":"thanks"}`)
+
+	pollChatUnreadCount(t, e, spaceId, objectId, 1)
+	got := flags()
+	want := map[string]bool{humanId: false, streamId: false, doneId: true, followUpId: false}
+	for id, u := range want {
+		if got[id] != u {
+			t.Errorf("unread[%s] = %v, want %v (all: %v)", id, got[id], u, got)
+		}
+	}
+
+	rec := doJSON(t, e, http.MethodPost, base+"/chat/read-all", "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("read-all: %d %s", rec.Code, rec.Body.String())
+	}
+	pollChatUnreadCount(t, e, spaceId, objectId, 0)
+	if got := flags(); got[doneId] {
+		t.Errorf("read-all left the agent message unread: %v", got)
+	}
 }
 
 // --- helpers ---------------------------------------------------------------
@@ -561,6 +639,7 @@ type chatMsg struct {
 	Context          *api.ChatMessageContext
 	Control          *api.ChatMessageControl
 	Reactions        map[string]map[string]int64
+	Unread           bool
 }
 
 // chatSend posts a message and returns the read-back record. recordIds[0]
@@ -664,6 +743,7 @@ func decodeChatMsg(t *testing.T, raw []byte) chatMsg {
 		Context          *api.ChatMessageContext       `json:"context"`
 		Control          *api.ChatMessageControl       `json:"control"`
 		Reactions        map[string]map[string]extDate `json:"reactions"`
+		Unread           bool                          `json:"unread"`
 	}
 	if err := json.Unmarshal(raw, &f); err != nil {
 		t.Fatalf("decode message: %v\nraw=%s", err, raw)
@@ -692,6 +772,7 @@ func decodeChatMsg(t *testing.T, raw []byte) chatMsg {
 		Context:          f.Context,
 		Control:          f.Control,
 		Reactions:        reactions,
+		Unread:           f.Unread,
 	}
 }
 

@@ -149,7 +149,7 @@ The SDK maintains, per message, the local flags `unread`, `unreadMention` (the m
 A counter is absent until first materialized — treat absent as 0, and read it at `chat.unreadCount`, never top-level (a top-level path reads 0 forever). Rules that follow:
 
 - **Never count unread client-side.** Badge from the row; filter messages with `{"unread": true}`.
-- **Your own messages are born read** on every one of your devices. Never call a read endpoint after sending.
+- **Your own messages are born read** on every one of your devices. Never call a read endpoint after sending. The exception is an agent's `done: true` message: signed with your key, but unread on all your devices until you read it, so "your agent replied" badges like any other message.
 - Edits never re-flag `unread`. The one exception is mentions: an edit whose new text mentions you sets `unreadMention`, and repeated re-edits collapse into one live mention entry.
 - Reactions badge the message's author, nobody else. A reaction added and removed before you looked leaves no trace.
 
