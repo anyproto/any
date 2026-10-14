@@ -90,7 +90,8 @@ The pre-encryption JSON (`internal/push/chatpush.go`, pinned by
   `any`'s chat attachments have no layout notion. A message without
   attachments sends `"hasAttachments": false, "attachments": null`.
 - `spaceName` (space info), `chatName` (the chat object's `any.name`)
-  and `senderName` (the account profile) are empty strings when unset.
+  and `senderName` (the agent's `name` on an agent message, otherwise
+  the account profile) are empty strings when unset.
 - Read notifications are **silent** (data-only, no payload): the server
   targets only the caller's own-identity topic, waking the account's
   other devices to refresh badges.
@@ -186,7 +187,9 @@ best-effort, never block or fail the HTTP response
   is still unread on this account, sends a loud notification with the
   node's own-devices flag on the owner's identity-scoped topics (bare
   identity for bulk subscribers, the per-chat mention topic for
-  per-chat ones — nobody else matches, a muted chat stays silent). A
+  per-chat ones — nobody else matches, a muted chat stays silent).
+  Those are the mention topics, so an owner in `mentions` mode gets
+  every agent reply: a reply from your agent is addressed to you. A
   reply read within the window — the desktop viewport rule through
   this server, or a phone whose read synced back — is never pushed.
   Needs a push node that knows the flag; an older node delivers the

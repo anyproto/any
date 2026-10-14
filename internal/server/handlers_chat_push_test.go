@@ -231,6 +231,10 @@ func TestServer_ChatPushHooks_AgentOwnDevices(t *testing.T) {
 
 	// 3. Read within the delay: the own-devices leg is dropped. The
 	//    read-all itself enqueues a silent job; nothing loud may follow.
+	//    A longer delay here keeps the read-all (a write tx plus the
+	//    frontier publish) safely inside the window on a loaded CI.
+	const readDelay = 1500 * time.Millisecond
+	d.push.SetOwnDeviceDelay(readDelay)
 	send(`{"text":"and again","agent":{"name":"bao","done":true}}`)
 	job = waitPushJob(t, jobs)
 	if job.ownDevices {
@@ -239,7 +243,7 @@ func TestServer_ChatPushHooks_AgentOwnDevices(t *testing.T) {
 	if rec := doJSON(t, e, http.MethodPost, base+"/chat/read-all", ""); rec.Code != http.StatusNoContent {
 		t.Fatalf("read-all: %d %s", rec.Code, rec.Body.String())
 	}
-	deadline := time.After(3 * delay)
+	deadline := time.After(2 * readDelay)
 	for {
 		select {
 		case j := <-jobs:

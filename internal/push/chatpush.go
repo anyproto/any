@@ -272,8 +272,9 @@ func heartSpaceKinds(spaceType string) (uxType, kind int) {
 // chatPayload builds the heart-wire Payload JSON for one message
 // record. Enrichment is all local and best-effort: spaceName from the
 // space's Info snapshot, chatName from the chat object's `any.name`
-// (empty when unset), senderName from the account profile (empty when
-// no profile was ever written).
+// (empty when unset), senderName from the agent's `name` on an agent
+// message, otherwise the account profile (empty when no profile was
+// ever written).
 func (s *Service) chatPayload(ctx context.Context, sp space.Space, objectId, msgId string, rec *anyenc.Value) ([]byte, error) {
 	// An agent message shows the agent's name, not the signer's.
 	senderName := string(rec.GetStringBytes(chat.FieldAgent, chat.FieldAgentName))
