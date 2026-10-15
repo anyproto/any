@@ -37,6 +37,7 @@ this for *why* and *how well*.
 
 | Area | Mechanism | Reference |
 |---|---|---|
+| Titles | the object's name in its own FTS field, first in the index; the title pass runs any-store's search-as-you-type tiers over it (`^"…"*`, `"…"*`, bag) ahead of the content legs | `internal/indexer/titles.go`, `store.go` |
 | Editor | coalesced windows (break before each heading, ~1.5 KB budget), `recordId = win_<anchor>` | `internal/editor/window.go`, `chunker.go` |
 | Runtime datasets | records indexed by their `x-search` mapping under the declared scope; a dataset without `x-search` is not text-indexed | `internal/index/schema.go` |
 | Long records | split into ~2000-rune chunk docs; `limit` counts records, other matching chunks ride as `passages` | `internal/indexer/chunk.go`, `rrf.go` |

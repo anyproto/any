@@ -983,10 +983,10 @@ Body:
 
 ```json
 {
-  "query":   "zeppelin disaster",     // required; supports "phrases" and prefix* on the FTS leg
+  "query":   "zeppelin disaster",     // required; supports "phrases", prefix*, "phrase pre"* and ^anchors on the FTS leg
   "scopes":  ["chat", "basic"],       // optional scope slugs (open set — see docs/13-index.md); empty = all
-  "limit":   10,                      // optional: max records (default 10; above 100 clamps to 100)
-  "mode":    "hybrid",                // optional: hybrid (default) | fts | vector
+  "limit":   10,                      // optional: max records (default 10; above 100 clamps to 100); title hits count
+  "mode":    "hybrid",                // optional: hybrid (default) | fts | vector | title
   "require": ["1937"],                // optional must-have terms (phrase/prefix ok); enforced in every mode
   "exclude": ["fiction"],             // optional must-not terms
   "maxData": 512,                     // optional: runes of `data` per hit around the first match (default 512; -1 = whole chunk)
@@ -1006,6 +1006,9 @@ Reply:
 ```json
 {
   "hits": [
+    { "scope": "basic", "objectId": "…", "dataset": "prop",
+      "recordId": "name", "data": "Zeppelin disasters",
+      "dataTotal": 18, "score": 4.21, "match": "prefix" },
     { "scope": "chat", "objectId": "…", "dataset": "chat_messages",
       "recordId": "…", "data": "the zeppelin disaster of 1937",
       "dataTotal": 29, "score": 0.0328 },
@@ -1017,6 +1020,26 @@ Reply:
   "vectorStatus": "used"
 }
 ```
+
+**Title matches lead the reply.** In `hybrid` and `fts` the first hits
+are the objects whose NAME matches the typed words — the title pass,
+`docs/13-index.md` § Search — one hit per object, shaped as the name
+doc (`dataset: "prop"`, `recordId: "name"`, `data` the name) and marked
+with `match`: `exact` (the name is the typed words), `prefix` (it starts
+with them, the last word completed), `phrase` (they appear in order
+inside it) or `words` (every word present, any order); in that order,
+the shortest names first within a tier. The last typed word is a prefix
+unless `query` ends in whitespace; typed `"`, `*` and `^` are text
+here. Title hits count toward `limit`; the content legs fill the rest,
+and when the titles fill the page no content leg runs
+(`vectorStatus: "skipped"`). A content hit has no `match`, and a
+title-listed object's other records still appear as content hits.
+`mode: "title"` runs the pass alone — the per-keystroke call for a
+search box — and takes no `scopes` and no `passages`
+(`400 request.invalid_field`); `require`, `exclude` and `filter` bind
+the title hits in every mode. The pass runs only when `scopes` is empty
+or includes `basic`. Title and content scores are different scales: the
+order is authoritative.
 
 **One hit per record; `limit` counts records.** Long records are
 indexed as several chunks (~2000 runes each, `docs/13-index.md`
@@ -1066,8 +1089,8 @@ restricting the legs and post-filtering them, and the budgets:
 the mode: the FTS leg matches on them, and vector hits (hybrid and pure
 `vector`) are post-filtered against the FTS index before fusion, so
 fusion can never re-admit a hit the lexical leg would have refused.
-Terms are matched by the index analyzer — a `"phrase"` or `prefix*`
-term behaves as it does in `query`.
+Terms are matched by the index analyzer — a `"phrase"`, `prefix*`,
+`"phrase pre"*` or `^anchored` term behaves as it does in `query`.
 
 `mode` in the reply is the mode that actually ran: `hybrid` degrades to
 `fts` when no embedder is configured, it is unreachable, or the query
@@ -1085,17 +1108,18 @@ much to trust recall — whether semantic search took part, and why not:
 | `used` | the vector leg ran and contributed to ranking |
 | `unavailable` | embedder configured but unreachable or over budget for this query — results are lexical-only; retrying later may differ |
 | `disabled` | no embedder configured on this server — vector can never run until config changes |
-| `skipped` | the caller asked for `mode: "fts"`; vector was not attempted |
+| `skipped` | the caller asked for `mode: "fts"` or `"title"`, or the title hits filled the page; vector was not attempted |
 
-Scores are comparable only within one response
-(BM25 for fts, cosine similarity for vector, RRF for hybrid). The index
-covers content written while indexing is on — "index from the next
-change" (`docs/13-index.md`).
+Scores are comparable only within one response and within one block
+(BM25 for fts and for title hits, cosine similarity for vector, RRF for
+hybrid). The index covers content written while indexing is on — "index
+from the next change" (`docs/13-index.md`).
 
 Request errors: `400 request.missing_field` (no `query`),
 `400 search.bad_mode`, `400 search.bad_scope` (a scope that is not a
 slug `[a-z0-9_-]`, ≤64; an unknown well-formed scope just matches
-nothing).
+nothing), `400 request.invalid_field` (`scopes` or `passages` with
+`mode: "title"`).
 
 ### Bundles
 

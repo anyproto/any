@@ -156,7 +156,9 @@ id `objectId:prop:<propId>`:
   another scope re-enters the vector pipeline.
 - **Built-ins `any.name` and `any.description` always index** under
   scope `basic`, reserved recordIds `name` / `description`, raw (no name
-  prefix, no title) — except for rows with an excluded member. The
+  prefix, no title) — except for rows with an excluded member. The name
+  doc's text is stored in the index's `name` field, the description's in
+  `data` (§ Store layout). The
   exclusion list always holds `__type__` and `__collection__`: definition rows are
   schema, not knowledge (discovery is `GET …/types`), and their one-word
   names would otherwise win BM25 on field-length normalization.
@@ -473,8 +475,23 @@ routine per-edit indexing never appears (`Options.OnProcess`, bridged in
   ranges use bytewise bounds `[P, P[:len-1]+";")` (`;` = `:`+1) and
   drive the primary btree directly; per-doc deletion cleans FTS and
   vector entries in the same transaction.
-- Indexes per collection: BM25 **full-text** on `data` (plus `title`
-  when `index.search.titleWeight > 0`); a range index on `objectId` (the
+- **The object's name has its own field.** The prop chunker's name
+  entry (`objectId:prop:name`) stores its text in `name` instead of
+  `data` (`Store.isNameDoc`); every other doc holds `data`. Reads take
+  whichever is set. `name` is the full-text index's FIRST field, so a
+  `^`-anchored clause tests the name's first token and a `$fields:
+  ["name"]` clause matches names only — the title pass (§ Search) needs
+  both. An unscoped `$text` matches every field, so content search sees
+  names as before. A collection written before the field is moved onto
+  it in place on its first open (`Store.upgradeFTS`): the full-text
+  index is dropped, the name docs' text moves from `data` to `name`, and
+  the index is recreated over the new field set and backfilled by
+  any-store from the stored docs, in one write transaction — vectors,
+  hashes, cursors and links untouched, nothing re-embeds. The state is
+  the index's own field list, so an interrupted upgrade is redone on the
+  next open.
+- Indexes per collection: BM25 **full-text** on `name` + `data` (plus
+  `title` when `index.search.titleWeight > 0`); a range index on `objectId` (the
   search filter's residual seeks it — § Filtering by object; structural
   deletes never use it, they are primary-key ranges; an existing
   collection backfills it in one write transaction on its first open
@@ -776,13 +793,14 @@ derived cache, so deleting it is always the whole fix.
 `POST /v1/spaces/:spaceId/search` `{query, scopes?, limit?, mode?,
 require?, exclude?, maxData?, passages?, filter?}` →
 `{hits: [{scope, objectId, dataset, recordId, chunk?, data, dataOffset?,
-dataTotal, score, passages?}], mode, vectorStatus, truncated?}`.
+dataTotal, score, match?, passages?}], mode, vectorStatus, truncated?}`.
 
 Modes: `fts` (BM25), `vector` (cosine ANN; requires an embedder; hits
 with similarity ≤ 0 — or ≤ `minVectorSim` — are dropped), `hybrid`
 (default — both legs fused by reciprocal rank, k = 60; degrades to `fts`
 when no embedder is configured or the query embedding fails or exceeds
-its budget — `mode` in the reply is the mode that ran). The query
+its budget — `mode` in the reply is the mode that ran), `title` (the
+title pass alone, below). The query
 embedding is bounded by `index.search.queryEmbedTimeout` (default 5 s,
 every embedder): a cold model load, a wedged child or a slow API
 degrades the search instead of holding it, and a caller that disconnects
@@ -790,6 +808,50 @@ leaves the embedder's queue at once. Scores are comparable only within
 one response. `limit` defaults to 10 and is clamped to 100. CLI:
 `any search <spaceId> <query> [--scopes a,b] [--limit N] [--mode …]
 [--require T …] [--exclude T …] [--max-data N] [--passages N]`.
+
+**Titles first — the title pass (`titles.go`).** Every `hybrid` and
+`fts` search opens with the objects whose NAME matches the typed words,
+and `title` mode runs that pass alone. It is any-store's
+search-as-you-type recipe (the any-store module's
+`docs/full-text-search.md` § Search-as-you-type) over the `name` field
+(§ Store layout): the query is split by the index's own analyzer
+(`anystore.FtsAnalyzeTerms`), the last word is a prefix unless the query
+ends in whitespace, and the tiers run as separate lexical cursors, most
+specific first, each `{$search, $defaultOperator: and, $fields:
+["name"]}` plus the request's `require` / `exclude` and the `filter`
+residual, until `limit` objects are collected — later tiers are skipped
+once the page is full:
+
+| Tier | `$search` | `match` |
+|---|---|---|
+| the name is the typed words | `^"mario kart"*`, name's terms equal the typed terms | `exact` |
+| the name starts with them | `^"mario ka"*` | `prefix` |
+| they appear in order inside it | `"mario ka"*` | `phrase` |
+| every word in the name, any order (two or more words) | `"mario" "ka"*` | `words` |
+
+Within a tier the store's BM25 order stands, which over
+title-length docs is the shortest names first. One hit per object:
+`{scope: basic, objectId, dataset: prop, recordId: name, data: <name>,
+match}` with the tier on `match`; a content hit carries no `match`.
+Title hits lead the reply in tier order and count toward `limit`; the
+content legs fill the rest — a page the titles fill runs no content leg
+and embeds no query (`vectorStatus: skipped`), which is what makes the
+default mode answer a search box in milliseconds while the typed words
+still name objects. The name doc of a title-listed object is not
+repeated by the content legs; the object's other records (body windows)
+still come back as their own hits — the reply unit is the record. The
+pass runs only when `scopes` is empty or includes `basic`, the name
+doc's scope. Because the queries are built from analyzed terms, typed
+punctuation never acts as an operator, and no stop word is stripped: a
+title keeps its "the". The block is not capped: a one-word query that
+names hundreds of objects answers titles only, and another typed word
+narrows it. Cost: at most three cursors per search, each one walk of
+the stem's completions' postings scoped to `name`; the phrase tiers
+walk nothing when the fixed phrase occurs nowhere, so a long
+natural-language query pays the bag tier only. A one-letter last word
+is the costly keystroke; a client may wait for the second letter.
+`title` mode takes no `scopes` and no `passages`
+(`400 request.invalid_field`).
 
 **`limit` counts records.** A hit is one `(objectId, dataset,
 recordId)`, shown through its best-ranked chunk; the record's other
@@ -817,10 +879,10 @@ legs can outrank one shallow in one leg), and when one record dominates
 a whole window the reply can hold fewer than `limit` records although
 the index has more. The reply is bounded by `limit × (1 + passages) ×
 maxData` runes of text (the chunk size, ~2000 runes, in place of
-`maxData` when it is -1). Work order in `Indexer.Search`: query
-embedding, then the vector leg, then the lexical cursor — no read
-transaction is held across the embed wait or another store call (an open
-cursor pins a reader slot, a page cache and a WAL read-mark until
+`maxData` when it is -1). Work order in `Indexer.Search`: the title
+pass, query embedding, then the vector leg, then the lexical cursor — no
+read transaction is held across the embed wait or another store call (an
+open cursor pins a reader slot, a page cache and a WAL read-mark until
 `Close`).
 
 **Hit `data` is a window, not the record.** Each hit's `data` is at most
@@ -835,9 +897,13 @@ when 0) names the chunk (§ Chunking long records). The full record is
 one dataset query away.
 
 **FTS query operators.** `query` understands `"quoted phrases"` (matched
-by adjacency) and trailing-`*` prefixes (`zepp*`). `require` / `exclude`
-are arrays of must / must-not terms; each may itself be a phrase or
-prefix. A bare term alongside a `require` is an optional boost, not a
+by adjacency), trailing-`*` prefixes (`zepp*`, and `"zeppelin dis"*` —
+the phrase followed by a completion of its last word; a prefix is
+scored as one term over every completion, so a rare completion never
+outranks a common one) and a leading `^` (`^zeppelin`, `^"the
+zeppelin"*` — the clause at the document's first token). `require` /
+`exclude` are arrays of must / must-not terms; each may itself be a
+phrase, prefix or anchored clause. A bare term alongside a `require` is an optional boost, not a
 filter. Phrases and prefixes in `query` shape the FTS leg only;
 `require` / `exclude` bind every hit in every mode: the vector leg is
 post-filtered against the FTS index (`Store.FilterTerms`, one `$text`

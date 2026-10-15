@@ -32,7 +32,7 @@ any search $SPACE "what did we decide about the reranker?" --scopes chat,basic -
 }
 ```
 
-`limit` counts records (one hit per record), defaults to 10 and caps at 100. `score` is the fused RRF score — small numbers, comparable only within this one response.
+`limit` counts records (one hit per record), defaults to 10 and caps at 100. `score` is the fused RRF score — small numbers, comparable only within this one response. Objects whose name matches the typed words come first, marked with `match` and scored by BM25 within their block ([Titles first](full-text.html#titles-first)); when they fill the page the legs do not run and `vectorStatus` reads `skipped`.
 
 ## Reciprocal-rank fusion
 
@@ -104,8 +104,9 @@ index:
 
 ## Choosing a mode
 
-- **`hybrid`** (default) for anything a person or agent types.
-- **`fts`** for identifiers, error codes, exact names, and property-value lookups (`props` is full-text only anyway).
-- **`vector`** when paraphrase recall matters more than precision and you want a hard failure rather than a silent degrade.
+- **`hybrid`** (default) for anything a person or agent types: titles first, then fused content.
+- **`fts`** for identifiers, error codes, exact names, and property-value lookups (`props` is full-text only anyway): titles first, then lexical content.
+- **`title`** for a search box while the user types: the title block alone, one hit per object, no embedding.
+- **`vector`** when paraphrase recall matters more than precision and you want a hard failure rather than a silent degrade; no title block.
 
 The measurements behind these recommendations are on [Evaluation](evaluation.html).

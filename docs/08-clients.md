@@ -351,7 +351,7 @@ POST /v1/spaces/:spaceId/search
 { "query": "what did we decide about the reranker?",
   "scopes": ["chat", "agent"],     // optional scope slugs (open set)
   "limit": 10,                     // records; default 10, max 100
-  "mode": "hybrid" }               // default; or "fts" / "vector"
+  "mode": "hybrid" }               // default; or "fts" / "vector" / "title"
 ```
 
 Call patterns:
@@ -361,6 +361,22 @@ Call patterns:
   can't help. Only pin `mode: "fts"` for exact-term lookups (ids,
   names, error strings) or `mode: "vector"` when paraphrase recall
   matters more than precision.
+- **Titles come first by themselves.** Every `hybrid` / `fts` reply
+  opens with the objects whose name matches the typed words — `match`
+  on the hit says how: `exact`, `prefix` (starts with), `phrase` (in
+  order inside), `words` (all present) — then the content hits. The
+  last word is treated as unfinished unless the query ends in a space,
+  so `mario ka` lists Mario Kart, Mario Kart 64, Super Mario Kart before
+  any page that mentions them. Render a `match` hit as the object; a
+  hit without `match` is a record of its object.
+- **A search box types against `mode: "title"`.** It is the title
+  block alone — no embedding, no content legs, one hit per object,
+  milliseconds per keystroke — and the default call on pause or submit
+  gives the same block followed by content, so the two lists line up.
+  Put a `*` after the last word of the content query while the user is
+  still typing (`mario ka*`); the title block reads the typed string
+  itself. Typed quotes, stars and carets are text to the title block;
+  the content legs read them as operators (`03-api.md` § search).
 - **Check `vectorStatus` in every reply** before drawing conclusions
   from an empty/weak result set: `used` means semantic recall
   participated; `unavailable` means the embedder is configured but
@@ -369,7 +385,8 @@ Call patterns:
   lexical-only *right now*, retry may differ;
   `disabled` means this server never runs vector search — don't
   retry, adjust your query style to lexical; `skipped` is the echo of
-  your own `mode: "fts"`.
+  your own `mode: "fts"` / `"title"`, or the title block filled the
+  page.
 - **Hits carry identity, not full records.** `{scope, objectId,
   dataset, recordId, chunk?, data, dataOffset?, dataTotal, score}` —
   `data` is a ≤ `maxData`-rune window (default 512) of the indexed
@@ -415,7 +432,8 @@ Call patterns:
   index.no_embedder` (`mode: "vector"` on an FTS-only server), `503
   index.embedder_unavailable` (`mode: "vector"` while the embedder is
   down, loading, or over the query budget — retryable), `400
-  filter.invalid` / `filter.unknown_operator` (a bad `filter`).
+  filter.invalid` / `filter.unknown_operator` (a bad `filter`), `400
+  request.invalid_field` (`scopes` or `passages` with `mode: "title"`).
 
 ## 7. Direct (1-1) chats: derive by identity, approve incoming
 

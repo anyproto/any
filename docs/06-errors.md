@@ -234,7 +234,7 @@ process.ambiguous                # 409 — cancel matched several publishers run
 index.disabled                   # 409 — search index turned off (index.enabled: false)
 index.no_embedder                # 400 — mode=vector without an embedder configured
 index.embedder_unavailable       # 503 — mode=vector while the embedder is unreachable (retryable)
-search.bad_mode                  # 400 — mode not hybrid | fts | vector
+search.bad_mode                  # 400 — mode not hybrid | fts | vector | title
 search.bad_scope                 # 400 — scope not a valid slug ([a-z0-9_-], max 64; scopes are an open set)
 
 sdk.not_implemented              # 501 — DELETE …/types/:typeId, DELETE …/collections/:collectionId, GET …/sync-status/peers
