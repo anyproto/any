@@ -7,6 +7,7 @@ import (
 	"hash/fnv"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,13 +49,15 @@ const (
 )
 
 // Store is the indexer-owned any-store database: one collection per
-// space, each carrying a BM25 full-text index on `data` and (when dim >
-// 0) an IVF-SQ cosine vector index on `vector`.
+// space, each carrying a BM25 full-text index on `name` + `data` and
+// (when dim > 0) an IVF-SQ cosine vector index on `vector`.
 //
-// Doc shape: {id: dataset+"/"+recordId, scope, objectId, dataset,
-// recordId, data, applySeq, vector?, pending?}. `pending: 1` marks a doc
-// whose text awaits embedding — the embed loop drains them; the field is
-// removed once the vector lands.
+// Doc shape: {id: objectId:dataset:recordId, scope, objectId, dataset,
+// recordId, data | name, title, hash, applySeq, vector?, pending?}. The
+// object's name doc carries its text in `name` (nameField), every other
+// doc in `data`. `pending: 1` marks a doc whose text awaits embedding —
+// the embed loop drains them; the field is removed once the vector
+// lands.
 type Store struct {
 	db   anystore.DB
 	path string
@@ -92,9 +95,9 @@ func (s *Store) SetVectorMode(mode string) { s.vectorMode = mode }
 
 // SetFTSParams sets the BM25 tuning for FTS indexes created after the
 // call. All three are index-creation params: b/k1 are baked in, and
-// whether titleWeight is zero decides the index's FIELD SET (`data`
-// alone, or `data`+`title`), so turning a title boost on for an existing
-// index needs a rebuild. Its value is then read at query time.
+// whether titleWeight is zero decides the index's FIELD SET (`name` +
+// `data`, or those plus `title`), so turning a title boost on for an
+// existing index needs a rebuild. Its value is then read at query time.
 func (s *Store) SetFTSParams(b, k1, titleWeight float64) {
 	s.ftsB, s.ftsK1, s.titleWeight = b, k1, titleWeight
 }
@@ -123,6 +126,9 @@ type Hit struct {
 	Chunk    int // 0-based chunk of the record this doc holds (chunk.go)
 	Data     string
 	Score    float64
+	// Match is the title pass's tier (api.SearchMatch*); empty for a
+	// content hit.
+	Match string
 }
 
 // DocUpsert pairs an entry with its (optional) embedding. A nil Vector
@@ -359,18 +365,17 @@ func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collect
 	// planner can probe a small `objectId $in` residual per candidate
 	// instead of walking the posting lists (host_filter.go).
 	//
-	// BM25 over `data` (body). When titleWeight > 0, BM25F also covers
-	// the boosted `title` field (heading / method sig / memory context);
-	// otherwise the index stays single-field so default ranking is
+	// BM25 over `name` (the object's name, nameField) and `data`
+	// (everything else). When titleWeight > 0, BM25F also covers the
+	// boosted `title` field (heading / method sig / memory context);
+	// otherwise the field set stays at the two so default ranking is
 	// unchanged. b/k1 (if set) apply either way.
-	fts := anystore.IndexInfo{Name: "fts", Kind: anystore.IndexKindFulltext, Fields: []string{"data"}}
-	if s.titleWeight > 0 {
-		fts.Fields = []string{"data", "title"}
+	if err := s.upgradeFTS(ctx, coll); err != nil {
+		return nil, fmt.Errorf("indexer: upgrade fts index for %s: %w", spaceId, err)
 	}
-	fts.Fulltext = s.ftsParams()
 	indexes := []anystore.IndexInfo{
 		{Name: objectIdIndex, Fields: []string{"objectId"}},
-		fts,
+		s.ftsIndexInfo(),
 	}
 	// The sparse pending index backs the embed loop, which only a store
 	// that marks docs pending ever runs.
@@ -385,6 +390,90 @@ func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collect
 	s.colls[spaceId] = coll
 	s.mu.Unlock()
 	return coll, nil
+}
+
+// nameField is the FTS field that holds an object's name — the text of
+// the prop chunker's name entry (index.NamePropRecordId), stored here
+// instead of in `data`. It is the index's FIRST field, so `^` anchors at
+// the name's first token, and `$fields: ["name"]` scopes a clause to
+// names only: the title pass (titles.go) matches "the title starts
+// with" and "the title contains" without touching the body postings.
+// An unscoped query still matches every field, so content search sees
+// names as before.
+const nameField = "name"
+
+// ftsIndex is the name of the collection's full-text index.
+const ftsIndex = "fts"
+
+// isNameDoc reports whether the entry is the object's name — the one
+// doc whose text lives in nameField.
+func isNameDoc(e index.IndexEntry) bool {
+	return e.Dataset == index.DatasetProp && e.RecordId == index.NamePropRecordId
+}
+
+// ftsIndexInfo is the full-text index this store creates: nameField
+// first, then data, then title when a title boost is configured.
+func (s *Store) ftsIndexInfo() anystore.IndexInfo {
+	fields := []string{nameField, "data"}
+	if s.titleWeight > 0 {
+		fields = append(fields, "title")
+	}
+	return anystore.IndexInfo{Name: ftsIndex, Kind: anystore.IndexKindFulltext, Fields: fields, Fulltext: s.ftsParams()}
+}
+
+// nameDocFilter selects a collection's name docs (one scan — the pair
+// has no index, and the upgrade runs once per space).
+var nameDocFilter = query.And{
+	query.Key{Path: []string{"dataset"}, Filter: query.NewComp(query.CompOpEq, index.DatasetProp)},
+	query.Key{Path: []string{"recordId"}, Filter: query.NewComp(query.CompOpEq, index.NamePropRecordId)},
+}
+
+// upgradeFTS moves a collection written before nameField onto the
+// current full-text layout, in place: the index is dropped, the name
+// docs' text moves from `data` to `name`, and the index is recreated
+// over the current field set — any-store backfills it from the stored
+// docs. Vectors, hashes, cursors and links are untouched, so nothing
+// re-embeds. One write transaction, so a crash leaves either layout
+// whole; the state is the index's own field list, so a collection still
+// on the old layout is upgraded on its next open and one on the new
+// layout costs a metadata read. A collection without the index (new) is
+// left to EnsureIndex.
+func (s *Store) upgradeFTS(ctx context.Context, coll anystore.Collection) error {
+	var fields []string
+	found := false
+	for _, ix := range coll.GetIndexes() {
+		if info := ix.Info(); info.Name == ftsIndex {
+			fields, found = info.Fields, true
+			break
+		}
+	}
+	if !found || slices.Contains(fields, nameField) {
+		return nil
+	}
+	tx, err := coll.WriteTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck — no-op after Commit
+	if err := coll.DropIndex(tx.Context(), ftsIndex); err != nil {
+		return err
+	}
+	mod := query.ModifyFunc(func(a *anyenc.Arena, v *anyenc.Value) (*anyenc.Value, bool, error) {
+		d := v.GetStringBytes("data")
+		if len(d) == 0 {
+			return v, false, nil
+		}
+		v.Set(nameField, a.NewString(string(d)))
+		v.Del("data")
+		return v, true, nil
+	})
+	if _, err := coll.Find(nameDocFilter).Update(tx.Context(), mod); err != nil {
+		return err
+	}
+	if err := coll.EnsureIndex(tx.Context(), s.ftsIndexInfo()); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // vectorIndexParams resolves the ANN index strategy. The mode comes from
@@ -628,7 +717,11 @@ func (s *Store) ApplyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 		if up.Chunk > 0 {
 			doc.Set("chunk", arena.NewNumberInt(up.Chunk))
 		}
-		doc.Set("data", arena.NewString(e.Data))
+		if isNameDoc(e) {
+			doc.Set(nameField, arena.NewString(e.Data))
+		} else {
+			doc.Set("data", arena.NewString(e.Data))
+		}
 		doc.Set("title", arena.NewString(e.Title)) // BM25F boosted field (may be "")
 		doc.Set("hash", arena.NewString(docHash(e.Data, e.Title)))
 		doc.Set("applySeq", arena.NewNumberInt(int(e.ApplySeq)))
@@ -907,15 +1000,17 @@ func (s *Store) SearchFTS(ctx context.Context, spaceId, q string, scopes []strin
 }
 
 // FTSQuery is the full-text query spec. Query is the `$search` string —
-// phrases ("...") and prefixes (foo*) in it are honored by the engine.
-// DefaultAnd makes bare terms required (AND) instead of OR. Require /
-// Exclude are extra must / must-not terms ($require / $exclude); each may
-// itself be a phrase or prefix.
+// phrases ("..."), prefixes (foo*, "foo bar"*) and anchors (^foo) in it
+// are honored by the engine. DefaultAnd makes bare terms required (AND)
+// instead of OR. Require / Exclude are extra must / must-not terms
+// ($require / $exclude); each may itself be a phrase or prefix. Fields
+// scopes every clause to those index fields ($fields; nil = all).
 type FTSQuery struct {
 	Query      string
 	DefaultAnd bool
 	Require    []string
 	Exclude    []string
+	Fields     []string
 }
 
 // SearchFTSQuery runs the BM25(F) leg with full operator support and
@@ -964,7 +1059,7 @@ func (s *Store) openFTS(ctx context.Context, spaceId string, fq FTSQuery, scopes
 	if err != nil {
 		return nil, err
 	}
-	text := query.Text{Search: fq.Query, DefaultAnd: fq.DefaultAnd}
+	text := query.Text{Search: fq.Query, DefaultAnd: fq.DefaultAnd, Fields: fq.Fields}
 	if len(fq.Require) > 0 || len(fq.Exclude) > 0 {
 		clauses := query.ParseTextSearch(fq.Query)
 		clauses = appendClauses(clauses, fq.Require, query.TextMust)
@@ -1184,9 +1279,18 @@ func hitFromDoc(v *anyenc.Value, score float64) Hit {
 		Dataset:  string(v.GetStringBytes("dataset")),
 		RecordId: string(v.GetStringBytes("recordId")),
 		Chunk:    v.GetInt("chunk"),
-		Data:     string(v.GetStringBytes("data")),
+		Data:     docText(v),
 		Score:    score,
 	}
+}
+
+// docText is a stored doc's indexed text: `data`, or `name` for the
+// object's name doc (isNameDoc).
+func docText(v *anyenc.Value) string {
+	if d := v.GetStringBytes("data"); len(d) > 0 {
+		return string(d)
+	}
+	return string(v.GetStringBytes(nameField))
 }
 
 // Pending returns up to limit docs awaiting embedding (only docs with
@@ -1208,7 +1312,7 @@ func (s *Store) Pending(ctx context.Context, spaceId string, limit int) (ids []s
 		}
 		v := doc.Value()
 		ids = append(ids, string(v.GetStringBytes("id")))
-		texts = append(texts, string(v.GetStringBytes("data")))
+		texts = append(texts, docText(v))
 	}
 	return ids, texts, iter.Err()
 }
