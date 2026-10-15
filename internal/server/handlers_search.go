@@ -50,9 +50,21 @@ func (d *deps) search(c echo.Context) error {
 	}
 	switch req.Mode {
 	case "", api.SearchModeHybrid, api.SearchModeFTS, api.SearchModeVector:
+	case api.SearchModeTitle:
+		// The title pass matches names only: a scope or a passage count
+		// cannot apply, and silently ignoring them would hide a client
+		// bug.
+		if len(req.Scopes) > 0 {
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"scopes do not apply to mode title", map[string]any{"field": "scopes"})
+		}
+		if req.Passages != 0 {
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"passages do not apply to mode title", map[string]any{"field": "passages"})
+		}
 	default:
 		return writeError(c, http.StatusBadRequest, "search.bad_mode",
-			"mode must be hybrid, fts or vector", map[string]any{"mode": req.Mode})
+			"mode must be hybrid, fts, vector or title", map[string]any{"mode": req.Mode})
 	}
 	for _, sc := range req.Scopes {
 		// Scopes are an open set (property meta flags mint new ones);

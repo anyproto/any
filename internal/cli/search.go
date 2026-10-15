@@ -10,9 +10,9 @@ import (
 )
 
 // newSearchCmd: `any search <spaceId> <query>` — search the server's
-// local index (FTS + vector hybrid by default). Vector/hybrid quality
-// depends on the server's configured embedder; without one the server
-// answers FTS-only.
+// local index (FTS + vector hybrid by default, title matches first).
+// Vector/hybrid quality depends on the server's configured embedder;
+// without one the server answers FTS-only.
 func newSearchCmd() *cobra.Command {
 	var (
 		scopes   string
@@ -56,7 +56,7 @@ func newSearchCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&scopes, "scopes", "", "comma-separated scope filter (basic,chat,agent)")
 	cmd.Flags().IntVar(&limit, "limit", 0, "max records (default 10, max 100)")
-	cmd.Flags().StringVar(&mode, "mode", "", "hybrid (default), fts, or vector")
+	cmd.Flags().StringVar(&mode, "mode", "", "hybrid (default), fts, vector, or title (objects whose name matches, one hit each)")
 	cmd.Flags().StringArrayVar(&require, "require", nil, "must-have term, enforced in every mode (repeatable; phrase/prefix ok)")
 	cmd.Flags().StringArrayVar(&exclude, "exclude", nil, "must-not term, enforced in every mode (repeatable; phrase/prefix ok)")
 	cmd.Flags().IntVar(&maxData, "max-data", 0, "max runes of data per hit around the first match (default 512; -1 = whole chunk)")

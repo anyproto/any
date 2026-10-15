@@ -558,3 +558,80 @@ func TestSearch_Filter(t *testing.T) {
 		}
 	}
 }
+
+// Title mode and the title block: the objects whose name matches lead
+// every lexical reply and stand alone in mode title, with the request
+// rules the handler enforces.
+func TestSearch_TitleMode(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	ctx := context.Background()
+	ix := newTestIndexer(t, d, fakeEmbedder{dim: 16})
+	defer func() { _ = ix.Close() }()
+
+	spaceId := mustCreateSpace(t, e, "SearchTitles")
+	base := "/v1/spaces/" + spaceId
+	mk := mustCreateObject(t, e, spaceId, `{"type":"page","initialProperties":{"any":{"name":"Mario Kart"}}}`)
+	mk64 := mustCreateObject(t, e, spaceId, `{"type":"page","initialProperties":{"any":{"name":"Mario Kart 64"}}}`)
+	smk := mustCreateObject(t, e, spaceId, `{"type":"page","initialProperties":{"any":{"name":"Super Mario Kart"}}}`)
+	// A body that repeats the words on an object named otherwise.
+	ed := mustCreateModuleObject(t, e, spaceId, "editor")
+	mustModify(t, e, http.MethodPost, base+"/objects/"+ed+"/editor/editor_blocks/blocks",
+		`{"type":"paragraph","text":"mario kart mario kart mario kart release years"}`, http.StatusCreated)
+
+	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+
+	res := doSearch(t, e, spaceId, api.SearchRequest{Query: "mario ka", Mode: api.SearchModeTitle}, http.StatusOK)
+	if res.Mode != api.SearchModeTitle || res.VectorStatus != api.VectorStatusSkipped {
+		t.Fatalf("title mode: mode %s vector %s", res.Mode, res.VectorStatus)
+	}
+	want := []string{mk, mk64, smk}
+	got := make([]string, 0, len(res.Hits))
+	for _, h := range res.Hits {
+		got = append(got, h.ObjectId)
+		if h.Dataset != "prop" || h.RecordId != "name" || h.Match == "" {
+			t.Fatalf("title hit shape: %+v", h)
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("title mode: %v, want %v", got, want)
+	}
+	if res.Hits[0].Match != api.SearchMatchPrefix || res.Hits[2].Match != api.SearchMatchPhrase || res.Hits[0].Data != "Mario Kart" {
+		t.Fatalf("title mode tiers: %+v", res.Hits)
+	}
+
+	// The default search leads with the same block, then the window.
+	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "mario kart"}, http.StatusOK)
+	if len(res.Hits) != 4 || res.Hits[0].ObjectId != mk || res.Hits[0].Match != api.SearchMatchExact || res.Hits[3].ObjectId != ed || res.Hits[3].Match != "" {
+		t.Fatalf("hybrid: %+v", res.Hits)
+	}
+	if res.VectorStatus != api.VectorStatusUsed {
+		t.Fatalf("hybrid with a free page: vectorStatus %s", res.VectorStatus)
+	}
+	// A page the titles fill skips the legs.
+	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "mario kart", Limit: 2}, http.StatusOK)
+	if len(res.Hits) != 2 || res.VectorStatus != api.VectorStatusSkipped || res.Mode != api.SearchModeHybrid {
+		t.Fatalf("full page: %+v vector %s mode %s", res.Hits, res.VectorStatus, res.Mode)
+	}
+	// The filter binds the title block.
+	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "mario kart", Mode: api.SearchModeTitle,
+		Filter: json.RawMessage(`{"any.name":"Mario Kart 64"}`)}, http.StatusOK)
+	if len(res.Hits) != 1 || res.Hits[0].ObjectId != mk64 {
+		t.Fatalf("filtered title mode: %+v", res.Hits)
+	}
+
+	// Request rules.
+	doSearch(t, e, spaceId, api.SearchRequest{Query: "x", Mode: api.SearchModeTitle, Scopes: []string{"basic"}}, http.StatusBadRequest)
+	doSearch(t, e, spaceId, api.SearchRequest{Query: "x", Mode: api.SearchModeTitle, Passages: 1}, http.StatusBadRequest)
+	rec := doJSON(t, e, http.MethodPost, base+"/search", `{"query":"x","mode":"titles"}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "search.bad_mode") {
+		t.Fatalf("bad mode: %d %s", rec.Code, rec.Body.String())
+	}
+}

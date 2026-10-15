@@ -3442,6 +3442,10 @@ const docTemplate = `{
                     "dataset": {
                         "type": "string"
                     },
+                    "match": {
+                        "description": "Match marks a title hit — the object's name matched the typed\nwords — with its tier (SearchMatch*). Title hits lead the reply in\ntier order and never carry Passages; a content hit has no Match.\nScores compare only within the title block or within the content\nblock; the order is authoritative.",
+                        "type": "string"
+                    },
                     "objectId": {
                         "type": "string"
                     },
@@ -3500,7 +3504,7 @@ const docTemplate = `{
                         "type": "object"
                     },
                     "limit": {
-                        "description": "Limit caps returned records — every hit is a distinct\n(objectId, dataset, recordId). Default 10, max 100.",
+                        "description": "Limit caps returned records — every hit is a distinct\n(objectId, dataset, recordId); title hits count. Default 10,\nmax 100.",
                         "type": "integer"
                     },
                     "maxData": {
@@ -3508,7 +3512,7 @@ const docTemplate = `{
                         "type": "integer"
                     },
                     "mode": {
-                        "description": "Mode is hybrid (default), fts, or vector. Vector requires an\nembedder configured on the server.",
+                        "description": "Mode is hybrid (default), fts, vector or title. Vector requires an\nembedder configured on the server. Title lists the objects whose\nname matches the typed words, one hit per object, and takes no\nScopes or Passages.",
                         "type": "string"
                     },
                     "passages": {

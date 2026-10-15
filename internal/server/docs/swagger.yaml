@@ -2819,6 +2819,14 @@ components:
           type: integer
         dataset:
           type: string
+        match:
+          description: |-
+            Match marks a title hit — the object's name matched the typed
+            words — with its tier (SearchMatch*). Title hits lead the reply in
+            tier order and never carry Passages; a content hit has no Match.
+            Scores compare only within the title block or within the content
+            block; the order is authoritative.
+          type: string
         objectId:
           type: string
         passages:
@@ -2870,7 +2878,8 @@ components:
         limit:
           description: |-
             Limit caps returned records — every hit is a distinct
-            (objectId, dataset, recordId). Default 10, max 100.
+            (objectId, dataset, recordId); title hits count. Default 10,
+            max 100.
           type: integer
         maxData:
           description: |-
@@ -2881,8 +2890,10 @@ components:
           type: integer
         mode:
           description: |-
-            Mode is hybrid (default), fts, or vector. Vector requires an
-            embedder configured on the server.
+            Mode is hybrid (default), fts, vector or title. Vector requires an
+            embedder configured on the server. Title lists the objects whose
+            name matches the typed words, one hit per object, and takes no
+            Scopes or Passages.
           type: string
         passages:
           description: |-

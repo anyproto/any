@@ -682,14 +682,18 @@ func (ix *Indexer) ftsLeg(ctx context.Context, spaceId string, fq FTSQuery, scop
 // Search runs the requested mode over the space's local index. The
 // caller validates mode / scopes / limit / passages; this layer only
 // degrades hybrid→fts when the embedder is missing or the query
-// embedding fails. limit counts records: each leg reads until its
-// window covers enough distinct records (legCover), the legs fuse per
-// chunk, and groupHits collapses chunks into records. Order of work:
-// query embedding, then the vector leg (eager, may re-query), then the
-// lexical cursor — so no read tx is ever held across the embed wait or
-// another store call. host, when non-nil, is the request's object
-// filter: it is probed once (newHostSet) and both legs keep only hits
-// whose object it admits, so limit counts MATCHING records.
+// embedding fails. limit counts records: the title pass (titles.go)
+// leads every lexical mode with the objects whose name matches the
+// typed words, one record each; the content legs fill the rest of the
+// page — each reads until its window covers enough distinct records
+// (legCover), the legs fuse per chunk, and groupHits collapses chunks
+// into records. A page the titles fill runs no content leg and embeds
+// no query. Order of work: title pass, query embedding, then the vector
+// leg (eager, may re-query), then the lexical cursor — so no read tx is
+// ever held across the embed wait or another store call. host, when
+// non-nil, is the request's object filter: it is probed once
+// (newHostSet) and every leg keeps only hits whose object it admits, so
+// limit counts MATCHING records.
 func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchRequest, host HostFilter) (api.SearchResponse, error) {
 	hs, err := newHostSet(ctx, host)
 	if err != nil {
@@ -699,19 +703,12 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 	if limit <= 0 {
 		limit = 10
 	}
-	// Per-leg over-fetch so fusion has material to work with.
-	fetch := min(max(limit*3, 30), 100)
-	// The lexical leg covers twice the records for the price of a few
-	// µs per row; the ANN leg re-pays its search per widening round.
-	ftsCover := legCover{fetch: fetch, groups: 2 * limit}
-	vecCover := legCover{fetch: fetch, groups: limit}
 
 	mode := req.Mode
 	if mode == "" {
 		mode = api.SearchModeHybrid
 	}
 
-	var ftsHits, vecHits []Hit
 	// budgetOut: a leg's read budget under a lazy filter set ended
 	// before its window was covered — truncation if the page is short.
 	budgetOut := false
@@ -722,18 +719,39 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 	vectorStatus := api.VectorStatusSkipped
 	if ix.opts.Embedder == nil {
 		vectorStatus = api.VectorStatusDisabled
+		switch mode {
+		case api.SearchModeVector:
+			return api.SearchResponse{}, fmt.Errorf("indexer: no embedder configured")
+		case api.SearchModeHybrid:
+			mode = api.SearchModeFTS // hybrid degrades
+		}
 	}
 	if hs.empty() {
 		return api.SearchResponse{Hits: []api.SearchHit{}, Mode: mode, VectorStatus: vectorStatus}, nil
 	}
 
-	if mode == api.SearchModeVector || mode == api.SearchModeHybrid {
-		if ix.opts.Embedder == nil {
-			if mode == api.SearchModeVector {
-				return api.SearchResponse{}, fmt.Errorf("indexer: no embedder configured")
-			}
-			mode = api.SearchModeFTS // hybrid degrades
-		} else {
+	var titles []Hit
+	if mode != api.SearchModeVector && titlesInScope(req.Scopes) {
+		var out bool
+		titles, out, err = ix.titlePass(ctx, spaceId, req, limit, hs)
+		if err != nil {
+			return api.SearchResponse{}, err
+		}
+		budgetOut = budgetOut || out
+	}
+
+	var groups []Group
+	// rest is the page left for the content legs.
+	if rest := limit - len(titles); rest > 0 && mode != api.SearchModeTitle {
+		// Per-leg over-fetch so fusion has material to work with.
+		fetch := min(max(rest*3, 30), 100)
+		// The lexical leg covers twice the records for the price of a few
+		// µs per row; the ANN leg re-pays its search per widening round.
+		ftsCover := legCover{fetch: fetch, groups: 2 * rest}
+		vecCover := legCover{fetch: fetch, groups: rest}
+
+		var ftsHits, vecHits []Hit
+		if mode == api.SearchModeVector || mode == api.SearchModeHybrid {
 			// Bounded: the degrade path below is only reachable if the
 			// embed call returns.
 			qctx, cancel := context.WithTimeout(ctx, ix.opts.QueryEmbedTimeout)
@@ -769,51 +787,51 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 				vectorStatus = api.VectorStatusUsed
 			}
 		}
-	}
-	if mode == api.SearchModeFTS || mode == api.SearchModeHybrid {
-		// Stop-word stripping is FTS-only: on a bag-of-words OR engine a
-		// common word matches a huge fraction of docs and drags BM25
-		// toward length/frequency noise. The vector leg keeps the full
-		// query (above). chunker-hybrid-search-report § 5.6 / § 6.2.
-		ftsQuery := req.Query
-		// Don't strip inside quoted phrases — dropping a stop word would
-		// break the phrase ("the big apple" → "big apple"). A query with a
-		// quote bypasses stripping entirely (phrase searches are precise
-		// already, so the stop-word noise argument doesn't apply).
-		if ix.opts.StopWords && !strings.Contains(ftsQuery, `"`) {
-			ftsQuery = stripStopWords(ftsQuery)
+		if mode == api.SearchModeFTS || mode == api.SearchModeHybrid {
+			// Stop-word stripping is FTS-only: on a bag-of-words OR engine a
+			// common word matches a huge fraction of docs and drags BM25
+			// toward length/frequency noise. The vector leg keeps the full
+			// query (above). chunker-hybrid-search-report § 5.6 / § 6.2.
+			ftsQuery := req.Query
+			// Don't strip inside quoted phrases — dropping a stop word would
+			// break the phrase ("the big apple" → "big apple"). A query with a
+			// quote bypasses stripping entirely (phrase searches are precise
+			// already, so the stop-word noise argument doesn't apply).
+			if ix.opts.StopWords && !strings.Contains(ftsQuery, `"`) {
+				ftsQuery = stripStopWords(ftsQuery)
+			}
+			var out bool
+			ftsHits, out, err = ix.ftsLeg(ctx, spaceId, FTSQuery{
+				Query:      ftsQuery,
+				DefaultAnd: ix.opts.FTSDefaultAnd,
+				Require:    req.Require,
+				Exclude:    req.Exclude,
+			}, req.Scopes, ftsCover, hs)
+			if err != nil {
+				return api.SearchResponse{}, err
+			}
+			budgetOut = budgetOut || out
 		}
-		var out bool
-		ftsHits, out, err = ix.ftsLeg(ctx, spaceId, FTSQuery{
-			Query:      ftsQuery,
-			DefaultAnd: ix.opts.FTSDefaultAnd,
-			Require:    req.Require,
-			Exclude:    req.Exclude,
-		}, req.Scopes, ftsCover, hs)
-		if err != nil {
-			return api.SearchResponse{}, err
-		}
-		budgetOut = budgetOut || out
-	}
 
-	var fused []Hit
-	switch mode {
-	case api.SearchModeHybrid:
-		ftsW := ix.opts.FtsWeight
-		if ix.opts.AdaptiveWeights {
-			// Down-weight a flat/weak BM25 leg. Judged on the fixed
-			// over-fetch window, not the whole pull: the pull's depth
-			// follows how records are chunked, and a deeper tail only
-			// ever raises the confidence.
-			ftsW *= legConfidence(ftsHits[:min(len(ftsHits), fetch)])
+		var fused []Hit
+		switch mode {
+		case api.SearchModeHybrid:
+			ftsW := ix.opts.FtsWeight
+			if ix.opts.AdaptiveWeights {
+				// Down-weight a flat/weak BM25 leg. Judged on the fixed
+				// over-fetch window, not the whole pull: the pull's depth
+				// follows how records are chunked, and a deeper tail only
+				// ever raises the confidence.
+				ftsW *= legConfidence(ftsHits[:min(len(ftsHits), fetch)])
+			}
+			fused = fuseRRF([][]Hit{ftsHits, vecHits}, []float64{ftsW, ix.opts.VectorWeight}, 0)
+		case api.SearchModeFTS:
+			fused = ftsHits
+		case api.SearchModeVector:
+			fused = vecHits
 		}
-		fused = fuseRRF([][]Hit{ftsHits, vecHits}, []float64{ftsW, ix.opts.VectorWeight}, 0)
-	case api.SearchModeFTS:
-		fused = ftsHits
-	case api.SearchModeVector:
-		fused = vecHits
+		groups = groupHits(withoutDocs(fused, titles), rest, req.Passages)
 	}
-	groups := groupHits(fused, limit, req.Passages)
 
 	maxData := req.MaxData
 	if maxData == 0 {
@@ -823,21 +841,13 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 	window := func(h Hit) (string, int, int) { return snippet(h.Data, terms, maxData) }
 	// Truncated is a fact about the page: a budget ran out AND the page
 	// is short — in hybrid the other leg may have filled it.
-	out := api.SearchResponse{Hits: make([]api.SearchHit, 0, len(groups)), Mode: mode, VectorStatus: vectorStatus,
-		Truncated: budgetOut && len(groups) < limit}
+	out := api.SearchResponse{Hits: make([]api.SearchHit, 0, len(titles)+len(groups)), Mode: mode, VectorStatus: vectorStatus,
+		Truncated: budgetOut && len(titles)+len(groups) < limit}
+	for _, h := range titles {
+		out.Hits = append(out.Hits, searchHit(h, window))
+	}
 	for _, g := range groups {
-		data, offset, total := window(g.Hit)
-		hit := api.SearchHit{
-			Scope:      g.Hit.Scope,
-			ObjectId:   g.Hit.ObjectId,
-			Dataset:    g.Hit.Dataset,
-			RecordId:   g.Hit.RecordId,
-			Chunk:      g.Hit.Chunk,
-			Data:       data,
-			DataOffset: offset,
-			DataTotal:  total,
-			Score:      g.Hit.Score,
-		}
+		hit := searchHit(g.Hit, window)
 		for _, p := range g.Passages {
 			data, offset, total := window(p)
 			hit.Passages = append(hit.Passages, api.SearchPassage{
@@ -847,4 +857,21 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 		out.Hits = append(out.Hits, hit)
 	}
 	return out, nil
+}
+
+// searchHit is the wire shape of one hit, its Data windowed.
+func searchHit(h Hit, window func(Hit) (string, int, int)) api.SearchHit {
+	data, offset, total := window(h)
+	return api.SearchHit{
+		Scope:      h.Scope,
+		ObjectId:   h.ObjectId,
+		Dataset:    h.Dataset,
+		RecordId:   h.RecordId,
+		Chunk:      h.Chunk,
+		Data:       data,
+		DataOffset: offset,
+		DataTotal:  total,
+		Score:      h.Score,
+		Match:      h.Match,
+	}
 }
