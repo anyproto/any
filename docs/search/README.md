@@ -187,7 +187,15 @@ What the numbers say:
   word's postings (no stop word is stripped from the title tiers):
   `the leg` cost 12 ms on the Air Crash Database for no title hit. A
   one-letter query walks every posting of every word with that initial:
-  `m` 17–18 ms on either space.
+  `m` 17–18 ms on either space. A one-letter LAST word after a fixed
+  phrase costs more, because the prefix, phrase-prefix and bag tiers each
+  walk the completions again and the first two rarely fill the page:
+  `boeing 737 m` 52 ms, `lockheed l` 36 ms, `zelda b` 65 ms,
+  `the legend of zelda: b` 73 ms — against 1–6 ms once the second
+  letter is typed (`boeing 77` 2.7 ms, `boeing 777` 2.2 ms,
+  `airbus a3` 1.1 ms, `mario & lu` 0.8 ms, `pokémon r` 16 ms for the
+  one-letter `r`). The analyzer folds case, not diacritics: `pokemon`
+  finds no `Pokémon` title.
 - **The first open after the update** rewrites every space's full-text
   index in place: 38 s for the whole 23-space, 2 GB index db, of which
   Game Consoles took 17.8 s and the Air Crash Database 19.3 s (about
