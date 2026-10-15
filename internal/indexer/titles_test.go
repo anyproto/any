@@ -16,23 +16,31 @@ func TestTitleTiers(t *testing.T) {
 		terms []string
 		tiers []string
 	}{
-		{"Mario Ka", []string{"mario", "ka"}, []string{`^"mario ka"*`, `"mario ka"*`, `"mario" "ka"*`}},
-		{"mario kart ", []string{"mario", "kart"}, []string{`^"mario kart"`, `"mario kart"`, `"mario" "kart"`}},
-		{"zel", []string{"zel"}, []string{`^"zel"*`, `"zel"*`}},
-		{"m", []string{"m"}, []string{`^"m"*`, `"m"*`}},
+		{"Mario Ka", []string{"mario", "ka"}, []string{`^"mario ka"`, `^"mario ka"*`, `"mario ka"*`, `"mario" "ka"*`}},
+		{"mario kart ", []string{"mario", "kart"}, []string{`^"mario kart"`, `^"mario kart"`, `"mario kart"`, `"mario" "kart"`}},
+		{"zel", []string{"zel"}, []string{`^"zel"`, `^"zel"*`, `"zel"*`}},
+		{"m", []string{"m"}, []string{`^"m"`, `^"m"*`, `"m"*`}},
 		// Typed operators are text: the analyzer drops them.
-		{`^"mario"* kart`, []string{"mario", "kart"}, []string{`^"mario kart"*`, `"mario kart"*`, `"mario" "kart"*`}},
+		{`^"mario"* kart`, []string{"mario", "kart"}, []string{`^"mario kart"`, `^"mario kart"*`, `"mario kart"*`, `"mario" "kart"*`}},
 		// A quote inside a word is doubled for the parser.
-		{`צה"ל`, []string{`צה"ל`}, []string{`^"צה""ל"*`, `"צה""ל"*`}},
+		{`צה"ל`, []string{`צה"ל`}, []string{`^"צה""ל"`, `^"צה""ל"*`, `"צה""ל"*`}},
 		// CJK runs analyze to bigrams; the tiers carry them as a phrase.
-		{"東京都", []string{"東京", "京都"}, []string{`^"東京 京都"*`, `"東京 京都"*`, `"東京" "京都"*`}},
+		{"東京都", []string{"東京", "京都"}, []string{`^"東京 京都"`, `^"東京 京都"*`, `"東京 京都"*`, `"東京" "京都"*`}},
 		{"   ", nil, nil},
 		{"***", nil, nil},
 	}
+	kinds := []string{"exact", "prefix", "phrase", "words"}
 	for _, c := range cases {
 		terms, tiers := titleTiers(c.typed)
-		if !slices.Equal(terms, c.terms) || !slices.Equal(tiers, c.tiers) {
-			t.Errorf("%q: terms %q tiers %q, want %q %q", c.typed, terms, tiers, c.terms, c.tiers)
+		var searches []string
+		for i, tier := range tiers {
+			searches = append(searches, tier.search)
+			if tier.match != kinds[i] {
+				t.Errorf("%q: tier %d is %s, want %s", c.typed, i, tier.match, kinds[i])
+			}
+		}
+		if !slices.Equal(terms, c.terms) || !slices.Equal(searches, c.tiers) {
+			t.Errorf("%q: terms %q tiers %q, want %q %q", c.typed, terms, searches, c.terms, c.tiers)
 		}
 	}
 }
@@ -191,6 +199,172 @@ func TestIndexer_TitleMode(t *testing.T) {
 	}
 	if got := objectIds(res.Hits); !slices.Equal(got, []string{"mk8"}) || res.Truncated {
 		t.Fatalf("filtered: %v truncated=%v", got, res.Truncated)
+	}
+}
+
+// The exact name leads whatever the page size: its own tier finds it
+// before the prefix tier's cut, where same-length completions tie on
+// score and fall in insertion order; the page's ties list alphabetically.
+func TestIndexer_TitleExactLeadsSmallPage(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 0)
+	ix := &Indexer{store: st, opts: Options{AnnounceAfter: -1}.withDefaults()}
+	const sp = "sp1"
+	if err := st.Apply(ctx, sp, []DocUpsert{
+		{Entry: nameEntry("notes", "Notes", 1)},
+		{Entry: nameEntry("notebook", "Notebook", 2)},
+		{Entry: nameEntry("noted", "Noted", 3)},
+		{Entry: nameEntry("note", "Note", 4)},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "note", Mode: api.SearchModeTitle, Limit: 3}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := objectIds(res.Hits); !slices.Equal(got, []string{"note", "notebook", "noted"}) || res.Hits[0].Match != "exact" || res.Hits[1].Match != "prefix" {
+		t.Fatalf("note, limit 3: %v %v", got, matches(res.Hits))
+	}
+	// Ties in the tier: alphabetical, not insertion order.
+	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "note", Mode: api.SearchModeTitle, Limit: 10}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := objectIds(res.Hits); !slices.Equal(got, []string{"note", "notebook", "noted", "notes"}) {
+		t.Fatalf("note, limit 10: %v %v", got, matches(res.Hits))
+	}
+}
+
+// A name past the chunk bound is one title hit — its head — that never
+// anchors on a later chunk; its later chunks are content, and the
+// content legs do not list the record a second time.
+func TestIndexer_TitleChunkedName(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 0)
+	ix := &Indexer{store: st, opts: Options{AnnounceAfter: -1}.withDefaults()}
+	const sp = "sp1"
+	long := "Lorem ipsum " + strings.Repeat("dolor sit amet ", DefaultChunkRunes/8) + "zzfinal"
+	ups := expandEntry(nameEntry("long", long, 1), DefaultChunkRunes)
+	if len(ups) < 2 {
+		t.Fatalf("chunks = %d, want several", len(ups))
+	}
+	if err := st.Apply(ctx, sp, ups, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	title := func(q string) api.SearchResponse {
+		t.Helper()
+		res, err := ix.Search(ctx, sp, api.SearchRequest{Query: q, Mode: api.SearchModeTitle}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	if res := title("lorem"); len(res.Hits) != 1 || res.Hits[0].Match != "prefix" || res.Hits[0].Chunk != 0 {
+		t.Fatalf("lorem: %+v", res.Hits)
+	}
+	if res := title("ipsum"); len(res.Hits) != 1 || res.Hits[0].Match != "phrase" {
+		t.Fatalf("ipsum: %+v", res.Hits)
+	}
+	// The tail is not the name: no title hit, a content hit.
+	if res := title("zzfinal"); len(res.Hits) != 0 {
+		t.Fatalf("zzfinal title: %+v", res.Hits)
+	}
+	res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "zzfinal", Mode: api.SearchModeFTS}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Hits) != 1 || res.Hits[0].Match != "" || res.Hits[0].Chunk == 0 {
+		t.Fatalf("zzfinal fts: %+v", res.Hits)
+	}
+	// Both the head and a later chunk match: one hit, the title.
+	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "dolor", Mode: api.SearchModeFTS}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Hits) != 1 || res.Hits[0].Match != "phrase" {
+		t.Fatalf("dolor fts: %+v", res.Hits)
+	}
+}
+
+// The content legs skip the records shown as titles before counting
+// them towards their cover, so a page stays full when titles take most
+// of it and one dense record dominates the lexical window.
+func TestIndexer_TitlesDoNotStarveContent(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 0)
+	ix := &Indexer{store: st, opts: Options{AnnounceAfter: -1}.withDefaults()}
+	const sp = "sp1"
+	ups := []DocUpsert{
+		{Entry: nameEntry("a1", "Alpha one", 1)},
+		{Entry: nameEntry("a2", "Alpha two", 2)},
+		{Entry: nameEntry("a3", "Alpha three", 3)},
+	}
+	dense := expandEntry(entry("basic", "A", "editor_blocks", "r", strings.Repeat("alpha alpha alpha. ", 40*DefaultChunkRunes/19), 4), DefaultChunkRunes)
+	if len(dense) < 40 {
+		t.Fatalf("dense chunks = %d, want >= 40", len(dense))
+	}
+	ups = append(ups, dense...)
+	ups = append(ups, DocUpsert{Entry: entry("chat", "B", "chat_messages", "r", "one alpha mention among many other words about other things entirely", 5)})
+	if err := st.Apply(ctx, sp, ups, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "alpha", Mode: api.SearchModeFTS, Limit: 5}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := objectIds(res.Hits); !slices.Equal(got, []string{"a1", "a3", "a2", "A", "B"}) || res.Truncated {
+		t.Fatalf("alpha, limit 5: %v %v truncated=%v", got, matches(res.Hits), res.Truncated)
+	}
+}
+
+// require / exclude bind a title hit against the name: a term that
+// occurs only in a body empties the title block while the body still
+// answers through the content legs.
+func TestIndexer_TitleRequireScopedToName(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 0)
+	ix := &Indexer{store: st, opts: Options{AnnounceAfter: -1}.withDefaults()}
+	const sp = "sp1"
+	titleCorpus(t, st, sp, nil)
+	res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "mario kart", Mode: api.SearchModeFTS, Require: []string{"tables"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Hits) != 1 || res.Hits[0].ObjectId != "mk" || res.Hits[0].RecordId != "win_1" || res.Hits[0].Match != "" {
+		t.Fatalf("require tables: %+v", res.Hits)
+	}
+}
+
+// queryCountingEmbedder counts the query embeddings asked of it.
+type queryCountingEmbedder struct {
+	axisEmbedder
+	queries int
+}
+
+func (c *queryCountingEmbedder) EmbedQuery(ctx context.Context, q string) ([]float32, error) {
+	c.queries++
+	return c.axisEmbedder.EmbedQuery(ctx, q)
+}
+
+// A page the titles fill embeds no query.
+func TestIndexer_TitlesFullPageSkipsEmbedding(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 4)
+	emb := &queryCountingEmbedder{axisEmbedder: axisEmbedder{dim: 4}}
+	ix := &Indexer{store: st, opts: Options{Embedder: emb, AnnounceAfter: -1}.withDefaults()}
+	const sp = "sp1"
+	titleCorpus(t, st, sp, []float32{1, 0, 0, 0})
+	if _, err := ix.Search(ctx, sp, api.SearchRequest{Query: "mario kart", Limit: 3}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if emb.queries != 0 {
+		t.Fatalf("full page embedded the query %d times", emb.queries)
+	}
+	if _, err := ix.Search(ctx, sp, api.SearchRequest{Query: "mario kart", Limit: 10}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if emb.queries != 1 {
+		t.Fatalf("free page embedded the query %d times, want 1", emb.queries)
 	}
 }
 

@@ -2,8 +2,10 @@ package indexer
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	anystore "github.com/anyproto/any-store/v2"
@@ -185,5 +187,149 @@ func TestStore_UpgradeFTSToNameField(t *testing.T) {
 	}
 	if hashes[docId("mk", index.DatasetProp, index.NamePropRecordId)] != docHash("Mario Kart", "") {
 		t.Fatalf("hashes: %v", hashes)
+	}
+}
+
+// The single-field legacy layout upgrades too; a name's chunk past the
+// bound keeps its `data`; and the concurrent first opens of a cold
+// space — the worker, the embed loop and the first searches — run the
+// rewrite once.
+func TestStore_UpgradeFTSLegacyDataOnlyConcurrentOpens(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 0)
+	const sp = "sp1"
+	coll, err := st.db.Collection(ctx, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := coll.EnsureIndex(ctx,
+		anystore.IndexInfo{Name: objectIdIndex, Fields: []string{"objectId"}},
+		anystore.IndexInfo{Name: ftsIndex, Kind: anystore.IndexKindFulltext, Fields: []string{"data"}},
+	); err != nil {
+		t.Fatal(err)
+	}
+	arena := &anyenc.Arena{}
+	base := docId("long", index.DatasetProp, index.NamePropRecordId)
+	legacy := func(id string, chunk int, data string) *anyenc.Value {
+		d := arena.NewObject()
+		d.Set("id", arena.NewString(id))
+		d.Set("scope", arena.NewString("basic"))
+		d.Set("objectId", arena.NewString("long"))
+		d.Set("dataset", arena.NewString(index.DatasetProp))
+		d.Set("recordId", arena.NewString(index.NamePropRecordId))
+		if chunk > 0 {
+			d.Set("chunk", arena.NewNumberInt(chunk))
+		}
+		d.Set("data", arena.NewString(data))
+		d.Set("title", arena.NewString(""))
+		d.Set("hash", arena.NewString(docHash(data, "")))
+		d.Set("applySeq", arena.NewNumberInt(1))
+		return d
+	}
+	if err := coll.Insert(ctx, legacy(base, 0, "Lorem ipsum"), legacy(chunkDocId(base, 1), 1, "dolor sit")); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := st.spaceColl(ctx, sp); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+	if n := st.ftsUpgrades.Load(); n != 1 {
+		t.Fatalf("upgrade runs = %d, want 1", n)
+	}
+	if got := ftsFields(t, st, sp); !slices.Equal(got, []string{nameField, "data"}) {
+		t.Fatalf("fts fields after upgrade: %v", got)
+	}
+	coll, err = st.spaceColl(ctx, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, err := coll.FindId(ctx, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := head.Value(); string(v.GetStringBytes(nameField)) != "Lorem ipsum" || v.Get("data") != nil {
+		t.Fatalf("head chunk: %s", v.String())
+	}
+	tail, err := coll.FindId(ctx, chunkDocId(base, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := tail.Value(); string(v.GetStringBytes("data")) != "dolor sit" || v.Get(nameField) != nil {
+		t.Fatalf("tail chunk: %s", v.String())
+	}
+	scoped, err := st.SearchFTSQuery(ctx, sp, FTSQuery{Query: `^"lorem"*`, Fields: []string{nameField}}, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scoped) != 1 || scoped[0].Chunk != 0 {
+		t.Fatalf("scoped: %+v", scoped)
+	}
+	if hits, err := st.SearchFTSQuery(ctx, sp, FTSQuery{Query: "dolor", Fields: []string{nameField}}, nil, 0); err != nil || len(hits) != 0 {
+		t.Fatalf("a later chunk is no name: %+v %v", hits, err)
+	}
+	if hits, err := st.SearchFTS(ctx, sp, "dolor", nil, 0); err != nil || len(hits) != 1 || hits[0].Chunk != 1 {
+		t.Fatalf("a later chunk is content: %+v %v", hits, err)
+	}
+}
+
+// A db stamped with the previous schema is adopted: the stamp moves,
+// the pinned chunk target rides along, and an older stamp is refused.
+func TestStore_SchemaPreviousAdopted(t *testing.T) {
+	ctx := context.Background()
+	open := func(schema int) (*Store, error) {
+		t.Helper()
+		db, err := anystore.Open(ctx, "", &anystore.Config{InMemory: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+		cursors, err := db.Collection(ctx, cursorsCollection)
+		if err != nil {
+			t.Fatal(err)
+		}
+		arena := &anyenc.Arena{}
+		meta := arena.NewObject()
+		meta.Set("id", arena.NewString(metaDocId))
+		meta.Set("schema", arena.NewNumberInt(schema))
+		meta.Set("dim", arena.NewNumberInt(0))
+		meta.Set("chunkRunes", arena.NewNumberInt(1500))
+		if err := cursors.Insert(ctx, meta); err != nil {
+			t.Fatal(err)
+		}
+		s := newStore(db, "", 0, false)
+		return s, s.checkMeta(ctx)
+	}
+	s, err := open(indexSchemaVersion - 1)
+	if err != nil {
+		t.Fatalf("previous schema: %v", err)
+	}
+	cursors, err := s.db.Collection(ctx, cursorsCollection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := cursors.FindId(ctx, metaDocId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := doc.Value(); v.GetInt("schema") != indexSchemaVersion || v.GetInt("chunkRunes") != 1500 || s.chunkRunes != 1500 {
+		t.Fatalf("restamped meta: %s (store chunkRunes %d)", v.String(), s.chunkRunes)
+	}
+	if err := s.PinChunkRunes(ctx, 1500); err != nil {
+		t.Fatalf("pin after restamp: %v", err)
+	}
+	if _, err := open(indexSchemaVersion - 2); !errors.Is(err, ErrIndexRebuildRequired) {
+		t.Fatalf("older schema: %v, want ErrIndexRebuildRequired", err)
 	}
 }

@@ -18,8 +18,8 @@ const (
 const (
 	// SearchMatchExact: the name is the typed words.
 	SearchMatchExact = "exact"
-	// SearchMatchPrefix: the name starts with the typed words, the last
-	// one completed.
+	// SearchMatchPrefix: the name starts with the typed words; the last
+	// one is completed unless the query ends in whitespace.
 	SearchMatchPrefix = "prefix"
 	// SearchMatchPhrase: the typed words appear in order inside the name.
 	SearchMatchPhrase = "phrase"
@@ -48,7 +48,8 @@ type SearchRequest struct {
 	// $exclude) — a hit must contain every Require term and no Exclude
 	// term, in every mode: the FTS leg matches on them, and vector hits
 	// are post-filtered against the FTS index before fusion. Each term
-	// may be a "phrase" or prefix*.
+	// may be a "phrase", prefix*, "phrase pre"* or ^anchored clause. A
+	// title hit is bound against its name alone.
 	Require []string `json:"require,omitempty"`
 	Exclude []string `json:"exclude,omitempty"`
 	// MaxData bounds each hit's Data to a window of at most this many
@@ -81,8 +82,9 @@ const DefaultSearchMaxData = 512
 
 // SearchHit is one ranked result — the indexed record's identity plus
 // its indexed text. Score semantics depend on the effective mode: BM25
-// for fts, cosine similarity for vector, RRF for hybrid; within one
-// response higher is always better.
+// for fts, cosine similarity for vector, RRF for hybrid, and BM25 for a
+// title hit whatever the mode; within one block of one response higher
+// is better, and the order across blocks is authoritative.
 type SearchHit struct {
 	Scope    string `json:"scope"`
 	ObjectId string `json:"objectId"`

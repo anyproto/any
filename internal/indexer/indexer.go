@@ -528,7 +528,11 @@ var maxLegFetch = 1000
 // the probe over the objectId index, the beam being blind to a few
 // vectors among many. Only a set past the residual bound is applied
 // per round through hs.keep.
-func (ix *Indexer) vectorLeg(ctx context.Context, spaceId string, qv []float32, req api.SearchRequest, cover legCover, hs *hostSet) (hits []Hit, budgetOut bool, err error) {
+//
+// skip names the records already shown as titles: their docs are
+// dropped before they count towards the cover, so a page stays full
+// without them.
+func (ix *Indexer) vectorLeg(ctx context.Context, spaceId string, qv []float32, req api.SearchRequest, cover legCover, hs *hostSet, skip map[string]struct{}) (hits []Hit, budgetOut bool, err error) {
 	if hs.lazy() {
 		if err := hs.materialize(ctx, filterResidualMax); err != nil {
 			return nil, false, err
@@ -554,6 +558,7 @@ func (ix *Indexer) vectorLeg(ctx context.Context, spaceId string, qv []float32, 
 				return nil, false, err
 			}
 		}
+		kept = withoutRecords(kept, skip)
 		// A residual makes any-store size the candidate beam from K, the
 		// same way a scope does — so the short-round rule applies.
 		if vectorStop(cover, kept, n, k, prevN, len(raw) < n, len(req.Scopes) > 0 || residual != nil) {
@@ -600,7 +605,11 @@ func vectorStop(cover legCover, kept []Hit, n, k, prevN int, floorDropped, scope
 // corpus: the set is materialized once and the same cursor continues
 // with in-process membership, up to filterScanRowsMax, past which the
 // leg reports truncation.
-func (ix *Indexer) ftsLeg(ctx context.Context, spaceId string, fq FTSQuery, scopes []string, cover legCover, hs *hostSet) (hits []Hit, budgetOut bool, err error) {
+//
+// skip names the records already shown as titles: their docs are
+// dropped before they count towards the cover, so a page stays full
+// without them.
+func (ix *Indexer) ftsLeg(ctx context.Context, spaceId string, fq FTSQuery, scopes []string, cover legCover, hs *hostSet, skip map[string]struct{}) (hits []Hit, budgetOut bool, err error) {
 	cur, err := ix.store.openFTS(ctx, spaceId, fq, scopes, hs.residual())
 	if err != nil {
 		return nil, false, err
@@ -624,6 +633,7 @@ func (ix *Indexer) ftsLeg(ctx context.Context, spaceId string, fq FTSQuery, scop
 				return kerr
 			}
 		}
+		kept = withoutRecords(kept, skip)
 		for _, h := range kept {
 			hits = append(hits, h)
 			seen[groupKey(h)] = struct{}{}
@@ -679,6 +689,21 @@ func (ix *Indexer) ftsLeg(ctx context.Context, spaceId string, fq FTSQuery, scop
 	return hits, budgetOut, nil
 }
 
+// withoutRecords drops the hits of the records in skip (groupKey), in
+// place; a nil skip keeps every hit.
+func withoutRecords(hits []Hit, skip map[string]struct{}) []Hit {
+	if len(skip) == 0 {
+		return hits
+	}
+	out := hits[:0]
+	for _, h := range hits {
+		if _, drop := skip[groupKey(h)]; !drop {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
 // Search runs the requested mode over the space's local index. The
 // caller validates mode / scopes / limit / passages; this layer only
 // degrades hybrid→fts when the embedder is missing or the query
@@ -688,12 +713,13 @@ func (ix *Indexer) ftsLeg(ctx context.Context, spaceId string, fq FTSQuery, scop
 // page — each reads until its window covers enough distinct records
 // (legCover), the legs fuse per chunk, and groupHits collapses chunks
 // into records. A page the titles fill runs no content leg and embeds
-// no query. Order of work: title pass, query embedding, then the vector
-// leg (eager, may re-query), then the lexical cursor — so no read tx is
-// ever held across the embed wait or another store call. host, when
-// non-nil, is the request's object filter: it is probed once
-// (newHostSet) and every leg keeps only hits whose object it admits, so
-// limit counts MATCHING records.
+// no query; the records shown as titles are dropped inside the legs,
+// before they count towards a cover. Order of work: title pass, query
+// embedding, then the vector leg (eager, may re-query), then the
+// lexical cursor — so no read tx is ever held across the embed wait or
+// another store call. host, when non-nil, is the request's object
+// filter: it is probed once (newHostSet) and every leg keeps only hits
+// whose object it admits, so limit counts MATCHING records.
 func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchRequest, host HostFilter) (api.SearchResponse, error) {
 	hs, err := newHostSet(ctx, host)
 	if err != nil {
@@ -719,15 +745,17 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 	vectorStatus := api.VectorStatusSkipped
 	if ix.opts.Embedder == nil {
 		vectorStatus = api.VectorStatusDisabled
+	}
+	if hs.empty() {
+		return api.SearchResponse{Hits: []api.SearchHit{}, Mode: mode, VectorStatus: vectorStatus}, nil
+	}
+	if ix.opts.Embedder == nil {
 		switch mode {
 		case api.SearchModeVector:
 			return api.SearchResponse{}, fmt.Errorf("indexer: no embedder configured")
 		case api.SearchModeHybrid:
 			mode = api.SearchModeFTS // hybrid degrades
 		}
-	}
-	if hs.empty() {
-		return api.SearchResponse{Hits: []api.SearchHit{}, Mode: mode, VectorStatus: vectorStatus}, nil
 	}
 
 	var titles []Hit
@@ -739,6 +767,7 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 		}
 		budgetOut = budgetOut || out
 	}
+	shown := shownRecords(titles)
 
 	var groups []Group
 	// rest is the page left for the content legs.
@@ -779,7 +808,7 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 				vectorStatus = api.VectorStatusUnavailable
 			} else {
 				var out bool
-				vecHits, out, err = ix.vectorLeg(ctx, spaceId, qv, req, vecCover, hs)
+				vecHits, out, err = ix.vectorLeg(ctx, spaceId, qv, req, vecCover, hs, shown)
 				if err != nil {
 					return api.SearchResponse{}, err
 				}
@@ -806,7 +835,7 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 				DefaultAnd: ix.opts.FTSDefaultAnd,
 				Require:    req.Require,
 				Exclude:    req.Exclude,
-			}, req.Scopes, ftsCover, hs)
+			}, req.Scopes, ftsCover, hs, shown)
 			if err != nil {
 				return api.SearchResponse{}, err
 			}
@@ -830,7 +859,7 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 		case api.SearchModeVector:
 			fused = vecHits
 		}
-		groups = groupHits(withoutDocs(fused, titles), rest, req.Passages)
+		groups = groupHits(fused, rest, req.Passages)
 	}
 
 	maxData := req.MaxData

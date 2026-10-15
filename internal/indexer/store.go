@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	anystore "github.com/anyproto/any-store/v2"
@@ -42,15 +43,19 @@ const (
 	// whole-record docs with chunked ones); v7 = property entries carry
 	// the property name as Title, and the doc hash covers it (rebuild
 	// backfills the name onto chunks past the first, which were indexed
-	// as bare value text). Mismatch = boot error advising
-	// removal; no migration — the index is derived state (re-indexes on
-	// the next change).
-	indexSchemaVersion = 7
+	// as bare value text); v8 = the object's name in its own full-text
+	// field (nameField) — a v7 db is adopted: its stamp moves at open and
+	// each collection is rewritten in place on its first open
+	// (upgradeFTS), so nothing re-embeds. Any other mismatch = boot error
+	// advising removal; the docs themselves are never migrated — the
+	// index is derived state (re-indexes on the next change).
+	indexSchemaVersion = 8
 )
 
 // Store is the indexer-owned any-store database: one collection per
-// space, each carrying a BM25 full-text index on `name` + `data` and
-// (when dim > 0) an IVF-SQ cosine vector index on `vector`.
+// space, each carrying a BM25 full-text index on `name` + `data` (+
+// `title` under a title boost) and (when dim > 0) an IVF-SQ cosine
+// vector index on `vector`.
 //
 // Doc shape: {id: objectId:dataset:recordId, scope, objectId, dataset,
 // recordId, data | name, title, hash, applySeq, vector?, pending?}. The
@@ -87,6 +92,9 @@ type Store struct {
 	dim    int // 0 = unknown yet; learned lazily via EnsureDim
 	colls  map[string]anystore.Collection
 	hasVec map[string]bool // spaceId → vector index exists
+
+	// ftsUpgrades counts the collections upgradeFTS rewrote.
+	ftsUpgrades atomic.Int32
 }
 
 // SetVectorMode picks the ANN index strategy for indexes created after the
@@ -94,10 +102,11 @@ type Store struct {
 func (s *Store) SetVectorMode(mode string) { s.vectorMode = mode }
 
 // SetFTSParams sets the BM25 tuning for FTS indexes created after the
-// call. All three are index-creation params: b/k1 are baked in, and
-// whether titleWeight is zero decides the index's FIELD SET (`name` +
-// `data`, or those plus `title`), so turning a title boost on for an
-// existing index needs a rebuild. Its value is then read at query time.
+// call. All three are part of the index definition: b, k1 and the
+// weights are compared by EnsureIndex, and whether titleWeight is zero
+// decides the FIELD SET (`name` + `data`, or those plus `title`), so any
+// change against an existing index fails its open with
+// ErrIndexMismatch and takes a rebuild.
 func (s *Store) SetFTSParams(b, k1, titleWeight float64) {
 	s.ftsB, s.ftsK1, s.titleWeight = b, k1, titleWeight
 }
@@ -244,21 +253,36 @@ func (s *Store) checkMeta(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if got := doc.Value().GetInt("schema"); got != indexSchemaVersion {
-		return fmt.Errorf("%w: index db schema v%d, this build needs v%d — remove %s to rebuild (re-indexes on next change, see docs/13-index.md)", ErrIndexRebuildRequired, got, indexSchemaVersion, filepath.Dir(s.path))
-	}
-	got := doc.Value().GetInt("dim")
-	switch {
-	case got == s.dim:
-		return nil
-	case s.dim == 0:
-		s.dim = got // adopt the dimension this DB was built with
-		return nil
-	case got == 0:
-		return s.writeMeta(ctx, s.dim) // first run with a known dim
+	v := doc.Value()
+	schema := v.GetInt("schema")
+	switch schema {
+	case indexSchemaVersion:
+	case indexSchemaVersion - 1:
+		// v7 lacks the name field in every collection; each is moved onto
+		// it in place on its first open (upgradeFTS), so the db only moves
+		// its stamp — which an older build then refuses with the rebuild
+		// guidance instead of failing every space on an index definition
+		// it cannot apply. The stored chunk target rides the restamp.
+		if s.chunkRunes == 0 {
+			s.chunkRunes = v.GetInt("chunkRunes")
+		}
 	default:
-		return fmt.Errorf("%w: index db was built with vector dim %d, configured %d — remove %s to rebuild from scratch", ErrIndexRebuildRequired, got, s.dim, filepath.Dir(s.path))
+		return fmt.Errorf("%w: index db schema v%d, this build needs v%d — remove %s to rebuild (re-indexes on next change, see docs/13-index.md)", ErrIndexRebuildRequired, schema, indexSchemaVersion, filepath.Dir(s.path))
 	}
+	dim := v.GetInt("dim")
+	switch {
+	case dim == s.dim:
+	case s.dim == 0:
+		s.dim = dim // adopt the dimension this DB was built with
+	case dim == 0:
+		// first run with a known dim: recorded below
+	default:
+		return fmt.Errorf("%w: index db was built with vector dim %d, configured %d — remove %s to rebuild from scratch", ErrIndexRebuildRequired, dim, s.dim, filepath.Dir(s.path))
+	}
+	if schema != indexSchemaVersion || dim != s.dim {
+		return s.writeMeta(ctx, s.dim)
+	}
+	return nil
 }
 
 // PinChunkRunes records the chunk target this index's docs are written
@@ -396,17 +420,21 @@ func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collect
 // the prop chunker's name entry (index.NamePropRecordId), stored here
 // instead of in `data`. It is the index's FIRST field, so `^` anchors at
 // the name's first token, and `$fields: ["name"]` scopes a clause to
-// names only: the title pass (titles.go) matches "the title starts
-// with" and "the title contains" without touching the body postings.
-// An unscoped query still matches every field, so content search sees
-// names as before.
+// names only, which is what lets the title pass (titles.go) match "the
+// title starts with" and "the title contains". The scope selects the
+// documents that score, not the postings that are read: the engine
+// keys postings by term, so a scoped clause still walks every posting
+// of its terms, body included. An unscoped query matches every field,
+// so content search sees names too. Only chunk 0 of a name carries the
+// field: a later chunk (a name past the chunk bound) is a `data` doc,
+// so `^` never anchors on the middle of a name.
 const nameField = "name"
 
 // ftsIndex is the name of the collection's full-text index.
 const ftsIndex = "fts"
 
-// isNameDoc reports whether the entry is the object's name — the one
-// doc whose text lives in nameField.
+// isNameDoc reports whether the entry is the object's name — the record
+// whose first chunk holds its text in nameField.
 func isNameDoc(e index.IndexEntry) bool {
 	return e.Dataset == index.DatasetProp && e.RecordId == index.NamePropRecordId
 }
@@ -428,26 +456,35 @@ var nameDocFilter = query.And{
 	query.Key{Path: []string{"recordId"}, Filter: query.NewComp(query.CompOpEq, index.NamePropRecordId)},
 }
 
-// upgradeFTS moves a collection written before nameField onto the
-// current full-text layout, in place: the index is dropped, the name
-// docs' text moves from `data` to `name`, and the index is recreated
-// over the current field set — any-store backfills it from the stored
-// docs. Vectors, hashes, cursors and links are untouched, so nothing
-// re-embeds. One write transaction, so a crash leaves either layout
-// whole; the state is the index's own field list, so a collection still
-// on the old layout is upgraded on its next open and one on the new
-// layout costs a metadata read. A collection without the index (new) is
-// left to EnsureIndex.
-func (s *Store) upgradeFTS(ctx context.Context, coll anystore.Collection) error {
-	var fields []string
-	found := false
+// ftsLacksName reports whether the collection's full-text index exists
+// without nameField — the layout written before the field.
+func ftsLacksName(coll anystore.Collection) bool {
 	for _, ix := range coll.GetIndexes() {
 		if info := ix.Info(); info.Name == ftsIndex {
-			fields, found = info.Fields, true
-			break
+			return !slices.Contains(info.Fields, nameField)
 		}
 	}
-	if !found || slices.Contains(fields, nameField) {
+	return false
+}
+
+// upgradeFTS moves a collection written before nameField onto the
+// current full-text layout, in place: the index is dropped, the name
+// docs' text moves from `data` to `name` (chunk 0 only, as ApplyPage
+// writes it), and the index is recreated over the current field set —
+// any-store backfills it from the stored docs. Vectors, hashes, cursors
+// and links are untouched, so nothing re-embeds. One write transaction,
+// so a crash leaves either layout whole; the state is the index's own
+// field list, so a collection still on the old layout is upgraded on
+// its next open and one on the new layout costs a metadata read. The
+// field list is read again once the transaction holds the write lock:
+// a space's worker, its embed loop and the first searches all open the
+// collection at once on the first boot, and the one that enters second
+// must find the first's work, not redo it. A collection without the
+// index (new) is left to EnsureIndex. Two passes over the collection
+// (the name docs, then the backfill): seconds per 100k docs, once per
+// space.
+func (s *Store) upgradeFTS(ctx context.Context, coll anystore.Collection) error {
+	if !ftsLacksName(coll) {
 		return nil
 	}
 	tx, err := coll.WriteTx(ctx)
@@ -455,12 +492,15 @@ func (s *Store) upgradeFTS(ctx context.Context, coll anystore.Collection) error 
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck — no-op after Commit
+	if !ftsLacksName(coll) {
+		return nil
+	}
 	if err := coll.DropIndex(tx.Context(), ftsIndex); err != nil {
 		return err
 	}
 	mod := query.ModifyFunc(func(a *anyenc.Arena, v *anyenc.Value) (*anyenc.Value, bool, error) {
 		d := v.GetStringBytes("data")
-		if len(d) == 0 {
+		if len(d) == 0 || v.GetInt("chunk") > 0 {
 			return v, false, nil
 		}
 		v.Set(nameField, a.NewString(string(d)))
@@ -473,7 +513,11 @@ func (s *Store) upgradeFTS(ctx context.Context, coll anystore.Collection) error 
 	if err := coll.EnsureIndex(tx.Context(), s.ftsIndexInfo()); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.ftsUpgrades.Add(1)
+	return nil
 }
 
 // vectorIndexParams resolves the ANN index strategy. The mode comes from
@@ -717,7 +761,7 @@ func (s *Store) ApplyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 		if up.Chunk > 0 {
 			doc.Set("chunk", arena.NewNumberInt(up.Chunk))
 		}
-		if isNameDoc(e) {
+		if isNameDoc(e) && up.Chunk == 0 {
 			doc.Set(nameField, arena.NewString(e.Data))
 		} else {
 			doc.Set("data", arena.NewString(e.Data))
