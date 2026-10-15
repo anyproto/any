@@ -142,6 +142,59 @@ go test -tags llamacpp -run TestLiveVectorScoreProbe -v ./internal/indexer
 The BEIR and eval numbers below score the top k chunks; `/search` returns
 k distinct records (`limit` counts records), which moves recall@k up.
 
+### Titles first — measured on two real spaces
+
+Copies of a production account's index db, Game Consoles (101,443
+docs, 3,430 names, two-word titles over Wikipedia-sized articles) and
+the Air Crash Database (126,489 docs, 3,015 names), on a 12-core desktop
+with a GTX 1080 (Vulkan) serving the local embedder; `limit` 10, the
+minimum of five timed runs after a warm-up. "main" is the build before
+the title pass, with the any-store engine that capped prefix expansion.
+
+Per keystroke, Game Consoles (ms):
+
+| typed | `title` | `fts` | `hybrid` | main `fts` | main `hybrid` | top of the page |
+|---|---|---|---|---|---|---|
+| `mario ka` | 1.4 | 1.5 | 1.5 | 2.0 | 130 | Mario Kart, 64, 7, 8, DS, Wii (main: body tables about *Sakura Taisen*) |
+| `mario kart` | 0.7 | 0.6 | 0.6 | 2.1 | 138 | Mario Kart `exact`, then the prefixes (main: a release-years table) |
+| `zel` | 0.2 | 0.2 | 0.2 | 0 hits | 138 | Zelda II…, The Legend of Zelda… (main: "Other", "Others") |
+| `of zel` | 6.5 | 6.6 | 6.6 | 0 hits | 189 | The Legend of Zelda… as `phrase` |
+| `final fan` | 1.0 | 1.0 | 1.0 | 2.1 | 170 | Final Fantasy III, IV, Tactics… (main: a "Fan games" window) |
+| `playst` | 1.4 | 1.4 | 1.4 | 0 hits | 187 | PlayStation (console), 2, 3, 4, 5 |
+| `nintendo` | 1.7 | 1.7 | 1.7 | 5.6 | 193 | Nintendo `exact`, Nintendogs, Nintendo 3DS… (main: an image credit) |
+| `kart mar` | 3.0 | 3.0 | 3.0 | 0.5 | 188 | Mario Kart… as `words` (main: body windows) |
+| `the leg` | 4.7 | 4.7 | 4.7 | 0.2 | 188 | The Legend of Dragoon, The Legend of Zelda… (main: a yoga table) |
+| `m` | 18 | 18 | 18 | 1.5 | 189 | Magnavox, Mattel, Maxis… |
+
+Air Crash Database: `tener` 0.1 ms → Tenerife airport disaster
+(`prefix`), 1972 Tenerife Spantax… (`phrase`), where main's `fts` found
+nothing; `tenerife` and `hindenburg` list the two titles first, then the
+property values and windows that main listed alone (main had the title
+at rank 5).
+
+What the numbers say:
+
+- **A page of titles answers in one or two milliseconds in every mode**,
+  because the content legs and the query embedding do not run. Hybrid on
+  main pays the embedding on every keystroke: 130–190 ms on this GPU.
+- **Prefix coverage is complete**: `zel`, `playst`, `of zel` and `tener`
+  were empty on main's `fts` and are the right titles here.
+- **The title pass is the cost on a query that names nothing.** A
+  natural-language query (`what caused the tenerife disaster`) added
+  2.5 ms on Game Consoles and 3.4 ms on the Air Crash Database to an
+  `fts` request, and nothing visible to `hybrid`; its content hits are
+  the same as main's. A query that starts with a stop word walks that
+  word's postings (no stop word is stripped from the title tiers):
+  `the leg` cost 12 ms on the Air Crash Database for no title hit. A
+  one-letter query walks every posting of every word with that initial:
+  `m` 17–18 ms on either space.
+- **The first open after the update** rewrites every space's full-text
+  index in place: 38 s for the whole 23-space, 2 GB index db, of which
+  Game Consoles took 17.8 s and the Air Crash Database 19.3 s (about
+  18 s per 100k docs of article-sized windows); the small spaces took
+  under a second together. No vector was touched: both spaces kept their
+  57k and 62k embedded docs with nothing pending.
+
 ### Chunk-length distribution — one doc per block vs coalesced windows
 
 Measured on a live agent-space index:

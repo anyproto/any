@@ -494,7 +494,8 @@ routine per-edit indexing never appears (`Options.OnProcess`, bridged in
   write lock, so an interrupted upgrade is redone on the next open and
   the concurrent first opens of a cold space (its worker, its embed
   loop, the first searches) rewrite it once. Two passes over the
-  collection, seconds per 100k docs, once per space.
+  collection, about 18 s per 100k docs of article-sized windows
+  (`search/README.md` § Titles first), once per space.
 - Indexes per collection: BM25 **full-text** on `name` + `data` (plus
   `title` when `index.search.titleWeight > 0`); a range index on `objectId` (the
   search filter's residual seeks it — § Filtering by object; structural
