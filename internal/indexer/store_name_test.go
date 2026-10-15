@@ -336,8 +336,8 @@ func TestStore_SchemaPreviousAdopted(t *testing.T) {
 }
 
 // A rewrite is reported on the process view: started once the gate
-// opens, the terminal frame when the transaction ends; a collection
-// already on the layout reports nothing.
+// opens, the terminal frame when the transaction ends; a never-indexed
+// collection reports nothing.
 func TestStore_UpgradeFTSOnProcess(t *testing.T) {
 	ctx := context.Background()
 	st := mustStore(t, 0)
@@ -365,5 +365,117 @@ func TestStore_UpgradeFTSOnProcess(t *testing.T) {
 	}
 	if len(updates) != 0 {
 		t.Fatalf("a fresh collection reported %+v", updates)
+	}
+}
+
+// The read side never rewrites and never waits: a collection on the
+// old layout answers ErrIndexNotReady until its worker's open rewrites
+// it, a never-indexed space answers empty, and the rewrite happens on
+// the worker's open.
+func TestStore_ReadPathNeverRewrites(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 0)
+	var updates []ProcessUpdate
+	ix := &Indexer{store: st, lg: logger.NewNamed("indexer.test"), opts: Options{AnnounceAfter: -1, OnProcess: func(u ProcessUpdate) { updates = append(updates, u) }}.withDefaults()}
+	st.SetFTSUpgradeHook(ix.reportFTSUpgrade)
+	const sp = "sp1"
+	coll, err := st.db.Collection(ctx, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := coll.EnsureIndex(ctx, anystore.IndexInfo{Name: ftsIndex, Kind: anystore.IndexKindFulltext, Fields: []string{"data"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SearchFTS(ctx, sp, "anything", nil, 0); !errors.Is(err, ErrIndexNotReady) {
+		t.Fatalf("read of an old-layout space: %v, want ErrIndexNotReady", err)
+	}
+	if _, _, err := st.searchVector(ctx, sp, []float32{1}, nil, 1, 0, nil, false); err != nil {
+		t.Fatalf("vector read with no dim: %v", err)
+	}
+	if n := st.ftsUpgrades.Load(); n != 0 || len(updates) != 0 {
+		t.Fatalf("a read rewrote: %d upgrades, %+v", n, updates)
+	}
+	if hits, err := st.SearchFTS(ctx, "never-indexed", "anything", nil, 0); err != nil || len(hits) != 0 {
+		t.Fatalf("read of a never-indexed space: %v %+v, want empty", err, hits)
+	}
+	// The worker's open is what rewrites.
+	w := &spaceWorker{ix: ix, sp: staticIdSpace{}}
+	w.openIndex(ctx)
+	if n := st.ftsUpgrades.Load(); n != 1 || len(updates) != 2 {
+		t.Fatalf("the worker's open: %d upgrades, %+v", n, updates)
+	}
+	if _, err := st.SearchFTS(ctx, sp, "anything", nil, 0); err != nil {
+		t.Fatalf("read after the rewrite: %v", err)
+	}
+}
+
+// A rewrite queued for the lock whose ctx ended — a worker at shutdown
+// — is skipped unreported, and the next open with a live ctx does it.
+func TestStore_UpgradeFTSCancelledSkips(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 0)
+	var updates []ProcessUpdate
+	ix := &Indexer{store: st, lg: logger.NewNamed("indexer.test"), opts: Options{AnnounceAfter: -1, OnProcess: func(u ProcessUpdate) { updates = append(updates, u) }}.withDefaults()}
+	st.SetFTSUpgradeHook(ix.reportFTSUpgrade)
+	const sp = "sp1"
+	coll, err := st.db.Collection(ctx, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := coll.EnsureIndex(ctx, anystore.IndexInfo{Name: ftsIndex, Kind: anystore.IndexKindFulltext, Fields: []string{"data"}}); err != nil {
+		t.Fatal(err)
+	}
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := st.spaceColl(cctx, sp); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled open: %v, want context.Canceled", err)
+	}
+	if n := st.ftsUpgrades.Load(); n != 0 || len(updates) != 0 || !ftsLacksName(coll) {
+		t.Fatalf("cancelled open rewrote: %d upgrades, %+v", n, updates)
+	}
+	if _, err := st.spaceColl(ctx, sp); err != nil {
+		t.Fatal(err)
+	}
+	if n := st.ftsUpgrades.Load(); n != 1 || len(updates) != 2 || updates[1].Phase != ProcessDone {
+		t.Fatalf("live open: %d upgrades, %+v", n, updates)
+	}
+}
+
+// A failed rewrite reports failed, is released before the report, and
+// is not tried again for a while: the next open answers the failure at
+// once, without the hook; after the backoff it runs again.
+func TestStore_UpgradeFTSFailureBackoff(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 0)
+	var updates []ProcessUpdate
+	ix := &Indexer{store: st, lg: logger.NewNamed("indexer.test"), opts: Options{AnnounceAfter: -1, OnProcess: func(u ProcessUpdate) { updates = append(updates, u) }}.withDefaults()}
+	st.SetFTSUpgradeHook(ix.reportFTSUpgrade)
+	const sp = "sp1"
+	coll, err := st.db.Collection(ctx, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := coll.EnsureIndex(ctx, anystore.IndexInfo{Name: ftsIndex, Kind: anystore.IndexKindFulltext, Fields: []string{"data"}}); err != nil {
+		t.Fatal(err)
+	}
+	st.SetFTSParams(2, 0, 0) // an invalid b: the index cannot be recreated
+	if _, err := st.spaceColl(ctx, sp); err == nil {
+		t.Fatal("rewrite with an invalid definition succeeded")
+	}
+	if len(updates) != 2 || updates[0].Phase != ProcessStarted || updates[1].Phase != ProcessFailed {
+		t.Fatalf("failed rewrite reported %+v, want started + failed", updates)
+	}
+	if _, err := st.spaceColl(ctx, sp); !errors.Is(err, ErrIndexNotReady) || len(updates) != 2 {
+		t.Fatalf("open during the backoff: %v (%d frames), want ErrIndexNotReady and no new attempt", err, len(updates))
+	}
+	st.SetFTSParams(0, 0, 0)
+	st.mu.Lock()
+	delete(st.ftsRetryAt, sp)
+	st.mu.Unlock()
+	if _, err := st.spaceColl(ctx, sp); err != nil {
+		t.Fatalf("open after the backoff: %v", err)
+	}
+	if n := st.ftsUpgrades.Load(); n != 1 || len(updates) != 4 || updates[3].Phase != ProcessDone {
+		t.Fatalf("after the backoff: %d upgrades, %+v", n, updates)
 	}
 }

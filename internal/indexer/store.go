@@ -93,8 +93,10 @@ type Store struct {
 	colls  map[string]anystore.Collection
 	hasVec map[string]bool // spaceId → vector index exists
 
-	// ftsUpgrades counts the collections upgradeFTS rewrote.
+	// ftsUpgrades counts the collections upgradeFTS rewrote; ftsRetryAt
+	// holds, per space, when a failed rewrite may be tried again.
 	ftsUpgrades atomic.Int32
+	ftsRetryAt  map[string]time.Time
 	// onFTSUpgrade, when set, is told when a rewrite starts (the lock
 	// is held, the collection still lacks the field) and returns the
 	// function to call when it ends — the indexer's process report.
@@ -229,6 +231,7 @@ func newStore(db anystore.DB, path string, dim int, embedderConfigured bool) *St
 		markPending: embedderConfigured || dim > 0,
 		colls:       map[string]anystore.Collection{},
 		hasVec:      map[string]bool{},
+		ftsRetryAt:  map[string]time.Time{},
 	}
 }
 
@@ -353,22 +356,31 @@ func (s *Store) writeMeta(ctx context.Context, dim int) error {
 //
 // Unreachable on mobile today (vector is off in both binds), wrapped
 // anyway so the host contract doesn't depend on that staying true.
+//
+// The meta write takes the store's write lock, which a rewrite in
+// flight holds for seconds, so s.mu — the cache lock every read takes —
+// is released around it.
 func (s *Store) EnsureDim(ctx context.Context, dim int) error {
 	if dim <= 0 {
 		return fmt.Errorf("indexer: EnsureDim: invalid dim %d", dim)
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	known := s.dim
+	s.mu.Unlock()
 	switch {
-	case s.dim == dim:
+	case known == dim:
 		return nil
-	case s.dim != 0:
-		return fmt.Errorf("%w: embedder returned dim %d but the index db was built with %d — fix the model or remove %s to rebuild", ErrIndexRebuildRequired, dim, s.dim, filepath.Dir(s.path))
+	case known != 0:
+		return fmt.Errorf("%w: embedder returned dim %d but the index db was built with %d — fix the model or remove %s to rebuild", ErrIndexRebuildRequired, dim, known, filepath.Dir(s.path))
 	}
 	if err := s.writeMeta(ctx, dim); err != nil {
 		return err
 	}
-	s.dim = dim
+	s.mu.Lock()
+	if s.dim == 0 {
+		s.dim = dim
+	}
+	s.mu.Unlock()
 	return nil
 }
 
@@ -377,7 +389,11 @@ func (s *Store) Close() error {
 }
 
 // spaceColl opens (or creates) the per-space collection and ensures its
-// indexes. Cached — EnsureIndex is idempotent but not free.
+// indexes — the WRITE side: every path that lands docs or vectors goes
+// through it, and it is what a space's worker calls first, so the
+// in-place rewrite of an old layout (upgradeFTS) runs on the worker's
+// goroutine. Cached — EnsureIndex is idempotent but not free, and it
+// takes the store's write lock. Reads use spaceCollRead.
 func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collection, error) {
 	s.mu.Lock()
 	if coll, ok := s.colls[spaceId]; ok {
@@ -404,25 +420,65 @@ func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collect
 	// boosted `title` field (heading / method sig / memory context);
 	// otherwise the field set stays at the two so default ranking is
 	// unchanged. b/k1 (if set) apply either way.
-	if err := s.upgradeFTS(ctx, spaceId, coll); err != nil {
+	indexes := s.indexInfos()
+	upgraded, err := s.upgradeFTS(ctx, spaceId, coll, indexes)
+	if err != nil {
 		return nil, fmt.Errorf("indexer: upgrade fts index for %s: %w", spaceId, err)
 	}
-	indexes := []anystore.IndexInfo{
-		{Name: objectIdIndex, Fields: []string{"objectId"}},
-		s.ftsIndexInfo(),
-	}
-	// The sparse pending index backs the embed loop, which only a store
-	// that marks docs pending ever runs.
-	if s.markPending {
-		indexes = append(indexes, anystore.IndexInfo{Fields: []string{"pending"}, Sparse: true})
-	}
-	if err := coll.EnsureIndex(ctx, indexes...); err != nil {
-		return nil, fmt.Errorf("indexer: ensure indexes for %s: %w", spaceId, err)
+	// A rewrite ensures every index inside its own transaction, so the
+	// collection is usable the moment it commits — no second wait on
+	// the write lock behind other spaces' rewrites.
+	if !upgraded {
+		if err := coll.EnsureIndex(ctx, indexes...); err != nil {
+			return nil, fmt.Errorf("indexer: ensure indexes for %s: %w", spaceId, err)
+		}
 	}
 
 	s.mu.Lock()
 	s.colls[spaceId] = coll
 	s.mu.Unlock()
+	return coll, nil
+}
+
+// indexInfos is the index set of a space collection: objectId, the
+// full-text index and, when docs are marked pending, the sparse pending
+// index that backs the embed loop.
+func (s *Store) indexInfos() []anystore.IndexInfo {
+	indexes := []anystore.IndexInfo{
+		{Name: objectIdIndex, Fields: []string{"objectId"}},
+		s.ftsIndexInfo(),
+	}
+	if s.markPending {
+		indexes = append(indexes, anystore.IndexInfo{Fields: []string{"pending"}, Sparse: true})
+	}
+	return indexes
+}
+
+// spaceCollRead is the READ side of spaceColl: the cached handle, or
+// the collection as it is on disk with no DDL — and so with no wait on
+// the store's write lock, which a rewrite in flight on this or another
+// space holds for seconds (search-as-you-type must not park a request
+// per keystroke behind it). A collection whose full-text index is
+// missing or predates the layout answers ErrIndexNotReady until its
+// worker's rewrite commits; a space never indexed has no collection and
+// answers errNoIndex, which the legs read as empty.
+func (s *Store) spaceCollRead(ctx context.Context, spaceId string) (anystore.Collection, error) {
+	s.mu.Lock()
+	if coll, ok := s.colls[spaceId]; ok {
+		s.mu.Unlock()
+		return coll, nil
+	}
+	s.mu.Unlock()
+	coll, err := s.db.OpenCollection(ctx, spaceId)
+	if errors.Is(err, anystore.ErrCollectionNotFound) {
+		return nil, errNoIndex
+	}
+	if err != nil {
+		return nil, err
+	}
+	if exists, hasName := ftsState(coll); !exists || !hasName {
+		return nil, ErrIndexNotReady
+	}
 	return coll, nil
 }
 
@@ -466,61 +522,99 @@ var nameDocFilter = query.And{
 	query.Key{Path: []string{"recordId"}, Filter: query.NewComp(query.CompOpEq, index.NamePropRecordId)},
 }
 
-// ftsLacksName reports whether the collection's full-text index exists
-// without nameField — the layout written before the field.
-func ftsLacksName(coll anystore.Collection) bool {
+// ftsState reports whether the collection has its full-text index and
+// whether that index carries nameField — the layout written before the
+// field has it not.
+func ftsState(coll anystore.Collection) (exists, hasName bool) {
 	for _, ix := range coll.GetIndexes() {
 		if info := ix.Info(); info.Name == ftsIndex {
-			return !slices.Contains(info.Fields, nameField)
+			return true, slices.Contains(info.Fields, nameField)
 		}
 	}
-	return false
+	return false, false
 }
+
+// ftsLacksName reports whether the collection's full-text index exists
+// without nameField — what upgradeFTS rewrites.
+func ftsLacksName(coll anystore.Collection) bool {
+	exists, hasName := ftsState(coll)
+	return exists && !hasName
+}
+
+// ftsUpgradeBackoff is how long a failed rewrite is left alone: the
+// next open of the space answers the failure at once instead of
+// redoing the whole rewrite under the write lock for every caller.
+const ftsUpgradeBackoff = time.Minute
 
 // upgradeFTS moves a collection written before nameField onto the
 // current full-text layout, in place: the index is dropped, the name
 // docs' text moves from `data` to `name` (chunk 0 only, as ApplyPage
-// writes it), and the index is recreated over the current field set —
-// any-store backfills it from the stored docs. Vectors, hashes, cursors
-// and links are untouched, so nothing re-embeds. One write transaction,
-// so a crash leaves either layout whole; the state is the index's own
-// field list, so a collection still on the old layout is upgraded on
-// its next open and one on the new layout costs a metadata read. The
-// field list is read again once the transaction holds the write lock:
-// a space's worker, its embed loop and the first searches all open the
-// collection at once on the first boot, and the one that enters second
-// must find the first's work, not redo it. A collection without the
-// index (new) is left to EnsureIndex. Two passes over the collection
-// (the name docs, then the backfill): tens of seconds per 100k docs,
-// once per space, reported through onFTSUpgrade while it runs.
-func (s *Store) upgradeFTS(ctx context.Context, spaceId string, coll anystore.Collection) error {
+// writes it), and every index of the collection is ensured — the
+// full-text one over the current field set, backfilled by any-store
+// from the stored docs. Vectors, hashes, cursors and links are
+// untouched, so nothing re-embeds. One write transaction, so a crash
+// leaves either layout whole; the state is the index's own field list,
+// so a collection still on the old layout is upgraded on its next open
+// and one on the new layout costs a metadata read. The field list is
+// read again once the transaction holds the write lock: a space's
+// worker, its embed loop and the writers all open the collection at
+// once on the first boot, and the one that enters second must find the
+// first's work, not redo it. A caller whose ctx ended while it queued
+// for the lock — a worker at shutdown — skips the rewrite, so teardown
+// waits for at most the one in flight; the steps inside check ctx too,
+// though any-store's own work does not. A collection without the index
+// (new) is left to EnsureIndex. Two passes over the collection (the
+// name docs, then the backfill): tens of seconds per 100k docs, once
+// per space, reported through onFTSUpgrade while it runs. Returns
+// whether it rewrote.
+func (s *Store) upgradeFTS(ctx context.Context, spaceId string, coll anystore.Collection, indexes []anystore.IndexInfo) (bool, error) {
 	if !ftsLacksName(coll) {
-		return nil
+		return false, nil
+	}
+	s.mu.Lock()
+	retryAt, failed := s.ftsRetryAt[spaceId]
+	s.mu.Unlock()
+	if failed && time.Now().Before(retryAt) {
+		return false, fmt.Errorf("%w: the rewrite failed, next try after %s", ErrIndexNotReady, time.Until(retryAt).Round(time.Second))
 	}
 	tx, err := coll.WriteTx(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback() //nolint:errcheck — no-op after Commit
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	if !ftsLacksName(coll) {
-		return nil
+		return false, nil
 	}
 	finish := func(error) {}
 	if s.onFTSUpgrade != nil {
 		finish = s.onFTSUpgrade(ctx, spaceId)
 	}
-	err = s.rewriteFTS(tx, coll)
+	err = s.rewriteFTS(ctx, tx, coll, indexes)
+	if err != nil {
+		_ = tx.Rollback() // released before the report, not after it
+		if ctx.Err() == nil {
+			s.mu.Lock()
+			s.ftsRetryAt[spaceId] = time.Now().Add(ftsUpgradeBackoff)
+			s.mu.Unlock()
+		}
+	}
 	finish(err)
 	if err != nil {
-		return err
+		return false, err
 	}
 	s.ftsUpgrades.Add(1)
-	return nil
+	return true, nil
 }
 
 // rewriteFTS is the body of upgradeFTS inside its transaction.
-func (s *Store) rewriteFTS(tx anystore.WriteTx, coll anystore.Collection) error {
+func (s *Store) rewriteFTS(ctx context.Context, tx anystore.WriteTx, coll anystore.Collection, indexes []anystore.IndexInfo) error {
 	if err := coll.DropIndex(tx.Context(), ftsIndex); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	mod := query.ModifyFunc(func(a *anyenc.Arena, v *anyenc.Value) (*anyenc.Value, bool, error) {
@@ -535,7 +629,10 @@ func (s *Store) rewriteFTS(tx anystore.WriteTx, coll anystore.Collection) error 
 	if _, err := coll.Find(nameDocFilter).Update(tx.Context(), mod); err != nil {
 		return err
 	}
-	if err := coll.EnsureIndex(tx.Context(), s.ftsIndexInfo()); err != nil {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := coll.EnsureIndex(tx.Context(), indexes...); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -632,6 +729,36 @@ func (s *Store) EnsureVectorIndex(ctx context.Context, spaceId string) (bool, er
 	s.hasVec[spaceId] = true
 	s.mu.Unlock()
 	return true, nil
+}
+
+// vectorColl is the read side of EnsureVectorIndex: the space's
+// collection when it carries a vector index, ok false when it does not
+// (nothing embedded yet, or no collection) — never creating one, so a
+// search neither takes the write lock nor waits on it. The embed loop
+// creates the index (EnsureVectorIndex) after each batch it lands.
+func (s *Store) vectorColl(ctx context.Context, spaceId string) (anystore.Collection, bool, error) {
+	coll, err := s.spaceCollRead(ctx, spaceId)
+	if errors.Is(err, errNoIndex) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	s.mu.Lock()
+	cached := s.hasVec[spaceId]
+	s.mu.Unlock()
+	if cached {
+		return coll, true, nil
+	}
+	for _, ix := range coll.GetIndexes() {
+		if ix.Info().Kind == anystore.IndexKindVector {
+			s.mu.Lock()
+			s.hasVec[spaceId] = true
+			s.mu.Unlock()
+			return coll, true, nil
+		}
+	}
+	return nil, false, nil
 }
 
 // docId is the per-collection primary key of a record's first chunk:
@@ -1120,7 +1247,10 @@ type ftsCursor struct {
 // the residual drives a probe over the objectId index or trails the
 // posting walk.
 func (s *Store) openFTS(ctx context.Context, spaceId string, fq FTSQuery, scopes []string, residual query.Filter) (*ftsCursor, error) {
-	coll, err := s.spaceColl(ctx, spaceId)
+	coll, err := s.spaceCollRead(ctx, spaceId)
+	if errors.Is(err, errNoIndex) {
+		return &ftsCursor{}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1146,9 +1276,13 @@ func (s *Store) openFTS(ctx context.Context, spaceId string, fq FTSQuery, scopes
 }
 
 // Next yields the next hit in rank order; ok is false once the leg is
-// exhausted.
+// exhausted. A cursor over a never-indexed space has no iterator and
+// is exhausted at once.
 func (c *ftsCursor) Next() (Hit, bool, error) {
-	if !c.iter.Next() {
+	if c.iter == nil || !c.iter.Next() {
+		if c.iter == nil {
+			return Hit{}, false, nil
+		}
 		return Hit{}, false, c.iter.Err()
 	}
 	doc, err := c.iter.Doc()
@@ -1160,6 +1294,9 @@ func (c *ftsCursor) Next() (Hit, bool, error) {
 
 // Close releases the read tx.
 func (c *ftsCursor) Close() error {
+	if c.iter == nil {
+		return nil
+	}
 	return c.iter.Close()
 }
 
@@ -1182,9 +1319,9 @@ func (s *Store) FilterTerms(ctx context.Context, spaceId string, hits []Hit, req
 	if len(hits) == 0 || (len(require) == 0 && len(exclude) == 0) {
 		return hits, nil
 	}
-	coll, err := s.spaceColl(ctx, spaceId)
+	coll, err := s.spaceCollRead(ctx, spaceId)
 	if err != nil {
-		return nil, err
+		return nil, err // the hits came from this collection, so it exists
 	}
 	arena := &anyenc.Arena{}
 	ids := make([]*anyenc.Value, len(hits))
@@ -1275,15 +1412,8 @@ func (s *Store) searchVector(ctx context.Context, spaceId string, vec []float32,
 	if s.Dim() == 0 {
 		return nil, 0, nil
 	}
-	ok, err := s.EnsureVectorIndex(ctx, spaceId)
-	if err != nil {
-		return nil, 0, err
-	}
-	if !ok {
-		return nil, 0, nil
-	}
-	coll, err := s.spaceColl(ctx, spaceId)
-	if err != nil {
+	coll, ok, err := s.vectorColl(ctx, spaceId)
+	if err != nil || !ok {
 		return nil, 0, err
 	}
 	// $k bounds the result set; the scope filter is applied before the

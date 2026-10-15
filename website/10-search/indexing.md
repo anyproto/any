@@ -81,7 +81,7 @@ The same pass feeds a second sink. Next to its text, every chunker reports the `
 
 ## Watching progress
 
-Long-running index work is reported as device-scope [processes](../notifications/processes.html): `index.fts.<spaceId>` (chunk backlog), `index.embed.<spaceId>` (done/total docs), `index.links_backfill.<spaceId>` (objects), `index.fts_upgrade.<spaceId>` (a space's full-text index rewritten in place on its first open after a layout change, during which index writes and the first search of that space wait) and `index.model_download` (bytes). Indexing announces itself only past three seconds of work, so ordinary per-edit updates and a small space's rewrite never appear.
+Long-running index work is reported as device-scope [processes](../notifications/processes.html): `index.fts.<spaceId>` (chunk backlog), `index.embed.<spaceId>` (done/total docs), `index.links_backfill.<spaceId>` (objects), `index.fts_upgrade.<spaceId>` (a space's full-text index rewritten in place on its first open after a layout change, during which index writes wait and a search on that space answers `503 index.not_ready`) and `index.model_download` (bytes). Indexing announces itself only past three seconds of work, so ordinary per-edit updates and a small space's rewrite never appear.
 
 ```bash
 any process list

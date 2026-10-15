@@ -441,7 +441,10 @@ Call patterns:
   index.embedder_unavailable` (`mode: "vector"` while the embedder is
   down, loading, or over the query budget — retryable), `400
   filter.invalid` / `filter.unknown_operator` (a bad `filter`), `400
-  request.invalid_field` (`scopes` or `passages` with `mode: "title"`).
+  request.invalid_field` (`scopes` or `passages` with `mode: "title"`),
+  `503 index.not_ready` (the space's full-text index is being
+  rewritten in place after an update, or not created yet — retry, and
+  show `index.fts_upgrade.<spaceId>` from the process view meanwhile).
 
 ## 7. Direct (1-1) chats: derive by identity, approve incoming
 

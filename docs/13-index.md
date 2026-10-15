@@ -498,13 +498,22 @@ space's rewrite never appear (`Options.OnProcess`, bridged in
   the concurrent first opens of a cold space (its worker, its embed
   loop, the first searches) rewrite it once. Two passes over the
   collection, about 18 s per 100k docs of article-sized windows
-  (`search/README.md` § Titles first), once per space, during which
-  every index write and the first search of a not-yet-rewritten space
-  wait on the store's write lock; reads of rewritten spaces do not. The
-  rewrite is reported as `index.fts_upgrade.<spaceId>` on the process
-  view (§ Observability), so a client can tell a waiting search from a
-  hung one. Server start does not wait for it: the workers run it on
-  their own goroutines right after boot.
+  (`search/README.md` § Titles first), once per space, serialized on
+  the store's write lock: every index write of every space queues
+  behind the rewrites in flight. Reads never do — the search paths open
+  a collection without DDL (`Store.spaceCollRead`), so a search on a
+  space whose rewrite has not committed answers `ErrIndexNotReady`
+  (`503 index.not_ready`) at once and a search on any other space is
+  unaffected. The rewrite is reported as `index.fts_upgrade.<spaceId>`
+  on the process view (§ Observability), which is what a client shows
+  behind the not-ready answer. Server start does not wait for it: each
+  space's worker opens its collection first thing on its own goroutine
+  (`spaceWorker.openIndex`), so the rewrites run right after boot and
+  never on a request goroutine. A worker whose ctx ended while it
+  queued for the lock skips its rewrite, so teardown waits for at most
+  the one in flight — which the exit rolls back and the next boot
+  redoes. A failed rewrite is left alone for a minute
+  (`ftsUpgradeBackoff`) before the next open tries again.
 - Indexes per collection: BM25 **full-text** on `name` + `data` (plus
   `title` when `index.search.titleWeight > 0`); a range index on `objectId` (the
   search filter's residual seeks it — § Filtering by object; structural
@@ -513,8 +522,9 @@ space's rewrite never appear (`Options.OnProcess`, bridged in
   after the upgrade, ~0.2 s per 100k docs, and every chunk upsert
   maintains it from then on); sparse range on `pending`
   (the embed queue); and — once at least one embedded doc exists — a
-  **cosine vector index** on `vector`, created lazily
-  (`Store.EnsureVectorIndex`) because IVF trains from existing docs. The
+  **cosine vector index** on `vector`, created lazily by the embed loop
+  (`Store.EnsureVectorIndex`) because IVF trains from existing docs; a
+  search only looks for it (`Store.vectorColl`), never creates it. The
   strategy (`index.vector.mode`, `Store.vectorIndexParams`) defaults to
   **IVF-SQ**: cheap near-flat incremental ingest and physical deletes,
   ~3–4 recall@10 below exact (`search/README.md` § Index mode).
@@ -995,6 +1005,7 @@ Errors:
 | `filter.invalid` / `filter.unknown_operator` | 400 | a bad `filter` — the `/objects/query` grammar's own codes |
 | `index.no_embedder` | 400 | `mode=vector` with no embedder configured |
 | `index.disabled` | 409 | `index.enabled: false` |
+| `index.not_ready` | 503 | the space's full-text index is being rewritten in place (§ Store layout) or not created yet — retry; `index.fts_upgrade.<spaceId>` on the process view |
 | `index.embedder_unavailable` | 503 | `mode=vector` while the embedder is unreachable or over the query budget — retryable; hybrid degrades instead |
 
 ### Filtering by object

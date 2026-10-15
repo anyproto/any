@@ -180,8 +180,8 @@ incomplete right now" and "why are writes waiting": poll
 `GET /v1/processes`, or watch `any events subscribe --type 'process.*'`
 and pick the `index.*` kinds, or `dataset.index`. The producers:
 
-Usual indexing never appears: the fts, embed and links-backfill
-producers **announce only once the pass has been running past
+Usual indexing never appears: the fts, embed, links-backfill and
+full-text-upgrade producers **announce only once the pass has been running past
 `AnnounceAfter` (default 3s)** — a threshold in elapsed time, not queue
 size, because cost per doc varies ~50× with text length and hardware.
 One message or edit finishes in well under a second and stays silent;
@@ -215,10 +215,11 @@ late heartbeat can resurrect a finished row. Work stopped mid-pass
   `index.fts_upgrade`, target the spaceId. A space whose full-text
   index predates the current field layout is rewritten in place on its
   first open (docs/13-index.md § Store layout): one write transaction,
-  no counters, during which every index write and the first search of
-  that space wait. Announced past `AnnounceAfter`, so a small space's
-  rewrite stays silent; a failure finishes as `failed` and the next
-  open retries.
+  no counters, during which every index write waits and a search on a
+  space not yet rewritten answers `503 index.not_ready`. Announced past
+  `AnnounceAfter`, so a small space's rewrite stays silent; a failure
+  finishes as `failed`, and the space's next open after a one-minute
+  backoff tries again.
 - **Dataset index build** — id `dataset.index.<spaceId>`, kind
   `dataset.index`, target the dataset's storage collection. The
   build of a shared dataset's declared indexes on this device

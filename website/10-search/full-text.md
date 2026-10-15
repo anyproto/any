@@ -139,5 +139,6 @@ BM25 scores are comparable only within one block of one response — the title b
 | 400 | `search.bad_mode` | `mode` is not `hybrid`, `fts`, `vector` or `title` |
 | 400 | `search.bad_scope` | a scope slug is malformed |
 | 400 | `request.invalid_field` | `scopes` or `passages` with `mode: "title"` |
+| 503 | `index.not_ready` | the space's full-text index is being rewritten in place after an update, or not created yet — retry; `index.fts_upgrade.<spaceId>` on the [process view](../notifications/processes.html) shows the rewrite |
 
 See [Hybrid ranking](hybrid.html) for how this leg is fused with the vector leg, and [How indexing works](indexing.html) for what makes it into the index in the first place.

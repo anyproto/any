@@ -105,13 +105,13 @@ A progress UI for a space keeps `GET /v1/events/subscribe?scope=space&spaceId=�
 
 ## Built-in producers
 
-The server reports its own long work through the same view, all at device scope: search indexing under `index.*` kinds, and the build of a shared dataset's declared indexes under `dataset.index`. Ordinary indexing stays silent: the FTS and embedding passes announce only once they have been running for more than 3 s, so a single edit never appears while a cold re-index or a large catch-up shows up with its counters already carrying the work done so far.
+The server reports its own long work through the same view, all at device scope: search indexing under `index.*` kinds, and the build of a shared dataset's declared indexes under `dataset.index`. Ordinary indexing stays silent: the FTS and embedding passes, the link backfill and the full-text rewrite announce only once they have been running for more than 3 s, so a single edit never appears while a cold re-index or a large catch-up shows up with its counters already carrying the work done so far.
 
 | Process id | `kind` | Counters |
 |---|---|---|
 | `index.embed.<spaceId>` | `index.embed` | `done` / `total` in documents; the total is re-read every round so late arrivals extend the bar |
 | `index.fts.<spaceId>` | `index.fts` | `done` in processed changes; `total` unknown |
-| `index.fts_upgrade.<spaceId>` | `index.fts_upgrade` | none — the space's full-text index rewritten in place on its first open after a layout change; index writes and the first search of the space wait while it runs |
+| `index.fts_upgrade.<spaceId>` | `index.fts_upgrade` | none — the space's full-text index rewritten in place on its first open after a layout change, announced past 3 s; index writes wait while it runs and a search on that space answers `503 index.not_ready` |
 | `index.model_download` | `index.model_download` | `done` / `total` in bytes; announces at download start, even offline |
 | `dataset.index.<spaceId>` | `dataset.index` | none — announced when the build starts, one terminal; `target` is the dataset's storage collection |
 

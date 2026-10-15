@@ -635,3 +635,30 @@ func TestSearch_TitleMode(t *testing.T) {
 		t.Fatalf("bad mode: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// The full-text rewrite reaches the process view through the bridge:
+// one row per space with the kind, the title and a generic failure.
+func TestSearch_FTSUpgradeProcessBridge(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	emit := d.indexerProcessFor(d.eng)
+	const sp = "space-under-upgrade"
+	emit(indexer.ProcessUpdate{Kind: indexer.ProcessKindFTSUpgrade, SpaceId: sp, Phase: indexer.ProcessStarted})
+	emit(indexer.ProcessUpdate{Kind: indexer.ProcessKindFTSUpgrade, SpaceId: sp, Phase: indexer.ProcessFailed, Message: "/private/path: disk full"})
+	var list api.ProcessListResponse
+	decodeGet(t, e, "/v1/processes", &list)
+	procId := "index.fts_upgrade." + sp
+	i := slices.IndexFunc(list.Processes, func(p api.Process) bool { return p.Id == procId })
+	if i < 0 {
+		t.Fatalf("%s not on the process view: %+v", procId, list.Processes)
+	}
+	p := list.Processes[i]
+	if p.Kind != "index.fts_upgrade" || p.Title != "Upgrading the full-text index" || p.Target != sp ||
+		p.Scope != api.EventScopeDevice || p.State != api.ProcessStateFailed || p.Total != 0 {
+		t.Errorf("process row = %+v", p)
+	}
+	if p.Error == nil || p.Error.Code != "index.fts_upgrade_failed" || strings.Contains(p.Error.Message, "/private/path") {
+		t.Errorf("process error = %+v, want the generic failure", p.Error)
+	}
+}

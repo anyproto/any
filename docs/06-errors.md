@@ -234,6 +234,7 @@ process.ambiguous                # 409 — cancel matched several publishers run
 index.disabled                   # 409 — search index turned off (index.enabled: false)
 index.no_embedder                # 400 — mode=vector without an embedder configured
 index.embedder_unavailable       # 503 — mode=vector while the embedder is unreachable (retryable)
+index.not_ready                  # 503 — the space's full-text index is being rewritten in place or not created yet (retryable; details.spaceId; index.fts_upgrade.<spaceId> on the process view)
 search.bad_mode                  # 400 — mode not hybrid | fts | vector | title
 search.bad_scope                 # 400 — scope not a valid slug ([a-z0-9_-], max 64; scopes are an open set)
 

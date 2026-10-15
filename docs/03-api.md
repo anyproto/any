@@ -1122,7 +1122,11 @@ Request errors: `400 request.missing_field` (no `query`),
 `400 search.bad_mode`, `400 search.bad_scope` (a scope that is not a
 slug `[a-z0-9_-]`, ≤64; an unknown well-formed scope just matches
 nothing), `400 request.invalid_field` (`scopes` or `passages` with
-`mode: "title"`).
+`mode: "title"`). `503 index.not_ready` (retryable, `details.spaceId`):
+the space's full-text index is being rewritten in place — the first
+open after an update, `docs/13-index.md` § Store layout — or not
+created yet; the search does not wait for it, and
+`index.fts_upgrade.<spaceId>` on the process view shows the rewrite.
 
 ### Bundles
 

@@ -117,6 +117,14 @@ func (d *deps) search(c echo.Context) error {
 			return writeError(c, http.StatusServiceUnavailable, "index.embedder_unavailable",
 				"the embedder is not reachable right now — retry, or use mode fts/hybrid", nil)
 		}
+		if errors.Is(err, indexer.ErrIndexNotReady) {
+			// The space's index is being rewritten in place (its first
+			// open after an update) or not created yet: the read does
+			// not wait on the store's write lock, the client retries.
+			return writeError(c, http.StatusServiceUnavailable, "index.not_ready",
+				"the space's search index is being upgraded — retry; GET /v1/processes shows index.fts_upgrade."+sp.Id(),
+				map[string]any{"spaceId": sp.Id()})
+		}
 		return writeError(c, http.StatusInternalServerError, "internal", "search failed", nil)
 	}
 	return c.JSON(http.StatusOK, res)

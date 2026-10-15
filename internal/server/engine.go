@@ -627,8 +627,11 @@ func (d *deps) holdProcessInterest(eng *engine) {
 // (chunk/advance backlog), index.embed.<spaceId> (vector drain, total
 // from the pending count), index.model_download (embedding-model
 // fetch, done/total bytes, target = model file name),
-// dataset.index.<spaceId> (the SDK building a shared dataset's declared
-// indexes, target = the dataset's storage collection). Frames are
+// index.links_backfill.<spaceId> (the link index rebuilt from the
+// records), index.fts_upgrade.<spaceId> (the full-text index rewritten
+// in place, no counters), dataset.index.<spaceId> (the SDK building a
+// shared dataset's declared indexes, target = the dataset's storage
+// collection). Frames are
 // stamped with the engine's own account, and dropped once its
 // resources are closed — a straggling download goroutine from a
 // torn-down engine must not report under the next account. Cancel
@@ -659,7 +662,7 @@ func (d *deps) indexerProcessFor(eng *engine) func(indexer.ProcessUpdate) {
 			data = processEventData{Kind: "index.links_backfill", Title: "Rebuilding the link index", Target: u.SpaceId}
 		case indexer.ProcessKindFTSUpgrade:
 			id = "index.fts_upgrade." + u.SpaceId
-			data = processEventData{Kind: "index.fts_upgrade", Title: "Upgrading the search index", Target: u.SpaceId}
+			data = processEventData{Kind: "index.fts_upgrade", Title: "Upgrading the full-text index", Target: u.SpaceId}
 		case indexer.ProcessKindDatasetIndex:
 			// One build runs per space at a time; the dataset is the
 			// subject.
@@ -688,10 +691,15 @@ func (d *deps) indexerProcessFor(eng *engine) func(indexer.ProcessUpdate) {
 			typ = api.EventProcessFailed
 			data.Message = ""
 			msg := "failed; retrying — see server log"
-			if u.Kind == indexer.ProcessKindDatasetIndex {
+			switch u.Kind {
+			case indexer.ProcessKindDatasetIndex:
 				// The SDK builds it again at the next definition
 				// change or space open, not on a timer.
 				msg = "failed — see server log"
+			case indexer.ProcessKindFTSUpgrade:
+				// The next open of the space after a backoff tries
+				// again; searches answer not-ready meanwhile.
+				msg = "failed — see server log; tried again at the space's next open"
 			}
 			data.Error = &api.ProcessError{Code: data.Kind + "_failed", Message: msg}
 		default:
