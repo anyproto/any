@@ -10,6 +10,7 @@ import (
 
 	anystore "github.com/anyproto/any-store/v2"
 	"github.com/anyproto/any-store/v2/anyenc"
+	"github.com/anyproto/any-sync/app/logger"
 
 	"github.com/anyproto/any/internal/index"
 )
@@ -331,5 +332,38 @@ func TestStore_SchemaPreviousAdopted(t *testing.T) {
 	}
 	if _, err := open(indexSchemaVersion - 2); !errors.Is(err, ErrIndexRebuildRequired) {
 		t.Fatalf("older schema: %v, want ErrIndexRebuildRequired", err)
+	}
+}
+
+// A rewrite is reported on the process view: started once the gate
+// opens, the terminal frame when the transaction ends; a collection
+// already on the layout reports nothing.
+func TestStore_UpgradeFTSOnProcess(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 0)
+	var updates []ProcessUpdate
+	ix := &Indexer{store: st, lg: logger.NewNamed("indexer.test"), opts: Options{AnnounceAfter: -1, OnProcess: func(u ProcessUpdate) { updates = append(updates, u) }}.withDefaults()}
+	st.SetFTSUpgradeHook(ix.reportFTSUpgrade)
+	const sp = "sp1"
+	coll, err := st.db.Collection(ctx, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := coll.EnsureIndex(ctx, anystore.IndexInfo{Name: ftsIndex, Kind: anystore.IndexKindFulltext, Fields: []string{"data"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.spaceColl(ctx, sp); err != nil {
+		t.Fatal(err)
+	}
+	if len(updates) != 2 || updates[0].Phase != ProcessStarted || updates[0].Kind != ProcessKindFTSUpgrade ||
+		updates[0].SpaceId != sp || updates[1].Phase != ProcessDone {
+		t.Fatalf("rewrite reported %+v, want started + done", updates)
+	}
+	updates = nil
+	if _, err := st.spaceColl(ctx, "fresh"); err != nil {
+		t.Fatal(err)
+	}
+	if len(updates) != 0 {
+		t.Fatalf("a fresh collection reported %+v", updates)
 	}
 }

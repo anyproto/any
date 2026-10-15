@@ -111,6 +111,7 @@ The server reports its own long work through the same view, all at device scope:
 |---|---|---|
 | `index.embed.<spaceId>` | `index.embed` | `done` / `total` in documents; the total is re-read every round so late arrivals extend the bar |
 | `index.fts.<spaceId>` | `index.fts` | `done` in processed changes; `total` unknown |
+| `index.fts_upgrade.<spaceId>` | `index.fts_upgrade` | none — the space's full-text index rewritten in place on its first open after a layout change; index writes and the first search of the space wait while it runs |
 | `index.model_download` | `index.model_download` | `done` / `total` in bytes; announces at download start, even offline |
 | `dataset.index.<spaceId>` | `dataset.index` | none — announced when the build starts, one terminal; `target` is the dataset's storage collection |
 

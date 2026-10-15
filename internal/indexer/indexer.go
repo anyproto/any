@@ -147,6 +147,12 @@ const (
 	// declared indexes in a space: no counters, Name the dataset's
 	// storage collection. Every write waits while it runs.
 	ProcessKindDatasetIndex = "dataset_index"
+	// ProcessKindFTSUpgrade — a space's full-text index rewritten in
+	// place on its first open after a layout change (Store.upgradeFTS):
+	// no counters, one write transaction, during which every index
+	// write waits and the first search of the space waits with it.
+	// Reported past AnnounceAfter — a small space stays silent.
+	ProcessKindFTSUpgrade = "fts_upgrade"
 )
 
 // procHeartbeat paces the mid-work progress heartbeat: one embed call
@@ -255,7 +261,7 @@ func (ix *Indexer) spaces() space.Service {
 
 // New constructs the indexer. Call Start to begin; Close to stop.
 func New(sdk *anysyncsdk.SDK, reg *index.Registry, store *Store, opts Options) *Indexer {
-	return &Indexer{
+	ix := &Indexer{
 		sdk:     sdk,
 		reg:     reg,
 		store:   store,
@@ -264,6 +270,22 @@ func New(sdk *anysyncsdk.SDK, reg *index.Registry, store *Store, opts Options) *
 		workers: map[string]*spaceWorker{},
 		retries: map[string]context.CancelFunc{},
 	}
+	store.SetFTSUpgradeHook(ix.reportFTSUpgrade)
+	return ix
+}
+
+// reportFTSUpgrade reports an in-place rewrite of a space's full-text
+// index (Store.upgradeFTS) on the process view: one row per space,
+// announced past AnnounceAfter, the terminal frame when the
+// transaction ends. The rewrite is one transaction, so the row carries
+// no counters; its heartbeat is what tells a client that a search on
+// that space is waiting for the rewrite, not hung.
+func (ix *Indexer) reportFTSUpgrade(ctx context.Context, spaceId string) func(error) {
+	rep := newProcReporter(ix.opts.OnProcess,
+		ProcessUpdate{Kind: ProcessKindFTSUpgrade, SpaceId: spaceId}, ix.opts.AnnounceAfter)
+	rep.begin()
+	ix.lg.Info("rewriting the full-text index in place", zap.String("spaceId", spaceId))
+	return func(err error) { rep.finish(ctx, err) }
 }
 
 // HasEmbedder reports whether the vector pipeline is active.

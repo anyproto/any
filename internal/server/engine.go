@@ -657,6 +657,9 @@ func (d *deps) indexerProcessFor(eng *engine) func(indexer.ProcessUpdate) {
 		case indexer.ProcessKindLinksBackfill:
 			id = "index.links_backfill." + u.SpaceId
 			data = processEventData{Kind: "index.links_backfill", Title: "Rebuilding the link index", Target: u.SpaceId}
+		case indexer.ProcessKindFTSUpgrade:
+			id = "index.fts_upgrade." + u.SpaceId
+			data = processEventData{Kind: "index.fts_upgrade", Title: "Upgrading the search index", Target: u.SpaceId}
 		case indexer.ProcessKindDatasetIndex:
 			// One build runs per space at a time; the dataset is the
 			// subject.

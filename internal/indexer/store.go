@@ -95,6 +95,16 @@ type Store struct {
 
 	// ftsUpgrades counts the collections upgradeFTS rewrote.
 	ftsUpgrades atomic.Int32
+	// onFTSUpgrade, when set, is told when a rewrite starts (the lock
+	// is held, the collection still lacks the field) and returns the
+	// function to call when it ends — the indexer's process report.
+	onFTSUpgrade func(ctx context.Context, spaceId string) func(error)
+}
+
+// SetFTSUpgradeHook installs the observer of in-place full-text
+// rewrites (upgradeFTS). Set before the first collection opens.
+func (s *Store) SetFTSUpgradeHook(fn func(ctx context.Context, spaceId string) func(error)) {
+	s.onFTSUpgrade = fn
 }
 
 // SetVectorMode picks the ANN index strategy for indexes created after the
@@ -394,7 +404,7 @@ func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collect
 	// boosted `title` field (heading / method sig / memory context);
 	// otherwise the field set stays at the two so default ranking is
 	// unchanged. b/k1 (if set) apply either way.
-	if err := s.upgradeFTS(ctx, coll); err != nil {
+	if err := s.upgradeFTS(ctx, spaceId, coll); err != nil {
 		return nil, fmt.Errorf("indexer: upgrade fts index for %s: %w", spaceId, err)
 	}
 	indexes := []anystore.IndexInfo{
@@ -481,9 +491,9 @@ func ftsLacksName(coll anystore.Collection) bool {
 // collection at once on the first boot, and the one that enters second
 // must find the first's work, not redo it. A collection without the
 // index (new) is left to EnsureIndex. Two passes over the collection
-// (the name docs, then the backfill): seconds per 100k docs, once per
-// space.
-func (s *Store) upgradeFTS(ctx context.Context, coll anystore.Collection) error {
+// (the name docs, then the backfill): tens of seconds per 100k docs,
+// once per space, reported through onFTSUpgrade while it runs.
+func (s *Store) upgradeFTS(ctx context.Context, spaceId string, coll anystore.Collection) error {
 	if !ftsLacksName(coll) {
 		return nil
 	}
@@ -495,6 +505,21 @@ func (s *Store) upgradeFTS(ctx context.Context, coll anystore.Collection) error 
 	if !ftsLacksName(coll) {
 		return nil
 	}
+	finish := func(error) {}
+	if s.onFTSUpgrade != nil {
+		finish = s.onFTSUpgrade(ctx, spaceId)
+	}
+	err = s.rewriteFTS(tx, coll)
+	finish(err)
+	if err != nil {
+		return err
+	}
+	s.ftsUpgrades.Add(1)
+	return nil
+}
+
+// rewriteFTS is the body of upgradeFTS inside its transaction.
+func (s *Store) rewriteFTS(tx anystore.WriteTx, coll anystore.Collection) error {
 	if err := coll.DropIndex(tx.Context(), ftsIndex); err != nil {
 		return err
 	}
@@ -513,11 +538,7 @@ func (s *Store) upgradeFTS(ctx context.Context, coll anystore.Collection) error 
 	if err := coll.EnsureIndex(tx.Context(), s.ftsIndexInfo()); err != nil {
 		return err
 	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	s.ftsUpgrades.Add(1)
-	return nil
+	return tx.Commit()
 }
 
 // vectorIndexParams resolves the ANN index strategy. The mode comes from

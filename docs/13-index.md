@@ -451,10 +451,13 @@ after the last write) and dirty sentinel as `sdk.db`.
 (`GET /v1/processes`, `22-processes.md` § Internal producers) as
 device-scope processes — `index.fts.<spaceId>` (advance pass, done =
 changes, total unknown), `index.embed.<spaceId>` (vector drain,
-done/total docs), `index.links_backfill.<spaceId>` (objects) and
-`index.model_download` (bytes). The fts, embed and backfill processes
-announce only past 3 s of elapsed work (`Options.AnnounceAfter`), so
-routine per-edit indexing never appears (`Options.OnProcess`, bridged in
+done/total docs), `index.links_backfill.<spaceId>` (objects),
+`index.fts_upgrade.<spaceId>` (the full-text index rewritten in place
+on the space's first open after a layout change, § Store layout; no
+counters) and `index.model_download` (bytes). The fts, embed, backfill
+and upgrade processes announce only past 3 s of elapsed work
+(`Options.AnnounceAfter`), so routine per-edit indexing and a small
+space's rewrite never appear (`Options.OnProcess`, bridged in
 `internal/server/engine.go`).
 
 ### Store layout
@@ -495,7 +498,13 @@ routine per-edit indexing never appears (`Options.OnProcess`, bridged in
   the concurrent first opens of a cold space (its worker, its embed
   loop, the first searches) rewrite it once. Two passes over the
   collection, about 18 s per 100k docs of article-sized windows
-  (`search/README.md` § Titles first), once per space.
+  (`search/README.md` § Titles first), once per space, during which
+  every index write and the first search of a not-yet-rewritten space
+  wait on the store's write lock; reads of rewritten spaces do not. The
+  rewrite is reported as `index.fts_upgrade.<spaceId>` on the process
+  view (§ Observability), so a client can tell a waiting search from a
+  hung one. Server start does not wait for it: the workers run it on
+  their own goroutines right after boot.
 - Indexes per collection: BM25 **full-text** on `name` + `data` (plus
   `title` when `index.search.titleWeight > 0`); a range index on `objectId` (the
   search filter's residual seeks it — § Filtering by object; structural
