@@ -370,13 +370,19 @@ Call patterns:
   any page that mentions them. Render a `match` hit as the object; a
   hit without `match` is a record of its object.
 - **A search box types against `mode: "title"`.** It is the title
-  block alone — no embedding, no content legs, one hit per object,
-  milliseconds per keystroke — and the default call on pause or submit
-  gives the same block followed by content, so the two lists line up.
-  Put a `*` after the last word of the content query while the user is
-  still typing (`mario ka*`); the title block reads the typed string
-  itself. Typed quotes, stars and carets are text to the title block;
-  the content legs read them as operators (`03-api.md` § search).
+  block alone — no embedding, no content legs, one hit per object — and
+  the default call on pause or submit, with the same `limit`,
+  `require`, `exclude` and `filter` and no `scopes` that leave out
+  `basic`, opens with the same block followed by content, so the two
+  lists line up. Send the typed string as it is: the title block
+  treats the last word as unfinished unless a space follows it, and
+  typed quotes, stars and carets are text to it while the content legs
+  read them as operators (`03-api.md` § search). A client that also
+  wants content hits for an unfinished word appends `*` to the last
+  word of the pause call when the string does not end in a space; a
+  partial that spells a stop word (`in`) loses that star to stop-word
+  stripping. `require` / `exclude` bind a title hit against the name
+  alone, so a term that lives in bodies empties the title block.
 - **Check `vectorStatus` in every reply** before drawing conclusions
   from an empty/weak result set: `used` means semantic recall
   participated; `unavailable` means the embedder is configured but
@@ -388,7 +394,8 @@ Call patterns:
   your own `mode: "fts"` / `"title"`, or the title block filled the
   page.
 - **Hits carry identity, not full records.** `{scope, objectId,
-  dataset, recordId, chunk?, data, dataOffset?, dataTotal, score}` —
+  dataset, recordId, chunk?, data, dataOffset?, dataTotal, score,
+  match?}` —
   `data` is a ≤ `maxData`-rune window (default 512) of the indexed
   text around the first matching term; `dataOffset` / `dataTotal`
   locate it in the chunk's full text, and `maxData: -1` asks for the
@@ -410,8 +417,9 @@ Call patterns:
   unknown-but-valid scope returns no hits; a malformed one is `400
   search.bad_scope`. A content-only search passes `scopes` without
   `props`.
-- **Scores compare only within one response** (BM25 vs cosine vs RRF
-  are different scales across modes). Rank, don't threshold.
+- **Scores compare only within one block of one response** (BM25 vs
+  cosine vs RRF are different scales across modes, and the title block
+  scores by BM25 whatever the mode). Rank, don't threshold.
 - **Freshness model**: new writes are FTS-searchable within ~the
   debounce (250ms); the vector leg lags by one embed round. The index
   is local: a new or rebuilt index backfills every record the server

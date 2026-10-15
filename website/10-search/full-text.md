@@ -58,7 +58,7 @@ Every `hybrid` and `fts` reply opens with the objects whose **name** matches the
 
 | `match` | The name… | Query the server runs for `mario ka` |
 |---|---|---|
-| `exact` | is the typed words | `^"mario ka"*`, and the name's terms equal the typed ones |
+| `exact` | is the typed words | `^"mario ka"`, kept when the name's terms equal the typed ones |
 | `prefix` | starts with them | `^"mario ka"*` |
 | `phrase` | contains them in order | `"mario ka"*` |
 | `words` | holds every word, any order | `"mario" "ka"*` |
@@ -84,15 +84,15 @@ any search $SPACE "mario ka" --mode fts --limit 5
 }
 ```
 
-A title hit is the object's name doc — `dataset: "prop"`, `recordId: "name"`, `data` the name — and carries `match`; a content hit never does. Title hits count toward `limit`, and a page they fill runs no content leg and embeds no query, so the default mode answers a search box in milliseconds while the typed words still name objects. The object's other records — the pages that mention the words — still follow as content hits. Typed quotes, stars and carets are text to the title block; no stop word is removed from it, so `the leg` finds *The Legend of Zelda*.
+A title hit is the object's name doc — `dataset: "prop"`, `recordId: "name"`, `data` the name — and carries `match`; a content hit never does. Within a tier the shortest names come first and ties list alphabetically. Title hits count toward `limit`, and a page they fill runs no content leg and embeds no query (`vectorStatus` reads `skipped`, or `disabled` on a server without an embedder), so the default mode answers a search box without the embedding wait while the typed words still name objects. The object's other records — the pages that mention the words — still follow as content hits. Typed quotes, stars and carets are text to the title block; no stop word is removed from it, so `the leg` finds *The Legend of Zelda*.
 
-`"mode": "title"` runs the title block alone, one hit per object, and is the call a search box makes on every keystroke; it takes no `scopes` and no `passages` (`400 request.invalid_field`). `require`, `exclude` and `filter` bind title hits in every mode. The block is not capped: a one-word query that names hundreds of objects answers titles only, and another typed word narrows it. The costly keystroke is a one-letter last word, which walks every posting of every term starting with that letter; a client may wait for the second letter.
+`"mode": "title"` runs the title block alone, one hit per object, and is the call a search box makes on every keystroke; it takes no `scopes` and no `passages` (`400 request.invalid_field`). `require` and `exclude` bind a title hit against the name alone — a term that occurs only in bodies empties the title block while the bodies still answer as content — and `filter` binds it like any hit. The block is not capped: a one-word query that names hundreds of objects answers titles only, and another typed word narrows it. The costly keystroke is a one-letter last word: the engine walks every posting of every term starting with that letter, body text included, and the name scope only decides which of them score; a client may wait for the second letter.
 
 ```bash
 any search $SPACE "mario ka" --mode title
 ```
 
-> **Why it matters.** A title is two to six words; BM25 over body text buries it under every page that repeats the words, and a prefix expansion capped at the most frequent completions misses titles outright. Scoping the tiers to the name field and running them first gives a search box complete prefix coverage and exact titles on top without a second index — the tiers are the any-store engine's own search-as-you-type recipe.
+> **Why it matters.** A title is two to six words; BM25 over body text buries it under every page that repeats the words. Scoping the tiers to the name field and running them first gives a search box exact titles on top and every completion of an unfinished word, without a second index — the tiers are the any-store engine's own search-as-you-type recipe.
 
 ## Stop words
 
@@ -125,11 +125,11 @@ Three engine dials are exposed under `index.search.*`; all default to 0, meaning
 | `bm25K1` | term-frequency saturation | 1.2 |
 | `titleWeight` | BM25F boost for the title field (runtime datasets with an `x-search.title`) | 1.0 |
 
-`bm25B` and `bm25K1` are fixed when a space's index is created, and so is whether it has a title field at all, so setting them — or taking `titleWeight` from 0 to a value — takes a rebuild (remove the index directory); changing one non-zero `titleWeight` to another applies at query time. The measured sweep found no non-zero value that helped on the reference corpus, so the knobs stay neutral; see [Evaluation](evaluation.html).
+All three are part of the index definition fixed when a space's index is created — `bm25B`, `bm25K1`, and `titleWeight` both as the title field's presence and as its value — so any change takes a rebuild (remove the index directory); the engine refuses to open an index under a different definition. The measured sweep found no non-zero value that helped on the reference corpus, so the knobs stay neutral; see [Evaluation](evaluation.html).
 
 ## Reading the scores
 
-BM25 scores are comparable only within one response, and never with the cosine or RRF scores of the other modes. Rank on them, don't threshold.
+BM25 scores are comparable only within one block of one response — the title block and the content block score on different footings — and never with the cosine or RRF scores of the other modes. Rank on them, don't threshold.
 
 ## Errors
 

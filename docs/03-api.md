@@ -1007,8 +1007,8 @@ Reply:
 {
   "hits": [
     { "scope": "basic", "objectId": "…", "dataset": "prop",
-      "recordId": "name", "data": "Zeppelin disasters",
-      "dataTotal": 18, "score": 4.21, "match": "prefix" },
+      "recordId": "name", "data": "Zeppelin disasters of 1937",
+      "dataTotal": 26, "score": 4.21, "match": "prefix" },
     { "scope": "chat", "objectId": "…", "dataset": "chat_messages",
       "recordId": "…", "data": "the zeppelin disaster of 1937",
       "dataTotal": 29, "score": 0.0328 },
@@ -1026,20 +1026,23 @@ are the objects whose NAME matches the typed words — the title pass,
 `docs/13-index.md` § Search — one hit per object, shaped as the name
 doc (`dataset: "prop"`, `recordId: "name"`, `data` the name) and marked
 with `match`: `exact` (the name is the typed words), `prefix` (it starts
-with them, the last word completed), `phrase` (they appear in order
-inside it) or `words` (every word present, any order); in that order,
-the shortest names first within a tier. The last typed word is a prefix
-unless `query` ends in whitespace; typed `"`, `*` and `^` are text
-here. Title hits count toward `limit`; the content legs fill the rest,
-and when the titles fill the page no content leg runs
-(`vectorStatus: "skipped"`). A content hit has no `match`, and a
-title-listed object's other records still appear as content hits.
-`mode: "title"` runs the pass alone — the per-keystroke call for a
-search box — and takes no `scopes` and no `passages`
-(`400 request.invalid_field`); `require`, `exclude` and `filter` bind
-the title hits in every mode. The pass runs only when `scopes` is empty
-or includes `basic`. Title and content scores are different scales: the
-order is authoritative.
+with them), `phrase` (they appear in order inside it) or `words` (every
+word present, any order); in that order, the shortest names first
+within a tier, ties alphabetical. The last typed word is completed —
+`ka` matches Kart — unless `query` ends in whitespace; typed `"`, `*`
+and `^` are text here. Title hits count toward `limit`; the content
+legs fill the rest, and when the titles fill the page no content leg
+runs and the query is not embedded (`vectorStatus: "skipped"`,
+`"disabled"` on a server without an embedder, where `mode` reads `fts`).
+A content hit has no `match`, and a title-listed object's other records
+still appear as content hits. `mode: "title"` runs the pass alone — the
+per-keystroke call for a search box — and takes no `scopes` and no
+`passages` (`400 request.invalid_field`). `require` / `exclude` bind a
+title hit against the name alone: a term that occurs only in a body
+keeps the object out of the title block, and the body still answers
+through the content legs; `filter` binds a title hit like any other.
+The pass runs only when `scopes` is empty or includes `basic`. Title
+and content scores are different scales: the order is authoritative.
 
 **One hit per record; `limit` counts records.** Long records are
 indexed as several chunks (~2000 runes each, `docs/13-index.md`

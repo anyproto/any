@@ -59,7 +59,7 @@ Dotted identifiers grouped by area:
 request.bad_json                 # 400 — request body is not valid JSON; message names what failed to parse and the expected field set
 request.schema                   # 400 — JSON shape doesn't match endpoint schema
 request.missing_field            # 400 — required field absent
-request.invalid_field            # 400 — a field is present but out of range / malformed (details.field names it)
+request.invalid_field            # 400 — a field is present but out of range / malformed, or does not apply to the request's mode (details.field names it)
 request.unknown_field            # 400 — a body key outside the endpoint's accepted set, at the top level or inside a nested draft (details.fields; details.accepted lists the top-level set); message enumerates the accepted fields and, where one exists, the right home for the value (e.g. object properties → initialProperties, type properties → POST …/types/:typeId/properties). The strict endpoints are the ones whose request schemas carry additionalProperties: false in /v1/openapi.json.
 request.bad                      # 400 — rejected by the HTTP layer before a handler ran
 request.not_found                # 404 — no such route

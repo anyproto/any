@@ -3517,7 +3517,7 @@
                         "type": "string"
                     },
                     "require": {
-                        "description": "Require / Exclude are extra must / must-not terms ($require /\n$exclude) — a hit must contain every Require term and no Exclude\nterm, in every mode: the FTS leg matches on them, and vector hits\nare post-filtered against the FTS index before fusion. Each term\nmay be a \"phrase\" or prefix*.",
+                        "description": "Require / Exclude are extra must / must-not terms ($require /\n$exclude) — a hit must contain every Require term and no Exclude\nterm, in every mode: the FTS leg matches on them, and vector hits\nare post-filtered against the FTS index before fusion. Each term\nmay be a \"phrase\", prefix*, \"phrase pre\"* or ^anchored clause. A\ntitle hit is bound against its name alone.",
                         "items": {
                             "type": "string"
                         },

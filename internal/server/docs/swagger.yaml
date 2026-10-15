@@ -2911,7 +2911,8 @@ components:
             $exclude) — a hit must contain every Require term and no Exclude
             term, in every mode: the FTS leg matches on them, and vector hits
             are post-filtered against the FTS index before fusion. Each term
-            may be a "phrase" or prefix*.
+            may be a "phrase", prefix*, "phrase pre"* or ^anchored clause. A
+            title hit is bound against its name alone.
           items:
             type: string
           type: array
