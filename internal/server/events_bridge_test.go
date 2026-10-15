@@ -247,3 +247,37 @@ func TestEventsBridgeDeliver(t *testing.T) {
 	default:
 	}
 }
+
+// A release from before a detach is a no-op even when the next engine
+// acquired the same scope key: the previous engine's process interest
+// or SSE subscriber leaving late must not drop the next engine's.
+func TestEventsBridgeLateReleaseAfterDetach(t *testing.T) {
+	fake := newFakePubSub()
+	b := newEventsBridge(&deps{})
+	b.resolve = func(context.Context, *anysyncsdk.SDK, string) (space.PubSubAPI, error) { return fake, nil }
+	pat := []string{eventTopicPrefix + "process/>"}
+
+	releaseA, err := b.acquire(context.Background(), nil, true, nil, pat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.detach()
+	releaseB, err := b.acquire(context.Background(), nil, true, nil, pat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseA()
+	b.mu.Lock()
+	n := 0
+	if sc := b.scopes[""]; sc != nil {
+		n = sc.desired[pat[0]]
+	}
+	b.mu.Unlock()
+	if n != 1 || len(fake.activePatterns()) != 1 {
+		t.Fatalf("after a late release: desired=%d active=%v, want 1 and one pattern", n, fake.activePatterns())
+	}
+	releaseB()
+	if got := fake.activePatterns(); len(got) != 0 {
+		t.Fatalf("after the live release: active=%v, want none", got)
+	}
+}
