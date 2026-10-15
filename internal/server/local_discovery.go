@@ -14,8 +14,8 @@ import (
 // whenever p2p.enabled is off: the switch cannot turn on what never
 // runs.
 func (d *deps) localDiscoveryState() bool {
-	if d.ready.Load() && d.gate.enter() {
-		defer d.gate.leave()
+	if h := d.enterGate(); h != nil {
+		defer d.gate.leave(h)
 		return d.sdk.LocalDiscoveryEnabled()
 	}
 	if !d.cfg.P2P.IsEnabled() {
@@ -83,9 +83,9 @@ func (d *deps) applyLocalDiscovery() {
 	if enabled == nil {
 		return
 	}
-	if d.ready.Load() && d.gate.enter() {
+	if h := d.enterGate(); h != nil {
 		d.sdk.SetLocalDiscoveryEnabled(*enabled)
-		d.gate.leave()
+		d.gate.leave(h)
 		return
 	}
 	if sdk := d.bootingSDK.Load(); sdk != nil {

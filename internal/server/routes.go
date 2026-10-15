@@ -100,8 +100,8 @@ func buildEcho(d *deps) *echo.Echo {
 				// unknown paths as auth.required.
 				return next(c)
 			}
-			if d.ready.Load() && d.gate.enter() {
-				defer d.gate.leave()
+			if h := d.enterGate(); h != nil {
+				defer d.gate.leave(h)
 				// Bind the request to the engine: teardown cancels the
 				// engine ctx, and every SDK call takes the request ctx,
 				// so in-flight work unwinds instead of holding the
