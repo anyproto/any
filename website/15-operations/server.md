@@ -74,7 +74,7 @@ curl -s -X POST -H "X-Any-Control-Token: $TOKEN" http://127.0.0.1:7001/v1/shutdo
 
 ## Single-instance lock
 
-When an account's engine boots, the server takes an exclusive OS file lock on `<account-dir>/server.lock` (the root itself for the legacy flat layout) — `flock(2)` on Linux and macOS, `LockFileEx` on Windows. A held lock fails the boot with a clear message — `409 auth.account_in_use` when it happens through `POST /v1/auth`.
+When an account's engine boots, the server takes an exclusive OS file lock on `<account-dir>/server.lock` (the root itself for the legacy flat layout) — `flock(2)` on Linux and macOS, `LockFileEx` on Windows. A held lock fails the boot with a clear message — `409 auth.account_in_use` when it happens through `POST /v1/auth`. The same answer covers a request that outlived the previous engine's teardown in this process, a stop and start of the server by its host included: that account boots again once the request has left and the engine's resources are closed. This refusal does not depend on the OS lock, so the mobile build gives it too.
 
 The kernel releases the lock when the holder exits by any means, so there is nothing stale to reclaim: a crashed server blocks nobody. None of these files is removed on shutdown. `server.lock` is empty; the holder's pid goes in `<account-dir>/server.pid` purely to name it in that error (`details.pid`, absent when the file is unreadable), and its bound address in `<account-dir>/server.addr` once the listener is up. Treat both as labels, never as proof a server is running: `any stop` and the CLI's address discovery probe the lock itself.
 
