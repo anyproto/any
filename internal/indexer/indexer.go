@@ -271,7 +271,9 @@ func New(sdk *anysyncsdk.SDK, reg *index.Registry, store *Store, opts Options) *
 		workers: map[string]*spaceWorker{},
 		retries: map[string]context.CancelFunc{},
 	}
-	store.SetFTSUpgradeHook(ix.reportFTSUpgrade)
+	if store != nil {
+		store.SetFTSUpgradeHook(ix.reportFTSUpgrade)
+	}
 	return ix
 }
 
