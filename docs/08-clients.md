@@ -513,7 +513,7 @@ questions — don't conflate them.
   changes.
 
 - **A display name/icon for any account id you hold** (a chat message's
-  `creator`, a 1-1 peer, a mention) → `GET /v1/identities[/:identity]`,
+  `creator`, a 1-1 peer, a mention, a `member` value) → `GET /v1/identities[/:identity]`,
   the account-global directory. Cache it once and resolve ids across
   every space. Subscribe to `/v1/identities/subscribe` to keep the cache
   fresh as profiles resolve.
@@ -958,13 +958,18 @@ Call patterns:
   `[Name](any://o/…)` paragraph is a card; property references go
   into a `relation` property as bare `any://<objectId>` values — the
   only form a relation accepts, so a relation never points across
-  spaces or at a block; a text link does. A runtime dataset field
-  that carries references declares `xFormat.links`
-  (`27-descriptors.md`), or the index never reads it; `xFormat.links:
-  "none"` keeps a field out of backlinks on purpose.
-- **Identity targets are per space.** `any://m/<sp>/<identity>` keys
-  mentions in one space; "everywhere I am mentioned" is one
-  `GET /v1/backlinks?target=` per space the client holds.
+  spaces or at a block; a text link does. Member references go into a
+  `member` property as `any://u/<identity>` values. A runtime dataset
+  field that carries references under any other slug declares
+  `xFormat.links` (`27-descriptors.md`), or the index never reads it;
+  `relation`, `member` and `markdown` imply the marker, and
+  `xFormat.links: "none"` keeps a field out of backlinks on purpose.
+- **Identity targets are account-global.** `any://u/<identity>` is the
+  same key in every space, so "everywhere I am mentioned or assigned"
+  is one `GET /v1/backlinks?target=any://u/<myIdentity>`; `kind` tells
+  a `mention` in text from a `relation` written by a `member` value.
+  Reply pings are not edges — they live in the chat message's
+  `mentions` field (`16-chat.md` § Mentions).
 - **Above 500 backlinks the reply is a cut, not a page.** `truncated`
   says so; the order is the index's own (source object, dataset,
   record), not recency, and there is no continuation — a popular

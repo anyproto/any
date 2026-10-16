@@ -162,10 +162,11 @@ type deps struct {
 // Health and auth status run outside the guard middleware, so the read
 // takes the gate itself: a teardown in progress answers "".
 func (d *deps) accountID() string {
-	if !d.ready.Load() || !d.gate.enter() {
+	h := d.enterGate()
+	if h == nil {
 		return ""
 	}
-	defer d.gate.leave()
+	defer d.gate.leave(h)
 	return d.account
 }
 
@@ -174,10 +175,11 @@ func (d *deps) accountID() string {
 // while unauthorized and once the pass completes. Gate-scoped like
 // accountID: the sdk field is stable for the duration of the read.
 func (d *deps) bootstrapping() bool {
-	if !d.ready.Load() || !d.gate.enter() {
+	h := d.enterGate()
+	if h == nil {
 		return false
 	}
-	defer d.gate.leave()
+	defer d.gate.leave(h)
 	if d.sdk == nil {
 		return false
 	}
@@ -209,10 +211,11 @@ func (d *deps) health(c echo.Context) error {
 // crdtVersion reports the booted SDK's account CRDT-version state;
 // nil when unauthorized.
 func (d *deps) crdtVersion() *api.CRDTVersionState {
-	if !d.ready.Load() || !d.gate.enter() {
+	h := d.enterGate()
+	if h == nil {
 		return nil
 	}
-	defer d.gate.leave()
+	defer d.gate.leave(h)
 	if d.sdk == nil {
 		return nil
 	}

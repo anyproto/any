@@ -58,7 +58,7 @@ func TestStore_LinksApplyAndRead(t *testing.T) {
 	}
 	touched, err := s.ApplyPage(ctx, sp, nil, nil, nil, nil, &LinkOps{
 		Ups: ups, Seqs: []uint64{1, 1, 2, 3, 3, 4, 5, 5},
-		Touched: []string{"any://o/sp1/X", "any://m/sp1/ident1", "any://o/sp1/Y"},
+		Touched: []string{"any://o/sp1/X", "any://u/ident1", "any://o/sp1/Y"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +85,7 @@ func TestStore_LinksApplyAndRead(t *testing.T) {
 	if err != nil || len(docs) != 0 {
 		t.Fatalf("mention backlinks of X = %v (%v), want none", keys(docs), err)
 	}
-	docs, _, err = s.Backlinks(ctx, sp, "any://m/sp1/ident1", false, nil, 0)
+	docs, _, err = s.Backlinks(ctx, sp, "any://u/ident1", false, nil, 0)
 	if err != nil || len(docs) != 1 || docs[0].Kind != "mention" {
 		t.Fatalf("backlinks of the identity = %v (%v)", keys(docs), err)
 	}
@@ -111,7 +111,7 @@ func TestStore_LinksApplyAndRead(t *testing.T) {
 
 	// LinkIds: the diff's read, keyed by doc id with the liveness key.
 	ids, err := s.LinkIds(ctx, sp, "P:")
-	if err != nil || len(ids) != 3 || ids[linkDocId(ups[2])].Key != "any://m/sp1/ident1" || ids[linkDocId(ups[0])].Key != "any://o/sp1/X" {
+	if err != nil || len(ids) != 3 || ids[linkDocId(ups[2])].Key != "any://u/ident1" || ids[linkDocId(ups[0])].Key != "any://o/sp1/X" {
 		t.Fatalf("LinkIds(P) = %v (%v)", ids, err)
 	}
 	if ids, _ := s.LinkIds(ctx, "nowhere", "P:"); ids != nil {

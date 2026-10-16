@@ -23,12 +23,13 @@ type LinkSource struct {
 }
 
 // LinkTarget is the canonical any:// target, parsed. Uri is the
-// canonical string (docs/19-links.md); Kind is the URI kind (o, p, m,
-// f); the id fields are populated per kind.
+// canonical string (docs/19-links.md); Kind is the URI kind (o, p, u,
+// f); the id fields are populated per kind. SpaceId is absent for an
+// identity, which is account-global.
 type LinkTarget struct {
 	Uri      string `json:"uri"`
 	Kind     string `json:"kind"`
-	SpaceId  string `json:"spaceId"`
+	SpaceId  string `json:"spaceId,omitempty"`
 	ObjectId string `json:"objectId,omitempty"`
 	Dataset  string `json:"dataset,omitempty"`
 	RecordId string `json:"recordId,omitempty"`

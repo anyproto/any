@@ -11,15 +11,17 @@ import (
 // the last holder leaves, reset reopening it.
 func TestEngineGate(t *testing.T) {
 	var g engineGate
-	if !g.enter() {
+	h1 := g.enter()
+	if h1 == nil {
 		t.Fatal("zero-value gate must admit")
 	}
-	if !g.enter() {
+	h2 := g.enter()
+	if h2 == nil {
 		t.Fatal("second entry must be admitted")
 	}
 
 	drained := g.close()
-	if g.enter() {
+	if g.enter() != nil {
 		t.Fatal("closed gate must refuse")
 	}
 	select {
@@ -27,13 +29,13 @@ func TestEngineGate(t *testing.T) {
 		t.Fatal("drained before the holders left")
 	case <-time.After(20 * time.Millisecond):
 	}
-	g.leave()
+	g.leave(h1)
 	select {
 	case <-drained:
 		t.Fatal("drained with one holder still inside")
 	case <-time.After(20 * time.Millisecond):
 	}
-	g.leave()
+	g.leave(h2)
 	if !waitClosed(drained, time.Second) {
 		t.Fatal("not drained after the last holder left")
 	}
@@ -44,10 +46,11 @@ func TestEngineGate(t *testing.T) {
 	}
 
 	g.reset()
-	if !g.enter() {
+	h3 := g.enter()
+	if h3 == nil {
 		t.Fatal("reset gate must admit again")
 	}
-	g.leave()
+	g.leave(h3)
 	// Closing with nobody inside drains at once.
 	if !waitClosed(g.close(), time.Second) {
 		t.Fatal("empty gate must drain immediately")
@@ -66,12 +69,13 @@ func TestEngineGate_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if !g.enter() {
+			h := g.enter()
+			if h == nil {
 				return
 			}
 			admitted.Add(1)
 			<-release
-			g.leave()
+			g.leave(h)
 			admitted.Done()
 		}()
 	}
@@ -91,4 +95,34 @@ func TestEngineGate_Concurrent(t *testing.T) {
 	}
 	wg.Wait()
 	admitted.Wait()
+}
+
+// TestEngineGate_StragglerCompletesItsOwnDrain: a holder that outlives
+// a timed-out drain neither holds up the next engine's drain nor loses
+// its own, which completes when it leaves.
+func TestEngineGate_StragglerCompletesItsOwnDrain(t *testing.T) {
+	var g engineGate
+	straggler := g.enter()
+	drained := g.close() // its teardown times out
+	g.reset()            // the next engine boots in place
+	stream := g.enter()  // one of the next engine's requests
+	next := g.close()    // the next engine's teardown
+	select {
+	case <-next:
+		t.Fatal("the next engine's drain completed with its holder inside")
+	case <-time.After(20 * time.Millisecond):
+	}
+	g.leave(stream)
+	if !waitClosed(next, time.Second) {
+		t.Fatal("the next engine's drain waited for the previous engine's straggler")
+	}
+	select {
+	case <-drained:
+		t.Fatal("the straggler's drain completed while it is inside")
+	default:
+	}
+	g.leave(straggler)
+	if !waitClosed(drained, time.Second) {
+		t.Fatal("the straggler's drain did not complete when it left")
+	}
 }

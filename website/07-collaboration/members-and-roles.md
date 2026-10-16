@@ -113,7 +113,7 @@ Two surfaces resolve "who is this person" and answer different questions:
 | Need | Surface |
 |------|---------|
 | A members panel with avatars **and** roles for one space | `GET /v1/spaces/:id/members` — authoritative for rights |
-| A name/icon for any account id you hold (a chat `creator`, a mention) | `GET /v1/identities[/:identity]` — account-global, carries no rights |
+| A name/icon for any account id you hold (a chat `creator`, a mention, a `member` property value) | `GET /v1/identities[/:identity]` — account-global, carries no rights |
 
 There is no cross-space role rollup: to show someone's role in each shared space, read each space's roster.
 

@@ -17,8 +17,14 @@ func TestExtractMentions(t *testing.T) {
 	}{
 		{"empty", "", nil},
 		{"no mentions", "plain text with any://space1/object1 and http://x.io", nil},
-		{"raw token", "ping any://m/space1/ident1 please", []string{"ident1"}},
-		{"commonmark destination", "Hey [Zarko](any://m/space1/ident1), take a look", []string{"ident1"}},
+		{"raw token", "ping any://u/ident1 please", []string{"ident1"}},
+		{"commonmark destination", "Hey [Zarko](any://u/ident1), take a look", []string{"ident1"}},
+		{"identity glued period", "ping any://u/ident1.Check this out", []string{"ident1"}},
+		{"identity with fragment and params", "[x](any://u/ident1#top) [y](any://u/ident2?foo=bar)", []string{"ident1", "ident2"}},
+		{"identity and legacy dedup", "any://u/ident1 and [x](any://m/space1/ident1)", []string{"ident1"}},
+		{"empty identity ignored", "bad any://u/ link", nil},
+		{"legacy raw token", "ping any://m/space1/ident1 please", []string{"ident1"}},
+		{"legacy commonmark destination", "Hey [Zarko](any://m/space1/ident1), take a look", []string{"ident1"}},
 		{"multiple ordered", "[a](any://m/space1/ident1) then [b](any://m/space1/ident2)", []string{"ident1", "ident2"}},
 		{"dedup keeps first", "any://m/space1/ident1 and again [x](any://m/space1/ident1)", []string{"ident1"}},
 		{"end of string", "cc any://m/space1/ident1", []string{"ident1"}},
@@ -36,7 +42,7 @@ func TestExtractMentions(t *testing.T) {
 		{"empty tail ignored", "bad any://m/ link", nil},
 		{"other kinds ignored", "[o](any://o/space1/object1) [f](any://f/space1/file1x)", nil},
 		{"longer scheme ignored", "see many://m/space1/ident1 there", nil},
-		{"mixed", "[a](any://m/space1/ident1) sends any://f/space1/file1x to any://m/space1/ident2", []string{"ident1", "ident2"}},
+		{"mixed", "[a](any://u/ident1) sends any://f/space1/file1x to any://m/space1/ident2", []string{"ident1", "ident2"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

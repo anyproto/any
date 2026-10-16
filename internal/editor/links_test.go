@@ -20,7 +20,7 @@ func TestBlockLinks(t *testing.T) {
 		{"whole-line file link is a card", blk("b3", TypeParagraph, "  [report.pdf](any://f/spc1/file7)  "),
 			map[string]string{"any://f/spc1/file7": index.LinkKindCard}},
 		{"whole-line mention is not a card", blk("b4", TypeParagraph, "[Zarko](any://m/spc1/ident1)"),
-			map[string]string{"any://m/spc1/ident1": index.LinkKindMention}},
+			map[string]string{"any://u/ident1": index.LinkKindMention}},
 		{"whole-line link in a list item is a link", blk("b5", TypeListItem, "[Roadmap](any://o/spc1/obj9)"),
 			map[string]string{"any://o/spc1/obj9": index.LinkKindLink}},
 		{"escaped label still a card", blk("b6", TypeParagraph, `[a \[b\] c](any://o/spc1/obj9)`),

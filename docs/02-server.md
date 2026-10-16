@@ -223,7 +223,11 @@ When the account's engine boots, the server takes an exclusive OS file
 lock on `<account-dir>/server.lock` (the root itself for the legacy flat
 layout) — `flock(2)` on unix, `LockFileEx` on Windows. A held lock fails
 the boot with a clear message: `409 auth.account_in_use` when it happens
-via `POST /v1/auth`.
+via `POST /v1/auth`. The same answer covers a request that outlived the
+previous engine's teardown in this process, a stop and start of the
+server by its host included: that account boots again once the request
+has left and the engine's resources are closed. This refusal does not
+depend on the OS lock, so the mobile build gives it too.
 
 The kernel releases the lock when the holder exits by any means, so
 there is nothing stale to reclaim — a crashed server blocks nobody, and

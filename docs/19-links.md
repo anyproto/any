@@ -13,23 +13,26 @@ everything-under-`internal/` rule: `any` owns the format. Clients and agents
 not reimplement it**. The package is the source of truth for the grammar; this
 doc is the source of truth for the semantics.
 
-Mentions (editor + chat) are one link kind riding on this format — see
-[docs/16-chat.md](16-chat.md) § Mentions for the chat mentions field.
+An identity is one link kind riding on this format: a mention in editor or
+chat text and a `member` property value are the same reference — see
+[docs/16-chat.md](16-chat.md) § Mentions for the chat mentions field and
+[docs/27-descriptors.md](27-descriptors.md) for the `member` slug.
 
 ## The grammar
 
 ```
-any://<kind>/<spaceId>[/<rest…>][?<params>][#<fragment>]
+any://<kind>/<rest…>[?<params>][#<fragment>]
 ```
 
 The **kind** is the first path segment. It makes the target self-describing:
-prefix-match `any://o/` / `any://m/` / `any://f/` etc. and you know what you're
+prefix-match `any://o/` / `any://u/` / `any://f/` etc. and you know what you're
 pointing at before you resolve anything.
 
 Everything after the kind is **kind-specific** but follows one composition rule
-(below). `spaceId` is present in every kind — links are global by design; there
-is no in-space short form in the typed grammar (the legacy bare forms are the
-one exception, see [Back-compat](#back-compat)).
+(below). Every kind that points inside a space carries `spaceId` first — links
+are global by design; there is no in-space short form in the typed grammar (the
+legacy bare forms are the one exception, see [Back-compat](#back-compat)). An
+identity is account-global, so `u` carries no space.
 
 ## Kind registry
 
@@ -38,7 +41,8 @@ one exception, see [Back-compat](#back-compat)).
 | `o` | `any://o/<spaceId>/<objectId>` | an object |
 | `o` | `any://o/<spaceId>/<objectId>/<dataset>/<recordId>` | a **record** inside an object's dataset (editor block, chat message) |
 | `o` | `any://o/<spaceId>/<objectId>/<dataset>/<recordId>/<propId>` | *(reserved)* a field on a record |
-| `m` | `any://m/<spaceId>/<identity>` | an identity / member (a **mention**) |
+| `u` | `any://u/<identity>` | an account **identity** — a member, a mention |
+| `m` | `any://m/<spaceId>/<identity>` | *(legacy)* an identity; parses, canonicalises to `u`, never written |
 | `s` | `any://s/<spaceId>` | a space |
 | `p` | `any://p/<spaceId>/<objectId>/<propId>` | a **property value** on an object |
 | `f` | `any://f/<spaceId>/<fileId>` | a file (files-v2 attachment) |
@@ -76,25 +80,44 @@ A trailing `<propId>` segment (`…/<dataset>/<recordId>/<propId>`) to address a
 field *within* a record is **reserved**: the grammar leaves room for it, and
 `Parse` rejects it (`ErrInvalid`).
 
-### `m` — mentions
+### `u` — identities
 
 ```
-any://m/<spaceId>/<identity>
+any://u/<identity>
 ```
 
-`<identity>` is the account identity string. A mention in message or block text
-is a markdown link whose destination is an `m` URI:
+`<identity>` is the account identity string — the same value a members row,
+a chat message's `creator` and an object row's `modifiedBy` carry. It is
+account-global: the reference names a person, not their membership of one
+space, so it has no space segment and stays valid when an object is copied to
+another space.
+
+Two writers use it. A mention in message or block text is a markdown link
+whose destination is a `u` URI:
 
 ```
-Hey [Zarko](any://m/<spaceId>/<identity>), take a look
+Hey [Zarko](any://u/<identity>), take a look
 ```
 
-The link **text** is the display name *at time of writing* — a snapshot, and the
-fallback a non-aware renderer (raw markdown, export, grep) shows. A
-mention-aware client detects the `m/` prefix, resolves the current display name
-via `GET /v1/identities`, and renders the mention chip. Identity profiles are
-encrypted — tolerate unresolved / id-only until the `symKey` arrives; fall back
-to the snapshot link text.
+A `member` property value is an array of `u` URIs
+(`["any://u/<identity>"]`; [docs/27-descriptors.md](27-descriptors.md)
+§ Members).
+
+The link **text** of a mention is the display name *at time of writing* — a
+snapshot, and the fallback a non-aware renderer (raw markdown, export, grep)
+shows. A client detects the `u/` prefix and resolves the current name through
+the account-global directory (`GET /v1/identities/:identity`; the avatar
+bytes via `GET /v1/identities/:identity/icon`), like any identity it holds.
+The space's members list (`GET /v1/spaces/:id/members`) says whether the
+identity is on the roster and with what status — a removed member keeps its
+last name there. Identity profiles are encrypted — tolerate unresolved /
+id-only until the key arrives; fall back to the snapshot link text, or to the
+id.
+
+The legacy form `any://m/<spaceId>/<identity>` keeps parsing (kind `m`,
+`Legacy: true`) and canonicalises to `any://u/<identity>`: text carrying
+either form keys the same backlink, and `ExtractMentions` returns the identity
+from either. Clients write `u`; a `member` value in the `m` form is refused.
 
 ### `s` — spaces
 
@@ -215,19 +238,25 @@ Stored values use them:
   `any://<objectId>`. Value writes are validated against exactly this shape.
 - **Agent `debugLink`** on chat messages: `any://<spaceId>/<objectId>#turn_<n>`.
 
+The two-segment identity form `any://m/<spaceId>/<identity>` is legacy too:
+it parses as kind `m` (flagged `Legacy: true`) and means the identity, the
+space segment ignored.
+
 The link index (docs/13-index.md § Links) canonicalises every written form
 through `URI.Canonical` — bare and global object forms become
-`any://o/<sp>/<id>` — so backlinks are keyed on one string whatever the writer
-emitted.
+`any://o/<sp>/<id>`, the `m` form becomes `any://u/<identity>` — so backlinks
+are keyed on one string whatever the writer emitted.
 
 `Parse` accepts the bare forms as kind `o` (flagged `Legacy: true`).
 `BuildObject` emits the bare in-space form relation values require
 (`IsPropertyValueRef` is that strict check); `BuildObjectGlobal` emits the
-typed `any://o/…` form. No stored value is rewritten — the typed grammar is a
-superset, the bare object form is its shorthand. Disambiguation is the
-kind-slug lexical rule ([Kind registry](#kind-registry)): a first segment longer
-than 4 bytes is an id, not a kind. New typed references (mentions, files,
-property-value citations, dataset records) always use the explicit-kind form.
+typed `any://o/…` form; `BuildIdentity` emits the `any://u/…` form member
+values require (`IsIdentityValueRef` is that strict check). No stored value is
+rewritten — the typed grammar is a superset, the bare object form is its
+shorthand. Disambiguation is the kind-slug lexical rule
+([Kind registry](#kind-registry)): a first segment longer than 4 bytes is an
+id, not a kind. New typed references (identities, files, property-value
+citations, dataset records) always use the explicit-kind form.
 
 ## Explicitly out of scope
 
@@ -244,10 +273,10 @@ property-value citations, dataset records) always use the explicit-kind form.
 
 | Concern | Location |
 |---------|----------|
-| Grammar (builders / `Parse` / `IsValid` / `IsPropertyValueRef`, kind constants) | `anyuri/anyuri.go` — public `github.com/anyproto/any/anyuri` |
+| Grammar (builders / `Parse` / `IsValid` / `IsPropertyValueRef` / `IsIdentityValueRef`, kind constants) | `anyuri/anyuri.go` — public `github.com/anyproto/any/anyuri` |
 | Link extraction from text (`ExtractLinks`), canonical targets (`Canonical`, `ObjectKey`, `IsPart`) | `anyuri/links.go` — the sanctioned scanner, shared by the link index and clients |
 | Mention extraction from text (`ExtractMentions`) | `anyuri/mentions.go` — a filter over `ExtractLinks`, shared by the chat mentions derivation and clients |
-| Relation property-value validation | `internal/server/descriptor.go` |
+| Relation and member property-value validation | `internal/server/descriptor.go` |
 | Links and backlinks (the link index) | `internal/index/links.go`, `internal/indexer/links_store.go`, `internal/server/handlers_backlinks.go` — [docs/13-index.md](13-index.md) § Links |
 | Chat mentions derivation (server-parsed `mentions` field) | `internal/chat/handler.go` (`deriveMentions`) — see [docs/16-chat.md](16-chat.md) § Mentions |
 | File links | [docs/17-files.md](17-files.md) |

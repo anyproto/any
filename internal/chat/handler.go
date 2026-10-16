@@ -637,8 +637,9 @@ func validateTextEdit(ctx *handler.ChangeCtx, op *handler.Op, sink *handler.Sink
 }
 
 // deriveMentions computes and stamps the derived `mentions` array: the
-// identities mentioned in text (any://m/… links, deduped in
-// first-occurrence order) plus, for replies, the replied-to message's
+// identities mentioned in text (any://u/… links, the legacy any://m/…
+// form included, deduped in first-occurrence order) plus, for replies,
+// the replied-to message's
 // creator — read via ctx.Get, which is replica-deterministic here
 // because `creator` is an immutable create-stamp and the replied-to
 // create is a causal ancestor of this change. Accepted edge: a reply

@@ -41,7 +41,7 @@ func TestMessageLinks(t *testing.T) {
 		}
 	}
 	want := map[string]string{
-		"any://m/spc1/ident1":       index.LinkKindMention,
+		"any://u/ident1":            index.LinkKindMention,
 		"any://o/spc1/obj9":         index.LinkKindLink,
 		"any://f/spc1/file3":        index.LinkKindLink,
 		"any://o/spacespace1/obj55": index.LinkKindLink,

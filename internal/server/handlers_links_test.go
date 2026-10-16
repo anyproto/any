@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anyproto/any/anyuri"
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/indexer"
 )
 
@@ -81,7 +83,8 @@ func TestIndexer_Links(t *testing.T) {
 	other := mustCreateObject(t, e, spaceId, `{"type":"page","initialProperties":{"any":{"name":"other"}}}`)
 	targetUri := "any://o/" + spaceId + "/" + target
 
-	// Editor: four blocks on one page.
+	// Editor: five blocks on one page; the last two mention an identity
+	// in the current and the legacy form.
 	page := mustCreateModuleObject(t, e, spaceId, "editor")
 	blocks := "/v1/spaces/" + spaceId + "/objects/" + page + "/editor/editor_blocks/blocks"
 	inline := mustModify(t, e, http.MethodPost, blocks,
@@ -91,7 +94,9 @@ func TestIndexer_Links(t *testing.T) {
 	blockRef := mustModify(t, e, http.MethodPost, blocks,
 		`{"type":"paragraph","text":"cites [a block](`+targetUri+`/editor_blocks/blk9) and [other](any://`+other+`)"}`, http.StatusCreated).RecordIds[0]
 	mustModify(t, e, http.MethodPost, blocks,
-		`{"type":"paragraph","text":"hey [Z](any://m/`+spaceId+`/identity1)"}`, http.StatusCreated)
+		`{"type":"paragraph","text":"hey [Z](any://u/identity1)"}`, http.StatusCreated)
+	legacyMention := mustModify(t, e, http.MethodPost, blocks,
+		`{"type":"paragraph","text":"and [Z2](any://m/`+spaceId+`/identity2)"}`, http.StatusCreated).RecordIds[0]
 
 	// Chat: one message with a text link and an attachment.
 	chat := mustCreateModuleObject(t, e, spaceId, "chat")
@@ -112,8 +117,16 @@ func TestIndexer_Links(t *testing.T) {
 	}
 	var pr api.AddPropertyResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &pr)
+	// A member property on the same type, pointing at an identity.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types/"+tr.TypeId+"/properties",
+		`{"name":"Assignee","xKey":"assignee","kind":"array","xFormat":{"type":"member"}}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create member prop: %d %s", rec.Code, rec.Body.String())
+	}
+	var mem api.AddPropertyResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &mem)
 	doc := mustCreateObject(t, e, spaceId, `{"type":"`+tr.TypeId+`","initialProperties":{"`+
-		tr.TypeId+`":{"`+pr.PropId+`":["any://`+target+`","any://`+other+`"]}}}`)
+		tr.TypeId+`":{"`+pr.PropId+`":["any://`+target+`","any://`+other+`"],"`+mem.PropId+`":["any://u/identity3"]}}}`)
 
 	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
 	if err != nil {
@@ -177,11 +190,41 @@ func TestIndexer_Links(t *testing.T) {
 
 	// Forward links of the page, and of one block.
 	fwd := linkKeys(getLinks(t, e, spaceId, page, "").Links)
-	if len(fwd) != 5 { // inline, card, blockRef×2, mention
-		t.Errorf("forward links of the page = %v, want 5", fwd)
+	if len(fwd) != 6 { // inline, card, blockRef×2, two mentions
+		t.Errorf("forward links of the page = %v, want 6", fwd)
 	}
-	if fwd["editor_blocks/"+blockRef+"→any://m/"+spaceId+"/identity1"] != "" {
+	if fwd["editor_blocks/"+blockRef+"→any://u/identity1"] != "" {
 		t.Errorf("mention attributed to the wrong block: %v", fwd)
+	}
+	if fwd["editor_blocks/"+legacyMention+"→any://u/identity2"] != api.LinkKindMention {
+		t.Errorf("legacy mention form not keyed as any://u/<identity>: %v", fwd)
+	}
+
+	// Identity targets: one account-global key, however the reference
+	// was written or asked for; a member value is a relation edge to it.
+	identityEdges := func(target string) []api.Link {
+		t.Helper()
+		rec := doJSON(t, e, http.MethodGet, "/v1/backlinks?target="+target, "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("backlinks all %s: %d %s", target, rec.Code, rec.Body.String())
+		}
+		var all api.BacklinksAllResponse
+		_ = json.Unmarshal(rec.Body.Bytes(), &all)
+		if len(all.Spaces) != 1 {
+			t.Fatalf("backlinks all %s: %+v", target, all)
+		}
+		return all.Spaces[0].Object
+	}
+	for _, target := range []string{"any://u/identity2", "any://m/" + spaceId + "/identity2"} {
+		edges := identityEdges(target)
+		if len(edges) != 1 || edges[0].Kind != api.LinkKindMention || edges[0].Source.RecordId != legacyMention ||
+			edges[0].Target.Uri != "any://u/identity2" || edges[0].Target.SpaceId != "" || edges[0].Target.Identity != "identity2" {
+			t.Errorf("backlinks of %s = %+v", target, edges)
+		}
+	}
+	if edges := identityEdges("any://u/identity3"); len(edges) != 1 || edges[0].Kind != api.LinkKindRelation ||
+		edges[0].Source.Dataset != index.DatasetProp || edges[0].Source.RecordId != mem.PropId || edges[0].Source.TypeId != tr.TypeId {
+		t.Errorf("backlinks of the member value = %+v", edges)
 	}
 	one := getLinks(t, e, spaceId, page, "?record="+card+"&dataset=editor_blocks")
 	if len(one.Links) != 1 || one.Links[0].Kind != api.LinkKindCard {
@@ -226,7 +269,7 @@ func TestIndexer_Links(t *testing.T) {
 		t.Errorf("an oversized limit clamps to the cap, %+v", capped)
 	}
 	// Forward read of one collection.
-	if got := getLinks(t, e, spaceId, page, "?dataset=editor_blocks"); len(got.Links) != 5 {
+	if got := getLinks(t, e, spaceId, page, "?dataset=editor_blocks"); len(got.Links) != 6 {
 		t.Errorf("links of the page's editor collection = %+v", got)
 	}
 	if rec := doJSON(t, e, http.MethodGet, "/v1/spaces/"+spaceId+"/objects/"+target+"/backlinks?dataset=editor_blocks", ""); rec.Code != http.StatusBadRequest {
@@ -329,6 +372,34 @@ func TestIndexer_Links(t *testing.T) {
 	}
 	if need, _ := st.LinksBackfillNeeded(ctx, spaceId); need {
 		t.Error("space still needs a backfill after one ran")
+	}
+
+	// --- layout bump: edges keyed by an earlier layout ---------------
+	// An identity edge as a store wrote it before identities lost their
+	// space segment, under a stamp that is behind: the backfill drops
+	// it and re-extracts the block under the current key.
+	legacyKey := "any://m/" + spaceId + "/identity2"
+	if err := st.ApplyLinks(ctx, spaceId, &indexer.LinkOps{
+		Ups: []index.LinkEntry{{ObjectId: page, Dataset: "editor_blocks", RecordId: legacyMention, Kind: api.LinkKindMention,
+			Target: anyuri.URI{Kind: anyuri.KindMention, SpaceId: spaceId, Identity: "identity2"}}},
+		Seqs: []uint64{1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if docs, _, err := st.Backlinks(ctx, spaceId, legacyKey, false, nil, 0); err != nil || len(docs) != 1 {
+		t.Fatalf("seeded legacy identity edge = %+v (%v)", docs, err)
+	}
+	if err := st.UnstampLinks(ctx, spaceId); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	if docs, _, _ := st.Backlinks(ctx, spaceId, legacyKey, false, nil, 0); len(docs) != 0 {
+		t.Errorf("legacy identity key survived the backfill: %+v", docs)
+	}
+	if docs, _, err := st.Backlinks(ctx, spaceId, "any://u/identity2", false, nil, 0); err != nil || len(docs) != 1 || docs[0].RecordId != legacyMention {
+		t.Errorf("identity edge after the backfill = %+v (%v)", docs, err)
 	}
 
 	// --- retype ----------------------------------------------------------

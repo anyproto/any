@@ -71,7 +71,7 @@
 // ways otherwise: silent-ping griefing and notification suppression —
 // the text is the source of truth). At change materialization the
 // handler parses the message text for mention links
-// (`any://m/<spaceId>/<identity>`, anyuri.ExtractMentions) and stamps
+// (`any://u/<identity>`, anyuri.ExtractMentions) and stamps
 // the deduped identity array; when the message is a reply
 // (`replyToMessageId`), the replied-to message's creator is folded in
 // — a reply IS a ping to the original author, and folding it in at

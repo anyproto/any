@@ -1,23 +1,29 @@
 // Package anyuri builds and parses any:// URIs — the canonical string
 // convention for referencing anything inside any: an object, a dataset
-// record, an identity (mention), a space, a property value, a file.
+// record, an identity (a member, a mention), a space, a property value,
+// a file.
 //
 // The typed grammar (docs/19-links.md is the semantics contract):
 //
-//	any://<kind>/<spaceId>[/<rest…>][?<params>][#<fragment>]
+//	any://<kind>/<rest…>[?<params>][#<fragment>]
 //
 //	any://o/<spaceId>/<objectId>                        object
 //	any://o/<spaceId>/<objectId>/<dataset>/<recordId>   dataset record
-//	any://m/<spaceId>/<identity>                        identity (mention)
+//	any://u/<identity>                                  identity (member, mention)
 //	any://s/<spaceId>                                   space
 //	any://p/<spaceId>/<objectId>/<propId>               property value
 //	any://f/<spaceId>/<fileId>[?variant=<tag>]          file (files-v2)
 //
-// plus the two legacy bare forms, which keep parsing as kind "o"
-// (Legacy: true) and are never rewritten:
+// Every kind that points inside a space carries the spaceId first. An
+// identity is account-global, so "u" carries none.
+//
+// Three legacy forms keep parsing (Legacy: true) and are never
+// rewritten: the two bare object forms, as kind "o", and the
+// two-segment identity form, as kind "m":
 //
 //	any://<objectId>            in-space reference (the property-value form)
 //	any://<spaceId>/<objectId>  global reference
+//	any://m/<spaceId>/<identity>  identity; canonicalises to any://u/<identity>
 //
 // Kind slugs are a reserved lexical namespace: a first path segment of
 // 1-4 lowercase-alphanumeric bytes is always a kind slug, anything
@@ -34,7 +40,9 @@
 // and never identifies a data record.
 //
 // Property values of link-format properties use the strict bare
-// one-segment, fragment-less form; check IsPropertyValueRef.
+// one-segment, fragment-less form; check IsPropertyValueRef. Member
+// property values use the strict "any://u/<identity>" form; check
+// IsIdentityValueRef.
 package anyuri
 
 import (
@@ -53,11 +61,16 @@ const prefix = Scheme + "://"
 type Kind string
 
 const (
-	KindObject  Kind = "o" // object, or a record via /<dataset>/<recordId>
-	KindMention Kind = "m" // identity / member (a mention)
-	KindSpace   Kind = "s" // a space
-	KindProp    Kind = "p" // a property value on an object
-	KindFile    Kind = "f" // a file (files-v2 attach), variant via ?variant=
+	KindObject   Kind = "o" // object, or a record via /<dataset>/<recordId>
+	KindIdentity Kind = "u" // an account identity: a member, a mention
+	KindSpace    Kind = "s" // a space
+	KindProp     Kind = "p" // a property value on an object
+	KindFile     Kind = "f" // a file (files-v2 attach), variant via ?variant=
+
+	// KindMention is the legacy two-segment identity form
+	// any://m/<spaceId>/<identity>. It parses (Legacy: true) and
+	// canonicalises to KindIdentity; nothing writes it.
+	KindMention Kind = "m"
 
 	// "i" (invite) is reserved in the registry but deliberately NOT
 	// known here: it parses as ErrKindUnknown until implemented, which
@@ -77,22 +90,23 @@ var ErrInvalid = errors.New("anyuri: invalid any:// URI")
 var ErrKindUnknown = errors.New("anyuri: unknown link kind")
 
 // URI is a parsed any:// reference. Kind is always set on success;
-// which other fields are populated depends on it. Legacy marks the two
-// pre-typed bare forms (kind "o"; SpaceId empty for the in-space
-// property-value form). Known params become fields (Variant); unknown
-// params are dropped on Parse and do not round-trip.
+// which other fields are populated depends on it. Legacy marks the
+// pre-typed bare object forms (kind "o"; SpaceId empty for the
+// in-space property-value form) and the two-segment identity form
+// (kind "m"). Known params become fields (Variant); unknown params are
+// dropped on Parse and do not round-trip.
 type URI struct {
 	Kind     Kind
-	SpaceId  string // every typed kind; empty only for the legacy in-space form
+	SpaceId  string // every kind inside a space; empty for u and the legacy in-space form
 	ObjectId string // o, p
 	Dataset  string // o record path …/<dataset>/<recordId>
 	RecordId string // o record path
 	PropId   string // p
-	Identity string // m
+	Identity string // u, legacy m
 	FileId   string // f
 	Variant  string // f: ?variant=<tag>
 	Fragment string // view-level anchor; never a data-record id
-	Legacy   bool   // parsed from a bare pre-typed form
+	Legacy   bool   // parsed from a legacy form
 }
 
 // BuildObject returns the bare in-space reference "any://<objectId>" —
@@ -113,9 +127,18 @@ func BuildRecord(spaceId, objectId, dataset, recordId string) string {
 	return prefix + string(KindObject) + "/" + spaceId + "/" + objectId + "/" + dataset + "/" + recordId
 }
 
-// BuildMention returns "any://m/<spaceId>/<identity>".
+// BuildIdentity returns "any://u/<identity>" — an account identity,
+// the form a mention in text and a member property value share.
+func BuildIdentity(identity string) string {
+	return prefix + string(KindIdentity) + "/" + identity
+}
+
+// BuildMention returns the identity reference for a mention. The
+// space id is not part of the reference.
+//
+// Deprecated: use BuildIdentity.
 func BuildMention(spaceId, identity string) string {
-	return prefix + string(KindMention) + "/" + spaceId + "/" + identity
+	return BuildIdentity(identity)
 }
 
 // BuildSpace returns "any://s/<spaceId>".
@@ -142,17 +165,23 @@ func BuildFileVariant(spaceId, fileId, variant string) string {
 }
 
 // String renders the URI back to its text form. Legacy URIs re-render
-// in their bare form (stored values are never rewritten).
+// in the form they were parsed from (stored values are never
+// rewritten).
 func (u URI) String() string {
 	var b strings.Builder
 	b.WriteString(prefix)
-	if u.Legacy || u.Kind == "" {
+	switch {
+	case u.Kind == "" || (u.Legacy && u.Kind == KindObject):
 		if u.SpaceId != "" {
 			b.WriteString(u.SpaceId)
 			b.WriteByte('/')
 		}
 		b.WriteString(u.ObjectId)
-	} else {
+	case u.Kind == KindIdentity:
+		b.WriteString(string(u.Kind))
+		b.WriteByte('/')
+		b.WriteString(u.Identity)
+	default:
 		b.WriteString(string(u.Kind))
 		b.WriteByte('/')
 		b.WriteString(u.SpaceId)
@@ -191,7 +220,7 @@ func (u URI) String() string {
 	return b.String()
 }
 
-// Parse decodes any of the typed forms plus the two legacy bare forms.
+// Parse decodes any of the typed forms plus the legacy forms.
 // Malformed input wraps ErrInvalid; a well-formed URI of an unknown
 // kind wraps ErrKindUnknown (see the package doc for the distinction).
 func Parse(s string) (URI, error) {
@@ -246,11 +275,16 @@ func Parse(s string) (URI, error) {
 			return URI{}, fmt.Errorf("%w: kind %q wants 2 or 4 path segments after the kind, got %d in %q",
 				ErrInvalid, u.Kind, len(args), s)
 		}
+	case KindIdentity:
+		if err := arity(1); err != nil {
+			return URI{}, err
+		}
+		u.Identity = args[0]
 	case KindMention:
 		if err := arity(2); err != nil {
 			return URI{}, err
 		}
-		u.SpaceId, u.Identity = args[0], args[1]
+		u.SpaceId, u.Identity, u.Legacy = args[0], args[1], true
 	case KindSpace:
 		if err := arity(1); err != nil {
 			return URI{}, err
@@ -286,7 +320,33 @@ func IsValid(s string) bool {
 // fragment-less "any://<objectId>".
 func IsPropertyValueRef(s string) bool {
 	u, err := Parse(s)
-	return err == nil && u.Legacy && u.SpaceId == "" && u.Fragment == ""
+	return err == nil && u.Legacy && u.Kind == KindObject && u.SpaceId == "" && u.Fragment == "" && u.String() == s
+}
+
+// IsIdentityValueRef reports whether s is exactly the strict form
+// member property values require: "any://u/<identity>" with a base58
+// identity, no params, no fragment. The legacy m form is not a value.
+func IsIdentityValueRef(s string) bool {
+	u, err := Parse(s)
+	return err == nil && u.Kind == KindIdentity && u.Fragment == "" && isBase58(u.Identity) && u.String() == s
+}
+
+// isBase58 reports whether s is non-empty and drawn from the base58
+// alphabet account identities are encoded in (no 0, O, I, l).
+func isBase58(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= '1' && c <= '9', c >= 'a' && c <= 'k', c >= 'm' && c <= 'z',
+			c >= 'A' && c <= 'H', c >= 'J' && c <= 'N', c >= 'P' && c <= 'Z':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // isKindSlug reports whether a first path segment sits in the reserved

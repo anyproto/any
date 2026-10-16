@@ -166,13 +166,13 @@ Unread can appear mid-history: a message written offline by another member can s
 
 ## Mentions
 
-A mention is a markdown link whose destination is a mention URI (see [links](links.html)):
+A mention is a markdown link whose destination is an identity URI (see [links](links.html)):
 
 ```
-Hey [Zarko](any://m/<spaceId>/<identity>), take a look
+Hey [Zarko](any://u/<identity>), take a look
 ```
 
-The server derives `mentions: ["<identity>", …]` on every message at write time from two sources: every `any://m/…` link in the text (deduped, first-occurrence order) and — because a reply is a ping — the replied-to message's creator. Clients never write the array; text is the source of truth, so a spoofed array can neither silent-ping nor suppress a real ping. It is capped at 64 identities, and the reply fold-in always survives the cap. "All my mentions" and "my unread mentions" are the same shapes as the unread queries: `{"mentions": "<myIdentity>"}` sorted `-_ver.id`, and `{"unreadMention": true}` sorted `_ver.id` with `limit: 1`. Self-mentions list you (an objective fact of the message) but never badge you, except on an agent's `done: true` message, which counts like anyone else's.
+The server derives `mentions: ["<identity>", …]` on every message at write time from two sources: every `any://u/…` link in the text (deduped, first-occurrence order; the legacy `any://m/<spaceId>/<identity>` form counts too) and — because a reply is a ping — the replied-to message's creator. Clients never write the array; text is the source of truth, so a spoofed array can neither silent-ping nor suppress a real ping. It is capped at 64 identities, and the reply fold-in always survives the cap. "All my mentions" and "my unread mentions" are the same shapes as the unread queries: `{"mentions": "<myIdentity>"}` sorted `-_ver.id`, and `{"unreadMention": true}` sorted `_ver.id` with `limit: 1`. Self-mentions list you (an objective fact of the message) but never badge you, except on an agent's `done: true` message, which counts like anyone else's.
 
 Every `any://` reference in a message — text links and mentions, each attachment's `link`, the agent's `debugLink` — also lands in the server's link index, so "which messages mention this member" or "which messages link this page" is a backlinks read (see [objects](../database/objects.html#links-and-backlinks)).
 

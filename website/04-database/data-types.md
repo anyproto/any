@@ -54,7 +54,7 @@ Instants are what the aggregation date operators (`$year`, `$dateTrunc`, `$dateD
 }
 ```
 
-Those six keys and `links` are the ones the server interprets; any other top-level key is a vendor namespace stored verbatim. `links` marks a value the [link index](../types/links.html) scans for `any://` references — `link` (one string), `links` (an array), `markdown` (text) or `none` (never scanned); the `relation` and `markdown` slugs imply it. `validate` and `compute` are reserved. The slug set is open — an unknown `type` renders structurally from `kind` and gets no value checks — and this is the documented vocabulary:
+Those six keys and `links` are the ones the server interprets; any other top-level key is a vendor namespace stored verbatim. `links` marks a value the [link index](../types/links.html) scans for `any://` references — `link` (one string), `links` (an array), `markdown` (text) or `none` (never scanned); the `relation`, `member` and `markdown` slugs imply it. `validate` and `compute` are reserved. The slug set is open — an unknown `type` renders structurally from `kind` and gets no value checks — and this is the documented vocabulary:
 
 | `type` | `kind` | Value the server accepts | Extras |
 |--------|--------|--------------------------|--------|
@@ -64,6 +64,7 @@ Those six keys and `links` are the ones the server interprets; any other top-lev
 | `email` | `string` | One `local@domain`. | |
 | `choice` | `array` | Option keys — one unless `config.multiple`. | `options.<key>` = `{name, color, pos, meta?}`; the key is the stored value. |
 | `relation` | `array` | Plain `any://<objectId>` URIs — no space segment, no fragment; one unless `config.multiple`. | `relation.targetTypes` (type xKeys), `relation.filter` (a query condition as JSON text). |
+| `member` | `array` | `any://u/<identity>` URIs — space members by account identity: a base58 identity, no params, no fragment, not the legacy `m` form; one unless `config.multiple`. | Resolve the name and avatar through the [identities directory](../auth/identities.html); the [members list](../collaboration/members-and-roles.html) is the picker and the roster status; a removed member keeps the value. |
 | `number`, `currency`, `percent`, `duration` | `number` | A number. | `config` display settings (`decimals`, `currency`, `unit`, …). |
 | `rating` | `number` | A number; within `0..config.max` when `max` is set. | |
 | `checkbox` | `boolean` | A boolean. | |
@@ -73,7 +74,7 @@ Those six keys and `links` are the ones the server interprets; any other top-lev
 | `money` | `object` | `{amount, currency}` exactly. | Written whole. |
 | `geo` | `object` | `{lat, lng}` in range exactly. | Written whole. |
 
-A value that does not fit the property's current slug is `400 property.format_violation` (`details: {propId, format, reason}`); a descriptor that does not fit the kind, a reserved key or an unparseable filter is `400 property.format_invalid`. Option membership is not enforced on `choice` values and no object-existence or object-type check runs on `relation` values — both are dangling-tolerant by design. `tags` is reserved. The full contract, including the client-side rendering and tolerance rules, is the server's `docs/27-descriptors.md`.
+A value that does not fit the property's current slug is `400 property.format_violation` (`details: {propId, format, reason}`); a descriptor that does not fit the kind, a reserved key or an unparseable filter is `400 property.format_invalid`. Option membership is not enforced on `choice` values, no object-existence or object-type check runs on `relation` values, and no roster check runs on `member` values — all three are dangling-tolerant by design. `tags` is reserved. The full contract, including the client-side rendering and tolerance rules, is the server's `docs/27-descriptors.md`.
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/properties \

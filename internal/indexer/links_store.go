@@ -43,7 +43,9 @@ const (
 	// space on the cursors row (`links`). An indexed space whose stamp
 	// is behind is backfilled from its records — every object
 	// re-extracted once, text docs untouched — by its worker.
-	linksSchemaVersion = 1
+	// v2 = identity targets keyed `any://u/<identity>`; edges written
+	// under `any://m/<spaceId>/<identity>` are re-keyed by the backfill.
+	linksSchemaVersion = 2
 )
 
 // LinkDoc is one stored edge.
