@@ -65,6 +65,10 @@ type notifyJob struct {
 	payload []byte
 	groupId string
 	silent  bool
+	// ownDevices keeps the publisher's own devices in the loud
+	// fan-out (PushAPI.NotifyOwnDevices); topics must be
+	// identity-scoped.
+	ownDevices bool
 }
 
 // Service is the per-account push service. New → Start → Close; all
@@ -88,11 +92,12 @@ type Service struct {
 	notifyQ chan notifyJob
 
 	mu             sync.Mutex
-	token          *deviceToken // nil = no token on this device
-	tokenForwarded bool         // token accepted by the push node since it last changed
-	lastSyncedHash string       // desiredHash of the last SUCCESSFUL SubscribeAll round ("" = never)
-	notConfigured  bool         // SDK opened without a push node — loops idle (logged once)
-	capture        CaptureFunc  // test seam — diverts Enqueue, nil in production
+	token          *deviceToken  // nil = no token on this device
+	tokenForwarded bool          // token accepted by the push node since it last changed
+	lastSyncedHash string        // desiredHash of the last SUCCESSFUL SubscribeAll round ("" = never)
+	notConfigured  bool          // SDK opened without a push node — loops idle (logged once)
+	capture        CaptureFunc   // test seam — diverts Enqueue, nil in production
+	ownDeviceDelay time.Duration // wait before an own-devices push, dropped if read meanwhile
 	// lastChatModes is the per-space last-known-good chat enumeration —
 	// the fail-safe collectChatModes falls back to when a space's
 	// enumeration fails (a bulk fallback would silently unmute muted
@@ -119,7 +124,7 @@ func (s *Service) push() space.PushAPI {
 
 // CaptureFunc receives one would-be-enqueued notification. Test seam;
 // see CaptureNotifications.
-type CaptureFunc func(spaceId string, topics []string, payload []byte, groupId string, silent bool)
+type CaptureFunc func(spaceId string, topics []string, payload []byte, groupId string, silent, ownDevices bool)
 
 // CaptureNotifications diverts every subsequent Enqueue into fn
 // instead of the delivery queue — the test seam for asserting the
@@ -131,17 +136,32 @@ func (s *Service) CaptureNotifications(fn CaptureFunc) {
 	s.mu.Unlock()
 }
 
+// SetOwnDeviceDelay overrides how long an own-devices push waits for
+// a read before it is sent (defaultOwnDeviceDelay). Test seam.
+func (s *Service) SetOwnDeviceDelay(d time.Duration) {
+	s.mu.Lock()
+	s.ownDeviceDelay = d
+	s.mu.Unlock()
+}
+
+func (s *Service) ownDelay() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ownDeviceDelay
+}
+
 // New constructs the service. accountDir is the per-account data dir
 // (wallet.key, server.pid, …) where push-token.json lives. Call Start
 // to begin background work; the token/notify surfaces are inert but
 // safe before that.
 func New(sdk *anysyncsdk.SDK, accountDir string) *Service {
 	return &Service{
-		sdk:     sdk,
-		dir:     accountDir,
-		lg:      logger.NewNamed("push"),
-		dirty:   make(chan struct{}, 1),
-		notifyQ: make(chan notifyJob, notifyQueueCap),
+		sdk:            sdk,
+		dir:            accountDir,
+		lg:             logger.NewNamed("push"),
+		dirty:          make(chan struct{}, 1),
+		notifyQ:        make(chan notifyJob, notifyQueueCap),
+		ownDeviceDelay: defaultOwnDeviceDelay,
 	}
 }
 
@@ -308,16 +328,16 @@ func (s *Service) Subscriptions(ctx context.Context) ([]space.PushSubscription, 
 // overflow the notification is dropped with a warning — push is a
 // best-effort side channel, the message itself is already synced.
 // Fed by the chat handler hooks in chatpush.go.
-func (s *Service) Enqueue(spaceId string, topics []string, payload []byte, groupId string, silent bool) {
+func (s *Service) Enqueue(spaceId string, topics []string, payload []byte, groupId string, silent, ownDevices bool) {
 	s.mu.Lock()
 	capture := s.capture
 	s.mu.Unlock()
 	if capture != nil {
-		capture(spaceId, topics, payload, groupId, silent)
+		capture(spaceId, topics, payload, groupId, silent, ownDevices)
 		return
 	}
 	select {
-	case s.notifyQ <- notifyJob{spaceId: spaceId, topics: topics, payload: payload, groupId: groupId, silent: silent}:
+	case s.notifyQ <- notifyJob{spaceId: spaceId, topics: topics, payload: payload, groupId: groupId, silent: silent, ownDevices: ownDevices}:
 	default:
 		s.lg.Warn("push notify queue full — dropping notification", zap.String("spaceId", spaceId))
 	}
@@ -709,6 +729,9 @@ func (s *Service) notifyOnce(job notifyJob) error {
 	defer cancel()
 	if job.silent {
 		return s.push().NotifySilent(ctx, job.spaceId, job.groupId)
+	}
+	if job.ownDevices {
+		return s.push().NotifyOwnDevices(ctx, job.spaceId, job.topics, job.payload, job.groupId)
 	}
 	return s.push().Notify(ctx, job.spaceId, job.topics, job.payload, job.groupId)
 }

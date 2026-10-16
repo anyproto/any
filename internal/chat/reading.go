@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 
+	"github.com/anyproto/any-store/v2/anyenc"
 	"github.com/anyproto/any-store/v2/query"
 	"github.com/anyproto/any-sync-sdk/handler"
 	"github.com/anyproto/any-sync-sdk/space"
@@ -88,9 +89,17 @@ const PropNotifyMode = "notifyMode"
 //     never lights your counter (audienceAuthor below).
 //   - Deletes are untracked: the SDK clears a deleted record's unread
 //     entries itself.
+//   - An agent's terminal message (`agent.done == true` on a create)
+//     sets TrackSelfAuthored: the agent writes under the owner's key,
+//     so without it the reply is born read on every owner device and
+//     can never badge. Intermediate (`done: false`) bubbles stay born
+//     read — one unread per completed run, not per streamed chunk.
+//     `agent` is create-only and immutable, so the verdict replays
+//     deterministically.
 //
 // Self-mentions and self-replies never badge — self-authored changes
-// are born read account-wide regardless of the verdict.
+// are born read account-wide regardless of the verdict, agent
+// terminal messages excepted.
 func classifyRead(ctx *handler.ChangeCtx, rec *handler.RecordChange) handler.ReadClassification {
 	// One verdict per record change, so a crafted multi-op change must
 	// not let one op SHADOW another's verdict: scan every op first,
@@ -104,6 +113,16 @@ func classifyRead(ctx *handler.ChangeCtx, rec *handler.RecordChange) handler.Rea
 	// the mention without the badge.
 	var reaction *handler.ReadClassification
 	textEdit := false
+	// An upsert is a create only when THIS change stamped the record's
+	// creation version; an upsert on an existing record is an edit and
+	// must classify as one (never re-flag `unread`, never re-read
+	// `agent`).
+	var post *anyenc.Value
+	creating := false
+	if rec.Upsert {
+		post = postApplyRecord(ctx)
+		creating = createdBy(post, ctx)
+	}
 	for i := range rec.Ops {
 		op := &rec.Ops[i]
 		switch op.Type {
@@ -127,16 +146,21 @@ func classifyRead(ctx *handler.ChangeCtx, rec *handler.RecordChange) handler.Rea
 				}
 			}
 			// text — an edit. Real creates carry a multi-field $set
-			// (empty path); the Upsert guard keeps any create shape on
-			// the create branch below. The record id is explicit on
+			// (empty path); the creating guard keeps any create shape
+			// on the create branch below. The record id is explicit on
 			// edits, so it's safe in the supersede key.
-			if !rec.Upsert && op.Type == handler.OpSet && len(op.Path) == 1 && op.Path[0] == FieldText {
+			if !creating && op.Type == handler.OpSet && len(op.Path) == 1 && op.Path[0] == FieldText {
 				textEdit = true
 			}
 		}
 	}
-	if textEdit && mentionsSelf(ctx) {
-		return handler.ReadClassification{Track: true, Tags: []string{TagMention}, Key: "mention:" + rec.Id}
+	if textEdit {
+		if post == nil {
+			post = postApplyRecord(ctx)
+		}
+		if mentionsSelf(post, ctx) {
+			return handler.ReadClassification{Track: true, Tags: []string{TagMention}, Key: "mention:" + rec.Id}
+		}
 	}
 	if reaction != nil {
 		return *reaction
@@ -145,31 +169,52 @@ func classifyRead(ctx *handler.ChangeCtx, rec *handler.RecordChange) handler.Rea
 		// Mention-less edit: clears a previously edit-tracked mention.
 		return handler.ReadClassification{Key: "mention:" + rec.Id}
 	}
-	if rec.Upsert {
+	if creating {
 		tags := []string{TagMessage}
-		if mentionsSelf(ctx) {
+		if mentionsSelf(post, ctx) {
 			tags = append(tags, TagMention)
 		}
-		return handler.ReadClassification{Track: true, Tags: tags}
+		return handler.ReadClassification{
+			Track:             true,
+			Tags:              tags,
+			TrackSelfAuthored: post.GetBool(FieldAgent, FieldAgentDone),
+		}
 	}
 	return handler.ReadClassification{}
 }
 
-// mentionsSelf reports whether the just-applied record's derived
-// `mentions` array contains this replica's account. Classification
+// createdBy reports whether ctx's change created the record: the
+// creation version marker `_ver.id` is stamped once, by the creating
+// change, and equals that change's version on every replica (each
+// compares its own local ids). Without a resolvable record or change
+// an Upsert is taken at face value.
+func createdBy(post *anyenc.Value, ctx *handler.ChangeCtx) bool {
+	if post == nil || ctx == nil || ctx.Change == nil {
+		return true
+	}
+	return string(post.GetStringBytes("_ver", "id")) == string(ctx.Change.VersionId)
+}
+
+// postApplyRecord point-reads the just-applied record. Classification
 // runs after the record loop in the same tx, so ctx.Get sees the
-// array the handler stamped for this very change — one read covers
+// fields the handler stamped for this very change. nil when the
+// context cannot resolve it; anyenc accessors are nil-safe.
+func postApplyRecord(ctx *handler.ChangeCtx) *anyenc.Value {
+	if ctx == nil || ctx.Get == nil || ctx.RecordId == "" {
+		return nil
+	}
+	return ctx.Get(Dataset, ctx.RecordId)
+}
+
+// mentionsSelf reports whether the post-apply record's derived
+// `mentions` array contains this replica's account — one read covers
 // text mentions AND the reply fold-in, with no duplicate parsing. An
 // Audience filter can't express this: it gates the WHOLE verdict, and
 // on creates the mention tag rides next to the unconditional
 // "message" tag. Verdicts are device-local, so keying off
 // SelfIdentity here is sound.
-func mentionsSelf(ctx *handler.ChangeCtx) bool {
-	if ctx == nil || ctx.Get == nil || ctx.SelfIdentity == "" || ctx.RecordId == "" {
-		return false
-	}
-	rec := ctx.Get(Dataset, ctx.RecordId)
-	if rec == nil {
+func mentionsSelf(rec *anyenc.Value, ctx *handler.ChangeCtx) bool {
+	if rec == nil || ctx.SelfIdentity == "" {
 		return false
 	}
 	for _, v := range rec.GetArray(FieldMentions) {

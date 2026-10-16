@@ -149,7 +149,7 @@ The SDK maintains, per message, the local flags `unread`, `unreadMention` (the m
 A counter is absent until first materialized — treat absent as 0, and read it at `chat.unreadCount`, never top-level (a top-level path reads 0 forever). Rules that follow:
 
 - **Never count unread client-side.** Badge from the row; filter messages with `{"unread": true}`.
-- **Your own messages are born read** on every one of your devices. Never call a read endpoint after sending.
+- **Your own messages are born read** on every one of your devices. Never call a read endpoint after sending. The exception is an agent's `done: true` message: signed with your key, but unread on all your devices until you read it, so "your agent replied" badges like any other message.
 - Edits never re-flag `unread`. The one exception is mentions: an edit whose new text mentions you sets `unreadMention`, and repeated re-edits collapse into one live mention entry.
 - Reactions badge the message's author, nobody else. A reaction added and removed before you looked leaves no trace.
 
@@ -172,7 +172,7 @@ A mention is a markdown link whose destination is an identity URI (see [links](l
 Hey [Zarko](any://u/<identity>), take a look
 ```
 
-The server derives `mentions: ["<identity>", …]` on every message at write time from two sources: every `any://u/…` link in the text (deduped, first-occurrence order; the legacy `any://m/<spaceId>/<identity>` form counts too) and — because a reply is a ping — the replied-to message's creator. Clients never write the array; text is the source of truth, so a spoofed array can neither silent-ping nor suppress a real ping. It is capped at 64 identities, and the reply fold-in always survives the cap. "All my mentions" and "my unread mentions" are the same shapes as the unread queries: `{"mentions": "<myIdentity>"}` sorted `-_ver.id`, and `{"unreadMention": true}` sorted `_ver.id` with `limit: 1`. Self-mentions list you (an objective fact of the message) but never badge you.
+The server derives `mentions: ["<identity>", …]` on every message at write time from two sources: every `any://u/…` link in the text (deduped, first-occurrence order; the legacy `any://m/<spaceId>/<identity>` form counts too) and — because a reply is a ping — the replied-to message's creator. Clients never write the array; text is the source of truth, so a spoofed array can neither silent-ping nor suppress a real ping. It is capped at 64 identities, and the reply fold-in always survives the cap. "All my mentions" and "my unread mentions" are the same shapes as the unread queries: `{"mentions": "<myIdentity>"}` sorted `-_ver.id`, and `{"unreadMention": true}` sorted `_ver.id` with `limit: 1`. Self-mentions list you (an objective fact of the message) but never badge you, except on an agent's `done: true` message, which counts like anyone else's.
 
 Every `any://` reference in a message — text links and mentions, each attachment's `link`, the agent's `debugLink` — also lands in the server's link index, so "which messages mention this member" or "which messages link this page" is a backlinks read (see [objects](../database/objects.html#links-and-backlinks)).
 
