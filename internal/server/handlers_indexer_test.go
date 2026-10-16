@@ -33,11 +33,22 @@ func mustCreateSpace(t *testing.T, e http.Handler, name string) string {
 func pollSearch(t *testing.T, e http.Handler, spaceId string, req api.SearchRequest, check func(api.SearchResponse) bool, what string) {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
+	body, _ := json.Marshal(req)
 	var last api.SearchResponse
 	for {
-		last = doSearch(t, e, spaceId, req, http.StatusOK)
-		if check(last) {
-			return
+		rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/search", string(body))
+		switch {
+		case rec.Code == http.StatusServiceUnavailable && strings.Contains(rec.Body.String(), `"index.not_ready"`):
+			// The worker has not opened the space's index yet; retryable by contract.
+		case rec.Code != http.StatusOK:
+			t.Fatalf("search: status %d body=%s", rec.Code, rec.Body.String())
+		default:
+			if err := json.Unmarshal(rec.Body.Bytes(), &last); err != nil {
+				t.Fatalf("decode search response: %v", err)
+			}
+			if check(last) {
+				return
+			}
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("%s: condition never met; last hits = %v", what, hitRecordIds(last))

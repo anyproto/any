@@ -227,10 +227,13 @@ func (w *spaceWorker) onIndexBuild(ev space.IndexBuild) {
 // applied batches, so a retry resumes exactly where it failed).
 func (w *spaceWorker) advanceLoop() {
 	defer w.ix.wg.Done()
-	// A db whose edges predate the link sink's layout is backfilled
-	// first — here, off the boot path and outside the indexer lock, so
-	// a first start after an upgrade neither stalls the server nor
-	// blocks Close.
+	// The space's collection is opened first — here, off the boot path
+	// and outside the indexer lock — so an index that predates the
+	// full-text layout is rewritten on this goroutine right after boot
+	// (Store.upgradeFTS), never on a request's: a search on the space
+	// answers not-ready until the rewrite commits. Then a db whose edges
+	// predate the link sink's layout is backfilled, for the same reason.
+	w.openIndex(w.ctx)
 	w.backfillLinks(w.ctx)
 	w.runAdvance()
 	for {
@@ -893,6 +896,15 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 		if len(ids) < batch*conc {
 			return nil // last page
 		}
+	}
+}
+
+// openIndex opens the space's collection, ensuring its indexes and
+// rewriting an old full-text layout in place. A failure is logged (a
+// stopped worker is not one) and the first advance opens it again.
+func (w *spaceWorker) openIndex(ctx context.Context) {
+	if _, err := w.ix.store.spaceColl(ctx, w.sp.Id()); err != nil && ctx.Err() == nil {
+		w.ix.lg.Warn("open the space's index", zap.String("spaceId", w.sp.Id()), zap.Error(err))
 	}
 }
 

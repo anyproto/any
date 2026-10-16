@@ -144,7 +144,7 @@ any space derived create <name>                     # materialize one (idempoten
 any space query      [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--projection ...] [--dataset spaces|profile]
 any space subscribe  [same flags]                   # windowed space-list SSE
 any datasets [<spaceId>]                            # dataset schemas (JSON Schema + x-scope)
-any search <spaceId> <query> [--scopes basic,chat,props] [--limit N] [--mode hybrid|fts|vector] [--require T ...] [--exclude T ...] [--max-data N] [--passages N] [--filter JSON|@FILE|-]
+any search <spaceId> <query> [--scopes basic,chat,props] [--limit N] [--mode hybrid|fts|vector|title] [--require T ...] [--exclude T ...] [--max-data N] [--passages N] [--filter JSON|@FILE|-]
 any backlinks <spaceId> <objectId> [--record ID --dataset NAME | --prop ID] [--kind K ...] [--limit N]
 any backlinks --target <any://…> [--kind K ...] [--limit N]         # across every indexed space
 any links <spaceId> <objectId> [--record ID --dataset NAME | --prop ID] [--kind K ...] [--limit N]
@@ -162,8 +162,12 @@ only those edge kinds (`mention`, `link`, `card`, `embed`, `relation`);
 local FTS + vector index over chats, editor blocks, and properties
 (contract in `docs/13-index.md`). Default mode is `hybrid`; without an
 embedder configured on the server it degrades to FTS (the reply's
-`mode` says which ran). The `query` accepts `"quoted phrases"` and
-`prefix*` on the lexical leg; `--require` / `--exclude` (repeatable) add
+`mode` says which ran). `hybrid` and `fts` list the objects whose name
+matches the typed words first (`match` on the hit names the tier);
+`--mode title` lists those alone, one hit per object, and takes no
+`--scopes` or `--passages`. The `query` accepts `"quoted phrases"`,
+`prefix*`, `"phrase pre"*` and `^anchored` clauses on the lexical leg;
+`--require` / `--exclude` (repeatable) add
 must / must-not terms; `--max-data N` bounds each hit's `data` window
 (default 512 runes, `-1` = the whole chunk). `--limit N` counts
 records (one hit per record, default 10, max 100); `--passages N`

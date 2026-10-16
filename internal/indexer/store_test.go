@@ -272,6 +272,9 @@ func TestStore_VectorMinSimFloor(t *testing.T) {
 	}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.EnsureVectorIndex(ctx, sp); err != nil {
+		t.Fatal(err)
+	}
 	query := []float32{1, 0}
 
 	// floor 0: legacy behavior, both positive-sim hits survive.
@@ -370,6 +373,9 @@ func TestStore_VectorPendingLifecycle(t *testing.T) {
 		t.Fatalf("props fts hits = %+v, want p1", ftsHits)
 	}
 
+	if _, err := s.EnsureVectorIndex(ctx, sp); err != nil {
+		t.Fatal(err)
+	}
 	query := []float32{0.9, 0.1, 0, 0}
 	hits, err := s.SearchVector(ctx, sp, query, nil, 10, 0)
 	if err != nil {
@@ -466,6 +472,9 @@ func TestStore_LazyDim(t *testing.T) {
 		t.Fatalf("Dim() = %d, want 4", s.Dim())
 	}
 	if err := s.SetVectors(ctx, sp, ids, [][]float32{{1, 0, 0, 0}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EnsureVectorIndex(ctx, sp); err != nil {
 		t.Fatal(err)
 	}
 	hits, err = s.SearchVector(ctx, sp, []float32{1, 0, 0, 0}, nil, 10, 0)

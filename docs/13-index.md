@@ -156,7 +156,9 @@ id `objectId:prop:<propId>`:
   another scope re-enters the vector pipeline.
 - **Built-ins `any.name` and `any.description` always index** under
   scope `basic`, reserved recordIds `name` / `description`, raw (no name
-  prefix, no title) — except for rows with an excluded member. The
+  prefix, no title) — except for rows with an excluded member. The name
+  doc's text is stored in the index's `name` field, the description's in
+  `data` (§ Store layout). The
   exclusion list always holds `__type__` and `__collection__`: definition rows are
   schema, not knowledge (discovery is `GET …/types`), and their one-word
   names would otherwise win BM25 on field-length normalization.
@@ -449,17 +451,20 @@ after the last write) and dirty sentinel as `sdk.db`.
 (`GET /v1/processes`, `22-processes.md` § Internal producers) as
 device-scope processes — `index.fts.<spaceId>` (advance pass, done =
 changes, total unknown), `index.embed.<spaceId>` (vector drain,
-done/total docs), `index.links_backfill.<spaceId>` (objects) and
-`index.model_download` (bytes). The fts, embed and backfill processes
-announce only past 3 s of elapsed work (`Options.AnnounceAfter`), so
-routine per-edit indexing never appears (`Options.OnProcess`, bridged in
+done/total docs), `index.links_backfill.<spaceId>` (objects),
+`index.fts_upgrade.<spaceId>` (the full-text index rewritten in place
+on the space's first open after a layout change, § Store layout; no
+counters) and `index.model_download` (bytes). The fts, embed, backfill
+and upgrade processes announce only past 3 s of elapsed work
+(`Options.AnnounceAfter`), so routine per-edit indexing and a small
+space's rewrite never appear (`Options.OnProcess`, bridged in
 `internal/server/engine.go`).
 
 ### Store layout
 
 - **One collection per space** (named by spaceId). Doc shape:
-  `{id, scope, objectId, dataset, recordId, chunk?, data, title, hash,
-  applySeq, vector?, pending?}` where `id` is `objectId:dataset:recordId`
+  `{id, scope, objectId, dataset, recordId, chunk?, data | name, title,
+  hash, applySeq, vector?, pending?}` where `id` is `objectId:dataset:recordId`
   for a record's first chunk and that base + `U+001F` + `n` for chunk
   `n > 0` (`chunk` is stored only when non-zero). Every removal is a
   primary-key range: `objectId:` (object deleted), `objectId:dataset:`
@@ -473,16 +478,53 @@ routine per-edit indexing never appears (`Options.OnProcess`, bridged in
   ranges use bytewise bounds `[P, P[:len-1]+";")` (`;` = `:`+1) and
   drive the primary btree directly; per-doc deletion cleans FTS and
   vector entries in the same transaction.
-- Indexes per collection: BM25 **full-text** on `data` (plus `title`
-  when `index.search.titleWeight > 0`); a range index on `objectId` (the
+- **The object's name has its own field.** The prop chunker's name
+  entry (`objectId:prop:name`) stores its text in `name` instead of
+  `data` (`isNameDoc`), chunk 0 only — a name past the chunk bound
+  continues in `data` docs, so `^` never anchors on the middle of a
+  name; every other doc holds `data`. Reads take whichever is set.
+  `name` is the full-text index's FIRST field, so a `^`-anchored clause
+  tests the name's first token and a `$fields: ["name"]` clause matches
+  names only — the title pass (§ Search) needs both. An unscoped `$text`
+  matches every field, so content search sees names too. A collection
+  written before the field is moved onto
+  it in place on its first open (`Store.upgradeFTS`): the full-text
+  index is dropped, the name docs' text moves from `data` to `name`, and
+  the index is recreated over the new field set and backfilled by
+  any-store from the stored docs, in one write transaction — vectors,
+  hashes, cursors and links untouched, nothing re-embeds. The state is
+  the index's own field list, read again once the transaction holds the
+  write lock, so an interrupted upgrade is redone on the next open and
+  the concurrent first opens of a cold space (its worker, its embed
+  loop, the first searches) rewrite it once. Two passes over the
+  collection, about 18 s per 100k docs of article-sized windows
+  (`search/README.md` § Titles first), once per space, serialized on
+  the store's write lock: every index write of every space queues
+  behind the rewrites in flight. Reads never do — the search paths open
+  a collection without DDL (`Store.spaceCollRead`), so a search on a
+  space whose rewrite has not committed answers `ErrIndexNotReady`
+  (`503 index.not_ready`) at once and a search on any other space is
+  unaffected. The rewrite is reported as `index.fts_upgrade.<spaceId>`
+  on the process view (§ Observability), which is what a client shows
+  behind the not-ready answer. Server start does not wait for it: each
+  space's worker opens its collection first thing on its own goroutine
+  (`spaceWorker.openIndex`), so the rewrites run right after boot and
+  never on a request goroutine. A worker whose ctx ended while it
+  queued for the lock skips its rewrite, so teardown waits for at most
+  the one in flight — which the exit rolls back and the next boot
+  redoes. A failed rewrite is left alone for a minute
+  (`ftsUpgradeBackoff`) before the next open tries again.
+- Indexes per collection: BM25 **full-text** on `name` + `data` (plus
+  `title` when `index.search.titleWeight > 0`); a range index on `objectId` (the
   search filter's residual seeks it — § Filtering by object; structural
   deletes never use it, they are primary-key ranges; an existing
   collection backfills it in one write transaction on its first open
   after the upgrade, ~0.2 s per 100k docs, and every chunk upsert
   maintains it from then on); sparse range on `pending`
   (the embed queue); and — once at least one embedded doc exists — a
-  **cosine vector index** on `vector`, created lazily
-  (`Store.EnsureVectorIndex`) because IVF trains from existing docs. The
+  **cosine vector index** on `vector`, created lazily by the embed loop
+  (`Store.EnsureVectorIndex`) because IVF trains from existing docs; a
+  search only looks for it (`Store.vectorColl`), never creates it. The
   strategy (`index.vector.mode`, `Store.vectorIndexParams`) defaults to
   **IVF-SQ**: cheap near-flat incremental ingest and physical deletes,
   ~3–4 recall@10 below exact (`search/README.md` § Index mode).
@@ -497,10 +539,14 @@ routine per-edit indexing never appears (`Options.OnProcess`, bridged in
   one, because erasing it would silently disable rebuild detection. A
   `_meta` row pins the **schema version** (`indexSchemaVersion` in
   `store.go`), the **vector dimension** and the **chunk target**. A
-  mismatch is refused with `ErrIndexRebuildRequired` naming the
-  directory to remove — at open, or for the dimension when an embedder
-  first answers with a different one. There is no migration: the index
-  is derived state and rebuilds from cursor 0.
+  stamp one step behind is adopted at open: the layout it lacks (the
+  `name` field) is applied per collection on its first open, and the
+  stamp moves, so an older build then refuses the db with the guidance
+  below instead of failing every space on an index definition it cannot
+  apply. Any other mismatch is refused with `ErrIndexRebuildRequired`
+  naming the directory to remove — at open, or for the dimension when an
+  embedder first answers with a different one. The docs themselves are
+  never migrated: the index is derived state and rebuilds from cursor 0.
 
 ### Re-index triggers — per-space worker boot
 
@@ -776,13 +822,14 @@ derived cache, so deleting it is always the whole fix.
 `POST /v1/spaces/:spaceId/search` `{query, scopes?, limit?, mode?,
 require?, exclude?, maxData?, passages?, filter?}` →
 `{hits: [{scope, objectId, dataset, recordId, chunk?, data, dataOffset?,
-dataTotal, score, passages?}], mode, vectorStatus, truncated?}`.
+dataTotal, score, match?, passages?}], mode, vectorStatus, truncated?}`.
 
 Modes: `fts` (BM25), `vector` (cosine ANN; requires an embedder; hits
 with similarity ≤ 0 — or ≤ `minVectorSim` — are dropped), `hybrid`
 (default — both legs fused by reciprocal rank, k = 60; degrades to `fts`
 when no embedder is configured or the query embedding fails or exceeds
-its budget — `mode` in the reply is the mode that ran). The query
+its budget — `mode` in the reply is the mode that ran), `title` (the
+title pass alone, below). The query
 embedding is bounded by `index.search.queryEmbedTimeout` (default 5 s,
 every embedder): a cold model load, a wedged child or a slow API
 degrades the search instead of holding it, and a caller that disconnects
@@ -791,13 +838,71 @@ one response. `limit` defaults to 10 and is clamped to 100. CLI:
 `any search <spaceId> <query> [--scopes a,b] [--limit N] [--mode …]
 [--require T …] [--exclude T …] [--max-data N] [--passages N]`.
 
+**Titles first — the title pass (`titles.go`).** Every `hybrid` and
+`fts` search opens with the objects whose NAME matches the typed words,
+and `title` mode runs that pass alone. It is any-store's
+search-as-you-type recipe (the any-store module's
+`docs/full-text-search.md` § Search-as-you-type) over the `name` field
+(§ Store layout): the query is split by the index's own analyzer
+(`anystore.FtsAnalyzeTerms`), the last word is a prefix unless the query
+ends in whitespace, and the tiers run as separate lexical cursors, most
+specific first, each `{$search, $defaultOperator: and, $fields:
+["name"]}` plus the request's `require` / `exclude` and the `filter`
+residual, until `limit` objects are collected — later tiers are skipped
+once the page is full:
+
+| Tier | `$search` | `match` |
+|---|---|---|
+| the name is the typed words | `^"mario kart"` (no star), kept when the name's terms equal the typed terms | `exact` |
+| the name starts with them | `^"mario ka"*` | `prefix` |
+| they appear in order inside it | `"mario ka"*` | `phrase` |
+| every word in the name, any order (two or more words) | `"mario" "ka"*` | `words` |
+
+Within a tier the store's BM25 order stands — an anchored or phrase
+clause scores one occurrence, so that is the shortest names first — and
+names of equal score list alphabetically (which of them make a short
+page is the engine's order). The exact tier exists because the prefix
+tier's cut falls among such ties: "Mario Kart" and "Mario Karts" score
+alike. One hit per object:
+`{scope: basic, objectId, dataset: prop, recordId: name, data: <name>,
+match}` with the tier on `match`; a content hit carries no `match`.
+Title hits lead the reply in tier order and count toward `limit`; the
+content legs fill the rest — a page the titles fill runs no content leg
+and embeds no query (`vectorStatus: skipped`, `disabled` on a server
+without an embedder; `mode` is the content mode that would have run,
+`fts` without an embedder), which is what lets the default mode answer
+a search box without the embedding wait while the typed words still
+name objects. The records shown as titles are dropped inside the
+content legs, before they count toward a cover, so the name doc never
+repeats and the page stays full; the object's other records (body
+windows) still come back as their own hits — the reply unit is the
+record. `require` / `exclude` bind a title hit against the name alone:
+a term that occurs only in a body keeps the object out of the title
+block, and the body still answers through the content legs. The pass
+runs only when `scopes` is empty or includes `basic`, the name doc's
+scope. Because the queries are built from analyzed terms, typed
+punctuation never acts as an operator, and no stop word is stripped: a
+title keeps its "the". The block is not capped: a one-word query that
+names hundreds of objects answers titles only, and another typed word
+narrows it. Cost: at most four cursors per search. The engine keys
+postings by term and applies `$fields` to each posting as it reads it,
+so a tier walks every posting of every completion of the stem, body
+included — the scope saves the scoring table, not the walk — and the
+bag tier walks every typed word's postings, stop words included; a
+phrase tier skips its walk only when a typed term is absent from the
+whole index. A one-letter last word is the costly keystroke; a client
+may wait for the second letter. `title` mode takes no `scopes` and no
+`passages` (`400 request.invalid_field`).
+
 **`limit` counts records.** A hit is one `(objectId, dataset,
 recordId)`, shown through its best-ranked chunk; the record's other
 chunks that ranked within the search window come back as `passages`
-(`passages: N`, max 10, best first, same window fields). Each leg reads
-at least `fetch = clamp(3·limit, 30, 100)` chunks and continues until it
-covers enough distinct records — `2·limit` for the lexical leg, `limit`
-for the vector leg — capped at 1000 chunks (`maxLegFetch`). The lexical
+(`passages: N`, max 10, best first, same window fields). With `rest`
+the page left after the title hits, each leg reads at least `fetch =
+clamp(3·rest, 30, 100)` chunks and continues until it covers enough
+distinct records — `2·rest` for the lexical leg, `rest` for the vector
+leg, the title-listed records not counted — capped at 1000 chunks
+(`maxLegFetch`). The lexical
 leg is one any-store cursor opened without `Limit` and pulled to that
 rule (`Store.openFTS` / `Indexer.ftsLeg`): any-store ranks every match
 before the first row whatever the `Limit` and materializes only what is
@@ -817,10 +922,10 @@ legs can outrank one shallow in one leg), and when one record dominates
 a whole window the reply can hold fewer than `limit` records although
 the index has more. The reply is bounded by `limit × (1 + passages) ×
 maxData` runes of text (the chunk size, ~2000 runes, in place of
-`maxData` when it is -1). Work order in `Indexer.Search`: query
-embedding, then the vector leg, then the lexical cursor — no read
-transaction is held across the embed wait or another store call (an open
-cursor pins a reader slot, a page cache and a WAL read-mark until
+`maxData` when it is -1). Work order in `Indexer.Search`: the title
+pass, query embedding, then the vector leg, then the lexical cursor — no
+read transaction is held across the embed wait or another store call (an
+open cursor pins a reader slot, a page cache and a WAL read-mark until
 `Close`).
 
 **Hit `data` is a window, not the record.** Each hit's `data` is at most
@@ -835,9 +940,13 @@ when 0) names the chunk (§ Chunking long records). The full record is
 one dataset query away.
 
 **FTS query operators.** `query` understands `"quoted phrases"` (matched
-by adjacency) and trailing-`*` prefixes (`zepp*`). `require` / `exclude`
-are arrays of must / must-not terms; each may itself be a phrase or
-prefix. A bare term alongside a `require` is an optional boost, not a
+by adjacency), trailing-`*` prefixes (`zepp*`, and `"zeppelin dis"*` —
+the phrase followed by a completion of its last word; a prefix is
+scored as one term over every completion, so a rare completion never
+outranks a common one) and a leading `^` (`^zeppelin`, `^"the
+zeppelin"*` — the clause at the document's first token). `require` /
+`exclude` are arrays of must / must-not terms; each may itself be a
+phrase, prefix or anchored clause. A bare term alongside a `require` is an optional boost, not a
 filter. Phrases and prefixes in `query` shape the FTS leg only;
 `require` / `exclude` bind every hit in every mode: the vector leg is
 post-filtered against the FTS index (`Store.FilterTerms`, one `$text`
@@ -872,9 +981,10 @@ survive intact.
   noise: gibberish queries score ~0.6 cosine, on par with on-topic
   queries (`live_probe_test.go`). Keep 0 for that model.
 - **BM25 parameters** (`bm25B`, `bm25K1`, `titleWeight`, default 0 =
-  engine defaults, no title field). Set at index creation: changing `b` /
-  `k1`, or `titleWeight` from 0 to non-zero, needs a rebuild; a change
-  between non-zero title weights applies at query time.
+  engine defaults, no title field). Part of the index definition: any
+  change — `b`, `k1`, or `titleWeight` in either direction — makes the
+  index's open fail with the engine's definition mismatch and needs a
+  rebuild.
 
 `vectorStatus` (`used` / `unavailable` / `disabled` / `skipped`) tells
 the consumer whether semantic recall took part and why not —
@@ -890,11 +1000,12 @@ Errors:
 |---|---|---|
 | `request.missing_field` | 400 | no `query` |
 | `request.bad` | 400 | `limit` < 0 |
-| `request.invalid_field` | 400 | `maxData` < -1, `passages` outside 0..10 |
+| `request.invalid_field` | 400 | `maxData` < -1, `passages` outside 0..10, `scopes` or `passages` with `mode: title` |
 | `search.bad_mode` / `search.bad_scope` | 400 | unknown mode / scope not a slug |
 | `filter.invalid` / `filter.unknown_operator` | 400 | a bad `filter` — the `/objects/query` grammar's own codes |
 | `index.no_embedder` | 400 | `mode=vector` with no embedder configured |
 | `index.disabled` | 409 | `index.enabled: false` |
+| `index.not_ready` | 503 | the space's full-text index is being rewritten in place (§ Store layout) or not created yet — retry; `index.fts_upgrade.<spaceId>` on the process view |
 | `index.embedder_unavailable` | 503 | `mode=vector` while the embedder is unreachable or over the query budget — retryable; hybrid degrades instead |
 
 ### Filtering by object
@@ -905,7 +1016,10 @@ Errors:
 only if its object's row matches, in every mode, like `require` /
 `exclude`; `limit` still counts matching records; the row is read live,
 so a property write (a bin move) is honored by the next search without
-a re-index. An object with no row never matches. Record fields of the
+a re-index. An object with no row never matches. The title pass runs
+first and takes the lexical leg's path below — a residual for an exact
+set, post-filtering otherwise — so it too can materialize the set and
+report `truncated`. Record fields of the
 hit's own dataset (a chat message's `creator`, a block's `type`) are not
 filterable — a row per hit is one read, a record per hit is another.
 
@@ -1140,6 +1254,6 @@ run).
   in `Search`: hybrid degrades to fts / `unavailable`, vector fails as
   embedder-unavailable, a cancelled caller gets its own cancellation.
 - `internal/server/handlers_search_test.go` — in-process SDK + in-memory
-  store + deterministic fake embedder: all three modes end to end, scope
+  store + deterministic fake embedder: every mode end to end, scope
   filtering, deletion purge, degraded / disabled errors, and the
   asynchronous worker path (`Start` + poll).

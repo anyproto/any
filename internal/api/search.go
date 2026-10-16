@@ -2,12 +2,29 @@ package api
 
 import "encoding/json"
 
-// Search modes. Hybrid runs both legs and fuses by reciprocal rank;
-// fts / vector run one leg only.
+// Search modes. Hybrid runs both content legs and fuses them by
+// reciprocal rank; fts / vector run one leg only. Hybrid and fts lead
+// with the title pass — the objects whose name matches the typed words
+// — and title runs that pass alone (docs/13-index.md § Search).
 const (
 	SearchModeHybrid = "hybrid"
 	SearchModeFTS    = "fts"
 	SearchModeVector = "vector"
+	SearchModeTitle  = "title"
+)
+
+// SearchMatch values: the tier a title hit came from, in the order the
+// reply lists them. A content hit carries none.
+const (
+	// SearchMatchExact: the name is the typed words.
+	SearchMatchExact = "exact"
+	// SearchMatchPrefix: the name starts with the typed words; the last
+	// one is completed unless the query ends in whitespace.
+	SearchMatchPrefix = "prefix"
+	// SearchMatchPhrase: the typed words appear in order inside the name.
+	SearchMatchPhrase = "phrase"
+	// SearchMatchWords: every typed word is in the name, in any order.
+	SearchMatchWords = "words"
 )
 
 // SearchRequest is the body of POST /v1/spaces/:spaceId/search. The
@@ -19,16 +36,20 @@ type SearchRequest struct {
 	// props, …). Empty = all scopes.
 	Scopes []string `json:"scopes,omitempty"`
 	// Limit caps returned records — every hit is a distinct
-	// (objectId, dataset, recordId). Default 10, max 100.
+	// (objectId, dataset, recordId); title hits count. Default 10,
+	// max 100.
 	Limit int `json:"limit,omitempty"`
-	// Mode is hybrid (default), fts, or vector. Vector requires an
-	// embedder configured on the server.
+	// Mode is hybrid (default), fts, vector or title. Vector requires an
+	// embedder configured on the server. Title lists the objects whose
+	// name matches the typed words, one hit per object, and takes no
+	// Scopes or Passages.
 	Mode string `json:"mode,omitempty"`
 	// Require / Exclude are extra must / must-not terms ($require /
 	// $exclude) — a hit must contain every Require term and no Exclude
 	// term, in every mode: the FTS leg matches on them, and vector hits
 	// are post-filtered against the FTS index before fusion. Each term
-	// may be a "phrase" or prefix*.
+	// may be a "phrase", prefix*, "phrase pre"* or ^anchored clause. A
+	// title hit is bound against its name alone.
 	Require []string `json:"require,omitempty"`
 	Exclude []string `json:"exclude,omitempty"`
 	// MaxData bounds each hit's Data to a window of at most this many
@@ -61,8 +82,9 @@ const DefaultSearchMaxData = 512
 
 // SearchHit is one ranked result — the indexed record's identity plus
 // its indexed text. Score semantics depend on the effective mode: BM25
-// for fts, cosine similarity for vector, RRF for hybrid; within one
-// response higher is always better.
+// for fts, cosine similarity for vector, RRF for hybrid, and BM25 for a
+// title hit whatever the mode; within one block of one response higher
+// is better, and the order across blocks is authoritative.
 type SearchHit struct {
 	Scope    string `json:"scope"`
 	ObjectId string `json:"objectId"`
@@ -81,6 +103,12 @@ type SearchHit struct {
 	DataOffset int     `json:"dataOffset,omitempty"`
 	DataTotal  int     `json:"dataTotal"`
 	Score      float64 `json:"score"`
+	// Match marks a title hit — the object's name matched the typed
+	// words — with its tier (SearchMatch*). Title hits lead the reply in
+	// tier order and never carry Passages; a content hit has no Match.
+	// Scores compare only within the title block or within the content
+	// block; the order is authoritative.
+	Match string `json:"match,omitempty"`
 	// Passages are the record's next best matching chunks. Absent when
 	// the request did not ask (SearchRequest.Passages) and when the
 	// record has no other matching chunk in the search window.
@@ -112,8 +140,9 @@ const (
 	// vector search can never run until config changes.
 	VectorStatusDisabled = "disabled"
 	// VectorStatusSkipped: vector was not attempted although available
-	// on this server — the caller asked for mode=fts, or the Filter
-	// matched no object so no leg ran.
+	// on this server — the caller asked for mode=fts or mode=title, the
+	// Filter matched no object so no leg ran, or the title pass filled
+	// the page so no content leg ran.
 	VectorStatusSkipped = "skipped"
 )
 

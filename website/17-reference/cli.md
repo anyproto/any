@@ -83,7 +83,7 @@ any space query      [--dataset spaces|profile] [--filter J] [--sort K] [--limit
 any space subscribe  [same flags]                    # live space list, one frame per line
 any datasets [<spaceId>]                             # dataset schemas (JSON Schema + x-scope)
 any search <spaceId> <query> [--scopes basic,chat,props] [--limit N]
-           [--mode hybrid|fts|vector] [--require T]... [--exclude T]...
+           [--mode hybrid|fts|vector|title] [--require T]... [--exclude T]...
            [--max-data N] [--passages N] [--filter J]
 ```
 

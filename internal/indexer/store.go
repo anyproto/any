@@ -7,9 +7,11 @@ import (
 	"hash/fnv"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	anystore "github.com/anyproto/any-store/v2"
@@ -41,20 +43,26 @@ const (
 	// whole-record docs with chunked ones); v7 = property entries carry
 	// the property name as Title, and the doc hash covers it (rebuild
 	// backfills the name onto chunks past the first, which were indexed
-	// as bare value text). Mismatch = boot error advising
-	// removal; no migration — the index is derived state (re-indexes on
-	// the next change).
-	indexSchemaVersion = 7
+	// as bare value text); v8 = the object's name in its own full-text
+	// field (nameField) — a v7 db is adopted: its stamp moves at open and
+	// each collection is rewritten in place on its first open
+	// (upgradeFTS), so nothing re-embeds. Any other mismatch = boot error
+	// advising removal; the docs themselves are never migrated — the
+	// index is derived state (re-indexes on the next change).
+	indexSchemaVersion = 8
 )
 
 // Store is the indexer-owned any-store database: one collection per
-// space, each carrying a BM25 full-text index on `data` and (when dim >
-// 0) an IVF-SQ cosine vector index on `vector`.
+// space, each carrying a BM25 full-text index on `name` + `data` (+
+// `title` under a title boost) and (when dim > 0) an IVF-SQ cosine
+// vector index on `vector`.
 //
-// Doc shape: {id: dataset+"/"+recordId, scope, objectId, dataset,
-// recordId, data, applySeq, vector?, pending?}. `pending: 1` marks a doc
-// whose text awaits embedding — the embed loop drains them; the field is
-// removed once the vector lands.
+// Doc shape: {id: objectId:dataset:recordId, scope, objectId, dataset,
+// recordId, data | name, title, hash, applySeq, vector?, pending?}. The
+// object's name doc carries its text in `name` (nameField), every other
+// doc in `data`. `pending: 1` marks a doc whose text awaits embedding —
+// the embed loop drains them; the field is removed once the vector
+// lands.
 type Store struct {
 	db   anystore.DB
 	path string
@@ -84,6 +92,21 @@ type Store struct {
 	dim    int // 0 = unknown yet; learned lazily via EnsureDim
 	colls  map[string]anystore.Collection
 	hasVec map[string]bool // spaceId → vector index exists
+
+	// ftsUpgrades counts the collections upgradeFTS rewrote; ftsRetryAt
+	// holds, per space, when a failed rewrite may be tried again.
+	ftsUpgrades atomic.Int32
+	ftsRetryAt  map[string]time.Time
+	// onFTSUpgrade, when set, is told when a rewrite starts (the lock
+	// is held, the collection still lacks the field) and returns the
+	// function to call when it ends — the indexer's process report.
+	onFTSUpgrade func(ctx context.Context, spaceId string) func(error)
+}
+
+// SetFTSUpgradeHook installs the observer of in-place full-text
+// rewrites (upgradeFTS). Set before the first collection opens.
+func (s *Store) SetFTSUpgradeHook(fn func(ctx context.Context, spaceId string) func(error)) {
+	s.onFTSUpgrade = fn
 }
 
 // SetVectorMode picks the ANN index strategy for indexes created after the
@@ -91,10 +114,11 @@ type Store struct {
 func (s *Store) SetVectorMode(mode string) { s.vectorMode = mode }
 
 // SetFTSParams sets the BM25 tuning for FTS indexes created after the
-// call. All three are index-creation params: b/k1 are baked in, and
-// whether titleWeight is zero decides the index's FIELD SET (`data`
-// alone, or `data`+`title`), so turning a title boost on for an existing
-// index needs a rebuild. Its value is then read at query time.
+// call. All three are part of the index definition: b, k1 and the
+// weights are compared by EnsureIndex, and whether titleWeight is zero
+// decides the FIELD SET (`name` + `data`, or those plus `title`), so any
+// change against an existing index fails its open with
+// ErrIndexMismatch and takes a rebuild.
 func (s *Store) SetFTSParams(b, k1, titleWeight float64) {
 	s.ftsB, s.ftsK1, s.titleWeight = b, k1, titleWeight
 }
@@ -123,6 +147,9 @@ type Hit struct {
 	Chunk    int // 0-based chunk of the record this doc holds (chunk.go)
 	Data     string
 	Score    float64
+	// Match is the title pass's tier (api.SearchMatch*); empty for a
+	// content hit.
+	Match string
 }
 
 // DocUpsert pairs an entry with its (optional) embedding. A nil Vector
@@ -204,6 +231,7 @@ func newStore(db anystore.DB, path string, dim int, embedderConfigured bool) *St
 		markPending: embedderConfigured || dim > 0,
 		colls:       map[string]anystore.Collection{},
 		hasVec:      map[string]bool{},
+		ftsRetryAt:  map[string]time.Time{},
 	}
 }
 
@@ -238,21 +266,36 @@ func (s *Store) checkMeta(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if got := doc.Value().GetInt("schema"); got != indexSchemaVersion {
-		return fmt.Errorf("%w: index db schema v%d, this build needs v%d — remove %s to rebuild (re-indexes on next change, see docs/13-index.md)", ErrIndexRebuildRequired, got, indexSchemaVersion, filepath.Dir(s.path))
-	}
-	got := doc.Value().GetInt("dim")
-	switch {
-	case got == s.dim:
-		return nil
-	case s.dim == 0:
-		s.dim = got // adopt the dimension this DB was built with
-		return nil
-	case got == 0:
-		return s.writeMeta(ctx, s.dim) // first run with a known dim
+	v := doc.Value()
+	schema := v.GetInt("schema")
+	switch schema {
+	case indexSchemaVersion:
+	case indexSchemaVersion - 1:
+		// v7 lacks the name field in every collection; each is moved onto
+		// it in place on its first open (upgradeFTS), so the db only moves
+		// its stamp — which an older build then refuses with the rebuild
+		// guidance instead of failing every space on an index definition
+		// it cannot apply. The stored chunk target rides the restamp.
+		if s.chunkRunes == 0 {
+			s.chunkRunes = v.GetInt("chunkRunes")
+		}
 	default:
-		return fmt.Errorf("%w: index db was built with vector dim %d, configured %d — remove %s to rebuild from scratch", ErrIndexRebuildRequired, got, s.dim, filepath.Dir(s.path))
+		return fmt.Errorf("%w: index db schema v%d, this build needs v%d — remove %s to rebuild (re-indexes on next change, see docs/13-index.md)", ErrIndexRebuildRequired, schema, indexSchemaVersion, filepath.Dir(s.path))
 	}
+	dim := v.GetInt("dim")
+	switch {
+	case dim == s.dim:
+	case s.dim == 0:
+		s.dim = dim // adopt the dimension this DB was built with
+	case dim == 0:
+		// first run with a known dim: recorded below
+	default:
+		return fmt.Errorf("%w: index db was built with vector dim %d, configured %d — remove %s to rebuild from scratch", ErrIndexRebuildRequired, dim, s.dim, filepath.Dir(s.path))
+	}
+	if schema != indexSchemaVersion || dim != s.dim {
+		return s.writeMeta(ctx, s.dim)
+	}
+	return nil
 }
 
 // PinChunkRunes records the chunk target this index's docs are written
@@ -313,22 +356,31 @@ func (s *Store) writeMeta(ctx context.Context, dim int) error {
 //
 // Unreachable on mobile today (vector is off in both binds), wrapped
 // anyway so the host contract doesn't depend on that staying true.
+//
+// The meta write takes the store's write lock, which a rewrite in
+// flight holds for seconds, so s.mu — the cache lock every read takes —
+// is released around it.
 func (s *Store) EnsureDim(ctx context.Context, dim int) error {
 	if dim <= 0 {
 		return fmt.Errorf("indexer: EnsureDim: invalid dim %d", dim)
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	known := s.dim
+	s.mu.Unlock()
 	switch {
-	case s.dim == dim:
+	case known == dim:
 		return nil
-	case s.dim != 0:
-		return fmt.Errorf("%w: embedder returned dim %d but the index db was built with %d — fix the model or remove %s to rebuild", ErrIndexRebuildRequired, dim, s.dim, filepath.Dir(s.path))
+	case known != 0:
+		return fmt.Errorf("%w: embedder returned dim %d but the index db was built with %d — fix the model or remove %s to rebuild", ErrIndexRebuildRequired, dim, known, filepath.Dir(s.path))
 	}
 	if err := s.writeMeta(ctx, dim); err != nil {
 		return err
 	}
-	s.dim = dim
+	s.mu.Lock()
+	if s.dim == 0 {
+		s.dim = dim
+	}
+	s.mu.Unlock()
 	return nil
 }
 
@@ -337,7 +389,11 @@ func (s *Store) Close() error {
 }
 
 // spaceColl opens (or creates) the per-space collection and ensures its
-// indexes. Cached — EnsureIndex is idempotent but not free.
+// indexes — the WRITE side: every path that lands docs or vectors goes
+// through it, and it is what a space's worker calls first, so the
+// in-place rewrite of an old layout (upgradeFTS) runs on the worker's
+// goroutine. Cached — EnsureIndex is idempotent but not free, and it
+// takes the store's write lock. Reads use spaceCollRead.
 func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collection, error) {
 	s.mu.Lock()
 	if coll, ok := s.colls[spaceId]; ok {
@@ -359,32 +415,227 @@ func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collect
 	// planner can probe a small `objectId $in` residual per candidate
 	// instead of walking the posting lists (host_filter.go).
 	//
-	// BM25 over `data` (body). When titleWeight > 0, BM25F also covers
-	// the boosted `title` field (heading / method sig / memory context);
-	// otherwise the index stays single-field so default ranking is
+	// BM25 over `name` (the object's name, nameField) and `data`
+	// (everything else). When titleWeight > 0, BM25F also covers the
+	// boosted `title` field (heading / method sig / memory context);
+	// otherwise the field set stays at the two so default ranking is
 	// unchanged. b/k1 (if set) apply either way.
-	fts := anystore.IndexInfo{Name: "fts", Kind: anystore.IndexKindFulltext, Fields: []string{"data"}}
-	if s.titleWeight > 0 {
-		fts.Fields = []string{"data", "title"}
+	indexes := s.indexInfos()
+	upgraded, err := s.upgradeFTS(ctx, spaceId, coll, indexes)
+	if err != nil {
+		return nil, fmt.Errorf("indexer: upgrade fts index for %s: %w", spaceId, err)
 	}
-	fts.Fulltext = s.ftsParams()
-	indexes := []anystore.IndexInfo{
-		{Name: objectIdIndex, Fields: []string{"objectId"}},
-		fts,
-	}
-	// The sparse pending index backs the embed loop, which only a store
-	// that marks docs pending ever runs.
-	if s.markPending {
-		indexes = append(indexes, anystore.IndexInfo{Fields: []string{"pending"}, Sparse: true})
-	}
-	if err := coll.EnsureIndex(ctx, indexes...); err != nil {
-		return nil, fmt.Errorf("indexer: ensure indexes for %s: %w", spaceId, err)
+	// A rewrite ensures every index inside its own transaction, so the
+	// collection is usable the moment it commits — no second wait on
+	// the write lock behind other spaces' rewrites.
+	if !upgraded {
+		if err := coll.EnsureIndex(ctx, indexes...); err != nil {
+			return nil, fmt.Errorf("indexer: ensure indexes for %s: %w", spaceId, err)
+		}
 	}
 
 	s.mu.Lock()
 	s.colls[spaceId] = coll
 	s.mu.Unlock()
 	return coll, nil
+}
+
+// indexInfos is the index set of a space collection: objectId, the
+// full-text index and, when docs are marked pending, the sparse pending
+// index that backs the embed loop.
+func (s *Store) indexInfos() []anystore.IndexInfo {
+	indexes := []anystore.IndexInfo{
+		{Name: objectIdIndex, Fields: []string{"objectId"}},
+		s.ftsIndexInfo(),
+	}
+	if s.markPending {
+		indexes = append(indexes, anystore.IndexInfo{Fields: []string{"pending"}, Sparse: true})
+	}
+	return indexes
+}
+
+// spaceCollRead is the READ side of spaceColl: the cached handle, or
+// the collection as it is on disk with no DDL — and so with no wait on
+// the store's write lock, which a rewrite in flight on this or another
+// space holds for seconds (search-as-you-type must not park a request
+// per keystroke behind it). A collection whose full-text index is
+// missing or predates the layout answers ErrIndexNotReady until its
+// worker's rewrite commits; a space never indexed has no collection and
+// answers errNoIndex, which the legs read as empty.
+func (s *Store) spaceCollRead(ctx context.Context, spaceId string) (anystore.Collection, error) {
+	s.mu.Lock()
+	if coll, ok := s.colls[spaceId]; ok {
+		s.mu.Unlock()
+		return coll, nil
+	}
+	s.mu.Unlock()
+	coll, err := s.db.OpenCollection(ctx, spaceId)
+	if errors.Is(err, anystore.ErrCollectionNotFound) {
+		return nil, errNoIndex
+	}
+	if err != nil {
+		return nil, err
+	}
+	if exists, hasName := ftsState(coll); !exists || !hasName {
+		return nil, ErrIndexNotReady
+	}
+	return coll, nil
+}
+
+// nameField is the FTS field that holds an object's name — the text of
+// the prop chunker's name entry (index.NamePropRecordId), stored here
+// instead of in `data`. It is the index's FIRST field, so `^` anchors at
+// the name's first token, and `$fields: ["name"]` scopes a clause to
+// names only, which is what lets the title pass (titles.go) match "the
+// title starts with" and "the title contains". The scope selects the
+// documents that score, not the postings that are read: the engine
+// keys postings by term, so a scoped clause still walks every posting
+// of its terms, body included. An unscoped query matches every field,
+// so content search sees names too. Only chunk 0 of a name carries the
+// field: a later chunk (a name past the chunk bound) is a `data` doc,
+// so `^` never anchors on the middle of a name.
+const nameField = "name"
+
+// ftsIndex is the name of the collection's full-text index.
+const ftsIndex = "fts"
+
+// isNameDoc reports whether the entry is the object's name — the record
+// whose first chunk holds its text in nameField.
+func isNameDoc(e index.IndexEntry) bool {
+	return e.Dataset == index.DatasetProp && e.RecordId == index.NamePropRecordId
+}
+
+// ftsIndexInfo is the full-text index this store creates: nameField
+// first, then data, then title when a title boost is configured.
+func (s *Store) ftsIndexInfo() anystore.IndexInfo {
+	fields := []string{nameField, "data"}
+	if s.titleWeight > 0 {
+		fields = append(fields, "title")
+	}
+	return anystore.IndexInfo{Name: ftsIndex, Kind: anystore.IndexKindFulltext, Fields: fields, Fulltext: s.ftsParams()}
+}
+
+// nameDocFilter selects a collection's name docs (one scan — the pair
+// has no index, and the upgrade runs once per space).
+var nameDocFilter = query.And{
+	query.Key{Path: []string{"dataset"}, Filter: query.NewComp(query.CompOpEq, index.DatasetProp)},
+	query.Key{Path: []string{"recordId"}, Filter: query.NewComp(query.CompOpEq, index.NamePropRecordId)},
+}
+
+// ftsState reports whether the collection has its full-text index and
+// whether that index carries nameField — the layout written before the
+// field has it not.
+func ftsState(coll anystore.Collection) (exists, hasName bool) {
+	for _, ix := range coll.GetIndexes() {
+		if info := ix.Info(); info.Name == ftsIndex {
+			return true, slices.Contains(info.Fields, nameField)
+		}
+	}
+	return false, false
+}
+
+// ftsLacksName reports whether the collection's full-text index exists
+// without nameField — what upgradeFTS rewrites.
+func ftsLacksName(coll anystore.Collection) bool {
+	exists, hasName := ftsState(coll)
+	return exists && !hasName
+}
+
+// ftsUpgradeBackoff is how long a failed rewrite is left alone: the
+// next open of the space answers the failure at once instead of
+// redoing the whole rewrite under the write lock for every caller.
+const ftsUpgradeBackoff = time.Minute
+
+// upgradeFTS moves a collection written before nameField onto the
+// current full-text layout, in place: the index is dropped, the name
+// docs' text moves from `data` to `name` (chunk 0 only, as ApplyPage
+// writes it), and every index of the collection is ensured — the
+// full-text one over the current field set, backfilled by any-store
+// from the stored docs. Vectors, hashes, cursors and links are
+// untouched, so nothing re-embeds. One write transaction, so a crash
+// leaves either layout whole; the state is the index's own field list,
+// so a collection still on the old layout is upgraded on its next open
+// and one on the new layout costs a metadata read. The field list is
+// read again once the transaction holds the write lock: a space's
+// worker, its embed loop and the writers all open the collection at
+// once on the first boot, and the one that enters second must find the
+// first's work, not redo it. A caller whose ctx ended while it queued
+// for the lock — a worker at shutdown — skips the rewrite, so teardown
+// waits for at most the one in flight; the steps inside check ctx too,
+// though any-store's own work does not. A collection without the index
+// (new) is left to EnsureIndex. Two passes over the collection (the
+// name docs, then the backfill): tens of seconds per 100k docs, once
+// per space, reported through onFTSUpgrade while it runs. Returns
+// whether it rewrote.
+func (s *Store) upgradeFTS(ctx context.Context, spaceId string, coll anystore.Collection, indexes []anystore.IndexInfo) (bool, error) {
+	if !ftsLacksName(coll) {
+		return false, nil
+	}
+	s.mu.Lock()
+	retryAt, failed := s.ftsRetryAt[spaceId]
+	s.mu.Unlock()
+	if failed && time.Now().Before(retryAt) {
+		return false, fmt.Errorf("%w: the rewrite failed, next try after %s", ErrIndexNotReady, time.Until(retryAt).Round(time.Second))
+	}
+	tx, err := coll.WriteTx(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback() //nolint:errcheck — no-op after Commit
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if !ftsLacksName(coll) {
+		return false, nil
+	}
+	finish := func(error) {}
+	if s.onFTSUpgrade != nil {
+		finish = s.onFTSUpgrade(ctx, spaceId)
+	}
+	err = s.rewriteFTS(ctx, tx, coll, indexes)
+	if err != nil {
+		_ = tx.Rollback() // released before the report, not after it
+		if ctx.Err() == nil {
+			s.mu.Lock()
+			s.ftsRetryAt[spaceId] = time.Now().Add(ftsUpgradeBackoff)
+			s.mu.Unlock()
+		}
+	}
+	finish(err)
+	if err != nil {
+		return false, err
+	}
+	s.ftsUpgrades.Add(1)
+	return true, nil
+}
+
+// rewriteFTS is the body of upgradeFTS inside its transaction.
+func (s *Store) rewriteFTS(ctx context.Context, tx anystore.WriteTx, coll anystore.Collection, indexes []anystore.IndexInfo) error {
+	if err := coll.DropIndex(tx.Context(), ftsIndex); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	mod := query.ModifyFunc(func(a *anyenc.Arena, v *anyenc.Value) (*anyenc.Value, bool, error) {
+		d := v.GetStringBytes("data")
+		if len(d) == 0 || v.GetInt("chunk") > 0 {
+			return v, false, nil
+		}
+		v.Set(nameField, a.NewString(string(d)))
+		v.Del("data")
+		return v, true, nil
+	})
+	if _, err := coll.Find(nameDocFilter).Update(tx.Context(), mod); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := coll.EnsureIndex(tx.Context(), indexes...); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // vectorIndexParams resolves the ANN index strategy. The mode comes from
@@ -478,6 +729,36 @@ func (s *Store) EnsureVectorIndex(ctx context.Context, spaceId string) (bool, er
 	s.hasVec[spaceId] = true
 	s.mu.Unlock()
 	return true, nil
+}
+
+// vectorColl is the read side of EnsureVectorIndex: the space's
+// collection when it carries a vector index, ok false when it does not
+// (nothing embedded yet, or no collection) — never creating one, so a
+// search neither takes the write lock nor waits on it. The embed loop
+// creates the index (EnsureVectorIndex) after each batch it lands.
+func (s *Store) vectorColl(ctx context.Context, spaceId string) (anystore.Collection, bool, error) {
+	coll, err := s.spaceCollRead(ctx, spaceId)
+	if errors.Is(err, errNoIndex) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	s.mu.Lock()
+	cached := s.hasVec[spaceId]
+	s.mu.Unlock()
+	if cached {
+		return coll, true, nil
+	}
+	for _, ix := range coll.GetIndexes() {
+		if ix.Info().Kind == anystore.IndexKindVector {
+			s.mu.Lock()
+			s.hasVec[spaceId] = true
+			s.mu.Unlock()
+			return coll, true, nil
+		}
+	}
+	return nil, false, nil
 }
 
 // docId is the per-collection primary key of a record's first chunk:
@@ -628,7 +909,11 @@ func (s *Store) ApplyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 		if up.Chunk > 0 {
 			doc.Set("chunk", arena.NewNumberInt(up.Chunk))
 		}
-		doc.Set("data", arena.NewString(e.Data))
+		if isNameDoc(e) && up.Chunk == 0 {
+			doc.Set(nameField, arena.NewString(e.Data))
+		} else {
+			doc.Set("data", arena.NewString(e.Data))
+		}
 		doc.Set("title", arena.NewString(e.Title)) // BM25F boosted field (may be "")
 		doc.Set("hash", arena.NewString(docHash(e.Data, e.Title)))
 		doc.Set("applySeq", arena.NewNumberInt(int(e.ApplySeq)))
@@ -907,15 +1192,17 @@ func (s *Store) SearchFTS(ctx context.Context, spaceId, q string, scopes []strin
 }
 
 // FTSQuery is the full-text query spec. Query is the `$search` string —
-// phrases ("...") and prefixes (foo*) in it are honored by the engine.
-// DefaultAnd makes bare terms required (AND) instead of OR. Require /
-// Exclude are extra must / must-not terms ($require / $exclude); each may
-// itself be a phrase or prefix.
+// phrases ("..."), prefixes (foo*, "foo bar"*) and anchors (^foo) in it
+// are honored by the engine. DefaultAnd makes bare terms required (AND)
+// instead of OR. Require / Exclude are extra must / must-not terms
+// ($require / $exclude); each may itself be a phrase or prefix. Fields
+// scopes every clause to those index fields ($fields; nil = all).
 type FTSQuery struct {
 	Query      string
 	DefaultAnd bool
 	Require    []string
 	Exclude    []string
+	Fields     []string
 }
 
 // SearchFTSQuery runs the BM25(F) leg with full operator support and
@@ -960,11 +1247,14 @@ type ftsCursor struct {
 // the residual drives a probe over the objectId index or trails the
 // posting walk.
 func (s *Store) openFTS(ctx context.Context, spaceId string, fq FTSQuery, scopes []string, residual query.Filter) (*ftsCursor, error) {
-	coll, err := s.spaceColl(ctx, spaceId)
+	coll, err := s.spaceCollRead(ctx, spaceId)
+	if errors.Is(err, errNoIndex) {
+		return &ftsCursor{}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	text := query.Text{Search: fq.Query, DefaultAnd: fq.DefaultAnd}
+	text := query.Text{Search: fq.Query, DefaultAnd: fq.DefaultAnd, Fields: fq.Fields}
 	if len(fq.Require) > 0 || len(fq.Exclude) > 0 {
 		clauses := query.ParseTextSearch(fq.Query)
 		clauses = appendClauses(clauses, fq.Require, query.TextMust)
@@ -986,9 +1276,13 @@ func (s *Store) openFTS(ctx context.Context, spaceId string, fq FTSQuery, scopes
 }
 
 // Next yields the next hit in rank order; ok is false once the leg is
-// exhausted.
+// exhausted. A cursor over a never-indexed space has no iterator and
+// is exhausted at once.
 func (c *ftsCursor) Next() (Hit, bool, error) {
-	if !c.iter.Next() {
+	if c.iter == nil || !c.iter.Next() {
+		if c.iter == nil {
+			return Hit{}, false, nil
+		}
 		return Hit{}, false, c.iter.Err()
 	}
 	doc, err := c.iter.Doc()
@@ -1000,6 +1294,9 @@ func (c *ftsCursor) Next() (Hit, bool, error) {
 
 // Close releases the read tx.
 func (c *ftsCursor) Close() error {
+	if c.iter == nil {
+		return nil
+	}
 	return c.iter.Close()
 }
 
@@ -1022,9 +1319,9 @@ func (s *Store) FilterTerms(ctx context.Context, spaceId string, hits []Hit, req
 	if len(hits) == 0 || (len(require) == 0 && len(exclude) == 0) {
 		return hits, nil
 	}
-	coll, err := s.spaceColl(ctx, spaceId)
+	coll, err := s.spaceCollRead(ctx, spaceId)
 	if err != nil {
-		return nil, err
+		return nil, err // the hits came from this collection, so it exists
 	}
 	arena := &anyenc.Arena{}
 	ids := make([]*anyenc.Value, len(hits))
@@ -1115,15 +1412,8 @@ func (s *Store) searchVector(ctx context.Context, spaceId string, vec []float32,
 	if s.Dim() == 0 {
 		return nil, 0, nil
 	}
-	ok, err := s.EnsureVectorIndex(ctx, spaceId)
-	if err != nil {
-		return nil, 0, err
-	}
-	if !ok {
-		return nil, 0, nil
-	}
-	coll, err := s.spaceColl(ctx, spaceId)
-	if err != nil {
+	coll, ok, err := s.vectorColl(ctx, spaceId)
+	if err != nil || !ok {
 		return nil, 0, err
 	}
 	// $k bounds the result set; the scope filter is applied before the
@@ -1184,9 +1474,18 @@ func hitFromDoc(v *anyenc.Value, score float64) Hit {
 		Dataset:  string(v.GetStringBytes("dataset")),
 		RecordId: string(v.GetStringBytes("recordId")),
 		Chunk:    v.GetInt("chunk"),
-		Data:     string(v.GetStringBytes("data")),
+		Data:     docText(v),
 		Score:    score,
 	}
+}
+
+// docText is a stored doc's indexed text: `data`, or `name` for the
+// object's name doc (isNameDoc).
+func docText(v *anyenc.Value) string {
+	if d := v.GetStringBytes("data"); len(d) > 0 {
+		return string(d)
+	}
+	return string(v.GetStringBytes(nameField))
 }
 
 // Pending returns up to limit docs awaiting embedding (only docs with
@@ -1208,7 +1507,7 @@ func (s *Store) Pending(ctx context.Context, spaceId string, limit int) (ids []s
 		}
 		v := doc.Value()
 		ids = append(ids, string(v.GetStringBytes("id")))
-		texts = append(texts, string(v.GetStringBytes("data")))
+		texts = append(texts, docText(v))
 	}
 	return ids, texts, iter.Err()
 }

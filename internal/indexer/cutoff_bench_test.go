@@ -159,7 +159,7 @@ func pullHitsErr(iter anystore.Iterator, n int) (int, error) {
 			Dataset:  string(v.GetStringBytes("dataset")),
 			RecordId: string(v.GetStringBytes("recordId")),
 			Chunk:    v.GetInt("chunk"),
-			Data:     string(v.GetStringBytes("data")),
+			Data:     docText(v),
 		}
 		got++
 	}

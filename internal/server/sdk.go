@@ -274,7 +274,8 @@ func NewIndexRegistry() *index.Registry {
 // successful batch unless index.vector.dim pins it). A misconfigured
 // embedder (bad name, missing model) is still a hard error.
 // onProcess (nil = off) receives indexing lifecycle updates (fts /
-// embed / model download) for the process view — see
+// embed / links backfill / full-text rewrite / model download) for the
+// process view — see
 // deps.indexerProcess.
 func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir string, sdk *anysyncsdk.SDK, chunkers *index.Registry, onProcess func(indexer.ProcessUpdate), onLinks func(spaceId string, targets []string)) (*indexer.Indexer, error) {
 	var queryEmbedTimeout time.Duration

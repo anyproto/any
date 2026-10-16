@@ -7,8 +7,8 @@ import (
 )
 
 // procReporter drives one work unit's process-view reporting — the
-// single template every producer (embed drain, advance pass, model
-// download) shares: announce started once the elapsed-work gate
+// single template every producer (embed drain, advance pass, links
+// backfill, full-text rewrite, model download) shares: announce started once the elapsed-work gate
 // opens, progress frames while announced, a background ticker that
 // both re-checks the gate mid-operation and heartbeats through long
 // silent stretches (so an announced row never staleness-expires while

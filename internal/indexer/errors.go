@@ -22,3 +22,15 @@ import "errors"
 // Wrapped as a PREFIX, so the human-readable remedy — which db to
 // remove — stays in the message the host shows the user.
 var ErrIndexRebuildRequired = errors.New("indexer: index rebuild required")
+
+// ErrIndexNotReady marks a read of a space whose full-text index is
+// being rewritten in place (Store.upgradeFTS, the first open after a
+// layout change) or has not been created yet: the read must not wait
+// on the store's write lock — a rewrite holds it for seconds per large
+// space — so it answers at once and the caller retries. The process
+// view shows the rewrite as index.fts_upgrade.<spaceId>.
+var ErrIndexNotReady = errors.New("indexer: the space's search index is not ready")
+
+// errNoIndex marks a read of a space that was never indexed: there is
+// no collection, so the legs answer empty.
+var errNoIndex = errors.New("indexer: no index for the space")

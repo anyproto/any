@@ -32,7 +32,7 @@ any search $SPACE "what did we decide about the reranker?" --scopes chat,basic -
 }
 ```
 
-`limit` counts records (one hit per record), defaults to 10 and caps at 100. `score` is the fused RRF score — small numbers, comparable only within this one response.
+`limit` counts records (one hit per record), defaults to 10 and caps at 100. `score` is the fused RRF score — small numbers, comparable only within this one response. Objects whose name matches the typed words come first, marked with `match` and scored by BM25 within their block ([Titles first](full-text.html#titles-first)); when they fill the page the legs do not run and `vectorStatus` reads `skipped` (`disabled` on a server without an embedder, where `mode` reads `fts`).
 
 ## Reciprocal-rank fusion
 
@@ -53,7 +53,7 @@ The reply's `mode` is the mode that actually ran, and `vectorStatus` says whethe
 | `used` | the vector leg ran and contributed | trust the fused ranking |
 | `unavailable` | an embedder is configured but did not embed the query — unreachable, or not within `index.search.queryEmbedTimeout` — so results are lexical-only | retry later; results may differ |
 | `disabled` | this server has no embedder — vector can never run until config changes | adjust the query toward exact terms; don't retry |
-| `skipped` | the caller asked for `mode: "fts"`, or a `filter` matched no object so no leg ran | the echo of your own choice, or an empty filtered set |
+| `skipped` | the caller asked for `mode: "fts"` or `"title"`, a `filter` matched no object, or the title hits filled the page, so no leg ran | the echo of your own choice, an empty filtered set, or a page of titles |
 
 When a leg runs, `unavailable` or `disabled` makes `mode` in the reply read `fts` even though the request said `hybrid`. Pure `vector` mode does not degrade this way — it errors instead (see [Vector search](vector.html)).
 
@@ -104,8 +104,9 @@ index:
 
 ## Choosing a mode
 
-- **`hybrid`** (default) for anything a person or agent types.
-- **`fts`** for identifiers, error codes, exact names, and property-value lookups (`props` is full-text only anyway).
-- **`vector`** when paraphrase recall matters more than precision and you want a hard failure rather than a silent degrade.
+- **`hybrid`** (default) for anything a person or agent types: titles first, then fused content.
+- **`fts`** for identifiers, error codes, exact names, and property-value lookups (`props` is full-text only anyway): titles first, then lexical content.
+- **`title`** for a search box while the user types: the title block alone, one hit per object, no embedding.
+- **`vector`** when paraphrase recall matters more than precision and you want a hard failure rather than a silent degrade; no title block.
 
 The measurements behind these recommendations are on [Evaluation](evaluation.html).

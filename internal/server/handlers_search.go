@@ -21,7 +21,7 @@ import (
 // maxSearchLimit caps one search response.
 const maxSearchLimit = 100
 
-// search runs the local-index search (FTS / vector / hybrid). This is
+// search runs the local-index search (FTS / vector / hybrid / title). This is
 // the one sanctioned endpoint that does not map 1:1 onto an SDK method:
 // the index is a consumer-side feature built on the chunker feed (see
 // docs/13-index.md).
@@ -50,9 +50,21 @@ func (d *deps) search(c echo.Context) error {
 	}
 	switch req.Mode {
 	case "", api.SearchModeHybrid, api.SearchModeFTS, api.SearchModeVector:
+	case api.SearchModeTitle:
+		// The title pass matches names only: a scope or a passage count
+		// cannot apply, and silently ignoring them would hide a client
+		// bug.
+		if len(req.Scopes) > 0 {
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"scopes do not apply to mode title", map[string]any{"field": "scopes"})
+		}
+		if req.Passages != 0 {
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"passages do not apply to mode title", map[string]any{"field": "passages"})
+		}
 	default:
 		return writeError(c, http.StatusBadRequest, "search.bad_mode",
-			"mode must be hybrid, fts or vector", map[string]any{"mode": req.Mode})
+			"mode must be hybrid, fts, vector or title", map[string]any{"mode": req.Mode})
 	}
 	for _, sc := range req.Scopes {
 		// Scopes are an open set (property meta flags mint new ones);
@@ -104,6 +116,14 @@ func (d *deps) search(c echo.Context) error {
 		if errors.Is(err, indexer.ErrEmbedderUnavailable) {
 			return writeError(c, http.StatusServiceUnavailable, "index.embedder_unavailable",
 				"the embedder is not reachable right now — retry, or use mode fts/hybrid", nil)
+		}
+		if errors.Is(err, indexer.ErrIndexNotReady) {
+			// The space's index is being rewritten in place (its first
+			// open after an update) or not created yet: the read does
+			// not wait on the store's write lock, the client retries.
+			return writeError(c, http.StatusServiceUnavailable, "index.not_ready",
+				"the space's search index is being upgraded — retry; GET /v1/processes shows index.fts_upgrade."+sp.Id(),
+				map[string]any{"spaceId": sp.Id()})
 		}
 		return writeError(c, http.StatusInternalServerError, "internal", "search failed", nil)
 	}

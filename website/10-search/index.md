@@ -5,7 +5,7 @@ order: 0
 ---
 # Search
 
-Every `any` server keeps a local search index — BM25 full-text plus semantic vectors — over the chats, documents, property values and runtime-dataset records of every space it holds. One endpoint, `POST /v1/spaces/:spaceId/search`, queries it in three modes; the index itself never leaves the machine.
+Every `any` server keeps a local search index — BM25 full-text plus semantic vectors — over the chats, documents, property values and runtime-dataset records of every space it holds. One endpoint, `POST /v1/spaces/:spaceId/search`, queries it in four modes; the index itself never leaves the machine.
 
 ## The shape of it
 
@@ -24,6 +24,7 @@ Every `any` server keeps a local search index — BM25 full-text plus semantic v
 - **Full-text** search is always available, with no external dependency. New writes are searchable within about a 250 ms debounce.
 - **Vector** search activates when an embedder is configured. The default, `auto`, embeds through an online API serving the same model the server also runs on the device (llama.cpp in a child process, auto-downloaded) as its fallback; `local` embeds on the device only. An unreachable embedder only pauses the vector side — full-text keeps working. See [Embedders](embedders.html).
 - **Hybrid** is the default query mode: both legs fused by reciprocal rank, degrading to full-text on its own when the embedder cannot help. The reply says which mode actually ran.
+- **Titles come first.** Objects whose name matches the typed words lead every hybrid and full-text reply, the last word treated as unfinished while the user types; `mode: "title"` is that block alone, the per-keystroke call for a search box. See [Titles first](full-text.html#titles-first).
 
 > **Why it matters.** Search over an encrypted, local-first database has to run where the plaintext is — on the device. There is no server-side index to leak, and the same index works offline; with `index.embedder: local` or `none`, no indexed text or query leaves the device at all.
 
@@ -53,7 +54,7 @@ any search $SPACE "zeppelin disaster" --limit 5
 }
 ```
 
-Hits carry identity, not full records — hydrate them with a [dataset query](../database/reading-data.html) when you need the whole row. `data` is a window of at most `maxData` runes (default 512, `-1` for the whole chunk) around the first matching term; `dataOffset` and `dataTotal` locate it in the indexed text. Long records are indexed in chunks of roughly 2000 runes; the hit is the record's best-ranked chunk (`chunk` says which), one hit per record, and `limit` counts records. Ask for `passages: N` (max 10) to get a record's next best matching chunks on `hit.passages`.
+Hits carry identity, not full records — hydrate them with a [dataset query](../database/reading-data.html) when you need the whole row. `data` is a window of at most `maxData` runes (default 512, `-1` for the whole chunk) around the first matching term; `dataOffset` and `dataTotal` locate it in the indexed text. Long records are indexed in chunks of roughly 2000 runes; the hit is the record's best-ranked chunk (`chunk` says which), one hit per record, and `limit` counts records. Ask for `passages: N` (max 10) to get a record's next best matching chunks on `hit.passages`. A hit with `match` is an object whose name matched the query; it leads the reply.
 
 ## What is indexed
 
@@ -76,7 +77,7 @@ An objects-query `filter` in the search body restricts which objects may contrib
 ## Reading further
 
 <div class="cards">
-<a href="full-text.html"><strong>Full-text search</strong><span>BM25, phrases, prefixes, require/exclude, stop words</span></a>
+<a href="full-text.html"><strong>Full-text search</strong><span>BM25, titles first, phrases, prefixes, anchors, require/exclude, stop words</span></a>
 <a href="vector.html"><strong>Vector search</strong><span>Semantic recall, the ANN index, similarity scores</span></a>
 <a href="hybrid.html"><strong>Hybrid ranking</strong><span>Reciprocal-rank fusion, vectorStatus, weighting knobs</span></a>
 <a href="indexing.html"><strong>How indexing works</strong><span>Chunkers, scopes, gating, removal, rebuilds, the link index</span></a>
