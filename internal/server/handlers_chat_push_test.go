@@ -118,11 +118,156 @@ func TestServer_ChatNotifyMode_RowAddressing(t *testing.T) {
 
 // pushJob is one captured would-be notification.
 type pushJob struct {
-	spaceId string
-	topics  []string
-	payload []byte
-	groupId string
-	silent  bool
+	spaceId    string
+	topics     []string
+	payload    []byte
+	groupId    string
+	silent     bool
+	ownDevices bool
+}
+
+func waitPushJob(t *testing.T, jobs <-chan pushJob) pushJob {
+	t.Helper()
+	select {
+	case j := <-jobs:
+		return j
+	case <-time.After(15 * time.Second):
+		t.Fatal("no push job captured")
+		return pushJob{}
+	}
+}
+
+func wantNoPushJob(t *testing.T, jobs <-chan pushJob, grace time.Duration) {
+	t.Helper()
+	select {
+	case j := <-jobs:
+		t.Fatalf("unexpected push job: %+v", j)
+	case <-time.After(grace):
+	}
+}
+
+func wantPushTopics(t *testing.T, j pushJob, want ...string) {
+	t.Helper()
+	if len(j.topics) != len(want) {
+		t.Fatalf("topics = %v, want %v", j.topics, want)
+	}
+	for i := range want {
+		if j.topics[i] != want[i] {
+			t.Fatalf("topics = %v, want %v", j.topics, want)
+		}
+	}
+}
+
+// TestServer_ChatPushHooks_AgentOwnDevices: an agent's terminal message
+// gets, besides the immediate broadcast, a deferred loud push to the
+// owner's own devices on identity-scoped topics — dropped when the
+// message is read within the delay. Streaming bubbles and service
+// nudges get the broadcast only. Agent messages carry the agent's
+// name as sender.
+func TestServer_ChatPushHooks_AgentOwnDevices(t *testing.T) {
+	d, teardown := newTestDepsCfg(t, func(cfg *config.Config) {
+		cfg.Push = config.Push{PeerId: "12D3KooWTestPushNode", Addrs: []string{"127.0.0.1:1"}}
+	})
+	defer teardown()
+	const delay = 300 * time.Millisecond
+	d.push.SetOwnDeviceDelay(delay)
+	jobs := make(chan pushJob, 16)
+	d.push.CaptureNotifications(func(spaceId string, topics []string, payload []byte, groupId string, silent, ownDevices bool) {
+		jobs <- pushJob{spaceId, topics, payload, groupId, silent, ownDevices}
+	})
+	e := buildEcho(d)
+
+	spaceId, objectId := setupChatFixture(t, e)
+	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
+	chatSha := pushSha(objectId)
+	self := d.sdk.Account().Id()
+
+	send := func(body string) string {
+		t.Helper()
+		rec := doJSON(t, e, http.MethodPost, base+"/chat/messages", body)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("send %s: %d %s", body, rec.Code, rec.Body.String())
+		}
+		return decodeModifyResult(t, rec.Body.Bytes()).RecordIds[0]
+	}
+	decode := func(j pushJob) push.Payload {
+		t.Helper()
+		var p push.Payload
+		if err := json.Unmarshal(j.payload, &p); err != nil {
+			t.Fatalf("decode payload: %v\nraw=%s", err, j.payload)
+		}
+		if p.NewMessagePayload == nil {
+			t.Fatalf("payload.newMessage missing: %+v", p)
+		}
+		return p
+	}
+
+	// 1. Streaming bubble: broadcast only, nothing for own devices.
+	send(`{"text":"working on it","agent":{"name":"bao","done":false}}`)
+	job := waitPushJob(t, jobs)
+	if job.ownDevices || job.silent {
+		t.Fatalf("streaming bubble job = %+v, want plain loud broadcast", job)
+	}
+	wantPushTopics(t, job, "chats", "chats/"+chatSha)
+	if p := decode(job); p.NewMessagePayload.SenderName != "bao" {
+		t.Errorf("senderName = %q, want the agent's name", p.NewMessagePayload.SenderName)
+	}
+	wantNoPushJob(t, jobs, 3*delay)
+
+	// 2. Terminal message: broadcast now, own-devices leg after the delay.
+	doneId := send(`{"text":"here it is","agent":{"name":"bao","done":true}}`)
+	job = waitPushJob(t, jobs)
+	if job.ownDevices {
+		t.Fatalf("broadcast must precede the own-devices leg: %+v", job)
+	}
+	wantPushTopics(t, job, "chats", "chats/"+chatSha)
+	own := waitPushJob(t, jobs)
+	if !own.ownDevices || own.silent || own.groupId != chatSha || own.spaceId != spaceId {
+		t.Fatalf("own-devices job = %+v", own)
+	}
+	wantPushTopics(t, own, self, "chats/"+chatSha+"/"+self)
+	if p := decode(own); p.NewMessagePayload.MsgId != doneId || p.NewMessagePayload.SenderName != "bao" {
+		t.Errorf("own-devices payload = %+v", p.NewMessagePayload)
+	}
+
+	// 3. Service nudge (agent name `trigger:*`, done:true): broadcast
+	//    only — the agent's reply that follows is the one worth a buzz.
+	send(`{"text":"[trigger: progress] Job 'index-notes' in space 'bao' is DONE. Report this briefly to the user.","agent":{"name":"trigger:index-notes","done":true}}`)
+	job = waitPushJob(t, jobs)
+	if job.ownDevices || job.silent {
+		t.Fatalf("nudge job = %+v, want plain loud broadcast", job)
+	}
+	wantPushTopics(t, job, "chats", "chats/"+chatSha)
+	wantNoPushJob(t, jobs, 3*delay)
+
+	// 4. Read within the delay: the own-devices leg is dropped. The
+	//    read-all itself enqueues a silent job; nothing loud may follow.
+	//    A longer delay here keeps the read-all (a write tx plus the
+	//    frontier publish) safely inside the window on a loaded CI.
+	const readDelay = 1500 * time.Millisecond
+	d.push.SetOwnDeviceDelay(readDelay)
+	send(`{"text":"and again","agent":{"name":"bao","done":true}}`)
+	job = waitPushJob(t, jobs)
+	if job.ownDevices {
+		t.Fatalf("broadcast must precede the own-devices leg: %+v", job)
+	}
+	if rec := doJSON(t, e, http.MethodPost, base+"/chat/read-all", ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("read-all: %d %s", rec.Code, rec.Body.String())
+	}
+	deadline := time.After(2 * readDelay)
+	for {
+		select {
+		case j := <-jobs:
+			if j.ownDevices {
+				t.Fatalf("own-devices push sent despite read within the delay: %+v", j)
+			}
+			if !j.silent {
+				t.Fatalf("unexpected loud job after read-all: %+v", j)
+			}
+		case <-deadline:
+			return
+		}
+	}
 }
 
 // TestServer_ChatPushHooks drives the M4 hooks end-to-end against a
@@ -139,8 +284,8 @@ func TestServer_ChatPushHooks(t *testing.T) {
 		t.Fatal("push service not built despite cfg.Push")
 	}
 	jobs := make(chan pushJob, 16)
-	d.push.CaptureNotifications(func(spaceId string, topics []string, payload []byte, groupId string, silent bool) {
-		jobs <- pushJob{spaceId, topics, payload, groupId, silent}
+	d.push.CaptureNotifications(func(spaceId string, topics []string, payload []byte, groupId string, silent, ownDevices bool) {
+		jobs <- pushJob{spaceId, topics, payload, groupId, silent, ownDevices}
 	})
 	e := buildEcho(d)
 

@@ -312,8 +312,9 @@ DELETE), `409 auth.account_mismatch` (managed: a different account
 without `replace`), `409 auth.already_authorized` (`{}` while
 authorized), `404 auth.account_not_found` (accountId without a local
 wallet), `409 auth.account_in_use` (another process holds that
-account's single-instance lock; `details.pid` names the holder when
-known), `409 auth.mnemonic_mismatch` (existing wallet file
+account's single-instance lock, `details.pid` naming it when known, or
+a request of its previous session in this process still holds its
+resources), `409 auth.mnemonic_mismatch` (existing wallet file
 disagrees with the supplied phrase/index), `400 auth.passkey_required`
 (encrypted wallet — the passkey still comes from the configured env
 var, never the request body), `500 auth.device_key_corrupt` (managed:

@@ -38,7 +38,7 @@ go test ./internal/e2e -run TestE2E_FullFlow -v
 
 ## The multi-peer harness
 
-Some paths cannot be reproduced in one process: invite, join and accept; ACL changes taking effect on the other side; CRDT convergence between replicas; read tracking (your own writes are born read, so an unread message needs a second author). The harness starts two `any` binaries — distinct data dirs, distinct ports, distinct account keys — peered through staging:
+Some paths cannot be reproduced in one process: invite, join and accept; ACL changes taking effect on the other side; CRDT convergence between replicas; read tracking across accounts (your own writes are born read, so a foreign unread message needs a second author; the agent exception is covered in-process). The harness starts two `any` binaries — distinct data dirs, distinct ports, distinct account keys — peered through staging:
 
 ```
    peer A (owner)                    peer B (joiner)

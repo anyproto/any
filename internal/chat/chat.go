@@ -85,7 +85,7 @@
 // ping. Self-mentions are not filtered — the array is an objective
 // fact of the message; "not my own messages" is a client-side
 // creator != me filter (and read-tracking never badges self-authored
-// changes anyway).
+// changes, agent terminal messages excepted — see reading.go).
 //
 // Server-stamped fields land via sink.Derive in BeforeCreate /
 // BeforeModify; they are intentionally invisible to client payloads.
@@ -94,6 +94,7 @@ package chat
 
 import (
 	"context"
+	"strings"
 
 	"github.com/anyproto/any-sync-sdk/handler"
 )
@@ -140,6 +141,19 @@ const (
 	FieldAgentDone      = "done"
 	FieldAgentOutcome   = "outcome"
 )
+
+// AgentNameNudgePrefix marks a service nudge: a message a program
+// posts under a `trigger:<job>` agent name to start a run (anybao's
+// progress and connector programs; any-ui keys its typing indicator
+// on it). It is input to the agent, not a reply to the user: it
+// counts unread like any terminal agent message, but push leaves the
+// phone to the reply that follows.
+const AgentNameNudgePrefix = "trigger:"
+
+// IsNudgeAgentName reports whether an agent name marks a service nudge.
+func IsNudgeAgentName(name string) bool {
+	return strings.HasPrefix(name, AgentNameNudgePrefix)
+}
 
 // Attachment sub-record keys. Each attachment in the attachments map
 // is itself a small object; ids in the outer map are opaque short

@@ -336,6 +336,9 @@ func (d *deps) authBootError(c echo.Context, err error) error {
 	case errors.As(err, &locked):
 		return writeError(c, http.StatusConflict, "auth.account_in_use",
 			"account is already served by another process", map[string]any{"pid": locked.PID})
+	case errors.Is(err, errAccountHeld):
+		return writeError(c, http.StatusConflict, "auth.account_in_use",
+			"account is still held by an unfinished request of its previous session; retry later", nil)
 	case errors.Is(err, auth.ErrInvalidMnemonic):
 		return writeError(c, http.StatusBadRequest, "auth.bad_mnemonic", "invalid mnemonic", nil)
 	case errors.Is(err, auth.ErrMnemonicMismatch):

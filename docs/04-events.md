@@ -227,9 +227,10 @@ cancels the context first; streaming handlers emit their terminal
 frame (`closed{server_shutdown}` on exit, `closed{deauthorized}` on a
 logout / switch) and leave the gate. The teardown waits up to
 `gracefulShutdownDeadline` (10s) for the gate to drain before closing
-the SDK; on process exit `e.Shutdown` follows. A handler wedged on a
-slow client write past the deadline gets cut off with the rest
-(`02-server.md` § Startup, § Shutdown).
+the SDK; on process exit `e.Shutdown` follows. A handler wedged past
+the deadline keeps the engine's resources until it leaves, and a boot
+of that account before then is refused (`02-server.md` § Single-instance
+lock).
 
 ## Capacity
 

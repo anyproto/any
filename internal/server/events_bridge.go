@@ -59,10 +59,11 @@ type eventsBridge struct {
 var errBridgeDetached = errors.New("events bridge detached")
 
 // detach drops every pub/sub interest and scope: the engine behind the
-// handles is being torn down. Every SSE subscriber has already left
-// (the gate drained first), so a late release finds no scope and is a
-// no-op; the next engine's acquisitions build fresh scopes through
-// resolve, which reads the live SDK.
+// handles is being torn down. A release that acquired under an
+// earlier generation (a subscriber, or the process interest of an
+// engine whose drain timed out) is a no-op; the next engine's
+// acquisitions build fresh scopes through resolve, which reads the
+// live SDK.
 func (b *eventsBridge) detach() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -134,25 +135,37 @@ func (b *eventsBridge) acquire(ctx context.Context, sdk *anysyncsdk.SDK, wantAcc
 	}
 	keys = append(keys, spaceIds...)
 
-	var acquired []string
+	// Each scope is counted in one bridge generation; a detach wipes
+	// that generation, and a release after it must not touch the next
+	// engine's scope under the same key.
+	type held struct {
+		key string
+		gen uint64
+	}
+	var acquired []held
 	release := func() {
 		b.mu.Lock()
 		defer b.mu.Unlock()
-		for _, key := range acquired {
-			b.releaseLocked(key, patterns)
+		for _, h := range acquired {
+			if h.gen == b.gen {
+				b.releaseLocked(h.key, patterns)
+			}
 		}
 	}
 	for _, key := range keys {
-		if err := b.acquireScope(ctx, sdk, key, patterns); err != nil {
+		gen, err := b.acquireScope(ctx, sdk, key, patterns)
+		if err != nil {
 			release()
 			return nil, err
 		}
-		acquired = append(acquired, key)
+		acquired = append(acquired, held{key: key, gen: gen})
 	}
 	return release, nil
 }
 
-func (b *eventsBridge) acquireScope(ctx context.Context, sdk *anysyncsdk.SDK, key string, patterns []string) error {
+// acquireScope registers patterns on one scope and returns the bridge
+// generation it was counted in.
+func (b *eventsBridge) acquireScope(ctx context.Context, sdk *anysyncsdk.SDK, key string, patterns []string) (uint64, error) {
 	b.mu.Lock()
 	gen := b.gen
 	b.mu.Unlock()
@@ -160,13 +173,13 @@ func (b *eventsBridge) acquireScope(ctx context.Context, sdk *anysyncsdk.SDK, ke
 	// storage on first materialization.
 	ps, err := b.resolve(ctx, sdk, key)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.gen != gen {
-		return errBridgeDetached
+		return 0, errBridgeDetached
 	}
 	sc := b.scopes[key]
 	if sc == nil {
@@ -178,9 +191,9 @@ func (b *eventsBridge) acquireScope(ctx context.Context, sdk *anysyncsdk.SDK, ke
 	}
 	if err := b.resyncLocked(key, sc); err != nil {
 		b.releaseLocked(key, patterns) // roll back, sweeping the scope if now empty
-		return err
+		return 0, err
 	}
-	return nil
+	return gen, nil
 }
 
 func (b *eventsBridge) releaseLocked(key string, patterns []string) {

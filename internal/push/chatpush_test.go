@@ -157,8 +157,11 @@ func TestNotifyChatRead_Direct(t *testing.T) {
 		silent  bool
 	}
 	var got *job
-	s.CaptureNotifications(func(spaceId string, topics []string, payload []byte, groupId string, silent bool) {
+	s.CaptureNotifications(func(spaceId string, topics []string, payload []byte, groupId string, silent, ownDevices bool) {
 		got = &job{spaceId, topics, payload, groupId, silent}
+		if ownDevices {
+			t.Error("read hook must not target own devices loudly")
+		}
 	})
 	s.NotifyChatRead("sp1", "chat-object")
 	if got == nil {

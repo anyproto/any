@@ -90,7 +90,8 @@ The pre-encryption JSON (`internal/push/chatpush.go`, pinned by
   `any`'s chat attachments have no layout notion. A message without
   attachments sends `"hasAttachments": false, "attachments": null`.
 - `spaceName` (space info), `chatName` (the chat object's `any.name`)
-  and `senderName` (the account profile) are empty strings when unset.
+  and `senderName` (the agent's `name` on an agent message, otherwise
+  the account profile) are empty strings when unset.
 - Read notifications are **silent** (data-only, no payload): the server
   targets only the caller's own-identity topic, waking the account's
   other devices to refresh badges.
@@ -178,6 +179,24 @@ best-effort, never block or fail the HTTP response
 - **send** — read the record back for the server-derived `mentions`
   (spoof-proof, reply fold-in included; `docs/16-chat.md`), then notify
   the full topic superset above.
+- **agent reply (own devices)** — a message with `agent.done: true` is
+  signed with the owner's key, and the push node drops the publisher's
+  own tokens on the loud path, so the broadcast above never reaches the
+  owner's phone. The send hook adds a second leg: after a 2 s grace
+  period it checks the SDK's unread snapshot and, only if the message
+  is still unread on this account, sends a loud notification with the
+  node's own-devices flag on the owner's identity-scoped topics (bare
+  identity for bulk subscribers, the per-chat mention topic for
+  per-chat ones — nobody else matches, a muted chat stays silent).
+  Those are the mention topics, so an owner in `mentions` mode gets
+  every agent reply: a reply from your agent is addressed to you.
+  Service nudges (agent name `trigger:*`, see `internal/chat`) get the
+  broadcast only — they start a run, and the reply that follows is the
+  one worth a buzz. A
+  reply read within the window — the desktop viewport rule through
+  this server, or a phone whose read synced back — is never pushed.
+  Needs a push node that knows the flag; an older node delivers the
+  leg to nobody.
 - **edit** — diff mentions before/after; notify only **newly added**
   mentions (bare identity + per-chat mention topics; never the
   broadcast topics — an edit is not a new message for the room). When

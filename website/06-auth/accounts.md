@@ -117,7 +117,7 @@ If the engine fails to boot after this call created the account dir, the half-cr
 | 403 | `control.forbidden` | managed server, control token missing or wrong |
 | 403 | `auth.not_managed` | standalone server: a different account, or `DELETE` |
 | 404 | `auth.account_not_found` | `accountId` has no local wallet |
-| 409 | `auth.account_in_use` | another process holds that account's instance lock |
+| 409 | `auth.account_in_use` | another process holds that account's instance lock, or a request of its previous session in this process still holds its resources |
 | 409 | `auth.account_mismatch` | managed server runs another account; pass `replace: true` to switch |
 | 409 | `auth.mnemonic_mismatch` | the wallet on disk disagrees with the supplied phrase / index |
 | 409 | `auth.already_authorized` | `{}` while an account runs — a fresh account is never minted in place |

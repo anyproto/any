@@ -89,7 +89,7 @@ func TestEnqueue_NeverBlocks(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		for i := 0; i < notifyQueueCap+16; i++ {
-			s.Enqueue("sp", []string{"chats"}, []byte("{}"), "g", false)
+			s.Enqueue("sp", []string{"chats"}, []byte("{}"), "g", false, false)
 		}
 		close(done)
 	}()

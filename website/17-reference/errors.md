@@ -72,7 +72,7 @@ Panics are converted to `500 internal` with a generic message.
 | `auth.bad_mnemonic` | 400 | BIP-39 validation failed |
 | `auth.mnemonic_mismatch` | 409 | wallet on disk disagrees with the phrase/index |
 | `auth.account_not_found` | 404 | `accountId` has no local wallet |
-| `auth.account_in_use` | 409 | another process holds the account's instance lock (`details.pid` when known) |
+| `auth.account_in_use` | 409 | another process holds the account's instance lock (`details.pid` when known), or a request of its previous session in this process still holds its resources |
 | `auth.passkey_required` | 400 | encrypted wallet; no or wrong passkey in the configured env var |
 | `auth.device_key_corrupt` | 500 | managed: the account's cached `device.key` is unreadable; never re-minted silently — remove it to mint a new device identity |
 | `auth.network_mismatch` | 409 | the account's data belongs to a different any-sync network than the server's config (`details.pinned`, `details.configured`) — use one data root per network |

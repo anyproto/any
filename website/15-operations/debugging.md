@@ -36,7 +36,7 @@ curl -s http://127.0.0.1:7001/v1/health
 | `"account": ""` and `401 auth.required` everywhere | server is unauthorized — `any auth login` or `POST /v1/auth` ([Accounts](../auth/accounts.html)) |
 | `"bootstrapping": true` | the background boot pass is still loading spaces; reads may serve pre-offline state |
 | two devices list different spaces for the same account | compare `networkId` — each network holds its own copy of the account ([Networks](networks.html)) |
-| `409 auth.account_in_use` on auth | another process holds this account's instance lock |
+| `409 auth.account_in_use` on auth | another process holds this account's instance lock, or a request of its previous session in this process has not left yet; retry |
 | `"crdtVersion": {"newer": true}` and `409 sdk.crdt_version_newer` on writes | another device raised the account's data version — upgrade this server; reads keep working |
 | `403 control.forbidden` | a managed server's auth, shutdown or local-discovery call without its control token (`ANY_CONTROL_TOKEN` for the CLI) |
 

@@ -164,6 +164,7 @@ func waitWG(wg *sync.WaitGroup, d time.Duration) bool {
 var (
 	errAlreadyAuthorized = errors.New("already authorized")
 	errAccountMismatch   = errors.New("another account is running")
+	errAccountHeld       = errors.New("account resources still held by its previous session")
 )
 
 // walletSeed carries the inputs for CREATING a wallet: the BIP-39
@@ -423,6 +424,9 @@ func (d *deps) bootAccountLocked(id *Identity, open credential) (*engine, error)
 		}
 		return nil, errAccountMismatch
 	}
+	if dirHeld(id.Dir) {
+		return nil, errAccountHeld
+	}
 	defer d.bootingSDK.Store(nil)
 	eng, err := bootEngine(d.runCtx, d.bootConfig(), d.root, id, open, d.indexerProcessFor, d.indexerLinksFor, d.noteBootingSDK)
 	if err != nil {
@@ -565,14 +569,16 @@ func (d *deps) teardownEngineLocked(lg logger.CtxLogger, reason string) {
 		// A straggler still executes against this engine. Its fields
 		// stay in place (the next publishEngine overwrites them) and
 		// the resources — including the instance lock — are released
-		// once it leaves; a boot of the same account before that is
-		// refused as account_in_use, which is the truth.
+		// once it leaves; a boot of the same account dir before that
+		// is refused as account_in_use through heldDirs.
 		lg.Error("engine teardown: in-flight requests did not finish in time; resources are released once they leave")
 		d.processes().reset()
 		d.bundleResolver().Reset()
+		holdDir(eng.dir)
 		go func() {
 			<-drained
 			eng.closeResources(lg)
+			releaseDir(eng.dir)
 		}()
 	}
 	// Cleared unconditionally so a second teardown (server.Run's

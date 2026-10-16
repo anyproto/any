@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -497,10 +498,10 @@ func TestServer_Chat_ReactionsRead_Routing(t *testing.T) {
 	}
 }
 
-// chatRowUnreadReactions reads the chat object's row via POST
-// /objects/query and returns its unreadReactionsCount counter (stored
+// chatRowCounters reads the chat object's row via POST /objects/query
+// and returns its unreadCount / unreadReactionsCount counters (stored
 // under the chat type's xKey). Absent decodes as 0.
-func chatRowUnreadReactions(t *testing.T, e http.Handler, spaceId, objectId string) int {
+func chatRowCounters(t *testing.T, e http.Handler, spaceId, objectId string) (messages, reactions int) {
 	t.Helper()
 	body, _ := json.Marshal(map[string]any{"filter": map[string]any{"id": objectId}})
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects/query", string(body))
@@ -510,6 +511,7 @@ func chatRowUnreadReactions(t *testing.T, e http.Handler, spaceId, objectId stri
 	var qr struct {
 		Records []struct {
 			Chat struct {
+				UnreadCount          float64 `json:"unreadCount"`
 				UnreadReactionsCount float64 `json:"unreadReactionsCount"`
 			} `json:"chat"`
 		} `json:"records"`
@@ -518,9 +520,131 @@ func chatRowUnreadReactions(t *testing.T, e http.Handler, spaceId, objectId stri
 		t.Fatalf("decode objects/query: %v", err)
 	}
 	if len(qr.Records) == 0 {
-		return 0
+		return 0, 0
 	}
-	return int(qr.Records[0].Chat.UnreadReactionsCount)
+	return int(qr.Records[0].Chat.UnreadCount), int(qr.Records[0].Chat.UnreadReactionsCount)
+}
+
+func chatRowUnreadReactions(t *testing.T, e http.Handler, spaceId, objectId string) int {
+	t.Helper()
+	_, reactions := chatRowCounters(t, e, spaceId, objectId)
+	return reactions
+}
+
+// pollChatUnreadCount waits for the row's chat.unreadCount to reach
+// want — counter materialization is local but debounced.
+func pollChatUnreadCount(t *testing.T, e http.Handler, spaceId, objectId string, want int) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		got, _ := chatRowCounters(t, e, spaceId, objectId)
+		if got == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("chat.unreadCount = %d, want %d", got, want)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestServer_Chat_AgentDoneUnread pins the agent carve-out end to end on
+// ONE account — the shape no multipeer test can reach: a human message
+// and a streaming agent bubble are born read, the agent's done:true
+// message counts unread for its own author (per-message `unread` flag
+// and the row's chat.unreadCount), read-all clears it, and an
+// upsert-flagged edit of the agent message does not re-flag it. The
+// SDK's unread snapshot is the synchronous truth; flags and the row
+// counter are its debounced materialization.
+func TestServer_Chat_AgentDoneUnread(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	spaceId, objectId := setupChatFixture(t, e)
+	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
+
+	unreadIds := func() []string {
+		t.Helper()
+		ctx := context.Background()
+		sp, err := d.sdk.Spaces().Get(ctx, spaceId)
+		if err != nil {
+			t.Fatalf("Spaces().Get: %v", err)
+		}
+		snap, _, err := sp.ReadState().UnreadSnapshot(ctx, objectId)
+		if err != nil {
+			t.Fatalf("UnreadSnapshot: %v", err)
+		}
+		var ids []string
+		for _, ch := range snap {
+			ids = append(ids, ch.RecordIds...)
+		}
+		return ids
+	}
+
+	send := func(body string) string {
+		t.Helper()
+		rec := doJSON(t, e, http.MethodPost, base+"/chat/messages", body)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("send %s: %d %s", body, rec.Code, rec.Body.String())
+		}
+		return decodeModifyResult(t, rec.Body.Bytes()).RecordIds[0]
+	}
+	flags := func() map[string]bool {
+		t.Helper()
+		out := map[string]bool{}
+		for _, m := range chatList(t, e, base).Messages {
+			out[m.Id] = m.Unread
+		}
+		return out
+	}
+
+	humanId := send(`{"text":"do the thing"}`)
+	streamId := send(`{"text":"working on it","agent":{"name":"bao","done":false}}`)
+	doneId := send(`{"text":"done: here it is","agent":{"name":"bao","done":true}}`)
+	followUpId := send(`{"text":"thanks"}`)
+
+	if ids := unreadIds(); len(ids) != 1 || ids[0] != doneId {
+		t.Fatalf("unread entries = %v, want exactly [%s]", ids, doneId)
+	}
+	pollChatUnreadCount(t, e, spaceId, objectId, 1)
+	got := flags()
+	want := map[string]bool{humanId: false, streamId: false, doneId: true, followUpId: false}
+	for id, u := range want {
+		if got[id] != u {
+			t.Errorf("unread[%s] = %v, want %v (all: %v)", id, got[id], u, got)
+		}
+	}
+
+	rec := doJSON(t, e, http.MethodPost, base+"/chat/read-all", "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("read-all: %d %s", rec.Code, rec.Body.String())
+	}
+	if ids := unreadIds(); len(ids) != 0 {
+		t.Fatalf("unread entries after read-all = %v, want none", ids)
+	}
+	pollChatUnreadCount(t, e, spaceId, objectId, 0)
+	if got := flags(); got[doneId] {
+		t.Errorf("read-all left the agent message unread: %v", got)
+	}
+
+	// An upsert-flagged edit through the generic modify route is an
+	// edit, not a create: the agent message must not be re-flagged.
+	body, _ := json.Marshal(map[string]any{
+		"objectId": objectId, "dataset": "chat_messages",
+		"records": []any{map[string]any{"id": doneId, "upsert": true,
+			"ops": []any{map[string]any{"type": "$set", "path": "text", "value": "done: edited"}}}},
+	})
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/modify", string(body))
+	if rec.Code/100 != 2 {
+		t.Fatalf("upsert edit: %d %s", rec.Code, rec.Body.String())
+	}
+	if msg := getChatMsg(t, e, base, doneId); msg.Text != "done: edited" {
+		t.Fatalf("upsert edit did not land: text = %q", msg.Text)
+	}
+	if ids := unreadIds(); len(ids) != 0 {
+		t.Errorf("upsert edit re-flagged the agent message: unread entries = %v", ids)
+	}
 }
 
 // --- helpers ---------------------------------------------------------------
@@ -561,6 +685,7 @@ type chatMsg struct {
 	Context          *api.ChatMessageContext
 	Control          *api.ChatMessageControl
 	Reactions        map[string]map[string]int64
+	Unread           bool
 }
 
 // chatSend posts a message and returns the read-back record. recordIds[0]
@@ -664,6 +789,7 @@ func decodeChatMsg(t *testing.T, raw []byte) chatMsg {
 		Context          *api.ChatMessageContext       `json:"context"`
 		Control          *api.ChatMessageControl       `json:"control"`
 		Reactions        map[string]map[string]extDate `json:"reactions"`
+		Unread           bool                          `json:"unread"`
 	}
 	if err := json.Unmarshal(raw, &f); err != nil {
 		t.Fatalf("decode message: %v\nraw=%s", err, raw)
@@ -692,6 +818,7 @@ func decodeChatMsg(t *testing.T, raw []byte) chatMsg {
 		Context:          f.Context,
 		Control:          f.Control,
 		Reactions:        reactions,
+		Unread:           f.Unread,
 	}
 }
 
