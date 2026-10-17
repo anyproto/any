@@ -21,8 +21,9 @@ Built-in datasets declare indexes for their hot paths:
 | `objects` | `modifiedAt` (dense) | `sort: ["-modifiedAt"]` recency lists and range filters on it. |
 | `objects` | `any.type` (dense) | `{"any.type": "<typeId>"}` — equality on the object's one type. |
 | `objects` | `any.collections` (sparse) | `{"any.collections": "<collectionId>"}` — membership; the sidebar, the bin, the wiki tree's member set. |
+| `objects` | `meta.createdIn` (sparse) | `{"meta.createdIn": "<objectId>"}` — what was created in an object. |
 
-Every cross-object query should carry one of those two as its scope.
+Every cross-object query should carry `any.type` or `any.collections` as its scope.
 
 The `objects` storage collection's other row-root stamps — `author`, `createdAt`, `spaceId`, `modifiedBy` — are unindexed, so a filter on one of them scans.
 

@@ -313,10 +313,12 @@ lives in the namespace of the surface that declares the property, and an
 object holds one namespace per surface it carries. Alongside them are the
 built-in paths `any.type`, `any.collections`, `any.name`,
 `any.description`, `any.tags`, `_ver.id`, and the row-root derived stamps
-`author`, `createdAt`, `modifiedAt`, `modifiedBy`, `spaceId` (`objects`
-storage collection only — `03-api.md` § Data plane). `{"sort":
-["-modifiedAt"]}` is the recency ordering; `modifiedBy` — the signer of
-that same change — is unindexed, so a filter on it scans. The wiki tree is
+`author`, `createdAt`, `modifiedAt`, `modifiedBy`, `spaceId`, `meta`
+(`objects` storage collection only — `03-api.md` § Data plane).
+`{"sort": ["-modifiedAt"]}` is the recency ordering; `modifiedBy` — the
+signer of that same change — is unindexed, so a filter on it scans;
+`{"meta.createdIn": "<objectId>"}` — what was created in an object — is
+sparse-indexed. The wiki tree is
 no exception: the wiki collection's `parentId` / `pos` / `folder` are
 `<wikiCollectionId>.<propId>` paths, the ids resolved from
 `POST /v1/catalog/wiki/setup` (`03-api.md` § The wiki tree).
@@ -342,7 +344,8 @@ keying a filter by xKey matches nothing.
 
 Indexed paths:
 
-- `objects` → `any.type` (dense), `any.collections` (sparse), `modifiedAt`
+- `objects` → `any.type` (dense), `any.collections` (sparse), `modifiedAt`,
+  `meta.createdIn` (sparse)
 - `editor_blocks` (and every editor storage collection) → `(nav.parentId, nav.pos)`
 - `chat_messages` → `(_ver.id)`, plus sparse `(unread, _ver.id)`,
   `(unreadMention, _ver.id)`, `(unreadReactions, _ver.id)` and multikey

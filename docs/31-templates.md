@@ -116,7 +116,8 @@ module's (the chat) and an invalid declaration. A record field
 declared local, derived or stamped stays behind too, and on a dataset
 that is not `dynamic` so does a field no definition declares any more.
 The derived row-root stamps
-(`createdAt`, `modifiedAt`, `modifiedBy`) are the copy's own, and the
+(`createdAt`, `modifiedAt`, `modifiedBy`) are the copy's own, the
+creation bag `meta` is the request's (the source's is not copied), and the
 link index re-derives links from the copy's records.
 
 Errors: an unknown `from`, or one whose row has not synced to this
