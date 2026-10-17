@@ -11,7 +11,7 @@ Attaching a file is a single POST whose **raw request body is the file** — no 
 
 ```bash
 curl -X POST -T photo.jpg -H 'Content-Type: image/jpeg' \
-  "http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/files?name=photo.jpg"
+  "http://127.0.0.1:2046/v1/spaces/$SP/objects/$OBJ/files?name=photo.jpg"
 ```
 
 ```bash
@@ -71,7 +71,7 @@ A **variant** is an alternate representation of a file — typically a thumbnail
 
 ```bash
 curl -X POST -T photo-thumb.jpg -H 'Content-Type: image/jpeg' \
-  "http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/files?name=photo-thumb.jpg&variant=thumb&variantOf=$FILE"
+  "http://127.0.0.1:2046/v1/spaces/$SP/objects/$OBJ/files?name=photo-thumb.jpg&variant=thumb&variantOf=$FILE"
 ```
 
 ```bash

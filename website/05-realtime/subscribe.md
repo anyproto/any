@@ -109,7 +109,7 @@ Recovery is the same for all of them but `object_deleted`: **open a new POST and
 Windowed subscribes are `POST`, so the browser's `EventSource` cannot open them. Parse the SSE frames from a streaming `fetch` body instead, and wrap the stream in one retry loop: a `closed` frame, a stream that ends without one, and a failed request all mean "open a new POST and replace the window with its snapshot" — except `closed{object_deleted}`, which ends the view: the object is gone and a new POST for it is refused. Node.js 18+ or an allowlisted desktop renderer (an ordinary web page hits the server's CORS policy); `SPACE` is a space id, `CHAT` the [general chat's root](../types/chat.html#finding-the-chat-object), `ACCOUNT` the `accountId` from `GET /v1/auth`. `windowChanged` is where your renderer goes — sort by `-_ver.id` for this query — and `stop.abort()` is what the view calls on close:
 
 ```js
-const API = "http://127.0.0.1:7001/v1";
+const API = "http://127.0.0.1:2046/v1";
 const SPACE = "<spaceId>", CHAT = "<chatId>", ACCOUNT = "<accountId>";
 const stop = new AbortController();
 let messages = new Map();
@@ -232,7 +232,7 @@ run(stop.signal).catch(e => { if (!stop.signal.aborted) console.error(e); });
 From the shell, `curl -N` shows the raw frames, and the CLI prints one JSON object per frame (`{"event": …, "data": …}`) so the stream pipes through `jq`. `--properties` opens the cross-object stream; an object id plus `--dataset` opens a per-object one; `--all-objects` plus `--dataset` opens a shared dataset's:
 
 ```bash
-curl -N http://127.0.0.1:7001/v1/spaces/SPACE/objects/query/subscribe \
+curl -N http://127.0.0.1:2046/v1/spaces/SPACE/objects/query/subscribe \
   -H 'Content-Type: application/json' \
   -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}'
 

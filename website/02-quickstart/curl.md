@@ -7,10 +7,10 @@ order: 20
 
 Every `any` client is an HTTP client. This page is the whole loop in raw JSON, so you know exactly what the CLI and the language recipes are sending.
 
-Assumes `any run` is up on `127.0.0.1:7001` ([Install](install.html)) and `jq` is installed.
+Assumes `any run` is up on `127.0.0.1:2046` ([Install](install.html)) and `jq` is installed.
 
 ```bash
-API=http://127.0.0.1:7001/v1
+API=http://127.0.0.1:2046/v1
 curl -fsS "$API/auth" | jq -e '.authorized == true'   # an account is booted
 ```
 

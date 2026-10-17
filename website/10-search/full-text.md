@@ -12,7 +12,7 @@ The lexical leg of the index is a BM25 full-text index over each document's text
 `hybrid` is the default; pass `"mode": "fts"` when you want lexical ranking only — exact terms, identifiers, error strings, names.
 
 ```bash
-curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/search \
+curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/search \
   -H 'content-type: application/json' \
   -d '{"query": "index.embedder_unavailable", "mode": "fts"}'
 ```
@@ -37,7 +37,7 @@ The `query` string is parsed by the full-text engine, so four operators work inl
 | `exclude` | body array | no listed term may be present |
 
 ```bash
-curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/search \
+curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/search \
   -H 'content-type: application/json' \
   -d '{"query": "\"zeppelin disaster\" hind*",
        "require": ["1937"],

@@ -12,7 +12,7 @@ any is five layers, each with one job: an embedded document database, a peer-to-
 | Layer | What it owns |
 |-------|--------------|
 | **Clients** | Web UI, CLI, JS / Python / mobile bindings, anyrt (programs and agents) — all speak HTTP/JSON + SSE. |
-| **any** | HTTP façade on `127.0.0.1:7001`, CLI client, search and link index, event bus, markdown bridge, bundles engine and usecase catalog, local store. |
+| **any** | HTTP façade on `127.0.0.1:2046`, CLI client, search and link index, event bus, markdown bridge, bundles engine and usecase catalog, local store. |
 | **any-sync-sdk** | Space / Object / record CRDT, types, collections and properties, datasets and handlers, tech space, queries and subscribe. |
 | **[any-sync](https://github.com/anyproto/any-sync)** | The protocol: spaces, ACLs, object trees (signed + encrypted change DAGs), head-sync, files, nodeconf, mDNS p2p. |
 | **[any-store](https://github.com/anyproto/any-store)** | Embedded document DB: storage collections, Mongo filters, modifiers, indexes, transactions, FTS + vector indexes. |
@@ -74,10 +74,10 @@ Where encryption happens: here. The SDK's auth module derives account keys from 
 
 ## any — the local server
 
-any wraps the SDK in a single binary: `any run` opens the SDK and serves HTTP/JSON on `127.0.0.1:7001`; every other `any <cmd>` is an HTTP client for that server. Endpoints map 1:1 onto SDK methods, and the server adds only what the SDK deliberately leaves to consumers: the search and link index over the change feed, the ephemeral event bus, the markdown bridge, the bundles engine and usecase catalog, the device-local store, process reporting. The rules it holds itself to are on [The zen of any](zen-of-any.html).
+any wraps the SDK in a single binary: `any run` opens the SDK and serves HTTP/JSON on `127.0.0.1:2046`; every other `any <cmd>` is an HTTP client for that server. Endpoints map 1:1 onto SDK methods, and the server adds only what the SDK deliberately leaves to consumers: the search and link index over the change feed, the ephemeral event bus, the markdown bridge, the bundles engine and usecase catalog, the device-local store, process reporting. The rules it holds itself to are on [The zen of any](zen-of-any.html).
 
 ```bash
-curl http://127.0.0.1:7001/v1/health
+curl http://127.0.0.1:2046/v1/health
 # { "status": "ok", "version": "any v0.1.2 (commit 1a2b3c4, built 2026-09-09)", "account": "A8tR…", "bootstrapping": false, … }
 ```
 

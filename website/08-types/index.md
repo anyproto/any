@@ -15,7 +15,7 @@ Parts are a **type's** alone. A collection — what an object is filed under —
 
 ```bash
 # a document type: one part with the editor module's canonical dataset
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/types/$DOC/parts \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/types/$DOC/parts \
   -H 'Content-Type: application/json' \
   -d '{"key": "body", "datasets": [{"module": "editor"}]}'
 ```

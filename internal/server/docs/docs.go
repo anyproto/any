@@ -16651,7 +16651,7 @@ const docTemplate = `{
     "openapi": "3.1.0",
     "servers": [
         {
-            "url": "http://127.0.0.1:7001/v1"
+            "url": "http://127.0.0.1:2046/v1"
         }
     ]
 }`

@@ -12,7 +12,7 @@ Once a file is backed up to the network, its local bytes become a cache: droppab
 `POST /v1/spaces/:spaceId/files/:fileId/pin` schedules a full background fetch of the file into the local store (→ 204). The request survives restarts. Use it for "keep this available offline" — a file that was only ever streamed on demand may be partially local; pinning completes it. Completion shows up as a `status` frame on the [status stream](status-and-durability.html) and as `cached: true` on the file's info.
 
 ```bash
-curl -X POST "http://127.0.0.1:7001/v1/spaces/$SP/files/$FILE/pin"
+curl -X POST "http://127.0.0.1:2046/v1/spaces/$SP/files/$FILE/pin"
 any file pin $SP $FILE
 ```
 
@@ -21,7 +21,7 @@ any file pin $SP $FILE
 `POST /v1/spaces/:spaceId/files/:fileId/offload` drops one file's local bytes while keeping the file (→ 204). A later download refetches transparently, block by block, and accretes toward a full copy again.
 
 ```bash
-curl -X POST "http://127.0.0.1:7001/v1/spaces/$SP/files/$FILE/offload"
+curl -X POST "http://127.0.0.1:2046/v1/spaces/$SP/files/$FILE/offload"
 any file offload $SP $FILE
 ```
 
@@ -42,11 +42,11 @@ The three `/v1/files/cache*` routes operate across **all spaces** on this device
 | POST | `/v1/files/cache/sweep` | one safety pass → 204 |
 
 ```bash
-curl "http://127.0.0.1:7001/v1/files/cache"
-curl -X POST "http://127.0.0.1:7001/v1/files/cache/free" \
+curl "http://127.0.0.1:2046/v1/files/cache"
+curl -X POST "http://127.0.0.1:2046/v1/files/cache/free" \
   -H 'Content-Type: application/json' -d '{"bytes": 500000000}'
 # → { "freed": 312044544 }
-curl -X POST "http://127.0.0.1:7001/v1/files/cache/sweep"
+curl -X POST "http://127.0.0.1:2046/v1/files/cache/sweep"
 ```
 
 ```bash

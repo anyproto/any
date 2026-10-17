@@ -86,8 +86,8 @@ There is no `/run` endpoint on the any server — it stores program source and n
 ```bash
 anyrt run 'webSearch@v1' --from-space bao --args '{"query": "local-first sync"}'
 anyrt trace ls                                                  # anyrt run writes jsonl traces to ./traces
-anyrt trace ls --addr http://127.0.0.1:7001 --program toolcaller   # serve's runs, in the server's local store
-anyrt trace show --addr http://127.0.0.1:7001 run_<id> --stats
+anyrt trace ls --addr http://127.0.0.1:2046 --program toolcaller   # serve's runs, in the server's local store
+anyrt trace show --addr http://127.0.0.1:2046 run_<id> --stats
 ```
 
 `anyrt run` records into a traces directory (`--traces-dir`, default `traces`). `anyrt serve` records into the any server's local store by default (`[traces] backend = "any"`), so its runs are read with `--addr`; `backend = "file"` sends them to `paths.traces` instead.

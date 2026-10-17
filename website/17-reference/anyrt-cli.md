@@ -144,9 +144,9 @@ anyrt trace import [DIR] --addr URL [--space NAME] [--dest-dir DIR]
 | `--seq N` | dump one record by seq, blob-resolved, pretty-printed |
 
 ```bash
-anyrt trace ls --addr http://127.0.0.1:7001 --program toolcaller
-anyrt trace show --addr http://127.0.0.1:7001 run_3f1c2a9d0b4e7f61 --stats
-anyrt trace follow --addr http://127.0.0.1:7001 --program rollup
+anyrt trace ls --addr http://127.0.0.1:2046 --program toolcaller
+anyrt trace show --addr http://127.0.0.1:2046 run_3f1c2a9d0b4e7f61 --stats
+anyrt trace follow --addr http://127.0.0.1:2046 --program rollup
 anyrt trace show run_3f1c2a9d0b4e7f61          # a run written by anyrt run
 ```
 

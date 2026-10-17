@@ -10,7 +10,7 @@ order: 30
 ## Global flags and exit codes
 
 ```
---addr <host:port>     # default: the address the account's running server recorded, else 127.0.0.1:7001
+--addr <host:port>     # default: the address the account's running server recorded, else 127.0.0.1:2046
 --timeout <duration>   # default 30s (ignored for streams)
 --verbose              # print the HTTP exchange to stderr
 --control-token <tok>  # managed servers only; prefer ANY_CONTROL_TOKEN
@@ -49,7 +49,7 @@ any space delete $SPACE --yes  # irreversible
 Creating a regular space has no dedicated subcommand — use the API directly ([curl](curl.html)):
 
 ```bash
-SPACE=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces \
+SPACE=$(curl -s -X POST http://127.0.0.1:2046/v1/spaces \
   -H 'content-type: application/json' -d '{"name":"Notebook"}' | jq -r .id)
 ```
 

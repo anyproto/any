@@ -12,7 +12,7 @@ func TestLoad_DefaultsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Listen.Addr != "127.0.0.1:7001" {
+	if cfg.Listen.Addr != "127.0.0.1:2046" {
 		t.Errorf("default addr = %q", cfg.Listen.Addr)
 	}
 	if cfg.Storage.Topology != "shared" {

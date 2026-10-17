@@ -12,7 +12,7 @@ A **collection** is what an object is **filed under**: property definitions and 
 ## Create a type
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/types \
   -H 'Content-Type: application/json' \
   -d '{"name": "Book", "xKey": "book", "description": "things I read"}'
 # → 201 {"typeId": "bafy…"}
@@ -30,7 +30,7 @@ Well-known definitions — the `profile`, `task` and `meeting` types, the `perso
 ## List and read types
 
 ```bash
-curl http://127.0.0.1:7001/v1/spaces/$SPACE/types
+curl http://127.0.0.1:2046/v1/spaces/$SPACE/types
 any type list $SPACE
 ```
 
@@ -51,7 +51,7 @@ Two more flags live on the type: `hidden` keeps it out of `GET …/types` (pass 
 ## Add a property
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/properties \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/types/$TYPE/properties \
   -H 'Content-Type: application/json' \
   -d '{"name": "Author", "xKey": "author", "kind": "string"}'
 # → 201 {"propId": "bafy…"}
@@ -78,12 +78,12 @@ The same body on `POST …/collections/$COLL/properties` adds a column to a coll
 A `choice` property stores an array of option keys — one element unless `xFormat.config.multiple` is on. Options live under `xFormat.options.<key>` as `{name, color, pos, meta?}`, and the key is the value an object stores. Declare them at create or manage them through PATCH, one leaf at a time:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/properties \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/types/$TYPE/properties \
   -H 'Content-Type: application/json' \
   -d '{"name": "Priority", "xKey": "priority", "kind": "array",
        "xFormat": {"type": "choice"}}'
 
-curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/properties/$PROP \
+curl -X PATCH http://127.0.0.1:2046/v1/spaces/$SPACE/types/$TYPE/properties/$PROP \
   -H 'Content-Type: application/json' \
   -d '{"set": {"xFormat.options.high.name": "High",
               "xFormat.options.high.color": "red",
@@ -114,7 +114,7 @@ Other failures: unknown path or wrong leaf type → `400 request.invalid_field`;
 ## Remove a property
 
 ```bash
-curl -X DELETE http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/properties/$PROP   # → 204
+curl -X DELETE http://127.0.0.1:2046/v1/spaces/$SPACE/types/$TYPE/properties/$PROP   # → 204
 any type property remove $SPACE $TYPE $PROP
 ```
 

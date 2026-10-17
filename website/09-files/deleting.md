@@ -10,7 +10,7 @@ Deleting a file is a synced write: one change removes the payload row for every 
 ## Delete
 
 ```bash
-curl -X DELETE "http://127.0.0.1:7001/v1/spaces/$SP/files/$FILE"
+curl -X DELETE "http://127.0.0.1:2046/v1/spaces/$SP/files/$FILE"
 # → 204
 ```
 
@@ -39,7 +39,7 @@ The **network copy is not reclaimed**: the file protocol has no delete RPC. The 
 A client that holds a live per-object file list sees the deletion the same way it sees any record leaving a window — no extra read needed:
 
 ```bash
-curl -N -X POST "http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/files/query/subscribe" \
+curl -N -X POST "http://127.0.0.1:2046/v1/spaces/$SP/objects/$OBJ/files/query/subscribe" \
   -H 'Content-Type: application/json' -d '{"sort": ["-_ver.id"], "limit": 50}'
 ```
 

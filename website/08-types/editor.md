@@ -39,7 +39,7 @@ Block-level syntax — heading hashes, list bullets, code fences, quote prefixes
 Reads go through the generic per-object query with `dataset=editor_blocks`, sorted by position:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/query \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/query \
   -H 'Content-Type: application/json' \
   -d '{"objectId": "'$OBJ'", "dataset": "editor_blocks", "sort": ["nav.pos"]}'
 ```
@@ -58,18 +58,18 @@ Every write returns `{versionId, changeId, recordIds}`; `recordIds[0]` on create
 
 ```bash
 # create — nav.parentId defaults to "" (top-level), nav.pos to the next lexid past the parent's last child
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/blocks \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/blocks \
   -H 'Content-Type: application/json' \
   -d '{"type": "check_list_item", "style": {"checked": false}, "text": "buy milk"}'
 # → 201 { "versionId": "…", "changeId": "…", "recordIds": ["<blockId>"] }
 
 # patch — each set key is a dotted path applied as one $set, each unset entry one $unset
-curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/blocks/$BLK \
+curl -X PATCH http://127.0.0.1:2046/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/blocks/$BLK \
   -H 'Content-Type: application/json' \
   -d '{"set": {"style.checked": true, "text": "buy oat milk"}, "unset": ["style.level"]}'
 
 # delete
-curl -X DELETE http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/blocks/$BLK
+curl -X DELETE http://127.0.0.1:2046/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/blocks/$BLK
 ```
 
 CLI equivalents: `any editor blocks create $SP $OBJ --type paragraph --text "…" [--style JSON] [--parent ID] [--pos LEXID]`, `any editor blocks patch … --set JSON --unset PATH`, `any editor blocks delete …`. Every editor command takes `--collection` (default `editor_blocks`) to write a namespaced editor instead.
@@ -97,7 +97,7 @@ The `…/editor/editor_blocks/markdown` routes are a lossless import/export laye
 **GET** reads every top-level block, renders each to its canonical bytes, joins them with `\n\n` and returns `{"content": "<markdown>", "version": "<version>"}`. **PUT** takes `{"content": …, "ifVersion": …}`, parses the markdown, diffs it against the current tree by (type + position + text), and emits per-block create / update / delete ops through the same write path a block PATCH uses — so the same subscribe events fire, untouched blocks keep their ids, and the reply lists what changed:
 
 ```bash
-curl -X PUT http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/markdown \
+curl -X PUT http://127.0.0.1:2046/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/markdown \
   -H 'Content-Type: application/json' \
   -d "$(jq -Rs '{content: .}' notes.md)"
 # → { "inserted": ["…"], "updated": ["…"], "deleted": [], "unchanged": 12, "version": "…" }
@@ -112,7 +112,7 @@ Re-PUTting a GET writes nothing (`unchanged` equals the block count), so a clien
 PATCH is for callers — LLM agents above all — that know the *text* they want changed but not the block ids. Each `oldText` must already be in the document:
 
 ```bash
-curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/markdown \
+curl -X PATCH http://127.0.0.1:2046/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/markdown \
   -H 'Content-Type: application/json' \
   -d '{"edits": [
         {"oldText": "- [ ] Children of Time", "newText": "- [x] Children of Time"},

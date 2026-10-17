@@ -21,7 +21,7 @@ A cron expression that yields no next occurrence is an inert definition: the hea
 ## Create one
 
 ```sh
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/upsert \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/upsert \
   -H 'Content-Type: application/json' \
   -d "{\"objectId\": \"$ANCHOR\", \"dataset\": \"$TRIGGERS\",
        \"records\": [{\"id\": \"inbox-watch\", \"fields\": {

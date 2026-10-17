@@ -25,18 +25,18 @@ A template holds its type's values at `<typeId>.<propId>` and its body in the ty
 Create an object of the target type filed under `template`, edit it as usual, then set `template.version` once the content is in (`$TYPE` here declares the canonical editor part, whose storage collection is `editor_blocks`; a keyed part's is `<typeId>_<key>`):
 
 ```bash
-TPL=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
+TPL=$(curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects \
   -H 'Content-Type: application/json' \
   -d '{"type": "'$TYPE'", "collections": ["template"],
        "initialProperties": {"template": {"title": "Weekly review"},
                              "any": {"name": "Weekly review — "}}}' \
   | jq -r .objectId)
 
-curl -X PUT http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$TPL/editor/editor_blocks/markdown \
+curl -X PUT http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$TPL/editor/editor_blocks/markdown \
   -H 'Content-Type: application/json' \
   -d '{"content": "## What went well\n\n## What to change"}'
 
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$TPL/set/template \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/properties/$TPL/set/template \
   -H 'Content-Type: application/json' \
   -d '{"patch": {"version": 1}}'
 ```
@@ -48,7 +48,7 @@ A template for a collection's rows is the same object with that collection in `c
 ## Create from a template
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects \
   -H 'Content-Type: application/json' \
   -d '{"from": "'$TPL'", "initialProperties": {"any": {"name": "Weekly review — 13 Oct"}}}'
 # → 201 {"objectId": "…"}
@@ -91,7 +91,7 @@ The `template` group is admitted only with the marker in `collections` (`400 dat
 Templates for a type:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/query \
   -H 'Content-Type: application/json' \
   -d '{"filter": {"$and": [{"any.collections": "template"},
                            {"any.type": "'$TYPE'"},

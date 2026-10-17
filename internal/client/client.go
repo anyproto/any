@@ -12,8 +12,6 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-const DefaultAddr = "127.0.0.1:7001"
-
 type Client struct {
 	base string
 	http *http.Client
@@ -24,7 +22,7 @@ type Client struct {
 
 func New(addr string, timeout time.Duration) *Client {
 	if addr == "" {
-		addr = DefaultAddr
+		addr = api.DefaultListenAddr
 	}
 	if timeout <= 0 {
 		timeout = 30 * time.Second

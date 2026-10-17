@@ -53,7 +53,7 @@ The marker is the change counter of the program's source record. Every `use()` r
 ## Repos and `anybao.toml`
 
 ```toml
-addr = "http://127.0.0.1:7001"   # the any server
+addr = "http://127.0.0.1:2046"   # the any server
 
 [agent]
 space = "bao"              # working space: chat, memory, your own programs

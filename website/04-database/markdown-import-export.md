@@ -19,7 +19,7 @@ All four write through the same block write path a per-block edit would, so the 
 ## Export — `GET`
 
 ```sh
-curl http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/markdown
+curl http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/markdown
 # → {"content": "# Title\n\nFirst paragraph…", "version": "…"}
 ```
 
@@ -28,7 +28,7 @@ Returns `{"content": "<markdown>", "version": "<version>"}`: every top-level blo
 ## Import — `PUT`
 
 ```sh
-curl -X PUT http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/markdown \
+curl -X PUT http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/markdown \
   -H 'Content-Type: application/json' \
   -d "$(jq -n --rawfile md doc.md '{content: $md}')"
 # → {"inserted": ["blk_…"], "updated": [], "deleted": ["blk_…"], "unchanged": 12, "version": "…"}
@@ -41,7 +41,7 @@ The server parses the markdown, diffs against the current block tree by type + p
 `PUT` makes the stored body equal `content`, so a save built from an older read would revert every change made since. A caller that edits what it read sends that read's `version` as `ifVersion`; the server writes only while the document is still at it:
 
 ```sh
-curl -X PUT http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/markdown \
+curl -X PUT http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/markdown \
   -H 'Content-Type: application/json' \
   -d "$(jq -n --rawfile md doc.md --arg v "$VERSION" '{content: $md, ifVersion: $v}')"
 # → {"inserted": [], "updated": ["blk_…"], "deleted": [], "unchanged": 11, "version": "…"}
@@ -68,7 +68,7 @@ A version holds within one run of the server: after a restart — a crash includ
 For callers that know the *text* they want changed but not the block ids. Each `oldText` must already be in the document:
 
 ```sh
-curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/markdown -d '{
+curl -X PATCH http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/markdown -d '{
   "edits": [
     { "oldText": "- [ ] Children of Time", "newText": "- [x] Children of Time" },
     { "oldText": "typo", "newText": "fixed", "replaceAll": true }
@@ -99,7 +99,7 @@ Matching rules:
 ## Append — `POST …/append`
 
 ```sh
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/markdown/append \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/markdown/append \
   -d '{"content": "## Turn 12\n\nAgent replied with…"}'
 # → {"inserted": ["blk_…", "blk_…"], "updated": [], "deleted": [], "unchanged": 0}
 ```

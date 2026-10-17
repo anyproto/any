@@ -16,15 +16,15 @@ The records live in a storage collection **namespaced to the type**, `<typeId>_<
 A dataset belongs to a part — the display unit a client renders it in — and a part belongs to a type. Create the type, declare the part (or inline the dataset in the part's `datasets`), then the dataset:
 
 ```sh
-TYPE=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types \
+TYPE=$(curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/types \
   -H 'Content-Type: application/json' \
   -d '{"name": "Blog", "xKey": "blog"}' | jq -r .typeId)
 
-PART=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/parts \
+PART=$(curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/types/$TYPE/parts \
   -H 'Content-Type: application/json' \
   -d '{"key": "articles", "name": "Articles", "ui": {"type": "table"}}' | jq -r .partId)
 
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/parts/$PART/datasets \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/types/$TYPE/parts/$PART/datasets \
   -H 'Content-Type: application/json' -d '{
   "key": "articles", "displayName": "Articles",
   "idRule": "user", "deleteBy": "author",
@@ -80,7 +80,7 @@ Behavioral parts are pinned for the definition's life: `key`, `module`, `dynamic
 Display parts patch through `PATCH …/datasets/:defId` with the same `{set, unset}` shape as a property patch, over `description`, `displayName`, `search.title`, `search.text`, `search.scope`:
 
 ```sh
-curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/datasets/$DEF \
+curl -X PATCH http://127.0.0.1:2046/v1/spaces/$SPACE/types/$TYPE/datasets/$DEF \
   -d '{"set": {"displayName": "Posts", "search.text": ["body", "notes"]}}'
 
 any type part dataset patch $SPACE $TYPE $DEF --set '{"displayName":"Posts"}'
@@ -130,12 +130,12 @@ Runtime datasets also appear in the space's discovery document, `GET /v1/spaces/
 The data path is the ordinary dataset surface; a [shared dataset](#shared-datasets) adds one read scope across objects. Records live on an object of the declaring type:
 
 ```sh
-OBJ=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
+OBJ=$(curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects \
   -H 'Content-Type: application/json' \
   -d '{"type": "'$TYPE'", "initialProperties": {"any": {"name": "My blog"}}}' | jq -r .objectId)
 
 # write — "upsert": true creates the record; without it the op only updates an existing id
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/modify \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/modify \
   -H 'Content-Type: application/json' -d '{
   "objectId": "'$OBJ'", "dataset": "'$TYPE'_articles",
   "records": [ { "id": "a1", "upsert": true, "ops": [
@@ -143,7 +143,7 @@ curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/modify \
 # → {"versionId": "…", "changeId": "…", "recordIds": ["a1"]}
 
 # read
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
   -d '{"objectId": "'$OBJ'", "dataset": "'$TYPE'_articles", "sort": ["-createdAt"]}'
 ```
@@ -168,11 +168,11 @@ A `records` dataset declared `"shared": true` keeps the records of every object 
 A series kept per day object is the shape it fits: one `Day` object per date, one record per hour, and a chart that reads a week across seven objects. Declare the dataset inline in a part:
 
 ```sh
-DAY=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types \
+DAY=$(curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/types \
   -H 'Content-Type: application/json' \
   -d '{"name": "Day", "xKey": "day"}' | jq -r .typeId)
 
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$DAY/parts \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/types/$DAY/parts \
   -H 'Content-Type: application/json' -d '{
   "key": "activity", "name": "Activity", "ui": {"type": "table"},
   "datasets": [ {
@@ -193,21 +193,21 @@ HOURS=${DAY}_hours
 Writes go through the per-object routes — `modify`, `delete-records`, `upsert` — exactly as on any dataset, and the object's type must declare the dataset:
 
 ```sh
-MON=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
+MON=$(curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects \
   -H 'Content-Type: application/json' \
   -d '{"type": "'$DAY'", "initialProperties": {"any": {"name": "2026-01-05"}}}' | jq -r .objectId)
-TUE=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
+TUE=$(curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects \
   -H 'Content-Type: application/json' \
   -d '{"type": "'$DAY'", "initialProperties": {"any": {"name": "2026-01-06"}}}' | jq -r .objectId)
 
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/upsert \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/upsert \
   -H 'Content-Type: application/json' -d '{
   "objectId": "'$MON'", "dataset": "'$HOURS'",
   "records": [
     { "id": "2026-01-05T14", "fields": { "start": {"$date": "2026-01-05T14:00:00Z"}, "steps": 812 } },
     { "id": "2026-01-05T15", "fields": { "start": {"$date": "2026-01-05T15:00:00Z"}, "steps": 1260 } } ] }'
 
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/upsert \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/upsert \
   -H 'Content-Type: application/json' -d '{
   "objectId": "'$TUE'", "dataset": "'$HOURS'",
   "records": [
@@ -221,7 +221,7 @@ The record id itself — auto-derived or caller-supplied — never holds a `/`.
 Every read returns a record with `id: "<objectId>/<recordId>"` and `_objectId: "<objectId>"`. One object's records are read through the per-object scope, as on any dataset — `…/query[/subscribe]` and `…/aggregate` with `objectId` + `dataset`:
 
 ```sh
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
   -d '{"objectId": "'$MON'", "dataset": "'$HOURS'", "sort": ["id"]}'
 ```
@@ -235,7 +235,7 @@ POST /v1/spaces/:spaceId/datasets/aggregate         { dataset, pipeline, groupLi
 ```
 
 ```sh
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/datasets/query \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/datasets/query \
   -H 'Content-Type: application/json' -d '{
   "dataset": "'$HOURS'",
   "filter": {"start": {"$gte": {"$date": "2026-01-05T15:00:00Z"}}},
@@ -257,7 +257,7 @@ The filter and sort lead with `start`, so the `by_start` index serves them as a 
 The same scope takes a pipeline and a live window:
 
 ```sh
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/datasets/aggregate \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/datasets/aggregate \
   -H 'Content-Type: application/json' -d '{
   "dataset": "'$HOURS'",
   "pipeline": [ {"$group": {"_id": "$_objectId", "steps": {"$sum": "$steps"}}},
@@ -277,7 +277,7 @@ A dataset-scope subscription carries the changes of every object's records. Dele
 A write takes the plain record id, or the `id` a read returned for a record of the request's own `objectId`. `modify` returns `recordIds` in the `<objectId>/<recordId>` form:
 
 ```sh
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/modify \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/modify \
   -H 'Content-Type: application/json' -d '{
   "objectId": "'$MON'", "dataset": "'$HOURS'",
   "records": [ { "id": "2026-01-05T14",
@@ -305,15 +305,15 @@ Another object's record — `$TUE/2026-01-06T09` in a write to `$MON` — is ref
 A `records` dataset declares secondary indexes in the draft's `indexes` — `by_start` above — or later, also on a dataset that already holds records:
 
 ```sh
-DEF=$(curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/types/$DAY/datasets \
+DEF=$(curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/types/$DAY/datasets \
   | jq -r '.datasets[] | select(.key == "hours") | .id')
 
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$DAY/datasets/$DEF/indexes \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/types/$DAY/datasets/$DEF/indexes \
   -H 'Content-Type: application/json' \
   -d '{"key": "by_steps", "fields": ["-steps", "_objectId"]}'
 # → 201 {"indexDefId": "…"}
 
-curl -s -X DELETE http://127.0.0.1:7001/v1/spaces/$SPACE/types/$DAY/datasets/$DEF/indexes/$INDEX
+curl -s -X DELETE http://127.0.0.1:2046/v1/spaces/$SPACE/types/$DAY/datasets/$DEF/indexes/$INDEX
 # → 204
 ```
 

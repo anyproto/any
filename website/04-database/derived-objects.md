@@ -35,11 +35,11 @@ Deriving an id never creates anything. The pattern across the surface is a cheap
 
 ```sh
 # resolve: pure computation, reports whether a usable row exists anywhere in the account
-curl http://127.0.0.1:7001/v1/spaces/derived
+curl http://127.0.0.1:2046/v1/spaces/derived
 # → {"spaces": [{"name": "bao", "spaceId": "bafy…", "created": false}]}
 
 # materialize: creates on first call, returns the same space on every later one
-curl -X POST http://127.0.0.1:7001/v1/spaces/derived/bao
+curl -X POST http://127.0.0.1:2046/v1/spaces/derived/bao
 # → 201 SpaceInfo
 
 any space derived
@@ -49,7 +49,7 @@ any space derived create bao
 Bundles follow the same shape: an ensure with `"derived": true` is adopt-or-install — a read when the root is already registered, a write only the first time — and both sides of a partition install on the first attempt because there is no competing id either could mint. The space's chat is the canonical case, installed by the server's catalog:
 
 ```sh
-curl -X POST http://127.0.0.1:7001/v1/catalog/general-chat/setup \
+curl -X POST http://127.0.0.1:2046/v1/catalog/general-chat/setup \
   -d '{"spaceId": "'$SPACE'"}'
 # → {"usecase": "general-chat", "bundles": [{"id": "system:general-chat/v1", "bundle": {"rootId": "bafy…", "derived": true}, "installed": true}]}
 ```

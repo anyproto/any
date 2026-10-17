@@ -23,7 +23,7 @@ An invite is a shareable token. The owner mints it, passes the string out of ban
 ## Mint and share
 
 ```bash
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/invites
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/invites
 # → 201
 ```
 
@@ -40,7 +40,7 @@ any invite create <spaceId>
 ## Join
 
 ```bash
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/join \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/join \
   -d '{"inviteToken": "5ZHbdx…", "metadata": {"name": "Bob", "iconCid": "…"}}'
 # → 202 SpaceInfo   (status "joining")
 ```
@@ -56,7 +56,7 @@ Until accepted, the joiner can withdraw from any device of the account with `POS
 ## List and revoke
 
 ```bash
-curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/invites
+curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/invites
 ```
 
 ```json
@@ -78,7 +78,7 @@ any invite revoke-all <spaceId>
 ## Guest key: public read-only access
 
 ```bash
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/guest-key
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/guest-key
 # → { "spaceId": "…", "inviteToken": "…" }
 ```
 

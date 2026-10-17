@@ -146,7 +146,7 @@ account is standalone-only — a managed login with its phrase lands in
    returns `401 auth.required` until `POST /v1/auth` creates / restores
    / selects an account and boots the engine in place (no restart).
    See `03-api.md` § Auth.
-5. Bind HTTP listener on `127.0.0.1:<port>` (default `7001`). Print
+5. Bind HTTP listener on `127.0.0.1:<port>` (default `2046`). Print
    `LISTENING <addr>` (and, managed with a minted token,
    `CONTROL_TOKEN <hex>`) on stdout; record the address in the
    account dir's `server.addr` once an engine is up.
@@ -176,7 +176,7 @@ out-of-band `POST /v1/spaces/one-to-one/register-incoming` path. See
 
 ## Listen address
 
-- **Default**: `127.0.0.1:7001`. Plain HTTP, no TLS, no auth.
+- **Default**: `127.0.0.1:2046`. Plain HTTP, no TLS, no auth.
 - **Ephemeral port**: `--addr 127.0.0.1:0` asks the kernel for a free port.
   The server prints `LISTENING <resolved-addr>` as a plain stdout line
   before serving — a machine-parseable contract the any-ui desktop shell
@@ -187,7 +187,7 @@ out-of-band `POST /v1/spaces/one-to-one/register-incoming` path. See
   dir's `server.addr`, which the CLI reads when `--addr` is not given.
 - **Configurable**: `listen.addr` in config or `--addr host:port` flag.
 - The server refuses to bind anything other than a loopback IP literal:
-  `--addr 0.0.0.0:7001` (or a host name, `localhost` included) exits
+  `--addr 0.0.0.0:2046` (or a host name, `localhost` included) exits
   with "remote access is not supported in v1".
 
 ## Shutdown

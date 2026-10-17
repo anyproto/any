@@ -27,7 +27,7 @@ The desktop app bundles anyrt this way: a Cargo path dependency on `anybao/runti
 
 ```rust
 let mut cfg = anyrt::Config::builder()
-    .addr("http://127.0.0.1:7001")
+    .addr("http://127.0.0.1:2046")
     .agent_space("bao")
     .overlay_with_invite("agent", "<repoSpaceId>", "<inviteToken>")
     .build();
@@ -55,7 +55,7 @@ Secrets an embedder ships (a bundled demo-keys resource, for example) go in thro
 The same agent as a process, configured by `anybao.toml`:
 
 ```toml
-addr = "http://127.0.0.1:7001"
+addr = "http://127.0.0.1:2046"
 
 [agent]
 space = "bao"               # working space: chat, memory, your edits
@@ -70,7 +70,7 @@ traces = "traces"
 Three processes, three terminals; `anyrt serve` reads `anybao.toml` from its working directory ([provider and overlay setup](../quickstart/anyrt.html)):
 
 ```sh
-./bin/any run --config ./any-config.yml        # 1. the any server, 127.0.0.1:7001
+./bin/any run --config ./any-config.yml        # 1. the any server, 127.0.0.1:2046
 anyrt serve                                     # 2. the agent (reads anybao.toml)
 cd ../any-ui && pnpm dev                        # 3. a browser UI proxying /v1
 ```

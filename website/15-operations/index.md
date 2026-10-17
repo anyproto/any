@@ -10,7 +10,7 @@ order: 0
 ## The process model
 
 ```
-any run                      foreground, 127.0.0.1:7001
+any run                      foreground, 127.0.0.1:2046
   ├── engine                 instance lock → keys → SDK → indexer (torn down in place on a managed sign-out)
   │     └── boot pass        eager space loading + offline catch-up (background)
   ├── HTTP listener          /v1/… — REST + SSE
@@ -33,7 +33,7 @@ any version
 ```
 
 ```bash
-curl -s http://127.0.0.1:7001/v1/health
+curl -s http://127.0.0.1:2046/v1/health
 ```
 
 ```json

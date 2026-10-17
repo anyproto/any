@@ -18,10 +18,10 @@ order: 10
    - no selector → the root `wallet.key` if one exists, else a sole `<root>/<id>/` directory, else **no account**.
 3. **With an account, boot its engine** before the listener binds, so boot failures surface immediately: take the instance lock in the account dir → open the wallet → derive the account id → open the SDK → open the search indexer. `any run` never generates a wallet; create accounts with `any init` or over HTTP. Opening checks the account's **CRDT version mark** first: data written by a newer release refuses the boot (`any run` exits with the reason; over HTTP `409 sdk.crdt_version_newer`), so an older server never writes into data shaped by rules it does not know.
 4. **Without an account, start unauthorized.** Every `/v1` route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth` returns `401 auth.required` until `POST /v1/auth` creates, restores or selects an account and boots the engine in place — no restart. See [Accounts](../auth/accounts.html).
-5. **Bind** `127.0.0.1:<port>` (default 7001), print `LISTENING <addr>` on stdout — followed by `CONTROL_TOKEN <hex>` on a managed server that minted its token — record the address in the account dir's `server.addr` once an engine is up, and serve.
+5. **Bind** `127.0.0.1:<port>` (default 2046), print `LISTENING <addr>` on stdout — followed by `CONTROL_TOKEN <hex>` on a managed server that minted its token — record the address in the account dir's `server.addr` once an engine is up, and serve.
 
 ```bash
-any run --data-dir ~/.any --addr 127.0.0.1:7001 --log-level info
+any run --data-dir ~/.any --addr 127.0.0.1:2046 --log-level info
 ```
 
 Opening the SDK also starts the one-to-one inbox notifier when a coordinator is configured, so incoming direct-space requests surface as pending rows in the space list without any wiring ([One-to-one spaces](../collaboration/one-to-one.html)).
@@ -51,7 +51,7 @@ The SDK returns from `Open` after local wiring only. Eager space loading and off
 
 | Setting | Behaviour |
 |---|---|
-| default | `127.0.0.1:7001`, plain HTTP, no TLS, no auth |
+| default | `127.0.0.1:2046`, plain HTTP, no TLS, no auth |
 | `listen.addr` / `--addr host:port` | any loopback address and port |
 | `--addr 127.0.0.1:0` | ephemeral port; the `LISTENING <resolved-addr>` stdout line is the readiness handshake the desktop shell relies on, and `server.addr` lets the CLI find the port without `--addr` |
 | a non-loopback address | refused with a clear error: remote access is not supported |
@@ -69,7 +69,7 @@ A managed server also tears its engine down in place, without exiting: `DELETE /
 
 ```bash
 any stop                                   # standalone (or managed) — signal
-curl -s -X POST -H "X-Any-Control-Token: $TOKEN" http://127.0.0.1:7001/v1/shutdown   # managed host
+curl -s -X POST -H "X-Any-Control-Token: $TOKEN" http://127.0.0.1:2046/v1/shutdown   # managed host
 ```
 
 ## Single-instance lock
@@ -85,7 +85,7 @@ The lock is **per account**: two servers may share one data-dir root as long as 
 A process serves one account at a time. Switching the account of a running server is an ownership right: a managed server's host switches in place (`POST /v1/auth` with `replace: true`) or signs out (`DELETE /v1/auth`); a standalone server refuses both — stop it and start with `--account <id>`, or let `POST /v1/auth` pick on an unauthorized server. Two accounts side by side:
 
 ```bash
-ANY_ACCOUNT=A3… any run --addr 127.0.0.1:7001
+ANY_ACCOUNT=A3… any run --addr 127.0.0.1:2046
 ANY_ACCOUNT=B7… any run --addr 127.0.0.1:7002
 ```
 

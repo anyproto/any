@@ -33,7 +33,7 @@ Every `any` server keeps a local search index — BM25 full-text plus semantic v
 The server must be a search-enabled build (`make build` or a release tarball): a bare `go build` compiles search out and the only symptom is zero hits.
 
 ```bash
-curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/search \
+curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/search \
   -H 'content-type: application/json' \
   -d '{"query": "zeppelin disaster", "limit": 5}'
 ```

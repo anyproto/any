@@ -28,7 +28,7 @@ Bundle ids carry a slash — the version suffix is part of the id (`favorites/v1
 ## Ensure: adopt or install
 
 ```bash
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/bundles \
   -d '{"id": "notes/v1", "name": "Notes", "xKey": "notes", "hidden": true,
        "parts": [{"key": "body", "datasets": [{"module": "editor"}]}]}'
 ```
@@ -103,7 +103,7 @@ Setup walks the dependency closure (dependencies first) against one convergence 
 A space's chat is the server's: the `chat` module is reserved, so no client bundle may declare a chat part (`400 dataset.module_reserved`). The catalog's `general-chat` usecase installs the one chat, a derived root:
 
 ```bash
-curl -s -X POST http://127.0.0.1:7001/v1/catalog/general-chat/setup \
+curl -s -X POST http://127.0.0.1:2046/v1/catalog/general-chat/setup \
   -d '{"spaceId": "'$SPACE'"}'
 ```
 
@@ -112,7 +112,7 @@ Use the entry's `bundle.rootId` as the [chat](../types/chat.html) object. Every 
 ## Children
 
 ```bash
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/notes%2Fv1/children \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/bundles/notes%2Fv1/children \
   -d '{"seed": "settings", "type": "page", "collections": ["'$WIKI'"]}'
 # → { "objectId": "bafy…" }
 ```
@@ -122,8 +122,8 @@ A child is a setup object derived under the bundle's current winner: `type` is r
 ## Reads
 
 ```bash
-curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/bundles
-curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/notes%2Fv1     # 404 bundle.not_found
+curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/bundles
+curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/bundles/notes%2Fv1     # 404 bundle.not_found
 ```
 
 Rows are also readable through the ordinary dataset surface — `POST /v1/spaces/:spaceId/query` with `{"objectId": "<spaceIndexObjectId>", "dataset": "bundles"}` — which is how a client [subscribes](../realtime/subscribe.html) to live conflict updates. That path is read-only; no client can forge a claim. Raw rows carry the stored `rootId` register and no `derived` field — the derived-root verdict is applied by `GET …/bundles[/:bundleId]`, so read those when a bundle may be derived.
@@ -133,7 +133,7 @@ Rows are also readable through the ordinary dataset surface — `POST /v1/spaces
 `losers` is the live conflict set: claimed roots that are neither the winner nor already deleted. Non-empty means two devices installed concurrently and the loser may hold real content. Cleanup is the client's call — merge what matters out of the losing root and its children, then:
 
 ```bash
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/notes%2Fv1/resolve \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/bundles/notes%2Fv1/resolve \
   -d '{"loserRootId": "bafy…"}'
 # → 204
 ```

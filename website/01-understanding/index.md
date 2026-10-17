@@ -15,7 +15,7 @@ order: 0
 | **Sync** | any-sync | CRDT changes, ACLs, head-sync, p2p LAN; nodes relay ciphertext and keys never leave devices. |
 | **Database** | any-store | Local document DB: queries, indexes, live windowed subscriptions, full-text + vectors. |
 
-**Database.** Every device runs the whole database locally. Reads are indexed queries against a file on disk; writes commit locally and return immediately. The server process (`any run`) exposes it on `127.0.0.1:7001` as HTTP/JSON with Server-Sent Events for live updates.
+**Database.** Every device runs the whole database locally. Reads are indexed queries against a file on disk; writes commit locally and return immediately. The server process (`any run`) exposes it on `127.0.0.1:2046` as HTTP/JSON with Server-Sent Events for live updates.
 
 **Sync.** A write becomes a signed, encrypted *change* in a per-object DAG. any-sync nodes store and relay those changes to the other members of the space; devices on the same LAN also sync directly over p2p. Convergence is guaranteed by the CRDT — there is no server-side "truth" that a device must defer to.
 

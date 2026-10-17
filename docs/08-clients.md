@@ -627,8 +627,8 @@ HTTP resource with correct mime, filename, and Range support — point
 media elements straight at it and let the browser stream/seek:
 
 ```html
-<img   src="http://127.0.0.1:7001/v1/spaces/SP/files/F1/content">
-<video src="http://127.0.0.1:7001/v1/spaces/SP/files/F2/content" controls>
+<img   src="http://127.0.0.1:2046/v1/spaces/SP/files/F1/content">
+<video src="http://127.0.0.1:2046/v1/spaces/SP/files/F2/content" controls>
 ```
 
 Reference a file from a record as its `fileId` (plus whatever denorm

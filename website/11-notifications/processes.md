@@ -45,7 +45,7 @@ Account-scoped, behind the `/v1` auth guard. Every POST answers the bus publish 
 `kind` is a short vocabulary token, `title` the human display line (≤ 256 bytes). Re-registering an id restarts its row — the supported owner-restart path. Progress and finish require the process to be live in the view under this account's identity, else `404 process.not_found`.
 
 ```bash
-B=http://127.0.0.1:7001/v1
+B=http://127.0.0.1:2046/v1
 curl -X POST $B/processes -H 'Content-Type: application/json' \
   -d '{"id":"import-7f3a","kind":"import","title":"Importing notes.zip","scope":"space","spaceId":"SPACE"}'
 curl -X POST $B/processes/import-7f3a/progress -H 'Content-Type: application/json' \

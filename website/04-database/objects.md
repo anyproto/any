@@ -12,7 +12,7 @@ An object is a document in a space: exactly one **type** — what it is — any 
 ## Create an object
 
 ```bash
-OBJ=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
+OBJ=$(curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects \
   -H 'Content-Type: application/json' \
   -d '{"type": "page", "initialProperties": {"any": {"name": "Dune"}}}' \
   | jq -r .objectId)
@@ -40,7 +40,7 @@ Any other top-level key answers `400 request.unknown_field` naming the accepted 
 A person filed under two facets is one call — `$PERSON` the type, `$CONTACT` and `$INVESTOR` collections, `$STATUS` a property declared on the contact collection:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects \
   -H 'Content-Type: application/json' \
   -d '{"type": "'$PERSON'", "collections": ["'$CONTACT'", "'$INVESTOR'"],
        "initialProperties": {"any": {"name": "Ada Lovelace"},
@@ -50,9 +50,9 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
 ## Set the type, file under collections
 
 ```bash
-curl -X POST   http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/type/$TYPE
-curl -X POST   http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/collections/$COLL
-curl -X DELETE http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/collections/$COLL
+curl -X POST   http://127.0.0.1:2046/v1/spaces/$SPACE/properties/$OBJ/type/$TYPE
+curl -X POST   http://127.0.0.1:2046/v1/spaces/$SPACE/properties/$OBJ/collections/$COLL
+curl -X DELETE http://127.0.0.1:2046/v1/spaces/$SPACE/properties/$OBJ/collections/$COLL
 any object type set          $SPACE $OBJ $TYPE
 any object collection attach $SPACE $OBJ $COLL
 any object collection detach $SPACE $OBJ $COLL
@@ -69,7 +69,7 @@ A storage collection — chat messages, editor blocks, a runtime dataset — liv
 Every object is one row in the space's `objects` storage collection. Read it back through the cross-object query:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/query \
   -H 'Content-Type: application/json' \
   -d '{"filter": {"id": "'$OBJ'"}}'
 ```
@@ -98,7 +98,7 @@ An illustrative row for a page filed under the wiki collection:
 The space's tree is the catalog usecase `wiki`: a hidden **collection** whose three columns place any object filed under it. There is no built-in tree type, nothing is stamped on create, and there is no tree endpoint. Set it up once per space and keep the reply — every client, device and member lands on the same ids:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/catalog/wiki/setup \
+curl -X POST http://127.0.0.1:2046/v1/catalog/wiki/setup \
   -H 'Content-Type: application/json' \
   -d '{"spaceId": "'$SPACE'"}'
 ```
@@ -121,7 +121,7 @@ An object is in the tree only while it is filed under the wiki collection; its p
 
 ```bash
 # $WIKI, $PARENT_ID, $POS, $FOLDER: collectionId and properties.* from the setup reply
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects \
   -H 'Content-Type: application/json' \
   -d '{
     "type": "page",
@@ -136,7 +136,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
 List a node's children in order (`""` as the parent lists the top level). The membership clause is not decoration: an unfiled object keeps its orphan `parentId`, and a binned one keeps its collections.
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/query \
   -H 'Content-Type: application/json' \
   -d '{"filter": {"$and": [
          {"'$WIKI.$PARENT_ID'": "'$NODE'"},
@@ -152,7 +152,7 @@ The columns are plain properties: unindexed on the `objects` storage collection 
 A drag-and-drop move is one property write in the wiki collection's namespace — both fields land in a single change (`$NEW_PARENT` is the destination, `""` for the top level); a reorder inside the same parent patches `pos` alone:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/$WIKI \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/properties/$OBJ/set/$WIKI \
   -H 'Content-Type: application/json' \
   -d '{"patch": {"'$PARENT_ID'": "'$NEW_PARENT'", "'$POS'": "a1"}}'
 ```
@@ -164,11 +164,11 @@ The server never allocates a position. Clients compute every `pos` with the lexi
 The server keeps a link index next to its search index: every `any://` reference in editor blocks, chat messages and link-bearing property values becomes an edge with a source place, a kind and a canonical target. Three reads serve a contextual panel:
 
 ```bash
-curl http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/backlinks
+curl http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ/backlinks
 # → {"object": [edge…], "parts": [edge…]}
-curl http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/links
+curl http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ/links
 # → {"links": [edge…]}
-curl "http://127.0.0.1:7001/v1/backlinks?target=any://o/$SPACE/$OBJ"
+curl "http://127.0.0.1:2046/v1/backlinks?target=any://o/$SPACE/$OBJ"
 # → {"spaces": [{"spaceId": "…", "object": […], "parts": […]}]}
 ```
 
@@ -177,7 +177,7 @@ An edge is `{"source": {spaceId, objectId, dataset, recordId, typeId?}, "kind": 
 ## Delete an object
 
 ```bash
-curl -X DELETE http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ   # → 204
+curl -X DELETE http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ   # → 204
 ```
 
 An unknown or already-deleted id is `404 sdk.not_found`, a reader or guest gets `403 space.read_only`, and a derived object — a bundle root installed with `derived: true`, such as the general chat — is permanent: `409 object.derived_undeletable`. To move an object out of sight without destroying it, file it under the built-in `bin` collection instead ([Collections](collections.html)).

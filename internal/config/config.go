@@ -1,6 +1,10 @@
 package config
 
-import "github.com/anyproto/any-sync/app/logger"
+import (
+	"github.com/anyproto/any-sync/app/logger"
+
+	"github.com/anyproto/any/internal/api"
+)
 
 type Config struct {
 	// DataDir is the ROOT directory (default ~/.any). Each account
@@ -435,7 +439,7 @@ func Defaults() Config {
 	return Config{
 		DataDir: "~/.any",
 		Mode:    ModeStandalone,
-		Listen:  Listen{Addr: "127.0.0.1:7001"},
+		Listen:  Listen{Addr: api.DefaultListenAddr},
 		Auth:    Auth{PasskeyEnv: "ANY_WALLET_PASSKEY"},
 		Storage: Storage{Topology: "shared"},
 		WebUI:   WebUI{Enabled: true},

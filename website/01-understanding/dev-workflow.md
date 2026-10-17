@@ -24,7 +24,7 @@ any init --mnemonic-stdin < phrase.txt      # never copy wallet.key between mach
 ## 2. Run the server
 
 ```bash
-any run                                     # foreground, 127.0.0.1:7001
+any run                                     # foreground, 127.0.0.1:2046
 any run --addr 127.0.0.1:0                  # ephemeral port; prints "LISTENING <addr>" on stdout
 any run --account <id>                      # pick one when the data dir holds several
 any run --mode managed                      # a host-owned server: phrase per launch, control token
@@ -55,13 +55,13 @@ any status                                  # GET /v1/health
 
 ## 4. Call it
 
-Everything is `http://127.0.0.1:7001/v1/…` with JSON bodies. Pick whichever client fits:
+Everything is `http://127.0.0.1:2046/v1/…` with JSON bodies. Pick whichever client fits:
 
 | Client | When |
 |--------|------|
 | `curl` | Exploring; the [curl quickstart](../quickstart/curl.html) creates a space, an object, and a subscription. |
 | `any …` CLI | Scripts and shells — subcommands mirroring the endpoints, pretty JSON on stdout, `jq`-friendly ([CLI quickstart](../quickstart/cli.html)). |
-| Web UI | `http://127.0.0.1:7001/ui` — a debug harness with a space picker, object tree, chat, members, and a network log. Disable with `webUI.enabled: false`. |
+| Web UI | `http://127.0.0.1:2046/ui` — a debug harness with a space picker, object tree, chat, members, and a network log. Disable with `webUI.enabled: false`. |
 | Your app | Any HTTP client; live updates are SSE over a streaming POST ([JavaScript](../quickstart/javascript.html), [Python](../quickstart/python.html)). |
 
 ```bash

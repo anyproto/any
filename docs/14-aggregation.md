@@ -91,7 +91,7 @@ that is not an instant — an ISO-8601 string included — returns `null`.
 
 ```sh
 # Objects per calendar month of their last edit.
-curl -s localhost:7001/v1/spaces/$S/objects/aggregate -d '{
+curl -s localhost:2046/v1/spaces/$S/objects/aggregate -d '{
   "pipeline": [
     {"$group": {"_id": {"$dateTrunc": {"date": "$modifiedAt", "unit": "month"}},
                 "n": {"$count": {}}}},
@@ -104,7 +104,7 @@ curl -s localhost:7001/v1/spaces/$S/objects/aggregate -d '{
 Messages per author in a chat (per-object dataset):
 
 ```sh
-curl -s localhost:7001/v1/spaces/$S/aggregate -d '{
+curl -s localhost:2046/v1/spaces/$S/aggregate -d '{
   "objectId": "'$OBJ'", "dataset": "chat_messages",
   "pipeline": [
     {"$group": {"_id": "$creator", "n": {"$count": {}}}},
@@ -120,7 +120,7 @@ Movie count per year (cross-object, property values at
 `<typeId>.<propId>` — `docs/09-query.md` § Paths):
 
 ```sh
-curl -s localhost:7001/v1/spaces/$S/objects/aggregate -d '{
+curl -s localhost:2046/v1/spaces/$S/objects/aggregate -d '{
   "pipeline": [
     {"$match": {"'$TYPE'.'$YEAR'": {"$gte": 1980}}},
     {"$group": {"_id": "$'$TYPE'.'$YEAR'", "n": {"$count": {}}}},

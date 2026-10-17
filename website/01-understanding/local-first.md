@@ -14,7 +14,7 @@ The `any` server process owns an any-store database under the account's data dir
 
 ```bash
 # works with the network cable unplugged
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects \
   -H 'content-type: application/json' \
   -d '{"type":"page","initialProperties":{"any":{"name":"Offline note"}}}'
 ```
@@ -36,7 +36,7 @@ All three deliver the same changes; a space can be fully `synced` with `networkP
 Peers compare *heads* — the tips of each object's DAG. If two peers have the same heads for every object, they hold the same state. A local write goes out at once, streamed as a head update to the connected nodes and peers. A **head-sync round** is the catch-up for anything a stream missed: it diffs the head sets against the responsible nodes and exchanges the missing changes. It runs on a periodic timer (~30 s); you can force one:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/sync        # → 204 when the round completes
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/sync        # → 204 when the round completes
 any space sync $SPACE
 ```
 
@@ -47,7 +47,7 @@ Convergence follows from the CRDT: once two peers have applied the same set of c
 Sync state is a first-class read, cheap enough to poll on a render tick:
 
 ```bash
-curl http://127.0.0.1:7001/v1/spaces/$SPACE/sync-status
+curl http://127.0.0.1:2046/v1/spaces/$SPACE/sync-status
 ```
 
 ```json

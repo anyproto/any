@@ -10,7 +10,7 @@ A page is an object whose type is a **document type**: a type with one part whos
 ## The built-in `page`
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects \
   -H 'Content-Type: application/json' \
   -d '{"type": "page", "initialProperties": {"any": {"name": "Reading list"}}}'
 ```
@@ -20,11 +20,11 @@ That is the whole declaration: `page` is registered, not created, so there is no
 ## Declaring your own type
 
 ```bash
-DOC=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SP/types \
+DOC=$(curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SP/types \
   -H 'Content-Type: application/json' \
   -d '{"name": "Article", "xKey": "article", "layout": {"type": "page"}}' | jq -r .typeId)
 
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/types/$DOC/parts \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/types/$DOC/parts \
   -H 'Content-Type: application/json' \
   -d '{"key": "body", "name": "Body", "ui": {"type": "document"},
        "datasets": [{"module": "editor"}]}'
@@ -48,7 +48,7 @@ The `xKey` must not collide with another type's or collection's handle, nor with
 Create an object with the type:
 
 ```bash
-OBJ=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects \
+OBJ=$(curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects \
   -H 'Content-Type: application/json' \
   -d '{"type": "'$DOC'", "initialProperties": {"any": {"name": "Reading list", "tags": ["books"]}}}' \
   | jq -r .objectId)
@@ -59,7 +59,7 @@ To place it in the wiki tree, also send `"collections": ["<wikiCollectionId>"]` 
 Then write its body through the editor — the object already holds the storage collection because its type declares the part:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/markdown/append \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/markdown/append \
   -H 'Content-Type: application/json' \
   -d '{"content": "# Reading list\n\n- [ ] Children of Time"}'
 ```
@@ -67,7 +67,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_bloc
 List a space's documents with a filter on the type, most recently edited first. A binned object keeps its type, so exclude the `bin` collection:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/query \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects/query \
   -H 'Content-Type: application/json' \
   -d '{"filter": {"$and": [{"any.type": "'$DOC'"}, {"any.collections": {"$nin": ["bin", "template"]}}]},
        "sort": ["-modifiedAt"], "limit": 50}'

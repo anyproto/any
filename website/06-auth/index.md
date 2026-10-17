@@ -31,10 +31,10 @@ The account id is what other people address — it goes into an ACL grant, a men
 A **standalone** server (`any run`, the default) boots the account it can resolve from the data dir (a single wallet, or the one named by `--account`). A **managed** server (`any run --mode managed`, spawned by a desktop or mobile host) resolves nothing from disk: its host supplies the recovery phrase on every launch. Whenever no account is running the server is **unauthorized**: every `/v1` route except health, shutdown, the OpenAPI document and `/v1/auth` answers `401 auth.required` until a client posts to `/v1/auth` and the engine boots in place.
 
 ```bash
-curl -s http://127.0.0.1:7001/v1/auth
+curl -s http://127.0.0.1:2046/v1/auth
 # {"authorized": false, "mode": "standalone", "capabilities": {...}, "accounts": [...]}
 
-curl -s -X POST http://127.0.0.1:7001/v1/auth -d '{}'
+curl -s -X POST http://127.0.0.1:2046/v1/auth -d '{}'
 # {"accountId": "A8g1…", "created": true, "mnemonic": "w1 … w12"}
 ```
 

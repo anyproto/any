@@ -10,8 +10,8 @@ The content endpoint serves a file's verified plaintext as an ordinary HTTP reso
 ## Content
 
 ```bash
-curl -o photo.jpg "http://127.0.0.1:7001/v1/spaces/$SP/files/$FILE/content"
-curl -o thumb.jpg "http://127.0.0.1:7001/v1/spaces/$SP/files/$FILE/content?variant=thumb"
+curl -o photo.jpg "http://127.0.0.1:2046/v1/spaces/$SP/files/$FILE/content"
+curl -o thumb.jpg "http://127.0.0.1:2046/v1/spaces/$SP/files/$FILE/content?variant=thumb"
 ```
 
 ```bash
@@ -25,8 +25,8 @@ The `thumb` request needs a [variant](uploading.html#variants) attached to the o
 The response carries the stored mime as `Content-Type` (octet-stream fallback — the type is resolved at attach, never here), `Content-Disposition: inline; filename=…` from the stored name, `Content-Length`, and full **`Range` / 206** support. The underlying reader is seekable and seeks map to DAG offsets, so scrubbing a video does not download the prefix. Browser tags work directly:
 
 ```html
-<img   src="http://127.0.0.1:7001/v1/spaces/SP/files/F1/content">
-<video src="http://127.0.0.1:7001/v1/spaces/SP/files/F2/content" controls>
+<img   src="http://127.0.0.1:2046/v1/spaces/SP/files/F1/content">
+<video src="http://127.0.0.1:2046/v1/spaces/SP/files/F2/content" controls>
 ```
 
 ## When the bytes are not local
@@ -46,8 +46,8 @@ Two read paths, for two needs:
 **Typed member view** — the normal client path, with the sealed name and mime unsealed:
 
 ```bash
-curl "http://127.0.0.1:7001/v1/spaces/$SP/files?objectId=$OBJ"
-curl "http://127.0.0.1:7001/v1/spaces/$SP/files/$FILE"
+curl "http://127.0.0.1:2046/v1/spaces/$SP/files?objectId=$OBJ"
+curl "http://127.0.0.1:2046/v1/spaces/$SP/files/$FILE"
 ```
 
 ```json
@@ -61,7 +61,7 @@ curl "http://127.0.0.1:7001/v1/spaces/$SP/files/$FILE"
 **Windowed payload-row query / subscribe** — the generic snapshot + SSE primitive over one object's rows, for live per-object file lists:
 
 ```bash
-curl -N -X POST "http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/files/query/subscribe" \
+curl -N -X POST "http://127.0.0.1:2046/v1/spaces/$SP/objects/$OBJ/files/query/subscribe" \
   -H 'Content-Type: application/json' -d '{"sort": ["-_ver.id"], "limit": 50}'
 ```
 

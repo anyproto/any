@@ -13,7 +13,7 @@ The guides explain how to build with `any`; this section lists what exists. Ever
 your client / script / agent
         │  HTTP + JSON, SSE           (http-api, events, errors)
         ▼
-any server  127.0.0.1:7001            (config, cli)
+any server  127.0.0.1:2046            (config, cli)
         │  encrypted CRDT sync
         ▼
 sync network + your other devices
@@ -27,7 +27,7 @@ Two binaries, two config files, one API. The `any` CLI is a thin client over the
 
 ## Conventions used throughout
 
-- Paths are relative to `http://127.0.0.1:7001`; `…` in a path stands for the `/v1/spaces/:spaceId` prefix already shown in that table.
+- Paths are relative to `http://127.0.0.1:2046`; `…` in a path stands for the `/v1/spaces/:spaceId` prefix already shown in that table.
 - `$SP`, `$OBJ`, `$CHAT` in examples are a space id, an object id and a chat object id you substitute.
 - Dates on the wire are instants: `{"$date": "2026-08-05T17:00:00.000Z"}` — a bare string is a different value type and silently matches nothing in a filter.
 - Property values are keyed by `propId`, never by `xKey`; resolve the handle before you write.

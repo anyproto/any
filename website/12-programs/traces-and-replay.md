@@ -58,9 +58,9 @@ Values larger than 64 KB are replaced by `{"__blob": "sha256:…", "bytes": N}` 
 Every `trace` subcommand reads a server's local store with `--addr <any url> [--space bao]`, or a jsonl directory or file without it:
 
 ```sh
-anyrt trace ls --addr http://127.0.0.1:7001                        # 30 newest runs, all programs
-anyrt trace ls --addr http://127.0.0.1:7001 --program toolcaller   # conversations only (cron runs outnumber them)
-anyrt trace show --addr http://127.0.0.1:7001 run_<id>             # chronological render: turns, cells, effects (* = mutate)
+anyrt trace ls --addr http://127.0.0.1:2046                        # 30 newest runs, all programs
+anyrt trace ls --addr http://127.0.0.1:2046 --program toolcaller   # conversations only (cron runs outnumber them)
+anyrt trace show --addr http://127.0.0.1:2046 run_<id>             # chronological render: turns, cells, effects (* = mutate)
 anyrt trace show … run_<id> --full      # lift every clip
 anyrt trace show … run_<id> --system    # + the system prompt
 anyrt trace show … run_<id> --boot      # + the boot window verbatim
@@ -84,14 +84,14 @@ Cross-run questions — which run created an object, what wrote this week, which
 From a chat reply to its trace: the turn log is the `bao/log/v1` child of the general chat's bundle, typed with the hidden harness type `agent_log`, and its turns live in the `<typeId>_agent_turns` storage collection.
 
 ```sh
-LOGT=$(curl -s "http://127.0.0.1:7001/v1/spaces/$SPACE/types?includeHidden=true" \
+LOGT=$(curl -s "http://127.0.0.1:2046/v1/spaces/$SPACE/types?includeHidden=true" \
   | jq -er '.types[] | select(.xKey=="agent_log") | .id')
-LOG=$(curl -s -X POST "http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/system%3Ageneral-chat%2Fv1/children" \
+LOG=$(curl -s -X POST "http://127.0.0.1:2046/v1/spaces/$SPACE/bundles/system%3Ageneral-chat%2Fv1/children" \
   -H 'Content-Type: application/json' \
   -d "{\"seed\": \"bao/log/v1\", \"type\": \"$LOGT\"}" | jq -er .objectId)
-TURNS=$(curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/datasets \
+TURNS=$(curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/datasets \
   | jq -r '.datasets[].name | select(endswith("_agent_turns"))')
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
   -d "{\"objectId\": \"$LOG\", \"dataset\": \"$TURNS\", \"sort\": [\"-seq\"], \"limit\": 1}" \
   | jq -r '.records[0].traceRef'

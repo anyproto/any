@@ -78,7 +78,7 @@ The type is the **primary**: it says what the object is, how it renders and what
 The tutorial assumes a running server and one space, as in the [Quickstart](../quickstart/index.html). Every example is a `curl` call against it:
 
 ```bash
-API=http://127.0.0.1:7001/v1
+API=http://127.0.0.1:2046/v1
 curl -fsS "$API/auth" | jq -e '.authorized == true'
 SPACE=$(curl -fsS "$API/spaces" -H 'content-type: application/json' \
   -d '{"name": "Tutorial"}' | jq -er .id)

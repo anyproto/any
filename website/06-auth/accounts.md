@@ -48,7 +48,7 @@ A managed login carries the account key only. The device key — what the peerId
 `any run` does not create wallets. When no account resolves from the data dir — a fresh root, several accounts and no `--account` / `ANY_ACCOUNT` selector, or any managed server — the server starts **unauthorized**. Every `/v1` route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth` returns `401 auth.required`.
 
 ```bash
-curl -s http://127.0.0.1:7001/v1/auth
+curl -s http://127.0.0.1:2046/v1/auth
 ```
 
 ```json
@@ -64,15 +64,15 @@ A managed server reports every capability `true` and an empty `accounts` list �
 
 ```bash
 # generate
-curl -s -X POST http://127.0.0.1:7001/v1/auth -d '{}'
+curl -s -X POST http://127.0.0.1:2046/v1/auth -d '{}'
 # restore at index 1 (device key freshly generated)
-curl -s -X POST http://127.0.0.1:7001/v1/auth -d '{"mnemonic": "w1 … w12"}'
+curl -s -X POST http://127.0.0.1:2046/v1/auth -d '{"mnemonic": "w1 … w12"}'
 # restore an anytype-derived account
-curl -s -X POST http://127.0.0.1:7001/v1/auth -d '{"mnemonic": "w1 … w12", "index": 0}'
+curl -s -X POST http://127.0.0.1:2046/v1/auth -d '{"mnemonic": "w1 … w12", "index": 0}'
 # select a wallet already on disk (standalone only)
-curl -s -X POST http://127.0.0.1:7001/v1/auth -d '{"accountId": "A8g1…"}'
+curl -s -X POST http://127.0.0.1:2046/v1/auth -d '{"accountId": "A8g1…"}'
 # managed: switch to another account in place
-curl -s -X POST http://127.0.0.1:7001/v1/auth -H "X-Any-Control-Token: $TOKEN" \
+curl -s -X POST http://127.0.0.1:2046/v1/auth -H "X-Any-Control-Token: $TOKEN" \
      -d '{"mnemonic": "w1 … w12", "replace": true}'
 ```
 

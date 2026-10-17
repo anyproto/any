@@ -9,7 +9,7 @@ The API is small on purpose. Every rule below is something the server refuses to
 
 ## 1. One surface: HTTP/JSON on loopback
 
-Every caller — the CLI, the web UI, a language binding, an agent — goes through `http://127.0.0.1:7001/v1/…`. Nothing opens the database or talks to sync peers directly. The CLI is a thin client: `any space get X` *is* `GET /v1/spaces/X`, exit code included.
+Every caller — the CLI, the web UI, a language binding, an agent — goes through `http://127.0.0.1:2046/v1/…`. Nothing opens the database or talks to sync peers directly. The CLI is a thin client: `any space get X` *is* `GET /v1/spaces/X`, exit code included.
 
 ```
 0  success      1  user error / 4xx      2  server error / 5xx      3  can't reach server
@@ -22,7 +22,7 @@ The server refuses to bind anything but a loopback address and does not authenti
 Every dataset — objects, chat messages, editor blocks, files, devices, the space list — is read through the same two POSTs with the same body (`filter` / `sort` / `limit` / `offset` / `includeTotal` / `projection`) and the same SSE frame set (`ready` → `snapshot` → `changes` → `closed`). One read path per dataset, one wire shape per snapshot.
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'content-type: application/json' \
   -d '{"objectId":"'$OBJ'","dataset":"chat_messages","sort":["-_ver.id"],"limit":50}'
 ```

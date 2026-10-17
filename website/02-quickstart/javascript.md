@@ -16,7 +16,7 @@ Everything is `fetch`. The one wrinkle is live reads: the subscribe endpoints ar
 All ordinary calls share one helper. Keep the HTTP status even if a proxy returns an HTML or empty error body, so the reconnect loop can still recognize a temporary server failure.
 
 ```js
-const API = "http://127.0.0.1:7001/v1";
+const API = "http://127.0.0.1:2046/v1";
 
 async function checked(response) {
   if (response.ok) return response;

@@ -63,7 +63,7 @@ Datetime values are stored as native instants (unix milliseconds), so a range fi
 A [runtime dataset](runtime-datasets.html) is indexed by `id` and by the secondary indexes it declares — `indexes: [{key, fields, sparse?}]` in the declaration, or added later to a dataset that already holds records ([Declared indexes](runtime-datasets.html#declared-indexes)). Here `$DEF` is the definition id of a shared dataset on `$TYPE` with a `datetime` field `start`:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/datasets/$DEF/indexes \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/types/$TYPE/datasets/$DEF/indexes \
   -H 'Content-Type: application/json' \
   -d '{"key": "by_start", "fields": ["start", "_objectId"]}'
 # → 201 {"indexDefId": "…"}

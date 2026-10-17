@@ -43,7 +43,7 @@ Network scopes ride any-sync's ephemeral pub/sub: read-key-encrypted, per-messag
 ## Publish
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/events \
+curl -X POST http://127.0.0.1:2046/v1/events \
   -H 'Content-Type: application/json' \
   -d '{"type":"ui.open_object","scope":"device",
        "data":{"spaceId":"SPACE","objectId":"OBJ","source":"cli"}}'
@@ -83,7 +83,7 @@ Filters are repeatable query parameters — **AND across dimensions, OR within o
 The stream is `GET`, so a browser can mount a plain `EventSource`. Close it on `closed` and on `error`: an `EventSource` reconnects by itself, possibly under another account — re-read `GET /v1/auth` before opening a replacement ([Realtime](index.html)):
 
 ```js
-const es = new EventSource("http://127.0.0.1:7001/v1/events/subscribe?scope=device&type=ui.*");
+const es = new EventSource("http://127.0.0.1:2046/v1/events/subscribe?scope=device&type=ui.*");
 es.addEventListener("event", (e) => {
   const ev = JSON.parse(e.data);
   if (ev.type === "ui.open_object") router.open(ev.data.spaceId, ev.data.objectId);
@@ -95,7 +95,7 @@ es.addEventListener("error", closeStream);
 ```
 
 ```bash
-curl -N 'http://127.0.0.1:7001/v1/events/subscribe?type=process.*'
+curl -N 'http://127.0.0.1:2046/v1/events/subscribe?type=process.*'
 any events subscribe --type 'process.*' --scope space --space SPACE
 ```
 
