@@ -2288,6 +2288,18 @@ components:
             type: string
           type: array
           uniqueItems: false
+        createdIn:
+          description: |-
+            CreatedIn names the object of this space the new object was
+            created in — the note a `/task` was typed in, the page an `@` or
+            `[[` minted it from. Optional. Kept in the row's creation bag as
+            `meta.createdIn`, beside `createdAt`, not as a property: set by
+            this create alone, never rewritten, and not copied by `from` (a
+            copy's own `createdIn` still applies). Absent or `null` means
+            unknown. Any other non-string, or an empty string, is 400
+            request.schema; an id this space does not have is 404
+            object.not_found, a deleted one 410 object.deleted.
+          type: string
         from:
           description: |-
             From copies an existing object: its type, its collections except

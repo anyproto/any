@@ -135,7 +135,7 @@ Instants filter as instants. Wrap the literal in `{"$date": …}`:
 | `<ownerId>.<propId>` | Property values on the `objects` storage collection — both are content-addressed ids, the owner being the object's type or one of its collections, resolved from `GET …/types/:typeId/properties` or `GET …/collections/:collectionId/properties`. |
 | `any.type`, `any.collections`, `any.name`, `any.description`, `any.tags` | The universal built-in group. |
 | `<wikiCollectionId>.<propId>` — the wiki collection's `parentId` / `pos` / `folder` | Tree placement: ordinary columns of the hidden wiki collection, ids from `POST /v1/catalog/wiki/setup` ([Objects](objects.html)). |
-| `author`, `createdAt`, `modifiedAt`, `modifiedBy`, `spaceId` | Derived row-root stamps (`objects` storage collection only). `modifiedAt` is indexed; the rest, `modifiedBy` included, are scans. |
+| `author`, `createdAt`, `modifiedAt`, `modifiedBy`, `spaceId`, `meta` | Derived row-root stamps (`objects` storage collection only). `modifiedAt` and `meta.createdIn` are indexed; the rest, `modifiedBy` included, are scans. |
 | `_ver.id` | The record's creation version id — the logical DAG order of one object's records. |
 | `id` | The record id; `<objectId>/<recordId>` on a shared dataset. |
 | `_objectId` | The object a shared dataset's record belongs to. |

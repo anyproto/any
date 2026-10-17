@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	anystore "github.com/anyproto/any-store/v2"
 	anysyncsdk "github.com/anyproto/any-sync-sdk"
 	"github.com/anyproto/any-sync-sdk/auth"
 	sdkconfig "github.com/anyproto/any-sync-sdk/config"
@@ -102,6 +103,12 @@ func OpenSDK(ctx context.Context, cfg config.Config, nodeconf []byte, dataDir st
 		Types:       serverTypes(),
 		Collections: serverCollections(),
 		Modules:     serverModules(),
+		// The server's own row fields on the objects collection: the
+		// creation bag's createdIn, filtered as "what was created in
+		// this object" (docs/03-api.md § Create an object).
+		ObjectIndexes: []anystore.IndexInfo{
+			{Name: "idx_meta_created_in", Fields: []string{"meta.createdIn"}, Sparse: true},
+		},
 	}
 	if cfg.Sync.DialTimeout != "" {
 		d, err := time.ParseDuration(cfg.Sync.DialTimeout)

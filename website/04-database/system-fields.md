@@ -1,6 +1,6 @@
 ---
 title: System fields
-description: The fields any stamps for you — `_ver`, `_addSeq`, `_deletedAt`, `createdAt` / `modifiedAt`, `author` / `modifiedBy`, and the built-in `any.*` properties.
+description: The fields any stamps for you — `_ver`, `_addSeq`, `_deletedAt`, `createdAt` / `modifiedAt`, `author` / `modifiedBy`, `meta`, and the built-in `any.*` properties.
 order: 140
 ---
 # System fields
@@ -34,6 +34,7 @@ Every row of the per-space `objects` storage collection carries these next to `i
 | `modifiedAt` | Instant of the latest **synced** change that touched the object, whatever dataset it landed on. Any property write bumps it; peers converge on one value (last-writer-wins on DAG order). Local- and account-scope writes deliberately don't bump it. |
 | `modifiedBy` | Account identity that signed the change `modifiedAt` points at — the object's last writer. Equal to `author` on an object nobody has edited since it was created. |
 | `spaceId` | The hosting space. |
+| `meta` | The creation bag: an object the create wrote whole, once — never rewritten, not copied by `from`, absent when the create gave none. The server fills one key, `meta.createdIn`: the id of the object this one was created in — the note a `/task` was typed in, the page an `@` or `[[` minted it from — when the create said so (`"createdIn"` in the `POST …/objects` body). Sparse-indexed: `{"meta.createdIn": "<objectId>"}` lists what was created in an object. |
 
 Both instants are the **author's clock** and are written in the `{"$date": …}` wire shape:
 
@@ -50,7 +51,7 @@ Both instants are the **author's clock** and are written in the `{"$date": …}`
 
 `modifiedBy` is an account identity in the same encoding as `author`, as chat `creator`, as `identity` in `GET /v1/spaces/:spaceId/members`, and as `id` from `GET /v1/account` — resolve a name and icon through the members list, and through the account-global [identities directory](../auth/identities.html) (`GET /v1/identities/:identity`) for a past writer who has since left the space. `modifiedAt` is indexed and is the conventional recency ordering; `modifiedBy` is not, so a filter on it scans. A row without `modifiedBy` has either not been rebuilt yet (rebuilds run on each object's first load, plus a background sweep) or its latest change has no known signer — never "nobody modified it".
 
-The `any` type's property listing (`GET …/types/any/properties`) carries the stamps as derived properties — `modifiedBy` appears there as "Modified by" — but their values sit at the row root. Filter and sort by the bare name; `any.modifiedBy` matches nothing.
+The `any` type's property listing (`GET …/types/any/properties`) carries the stamps as derived properties — `modifiedBy` appears there as "Modified by", `meta` as "Meta" — but their values sit at the row root. Filter and sort by the bare name; `any.modifiedBy` matches nothing.
 
 Runtime datasets get the same trio on demand through `stamp: creator` / `createTime` / `modifyTime` fields ([Runtime datasets](runtime-datasets.html)); chat messages carry `creator` / `createdAt` / `modifiedAt`.
 

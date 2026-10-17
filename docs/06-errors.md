@@ -113,8 +113,8 @@ bundle.loser_not_ready           # 409 — the losing root is still syncing / in
 bundle.reserved                  # 409 — a client ensure with an id under the server's `system:` prefix (the embedded catalog's ids)
 catalog.not_found                # 404 — GET /v1/catalog/:usecaseId or POST …/setup naming no usecase of the embedded catalog (details.usecaseId)
 
-object.not_found                 # 404 — objectId unknown or deleted in this space (per-object query, editor, markdown, history …)
-object.deleted                   # 410 — GET …/objects/:objectId, a file attach (POST …/objects/:objectId/files), or `from` on POST …/objects, on a deleted object (distinct from never-existed)
+object.not_found                 # 404 — objectId unknown or deleted in this space (per-object query, editor, markdown, history …); also `from` or `createdIn` on POST …/objects naming an object the space does not have (details.from / details.createdIn)
+object.deleted                   # 410 — GET …/objects/:objectId, a file attach (POST …/objects/:objectId/files), or `from` / `createdIn` on POST …/objects, on a deleted object (distinct from never-existed)
 record.deleted                   # 410 — a write addressed a tombstoned record (a block, a message, a runtime record): the id is burned for good, never reused
 record.wrong_object              # 400 — a write to a shared dataset (modify, delete-records) names a record of another object: a record id is the plain id or `<objectId>/<recordId>` of the request's own objectId, and a plain id never holds `/` (details.objectId, details.dataset)
 object.derived_undeletable       # 409 — DELETE on a derived object (a bundle root installed with derived:true, e.g. the general chat); derived objects are permanent

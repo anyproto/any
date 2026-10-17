@@ -31,6 +31,7 @@ func newObjectCreateCmd() *cobra.Command {
 		collections []string
 		propsRaw    string
 		from        string
+		createdIn   string
 	)
 	cmd := &cobra.Command{
 		Use:   "create <spaceId>",
@@ -61,7 +62,7 @@ Examples:
 			if typeId == "" && from == "" {
 				return fmt.Errorf("--type is required unless --from is set")
 			}
-			req := api.ObjectCreateRequest{Type: typeId, Collections: collections, From: from}
+			req := api.ObjectCreateRequest{Type: typeId, Collections: collections, From: from, CreatedIn: createdIn}
 			if propsRaw != "" {
 				if err := readJSONBody(propsRaw, &req.InitialProperties); err != nil {
 					return fmt.Errorf("--properties: %w", err)
@@ -79,6 +80,7 @@ Examples:
 	cmd.Flags().StringArrayVar(&collections, "collection", nil, "collection id the object is filed under (repeatable)")
 	cmd.Flags().StringVar(&propsRaw, "properties", "", "initial property values (inline JSON, @FILE, or - for stdin)")
 	cmd.Flags().StringVar(&from, "from", "", "object id to copy (a template, or any object to duplicate)")
+	cmd.Flags().StringVar(&createdIn, "created-in", "", "id of the object the new object was created in (meta.createdIn on the row, set once)")
 	return cmd
 }
 

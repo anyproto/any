@@ -69,6 +69,7 @@ func (d *deps) objectCreate(c echo.Context) error {
 	}
 
 	opts := space.CreateObjectOpts{}
+	var createdIn string
 	if root != nil {
 		// The accepted fields are shape-checked before positive
 		// extraction: a `types` string or an `initialProperties` array
@@ -90,8 +91,14 @@ func (d *deps) objectCreate(c echo.Context) error {
 			return writeError(c, http.StatusBadRequest, "request.schema",
 				"from must be the id of the object to copy", nil)
 		}
+		if v := root.Get("createdIn"); v != nil && v.Type() != fastjson.TypeNull &&
+			(v.Type() != fastjson.TypeString || len(v.GetStringBytes()) == 0) {
+			return writeError(c, http.StatusBadRequest, "request.schema",
+				"createdIn must be the id of the object the new object was created in", nil)
+		}
 		opts.Type = string(root.GetStringBytes("type"))
 		opts.From = string(root.GetStringBytes("from"))
+		createdIn = string(root.GetStringBytes("createdIn"))
 		if colls := root.GetArray("collections"); len(colls) > 0 {
 			opts.Collections = make([]string, 0, len(colls))
 			for _, v := range colls {
@@ -130,6 +137,9 @@ func (d *deps) objectCreate(c echo.Context) error {
 	if opts.From != "" && isSerializedNil(opts.From) {
 		return serializedNilIdError(c, "from", opts.From)
 	}
+	if createdIn != "" && isSerializedNil(createdIn) {
+		return serializedNilIdError(c, "createdIn", createdIn)
+	}
 	if opts.Type == "" && opts.From == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",
 			"type required: every object has exactly one type (page for a plain document), or from to copy one", nil)
@@ -152,6 +162,22 @@ func (d *deps) objectCreate(c echo.Context) error {
 			}
 			return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "collectionId": id})
 		}
+	}
+
+	// createdIn names an object this space has — the server's rule: the
+	// SDK's creation bag carries it unread, so this lookup is the only
+	// check, and a wrong id answers a typed 4xx. A row not synced here
+	// yet passes (the tree is).
+	if createdIn != "" {
+		if _, err := sp.Objects().Get(c.Request().Context(), createdIn); err != nil {
+			details := map[string]any{"spaceId": sp.Id(), "createdIn": createdIn}
+			if errors.Is(err, space.ErrNotFound) {
+				return writeError(c, http.StatusNotFound, "object.not_found",
+					"createdIn names no object of this space", details)
+			}
+			return sdkOpError(c, err, details)
+		}
+		opts.Meta = map[string]any{"createdIn": createdIn}
 	}
 
 	// Same descriptor value gate as propertiesSet, per initial owner

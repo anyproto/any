@@ -177,8 +177,8 @@ any chat react  <spaceId> <objectId> <msgId> <emoji>          # toggle
 ## Objects
 
 ```
-any object create <spaceId> --type T [--collection C]... [--properties '<json>'|@FILE|-]
-any object create <spaceId> --from OBJ [--type T] [--collection C]... [--properties '<json>'|@FILE|-]
+any object create <spaceId> --type T [--collection C]... [--properties '<json>'|@FILE|-] [--created-in OBJ]
+any object create <spaceId> --from OBJ [--type T] [--collection C]... [--properties '<json>'|@FILE|-] [--created-in OBJ]
 
 any object type set          <spaceId> <objectId> <typeId>
 any object collection attach <spaceId> <objectId> <collectionId>

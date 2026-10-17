@@ -396,7 +396,10 @@ Record stamps are ext-JSON instants in both directions:
 literals must be wrapped the same way — a bare number or ISO string does
 not error, it silently matches nothing, because comparisons are bracketed
 by type. `createdAt` / `modifiedAt` / `modifiedBy` on the object row are
-server-derived; sort recency with `{"sort": ["-modifiedAt"]}`.
+server-derived; sort recency with `{"sort": ["-modifiedAt"]}`. The row
+also carries `meta.createdIn` — the object it was created in, a string
+id the create supplies once and nothing rewrites — when the create said
+so (`03-api.md` § Create an object).
 
 The mapped convenience structs are the exception: `SpaceInfo.createdAt`
 is an RFC3339 string and `HistoryChange.timestamp` is unix seconds. Both
@@ -406,18 +409,20 @@ Query grammar and index guidance: [`09-query.md`](09-query.md).
 
 ## Writing data
 
-**Object create** takes exactly four keys (`from` copies an object,
-[`31-templates.md`](31-templates.md)) — any other top-level key is
-`400 request.unknown_field`, and a wrong shape (`type` or `from` not a
-string, `collections` not an array, `initialProperties` not an object) is
-`400 request.schema`:
+**Object create** takes exactly five keys (`from` copies an object,
+[`31-templates.md`](31-templates.md); `createdIn` names the object it
+was created in, kept as `meta.createdIn` on the row) — any other
+top-level key is `400 request.unknown_field`, and a wrong shape (`type`,
+`from` or `createdIn` not a string, `collections` not an array,
+`initialProperties` not an object) is `400 request.schema`:
 
 ```json
 { "type": "<typeId>",
   "collections": ["<collectionId>"],
   "initialProperties": { "any": {"name": "Ada Lovelace"},
                          "<typeId>": {"<propId>": "ada@example.com"},
-                         "<collectionId>": {"<propId>": "a0"} } }
+                         "<collectionId>": {"<propId>": "a0"} },
+  "createdIn": "<objectId>" }
 ```
 
 `initialProperties` is keyed by **any owner the object will have** — its
