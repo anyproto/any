@@ -24,7 +24,7 @@ Both take the standard snapshot body (`filter` / `sort` / `limit` / `offset` / `
 The allowlist is closed: any other name is `400 request.invalid_field`. The same index object hosts the identities directory, whose rows carry a synced decryption key — that dataset is deliberately unreachable here and is read through `GET /v1/identities` instead (see [Identities](../auth/identities.html)).
 
 ```bash
-curl http://127.0.0.1:7001/v1/spaces/query \
+curl http://127.0.0.1:2046/v1/spaces/query \
   -H 'Content-Type: application/json' \
   -d '{"filter":{"spaceType":"any.onetoone"},"sort":["-createdAt"],"limit":50,"includeTotal":true}'
 
@@ -61,7 +61,7 @@ Because these are plain row fields, changes to them arrive as ordinary `updated`
 - **A deletion** on any device sets `remoteStatus` to a deleted marker (`deleted`; `oneToOneDeleted` / `guestDeleted` for one-to-one and guest spaces) — the row stays as a tombstone, so it arrives as an `updated` event, or as `removed` with `reason: "filtered-out"` when your filter excludes deleted rows. Consumers holding derived per-space state (caches, indexes) purge on it.
 
 ```bash
-curl -N http://127.0.0.1:7001/v1/spaces/query/subscribe \
+curl -N http://127.0.0.1:2046/v1/spaces/query/subscribe \
   -H 'Content-Type: application/json' \
   -d '{"sort":["-createdAt"],"limit":100}'
 

@@ -116,14 +116,14 @@ any run
 ```
 
 ```
-LISTENING 127.0.0.1:7001
+LISTENING 127.0.0.1:2046
 ```
 
 Leave it in the foreground; it stops on Ctrl-C, or on `any stop --data-dir "$HOME/.any-demo"` from a terminal without the exports. In a second terminal:
 
 ```bash
 any status
-curl -fsS http://127.0.0.1:7001/v1/auth | jq -e '.authorized == true'
+curl -fsS http://127.0.0.1:2046/v1/auth | jq -e '.authorized == true'
 ```
 
 ```json
@@ -148,7 +148,7 @@ The server serves as soon as it prints `LISTENING`; `bootstrapping` flips to `fa
 | `<data-dir>/<accountId>/` | This account's wallet, instance lock, databases, files, search index. |
 | `<data-dir>/models/` | Downloaded embedding models. |
 | `~/.config/any/config.yaml` | Optional config; also `<data-dir>/config.yaml` ([Configuration](../operations/configuration.html)). |
-| `http://127.0.0.1:7001` | The API (`--addr` / `ANY_LISTEN_ADDR`; loopback only). |
-| `http://127.0.0.1:7001/ui` | Built-in debug web UI. |
+| `http://127.0.0.1:2046` | The API (`--addr` / `ANY_LISTEN_ADDR`; loopback only). |
+| `http://127.0.0.1:2046/ui` | Built-in debug web UI. |
 
 Next: [curl](curl.html) or [CLI](cli.html).

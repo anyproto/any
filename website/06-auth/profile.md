@@ -10,7 +10,7 @@ Your profile is the name, description and icon attached to your account id. You 
 ## Reading your account
 
 ```bash
-curl -s http://127.0.0.1:7001/v1/account
+curl -s http://127.0.0.1:2046/v1/account
 ```
 
 ```json
@@ -30,7 +30,7 @@ curl -s http://127.0.0.1:7001/v1/account
 ## Updating the profile
 
 ```bash
-curl -s -X PUT http://127.0.0.1:7001/v1/account/metadata \
+curl -s -X PUT http://127.0.0.1:2046/v1/account/metadata \
   -d '{"name": "Alice", "description": "writer, reader, occasional debugger"}'
 # → 204
 ```
@@ -48,7 +48,7 @@ At least one of `name` / `description` must be set; an all-empty body returns `4
 The image is the raw request body, like a [file upload](../files/uploading.html). Its type is read from the bytes, not from the header: it must be a PNG, JPEG, GIF, WebP, AVIF, HEIC, HEIF, BMP, ICO, TIFF or JXL image, animated variants included — not SVG, which can carry script (`415 account.icon_not_image`) — and at most 1 MiB (`413 account.icon_too_large`):
 
 ```bash
-curl -s -X PUT "http://127.0.0.1:7001/v1/account/icon?name=me.png" \
+curl -s -X PUT "http://127.0.0.1:2046/v1/account/icon?name=me.png" \
   -H "Content-Type: image/png" --data-binary @me.png
 # → {"name": "Alice", "iconCid": "bafy…"}
 
@@ -83,7 +83,7 @@ The picture behind a row's `iconCid` comes from `GET /v1/identities/:identity/ic
 An alpha invite code raises the account's limits. The server signs `{purpose, ownerAnyId, code, ts}` with the account key and posts it to the invite service configured as `access.redeemUrl`, so the key never leaves the server and the client never talks to that service:
 
 ```bash
-curl -s -X POST http://127.0.0.1:7001/v1/account/access-code -d '{"code": "K7QX-4MDP-…"}'
+curl -s -X POST http://127.0.0.1:2046/v1/account/access-code -d '{"code": "K7QX-4MDP-…"}'
 # → {"status": "accepted", "redemptionId": "…"}
 
 any account redeem K7QX-4MDP-…

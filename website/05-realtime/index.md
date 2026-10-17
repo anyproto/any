@@ -36,7 +36,7 @@ The callback streams (sync status, members, identities, file status) never drop 
 All reasons mean the same thing for the client: the stream is over — open a fresh request. There is no replay and no resume cursor; the new snapshot already reflects current state, which is cheaper than shipping the gap. A broken connection can end a stream with no `closed` frame at all — an account switch can swallow the final `deauthorized` — so re-read `GET /v1/auth` before every reconnect and stop if it is not the account the view belongs to.
 
 ```
-client                          any (127.0.0.1:7001)
+client                          any (127.0.0.1:2046)
   │  POST …/query/subscribe        │
   │ ─────────────────────────────▶ │
   │  event: ready                  │

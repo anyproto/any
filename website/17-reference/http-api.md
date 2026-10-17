@@ -5,7 +5,7 @@ order: 10
 ---
 # HTTP API
 
-The `any` server listens on `127.0.0.1:7001` and exposes one JSON API under `/v1/`. Endpoints map onto one SDK call each — the consumer-side features built next to the SDK (search, links and backlinks, the event bus, processes, the local store) are marked — reads always go through `/query`, and every dataset write returns the same result shape.
+The `any` server listens on `127.0.0.1:2046` and exposes one JSON API under `/v1/`. Endpoints map onto one SDK call each — the consumer-side features built next to the SDK (search, links and backlinks, the event bus, processes, the local store) are marked — reads always go through `/query`, and every dataset write returns the same result shape.
 
 ## Conventions
 
@@ -37,7 +37,7 @@ Every dataset write — `/modify`, `/delete-records`, and the chat and editor ha
 | GET | `/v1/openapi.json` | — | OpenAPI 3.1 document | 404 on the mobile build |
 
 ```bash
-curl http://127.0.0.1:7001/v1/health        # any status
+curl http://127.0.0.1:2046/v1/health        # any status
 ```
 
 ## Auth
@@ -51,7 +51,7 @@ curl http://127.0.0.1:7001/v1/health        # any status
 Errors: `400 auth.bad_mnemonic`, `400 request.invalid_field` (mnemonic + accountId together, `index` without `mnemonic`, `replace` without a credential, `accountId` on a managed server), `403 control.forbidden`, `403 auth.not_managed`, `404 auth.account_not_found`, `409 auth.account_in_use`, `409 auth.account_mismatch`, `409 auth.mnemonic_mismatch`, `409 auth.already_authorized`, `409 auth.network_mismatch`, `400 auth.passkey_required`, `409 sdk.crdt_version_newer`, `500 auth.device_key_corrupt`, `500 auth.network_pin_corrupt`. Details and the decision table: [Accounts](../auth/accounts.html).
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/auth -d '{}'      # any auth login
+curl -X POST http://127.0.0.1:2046/v1/auth -d '{}'      # any auth login
 ```
 
 ## Account and identities
@@ -94,8 +94,8 @@ curl -X POST http://127.0.0.1:7001/v1/auth -d '{}'      # any auth login
 `SpaceInfo` fields worth knowing: `spaceIndexObjectId`, `createdAt`, `spaceType` (`any.space` \| `any.onetoone`), `author`, `ownRole` (`owner\|admin\|writer\|reader\|guest\|none`), `settings`, `push`, `derived`, `status`.
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces -d '{"name":"Notes"}'
-curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SP -d '{"name":"Project Phoenix"}'   # any space update $SP --name "Project Phoenix"
+curl -X POST http://127.0.0.1:2046/v1/spaces -d '{"name":"Notes"}'
+curl -X PATCH http://127.0.0.1:2046/v1/spaces/$SP -d '{"name":"Project Phoenix"}'   # any space update $SP --name "Project Phoenix"
 ```
 
 ### One-to-one and direct-add invites
@@ -122,7 +122,7 @@ Pending rows are discovered through `GET /v1/spaces?status=one_to_one_pending` /
 | POST | `/v1/spaces/:spaceId/bundles/:bundleId/children` | `{seed, type, collections?}` | `{objectId}` | deterministic child; `type` set on first materialization, missing collections added on every call; `409 bundle.not_ready` |
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/bundles \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/bundles \
   -d '{"id":"notes/v1","name":"Notes","xKey":"notes","hidden":true,"parts":[{"key":"body","datasets":[{"module":"editor"}]}]}'
 ```
 
@@ -150,9 +150,9 @@ Full semantics in [Bundles](../collaboration/bundles.html).
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId` | — | 204 | tombstones the row, then tears down the tree; `404 sdk.not_found`, `409 object.derived_undeletable`, `403 space.read_only` |
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects \
   -d '{"type":"page","initialProperties":{"any":{"name":"Dune"}}}'
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/query \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects/query \
   -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}'
 ```
 
@@ -212,10 +212,10 @@ Snapshot body (closed field set — unknown keys `400 request.unknown_field`):
 `projection` (dotted paths → `1` include / `-1` exclude; `id` always ships, `_ver` narrows to match) shapes snapshot rows and every record in `changes` frames. `includeDeleted: true` (snapshot `…/query` only) returns record tombstones next to live rows. Filter faults: `400 filter.unknown_operator`, `400 filter.invalid`. A serialized-nil `objectId` is `400 object.id_required`. Grammar in [Reading data](../database/reading-data.html); pipelines in [Aggregation](../database/aggregation.html).
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/modify -d '{
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/modify -d '{
   "objectId":"'$OBJ'","dataset":"notes",
   "records":[{"id":"","upsert":true,"ops":[{"type":"$set","path":"","value":{"title":"x"}}]}]}'
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/datasets/query \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/datasets/query \
   -d '{"dataset":"'$T'_hours","sort":["-start"],"limit":48}'   # any query-subscribe $SP --all-objects --dataset ${T}_hours --sort -start --limit 48
 ```
 
@@ -269,11 +269,11 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 | DELETE | `…/properties/:objectId/collections/:collectionId` | — | write result | idempotent `$pull`; checks neither id (the repair path); values and records stay as orphan data; `collections/bin` clears the stamps |
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/types -d '{"name":"Book","xKey":"book"}'
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/types/$T/properties \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/types -d '{"name":"Book","xKey":"book"}'
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/types/$T/properties \
   -d '{"name":"Rating","kind":"number","xKey":"rating"}'
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/collections -d '{"name":"Reading list","xKey":"reading_list"}'
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/properties/$OBJ/collections/$C
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/collections -d '{"name":"Reading list","xKey":"reading_list"}'
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/properties/$OBJ/collections/$C
 ```
 
 Values are keyed by `propId`, never `xKey`. See [Types and properties](../database/types-and-properties.html), [Collections](../database/collections.html) and [Runtime datasets](../database/runtime-datasets.html).
@@ -315,7 +315,7 @@ Reads: `POST /v1/spaces/:spaceId/query` with `dataset: "chat_messages"`, `sort: 
 
 ```bash
 curl -X POST -T photo.jpg -H 'Content-Type: image/jpeg' \
-  "http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/files?name=photo.jpg"   # any file attach $SP $OBJ photo.jpg
+  "http://127.0.0.1:2046/v1/spaces/$SP/objects/$OBJ/files?name=photo.jpg"   # any file attach $SP $OBJ photo.jpg
 ```
 
 See [Files](../files/index.html).
@@ -376,7 +376,7 @@ See [Sync status](../realtime/sync-status.html) and [Debugging](../operations/de
 | POST | `/v1/processes/:id/cancel` | `{identity?}` | `{subscribers}` | `409 process.ambiguous` |
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/events \
+curl -X POST http://127.0.0.1:2046/v1/events \
   -d '{"type":"ui.open_object","scope":"device","data":{"spaceId":"'$SP'","objectId":"'$OBJ'"}}'
 ```
 
@@ -429,8 +429,8 @@ Export is a manual copy of selected local collections, including their scope, sp
 With the account-scoped `scratch` collection the [CLI example](cli.html#local-store) creates, export it and import the same file back; `DEST` pointed at another authorized server copies it there:
 
 ```bash
-SOURCE=http://127.0.0.1:7001
-DEST=http://127.0.0.1:7001
+SOURCE=http://127.0.0.1:2046
+DEST=http://127.0.0.1:2046
 curl --fail --get "$SOURCE/v1/local/export" \
   --data-urlencode 'scope=account' --data-urlencode 'names=scratch' \
   --output scratch.anyenc.gz &&

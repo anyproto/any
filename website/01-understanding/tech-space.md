@@ -45,7 +45,7 @@ Fields mix scopes on purpose: `type`, `name`, `description`, `icon`, `remoteStat
 `GET /v1/spaces` maps `spaces` rows into `SpaceInfo`, filtering to active rows by default; `GET /v1/spaces?status=one_to_one_pending` or `status=deleted` selects the others. `POST /v1/spaces/query` and `POST /v1/spaces/query/subscribe` expose the raw rows through the same windowed primitive every dataset uses:
 
 ```bash
-curl -N -X POST http://127.0.0.1:7001/v1/spaces/query/subscribe \
+curl -N -X POST http://127.0.0.1:2046/v1/spaces/query/subscribe \
   -H 'content-type: application/json' \
   -d '{"sort":["-createdAt"],"limit":50}'
 # event: ready → snapshot{records} → changes[{added,updated,removed}] …

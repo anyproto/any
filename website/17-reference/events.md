@@ -55,7 +55,7 @@ Endpoints: `POST /v1/spaces/:id/objects/query/subscribe` (cross-object), `POST /
 `added` and `updated` entries are `{id, doc, ops}` — the full post-apply record plus the `$set`/`$unset` ops that triggered the transition (`$inc`/`$addToSet`/`$pull` are collapsed to the resulting `$set` before delivery). `removed` entries are `{id, reason}` with `reason` one of `deleted` (tombstoned — drop for good), `filtered-out` (still exists, no longer matches) or `displaced` (still matches, pushed past `limit`). `versionId` is per-change DAG order local to this peer — never compare it across devices.
 
 ```bash
-curl -N -X POST http://127.0.0.1:7001/v1/spaces/$SP/query/subscribe \
+curl -N -X POST http://127.0.0.1:2046/v1/spaces/$SP/query/subscribe \
   -d '{"objectId":"'$CHAT'","dataset":"chat_messages","sort":["-_ver.id"],"limit":50}'
 # any query-subscribe $SP $CHAT --dataset chat_messages --sort=-_ver.id --limit 50
 ```
@@ -63,7 +63,7 @@ curl -N -X POST http://127.0.0.1:7001/v1/spaces/$SP/query/subscribe \
 On the shared-dataset stream, record ids are `<objectId>/<recordId>`, and a deleted object's records leave as `removed` entries in batches with an empty `versionId`. Give that stream a `filter`, or a `sort` with a `limit`: an unbounded one holds every record of the dataset ([Shared datasets](../database/runtime-datasets.html#shared-datasets)). `$HOURS` is the dataset's storage collection, `<typeId>_<key>`:
 
 ```bash
-curl -N -X POST http://127.0.0.1:7001/v1/spaces/$SP/datasets/query/subscribe \
+curl -N -X POST http://127.0.0.1:2046/v1/spaces/$SP/datasets/query/subscribe \
   -d '{"dataset":"'$HOURS'","sort":["-start"],"limit":48}'
 # any query-subscribe $SP --all-objects --dataset $HOURS --sort -start --limit 48
 ```

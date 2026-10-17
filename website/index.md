@@ -30,9 +30,9 @@ $ any init
   "created": true
 }</span>
 $ any run &
-<span class="out">LISTENING 127.0.0.1:7001</span>
+<span class="out">LISTENING 127.0.0.1:2046</span>
 $ until any status >/dev/null 2>&1; do sleep 0.2; done
-$ API=http://127.0.0.1:7001/v1
+$ API=http://127.0.0.1:2046/v1
 $ S=$(curl -fsS $API/spaces -H 'content-type: application/json' -d '{"name":"notes"}' | jq -er .id)
 $ curl -fsS $API/spaces/$S/objects -H 'content-type: application/json' \
     -d '{"type":"page","initialProperties":{"any":{"name":"hello"}}}'

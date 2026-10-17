@@ -103,7 +103,7 @@ export ANY_INDEX_EMBEDDER=local
 phrase. Save it: restoring on another device requires that phrase. Repeating
 `init` in this directory keeps the existing account and lists it instead.
 
-Wait for `LISTENING 127.0.0.1:7001`, then leave the server running. The local
+Wait for `LISTENING 127.0.0.1:2046`, then leave the server running. The local
 embedding model downloads separately on first use of a fresh model cache;
 you can create and query data while it downloads.
 
@@ -113,7 +113,7 @@ In a **second terminal**, create a space—a collection of objects shared with
 the same members—and a page inside it:
 
 ```sh
-API=http://127.0.0.1:7001/v1
+API=http://127.0.0.1:2046/v1
 
 SPACE=$(curl -fsS "$API/spaces" \
   -H 'Content-Type: application/json' \

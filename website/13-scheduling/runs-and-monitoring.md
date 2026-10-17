@@ -45,22 +45,22 @@ At the end of every run the runtime upserts one record into `agent_runs` on the 
 The runs anchor is the `bao/runs/v1` child, on the same hidden `agent_trigger` type as the trigger anchor, and its storage collection is namespaced like the triggers one. Read the last twenty fires of one trigger:
 
 ```sh
-TRG=$(curl -s "http://127.0.0.1:7001/v1/spaces/$SPACE/types?includeHidden=true" \
+TRG=$(curl -s "http://127.0.0.1:2046/v1/spaces/$SPACE/types?includeHidden=true" \
   | jq -er '.types[] | select(.xKey=="agent_trigger") | .id')
-RUNS_ANCHOR=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/bao%2Fv1/children \
+RUNS_ANCHOR=$(curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/bundles/bao%2Fv1/children \
   -H 'Content-Type: application/json' \
   -d "{\"seed\": \"bao/runs/v1\", \"type\": \"$TRG\"}" | jq -er .objectId)
-RUNS=$(curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/datasets \
+RUNS=$(curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/datasets \
   | jq -r '.datasets[].name | select(endswith("_agent_runs"))')
 
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
   -d "{\"objectId\": \"$RUNS_ANCHOR\", \"dataset\": \"$RUNS\",
        \"filter\": {\"triggerId\": \"daily-digest\"}, \"sort\": [\"-startedAt\"], \"limit\": 20}" \
   | jq '.records[] | {runId, startedAt, status, durationMs, errorType, device}'
 ```
 
-`runId` opens the trace on the device named in `device`: `anyrt trace show <runId> --addr http://127.0.0.1:7001` renders every effect, mutations marked. Trace bodies stay on that device; the summary is what syncs.
+`runId` opens the trace on the device named in `device`: `anyrt trace show <runId> --addr http://127.0.0.1:2046` renders every effect, mutations marked. Trace bodies stay on that device; the summary is what syncs.
 
 ## The stamp on the trigger
 
@@ -124,10 +124,10 @@ Creating and deleting triggers is done on the record (see [Scheduling](index.htm
 A serve keeps trace bodies in its any server's local store, so the viewers take `--addr`:
 
 ```sh
-anyrt trace ls --addr http://127.0.0.1:7001 --program rollup    # runs of one program, newest first
-anyrt trace show run_<id> --addr http://127.0.0.1:7001          # turns, cells, effects (* = mutate)
-anyrt trace show run_<id> --addr http://127.0.0.1:7001 --stats  # tokens, cache, cost per turn
-anyrt trace stats --addr http://127.0.0.1:7001                  # fuel/duration/token distributions
+anyrt trace ls --addr http://127.0.0.1:2046 --program rollup    # runs of one program, newest first
+anyrt trace show run_<id> --addr http://127.0.0.1:2046          # turns, cells, effects (* = mutate)
+anyrt trace show run_<id> --addr http://127.0.0.1:2046 --stats  # tokens, cache, cost per turn
+anyrt trace stats --addr http://127.0.0.1:2046                  # fuel/duration/token distributions
 ```
 
 Cron runs typically outnumber conversations many times over — filter with `--program`. Details on the format and the viewers: [Traces and replay](../programs/traces-and-replay.html).

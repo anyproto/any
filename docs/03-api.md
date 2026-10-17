@@ -4064,7 +4064,7 @@ read before the SDK's own checks run).
 
 ```
 curl -X POST -T photo.jpg -H 'Content-Type: image/jpeg' \
-  'localhost:7001/v1/spaces/SP/objects/OBJ/files?name=photo.jpg'
+  'localhost:2046/v1/spaces/SP/objects/OBJ/files?name=photo.jpg'
 
 // 201
 { "fileId": "…", "objectId": "OBJ", "rootCid": "bafy…", "size": 482113,
@@ -4097,7 +4097,7 @@ never here),
 reader is seekable). Browser tags work directly:
 
 ```html
-<img src="http://127.0.0.1:7001/v1/spaces/SP/files/FILE/content">
+<img src="http://127.0.0.1:2046/v1/spaces/SP/files/FILE/content">
 ```
 
 Content not yet local streams in on demand — from a LAN peer holding

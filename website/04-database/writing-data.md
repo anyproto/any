@@ -32,7 +32,7 @@ No write returns the record body. Read it back through [`/query`](reading-data.h
 Values are stored at `record[ownerId][propId]`, the **owner** being the object's type or one of its collections. Write them with the owner-scoped set — `$OWNER` is that id, `$PROP_AUTHOR` / `$PROP_YEAR` a string and a number property declared on it:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/$OWNER \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/properties/$OBJ/set/$OWNER \
   -H 'Content-Type: application/json' \
   -d '{"patch": {"'$PROP_AUTHOR'": "Frank Herbert", "'$PROP_YEAR'": 1965}}'
 ```
@@ -50,7 +50,7 @@ Initial values ride object create instead — `initialProperties` keyed the same
 `POST /v1/spaces/:spaceId/modify` is the generic write over one object's dataset — a batch of records, each a list of ops, all landing in one change. Below, `$TYPE` declares an auto-id runtime dataset `notes` with `title`, `n`, `tags` and `draft` fields, `$OBJ` is of that type and `$NOTE` an existing record in it ([Runtime datasets](runtime-datasets.html) builds one).
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/modify \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/modify \
   -H 'Content-Type: application/json' \
   -d '{
     "objectId": "'$OBJ'",
@@ -97,7 +97,7 @@ Constraints (`400 request.schema`): explicit record ids, no `upsert` (local fiel
 ## Delete records
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/delete-records \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/delete-records \
   -H 'Content-Type: application/json' \
   -d '{"objectId": "'$OBJ'", "dataset": "'$TYPE'_notes", "recordIds": ["'$NOTE'"]}'
 ```

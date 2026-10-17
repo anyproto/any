@@ -46,15 +46,15 @@ The runtime stamps three fields back onto the record — `lastRunAt`, `lastStatu
 Triggers sit on the **trigger anchor**: the `bao/triggers/v1` child of the agent space's `bao/v1` bundle, which `anyrt serve` provisions on boot with the hidden harness type `agent_trigger`. Resolve it by seed, never by name; the child route requires that `type`. The records live in a storage collection namespaced to the harness type (`<typeId>_agent_triggers`); read its name from the space's dataset listing:
 
 ```sh
-TRG=$(curl -s "http://127.0.0.1:7001/v1/spaces/$SPACE/types?includeHidden=true" \
+TRG=$(curl -s "http://127.0.0.1:2046/v1/spaces/$SPACE/types?includeHidden=true" \
   | jq -er '.types[] | select(.xKey=="agent_trigger") | .id')
-ANCHOR=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/bao%2Fv1/children \
+ANCHOR=$(curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/bundles/bao%2Fv1/children \
   -H 'Content-Type: application/json' \
   -d "{\"seed\": \"bao/triggers/v1\", \"type\": \"$TRG\"}" | jq -er .objectId)
-TRIGGERS=$(curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/datasets \
+TRIGGERS=$(curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/datasets \
   | jq -r '.datasets[].name | select(endswith("_agent_triggers"))')
 
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/upsert \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/upsert \
   -H 'Content-Type: application/json' \
   -d "{\"objectId\": \"$ANCHOR\", \"dataset\": \"$TRIGGERS\",
        \"records\": [{\"id\": \"daily-digest\", \"fields\": {

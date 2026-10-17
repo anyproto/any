@@ -38,9 +38,9 @@ Event triggers are live-only, like cron: a message that arrives while the owner 
 
 ```bash
 # create a reminder — one record write
-TRIGGERS=$(curl -s http://127.0.0.1:7001/v1/spaces/$BAO/datasets \
+TRIGGERS=$(curl -s http://127.0.0.1:2046/v1/spaces/$BAO/datasets \
   | jq -r '.datasets[].name | select(endswith("_agent_triggers"))')
-curl -X POST http://127.0.0.1:7001/v1/spaces/$BAO/modify -H 'Content-Type: application/json' -d '{
+curl -X POST http://127.0.0.1:2046/v1/spaces/$BAO/modify -H 'Content-Type: application/json' -d '{
   "objectId": "'$TRIGGER_ANCHOR'", "dataset": "'$TRIGGERS'",
   "records": [{"id": "remind-standup", "upsert": true, "ops": [{"type": "$set", "path": "", "value": {
     "name": "Standup reminder", "kind": "once", "spec": {"at": 1787000000},

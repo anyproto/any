@@ -10,7 +10,7 @@ A property definition is a small synced record inside its owner — a type or a 
 ## 1. Define
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$MOVIE/properties \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/types/$MOVIE/properties \
   -H 'Content-Type: application/json' \
   -d '{"name": "Year", "xKey": "year", "kind": "number", "scope": "synced",
        "meta": {"index": "props"},
@@ -44,7 +44,7 @@ Pins are enforced at apply time on every peer, convergently: an op that tries to
 Values live on objects at `{ownerId}.{propId}` — the owner being the object's type or one of its collections — written through the owner-scoped set route, which auto-routes by the declared scope:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/$MOVIE \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/properties/$OBJ/set/$MOVIE \
   -H 'Content-Type: application/json' \
   -d '{"patch": {"EwyHGrtTdxB": 1995}}'
 ```
@@ -62,7 +62,7 @@ Three rules connect values to definitions:
 `PATCH …/properties/:propId` is one CRDT change with per-path `set` / `unset`. It covers rename, the handle, reorder, icon, the index flag and the whole choice-option lifecycle:
 
 ```bash
-curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SPACE/types/$MOVIE/properties/$GENRE \
+curl -X PATCH http://127.0.0.1:2046/v1/spaces/$SPACE/types/$MOVIE/properties/$GENRE \
   -H 'Content-Type: application/json' \
   -d '{"set":   {"name": "Genre",
                  "xFormat.options.noir.name": "Noir",
@@ -83,7 +83,7 @@ Because each leaf merges independently, two members renaming different options a
 ## 5. Remove
 
 ```bash
-curl -X DELETE http://127.0.0.1:7001/v1/spaces/$SPACE/types/$MOVIE/properties/$PROP   # → 204
+curl -X DELETE http://127.0.0.1:2046/v1/spaces/$SPACE/types/$MOVIE/properties/$PROP   # → 204
 any type property remove $SPACE $MOVIE $PROP
 ```
 

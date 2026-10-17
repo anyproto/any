@@ -858,7 +858,7 @@ in a tight loop.
 --addr <host:port>     # where the server is; default: the address the ONE
                        # running server under the data dir recorded
                        # (<account-dir>/server.addr; --account / ANY_ACCOUNT
-                       # picks among several), else 127.0.0.1:7001. An
+                       # picks among several), else 127.0.0.1:2046. An
                        # unauthorized server holds no account lock and is not
                        # discovered — pass --addr to reach it on a non-default port
 --control-token <hex>  # managed server's control token (or ANY_CONTROL_TOKEN);
@@ -885,7 +885,7 @@ Pretty-printed JSON is the only output format.
 Exit 3 with:
 
 ```
-any: cannot reach server at 127.0.0.1:7001
+any: cannot reach server at 127.0.0.1:2046
   start it with `any run` in another terminal
 ```
 

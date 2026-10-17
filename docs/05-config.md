@@ -38,7 +38,7 @@ account: ""
 
 # HTTP server listen address. Loopback IP only.
 listen:
-  addr: 127.0.0.1:7001
+  addr: 127.0.0.1:2046
 
 # Embedded /ui debug harness (internal/server/web.go). Default on.
 # embedded.Start (the in-process host behind the mobile bindings) forces
@@ -450,7 +450,7 @@ and `--account` (`01-cli.md` § Meta).
 
 ```
 --addr <host:port>           # default: the address the one running server
-                             # under the data dir recorded, else 127.0.0.1:7001
+                             # under the data dir recorded, else 127.0.0.1:2046
 --control-token <hex>        # managed server's control token (or ANY_CONTROL_TOKEN)
 --timeout <duration>         # request timeout, default 30s
 --verbose                    # log HTTP exchange to stderr

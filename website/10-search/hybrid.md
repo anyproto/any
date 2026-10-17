@@ -10,7 +10,7 @@ order: 30
 ## The default call
 
 ```bash
-curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/search \
+curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/search \
   -H 'content-type: application/json' \
   -d '{"query": "what did we decide about the reranker?",
        "scopes": ["chat", "basic"],
@@ -64,7 +64,7 @@ The query embedding is bounded by `index.search.queryEmbedTimeout` (default 5 s)
 `filter` keeps only hits whose host object matches, in the [objects query](../database/reading-data.html) filter grammar verbatim — `any.type`, `any.collections`, `<ownerId>.<propId>`, `modifiedAt`, `id`. It binds every mode, like `require` / `exclude`, and checks the object's live row, so a property write counts at once. `limit` still counts matching records.
 
 ```bash
-curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/search \
+curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/search \
   -H 'content-type: application/json' \
   -d '{"query": "reranker", "filter": {"any.collections": {"$nin": ["bin", "template"]}}}'
 ```

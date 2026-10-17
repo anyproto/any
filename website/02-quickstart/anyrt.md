@@ -9,7 +9,7 @@ order: 80
 
 ## Prerequisites
 
-- An `any` server running on `127.0.0.1:7001` with an account ([Install](install.html)).
+- An `any` server running on `127.0.0.1:2046` with an account ([Install](install.html)).
 - The anybao repo, built:
 
 ```bash
@@ -28,7 +28,7 @@ The kernel is compiled into the binary; `anyrt` is one artifact. The file paths 
 Host-side config lives in one TOML file in the working directory. CLI flags override file values; secrets never appear in it.
 
 ```toml
-addr = "http://127.0.0.1:7001"        # the any server
+addr = "http://127.0.0.1:2046"        # the any server
 
 [agent]
 space = "bao"                         # working space: chat, memory, triggers, your programs
@@ -67,7 +67,7 @@ anyrt serve                                          # watch the chat, run conve
 anyrt serving space=bafyreig… chat=bafyreic… control=127.0.0.1:7010
 ```
 
-Send a message to that chat — the working space's general chat, in the web UI at `http://127.0.0.1:7001/ui` or with `any chat send <space> <chat> --text …` — and the agent answers. Without an `agent` overlay the alias binds to the working space itself, which then needs one `anyrt deploy --source repos/_agent` (hash-gated: unchanged files are skipped) before the first serve. Redeploying while it runs takes effect on the next conversation — no restart.
+Send a message to that chat — the working space's general chat, in the web UI at `http://127.0.0.1:2046/ui` or with `any chat send <space> <chat> --text …` — and the agent answers. Without an `agent` overlay the alias binds to the working space itself, which then needs one `anyrt deploy --source repos/_agent` (hash-gated: unchanged files are skipped) before the first serve. Redeploying while it runs takes effect on the next conversation — no restart.
 
 ## 4. Run a program by hand
 
@@ -97,7 +97,7 @@ anyrt deploy --source myrepo
 A schedule is a record in the `agent_triggers` dataset on the working space's trigger anchor object. The anchor is the `bao/triggers/v1` child of the `bao/v1` bundle, typed with the harness's hidden `agent_trigger` type — resolve both, never search by name. The child route requires the `type`, and the dataset's storage collection is `<typeId>_agent_triggers`; read the name from the space's dataset listing:
 
 ```bash
-API=http://127.0.0.1:7001/v1
+API=http://127.0.0.1:2046/v1
 BAO=$(any space derived | jq -er '.spaces[] | select(.name=="bao") | .spaceId')
 TRG=$(curl -s "$API/spaces/$BAO/types?includeHidden=true" \
   | jq -er '.types[] | select(.xKey=="agent_trigger") | .id')
@@ -129,7 +129,7 @@ curl -s -X POST $API/spaces/$BAO/query -H 'content-type: application/json' \
   | jq '.records[] | {id, owner, lastStatus, lastRunAt, consecutiveFailures}'
 ```
 
-Three consecutive failures auto-disable the trigger (`enabled: false`, `lastStatus: "auto_disabled"`); a trigger that can never fire is marked `invalid_spec` rather than staying silent. Each fire's history — status, duration, cost, and the `runId` that `anyrt trace show <runId> --addr http://127.0.0.1:7001` renders — is a synced summary in `agent_runs`, keyed by `triggerId` ([Runs and monitoring](../scheduling/runs-and-monitoring.html)).
+Three consecutive failures auto-disable the trigger (`enabled: false`, `lastStatus: "auto_disabled"`); a trigger that can never fire is marked `invalid_spec` rather than staying silent. Each fire's history — status, duration, cost, and the `runId` that `anyrt trace show <runId> --addr http://127.0.0.1:2046` renders — is a synced summary in `agent_runs`, keyed by `triggerId` ([Runs and monitoring](../scheduling/runs-and-monitoring.html)).
 
 ## Embedded instead of standalone
 
@@ -137,7 +137,7 @@ Apps run the same agent in-process as a Rust library — no agent binary, no ass
 
 ```rust
 let mut cfg = anyrt::Config::builder()
-    .addr("http://127.0.0.1:7001")
+    .addr("http://127.0.0.1:2046")
     .agent_space("bao")
     .overlay_with_invite("agent", "<repoSpaceId>", "<inviteToken>")
     .build();

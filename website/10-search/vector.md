@@ -10,7 +10,7 @@ The dense leg embeds every text-bearing index document with an embedding model a
 ## Pinning the mode
 
 ```bash
-curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/search \
+curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/search \
   -H 'content-type: application/json' \
   -d '{"query": "what did we decide about the reranker?", "mode": "vector"}'
 ```

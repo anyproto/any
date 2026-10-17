@@ -11,7 +11,7 @@ order: 20
 
 ```
 --addr <host:port>     # bind address for `run`; connect address otherwise — default: the address
-                       # the running server recorded (<account-dir>/server.addr), else 127.0.0.1:7001
+                       # the running server recorded (<account-dir>/server.addr), else 127.0.0.1:2046
 --control-token <hex>  # managed server's control token; prefer ANY_CONTROL_TOKEN (a flag is visible in ps)
 --timeout <duration>   # request timeout, default 30s (does not apply to streams)
 --verbose              # log the HTTP request/response to stderr

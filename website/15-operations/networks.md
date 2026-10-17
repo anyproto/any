@@ -30,7 +30,7 @@ The embedded servers (`any.aar`, the xcframework) follow the same rule: an empty
 The configuration is read once at startup; changing the file takes effect on the next start. `GET /v1/health` (and `any status`) reports the joined network as `networkId`, before and after sign-in:
 
 ```bash
-curl -s http://127.0.0.1:7001/v1/health | jq -r .networkId
+curl -s http://127.0.0.1:2046/v1/health | jq -r .networkId
 ```
 
 The server returns the id only. Clients recognise the well-known ids and show any other network by a shortened id:
@@ -105,7 +105,7 @@ The state is visible on `any sync-status` (`p2p` / `localPeers` / `globalPeers`
 fields) and in detail on the diagnostic snapshot:
 
 ```bash
-curl -s http://127.0.0.1:7001/v1/debug/p2p
+curl -s http://127.0.0.1:2046/v1/debug/p2p
 ```
 
 ```json

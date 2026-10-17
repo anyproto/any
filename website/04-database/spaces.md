@@ -10,7 +10,7 @@ A space is the unit of sharing and encryption: one read key, one member list, on
 ## Create a space
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces \
+curl -X POST http://127.0.0.1:2046/v1/spaces \
   -H 'Content-Type: application/json' \
   -d '{"name": "Project Phoenix", "description": "shared notes + chat"}'
 ```
@@ -38,9 +38,9 @@ Every single-space response (`POST /v1/spaces`, `GET /v1/spaces/:spaceId`) retur
 ## List spaces
 
 ```bash
-curl http://127.0.0.1:7001/v1/spaces               # active spaces only
-curl 'http://127.0.0.1:7001/v1/spaces?status=all'  # every row, tombstones included
-curl 'http://127.0.0.1:7001/v1/spaces?status=invite_pending'
+curl http://127.0.0.1:2046/v1/spaces               # active spaces only
+curl 'http://127.0.0.1:2046/v1/spaces?status=all'  # every row, tombstones included
+curl 'http://127.0.0.1:2046/v1/spaces?status=invite_pending'
 ```
 
 `GET /v1/spaces` returns the mapped `SpaceInfo` rows and hides non-active spaces by default. Pending invites, incoming direct spaces and deleted tombstones are the same list filtered on `status`.
@@ -55,7 +55,7 @@ any space subscribe
 ## Read one space
 
 ```bash
-curl http://127.0.0.1:7001/v1/spaces/$SPACE
+curl http://127.0.0.1:2046/v1/spaces/$SPACE
 any space get $SPACE
 ```
 
@@ -64,7 +64,7 @@ Only active spaces are materialised on read. A pending or deleted row is served 
 ## Update metadata
 
 ```bash
-curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SPACE \
+curl -X PATCH http://127.0.0.1:2046/v1/spaces/$SPACE \
   -H 'Content-Type: application/json' \
   -d '{"name": "Phoenix", "description": ""}'
 any space update $SPACE --name Phoenix --description ""
@@ -79,7 +79,7 @@ The write lands in the space and replicates to every member. Each peer mirrors t
 Settings are yours alone: they sync across your own devices and are invisible to other members.
 
 ```bash
-curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SPACE/settings \
+curl -X PATCH http://127.0.0.1:2046/v1/spaces/$SPACE/settings \
   -H 'Content-Type: application/json' \
   -d '{"set": {"notifyMode": "mentions"}, "unset": ["oldKey"]}'
 any space settings $SPACE --set notifyMode=mentions
@@ -92,7 +92,7 @@ Keys are single-level strings, values are scalars (string, number, bool). Read t
 ## Sync now
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/sync   # → 204
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/sync   # → 204
 any space sync $SPACE
 ```
 
@@ -101,7 +101,7 @@ Forces an immediate head-sync round against the network instead of waiting for t
 ## Delete a space
 
 ```bash
-curl -X DELETE http://127.0.0.1:7001/v1/spaces/$SPACE   # → 204
+curl -X DELETE http://127.0.0.1:2046/v1/spaces/$SPACE   # → 204
 any space delete $SPACE --yes
 ```
 

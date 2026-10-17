@@ -22,7 +22,7 @@ Local-first means a write is done the moment it lands in your store; whether it 
 ## Reading state
 
 ```bash
-curl http://127.0.0.1:7001/v1/spaces/SPACE/sync-status
+curl http://127.0.0.1:2046/v1/spaces/SPACE/sync-status
 any sync-status space SPACE
 ```
 
@@ -53,7 +53,7 @@ A space can be `synced` with `networkPeers: 0` — it converged entirely over th
 Per object:
 
 ```bash
-curl http://127.0.0.1:7001/v1/spaces/SPACE/sync-status/objects/OBJ
+curl http://127.0.0.1:2046/v1/spaces/SPACE/sync-status/objects/OBJ
 any sync-status object SPACE OBJ
 ```
 
@@ -90,7 +90,7 @@ data: { "reason": "server_shutdown" }
 The account-wide stream is `GET`, so a browser can use `EventSource` directly. Close it on `closed` and on `error`: an `EventSource` reconnects by itself, possibly under another account — re-read `GET /v1/auth` before opening a replacement ([Realtime](index.html)):
 
 ```js
-const es = new EventSource("http://127.0.0.1:7001/v1/sync-status/subscribe");
+const es = new EventSource("http://127.0.0.1:2046/v1/sync-status/subscribe");
 es.addEventListener("status", (e) => {
   const s = JSON.parse(e.data);
   badge(s.spaceId, s.state);            // "syncing" → spinner, "synced" → check
@@ -102,7 +102,7 @@ es.addEventListener("error", closeStream);
 ```
 
 ```bash
-curl -N http://127.0.0.1:7001/v1/sync-status/subscribe
+curl -N http://127.0.0.1:2046/v1/sync-status/subscribe
 any sync-status subscribe                   # account-wide
 any sync-status subscribe SPACE OBJ         # one object
 ```
@@ -114,7 +114,7 @@ The account-wide stream lives outside the `/v1/spaces/:spaceId` group because on
 Head-sync (diff) rounds against responsible nodes run on a periodic timer (about every 30 s). `POST /v1/spaces/:spaceId/sync` runs one immediately, blocks until it completes, and returns `204`:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/SPACE/sync
+curl -X POST http://127.0.0.1:2046/v1/spaces/SPACE/sync
 any space sync SPACE
 ```
 

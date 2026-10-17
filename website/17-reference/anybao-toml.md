@@ -43,7 +43,7 @@ Retention runs inside `serve` (first pass a minute after boot, then hourly) on t
 
 ```toml
 # anybao.toml
-addr = "http://127.0.0.1:7001"   # any server
+addr = "http://127.0.0.1:2046"   # any server
 
 [agent]
 space = "bao"              # working space: chat, brain, memory,
@@ -82,7 +82,7 @@ A Rust host builds the same resolved config without a file:
 
 ```rust
 let mut cfg = anyrt::Config::builder()
-    .addr("http://127.0.0.1:7001")
+    .addr("http://127.0.0.1:2046")
     .agent_space("bao")
     .overlay_with_invite("agent", "<repoSpaceId>", "<inviteToken>")
     .build();

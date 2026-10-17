@@ -12,7 +12,7 @@ The agent talks to people through the same chat any client renders, reports long
 A chat message may carry a create-only `agent` group marking it as written by an agent on the signer's behalf:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$CHAT/chat/messages \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$CHAT/chat/messages \
   -H 'content-type: application/json' \
   -d '{"text": "Looking at the last 20 issues…",
        "agent": {"name": "bao",

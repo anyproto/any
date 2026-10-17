@@ -21,7 +21,7 @@ The peer's identity is the `id` from their `GET /v1/account`, exchanged out of b
 ## Reach out
 
 ```bash
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/one-to-one \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/one-to-one \
   -d '{"otherIdentity": "A5k…"}'
 # → 201 SpaceInfo  (status "active", spaceType "any.onetoone")
 ```
@@ -66,7 +66,7 @@ Because the ACL is immutable there is nothing to accept *cryptographically*. "Ap
 **Incoming.** The other side learns about a request in one of two ways: automatically, through the coordinator inbox notifier the server starts when a coordinator is configured; or out of band, by the app calling `register-incoming` with the peer's identity and an optional display hint. Either way a pending row appears.
 
 ```bash
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/one-to-one/register-incoming \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/one-to-one/register-incoming \
   -d '{"peerIdentity": "A5k…", "displayHint": {"name": "Alice", "iconCid": "…"}}'
 # → 204, idempotent — no-op when a row already exists
 ```
@@ -78,8 +78,8 @@ any one-to-one register <peerIdentity> [--name ...] [--description ...] [--icon-
 **Accept / decline** by the pending row's space id — the server reads the peer identity off the row, so you never re-derive it:
 
 ```bash
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/one-to-one/accept    # → 200 SpaceInfo
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/one-to-one/decline   # → 204
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/one-to-one/accept    # → 200 SpaceInfo
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/one-to-one/decline   # → 204
 ```
 
 ```bash
@@ -96,8 +96,8 @@ Accept is equivalent to re-running the open call with the peer's identity and is
 There is no bespoke inbox endpoint. Pending requests are rows in the space list, hidden from the active-only default like deleted spaces:
 
 ```bash
-curl -s "http://127.0.0.1:7001/v1/spaces?status=one_to_one_pending"        # snapshot
-curl -s -N -X POST http://127.0.0.1:7001/v1/spaces/query/subscribe \
+curl -s "http://127.0.0.1:2046/v1/spaces?status=one_to_one_pending"        # snapshot
+curl -s -N -X POST http://127.0.0.1:2046/v1/spaces/query/subscribe \
   -d '{"filter": {"localStatus": "oneToOnePending"}, "sort": ["-createdAt"], "limit": 50}'   # live
 ```
 

@@ -29,7 +29,7 @@ POST /v1/spaces/derived/:name  → 201 SpaceInfo
 ```
 
 ```bash
-curl -s http://127.0.0.1:7001/v1/spaces/derived
+curl -s http://127.0.0.1:2046/v1/spaces/derived
 ```
 
 ```json
@@ -44,7 +44,7 @@ curl -s http://127.0.0.1:7001/v1/spaces/derived
 | `status` | the row's status (the `SpaceInfo.status` strings) when a row exists; a tombstoned row reports `created: false` |
 
 ```bash
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/derived/bao
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/derived/bao
 # → 201 SpaceInfo
 ```
 

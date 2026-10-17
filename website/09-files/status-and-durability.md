@@ -22,7 +22,7 @@ Inline files (under 4096 bytes) are born `durable`. Larger files start `inflight
 ## Reading status
 
 ```bash
-curl "http://127.0.0.1:7001/v1/spaces/$SP/files/$FILE/status"
+curl "http://127.0.0.1:2046/v1/spaces/$SP/files/$FILE/status"
 ```
 
 ```json
@@ -33,7 +33,7 @@ curl "http://127.0.0.1:7001/v1/spaces/$SP/files/$FILE/status"
 `cached` reports a complete local copy. `attempts` counts failed background attempts since the last success or enqueue, and `lastErr` the last failure; both appear only while work is pending. The per-space rollup is cheap and safe to hold for a "not backed up" badge:
 
 ```bash
-curl "http://127.0.0.1:7001/v1/spaces/$SP/files/stats"
+curl "http://127.0.0.1:2046/v1/spaces/$SP/files/stats"
 # → { "total": 12, "durable": 10, "inflight": 2, "limited": 0 }
 ```
 

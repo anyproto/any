@@ -49,7 +49,7 @@ else.
 
 `any` is one Go binary that wraps `any-sync-sdk`:
 
-- `any run` starts a foreground HTTP/JSON server on `127.0.0.1:7001`. The
+- `any run` starts a foreground HTTP/JSON server on `127.0.0.1:2046`. The
   same server runs in-process for the mobile shims (`internal/embedded`).
 - Every other `any <cmd>` is a thin CLI client that calls that server over
   HTTP.
@@ -196,7 +196,7 @@ Layout: `docs/00-overview.md` § Package layout. What it doesn't say:
 ## Config and lifecycle
 
 Precedence: config file → `ANY_*` env vars → flags (`docs/05-config.md`).
-Defaults: data dir `~/.any/`, listen address `127.0.0.1:7001`.
+Defaults: data dir `~/.any/`, listen address `127.0.0.1:2046`.
 
 The data dir is a root. Each account lives in `<root>/<accountId>/`
 (`wallet.key` or `device.key`, `network.json`, `server.lock` / `.pid` /

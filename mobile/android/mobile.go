@@ -18,7 +18,7 @@ import (
 )
 
 // Start boots the any server. dataDir maps to Context.getFilesDir() on Android.
-// listenAddr is typically "127.0.0.1:7001"; pass "127.0.0.1:0" to let the OS
+// listenAddr is typically "127.0.0.1:2046"; pass "127.0.0.1:0" to let the OS
 // pick a free port (read it back with Address()). nodeconfYAML overrides
 // the network: pass "" for the embedded PRODUCTION nodeconf that ships in
 // the AAR, or a conf's YAML text to join another network (staging, local

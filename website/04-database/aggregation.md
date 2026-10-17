@@ -40,7 +40,7 @@ Deleted records are excluded server-side: a `_deletedAt`-missing `$match` is pre
 Messages per author in a chat:
 
 ```sh
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/aggregate -d '{
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/aggregate -d '{
   "objectId": "'$OBJ'", "dataset": "chat_messages",
   "pipeline": [
     {"$group": {"_id": "$creator", "n": {"$count": {}}}},
@@ -55,7 +55,7 @@ any aggregate $SPACE $OBJ --dataset chat_messages \
 Movie count per year over objects (property values live at `<ownerId>.<propId>` — the owner being the object's type or one of its collections, see [Reading data](reading-data.html)):
 
 ```sh
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/aggregate -d '{
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/aggregate -d '{
   "pipeline": [
     {"$match": {"'$TYPE'.'$YEAR'": {"$gte": 1980}}},
     {"$group": {"_id": "$'$TYPE'.'$YEAR'", "n": {"$count": {}}}},
@@ -77,7 +77,7 @@ any aggregate $SPACE --properties --pipeline '[
 Objects per calendar month of their last edit — the date operators compute on the instants `any` stores:
 
 ```sh
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/aggregate -d '{
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/aggregate -d '{
   "pipeline": [
     {"$group": {"_id": {"$dateTrunc": {"date": "$modifiedAt", "unit": "month"}},
                 "n": {"$count": {}}}},
@@ -90,7 +90,7 @@ Just a count: `any aggregate $SPACE --properties --pipeline '[{"$count": "object
 Steps per day over a [shared dataset](runtime-datasets.html#shared-datasets) — every object's records in one pipeline, grouped by the `_objectId` each record carries (`$HOURS` is the dataset's storage collection):
 
 ```sh
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/datasets/aggregate -d '{
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/datasets/aggregate -d '{
   "dataset": "'$HOURS'",
   "pipeline": [
     {"$group": {"_id": "$_objectId", "steps": {"$sum": "$steps"}}},

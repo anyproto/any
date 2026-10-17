@@ -18,7 +18,7 @@ A space's members list is the one call that answers "who is here, what may they 
 | GET | `/v1/spaces/:spaceId/members/:identity` | one member by account id |
 
 ```bash
-curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/members
+curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/members
 ```
 
 ```json

@@ -63,7 +63,7 @@ Two account-private knobs, each `all` / `mentions` / `none`, resolved as **`chat
 | per-chat override | `POST /v1/spaces/:s/properties/:chatObjectId/set/chat` with `{"patch": {"notifyMode": "none"}}` | `chat.notifyMode` on the chat object's row from `/objects/query` |
 
 ```bash
-curl -X PATCH http://127.0.0.1:7001/v1/spaces/SPACE/settings \
+curl -X PATCH http://127.0.0.1:2046/v1/spaces/SPACE/settings \
   -H 'Content-Type: application/json' \
   -d '{"set":{"notifyMode":"mentions"}}'          # → 204
 any space settings SPACE --set notifyMode=mentions
@@ -86,7 +86,7 @@ Account-scoped, behind the `/v1` auth guard. Every route answers `409 push.disab
 | GET | `/v1/push/subscriptions` | `{subscriptions: [{spaceKey, topic}]}` — the account's server-held topic set, unsigned |
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/push/token \
+curl -X POST http://127.0.0.1:2046/v1/push/token \
   -H 'Content-Type: application/json' \
   -d '{"platform":"android","token":"<FCM token>"}'
 any push token set --platform android --token TOKEN

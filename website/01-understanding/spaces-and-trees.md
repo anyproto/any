@@ -61,7 +61,7 @@ The **heads** of a tree are the changes nothing points to yet. Two peers whose h
 A **head-sync round** is a diff exchange: a device and a responsible node compare hashed ranges of `(treeId, heads)`, find trees that are new, changed or missing on either side, and fetch the missing changes for those trees. It runs on a periodic timer (`syncPeriod`, ~30 s) and on demand — local writes travel as streamed head updates, not diff rounds:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/sync     # one round, 204 on completion
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/sync     # one round, 204 on completion
 any space sync $SPACE
 ```
 

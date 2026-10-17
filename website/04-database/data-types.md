@@ -77,7 +77,7 @@ Those six keys and `links` are the ones the server interprets; any other top-lev
 A value that does not fit the property's current slug is `400 property.format_violation` (`details: {propId, format, reason}`); a descriptor that does not fit the kind, a reserved key or an unparseable filter is `400 property.format_invalid`. Option membership is not enforced on `choice` values, no object-existence or object-type check runs on `relation` values, and no roster check runs on `member` values — all three are dangling-tolerant by design. `tags` is reserved. The full contract, including the client-side rendering and tolerance rules, is the server's `docs/27-descriptors.md`.
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/properties \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/types/$TYPE/properties \
   -H 'Content-Type: application/json' \
   -d '{"name": "Related", "xKey": "related", "kind": "array",
        "xFormat": {"type": "relation", "config": {"multiple": true},
@@ -106,7 +106,7 @@ Chat's read-tracking flags (`unread`, `unreadMention`, `unreadReactions`) are th
 The scope of every dataset field is discoverable. `GET /v1/spaces/:spaceId/datasets` returns one JSON Schema document per dataset the space hosts; `GET /v1/datasets` covers the account-level system datasets (`spaces`, `profile`, `devices`, …).
 
 ```bash
-curl http://127.0.0.1:7001/v1/spaces/$SPACE/datasets
+curl http://127.0.0.1:2046/v1/spaces/$SPACE/datasets
 any datasets $SPACE
 ```
 

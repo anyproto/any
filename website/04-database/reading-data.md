@@ -21,19 +21,19 @@ All three are POST because a filter does not fit a query string. Each has a `/su
 
 ```bash
 # plain pages outside the bin, newest edits first
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/query \
   -H 'Content-Type: application/json' \
   -d '{"filter": {"$and": [{"any.type": "page"},
                            {"any.collections": {"$nin": ["bin", "template"]}}]},
        "sort": ["-modifiedAt", "id"], "limit": 20}'
 
 # the blocks of one document, in order
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
   -d '{"objectId": "'$OBJ'", "dataset": "editor_blocks", "sort": ["nav.pos"]}'
 
 # one shared dataset across every object that holds it, latest hours first
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/datasets/query \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/datasets/query \
   -H 'Content-Type: application/json' \
   -d '{"dataset": "'$HOURS'", "sort": ["-start"], "limit": 48}'
 ```

@@ -64,7 +64,7 @@ A dataset is a Mongo-like record storage collection scoped to one object — or,
 **Datasets come from the type, never from a collection.** A storage collection lives on an object only while its type declares the part that owns it (`400 dataset.not_declared` otherwise — no write sets a type); retyping leaves the old records as orphan data with no write path. So pick the type at create — `$MOVIE` is a type whose part declares the reviews dataset, `$WIKI` the wiki collection from [catalog setup](objects.html#the-wiki-tree):
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects \
   -H 'Content-Type: application/json' \
   -d '{"type": "'$MOVIE'", "collections": ["'$WIKI'"], "initialProperties": {"any": {"name": "Heat"}}}'
 ```
@@ -78,11 +78,11 @@ That single object renders with the movie layout, carries the movie's properties
 Whatever produced a dataset, it is read the same way: the per-object query with a `dataset` name, and its `/subscribe` twin for liveness. A [shared dataset](runtime-datasets.html#shared-datasets) is also read across its objects through `POST …/datasets/query` with the `dataset` alone. File rows are the one exception — they sit on a derived child whose id clients never see, so they have their own `…/files/query`.
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
   -d '{"objectId": "'$CHAT'", "dataset": "chat_messages", "sort": ["-_ver.id"], "limit": 50}'
 
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
   -d '{"objectId": "'$OBJ'", "dataset": "'$MOVIE'_reviews", "filter": {"score": {"$gte": 8}}}'
 ```
@@ -94,7 +94,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
 Every dataset the space hosts is discoverable with its JSON Schema:
 
 ```bash
-curl http://127.0.0.1:7001/v1/spaces/$SPACE/datasets
+curl http://127.0.0.1:2046/v1/spaces/$SPACE/datasets
 # → { "datasets": [ { "name": "chat_messages", "module": "chat", "owners": ["<chatRootId>"], "schema": {…} }, … ] }
 any datasets $SPACE
 ```

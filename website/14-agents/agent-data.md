@@ -27,16 +27,16 @@ Turn logs are per chat: the general chat is the catalog's `system:general-chat/v
 Each store is one part of a hidden harness type (`agent_config`, `agent_secrets`, `agent_trigger`, `agent_brain`, `agent_log`), so type pickers never offer them. The names in the table are dataset **keys**; the records live in the storage collection `<typeId>_<key>`, which is the `dataset` value on the wire. Guest code passes the key and `any@v1` resolves it; from `curl`, look the storage collection up once:
 
 ```bash
-TURNS=$(curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/datasets \
+TURNS=$(curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/datasets \
   | jq -r '.datasets[].name | select(endswith("_agent_turns"))')
 ```
 
 Resolve a child yourself — the route requires the child's `type`, the store's hidden harness type. Keep the type id and the returned object id apart:
 
 ```bash
-BRAIN_TYPE=$(curl -s "http://127.0.0.1:7001/v1/spaces/$SPACE/types?includeHidden=true" \
+BRAIN_TYPE=$(curl -s "http://127.0.0.1:2046/v1/spaces/$SPACE/types?includeHidden=true" \
   | jq -er '.types[] | select(.xKey=="agent_brain") | .id')
-BRAIN=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/bao%2Fv1/children \
+BRAIN=$(curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/bundles/bao%2Fv1/children \
   -H 'content-type: application/json' \
   -d "{\"seed\":\"bao/brain/v1\",\"type\":\"$BRAIN_TYPE\"}" | jq -er .objectId)
 ```
@@ -79,7 +79,7 @@ Stamps `creator` and `createdAt`.
 The last five turns of the general chat (`$LOG` is the chat's `bao/log/v1` child):
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'content-type: application/json' \
   -d '{"objectId": "'$LOG'", "dataset": "'$TURNS'",
        "sort": ["-seq"], "limit": 5}'
@@ -88,9 +88,9 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
 Every memory item in one category, live (`$BRAIN` resolved above, `$MEMORY` discovered like `$TURNS`, with the `_agent_memory_items` suffix):
 
 ```bash
-MEMORY=$(curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/datasets \
+MEMORY=$(curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/datasets \
   | jq -er '.datasets[].name | select(endswith("_agent_memory_items"))')
-curl -N -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query/subscribe \
+curl -N -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query/subscribe \
   -H 'content-type: application/json' \
   -d '{"objectId": "'$BRAIN'", "dataset": "'$MEMORY'",
        "filter": {"category": "decision"}, "sort": ["-createdAt"], "limit": 50}'

@@ -22,14 +22,14 @@ Every trigger is pinned once claimed. The record alone decides where a trigger r
 Peer ids come from the account's devices registry — `GET /v1/devices` returns every device row, the per-app `active` winner and `self`, this server's own id:
 
 ```sh
-curl -s http://127.0.0.1:7001/v1/devices | jq '{self, active, devices: [.devices[] | {peerId, name, os}]}'
+curl -s http://127.0.0.1:2046/v1/devices | jq '{self, active, devices: [.devices[] | {peerId, name, os}]}'
 ```
 
 ## Pin, repin, reassign
 
 ```sh
 # pin the digest to this machine
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/upsert \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/upsert \
   -H 'Content-Type: application/json' \
   -d "{\"objectId\": \"$ANCHOR\", \"dataset\": \"$TRIGGERS\",
        \"records\": [{\"id\": \"daily-digest\", \"fields\": {\"owner\": \"$PEER\"}}]}"
@@ -75,7 +75,7 @@ A server without the devices registry disables the election for the run (single-
 ## Reading pins
 
 ```sh
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
   -d "{\"objectId\": \"$ANCHOR\", \"dataset\": \"$TRIGGERS\"}" \
   | jq '.records[] | {id, name, kind, owner, enabled, lastStatus}'

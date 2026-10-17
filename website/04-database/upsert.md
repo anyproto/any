@@ -12,7 +12,7 @@ This is the surface for imports, syncs from an external system, and any job that
 ## Request
 
 ```sh
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/upsert \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/upsert \
   -H 'Content-Type: application/json' -d '{
   "objectId": "'$OBJ'", "dataset": "'$TYPE'_articles",
   "records": [

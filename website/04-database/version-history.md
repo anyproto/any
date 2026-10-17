@@ -43,7 +43,7 @@ Snapshot-only: there is no subscribe variant.
 | `coalesceWindow` | Max gap in seconds inside a group; default 300, max 86400. |
 
 ```sh
-curl "http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/history?dataset=editor_blocks&coalesce=true"
+curl "http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ/history?dataset=editor_blocks&coalesce=true"
 ```
 
 ```json
@@ -68,7 +68,7 @@ With `coalesce`, a group's `version` is its **newest** change id and `groupSize`
 `GET …/history/:version` materializes the object's live records at that cut, grouped by dataset. Records are raw dataset rows in the same shape [`/query`](reading-data.html) returns. `dataset` narrows to one; empty datasets are omitted unless explicitly requested.
 
 ```sh
-curl "http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/history/bafy…9c?dataset=editor_blocks"
+curl "http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ/history/bafy…9c?dataset=editor_blocks"
 ```
 
 The view is opened, serialized and closed within the request. A version whose materialization exceeds the bound answers `413 history.view_too_large` — narrow with `dataset`, or use the record fast path.

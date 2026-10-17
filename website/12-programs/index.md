@@ -75,7 +75,7 @@ The envelope answers `status: "ok"`, `value: {"message": "Hello, Ada"}` and a `t
    │  (the effect boundary)       │   → replay/mock → execute → record
    └──────────────┬───────────────┘
                   ▼
-   the trace (local store or .jsonl)  +  the any server (127.0.0.1:7001)
+   the trace (local store or .jsonl)  +  the any server (127.0.0.1:2046)
 ```
 
 The guest has no network, no filesystem and no clock of its own. Everything nondeterministic — an HTTP call, the current time, loading a module — is an effect, and every effect is a record in the trace; randomness derives from one seed recorded in the trace header. If it isn't in the trace, it didn't happen.

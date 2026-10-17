@@ -18,7 +18,7 @@ Messages are records on the chat object's `chat_messages` dataset, ordered by `_
 A space has one chat, installed by the server's [catalog](../collaboration/bundles.html#the-general-chat):
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/catalog/general-chat/setup \
+curl -X POST http://127.0.0.1:2046/v1/catalog/general-chat/setup \
   -H 'Content-Type: application/json' \
   -d '{"spaceId": "'$SP'"}'
 # → 200 { "usecase": "general-chat", "bundles": [ { "id": "system:general-chat/v1",
@@ -82,20 +82,20 @@ This is what `/query` and `/query/subscribe` return for a `chat_messages` record
 
 ```bash
 # send
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/$CHAT/chat/messages \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects/$CHAT/chat/messages \
   -H 'Content-Type: application/json' \
   -d '{"text": "hello", "replyToMessageId": "abc"}'
 # → 201 { "versionId": "…", "changeId": "…", "recordIds": ["<msgId>"] }
 
 # edit (own only)
-curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SP/objects/$CHAT/chat/messages/$MSG \
+curl -X PATCH http://127.0.0.1:2046/v1/spaces/$SP/objects/$CHAT/chat/messages/$MSG \
   -H 'Content-Type: application/json' -d '{"text": "hello, world"}'
 
 # delete (own only)
-curl -X DELETE http://127.0.0.1:7001/v1/spaces/$SP/objects/$CHAT/chat/messages/$MSG
+curl -X DELETE http://127.0.0.1:2046/v1/spaces/$SP/objects/$CHAT/chat/messages/$MSG
 
 # toggle a reaction (no body)
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/$CHAT/chat/messages/$MSG/reactions/👍
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects/$CHAT/chat/messages/$MSG/reactions/👍
 ```
 
 The same from the CLI: `any chat send $SP $CHAT --text "hello" [--reply-to MSG] [--agent-name NAME --agent-debug-link L --agent-done=false]`, `any chat edit …`, `any chat delete …`, `any chat react $SP $CHAT $MSG 👍`. `--file -` reads message text from stdin.
@@ -109,7 +109,7 @@ A reaction toggle is a `$set` (add) or `$unset` (remove) on the single leaf `rea
 Open a chat view by subscribing — the stream's `snapshot` frame *is* your initial load; a separate up-front query only opens a gap/duplicate race against the first `changes` frame:
 
 ```bash
-curl -N -X POST http://127.0.0.1:7001/v1/spaces/$SP/query/subscribe \
+curl -N -X POST http://127.0.0.1:2046/v1/spaces/$SP/query/subscribe \
   -H 'Content-Type: application/json' \
   -d '{"objectId": "'$CHAT'", "dataset": "chat_messages", "sort": ["-_ver.id"], "limit": 50}'
 ```

@@ -58,7 +58,7 @@ func TestAndroidMatcherStillRecognizesRebuildFailures(t *testing.T) {
 func TestAndroidMatcherRejectsUnrelatedFailures(t *testing.T) {
 	for _, msg := range []string{
 		"embedded: bad data directory",
-		"embedded: server boot failed: listen tcp 127.0.0.1:7001: bind: address already in use",
+		"embedded: server boot failed: listen tcp 127.0.0.1:2046: bind: address already in use",
 		"indexer: open index db: disk I/O error",
 	} {
 		if isRebuildableIndexFailure(msg) {

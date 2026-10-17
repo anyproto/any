@@ -19,7 +19,7 @@ Account-scoped — these routes sit outside the `/v1/spaces/:spaceId` group.
 | GET | `/v1/identities/subscribe` | live directory changes over SSE |
 
 ```bash
-curl -s http://127.0.0.1:7001/v1/identities
+curl -s http://127.0.0.1:2046/v1/identities
 ```
 
 ```json

@@ -28,7 +28,7 @@ A collection names the type of its rows in `meta.defaultType` — the xKey of a 
 `$SPACE` is a writable space; the reply's `collectionId` is `$COLL` below, and `$OBJ` is any existing object in the space.
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/collections \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/collections \
   -H 'Content-Type: application/json' \
   -d '{"name": "Reading list", "xKey": "reading_list"}'
 # → 201 {"collectionId": "bafy…"}
@@ -44,7 +44,7 @@ Property definitions are not part of the create body; a `properties` key, like a
 ## List and read
 
 ```bash
-curl http://127.0.0.1:7001/v1/spaces/$SPACE/collections
+curl http://127.0.0.1:2046/v1/spaces/$SPACE/collections
 any collection list $SPACE
 ```
 
@@ -59,7 +59,7 @@ Passing a user **type**'s id to any of these routes is `400 collection.not_a_col
 Property definitions are one surface: the four routes under `…/collections/:collectionId/properties` take the same bodies, the same `{set, unset}` patch grammar and answer the same codes as their `…/types/:typeId/properties` twins ([Types and properties](types-and-properties.html)).
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/collections/$COLL/properties \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/collections/$COLL/properties \
   -H 'Content-Type: application/json' \
   -d '{"name": "Finished", "xKey": "finished", "kind": "boolean",
        "xFormat": {"type": "checkbox"}}'
@@ -72,8 +72,8 @@ any collection property add $SPACE $COLL --name Finished --xkey finished --kind 
 ## File and unfile
 
 ```bash
-curl -X POST   http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/collections/$COLL
-curl -X DELETE http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/collections/$COLL
+curl -X POST   http://127.0.0.1:2046/v1/spaces/$SPACE/properties/$OBJ/collections/$COLL
+curl -X DELETE http://127.0.0.1:2046/v1/spaces/$SPACE/properties/$OBJ/collections/$COLL
 any object collection attach $SPACE $OBJ $COLL
 any object collection detach $SPACE $OBJ $COLL
 ```
@@ -89,7 +89,7 @@ The POST pre-flights its ids — `404 object.not_found`, `404 collection.not_fou
 An object that is new takes its collections in the create body instead — [Objects](objects.html). `$PERSON` is the type, `$CONTACT` the collection, `$STATUS` a choice property declared on it:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects \
   -H 'Content-Type: application/json' \
   -d '{"type": "'$PERSON'", "collections": ["'$CONTACT'"],
        "initialProperties": {"any": {"name": "Ada Lovelace"},
@@ -107,7 +107,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
 ```
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/query \
   -H 'Content-Type: application/json' \
   -d '{"filter": {"$and": [{"any.collections": "'$COLL'"},
                            {"any.collections": {"$nin": ["bin", "template"]}}]},
@@ -123,7 +123,7 @@ A collection definition's own row carries the marker `__collection__` in `any.ty
 **`miniapp`** is the sidebar. Members carry `bundle` (the id of the installed app, absent on an object the user pinned), `pos` (a client-allocated lexid) and `hidden` (out of the sidebar, install kept). Pin and unpin are the plain filing routes; values go through `POST …/properties/:objectId/set/miniapp`.
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/query \
   -H 'Content-Type: application/json' \
   -d '{"filter": {"$and": [{"any.collections": "miniapp"},
                            {"any.collections": {"$nin": ["bin"]}},

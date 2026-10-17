@@ -21,7 +21,7 @@ This is what the agent does when you say "remind me in twenty minutes": one reco
 
 ```sh
 AT=$(( $(date +%s) + 1200 ))
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/upsert \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/upsert \
   -H 'Content-Type: application/json' \
   -d "{\"objectId\": \"$ANCHOR\", \"dataset\": \"$TRIGGERS\",
        \"records\": [{\"id\": \"remind-standup\", \"fields\": {
@@ -71,7 +71,7 @@ The shot is consumed before the run starts: the entry disables itself, the run s
 ## After it fired
 
 ```sh
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
+curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
   -d "{\"objectId\": \"$ANCHOR\", \"dataset\": \"$TRIGGERS\",
        \"filter\": {\"kind\": \"once\"}, \"sort\": [\"-lastRunAt\"]}" \
@@ -84,7 +84,7 @@ curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
 | `lastStatus` | `ok` (or `error` / `interrupted`) |
 | `lastRunAt` | the fire time (unix seconds) |
 
-The run itself is the `agent_runs` summary whose `triggerId` is the record id; its `runId` opens the trace with `anyrt trace show <runId> --addr http://127.0.0.1:7001` on the device that ran it. See [Runs and monitoring](runs-and-monitoring.html).
+The run itself is the `agent_runs` summary whose `triggerId` is the record id; its `runId` opens the trace with `anyrt trace show <runId> --addr http://127.0.0.1:2046` on the device that ran it. See [Runs and monitoring](runs-and-monitoring.html).
 
 Records accumulate; delete the ones you no longer want as history. A deleted id stays tombstoned, so reuse a fresh slug for the next reminder.
 

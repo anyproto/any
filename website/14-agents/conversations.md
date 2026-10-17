@@ -83,9 +83,9 @@ The turn record (`agent_turns`, on the chat's log child) holds `userText`, `repl
 Trace bodies live in the local store of the device that ran the conversation, so run these against that device's `any` server; `ls` prints the run ids to feed `show`:
 
 ```sh
-anyrt trace ls --addr http://127.0.0.1:7001 --program toolcaller   # conversations, newest first
-anyrt trace show --addr http://127.0.0.1:7001 run_<id>             # turns, cells, effects, results
-anyrt trace show --addr http://127.0.0.1:7001 run_<id> --stats     # per-turn tokens / cache / cost
+anyrt trace ls --addr http://127.0.0.1:2046 --program toolcaller   # conversations, newest first
+anyrt trace show --addr http://127.0.0.1:2046 run_<id>             # turns, cells, effects, results
+anyrt trace show --addr http://127.0.0.1:2046 run_<id> --stats     # per-turn tokens / cache / cost
 ```
 
 > **Note.** Trace bodies stay on the device that ran the run, in its any server's local store: they are large and rarely read, so syncing them would bloat the encrypted space. The lean layer — turn record, chat, chunks, memory, and one `agent_runs` summary per run — syncs everywhere; deep replay of an old run works on the device that ran it.

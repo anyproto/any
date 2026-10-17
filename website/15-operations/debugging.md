@@ -21,7 +21,7 @@ Most problems are one of four things: the server is not up or not authorized, a 
 
 ```bash
 any status
-curl -s http://127.0.0.1:7001/v1/health
+curl -s http://127.0.0.1:2046/v1/health
 ```
 
 ```json
@@ -57,7 +57,7 @@ The **debug** endpoints go one level deeper and are diagnostic only — fields m
 ```bash
 any debug space $SPACE                 # GET /v1/spaces/:spaceId/debug
 any debug object $SPACE $OBJECT        # GET /v1/spaces/:spaceId/debug/objects/:objectId
-curl -s http://127.0.0.1:7001/v1/debug/p2p
+curl -s http://127.0.0.1:2046/v1/debug/p2p
 ```
 
 `debug space` returns per-peer outbound head-sync counters since boot (in-memory, reset on restart; `peers` is empty until one diff round has run):
@@ -155,4 +155,4 @@ Streams end with `closed{reason}` — `server_shutdown`, `deauthorized`, `sdk_cl
 
 ## The embedded UI
 
-A standalone `any run` serves a small debug harness at `http://127.0.0.1:7001/ui` (space picker, object tree, members, chat) — handy for a visual check of what the API holds. `webUI.enabled: false` turns it off; app-embedded boots run headless.
+A standalone `any run` serves a small debug harness at `http://127.0.0.1:2046/ui` (space picker, object tree, members, chat) — handy for a visual check of what the API holds. `webUI.enabled: false` turns it off; app-embedded boots run headless.
