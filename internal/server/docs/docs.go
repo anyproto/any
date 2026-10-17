@@ -2780,10 +2780,6 @@ const docTemplate = `{
                         "type": "array",
                         "uniqueItems": false
                     },
-                    "createdIn": {
-                        "description": "CreatedIn names the object of this space the new object was\ncreated in — the note a ` + "`" + `/task` + "`" + ` was typed in, the page an ` + "`" + `@` + "`" + ` or\n` + "`" + `[[` + "`" + ` minted it from. Optional. Kept in the row's creation bag as\n` + "`" + `meta.createdIn` + "`" + `, beside ` + "`" + `createdAt` + "`" + `, not as a property: set by\nthis create alone, never rewritten, and not copied by ` + "`" + `from` + "`" + ` (a\ncopy's own ` + "`" + `createdIn` + "`" + ` still applies). Absent or ` + "`" + `null` + "`" + ` means\nunknown. Any other non-string, or an empty string, is 400\nrequest.schema; an id this space does not have is 404\nobject.not_found, a deleted one 410 object.deleted.",
-                        "type": "string"
-                    },
                     "from": {
                         "description": "From copies an existing object: its type, its collections except\nthe built-in markers (` + "`" + `miniapp` + "`" + `, ` + "`" + `bin` + "`" + `, ` + "`" + `template` + "`" + `), its synced\n` + "`" + `any.*` + "`" + ` values, the declared values under its type and its own\nnon-marker collections and the records of every dataset its\ntype's parts declare (a reserved module's excepted). ` + "`" + `type` + "`" + ` is\nthen optional and must\nequal the source's (400 template.type_mismatch); ` + "`" + `collections` + "`" + `\nare added to the copied set and ` + "`" + `initialProperties` + "`" + ` override\ncopied values. A source filed under ` + "`" + `template` + "`" + ` is a template: the\nrow is stamped ` + "`" + `any.template` + "`" + ` {id, version} (docs/31-templates.md);\nany other source keeps the stamp it has. An unknown source is 404\nobject.not_found, a deleted one 410 object.deleted, a definition's\nrow 400 membership.meta_type, and a source record its dataset\nrefuses today 409 template.record_refused.",
                         "type": "string"

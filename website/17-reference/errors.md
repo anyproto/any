@@ -119,8 +119,8 @@ Panics are converted to `500 internal` with a generic message.
 
 | Code | Status | Meaning |
 |---|---|---|
-| `object.not_found` | 404 | object unknown or deleted in this space; also `from` or `createdIn` on `POST …/objects` naming an object the space does not have (`details.from` / `details.createdIn`) |
-| `object.deleted` | 410 | `GET …/objects/:objectId`, a file attach, or `from` / `createdIn` on `POST …/objects`, on a deleted object — distinct from never-existed |
+| `object.not_found` | 404 | object unknown or deleted in this space |
+| `object.deleted` | 410 | `GET …/objects/:objectId`, a file attach, or `from` on `POST …/objects`, on a deleted object — distinct from never-existed |
 | `object.derived_undeletable` | 409 | `DELETE` on a derived object (a bundle root installed with `derived: true`, such as the general chat) |
 | `object.id_required` | 400 | the object id is a serialized nil (`"None"`, `"null"`, `"undefined"`) |
 | `record.deleted` | 410 | a write addressed a tombstoned record; the id is burned for good |
