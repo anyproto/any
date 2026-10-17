@@ -1932,15 +1932,14 @@ rewrite. See `04-events.md`.
 
 #### Create an object
 
-`POST /v1/spaces/:spaceId/objects` takes five keys:
+`POST /v1/spaces/:spaceId/objects` takes four keys:
 
 ```json
 {
   "type": "<typeId>",
   "collections": ["<collectionId>"],
   "initialProperties": { "<ownerId>": { "<propId>": "..." } },
-  "from": "<objectId>",
-  "createdIn": "<objectId>"
+  "from": "<objectId>"
 }
 ```
 
@@ -1970,31 +1969,15 @@ source its dataset refuses today `409 template.record_refused` (the
 half copy is deleted; a delete that fails too is logged and the object
 stays).
 
-`createdIn` names the object of this space the new object was
-**created in** — the note a `/task` was typed in, the page an `@` or
-`[[` minted it from. It lands in the row's creation bag, `meta`, as
-`meta.createdIn` beside `createdAt` (§ Data plane), not as a property:
-set by this create alone, never rewritten (a later write addressing the
-bag is refused like any derived field), and not copied by `from` — a
-copy's own `createdIn` still applies. Absent or `null` means unknown;
-nothing backfills older objects. `{"filter": {"meta.createdIn":
-"<objectId>"}}` on `…/objects/query` lists what was created in an
-object (indexed). Any other non-string, or an empty string, is
-`400 request.schema`, a serialized nil such as `"null"` or
-`"undefined"` `400 object.id_required`; an id this space does not have
-is `404 object.not_found` (`details.createdIn`), a deleted one
-`410 object.deleted`; a definition's own row is a host like any other.
-
-These five keys are the **whole** create vocabulary. Any other
+These four keys are the **whole** create vocabulary. Any other
 top-level key — a bare owner group like `"any"`, a top-level `"name"`,
 a typo — is `400 request.unknown_field` naming the accepted set and
 where the value belongs: object properties always ride
 `initialProperties` keyed by owner
 (`{"initialProperties": {"any": {"name": "Dune"}}}`). Shape is
-enforced per field too (`type`, `from` and `createdIn` strings,
-`collections` an array, `initialProperties` an object, every
-`initialProperties` group an object of `{propertyId: value}`) →
-`400 request.schema`. Nothing is
+enforced per field too (`type` and `from` strings, `collections` an
+array, `initialProperties` an object, every `initialProperties` group
+an object of `{propertyId: value}`) → `400 request.schema`. Nothing is
 added to the body server-side, and the one thing dropped from it is
 membership written as a value — `initialProperties.any.type` and
 `any.collections` are ignored: the object gets exactly the type and
@@ -2223,17 +2206,6 @@ addressing them are rejected):
 - `modifiedBy` — the account identity that signed that same change:
   the object's last writer, `author` on an object nobody edited since
   it was created.
-- `meta` — the creation bag: an object the create wrote whole, once,
-  never rewritten (a later write addressing it or a key inside it is
-  refused: `400 dataset.validation` on the synced routes), not copied
-  by `from`; absent when the create gave none. The server fills one
-  key, `meta.createdIn` — the id of the object this one was created in
-  (§ Create an object). Sparse-indexed: `{"meta.createdIn":
-  "<objectId>"}` lists what was created in an object. The `objects`
-  entry of `GET …/datasets` lists `meta` `x-scope: synced` without
-  `x-mutable-by` — written by the creating change, write-once — while
-  `GET …/types/any/properties` lists it derived like the other stamps:
-  no property write reaches it.
 
 "Recently modified first" is `{"sort": ["-modifiedAt"]}`.
 

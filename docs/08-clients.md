@@ -167,9 +167,7 @@ lifecycle is in `04-events.md`.
 
 - **"Recently modified" lists sort on `modifiedAt`.** Every `objects` row
   carries the derived row-root stamps `author` / `createdAt` /
-  `modifiedAt` / `modifiedBy` / `spaceId`, and the creation bag `meta`
-  (`meta.createdIn`) when the create named the object it was made in;
-  `{"sort": ["-modifiedAt"]}` is the
+  `modifiedAt` / `modifiedBy` / `spaceId`; `{"sort": ["-modifiedAt"]}` is the
   recency ordering (`-createdAt` for creation order). `modifiedAt` bumps on any
   synced write to the object and converges across peers, but it's the
   author's wall clock — fine for sorting and display, never a sync fence.

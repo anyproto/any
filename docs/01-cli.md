@@ -550,8 +550,8 @@ group only; patch the descriptor path directly on a collection.
 ### Objects
 
 ```
-any object create <spaceId> --type T [--collection C ...] [--properties '<json>|@FILE|-'] [--created-in OBJ]
-any object create <spaceId> --from OBJ [--type T] [--collection C ...] [--properties '<json>|@FILE|-'] [--created-in OBJ]
+any object create <spaceId> --type T [--collection C ...] [--properties '<json>|@FILE|-']
+any object create <spaceId> --from OBJ [--type T] [--collection C ...] [--properties '<json>|@FILE|-']
 
 any object type set   <spaceId> <objectId> <typeId>
 
@@ -592,11 +592,6 @@ any object collection detach $SPID $OBJID bin     # restore
 Attaching stamps `bin.movedAt` / `bin.movedBy`; detaching clears the
 `bin` namespace. Ordinary listings exclude bin members and templates
 with `{"any.collections": {"$nin": ["bin", "template"]}}` (`09-query.md`).
-
-`--created-in OBJ` names the object of the space the new object was
-created in — the note a task was typed in. It stamps the row's
-`meta.createdIn` once (`03-api.md` § Create an object); a later write
-cannot move it, and a copy does not inherit the source's.
 
 `--from OBJ` copies an object instead of starting empty: its type, its
 collections minus the built-in markers (`miniapp`, `bin`, `template`),

@@ -25,7 +25,7 @@ A plain page named Dune, body empty. CLI:
 any object create $SPACE --type page --properties '{"any":{"name":"Dune"}}'
 ```
 
-The create body has exactly five keys:
+The create body has exactly four keys:
 
 | Key | Meaning |
 |-----|---------|
@@ -33,7 +33,6 @@ The create body has exactly five keys:
 | `collections` | Ids the object is filed under. Optional; the object carries exactly these — nothing is appended server-side. With `from`, they are added to the source's. |
 | `initialProperties` | Starting values, keyed by **owner** then property id: `{"<ownerId>": {"<propId>": value}}`, the owner being the type or one of the collections. The only home for property values — a top-level `name` is rejected. |
 | `from` | An object to copy: its type, collections minus the built-in markers, values and parts' records. `type` must then match the source (`400 template.type_mismatch`); a source record its dataset refuses today is `409 template.record_refused`. A source filed under `template` is a template — see [Templates](templates.html). |
-| `createdIn` | The object of this space the new object was created in — the note a `/task` was typed in. Optional; kept once as `meta.createdIn` on the row, never rewritten, not copied by `from`. An id the space does not have is `404 object.not_found`, a deleted one `410 object.deleted` — see [System fields](system-fields.html). |
 
 Any other top-level key answers `400 request.unknown_field` naming the accepted set; a wrong shape (a string where an array is expected) is `400 request.schema`. Membership written as a value — `initialProperties.any.type` and `any.collections` — is ignored: the top-level keys decide it. Values under `initialProperties` are checked against each property's declared format (`400 property.format_violation`).
 
@@ -84,12 +83,11 @@ An illustrative row for a page filed under the wiki collection:
   "createdAt":  { "$date": "2026-08-05T17:00:00.000Z" },
   "modifiedAt": { "$date": "2026-08-05T17:00:00.000Z" },
   "modifiedBy": "A5…",
-  "meta": { "createdIn": "bafy…note" },
   "_ver": { "…": "…" }
 } ] }
 ```
 
-`author`, `spaceId`, `createdAt`, `modifiedAt` and `modifiedBy` are derived by the SDK and read-only; `modifiedAt` bumps on every synced write to the object and converges across peers on DAG order, and `modifiedBy` names the identity that signed that same change (`author` stays the creator). `modifiedAt` is the author's clock — good for `{"sort": ["-modifiedAt"]}`, never a fencing token. `meta` is the creation bag — written once by the create, never rewritten, not copied by `from` — and `meta.createdIn` the object this one was created in, when the create said so (`"createdIn"` in the `POST …/objects` body); `{"filter": {"meta.createdIn": "<objectId>"}}` lists what was created in an object. Full list in [System fields](system-fields.html).
+`author`, `spaceId`, `createdAt`, `modifiedAt` and `modifiedBy` are derived by the SDK and read-only; `modifiedAt` bumps on every synced write to the object and converges across peers on DAG order, and `modifiedBy` names the identity that signed that same change (`author` stays the creator). `modifiedAt` is the author's clock — good for `{"sort": ["-modifiedAt"]}`, never a fencing token. Full list in [System fields](system-fields.html).
 
 `GET /v1/spaces/:spaceId/objects/:objectId` returns the same row as `{"objectId": "…", "record": {…}}` when you already hold the id — `404 object.not_found` for an id the space never had, `410 object.deleted` for a deleted one.
 
