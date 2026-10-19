@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
@@ -20,6 +21,7 @@ import (
 //	@Param		body	body		api.SpaceModifyRequest	true	"Modify batch"
 //	@Success	200		{object}	api.ModifyResult
 //	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	409		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/modify [post]
 func (d *deps) spaceModify(c echo.Context) error {
@@ -104,6 +106,19 @@ func (d *deps) spaceDeleteRecords(c echo.Context) error {
 // intermediate map[string]any.
 func buildModifyBatch(root *fastjson.Value) (space.ModifyBatch, error) {
 	batch := space.ModifyBatch{}
+	for name, target := range map[string]**uint64{"ifUnchangedSince": &batch.IfUnchangedSince, "ifObjectUnchangedSince": &batch.IfObjectUnchangedSince} {
+		if v := root.Get(name); v != nil {
+			if v.Type() != fastjson.TypeNumber {
+				return batch, fmt.Errorf("%s must be an unsigned integer", name)
+			}
+			seq, err := strconv.ParseUint(v.String(), 10, 64)
+			if err != nil {
+				return batch, fmt.Errorf("%s must be an unsigned integer", name)
+			}
+			*target = &seq
+		}
+	}
+
 	if v := root.Get("objectId"); v != nil {
 		batch.ObjectId = string(v.GetStringBytes())
 	}

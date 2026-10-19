@@ -153,3 +153,85 @@ func TestServer_BookmarkMigrationResumesAfterInterruption(t *testing.T) {
 		t.Fatalf("repeat duplicated or lost bookmarks: %d %v", n, err)
 	}
 }
+
+// editBeforeBookmarkWrite lands a competing write after the migration read,
+// immediately before its commit. This is the same ordering as an applied peer edit.
+type editBeforeBookmarkWrite struct {
+	space.Space
+	target string
+	edit   []space.Op
+	edited bool
+}
+
+func (s *editBeforeBookmarkWrite) Modify(ctx context.Context, b space.ModifyBatch) (space.ModifyResult, error) {
+	if b.ObjectId == s.target && !s.edited {
+		s.edited = true
+		res, err := s.Space.Modify(ctx, space.ModifyBatch{ObjectId: s.target, Dataset: objectsDataset, Records: []space.RecordModify{{Id: s.target, Ops: s.edit}}})
+		if err != nil || len(res.Rejections) > 0 {
+			return res, fmt.Errorf("competing edit: %v %v", err, res.Rejections)
+		}
+	}
+	return s.Space.Modify(ctx, b)
+}
+func TestServer_BookmarkMigrationConcurrentEdit(t *testing.T) {
+	for _, scenario := range []string{"root", "type", "membership"} {
+		t.Run(scenario, func(t *testing.T) {
+			ctx := context.Background()
+			d := newUnauthorizedDeps(t)
+			d.cfg.Network, _ = placeholderNetwork(t)
+			d.catalog = catalogForTest(t, legacyBookmarksCatalog)
+			e := buildEcho(d)
+			if rec := doJSON(t, e, http.MethodPost, "/v1/auth", `{}`); rec.Code != http.StatusOK {
+				t.Fatal(rec.Body.String())
+			}
+			info := createSpaceInfo(t, e, "Concurrent bookmark migration")
+			old := setupUsecase(t, e, "bookmarks", info.Id).Bundles[0]
+			sp, err := d.sdk.Spaces().Get(ctx, info.Id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			id, err := sp.Objects().Create(ctx, space.CreateObjectOpts{Type: "page", Collections: []string{old.CollectionId}, InitialProperties: map[string]map[string]any{old.CollectionId: {old.Properties["url"]: "https://example.com/keep", old.Properties["note"]: "retain"}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			custom, err := sp.Types().Create(ctx, space.TypeCreateParams{Name: "Custom"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := id
+			ops := []space.Op{{Type: space.OpSet, Path: "any.type", Value: custom}}
+			switch scenario {
+			case "root":
+				target = old.CollectionId
+				ops = []space.Op{{Type: space.OpSet, Path: "any.name", Value: "My renamed collection"}}
+			case "membership":
+				ops = []space.Op{{Type: space.OpPull, Path: "any.collections", Value: old.CollectionId}}
+			}
+			wrapped := &editBeforeBookmarkWrite{Space: sp, target: target, edit: ops}
+			err = migrateBookmarkRoot(ctx, wrapped, old.CollectionId, nil)
+			if err == nil {
+				t.Fatal("stale migration write accepted")
+			}
+			row := objectRow(t, e, info.Id, id)
+			switch scenario {
+			case "root":
+				root := objectRow(t, e, info.Id, old.CollectionId)
+				if rowType(root) != space.CollectionMarker || root["any"].(map[string]any)["name"] != "My renamed collection" {
+					t.Fatalf("root edit overwritten: %v", root)
+				}
+			case "type":
+				if rowType(row) != custom {
+					t.Fatalf("custom type overwritten: %v", row)
+				}
+			case "membership":
+				if rowType(row) != "page" || len(rowCollections(row)) != 0 {
+					t.Fatalf("unfiled object migrated: %v", row)
+				}
+			}
+			values := row[old.CollectionId].(map[string]any)
+			if values[old.Properties["url"]] != "https://example.com/keep" || values[old.Properties["note"]] != "retain" {
+				t.Fatalf("content lost: %v", values)
+			}
+		})
+	}
+}

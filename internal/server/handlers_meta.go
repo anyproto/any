@@ -198,6 +198,7 @@ func (d *deps) bootstrapping() bool {
 // @Router		/health [get]
 func (d *deps) health(c echo.Context) error {
 	return c.JSON(http.StatusOK, api.HealthResponse{
+		Capabilities:  []string{"conditional-writes"},
 		Status:        "ok",
 		Version:       version.String(),
 		StartedAt:     d.startedAt,

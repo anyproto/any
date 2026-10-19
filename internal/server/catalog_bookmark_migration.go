@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/anyproto/any-store/v2/anyenc"
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/page"
@@ -57,7 +58,7 @@ func migrateBookmarkRoot(ctx context.Context, sp space.Space, rootID string, par
 		if string(root.GetStringBytes("any", "name")) == "Bookmarks" {
 			fields["any.name"] = "Bookmark"
 		}
-		if err := bookmarkModify(ctx, sp, rootID, []space.Op{{Type: space.OpSet, Value: fields}}); err != nil {
+		if err := bookmarkModify(ctx, sp, root, []space.Op{{Type: space.OpSet, Value: fields}}); err != nil {
 			return err
 		}
 	}
@@ -96,16 +97,21 @@ func migrateBookmarkRoot(ctx context.Context, sp space.Space, rootID string, par
 			if current != page.TypeId && current != rootID {
 				return fmt.Errorf("bookmark changed type during migration; retry after resolving it")
 			}
-			id := string(row.GetStringBytes("id"))
-			if err := bookmarkModify(ctx, sp, id, []space.Op{{Type: space.OpSet, Path: "any.type", Value: rootID}, {Type: space.OpPull, Path: "any.collections", Value: rootID}}); err != nil {
+			if err := bookmarkModify(ctx, sp, row, []space.Op{{Type: space.OpSet, Path: "any.type", Value: rootID}, {Type: space.OpPull, Path: "any.collections", Value: rootID}}); err != nil {
 				return err
 			}
 		}
 	}
 }
 
-func bookmarkModify(ctx context.Context, sp space.Space, objectID string, ops []space.Op) error {
-	result, err := sp.Modify(ctx, space.ModifyBatch{ObjectId: objectID, Dataset: objectsDataset, Records: []space.RecordModify{{Id: objectID, Ops: ops}}})
+func bookmarkModify(ctx context.Context, sp space.Space, snapshot *anyenc.Value, ops []space.Op) error {
+	objectID := string(snapshot.GetStringBytes("id"))
+	seq := snapshot.GetInt("_applySeq")
+	if seq <= 0 {
+		return fmt.Errorf("bookmark migration snapshot has no revision")
+	}
+	revision := uint64(seq)
+	result, err := sp.Modify(ctx, space.ModifyBatch{ObjectId: objectID, IfUnchangedSince: &revision, Dataset: objectsDataset, Records: []space.RecordModify{{Id: objectID, Ops: ops}}})
 	if err != nil {
 		return err
 	}

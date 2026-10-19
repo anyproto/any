@@ -263,3 +263,6 @@ body.
 - `1` — user error (bad args, 4xx from server)
 - `2` — server error (5xx, or a download, export or stream cut mid-transfer)
 - `3` — transport error (can't reach server)
+
+`409 write.precondition_failed`: a conditional modify read is stale; nothing was
+written. Reread and reevaluate the operation before retrying.

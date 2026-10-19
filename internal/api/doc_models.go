@@ -174,10 +174,13 @@ type SpaceAggregateRequest struct {
 
 // SpaceModifyRequest documents the body of POST /v1/spaces/:spaceId/modify.
 type SpaceModifyRequest struct {
-	ObjectId string         `json:"objectId"`
-	Dataset  string         `json:"dataset"`
-	Records  []RecordModify `json:"records"`
-	TraceIds []string       `json:"traceIds,omitempty"`
+	// Conditional writes refuse stale reads with 409 write.precondition_failed.
+	IfUnchangedSince       *uint64        `json:"ifUnchangedSince,omitempty"`
+	IfObjectUnchangedSince *uint64        `json:"ifObjectUnchangedSince,omitempty"`
+	ObjectId               string         `json:"objectId"`
+	Dataset                string         `json:"dataset"`
+	Records                []RecordModify `json:"records"`
+	TraceIds               []string       `json:"traceIds,omitempty"`
 	// Scope selects the write route: "synced" (default — the object's
 	// own DAG change) or "local" (device-only materialization for
 	// fields the dataset schema declares local-scope; explicit record

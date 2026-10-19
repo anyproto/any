@@ -406,6 +406,9 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 			"the record id belongs to another object — pass the plain record id, or `<objectId>/<recordId>` of the request's own object",
 			details)
 	}
+	if errors.Is(err, space.ErrPreconditionFailed) {
+		return writeError(c, http.StatusConflict, "write.precondition_failed", "The object or dataset changed; read it again before retrying", details)
+	}
 	if errors.Is(err, handler.ErrValidation) {
 		return sdkValidationError(c, err, details)
 	}

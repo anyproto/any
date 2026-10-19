@@ -267,3 +267,6 @@ Panics are converted to `500 internal` with a generic message.
 > **Note.** `/modify` and `/aggregate` bodies hand their op and stage vocabularies straight to the engine, so unknown top-level keys there are dropped rather than rejected. Every other strict endpoint is listed with `additionalProperties: false` in `GET /v1/openapi.json`.
 
 `make catalog-validate` reports catalog problems offline with their own codes — `catalog.bad_yaml`, `unknown_field`, `bad_id`, `duplicate`, `missing`, `bad_field`, `unknown_usecase`, `cycle`, `broken_link`, `bad_miniapp` — one `<source>: <path>: <code>: <message>` line each; they never appear on the wire.
+
+`409 write.precondition_failed` means a conditional modify read is stale.
+Nothing was written. Reread and reevaluate before retrying.

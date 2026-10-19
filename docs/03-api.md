@@ -4851,3 +4851,18 @@ replaying a change: bundle ensure, catalog setup, setting the type and
 filing under a collection, the 1-1 and derived-space routes, and `POST /v1/spaces/:spaceId/upsert`
 (§ Upsert records), where the caller-supplied record id is the
 idempotency key and an identical re-run emits no change.
+
+### Conditional modify guards
+
+`POST …/modify` accepts `ifUnchangedSince` (dataset revision) and
+`ifObjectUnchangedSince` (the shared objects-row revision), unsigned integers.
+Both are checked under the object's write lock before committing; a stale token
+returns `409 write.precondition_failed` with nothing written. Synced scope only.
+Read `_applySeq` from an unprojected snapshot; dataset reads must include tombstones
+(`includeDeleted: true`) and use the maximum stamp, zero only when empty.
+The object guard comes from the same object row used to make the decision, not
+a subsequent refresh. Other objects do not invalidate it. Changes stamping that
+row, including synced body writes, do; local fields in other datasets may not.
+Tokens are local to a process/store generation and must be reread after restart.
+`GET /v1/health` advertises `conditional-writes` in `capabilities`; callers requiring
+these guards must check it before writing because older servers ignore the fields.

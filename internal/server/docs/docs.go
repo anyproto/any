@@ -1808,6 +1808,14 @@ const docTemplate = `{
                         "description": "Bootstrapping is true while the booted SDK's background boot pass\n(eager space loading + offline catch-up) is still running. The\nserver serves throughout; per-space convergence is /sync-status.\nFalse when unauthorized and after the pass completes.",
                         "type": "boolean"
                     },
+                    "capabilities": {
+                        "description": "Capabilities names optional write contracts this server enforces.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "crdtVersion": {
                         "$ref": "#/components/schemas/api.CRDTVersionState"
                     },
@@ -3892,6 +3900,13 @@ const docTemplate = `{
                 "properties": {
                     "dataset": {
                         "type": "string"
+                    },
+                    "ifObjectUnchangedSince": {
+                        "type": "integer"
+                    },
+                    "ifUnchangedSince": {
+                        "description": "Conditional writes refuse stale reads with 409 write.precondition_failed.",
+                        "type": "integer"
                     },
                     "objectId": {
                         "type": "string"
@@ -11369,6 +11384,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
                     },
                     "500": {
                         "content": {

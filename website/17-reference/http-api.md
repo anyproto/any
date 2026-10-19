@@ -443,3 +443,13 @@ The import response lists the resulting collections. For space-scoped traces, ex
 Import overlays existing collections: matching IDs are replaced, new IDs are inserted, and documents absent from the file remain. Indexes are ensured; a same-name index with a different definition is `400 local.bad_index`. Re-importing an unchanged file leaves the same stored data. Import commits in chunks of 256 documents, so a failure can leave earlier collections and chunks committed. Invalid gzip, format/version, document sections or storage names return `400 local.bad_export`; `details.imported` is the number of fully completed collections, not a rollback guarantee.
 
 > **Note.** Synced writes are not idempotent — each POST produces a new DAG change. The exceptions are `/upsert`, where the caller-supplied record id is the idempotency key, and the adopt-or-install routes (`…/bundles`, `/v1/catalog/:usecaseId/setup`), where a second call adopts. Pagination is offset-based on every list.
+
+## Conditional writes
+
+`POST /v1/spaces/:spaceId/modify` accepts `ifUnchangedSince` (dataset revision)
+and `ifObjectUnchangedSince` (shared object-row revision). Both are checked
+atomically under the object lock; stale reads return `409 write.precondition_failed`
+without writing. Read `_applySeq` from the same snapshot used to decide the
+operation; dataset reads must include tombstones. Synced writes only.
+`GET /v1/health` advertises the `conditional-writes` capability; check it before
+relying on guards, since older servers ignore these fields.

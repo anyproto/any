@@ -186,7 +186,10 @@ change. Property values, other collection memberships, object IDs, links
 and canonical editor records are untouched. Existing custom columns stay.
 
 Migration requires write permission, refuses to replace a member's unrelated
-custom type, and reports `409 catalog.migration_incomplete` on failure.
+custom type, and guards each root/member write against the object revision it
+read. A local or already-applied peer edit before commit aborts the stale write;
+setup retries from fresh reads. This does not prevent unseen offline peer edits
+that later converge through CRDT. It reports `409 catalog.migration_incomplete` on failure.
 Remaining collection membership tracks pending work, so setup resumes after
 interruption without duplicating objects. An offline device's later old-style
 members are upgraded on a subsequent setup. Readers cannot migrate a space.

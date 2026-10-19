@@ -3,9 +3,11 @@ package api
 import "time"
 
 type HealthResponse struct {
-	Status    string    `json:"status"`
-	Version   string    `json:"version"`
-	StartedAt time.Time `json:"startedAt"`
+	// Capabilities names optional write contracts this server enforces.
+	Capabilities []string  `json:"capabilities"`
+	Status       string    `json:"status"`
+	Version      string    `json:"version"`
+	StartedAt    time.Time `json:"startedAt"`
 	// NetworkId is the any-sync network this server joins: the networkId
 	// of the nodeconf it started with. Set whether or not an account is
 	// authorized. The server names no networks; clients map well-known
