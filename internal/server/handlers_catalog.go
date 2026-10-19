@@ -189,14 +189,6 @@ func (d *deps) catalogSetup(c echo.Context) error {
 		return bundleErrorWith(c, err, details)
 	}
 
-	for _, result := range results {
-		if result.Install.Id == bookmarkBundleID && result.Install.DeclaresType() {
-			if err := migrateBookmarkRoot(ctx, sp, result.Bundle.RootId, result.Install.Parts); err != nil {
-				return writeError(c, http.StatusConflict, "catalog.migration_incomplete", err.Error(), map[string]any{"spaceId": sp.Id(), "bundleId": bookmarkBundleID})
-			}
-		}
-	}
-
 	out := api.CatalogSetupResponse{Usecase: usecaseId, Bundles: make([]api.CatalogSetupBundle, 0, len(results))}
 	for _, r := range results {
 		cb := byId[r.Install.Id]
@@ -205,6 +197,21 @@ func (d *deps) catalogSetup(c echo.Context) error {
 			Bundle: bundleToAPI(r.Bundle), Installed: r.Installed,
 		}
 		if r.Install.Declares() {
+			// Adoption preserves an installed definition. Never advertise a
+			// collection as a type (or vice versa), nor convert its members.
+			root, err := sp.Objects().Get(ctx, r.Bundle.RootId)
+			if err != nil {
+				return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "bundleId": r.Install.Id})
+			}
+			expected := space.TypeMarker
+			if r.Install.Collection {
+				expected = space.CollectionMarker
+			}
+			if string(root.GetStringBytes("any", "type")) != expected {
+				return writeError(c, http.StatusConflict, "catalog.definition_conflict",
+					"installed definition kind differs from the catalog; existing objects were not converted",
+					map[string]any{"spaceId": sp.Id(), "bundleId": r.Install.Id})
+			}
 			if r.Install.Collection {
 				row.CollectionId = r.Bundle.RootId
 			} else {

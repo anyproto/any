@@ -130,6 +130,7 @@ Panics are converted to `500 internal` with a generic message.
 | `bundle.loser_not_ready` | 409 | losing root not fully synced / grace period not elapsed — retry |
 | `bundle.not_loser` | 409 | resolve targeted the winner or an unclaimed root |
 | `bundle.reserved` | 409 | a client ensure with an id under the server's `system:` prefix |
+| `catalog.definition_conflict` | 409 | installed definition kind differs from the catalog; no content conversion is performed |
 | `catalog.not_found` | 404 | no usecase with that id in the catalog (`details.usecaseId`) |
 
 ### Datasets, filters, upsert

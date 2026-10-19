@@ -111,6 +111,7 @@ bundle.not_ready                 # 409 — the winner's tree (or the registry) h
 bundle.not_loser                 # 409 — resolve target is the current winner or was never claimed
 bundle.loser_not_ready           # 409 — the losing root is still syncing / inside the grace window; the server keeps retrying
 bundle.reserved                  # 409 — a client ensure with an id under the server's `system:` prefix (the embedded catalog's ids)
+catalog.definition_conflict      # 409 — installed definition kind differs from the requested catalog definition; no content conversion is performed
 catalog.not_found                # 404 — GET /v1/catalog/:usecaseId or POST …/setup naming no usecase of the embedded catalog (details.usecaseId)
 
 object.not_found                 # 404 — objectId unknown or deleted in this space (per-object query, editor, markdown, history …)

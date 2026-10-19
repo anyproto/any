@@ -12,6 +12,21 @@ import (
 	"github.com/anyproto/any/internal/page"
 )
 
+const legacyBookmarksCatalog = `usecases:
+  - id: bookmarks
+    name: Bookmarks
+    bundles:
+      - id: system:bookmark/v1
+        name: Bookmarks
+        collection:
+          xKey: bookmark
+          properties:
+            - { xKey: url, name: URL, kind: string, xFormat: { type: url } }
+            - { xKey: note, name: Note, kind: string, xFormat: { type: longtext } }
+            - { xKey: readerText, name: Reader text, kind: string, xFormat: { type: longtext } }
+            - { xKey: extra, name: Custom field, kind: string }
+`
+
 func TestServer_CatalogSetupBookmarks(t *testing.T) {
 	// Exercise the real SDK on the offline fixture, without a staging dependency.
 	d := newUnauthorizedDeps(t)
@@ -130,5 +145,42 @@ func TestServer_CatalogSetupBookmarks(t *testing.T) {
 	var found map[string]any
 	if err := json.Unmarshal(query.Records[0], &found); err != nil || found["id"] != id {
 		t.Fatalf("query returned another object: %s (%v)", query.Records[0], err)
+	}
+}
+
+// Catalog setup never converts an installed definition or its members.
+func TestServer_CatalogSetupDoesNotConvertLegacyBookmarks(t *testing.T) {
+	d := newUnauthorizedDeps(t)
+	d.cfg.Network, _ = placeholderNetwork(t)
+	d.catalog = catalogForTest(t, legacyBookmarksCatalog)
+	e := buildEcho(d)
+	if rec := doJSON(t, e, http.MethodPost, "/v1/auth", `{}`); rec.Code != http.StatusOK {
+		t.Fatal(rec.Body.String())
+	}
+	sp := createSpaceInfo(t, e, "Legacy bookmarks")
+	old := setupUsecase(t, e, "bookmarks", sp.Id).Bundles[0]
+	id := mustCreateObject(t, e, sp.Id, `{"type":"page","collections":["`+old.CollectionId+`"],"initialProperties":{"`+old.CollectionId+`":{"`+old.Properties["url"]+`":"https://example.com/keep","`+old.Properties["note"]+`":"Keep note"}}}`)
+	before := objectRow(t, e, sp.Id, id)
+	d.catalog = nil
+	for attempt := 0; attempt < 2; attempt++ {
+		rec := doJSON(t, e, http.MethodPost, "/v1/catalog/bookmarks/setup", `{"spaceId":"`+sp.Id+`"}`)
+		if rec.Code != http.StatusConflict {
+			t.Fatalf("expected definition conflict without conversion: %d %s", rec.Code, rec.Body.String())
+		}
+		var envelope api.ErrorEnvelope
+		if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if envelope.Error.Code != "catalog.definition_conflict" {
+			t.Fatal(rec.Body.String())
+		}
+		root := objectRow(t, e, sp.Id, old.CollectionId)
+		if rowType(root) != "__collection__" {
+			t.Fatalf("setup converted definition: %v", root)
+		}
+		after := objectRow(t, e, sp.Id, id)
+		if !reflect.DeepEqual(before, after) {
+			t.Fatalf("setup changed legacy bookmark: before=%v after=%v", before, after)
+		}
 	}
 }

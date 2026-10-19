@@ -178,20 +178,13 @@ inbox, archived, completed and summary. The type owns these values.
 Create a bookmark with `type` set to its resolved `typeId`, and key initial
 values by that id and the setup reply's property IDs.
 
-Setup upgrades the unreleased collection-shaped prototype in place. This
-is a narrow prototype migration, not the general superseding policy. The
-definition and property IDs stay unchanged; each page member gets that
-definition as its type and loses only that collection membership in one
-change. Property values, other collection memberships, object IDs, links
-and canonical editor records are untouched. Existing custom columns stay.
+Setup does not convert existing collection definitions or their members. If an
+installed definition has a different kind from the catalog declaration, setup
+returns `409 catalog.definition_conflict` and leaves existing content untouched.
+New spaces receive the Bookmark type directly.
 
-Migration requires write permission, refuses to replace a member's unrelated
-custom type, and guards each root/member write against the object revision it
-read. A local or already-applied peer edit before commit aborts the stale write;
-setup retries from fresh reads. This does not prevent unseen offline peer edits
-that later converge through CRDT. It reports `409 catalog.migration_incomplete` on failure.
-Remaining collection membership tracks pending work, so setup resumes after
-interruption without duplicating objects. An offline device's later old-style
-members are upgraded on a subsequent setup. Readers cannot migrate a space.
-Deploy the updated server and clipper together; the collection-only prototype
-client cannot create new objects after the definition becomes a type.
+For the few early collection-prototype accounts, the standalone
+`scripts/convert-legacy-bookmarks.py` maintenance tool performs an explicit
+one-time conversion over the existing HTTP API. It is not bundled into the server,
+desktop or extension and is never run by setup, startup or Connect. See the
+[one-time conversion guide](https://github.com/anyproto/any/blob/main/docs/bookmark-conversion.md).
