@@ -632,3 +632,27 @@ runtime `409 type.xkey_conflict` at setup), and the `derived` choice
 - `16-chat.md` § Finding the chat object for a space, `25-favorites.md`
   (a client-registered bundle, for contrast)
 - `18-ci.md` § PR checks (`catalog-validate`)
+
+## Bookmarks
+
+The `bookmarks` usecase installs a listed **Bookmark** type,
+`system:bookmark/v1`, with an editor body over canonical `editor_blocks`.
+Its properties include `url`, `note`, `readerText`, purpose, tags, contexts,
+inbox, archived, completed and summary. The type owns these values.
+Create a bookmark with `type` set to its resolved `typeId`, and key initial
+values by that id and the setup reply's property IDs.
+
+Setup upgrades the unreleased collection-shaped prototype in place. This
+is a narrow prototype migration, not the general superseding policy. The
+definition and property IDs stay unchanged; each page member gets that
+definition as its type and loses only that collection membership in one
+change. Property values, other collection memberships, object IDs, links
+and canonical editor records are untouched. Existing custom columns stay.
+
+Migration requires write permission, refuses to replace a member's unrelated
+custom type, and reports `409 catalog.migration_incomplete` on failure.
+Remaining collection membership tracks pending work, so setup resumes after
+interruption without duplicating objects. An offline device's later old-style
+members are upgraded on a subsequent setup. Readers cannot migrate a space.
+Deploy the updated server and clipper together; the collection-only prototype
+client cannot create new objects after the definition becomes a type.

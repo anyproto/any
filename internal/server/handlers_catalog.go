@@ -189,6 +189,14 @@ func (d *deps) catalogSetup(c echo.Context) error {
 		return bundleErrorWith(c, err, details)
 	}
 
+	for _, result := range results {
+		if result.Install.Id == bookmarkBundleID && result.Install.DeclaresType() {
+			if err := migrateBookmarkRoot(ctx, sp, result.Bundle.RootId, result.Install.Parts); err != nil {
+				return writeError(c, http.StatusConflict, "catalog.migration_incomplete", err.Error(), map[string]any{"spaceId": sp.Id(), "bundleId": bookmarkBundleID})
+			}
+		}
+	}
+
 	out := api.CatalogSetupResponse{Usecase: usecaseId, Bundles: make([]api.CatalogSetupBundle, 0, len(results))}
 	for _, r := range results {
 		cb := byId[r.Install.Id]
