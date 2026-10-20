@@ -116,11 +116,14 @@ func RenderBlock(b ParsedBlock) string {
 		if level > 6 {
 			level = 6
 		}
+		fence := strings.Repeat("#", level)
 		text := b.Text
-		if i := closingSequenceStart(text); i >= 0 {
-			text = text[:i] + "\\" + text[i:]
+		if closingSequenceStart(text) >= 0 {
+			// The text ends in what reads as a closing sequence. A real
+			// closing sequence after it keeps the text as text.
+			text += " " + fence
 		}
-		return strings.Repeat("#", level) + " " + text
+		return fence + " " + text
 	case editor.TypeListItem:
 		return listMarker(b.Style) + " " + b.Text
 	case editor.TypeCheckListItem:

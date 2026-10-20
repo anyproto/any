@@ -36,7 +36,7 @@ curl -X PUT http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ/editor/editor_bl
 
 The server parses the markdown, diffs against the current block tree by type + position + text, and emits per-block create / update / delete ops. Unchanged blocks keep their ids. Re-`PUT`ting what `GET` returned writes nothing — `unchanged` equals the block count.
 
-A heading's closing sequence — a trailing run of `#` that is its whole text or follows a space or tab — is dropped, so `## Title ##` stores `Title`. A run that ends a word (`## Learn C#`) or follows a backslash (`## Title \#`) is text and is kept. A heading whose text ends in a run that would read as a closing sequence renders with a backslash before it (`## Title \##`), so the next `PUT` keeps it.
+A heading's closing sequence — a trailing run of `#` that is its whole text or follows a space or tab — is dropped, so `## Title ##` stores `Title`. A run that ends a word (`## Learn C#`) or follows a backslash (`## Title \#`) is text and is kept. A heading whose text ends in a run that would read as a closing sequence renders with a real closing sequence after it (`Title ##` renders as `## Title ## ##`), so the next `PUT` drops the added run and keeps the text as stored.
 
 ## Saving an edited body — `ifVersion`
 
