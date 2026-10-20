@@ -135,7 +135,7 @@ func TestServer_AccountIcon(t *testing.T) {
 			t.Errorf("body mismatch: %d bytes, want %d", rec.Body.Len(), len(img))
 		}
 
-		r := httptest.NewRequest(http.MethodGet, "/v1/account/icon", nil)
+		r := newTestRequest(http.MethodGet, "/v1/account/icon", nil)
 		r.Header.Set("Range", "bytes=8-15")
 		rec = httptest.NewRecorder()
 		e.ServeHTTP(rec, r)

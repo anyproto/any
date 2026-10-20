@@ -58,7 +58,7 @@ func TestFileErrorMapping(t *testing.T) {
 	}
 	e := echo.New()
 	for _, tc := range cases {
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req := newTestRequest(http.MethodGet, "/", nil)
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 		if err := fileError(c, tc.err, nil); err != nil {
@@ -83,7 +83,7 @@ func TestFileErrorMapping(t *testing.T) {
 func TestFileErrorAbortedRequest(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	req := httptest.NewRequest(http.MethodPost, "/", nil).WithContext(ctx)
+	req := newTestRequest(http.MethodPost, "/", nil).WithContext(ctx)
 	rec := httptest.NewRecorder()
 	if err := fileError(echo.New().NewContext(req, rec), io.ErrUnexpectedEOF, nil); err != nil {
 		t.Fatalf("fileError returned %v", err)
@@ -94,7 +94,7 @@ func TestFileErrorAbortedRequest(t *testing.T) {
 // doRaw sends a request with a raw (non-JSON) body and content type.
 func doRaw(t *testing.T, e http.Handler, method, path, contentType string, body []byte) *httptest.ResponseRecorder {
 	t.Helper()
-	r := httptest.NewRequest(method, path, bytes.NewReader(body))
+	r := newTestRequest(method, path, bytes.NewReader(body))
 	if contentType != "" {
 		r.Header.Set("Content-Type", contentType)
 	}
@@ -220,12 +220,18 @@ func TestServer_Files_RoundTrip(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); ct != "application/x-bin" {
 		t.Errorf("Content-Type = %q", ct)
 	}
-	if cd := rec.Header().Get("Content-Disposition"); cd != `inline; filename=b.bin` {
+	if cd := rec.Header().Get("Content-Disposition"); cd != `attachment; filename=b.bin` {
 		t.Errorf("Content-Disposition = %q", cd)
+	}
+	if v := rec.Header().Get("X-Content-Type-Options"); v != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", v)
+	}
+	if v := rec.Header().Get("Content-Security-Policy"); v != "default-src 'none'; sandbox" {
+		t.Errorf("Content-Security-Policy = %q", v)
 	}
 
 	// Download a range.
-	r := httptest.NewRequest(http.MethodGet, filesBase+"/"+bigInfo.FileId+"/content", nil)
+	r := newTestRequest(http.MethodGet, filesBase+"/"+bigInfo.FileId+"/content", nil)
 	r.Header.Set("Range", "bytes=16-31")
 	rangeRec := httptest.NewRecorder()
 	e.ServeHTTP(rangeRec, r)
@@ -265,5 +271,31 @@ func TestServer_Files_RoundTrip(t *testing.T) {
 		t.Logf("offload succeeded — network has fileV2 nodes; skipping refusal assertion")
 	} else if rec.Code != http.StatusConflict {
 		t.Fatalf("offload: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestContentDisposition(t *testing.T) {
+	for contentType, want := range map[string]string{
+		"image/png":                "inline",
+		"image/jpeg":               "inline",
+		"video/mp4":                "inline",
+		"audio/mpeg":               "inline",
+		"video/quicktime; foo=bar": "inline",
+		"image/svg+xml":            "attachment",
+		"IMAGE/SVG+XML":            "attachment",
+		"text/html":                "attachment",
+		"text/html; charset=utf-8": "attachment",
+		"application/xhtml+xml":    "attachment",
+		"text/xml":                 "attachment",
+		"application/javascript":   "attachment",
+		"application/pdf":          "attachment",
+		"text/plain":               "attachment",
+		"application/octet-stream": "attachment",
+		"":                         "attachment",
+		"not a media type":         "attachment",
+	} {
+		if got := contentDisposition(contentType); got != want {
+			t.Errorf("contentDisposition(%q) = %q, want %q", contentType, got, want)
+		}
 	}
 }

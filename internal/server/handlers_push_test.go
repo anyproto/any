@@ -60,7 +60,7 @@ func TestPush_Disabled(t *testing.T) {
 // not leak filesystem paths (the real error goes to the log).
 func TestPushError_GenericInternalMessage(t *testing.T) {
 	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/v1/push/token", nil)
+	req := newTestRequest(http.MethodPost, "/v1/push/token", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 

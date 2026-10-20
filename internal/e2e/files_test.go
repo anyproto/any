@@ -126,7 +126,7 @@ func TestE2E_FilesBinary(t *testing.T) {
 	if ct := resp.Header.Get("Content-Type"); ct != "application/x-e2e-blob" {
 		t.Errorf("Content-Type = %q", ct)
 	}
-	if cd := resp.Header.Get("Content-Disposition"); cd != `inline; filename=blob.bin` {
+	if cd := resp.Header.Get("Content-Disposition"); cd != `attachment; filename=blob.bin` {
 		t.Errorf("Content-Disposition = %q", cd)
 	}
 	if cl := resp.ContentLength; cl != int64(len(bigContent)) {

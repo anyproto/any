@@ -98,7 +98,9 @@ decides (text has no signatures, only heuristics). Unplaceable
 content stays unset. Full precedence in `docs/03-api.md` § Files.
 
 `GET /files/:fileId/content` serves the verified plaintext as a
-regular HTTP resource — stored mime, `Content-Disposition`,
+regular HTTP resource — stored mime, `Content-Disposition` (`inline`
+for raster images, audio and video, `attachment` otherwise), `nosniff`
+and a CSP that sandboxes any document opened from it,
 `Content-Length`, `Range`/206 (the SDK reader is seekable; seeks map
 to DAG offsets, so a video scrub does not download the prefix).
 Content not yet local streams in on demand and every fetched block

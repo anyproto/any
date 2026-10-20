@@ -46,7 +46,10 @@ booted yet (see `03-api.md` § Auth). 403 covers permission rules
 § Modes: an operation the server's mode refuses (`auth.not_managed`,
 `shutdown.not_managed`) or a managed control operation without the
 host's token (`control.forbidden`). Those express ownership, not
-authentication.
+authentication. The request guards of `03-api.md` § Middleware answer
+403 too: a `Host` that does not name this machine
+(`request.host_not_allowed`) and a write sent by a web page on another
+origin (`request.origin_not_allowed`).
 
 Handler errors and recovered panics log at `error` on the server
 (panics with their stack). Clients receive the sanitized body only.
@@ -65,6 +68,8 @@ request.bad                      # 400 — rejected by the HTTP layer before a h
 request.not_found                # 404 — no such route
 request.method_not_allowed       # 405 — the route exists, not with this method
 request.too_large                # 413 — body over the 1 MiB cap
+request.host_not_allowed         # 403 — the Host header names neither localhost nor a loopback address
+request.origin_not_allowed       # 403 — a write carrying an Origin that is neither the desktop shell's nor a loopback origin
 
 auth.required                    # 401 — server unauthorized; POST /v1/auth first
 auth.already_authorized          # 409 — `{}` while an account runs; a fresh account is never minted in place

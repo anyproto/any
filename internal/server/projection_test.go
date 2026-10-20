@@ -18,7 +18,7 @@ import (
 // writes its 400s through it.
 func newEchoCtx() (echo.Context, *httptest.ResponseRecorder) {
 	rec := httptest.NewRecorder()
-	return echo.New().NewContext(httptest.NewRequest(http.MethodPost, "/", nil), rec), rec
+	return echo.New().NewContext(newTestRequest(http.MethodPost, "/", nil), rec), rec
 }
 
 func mustBody(t *testing.T, body string) *fastjson.Value {

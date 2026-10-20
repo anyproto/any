@@ -168,6 +168,10 @@ CI and release artifacts: `docs/18-ci.md`.
 
 ## Server traps
 
+- **Test requests need a loopback `Host`.** `httptest.NewRequest` sends
+  `Host: example.com`, which the Host guard refuses with 403. Build
+  requests with `newTestRequest` in `internal/server` tests.
+
 - **Engine lifecycle.** Every `/v1` request and stream runs inside the
   engine gate, and teardown holds `authMu` while it drains the gate. A
   handler or engine goroutine that takes `authMu` deadlocks teardown.

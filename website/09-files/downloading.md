@@ -22,7 +22,7 @@ any file download $SP $FILE --variant thumb
 
 The `thumb` request needs a [variant](uploading.html#variants) attached to the original.
 
-The response carries the stored mime as `Content-Type` (octet-stream fallback — the type is resolved at attach, never here), `Content-Disposition: inline; filename=…` from the stored name, `Content-Length`, and full **`Range` / 206** support. The underlying reader is seekable and seeks map to DAG offsets, so scrubbing a video does not download the prefix. Browser tags work directly:
+The response carries the stored mime as `Content-Type` (octet-stream fallback — the type is resolved at attach, never here), `Content-Disposition` with the stored name — `inline` for raster images, audio and video, `attachment` for everything else, SVG included — `Content-Length`, and full **`Range` / 206** support. The underlying reader is seekable and seeks map to DAG offsets, so scrubbing a video does not download the prefix. The response is never active: `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`, so an HTML or SVG file a member attached cannot run script when someone opens its URL. Browser tags work directly:
 
 ```html
 <img   src="http://127.0.0.1:2046/v1/spaces/SP/files/F1/content">

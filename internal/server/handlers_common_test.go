@@ -19,7 +19,7 @@ import (
 func TestSdkOpError_SpaceNotTracked(t *testing.T) {
 	e := echo.New()
 	rec := httptest.NewRecorder()
-	c := e.NewContext(httptest.NewRequest(http.MethodPost, "/", nil), rec)
+	c := e.NewContext(newTestRequest(http.MethodPost, "/", nil), rec)
 	if err := sdkOpError(c, fmt.Errorf("mark read: %w", space.ErrSpaceNotTracked), nil); err != nil {
 		t.Fatalf("sdkOpError returned %v", err)
 	}
@@ -43,7 +43,7 @@ func TestSdkOpError_CRDTVersionNewer(t *testing.T) {
 		"boot": func(c echo.Context) error { return (&deps{}).authBootError(c, fmt.Errorf("open sdk: %w", newer)) },
 	} {
 		rec := httptest.NewRecorder()
-		c := e.NewContext(httptest.NewRequest(http.MethodPost, "/", nil), rec)
+		c := e.NewContext(newTestRequest(http.MethodPost, "/", nil), rec)
 		if err := fn(c); err != nil {
 			t.Fatalf("%s: handler returned %v", name, err)
 		}

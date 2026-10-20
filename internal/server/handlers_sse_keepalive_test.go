@@ -59,7 +59,7 @@ func TestStreamStatusSSE_NoWriteAfterReturn(t *testing.T) {
 	e := echo.New()
 	for i := 0; i < 50; i++ {
 		w := &fencedWriter{ResponseRecorder: httptest.NewRecorder()}
-		c := e.NewContext(httptest.NewRequest(http.MethodGet, "/", nil), w)
+		c := e.NewContext(newTestRequest(http.MethodGet, "/", nil), w)
 		pump := func(ctx context.Context, emit func(string, any) error) error {
 			deadline := time.Now().Add(time.Second)
 			for w.keepalives.Load() == 0 && time.Now().Before(deadline) {

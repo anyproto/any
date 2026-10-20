@@ -47,7 +47,7 @@ func TestInviteStateError_Mapping(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := echo.New()
 			rec := httptest.NewRecorder()
-			c := e.NewContext(httptest.NewRequest(http.MethodPost, "/", nil), rec)
+			c := e.NewContext(newTestRequest(http.MethodPost, "/", nil), rec)
 			if err := inviteStateError(c, tc.err, "s1"); err != nil {
 				t.Fatalf("inviteStateError returned %v", err)
 			}

@@ -43,7 +43,7 @@ func BenchmarkObjectsQueryProjection(b *testing.B) {
 			var size int
 			b.ReportAllocs()
 			for b.Loop() {
-				r := httptest.NewRequest(http.MethodPost, "/v1/spaces/"+spaceId+"/objects/query",
+				r := newTestRequest(http.MethodPost, "/v1/spaces/"+spaceId+"/objects/query",
 					strings.NewReader(tc.body))
 				r.Header.Set("Content-Type", "application/json")
 				rec := httptest.NewRecorder()

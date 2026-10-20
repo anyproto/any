@@ -37,7 +37,7 @@ func TestSpaceJoin_DecodeInvite_SDKContract(t *testing.T) {
 func TestInviteDecodeError_Envelope(t *testing.T) {
 	e := echo.New()
 	rec := httptest.NewRecorder()
-	c := e.NewContext(httptest.NewRequest(http.MethodPost, "/v1/spaces/join", nil), rec)
+	c := e.NewContext(newTestRequest(http.MethodPost, "/v1/spaces/join", nil), rec)
 
 	if err := inviteDecodeError(c); err != nil {
 		t.Fatalf("inviteDecodeError returned err: %v", err)

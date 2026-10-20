@@ -18,7 +18,7 @@ func TestCORS_PreflightEchoesDesktopOrigin(t *testing.T) {
 	defer teardown()
 	e := buildEcho(d)
 
-	req := httptest.NewRequest(http.MethodOptions, "/v1/health", nil)
+	req := newTestRequest(http.MethodOptions, "/v1/health", nil)
 	req.Header.Set("Origin", desktopOrigin)
 	req.Header.Set("Access-Control-Request-Method", http.MethodGet)
 	rec := httptest.NewRecorder()
@@ -39,7 +39,7 @@ func TestCORS_PreflightAllowsJSONPost(t *testing.T) {
 	defer teardown()
 	e := buildEcho(d)
 
-	req := httptest.NewRequest(http.MethodOptions, "/v1/spaces", nil)
+	req := newTestRequest(http.MethodOptions, "/v1/spaces", nil)
 	req.Header.Set("Origin", desktopOrigin)
 	req.Header.Set("Access-Control-Request-Method", http.MethodPost)
 	req.Header.Set("Access-Control-Request-Headers", "content-type")
@@ -62,7 +62,7 @@ func TestCORS_GetCarriesACAOForDesktopOrigin(t *testing.T) {
 	defer teardown()
 	e := buildEcho(d)
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	req := newTestRequest(http.MethodGet, "/v1/health", nil)
 	req.Header.Set("Origin", "http://tauri.localhost")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -80,7 +80,7 @@ func TestCORS_NoOriginGetsNoACAO(t *testing.T) {
 	defer teardown()
 	e := buildEcho(d)
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	req := newTestRequest(http.MethodGet, "/v1/health", nil)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
@@ -97,7 +97,7 @@ func TestCORS_UnlistedOriginGetsNoACAO(t *testing.T) {
 	defer teardown()
 	e := buildEcho(d)
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	req := newTestRequest(http.MethodGet, "/v1/health", nil)
 	req.Header.Set("Origin", "https://evil.example")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)

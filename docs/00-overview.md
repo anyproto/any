@@ -47,7 +47,9 @@ lifecycle for the mobile bindings (`mobile/ios`, `mobile/android`).
 **Localhost-only, no caller authentication.** The server binds a
 loopback address and refuses anything else; anyone with shell access on
 the machine can call it. CORS admits only a fixed allowlist of
-desktop-shell webview origins (`03-api.md` § Middleware). A managed server's control
+desktop-shell webview origins, and request guards refuse a `Host` that
+does not name this machine and a write sent by a web page on another
+origin (`03-api.md` § Middleware). A managed server's control
 token expresses ownership, not authentication (`02-server.md` § Modes).
 
 ## What's in scope (v1)

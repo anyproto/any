@@ -20,7 +20,7 @@ func TestServer_UIIndex(t *testing.T) {
 	e := buildEcho(d)
 
 	for _, path := range []string{"/ui", "/ui/"} {
-		r := httptest.NewRequest(http.MethodGet, path, nil)
+		r := newTestRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, r)
 
@@ -53,7 +53,7 @@ func TestServer_UIIndex_Disabled(t *testing.T) {
 	e := buildEcho(d)
 
 	for _, path := range []string{"/ui", "/ui/"} {
-		r := httptest.NewRequest(http.MethodGet, path, nil)
+		r := newTestRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, r)
 

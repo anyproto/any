@@ -47,12 +47,7 @@ func buildEcho(d *deps) *echo.Echo {
 	// in v1" stance (docs/03-api.md § Middleware). No-op for
 	// requests without an Origin header (curl / CLI / same-origin).
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins: []string{
-			"tauri://localhost",      // macOS / Linux webview
-			"http://tauri.localhost", // Windows webview
-			"http://localhost:5173",  // tauri dev (Vite, plain http)
-			"http://127.0.0.1:5173",
-		},
+		AllowOrigins: desktopShellOrigins,
 		// Range lets the webview issue ranged file-content downloads
 		// (GET /v1/spaces/:spaceId/files/:fileId/content); the control
 		// token is what the shell's webview logs a managed server in
@@ -75,6 +70,9 @@ func buildEcho(d *deps) *echo.Echo {
 		Limit: "1M",
 	}))
 	e.Use(httpLogMiddleware())
+	// After the log line, so a refusal is visible in the server log.
+	e.Use(loopbackHostGuard)
+	e.Use(crossSiteWriteGuard)
 
 	v1 := e.Group("/v1")
 	// Unauthorized guard + engine gate: while an engine is live

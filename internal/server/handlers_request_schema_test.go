@@ -18,9 +18,9 @@ func newTestContext(body string) (echo.Context, *httptest.ResponseRecorder) {
 	e := echo.New()
 	var req *http.Request
 	if body == "" {
-		req = httptest.NewRequest(http.MethodPost, "/", nil)
+		req = newTestRequest(http.MethodPost, "/", nil)
 	} else {
-		req = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+		req = newTestRequest(http.MethodPost, "/", strings.NewReader(body))
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	}
 	rec := httptest.NewRecorder()

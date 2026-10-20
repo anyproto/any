@@ -34,7 +34,7 @@ func TestSpaceError_Mapping(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := echo.New()
 			rec := httptest.NewRecorder()
-			c := e.NewContext(httptest.NewRequest(http.MethodGet, "/", nil), rec)
+			c := e.NewContext(newTestRequest(http.MethodGet, "/", nil), rec)
 			if err := spaceError(c, tc.err, "s1"); err != nil {
 				t.Fatalf("spaceError returned %v", err)
 			}

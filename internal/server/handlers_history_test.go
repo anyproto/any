@@ -26,7 +26,7 @@ func TestHistoryErrorHidesSdkText(t *testing.T) {
 
 	newCtx := func() (echo.Context, *httptest.ResponseRecorder) {
 		rec := httptest.NewRecorder()
-		return e.NewContext(httptest.NewRequest(http.MethodGet, "/", nil), rec), rec
+		return e.NewContext(newTestRequest(http.MethodGet, "/", nil), rec), rec
 	}
 	decode := func(t *testing.T, rec *httptest.ResponseRecorder) api.ErrorEnvelope {
 		t.Helper()

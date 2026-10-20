@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -149,10 +150,17 @@ func (d *deps) fileGet(c echo.Context) error {
 //
 // Serves the file's verified plaintext as a regular HTTP resource:
 // Content-Type from the stored mime (octet-stream fallback — sniffing
-// happens at attach, never here), Content-Disposition inline with the stored name, and full
-// Range/206 support via http.ServeContent (the SDK reader is
-// seekable). Content not yet local streams in on demand; a download in
+// happens at attach, never here), Content-Disposition with the stored
+// name, and full Range/206 support via http.ServeContent (the SDK reader
+// is seekable). Content not yet local streams in on demand; a download in
 // flight at server shutdown is cut by the drain deadline.
+//
+// The bytes were chosen by whichever member attached them, and this
+// origin is the unauthenticated API: an HTML or SVG file opened here as a
+// document would run script same-origin with every other route. So the
+// response is never active — nosniff, a CSP that forbids every load and
+// sandboxes the document, and `attachment` for anything but inert media
+// (contentDisposition).
 //
 // `?variant=` selects an alternate representation (a sibling file
 // attached with variant/variantOf); default is the original.
@@ -204,13 +212,38 @@ func (d *deps) fileContent(c echo.Context) error {
 		contentType = "application/octet-stream"
 	}
 	h.Set(echo.HeaderContentType, contentType)
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	disposition := contentDisposition(contentType)
 	if info.Name != "" {
-		h.Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": info.Name}))
+		h.Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": info.Name}))
+	} else {
+		h.Set("Content-Disposition", disposition)
 	}
 	// Zero modtime: ServeContent skips Last-Modified/If-Modified-Since
 	// handling — CRDT rows have no meaningful HTTP mtime.
 	http.ServeContent(c.Response(), c.Request(), "", time.Time{}, r)
 	return nil
+}
+
+// contentDisposition is `inline` only for media a browser renders without
+// running anything — raster images, audio, video — and `attachment` for
+// every other type, SVG included, so a type nobody listed fails closed.
+// An `<img>` or `<video>` ignores the disposition either way.
+func contentDisposition(contentType string) string {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return "attachment"
+	}
+	switch {
+	case mediaType == "image/svg+xml":
+		return "attachment"
+	case strings.HasPrefix(mediaType, "image/"),
+		strings.HasPrefix(mediaType, "video/"),
+		strings.HasPrefix(mediaType, "audio/"):
+		return "inline"
+	}
+	return "attachment"
 }
 
 // findVariantInfo resolves the FileInfo of the sibling row tagged

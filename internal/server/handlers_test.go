@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -179,6 +180,15 @@ func setupSubscribeFixture(t *testing.T, e http.Handler) (spaceId, typeId, objec
 	return spaceId, typeId, objectId
 }
 
+// newTestRequest is httptest.NewRequest addressed the way a real client
+// addresses the server: httptest's default Host, example.com, is refused
+// by loopbackHostGuard.
+func newTestRequest(method, target string, body io.Reader) *http.Request {
+	r := httptest.NewRequest(method, target, body)
+	r.Host = "127.0.0.1:2046"
+	return r
+}
+
 func doJSON(t testing.TB, e http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	return doJSONH(t, e, method, path, body, nil)
@@ -190,9 +200,9 @@ func doJSONH(t testing.TB, e http.Handler, method, path, body string, headers ma
 	t.Helper()
 	var r *http.Request
 	if body == "" {
-		r = httptest.NewRequest(method, path, nil)
+		r = newTestRequest(method, path, nil)
 	} else {
-		r = httptest.NewRequest(method, path, strings.NewReader(body))
+		r = newTestRequest(method, path, strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
 	}
 	for k, v := range headers {

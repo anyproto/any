@@ -4092,9 +4092,15 @@ is unreachable or refuses; watch `/files/subscribe` or poll
 file's verified plaintext as a **regular HTTP resource**: stored mime
 as `Content-Type` (octet-stream fallback — sniffing happens at attach,
 never here),
-`Content-Disposition: inline; filename=…` from the stored name,
-`Content-Length`, and full **`Range` / 206** support (the underlying
-reader is seekable). Browser tags work directly:
+`Content-Disposition` with the stored name — `inline` for raster
+images, audio and video, `attachment` for every other type (SVG
+included) — `Content-Length`, and full **`Range` / 206** support (the
+underlying reader is seekable). The response is never active:
+`X-Content-Type-Options: nosniff` and
+`Content-Security-Policy: default-src 'none'; sandbox`, because the
+bytes were chosen by whichever member attached them and a document
+opened on this origin would run same-origin with the API. Browser tags
+work directly — a subresource ignores the disposition and the CSP:
 
 ```html
 <img src="http://127.0.0.1:2046/v1/spaces/SP/files/FILE/content">
@@ -4817,6 +4823,22 @@ keeps the QUIC listener down.
   routes whose raw body streams into the SDK or the local store: file
   attach (§ Files), the avatar upload (§ Account, capped by the SDK)
   and the local-store import.
+- **Host guard** — `403 request.host_not_allowed` unless the `Host`
+  names this machine by a name no DNS answer can change: `localhost` or
+  a loopback IP literal, any port (a dev proxy forwards the page's own
+  Host). A browser reaches the loopback listener under any name that
+  resolves to `127.0.0.1` — a rebound attacker domain, a public record
+  pointing there — and a page under that name is same-origin with every
+  route.
+- **Cross-site write guard** — a request that is not `GET`, `HEAD` or
+  `OPTIONS` and carries an `Origin` header answers
+  `403 request.origin_not_allowed` unless that origin is on the CORS
+  allowlist below or is a loopback origin (`http(s)://localhost` or a
+  loopback IP, any port). CORS only hides a response: a "simple"
+  cross-origin POST (a `text/plain` or form body, or none) still reaches
+  the handler. Browsers send `Origin` on every such request; the CLI,
+  the mobile shims and agents send none and are untouched. The opaque
+  `null` origin of a sandboxed document is refused.
 - **Unauthorized guard + engine gate** (§ Auth): `401 auth.required`
   on every route except `/v1/health`, `/v1/shutdown`,
   `/v1/openapi.json` and `/v1/auth` until an account is booted — it
@@ -4826,7 +4848,8 @@ keeps the QUIC listener down.
   Tech-space bundles).
 
 No rate limiting and no caller authentication (loopback is the trust
-boundary); the only ownership gate is the `X-Any-Control-Token` header
+boundary, and the two guards above keep web pages off it); the only
+ownership gate is the `X-Any-Control-Token` header
 on a managed server's auth and shutdown verbs (`02-server.md` § Modes).
 CORS: a fixed allowlist for the desktop-shell webview origins
 (`tauri://localhost`, `http://tauri.localhost`, and the Vite dev

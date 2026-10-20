@@ -32,7 +32,7 @@ func TestSdkOpErrorObjectNotFound(t *testing.T) {
 	}
 	e := echo.New()
 	for _, tc := range cases {
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req := newTestRequest(http.MethodGet, "/", nil)
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 		if err := sdkOpError(c, tc.err, nil); err != nil {
@@ -54,7 +54,7 @@ func TestSdkOpErrorObjectNotFound(t *testing.T) {
 func TestHistoryErrorObjectNotFound(t *testing.T) {
 	e := echo.New()
 	rec := httptest.NewRecorder()
-	c := e.NewContext(httptest.NewRequest(http.MethodGet, "/", nil), rec)
+	c := e.NewContext(newTestRequest(http.MethodGet, "/", nil), rec)
 	err := fmt.Errorf("history: spaceobjects: BuildTree x: %w", space.ErrObjectNotFound)
 	if err := historyError(c, err); err != nil {
 		t.Fatalf("historyError returned %v", err)

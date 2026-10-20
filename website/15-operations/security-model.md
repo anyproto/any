@@ -1,6 +1,6 @@
 ---
 title: Security model
-description: Loopback is the process boundary, end-to-end encryption is the data boundary — what each protects, what the CORS allowlist is for, and what the server does not provide.
+description: Loopback is the process boundary, end-to-end encryption is the data boundary — what each protects, what the CORS allowlist and the request guards are for, and what the server does not provide.
 order: 50
 ---
 # Security model
@@ -26,6 +26,15 @@ Browsers enforce CORS on top of the socket. The server allows exactly the origin
 | `http://localhost:5173`, `http://127.0.0.1:5173` | the desktop app's dev server |
 
 Custom schemes are unclaimable by web content and `.localhost` is pinned to loopback, so no remote web page can present these origins. Allowed headers are `Content-Type`, `Accept`, `Range` (ranged file downloads) and `X-Any-Control-Token` (the webview logging in a managed server). Requests without an `Origin` header — curl, the CLI, same-origin — are unaffected. The allowlist does not widen the trust model: local processes were never gated by CORS in the first place.
+
+## Keeping web pages off the socket
+
+Every web page the user opens can reach a loopback port, so the server refuses the two ways one could act on it:
+
+- **Writes from another origin.** CORS hides a response but does not stop a "simple" request: a `text/plain` or form POST, or one with no body, reaches the handler. A request other than `GET` / `HEAD` / `OPTIONS` whose `Origin` is neither on the allowlist above nor a loopback origin answers `403 request.origin_not_allowed`. Clients that send no `Origin` — the CLI, the mobile apps, agents — are unaffected.
+- **Other names for this machine.** A domain that resolves to `127.0.0.1`, by DNS rebinding or by a plain public record, would make a page same-origin with the API. A `Host` other than `localhost` or a loopback IP answers `403 request.host_not_allowed`.
+
+File content is served inert for the same reason: `nosniff`, a CSP that sandboxes any document opened from it, and `attachment` for every type but raster images, audio and video ([Downloading](../files/downloading.html)).
 
 ## The data: end-to-end encryption
 

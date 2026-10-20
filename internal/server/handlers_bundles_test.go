@@ -313,7 +313,7 @@ func TestServer_BundleResolveUnknownRoot(t *testing.T) {
 func TestBundleError_TreeNotLocalIsNotReady(t *testing.T) {
 	e := echo.New()
 	rec := httptest.NewRecorder()
-	c := e.NewContext(httptest.NewRequest(http.MethodPost, "/", nil), rec)
+	c := e.NewContext(newTestRequest(http.MethodPost, "/", nil), rec)
 	err := bundleError(c, fmt.Errorf("open tree: %w", space.ErrObjectNotFound), "sp1", testBundleId)
 	if err != nil {
 		t.Fatalf("bundleError returned %v", err)

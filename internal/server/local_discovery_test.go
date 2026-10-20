@@ -91,7 +91,7 @@ func TestLocalDiscoveryManagedAndP2PDisabled(t *testing.T) {
 		t.Errorf("GET without the control token: want 200, got %d %s", rec.Code, rec.Body.String())
 	}
 
-	req := httptest.NewRequest(http.MethodPut, "/v1/local-discovery", strings.NewReader(`{"enabled":true}`))
+	req := newTestRequest(http.MethodPut, "/v1/local-discovery", strings.NewReader(`{"enabled":true}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	req.Header.Set(api.ControlTokenHeader, "tok")
 	rec = httptest.NewRecorder()
