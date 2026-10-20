@@ -222,8 +222,8 @@ jobs:
     needs: version
     if: github.repository == 'anyproto/any'
     # NOTE: requires the iOS 26 SDK, which ships with Xcode 26. The SDK is the
-    # build SDK, not the deployment target: the clangwrap-ios{,sim}.sh wrappers
-    # set the minimum iOS version (18.4). The SDK-verify step below fails if
+    # build SDK, not the deployment target: build-xcframework.sh sets the minimum
+    # iOS version (18.4). The SDK-verify step below fails if
     # the image lacks the SDK.
     runs-on: macos-15
     timeout-minutes: 30

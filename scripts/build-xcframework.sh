@@ -33,6 +33,13 @@ DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 echo "build-xcframework: any $VERSION (commit $COMMIT)"
 
+# The minimum iOS version of every slice. It must be at or below the lowest
+# deployment target of the iOS client that links this library. It goes in
+# CGO_CFLAGS and CGO_LDFLAGS, not in the CC wrappers: the Go build cache keys
+# a cgo compile on those flags, but not on the wrapper contents. A version in
+# a wrapper lets a cached runtime/cgo object keep the old minimum.
+IOS_MIN_VERSION="${ANYSERVER_IOS_MIN_VERSION:-18.4}"
+
 LDFLAGS="-s -w -X $PKG/internal/version.Version=$VERSION -X $PKG/internal/version.Commit=$COMMIT -X $PKG/internal/version.BuildDate=$DATE"
 
 # Clean the per-slice staging dir so stale slices from a prior local run can't
@@ -56,17 +63,31 @@ rm -rf build
 build_slice() {
     name="$1"
     cc="$2"
-    echo "== building $name slice (CC=$cc) =="
+    minflag="$3=$IOS_MIN_VERSION"
+    echo "== building $name slice (CC=$cc, $minflag) =="
     mkdir -p "build/$name/headers"
     CGO_ENABLED=1 GOOS=ios GOARCH=arm64 CC="$ROOT/scripts/$cc" \
+        CGO_CFLAGS="-O2 -g $minflag" CGO_LDFLAGS="-O2 -g $minflag" \
         go build -trimpath -tags mobile -buildmode=c-archive -ldflags "$LDFLAGS" \
         -o "build/$name/anylib.a" ./mobile/ios
     cp "build/$name/anylib.h" "build/$name/headers/anylib.h"
     cp mobile/ios/module.modulemap "build/$name/headers/module.modulemap"
 }
 
-build_slice device clangwrap-ios.sh
-build_slice sim clangwrap-iossim.sh
+build_slice device clangwrap-ios.sh -miphoneos-version-min
+build_slice sim clangwrap-iossim.sh -mios-simulator-version-min
+
+# Fail when any archive member has a different minimum iOS version, for
+# example a stale object from the build cache.
+for name in device sim; do
+    bad="$(otool -l "build/$name/anylib.a" | awk -v v="$IOS_MIN_VERSION" '$1 == "minos" && $2 != v')"
+    if [ -n "$bad" ]; then
+        echo "build-xcframework: $name slice has members with a minos other than $IOS_MIN_VERSION:" >&2
+        echo "$bad" | sort | uniq -c >&2
+        exit 1
+    fi
+    echo "== $name slice: every member has minos $IOS_MIN_VERSION =="
+done
 
 echo "== assembling any.xcframework =="
 rm -rf any.xcframework
