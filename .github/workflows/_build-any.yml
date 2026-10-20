@@ -221,9 +221,10 @@ jobs:
   ios:
     needs: version
     if: github.repository == 'anyproto/any'
-    # NOTE: requires the iOS 26 SDK (deployment target 26.0), which ships with
-    # Xcode 26. The SDK-verify step below fails loudly if the image lacks it —
-    # bump the runner image (e.g. to macos-26) if needed.
+    # NOTE: requires the iOS 26 SDK, which ships with Xcode 26. The SDK is the
+    # build SDK, not the deployment target: the clangwrap-ios{,sim}.sh wrappers
+    # set the minimum iOS version (18.4). The SDK-verify step below fails if
+    # the image lacks the SDK.
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -250,7 +251,7 @@ jobs:
           echo "iphoneos SDK version: $SDK"
           case "$SDK" in
             26.*) echo "iOS 26 SDK present." ;;
-            *) echo "::error::iOS 26 SDK required (deployment target 26.0); runner has $SDK. Use a runner image with Xcode 26."; exit 1 ;;
+            *) echo "::error::iOS 26 SDK required; runner has $SDK. Use a runner image with Xcode 26."; exit 1 ;;
           esac
       - name: Gate on mobile shim tests
         # Both shims, on the one runner that has a Go toolchain and no NDK to

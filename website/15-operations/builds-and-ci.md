@@ -59,7 +59,7 @@ Consumers verify every file against `sha256` before use. The embedding model is 
 | Artifact | Build | Notes |
 |---|---|---|
 | `any.aar` | `make build-android` — gomobile bind, `arm64-v8a`, tag `gomobile` | needs an Android NDK; version-stamped via ldflags with `VERSION= COMMIT= DATE=` passed as make variables |
-| `any.xcframework.zip` | `scripts/build-xcframework.sh` — device and simulator c-archive slices (`go build -buildmode=c-archive`), tag `mobile` | needs macOS with Xcode's iOS SDK; the header is `anylib.h`, the Swift module `AnyLib` |
+| `any.xcframework.zip` | `scripts/build-xcframework.sh` — device and simulator c-archive slices (`go build -buildmode=c-archive`), tag `mobile` | needs macOS with Xcode's iOS SDK; minimum iOS 18.4 (`ANYSERVER_IOS_MIN_VERSION` overrides it); the header is `anylib.h`, the Swift module `AnyLib` |
 
 Both are sha256-pinned in the release notes. On the embedded path the index runs full-text only — it is not a host parameter — `index.embedder` is forced to `none`, and the `/ui` harness is off.
 

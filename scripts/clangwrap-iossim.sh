@@ -10,12 +10,11 @@
 # tagged as a device binary and the linker rejects it for the simulator.
 # SDK path is resolved at runtime (no hardcoded paths).
 #
-# DRIFT POINT: the minimum iOS version in the triple must match the Xcode
-# project's deployment target (root CLAUDE.md: 26.0 today). It is overridable
-# via ANYSERVER_IOS_MIN_VERSION so a build harness can pass the project
-# setting instead of editing this script; bump the default when the target
-# moves.
-MIN_VERSION="${ANYSERVER_IOS_MIN_VERSION:-26.0}"
+# DRIFT POINT: the minimum iOS version in the triple must be at or below the
+# lowest deployment target of the iOS client that links this library. The
+# client's internal builds target iOS 18.4. ANYSERVER_IOS_MIN_VERSION
+# overrides the default. Keep the default the same in clangwrap-ios.sh.
+MIN_VERSION="${ANYSERVER_IOS_MIN_VERSION:-18.4}"
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
 exec xcrun --sdk iphonesimulator clang \
   -isysroot "$SDK" \
