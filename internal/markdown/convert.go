@@ -116,7 +116,11 @@ func RenderBlock(b ParsedBlock) string {
 		if level > 6 {
 			level = 6
 		}
-		return strings.Repeat("#", level) + " " + b.Text
+		text := b.Text
+		if i := closingSequenceStart(text); i >= 0 {
+			text = text[:i] + "\\" + text[i:]
+		}
+		return strings.Repeat("#", level) + " " + text
 	case editor.TypeListItem:
 		return listMarker(b.Style) + " " + b.Text
 	case editor.TypeCheckListItem:
@@ -168,8 +172,27 @@ func parseATXHeading(line string) (level int, text string, ok bool) {
 		return 0, "", false
 	}
 	body := strings.TrimSpace(t[n:])
-	body = strings.TrimRight(body, "# \t") // ATX closing #s are optional / cosmetic
+	if i := closingSequenceStart(body); i >= 0 {
+		body = strings.TrimRight(body[:i], " \t")
+	}
 	return n, body, true
+}
+
+// closingSequenceStart returns where an ATX closing sequence starts in
+// body, or -1. Per CommonMark it is a trailing run of # that is the whole
+// body or follows a space or tab; `C#` and `\#` end in text.
+func closingSequenceStart(body string) int {
+	i := len(body)
+	for i > 0 && body[i-1] == '#' {
+		i--
+	}
+	if i == len(body) {
+		return -1
+	}
+	if i == 0 || body[i-1] == ' ' || body[i-1] == '\t' {
+		return i
+	}
+	return -1
 }
 
 func parseSetextUnderline(line string) (level int, ok bool) {

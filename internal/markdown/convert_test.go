@@ -28,6 +28,13 @@ func TestParse_ATXHeading(t *testing.T) {
 		{"## Sub", 2, "Sub", editor.TypeHeading},
 		{"### Three", 3, "Three", editor.TypeHeading},
 		{"###### Six", 6, "Six", editor.TypeHeading},
+		{"## Title ##", 2, "Title", editor.TypeHeading},
+		{"## Title #  ", 2, "Title", editor.TypeHeading},
+		{"## ###", 2, "", editor.TypeHeading},
+		{"## Learn C#", 2, "Learn C#", editor.TypeHeading},
+		{"# Issue #42", 1, "Issue #42", editor.TypeHeading},
+		{`## Title \#\#`, 2, `Title \#\#`, editor.TypeHeading},
+		{`## Title \##`, 2, `Title \##`, editor.TypeHeading},
 	}
 	for _, tc := range cases {
 		t.Run(tc.in, func(t *testing.T) {
@@ -35,6 +42,16 @@ func TestParse_ATXHeading(t *testing.T) {
 			assert.Equal(t, tc.wantType, b.Type)
 			assert.Equal(t, tc.level, intStyle(b.Style, editor.StyleLevel, 0))
 			assert.Equal(t, tc.text, b.Text)
+		})
+	}
+}
+
+func TestRoundTrip_HeadingEndingInHashes(t *testing.T) {
+	for _, text := range []string{"Learn C#", "Title ##", "Title #", "##", "a # b #"} {
+		t.Run(text, func(t *testing.T) {
+			in := ParsedBlock{Type: editor.TypeHeading, Text: text, Style: map[string]any{editor.StyleLevel: 2}}
+			md := RenderBlock(in)
+			assert.Equal(t, md, RenderBlock(ParseBlock(md)))
 		})
 	}
 }
