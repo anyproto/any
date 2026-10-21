@@ -14,8 +14,6 @@ github.com/anyproto/any-sync-sdk v0.6.4 h1:yL5RjGz/7ZJlz+kZSDnh+0MoIF6AJW4WBRaB6
 github.com/anyproto/any-sync-sdk v0.6.4/go.mod h1:hZPVgLpyL8QfGCaLzgCYjbxmI2Soq2OZVhGjqzEyeXg=
 github.com/anyproto/anytype-push-server/pushclient v0.0.0-20261014142855-af71aa8b1662 h1:vYPQ6KBcmaWAxpEp1yQMeF3ubGuSCOBYg0ApBF0A+bs=
 github.com/anyproto/anytype-push-server/pushclient v0.0.0-20261014142855-af71aa8b1662/go.mod h1:sbkh8tdeNncWTPFpsuDBAZM4vJStBhtabromgVeokRU=
-github.com/anyproto/fastjson v1.6.11-0.20261020110013-a19885c16e82 h1:hymCX9baaTJGMz0ueFp82hjD3xcVcWNUjowFr+bRP9o=
-github.com/anyproto/fastjson v1.6.11-0.20261020110013-a19885c16e82/go.mod h1:e6FubmQouUNP73jtMLmcbxS6ydWIpOfhz34TSfO3JaE=
 github.com/anyproto/go-bip39 v1.0.0 h1:T6/7WowKYDeyuX/QyXtt98ZX0XXaoOh17M/LFF2M5yk=
 github.com/anyproto/go-bip39 v1.0.0/go.mod h1:l0rcxmXRyiWAYzE1noMAc4qbeNrbhUwxM3rqSO9ILwo=
 github.com/anyproto/go-chash v0.1.0 h1:I9meTPjXFRfXZHRJzjOHC/XF7Q5vzysKkiT/grsogXY=
@@ -316,6 +314,8 @@ github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
 github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=
 github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7so1lCWt35ZSgc=
+github.com/rupayon123/fastjson v1.6.11-0.20260923141322-367520c10fb6 h1:c0hLWdQiJNOPh9G446tcNEZLQ3PrVw6t4L9ho+qTmb8=
+github.com/rupayon123/fastjson v1.6.11-0.20260923141322-367520c10fb6/go.mod h1:e6FubmQouUNP73jtMLmcbxS6ydWIpOfhz34TSfO3JaE=
 github.com/russross/blackfriday/v2 v2.1.0 h1:JIOH55/0cWyOuilr9/qlrm0BSXldqnqwMsf35Ld67mk=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
 github.com/sergi/go-diff v1.4.0 h1:n/SP9D5ad1fORl+llWyN+D6qoUETXNZARKjyY2/KVCw=
