@@ -171,3 +171,5 @@ require (
 )
 
 tool github.com/swaggo/swag/v2/cmd/swag
+
+replace github.com/valyala/fastjson => github.com/rupayon123/fastjson v1.6.11-0.20260923141322-367520c10fb6
