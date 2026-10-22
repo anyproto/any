@@ -47,10 +47,11 @@ func TestParse_ATXHeading(t *testing.T) {
 }
 
 func TestRoundTrip_HeadingEndingInHashes(t *testing.T) {
-	for _, text := range []string{"Learn C#", "Title ##", "Title #", "##", "a # b #"} {
+	for _, text := range []string{"Learn C#", "Title ##", "Title #", "##", "a # b #", `Title \##`, `Title \#\#`, "Issue #42", "#"} {
 		t.Run(text, func(t *testing.T) {
 			in := ParsedBlock{Type: editor.TypeHeading, Text: text, Style: map[string]any{editor.StyleLevel: 2}}
 			md := RenderBlock(in)
+			assert.Equal(t, in, ParseBlock(md), "md: %q", md)
 			assert.Equal(t, md, RenderBlock(ParseBlock(md)))
 		})
 	}
