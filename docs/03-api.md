@@ -1654,6 +1654,12 @@ rewritten past recognition, or moved, is deleted and created anew, and
 the new one has a new id and only the parsed style. Nested blocks of a
 block the save deletes stay, as orphans the `…/blocks` routes still
 reach.
+A heading's closing sequence, a trailing run of `#` that is its whole
+text or follows a space or tab, is dropped on parse; a run that ends a
+word (`C#`) or follows a backslash (`\#`) is text. A heading whose text
+ends in a run that would read as a closing sequence renders with a real
+closing sequence after it (`Title ##` renders as `## Title ## ##`), so
+the parse drops the added run and keeps the text as stored.
 `PUT` replies with `{"inserted": [...],
 "updated": [...], "deleted": [...], "unchanged": N, "version": "…"}`
 where the slices contain block ids. A block whose text is over the
