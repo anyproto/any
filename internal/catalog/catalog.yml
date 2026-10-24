@@ -224,19 +224,20 @@ usecases:
         rootType: page
         miniapp: {}
 
-  # ── Bookmarks: saved links. A bookmark is a page filed under the bookmark
-  #    collection; it shares the Tasks projects and areas, can belong to
-  #    several, and completing its purpose never implies archiving it.
+  # ── Bookmarks: saved links. A bookmark is its own type with a `bookmark`
+  #    layout, like a task; it shares the Tasks projects and areas through
+  #    `contexts`, can belong to several, and completing its purpose never
+  #    implies archiving it.
   - id: bookmarks
     name: Bookmarks
     description: Saved links with tags and shared projects and areas
     requires: [ tasks ]
     bundles:
       - id: system:bookmark/v1
-        name: Bookmarks
-        collection:
+        name: Bookmark
+        type:
           xKey: bookmark
-          meta: { defaultType: page }
+          layout: { type: bookmark }
           properties:
             - { xKey: url,        name: Source URL,         kind: string,  xFormat: { type: url } }
             - { xKey: purpose,    name: Purpose,            kind: array,
