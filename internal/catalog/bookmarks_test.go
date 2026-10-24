@@ -18,13 +18,16 @@ func TestCatalog_BookmarksReuseSharedContexts(t *testing.T) {
 		t.Fatalf("bookmarks usecase: %+v", u)
 	}
 	item := u.Bundles[0]
-	if item.Id != "system:bookmark/v1" || item.Collection == nil || item.Collection.XKey != "bookmark" ||
-		item.Type != nil || item.RootType != "" || item.Miniapp != nil ||
+	if item.Id != "system:bookmark/v1" || item.Type == nil || item.Type.XKey != "bookmark" ||
+		item.Collection != nil || item.RootType != "" || item.Miniapp != nil ||
 		len(item.Parts) != 0 || item.Hidden || item.Derived || item.Superseded {
-		t.Fatalf("bookmark must declare a listed collection: %+v", item)
+		t.Fatalf("bookmark must declare a listed type: %+v", item)
 	}
-	if item.Collection.Meta["defaultType"] != "page" {
-		t.Fatalf("a bookmark is a page filed under the collection: %+v", item.Collection.Meta)
+	var layout struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(item.Type.Layout, &layout); err != nil || layout.Type != "bookmark" {
+		t.Fatalf("a bookmark is its own format, the bookmark layout: %s (%v)", item.Type.Layout, err)
 	}
 	order, ok := cat.Order("bookmarks")
 	if !ok {
@@ -42,7 +45,7 @@ func TestCatalog_BookmarksReuseSharedContexts(t *testing.T) {
 		t.Fatalf("bookmarks must adopt the shared task definitions before its own bundles: %v", bundles)
 	}
 	props := map[string]api.AddPropertyRequest{}
-	for _, p := range item.Collection.Properties {
+	for _, p := range item.Type.Properties {
 		props[p.XKey] = p
 	}
 	for _, key := range []string{"inbox", "archived", "completed"} {
