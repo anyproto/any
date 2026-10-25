@@ -447,7 +447,8 @@ schema).
 | | | `system:project/v1` | superseded: type `project` with the same properties |
 | | | `system:area/v1` | superseded: type `area`, no properties |
 | | | `system:tasks/v1` | miniapp only, a `page` root — the sidebar entry that opens the planner |
-| `bookmarks` | `tasks` | `system:bookmark/v1` | collection `bookmark` (`meta.defaultType: page`; `url`, `purpose` — a single `choice` of read / buy / inspiration / try, `tags` — a multiple `choice` that starts empty, `contexts` → `project` / `area`, multiple, the independent `inbox` / `archived` / `completed` flags, `note`, `readerText`, `summary`) — a bookmark is a `page` filed under it; starring is the [native favorites](25-favorites.md) |
+| `bookmarks` | — | `system:bookmark-folder/v1` | collection `bookmark_folder` (`meta.defaultType: page`; `parent` → `bookmark_folder`, single, and `position`) — a folder is a `page` filed under it and sits inside at most one other folder |
+| | | `system:bookmark/v1` | collection `bookmark` (`meta.defaultType: page`; `url`, `folder` → `bookmark_folder`, single, `archived`, `position`) — a bookmark is a `page` filed under it; starring is the [native favorites](25-favorites.md) |
 | | | `system:bookmarks/v1` | miniapp only, a `page` root — the sidebar entry that opens Bookmarks |
 | `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one `chat` part hosted by the root itself, + miniapp, so the chat is a sidebar entry |
 | `people` | — | `system:profile/v1` | type `profile` (layout `profile`, no properties) + editor `body` part — the one format a person and an organisation share; supersedes `system:person/v1` and `system:organization/v1` |
@@ -467,9 +468,9 @@ schema).
 | | | `system:deal/v1` | superseded: type `deal` (layout `profile`) with the same properties + editor `body` part |
 | | | `system:crm/v1` | miniapp only, a `page` root |
 
-Seventeen usecases, thirty-one bundles, six of them superseded. What a
+Seventeen usecases, thirty-two bundles, six of them superseded. What a
 space set up today receives is four types — `meeting`, `task`,
-`general_chat`, `profile` — and fifteen collections with an xKey. A
+`general_chat`, `profile` — and sixteen collections with an xKey. A
 type is there only for a format; everything that is a set of columns is
 a collection. An identity is a `profile` filed under `person` or
 `organization`, and a relationship is one more collection it is filed
@@ -505,9 +506,12 @@ renders the registry's winner when two offline installs converge
 it with `collections: ["<bookmarkCollectionId>"]` (the `collectionId`
 setup returns for `system:bookmark/v1`) and list members with
 `{"any.collections": "<bookmarkCollectionId>"}`. Its values live under
-`<bookmarkCollectionId>.<propId>`. The `contexts` relation holds object
-URIs of Tasks projects and areas; assigning one changes neither the
-bookmark's type nor its collections. The separate `system:bookmarks/v1`
+`<bookmarkCollectionId>.<propId>`. Its `folder` relation names at most
+one folder; a bookmark with no folder and not archived is in the Inbox,
+which clients derive rather than store. A folder is a page filed under
+the `bookmark_folder` collection, with an optional `parent` folder and a
+`position` among its siblings; bookmarks keep a `position` inside their
+folder the same way. The separate `system:bookmarks/v1`
 root is a `page` filed under `miniapp` and is not itself a bookmark.
 
 **A wiki page is an ordinary object filed under the wiki
