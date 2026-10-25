@@ -447,6 +447,15 @@ any-store database at `<data-dir>/index/index.db` (per account,
 SDK's process-global page pool and runs the same idle checkpoint (20 s
 after the last write) and dirty sentinel as `sdk.db`.
 
+`Start` returns before discovering spaces, opening them or checking
+their persisted index cursors. These run in one tracked background
+bootstrap, so a slow space does not hold up account sign-in. The space
+list subscription is registered before its initial snapshot; changes
+arriving during bootstrap are applied after the initial workers. `Close`
+cancels and joins bootstrap and workers before closing the index store.
+Search freshness follows each worker's progress; `Sync` waits for the
+initial bootstrap before advancing known workers.
+
 **Observability**: long-running work is reported on the process view
 (`GET /v1/processes`, `22-processes.md` § Internal producers) as
 device-scope processes — `index.fts.<spaceId>` (advance pass, done =

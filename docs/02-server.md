@@ -120,6 +120,10 @@ account is standalone-only — a managed login with its phrase lands in
    turn in the pass, reads against it serve the pre-offline state.
    `GET /v1/health` reports the pass via `bootstrapping` (see § Health);
    per-space convergence stays on `/sync-status`.
+   The indexer also discovers and opens spaces and checks its persisted
+   cursors in the background. Account boot does not wait for this search
+   preparation; search results catch up as the workers advance. This
+   independent work is not included in the SDK's `bootstrapping` flag.
    Opening checks the account's **CRDT version mark** first: the tech
    space records the newest data-model version any release wrote the
    account with, and a mark above this server's SDK refuses the boot
