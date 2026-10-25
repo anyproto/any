@@ -8,23 +8,14 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-func TestCatalog_BookmarksReuseSharedContexts(t *testing.T) {
+func TestCatalog_BookmarksFileIntoNestedFolders(t *testing.T) {
 	cat, problems := Load(Embedded(), knownTypes)
 	if len(problems) != 0 {
 		t.Fatal(problems)
 	}
 	u, ok := cat.Get("bookmarks")
-	if !ok || !reflect.DeepEqual(u.Requires, []string{"tasks"}) || len(u.Bundles) != 2 {
+	if !ok || len(u.Requires) != 0 || len(u.Bundles) != 3 {
 		t.Fatalf("bookmarks usecase: %+v", u)
-	}
-	item := u.Bundles[0]
-	if item.Id != "system:bookmark/v1" || item.Collection == nil || item.Collection.XKey != "bookmark" ||
-		item.Type != nil || item.RootType != "" || item.Miniapp != nil ||
-		len(item.Parts) != 0 || item.Hidden || item.Derived || item.Superseded {
-		t.Fatalf("bookmark must declare a listed collection: %+v", item)
-	}
-	if item.Collection.Meta["defaultType"] != "page" {
-		t.Fatalf("a bookmark is a page filed under the collection: %+v", item.Collection.Meta)
 	}
 	order, ok := cat.Order("bookmarks")
 	if !ok {
@@ -33,81 +24,56 @@ func TestCatalog_BookmarksReuseSharedContexts(t *testing.T) {
 	var bundles []string
 	for _, usecase := range order {
 		for _, bundle := range usecase.Bundles {
-			if !cat.Superseded(bundle.Id) {
-				bundles = append(bundles, bundle.Id)
-			}
+			bundles = append(bundles, bundle.Id)
 		}
 	}
-	if want := []string{"system:task/v1", "system:project/v2", "system:area/v2", "system:tasks/v1", "system:bookmark/v1", "system:bookmarks/v1"}; !reflect.DeepEqual(bundles, want) {
-		t.Fatalf("bookmarks must adopt the shared task definitions before its own bundles: %v", bundles)
+	if want := []string{"system:bookmark-folder/v1", "system:bookmark/v1", "system:bookmarks/v1"}; !reflect.DeepEqual(bundles, want) {
+		t.Fatalf("bookmarks bundles: %v", bundles)
 	}
-	props := map[string]api.AddPropertyRequest{}
-	for _, p := range item.Collection.Properties {
-		props[p.XKey] = p
+	relationTo := func(t *testing.T, p api.AddPropertyRequest) []string {
+		t.Helper()
+		var relation struct {
+			Type   string `json:"type"`
+			Config struct {
+				Multiple bool `json:"multiple"`
+			} `json:"config"`
+			Relation struct {
+				TargetTypes []string `json:"targetTypes"`
+			} `json:"relation"`
+		}
+		if err := json.Unmarshal(p.XFormat, &relation); err != nil {
+			t.Fatal(err)
+		}
+		if p.Kind != api.PropertyKindArray || relation.Type != "relation" || relation.Config.Multiple {
+			t.Fatalf("%s must be a single relation: %+v", p.XKey, relation)
+		}
+		return relation.Relation.TargetTypes
 	}
-	for _, key := range []string{"inbox", "archived", "completed"} {
-		if props[key].Kind != api.PropertyKindBoolean {
-			t.Errorf("%s must be an independent boolean", key)
+	propsOf := func(b api.CatalogBundle) map[string]api.AddPropertyRequest {
+		props := map[string]api.AddPropertyRequest{}
+		for _, p := range b.Collection.Properties {
+			props[p.XKey] = p
+		}
+		return props
+	}
+	for i, xKey := range []string{"bookmark_folder", "bookmark"} {
+		b := u.Bundles[i]
+		if b.Collection == nil || b.Collection.XKey != xKey || b.Type != nil || b.Collection.Meta["defaultType"] != "page" {
+			t.Fatalf("%s must be a collection of pages: %+v", xKey, b)
 		}
 	}
-	if _, ok := props["favorite"]; ok {
-		t.Error("bookmarks use native Any favorites, not a bookmark-specific property")
+	folder := propsOf(u.Bundles[0])
+	if got := relationTo(t, folder["parent"]); !reflect.DeepEqual(got, []string{"bookmark_folder"}) || len(folder) != 2 {
+		t.Fatalf("a folder sits inside one other folder: %v %+v", got, folder)
 	}
-	for _, key := range []string{"purpose", "tags"} {
-		t.Run(key, func(t *testing.T) {
-			var choice struct {
-				Type    string                     `json:"type"`
-				Options map[string]json.RawMessage `json:"options"`
-				Config  struct {
-					Multiple *bool `json:"multiple"`
-				} `json:"config"`
-			}
-			if err := json.Unmarshal(props[key].XFormat, &choice); err != nil {
-				t.Fatal(err)
-			}
-			if props[key].Kind != api.PropertyKindArray || choice.Type != "choice" {
-				t.Fatalf("%s must be a native choice property: %+v", key, props[key])
-			}
-			if choice.Config.Multiple == nil || *choice.Config.Multiple != (key == "tags") {
-				t.Fatalf("%s choice multiplicity: %+v", key, choice.Config)
-			}
-			if key == "purpose" {
-				want := []string{"read", "buy", "inspiration", "try"}
-				if len(choice.Options) != len(want) {
-					t.Fatalf("purpose must seed four stable option keys: %v", choice.Options)
-				}
-				for _, option := range want {
-					if _, ok := choice.Options[option]; !ok {
-						t.Errorf("purpose option %q missing", option)
-					}
-				}
-			} else if choice.Options == nil || len(choice.Options) != 0 {
-				t.Fatalf("tags must start with an empty editable options map: %v", choice.Options)
-			}
-		})
+	bookmark := propsOf(u.Bundles[1])
+	if got := relationTo(t, bookmark["folder"]); !reflect.DeepEqual(got, []string{"bookmark_folder"}) {
+		t.Fatalf("a bookmark sits in one folder: %v", got)
 	}
-	var relation struct {
-		Type   string `json:"type"`
-		Config struct {
-			Multiple bool `json:"multiple"`
-		} `json:"config"`
-		Relation struct {
-			TargetTypes []string `json:"targetTypes"`
-		} `json:"relation"`
+	if bookmark["url"].Kind != api.PropertyKindString || bookmark["archived"].Kind != api.PropertyKindBoolean || bookmark["position"].Kind != api.PropertyKindNumber || len(bookmark) != 4 {
+		t.Fatalf("bookmark properties: %+v", bookmark)
 	}
-	if err := json.Unmarshal(props["contexts"].XFormat, &relation); err != nil {
-		t.Fatal(err)
-	}
-	if props["contexts"].Kind != api.PropertyKindArray || relation.Type != "relation" ||
-		!relation.Config.Multiple || !reflect.DeepEqual(relation.Relation.TargetTypes, []string{"project", "area"}) {
-		t.Fatalf("bookmark context relation: %+v", relation)
-	}
-	if props["url"].Kind != api.PropertyKindString || len(props) != 10 {
-		t.Fatalf("URL bookmark properties: %+v", props)
-	}
-	if sidebar := u.Bundles[1]; sidebar.Id != "system:bookmarks/v1" || sidebar.Miniapp == nil ||
-		sidebar.RootType != "page" || sidebar.Type != nil || sidebar.Collection != nil ||
-		len(sidebar.Parts) != 0 || sidebar.Hidden || sidebar.Derived {
+	if sidebar := u.Bundles[2]; sidebar.Id != "system:bookmarks/v1" || sidebar.Miniapp == nil || sidebar.RootType != "page" {
 		t.Fatalf("bookmarks sidebar: %+v", sidebar)
 	}
 }

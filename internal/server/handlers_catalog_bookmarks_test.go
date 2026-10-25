@@ -22,18 +22,14 @@ func TestServer_CatalogSetupBookmarks(t *testing.T) {
 	}
 	sp := createSpaceInfo(t, e, "CatalogBookmarks")
 	res := setupUsecase(t, e, "bookmarks", sp.Id)
-	want := []string{"system:task/v1", "system:project/v2", "system:area/v2", "system:tasks/v1", "system:bookmark/v1", "system:bookmarks/v1"}
+	want := []string{"system:bookmark-folder/v1", "system:bookmark/v1", "system:bookmarks/v1"}
 	if got := bundleIds(res); !slices.Equal(got, want) {
 		t.Fatalf("setup order = %v, want %v", got, want)
 	}
 	byId := map[string]api.CatalogSetupBundle{}
-	for i, b := range res.Bundles {
+	for _, b := range res.Bundles {
 		byId[b.Id] = b
-		usecase := "tasks"
-		if i >= 4 {
-			usecase = "bookmarks"
-		}
-		if !b.Installed || b.Usecase != usecase || b.Bundle.RootId == "" {
+		if !b.Installed || b.Usecase != "bookmarks" || b.Bundle.RootId == "" {
 			t.Fatalf("fresh bundle: %+v", b)
 		}
 	}
@@ -47,7 +43,7 @@ func TestServer_CatalogSetupBookmarks(t *testing.T) {
 	if info.XKey != "bookmark" || info.Meta["defaultType"] != "page" {
 		t.Fatalf("bookmark collection info: %+v", info)
 	}
-	for _, key := range []string{"url", "purpose", "tags", "contexts", "inbox", "archived", "completed", "note", "readerText", "summary"} {
+	for _, key := range []string{"url", "folder", "archived"} {
 		if bookmark.Properties[key] == "" {
 			t.Fatalf("bookmark property %s unresolved: %+v", key, bookmark.Properties)
 		}
@@ -66,14 +62,10 @@ func TestServer_CatalogSetupBookmarks(t *testing.T) {
 		}
 	}
 
-	// Both entry points adopt the same shared definitions and app roots.
-	for _, usecase := range []string{"tasks", "bookmarks"} {
+	// A repeated setup adopts the same definitions and app root.
+	for _, usecase := range []string{"bookmarks"} {
 		again := setupUsecase(t, e, usecase, sp.Id)
-		expected := want
-		if usecase == "tasks" {
-			expected = want[:4]
-		}
-		if !slices.Equal(bundleIds(again), expected) {
+		if !slices.Equal(bundleIds(again), want) {
 			t.Fatalf("%s repeated setup order: %v", usecase, bundleIds(again))
 		}
 		for _, b := range again.Bundles {
@@ -83,8 +75,8 @@ func TestServer_CatalogSetupBookmarks(t *testing.T) {
 			}
 		}
 	}
-	// Projects, areas and bookmarks are all pages, each filed under its
-	// collection with the values keyed by that collection.
+	// Folders and bookmarks are pages, each filed under its collection with
+	// the values keyed by that collection.
 	create := func(collectionId string, name string, values map[string]any) string {
 		t.Helper()
 		body, err := json.Marshal(map[string]any{
@@ -97,21 +89,18 @@ func TestServer_CatalogSetupBookmarks(t *testing.T) {
 		}
 		return mustCreateObject(t, e, sp.Id, string(body))
 	}
-	area, project := byId["system:area/v2"], byId["system:project/v2"]
-	if project.Properties["parent"] == "" {
-		t.Fatal("project parent property unresolved")
+	folder := byId["system:bookmark-folder/v1"]
+	if folder.Properties["parent"] == "" {
+		t.Fatal("folder parent property unresolved")
 	}
-	areaId := create(area.CollectionId, "Learning", map[string]any{})
-	projectId := create(project.CollectionId, "Reading", map[string]any{
-		project.Properties["parent"]: []string{anyuri.BuildObject(areaId)},
+	workId := create(folder.CollectionId, "Work", map[string]any{})
+	designId := create(folder.CollectionId, "Design system", map[string]any{
+		folder.Properties["parent"]: []any{anyuri.BuildObject(workId)},
 	})
 	values := map[string]any{
-		bookmark.Properties["url"]:       "https://example.com/article",
-		bookmark.Properties["purpose"]:   []any{"read"},
-		bookmark.Properties["contexts"]:  []any{anyuri.BuildObject(areaId), anyuri.BuildObject(projectId)},
-		bookmark.Properties["inbox"]:     false,
-		bookmark.Properties["archived"]:  false,
-		bookmark.Properties["completed"]: true,
+		bookmark.Properties["url"]:      "https://example.com/article",
+		bookmark.Properties["folder"]:   []any{anyuri.BuildObject(designId)},
+		bookmark.Properties["archived"]: false,
 	}
 	id := create(bookmark.CollectionId, "An article", values)
 	row = objectRow(t, e, sp.Id, id)

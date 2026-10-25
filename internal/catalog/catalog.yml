@@ -225,38 +225,36 @@ usecases:
         miniapp: {}
 
   # ── Bookmarks: saved links. A bookmark is a page filed under the bookmark
-  #    collection; it shares the Tasks projects and areas, can belong to
-  #    several, and completing its purpose never implies archiving it.
+  #    collection and sits in at most one folder; a folder is a page filed
+  #    under the bookmark_folder collection and may sit inside one other
+  #    folder. A bookmark with no folder and not archived is in the Inbox,
+  #    which clients derive. The body is the reader's own notes.
   - id: bookmarks
     name: Bookmarks
-    description: Saved links with tags and shared projects and areas
-    requires: [ tasks ]
+    description: Saved links sorted from an inbox into nested folders
     bundles:
+      - id: system:bookmark-folder/v1
+        name: Bookmark folders
+        collection:
+          xKey: bookmark_folder
+          meta: { defaultType: page }
+          properties:
+            - { xKey: parent,   name: Parent folder, kind: array,
+                xFormat: { type: relation, config: { multiple: false },
+                           relation: { targetTypes: [ bookmark_folder ] } } }
+            - { xKey: position, name: Order,         kind: number, meta: { index: none } }
       - id: system:bookmark/v1
         name: Bookmarks
         collection:
           xKey: bookmark
           meta: { defaultType: page }
           properties:
-            - { xKey: url,        name: Source URL,         kind: string,  xFormat: { type: url } }
-            - { xKey: purpose,    name: Purpose,            kind: array,
-                xFormat: { type: choice, config: { multiple: false }, options: {
-                  read:        { name: Read,        pos: a0 },
-                  buy:         { name: Buy,         pos: a1 },
-                  inspiration: { name: Inspiration, pos: a2 },
-                  try:         { name: Try,         pos: a3 } } } }
-            - { xKey: tags,       name: Tags,               kind: array,
-                xFormat: { type: choice, options: {}, config: { multiple: true } } }
-            - { xKey: contexts,   name: Projects and areas, kind: array,
-                xFormat: { type: relation, config: { multiple: true },
-                           relation: { targetTypes: [ project, area ] } } }
-            - { xKey: inbox,      name: Inbox,              kind: boolean, xFormat: { type: checkbox } }
-            - { xKey: archived,   name: Archived,           kind: boolean, xFormat: { type: checkbox } }
-            - { xKey: completed,  name: Completed,          kind: boolean, xFormat: { type: checkbox },
-                description: "Read, bought or tried; independent of archive and of project or area membership" }
-            - { xKey: note,       name: Note,               kind: string,  xFormat: { type: longtext } }
-            - { xKey: readerText, name: Reader text,        kind: string,  xFormat: { type: longtext } }
-            - { xKey: summary,    name: Summary,            kind: string,  xFormat: { type: longtext } }
+            - { xKey: url,      name: Source URL, kind: string,  xFormat: { type: url } }
+            - { xKey: folder,   name: Folder,     kind: array,
+                xFormat: { type: relation, config: { multiple: false },
+                           relation: { targetTypes: [ bookmark_folder ] } } }
+            - { xKey: archived, name: Archived,   kind: boolean, xFormat: { type: checkbox } }
+            - { xKey: position, name: Order,      kind: number, meta: { index: none } }
       - id: system:bookmarks/v1                  # the sidebar entry
         name: Bookmarks
         rootType: page
