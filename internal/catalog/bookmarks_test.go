@@ -49,24 +49,34 @@ func TestCatalog_BookmarksFileIntoNestedFolders(t *testing.T) {
 		}
 		return relation.Relation.TargetTypes
 	}
-	propsOf := func(b api.CatalogBundle) map[string]api.AddPropertyRequest {
+	propsOf := func(list []api.AddPropertyRequest) map[string]api.AddPropertyRequest {
 		props := map[string]api.AddPropertyRequest{}
-		for _, p := range b.Collection.Properties {
+		for _, p := range list {
 			props[p.XKey] = p
 		}
 		return props
 	}
-	for i, xKey := range []string{"bookmark_folder", "bookmark"} {
-		b := u.Bundles[i]
-		if b.Collection == nil || b.Collection.XKey != xKey || b.Type != nil || b.Collection.Meta["defaultType"] != "page" {
-			t.Fatalf("%s must be a collection of pages: %+v", xKey, b)
-		}
+	if b := u.Bundles[0]; b.Collection == nil || b.Collection.XKey != "bookmark_folder" || b.Type != nil || b.Collection.Meta["defaultType"] != "page" {
+		t.Fatalf("bookmark_folder must be a collection of pages: %+v", b)
 	}
-	folder := propsOf(u.Bundles[0])
+	item := u.Bundles[1]
+	if item.Type == nil || item.Type.XKey != "bookmark" || item.Collection != nil || item.RootType != "" || item.Miniapp != nil {
+		t.Fatalf("bookmark must declare a listed type: %+v", item)
+	}
+	var layout struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(item.Type.Layout, &layout); err != nil || layout.Type != "bookmark" {
+		t.Fatalf("a bookmark is its own format, the bookmark layout: %s (%v)", item.Type.Layout, err)
+	}
+	if len(item.Parts) != 1 || item.Parts[0].Key != "body" {
+		t.Fatalf("a bookmark keeps the page body for the reader's notes: %+v", item.Parts)
+	}
+	folder := propsOf(u.Bundles[0].Collection.Properties)
 	if got := relationTo(t, folder["parent"]); !reflect.DeepEqual(got, []string{"bookmark_folder"}) || len(folder) != 2 {
 		t.Fatalf("a folder sits inside one other folder: %v %+v", got, folder)
 	}
-	bookmark := propsOf(u.Bundles[1])
+	bookmark := propsOf(item.Type.Properties)
 	if got := relationTo(t, bookmark["folder"]); !reflect.DeepEqual(got, []string{"bookmark_folder"}) {
 		t.Fatalf("a bookmark sits in one folder: %v", got)
 	}

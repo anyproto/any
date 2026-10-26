@@ -448,7 +448,7 @@ schema).
 | | | `system:area/v1` | superseded: type `area`, no properties |
 | | | `system:tasks/v1` | miniapp only, a `page` root — the sidebar entry that opens the planner |
 | `bookmarks` | — | `system:bookmark-folder/v1` | collection `bookmark_folder` (`meta.defaultType: page`; `parent` → `bookmark_folder`, single, and `position`) — a folder is a `page` filed under it and sits inside at most one other folder |
-| | | `system:bookmark/v1` | collection `bookmark` (`meta.defaultType: page`; `url`, `folder` → `bookmark_folder`, single, `archived`, `position`) — a bookmark is a `page` filed under it; starring is the [native favorites](25-favorites.md) |
+| | | `system:bookmark/v1` | type `bookmark` (layout `bookmark`; `url`, `folder` → `bookmark_folder`, single, `archived`, `position`) + editor `body` part for the reader's notes — a bookmark is listed like a task; starring is the [native favorites](25-favorites.md) |
 | | | `system:bookmarks/v1` | miniapp only, a `page` root — the sidebar entry that opens Bookmarks |
 | `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one `chat` part hosted by the root itself, + miniapp, so the chat is a sidebar entry |
 | `people` | — | `system:profile/v1` | type `profile` (layout `profile`, no properties) + editor `body` part — the one format a person and an organisation share; supersedes `system:person/v1` and `system:organization/v1` |
@@ -469,8 +469,9 @@ schema).
 | | | `system:crm/v1` | miniapp only, a `page` root |
 
 Seventeen usecases, thirty-two bundles, six of them superseded. What a
-space set up today receives is four types — `meeting`, `task`,
-`general_chat`, `profile` — and sixteen collections with an xKey. A
+space set up today receives is five types — `meeting`, `task`,
+`bookmark`, `general_chat`, `profile` — and fifteen collections with an
+xKey. A
 type is there only for a format; everything that is a set of columns is
 a collection. An identity is a `profile` filed under `person` or
 `organization`, and a relationship is one more collection it is filed
@@ -502,11 +503,12 @@ ordinary permission, convergence and fork rules apply; a client
 renders the registry's winner when two offline installs converge
 (§ Forks).
 
-**A bookmark is a page filed under the bookmark collection.** Create
-it with `collections: ["<bookmarkCollectionId>"]` (the `collectionId`
-setup returns for `system:bookmark/v1`) and list members with
-`{"any.collections": "<bookmarkCollectionId>"}`. Its values live under
-`<bookmarkCollectionId>.<propId>`. Its `folder` relation names at most
+**A bookmark is an object of the bookmark type, like a task.** Create
+it with `type: "<bookmarkTypeId>"` (the `typeId` setup returns for
+`system:bookmark/v1`) and list bookmarks with
+`{"any.type": "<bookmarkTypeId>"}`. Its values live under
+`<bookmarkTypeId>.<propId>`, and its editor `body` part holds the
+reader's notes. Its `folder` relation names at most
 one folder; a bookmark with no folder and not archived is in the Inbox,
 which clients derive rather than store. A folder is a page filed under
 the `bookmark_folder` collection, with an optional `parent` folder and a

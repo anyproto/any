@@ -34,14 +34,17 @@ func TestServer_CatalogSetupBookmarks(t *testing.T) {
 		}
 	}
 	bookmark, app := byId["system:bookmark/v1"], byId["system:bookmarks/v1"]
-	if bookmark.CollectionId != bookmark.Bundle.RootId || bookmark.TypeId != "" ||
-		rowType(objectRow(t, e, sp.Id, bookmark.CollectionId)) != "__collection__" {
+	if bookmark.TypeId != bookmark.Bundle.RootId || bookmark.CollectionId != "" ||
+		rowType(objectRow(t, e, sp.Id, bookmark.TypeId)) != "__type__" {
 		t.Fatalf("bookmark definition: %+v", bookmark)
 	}
-	var info api.CollectionInfo
-	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/collections/"+bookmark.CollectionId, &info)
-	if info.XKey != "bookmark" || info.Meta["defaultType"] != "page" {
-		t.Fatalf("bookmark collection info: %+v", info)
+	var info api.TypeInfo
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+bookmark.TypeId, &info)
+	var layout struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(info.Layout, &layout); info.XKey != "bookmark" || err != nil || layout.Type != "bookmark" {
+		t.Fatalf("bookmark type info: %+v (%v)", info, err)
 	}
 	for _, key := range []string{"url", "folder", "archived"} {
 		if bookmark.Properties[key] == "" {
@@ -56,10 +59,15 @@ func TestServer_CatalogSetupBookmarks(t *testing.T) {
 	}
 	var types api.TypesListResponse
 	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types", &types)
+	listed := false
 	for _, ti := range types.Types {
-		if ti.XKey == "bookmark" || ti.Id == bookmark.CollectionId || ti.Id == app.Bundle.RootId {
-			t.Fatalf("bookmarks must not declare a type: %+v", ti)
+		if ti.Id == app.Bundle.RootId {
+			t.Fatalf("the bookmarks app root is a page, not a type: %+v", ti)
 		}
+		listed = listed || (ti.Id == bookmark.TypeId && ti.XKey == "bookmark")
+	}
+	if !listed {
+		t.Fatalf("the bookmark type is listed like task: %+v", types.Types)
 	}
 
 	// A repeated setup adopts the same definitions and app root.
@@ -75,8 +83,8 @@ func TestServer_CatalogSetupBookmarks(t *testing.T) {
 			}
 		}
 	}
-	// Folders and bookmarks are pages, each filed under its collection with
-	// the values keyed by that collection.
+	// A folder is a page filed under its collection with the values keyed
+	// by that collection; a bookmark below is an object of its own type.
 	create := func(collectionId string, name string, values map[string]any) string {
 		t.Helper()
 		body, err := json.Marshal(map[string]any{
@@ -102,10 +110,17 @@ func TestServer_CatalogSetupBookmarks(t *testing.T) {
 		bookmark.Properties["folder"]:   []any{anyuri.BuildObject(designId)},
 		bookmark.Properties["archived"]: false,
 	}
-	id := create(bookmark.CollectionId, "An article", values)
+	body, err := json.Marshal(map[string]any{
+		"type":              bookmark.TypeId,
+		"initialProperties": map[string]any{"any": map[string]any{"name": "An article"}, bookmark.TypeId: values},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := mustCreateObject(t, e, sp.Id, string(body))
 	row = objectRow(t, e, sp.Id, id)
-	stored, _ := row[bookmark.CollectionId].(map[string]any)
-	if rowType(row) != page.TypeId || !slices.Equal(rowCollections(row), []string{bookmark.CollectionId}) {
+	stored, _ := row[bookmark.TypeId].(map[string]any)
+	if rowType(row) != bookmark.TypeId || len(rowCollections(row)) != 0 {
 		t.Fatalf("bookmark membership: %v", row)
 	}
 	for key, wantValue := range values {
@@ -113,7 +128,7 @@ func TestServer_CatalogSetupBookmarks(t *testing.T) {
 			t.Fatalf("bookmark property %s = %v, want %v", key, stored[key], wantValue)
 		}
 	}
-	body, err := json.Marshal(map[string]any{"filter": map[string]any{"any.collections": bookmark.CollectionId}})
+	body, err = json.Marshal(map[string]any{"filter": map[string]any{"any.type": bookmark.TypeId}})
 	if err != nil {
 		t.Fatal(err)
 	}
