@@ -73,6 +73,8 @@ For exhaustive reads, use a [query](../database/reading-data.html); the index is
 
 ## Space lifecycle and generations
 
+Account startup opens the index database, then discovers spaces and checks their cursors in the background. Sign-in does not wait for every space to open or finish its cursor check. Search results catch up as the workers advance. The space subscription starts before the initial list, so spaces added or removed during startup are still handled. Shutdown cancels and joins this preparation before closing the index database.
+
 The indexer discovers spaces from the space list and its live subscription: a new space spawns a worker, a removed or deleted space stops it and drops its index storage collection. Each space's cursor is stored next to the SDK's generation for that space. When the SDK store was rebuilt (the generation changed) or an older store was restored under a cursor that ran ahead of it, the worker drops the space's documents and re-indexes from zero rather than leaving the index silently frozen.
 
 ## Links

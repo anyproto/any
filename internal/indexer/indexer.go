@@ -230,9 +230,10 @@ type Indexer struct {
 	opts  Options
 	lg    logger.CtxLogger
 
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	ctx          context.Context
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
+	bootstrapped chan struct{}
 
 	mu             sync.Mutex
 	workers        map[string]*spaceWorker
@@ -347,18 +348,23 @@ func (ix *Indexer) SetEmbedThreads(n int) {
 // to stop.
 func (ix *Indexer) Start(ctx context.Context) {
 	ix.ctx, ix.cancel = context.WithCancel(ctx)
+	ix.bootstrapped = make(chan struct{})
+	ix.wg.Add(1)
+	go ix.bootstrap()
+}
 
-	infos, err := ix.spaces().List(ix.ctx)
-	if err != nil {
-		ix.lg.Warn("list spaces at boot", zap.Error(err))
-	}
-	for _, info := range infos {
-		if indexableStatus(info.Status) {
-			ix.spawnWorker(info.Id)
-		}
-	}
-
+func (ix *Indexer) bootstrap() {
+	defer ix.wg.Done()
+	defer close(ix.bootstrapped)
 	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	if ix.ctx.Err() != nil {
+		return
+	}
+	// Subscribe before the snapshot: callers can create or remove spaces
+	// as soon as Start returns. The SDK dispatches deltas asynchronously;
+	// mu keeps those callbacks behind the initial workers, so a removal
+	// cannot be undone by a stale snapshot entry.
 	ix.cancelSpaceSub = ix.spaces().Subscribe(func(ev space.SpaceListEvent) {
 		for _, info := range ev.Added {
 			if indexableStatus(info.Status) {
@@ -376,7 +382,15 @@ func (ix *Indexer) Start(ctx context.Context) {
 			ix.dropSpace(id)
 		}
 	})
-	ix.mu.Unlock()
+	infos, err := ix.spaces().List(ix.ctx)
+	if err != nil && ix.ctx.Err() == nil {
+		ix.lg.Warn("list spaces at boot", zap.Error(err))
+	}
+	for _, info := range infos {
+		if indexableStatus(info.Status) {
+			ix.spawnWorkerLocked(info.Id, spawnRetryInitial)
+		}
+	}
 }
 
 // indexableStatus filters which spaces get a worker: active spaces and
@@ -388,15 +402,17 @@ func indexableStatus(s space.Status) bool {
 
 // Close stops every worker and closes the store. Idempotent.
 func (ix *Indexer) Close() error {
+	// Opening a space and aligning its index hold mu. Cancel first so
+	// Close can interrupt bootstrap instead of waiting for that work.
+	if ix.cancel != nil {
+		ix.cancel()
+	}
 	ix.mu.Lock()
 	if ix.cancelSpaceSub != nil {
 		ix.cancelSpaceSub()
 		ix.cancelSpaceSub = nil
 	}
 	ix.mu.Unlock()
-	if ix.cancel != nil {
-		ix.cancel()
-	}
 	// Before wg.Wait, not after: an embed round in flight holds its
 	// worker goroutine for as long as the embedder takes to answer, and
 	// closing the embedder is what ends it (the local one kills its
@@ -431,6 +447,9 @@ func (ix *Indexer) spawnWorkerLocked(spaceId string, backoff time.Duration) {
 		return
 	}
 	sp, err := ix.spaces().Get(ix.ctx, spaceId)
+	if ix.ctx.Err() != nil {
+		return
+	}
 	if err != nil {
 		ix.lg.Warn("open space for indexing",
 			zap.String("spaceId", spaceId), zap.Duration("retryIn", backoff), zap.Error(err))
@@ -503,6 +522,15 @@ func (ix *Indexer) dropSpace(spaceId string) {
 // embed queue — the deterministic test hook (workers do the same work
 // asynchronously in production).
 func (ix *Indexer) Sync(ctx context.Context) error {
+	if ix.bootstrapped != nil {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ix.ctx.Done():
+			return ix.ctx.Err()
+		case <-ix.bootstrapped:
+		}
+	}
 	ix.mu.Lock()
 	workers := make([]*spaceWorker, 0, len(ix.workers))
 	for _, w := range ix.workers {
