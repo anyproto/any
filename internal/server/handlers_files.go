@@ -450,11 +450,11 @@ func (d *deps) filesQuerySubscribe(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	res, err := q.Subscribe(c.Request().Context(), opts)
-	if err != nil {
-		return fileError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": c.Param("objectId")})
-	}
-	return d.streamQuerySubscribe(c, res, opts.IncludeTotal, shaper)
+	return d.serveQuerySubscribe(c, opts.IncludeTotal, shaper,
+		func(ctx context.Context) (*space.QueryResult, error) { return q.Subscribe(ctx, opts) },
+		func(c echo.Context, err error) error {
+			return fileError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": c.Param("objectId")})
+		})
 }
 
 // buildFilesQuery resolves the space + the object's files Query and

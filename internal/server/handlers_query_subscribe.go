@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -41,11 +43,11 @@ func (d *deps) spaceQueryObjectsSubscribe(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	res, err := q.Subscribe(c.Request().Context(), opts)
-	if err != nil {
-		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
-	}
-	return d.streamQuerySubscribe(c, res, opts.IncludeTotal, shaper)
+	return d.serveQuerySubscribe(c, opts.IncludeTotal, shaper,
+		func(ctx context.Context) (*space.QueryResult, error) { return q.Subscribe(ctx, opts) },
+		func(c echo.Context, err error) error {
+			return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
+		})
 }
 
 // spaceQuerySubscribe handles POST /v1/spaces/:spaceId/query/subscribe.
@@ -79,13 +81,139 @@ func (d *deps) spaceQuerySubscribe(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"includeDeleted is snapshot-only: use POST …/query", map[string]any{"field": "includeDeleted"})
 	}
-	res, err := pq.q.Subscribe(c.Request().Context(), pq.opts)
-	if err != nil {
-		return sdkOpError(c, err, map[string]any{
-			"spaceId": sp.Id(), "objectId": pq.objectId, "dataset": pq.dataset,
+	return d.serveQuerySubscribe(c, pq.opts.IncludeTotal, pq.shaper,
+		func(ctx context.Context) (*space.QueryResult, error) { return pq.q.Subscribe(ctx, pq.opts) },
+		func(c echo.Context, err error) error {
+			return sdkOpError(c, err, map[string]any{
+				"spaceId": sp.Id(), "objectId": pq.objectId, "dataset": pq.dataset,
+			})
 		})
+}
+
+// subscribeOpenGrace bounds how long a /subscribe handler holds the
+// response back while the SDK Subscribe runs. Subscribe validates the
+// request and reads the snapshot in one call, so a failure inside the
+// grace answers with the JSON error envelope and its status, like any
+// other request. A Subscribe that outlasts the grace is a slow snapshot
+// read on a live request: the handler commits the 200 stream and sends
+// keepalive comments until the read lands, so a client's open watchdog
+// measures the open and not the size of the space. A failure after the
+// commit ends the stream with closed{open_failed} carrying the status
+// and code the envelope would have had. A var so tests can shrink it;
+// a non-positive grace commits the stream before the read starts.
+var subscribeOpenGrace = 2 * time.Second
+
+type subscribeResult struct {
+	res *space.QueryResult
+	err error
+}
+
+// serveQuerySubscribe runs subscribe and streams its result: the one
+// open path behind every /query/subscribe route. mapErr renders a
+// Subscribe error as the route's error envelope (sdkOpError, fileError).
+//
+// subscribe runs on its own goroutine so the handler can feed the
+// client while it works. The handler always waits for it to return,
+// so the goroutine never outlives the request or the engine gate, and
+// every write to the response stays on the handler goroutine.
+func (d *deps) serveQuerySubscribe(c echo.Context, includeTotal bool, shaper recordShaper,
+	subscribe func(ctx context.Context) (*space.QueryResult, error),
+	mapErr func(c echo.Context, err error) error) error {
+	ctx := c.Request().Context()
+	done := make(chan subscribeResult, 1)
+	go func() {
+		res, err := subscribe(ctx)
+		done <- subscribeResult{res: res, err: err}
+	}()
+
+	if subscribeOpenGrace > 0 {
+		grace := time.NewTimer(subscribeOpenGrace)
+		defer grace.Stop()
+		select {
+		case r := <-done:
+			if r.err != nil {
+				return mapErr(c, r.err)
+			}
+			writeSSEHeaders(c.Response())
+			return d.streamQuerySubscribe(c, r.res, includeTotal, shaper)
+		case <-grace.C:
+		}
 	}
-	return d.streamQuerySubscribe(c, res, pq.opts.IncludeTotal, pq.shaper)
+
+	// The read is slow. Commit the stream and keep it warm; the frames
+	// follow once the read lands.
+	w := c.Response()
+	writeSSEHeaders(w)
+	w.Flush()
+	keepalive := time.NewTicker(keepaliveInterval)
+	defer keepalive.Stop()
+	for {
+		select {
+		case r := <-done:
+			if r.err == nil {
+				return d.streamQuerySubscribe(c, r.res, includeTotal, shaper)
+			}
+			if ctx.Err() != nil {
+				// The client hung up. Nothing to send.
+				return nil
+			}
+			status, apiErr := captureError(c, r.err, mapErr)
+			_ = writeSSEEvent(w, "closed", "", api.SubscribeClosed{
+				Reason: api.SubscribeClosedOpenFailed,
+				Status: status, Code: apiErr.Code, Message: apiErr.Message,
+			})
+			w.Flush()
+			return nil
+		case <-keepalive.C:
+			// A failed write means the client left; the loop still has
+			// to join the read before it returns.
+			if _, err := w.Write([]byte(": keepalive\n\n")); err == nil {
+				w.Flush()
+			}
+		}
+	}
+}
+
+// writeSSEHeaders commits a query/subscribe response as an SSE stream.
+func writeSSEHeaders(w *echo.Response) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	// X-Accel-Buffering disables nginx response buffering — harmless on
+	// loopback v1, useful once anyone fronts the server with a proxy.
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+}
+
+// errorCapture is the ResponseWriter captureError hands a route's
+// error mapper once the real response is committed: it keeps the
+// status and envelope the mapper would have sent instead of writing
+// them.
+type errorCapture struct {
+	header http.Header
+	status int
+	body   bytes.Buffer
+}
+
+func (e *errorCapture) Header() http.Header         { return e.header }
+func (e *errorCapture) Write(p []byte) (int, error) { return e.body.Write(p) }
+func (e *errorCapture) WriteHeader(status int)      { e.status = status }
+
+// captureError returns the status and envelope mapErr renders for err,
+// without touching the committed response. The mapper owns every
+// error-to-envelope rule; running it against a capture keeps the
+// closed{open_failed} frame and the envelope from drifting apart.
+func captureError(c echo.Context, err error, mapErr func(c echo.Context, err error) error) (int, api.APIError) {
+	rec := &errorCapture{header: http.Header{}, status: http.StatusInternalServerError}
+	cc := c.Echo().NewContext(c.Request(), rec)
+	cc.SetParamNames(c.ParamNames()...)
+	cc.SetParamValues(c.ParamValues()...)
+	_ = mapErr(cc, err)
+	var env api.ErrorEnvelope
+	if json.Unmarshal(rec.body.Bytes(), &env) != nil || env.Error.Code == "" {
+		return http.StatusInternalServerError, api.APIError{Code: "internal", Message: "internal error"}
+	}
+	return rec.status, env.Error
 }
 
 // streamQuerySubscribe pumps a QuerySubscription's windowed events to
@@ -104,18 +232,13 @@ func (d *deps) spaceQuerySubscribe(c echo.Context) error {
 //
 // The stream runs inside the engine gate (routes.go), so a teardown
 // waits for it to unwind — which it does as soon as shutdownCtx fires.
+//
+// The caller (serveQuerySubscribe) has committed the response with
+// writeSSEHeaders; this pumps the frames.
 func (d *deps) streamQuerySubscribe(c echo.Context, res *space.QueryResult, includeTotal bool, shaper recordShaper) error {
 	defer res.Sub.Close()
 
 	w := c.Response()
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	// X-Accel-Buffering disables nginx response buffering — harmless on
-	// loopback v1, useful once anyone fronts the server with a proxy.
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
-
 	if err := writeSSEEvent(w, "ready", "", api.SubscribeReady{}); err != nil {
 		return nil
 	}
