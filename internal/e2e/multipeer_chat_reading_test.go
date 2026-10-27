@@ -146,6 +146,7 @@ func TestE2E_MultipeerChatReadTracking(t *testing.T) {
 	}) {
 		t.Fatalf("joiner never converged on the pre-join message")
 	}
+	waitChatDeclared(t, joiner.base, sp.Id)
 
 	// Baseline the joiner's read state (see the doc comment above).
 	mustStatus(t, http.MethodPost, joinerBase+"/chat/read-all", "", http.StatusNoContent)
@@ -514,8 +515,10 @@ func TestE2E_OneToOneChatReadTracking(t *testing.T) {
 	mustJSON(t, http.MethodPost, bob.base+"/v1/spaces/"+oneOne.Id+"/one-to-one/accept",
 		"", http.StatusOK, new(api.SpaceInfo))
 
+	// The DM is the 1-1's general chat: the derived root both sides
+	// compute, so bob needs no declaration to arrive before writing.
 	var obj api.ObjectsCreateResponse
-	obj.ObjectId = createModuleObject(t, alice.base, oneOne.Id, "chat")
+	obj.ObjectId = setupGeneralChat(t, alice.base, oneOne.Id)
 	aliceObj := alice.base + "/v1/spaces/" + oneOne.Id + "/objects/" + obj.ObjectId
 	bobObj := bob.base + "/v1/spaces/" + oneOne.Id + "/objects/" + obj.ObjectId
 

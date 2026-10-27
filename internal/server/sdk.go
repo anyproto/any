@@ -215,12 +215,9 @@ func reservedModule(name string) bool {
 // empty when no module is, which is the shipped catalog. Computed once:
 // the module list is fixed at init (the test seam fills it there too).
 var reservedModules = sync.OnceValue(func() map[string]bool {
-	var out map[string]bool
+	out := map[string]bool{}
 	for _, m := range serverModules() {
 		if m.Reserved {
-			if out == nil {
-				out = map[string]bool{}
-			}
 			out[m.Name] = true
 		}
 	}
