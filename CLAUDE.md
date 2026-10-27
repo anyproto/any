@@ -40,6 +40,9 @@ else.
   "next steps" — not as files, not in `docs/` or `website/`, not in this
   file, not in code comments. They go stale the day the work lands. Plans
   live in Linear or the PR description.
+- **Keep code comments short.** A comment states the rule or the trap at
+  that site, in one to three lines. The reasoning, the measurements and
+  the alternatives belong in the PR description or the area's doc.
 - **Read the area's `docs/NN-*.md` before writing code for it.** If a change
   makes a doc wrong, update the doc in the same change, plus the matching
   `website/` page if it covers the feature. Docs describe the current
