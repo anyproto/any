@@ -212,8 +212,9 @@ func reservedModule(name string) bool {
 }
 
 // reservedModules is the set of module names registered as reserved —
-// empty when no module is, which is the shipped catalog.
-func reservedModules() map[string]bool {
+// empty when no module is, which is the shipped catalog. Computed once:
+// the module list is fixed at init (the test seam fills it there too).
+var reservedModules = sync.OnceValue(func() map[string]bool {
 	var out map[string]bool
 	for _, m := range serverModules() {
 		if m.Reserved {
@@ -224,7 +225,7 @@ func reservedModules() map[string]bool {
 		}
 	}
 	return out
-}
+})
 
 // staticDatasetNames collects every compiled-in dataset name across
 // serverTypes() and the modules' canonical collections — indexed or

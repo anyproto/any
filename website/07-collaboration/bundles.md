@@ -53,7 +53,7 @@ curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/bundles \
 | `hidden` | keeps the root definition out of `GET …/types` / `GET …/collections` — ask for it when the root only hosts its bundle's own records |
 | `derived` | install on the root derived from the bundle id (below) |
 
-A bundle may declare a definition on its root — `parts`, `properties` or an `xKey` make the root a **type** (`any.type` holds the `__type__` marker, `typeId = rootId`), and `collection: true` makes it a **collection** (`__collection__`, `collectionId = rootId`). `layout` and `hidden` describe the definition and are `400 request.invalid_field` without one. A part naming a module reserved to the server (`chat`) is `400 dataset.module_reserved`.
+A bundle may declare a definition on its root — `parts`, `properties` or an `xKey` make the root a **type** (`any.type` holds the `__type__` marker, `typeId = rootId`), and `collection: true` makes it a **collection** (`__collection__`, `collectionId = rootId`). `layout` and `hidden` describe the definition and are `400 request.invalid_field` without one. A part naming a module reserved to the server is `400 dataset.module_reserved`; no shipped module is.
 
 **A declaring root hosts itself.** It holds its own `<rootId>.<propId>` values and the records of its own datasets with no flag and no self-membership — the marker sits in `any.type`, so the root never matches `{"any.type": "<rootId>"}` or `{"any.collections": "<rootId>"}` and member queries need no exclusion. One object is the definition, its own first user, and — filed under `miniapp` through `rootCollections` — the sidebar entry.
 

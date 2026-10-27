@@ -92,7 +92,8 @@ func TestServer_ChatNotifyMode_RowAddressing(t *testing.T) {
 			owners = s.Owners
 		}
 	}
-	if len(owners) != 1 || owners[0] != installModuleType(t, e, spaceId, "chat") {
+	chatType := installModuleType(t, e, spaceId, "chat")
+	if len(owners) != 1 || owners[0] != chatType {
 		t.Fatalf("chat_messages owners = %v, want the fixture's chat type", owners)
 	}
 	fBody, _ := json.Marshal(map[string]any{"filter": map[string]any{"$or": []any{
@@ -115,7 +116,6 @@ func TestServer_ChatNotifyMode_RowAddressing(t *testing.T) {
 	for _, r := range chats.Records {
 		got[r.Id] = true
 	}
-	chatType := installModuleType(t, e, spaceId, "chat")
 	if len(got) != 2 || !got[objectId] || !got[chatType] {
 		t.Fatalf("chat objects = %+v, want %s and its declaring type %s (not %s)", chats.Records, objectId, chatType, other)
 	}
