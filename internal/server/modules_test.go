@@ -11,11 +11,9 @@ import (
 
 // Module-declaring types for tests. A chat or editor collection is
 // writable on an object only when one of the object's types declares
-// the module in a part. For the editor the tests mint a plain user
-// type with one editor part; for chat — a reserved module — the only
-// declaration is the catalog's general-chat install, so the chat
-// "type" is the general-chat root and the chat object is the root
-// itself (one chat per space).
+// the module in a part. The tests mint a plain user type with one part
+// declaring the module; the general chat (generalChatRoot) is the
+// catalog's derived root, used where a test is about that root.
 
 var (
 	moduleTypesMu sync.Mutex
@@ -120,8 +118,8 @@ func firstPartId(t testing.TB, e http.Handler, spaceId, typeId string) string {
 }
 
 // generalChatRoot sets the catalog's general-chat usecase up in the
-// space and returns the derived root — the space's chat object and,
-// being self-typed, the one type declaring the chat module.
+// space and returns the derived root — a self-typed chat that hosts
+// its own messages.
 func generalChatRoot(t testing.TB, e http.Handler, spaceId string) string {
 	t.Helper()
 	rec := doJSON(t, e, http.MethodPost, "/v1/catalog/general-chat/setup", `{"spaceId":"`+spaceId+`"}`)

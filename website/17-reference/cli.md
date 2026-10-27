@@ -172,7 +172,7 @@ any chat delete <spaceId> <objectId> <msgId>
 any chat react  <spaceId> <objectId> <msgId> <emoji>          # toggle
 ```
 
-`<objectId>` is the `rootId` of the space's chat — `any catalog setup general-chat <spaceId>` installs or adopts it and prints the root. Text is markdown; `--file -` reads it from stdin. Edit and delete work on your own messages only. Reading is `any query-subscribe … --dataset chat_messages`.
+`<objectId>` is any object whose type declares a chat part; for the space's general chat it is the `rootId` that `any catalog setup general-chat <spaceId>` installs or adopts and prints. Text is markdown; `--file -` reads it from stdin. Edit and delete work on your own messages only. Reading is `any query-subscribe … --dataset chat_messages`.
 
 ## Objects
 

@@ -24,9 +24,13 @@ import (
 // unknown, or a transient error — reports false and is the SDK's to
 // refuse.
 func reservedCarrierType(ctx context.Context, sp space.Space, typeId string) bool {
+	reserved := reservedModules()
+	if len(reserved) == 0 {
+		return false
+	}
 	owner := false
 	for _, ds := range sp.Datasets() {
-		if reservedModule(ds.Module) && slices.Contains(ds.Owners, typeId) {
+		if reserved[ds.Module] && slices.Contains(ds.Owners, typeId) {
 			owner = true
 			break
 		}

@@ -121,22 +121,6 @@ func assertStatusCode(t *testing.T, rec *httptest.ResponseRecorder, want int, co
 	assertErrorCode(t, rec, code)
 }
 
-// countObjects counts the space's objects rows.
-func countObjects(t *testing.T, e http.Handler, spaceId string) int {
-	t.Helper()
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects/query", `{"includeTotal":true,"limit":1}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("objects query: %d %s", rec.Code, rec.Body.String())
-	}
-	var out struct {
-		Total int `json:"total"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatalf("decode query: %v", err)
-	}
-	return out.Total
-}
-
 // TestServer_DerivedObjectUndeletable pins the delete mapping: a derived
 // bundle root (the general chat) is permanent and must say so, rather
 // than reporting the object as missing. An ordinary object still

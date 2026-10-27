@@ -45,9 +45,11 @@ Two consequences:
   object of that type is its own conversation, created with `POST
   …/objects` like any object. Only the general chat is derived and
   shared by construction; a user chat is one object among its type's,
-  deletable, and one device's duplicate is a second chat. The module
-  admits one transcript per object, and a copy (`from`) of a
-  chat-bearing object starts with an empty one.
+  deletable, and one device's duplicate is a second chat — so is an
+  object created with the general chat's own hidden type, which is why
+  the general chat is the setup's `rootId`, never "the object of type
+  `general_chat`". The module admits one transcript per object, and a
+  copy (`from`) of a chat-bearing object starts with an empty one.
 
 ## The model in four sentences
 

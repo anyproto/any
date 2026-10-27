@@ -3720,7 +3720,11 @@ included, so the chat can never fork into two parallel conversations
 `createdAt` come from the change envelope). The price is permanence:
 a derived root cannot be deleted (§ Bundles → Derived roots). Other
 chats have none of this: a user chat is one object among its type's,
-deletable, and one device's duplicate is a second chat. Clients that
+deletable, and one device's duplicate is a second chat. That includes
+an object created with the general chat's own hidden type — one more
+chat with the chat layout, not the general chat, which is the
+registry's `rootId` and never "the object of type `general_chat`".
+Clients that
 want to react to "the general chat exists" subscribe to the space's
 `bundles` dataset (§ Bundles) or to the root's `chat_messages`.
 
