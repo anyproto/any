@@ -18,6 +18,16 @@ import (
 	"github.com/anyproto/any/internal/client"
 )
 
+// slowQuery is a Query whose Subscribe is the given func.
+type slowQuery struct {
+	space.Query
+	subscribe func(ctx context.Context, opts space.QueryOpts) (*space.QueryResult, error)
+}
+
+func (q slowQuery) Subscribe(ctx context.Context, opts space.QueryOpts) (*space.QueryResult, error) {
+	return q.subscribe(ctx, opts)
+}
+
 // decodeClosedFrame returns the payload of the `closed` frame in an SSE body.
 func decodeClosedFrame(t *testing.T, body string) api.SubscribeClosed {
 	t.Helper()
@@ -45,18 +55,15 @@ func TestQuerySubscribe_SlowOpenCommitsStreamBeforeSnapshot(t *testing.T) {
 	w := &fencedWriter{ResponseRecorder: httptest.NewRecorder()}
 	c := e.NewContext(httptest.NewRequest(http.MethodPost, "/", nil), w)
 
-	subscribe := func(ctx context.Context) (*space.QueryResult, error) {
+	q := slowQuery{subscribe: func(ctx context.Context, opts space.QueryOpts) (*space.QueryResult, error) {
 		// Return only once the client has seen a keepalive.
 		deadline := time.Now().Add(5 * time.Second)
 		for w.keepalives.Load() == 0 && time.Now().Before(deadline) {
 			time.Sleep(50 * time.Microsecond)
 		}
 		return nil, fmt.Errorf("query: %w", space.ErrObjectNotFound)
-	}
-	mapErr := func(c echo.Context, err error) error {
-		return sdkOpError(c, err, map[string]any{"objectId": "o1"})
-	}
-	if err := d.serveQuerySubscribe(c, false, recordShaper{}, subscribe, mapErr); err != nil {
+	}}
+	if err := d.serveQuerySubscribe(c, q, space.QueryOpts{}, recordShaper{}, sdkOpError, map[string]any{"objectId": "o1"}); err != nil {
 		t.Fatalf("serveQuerySubscribe: %v", err)
 	}
 	w.returned.Store(true)

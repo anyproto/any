@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
 
@@ -87,11 +86,7 @@ func (d *deps) spaceListQuerySubscribe(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	return d.serveQuerySubscribe(c, opts.IncludeTotal, shaper,
-		func(ctx context.Context) (*space.QueryResult, error) { return q.Subscribe(ctx, opts) },
-		func(c echo.Context, err error) error {
-			return sdkOpError(c, err, map[string]any{"dataset": dataset})
-		})
+	return d.serveQuerySubscribe(c, q, opts, shaper, sdkOpError, map[string]any{"dataset": dataset})
 }
 
 // buildSpaceListQuery assembles the chained Query + QueryOpts for the

@@ -43,11 +43,7 @@ func (d *deps) spaceQueryObjectsSubscribe(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	return d.serveQuerySubscribe(c, opts.IncludeTotal, shaper,
-		func(ctx context.Context) (*space.QueryResult, error) { return q.Subscribe(ctx, opts) },
-		func(c echo.Context, err error) error {
-			return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
-		})
+	return d.serveQuerySubscribe(c, q, opts, shaper, sdkOpError, map[string]any{"spaceId": sp.Id()})
 }
 
 // spaceQuerySubscribe handles POST /v1/spaces/:spaceId/query/subscribe.
@@ -81,13 +77,9 @@ func (d *deps) spaceQuerySubscribe(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"includeDeleted is snapshot-only: use POST …/query", map[string]any{"field": "includeDeleted"})
 	}
-	return d.serveQuerySubscribe(c, pq.opts.IncludeTotal, pq.shaper,
-		func(ctx context.Context) (*space.QueryResult, error) { return pq.q.Subscribe(ctx, pq.opts) },
-		func(c echo.Context, err error) error {
-			return sdkOpError(c, err, map[string]any{
-				"spaceId": sp.Id(), "objectId": pq.objectId, "dataset": pq.dataset,
-			})
-		})
+	return d.serveQuerySubscribe(c, pq.q, pq.opts, pq.shaper, sdkOpError, map[string]any{
+		"spaceId": sp.Id(), "objectId": pq.objectId, "dataset": pq.dataset,
+	})
 }
 
 // subscribeOpenGrace is how long a /subscribe handler waits for the SDK
@@ -101,17 +93,19 @@ type subscribeResult struct {
 	err error
 }
 
+// errorMapper renders an SDK error as the route's envelope: sdkOpError
+// or fileError.
+type errorMapper func(c echo.Context, err error, details map[string]any) error
+
 // serveQuerySubscribe is the open path of every /query/subscribe route.
-// mapErr renders a Subscribe error as the route's envelope. The handler
-// joins the subscribe goroutine before it returns, and only the handler
-// goroutine writes to the response.
-func (d *deps) serveQuerySubscribe(c echo.Context, includeTotal bool, shaper recordShaper,
-	subscribe func(ctx context.Context) (*space.QueryResult, error),
-	mapErr func(c echo.Context, err error) error) error {
+// The handler joins the Subscribe goroutine before it returns, and only
+// the handler goroutine writes to the response.
+func (d *deps) serveQuerySubscribe(c echo.Context, q space.Query, opts space.QueryOpts, shaper recordShaper,
+	mapErr errorMapper, details map[string]any) error {
 	ctx := c.Request().Context()
 	done := make(chan subscribeResult, 1)
 	go func() {
-		res, err := subscribe(ctx)
+		res, err := q.Subscribe(ctx, opts)
 		done <- subscribeResult{res: res, err: err}
 	}()
 
@@ -121,10 +115,10 @@ func (d *deps) serveQuerySubscribe(c echo.Context, includeTotal bool, shaper rec
 		select {
 		case r := <-done:
 			if r.err != nil {
-				return mapErr(c, r.err)
+				return mapErr(c, r.err, details)
 			}
 			writeSSEHeaders(c.Response())
-			return d.streamQuerySubscribe(c, r.res, includeTotal, shaper)
+			return d.streamQuerySubscribe(c, r.res, opts.IncludeTotal, shaper)
 		case <-grace.C:
 		}
 	}
@@ -138,12 +132,12 @@ func (d *deps) serveQuerySubscribe(c echo.Context, includeTotal bool, shaper rec
 		select {
 		case r := <-done:
 			if r.err == nil {
-				return d.streamQuerySubscribe(c, r.res, includeTotal, shaper)
+				return d.streamQuerySubscribe(c, r.res, opts.IncludeTotal, shaper)
 			}
 			if ctx.Err() != nil {
 				return nil // the client hung up
 			}
-			status, apiErr := captureError(c, r.err, mapErr)
+			status, apiErr := captureError(c, r.err, mapErr, details)
 			_ = writeSSEEvent(w, "closed", "", api.SubscribeClosed{
 				Reason: api.SubscribeClosedOpenFailed,
 				Status: status, Code: apiErr.Code, Message: apiErr.Message,
@@ -182,12 +176,12 @@ func (e *errorCapture) WriteHeader(status int)      { e.status = status }
 
 // captureError returns the status and envelope mapErr renders for err
 // without touching the committed response.
-func captureError(c echo.Context, err error, mapErr func(c echo.Context, err error) error) (int, api.APIError) {
+func captureError(c echo.Context, err error, mapErr errorMapper, details map[string]any) (int, api.APIError) {
 	rec := &errorCapture{header: http.Header{}, status: http.StatusInternalServerError}
 	cc := c.Echo().NewContext(c.Request(), rec)
 	cc.SetParamNames(c.ParamNames()...)
 	cc.SetParamValues(c.ParamValues()...)
-	_ = mapErr(cc, err)
+	_ = mapErr(cc, err, details)
 	var env api.ErrorEnvelope
 	if json.Unmarshal(rec.body.Bytes(), &env) != nil || env.Error.Code == "" {
 		return http.StatusInternalServerError, api.APIError{Code: "internal", Message: "internal error"}

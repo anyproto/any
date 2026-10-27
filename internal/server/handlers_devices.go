@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"errors"
 	"net/http"
 
@@ -223,11 +222,7 @@ func (d *deps) devicesQuerySubscribe(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	return d.serveQuerySubscribe(c, opts.IncludeTotal, shaper,
-		func(ctx context.Context) (*space.QueryResult, error) { return q.Subscribe(ctx, opts) },
-		func(c echo.Context, err error) error {
-			return sdkOpError(c, err, map[string]any{"dataset": DevicesDataset})
-		})
+	return d.serveQuerySubscribe(c, q, opts, shaper, sdkOpError, map[string]any{"dataset": DevicesDataset})
 }
 
 // buildDevicesQuery assembles the chained Query + QueryOpts for the

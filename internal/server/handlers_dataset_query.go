@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"net/http"
 	"reflect"
 
@@ -76,11 +75,7 @@ func (d *deps) spaceQueryDatasetSubscribe(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	return d.serveQuerySubscribe(c, opts.IncludeTotal, shaper,
-		func(ctx context.Context) (*space.QueryResult, error) { return q.Subscribe(ctx, opts) },
-		func(c echo.Context, err error) error {
-			return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "dataset": dataset})
-		})
+	return d.serveQuerySubscribe(c, q, opts, shaper, sdkOpError, map[string]any{"spaceId": sp.Id(), "dataset": dataset})
 }
 
 // spaceAggregateDataset handles POST /v1/spaces/:spaceId/datasets/aggregate.
