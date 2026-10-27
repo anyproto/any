@@ -100,7 +100,7 @@ Setup walks the dependency closure (dependencies first) against one convergence 
 
 ### The general chat
 
-A space's chat is the server's: the `chat` module is reserved, so no client bundle may declare a chat part (`400 dataset.module_reserved`). The catalog's `general-chat` usecase installs the one chat, a derived root:
+The catalog's `general-chat` usecase installs the space's well-known chat, a derived root every device computes (any type or bundle may declare a chat part of its own):
 
 ```bash
 curl -s -X POST http://127.0.0.1:2046/v1/catalog/general-chat/setup \
@@ -152,7 +152,7 @@ The server never merges; it enforces timing. A losing root arrives change by cha
 | 400 | `request.missing_field` | a bundle that declares nothing and has no `rootType` |
 | 400 | `type.not_found` | `rootType` does not exist in the space |
 | 400 | `type.not_a_type` | `rootType` names a collection — a collection goes in `rootCollections` |
-| 400 | `type.reserved_carrier` | `rootType` names a type only its own root may carry (the general chat's) |
+| 400 | `type.reserved_carrier` | `rootType` names a type only its own root may carry (one declaring a reserved module) |
 | 400 | `collection.not_found` | a `rootCollections` entry or a `rootProperties` owner does not exist in the space |
 | 400 | `collection.not_a_collection` | a `rootCollections` entry names a type, or a `rootProperties` owner is a type other than `rootType` |
 | 400 | `property.format_violation` | a `rootProperties` value does not fit its property's descriptor |

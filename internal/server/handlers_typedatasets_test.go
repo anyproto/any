@@ -666,8 +666,7 @@ func TestTypeParts_ModuleDatasets(t *testing.T) {
 		"records without a key":     {`{"key":"x","datasets":[{"module":"records"}]}`, http.StatusBadRequest, "dataset.decl_invalid"},
 		"shared module dataset":     {`{"key":"x","datasets":[{"module":"editor","shared":true}]}`, http.StatusBadRequest, "dataset.decl_invalid"},
 		"module with fields":        {`{"key":"x","datasets":[{"module":"editor","fields":[{"key":"x","kind":"string"}]}]}`, http.StatusConflict, "dataset.module_owned"},
-		"chat reserved":             {`{"key":"x","datasets":[{"key":"thread","module":"chat"}]}`, http.StatusBadRequest, "dataset.module_reserved"},
-		"chat unkeyed":              {`{"key":"x","datasets":[{"module":"chat"}]}`, http.StatusBadRequest, "dataset.module_reserved"},
+		"chat namespaced":           {`{"key":"x","datasets":[{"key":"thread","module":"chat"}]}`, http.StatusBadRequest, "dataset.decl_invalid"},
 		"canonical-only namespaced": {`{"key":"x","datasets":[{"key":"thread","module":"solo_notes"}]}`, http.StatusBadRequest, "dataset.decl_invalid"},
 	} {
 		rec := doJSON(t, e, http.MethodPost, partsBase, tc.body)
@@ -684,7 +683,7 @@ func TestTypeParts_ModuleDatasets(t *testing.T) {
 	}
 
 	// The canonical editor dataset + a namespaced editor instance under
-	// one part (chat is reserved to the catalog, refused above).
+	// one part.
 	bodyPart := mustAddPart(t, e, spaceId, typeId,
 		`{"key":"body","name":"Body","datasets":[{"module":"editor"},{"key":"notes","module":"editor"}]}`)
 	rec = doJSON(t, e, http.MethodGet, partsBase, "")

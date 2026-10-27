@@ -5,9 +5,9 @@ order: 10
 ---
 # Chat
 
-The `chat` module turns an object into a conversation: one `chat_messages` storage collection, one record per message, edits and reactions that merge on every peer, and read state the SDK maintains for you. The general chat's root declares its own type with a part `{"module": "chat"}` ([modules](index.html)) and hosts its own messages; chat has one dataset, so one conversation per object. You write through a handful of chat endpoints and read everything — including live updates and unread flags — through the ordinary query primitive.
+The `chat` module turns an object into a conversation: one `chat_messages` storage collection, one record per message, edits and reactions that merge on every peer, and read state the SDK maintains for you. Any type may declare a part `{"module": "chat"}` ([modules](index.html)) — alone, or next to an editor part — and each of its objects is a conversation; the general chat's root declares its own type and hosts its own messages. Chat has one dataset, so one conversation per object. You write through a handful of chat endpoints and read everything — including live updates and unread flags — through the ordinary query primitive.
 
-> **Note.** The `chat` module is reserved to the server: a space has exactly one chat, the general chat that the catalog's `general-chat` usecase installs (`system:general-chat/v1`, a derived root). A client cannot declare its own chat — a part, dataset or bundle body naming `chat` is `400 dataset.module_reserved` — and the chat's type is carried only by its own root: creating or attaching another object with it is `400 type.reserved_carrier`.
+> **Note.** The general chat is the space's well-known conversation, a derived root every device and member computes (`system:general-chat/v1`). Any other chat is an ordinary object of a type with a chat part, created with `POST …/objects` like any object. A copy (`from`) of a chat-bearing object starts with an empty transcript.
 
 ## The model in four sentences
 
@@ -15,7 +15,7 @@ Messages are records on the chat object's `chat_messages` dataset, ordered by `_
 
 ## Finding the chat object
 
-A space has one chat, installed by the server's [catalog](../collaboration/bundles.html#the-general-chat):
+The space's general chat is installed by the server's [catalog](../collaboration/bundles.html#the-general-chat):
 
 ```bash
 curl -X POST http://127.0.0.1:2046/v1/catalog/general-chat/setup \
@@ -26,7 +26,7 @@ curl -X POST http://127.0.0.1:2046/v1/catalog/general-chat/setup \
 #          "installed": true|false, "typeId": "<chat object>" } ] }
 ```
 
-The install is a derived, hidden root that is its own type with a chat part, so it accepts messages from the first write, and is filed under the `miniapp` collection, so the chat is a sidebar entry like any other app. Use its `rootId` as `<objectId>` in every endpoint below. The call is adopt-or-install, and a derived root's id is a pure function of the space and the bundle id — every client, on any device, for any member, online or not, computes the same `rootId`, two sides of a 1-1 included. `POST /objects` never makes a chat, and there is no second chat to find. Chat content cannot be merged across objects (`creator` and `createdAt` are stamped from the change envelope, so copying messages re-attributes and re-times them), which is why the one chat is derived and permanent.
+The install is a derived, hidden root that is its own type with a chat part, so it accepts messages from the first write, and is filed under the `miniapp` collection, so the chat is a sidebar entry like any other app. Use its `rootId` as `<objectId>` in every endpoint below. The call is adopt-or-install, and a derived root's id is a pure function of the space and the bundle id — every client, on any device, for any member, online or not, computes the same `rootId`, two sides of a 1-1 included. Any other chat is `POST …/objects` with a type that declares a chat part. Chat content cannot be merged across objects (`creator` and `createdAt` are stamped from the change envelope, so copying messages re-attributes and re-times them), which is why the general chat is derived and permanent, and why a copy (`from`) of any chat-bearing object starts with an empty transcript.
 
 ## Endpoints
 
@@ -186,7 +186,7 @@ Each chat object's row already carries its counters, so a chat list is a plain o
   "limit": 0 }
 ```
 
-The ids are the `owners` of `chat_messages` in `GET /v1/spaces/:spaceId/datasets` — every type whose part declares the chat module; resolve them once per space. Both arms are needed: an ordinary chat object names its type in `any.type`, while a declaring root — the general chat is one — hosts its own messages and matches by `id`.
+The ids are the `owners` of `chat_messages` in `GET /v1/spaces/:spaceId/datasets` — every type whose part declares the chat module; resolve them once per space. Both arms are needed: an ordinary chat object names its type in `any.type`, while a declaring definition — the general chat's root, a user type's own row — hosts its own messages and matches by `id`. A definition row nobody wrote to never moves a counter.
 
 Counter went up → new unread in that chat; fetch `{"unread": true}` sorted `-_ver.id` with a small limit and toast only messages above a last-notified `_ver.id` you keep locally. Counter went down → the user read it somewhere (this window, another window, another device) — dismiss that chat's notifications. Total live surface for a desktop client: one objects subscription per space, one `/query/subscribe` for the open chat.
 

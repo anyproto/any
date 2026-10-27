@@ -6,8 +6,8 @@ live in `03-api.md § Chat`; this doc is about using them correctly.
 
 ## Finding the chat object for a space
 
-A space has **one chat** — the general chat — installed by the
-server's catalog. Set the usecase up and use the root the server
+Every space has a well-known chat — the general chat — installed by
+the server's catalog. Set the usecase up and use the root the server
 hands back:
 
 ```
@@ -40,12 +40,14 @@ Two consequences:
 
 - **The chat is permanent.** A derived root cannot be deleted, so the
   bundle id stays bound to it for the space's lifetime.
-- **There is no other chat.** The `chat` module is reserved to the
-  server: a client part, dataset or bundle naming it is `400
-  dataset.module_reserved`, and the general-chat root is the only
-  object that may hold its type — creating another object with it, or
-  setting it through `POST …/properties/:objectId/type/:typeId`, is
-  `400 type.reserved_carrier`. `POST /objects` never makes a chat.
+- **Other chats are ordinary objects.** Any type may declare a part
+  `{"module": "chat"}` — alone, or next to an editor part — and every
+  object of that type is its own conversation, created with `POST
+  …/objects` like any object. Only the general chat is derived and
+  shared by construction; a user chat is one object among its type's,
+  deletable, and one device's duplicate is a second chat. The module
+  admits one transcript per object, and a copy (`from`) of a
+  chat-bearing object starts with an empty one.
 
 ## The model in four sentences
 
@@ -323,8 +325,10 @@ The ids are the `owners` of `chat_messages` in
 `GET /v1/spaces/:spaceId/datasets` — every type in the space whose
 part declares the chat module; resolve them once per space (re-read
 when a part is added). Both arms are needed: an ordinary chat object
-names its type in `any.type`, while a declaring root — the general
-chat is one — hosts its own messages and matches by `id`.
+names its type in `any.type`, while a declaring definition — the
+general chat's root, a user type's own row — hosts its own messages and
+matches by `id`. A definition row nobody wrote to never moves a
+counter.
 
 Each frame's `updated` entries carry the full row and the ops — watch
 for `chat.unreadCount` / `chat.unreadMentions` changes:

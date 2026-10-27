@@ -447,7 +447,7 @@ answer with the new id under a per-kind key (`objectId`, `typeId`,
 | surface | how |
 |---|---|
 | **Document** | set a type with an editor part — `page` is the built-in one. Blocks: `…/objects/:o/editor/:collection/blocks`; whole body: `GET/PUT/PATCH …/editor/:collection/markdown`. Read with `dataset` set to **the same `:collection`** — the storage collection — sorted on `nav.pos`: `editor_blocks` for the canonical body `page` uses, `<typeId>_<key>` for an editor dataset a type declares under a key of its own. |
-| **Chat** | one per space, the `general-chat` usecase; its root is filed under `miniapp`, so it sits in the sidebar with the other apps. Writes: `…/objects/:chatRoot/chat/messages`. Read via `dataset=chat_messages` sorted on `_ver.id`. |
+| **Chat** | set a type with a chat part — any user type may declare `{"module": "chat"}`, next to an editor part or alone, and each of its objects is a conversation. The space-wide one is the `general-chat` usecase; its root is filed under `miniapp`, so it sits in the sidebar with the other apps. Writes: `…/objects/:chat/chat/messages`. Read via `dataset=chat_messages` sorted on `_ver.id`. |
 | **Wiki tree** | the `wiki` usecase's three properties on objects of its type: `parentId` (`""` = top level), `pos` (lexid), `folder`. Children = objects query filtered on the parent property, the collection and the shared `$nin` clause, sorted on the pos property. The server allocates no positions. |
 | **Saved views** | one `dataview` object per host, holding `dataviews` (tables on the host) and `views` (views of a table). |
 | **Favourites** | the client-registered `favorites/v1` bundle on the tech space. |
@@ -459,15 +459,13 @@ The markdown bridge round-trips exactly: re-PUTting what GET returned
 writes nothing. Import normalises (a tight list becomes one record per
 item), so diff against a GET, never against your source text.
 
-### Chat is reserved
+### The general chat is derived
 
-The `chat` module is the server's. A client part, part dataset or bundle
-naming it is `400 dataset.module_reserved`, and the general-chat type is
-the type of its own root and nothing else — setting it on another object,
-or creating an object with it, is `400 type.reserved_carrier`. A space has
-exactly one chat, and `POST /v1/catalog/general-chat/setup` returns it.
-This holds for 1-1 spaces too: the root is derived, so both participants
-compute the same id offline and no install can fork.
+`POST /v1/catalog/general-chat/setup` returns the space's well-known
+chat: a derived root, so both sides of a 1-1 compute the same id offline
+and no install can fork, and a permanent one. Every other chat is an
+ordinary object of a type with a chat part — created, listed and
+deleted like any object, with no convergence beyond its type's.
 
 ## Error and shape conventions
 

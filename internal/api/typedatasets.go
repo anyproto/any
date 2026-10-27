@@ -121,10 +121,9 @@ type DatasetDraftRequest struct {
 	// module dataset, it is the canonical name; a records dataset
 	// requires one.
 	Key string `json:"key,omitempty"`
-	// Module is the serving module: "records" (the default) or
-	// "editor". "chat" is reserved to the server (400
-	// dataset.module_reserved) — the catalog's general-chat usecase is
-	// its one declaration.
+	// Module is the serving module: "records" (the default), "editor"
+	// or "chat". A module reserved to the server's own installs is 400
+	// dataset.module_reserved; no shipped module is reserved.
 	Module      string `json:"module,omitempty"`
 	DisplayName string `json:"displayName,omitempty"`
 	Description string `json:"description,omitempty"`

@@ -33,11 +33,6 @@ func installModuleType(t testing.TB, e http.Handler, spaceId, module string) str
 	if id, ok := moduleTypes[key]; ok {
 		return id
 	}
-	if module == "chat" {
-		root := generalChatRoot(t, e, spaceId)
-		moduleTypes[key] = root
-		return root
-	}
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types",
 		`{"name":"`+module+` host","xKey":"`+module+`_host","layout":{"type":"page"}}`)
 	if rec.Code != http.StatusCreated {
@@ -85,9 +80,6 @@ func plainType(t testing.TB, e http.Handler, spaceId string) string {
 func mustCreateModuleObject(t testing.TB, e http.Handler, spaceId, module string) string {
 	t.Helper()
 	typeId := installModuleType(t, e, spaceId, module)
-	if module == "chat" {
-		return typeId // the general-chat root is the space's one chat
-	}
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects", `{"type":"`+typeId+`"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create %s object: %d %s", module, rec.Code, rec.Body.String())

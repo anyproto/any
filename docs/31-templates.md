@@ -111,8 +111,9 @@ account scope, one under a property its definition no longer declares
 or under a collection the space no longer has, stays behind, while a
 collection id the space no longer has is carried as it is) and the
 records of every dataset
-the source's type declares through its parts, except a reserved
-module's (the chat) and an invalid declaration. A record field
+the source's type declares through its parts, except the chat's (a
+transcript is its authors' and never travels) and an invalid
+declaration. A record field
 declared local, derived or stamped stays behind too, and on a dataset
 that is not `dynamic` so does a field no definition declares any more.
 The derived row-root stamps

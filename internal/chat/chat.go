@@ -228,10 +228,9 @@ const (
 // so the SDK serves the canonical chat_messages collection with the
 // message handler on every controller. CanonicalOnly: the one
 // declaration shape is `{"module": "chat"}`; namespaced chat instances
-// are refused. Reserved: only the server's own catalog
-// install (`system:general-chat/v1`, docs/16-chat.md) declares it —
-// a client part, dataset or bundle naming the module is refused, and
-// the install root is the type's only carrier.
+// are refused. NoCopy: an object copy (`from`) starts with an empty
+// transcript — creator and createdAt come from the change envelope, so
+// copied messages would be re-attributed to the copier.
 //
 //	cfg := config.Config{
 //	    Modules: []handler.Module{ editor.NewModule(), chat.NewModule() },
@@ -242,7 +241,7 @@ func NewModule() handler.Module {
 		Name:           Module,
 		Canonical:      Dataset,
 		CanonicalOnly:  true,
-		Reserved:       true,
+		NoCopy:         true,
 		DataVersion:    dataVersion,
 		HandlerVersion: handlerVersion,
 		// Unread counters materialized onto the chat object's row —

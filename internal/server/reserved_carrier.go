@@ -11,8 +11,9 @@ import (
 )
 
 // reservedCarrierType reports whether typeId is a user type whose
-// part declares a module reserved to the server (handler.Module.Reserved
-// — `chat`): the catalog's install root, carried by no other object.
+// part declares a module reserved to the server
+// (handler.Module.Reserved): the catalog's install root, carried by no
+// other object.
 // The SDK's local write pre-flight enforces the rule on every path that
 // adds a type (handler.ErrValidationReservedCarrier); this read lets a
 // handler refuse before a side effect — an object create or a bundle
