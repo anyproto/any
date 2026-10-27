@@ -487,8 +487,9 @@ func chatOwners(sp space.Space) []string {
 }
 
 // chatOwnersFilter matches objects rows whose type is one of the
-// declaring types, and the declaring roots themselves (a definition
-// object hosts its own datasets — the general chat is its own root).
+// declaring types, and the declaring definitions themselves (a
+// definition hosts its own datasets: the general chat is its own root,
+// and a user type's own row is an empty chat until written to).
 func chatOwnersFilter(owners []string) query.Filter {
 	a := &anyenc.Arena{}
 	vals := make([]*anyenc.Value, len(owners))

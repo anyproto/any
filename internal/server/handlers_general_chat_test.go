@@ -9,22 +9,20 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-// TestServer_ChatModuleReserved pins the general chat under the
-// reserved chat module: no client declaration may name the module —
-// a part on a user type, a dataset added to a part, a bundle body —
-// while the catalog's general-chat setup installs the one chat, a
-// derived hidden root that is its own type and takes chat writes.
-// That root is the type's only carrier: creating an object with it,
-// setting it as a type, and an any.type op through /modify are all
-// refused, and no bare object is left behind by the refused create.
-func TestServer_ChatModuleReserved(t *testing.T) {
+// TestServer_UserChatType pins the chat module as an ordinary part
+// module: a user type declares `{"module": "chat"}` next to an editor
+// part, each of its objects is a chat with a body, a bundle may declare
+// it, every declaring type owns the shared chat_messages collection,
+// and the catalog's general chat still installs as the derived hidden
+// root it is. The module admits only its canonical dataset, and a copy
+// (`from`) of a chat-bearing object starts with an empty transcript.
+func TestServer_UserChatType(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
 	e := buildEcho(d)
-	sp := createSpaceInfo(t, e, "ChatReserved")
+	sp := createSpaceInfo(t, e, "UserChat")
 	base := "/v1/spaces/" + sp.Id
 
-	// Client declarations of the module.
 	rec := doJSON(t, e, http.MethodPost, base+"/types", `{"name":"Room","xKey":"room"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
@@ -34,37 +32,62 @@ func TestServer_ChatModuleReserved(t *testing.T) {
 		t.Fatalf("decode type: %v", err)
 	}
 	typeId := created.TypeId
+	mustAddPart(t, e, sp.Id, typeId, `{"key":"body","datasets":[{"module":"editor"}]}`)
+	mustAddPart(t, e, sp.Id, typeId, `{"key":"chat","datasets":[{"module":"chat"}]}`)
+	// Canonical-only: a keyed chat dataset is refused.
 	rec = doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/parts",
-		`{"key":"chat","datasets":[{"module":"chat"}]}`)
-	assertStatusCode(t, rec, http.StatusBadRequest, "dataset.module_reserved")
-	partId := mustAddPart(t, e, sp.Id, typeId, `{"key":"body","datasets":[{"module":"editor"}]}`)
-	rec = doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/parts/"+partId+"/datasets",
-		`{"module":"chat"}`)
-	assertStatusCode(t, rec, http.StatusBadRequest, "dataset.module_reserved")
-	rec = doJSON(t, e, http.MethodPost, base+"/bundles",
-		`{"id":"room/v1","derived":true,"parts":[{"key":"chat","datasets":[{"module":"chat"}]}]}`)
-	assertStatusCode(t, rec, http.StatusBadRequest, "dataset.module_reserved")
-	rec = doJSON(t, e, http.MethodGet, base+"/bundles/room%2Fv1", "")
-	assertStatusCode(t, rec, http.StatusNotFound, "bundle.not_found")
+		`{"key":"thread","datasets":[{"key":"thread","module":"chat"}]}`)
+	assertStatusCode(t, rec, http.StatusBadRequest, "dataset.decl_invalid")
 
-	// The catalog's install: derived, hidden, its own definition, a chat.
+	// Each object of the type is a chat with a body.
+	room := mustCreateObject(t, e, sp.Id, `{"type":"`+typeId+`"}`)
+	rec = doJSON(t, e, http.MethodPut, base+"/objects/"+room+"/editor/editor_blocks/markdown", `{"content":"# Agenda"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT body: %d %s", rec.Code, rec.Body.String())
+	}
+	chatSend(t, e, base+"/objects/"+room, "hello room", "")
+	other := mustCreateObject(t, e, sp.Id, `{"type":"`+typeId+`"}`)
+	chatSend(t, e, base+"/objects/"+other, "hello other", "")
+	if n := len(chatList(t, e, base+"/objects/"+room).Messages); n != 1 {
+		t.Fatalf("room messages = %d, want 1", n)
+	}
+	// A bundle declares the module like any other.
+	bundle := ensureBundle(t, e, sp.Id, `{"id":"room/v1","parts":[{"key":"chat","datasets":[{"module":"chat"}]}]}`)
+	if !bundle.Installed {
+		t.Fatalf("bundle install: %+v", bundle)
+	}
+	chatSend(t, e, base+"/objects/"+bundle.Bundle.RootId, "hello bundle", "")
+
+	// The catalog's general chat: derived, hidden, its own type.
 	setup := setupUsecase(t, e, "general-chat", sp.Id)
 	if len(setup.Bundles) != 1 || setup.Bundles[0].Id != generalChatBundleId {
 		t.Fatalf("setup bundles = %+v", setup.Bundles)
 	}
-	chat := setup.Bundles[0]
-	if !chat.Installed || !chat.Bundle.Derived || chat.Bundle.RootId == "" || chat.TypeId != chat.Bundle.RootId {
-		t.Fatalf("general chat install: %+v", chat)
+	general := setup.Bundles[0]
+	if !general.Installed || !general.Bundle.Derived || general.Bundle.RootId == "" || general.TypeId != general.Bundle.RootId {
+		t.Fatalf("general chat install: %+v", general)
 	}
-	root := chat.Bundle.RootId
+	root := general.Bundle.RootId
 	var info api.TypeInfo
 	decodeGet(t, e, base+"/types/"+root, &info)
 	if !info.Hidden || info.XKey != "general_chat" {
 		t.Fatalf("general chat type: %+v", info)
 	}
-	if msg := chatSend(t, e, base+"/objects/"+root, "hello general", ""); msg.Id == "" {
-		t.Fatalf("root does not take chat writes: %+v", msg)
+	chatSend(t, e, base+"/objects/"+root, "hello general", "")
+	if again := setupUsecase(t, e, "general-chat", sp.Id); again.Bundles[0].Installed || again.Bundles[0].Bundle.RootId != root {
+		t.Fatalf("second setup: %+v", again.Bundles[0])
 	}
+	// The general chat's hidden type is an ordinary carrier: an object
+	// created with it, or retyped to it, is one more chat with the chat
+	// layout — the general chat is the registry's rootId, not a type.
+	another := mustCreateObject(t, e, sp.Id, `{"type":"`+root+`"}`)
+	chatSend(t, e, base+"/objects/"+another, "hello another", "")
+	rec = doJSON(t, e, http.MethodPost, base+"/properties/"+other+"/type/"+root, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("set the general chat's type: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Every declaring type owns the shared collection.
 	var ds api.DatasetsResponse
 	decodeGet(t, e, base+"/datasets", &ds)
 	var owners []string
@@ -73,46 +96,29 @@ func TestServer_ChatModuleReserved(t *testing.T) {
 			owners = s.Owners
 		}
 	}
-	if len(owners) != 1 || owners[0] != root {
-		t.Fatalf("chat_messages owners = %v, want [%s]", owners, root)
+	want := map[string]bool{typeId: true, bundle.Bundle.RootId: true, root: true}
+	if len(owners) != len(want) {
+		t.Fatalf("chat_messages owners = %v, want %v", owners, want)
 	}
-	// Idempotent: a second setup adopts.
-	if again := setupUsecase(t, e, "general-chat", sp.Id); again.Bundles[0].Installed || again.Bundles[0].Bundle.RootId != root {
-		t.Fatalf("second setup: %+v", again.Bundles[0])
+	for _, o := range owners {
+		if !want[o] {
+			t.Fatalf("chat_messages owners = %v, want %v", owners, want)
+		}
 	}
 
-	// The root is the type's only carrier.
-	before := countObjects(t, e, sp.Id)
-	rec = doJSON(t, e, http.MethodPost, base+"/objects", `{"type":"`+root+`"}`)
-	assertStatusCode(t, rec, http.StatusBadRequest, "type.reserved_carrier")
-	if after := countObjects(t, e, sp.Id); after != before {
-		t.Fatalf("refused create left an object: %d → %d", before, after)
-	}
-	other := mustCreateObject(t, e, sp.Id, `{"type":"page"}`)
-	rec = doJSON(t, e, http.MethodPost, base+"/properties/"+other+"/type/"+root, "")
-	assertStatusCode(t, rec, http.StatusBadRequest, "type.reserved_carrier")
-	rec = doJSON(t, e, http.MethodPost, base+"/modify",
-		`{"objectId":"`+other+`","dataset":"objects","records":[{"id":"`+other+`","ops":[{"type":"$set","path":"any.type","value":"`+root+`"}]}]}`)
-	assertStatusCode(t, rec, http.StatusBadRequest, "type.reserved_carrier")
-	rec = doJSON(t, e, http.MethodPost, base+"/objects/"+other+"/chat/messages", `{"text":"nope"}`)
+	// The write gate is the type's declaration.
+	plain := mustCreateObject(t, e, sp.Id, `{"type":"page"}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/objects/"+plain+"/chat/messages", `{"text":"nope"}`)
 	assertStatusCode(t, rec, http.StatusBadRequest, "dataset.not_declared")
-	// An editor type stays settable — the rule is the reserved module's.
-	rec = doJSON(t, e, http.MethodPost, base+"/properties/"+other+"/type/"+typeId, "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("set editor type: %d %s", rec.Code, rec.Body.String())
+
+	// A copy carries the body, never the transcript.
+	copied := mustCreateObject(t, e, sp.Id, `{"from":"`+room+`"}`)
+	if got, want := markdownOf(t, e, sp.Id, copied), markdownOf(t, e, sp.Id, room); got != want {
+		t.Errorf("copied body = %q, want %q", got, want)
 	}
-	// The bundle paths that mint a tree before their type write are
-	// refused up front: a root carrying the type, a child carrying it.
-	rec = doJSON(t, e, http.MethodPost, base+"/bundles", `{"id":"carrier/v1","rootType":"`+root+`"}`)
-	assertStatusCode(t, rec, http.StatusBadRequest, "type.reserved_carrier")
-	rec = doJSON(t, e, http.MethodGet, base+"/bundles/carrier%2Fv1", "")
-	assertStatusCode(t, rec, http.StatusNotFound, "bundle.not_found")
-	notes := ensureBundle(t, e, sp.Id, `{"id":"notes/v1","parts":[{"key":"body","datasets":[{"module":"editor"}]}]}`)
-	if !notes.Installed {
-		t.Fatalf("notes install: %+v", notes)
+	if n := len(chatList(t, e, base+"/objects/"+copied).Messages); n != 0 {
+		t.Fatalf("copy carries %d messages, want 0", n)
 	}
-	rec = doJSON(t, e, http.MethodPost, base+"/bundles/notes%2Fv1/children", `{"seed":"log","type":"`+root+`"}`)
-	assertStatusCode(t, rec, http.StatusBadRequest, "type.reserved_carrier")
 }
 
 // assertStatusCode checks the status and the error code of a refusal.
@@ -122,22 +128,6 @@ func assertStatusCode(t *testing.T, rec *httptest.ResponseRecorder, want int, co
 		t.Fatalf("status = %d, want %d: %s", rec.Code, want, rec.Body.String())
 	}
 	assertErrorCode(t, rec, code)
-}
-
-// countObjects counts the space's objects rows.
-func countObjects(t *testing.T, e http.Handler, spaceId string) int {
-	t.Helper()
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects/query", `{"includeTotal":true,"limit":1}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("objects query: %d %s", rec.Code, rec.Body.String())
-	}
-	var out struct {
-		Total int `json:"total"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatalf("decode query: %v", err)
-	}
-	return out.Total
 }
 
 // TestServer_DerivedObjectUndeletable pins the delete mapping: a derived
@@ -151,7 +141,7 @@ func TestServer_DerivedObjectUndeletable(t *testing.T) {
 	sp := createSpaceInfo(t, e, "DerivedDelete")
 	base := "/v1/spaces/" + sp.Id
 
-	chatRoot := mustCreateModuleObject(t, e, sp.Id, "chat")
+	chatRoot := generalChatRoot(t, e, sp.Id)
 	rec := doJSON(t, e, http.MethodDelete, base+"/objects/"+chatRoot, "")
 	assertStatusCode(t, rec, http.StatusConflict, "object.derived_undeletable")
 	// The refusal must leave the root readable: the SDK reclaims local

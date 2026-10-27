@@ -224,11 +224,11 @@ usecases:
         rootType: page
         miniapp: {}
 
-  # ── The space's chat. The one derived root: chat content cannot be merged
+  # ── The space's general chat. The one derived root: chat content cannot be merged
   #    across objects, and a 1-1 space has no owner to break a tie.
   - id: general-chat
     name: General chat
-    description: The space's chat
+    description: The space's general chat
     bundles:
       - id: system:general-chat/v1
         name: General

@@ -144,7 +144,7 @@ Panics are converted to `500 internal` with a generic message.
 | `dataset.key_conflict` | 409 | a part or dataset with this key already exists on the type (`details.key`) |
 | `dataset.module_unknown` | 400 | the dataset names a module the server does not compile in |
 | `dataset.module_owned` | 409 | fields or an index declared on a module-served dataset |
-| `dataset.module_reserved` | 400 | a part, dataset or bundle draft names a module reserved to the server's own installs (`chat`) |
+| `dataset.module_reserved` | 400 | a part, dataset or bundle draft names a module reserved to the server's own installs (no shipped module is) |
 | `dataset.decl_invalid` | 400 | malformed part, dataset or index declaration — including `shared` on a module dataset, a ninth index, and removing a field a declared index names |
 | `dataset.immutable` | 400 | PATCH of a pinned part, definition or field path (`details.path`) |
 | `upsert.requires_user_ids` | 400 | dataset not declared `idRule: user` |
@@ -163,7 +163,7 @@ Panics are converted to `500 internal` with a generic message.
 | `type.xkey_required` | 400 | a type or a collection created without an `xKey` |
 | `type.xkey_conflict` | 409 | `xKey` collides with an existing type's or collection's xKey or id (`details.xKey`, `details.existingTypeId` or `details.existingCollectionId`) — the two surfaces share one handle namespace; also raised by a bundle or catalog install |
 | `type.registered` | 400 | add/patch/remove a property, part or dataset, or PATCH the type, on a registered built-in type; also a column write on a registered built-in collection |
-| `type.reserved_carrier` | 400 | object create, `POST …/type/:typeId` or an `any.type` op names a type only its own root may carry (the general-chat root; `details.typeId`) |
+| `type.reserved_carrier` | 400 | object create, `POST …/type/:typeId` or an `any.type` op names a type only its own root may carry — one declaring a reserved module (`details.typeId`) |
 | `collection.not_found` | 404 | unknown collectionId (400 inside a bundle ensure) |
 | `collection.not_a_collection` | 400 | a `…/collections` route, or `POST …/properties/:objectId/collections/:collectionId`, names a user **type** (`details.typeId`). A registered type id (`page`, `dataview`) answers `404 collection.not_found` |
 | `collection.registered` | 400 | PATCH the metadata of a registered built-in collection (`miniapp`, `bin`, `template`) |

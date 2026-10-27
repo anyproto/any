@@ -46,7 +46,7 @@ any space derived
 any space derived create bao
 ```
 
-Bundles follow the same shape: an ensure with `"derived": true` is adopt-or-install — a read when the root is already registered, a write only the first time — and both sides of a partition install on the first attempt because there is no competing id either could mint. The space's chat is the canonical case, installed by the server's catalog:
+Bundles follow the same shape: an ensure with `"derived": true` is adopt-or-install — a read when the root is already registered, a write only the first time — and both sides of a partition install on the first attempt because there is no competing id either could mint. The space's general chat is the canonical case, installed by the server's catalog:
 
 ```sh
 curl -X POST http://127.0.0.1:2046/v1/catalog/general-chat/setup \

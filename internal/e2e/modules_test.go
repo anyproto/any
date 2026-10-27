@@ -3,18 +3,21 @@ package e2e
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/anyproto/any/internal/api"
 )
 
 // Module-declaring types for the e2e suite: a chat or editor
 // collection is writable on an object only when one of its types
-// declares the module in a part. For the editor the tests mint one
-// plain user type per space with a single editor part; chat is a
-// reserved module, so the chat "type" is the catalog's general-chat
-// root and the chat object is that root (one chat per space).
+// declares the module in a part. The tests mint one plain user type
+// per space and module with a single part declaring it; the general
+// chat (setupGeneralChat) is the catalog's derived root, used where a
+// test is about that root. A user type's declaration is its own tree,
+// so a joiner waits for it (waitChatDeclared) before its first write.
 
 var (
 	e2eModuleTypesMu sync.Mutex
@@ -31,11 +34,6 @@ func installModuleType(t *testing.T, base, spaceId, module string) string {
 	defer e2eModuleTypesMu.Unlock()
 	if id, ok := e2eModuleTypes[key]; ok {
 		return id
-	}
-	if module == "chat" {
-		root := setupGeneralChat(t, base, spaceId)
-		e2eModuleTypes[key] = root
-		return root
 	}
 	var created map[string]any
 	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+spaceId+"/types",
@@ -56,9 +54,6 @@ func installModuleType(t *testing.T, base, spaceId, module string) string {
 func createModuleObject(t *testing.T, base, spaceId, module string) string {
 	t.Helper()
 	typeId := installModuleType(t, base, spaceId, module)
-	if module == "chat" {
-		return typeId // the general-chat root is the space's one chat
-	}
 	var resp map[string]any
 	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+spaceId+"/objects",
 		fmt.Sprintf(`{"type":%q}`, typeId), http.StatusCreated, &resp)
@@ -67,6 +62,13 @@ func createModuleObject(t *testing.T, base, spaceId, module string) string {
 		t.Fatalf("createModuleObject %s: objectId empty: %+v", module, resp)
 	}
 	return id
+}
+
+// modulePartsBody is the bundle `parts` declaration installing one
+// module part on the bundle root — the shape a client's
+// document bundle carries.
+func modulePartsBody(module string) string {
+	return fmt.Sprintf(`[{"key":%q,"datasets":[{"module":%q}]}]`, module, module)
 }
 
 // setupGeneralChat runs the catalog's general-chat setup against the
@@ -85,9 +87,28 @@ func setupGeneralChat(t *testing.T, base, spaceId string) string {
 	return ""
 }
 
-// modulePartsBody is the bundle `parts` declaration installing one
-// module part on the bundle root — the shape a client's
-// document bundle carries.
-func modulePartsBody(module string) string {
-	return fmt.Sprintf(`[{"key":%q,"datasets":[{"module":%q}]}]`, module, module)
+// waitChatDeclared blocks until the peer at base lists the space's chat
+// type among the chat_messages owners: the declaration is its own tree,
+// so a joiner can hold a message before the part that admits its
+// writes.
+func waitChatDeclared(t *testing.T, base, spaceId string) {
+	t.Helper()
+	e2eModuleTypesMu.Lock()
+	typeId := e2eModuleTypes[spaceId+"|chat"]
+	e2eModuleTypesMu.Unlock()
+	if typeId == "" {
+		t.Fatalf("waitChatDeclared: no chat type installed in %s", spaceId)
+	}
+	if !pollUntil(3*time.Minute, func() bool {
+		var ds api.DatasetsResponse
+		mustJSON(t, http.MethodGet, base+"/v1/spaces/"+spaceId+"/datasets", "", http.StatusOK, &ds)
+		for _, s := range ds.Datasets {
+			if s.Name == "chat_messages" && slices.Contains(s.Owners, typeId) {
+				return true
+			}
+		}
+		return false
+	}) {
+		t.Fatalf("peer never saw chat type %s declared in %s", typeId, spaceId)
+	}
 }

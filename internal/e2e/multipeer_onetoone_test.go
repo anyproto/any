@@ -87,8 +87,8 @@ func TestE2E_MultipeerOneToOne(t *testing.T) {
 	// refused until the registry converges, which never happens while
 	// they are apart. A derived root is the same id on both sides by
 	// construction, so each installs its own copy immediately and they
-	// meet on the one object. The chat module is reserved to the
-	// server, so the setup call is the only way to get one.
+	// meet on the one object; the setup call is the only way to get
+	// that shared root.
 	setupBody := `{"spaceId":"` + aliceSpace.Id + `"}`
 
 	// FIRST attempt, both sides, no convergence polling: that is the

@@ -1271,8 +1271,8 @@ holds the marker.
   definition hosts itself. A part whose dataset names a module and no
   key (`{"module": "editor"}`) makes the root's type own that module's
   canonical storage collection — this is how a client's document bundle gives its
-  objects a body. A part
-  naming a module reserved to the server (`chat`, § Parts and modules)
+  objects a body, `{"module": "chat"}` a transcript. A part
+  naming a module reserved to the server (§ Parts and modules)
   is `400 dataset.module_reserved`. Refused with `collection`
   (`400 request.invalid_field`): a collection has no parts.
 - `properties: [...]` (the same draft shape as `POST
@@ -1494,9 +1494,8 @@ declaring a `type` objects have, a `collection` they are filed under, a
 `miniapp` collection with `bundle` = its id), `parts`
 (records on the root), or several of those — in any combination but
 type with collection, or collection with parts; the general chat is the
-one `derived` root and the one declaration of the reserved `chat`
-module. A bundle another one `supersedes` is listed with `superseded:
-true`. The catalog is read-only over HTTP, validated at
+one `derived` root. A bundle another one `supersedes` is listed with
+`superseded: true`. The catalog is read-only over HTTP, validated at
 build time (`make catalog-validate`, CI, boot refusal), and installs
 nothing unless a client asks. Full client contract — model, setup
 semantics, handles, rendering, forks, evolution, the shipped entries —
@@ -1964,7 +1963,8 @@ type, its collections minus the built-in markers (`miniapp`, `bin`,
 `template`), its synced `any.*` values, the declared values under the
 source's type and its own non-marker collections (a collection the
 request adds brings no values) and the records of every dataset the
-source's type declares through its parts, except a reserved module's.
+source's type declares through its parts, except a chat's: a transcript
+is its authors' and never travels (§ Chat).
 `type` must then be absent or equal to the source's
 (`400 template.type_mismatch`), `collections` are added to the copied
 ones and `initialProperties` are written over the copied values. A
@@ -2927,15 +2927,14 @@ A module may be **reserved** to the server's own installs: a part or
 dataset draft naming it — on a type, or in a bundle body — is `400
 dataset.module_reserved`, decided from the compiled-in catalog before
 any wait. Only the server's own catalog install and a registered
-type's static part may declare it. **`chat` is reserved**: the one
-declaration is the catalog's `system:general-chat/v1` (§ Chat), so a
-space has one chat and no client can race it. The install root is
-also the module's **only carrier** — the root hosts its own
-declaration, and setting that type on any other object (create `type`,
+type's static part may declare it, and the install root is the
+module's **only carrier** — the root hosts its own declaration, and
+setting that type on any other object (create `type`,
 `POST …/properties/:objectId/type/:typeId`, an `any.type` op through
 `…/modify`) is `400 type.reserved_carrier` (the SDK's local write
 pre-flight; the create path is refused before the tree is minted). A
-registered type's static declaration is not a carrier.
+registered type's static declaration is not a carrier. No shipped
+module is reserved: any type may declare `editor` and `chat`.
 
 **An object holds a storage collection while its type declares it.**
 The write gate is on the object's `any.type`: a write into a storage
@@ -3331,9 +3330,9 @@ document" is a type whose part declares the editor module — the built-in
 `page` (§ Built-in hidden type: `page`) or a user type; a client's own
 document type is registered as a bundle-declared type with an editor
 part (§ Bundles), so every device converges on one type per space
-instead of minting parallel ones. "This object is a chat" is the
-catalog's general chat: `chat` is reserved, and the `general-chat`
-usecase installs the one chat (§ Chat). Listing a space's documents is
+instead of minting parallel ones. "This object is a chat" is likewise
+a type whose part declares the chat module — the catalog's general chat
+installs the space-wide one (§ Chat). Listing a space's documents is
 a filter on the type ids that declare the editor (`owners` of
 `editor_blocks` in § Dataset schema discovery — `page` is always among
 them): `{"filter": {"any.type": {"$in": [<owners>]}}}` on
@@ -3681,16 +3680,21 @@ the DELETE clears them, in the same change as the membership op
 A chat is an object holding the `chat_messages` storage collection —
 served by the compiled-in `chat` module, which an object holds while
 its type has a part declaring `{"module": "chat"}`
-(§ Parts and modules). The module is **reserved to the server**: no
-client part, dataset or bundle may declare it (`400
-dataset.module_reserved`), and the one declaration is the catalog's
-`general-chat` usecase — so **a space has exactly one chat**, the
-general chat, on regular spaces and 1-1s alike. The routes below
-write into it; a write on any other object is `400
-dataset.not_declared`.
+(§ Parts and modules). Any type may declare it — a user type, next to
+an editor part or alone, or a bundle's root — and every object of such
+a type is its own conversation, created with `POST …/objects` like any
+object. The module admits only its canonical dataset (a keyed chat
+dataset is `400 dataset.decl_invalid`), so an object holds at most one
+transcript. The routes below write into it; a write on an object whose
+type declares no chat is `400 dataset.not_declared`. A copy (`from`,
+§ Objects) of a chat-bearing object starts with an empty transcript:
+messages are their authors' (`creator` and `createdAt` come from the
+change envelope) and never travel.
 
-**Finding the chat object.** Set the usecase up (§ Catalog) and use
-the root it returns as the `<objectId>` below:
+**The general chat.** Every space has one well-known chat, installed by
+the catalog's `general-chat` usecase, on regular spaces and 1-1s alike.
+Set it up (§ Catalog) and use the root it returns as the `<objectId>`
+below:
 
 ```
 POST /v1/catalog/general-chat/setup
@@ -3714,13 +3718,15 @@ space and the bundle id: computed offline, two sides of a 1-1
 included, so the chat can never fork into two parallel conversations
 (chat content cannot be merged across objects — `creator` and
 `createdAt` come from the change envelope). The price is permanence:
-a derived root cannot be deleted (§ Bundles → Derived roots). The
-root is the type's **only carrier** — creating another object with it,
-or setting it on one, is `400 type.reserved_carrier` (§ Parts and
-modules),
-so there is no second chat to find. Clients that want to react to
-"the chat exists" subscribe to the space's `bundles` dataset
-(§ Bundles) or to the root's `chat_messages`.
+a derived root cannot be deleted (§ Bundles → Derived roots). Other
+chats have none of this: a user chat is one object among its type's,
+deletable, and one device's duplicate is a second chat. That includes
+an object created with the general chat's own hidden type — one more
+chat with the chat layout, not the general chat, which is the
+registry's `rootId` and never "the object of type `general_chat`".
+Clients that
+want to react to "the general chat exists" subscribe to the space's
+`bundles` dataset (§ Bundles) or to the root's `chat_messages`.
 
 Read tracking: `…/:msgId/read` marks the message and everything
 ordered before it (`_ver.id` order) read; `…/read-all` clears the

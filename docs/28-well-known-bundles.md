@@ -93,12 +93,9 @@ general chat is the one `derived: true` bundle — chat content cannot
 be merged across objects (`creator` / `createdAt` come from the change
 envelope), and a 1-1 space has no owner to break a tie — so its root
 is a function of (space, bundle id): it never forks and can never be
-deleted (`409 object.derived_undeletable`). It is also the one
-declaration of the reserved `chat` module: a client part, dataset or
-bundle naming `chat` is `400 dataset.module_reserved`, and setting the
-general-chat type on any object other than the root is `400
-type.reserved_carrier` — a space has exactly one chat (`16-chat.md`
-§ Finding the chat object for a space).
+deleted (`409 object.derived_undeletable`). It is the space's
+well-known chat, not its only one: any type may declare the chat
+module (`16-chat.md` § Finding the chat object for a space).
 
 **Naming.** Usecase ids are slugs (`[a-z][a-z0-9-]*`: `wiki`,
 `general-chat`, `contacts`); they never enter a space and need no
@@ -450,7 +447,7 @@ schema).
 | | | `system:project/v1` | superseded: type `project` with the same properties |
 | | | `system:area/v1` | superseded: type `area`, no properties |
 | | | `system:tasks/v1` | miniapp only, a `page` root — the sidebar entry that opens the planner |
-| `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one `chat` part — the reserved module's only declaration, the root its only host — + miniapp, so the chat is a sidebar entry |
+| `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one `chat` part hosted by the root itself, + miniapp, so the chat is a sidebar entry |
 | `people` | — | `system:profile/v1` | type `profile` (layout `profile`, no properties) + editor `body` part — the one format a person and an organisation share; supersedes `system:person/v1` and `system:organization/v1` |
 | | | `system:person/v2` | collection `person` (`meta.defaultType: profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags); supersedes `system:person/v1` |
 | | | `system:organization/v2` | collection `organization` (`meta.defaultType: profile`; kind, domain, categories, location, size, linkedin, main_contact → `person`); supersedes `system:organization/v1` |
