@@ -86,7 +86,7 @@ func (d *deps) spaceListQuerySubscribe(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	return d.serveQuerySubscribe(c, q, opts, shaper, sdkOpError, map[string]any{"dataset": dataset})
+	return d.serveQuerySubscribe(c, q, opts, shaper, map[string]any{"dataset": dataset})
 }
 
 // buildSpaceListQuery assembles the chained Query + QueryOpts for the

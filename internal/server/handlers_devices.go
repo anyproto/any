@@ -222,7 +222,7 @@ func (d *deps) devicesQuerySubscribe(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	return d.serveQuerySubscribe(c, q, opts, shaper, sdkOpError, map[string]any{"dataset": DevicesDataset})
+	return d.serveQuerySubscribe(c, q, opts, shaper, map[string]any{"dataset": DevicesDataset})
 }
 
 // buildDevicesQuery assembles the chained Query + QueryOpts for the

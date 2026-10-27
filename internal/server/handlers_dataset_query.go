@@ -75,7 +75,7 @@ func (d *deps) spaceQueryDatasetSubscribe(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	return d.serveQuerySubscribe(c, q, opts, shaper, sdkOpError, map[string]any{"spaceId": sp.Id(), "dataset": dataset})
+	return d.serveQuerySubscribe(c, q, opts, shaper, map[string]any{"spaceId": sp.Id(), "dataset": dataset})
 }
 
 // spaceAggregateDataset handles POST /v1/spaces/:spaceId/datasets/aggregate.

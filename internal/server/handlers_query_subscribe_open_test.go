@@ -63,7 +63,7 @@ func TestQuerySubscribe_SlowOpenCommitsStreamBeforeSnapshot(t *testing.T) {
 		}
 		return nil, fmt.Errorf("query: %w", space.ErrObjectNotFound)
 	}}
-	if err := d.serveQuerySubscribe(c, q, space.QueryOpts{}, recordShaper{}, sdkOpError, map[string]any{"objectId": "o1"}); err != nil {
+	if err := d.serveQuerySubscribe(c, q, space.QueryOpts{}, recordShaper{}, map[string]any{"objectId": "o1"}); err != nil {
 		t.Fatalf("serveQuerySubscribe: %v", err)
 	}
 	w.returned.Store(true)

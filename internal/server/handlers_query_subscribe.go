@@ -43,7 +43,7 @@ func (d *deps) spaceQueryObjectsSubscribe(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	return d.serveQuerySubscribe(c, q, opts, shaper, sdkOpError, map[string]any{"spaceId": sp.Id()})
+	return d.serveQuerySubscribe(c, q, opts, shaper, map[string]any{"spaceId": sp.Id()})
 }
 
 // spaceQuerySubscribe handles POST /v1/spaces/:spaceId/query/subscribe.
@@ -77,7 +77,7 @@ func (d *deps) spaceQuerySubscribe(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"includeDeleted is snapshot-only: use POST …/query", map[string]any{"field": "includeDeleted"})
 	}
-	return d.serveQuerySubscribe(c, pq.q, pq.opts, pq.shaper, sdkOpError, map[string]any{
+	return d.serveQuerySubscribe(c, pq.q, pq.opts, pq.shaper, map[string]any{
 		"spaceId": sp.Id(), "objectId": pq.objectId, "dataset": pq.dataset,
 	})
 }
@@ -97,10 +97,24 @@ type subscribeResult struct {
 // or fileError.
 type errorMapper func(c echo.Context, err error, details map[string]any) error
 
-// serveQuerySubscribe is the open path of every /query/subscribe route.
-// The handler joins the Subscribe goroutine before it returns, and only
-// the handler goroutine writes to the response.
+// serveQuerySubscribe opens a /query/subscribe stream whose errors are
+// sdkOpError's: objects, datasets, the space list, devices.
 func (d *deps) serveQuerySubscribe(c echo.Context, q space.Query, opts space.QueryOpts, shaper recordShaper,
+	details map[string]any) error {
+	return d.openQuerySubscribe(c, q, opts, shaper, sdkOpError, details)
+}
+
+// serveFilesQuerySubscribe opens a files/query/subscribe stream, whose
+// errors are fileError's.
+func (d *deps) serveFilesQuerySubscribe(c echo.Context, q space.Query, opts space.QueryOpts, shaper recordShaper,
+	details map[string]any) error {
+	return d.openQuerySubscribe(c, q, opts, shaper, fileError, details)
+}
+
+// openQuerySubscribe runs the SDK Subscribe and pumps the stream. The
+// handler joins the Subscribe goroutine before it returns, and only the
+// handler goroutine writes to the response.
+func (d *deps) openQuerySubscribe(c echo.Context, q space.Query, opts space.QueryOpts, shaper recordShaper,
 	mapErr errorMapper, details map[string]any) error {
 	ctx := c.Request().Context()
 	done := make(chan subscribeResult, 1)

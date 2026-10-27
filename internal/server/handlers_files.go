@@ -450,7 +450,7 @@ func (d *deps) filesQuerySubscribe(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	return d.serveQuerySubscribe(c, q, opts, shaper, fileError, map[string]any{"spaceId": sp.Id(), "objectId": c.Param("objectId")})
+	return d.serveFilesQuerySubscribe(c, q, opts, shaper, map[string]any{"spaceId": sp.Id(), "objectId": c.Param("objectId")})
 }
 
 // buildFilesQuery resolves the space + the object's files Query and
