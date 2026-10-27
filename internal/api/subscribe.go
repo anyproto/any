@@ -27,11 +27,8 @@ type SubscribeEventOp struct {
 type SubscribeReady struct{}
 
 // SubscribeClosed is the data payload of the terminal `event: closed`
-// frame. Reason is one of the SubscribeClosed* constants.
-//
-// Status, Code and Message are set with SubscribeClosedOpenFailed
-// only: they carry the error envelope the open would have answered
-// with had it failed before the stream was committed.
+// frame. Reason is one of the SubscribeClosed* constants. Status, Code
+// and Message are set with SubscribeClosedOpenFailed only.
 type SubscribeClosed struct {
 	Reason  string `json:"reason"`
 	Status  int    `json:"status,omitempty"`
@@ -78,12 +75,8 @@ const (
 	SubscribeClosedObjectDeleted = "object_deleted"
 
 	// SubscribeClosedOpenFailed — only on query/subscribe streams. The
-	// open failed after the server had committed the 200 stream (the
-	// snapshot read outlasted the open grace, then the SDK refused the
-	// request or the read failed). Status, Code and Message carry the
-	// error envelope a prompt failure answers with; act on them as on
-	// that envelope: a 4xx means the request itself is refused, a 5xx
-	// means retry.
+	// open failed after the 200 stream was committed. Status, Code and
+	// Message carry the error envelope: act on them as on the envelope.
 	SubscribeClosedOpenFailed = "open_failed"
 )
 

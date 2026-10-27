@@ -18,8 +18,7 @@ import (
 	"github.com/anyproto/any/internal/client"
 )
 
-// decodeClosedFrame returns the payload of the one `closed` frame in an
-// SSE body.
+// decodeClosedFrame returns the payload of the `closed` frame in an SSE body.
 func decodeClosedFrame(t *testing.T, body string) api.SubscribeClosed {
 	t.Helper()
 	_, rest, ok := strings.Cut(body, "event: closed\ndata: ")
@@ -34,11 +33,8 @@ func decodeClosedFrame(t *testing.T, body string) api.SubscribeClosed {
 	return closed
 }
 
-// A snapshot read that outlasts the open grace must not keep the client
-// waiting for headers: the stream is committed and kept warm with
-// keepalives while the read runs, and a read that then fails ends the
-// stream with closed{open_failed} carrying the envelope the prompt
-// failure would have answered with.
+// A read slower than the grace gets headers and keepalives before it
+// lands; a failure after that is a closed{open_failed} frame.
 func TestQuerySubscribe_SlowOpenCommitsStreamBeforeSnapshot(t *testing.T) {
 	prevGrace, prevKeepalive := subscribeOpenGrace, keepaliveInterval
 	subscribeOpenGrace, keepaliveInterval = time.Millisecond, time.Millisecond
@@ -50,8 +46,7 @@ func TestQuerySubscribe_SlowOpenCommitsStreamBeforeSnapshot(t *testing.T) {
 	c := e.NewContext(httptest.NewRequest(http.MethodPost, "/", nil), w)
 
 	subscribe := func(ctx context.Context) (*space.QueryResult, error) {
-		// The read is slow: it does not return until the client has
-		// been fed at least one keepalive.
+		// Return only once the client has seen a keepalive.
 		deadline := time.Now().Add(5 * time.Second)
 		for w.keepalives.Load() == 0 && time.Now().Before(deadline) {
 			time.Sleep(50 * time.Microsecond)
@@ -84,9 +79,8 @@ func TestQuerySubscribe_SlowOpenCommitsStreamBeforeSnapshot(t *testing.T) {
 	}
 }
 
-// With the stream committed before the SDK answers, a healthy read still
-// delivers ready → snapshot, and a refused request still surfaces its
-// envelope — as a closed{open_failed} frame, since the status is gone.
+// With the stream committed before the SDK answers: a healthy read still
+// delivers ready → snapshot, a refused one a closed{open_failed} frame.
 func TestServer_QuerySubscribe_CommittedOpen(t *testing.T) {
 	prev := subscribeOpenGrace
 	subscribeOpenGrace = 0
@@ -113,8 +107,7 @@ func TestServer_QuerySubscribe_CommittedOpen(t *testing.T) {
 	}
 	streamCancel()
 
-	// A deleted object: the SDK refuses the subscribe after its
-	// snapshot fence, past every request-boundary check.
+	// A deleted object is refused by the SDK, past the request-boundary checks.
 	gone := l.objs[2]
 	doJSONExpect(t, e, http.MethodDelete, l.base()+"/objects/"+gone, http.StatusNoContent)
 	rec := doJSON(t, e, http.MethodPost, l.base()+"/query/subscribe",
