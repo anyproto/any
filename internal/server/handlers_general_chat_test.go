@@ -77,6 +77,15 @@ func TestServer_UserChatType(t *testing.T) {
 	if again := setupUsecase(t, e, "general-chat", sp.Id); again.Bundles[0].Installed || again.Bundles[0].Bundle.RootId != root {
 		t.Fatalf("second setup: %+v", again.Bundles[0])
 	}
+	// The general chat's hidden type is an ordinary carrier: an object
+	// created with it, or retyped to it, is one more chat with the chat
+	// layout — the general chat is the registry's rootId, not a type.
+	another := mustCreateObject(t, e, sp.Id, `{"type":"`+root+`"}`)
+	chatSend(t, e, base+"/objects/"+another, "hello another", "")
+	rec = doJSON(t, e, http.MethodPost, base+"/properties/"+other+"/type/"+root, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("set the general chat's type: %d %s", rec.Code, rec.Body.String())
+	}
 
 	// Every declaring type owns the shared collection.
 	var ds api.DatasetsResponse
