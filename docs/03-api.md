@@ -2421,7 +2421,12 @@ POST /v1/spaces/:spaceId/datasets/query/subscribe      (a shared dataset across 
 Response is `Content-Type: text/event-stream`. Errors before the
 stream opens use the canonical JSON envelope (`request.missing_field`,
 `space.not_found`, ...). Once the response status is 200, problems
-become SSE `event: closed` frames.
+become SSE `event: closed` frames. The server holds the status back
+for at most 2s while the SDK validates the request and the server
+reads and encodes the snapshot; a slower open commits the 200 stream,
+sends `: keepalive` comments until the snapshot is encoded, and
+reports a failure after that point as `closed{open_failed}` with the envelope's `status`, `code`
+and `message` (`04-events.md` § Contract, item 3).
 
 Wire format:
 
@@ -2497,9 +2502,13 @@ data: {"reason": "overflow"}
   - `object_deleted` — per-object streams only (one object's dataset,
     one object's files): the object was deleted. Drop the view; a new
     POST for it is refused.
+  - `open_failed` — the open failed after the stream was committed.
+    `status`, `code` and `message` carry the error envelope; a 4xx
+    refuses the request, a 5xx is retryable.
 
-  Every reason but `object_deleted` means "the stream is over; for
-  live state, open a new POST." Recovery is identical for `overflow`
+  Every reason but `object_deleted` and a 4xx `open_failed` means
+  "the stream is over; for live state, open a new POST." Recovery is
+  identical for `overflow`
   and `drifted` — the reason is split so clients can log and back off
   sensibly.
 

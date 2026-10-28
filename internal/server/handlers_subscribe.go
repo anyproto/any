@@ -24,6 +24,11 @@ func writeSSEEvent(w http.ResponseWriter, event, id string, payload any) error {
 	if err != nil {
 		return err
 	}
+	return writeSSEData(w, event, id, buf)
+}
+
+// writeSSEData emits one SSE frame whose data line is buf, already JSON.
+func writeSSEData(w http.ResponseWriter, event, id string, buf []byte) error {
 	if event != "" {
 		if _, err := fmt.Fprintf(w, "event: %s\n", event); err != nil {
 			return err
@@ -40,7 +45,7 @@ func writeSSEEvent(w http.ResponseWriter, event, id string, payload any) error {
 	if _, err := w.Write(buf); err != nil {
 		return err
 	}
-	_, err = w.Write([]byte("\n\n"))
+	_, err := w.Write([]byte("\n\n"))
 	return err
 }
 

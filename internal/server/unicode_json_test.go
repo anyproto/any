@@ -43,7 +43,11 @@ func TestQueryUnicodeJSON(t *testing.T) {
 			})
 			t.Run("snapshot", func(t *testing.T) {
 				rec := httptest.NewRecorder()
-				if err := writeSnapshotFrame(rec, result, false, shaper); err != nil {
+				snapshot, err := encodeSnapshot(result, false, shaper)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := writeSSEData(rec, "snapshot", "", snapshot); err != nil {
 					t.Fatal(err)
 				}
 				assertUnicodeSSE(t, rec.Body.String(), text)
