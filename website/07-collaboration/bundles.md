@@ -84,9 +84,9 @@ If a created and a derived root are both claimed for one id, the derived one win
 
 ## The usecase catalog
 
-The well-known apps that ship with the product — the wiki, the Collections app (the `collections` usecase: browse and manage objects by type), journal, meetings, people, CRM, the general chat — are bundles in a catalog embedded in the server, under `system:<name>/v<n>` ids. A **usecase** is a set of those bundles plus the usecases it `requires`. The catalog declares every type, collection, property and dataset its apps use, so each client, device and agent that sets a usecase up resolves the same ids instead of minting its own.
+The well-known apps that ship with the product — the wiki, the Collections app (the `collections` usecase: browse and manage objects by type), journal, meetings, tasks, bookmarks, people, CRM, the general chat — are bundles in a catalog embedded in the server, under `system:<name>/v<n>` ids. A **usecase** is a set of those bundles plus the usecases it `requires`. The catalog declares every type, collection, property and dataset its apps use, so each client, device and agent that sets a usecase up resolves the same ids instead of minting its own.
 
-Each catalog bundle declares a `type` (parts, layout, columns) **or** a `collection` (columns only), never both. A type is a format — it brings a layout or a part of its own — so `profile`, `task`, `meeting` and the general chat are types, and everything that only adds columns is a collection: the wiki, the journal, `person`, `organization`, `deal`, `project`, `area`, and the seven role facets `contact`, `investor`, `customer`, `partner`, `vendor`, `cofounder` and `candidate`. A contact is a `profile` filed under `person` and under `contact`, with each collection's values in its own namespace; a deal, a project and a journal entry are pages. A collection names the type of its rows in `meta.defaultType`.
+Each catalog bundle declares a `type` (parts, layout, columns) **or** a `collection` (columns only), never both. A type is a format — it brings a layout or a part of its own — so `profile`, `task`, `bookmark`, `meeting` and the general chat are types, and everything that only adds columns is a collection: the wiki, the journal, `person`, `organization`, `deal`, `project`, `area`, `bookmark_folder`, and the seven role facets `contact`, `investor`, `customer`, `partner`, `vendor`, `cofounder` and `candidate`. A contact is a `profile` filed under `person` and under `contact`, with each collection's values in its own namespace; a deal, a project, a bookmark folder and a journal entry are pages. A collection names the type of its rows in `meta.defaultType`.
 
 A bundle may **supersede** another of its usecase: a space that has the superseded bundle installed keeps it and never receives the one that supersedes it, and every other space receives the new one only. That is how a definition changes kind without touching a space that already uses it — `system:person/v1` (a type) stays where it is, and a space set up later gets `system:person/v2` (a collection) and `system:profile/v1`. Bundles linked by `supersedes` are decided together, so a space stays on the old shape while it has any of them, and the catalog listing marks an old bundle `superseded: true`. Read which one a space has from the setup reply: it names `typeId` or `collectionId`.
 
@@ -97,6 +97,16 @@ POST /v1/catalog/:usecaseId/setup   → 200 { usecase, bundles: [...] }      bod
 ```
 
 Setup walks the dependency closure (dependencies first) against one convergence wait and runs Ensure's adopt-or-install per bundle; it is idempotent, and a failure names the step in `details.bundleId` while the steps before it stand, so the next call resumes. Each reply entry carries the registry row (`bundle`), `installed`, and — for a bundle that declares a definition — `typeId` or `collectionId` (the root id, whichever kind it declares) plus `properties` (xKey → property id). An install whose `xKey` a type or collection in the space already holds is `409 type.xkey_conflict` with `details.existingTypeId` or `details.existingCollectionId`. Which usecases a space has reads off `GET …/bundles`. CLI: `any catalog list | get | setup`.
+
+### Bookmarks
+
+```bash
+any catalog setup bookmarks "$SPACE"
+```
+
+Setup installs `system:bookmark-folder/v1`, `system:bookmark/v1` and `system:bookmarks/v1`. A bookmark is an object of the `bookmark` type (the bundle's `typeId`), with the `bookmark` layout and an editor body for the reader's notes, carrying the URL, the one folder it sits in, an archived flag and its place in the folder's order in that type's namespace. A bookmark with no folder that is not archived is in the Inbox. List bookmarks with `{"any.type": "<bookmarkTypeId>"}`.
+
+Folders are pages filed under the `bookmark_folder` collection: a `parent` relation puts one folder inside another, and `position` orders folders among their siblings. The app root is a `page` filed under the built-in `miniapp` collection, with `miniapp.bundle` set to `system:bookmarks/v1`.
 
 ### The general chat
 

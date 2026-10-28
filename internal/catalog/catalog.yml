@@ -224,6 +224,46 @@ usecases:
         rootType: page
         miniapp: {}
 
+  # ── Bookmarks: saved links. A bookmark is its own type with a `bookmark`
+  #    layout, like a task, and sits in at most one folder; a folder is a
+  #    page filed under the bookmark_folder collection and may sit inside one
+  #    other folder. A bookmark with no folder and not archived is in the
+  #    Inbox, which clients derive. The body part is the reader's own notes.
+  - id: bookmarks
+    name: Bookmarks
+    description: Saved links sorted from an inbox into nested folders
+    bundles:
+      - id: system:bookmark-folder/v1
+        name: Bookmark folders
+        collection:
+          xKey: bookmark_folder
+          meta: { defaultType: page }
+          properties:
+            - { xKey: parent,   name: Parent folder, kind: array,
+                xFormat: { type: relation, config: { multiple: false },
+                           relation: { targetTypes: [ bookmark_folder ] } } }
+            - { xKey: position, name: Order,         kind: number, meta: { index: none } }
+      - id: system:bookmark/v1
+        name: Bookmark
+        type:
+          xKey: bookmark
+          layout: { type: bookmark }
+          properties:
+            - { xKey: url,      name: Source URL, kind: string,  xFormat: { type: url } }
+            - { xKey: folder,   name: Folder,     kind: array,
+                xFormat: { type: relation, config: { multiple: false },
+                           relation: { targetTypes: [ bookmark_folder ] } } }
+            - { xKey: archived, name: Archived,   kind: boolean, xFormat: { type: checkbox } }
+            - { xKey: position, name: Order,      kind: number, meta: { index: none } }
+        parts:
+          - key: body                                  # the reader's notes; the body a page has
+            ui: { type: document }
+            datasets: [ { module: editor } ]
+      - id: system:bookmarks/v1                  # the sidebar entry
+        name: Bookmarks
+        rootType: page
+        miniapp: {}
+
   # ── The space's general chat. The one derived root: chat content cannot be merged
   #    across objects, and a 1-1 space has no owner to break a tie.
   - id: general-chat
