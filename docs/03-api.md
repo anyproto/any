@@ -2422,10 +2422,10 @@ Response is `Content-Type: text/event-stream`. Errors before the
 stream opens use the canonical JSON envelope (`request.missing_field`,
 `space.not_found`, ...). Once the response status is 200, problems
 become SSE `event: closed` frames. The server holds the status back
-for at most 2s while the SDK validates the request and reads the
-snapshot; a slower read commits the 200 stream, sends `: keepalive`
-comments until the snapshot lands, and reports a failure after that
-point as `closed{open_failed}` with the envelope's `status`, `code`
+for at most 2s while the SDK validates the request and the server
+reads and encodes the snapshot; a slower open commits the 200 stream,
+sends `: keepalive` comments until the snapshot is encoded, and
+reports a failure after that point as `closed{open_failed}` with the envelope's `status`, `code`
 and `message` (`04-events.md` § Contract, item 3).
 
 Wire format:

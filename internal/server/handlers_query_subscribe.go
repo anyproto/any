@@ -89,8 +89,22 @@ func (d *deps) spaceQuerySubscribe(c echo.Context) error {
 var subscribeOpenGrace = 2 * time.Second
 
 type subscribeResult struct {
-	res *space.QueryResult
-	err error
+	res      *space.QueryResult
+	snapshot []byte
+	err      error
+}
+
+// encodeSnapshot renders the snapshot frame's payload: the materialised
+// window, plus Total and HasNext when asked. A var so tests can slow it.
+var encodeSnapshot = func(res *space.QueryResult, includeTotal bool, shaper recordShaper) ([]byte, error) {
+	payload := api.QuerySubscribeSnapshot{Records: shapeRecords(res.Initial, shaper)}
+	if includeTotal {
+		t := res.Total
+		payload.Total = &t
+		hm := res.HasNext
+		payload.HasNext = &hm
+	}
+	return json.Marshal(payload)
 }
 
 // errorMapper renders an SDK error as the route's envelope: sdkOpError
@@ -113,14 +127,27 @@ func (d *deps) serveFilesQuerySubscribe(c echo.Context, q space.Query, opts spac
 
 // openQuerySubscribe runs the SDK Subscribe and pumps the stream. The
 // handler joins the Subscribe goroutine before it returns, and only the
-// handler goroutine writes to the response.
+// handler goroutine writes to the response. The snapshot is encoded on
+// that goroutine too, so the grace and the keepalives cover the encode.
 func (d *deps) openQuerySubscribe(c echo.Context, q space.Query, opts space.QueryOpts, shaper recordShaper,
 	mapErr errorMapper, details map[string]any) error {
 	ctx := c.Request().Context()
 	done := make(chan subscribeResult, 1)
 	go func() {
 		res, err := q.Subscribe(ctx, opts)
-		done <- subscribeResult{res: res, err: err}
+		if err != nil {
+			done <- subscribeResult{err: err}
+			return
+		}
+		snapshot, err := encodeSnapshot(res, opts.IncludeTotal, shaper)
+		// Drop the rows: res lives as long as the stream.
+		res.Initial = nil
+		if err != nil {
+			_ = res.Sub.Close()
+			done <- subscribeResult{err: err}
+			return
+		}
+		done <- subscribeResult{res: res, snapshot: snapshot}
 	}()
 
 	if subscribeOpenGrace > 0 {
@@ -132,7 +159,7 @@ func (d *deps) openQuerySubscribe(c echo.Context, q space.Query, opts space.Quer
 				return mapErr(c, r.err, details)
 			}
 			writeSSEHeaders(c.Response())
-			return d.streamQuerySubscribe(c, r.res, opts.IncludeTotal, shaper)
+			return d.streamQuerySubscribe(c, r.res, r.snapshot, shaper)
 		case <-grace.C:
 		}
 	}
@@ -146,7 +173,7 @@ func (d *deps) openQuerySubscribe(c echo.Context, q space.Query, opts space.Quer
 		select {
 		case r := <-done:
 			if r.err == nil {
-				return d.streamQuerySubscribe(c, r.res, opts.IncludeTotal, shaper)
+				return d.streamQuerySubscribe(c, r.res, r.snapshot, shaper)
 			}
 			if ctx.Err() != nil {
 				return nil // the client hung up
@@ -220,20 +247,16 @@ func captureError(c echo.Context, err error, mapErr errorMapper, details map[str
 // The stream runs inside the engine gate (routes.go), so a teardown
 // waits for it to unwind — which it does as soon as shutdownCtx fires.
 // The caller has already committed the response (writeSSEHeaders).
-func (d *deps) streamQuerySubscribe(c echo.Context, res *space.QueryResult, includeTotal bool, shaper recordShaper) error {
+func (d *deps) streamQuerySubscribe(c echo.Context, res *space.QueryResult, snapshot []byte, shaper recordShaper) error {
 	defer res.Sub.Close()
 
 	w := c.Response()
 	if err := writeSSEEvent(w, "ready", "", api.SubscribeReady{}); err != nil {
 		return nil
 	}
-	if err := writeSnapshotFrame(w, res, includeTotal, shaper); err != nil {
+	if err := writeSSEData(w, "snapshot", "", snapshot); err != nil {
 		return nil
 	}
-	// The snapshot is on the wire and res lives as long as the stream:
-	// drop the rows, or every open subscription pins a parsed copy of
-	// its whole result set.
-	res.Initial = nil
 	w.Flush()
 
 	// waitCtx fires on client disconnect or server shutdown.
@@ -341,21 +364,6 @@ func waitQueryBatch(mailbox *mb.MB[space.SubscriptionEvent], ctx context.Context
 		out <- queryBatchResult{events: evs, err: err}
 	}()
 	return out
-}
-
-// writeSnapshotFrame emits the initial `event: snapshot` frame
-// carrying the materialised window (and Total if the caller asked for
-// it). Identical shape to QueryResponse — same fields, separate type
-// to keep future extensions decoupled.
-func writeSnapshotFrame(w http.ResponseWriter, res *space.QueryResult, includeTotal bool, shaper recordShaper) error {
-	payload := api.QuerySubscribeSnapshot{Records: shapeRecords(res.Initial, shaper)}
-	if includeTotal {
-		t := res.Total
-		payload.Total = &t
-		hm := res.HasNext
-		payload.HasNext = &hm
-	}
-	return writeSSEEvent(w, "snapshot", "", payload)
 }
 
 // writeQuerySubscribeBatch emits one `event: changes` frame carrying

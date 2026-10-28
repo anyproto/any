@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cheggaaa/mb/v3"
 	"github.com/labstack/echo/v4"
 
 	"github.com/anyproto/any-sync-sdk/space"
@@ -83,6 +84,59 @@ func TestQuerySubscribe_SlowOpenCommitsStreamBeforeSnapshot(t *testing.T) {
 	}
 	if closed.Message == "" {
 		t.Fatal("closed frame carries no message")
+	}
+}
+
+// closedSub is a subscription whose mailbox is already closed, so the
+// stream ends right after the snapshot.
+type closedSub struct {
+	events *mb.MB[space.SubscriptionEvent]
+}
+
+func newClosedSub() closedSub {
+	events := mb.New[space.SubscriptionEvent](0)
+	_ = events.Close()
+	return closedSub{events: events}
+}
+
+func (s closedSub) Events() *mb.MB[space.SubscriptionEvent] { return s.events }
+func (s closedSub) Err() error                              { return nil }
+func (s closedSub) Close() error                            { return nil }
+
+// A snapshot that is slow to encode is covered by the grace and the
+// keepalives too, not written after a silent marshal.
+func TestQuerySubscribe_SlowEncodeKeepsStreamAlive(t *testing.T) {
+	prevGrace, prevKeepalive, prevEncode := subscribeOpenGrace, keepaliveInterval, encodeSnapshot
+	subscribeOpenGrace, keepaliveInterval = time.Millisecond, time.Millisecond
+	defer func() { subscribeOpenGrace, keepaliveInterval, encodeSnapshot = prevGrace, prevKeepalive, prevEncode }()
+
+	d := &deps{}
+	e := echo.New()
+	w := &fencedWriter{ResponseRecorder: httptest.NewRecorder()}
+	c := e.NewContext(httptest.NewRequest(http.MethodPost, "/", nil), w)
+
+	encodeSnapshot = func(res *space.QueryResult, includeTotal bool, shaper recordShaper) ([]byte, error) {
+		deadline := time.Now().Add(5 * time.Second)
+		for w.keepalives.Load() == 0 && time.Now().Before(deadline) {
+			time.Sleep(50 * time.Microsecond)
+		}
+		return prevEncode(res, includeTotal, shaper)
+	}
+	q := slowQuery{subscribe: func(ctx context.Context, opts space.QueryOpts) (*space.QueryResult, error) {
+		return &space.QueryResult{Sub: newClosedSub()}, nil
+	}}
+	if err := d.serveQuerySubscribe(c, q, space.QueryOpts{}, recordShaper{}, nil); err != nil {
+		t.Fatalf("serveQuerySubscribe: %v", err)
+	}
+	w.returned.Store(true)
+
+	body := w.Body.String()
+	keepalive, snapshot := strings.Index(body, ": keepalive"), strings.Index(body, "event: snapshot")
+	if keepalive < 0 || snapshot < 0 || keepalive > snapshot {
+		t.Fatalf("want a keepalive before the snapshot, got:\n%s", body)
+	}
+	if !strings.Contains(body, "event: ready\n") {
+		t.Fatalf("no ready frame:\n%s", body)
 	}
 }
 

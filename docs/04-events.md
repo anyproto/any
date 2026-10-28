@@ -73,10 +73,10 @@ user-space. The CLI (`any query-subscribe`) and Go client
    that happen before the SDK Subscribe call returns surface as a
    regular JSON error envelope on the open response, not SSE — as
    long as Subscribe answers within the open grace (2s). A snapshot
-   read that takes longer commits the `200` stream first and keeps
-   it warm with `: keepalive` comments until the read lands, so a
-   client's open watchdog measures the open and not the size of the
-   space; `ready` and `snapshot` follow. A Subscribe that fails after
+   read and encode that take longer commit the `200` stream first
+   and keep it warm with `: keepalive` comments until the snapshot is
+   encoded, so a client's open watchdog measures the open and not the
+   size of the space; `ready` and `snapshot` follow. A Subscribe that fails after
    that commit ends the stream with `closed{open_failed}` carrying
    the envelope's `status`, `code` and `message` — treat it as the
    envelope: a 4xx refuses the request, a 5xx is retryable.
