@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/labstack/echo/v4"
 )
 
 const unsupportedMediaType = "request.unsupported_media_type"
@@ -43,6 +45,8 @@ func TestRequireJSONBody(t *testing.T) {
 		{"modify", http.MethodPost, "/v1/spaces/s1/modify", "text/plain", body, 415, unsupportedMediaType},
 		{"auth, outside the guard", http.MethodPost, "/v1/auth", "text/plain", `{}`, 415, unsupportedMediaType},
 		{"put", http.MethodPut, "/v1/devices/me", "text/plain", body, 415, unsupportedMediaType},
+		{"patch", http.MethodPatch, "/v1/spaces/s1", "text/plain", body, 415, unsupportedMediaType},
+		{"delete", http.MethodDelete, "/v1/push/token", "text/plain", body, 415, unsupportedMediaType},
 
 		{"no body", http.MethodPost, write, "", "", 401, "auth.required"},
 		{"no body, foreign type", http.MethodPost, write, "text/plain", "", 401, "auth.required"},
@@ -66,14 +70,35 @@ func TestRequireJSONBody(t *testing.T) {
 	}
 }
 
-func TestRequireJSONBody_ForeignOrigin(t *testing.T) {
-	r := httptest.NewRequest(http.MethodPost, "/v1/spaces", strings.NewReader(`{"name":"x"}`))
-	r.Header.Set("Origin", "https://example.com")
-	r.Header.Set("Content-Type", "text/plain")
-	rec := httptest.NewRecorder()
-	buildEcho(&deps{}).ServeHTTP(rec, r)
-	if rec.Code != http.StatusUnsupportedMediaType || errCode(t, rec.Body.Bytes()) != unsupportedMediaType {
-		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+func TestBindBody(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, want string
+		wantOK           bool
+	}{
+		{"value", `{"a":"1"}`, "1", true},
+		{"unknown key ignored", `{"a":"1","b":2}`, "1", true},
+		{"empty", "", "", true},
+		{"invalid", `{`, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c := echo.New().NewContext(httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tc.body)), rec)
+			got, ok := bindBody[struct {
+				A string `json:"a"`
+			}](c)
+			if ok != tc.wantOK {
+				t.Fatalf("ok = %v, want %v: %s", ok, tc.wantOK, rec.Body.String())
+			}
+			if !ok {
+				if errCode(t, rec.Body.Bytes()) != "request.bad_json" {
+					t.Fatalf("%d %s", rec.Code, rec.Body.String())
+				}
+				return
+			}
+			if got.A != tc.want {
+				t.Fatalf("a = %q, want %q", got.A, tc.want)
+			}
+		})
 	}
 }
 
@@ -91,6 +116,7 @@ func TestRequireJSONBody_Chunked(t *testing.T) {
 		{"json", head + "Content-Type: application/json\r\n\r\n2\r\n{}\r\n0\r\n\r\n", 401},
 		{"text", head + "Content-Type: text/plain\r\n\r\n2\r\n{}\r\n0\r\n\r\n", 415},
 		{"text, malformed chunk", head + "Content-Type: text/plain\r\n\r\nzz\r\n", 415},
+		{"json, malformed chunk", head + "Content-Type: application/json\r\n\r\nzz\r\n", 401},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			conn, err := net.Dial("tcp", srv.Listener.Addr().String())
@@ -113,6 +139,25 @@ func TestRequireJSONBody_Chunked(t *testing.T) {
 				t.Fatalf("status = %d, want %d", resp.StatusCode, tc.wantStatus)
 			}
 		})
+	}
+}
+
+type readFunc func([]byte) (int, error)
+
+func (f readFunc) Read(p []byte) (int, error) { return f(p) }
+
+// A typed request passes without the check reading its body, which would
+// also send a 100 Continue to a client that asked for one.
+func TestRequireJSONBody_LeavesTypedBodyUnread(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPost, "/v1/spaces", readFunc(func([]byte) (int, error) {
+		t.Error("body read")
+		return 0, io.EOF
+	}))
+	r.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	buildEcho(&deps{}).ServeHTTP(rec, r)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}
 }
 

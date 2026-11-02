@@ -55,17 +55,12 @@ func requireJSONBody(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		req := c.Request()
 		switch {
+		case bareType(req.Header.Get(echo.HeaderContentType)) == echo.MIMEApplicationJSON:
 		case req.Method == http.MethodGet, req.Method == http.MethodHead:
-			return next(c)
 		case isRawBodyRoute(c.Path()):
-			return next(c)
 		case c.Path() == "/v1", c.Path() == "/v1/*":
 			// Unmatched route: nothing reads the body.
-			return next(c)
-		case !hasBody(req):
-			return next(c)
-		}
-		if bareType(req.Header.Get(echo.HeaderContentType)) != echo.MIMEApplicationJSON {
+		case hasBody(req):
 			return writeError(c, http.StatusUnsupportedMediaType, "request.unsupported_media_type",
 				"unsupported Content-Type, expected application/json", nil)
 		}

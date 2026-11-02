@@ -81,8 +81,8 @@ func decodeBody[T any](c echo.Context, strict bool, hint string) (*T, bool) {
 	return req, true
 }
 
-// strictDecodeFailed renders a DisallowUnknownFields decode failure
-// with the shared envelope: the unknown field by name plus the
+// strictDecodeFailed renders a JSON decode failure with the shared
+// envelope: under DisallowUnknownFields, the unknown field by name plus the
 // accepted list (from acceptedType's json tags), or request.bad_json
 // via msg. encoding/json exports no sentinel for the unknown-field
 // rejection; the message form `json: unknown field "x"` is its
