@@ -29,7 +29,7 @@ Bundle ids carry a slash — the version suffix is part of the id (`favorites/v1
 
 ```bash
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/bundles \
-  -d '{"id": "notes/v1", "name": "Notes", "xKey": "notes", "hidden": true,
+  -H 'Content-Type: application/json' -d '{"id": "notes/v1", "name": "Notes", "xKey": "notes", "hidden": true,
        "parts": [{"key": "body", "datasets": [{"module": "editor"}]}]}'
 ```
 
@@ -114,7 +114,7 @@ The catalog's `general-chat` usecase installs the space's well-known chat, a der
 
 ```bash
 curl -s -X POST http://127.0.0.1:2046/v1/catalog/general-chat/setup \
-  -d '{"spaceId": "'$SPACE'"}'
+  -H 'Content-Type: application/json' -d '{"spaceId": "'$SPACE'"}'
 ```
 
 Use the entry's `bundle.rootId` as the [chat](../types/chat.html) object. Every client that runs the setup lands on the same root, on both sides of a 1-1 too, and no other object may carry its type.
@@ -123,7 +123,7 @@ Use the entry's `bundle.rootId` as the [chat](../types/chat.html) object. Every 
 
 ```bash
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/bundles/notes%2Fv1/children \
-  -d '{"seed": "settings", "type": "page", "collections": ["'$WIKI'"]}'
+  -H 'Content-Type: application/json' -d '{"seed": "settings", "type": "page", "collections": ["'$WIKI'"]}'
 # → { "objectId": "bafy…" }
 ```
 
@@ -144,7 +144,7 @@ Rows are also readable through the ordinary dataset surface — `POST /v1/spaces
 
 ```bash
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/bundles/notes%2Fv1/resolve \
-  -d '{"loserRootId": "bafy…"}'
+  -H 'Content-Type: application/json' -d '{"loserRootId": "bafy…"}'
 # → 204
 ```
 

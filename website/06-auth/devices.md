@@ -63,12 +63,12 @@ Account-scoped, behind the `/v1` auth guard.
 
 ```bash
 curl -s -X PUT http://127.0.0.1:2046/v1/devices/me \
-  -d '{"name": "laptop", "apps": {"bao": {"version": "1.2"}}}'
+  -H 'Content-Type: application/json' -d '{"name": "laptop", "apps": {"bao": {"version": "1.2"}}}'
 
-curl -s -X POST http://127.0.0.1:2046/v1/devices/activate -d '{"app": "bao"}'
+curl -s -X POST http://127.0.0.1:2046/v1/devices/activate -H 'Content-Type: application/json' -d '{"app": "bao"}'
 
 # hand the role to another of the account's devices
-curl -s -X POST http://127.0.0.1:2046/v1/devices/activate -d '{"app": "bao", "peerId": "12D3KooW…"}'
+curl -s -X POST http://127.0.0.1:2046/v1/devices/activate -H 'Content-Type: application/json' -d '{"app": "bao", "peerId": "12D3KooW…"}'
 
 curl -s http://127.0.0.1:2046/v1/devices
 ```

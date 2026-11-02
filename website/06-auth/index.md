@@ -34,7 +34,7 @@ A **standalone** server (`any run`, the default) boots the account it can resolv
 curl -s http://127.0.0.1:2046/v1/auth
 # {"authorized": false, "mode": "standalone", "capabilities": {...}, "accounts": [...]}
 
-curl -s -X POST http://127.0.0.1:2046/v1/auth -d '{}'
+curl -s -X POST http://127.0.0.1:2046/v1/auth -H 'Content-Type: application/json' -d '{}'
 # {"accountId": "A8g1…", "created": true, "mnemonic": "w1 … w12"}
 ```
 

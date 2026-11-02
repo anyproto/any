@@ -90,7 +90,7 @@ An overlay published by another account must be joined before it syncs to this d
 
 ```sh
 # on the publishing account's server
-REPO=$(curl -s -X POST http://127.0.0.1:7002/v1/spaces -d '{"name":"my-repo"}' | jq -r .id)
+REPO=$(curl -s -X POST http://127.0.0.1:7002/v1/spaces -H 'Content-Type: application/json' -d '{"name":"my-repo"}' | jq -r .id)
 anyrt deploy --addr http://127.0.0.1:7002 --source repos/_agent --target $REPO
 TOKEN=$(any --addr 127.0.0.1:7002 invite guest-key $REPO | jq -r .inviteToken)
 ```

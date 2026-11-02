@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	_ "net/http/pprof"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -18,6 +19,43 @@ import (
 // "internal error" 500 with nothing in the log) through the app logger with
 // the full stack.
 var recoverLog = logger.NewNamed("recover")
+
+// isRawBodyRoute reports the routes whose body is a file, not JSON: file
+// attach (into the SDK), the account avatar (capped by the SDK itself)
+// and the local store import (into any-store, 256 documents per
+// transaction).
+func isRawBodyRoute(path string) bool {
+	switch path {
+	case "/v1/spaces/:spaceId/objects/:objectId/files", "/v1/account/icon", "/v1/local/import":
+		return true
+	}
+	return false
+}
+
+// requireJSONBody answers 415 for a body not declared application/json.
+// Handlers parse JSON whatever the header says, and a browser sends the
+// other types cross-site with no preflight, so this also keeps those
+// requests away from the handlers.
+func requireJSONBody(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		req := c.Request()
+		switch {
+		case req.ContentLength == 0, req.Method == http.MethodGet, req.Method == http.MethodHead:
+			return next(c)
+		case isRawBodyRoute(c.Path()):
+			return next(c)
+		case c.Path() == "/v1", c.Path() == "/v1/*":
+			// Unmatched route: let it render its 404.
+			return next(c)
+		}
+		mediaType, _, _ := strings.Cut(req.Header.Get(echo.HeaderContentType), ";")
+		if !strings.EqualFold(strings.TrimSpace(mediaType), echo.MIMEApplicationJSON) {
+			return writeError(c, http.StatusUnsupportedMediaType, "request.unsupported_media_type",
+				"unsupported Content-Type, expected application/json", nil)
+		}
+		return next(c)
+	}
+}
 
 func buildEcho(d *deps) *echo.Echo {
 	e := echo.New()
@@ -59,24 +97,16 @@ func buildEcho(d *deps) *echo.Echo {
 		// with (docs/08-clients.md § 14).
 		AllowHeaders: []string{echo.HeaderContentType, echo.HeaderAccept, "Range", api.ControlTokenHeader},
 	}))
-	// Global body cap for the JSON API. Three exemptions, all routes
-	// whose raw body IS a file streamed without buffering, so a byte
-	// cap would truncate it: file attach (into the SDK), the account
-	// avatar (capped by the SDK itself) and the local store import
-	// (into any-store, 256 documents per transaction).
+	// Global body cap for the JSON API. A raw body streams without
+	// buffering, so a byte cap would truncate it.
 	e.Use(middleware.BodyLimitWithConfig(middleware.BodyLimitConfig{
-		Skipper: func(c echo.Context) bool {
-			switch c.Path() {
-			case "/v1/spaces/:spaceId/objects/:objectId/files", "/v1/account/icon", "/v1/local/import":
-				return true
-			}
-			return false
-		},
-		Limit: "1M",
+		Skipper: func(c echo.Context) bool { return isRawBodyRoute(c.Path()) },
+		Limit:   "1M",
 	}))
 	e.Use(httpLogMiddleware())
 
 	v1 := e.Group("/v1")
+	v1.Use(requireJSONBody)
 	// Unauthorized guard + engine gate: while an engine is live
 	// (deps.ready) every request runs inside the gate, so a teardown
 	// (shutdown, logout, account switch) drains it before the engine

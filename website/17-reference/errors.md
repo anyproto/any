@@ -37,7 +37,7 @@ Every error response from the any server — whatever the status code — has th
 | 409 | conflict — duplicate, precondition failed, not converged yet, feature disabled |
 | 410 | the target is gone for good (`object.deleted`, `record.deleted`, `invite.revoked`) |
 | 413 | history view too large; request body over the 1 MB limit; avatar upload over the 1 MiB cap (`account.icon_too_large`) |
-| 415 | the avatar upload is not an accepted raster image (`account.icon_not_image`) |
+| 415 | a body that is not `application/json` (`request.unsupported_media_type`); the avatar upload is not an accepted raster image (`account.icon_not_image`) |
 | 429 | the invite service is throttling this client (`access.rate_limited`) |
 | 500 | unexpected engine or server failure (`internal`); the stack goes to the server log only |
 | 501 | route registered for an SDK surface that is not implemented yet |
@@ -65,6 +65,7 @@ Panics are converted to `500 internal` with a generic message.
 | `request.not_found` | 404 | no route matches the path |
 | `request.method_not_allowed` | 405 | the path exists, the method does not |
 | `request.too_large` | 413 | body over the 1 MB limit |
+| `request.unsupported_media_type` | 415 | a body whose `Content-Type` is missing or not `application/json` |
 | `auth.required` | 401 | server unauthorized — `POST /v1/auth` first |
 | `auth.already_authorized` | 409 | `{}` while an account runs — a fresh account is never minted in place |
 | `auth.not_managed` | 403 | standalone server: a different account on `POST`, or `DELETE` — switching means a restart |
