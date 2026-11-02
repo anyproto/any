@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	_ "net/http/pprof"
@@ -31,17 +33,19 @@ func isRawBodyRoute(path string) bool {
 }
 
 // hasBody reports whether req carries body bytes. A chunked body states
-// no length, so it is peeked and left whole.
+// no length, so one byte is peeked and the body left whole; only a clean
+// EOF means empty.
 func hasBody(req *http.Request) bool {
 	if req.ContentLength >= 0 {
 		return req.ContentLength > 0
 	}
-	body, head := peekHead(req.Body)
+	br := bufio.NewReader(req.Body)
+	_, err := br.Peek(1)
 	req.Body = struct {
 		io.Reader
 		io.Closer
-	}{body, req.Body}
-	return len(head) > 0
+	}{br, req.Body}
+	return !errors.Is(err, io.EOF)
 }
 
 // requireJSONBody answers 415 for a body not declared application/json.

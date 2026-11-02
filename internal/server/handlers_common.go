@@ -47,20 +47,7 @@ func readBody(c echo.Context) ([]byte, error) {
 // the caller (human or agent) guessing which part of the call was
 // wrong.
 func bindBody[T any](c echo.Context) (*T, bool) {
-	body, err := readBody(c)
-	if err != nil {
-		_ = writeError(c, http.StatusBadRequest, "request.bad_json", "read body: "+err.Error(), nil)
-		return nil, false
-	}
-	req := new(T)
-	if len(body) == 0 {
-		return req, true
-	}
-	if err := json.NewDecoder(bytes.NewReader(body)).Decode(req); err != nil {
-		_ = writeError(c, http.StatusBadRequest, "request.bad_json", bindErrorMessage[T](err), nil)
-		return nil, false
-	}
-	return req, true
+	return decodeBody[T](c, false, "")
 }
 
 // bindBodyStrict is bindBody with unknown top-level keys rejected
@@ -70,6 +57,10 @@ func bindBody[T any](c echo.Context) (*T, bool) {
 // accepts. hint, when non-empty, is appended to the unknown-field
 // message to point at the right home for the value.
 func bindBodyStrict[T any](c echo.Context, hint string) (*T, bool) {
+	return decodeBody[T](c, true, hint)
+}
+
+func decodeBody[T any](c echo.Context, strict bool, hint string) (*T, bool) {
 	body, err := readBody(c)
 	if err != nil {
 		_ = writeError(c, http.StatusBadRequest, "request.bad_json", "read body: "+err.Error(), nil)
@@ -80,7 +71,9 @@ func bindBodyStrict[T any](c echo.Context, hint string) (*T, bool) {
 		return req, true
 	}
 	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.DisallowUnknownFields()
+	if strict {
+		dec.DisallowUnknownFields()
+	}
 	if err := dec.Decode(req); err != nil {
 		_ = strictDecodeFailed(c, err, reflect.TypeFor[T](), hint, "", bindErrorMessage[T])
 		return nil, false
