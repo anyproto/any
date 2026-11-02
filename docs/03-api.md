@@ -80,9 +80,10 @@
 - **Framework**: `github.com/labstack/echo` (v4).
 - **Base path**: `/v1/`. All endpoints are versioned from day one.
 - **Media type**: `application/json; charset=utf-8` for request bodies
-  and responses. A body with a missing or different `Content-Type`
-  answers `415 request.unsupported_media_type`; a request without a body
-  needs no header. Exceptions: file attach, the avatar upload and the
+  and responses. A `POST`, `PUT`, `PATCH` or `DELETE` body with a missing
+  or different `Content-Type` answers `415
+  request.unsupported_media_type`; a request without a body needs no
+  header. Exceptions: file attach, the avatar upload and the
   local-store import take a raw file as the body, subscribe streams are
   `text/event-stream`, and file content downloads are the raw bytes
   (§ Files).
@@ -4844,10 +4845,12 @@ keeps the QUIC listener down.
   routes whose raw body streams into the SDK or the local store: file
   attach (§ Files), the avatar upload (§ Account, capped by the SDK)
   and the local-store import.
-- **JSON body check**: on every other `/v1` route, a body that is not
-  `application/json` answers `415 request.unsupported_media_type`, ahead
-  of the unauthorized guard. A web page can send the other types without
-  a preflight, so this also keeps those requests away from the handlers.
+- **JSON body check**: on every other `/v1` route, a `POST`, `PUT`,
+  `PATCH` or `DELETE` body that is not `application/json` answers `415
+  request.unsupported_media_type`, ahead of the unauthorized guard and
+  the control-token check. A web page can send the other types without a
+  preflight, so this also keeps them away from the handlers. An empty
+  POST and the raw routes stay reachable that way.
 - **Unauthorized guard + engine gate** (§ Auth): `401 auth.required`
   on every route except `/v1/health`, `/v1/shutdown`,
   `/v1/openapi.json` and `/v1/auth` until an account is booted — it

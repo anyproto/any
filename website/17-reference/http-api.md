@@ -9,7 +9,7 @@ The `any` server listens on `127.0.0.1:2046` and exposes one JSON API under `/v1
 
 ## Conventions
 
-- **Base path** `/v1/`. Media type `application/json; charset=utf-8` for every request with a body and every response, except the raw routes: file attach and content carry file bytes, the avatar upload takes the image, local-store export returns `application/gzip` and import takes that file as its body, and every `…/subscribe` answers `text/event-stream`. A JSON body with a missing or different `Content-Type` answers `415 request.unsupported_media_type`; a request without a body needs no header.
+- **Base path** `/v1/`. Media type `application/json; charset=utf-8` for every request with a body and every response, except the raw routes: file attach and content carry file bytes, the avatar upload takes the image, local-store export returns `application/gzip` and import takes that file as its body, and every `…/subscribe` answers `text/event-stream`. A `POST`, `PUT`, `PATCH` or `DELETE` body with a missing or different `Content-Type` answers `415 request.unsupported_media_type`; a request without a body needs no header.
 - **Status codes**: `200` reads, `201` creates, `204` side-effect-only endpoints. Errors always use the envelope in [Errors](errors.html).
 - **Ids in paths** are URL-safe strings; segments are URL-encoded (a bundle id like `favorites/v1` becomes `favorites%2Fv1`).
 - **Body limit** 1 MB on every route except file attach, the avatar upload and local-store import, whose raw bodies stream past it.

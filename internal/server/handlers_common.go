@@ -47,8 +47,16 @@ func readBody(c echo.Context) ([]byte, error) {
 // the caller (human or agent) guessing which part of the call was
 // wrong.
 func bindBody[T any](c echo.Context) (*T, bool) {
+	body, err := readBody(c)
+	if err != nil {
+		_ = writeError(c, http.StatusBadRequest, "request.bad_json", "read body: "+err.Error(), nil)
+		return nil, false
+	}
 	req := new(T)
-	if err := c.Bind(req); err != nil {
+	if len(body) == 0 {
+		return req, true
+	}
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(req); err != nil {
 		_ = writeError(c, http.StatusBadRequest, "request.bad_json", bindErrorMessage[T](err), nil)
 		return nil, false
 	}

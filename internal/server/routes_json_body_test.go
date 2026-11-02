@@ -1,19 +1,17 @@
 package server
 
 import (
-	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/anyproto/any/internal/api"
 )
 
 const unsupportedMediaType = "request.unsupported_media_type"
 
-func doBody(e http.Handler, method, path, contentType, origin, body string) *httptest.ResponseRecorder {
-	r := httptest.NewRequest(method, path, strings.NewReader(body))
+func doBody(e http.Handler, method, path, contentType, origin string, body io.Reader) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(method, path, body)
 	if contentType != "" {
 		r.Header.Set("Content-Type", contentType)
 	}
@@ -25,13 +23,9 @@ func doBody(e http.Handler, method, path, contentType, origin, body string) *htt
 	return rec
 }
 
-func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
-	t.Helper()
-	var env api.ErrorEnvelope
-	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-		t.Fatalf("decode error envelope: %v body=%s", err, rec.Body.String())
-	}
-	return env.Error.Code
+// chunked hides the length from httptest, as a chunked request does.
+func chunked(body string) io.Reader {
+	return struct{ io.Reader }{strings.NewReader(body)}
 }
 
 // An unbooted server is enough here: the check runs ahead of the auth
@@ -71,19 +65,42 @@ func TestRequireJSONBody(t *testing.T) {
 		{"unmatched route", http.MethodPost, "/v1/nope", "text/plain", "", body, 404, "request.not_found"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rec := doBody(e, tc.method, tc.path, tc.contentType, tc.origin, tc.body)
+			rec := doBody(e, tc.method, tc.path, tc.contentType, tc.origin, strings.NewReader(tc.body))
 			if rec.Code != tc.wantStatus {
 				t.Fatalf("status = %d, want %d: %s", rec.Code, tc.wantStatus, rec.Body.String())
 			}
-			if got := errorCode(t, rec); got != tc.wantCode {
+			if got := errCode(t, rec.Body.Bytes()); got != tc.wantCode {
 				t.Fatalf("code = %q, want %q", got, tc.wantCode)
 			}
 		})
 	}
 }
 
-// echo's binder decodes a form body to an empty struct, so the check has
-// to keep it away: "objectId required" means only a missing field.
+func TestRequireJSONBody_Chunked(t *testing.T) {
+	e := buildEcho(&deps{})
+	for _, tc := range []struct {
+		name, contentType, body string
+		wantStatus              int
+		wantCode                string
+	}{
+		{"empty, no header", "", "", 401, "auth.required"},
+		{"text", "text/plain", `{}`, 415, unsupportedMediaType},
+		{"json", "application/json", `{}`, 401, "auth.required"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doBody(e, http.MethodPost, "/v1/spaces", tc.contentType, "", chunked(tc.body))
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d: %s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+			if got := errCode(t, rec.Body.Bytes()); got != tc.wantCode {
+				t.Fatalf("code = %q, want %q", got, tc.wantCode)
+			}
+		})
+	}
+}
+
+// A form body answers 415, so "objectId required" means only a missing
+// field.
 func TestDeleteRecords_ContentType(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -92,18 +109,26 @@ func TestDeleteRecords_ContentType(t *testing.T) {
 	path := "/v1/spaces/" + spaceId + "/delete-records"
 	body := `{"objectId":"` + objectId + `","recordIds":["r1"]}`
 
-	rec := doBody(e, http.MethodPost, path, "application/x-www-form-urlencoded", "", body)
-	if rec.Code != http.StatusUnsupportedMediaType || errorCode(t, rec) != unsupportedMediaType {
+	rec := doBody(e, http.MethodPost, path, "application/x-www-form-urlencoded", "", strings.NewReader(body))
+	if rec.Code != http.StatusUnsupportedMediaType || errCode(t, rec.Body.Bytes()) != unsupportedMediaType {
 		t.Fatalf("form body: %d %s", rec.Code, rec.Body.String())
 	}
 
-	rec = doBody(e, http.MethodPost, path, "application/json", "", `{}`)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "objectId required") {
+	rec = doBody(e, http.MethodPost, path, "application/json", "", strings.NewReader(`{}`))
+	if rec.Code != http.StatusBadRequest || errCode(t, rec.Body.Bytes()) != "request.missing_field" {
 		t.Fatalf("missing objectId: %d %s", rec.Code, rec.Body.String())
 	}
 
-	rec = doBody(e, http.MethodPost, path, "application/json", "", body)
-	if rec.Code == http.StatusUnsupportedMediaType || strings.Contains(rec.Body.String(), "objectId required") {
-		t.Fatalf("json body: %d %s", rec.Code, rec.Body.String())
+	// dataset.unknown is the write's own refusal of a body with no dataset:
+	// the request decoded all the way, however its JSON type was spelled.
+	for _, contentType := range []string{"application/json", "application/json; charset=utf-8", "Application/JSON"} {
+		rec = doBody(e, http.MethodPost, path, contentType, "", strings.NewReader(body))
+		if rec.Code != http.StatusBadRequest || errCode(t, rec.Body.Bytes()) != "dataset.unknown" {
+			t.Fatalf("%s: %d %s", contentType, rec.Code, rec.Body.String())
+		}
+	}
+	rec = doBody(e, http.MethodPost, path, "application/json", "", chunked(body))
+	if rec.Code != http.StatusBadRequest || errCode(t, rec.Body.Bytes()) != "dataset.unknown" {
+		t.Fatalf("chunked: %d %s", rec.Code, rec.Body.String())
 	}
 }

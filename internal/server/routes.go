@@ -2,9 +2,9 @@ package server
 
 import (
 	"context"
+	"io"
 	"net/http"
 	_ "net/http/pprof"
-	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -21,9 +21,7 @@ import (
 var recoverLog = logger.NewNamed("recover")
 
 // isRawBodyRoute reports the routes whose body is a file, not JSON: file
-// attach (into the SDK), the account avatar (capped by the SDK itself)
-// and the local store import (into any-store, 256 documents per
-// transaction).
+// attach, the account avatar and the local store import.
 func isRawBodyRoute(path string) bool {
 	switch path {
 	case "/v1/spaces/:spaceId/objects/:objectId/files", "/v1/account/icon", "/v1/local/import":
@@ -32,24 +30,38 @@ func isRawBodyRoute(path string) bool {
 	return false
 }
 
+// hasBody reports whether req carries body bytes. A chunked body states
+// no length, so it is peeked and left whole.
+func hasBody(req *http.Request) bool {
+	if req.ContentLength >= 0 {
+		return req.ContentLength > 0
+	}
+	body, head := peekHead(req.Body)
+	req.Body = struct {
+		io.Reader
+		io.Closer
+	}{body, req.Body}
+	return len(head) > 0
+}
+
 // requireJSONBody answers 415 for a body not declared application/json.
 // Handlers parse JSON whatever the header says, and a browser sends the
-// other types cross-site with no preflight, so this also keeps those
-// requests away from the handlers.
+// other types cross-site with no preflight.
 func requireJSONBody(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		req := c.Request()
 		switch {
-		case req.ContentLength == 0, req.Method == http.MethodGet, req.Method == http.MethodHead:
+		case req.Method == http.MethodGet, req.Method == http.MethodHead:
 			return next(c)
 		case isRawBodyRoute(c.Path()):
 			return next(c)
 		case c.Path() == "/v1", c.Path() == "/v1/*":
-			// Unmatched route: let it render its 404.
+			// Unmatched route: nothing reads the body.
+			return next(c)
+		case !hasBody(req):
 			return next(c)
 		}
-		mediaType, _, _ := strings.Cut(req.Header.Get(echo.HeaderContentType), ";")
-		if !strings.EqualFold(strings.TrimSpace(mediaType), echo.MIMEApplicationJSON) {
+		if bareType(req.Header.Get(echo.HeaderContentType)) != echo.MIMEApplicationJSON {
 			return writeError(c, http.StatusUnsupportedMediaType, "request.unsupported_media_type",
 				"unsupported Content-Type, expected application/json", nil)
 		}
