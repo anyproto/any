@@ -50,7 +50,7 @@ Bundles follow the same shape: an ensure with `"derived": true` is adopt-or-inst
 
 ```sh
 curl -X POST http://127.0.0.1:2046/v1/catalog/general-chat/setup \
-  -d '{"spaceId": "'$SPACE'"}'
+  -H 'Content-Type: application/json' -d '{"spaceId": "'$SPACE'"}'
 # → {"usecase": "general-chat", "bundles": [{"id": "system:general-chat/v1", "bundle": {"rootId": "bafy…", "derived": true}, "installed": true}]}
 ```
 

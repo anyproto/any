@@ -70,7 +70,7 @@ A version holds within one run of the server: after a restart — a crash includ
 For callers that know the *text* they want changed but not the block ids. Each `oldText` must already be in the document:
 
 ```sh
-curl -X PATCH http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/markdown -d '{
+curl -X PATCH http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/markdown -H 'Content-Type: application/json' -d '{
   "edits": [
     { "oldText": "- [ ] Children of Time", "newText": "- [x] Children of Time" },
     { "oldText": "typo", "newText": "fixed", "replaceAll": true }
@@ -102,7 +102,7 @@ Matching rules:
 
 ```sh
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/markdown/append \
-  -d '{"content": "## Turn 12\n\nAgent replied with…"}'
+  -H 'Content-Type: application/json' -d '{"content": "## Turn 12\n\nAgent replied with…"}'
 # → {"inserted": ["blk_…", "blk_…"], "updated": [], "deleted": [], "unchanged": 0}
 ```
 

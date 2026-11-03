@@ -29,10 +29,10 @@ Pending requests appear on `GET /v1/spaces/:spaceId/members/requests`; pass a ro
 
 ```bash
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/acl/accept \
-  -d '{"requestRecordId": "bafy…", "permission": "writer"}'
+  -H 'Content-Type: application/json' -d '{"requestRecordId": "bafy…", "permission": "writer"}'
 
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/acl/decline \
-  -d '{"identity": "A6ux…"}'
+  -H 'Content-Type: application/json' -d '{"identity": "A6ux…"}'
 ```
 
 ```bash
@@ -46,7 +46,7 @@ On the joiner's side the space row flips from `joining` to `active`, or to `dele
 
 ```bash
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/acl/permissions \
-  -d '{"changes": [
+  -H 'Content-Type: application/json' -d '{"changes": [
         {"identity": "A6ux…", "permission": "reader"},
         {"identity": "BcdE…", "permission": "admin"}]}'
 ```
@@ -61,7 +61,7 @@ Members see their own change on `SpaceInfo.ownRole` and on the [members stream](
 
 ```bash
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/acl/remove \
-  -d '{"identities": ["A6ux…", "BcdE…"]}'
+  -H 'Content-Type: application/json' -d '{"identities": ["A6ux…", "BcdE…"]}'
 ```
 
 ```bash
@@ -78,7 +78,7 @@ When you hold the account id, add directly instead of passing an invite token:
 
 ```bash
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/acl/add \
-  -d '{"accounts": [
+  -H 'Content-Type: application/json' -d '{"accounts": [
         {"identity": "A6ux…", "permission": "writer", "metadata": {"name": "Alice"}}]}'
 ```
 
@@ -106,7 +106,7 @@ Accept flips the synced status to active on every device and loads the space; it
 
 ```bash
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/acl/ownership \
-  -d '{"newOwner": "A6ux…", "oldOwnerPerm": "admin"}'
+  -H 'Content-Type: application/json' -d '{"newOwner": "A6ux…", "oldOwnerPerm": "admin"}'
 
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/acl/self-remove
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/acl/cancel-join

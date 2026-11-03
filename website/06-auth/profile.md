@@ -31,7 +31,7 @@ curl -s http://127.0.0.1:2046/v1/account
 
 ```bash
 curl -s -X PUT http://127.0.0.1:2046/v1/account/metadata \
-  -d '{"name": "Alice", "description": "writer, reader, occasional debugger"}'
+  -H 'Content-Type: application/json' -d '{"name": "Alice", "description": "writer, reader, occasional debugger"}'
 # → 204
 ```
 
@@ -83,7 +83,7 @@ The picture behind a row's `iconCid` comes from `GET /v1/identities/:identity/ic
 An alpha invite code raises the account's limits. The server signs `{purpose, ownerAnyId, code, ts}` with the account key and posts it to the invite service configured as `access.redeemUrl`, so the key never leaves the server and the client never talks to that service:
 
 ```bash
-curl -s -X POST http://127.0.0.1:2046/v1/account/access-code -d '{"code": "K7QX-4MDP-…"}'
+curl -s -X POST http://127.0.0.1:2046/v1/account/access-code -H 'Content-Type: application/json' -d '{"code": "K7QX-4MDP-…"}'
 # → {"status": "accepted", "redemptionId": "…"}
 
 any account redeem K7QX-4MDP-…

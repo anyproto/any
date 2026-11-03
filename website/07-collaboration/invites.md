@@ -41,7 +41,7 @@ any invite create <spaceId>
 
 ```bash
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/join \
-  -d '{"inviteToken": "5ZHbdx…", "metadata": {"name": "Bob", "iconCid": "…"}}'
+  -H 'Content-Type: application/json' -d '{"inviteToken": "5ZHbdx…", "metadata": {"name": "Bob", "iconCid": "…"}}'
 # → 202 SpaceInfo   (status "joining")
 ```
 

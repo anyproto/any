@@ -64,16 +64,16 @@ A managed server reports every capability `true` and an empty `accounts` list �
 
 ```bash
 # generate
-curl -s -X POST http://127.0.0.1:2046/v1/auth -d '{}'
+curl -s -X POST http://127.0.0.1:2046/v1/auth -H 'Content-Type: application/json' -d '{}'
 # restore at index 1 (device key freshly generated)
-curl -s -X POST http://127.0.0.1:2046/v1/auth -d '{"mnemonic": "w1 … w12"}'
+curl -s -X POST http://127.0.0.1:2046/v1/auth -H 'Content-Type: application/json' -d '{"mnemonic": "w1 … w12"}'
 # restore an anytype-derived account
-curl -s -X POST http://127.0.0.1:2046/v1/auth -d '{"mnemonic": "w1 … w12", "index": 0}'
+curl -s -X POST http://127.0.0.1:2046/v1/auth -H 'Content-Type: application/json' -d '{"mnemonic": "w1 … w12", "index": 0}'
 # select a wallet already on disk (standalone only)
-curl -s -X POST http://127.0.0.1:2046/v1/auth -d '{"accountId": "A8g1…"}'
+curl -s -X POST http://127.0.0.1:2046/v1/auth -H 'Content-Type: application/json' -d '{"accountId": "A8g1…"}'
 # managed: switch to another account in place
 curl -s -X POST http://127.0.0.1:2046/v1/auth -H "X-Any-Control-Token: $TOKEN" \
-     -d '{"mnemonic": "w1 … w12", "replace": true}'
+     -H 'Content-Type: application/json' -d '{"mnemonic": "w1 … w12", "replace": true}'
 ```
 
 ```json

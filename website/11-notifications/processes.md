@@ -50,7 +50,7 @@ curl -X POST $B/processes -H 'Content-Type: application/json' \
   -d '{"id":"import-7f3a","kind":"import","title":"Importing notes.zip","scope":"space","spaceId":"SPACE"}'
 curl -X POST $B/processes/import-7f3a/progress -H 'Content-Type: application/json' \
   -d '{"done":120,"total":900,"message":"pages"}'
-curl -X POST $B/processes/import-7f3a/progress -d '{}'          # heartbeat
+curl -X POST $B/processes/import-7f3a/progress -H 'Content-Type: application/json' -d '{}'          # heartbeat
 curl -X POST $B/processes/import-7f3a/finish -H 'Content-Type: application/json' \
   -d '{"status":"done"}'
 

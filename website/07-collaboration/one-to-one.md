@@ -22,7 +22,7 @@ The peer's identity is the `id` from their `GET /v1/account`, exchanged out of b
 
 ```bash
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/one-to-one \
-  -d '{"otherIdentity": "A5k…"}'
+  -H 'Content-Type: application/json' -d '{"otherIdentity": "A5k…"}'
 # → 201 SpaceInfo  (status "active", spaceType "any.onetoone")
 ```
 
@@ -67,7 +67,7 @@ Because the ACL is immutable there is nothing to accept *cryptographically*. "Ap
 
 ```bash
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/one-to-one/register-incoming \
-  -d '{"peerIdentity": "A5k…", "displayHint": {"name": "Alice", "iconCid": "…"}}'
+  -H 'Content-Type: application/json' -d '{"peerIdentity": "A5k…", "displayHint": {"name": "Alice", "iconCid": "…"}}'
 # → 204, idempotent — no-op when a row already exists
 ```
 
@@ -98,7 +98,7 @@ There is no bespoke inbox endpoint. Pending requests are rows in the space list,
 ```bash
 curl -s "http://127.0.0.1:2046/v1/spaces?status=one_to_one_pending"        # snapshot
 curl -s -N -X POST http://127.0.0.1:2046/v1/spaces/query/subscribe \
-  -d '{"filter": {"localStatus": "oneToOnePending"}, "sort": ["-createdAt"], "limit": 50}'   # live
+  -H 'Content-Type: application/json' -d '{"filter": {"localStatus": "oneToOnePending"}, "sort": ["-createdAt"], "limit": 50}'   # live
 ```
 
 ```bash

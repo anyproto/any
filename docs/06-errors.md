@@ -31,7 +31,7 @@ Every error response — regardless of status code — has the same body:
 | 409    | Conflict (duplicate, precondition failed, state not ready)     |
 | 410    | Deleted for good (`object.deleted`, `record.deleted`, `invite.revoked`) |
 | 413    | Body over the 1 MiB cap (`request.too_large`; file attach and the avatar upload are exempt), `account.icon_too_large`, or `history.view_too_large` |
-| 415    | `account.icon_not_image` — the avatar upload is not one of the accepted image formats (by signature; SVG refused) |
+| 415    | `request.unsupported_media_type` — a body that is not `application/json`; `account.icon_not_image` — the avatar upload is not one of the accepted image formats (by signature; SVG refused) |
 | 429    | `access.rate_limited`                                          |
 | 500    | Internal error — unexpected SDK or server failure              |
 | 501    | `sdk.not_implemented` — `DELETE …/types/:typeId`, `DELETE …/collections/:collectionId` and `GET …/sync-status/peers` |
@@ -65,6 +65,7 @@ request.bad                      # 400 — rejected by the HTTP layer before a h
 request.not_found                # 404 — no such route
 request.method_not_allowed       # 405 — the route exists, not with this method
 request.too_large                # 413 — body over the 1 MiB cap
+request.unsupported_media_type   # 415 — a body whose Content-Type is missing or not application/json (file attach, the avatar upload and the local-store import take raw bodies)
 
 auth.required                    # 401 — server unauthorized; POST /v1/auth first
 auth.already_authorized          # 409 — `{}` while an account runs; a fresh account is never minted in place

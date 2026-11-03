@@ -81,7 +81,7 @@ Display parts patch through `PATCH …/datasets/:defId` with the same `{set, uns
 
 ```sh
 curl -X PATCH http://127.0.0.1:2046/v1/spaces/$SPACE/types/$TYPE/datasets/$DEF \
-  -d '{"set": {"displayName": "Posts", "search.text": ["body", "notes"]}}'
+  -H 'Content-Type: application/json' -d '{"set": {"displayName": "Posts", "search.text": ["body", "notes"]}}'
 
 any type part dataset patch $SPACE $TYPE $DEF --set '{"displayName":"Posts"}'
 ```
