@@ -90,7 +90,7 @@ func TestServer_CatalogListAndGet(t *testing.T) {
 	for _, u := range list.Usecases {
 		ids[u.Id] = u
 	}
-	for _, want := range []string{"wiki", "collections", "journal", "meetings", "general-chat", "people", "contact", "contacts", "crm"} {
+	for _, want := range []string{"wiki", "library-rows", "collections", "journal", "meetings", "general-chat", "people", "contact", "contacts", "crm"} {
 		if _, ok := ids[want]; !ok {
 			t.Fatalf("usecase %s missing from the list", want)
 		}
@@ -101,9 +101,8 @@ func TestServer_CatalogListAndGet(t *testing.T) {
 
 	var wiki api.CatalogUsecase
 	decodeGet(t, e, "/v1/catalog/wiki", &wiki)
-	// The wiki files pages it does not type: it declares a COLLECTION,
-	// next to the hidden type of its Library rows.
-	if len(wiki.Bundles) != 2 || wiki.Bundles[1].Id != "system:library-row/v1" || wiki.Bundles[0].Id != "system:wiki/v1" || wiki.Bundles[0].Type != nil ||
+	// The wiki files pages it does not type: it declares a COLLECTION.
+	if len(wiki.Bundles) != 1 || wiki.Bundles[0].Id != "system:wiki/v1" || wiki.Bundles[0].Type != nil ||
 		wiki.Bundles[0].Collection == nil || wiki.Bundles[0].Collection.XKey != "wiki" || !wiki.Bundles[0].Hidden {
 		t.Fatalf("wiki entry: %+v", wiki)
 	}
@@ -346,7 +345,7 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 	sp := createSpaceInfo(t, e, "CatalogWiki")
 
 	res := setupUsecase(t, e, "wiki", sp.Id)
-	if res.Usecase != "wiki" || len(res.Bundles) != 2 {
+	if res.Usecase != "wiki" || len(res.Bundles) != 1 {
 		t.Fatalf("reply: %+v", res)
 	}
 	b := res.Bundles[0]
@@ -472,29 +471,49 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 		t.Fatalf("wiki page membership: type=%q collections=%v", rowType(fr), rowCollections(fr))
 	}
 
-	// A Library row is an object of the hidden library_row type, placed
-	// by the wiki; `opens` lives on the type and stays out of search.
-	lr := res.Bundles[1]
-	if lr.Id != "system:library-row/v1" || lr.TypeId == "" || lr.TypeId != lr.Bundle.RootId || lr.Properties["opens"] == "" {
+}
+
+// TestServer_CatalogSetupLibraryRows pins the Library row type: derived and
+// hidden, set up after the wiki it requires, carrying `opens` out of search.
+func TestServer_CatalogSetupLibraryRows(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	sp := createSpaceInfo(t, e, "CatalogLibraryRows")
+
+	res := setupUsecase(t, e, "library-rows", sp.Id)
+	if len(res.Bundles) != 2 || res.Bundles[0].Id != "system:wiki/v1" {
+		t.Fatalf("library-rows setup: %+v", res.Bundles)
+	}
+	wiki, lr := res.Bundles[0], res.Bundles[1]
+	if lr.Id != "system:library-row/v1" || !lr.Installed || !lr.Bundle.Derived || lr.TypeId == "" ||
+		lr.TypeId != lr.Bundle.RootId || lr.Properties["opens"] == "" || lr.Miniapp != nil {
 		t.Fatalf("library-row bundle: %+v", lr)
 	}
-	var lrInfo api.TypeInfo
-	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+lr.TypeId, &lrInfo)
-	if lrInfo.XKey != "library_row" || !lrInfo.Hidden {
-		t.Fatalf("library_row type info: %+v", lrInfo)
+	var info api.TypeInfo
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+lr.TypeId, &info)
+	if info.XKey != "library_row" || !info.Hidden || !strings.Contains(string(info.Layout), `"library_row"`) {
+		t.Fatalf("library_row type info: %+v", info)
 	}
-	var lrProps api.PropertiesListResponse
-	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+lr.TypeId+"/properties", &lrProps)
-	if len(lrProps.Properties) != 1 || lrProps.Properties[0].XKey != "opens" || lrProps.Properties[0].Meta["index"] != "none" {
-		t.Fatalf("library_row properties: %+v", lrProps.Properties)
+	var props api.PropertiesListResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+lr.TypeId+"/properties", &props)
+	if len(props.Properties) != 1 || props.Properties[0].XKey != "opens" || props.Properties[0].Meta["index"] != "none" {
+		t.Fatalf("library_row properties: %+v", props.Properties)
 	}
-	opensProp := lr.Properties["opens"]
-	libRow := mustCreateObject(t, e, sp.Id, `{"type":"`+lr.TypeId+`","collections":["`+wikiId+`"],"initialProperties":{"any":{"name":"Recents"},"`+
-		lr.TypeId+`":{"`+opensProp+`":"library/recent"},"`+wikiId+`":{"`+parentProp+`":"","`+posProp+`":"a2"}}}`)
-	rr := objectRow(t, e, sp.Id, libRow)
+
+	// A row is an object of the type, named and placed by the wiki.
+	wikiId, opensProp := wiki.CollectionId, lr.Properties["opens"]
+	row := mustCreateObject(t, e, sp.Id, `{"type":"`+lr.TypeId+`","collections":["`+wikiId+`"],"initialProperties":{"any":{"name":"Recents"},"`+
+		lr.TypeId+`":{"`+opensProp+`":"library/recent"},"`+wikiId+`":{"`+wiki.Properties["parentId"]+`":"","`+wiki.Properties["pos"]+`":"a0"}}}`)
+	rr := objectRow(t, e, sp.Id, row)
 	if ns, _ := rr[lr.TypeId].(map[string]any); ns[opensProp] != "library/recent" || rowType(rr) != lr.TypeId ||
 		!slices.Contains(rowCollections(rr), wikiId) {
 		t.Fatalf("library row: %v", rr)
+	}
+
+	again := setupUsecase(t, e, "library-rows", sp.Id)
+	if len(again.Bundles) != 2 || again.Bundles[1].Installed || again.Bundles[1].TypeId != lr.TypeId {
+		t.Fatalf("second setup: %+v", again.Bundles)
 	}
 }
 

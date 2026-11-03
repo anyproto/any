@@ -26,7 +26,7 @@ usecases:
   #    filed under (a page keeps its own type). Hidden: the app files them.
   - id: wiki
     name: Wiki
-    description: A tree of pages — parent link, sibling order, folder flag, and rows that open a Library page
+    description: A tree of pages — parent link, sibling order and folder flag
     bundles:
       - id: system:wiki/v1
         name: Wiki
@@ -38,8 +38,18 @@ usecases:
             - { xKey: parentId, name: Parent,   kind: string,  meta: { index: none } }
             - { xKey: pos,      name: Position, kind: string,  meta: { index: none } }
             - { xKey: folder,   name: Folder,   kind: boolean, xFormat: { type: checkbox } }
-      - id: system:library-row/v1                # a tree row that opens a Library page, not a page
+
+  # ── Library rows: tree rows that open a Library page instead of a body. A
+  #    usecase of their own, so a wiki setup never depends on it; derived, so
+  #    the row type has one id on every device and rows never escape its filter.
+  - id: library-rows
+    name: Library rows
+    description: Wiki rows that open a Library page
+    requires: [ wiki ]
+    bundles:
+      - id: system:library-row/v1
         name: Library row
+        derived: true
         hidden: true
         type:
           xKey: library_row

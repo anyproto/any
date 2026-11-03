@@ -89,13 +89,15 @@ exclusion.
 **Created roots, one exception.** Every catalog root is a created
 root: deletable (`DELETE …/objects/:rootId` uninstalls it), forking
 when two devices of one account install while apart (§ Forks). The
-general chat is the one `derived: true` bundle — chat content cannot
-be merged across objects (`creator` / `createdAt` come from the change
-envelope), and a 1-1 space has no owner to break a tie — so its root
-is a function of (space, bundle id): it never forks and can never be
-deleted (`409 object.derived_undeletable`). It is the space's
-well-known chat, not its only one: any type may declare the chat
-module (`16-chat.md` § Finding the chat object for a space).
+general chat and the Library row type are the `derived: true`
+bundles, so their roots are a function of (space, bundle id): they
+never fork and can never be deleted (`409 object.derived_undeletable`).
+Chat content cannot be merged across objects (`creator` / `createdAt`
+come from the change envelope), and a 1-1 space has no owner to break
+a tie. Every Library row carries the row type's id, and clients filter
+rows out by it, so it must be one id on every device. The general chat
+is the space's well-known chat, not its only one: any type may declare
+the chat module (`16-chat.md` § Finding the chat object for a space).
 
 **Naming.** Usecase ids are slugs (`[a-z][a-z0-9-]*`: `wiki`,
 `general-chat`, `contacts`); they never enter a space and need no
@@ -126,16 +128,13 @@ POST /v1/catalog/:usecaseId/setup   → 200 CatalogSetupResponse
 `CatalogUsecase` is the entry as the catalog declares it:
 
 ```jsonc
-{ "id": "wiki", "name": "Wiki", "description": "A tree of pages — parent link, sibling order, folder flag, and rows that open a Library page",
+{ "id": "wiki", "name": "Wiki", "description": "A tree of pages — parent link, sibling order and folder flag",
   "bundles": [ { "id": "system:wiki/v1", "name": "Wiki", "hidden": true,
                  "miniapp": { "bundle": "system:wiki/v1" },
                  "collection": { "xKey": "wiki",
                                  "properties": [ { "xKey": "parentId", "name": "Parent",   "kind": "string",  "meta": { "index": "none" } },
                                                  { "xKey": "pos",      "name": "Position", "kind": "string",  "meta": { "index": "none" } },
-                                                 { "xKey": "folder",   "name": "Folder",   "kind": "boolean", "xFormat": { "type": "checkbox" } } ] } },
-               { "id": "system:library-row/v1", "name": "Library row", "hidden": true,
-                 "type": { "xKey": "library_row", "layout": { "type": "library_row" },
-                           "properties": [ { "xKey": "opens", "name": "Opens", "kind": "string", "meta": { "index": "none" } } ] } } ] }
+                                                 { "xKey": "folder",   "name": "Folder",   "kind": "boolean", "xFormat": { "type": "checkbox" } } ] } } ] }
 ```
 
 `description` and `requires` are present when non-empty;
@@ -166,7 +165,7 @@ dependencies first, the requested usecase's bundles last:
 Per bundle: `usecase` (the entry it belongs to — the requested one or
 a dependency), `id`, `bundle` (the converged registry row, the
 `03-api.md` § Bundles shape), `installed` (this call registered the
-root; for the derived chat, two devices can both report `true` for the
+root; for a derived bundle, two devices can both report `true` for the
 one root they share), and when the bundle declares a definition the
 root id under the slot it declares — `collectionId` for a
 `collection` bundle, `typeId` for a `type` or `parts` one — plus
@@ -226,8 +225,9 @@ the registry's state.
 
 Who may do what: when the wait cannot complete, the space's **owner**
 installs anyway (only this account's own devices could compete, and
-the registry converges those), and so does every member for the
-derived chat (its root cannot fork); any other member is
+the registry converges those), and so does every member for a
+derived bundle, the general chat or the Library row type (its root
+cannot fork); any other member is
 `409 bundle.not_ready` and retries when the network is back — so a
 space set up by its owner before sharing spares joiners the wait. A
 member without write permission adopts but cannot install (`403` on
@@ -324,7 +324,8 @@ and `GET …/collections?includeHidden=true`.
 
 ## Forks
 
-Every catalog root except the chat is a created root, so two devices
+Every catalog root except the general chat and the Library row type
+is a created root, so two devices
 of one account that set a usecase up while apart each mint a root —
 two `profile` types with one xKey. After sync the registry names one
 winner and lists the other in `losers`; objects that had the loser
@@ -439,7 +440,6 @@ schema).
 | usecase | requires | bundle | declares |
 |---|---|---|---|
 | `wiki` | — | `system:wiki/v1` | collection `wiki` (hidden; `parentId`, `pos` — both kept out of the search index — and `folder`, a checkbox) + miniapp |
-| | | `system:library-row/v1` | hidden type `library_row` (layout `library_row`; `opens`, kept out of the search index) — a tree row that opens a Library page (§ Library rows) |
 | `collections` | — | `system:collections/v1` | miniapp only, a `page` root — a feature switch: installing it turns on working with types in clients; it declares none of its own |
 | `journal` | — | `system:journal/v2` | collection `journal` (hidden; one `date`, a `date`-slug datetime) + miniapp — an entry is a `page` filed under it, one per day; supersedes `system:journal/v1` |
 | | | `system:journal/v1` | superseded: type `journal` with the same `date` + editor `body` part + miniapp |
@@ -454,6 +454,7 @@ schema).
 | `bookmarks` | — | `system:bookmark-folder/v1` | collection `bookmark_folder` (`meta.defaultType: page`; `parent` → `bookmark_folder`, single, and `position`) — a folder is a `page` filed under it and sits inside at most one other folder |
 | | | `system:bookmark/v1` | type `bookmark` (layout `bookmark`; `url`, `folder` → `bookmark_folder`, single, `archived`, `position`) + editor `body` part for the reader's notes — a bookmark is listed like a task; starring is the [native favorites](25-favorites.md) |
 | | | `system:bookmarks/v1` | miniapp only, a `page` root — the sidebar entry that opens Bookmarks |
+| `library-rows` | `wiki` | `system:library-row/v1` | derived, hidden; type `library_row` (layout `library_row`; `opens`, kept out of the search index) — a tree row that opens a Library page (§ Library rows) |
 | `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one `chat` part hosted by the root itself, + miniapp, so the chat is a sidebar entry |
 | `people` | — | `system:profile/v1` | type `profile` (layout `profile`, no properties) + editor `body` part — the one format a person and an organisation share; supersedes `system:person/v1` and `system:organization/v1` |
 | | | `system:person/v2` | collection `person` (`meta.defaultType: profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags); supersedes `system:person/v1` |
@@ -472,7 +473,7 @@ schema).
 | | | `system:deal/v1` | superseded: type `deal` (layout `profile`) with the same properties + editor `body` part |
 | | | `system:crm/v1` | miniapp only, a `page` root |
 
-Seventeen usecases, thirty-three bundles, six of them superseded. What a
+Eighteen usecases, thirty-three bundles, six of them superseded. What a
 space set up today receives is six types — `meeting`, `task`,
 `bookmark`, `general_chat`, `profile`, `library_row` — and fifteen
 collections with an xKey. A
@@ -547,9 +548,11 @@ the same owner (`03-api.md` § The wiki tree).
 
 **Library rows.** The Library is a client's set of pages over the whole
 space; three of them can sit in the tree as rows of their own. A row
-is an object of the hidden `library_row` type (`typeId` and
-`properties.opens` from the `system:library-row/v1` entry of the same
-setup), named, filed under the wiki and placed like a page:
+is an object of the hidden `library_row` type, named, filed under the
+wiki and placed like a page. Its `typeId` and `properties.opens` come
+from `POST /v1/catalog/library-rows/setup`, which a writer's client
+runs when it adds the first row; a reader reads
+`GET …/bundles/system%3Alibrary-row%2Fv1`, and no bundle means no rows.
 
 ```
 POST /v1/spaces/:spaceId/objects
