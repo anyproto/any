@@ -543,24 +543,28 @@ definition — does not match itself. A move is one property write under
 the same owner (`03-api.md` § The wiki tree).
 
 **A Library row is a wiki page whose `opens` names a Library page.**
-A client can place three of its Library pages in the tree as rows of
-their own. Such a row is the create above, a `page` placed by
-`parentId` and `pos`, with `opens` set:
+The Library is a client's set of pages over the whole space; three of
+them can sit in the tree as rows of their own. Such a row is the
+create above, a `page` placed by `parentId` and `pos`, with a
+non-empty `opens` and an `any.name`:
 
 | `opens` | the row opens |
 |---|---|
-| `library/recent` | Recents |
-| `library/types` | the page of every type |
-| `library/supertags` | the page of every supertag |
+| `library/recent` | Recents: the space's objects by when they were last edited or viewed |
+| `library/types` | the page of every type in the space |
+| `library/supertags` | the page of every collection in the space (supertags, in the product's words) |
 
-A Library row is a leaf: nothing is filed under it, and it opens its
-Library page instead of a body. A client draws the Library's own name
-for it; the stored `any.name` is what a client without that page
-shows. Each page sits in a tree once: a client adding one first looks
-for a row with the same `opens`. The row is an object of the space, so
-object queries and `/search` return it, and a client listing pages
-leaves out the rows with `opens` set. Removing a row deletes its
-object.
+Any other page carries no `opens`. A Library row is a leaf that opens
+its Library page instead of a body: `opens` wins over `folder` and a
+body, and a page whose `parentId` names the row is drawn at the row's
+own level. A client draws the Library's own name for the row; the
+stored `any.name` is what a client without that page shows. Each page
+sits in a tree once: a client adding one first looks for a row with
+the same `opens`, and rows made apart render as one, the lowest object
+id at its place. The row is an object of the space, so object queries
+and `/search` return it: a client leaves rows with a non-empty `opens`
+out of page lists, Recents, search results and pickers. Removing a
+row deletes its object.
 
 **Journal** is one dated page per day: an entry's type is `journal`,
 with a `date` value (a `date` slug on `kind: datetime` — midnight

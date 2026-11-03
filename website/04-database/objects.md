@@ -93,7 +93,7 @@ An illustrative row for a page filed under the wiki collection:
 
 ## The wiki tree
 
-The space's tree is the catalog usecase `wiki`: a hidden **collection** whose three columns place any object filed under it. There is no built-in tree type, nothing is stamped on create, and there is no tree endpoint. Set it up once per space and keep the reply — every client, device and member lands on the same ids:
+The space's tree is the catalog usecase `wiki`: a hidden **collection** whose columns place any object filed under it. There is no built-in tree type, nothing is stamped on create, and there is no tree endpoint. Set it up once per space and keep the reply — every client, device and member lands on the same ids:
 
 ```bash
 curl -X POST http://127.0.0.1:2046/v1/catalog/wiki/setup \
@@ -116,7 +116,7 @@ curl -X POST http://127.0.0.1:2046/v1/catalog/wiki/setup \
 | `folder` | boolean | `true` for a folder. |
 | `opens` | string | On a Library row, the Library page it opens: `library/recent`, `library/types` or `library/supertags`. |
 
-An object is in the tree only while it is filed under the wiki collection; its placement is ordinary property values at `<wikiCollectionId>.<propId>`. A page in the tree has `page` as its type for the body and the wiki collection for its place; a folder is the same create with `folder` true. What type a tree object has is up to you — the wiki collection only places it.
+An object is in the tree only while it is filed under the wiki collection; its placement is ordinary property values at `<wikiCollectionId>.<propId>`. A page in the tree has `page` as its type for the body and the wiki collection for its place; a folder is the same create with `folder` true. What type a tree object has is up to you — the wiki collection only places it. A Library row is a `page` with `opens` set and a name: a leaf that opens a Library page instead of a body. Clients keep it out of page lists, Recents, search results and pickers, and draw one row per page.
 
 ```bash
 # $WIKI, $PARENT_ID, $POS, $FOLDER: collectionId and properties.* from the setup reply

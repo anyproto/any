@@ -335,7 +335,7 @@ func TestServer_CatalogSetupMeetings(t *testing.T) {
 }
 
 // TestServer_CatalogSetupWiki pins the one-object shape: the root is
-// the wiki COLLECTION (hidden, xKey wiki, three columns by handle) AND
+// the wiki COLLECTION (hidden, xKey wiki, four columns by handle) AND
 // the miniapp entry, and a second setup adopts it unchanged. A page
 // keeps its own type and is filed under the collection.
 func TestServer_CatalogSetupWiki(t *testing.T) {
@@ -473,7 +473,7 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 
 	// A Library row is a page in the tree with `opens` naming the page.
 	opensProp := b.Properties["opens"]
-	lib := mustCreateObject(t, e, sp.Id, `{"type":"page","collections":["`+wikiId+`"],"initialProperties":{"`+wikiId+
+	lib := mustCreateObject(t, e, sp.Id, `{"type":"page","collections":["`+wikiId+`"],"initialProperties":{"any":{"name":"Supertags"},"`+wikiId+
 		`":{"`+parentProp+`":"`+folder+`","`+posProp+`":"a1","`+opensProp+`":"library/supertags"}}}`)
 	if got := objectRow(t, e, sp.Id, lib)[wikiId].(map[string]any)[opensProp]; got != "library/supertags" {
 		t.Fatalf("opens not stored: %v", got)
@@ -797,6 +797,40 @@ usecases:
         rootType: page
         miniapp: {}
 `
+
+// A collection root heals a property the catalog added later, as a type
+// root does: the wiki gaining a column reaches an existing install.
+func TestServer_CatalogHealCollectionProperty(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	sp := createSpaceInfo(t, e, "CatalogHealCollection")
+
+	const tree = `
+usecases:
+  - id: seam-tree
+    name: Tree
+    bundles:
+      - id: system:seam-tree/v1
+        name: Tree
+        hidden: true
+        collection:
+          xKey: seam_tree
+          properties:
+            - { xKey: parentId, name: Parent, kind: string, meta: { index: none } }
+`
+	d.catalog = catalogForTest(t, tree)
+	v1 := setupUsecase(t, e, "seam-tree", sp.Id).Bundles[0]
+	if v1.CollectionId == "" || v1.Properties["parentId"] == "" || v1.Properties["opens"] != "" {
+		t.Fatalf("v1: %+v", v1)
+	}
+	d.catalog = catalogForTest(t, tree+"            - { xKey: opens, name: Opens, kind: string, meta: { index: none } }\n")
+	v2 := setupUsecase(t, e, "seam-tree", sp.Id).Bundles[0]
+	if v2.Installed || v2.CollectionId != v1.CollectionId || v2.Properties["parentId"] != v1.Properties["parentId"] ||
+		v2.Properties["opens"] == "" {
+		t.Fatalf("collection property heal: %+v", v2)
+	}
+}
 
 func TestServer_CatalogEvolution(t *testing.T) {
 	d, teardown := newTestDeps(t)
