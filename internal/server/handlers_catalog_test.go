@@ -354,7 +354,7 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 		t.Fatalf("wiki bundle: %+v", b)
 	}
 	wikiId := b.CollectionId
-	for _, xk := range []string{"parentId", "pos", "folder"} {
+	for _, xk := range []string{"parentId", "pos", "folder", "opens"} {
 		if b.Properties[xk] == "" {
 			t.Fatalf("property %s unresolved: %+v", xk, b.Properties)
 		}
@@ -469,6 +469,14 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 	// The page keeps its own type; the wiki is only where it is filed.
 	if rowType(fr) != "page" || !slices.Contains(rowCollections(fr), wikiId) {
 		t.Fatalf("wiki page membership: type=%q collections=%v", rowType(fr), rowCollections(fr))
+	}
+
+	// A Library row is a page in the tree with `opens` naming the page.
+	opensProp := b.Properties["opens"]
+	lib := mustCreateObject(t, e, sp.Id, `{"type":"page","collections":["`+wikiId+`"],"initialProperties":{"`+wikiId+
+		`":{"`+parentProp+`":"`+folder+`","`+posProp+`":"a1","`+opensProp+`":"library/supertags"}}}`)
+	if got := objectRow(t, e, sp.Id, lib)[wikiId].(map[string]any)[opensProp]; got != "library/supertags" {
+		t.Fatalf("opens not stored: %v", got)
 	}
 }
 

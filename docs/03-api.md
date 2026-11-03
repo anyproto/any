@@ -2019,10 +2019,11 @@ POST /v1/catalog/wiki/setup   {"spaceId": "<spaceId>"}
     properties.parentId   # <parentIdPropId> — string; "" = top level
     properties.pos        # <posPropId>      — lexid string; orders siblings
     properties.folder     # <folderPropId>   — boolean
+    properties.opens      # <opensPropId>    — string; the Library page a row opens
 ```
 
 An object is in the tree only while it is filed under the wiki
-collection; its placement is three ordinary property values at
+collection; its placement is ordinary property values at
 `<wikiCollectionId>.<propId>`, written like any other property. A page
 in the tree has `page` as its type for the body and the wiki
 collection for its place:
@@ -2039,7 +2040,9 @@ POST /v1/spaces/:spaceId/objects
 ```
 
 A folder is the same create with `<folderPropId>` `true`. What type a tree object has is the client's choice — the wiki
-collection only places it.
+collection only places it. A row that opens one of the client's
+Library pages instead of a body is a `page` with `<opensPropId>` set
+(`28-well-known-bundles.md` § Shipped usecases).
 
 Children of a node, in order (`""` as the parent lists the top level):
 
@@ -2054,7 +2057,7 @@ POST /v1/spaces/:spaceId/objects/query
 ```
 
 The columns are ordinary properties: unindexed on the `objects`
-storage collection (a scan, `09-query.md` § Indexes); `parentId` and `pos` are
+storage collection (a scan, `09-query.md` § Indexes); `parentId`, `pos` and `opens` are
 kept out of search with `meta.index: none` and are plain strings
 rather than relations, so `/backlinks` never reports a parent link
 (`folder`, a boolean, is never indexed at all).

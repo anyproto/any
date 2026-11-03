@@ -126,13 +126,14 @@ POST /v1/catalog/:usecaseId/setup   → 200 CatalogSetupResponse
 `CatalogUsecase` is the entry as the catalog declares it:
 
 ```jsonc
-{ "id": "wiki", "name": "Wiki", "description": "A tree of pages — parent link, sibling order and folder flag",
+{ "id": "wiki", "name": "Wiki", "description": "A tree of pages — parent link, sibling order, folder flag and the Library page a row opens",
   "bundles": [ { "id": "system:wiki/v1", "name": "Wiki", "hidden": true,
                  "miniapp": { "bundle": "system:wiki/v1" },
                  "collection": { "xKey": "wiki",
                                  "properties": [ { "xKey": "parentId", "name": "Parent",   "kind": "string",  "meta": { "index": "none" } },
                                                  { "xKey": "pos",      "name": "Position", "kind": "string",  "meta": { "index": "none" } },
-                                                 { "xKey": "folder",   "name": "Folder",   "kind": "boolean", "xFormat": { "type": "checkbox" } } ] } } ] }
+                                                 { "xKey": "folder",   "name": "Folder",   "kind": "boolean", "xFormat": { "type": "checkbox" } },
+                                                 { "xKey": "opens",    "name": "Opens",    "kind": "string",  "meta": { "index": "none" } } ] } } ] }
 ```
 
 `description` and `requires` are present when non-empty;
@@ -435,7 +436,7 @@ schema).
 
 | usecase | requires | bundle | declares |
 |---|---|---|---|
-| `wiki` | — | `system:wiki/v1` | collection `wiki` (hidden; `parentId`, `pos` — both kept out of the search index — and `folder`, a checkbox) + miniapp |
+| `wiki` | — | `system:wiki/v1` | collection `wiki` (hidden; `parentId`, `pos` and `opens` — kept out of the search index — and `folder`, a checkbox) + miniapp |
 | `collections` | — | `system:collections/v1` | miniapp only, a `page` root — a feature switch: installing it turns on working with types in clients; it declares none of its own |
 | `journal` | — | `system:journal/v2` | collection `journal` (hidden; one `date`, a `date`-slug datetime) + miniapp — an entry is a `page` filed under it, one per day; supersedes `system:journal/v1` |
 | | | `system:journal/v1` | superseded: type `journal` with the same `date` + editor `body` part + miniapp |
@@ -540,6 +541,26 @@ on `<wikiCollectionId>.<posPropId>`; the whole tree is
 `{"any.collections": "<wikiCollectionId>"}`, which the wiki root — the
 definition — does not match itself. A move is one property write under
 the same owner (`03-api.md` § The wiki tree).
+
+**A Library row is a wiki page whose `opens` names a Library page.**
+A client can place three of its Library pages in the tree as rows of
+their own. Such a row is the create above, a `page` placed by
+`parentId` and `pos`, with `opens` set:
+
+| `opens` | the row opens |
+|---|---|
+| `library/recent` | Recents |
+| `library/types` | the page of every type |
+| `library/supertags` | the page of every supertag |
+
+A Library row is a leaf: nothing is filed under it, and it opens its
+Library page instead of a body. A client draws the Library's own name
+for it; the stored `any.name` is what a client without that page
+shows. Each page sits in a tree once: a client adding one first looks
+for a row with the same `opens`. The row is an object of the space, so
+object queries and `/search` return it, and a client listing pages
+leaves out the rows with `opens` set. Removing a row deletes its
+object.
 
 **Journal** is one dated page per day: an entry's type is `journal`,
 with a `date` value (a `date` slug on `kind: datetime` — midnight

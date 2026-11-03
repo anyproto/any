@@ -26,7 +26,7 @@ usecases:
   #    filed under (a page keeps its own type). Hidden: the app files them.
   - id: wiki
     name: Wiki
-    description: A tree of pages — parent link, sibling order and folder flag
+    description: A tree of pages — parent link, sibling order, folder flag and the Library page a row opens
     bundles:
       - id: system:wiki/v1
         name: Wiki
@@ -38,6 +38,7 @@ usecases:
             - { xKey: parentId, name: Parent,   kind: string,  meta: { index: none } }
             - { xKey: pos,      name: Position, kind: string,  meta: { index: none } }
             - { xKey: folder,   name: Folder,   kind: boolean, xFormat: { type: checkbox } }
+            - { xKey: opens,    name: Opens,    kind: string,  meta: { index: none } }
 
   # ── Collections: a miniapp with no types of its own. Installing it turns
   #    the types feature on in clients — create, view and manage objects by
