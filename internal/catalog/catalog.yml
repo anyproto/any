@@ -296,7 +296,7 @@ usecases:
             datasets:
               - key: entries
                 idRule: user
-                idPattern: '^(settings|[a-z]:.+)$'
+                idPattern: '^(settings|f:[A-Za-z0-9_-]{1,64}|[a-eg-z]:.+)$'
                 idMaxLen: 256
                 dynamic: true
                 fields:
@@ -312,7 +312,6 @@ usecases:
                   - { key: parentId,           kind: string,  mutableBy: any }
                   - { key: opensWith,          kind: string,  mutableBy: any }
                   - { key: opensTo,            kind: string,  mutableBy: any }
-                  - { key: opensToId,          kind: string,  mutableBy: any }
                   - { key: editRowHidden,      kind: boolean, mutableBy: any }
                   - { key: addWidgetRowHidden, kind: boolean, mutableBy: any }
                   - { key: overviewHidden,     kind: boolean, mutableBy: any }

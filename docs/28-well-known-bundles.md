@@ -165,7 +165,7 @@ dependencies first, the requested usecase's bundles last:
 Per bundle: `usecase` (the entry it belongs to — the requested one or
 a dependency), `id`, `bundle` (the converged registry row, the
 `03-api.md` § Bundles shape), `installed` (this call registered the
-root; for the derived chat, two devices can both report `true` for the
+root; for a derived bundle, two devices can both report `true` for the
 one root they share), and when the bundle declares a definition the
 root id under the slot it declares — `collectionId` for a
 `collection` bundle, `typeId` for a `type` or `parts` one — plus
@@ -225,8 +225,9 @@ the registry's state.
 
 Who may do what: when the wait cannot complete, the space's **owner**
 installs anyway (only this account's own devices could compete, and
-the registry converges those), and so does every member for the
-derived chat (its root cannot fork); any other member is
+the registry converges those), and so does every member for a
+derived bundle, the general chat or the Overview (its root cannot
+fork); any other member is
 `409 bundle.not_ready` and retries when the network is back — so a
 space set up by its owner before sharing spares joiners the wait. A
 member without write permission adopts but cannot install (`403` on
@@ -609,8 +610,8 @@ the storage collection is `<rootId>_entries`, read off
 writer changes one: the client then runs
 `POST /v1/catalog/overview/setup` and writes. The root is derived, so
 a writer installs it while apart and two installs meet on one root.
-A reader never runs the setup (it answers `403` while the bundle is
-absent). It reads `GET …/bundles/system%3Aoverview%2Fv1` instead, and
+A reader never runs the setup (while the bundle is absent it answers
+`403`, after the registry wait). It reads `GET …/bundles/system%3Aoverview%2Fv1` instead, and
 no bundle means the client's defaults. A reader's write is
 `403 space.read_only`, like any write in a space it cannot write.
 
@@ -622,13 +623,15 @@ no bundle means the client's defaults. A reader's write is
 | `w:<source>` | a widget with no target: `w:chat`, `w:tasks`, `w:wiki`, `w:recent` |
 | `w:<source>:<id>` | a widget on a definition or an object: `w:type:<typeId>`, `w:collection:<collectionId>`, `w:object:<objectId>` |
 | `s:<section>` | a section: `s:recent`, `s:supertags`, `s:types`, `s:bin` |
-| `f:<token>` | a supertag folder; the token is client-minted, `[A-Za-z0-9_-]{1,64}` |
+| `f:<token>` | a supertag folder; the token is client-minted |
 | `t:<supertagId>` | a supertag's place in the manual order and in folders |
 
-The dataset admits `settings` and ids with a one-letter prefix, up to
-256 bytes. A client skips an id whose prefix or source it does not
-know. Two writers adding the same widget write one record, merged per
-field.
+The dataset admits `settings`, `f:` with a `[A-Za-z0-9_-]{1,64}`
+token, and ids with any other one-letter prefix, up to 256 bytes. A
+client skips an id whose prefix or source it does not know. Two
+writers adding the same widget write one record, merged per field;
+that holds because the dataset declares no required, stamped or
+author-gated field.
 
 Fields, every one `mutableBy: any`, none required; an absent record or
 field takes the default below:
@@ -646,8 +649,7 @@ field takes the default below:
 | `name` | string | folder | the folder's name |
 | `parentId` | string | folder, supertag | the `f:<token>` it sits in; `""` = top level |
 | `opensWith` | string | settings | the object opened beside the Overview; absent = the space's chat, else its latest page |
-| `opensTo` | string | settings | `last` \| `overview` \| `app` \| `object` |
-| `opensToId` | string | settings | the id `app` or `object` names; none for `last` and `overview` |
+| `opensTo` | string | settings | `last` \| `overview` \| `app:<rootId>`, an app's root object \| `object:<objectId>` |
 | `editRowHidden` | boolean | settings | the "Edit sections" row is off the Overview |
 | `addWidgetRowHidden` | boolean | settings | the "Add widget" row is off the Overview |
 | `overviewHidden` | boolean | settings | the space shows no Overview |
@@ -662,22 +664,34 @@ in every app:
 | `limit` | 10 on `s:recent`, 20 on `s:types` and `s:supertags`, 6 on a widget |
 | `counts` | off on `s:recent`, on on `s:types` and `s:supertags` |
 | `sort` | `name` |
+| `parentId` | `""`, the top level |
 | `editRowHidden`, `addWidgetRowHidden`, `overviewHidden` | `false` |
 
 The dataset is `dynamic`: a field a newer client writes survives an
-older peer. Declaring another field takes a new bundle id (§ Evolution).
+older peer. The declaration is fixed for good: a derived root is never
+replaced, and a bundle superseding it would never reach a space that
+has it (§ Superseding), so a later field rides the `dynamic` keyspace.
 
 **Writes.** `POST …/upsert` with `objectId` = the root and `dataset` =
 `<rootId>_entries` diffs field by field; `POST …/modify` `$set`s the
-changed paths. Remove with `removed: true`, never `delete-records`: a
-deleted id is burned (`upsert.record_deleted`), so the entry could
-never come back. A record holds no lists: an array is replaced whole,
-so two writers who edit one while apart lose a side.
+changed paths. A write that puts an entry on the Overview or in the
+tree sets `removed: false`, so it wins over a removal it has not seen.
+Remove with `removed: true`, never `delete-records`: a deleted id is
+burned (`upsert.record_deleted`), so the entry could never come back.
+Return a field to its default with `modify` `$unset`; `upsert` only
+sets. A record holds no lists: an array is replaced whole, so two
+writers who edit one while apart lose a side.
+
+**The folder tree** is resolved on read, the same way on every
+device: a folder cycle from concurrent moves, or a `parentId` naming a
+folder that is removed or absent, renders at the top level.
 
 **Reads.** `POST …/query/subscribe` on the root and
 `<rootId>_entries` holds the whole Overview live, for readers too.
 While the bundle is absent, a client watches the registry (the
-`bundles` dataset on `spaceIndexObjectId`) for its install.
+`bundles` dataset on `spaceIndexObjectId`) for its install, then reads
+the root off `GET …/bundles/system%3Aoverview%2Fv1`, which applies the
+derived-root verdict.
 
 Per-person state — a folded widget, a reader's own view choices —
 is not in the Overview: it is the account-private per-space settings

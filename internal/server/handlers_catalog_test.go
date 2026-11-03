@@ -513,10 +513,8 @@ func TestServer_CatalogSetupCollectionsAndChat(t *testing.T) {
 	}
 }
 
-// TestServer_CatalogSetupOverview pins the Overview: a derived hidden
-// root that is no sidebar entry, hosting one records dataset keyed by
-// what each entry is, open to undeclared fields, and adopted unchanged
-// by a second setup.
+// TestServer_CatalogSetupOverview pins the Overview: a derived hidden root,
+// no sidebar entry, hosting records keyed by what each entry is.
 func TestServer_CatalogSetupOverview(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -549,19 +547,21 @@ func TestServer_CatalogSetupOverview(t *testing.T) {
 
 	// The root hosts the records; a field no client declared rides along.
 	body := `{"objectId":"` + root + `","dataset":"` + dataset + `","records":[` +
-		`{"id":"settings","fields":{"opensTo":"object","opensToId":"` + root + `","overviewHidden":false}},` +
+		`{"id":"settings","fields":{"opensTo":"object:` + root + `","overviewHidden":false}},` +
 		`{"id":"w:chat","fields":{"pos":"a0","layout":"messages","limit":5}},` +
 		`{"id":"w:object:` + root + `","fields":{"pos":"a1","layout":"link","futureField":"x"}},` +
 		`{"id":"s:bin","fields":{"pos":"a2","removed":true}},` +
 		`{"id":"f:work","fields":{"name":"Work","parentId":"","pos":"a0"}},` +
-		`{"id":"bogus","fields":{"pos":"a3"}}]}`
+		`{"id":"bogus","fields":{"pos":"a3"}},` +
+		`{"id":"f:no spaces","fields":{"name":"Bad"}}]}`
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert", body)
 	var up api.UpsertResult
 	if err := json.Unmarshal(rec.Body.Bytes(), &up); rec.Code != http.StatusOK || err != nil {
 		t.Fatalf("upsert entries: %d %s (%v)", rec.Code, rec.Body.String(), err)
 	}
-	// An id off the pattern (settings or a one-letter prefix) is refused.
-	if up.Created != 5 || len(up.Rejections) != 1 || up.Rejections[0].Id != "bogus" || up.Rejections[0].Code != "upsert.rejected" {
+	// Ids off the pattern are refused: no prefix, or a folder token off its grammar.
+	if up.Created != 5 || len(up.Rejections) != 2 || up.Rejections[0].Id != "bogus" || up.Rejections[1].Id != "f:no spaces" ||
+		up.Rejections[0].Code != "upsert.rejected" {
 		t.Fatalf("upsert result: %+v", up)
 	}
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/query",
