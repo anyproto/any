@@ -4,9 +4,9 @@ go 1.26.2
 
 require (
 	github.com/anyproto/any-store v1.0.3
-	github.com/anyproto/any-store/v2 v2.4.0
+	github.com/anyproto/any-store/v2 v2.4.1
 	github.com/anyproto/any-sync v0.13.8
-	github.com/anyproto/any-sync-sdk v0.6.4
+	github.com/anyproto/any-sync-sdk v0.6.6
 	github.com/anyproto/anytype-push-server/pushclient v0.0.0-20261014142855-af71aa8b1662
 	github.com/anyproto/lexid v0.0.6
 	github.com/cheggaaa/mb/v3 v3.0.3
@@ -92,7 +92,7 @@ require (
 	github.com/jbenet/go-temp-err-catcher v0.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/jupiterrider/ffi v0.7.0 // indirect
-	github.com/klauspost/compress v1.20.1 // indirect
+	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
