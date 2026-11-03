@@ -360,6 +360,12 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 		return writeError(c, http.StatusGone, "record.deleted",
 			"the record was deleted; its id cannot be reused", details)
 	}
+	if errors.Is(err, space.ErrDatasetUndeletable) {
+		// The dataset declares deleteBy none: the SDK refused before a
+		// change existed, so the record stays live.
+		return writeError(c, http.StatusConflict, "dataset.undeletable",
+			"the dataset refuses record deletes (deleteBy none); nothing was written", details)
+	}
 	if errors.Is(err, space.ErrObjectDeleted) {
 		return writeError(c, http.StatusGone, codeObjectDeleted, "object is deleted", details)
 	}

@@ -51,9 +51,9 @@ any type part dataset add $SPACE $TYPE $PART --draft @articles.json
 | Field | Meaning |
 |---|---|
 | `key` | The dataset's slug inside the type (`[a-z][a-z0-9_]*`), pinned, unique among the type's parts and datasets → `409 dataset.key_conflict`. The storage collection is `<typeId>_<key>`. A records dataset requires it. An `editor` dataset may omit it, or name `editor_blocks`, and is then the module's canonical storage collection. |
-| `module` | The serving module; absent = `records`. An `editor` dataset carries no `fields` (the module owns the schema — `409 dataset.module_owned`); `chat` admits only its canonical dataset (a keyed chat dataset is `400 dataset.decl_invalid`); an unknown module is `400 dataset.module_unknown`. |
+| `module` | The serving module; absent = `records`. An `editor` dataset carries no `fields` and no `deleteBy` (the module owns the schema and the delete rule — `409 dataset.module_owned`); `chat` admits only its canonical dataset (a keyed chat dataset is `400 dataset.decl_invalid`); an unknown module is `400 dataset.module_unknown`. |
 | `idRule` | `auto` (default: ids derived from the change, explicit client ids rejected) or `user` (caller-supplied, matched against `idPattern` / `idMaxLen`, defaults `[A-Za-z0-9._:-]+` / 128). |
-| `deleteBy` | `anyone` (default) or `author` — requires a `stamp: creator` field; deletes by anyone else are dropped at apply. |
+| `deleteBy` | `anyone` (default), `author` (requires a `stamp: creator` field; deletes by anyone else are dropped at apply) or `none` (no record delete at all: `delete-records` answers `409 dataset.undeletable` and writes nothing, a delete from another device is dropped at apply, so an id is never burned; object deletion still purges). |
 | `search` | `{title, text, scope?}` — which fields the search indexer extracts. `text` is one key or a non-empty array of keys joined in order. `scope` picks the index scope (default `basic`). |
 | `dynamic` | Keep undeclared keys permitted. |
 | `skipHistory` | Exclude the dataset from version history. |

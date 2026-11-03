@@ -24,7 +24,7 @@ import "encoding/json"
 // per-field `x-mutable-by` ("author"/"any"; absent = write-once) and
 // `x-stamp` ("creator"/"createTime"/"modifyTime" — derived at apply,
 // client writes rejected); doc-level standard `required`, `x-delete-by`
-// ("author"; absent = anyone), `x-id` ("user" with `x-id-pattern` /
+// ("author"/"none"; absent = anyone), `x-id` ("user" with `x-id-pattern` /
 // `x-id-max-length`; absent = auto-derived ids), and `x-search`
 // ({title, text, scope} — the record fields feeding the search index
 // and the index scope its entries land under; scope absent = "basic").

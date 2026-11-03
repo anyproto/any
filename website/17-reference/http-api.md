@@ -196,7 +196,7 @@ Reads: `POST /v1/spaces/:spaceId/query` with `{"objectId", "dataset": "editor_bl
 | POST | `/v1/spaces/:spaceId/datasets/aggregate` | `{dataset, pipeline, …}` | `{records}` \| `{plan}` | snapshot-only; `400 dataset.not_shared` |
 | POST | `/v1/spaces/:spaceId/modify` | `{objectId, dataset, records: [{id, upsert?, ops}], traceIds?, scope?}` | write result | `scope: "local"` for device-local fields only; a write onto a tombstoned record comes back as a `rejections` entry; `400 dataset.unknown`, `400 dataset.not_declared`, `400 record.wrong_object` |
 | POST | `/v1/spaces/:spaceId/upsert` | `{objectId, dataset, records: [{id, fields}], pageSize?, traceIds?}` | `{pages, created, updated, skipped, rejections}` | idempotent; `400 upsert.requires_user_ids`, `400 dataset.unknown`, `400 dataset.not_declared` |
-| POST | `/v1/spaces/:spaceId/delete-records` | `{objectId, dataset, recordIds}` | write result | `400 record.wrong_object` |
+| POST | `/v1/spaces/:spaceId/delete-records` | `{objectId, dataset, recordIds}` | write result | `400 record.wrong_object`, `409 dataset.undeletable` |
 
 On a [shared dataset](../database/runtime-datasets.html#shared-datasets) a write's record id is the plain record id, or the `<objectId>/<recordId>` of a record of the request's own `objectId`; another object's record is `400 record.wrong_object` on `modify` and `delete-records`, and a per-record rejection on `upsert`.
 
