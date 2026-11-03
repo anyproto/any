@@ -622,9 +622,9 @@ no bundle means the client's defaults. A reader's write is
 | `settings` | the space's Overview settings |
 | `w:<source>` | a widget with no target: `w:chat`, `w:tasks`, `w:wiki`, `w:recent` |
 | `w:<source>:<id>` | a widget on a definition or an object: `w:type:<typeId>`, `w:collection:<collectionId>`, `w:object:<objectId>` |
-| `s:<section>` | a section: `s:recent`, `s:supertags`, `s:types`, `s:bin` |
-| `f:<token>` | a supertag folder; the token is client-minted |
-| `t:<supertagId>` | a supertag's place in the manual order and in folders |
+| `s:<section>` | a section: `s:recent`, `s:collections`, `s:types`, `s:bin` |
+| `f:<token>` | a folder of collections; the token is client-minted |
+| `t:<collectionId>` | a collection's place in the manual order and in folders |
 
 The dataset admits `settings`, `f:` with a `[A-Za-z0-9_-]{1,64}`
 token, and ids with any other one-letter prefix, up to 256 bytes. A
@@ -638,18 +638,18 @@ field takes the default below:
 
 | field | kind | on | value |
 |---|---|---|---|
-| `pos` | string | widget, section, folder, supertag | lexid; widgets and sections share one order, folders and supertags another; equal positions sort by record id |
-| `removed` | boolean | widget, section, folder, supertag | `true` = off the Overview, or out of the tree |
+| `pos` | string | widget, section, folder, collection | lexid; widgets and sections share one order, folders and collections another; equal positions sort by record id |
+| `removed` | boolean | widget, section, folder, collection | `true` = off the Overview, or out of the tree |
 | `layout` | string | widget | `link` \| `tree` \| `list` \| `compact` \| `messages` \| `attachments` |
-| `view` | string | widget | the saved view shown (for `w:tasks`, the list); absent = the first |
+| `view` | string | widget | the saved view shown (for `w:tasks`, the list); absent = the source's first view |
 | `limit` | number | widget, section | rows shown before "See more" |
-| `attachments` | string | widget with `layout: attachments` | `all` \| `objects` \| `media` \| `files` \| `links` |
+| `attachments` | string | widget with `layout: attachments` | `all` \| `objects` \| `media` \| `files` \| `links`; absent = `all` |
 | `counts` | boolean | section | show the numbers beside rows |
-| `sort` | string | `s:supertags` | `name` \| `manual` \| `recent` \| `count` |
+| `sort` | string | `s:collections` | `name` \| `manual` \| `recent` \| `count` |
 | `name` | string | folder | the folder's name |
-| `parentId` | string | folder, supertag | the `f:<token>` it sits in; `""` = top level |
-| `opensWith` | string | settings | the object opened beside the Overview; absent = the space's chat, else its latest page |
-| `opensTo` | string | settings | `last` \| `overview` \| `app:<rootId>`, an app's root object \| `object:<objectId>` |
+| `parentId` | string | folder, collection | the `f:<token>` it sits in; `""` = top level |
+| `opensWith` | string | settings | the object opened beside the Overview; absent = the space's chat, or its latest page in a space with no chat |
+| `opensTo` | string | settings | `last` \| `overview` \| `app:<rootId>`, an app's root object \| `object:<objectId>`; absent = `overview`, read as `last` by a client that shows no Overview |
 | `editRowHidden` | boolean | settings | the "Edit sections" row is off the Overview |
 | `addWidgetRowHidden` | boolean | settings | the "Add widget" row is off the Overview |
 | `overviewHidden` | boolean | settings | the space shows no Overview |
@@ -660,12 +660,16 @@ in every app:
 | absent | default |
 |---|---|
 | every widget record | no widgets |
-| a section record | `s:recent`, `s:supertags` and `s:bin` shown, `s:types` not; in the order Recent, Supertags, Types, with Bin last |
-| `limit` | 10 on `s:recent`, 20 on `s:types` and `s:supertags`, 6 on a widget |
-| `counts` | off on `s:recent`, on on `s:types` and `s:supertags` |
+| a section record | `s:recent`, `s:collections` and `s:bin` shown, `s:types` not; after every widget, in the order Recent, Collections, Types, with Bin last |
+| `layout` | `tree` on `w:wiki` and `w:object:` widgets, `messages` on `w:chat`, `list` on the rest |
+| `limit` | 10 on `s:recent`, 20 on `s:types` and `s:collections`, 6 on a widget; none on `s:bin`, one row |
+| `counts` | off on `s:recent`, on on `s:types` and `s:collections`; none on `s:bin` |
 | `sort` | `name` |
 | `parentId` | `""`, the top level |
 | `editRowHidden`, `addWidgetRowHidden`, `overviewHidden` | `false` |
+
+A client that reorders writes a `pos` for every entry in the list, so
+from then on every entry has one.
 
 The dataset is `dynamic`: a field a newer client writes survives an
 older peer. The declaration is fixed for good: a derived root is never
