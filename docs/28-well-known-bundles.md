@@ -630,8 +630,8 @@ The dataset admits `settings`, `f:` with a `[A-Za-z0-9_-]{1,64}`
 token, and ids with any other one-letter prefix, up to 256 bytes. A
 client skips an id whose prefix or source it does not know. Two
 writers adding the same widget write one record, merged per field;
-that holds because the dataset declares no required, stamped or
-author-gated field.
+that holds because every field is `mutableBy: any` and the dataset
+declares no stamp or author gate.
 
 Fields, every one `mutableBy: any`, none required; an absent record or
 field takes the default below:

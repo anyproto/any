@@ -3306,10 +3306,11 @@ absent → created (one multi-field set); present → only declared-mutable
 fields are diffed against stored values, each changed field lands as a
 single-path set, identical records are skipped. Re-running an identical
 batch is a no-op. One CRDT change per page (`pageSize` default 500). Not
-transactional against concurrent writers; the intended deployment is a
-single ingest writer per dataset (concurrent creates of the same id by
-different members are outside the convergence contract — the SDK's
-[`docs/17-user-datasets.md` § The IdRule: user contract](https://github.com/anyproto/any-sync-sdk/blob/main/docs/17-user-datasets.md#the-idrule-user-contract)).
+transactional against concurrent writers. Concurrent creates of one id
+by different members converge unless the dataset declares write-once
+fields, stamps or author gates; a dataset that does keeps one writer
+per id (the SDK's
+[`docs/user-datasets.md` § The IdRule: user contract](https://github.com/anyproto/any-sync-sdk/blob/main/docs/user-datasets.md#the-idrule-user-contract)).
 
 Response (200 even with rejections — the `/modify` partial-success
 stance):
