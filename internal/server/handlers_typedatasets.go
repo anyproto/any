@@ -813,7 +813,7 @@ func systemDatasetDraftFromAPI(req api.DatasetDraftRequest) (space.DatasetDraft,
 		return draft, "request.invalid_field", `idRule must be "auto" or "user"`
 	}
 	if draft.DeleteBy, ok = parseDeletePolicy(req.DeleteBy); !ok {
-		return draft, "request.invalid_field", `deleteBy must be "anyone" or "author"`
+		return draft, "request.invalid_field", `deleteBy must be "anyone", "author" or "none"`
 	}
 	if req.Search != nil {
 		if req.Search.Scope != "" && !index.ValidScope(req.Search.Scope) {
@@ -1046,6 +1046,8 @@ func parseDeletePolicy(s string) (space.DeletePolicy, bool) {
 		return space.DeleteByAnyone, true
 	case api.DeleteByAuthor:
 		return space.DeleteByAuthor, true
+	case api.DeleteByNone:
+		return space.DeleteByNone, true
 	default:
 		return 0, false
 	}

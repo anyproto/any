@@ -102,7 +102,7 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/delete-records \
   -d '{"objectId": "'$OBJ'", "dataset": "'$TYPE'_notes", "recordIds": ["'$NOTE'"]}'
 ```
 
-A record delete is a sticky tombstone — the id can never be re-created. A later `/modify` addressing it still answers `200`, with a whole-record `rejections` entry (`opIndex: -1`) and nothing stored, so an ensure-by-fixed-id always inspects `rejections`. Subscribers see the id in `removed`.
+A record delete is a sticky tombstone — the id can never be re-created. A later `/modify` addressing it still answers `200`, with a whole-record `rejections` entry (`opIndex: -1`) and nothing stored, so an ensure-by-fixed-id always inspects `rejections`. Subscribers see the id in `removed`. A dataset declared `deleteBy: none` refuses the delete with `409 dataset.undeletable` and writes nothing.
 
 ## Idempotency
 

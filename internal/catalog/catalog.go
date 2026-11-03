@@ -792,6 +792,9 @@ func validateParts(pp string, parts []api.PartDraftRequest, add func(path, code,
 			if module != "records" && len(ds.Fields) > 0 {
 				add(dp+".fields", CodeBadField, "fields only on a records dataset — the module owns the schema")
 			}
+			if module != "records" && ds.DeleteBy != "" && ds.DeleteBy != "anyone" {
+				add(dp+".deleteBy", CodeBadField, "deleteBy only on a records dataset — the module owns its delete rule")
+			}
 			switch {
 			case key == "" && module == "records":
 				add(dp+".key", CodeMissing, "key required on a records dataset")

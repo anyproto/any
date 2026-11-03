@@ -21,6 +21,7 @@ const (
 
 	DeleteByAnyone = "anyone"
 	DeleteByAuthor = "author"
+	DeleteByNone   = "none"
 )
 
 // Module slugs a dataset declaration may name. `records` is the SDK's
@@ -135,8 +136,9 @@ type DatasetDraftRequest struct {
 	IdRule    string `json:"idRule,omitempty"`
 	IdPattern string `json:"idPattern,omitempty"`
 	IdMaxLen  int    `json:"idMaxLen,omitempty"`
-	// DeleteBy: "anyone" (default) or "author" (requires a
-	// stamp:creator field among fields).
+	// DeleteBy: "anyone" (default), "author" (requires a stamp:creator
+	// field among fields) or "none" (no record delete at all:
+	// delete-records answers 409 dataset.undeletable).
 	DeleteBy string `json:"deleteBy,omitempty"`
 	// SkipHistory keeps the dataset out of the version-history index.
 	SkipHistory bool `json:"skipHistory,omitempty"`
