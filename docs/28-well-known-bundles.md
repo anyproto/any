@@ -630,12 +630,12 @@ The dataset admits `settings` and ids with a one-letter prefix, up to
 know. Two writers adding the same widget write one record, merged per
 field.
 
-Fields, every one `mutableBy: any`, none required; an absent field is
-the client's default:
+Fields, every one `mutableBy: any`, none required; an absent record or
+field takes the default below:
 
 | field | kind | on | value |
 |---|---|---|---|
-| `pos` | string | widget, section, folder, supertag | lexid; widgets and sections share one order, folders and supertags another |
+| `pos` | string | widget, section, folder, supertag | lexid; widgets and sections share one order, folders and supertags another; equal positions sort by record id |
 | `removed` | boolean | widget, section, folder, supertag | `true` = off the Overview, or out of the tree |
 | `layout` | string | widget | `link` \| `tree` \| `list` \| `compact` \| `messages` \| `attachments` |
 | `view` | string | widget | the saved view shown (for `w:tasks`, the list); absent = the first |
@@ -646,11 +646,23 @@ the client's default:
 | `name` | string | folder | the folder's name |
 | `parentId` | string | folder, supertag | the `f:<token>` it sits in; `""` = top level |
 | `opensWith` | string | settings | the object opened beside the Overview; absent = the space's chat, else its latest page |
-| `opensTo` | string | settings | `last` \| `app` \| `object` |
-| `opensToId` | string | settings | the id `app` or `object` names |
+| `opensTo` | string | settings | `last` \| `overview` \| `app` \| `object` |
+| `opensToId` | string | settings | the id `app` or `object` names; none for `last` and `overview` |
 | `editRowHidden` | boolean | settings | the "Edit sections" row is off the Overview |
 | `addWidgetRowHidden` | boolean | settings | the "Add widget" row is off the Overview |
 | `overviewHidden` | boolean | settings | the space shows no Overview |
+
+Every client applies the same defaults, so one space looks the same
+in every app:
+
+| absent | default |
+|---|---|
+| every widget record | no widgets |
+| a section record | `s:recent`, `s:supertags` and `s:bin` shown, `s:types` not; in the order Recent, Supertags, Types, with Bin last |
+| `limit` | 10 on `s:recent`, 20 on `s:types` and `s:supertags`, 6 on a widget |
+| `counts` | off on `s:recent`, on on `s:types` and `s:supertags` |
+| `sort` | `name` |
+| `editRowHidden`, `addWidgetRowHidden`, `overviewHidden` | `false` |
 
 The dataset is `dynamic`: a field a newer client writes survives an
 older peer. Declaring another field takes a new bundle id (§ Evolution).
