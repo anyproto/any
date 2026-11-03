@@ -474,8 +474,8 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 	// A Library row is a page in the tree with `opens` naming the page.
 	opensProp := b.Properties["opens"]
 	lib := mustCreateObject(t, e, sp.Id, `{"type":"page","collections":["`+wikiId+`"],"initialProperties":{"any":{"name":"Supertags"},"`+wikiId+
-		`":{"`+parentProp+`":"`+folder+`","`+posProp+`":"a1","`+opensProp+`":"library/supertags"}}}`)
-	if got := objectRow(t, e, sp.Id, lib)[wikiId].(map[string]any)[opensProp]; got != "library/supertags" {
+		`":{"`+parentProp+`":"`+folder+`","`+posProp+`":"a1","`+opensProp+`":"library/collections"}}}`)
+	if got := objectRow(t, e, sp.Id, lib)[wikiId].(map[string]any)[opensProp]; got != "library/collections" {
 		t.Fatalf("opens not stored: %v", got)
 	}
 }

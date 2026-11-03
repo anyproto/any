@@ -552,7 +552,7 @@ non-empty `opens` and an `any.name`:
 |---|---|
 | `library/recent` | Recents: the space's objects by when they were last edited or viewed |
 | `library/types` | the page of every type in the space |
-| `library/supertags` | the page of every collection in the space (supertags, in the product's words) |
+| `library/collections` | the page of every collection in the space |
 
 Any other page carries no `opens`. A Library row is a leaf that opens
 its Library page instead of a body: `opens` wins over `folder` and a
