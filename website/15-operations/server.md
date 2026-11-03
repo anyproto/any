@@ -30,8 +30,6 @@ Opening the SDK also starts the one-to-one inbox notifier when a coordinator is 
 
 The SDK returns from `Open` after local wiring only. Eager space loading and offline catch-up run on one serial background pass, so the server serves as soon as the listener binds; until a space's turn comes, reads against it return the pre-offline state.
 
-The search indexer discovers spaces, opens them and checks its persisted cursors in a separate background bootstrap. Account startup does not wait for this preparation. Search results catch up as indexing advances; the SDK's `bootstrapping` flag does not include this independent work.
-
 `GET /v1/health` reports the pass:
 
 ```json
@@ -44,6 +42,8 @@ The search indexer discovers spaces, opens them and checks its persisted cursors
 `networkId` is the any-sync network the server joins, read from the node configuration it started with and present whether or not an account is signed in ([Networks](networks.html)).
 
 `bootstrapping` is `true` while the pass runs and `false` when it completes (or when the server is unauthorized). It reports the one-shot pass only — per-space convergence is on [sync status](../realtime/sync-status.html). Health never needs SDK state, which makes it the right probe for supervisors and for `any status`.
+
+The search indexer has a background bootstrap of its own that `bootstrapping` does not cover: it discovers spaces, opens each one and checks its persisted cursor without holding sign-in. Until a space's worker is up, searches read its index as it stood at shutdown ([Indexing](../search/indexing.html)).
 
 `crdtVersion` (absent when unauthorized) compares the data-model version this server writes with the one the account records. `newer: true` means another device on a newer release raised it: the server keeps serving reads and refuses every synced write with `409 sdk.crdt_version_newer` until it is upgraded.
 

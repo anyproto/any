@@ -230,15 +230,34 @@ type Indexer struct {
 	opts  Options
 	lg    logger.CtxLogger
 
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+	// bootstrapped closes once the initial space list has been handed
+	// to spawnLocked (or bootstrap gave up on a cancelled ctx).
 	bootstrapped chan struct{}
 
 	mu             sync.Mutex
 	workers        map[string]*spaceWorker
+	opening        map[string]*spaceOpen         // opens in flight, keyed by spaceId
 	retries        map[string]context.CancelFunc // scheduled spawn retries, keyed by spaceId
 	cancelSpaceSub func()
+	// bootDropped collects the spaces dropped while bootstrap reads the
+	// space list, so a stale list entry cannot resurrect one; nil
+	// outside that window.
+	bootDropped map[string]struct{}
+	// aligning holds, per space, the lock that orders the index-store
+	// transitions the space goes through outside a published worker:
+	// the alignment of an open and the drop of dropSpace. An open
+	// re-checks its registration under it before aligning, so an open
+	// that dropSpace overtook never writes after the drop. Per space, so
+	// one space's alignment delays only its own drop. Entries stay.
+	aligning map[string]*sync.Mutex
+	// drops counts the dropSpace calls in flight; Close waits for them
+	// before closing the store, and a dropSpace that starts once closing
+	// is set does nothing.
+	drops   sync.WaitGroup
+	closing bool
 
 	// spacesAPI is a test seam overriding sdk.Spaces(); nil in production.
 	spacesAPI space.Service
@@ -253,6 +272,13 @@ const (
 	spawnRetryMax     = time.Minute
 )
 
+// spaceOpen is a worker spawn in flight: the space is being opened and
+// its index aligned outside mu. done closes once the open has published
+// its worker, scheduled a retry, or been discarded.
+type spaceOpen struct {
+	done chan struct{}
+}
+
 // spaces returns the space service — the SDK's, unless a test injected one.
 func (ix *Indexer) spaces() space.Service {
 	if ix.spacesAPI != nil {
@@ -264,13 +290,15 @@ func (ix *Indexer) spaces() space.Service {
 // New constructs the indexer. Call Start to begin; Close to stop.
 func New(sdk *anysyncsdk.SDK, reg *index.Registry, store *Store, opts Options) *Indexer {
 	ix := &Indexer{
-		sdk:     sdk,
-		reg:     reg,
-		store:   store,
-		opts:    opts.withDefaults(),
-		lg:      logger.NewNamed("indexer"),
-		workers: map[string]*spaceWorker{},
-		retries: map[string]context.CancelFunc{},
+		sdk:      sdk,
+		reg:      reg,
+		store:    store,
+		opts:     opts.withDefaults(),
+		lg:       logger.NewNamed("indexer"),
+		workers:  map[string]*spaceWorker{},
+		opening:  map[string]*spaceOpen{},
+		retries:  map[string]context.CancelFunc{},
+		aligning: map[string]*sync.Mutex{},
 	}
 	if store != nil {
 		store.SetFTSUpgradeHook(ix.reportFTSUpgrade)
@@ -342,54 +370,97 @@ func (ix *Indexer) SetEmbedThreads(n int) {
 	}
 }
 
-// Start lists current spaces, spawns a worker per indexable space, and
-// subscribes to space-list changes for live discovery. Non-blocking.
-// The passed ctx bounds all background work — cancel it (or call Close)
-// to stop.
+// Start subscribes to space-list changes and spawns a worker per
+// indexable space, all in the background. Non-blocking: no space is
+// opened before it returns, and until a space's worker is up searches
+// read its index as it stood at shutdown (see spaceWorker.alignIndex
+// for what that means after a store rebuild). The passed ctx bounds all
+// background work — cancel it (or call Close) to stop.
 func (ix *Indexer) Start(ctx context.Context) {
+	ix.start(ctx, spawnRetryInitial)
+}
+
+// start is Start with the backoff a failed boot-time space listing is
+// retried after (doubling, capped at spawnRetryMax).
+func (ix *Indexer) start(ctx context.Context, listBackoff time.Duration) {
 	ix.ctx, ix.cancel = context.WithCancel(ctx)
 	ix.bootstrapped = make(chan struct{})
 	ix.wg.Add(1)
-	go ix.bootstrap()
+	go ix.bootstrap(listBackoff)
 }
 
-func (ix *Indexer) bootstrap() {
+// bootstrap registers the space-list subscription, then hands every
+// indexable space of the current list to spawnLocked. The subscription
+// comes first so a space created or removed right after Start is seen.
+// Nothing here holds mu across the SDK: the list is read outside it
+// (List can wait on spaces mid-load), and the opens run on goroutines
+// of their own (spawnLocked), so the deltas, Sync and Close never wait
+// behind a space slow to open. A removal delivered while the list is being read
+// lands in bootDropped, so its stale entry does not resurrect the space.
+// A space in the list that emits no delta would stay unindexed for the
+// session, so a listing that fails is retried, not dropped.
+func (ix *Indexer) bootstrap(listBackoff time.Duration) {
 	defer ix.wg.Done()
 	defer close(ix.bootstrapped)
 	ix.mu.Lock()
-	defer ix.mu.Unlock()
 	if ix.ctx.Err() != nil {
+		ix.mu.Unlock()
 		return
 	}
-	// Subscribe before the snapshot: callers can create or remove spaces
-	// as soon as Start returns. The SDK dispatches deltas asynchronously;
-	// mu keeps those callbacks behind the initial workers, so a removal
-	// cannot be undone by a stale snapshot entry.
-	ix.cancelSpaceSub = ix.spaces().Subscribe(func(ev space.SpaceListEvent) {
-		for _, info := range ev.Added {
-			if indexableStatus(info.Status) {
-				ix.spawnWorker(info.Id)
+	ix.cancelSpaceSub = ix.spaces().Subscribe(ix.onSpaceList)
+	ix.bootDropped = map[string]struct{}{}
+	ix.mu.Unlock()
+	backoff := listBackoff
+	for {
+		infos, err := ix.spaces().List(ix.ctx)
+		if err == nil {
+			ix.mu.Lock()
+			for _, info := range infos {
+				if _, dropped := ix.bootDropped[info.Id]; dropped {
+					continue
+				}
+				if indexableStatus(info.Status) {
+					ix.spawnLocked(info.Id, spawnRetryInitial)
+				}
 			}
+			ix.bootDropped = nil
+			ix.mu.Unlock()
+			return
 		}
-		for _, info := range ev.Updated {
-			if indexableStatus(info.Status) {
-				ix.spawnWorker(info.Id)
-			} else if info.Status == space.StatusDeleted || info.Status == space.StatusRemoteDead {
-				ix.dropSpace(info.Id)
-			}
+		if ix.ctx.Err() != nil {
+			return
 		}
-		for _, id := range ev.Removed {
-			ix.dropSpace(id)
+		ix.lg.Warn("list spaces at boot", zap.Duration("retryIn", backoff), zap.Error(err))
+		t := time.NewTimer(backoff)
+		select {
+		case <-ix.ctx.Done():
+			t.Stop()
+			return
+		case <-t.C:
 		}
-	})
-	infos, err := ix.spaces().List(ix.ctx)
-	if err != nil && ix.ctx.Err() == nil {
-		ix.lg.Warn("list spaces at boot", zap.Error(err))
+		backoff = min(backoff*2, spawnRetryMax)
 	}
-	for _, info := range infos {
+}
+
+// onSpaceList applies one space-list delta: indexable spaces spawn,
+// deleted and dead ones drop. It runs on the SDK's dispatch goroutine,
+// whose mailbox overflows (closing the subscription) if a callback
+// blocks, so it holds mu only for map work — opens are asynchronous.
+func (ix *Indexer) onSpaceList(ev space.SpaceListEvent) {
+	for _, info := range ev.Added {
 		if indexableStatus(info.Status) {
-			ix.spawnWorkerLocked(info.Id, spawnRetryInitial)
+			ix.spawnWorker(info.Id)
 		}
+	}
+	for _, info := range ev.Updated {
+		if indexableStatus(info.Status) {
+			ix.spawnWorker(info.Id)
+		} else if info.Status == space.StatusDeleted || info.Status == space.StatusRemoteDead {
+			ix.dropSpace(info.Id)
+		}
+	}
+	for _, id := range ev.Removed {
+		ix.dropSpace(id)
 	}
 }
 
@@ -402,12 +473,14 @@ func indexableStatus(s space.Status) bool {
 
 // Close stops every worker and closes the store. Idempotent.
 func (ix *Indexer) Close() error {
-	// Opening a space and aligning its index hold mu. Cancel first so
-	// Close can interrupt bootstrap instead of waiting for that work.
+	// Cancel first: the opens in flight wait on the SDK and the
+	// alignments on the store; both return on ctx, so Close never waits
+	// behind a slow space.
 	if ix.cancel != nil {
 		ix.cancel()
 	}
 	ix.mu.Lock()
+	ix.closing = true
 	if ix.cancelSpaceSub != nil {
 		ix.cancelSpaceSub()
 		ix.cancelSpaceSub = nil
@@ -423,43 +496,98 @@ func (ix *Indexer) Close() error {
 		_ = c.Close()
 	}
 	ix.wg.Wait()
+	// A drop on the SDK's dispatch goroutine may still be waiting for
+	// its space's alignment; the store closes after it.
+	ix.drops.Wait()
 	return ix.store.Close()
 }
 
-// spawnWorker starts the per-space goroutines unless one is already
-// running. Safe to call repeatedly (Updated events re-deliver).
+// spawnWorker starts the per-space goroutines unless a worker is running
+// or an open is in flight. Safe to call repeatedly (Updated events
+// re-deliver).
 func (ix *Indexer) spawnWorker(spaceId string) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
-	ix.spawnWorkerLocked(spaceId, spawnRetryInitial)
+	ix.spawnLocked(spaceId, spawnRetryInitial)
 }
 
-// spawnWorkerLocked opens the space and starts its worker. A Get
-// failure schedules a respawn after backoff (doubling, capped) —
-// dropSpace and Close cancel it, and a fresh spawn request supersedes
-// it (resetting the backoff).
-func (ix *Indexer) spawnWorkerLocked(spaceId string, backoff time.Duration) {
+// spawnLocked opens the space and aligns its index on a goroutine of
+// its own, then publishes the worker under mu — mu is never held across
+// the SDK's space open or the index store, so one slow space delays
+// neither the deltas nor the other spaces. A Get failure schedules a
+// respawn after backoff (doubling, capped) — dropSpace and Close cancel
+// it, and a fresh spawn request supersedes it (resetting the backoff).
+// An open that dropSpace overtook publishes nothing and writes nothing
+// after the drop: it re-checks its registration under the space's align
+// lock before aligning, and dropSpace drops under the same lock.
+func (ix *Indexer) spawnLocked(spaceId string, backoff time.Duration) {
 	if _, ok := ix.workers[spaceId]; ok {
 		ix.cancelRetryLocked(spaceId)
+		return
+	}
+	if _, ok := ix.opening[spaceId]; ok {
 		return
 	}
 	if ix.ctx == nil || ix.ctx.Err() != nil {
 		return
 	}
-	sp, err := ix.spaces().Get(ix.ctx, spaceId)
-	if ix.ctx.Err() != nil {
-		return
-	}
-	if err != nil {
-		ix.lg.Warn("open space for indexing",
-			zap.String("spaceId", spaceId), zap.Duration("retryIn", backoff), zap.Error(err))
-		ix.scheduleRetryLocked(spaceId, backoff)
-		return
-	}
 	ix.cancelRetryLocked(spaceId)
-	w := newSpaceWorker(ix, sp)
-	ix.workers[spaceId] = w
-	w.start()
+	op := &spaceOpen{done: make(chan struct{})}
+	ix.opening[spaceId] = op
+	ix.wg.Add(1)
+	go func() {
+		defer ix.wg.Done()
+		defer close(op.done)
+		sp, err := ix.spaces().Get(ix.ctx, spaceId)
+		var w *spaceWorker
+		if err == nil {
+			l := ix.alignLock(spaceId)
+			l.Lock()
+			if ix.isOpening(spaceId, op) {
+				w = newSpaceWorker(ix, sp)
+				w.open()
+			}
+			l.Unlock()
+		}
+		ix.mu.Lock()
+		defer ix.mu.Unlock()
+		if ix.opening[spaceId] != op || ix.ctx.Err() != nil {
+			if w != nil {
+				w.cancel()
+			}
+			return
+		}
+		delete(ix.opening, spaceId)
+		if err != nil {
+			ix.lg.Warn("open space for indexing",
+				zap.String("spaceId", spaceId), zap.Duration("retryIn", backoff), zap.Error(err))
+			ix.scheduleRetryLocked(spaceId, backoff)
+			return
+		}
+		ix.workers[spaceId] = w
+		w.start()
+	}()
+}
+
+// isOpening reports whether op is still the registered open of spaceId
+// on a live indexer.
+func (ix *Indexer) isOpening(spaceId string, op *spaceOpen) bool {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	return ix.opening[spaceId] == op && ix.ctx.Err() == nil
+}
+
+// alignLock returns the space's align lock (see aligning). Taken before
+// mu, never under it.
+func (ix *Indexer) alignLock(spaceId string) *sync.Mutex {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	l, ok := ix.aligning[spaceId]
+	if !ok {
+		l = &sync.Mutex{}
+		ix.aligning[spaceId] = l
+	}
+	return l
 }
 
 // scheduleRetryLocked (re)arms the spawn retry for spaceId: wait
@@ -487,7 +615,7 @@ func (ix *Indexer) scheduleRetryLocked(spaceId string, backoff time.Duration) {
 		}
 		delete(ix.retries, spaceId)
 		cancel() // release the timer ctx; the retry below re-arms its own
-		ix.spawnWorkerLocked(spaceId, min(backoff*2, spawnRetryMax))
+		ix.spawnLocked(spaceId, min(backoff*2, spawnRetryMax))
 	}()
 }
 
@@ -499,18 +627,32 @@ func (ix *Indexer) cancelRetryLocked(spaceId string) {
 	}
 }
 
-// dropSpace stops the space's worker (or its pending spawn retry) and
-// removes its index data.
+// dropSpace stops the space's worker (or discards its open in flight,
+// or its pending spawn retry) and removes its index data.
 func (ix *Indexer) dropSpace(spaceId string) {
 	ix.mu.Lock()
+	if ix.closing {
+		ix.mu.Unlock()
+		return
+	}
+	ix.drops.Add(1)
+	defer ix.drops.Done()
 	ix.cancelRetryLocked(spaceId)
+	delete(ix.opening, spaceId)
+	if ix.bootDropped != nil {
+		ix.bootDropped[spaceId] = struct{}{}
+	}
 	w := ix.workers[spaceId]
 	delete(ix.workers, spaceId)
 	ix.mu.Unlock()
 	if w != nil {
 		w.stop()
 	}
-	// Best-effort: the server may be shutting down concurrently.
+	l := ix.alignLock(spaceId)
+	l.Lock()
+	defer l.Unlock()
+	// Best-effort, and the budget starts after the alignment in flight,
+	// if any, released the lock.
 	dropCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := ix.store.DropSpace(dropCtx, spaceId); err != nil {
@@ -518,17 +660,36 @@ func (ix *Indexer) dropSpace(spaceId string) {
 	}
 }
 
-// Sync synchronously advances every known space and fully drains the
-// embed queue — the deterministic test hook (workers do the same work
-// asynchronously in production).
+// Sync waits for the initial space list to reach spawn and for the opens
+// in flight at that point to settle, then synchronously advances every
+// known space and fully drains the embed queue — the deterministic test
+// hook (workers do the same work asynchronously in production). Spawn
+// retries are not waited for.
 func (ix *Indexer) Sync(ctx context.Context) error {
 	if ix.bootstrapped != nil {
 		select {
+		case <-ix.bootstrapped:
+		default:
+			select {
+			case <-ix.bootstrapped:
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ix.ctx.Done():
+				return ix.ctx.Err()
+			}
+		}
+	}
+	ix.mu.Lock()
+	opens := make([]<-chan struct{}, 0, len(ix.opening))
+	for _, op := range ix.opening {
+		opens = append(opens, op.done)
+	}
+	ix.mu.Unlock()
+	for _, done := range opens {
+		select {
+		case <-done:
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ix.ctx.Done():
-			return ix.ctx.Err()
-		case <-ix.bootstrapped:
 		}
 	}
 	ix.mu.Lock()

@@ -9,28 +9,79 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	anystore "github.com/anyproto/any-store/v2"
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/index"
 )
 
-// fakeSpaces fails Get failN times, then returns a stub space. Embeds
-// the interface so unimplemented methods panic if reached.
+// fakeSpaces is the indexer tests' space.Service seam. Get fails failN
+// times, then returns a stub space, unless get overrides it; list and
+// the subscription are optional. Embeds the interface so unimplemented
+// methods panic if reached.
 type fakeSpaces struct {
 	space.Service
 	mu    sync.Mutex
 	failN int
 	gets  int
+	list  func(context.Context) ([]space.SpaceInfo, error)
+	get   func(context.Context, string) (space.Space, error)
+	cb    func(space.SpaceListEvent)
 }
 
-func (f *fakeSpaces) Get(_ context.Context, id string) (space.Space, error) {
+func (f *fakeSpaces) List(ctx context.Context) ([]space.SpaceInfo, error) {
+	if f.list == nil {
+		return nil, nil
+	}
+	return f.list(ctx)
+}
+
+// Get releases the lock before calling a get hook: hooks block.
+func (f *fakeSpaces) Get(ctx context.Context, id string) (space.Space, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.gets++
-	if f.gets <= f.failN {
+	n := f.gets
+	f.mu.Unlock()
+	if f.get != nil {
+		return f.get(ctx, id)
+	}
+	if n <= f.failN {
 		return nil, errors.New("space not materialized yet")
 	}
 	return &stubSpace{id: id}, nil
+}
+
+func (f *fakeSpaces) Subscribe(cb func(space.SpaceListEvent)) func() {
+	f.mu.Lock()
+	f.cb = cb
+	f.mu.Unlock()
+	return func() {
+		f.mu.Lock()
+		f.cb = nil
+		f.mu.Unlock()
+	}
+}
+
+// emit delivers one delta the way the SDK does, on a goroutine of its
+// own; the returned channel closes when the callback returned.
+func (f *fakeSpaces) emit(ev space.SpaceListEvent) <-chan struct{} {
+	f.mu.Lock()
+	cb := f.cb
+	f.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if cb != nil {
+			cb(ev)
+		}
+	}()
+	return done
+}
+
+func (f *fakeSpaces) subscribed() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.cb != nil
 }
 
 func (f *fakeSpaces) getCount() int {
@@ -60,14 +111,27 @@ func (stubChanges) ChangedSince(context.Context, uint64, int) ([]space.ObjectCha
 }
 func (stubChanges) Generation(context.Context) (string, error) { return "gen-1", nil }
 
-func newRetryTestIndexer(t *testing.T, fs *fakeSpaces) *Indexer {
+// newTestIndexer builds an indexer on an in-memory store over fs and
+// closes it with the test. Call Start (or set ctx) before spawning.
+func newTestIndexer(t *testing.T, fs *fakeSpaces) *Indexer {
 	t.Helper()
 	st, err := OpenStoreInMemory(context.Background(), 0, false)
 	require.NoError(t, err)
 	ix := New(nil, index.NewRegistry(), st, Options{})
 	ix.spacesAPI = fs
+	t.Cleanup(func() {
+		// A test that closed the indexer itself finds the store closed.
+		if err := ix.Close(); err != nil && !errors.Is(err, anystore.ErrDBIsClosed) {
+			t.Errorf("close indexer: %v", err)
+		}
+	})
+	return ix
+}
+
+func newRetryTestIndexer(t *testing.T, fs *fakeSpaces) *Indexer {
+	t.Helper()
+	ix := newTestIndexer(t, fs)
 	ix.ctx, ix.cancel = context.WithCancel(context.Background())
-	t.Cleanup(func() { require.NoError(t, ix.Close()) })
 	return ix
 }
 
@@ -76,7 +140,7 @@ func TestSpawnWorkerRetriesUntilGetSucceeds(t *testing.T) {
 	ix := newRetryTestIndexer(t, fs)
 
 	ix.mu.Lock()
-	ix.spawnWorkerLocked("sp1", 5*time.Millisecond)
+	ix.spawnLocked("sp1", 5*time.Millisecond)
 	ix.mu.Unlock()
 
 	require.Eventually(t, func() bool {
@@ -96,10 +160,17 @@ func TestSpawnRetryCancelledOnDrop(t *testing.T) {
 	fs := &fakeSpaces{failN: 1 << 30} // never succeeds
 	ix := newRetryTestIndexer(t, fs)
 
+	// Long enough that the retry cannot fire between the check below
+	// and the drop, short enough that an uncancelled one fires before
+	// the final count.
 	ix.mu.Lock()
-	ix.spawnWorkerLocked("sp1", 20*time.Millisecond)
-	require.Len(t, ix.retries, 1)
+	ix.spawnLocked("sp1", 100*time.Millisecond)
 	ix.mu.Unlock()
+	require.Eventually(t, func() bool {
+		ix.mu.Lock()
+		defer ix.mu.Unlock()
+		return len(ix.retries) == 1
+	}, time.Second, time.Millisecond, "the failed open did not schedule a retry")
 
 	ix.dropSpace("sp1")
 
@@ -108,7 +179,7 @@ func TestSpawnRetryCancelledOnDrop(t *testing.T) {
 	ix.mu.Unlock()
 
 	got := fs.getCount()
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(250 * time.Millisecond)
 	require.Equal(t, got, fs.getCount(), "no Get attempts after drop")
 	ix.mu.Lock()
 	_, ok := ix.workers["sp1"]
