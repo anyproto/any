@@ -572,6 +572,16 @@ func TestServer_CatalogSetupOverview(t *testing.T) {
 		t.Fatalf("read the widget back: %d %s (%v)", rec.Code, rec.Body.String(), err)
 	}
 
+	// deleteBy none: a record delete is refused and the entry stays.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/delete-records",
+		`{"objectId":"`+root+`","dataset":"`+dataset+`","recordIds":["w:chat"]}`)
+	assertStatusCode(t, rec, http.StatusConflict, "dataset.undeletable")
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/query",
+		`{"objectId":"`+root+`","dataset":"`+dataset+`","filter":{"id":"w:chat"}}`)
+	if err := json.Unmarshal(rec.Body.Bytes(), &q); err != nil || len(q.Records) != 1 {
+		t.Fatalf("w:chat after a refused delete: %d %s (%v)", rec.Code, rec.Body.String(), err)
+	}
+
 	again := setupUsecase(t, e, "overview", sp.Id).Bundles[0]
 	if again.Installed || again.Bundle.RootId != root {
 		t.Fatalf("second setup: %+v", again)

@@ -454,7 +454,7 @@ schema).
 | | | `system:bookmark/v1` | type `bookmark` (layout `bookmark`; `url`, `folder` → `bookmark_folder`, single, `archived`, `position`) + editor `body` part for the reader's notes — a bookmark is listed like a task; starring is the [native favorites](25-favorites.md) |
 | | | `system:bookmarks/v1` | miniapp only, a `page` root — the sidebar entry that opens Bookmarks |
 | `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one `chat` part hosted by the root itself, + miniapp, so the chat is a sidebar entry |
-| `overview` | — | `system:overview/v1` | derived, hidden, no miniapp; records part `entries` hosted by the root (`idRule: user`, `dynamic`) — the space's shared Overview, one record per entry (§ The Overview) |
+| `overview` | — | `system:overview/v1` | derived, hidden, no miniapp; records part `entries` hosted by the root (`idRule: user`, `dynamic`, `deleteBy: none`) — the space's shared Overview, one record per entry (§ The Overview) |
 | `people` | — | `system:profile/v1` | type `profile` (layout `profile`, no properties) + editor `body` part — the one format a person and an organisation share; supersedes `system:person/v1` and `system:organization/v1` |
 | | | `system:person/v2` | collection `person` (`meta.defaultType: profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags); supersedes `system:person/v1` |
 | | | `system:organization/v2` | collection `organization` (`meta.defaultType: profile`; kind, domain, categories, location, size, linkedin, main_contact → `person`); supersedes `system:organization/v1` |
@@ -680,8 +680,9 @@ has it (§ Superseding), so a later field rides the `dynamic` keyspace.
 `<rootId>_entries` diffs field by field; `POST …/modify` `$set`s the
 changed paths. A write that puts an entry on the Overview or in the
 tree sets `removed: false`, so it wins over a removal it has not seen.
-Remove with `removed: true`, never `delete-records`: a deleted id is
-burned (`upsert.record_deleted`), so the entry could never come back.
+Remove with `removed: true`: the dataset is `deleteBy: none`, so
+`delete-records` answers `409 dataset.undeletable` and no id is ever
+burned.
 Return a field to its default with `modify` `$unset`; `upsert` only
 sets. A record holds no lists: an array is replaced whole, so two
 writers who edit one while apart lose a side.

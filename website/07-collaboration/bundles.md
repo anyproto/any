@@ -128,7 +128,7 @@ any catalog setup overview "$SPACE"     # writer, on the first change
 curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/bundles/system%3Aoverview%2Fv1   # reader
 ```
 
-The root is derived like the general chat's, so writers who set it up while apart land on one root. It hosts one records dataset, `<rootId>_entries`, with one record per entry, and the record id says what the entry is: `settings`, `w:chat` or `w:object:<objectId>` for a widget, `s:bin` for a section, `f:<token>` for a folder of collections, `t:<collectionId>` for a collection's place. Entries are ordered by a lexid `pos`, then by record id, removed with `removed: true`, and read live with one subscribe on the root. A reader's write is `403 space.read_only`. The full contract is the server's `docs/28-well-known-bundles.md`.
+The root is derived like the general chat's, so writers who set it up while apart land on one root. It hosts one records dataset, `<rootId>_entries`, with one record per entry, and the record id says what the entry is: `settings`, `w:chat` or `w:object:<objectId>` for a widget, `s:bin` for a section, `f:<token>` for a folder of collections, `t:<collectionId>` for a collection's place. Entries are ordered by a lexid `pos`, then by record id, removed with `removed: true` (record deletes are refused: `409 dataset.undeletable`), and read live with one subscribe on the root. A reader's write is `403 space.read_only`. The full contract is the server's `docs/28-well-known-bundles.md`.
 
 > **Why it matters.** A space's layout is shared state with no server to own it. One record per entry lets two editors who rearrange the same Overview offline merge field by field instead of one overwriting the other's list.
 

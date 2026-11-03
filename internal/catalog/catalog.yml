@@ -299,6 +299,7 @@ usecases:
                 idPattern: '^(settings|f:[A-Za-z0-9_-]{1,64}|[a-eg-z]:.+)$'
                 idMaxLen: 256
                 dynamic: true
+                deleteBy: none                         # an id is never burned on a root that cannot be replaced
                 fields:
                   - { key: pos,                kind: string,  mutableBy: any }
                   - { key: removed,            kind: boolean, mutableBy: any }
