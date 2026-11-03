@@ -56,7 +56,7 @@ Endpoints: `POST /v1/spaces/:id/objects/query/subscribe` (cross-object), `POST /
 
 ```bash
 curl -N -X POST http://127.0.0.1:2046/v1/spaces/$SP/query/subscribe \
-  -d '{"objectId":"'$CHAT'","dataset":"chat_messages","sort":["-_ver.id"],"limit":50}'
+  -H 'Content-Type: application/json' -d '{"objectId":"'$CHAT'","dataset":"chat_messages","sort":["-_ver.id"],"limit":50}'
 # any query-subscribe $SP $CHAT --dataset chat_messages --sort=-_ver.id --limit 50
 ```
 
@@ -64,7 +64,7 @@ On the shared-dataset stream, record ids are `<objectId>/<recordId>`, and a dele
 
 ```bash
 curl -N -X POST http://127.0.0.1:2046/v1/spaces/$SP/datasets/query/subscribe \
-  -d '{"dataset":"'$HOURS'","sort":["-start"],"limit":48}'
+  -H 'Content-Type: application/json' -d '{"dataset":"'$HOURS'","sort":["-start"],"limit":48}'
 # any query-subscribe $SP --all-objects --dataset $HOURS --sort -start --limit 48
 ```
 

@@ -49,7 +49,11 @@ Frames (one JSON object per line on stdout):
   {"event": "ready",    "data": {}}
   {"event": "snapshot", "data": {"records":[...], "total": 17, "hasNext": true}}
   {"event": "changes",  "data": [{"versionId":"...","added":[...],"updated":[...],"removed":[{"id":"...","reason":"deleted"}]}]}
-  {"event": "closed",   "data": {"reason": "server_shutdown" | "deauthorized" | "sdk_closed" | "overflow" | "drifted" | "object_deleted"}}
+  {"event": "closed",   "data": {"reason": "server_shutdown" | "deauthorized" | "sdk_closed" | "overflow" | "drifted" | "object_deleted" | "open_failed"}}
+
+A slow snapshot read sends ": keepalive" comments before "ready"; an open
+that fails after that reports "open_failed" with the error envelope's
+"status", "code" and "message".
 `,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {

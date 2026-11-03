@@ -9,7 +9,7 @@ The `any` server listens on `127.0.0.1:2046` and exposes one JSON API under `/v1
 
 ## Conventions
 
-- **Base path** `/v1/`. Media type `application/json; charset=utf-8` for every request with a body and every response, except the raw routes: file attach and content carry file bytes, local-store export returns `application/gzip` and import takes that file as its body, and every `…/subscribe` answers `text/event-stream`.
+- **Base path** `/v1/`. Media type `application/json; charset=utf-8` for every request with a body and every response, except the raw routes: file attach and content carry file bytes, the avatar upload takes the image, local-store export returns `application/gzip` and import takes that file as its body, and every `…/subscribe` answers `text/event-stream`. A `POST`, `PUT`, `PATCH` or `DELETE` body with a missing or different `Content-Type` answers `415 request.unsupported_media_type`; a request without a body needs no header.
 - **Status codes**: `200` reads, `201` creates, `204` side-effect-only endpoints. Errors always use the envelope in [Errors](errors.html).
 - **Ids in paths** are URL-safe strings; segments are URL-encoded (a bundle id like `favorites/v1` becomes `favorites%2Fv1`).
 - **Body limit** 1 MB on every route except file attach, the avatar upload and local-store import, whose raw bodies stream past it.
@@ -51,7 +51,7 @@ curl http://127.0.0.1:2046/v1/health        # any status
 Errors: `400 auth.bad_mnemonic`, `400 request.invalid_field` (mnemonic + accountId together, `index` without `mnemonic`, `replace` without a credential, `accountId` on a managed server), `403 control.forbidden`, `403 auth.not_managed`, `404 auth.account_not_found`, `409 auth.account_in_use`, `409 auth.account_mismatch`, `409 auth.mnemonic_mismatch`, `409 auth.already_authorized`, `409 auth.network_mismatch`, `400 auth.passkey_required`, `409 sdk.crdt_version_newer`, `500 auth.device_key_corrupt`, `500 auth.network_pin_corrupt`. Details and the decision table: [Accounts](../auth/accounts.html).
 
 ```bash
-curl -X POST http://127.0.0.1:2046/v1/auth -d '{}'      # any auth login
+curl -X POST http://127.0.0.1:2046/v1/auth -H 'Content-Type: application/json' -d '{}'      # any auth login
 ```
 
 ## Account and identities
@@ -94,8 +94,8 @@ curl -X POST http://127.0.0.1:2046/v1/auth -d '{}'      # any auth login
 `SpaceInfo` fields worth knowing: `spaceIndexObjectId`, `createdAt`, `spaceType` (`any.space` \| `any.onetoone`), `author`, `ownRole` (`owner\|admin\|writer\|reader\|guest\|none`), `settings`, `push`, `derived`, `status`.
 
 ```bash
-curl -X POST http://127.0.0.1:2046/v1/spaces -d '{"name":"Notes"}'
-curl -X PATCH http://127.0.0.1:2046/v1/spaces/$SP -d '{"name":"Project Phoenix"}'   # any space update $SP --name "Project Phoenix"
+curl -X POST http://127.0.0.1:2046/v1/spaces -H 'Content-Type: application/json' -d '{"name":"Notes"}'
+curl -X PATCH http://127.0.0.1:2046/v1/spaces/$SP -H 'Content-Type: application/json' -d '{"name":"Project Phoenix"}'   # any space update $SP --name "Project Phoenix"
 ```
 
 ### One-to-one and direct-add invites
@@ -123,7 +123,7 @@ Pending rows are discovered through `GET /v1/spaces?status=one_to_one_pending` /
 
 ```bash
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/bundles \
-  -d '{"id":"notes/v1","name":"Notes","xKey":"notes","hidden":true,"parts":[{"key":"body","datasets":[{"module":"editor"}]}]}'
+  -H 'Content-Type: application/json' -d '{"id":"notes/v1","name":"Notes","xKey":"notes","hidden":true,"parts":[{"key":"body","datasets":[{"module":"editor"}]}]}'
 ```
 
 Full semantics in [Bundles](../collaboration/bundles.html).
@@ -151,9 +151,9 @@ Full semantics in [Bundles](../collaboration/bundles.html).
 
 ```bash
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects \
-  -d '{"type":"page","initialProperties":{"any":{"name":"Dune"}}}'
+  -H 'Content-Type: application/json' -d '{"type":"page","initialProperties":{"any":{"name":"Dune"}}}'
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects/query \
-  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}'
+  -H 'Content-Type: application/json' -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}'
 ```
 
 Every `objects` row carries derived `author`, `createdAt`, `spaceId`, `modifiedAt`, `modifiedBy` (instants as `{"$date": …}`; `modifiedBy` is the identity that signed the change `modifiedAt` names). See [Objects](../database/objects.html) and [System fields](../database/system-fields.html).
@@ -212,11 +212,11 @@ Snapshot body (closed field set — unknown keys `400 request.unknown_field`):
 `projection` (dotted paths → `1` include / `-1` exclude; `id` always ships, `_ver` narrows to match) shapes snapshot rows and every record in `changes` frames. `includeDeleted: true` (snapshot `…/query` only) returns record tombstones next to live rows. Filter faults: `400 filter.unknown_operator`, `400 filter.invalid`. A serialized-nil `objectId` is `400 object.id_required`. Grammar in [Reading data](../database/reading-data.html); pipelines in [Aggregation](../database/aggregation.html).
 
 ```bash
-curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/modify -d '{
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/modify -H 'Content-Type: application/json' -d '{
   "objectId":"'$OBJ'","dataset":"notes",
   "records":[{"id":"","upsert":true,"ops":[{"type":"$set","path":"","value":{"title":"x"}}]}]}'
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/datasets/query \
-  -d '{"dataset":"'$T'_hours","sort":["-start"],"limit":48}'   # any query-subscribe $SP --all-objects --dataset ${T}_hours --sort -start --limit 48
+  -H 'Content-Type: application/json' -d '{"dataset":"'$T'_hours","sort":["-start"],"limit":48}'   # any query-subscribe $SP --all-objects --dataset ${T}_hours --sort -start --limit 48
 ```
 
 ## Version history
@@ -269,10 +269,10 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 | DELETE | `…/properties/:objectId/collections/:collectionId` | — | write result | idempotent `$pull`; checks neither id (the repair path); values and records stay as orphan data; `collections/bin` clears the stamps |
 
 ```bash
-curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/types -d '{"name":"Book","xKey":"book"}'
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/types -H 'Content-Type: application/json' -d '{"name":"Book","xKey":"book"}'
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/types/$T/properties \
-  -d '{"name":"Rating","kind":"number","xKey":"rating"}'
-curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/collections -d '{"name":"Reading list","xKey":"reading_list"}'
+  -H 'Content-Type: application/json' -d '{"name":"Rating","kind":"number","xKey":"rating"}'
+curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/collections -H 'Content-Type: application/json' -d '{"name":"Reading list","xKey":"reading_list"}'
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/properties/$OBJ/collections/$C
 ```
 
@@ -377,7 +377,7 @@ See [Sync status](../realtime/sync-status.html) and [Debugging](../operations/de
 
 ```bash
 curl -X POST http://127.0.0.1:2046/v1/events \
-  -d '{"type":"ui.open_object","scope":"device","data":{"spaceId":"'$SP'","objectId":"'$OBJ'"}}'
+  -H 'Content-Type: application/json' -d '{"type":"ui.open_object","scope":"device","data":{"spaceId":"'$SP'","objectId":"'$OBJ'"}}'
 ```
 
 See [Event bus](../realtime/event-bus.html) and [Processes](../notifications/processes.html).

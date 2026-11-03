@@ -37,7 +37,7 @@ Every error response from the any server — whatever the status code — has th
 | 409 | conflict — duplicate, precondition failed, not converged yet, feature disabled |
 | 410 | the target is gone for good (`object.deleted`, `record.deleted`, `invite.revoked`) |
 | 413 | history view too large; request body over the 1 MB limit; avatar upload over the 1 MiB cap (`account.icon_too_large`) |
-| 415 | the avatar upload is not an accepted raster image (`account.icon_not_image`) |
+| 415 | a body that is not `application/json` (`request.unsupported_media_type`); the avatar upload is not an accepted raster image (`account.icon_not_image`) |
 | 429 | the invite service is throttling this client (`access.rate_limited`) |
 | 500 | unexpected engine or server failure (`internal`); the stack goes to the server log only |
 | 501 | route registered for an SDK surface that is not implemented yet |
@@ -65,6 +65,7 @@ Panics are converted to `500 internal` with a generic message.
 | `request.not_found` | 404 | no route matches the path |
 | `request.method_not_allowed` | 405 | the path exists, the method does not |
 | `request.too_large` | 413 | body over the 1 MB limit |
+| `request.unsupported_media_type` | 415 | a body whose `Content-Type` is missing or not `application/json` |
 | `auth.required` | 401 | server unauthorized — `POST /v1/auth` first |
 | `auth.already_authorized` | 409 | `{}` while an account runs — a fresh account is never minted in place |
 | `auth.not_managed` | 403 | standalone server: a different account on `POST`, or `DELETE` — switching means a restart |
@@ -144,7 +145,7 @@ Panics are converted to `500 internal` with a generic message.
 | `dataset.key_conflict` | 409 | a part or dataset with this key already exists on the type (`details.key`) |
 | `dataset.module_unknown` | 400 | the dataset names a module the server does not compile in |
 | `dataset.module_owned` | 409 | fields or an index declared on a module-served dataset |
-| `dataset.module_reserved` | 400 | a part, dataset or bundle draft names a module reserved to the server's own installs (`chat`) |
+| `dataset.module_reserved` | 400 | a part, dataset or bundle draft names a module reserved to the server's own installs (no shipped module is) |
 | `dataset.decl_invalid` | 400 | malformed part, dataset or index declaration — including `shared` on a module dataset, a ninth index, and removing a field a declared index names |
 | `dataset.immutable` | 400 | PATCH of a pinned part, definition or field path (`details.path`) |
 | `upsert.requires_user_ids` | 400 | dataset not declared `idRule: user` |
@@ -163,7 +164,7 @@ Panics are converted to `500 internal` with a generic message.
 | `type.xkey_required` | 400 | a type or a collection created without an `xKey` |
 | `type.xkey_conflict` | 409 | `xKey` collides with an existing type's or collection's xKey or id (`details.xKey`, `details.existingTypeId` or `details.existingCollectionId`) — the two surfaces share one handle namespace; also raised by a bundle or catalog install |
 | `type.registered` | 400 | add/patch/remove a property, part or dataset, or PATCH the type, on a registered built-in type; also a column write on a registered built-in collection |
-| `type.reserved_carrier` | 400 | object create, `POST …/type/:typeId` or an `any.type` op names a type only its own root may carry (the general-chat root; `details.typeId`) |
+| `type.reserved_carrier` | 400 | object create, `POST …/type/:typeId` or an `any.type` op names a type only its own root may carry — one declaring a reserved module (`details.typeId`) |
 | `collection.not_found` | 404 | unknown collectionId (400 inside a bundle ensure) |
 | `collection.not_a_collection` | 400 | a `…/collections` route, or `POST …/properties/:objectId/collections/:collectionId`, names a user **type** (`details.typeId`). A registered type id (`page`, `dataview`) answers `404 collection.not_found` |
 | `collection.registered` | 400 | PATCH the metadata of a registered built-in collection (`miniapp`, `bin`, `template`) |

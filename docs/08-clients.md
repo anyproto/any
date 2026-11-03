@@ -221,19 +221,17 @@ lifecycle is in `04-events.md`.
 
 ## 4. Chat: newest-first reads and backward pagination
 
-**Where `<chatObjectId>` comes from:** the space's one chat is the
-catalog's `general-chat` usecase — `POST /v1/catalog/general-chat/setup
+**Where `<chatObjectId>` comes from:** any object whose type declares
+a chat part is a chat. The space's general chat is the catalog's
+`general-chat` usecase — `POST /v1/catalog/general-chat/setup
 {"spaceId": …}` — and `<chatObjectId>` is the `rootId` of its
 `system:general-chat/v1` bundle in the reply. The call is
 adopt-or-install, so every client lands on one object, and the root is
 derived — its id is a function of the space and the bundle id,
 computed offline, identical on every device and member, so the chat
 cannot fork even when two sides install while apart (the 1-1 case,
-where neither participant is the owner). The `chat` module is reserved
-to the server: no client declares a chat part, and the general-chat
-root is the only object that may carry its type, so there is no other
-chat to find. Full guidance: `16-chat.md` § Finding the chat object for
-a space, `03-api.md` § Chat.
+where neither participant is the owner). Full guidance: `16-chat.md`
+§ Finding the chat object for a space, `03-api.md` § Chat.
 
 Chat uses `-_ver.id` (descending) **uniformly** — initial view, live tail,
 and history paging all sort the same way. `_ver.id` is the record's

@@ -1193,7 +1193,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "module": {
-                        "description": "Module is the serving module: \"records\" (the default) or\n\"editor\". \"chat\" is reserved to the server (400\ndataset.module_reserved) — the catalog's general-chat usecase is\nits one declaration.",
+                        "description": "Module is the serving module: \"records\" (the default), \"editor\"\nor \"chat\". A module reserved to the server's own installs is 400\ndataset.module_reserved; no shipped module is reserved.",
                         "type": "string"
                     },
                     "search": {

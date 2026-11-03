@@ -66,6 +66,7 @@ func TestE2E_MultipeerChatMentions(t *testing.T) {
 	}) {
 		t.Fatalf("joiner never converged on the pre-join message")
 	}
+	waitChatDeclared(t, joiner.base, sp.Id)
 	mustStatus(t, http.MethodPost, joinerBase+"/chat/read-all", "", http.StatusNoContent)
 
 	// --- (1) Text mention badges the mentioned account.

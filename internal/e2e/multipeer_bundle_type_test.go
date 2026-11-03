@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 	"testing"
@@ -95,10 +96,29 @@ func TestE2E_MultipeerBundleDeclaredType(t *testing.T) {
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/bundles", hiddenBody, http.StatusOK, &hiddenOwner)
 	var hiddenJoiner api.TypeInfo
 	if !pollUntilSynced(t, 2*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
-		hiddenJoiner = api.TypeInfo{}
-		code := tryJSON(t, http.MethodGet, joiner.base+"/v1/spaces/"+sp.Id+"/types/"+hiddenOwner.Bundle.RootId, "", &hiddenJoiner)
-		return code == http.StatusOK && hiddenJoiner.Hidden
+		var ok bool
+		hiddenJoiner, ok = typeOn(t, joiner, sp.Id, hiddenOwner.Bundle.RootId)
+		return ok && hiddenJoiner.Hidden
 	}) {
 		t.Fatalf("hidden flag never reached the joiner: %+v", hiddenJoiner)
 	}
+}
+
+// typeOn reads one type off a peer. ok=false on 404 type.not_found: type
+// reads are local, so a peer answers that until the type's tree syncs.
+func typeOn(t *testing.T, p *peer, spaceId, typeId string) (api.TypeInfo, bool) {
+	t.Helper()
+	resp, raw := doRequest(t, http.MethodGet, p.base+"/v1/spaces/"+spaceId+"/types/"+typeId, "")
+	switch {
+	case resp.StatusCode == http.StatusOK:
+		var info api.TypeInfo
+		if err := json.Unmarshal(raw, &info); err != nil {
+			t.Fatalf("%s: decode type %s: %v body=%s", p.name, typeId, err, raw)
+		}
+		return info, true
+	case resp.StatusCode == http.StatusNotFound && errorCode(t, raw) == "type.not_found":
+		return api.TypeInfo{}, false
+	}
+	t.Fatalf("%s: GET …/types/%s: status=%d body=%s", p.name, typeId, resp.StatusCode, raw)
+	return api.TypeInfo{}, false
 }

@@ -17,7 +17,7 @@ A type is properties plus **parts**. A part is a display unit the client renders
 |--------|--------|---------------------|
 | `records` | records whose schema you declare, in `<typeId>_<key>` | Part 3 — the `messages` part |
 | `editor` | block documents with a lossless markdown bridge, in `editor_blocks` | below |
-| `chat` | messages with reactions, mentions and read tracking, in `chat_messages` | reserved to the server — the space's one chat |
+| `chat` | messages with reactions, mentions and read tracking, in `chat_messages` | any type with a chat part; the catalog's general chat is the space-wide one |
 
 Giving the mailbox a notes body is one more part on the type:
 
@@ -171,7 +171,7 @@ Every catalog entry is the same construction you just built by hand, and each sh
 | `collections` | an app only — a `page` root filed under `miniapp`, whose presence switches the types feature on in the client |
 | `journal` | an app **and** a collection: the sidebar entry, and the hidden collection whose one `date` property makes a page filed under it that day's entry |
 | `meetings` | two roots: the `meeting` type, outside the sidebar — a meeting is one object whose three parts are its notes (the canonical editor body), a second editor for the summary, and a transcript dataset an agent fills — and a separate `page` root that is the sidebar entry |
-| `general-chat` | the space's one chat: a **derived** root both sides of a partition compute, so it can never fork, carrying the reserved `chat` module |
+| `general-chat` | the space's well-known chat: a **derived** root both sides of a partition compute, so it can never fork, carrying the `chat` module |
 | `people`, `contact`, `contacts`, `crm` | a set: `crm` requires `contacts`, which requires `people` and `contact`; setup resolves the closure in order and the reply lists every bundle it touched, `typeId` for a type root and `collectionId` for a collection root |
 
 Every app that ships with a client belongs here, types included: the catalog is the one place a well-known type is declared, so two clients — or a client and an agent — resolve the same ids instead of each minting a type by name and hoping they match.

@@ -73,10 +73,10 @@ func TestServer_ChatNotifyMode_RowAddressing(t *testing.T) {
 	}
 
 	// The push sync loop enumerates a space's chats as the objects whose
-	// TYPE is an owner of the chat collection, plus the declaring roots
-	// themselves (a definition hosts its own datasets — the general chat
-	// is its own type). The owners come from dataset discovery. A plain
-	// object is not a chat.
+	// TYPE is an owner of the chat collection, plus the declaring
+	// definitions themselves (a definition hosts its own datasets — the
+	// general chat is its own root, a user type's row is one too). The
+	// owners come from dataset discovery. A plain object is not a chat.
 	other := mustCreateObject(t, e, spaceId, `{"type":"page"}`)
 	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+spaceId+"/datasets", "")
 	if rec.Code != http.StatusOK {
@@ -92,7 +92,8 @@ func TestServer_ChatNotifyMode_RowAddressing(t *testing.T) {
 			owners = s.Owners
 		}
 	}
-	if len(owners) != 1 || owners[0] != installModuleType(t, e, spaceId, "chat") {
+	chatType := installModuleType(t, e, spaceId, "chat")
+	if len(owners) != 1 || owners[0] != chatType {
 		t.Fatalf("chat_messages owners = %v, want the fixture's chat type", owners)
 	}
 	fBody, _ := json.Marshal(map[string]any{"filter": map[string]any{"$or": []any{
@@ -111,8 +112,12 @@ func TestServer_ChatNotifyMode_RowAddressing(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &chats); err != nil {
 		t.Fatal(err)
 	}
-	if len(chats.Records) != 1 || chats.Records[0].Id != objectId {
-		t.Fatalf("chat objects = %+v, want only %s (not %s)", chats.Records, objectId, other)
+	got := map[string]bool{}
+	for _, r := range chats.Records {
+		got[r.Id] = true
+	}
+	if len(got) != 2 || !got[objectId] || !got[chatType] {
+		t.Fatalf("chat objects = %+v, want %s and its declaring type %s (not %s)", chats.Records, objectId, chatType, other)
 	}
 }
 

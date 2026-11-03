@@ -81,7 +81,7 @@ A `changes` batch omits the lists it has nothing for, hence the `?`. Cancel with
 
 ## Editor and chat
 
-The `editor` and `chat` modules have full CLI coverage. `any editor edit` replaces text already in the rendered markdown, so the block goes in first. The space's one chat is the `general-chat` usecase's root, set up once per space:
+The `editor` and `chat` modules have full CLI coverage. `any editor edit` replaces text already in the rendered markdown, so the block goes in first. Any object whose type declares a chat part is a chat; the space's general chat is the `general-chat` usecase's root, set up once per space:
 
 ```bash
 any editor blocks create $SPACE $OBJ --type check_list_item --text 'Dune'   # renders as "- [ ] Dune"

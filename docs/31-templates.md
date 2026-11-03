@@ -27,7 +27,7 @@ no template editor. Everything on it is the pre-fill:
 | `any.name`, `any.description`, `any.icon`, `any.tags` | the same values; an empty one stays empty |
 | `any.collections` minus the built-in markers (`template`, `bin`, `miniapp`) | the new object's collections |
 | `<typeId>.<propId>` and `<collectionId>.<propId>` values the definitions still declare | the same values, under the template's type and its own non-marker collections; a collection the request adds brings no values |
-| the live records of every dataset the type's parts declare | copied records: editor blocks keep their ids, so the tree holds; a `records` dataset with derived ids (`idRule: auto`, the default) gets fresh ones; stamps (`creator`, `createTime`, …) are re-derived for the copier |
+| the live records of every dataset the type's parts declare, except a chat's | copied records: editor blocks keep their ids, so the tree holds; a `records` dataset with derived ids (`idRule: auto`, the default) gets fresh ones; stamps (`creator`, `createTime`, …) are re-derived for the copier |
 
 The collection carries two properties, under `template.<propId>` on the
 template only:
@@ -111,8 +111,9 @@ account scope, one under a property its definition no longer declares
 or under a collection the space no longer has, stays behind, while a
 collection id the space no longer has is carried as it is) and the
 records of every dataset
-the source's type declares through its parts, except a reserved
-module's (the chat) and an invalid declaration. A record field
+the source's type declares through its parts, except the chat's (a
+transcript is its authors' and never travels) and an invalid
+declaration. A record field
 declared local, derived or stamped stays behind too, and on a dataset
 that is not `dynamic` so does a field no definition declares any more.
 The derived row-root stamps
@@ -157,6 +158,9 @@ A later edit of the template never changes an object made from it.
 
 ### Not copied
 
+- **Chat messages.** A transcript is its authors' (`creator` and
+  `createdAt` come from the change envelope); the copy's chat starts
+  empty.
 - **Files.** A file is bound to the object it was attached to. A copy
   keeps the template's file links (body images, a file-valued
   property), which resolve while the template and its files exist and

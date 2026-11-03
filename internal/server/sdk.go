@@ -208,16 +208,21 @@ func serverModules() []handler.Module {
 // reservedModule reports whether a module name is registered as
 // reserved to the server's own installs (handler.Module.Reserved).
 func reservedModule(name string) bool {
-	if name == "" {
-		return false
-	}
+	return name != "" && reservedModules()[name]
+}
+
+// reservedModules is the set of module names registered as reserved —
+// empty when no module is, which is the shipped catalog. Computed once:
+// the module list is fixed at init (the test seam fills it there too).
+var reservedModules = sync.OnceValue(func() map[string]bool {
+	out := map[string]bool{}
 	for _, m := range serverModules() {
-		if m.Name == name {
-			return m.Reserved
+		if m.Reserved {
+			out[m.Name] = true
 		}
 	}
-	return false
-}
+	return out
+})
 
 // staticDatasetNames collects every compiled-in dataset name across
 // serverTypes() and the modules' canonical collections — indexed or

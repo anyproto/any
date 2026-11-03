@@ -251,9 +251,10 @@ in the payload).
 
 **Chat enumeration** is one objects query per active space: rows whose
 `any.type` is one of the `chat_messages` owners, OR whose `id` is one of
-them — a declaring root hosts its own datasets, and the general chat is
-its own root. Each match contributes its `chat.notifyMode`, read off the
-row.
+them — a declaring definition hosts its own datasets: the general chat
+is its own root, and a user type's own row qualifies too, an empty chat
+until someone writes to it. Each match contributes its
+`chat.notifyMode`, read off the row.
 
 If a space's chat enumeration fails mid-reconcile, the loop is
 **fail-safe, never fail-open**: it reuses that space's last-known-good

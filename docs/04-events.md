@@ -62,13 +62,24 @@ user-space. The CLI (`any query-subscribe`) and Go client
    - `object_deleted` — the object behind a per-object stream (one
      object's dataset or files) was deleted. Drop the view; a new
      POST for it is refused.
+   - `open_failed` — the open failed after the stream was committed
+     (item 3). `status` / `code` / `message` carry the error envelope.
 
-   Every reason but `object_deleted` means "open a fresh POST".
+   Every reason but `object_deleted` and a 4xx `open_failed` means
+   "open a fresh POST".
    `overflow` and `drifted` are split so clients can log and back
    off; recovery is identical.
 3. **Wait for `ready` before treating the stream as live.** Errors
    that happen before the SDK Subscribe call returns surface as a
-   regular JSON error envelope on the open response, not SSE.
+   regular JSON error envelope on the open response, not SSE — as
+   long as Subscribe answers within the open grace (2s). A snapshot
+   read and encode that take longer commit the `200` stream first
+   and keep it warm with `: keepalive` comments until the snapshot is
+   encoded, so a client's open watchdog measures the open and not the
+   size of the space; `ready` and `snapshot` follow. A Subscribe that fails after
+   that commit ends the stream with `closed{open_failed}` carrying
+   the envelope's `status`, `code` and `message` — treat it as the
+   envelope: a 4xx refuses the request, a 5xx is retryable.
 4. **`snapshot` arrives once, right after `ready`.** Don't apply
    `changes` frames until the snapshot is integrated — the windowed
    engine guarantees the snapshot and the first event sit at adjacent
@@ -128,7 +139,8 @@ event: closed
 data: {"reason":"overflow"}
 ```
 
-Wait for `ready`. Integrate `snapshot.records` (`total` / `hasNext`
+Wait for `ready` (a slow snapshot read sends `: keepalive` comments
+before it). Integrate `snapshot.records` (`total` / `hasNext`
 are present only when the body set `includeTotal`). Apply each
 subsequent `changes` batch to the local window: add new records,
 update mutated ones, drop ids in `removed` (only `reason:"deleted"`

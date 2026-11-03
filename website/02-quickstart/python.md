@@ -81,7 +81,7 @@ Expect `Pages: 1 ['Reading list']`. The renderer matches the query: newest modif
 
 ## 3. Read a dataset
 
-The same body shape reads any dataset of one object — chat messages, editor blocks, a runtime dataset you declared — via the sibling per-object path. The space's one chat is the root of the `general-chat` usecase; install it (adopt-or-install, idempotent), send a message, then read the history:
+The same body shape reads any dataset of one object — chat messages, editor blocks, a runtime dataset you declared — via the sibling per-object path. The space's general chat is the root of the `general-chat` usecase; install it (adopt-or-install, idempotent), send a message, then read the history:
 
 ```python
 setup = call("POST", "/catalog/general-chat/setup", {"spaceId": SPACE})

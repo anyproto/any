@@ -290,9 +290,8 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 	// A bare object has no name/description and doesn't carry the
 	// flagged type, so the prop chunker emits idempotent removals for
 	// all seven records — cleared values and detached types evict
-	// record-level. (The chat object is the general-chat root — a type
-	// row, which the prop chunker skips wholesale; a typeless create
-	// has no objects row yet, so a second editor object stands in.)
+	// record-level. (A typeless create has no objects row yet, so a
+	// second editor object stands in.)
 	plainObj := mustCreateModuleObject(t, e, spaceId, "editor")
 	liveNonMem, _ := collectChunks(t, ctx, propCh, sdkSpace, plainObj, 0)
 	if len(liveNonMem) != 7 {

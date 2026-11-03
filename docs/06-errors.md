@@ -31,7 +31,7 @@ Every error response — regardless of status code — has the same body:
 | 409    | Conflict (duplicate, precondition failed, state not ready)     |
 | 410    | Deleted for good (`object.deleted`, `record.deleted`, `invite.revoked`) |
 | 413    | Body over the 1 MiB cap (`request.too_large`; file attach and the avatar upload are exempt), `account.icon_too_large`, or `history.view_too_large` |
-| 415    | `account.icon_not_image` — the avatar upload is not one of the accepted image formats (by signature; SVG refused) |
+| 415    | `request.unsupported_media_type` — a body that is not `application/json`; `account.icon_not_image` — the avatar upload is not one of the accepted image formats (by signature; SVG refused) |
 | 429    | `access.rate_limited`                                          |
 | 500    | Internal error — unexpected SDK or server failure              |
 | 501    | `sdk.not_implemented` — `DELETE …/types/:typeId`, `DELETE …/collections/:collectionId` and `GET …/sync-status/peers` |
@@ -65,6 +65,7 @@ request.bad                      # 400 — rejected by the HTTP layer before a h
 request.not_found                # 404 — no such route
 request.method_not_allowed       # 405 — the route exists, not with this method
 request.too_large                # 413 — body over the 1 MiB cap
+request.unsupported_media_type   # 415 — a body whose Content-Type is missing or not application/json (file attach, the avatar upload and the local-store import take raw bodies)
 
 auth.required                    # 401 — server unauthorized; POST /v1/auth first
 auth.already_authorized          # 409 — `{}` while an account runs; a fresh account is never minted in place
@@ -128,7 +129,7 @@ dataset.validation               # 400 — schema or handler rejected ops
 dataset.key_conflict             # 409 — a part or dataset with this key already exists on the type (details.key when the draft names one); a module's canonical dataset declared a second time collides on its key
 dataset.module_unknown           # 400 — the dataset names a module this server does not compile in (records, editor, chat)
 dataset.module_owned             # 409 — a field or index declaration on a module-served dataset (editor, chat): the module owns the schema, the dataset declares no fields and no indexes
-dataset.module_reserved          # 400 — a part or dataset draft (on a type, or in a bundle body) names a module reserved to the server's own installs (`chat` — the catalog's general-chat usecase is its one declaration)
+dataset.module_reserved          # 400 — a part or dataset draft (on a type, or in a bundle body) names a module reserved to the server's own installs (no shipped module is)
 dataset.decl_invalid             # 400 — malformed part or dataset declaration (non-slug key, a records dataset without a key in a part draft, author mutability without a creator stamp, duplicate stamp kind, required additive field, `shared` on a module dataset, …); an index draft the dataset cannot build (a path that is not a declared string, number, boolean or datetime field, a taken key, more than four fields, a ninth index); removing a field a declared index names
 dataset.immutable                # 400 — PATCH a pinned part or dataset-def path (part: name, icon, pos, hidden, ui, uses are mutable; head: description, displayName, search.title/text/scope; field: name, description, xFormat.*); details.path
 
@@ -145,7 +146,7 @@ membership.type_required         # 400 — a raw write cleared any.type; every o
 membership.meta_type             # 400 — a write set a meta id (`any`, `type`, `collection`, `spaceIndex`) as any.type: on create, retype, a raw write, a bundle root or a bundle child; also POST …/objects whose `from` names a definition's own row (a type's or a collection's, the general chat root included)
 type.not_a_type                  # 400 — a …/types route, or POST …/properties/:objectId/type/:typeId, names a user COLLECTION (details.collectionId): use the …/collections routes, or file the object with POST …/properties/:objectId/collections/:collectionId. A registered collection's id (miniapp, bin, template) has no type row at all and answers type.not_found
 type.xkey_required               # 400 — a type or a collection created without an xKey (both need a stable handle)
-type.reserved_carrier            # 400 — object create `type`, POST …/properties/:objectId/type/:typeId, a bundle's rootType or a bundle child's type, or an `any.type` op through …/modify names a type whose part declares a reserved module (the general-chat root): that type is carried only by its own root (details.typeId)
+type.reserved_carrier            # 400 — object create `type`, POST …/properties/:objectId/type/:typeId, a bundle's rootType or a bundle child's type, or an `any.type` op through …/modify names a type whose part declares a reserved module: that type is carried only by its own root (details.typeId)
 type.xkey_conflict               # 409 — the xKey is already a handle in this space, on EITHER surface: a type's xKey or id (details.xKey, details.existingTypeId), or a collection's (details.xKey, details.existingCollectionId) — a collection never takes a type's handle and vice versa; also raised by POST …/bundles and POST /v1/catalog/:usecaseId/setup when an install's xKey is already held — install path only, never on adopt (details.bundleId; a setup adds details.usecase, details.usecaseId)
 type.registered                  # 400 — add/patch/remove a property, part or dataset, or PATCH the type itself, on a registered built-in type; also a column write on a registered built-in collection (declarations are static)
 collection.not_found             # 404 — unknown collectionId on GET/PATCH …/collections/:collectionId, GET …/collections/:collectionId/properties and POST …/properties/:objectId/collections/:collectionId; 400 when a bundle ensure's rootCollections names a collection the space does not have

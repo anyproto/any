@@ -43,7 +43,7 @@ func init() {
 		},
 	}, handler.Module{
 		// Canonical-only without Reserved: pins that rule on its own
-		// (chat is both).
+		// (chat is canonical-only too).
 		Name: "solo_notes", Canonical: "solo_notes_body",
 		CanonicalOnly: true, DataVersion: "solo_notes-v1",
 		New: func(handler.ModuleInstance) handler.Dataset {

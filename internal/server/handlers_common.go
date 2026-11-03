@@ -47,12 +47,7 @@ func readBody(c echo.Context) ([]byte, error) {
 // the caller (human or agent) guessing which part of the call was
 // wrong.
 func bindBody[T any](c echo.Context) (*T, bool) {
-	req := new(T)
-	if err := c.Bind(req); err != nil {
-		_ = writeError(c, http.StatusBadRequest, "request.bad_json", bindErrorMessage[T](err), nil)
-		return nil, false
-	}
-	return req, true
+	return decodeBody[T](c, false, "")
 }
 
 // bindBodyStrict is bindBody with unknown top-level keys rejected
@@ -62,6 +57,10 @@ func bindBody[T any](c echo.Context) (*T, bool) {
 // accepts. hint, when non-empty, is appended to the unknown-field
 // message to point at the right home for the value.
 func bindBodyStrict[T any](c echo.Context, hint string) (*T, bool) {
+	return decodeBody[T](c, true, hint)
+}
+
+func decodeBody[T any](c echo.Context, strict bool, hint string) (*T, bool) {
 	body, err := readBody(c)
 	if err != nil {
 		_ = writeError(c, http.StatusBadRequest, "request.bad_json", "read body: "+err.Error(), nil)
@@ -72,7 +71,9 @@ func bindBodyStrict[T any](c echo.Context, hint string) (*T, bool) {
 		return req, true
 	}
 	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.DisallowUnknownFields()
+	if strict {
+		dec.DisallowUnknownFields()
+	}
 	if err := dec.Decode(req); err != nil {
 		_ = strictDecodeFailed(c, err, reflect.TypeFor[T](), hint, "", bindErrorMessage[T])
 		return nil, false
@@ -80,8 +81,8 @@ func bindBodyStrict[T any](c echo.Context, hint string) (*T, bool) {
 	return req, true
 }
 
-// strictDecodeFailed renders a DisallowUnknownFields decode failure
-// with the shared envelope: the unknown field by name plus the
+// strictDecodeFailed renders a JSON decode failure with the shared
+// envelope: under DisallowUnknownFields, the unknown field by name plus the
 // accepted list (from acceptedType's json tags), or request.bad_json
 // via msg. encoding/json exports no sentinel for the unknown-field
 // rejection; the message form `json: unknown field "x"` is its

@@ -56,7 +56,7 @@ A dataset is a Mongo-like record storage collection scoped to one object — or,
 
 | Storage collection | Contributed by | Schema owner | Write path |
 |---|---|---|---|
-| `chat_messages` | the space's general-chat root — the `chat` module is reserved to the server's catalog install, so a space has one chat | the server's chat module | `POST …/objects/:o/chat/messages` and friends — [Chat](../types/chat.html) |
+| `chat_messages` | every object whose type declares a chat part, the general-chat root among them | the server's chat module | `POST …/objects/:o/chat/messages` and friends — [Chat](../types/chat.html) |
 | `editor_blocks`, `<typeId>_<key>` | a type's part declaring the `editor` module (canonical, or namespaced to the type) | the server's editor module | `POST …/objects/:o/editor/:collection/blocks`, the markdown bridge — [Editor](../types/editor.html) |
 | `payloads` | files, on a derived child of the object | the SDK | `POST …/objects/:o/files`; rows read through `POST …/objects/:o/files/query` — [Files](../files/index.html) |
 | `<typeId>_<key>` | a runtime dataset declared under a part of a user type (the `records` module) | you, via the declaration | generic `POST …/modify` and `POST …/upsert` — [Runtime datasets](runtime-datasets.html) |
@@ -69,7 +69,7 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects \
   -d '{"type": "'$MOVIE'", "collections": ["'$WIKI'"], "initialProperties": {"any": {"name": "Heat"}}}'
 ```
 
-That single object renders with the movie layout, carries the movie's properties and the wiki collection's columns, and holds the movie's reviews — and each concern is a separate storage collection with separate ordering, indexes and handlers. A type whose part declares a reserved module (the general chat) is carried only by its own root: naming it as `type` is `400 type.reserved_carrier`.
+That single object renders with the movie layout, carries the movie's properties and the wiki collection's columns, and holds the movie's reviews — and each concern is a separate storage collection with separate ordering, indexes and handlers. A type whose part declares a module reserved to the server is carried only by its own root: naming it as `type` is `400 type.reserved_carrier` (no shipped module is reserved).
 
 ## One read path for every dataset
 
