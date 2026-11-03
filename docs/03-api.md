@@ -891,7 +891,7 @@ carry further extension keywords in the document:
   `x-stamp` (`creator` / `createTime` / `modifyTime` — derived at apply
   time, client writes rejected);
 - doc-level standard `required` (fields that must be present on
-  create), `x-delete-by` (`author`; absent = anyone may delete),
+  create), `x-delete-by` (`author` / `none`; absent = anyone may delete),
   `x-id` (`user`, with `x-id-pattern` / `x-id-max-length`; absent =
   auto-derived record ids), and `x-search` (`{title, text, scope}` —
   the record fields the search indexer extracts and the index scope
@@ -2388,7 +2388,9 @@ scope covers property values only).
 `{objectId, dataset?, recordIds, traceIds?}` (`objectId` and a
 non-empty `recordIds` required — `400 request.missing_field`) →
 `200` with the shared write result. Record tombstones are sticky: a
-deleted id is never reused.
+deleted id is never reused. A dataset declared `deleteBy: none` refuses
+the call before anything is written: `409 dataset.undeletable`
+(details.dataset, details.objectId), every record stays live.
 
 #### Aggregate
 
@@ -2995,9 +2997,9 @@ dataset under it land in one change:
 - `datasets` — the initial declarations, each `{key?, module?, …}`
   plus the records-module schema fields below. `module` defaults to
   `records`; an unknown module is `400 dataset.module_unknown`. A
-  module-served dataset (`editor`, `chat`) carries **no** `fields` —
-  the module owns the schema — so any field declaration on it is `409
-  dataset.module_owned`.
+  module-served dataset (`editor`, `chat`) carries **no** `fields` and
+  no `deleteBy` — the module owns the schema and the delete rule — so
+  either on it is `409 dataset.module_owned`.
 
 `GET …/types/:typeId/parts` → `{parts: [{id, key, name?, icon?, pos?,
 hidden?, ui?, uses?, datasets: [<DatasetDef>…]}]}` — the compiled
@@ -3063,8 +3065,14 @@ collection}` (or inline in the part's `datasets` on `POST …/parts`):
   explicit client ids rejected) or `user` (caller-supplied ids under
   `idPattern` / `idMaxLen`, defaults `[A-Za-z0-9._:-]+` / 128; the id
   doubles as the upsert idempotency key).
-- `deleteBy` — `anyone` (default) or `author` (requires a
-  `stamp: creator` field; deletes by anyone else are dropped at apply).
+- `deleteBy` — `anyone` (default), `author` (requires a
+  `stamp: creator` field; deletes by anyone else are dropped at apply)
+  or `none` (no record delete at all: `delete-records` answers
+  `409 dataset.undeletable` and writes nothing, a delete arriving from
+  another device is dropped at apply, so an id is never burned; object
+  deletion still purges). `none` needs no stamp, so with `idRule: user`
+  and `mutableBy: any` fields it is the shape that converges under
+  concurrent same-id creates by different members.
 - per-field `mutableBy` — `never` (default, write-once: writable only
   in the creating change); `author` (requires a `stamp: creator` field)
   or `any` opt into post-create edits. Every allowed edit bumps the

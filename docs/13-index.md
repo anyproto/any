@@ -447,6 +447,27 @@ any-store database at `<data-dir>/index/index.db` (per account,
 SDK's process-global page pool and runs the same idle checkpoint (20 s
 after the last write) and dirty sentinel as `sdk.db`.
 
+`Start` returns before discovering spaces, opening them or checking
+their persisted index cursors. A tracked background bootstrap registers
+the space-list subscription first, then reads the list and hands each
+indexable space to an open of its own: the space is opened and its
+cursor aligned on a goroutine per space, outside the indexer's lock, so
+a space slow to open holds up neither sign-in, nor the other spaces,
+nor the space-list deltas (a delta that waited would park the SDK's
+dispatch goroutine and overflow its mailbox); a space's alignment
+holds no other space's open, and only that space's removal waits for
+it. A removal delivered while the list is
+being read is remembered, so the stale entry does not resurrect the
+space; an open the removal overtook publishes nothing and writes
+nothing after the drop. A listing that fails is retried with backoff.
+Until a space's
+worker is up, searches read its index as it stood at shutdown — after an
+SDK store rebuild or restore that index can name records that no longer
+exist, until the worker's alignment drops and rebuilds it. `Close`
+cancels and joins bootstrap, opens and workers before closing the index
+store. `Sync` waits for the initial list and the opens in flight before
+advancing known workers.
+
 **Observability**: long-running work is reported on the process view
 (`GET /v1/processes`, `22-processes.md` § Internal producers) as
 device-scope processes — `index.fts.<spaceId>` (advance pass, done =

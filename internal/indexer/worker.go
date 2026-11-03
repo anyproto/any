@@ -71,8 +71,19 @@ func newSpaceWorker(ix *Indexer, sp space.Space) *spaceWorker {
 	}
 }
 
-func (w *spaceWorker) start() {
+// open binds the worker's ctx and aligns the persisted index with the
+// SDK store. It runs before the worker is published, outside the
+// indexer's lock: the alignment reads the space and may drop its index.
+func (w *spaceWorker) open() {
 	w.ctx, w.cancel = context.WithCancel(w.ix.ctx)
+	w.alignIndex(w.ctx)
+}
+
+// start subscribes to the space and launches the loops. After open: the
+// alignment can drop this space's index, and the embed loop caches the
+// space collection handle — a drop racing it would put a dropped handle
+// back in the cache.
+func (w *spaceWorker) start() {
 	w.cancelSub = w.sp.Changes().Subscribe(func(space.ObjectChange) {
 		select {
 		case w.dirty <- struct{}{}:
@@ -80,10 +91,6 @@ func (w *spaceWorker) start() {
 		}
 	})
 	w.cancelBuilds = w.sp.Types().SubscribeIndexBuilds(w.onIndexBuild)
-	// Before the loops: the alignment can drop this space's index, and
-	// the embed loop caches the space collection handle — a drop racing
-	// it would put a dropped handle back in the cache.
-	w.alignIndex(w.ctx)
 	w.ix.wg.Add(1)
 	go w.advanceLoop()
 	if w.ix.HasEmbedder() {
