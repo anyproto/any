@@ -126,14 +126,16 @@ POST /v1/catalog/:usecaseId/setup   → 200 CatalogSetupResponse
 `CatalogUsecase` is the entry as the catalog declares it:
 
 ```jsonc
-{ "id": "wiki", "name": "Wiki", "description": "A tree of pages — parent link, sibling order, folder flag and the Library page a row opens",
+{ "id": "wiki", "name": "Wiki", "description": "A tree of pages — parent link, sibling order, folder flag, and rows that open a Library page",
   "bundles": [ { "id": "system:wiki/v1", "name": "Wiki", "hidden": true,
                  "miniapp": { "bundle": "system:wiki/v1" },
                  "collection": { "xKey": "wiki",
                                  "properties": [ { "xKey": "parentId", "name": "Parent",   "kind": "string",  "meta": { "index": "none" } },
                                                  { "xKey": "pos",      "name": "Position", "kind": "string",  "meta": { "index": "none" } },
-                                                 { "xKey": "folder",   "name": "Folder",   "kind": "boolean", "xFormat": { "type": "checkbox" } },
-                                                 { "xKey": "opens",    "name": "Opens",    "kind": "string",  "meta": { "index": "none" } } ] } } ] }
+                                                 { "xKey": "folder",   "name": "Folder",   "kind": "boolean", "xFormat": { "type": "checkbox" } } ] } },
+               { "id": "system:library-row/v1", "name": "Library row", "hidden": true,
+                 "type": { "xKey": "library_row", "layout": { "type": "library_row" },
+                           "properties": [ { "xKey": "opens", "name": "Opens", "kind": "string", "meta": { "index": "none" } } ] } } ] }
 ```
 
 `description` and `requires` are present when non-empty;
@@ -436,7 +438,8 @@ schema).
 
 | usecase | requires | bundle | declares |
 |---|---|---|---|
-| `wiki` | — | `system:wiki/v1` | collection `wiki` (hidden; `parentId`, `pos` and `opens` — kept out of the search index — and `folder`, a checkbox) + miniapp |
+| `wiki` | — | `system:wiki/v1` | collection `wiki` (hidden; `parentId`, `pos` — both kept out of the search index — and `folder`, a checkbox) + miniapp |
+| | | `system:library-row/v1` | hidden type `library_row` (layout `library_row`; `opens`, kept out of the search index) — a tree row that opens a Library page (§ Library rows) |
 | `collections` | — | `system:collections/v1` | miniapp only, a `page` root — a feature switch: installing it turns on working with types in clients; it declares none of its own |
 | `journal` | — | `system:journal/v2` | collection `journal` (hidden; one `date`, a `date`-slug datetime) + miniapp — an entry is a `page` filed under it, one per day; supersedes `system:journal/v1` |
 | | | `system:journal/v1` | superseded: type `journal` with the same `date` + editor `body` part + miniapp |
@@ -469,10 +472,10 @@ schema).
 | | | `system:deal/v1` | superseded: type `deal` (layout `profile`) with the same properties + editor `body` part |
 | | | `system:crm/v1` | miniapp only, a `page` root |
 
-Seventeen usecases, thirty-two bundles, six of them superseded. What a
-space set up today receives is five types — `meeting`, `task`,
-`bookmark`, `general_chat`, `profile` — and fifteen collections with an
-xKey. A
+Seventeen usecases, thirty-three bundles, six of them superseded. What a
+space set up today receives is six types — `meeting`, `task`,
+`bookmark`, `general_chat`, `profile`, `library_row` — and fifteen
+collections with an xKey. A
 type is there only for a format; everything that is a set of columns is
 a collection. An identity is a `profile` filed under `person` or
 `organization`, and a relationship is one more collection it is filed
@@ -542,11 +545,24 @@ on `<wikiCollectionId>.<posPropId>`; the whole tree is
 definition — does not match itself. A move is one property write under
 the same owner (`03-api.md` § The wiki tree).
 
-**A Library row is a wiki page whose `opens` names a Library page.**
-The Library is a client's set of pages over the whole space; three of
-them can sit in the tree as rows of their own. Such a row is the
-create above, a `page` placed by `parentId` and `pos`, with a
-non-empty `opens` and an `any.name`:
+**Library rows.** The Library is a client's set of pages over the whole
+space; three of them can sit in the tree as rows of their own. A row
+is an object of the hidden `library_row` type (`typeId` and
+`properties.opens` from the `system:library-row/v1` entry of the same
+setup), named, filed under the wiki and placed like a page:
+
+```
+POST /v1/spaces/:spaceId/objects
+{
+  "type": "<libraryRowTypeId>",
+  "collections": ["<wikiCollectionId>"],
+  "initialProperties": {
+    "any":                 { "name": "Recents" },
+    "<libraryRowTypeId>":  { "<opensPropId>": "library/recent" },
+    "<wikiCollectionId>":  { "<parentIdPropId>": "", "<posPropId>": "a3" }
+  }
+}
+```
 
 | `opens` | the row opens |
 |---|---|
@@ -554,17 +570,22 @@ non-empty `opens` and an `any.name`:
 | `library/types` | the page of every type in the space |
 | `library/collections` | the page of every collection in the space |
 
-Any other page carries no `opens`. A Library row is a leaf that opens
-its Library page instead of a body: `opens` wins over `folder` and a
-body, and a page whose `parentId` names the row is drawn at the row's
-own level. A client draws the Library's own name for the row; the
-stored `any.name` is what a client without that page shows. Each page
-sits in a tree once: a client adding one first looks for a row with
-the same `opens`, and rows made apart render as one, the lowest object
-id at its place. The row is an object of the space, so object queries
-and `/search` return it: a client leaves rows with a non-empty `opens`
-out of page lists, Recents, search results and pickers. Removing a
-row deletes its object.
+A client draws the Library's own name for the row; the stored
+`any.name` is what a client without that page shows. Rules every
+client shares, over the rows in the tree (the tree query, which leaves
+out the bin and templates):
+
+- each page sits in the tree once: a client adding one first looks for
+  a row with the same `opens`, and rows made apart render as one, the
+  lowest object id at its place;
+- removing a page's row deletes every row with that `opens`;
+- nothing goes under a row: removing one first moves any page under it
+  to the row's parent.
+
+Page lists filtered on `{"any.type": "<pageTypeId>"}` never see a row.
+A list across types — Recents, `/search` — leaves rows out in its
+query, `{"any.type": {"$ne": "<libraryRowTypeId>"}}` in the `filter`,
+never by dropping hits after the `limit`.
 
 **Journal** is one dated page per day: an entry's type is `journal`,
 with a `date` value (a `date` slug on `kind: datetime` — midnight

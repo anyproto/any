@@ -101,8 +101,9 @@ func TestServer_CatalogListAndGet(t *testing.T) {
 
 	var wiki api.CatalogUsecase
 	decodeGet(t, e, "/v1/catalog/wiki", &wiki)
-	// The wiki files pages it does not type: it declares a COLLECTION.
-	if len(wiki.Bundles) != 1 || wiki.Bundles[0].Id != "system:wiki/v1" || wiki.Bundles[0].Type != nil ||
+	// The wiki files pages it does not type: it declares a COLLECTION,
+	// next to the hidden type of its Library rows.
+	if len(wiki.Bundles) != 2 || wiki.Bundles[1].Id != "system:library-row/v1" || wiki.Bundles[0].Id != "system:wiki/v1" || wiki.Bundles[0].Type != nil ||
 		wiki.Bundles[0].Collection == nil || wiki.Bundles[0].Collection.XKey != "wiki" || !wiki.Bundles[0].Hidden {
 		t.Fatalf("wiki entry: %+v", wiki)
 	}
@@ -335,7 +336,7 @@ func TestServer_CatalogSetupMeetings(t *testing.T) {
 }
 
 // TestServer_CatalogSetupWiki pins the one-object shape: the root is
-// the wiki COLLECTION (hidden, xKey wiki, four columns by handle) AND
+// the wiki COLLECTION (hidden, xKey wiki, three columns by handle) AND
 // the miniapp entry, and a second setup adopts it unchanged. A page
 // keeps its own type and is filed under the collection.
 func TestServer_CatalogSetupWiki(t *testing.T) {
@@ -345,7 +346,7 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 	sp := createSpaceInfo(t, e, "CatalogWiki")
 
 	res := setupUsecase(t, e, "wiki", sp.Id)
-	if res.Usecase != "wiki" || len(res.Bundles) != 1 {
+	if res.Usecase != "wiki" || len(res.Bundles) != 2 {
 		t.Fatalf("reply: %+v", res)
 	}
 	b := res.Bundles[0]
@@ -354,7 +355,7 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 		t.Fatalf("wiki bundle: %+v", b)
 	}
 	wikiId := b.CollectionId
-	for _, xk := range []string{"parentId", "pos", "folder", "opens"} {
+	for _, xk := range []string{"parentId", "pos", "folder"} {
 		if b.Properties[xk] == "" {
 			t.Fatalf("property %s unresolved: %+v", xk, b.Properties)
 		}
@@ -471,12 +472,29 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 		t.Fatalf("wiki page membership: type=%q collections=%v", rowType(fr), rowCollections(fr))
 	}
 
-	// A Library row is a page in the tree with `opens` naming the page.
-	opensProp := b.Properties["opens"]
-	lib := mustCreateObject(t, e, sp.Id, `{"type":"page","collections":["`+wikiId+`"],"initialProperties":{"any":{"name":"Supertags"},"`+wikiId+
-		`":{"`+parentProp+`":"`+folder+`","`+posProp+`":"a1","`+opensProp+`":"library/collections"}}}`)
-	if got := objectRow(t, e, sp.Id, lib)[wikiId].(map[string]any)[opensProp]; got != "library/collections" {
-		t.Fatalf("opens not stored: %v", got)
+	// A Library row is an object of the hidden library_row type, placed
+	// by the wiki; `opens` lives on the type and stays out of search.
+	lr := res.Bundles[1]
+	if lr.Id != "system:library-row/v1" || lr.TypeId == "" || lr.TypeId != lr.Bundle.RootId || lr.Properties["opens"] == "" {
+		t.Fatalf("library-row bundle: %+v", lr)
+	}
+	var lrInfo api.TypeInfo
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+lr.TypeId, &lrInfo)
+	if lrInfo.XKey != "library_row" || !lrInfo.Hidden {
+		t.Fatalf("library_row type info: %+v", lrInfo)
+	}
+	var lrProps api.PropertiesListResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+lr.TypeId+"/properties", &lrProps)
+	if len(lrProps.Properties) != 1 || lrProps.Properties[0].XKey != "opens" || lrProps.Properties[0].Meta["index"] != "none" {
+		t.Fatalf("library_row properties: %+v", lrProps.Properties)
+	}
+	opensProp := lr.Properties["opens"]
+	libRow := mustCreateObject(t, e, sp.Id, `{"type":"`+lr.TypeId+`","collections":["`+wikiId+`"],"initialProperties":{"any":{"name":"Recents"},"`+
+		lr.TypeId+`":{"`+opensProp+`":"library/recent"},"`+wikiId+`":{"`+parentProp+`":"","`+posProp+`":"a2"}}}`)
+	rr := objectRow(t, e, sp.Id, libRow)
+	if ns, _ := rr[lr.TypeId].(map[string]any); ns[opensProp] != "library/recent" || rowType(rr) != lr.TypeId ||
+		!slices.Contains(rowCollections(rr), wikiId) {
+		t.Fatalf("library row: %v", rr)
 	}
 }
 
@@ -797,40 +815,6 @@ usecases:
         rootType: page
         miniapp: {}
 `
-
-// A collection root heals a property the catalog added later, as a type
-// root does: the wiki gaining a column reaches an existing install.
-func TestServer_CatalogHealCollectionProperty(t *testing.T) {
-	d, teardown := newTestDeps(t)
-	defer teardown()
-	e := buildEcho(d)
-	sp := createSpaceInfo(t, e, "CatalogHealCollection")
-
-	const tree = `
-usecases:
-  - id: seam-tree
-    name: Tree
-    bundles:
-      - id: system:seam-tree/v1
-        name: Tree
-        hidden: true
-        collection:
-          xKey: seam_tree
-          properties:
-            - { xKey: parentId, name: Parent, kind: string, meta: { index: none } }
-`
-	d.catalog = catalogForTest(t, tree)
-	v1 := setupUsecase(t, e, "seam-tree", sp.Id).Bundles[0]
-	if v1.CollectionId == "" || v1.Properties["parentId"] == "" || v1.Properties["opens"] != "" {
-		t.Fatalf("v1: %+v", v1)
-	}
-	d.catalog = catalogForTest(t, tree+"            - { xKey: opens, name: Opens, kind: string, meta: { index: none } }\n")
-	v2 := setupUsecase(t, e, "seam-tree", sp.Id).Bundles[0]
-	if v2.Installed || v2.CollectionId != v1.CollectionId || v2.Properties["parentId"] != v1.Properties["parentId"] ||
-		v2.Properties["opens"] == "" {
-		t.Fatalf("collection property heal: %+v", v2)
-	}
-}
 
 func TestServer_CatalogEvolution(t *testing.T) {
 	d, teardown := newTestDeps(t)

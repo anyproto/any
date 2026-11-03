@@ -159,7 +159,7 @@ any catalog setup wiki $SPACE
   "bundles": [ { "usecase": "wiki", "id": "system:wiki/v1",
                  "bundle": {"id": "system:wiki/v1", "rootId": "<rootId>", …},
                  "installed": true, "collectionId": "<rootId>",
-                 "properties": {"parentId": "…", "pos": "…", "folder": "…", "opens": "…"},
+                 "properties": {"parentId": "…", "pos": "…", "folder": "…"},
                  "miniapp": {"bundle": "system:wiki/v1"} } ] }
 ```
 

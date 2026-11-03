@@ -891,7 +891,7 @@ carry further extension keywords in the document:
   `x-stamp` (`creator` / `createTime` / `modifyTime` — derived at apply
   time, client writes rejected);
 - doc-level standard `required` (fields that must be present on
-  create), `x-delete-by` (`author`; absent = anyone may delete),
+  create), `x-delete-by` (`author` / `none`; absent = anyone may delete),
   `x-id` (`user`, with `x-id-pattern` / `x-id-max-length`; absent =
   auto-derived record ids), and `x-search` (`{title, text, scope}` —
   the record fields the search indexer extracts and the index scope
@@ -2019,11 +2019,10 @@ POST /v1/catalog/wiki/setup   {"spaceId": "<spaceId>"}
     properties.parentId   # <parentIdPropId> — string; "" = top level
     properties.pos        # <posPropId>      — lexid string; orders siblings
     properties.folder     # <folderPropId>   — boolean
-    properties.opens      # <opensPropId>    — string; the Library page a row opens
 ```
 
 An object is in the tree only while it is filed under the wiki
-collection; its placement is ordinary property values at
+collection; its placement is three ordinary property values at
 `<wikiCollectionId>.<propId>`, written like any other property. A page
 in the tree has `page` as its type for the body and the wiki
 collection for its place:
@@ -2041,8 +2040,8 @@ POST /v1/spaces/:spaceId/objects
 
 A folder is the same create with `<folderPropId>` `true`. What type a tree object has is the client's choice — the wiki
 collection only places it. A row that opens one of the client's
-Library pages instead of a body is a `page` with `<opensPropId>` set
-(`28-well-known-bundles.md` § Shipped usecases).
+Library pages is an object of the hidden `library_row` type the same
+setup installs (`28-well-known-bundles.md` § Library rows).
 
 Children of a node, in order (`""` as the parent lists the top level):
 
@@ -2057,7 +2056,7 @@ POST /v1/spaces/:spaceId/objects/query
 ```
 
 The columns are ordinary properties: unindexed on the `objects`
-storage collection (a scan, `09-query.md` § Indexes); `parentId`, `pos` and `opens` are
+storage collection (a scan, `09-query.md` § Indexes); `parentId` and `pos` are
 kept out of search with `meta.index: none` and are plain strings
 rather than relations, so `/backlinks` never reports a parent link
 (`folder`, a boolean, is never indexed at all).
@@ -2391,7 +2390,9 @@ scope covers property values only).
 `{objectId, dataset?, recordIds, traceIds?}` (`objectId` and a
 non-empty `recordIds` required — `400 request.missing_field`) →
 `200` with the shared write result. Record tombstones are sticky: a
-deleted id is never reused.
+deleted id is never reused. A dataset declared `deleteBy: none` refuses
+the call before anything is written: `409 dataset.undeletable`
+(details.dataset, details.objectId), every record stays live.
 
 #### Aggregate
 
@@ -2998,9 +2999,9 @@ dataset under it land in one change:
 - `datasets` — the initial declarations, each `{key?, module?, …}`
   plus the records-module schema fields below. `module` defaults to
   `records`; an unknown module is `400 dataset.module_unknown`. A
-  module-served dataset (`editor`, `chat`) carries **no** `fields` —
-  the module owns the schema — so any field declaration on it is `409
-  dataset.module_owned`.
+  module-served dataset (`editor`, `chat`) carries **no** `fields` and
+  no `deleteBy` — the module owns the schema and the delete rule — so
+  either on it is `409 dataset.module_owned`.
 
 `GET …/types/:typeId/parts` → `{parts: [{id, key, name?, icon?, pos?,
 hidden?, ui?, uses?, datasets: [<DatasetDef>…]}]}` — the compiled
@@ -3066,8 +3067,14 @@ collection}` (or inline in the part's `datasets` on `POST …/parts`):
   explicit client ids rejected) or `user` (caller-supplied ids under
   `idPattern` / `idMaxLen`, defaults `[A-Za-z0-9._:-]+` / 128; the id
   doubles as the upsert idempotency key).
-- `deleteBy` — `anyone` (default) or `author` (requires a
-  `stamp: creator` field; deletes by anyone else are dropped at apply).
+- `deleteBy` — `anyone` (default), `author` (requires a
+  `stamp: creator` field; deletes by anyone else are dropped at apply)
+  or `none` (no record delete at all: `delete-records` answers
+  `409 dataset.undeletable` and writes nothing, a delete arriving from
+  another device is dropped at apply, so an id is never burned; object
+  deletion still purges). `none` needs no stamp, so with `idRule: user`
+  and `mutableBy: any` fields it is the shape that converges under
+  concurrent same-id creates by different members.
 - per-field `mutableBy` — `never` (default, write-once: writable only
   in the creating change); `author` (requires a `stamp: creator` field)
   or `any` opt into post-create edits. Every allowed edit bumps the
