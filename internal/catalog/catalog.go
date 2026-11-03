@@ -3,8 +3,8 @@
 // into usecases a client sets up with one call, dependencies included.
 //
 // A usecase is a set of bundles installed together plus the usecases
-// it requires; every bundle is one created root under a permanent
-// `system:<name>/v<n>` id, declaring a type objects carry, a miniapp
+// it requires; every bundle is one root under a permanent
+// `system:<name>/v<n>` id, created or, where the catalog says so, derived, declaring a type objects carry, a miniapp
 // the client opens, records on the root, or several of those. Client
 // contract: docs/28-well-known-bundles.md.
 //

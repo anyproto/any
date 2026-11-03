@@ -544,6 +544,22 @@ func TestServer_CatalogSetupOverview(t *testing.T) {
 		t.Fatalf("overview parts: %+v", parts.Parts)
 	}
 	dataset := root + "_entries"
+	// What the SDK stored: the pinned leaves every release must declare alike.
+	var defs api.TypeDatasetsListResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+root+"/datasets", &defs)
+	if len(defs.Datasets) != 1 {
+		t.Fatalf("overview datasets: %+v", defs.Datasets)
+	}
+	ds := defs.Datasets[0]
+	if ds.Collection != dataset || ds.IdRule != "user" || ds.IdPattern != "^(settings|f:[A-Za-z0-9_-]{1,64}|[a-eg-z]:[A-Za-z0-9._:-]+)$" ||
+		ds.IdMaxLen != 256 || !ds.Dynamic || ds.DeleteBy != "none" || !ds.SkipHistory || len(ds.Fields) != 15 {
+		t.Fatalf("stored entries declaration: %+v", ds)
+	}
+	for _, f := range ds.Fields {
+		if f.MutableBy != "any" || f.Required || f.Stamp != "" {
+			t.Fatalf("stored field %s: %+v", f.Key, f)
+		}
+	}
 
 	// The root hosts the records; a field no client declared rides along.
 	body := `{"objectId":"` + root + `","dataset":"` + dataset + `","records":[` +
@@ -553,14 +569,16 @@ func TestServer_CatalogSetupOverview(t *testing.T) {
 		`{"id":"s:bin","fields":{"pos":"a2","removed":true}},` +
 		`{"id":"f:work","fields":{"name":"Work","parentId":"","pos":"a0"}},` +
 		`{"id":"bogus","fields":{"pos":"a3"}},` +
-		`{"id":"f:no spaces","fields":{"name":"Bad"}}]}`
+		`{"id":"f:no spaces","fields":{"name":"Bad"}},` +
+		`{"id":"w:a b","fields":{"pos":"a4"}}]}`
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert", body)
 	var up api.UpsertResult
 	if err := json.Unmarshal(rec.Body.Bytes(), &up); rec.Code != http.StatusOK || err != nil {
 		t.Fatalf("upsert entries: %d %s (%v)", rec.Code, rec.Body.String(), err)
 	}
-	// Ids off the pattern are refused: no prefix, or a folder token off its grammar.
-	if up.Created != 5 || len(up.Rejections) != 2 || up.Rejections[0].Id != "bogus" || up.Rejections[1].Id != "f:no spaces" ||
+	// Ids off the pattern are refused: no prefix, a bad folder token, a char off the alphabet.
+	if up.Created != 5 || len(up.Rejections) != 3 || up.Rejections[0].Id != "bogus" || up.Rejections[1].Id != "f:no spaces" ||
+		up.Rejections[2].Id != "w:a b" ||
 		up.Rejections[0].Code != "upsert.rejected" {
 		t.Fatalf("upsert result: %+v", up)
 	}

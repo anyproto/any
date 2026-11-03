@@ -628,8 +628,8 @@ no bundle means the client's defaults. A reader's write is
 | `t:<collectionId>` | a collection's place in the manual order and in folders |
 
 The dataset admits `settings`, `f:` with a `[A-Za-z0-9_-]{1,64}`
-token, and ids with any other lowercase one-letter prefix (`x:…`), up
-to 256 bytes. A
+token, and ids with any other lowercase one-letter prefix followed by
+`[A-Za-z0-9._:-]` (`x:…`), up to 256 bytes. A
 client skips an id whose prefix or source it does not know. Two
 writers adding the same widget write one record, merged per field;
 that holds because every field is `mutableBy: any` and the dataset
@@ -641,7 +641,7 @@ field takes the default below:
 | field | kind | on | value |
 |---|---|---|---|
 | `pos` | string | widget, section, folder, collection | lexid; widgets and sections share one order, folders and collections another; equal positions sort by record id |
-| `removed` | boolean | widget, section, folder, collection | `true` = off the Overview, or out of the tree |
+| `removed` | boolean | widget, section, folder, collection | `true` = off the Overview, or out of the tree; absent = the entry's default: shown, except `s:types` |
 | `layout` | string | widget | `link` \| `tree` \| `list` \| `compact` \| `messages` \| `attachments` |
 | `view` | string | widget | the saved view shown (for `w:tasks`, the list); absent = the source's first view |
 | `limit` | number | widget, section | rows shown before "See more" |
@@ -670,10 +670,15 @@ in every app:
 | `parentId` | `""`, the top level |
 | `editRowHidden`, `addWidgetRowHidden`, `overviewHidden` | `false` |
 
-An entry with no `pos` sorts after every entry that has one: sections
-in the order above, widgets by record id. A move writes `pos` on the
-moved entry only, plus on entries that have none yet, so two writers
-moving different entries apart both keep their move.
+A section with no `pos` has its default position, the editor
+allocator's `Middle()` and the three steps after it (`03-api.md` § The
+wiki tree): `s:recent` `PPPP`, `s:collections` `PPQY`, `s:types`
+`PPRc`, `s:bin` `PPSl`. Every client derives the same value, so a move
+writes `pos` on the moved entry only, and two writers moving different
+entries apart both keep their move. A widget is written with a `pos`;
+a new one goes before the sections unless placed elsewhere. Under
+`sort: manual`, a collection with no `t:` record or no `pos` sorts after
+the placed ones, by name.
 
 The dataset is `dynamic`: a field a newer client writes survives an
 older peer. The declaration is fixed for good: a derived root is never
@@ -699,18 +704,22 @@ folder that is removed or absent, renders at the top level.
 **Forks of what an entry names.** `w:type:`, `w:collection:` and `t:`
 ids name a definition, which may be a forked catalog root. A client
 that resolves a loser (§ Forks) moves each entry naming it to the
-winner's id: a new record with its fields, the old one
-`removed: true`.
+winner's id: a new record with its fields, unless the winner's entry
+exists, which then stays as it is; the loser's entry is
+`removed: true`. A value naming the loser (`opensWith`, `opensTo`
+`object:`) moves the same way.
 
 **Reads.** `POST …/query/subscribe` on the root and
 `<rootId>_entries` holds the whole Overview live, for readers too.
 While the bundle is absent, a client watches the registry (the
 `bundles` dataset on `spaceIndexObjectId`) for its install, then reads
 the root off `GET …/bundles/system%3Aoverview%2Fv1`, which applies the
-derived-root verdict. A root that has not fully arrived answers
-`409 bundle.not_ready` there, or `400 dataset.not_declared` /
-`dataset.unknown` on `<rootId>_entries`: a reader retries after sync,
-and a writer runs the setup again, which fills in what is missing.
+derived-root verdict. Until the root's tree has arrived, a read of
+`<rootId>_entries` answers `404 object.not_found`, and until its part
+has, no records: the client shows the defaults and retries after sync.
+A writer whose write answers `404 object.not_found` or
+`400 dataset.not_declared` runs the setup again, which fills in a part
+that never arrived.
 
 Per-person state — a folded widget, a reader's own view choices —
 is not in the Overview: it is the account-private per-space settings

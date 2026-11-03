@@ -806,7 +806,7 @@ func TestCatalog_OverviewDeclarationFrozen(t *testing.T) {
 		t.Fatal(err)
 	}
 	const want = `[{"key":"entries","datasets":[{"key":"entries","dynamic":true,"idRule":"user",` +
-		`"idPattern":"^(settings|f:[A-Za-z0-9_-]{1,64}|[a-eg-z]:.+)$","idMaxLen":256,"deleteBy":"none","fields":[` +
+		`"idPattern":"^(settings|f:[A-Za-z0-9_-]{1,64}|[a-eg-z]:[A-Za-z0-9._:-]+)$","idMaxLen":256,"deleteBy":"none","skipHistory":true,"fields":[` +
 		`{"key":"pos","kind":"string","mutableBy":"any"},{"key":"removed","kind":"boolean","mutableBy":"any"},` +
 		`{"key":"layout","kind":"string","mutableBy":"any"},{"key":"view","kind":"string","mutableBy":"any"},` +
 		`{"key":"limit","kind":"number","mutableBy":"any"},{"key":"attachments","kind":"string","mutableBy":"any"},` +

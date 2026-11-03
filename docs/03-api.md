@@ -1492,7 +1492,7 @@ is what the catalog's general chat does.
 The server's own well-known bundles: a yaml catalog embedded in the
 binary, grouped into **usecases** — a set of bundles installed together
 plus `requires`, the usecases that must be present first. Every bundle
-is one created root under a permanent `system:<name>/v<n>` id,
+is one root under a permanent `system:<name>/v<n>` id,
 declaring a `type` objects have, a `collection` they are filed under, a
 `miniapp` the client opens (the root is filed under the built-in
 `miniapp` collection with `bundle` = its id), `parts`
@@ -3317,7 +3317,9 @@ single-path set, identical records are skipped. Re-running an identical
 batch is a no-op. One CRDT change per page (`pageSize` default 500). Not
 transactional against concurrent writers. Concurrent creates of one id
 by different members converge unless the dataset declares write-once
-fields (a field without `mutableBy` is one), stamps or author gates; a dataset that does keeps one writer
+fields (a field without `mutableBy` is one), stamps or author gates,
+and a create that fails a required field or a value shape is screened
+whole when it applies first, so writers keep the local pre-flight; a dataset that does keeps one writer
 per id (the SDK's
 [`docs/user-datasets.md` § The IdRule: user contract](https://github.com/anyproto/any-sync-sdk/blob/main/docs/user-datasets.md#the-idrule-user-contract)).
 

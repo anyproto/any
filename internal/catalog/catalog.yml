@@ -296,10 +296,11 @@ usecases:
             datasets:
               - key: entries
                 idRule: user
-                idPattern: '^(settings|f:[A-Za-z0-9_-]{1,64}|[a-eg-z]:.+)$'
+                idPattern: '^(settings|f:[A-Za-z0-9_-]{1,64}|[a-eg-z]:[A-Za-z0-9._:-]+)$'
                 idMaxLen: 256
                 dynamic: true
                 deleteBy: none                         # an id is never burned on a root that cannot be replaced
+                skipHistory: true                      # layout churn; no history to browse
                 fields:
                   - { key: pos,                kind: string,  mutableBy: any }
                   - { key: removed,            kind: boolean, mutableBy: any }
