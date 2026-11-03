@@ -20,7 +20,7 @@ func TestCatalog_EmbeddedLoads(t *testing.T) {
 	if len(problems) > 0 {
 		t.Fatalf("embedded catalog: %v", problems)
 	}
-	for _, id := range []string{"wiki", "collections", "journal", "meetings", "general-chat", "people", "contact", "contacts", "crm"} {
+	for _, id := range []string{"wiki", "collections", "journal", "meetings", "general-chat", "overview", "people", "contact", "contacts", "crm"} {
 		if _, ok := cat.Get(id); !ok {
 			t.Errorf("usecase %s missing", id)
 		}

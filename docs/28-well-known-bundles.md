@@ -86,16 +86,18 @@ matches neither `{"any.type": "<rootId>"}` nor
 `{"any.collections": "<rootId>"}`, and a member query needs no marker
 exclusion.
 
-**Created roots, one exception.** Every catalog root is a created
+**Created roots, two exceptions.** Every catalog root is a created
 root: deletable (`DELETE …/objects/:rootId` uninstalls it), forking
 when two devices of one account install while apart (§ Forks). The
-general chat is the one `derived: true` bundle — chat content cannot
-be merged across objects (`creator` / `createdAt` come from the change
-envelope), and a 1-1 space has no owner to break a tie — so its root
-is a function of (space, bundle id): it never forks and can never be
-deleted (`409 object.derived_undeletable`). It is the space's
-well-known chat, not its only one: any type may declare the chat
-module (`16-chat.md` § Finding the chat object for a space).
+general chat and the Overview are the `derived: true` bundles, so
+their roots are a function of (space, bundle id): they never fork and
+can never be deleted (`409 object.derived_undeletable`). Chat content
+cannot be merged across objects (`creator` / `createdAt` come from the
+change envelope), and a 1-1 space has no owner to break a tie. The
+Overview is written by every writer of the space, who must be able to
+install it while apart. The general chat is the space's well-known
+chat, not its only one: any type may declare the chat module
+(`16-chat.md` § Finding the chat object for a space).
 
 **Naming.** Usecase ids are slugs (`[a-z][a-z0-9-]*`: `wiki`,
 `general-chat`, `contacts`); they never enter a space and need no
@@ -451,6 +453,7 @@ schema).
 | | | `system:bookmark/v1` | type `bookmark` (layout `bookmark`; `url`, `folder` → `bookmark_folder`, single, `archived`, `position`) + editor `body` part for the reader's notes — a bookmark is listed like a task; starring is the [native favorites](25-favorites.md) |
 | | | `system:bookmarks/v1` | miniapp only, a `page` root — the sidebar entry that opens Bookmarks |
 | `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one `chat` part hosted by the root itself, + miniapp, so the chat is a sidebar entry |
+| `overview` | — | `system:overview/v1` | derived, hidden, no miniapp; records part `entries` hosted by the root (`idRule: user`, `dynamic`) — the space's shared Overview, one record per entry (§ The Overview) |
 | `people` | — | `system:profile/v1` | type `profile` (layout `profile`, no properties) + editor `body` part — the one format a person and an organisation share; supersedes `system:person/v1` and `system:organization/v1` |
 | | | `system:person/v2` | collection `person` (`meta.defaultType: profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags); supersedes `system:person/v1` |
 | | | `system:organization/v2` | collection `organization` (`meta.defaultType: profile`; kind, domain, categories, location, size, linkedin, main_contact → `person`); supersedes `system:organization/v1` |
@@ -468,7 +471,7 @@ schema).
 | | | `system:deal/v1` | superseded: type `deal` (layout `profile`) with the same properties + editor `body` part |
 | | | `system:crm/v1` | miniapp only, a `page` root |
 
-Seventeen usecases, thirty-two bundles, six of them superseded. What a
+Eighteen usecases, thirty-three bundles, six of them superseded. What a
 space set up today receives is five types — `meeting`, `task`,
 `bookmark`, `general_chat`, `profile` — and fifteen collections with an
 xKey. A
@@ -592,6 +595,81 @@ them. `participants` and `labels` are `choice`, so their values are
 option KEYS: an ingest writes the key (minting the option on the
 definition where it needs a new one), and a reader prints
 `xFormat.options.<key>.name`, falling back to the key.
+
+### The Overview
+
+A space's Overview belongs to the space: its widgets and sections,
+their order, what it opens with and where the space opens to. Writers
+change it; every member, readers included, sees the result. It is
+one records dataset, `entries`, on the root of `system:overview/v1`;
+the storage collection is `<rootId>_entries`, read off
+`GET …/types/<rootId>/parts`.
+
+**Installed on the first change.** A space has no Overview until a
+writer changes one: the client then runs
+`POST /v1/catalog/overview/setup` and writes. The root is derived, so
+a writer installs it while apart and two installs meet on one root.
+A reader never runs the setup (it answers `403` while the bundle is
+absent). It reads `GET …/bundles/system%3Aoverview%2Fv1` instead, and
+no bundle means the client's defaults. A reader's write is
+`403 space.read_only`, like any write in a space it cannot write.
+
+**The record id says what an entry is**, and no field repeats it:
+
+| id | entry |
+|---|---|
+| `settings` | the space's Overview settings |
+| `w:<source>` | a widget with no target: `w:chat`, `w:tasks`, `w:wiki`, `w:recent` |
+| `w:<source>:<id>` | a widget on a definition or an object: `w:type:<typeId>`, `w:collection:<collectionId>`, `w:object:<objectId>` |
+| `s:<section>` | a section: `s:recent`, `s:supertags`, `s:types`, `s:bin` |
+| `f:<token>` | a supertag folder; the token is client-minted, `[A-Za-z0-9_-]{1,64}` |
+| `t:<supertagId>` | a supertag's place in the manual order and in folders |
+
+The dataset admits `settings` and ids with a one-letter prefix, up to
+256 bytes. A client skips an id whose prefix or source it does not
+know. Two writers adding the same widget write one record, merged per
+field.
+
+Fields, every one `mutableBy: any`, none required; an absent field is
+the client's default:
+
+| field | kind | on | value |
+|---|---|---|---|
+| `pos` | string | widget, section, folder, supertag | lexid; widgets and sections share one order, folders and supertags another |
+| `removed` | boolean | widget, section, folder, supertag | `true` = off the Overview, or out of the tree |
+| `layout` | string | widget | `link` \| `tree` \| `list` \| `compact` \| `messages` \| `attachments` |
+| `view` | string | widget | the saved view shown (for `w:tasks`, the list); absent = the first |
+| `limit` | number | widget, section | rows shown before "See more" |
+| `attachments` | string | widget with `layout: attachments` | `all` \| `objects` \| `media` \| `files` \| `links` |
+| `counts` | boolean | section | show the numbers beside rows |
+| `sort` | string | `s:supertags` | `name` \| `manual` \| `recent` \| `count` |
+| `name` | string | folder | the folder's name |
+| `parentId` | string | folder, supertag | the `f:<token>` it sits in; `""` = top level |
+| `opensWith` | string | settings | the object opened beside the Overview; absent = the space's chat, else its latest page |
+| `opensTo` | string | settings | `last` \| `app` \| `object` |
+| `opensToId` | string | settings | the id `app` or `object` names |
+| `editRowHidden` | boolean | settings | the "Edit sections" row is off the Overview |
+| `addWidgetRowHidden` | boolean | settings | the "Add widget" row is off the Overview |
+| `overviewHidden` | boolean | settings | the space shows no Overview |
+
+The dataset is `dynamic`: a field a newer client writes survives an
+older peer. Declaring another field takes a new bundle id (§ Evolution).
+
+**Writes.** `POST …/upsert` with `objectId` = the root and `dataset` =
+`<rootId>_entries` diffs field by field; `POST …/modify` `$set`s the
+changed paths. Remove with `removed: true`, never `delete-records`: a
+deleted id is burned (`upsert.record_deleted`), so the entry could
+never come back. A record holds no lists: an array is replaced whole,
+so two writers who edit one while apart lose a side.
+
+**Reads.** `POST …/query/subscribe` on the root and
+`<rootId>_entries` holds the whole Overview live, for readers too.
+While the bundle is absent, a client watches the registry (the
+`bundles` dataset on `spaceIndexObjectId`) for its install.
+
+Per-person state — a folded widget, a reader's own view choices —
+is not in the Overview: it is the account-private per-space settings
+(`03-api.md` § Per-space settings).
 
 ## Validation
 

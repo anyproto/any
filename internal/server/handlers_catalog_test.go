@@ -90,7 +90,7 @@ func TestServer_CatalogListAndGet(t *testing.T) {
 	for _, u := range list.Usecases {
 		ids[u.Id] = u
 	}
-	for _, want := range []string{"wiki", "collections", "journal", "meetings", "general-chat", "people", "contact", "contacts", "crm"} {
+	for _, want := range []string{"wiki", "collections", "journal", "meetings", "general-chat", "overview", "people", "contact", "contacts", "crm"} {
 		if _, ok := ids[want]; !ok {
 			t.Fatalf("usecase %s missing from the list", want)
 		}
@@ -510,6 +510,71 @@ func TestServer_CatalogSetupCollectionsAndChat(t *testing.T) {
 	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+chat.TypeId, &info)
 	if info.XKey != "general_chat" || !info.Hidden {
 		t.Fatalf("chat type info: %+v", info)
+	}
+}
+
+// TestServer_CatalogSetupOverview pins the Overview: a derived hidden
+// root that is no sidebar entry, hosting one records dataset keyed by
+// what each entry is, open to undeclared fields, and adopted unchanged
+// by a second setup.
+func TestServer_CatalogSetupOverview(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	sp := createSpaceInfo(t, e, "CatalogOverview")
+
+	res := setupUsecase(t, e, "overview", sp.Id)
+	if len(res.Bundles) != 1 {
+		t.Fatalf("overview bundles: %+v", res.Bundles)
+	}
+	ov := res.Bundles[0]
+	root := ov.Bundle.RootId
+	if ov.Id != "system:overview/v1" || !ov.Installed || !ov.Bundle.Derived || ov.TypeId != root || ov.Miniapp != nil {
+		t.Fatalf("overview bundle: %+v", ov)
+	}
+	if cols := rowCollections(objectRow(t, e, sp.Id, root)); slices.Contains(cols, "miniapp") {
+		t.Fatalf("overview root is a sidebar entry: %v", cols)
+	}
+	var info api.TypeInfo
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+root, &info)
+	if !info.Hidden {
+		t.Fatalf("overview type info: %+v", info)
+	}
+	var parts api.TypePartsListResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+root+"/parts", &parts)
+	if len(parts.Parts) != 1 || len(parts.Parts[0].Datasets) != 1 || parts.Parts[0].Datasets[0].Collection != root+"_entries" {
+		t.Fatalf("overview parts: %+v", parts.Parts)
+	}
+	dataset := root + "_entries"
+
+	// The root hosts the records; a field no client declared rides along.
+	body := `{"objectId":"` + root + `","dataset":"` + dataset + `","records":[` +
+		`{"id":"settings","fields":{"opensTo":"object","opensToId":"` + root + `","overviewHidden":false}},` +
+		`{"id":"w:chat","fields":{"pos":"a0","layout":"messages","limit":5}},` +
+		`{"id":"w:object:` + root + `","fields":{"pos":"a1","layout":"link","futureField":"x"}},` +
+		`{"id":"s:bin","fields":{"pos":"a2","removed":true}},` +
+		`{"id":"f:work","fields":{"name":"Work","parentId":"","pos":"a0"}},` +
+		`{"id":"bogus","fields":{"pos":"a3"}}]}`
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert", body)
+	var up api.UpsertResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &up); rec.Code != http.StatusOK || err != nil {
+		t.Fatalf("upsert entries: %d %s (%v)", rec.Code, rec.Body.String(), err)
+	}
+	// An id off the pattern (settings or a one-letter prefix) is refused.
+	if up.Created != 5 || len(up.Rejections) != 1 || up.Rejections[0].Id != "bogus" || up.Rejections[0].Code != "upsert.rejected" {
+		t.Fatalf("upsert result: %+v", up)
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/query",
+		`{"objectId":"`+root+`","dataset":"`+dataset+`","filter":{"id":"w:object:`+root+`"}}`)
+	var q api.QueryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &q); err != nil || len(q.Records) != 1 ||
+		!strings.Contains(string(q.Records[0]), `"futureField"`) {
+		t.Fatalf("read the widget back: %d %s (%v)", rec.Code, rec.Body.String(), err)
+	}
+
+	again := setupUsecase(t, e, "overview", sp.Id).Bundles[0]
+	if again.Installed || again.Bundle.RootId != root {
+		t.Fatalf("second setup: %+v", again)
 	}
 }
 
