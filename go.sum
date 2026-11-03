@@ -6,12 +6,12 @@ github.com/OneOfOne/xxhash v1.2.2 h1:KMrpdQIwFcEqXDklaen+P1axHaj9BSKzvpUUfnHldSE
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
 github.com/anyproto/any-store v1.0.3 h1:lAlwJ2Gc/LXiA9zXVqGYAgo7h7CgjTvcVpe9FjJsGjM=
 github.com/anyproto/any-store v1.0.3/go.mod h1:8cqb52gjZSaYnlybugqpSqSG1RQygY96D2vWMbSJsLo=
-github.com/anyproto/any-store/v2 v2.4.0 h1:QxAEfcMb6YG22aQZS/Km/SlkM7ty5PH1dseK/K4go78=
-github.com/anyproto/any-store/v2 v2.4.0/go.mod h1:XGn9ya0+bX14USktY093VnxgTRn5rUinVBofSiSccXo=
+github.com/anyproto/any-store/v2 v2.4.1 h1:sxTeZ/9esKyvtU4Lr8V30EwPY4zlLtaCTC/7N3Gchec=
+github.com/anyproto/any-store/v2 v2.4.1/go.mod h1:uW/zPL7osK9sAyFCq3sLYj6yfBqfAfBRt6ELQNfbODs=
 github.com/anyproto/any-sync v0.13.8 h1:VVcAX/8VHwIB3D3mEaO0v3ojyixrYvaGI1nwgLja3zc=
 github.com/anyproto/any-sync v0.13.8/go.mod h1:d56Pxkt2zaK8K9SAEf8KkhBwJx/a6mEGeRY6h717x0w=
-github.com/anyproto/any-sync-sdk v0.6.5 h1:eRpevAtbK6r7+P9uNQDJ5bgrhg1L6NB7WxA/Rml3l0U=
-github.com/anyproto/any-sync-sdk v0.6.5/go.mod h1:hZPVgLpyL8QfGCaLzgCYjbxmI2Soq2OZVhGjqzEyeXg=
+github.com/anyproto/any-sync-sdk v0.6.6-0.20261103171503-66c792a1a53a h1:Hrr5/Xx9yE/roGZC0IrSg0addqDT0B+sDubAES1YPNA=
+github.com/anyproto/any-sync-sdk v0.6.6-0.20261103171503-66c792a1a53a/go.mod h1:GgIlyo9uzr5ps3NAhUt+UnHpA3SLRu5XAkfQqijuYNE=
 github.com/anyproto/anytype-push-server/pushclient v0.0.0-20261014142855-af71aa8b1662 h1:vYPQ6KBcmaWAxpEp1yQMeF3ubGuSCOBYg0ApBF0A+bs=
 github.com/anyproto/anytype-push-server/pushclient v0.0.0-20261014142855-af71aa8b1662/go.mod h1:sbkh8tdeNncWTPFpsuDBAZM4vJStBhtabromgVeokRU=
 github.com/anyproto/go-bip39 v1.0.0 h1:T6/7WowKYDeyuX/QyXtt98ZX0XXaoOh17M/LFF2M5yk=
@@ -195,8 +195,8 @@ github.com/jtolds/gls v4.20.0+incompatible h1:xdiiI2gbIgH/gLH7ADydsJ1uDOEzR8yvV7
 github.com/jtolds/gls v4.20.0+incompatible/go.mod h1:QJZ7F/aHp+rZTRtaJ1ow/lLfFfVYBRgL+9YlvaHOwJU=
 github.com/jupiterrider/ffi v0.7.0 h1:RKsl6Ascal+3kyAqR5Qcbp83LceQMLc1VZbPfHWoNzs=
 github.com/jupiterrider/ffi v0.7.0/go.mod h1:9dauhpOfNqrqk28fxuu0kkdeFtT9Qr4vbfigiuIXN7c=
-github.com/klauspost/compress v1.20.1 h1:T7kKElXUMXrUJ2E9QhQhxFtcK5rPyLdsGZvdbLMPdiQ=
-github.com/klauspost/compress v1.20.1/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
+github.com/klauspost/compress v1.20.3 h1:zWNoFqq/lSuYQRim3dUXlXeA0IqwuZGicdG5ZTfY5j4=
+github.com/klauspost/compress v1.20.3/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
 github.com/klauspost/cpuid/v2 v2.4.0 h1:S6Hrbc7+ywsr0r+RLapfGBHfyefhCTwEh3A0tV913Dw=
 github.com/klauspost/cpuid/v2 v2.4.0/go.mod h1:19jmZ9mjzoF//ddRSUsv0zfBTJWh3QJh9FNxZTMrGxU=
 github.com/koron/go-ssdp v0.9.1 h1:zvxbAAuJftJIZ8Jh8mda+LI7V92hYZf/sKprmOxpxwA=

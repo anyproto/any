@@ -59,6 +59,9 @@ func TestDatasetEnumParsers(t *testing.T) {
 	if v, ok := parseDeletePolicy("author"); !ok || v != space.DeleteByAuthor {
 		t.Error("author")
 	}
+	if v, ok := parseDeletePolicy("none"); !ok || v != space.DeleteByNone {
+		t.Error("none")
+	}
 	if _, ok := parseDeletePolicy("admin"); ok {
 		t.Error("unknown deleteBy must fail")
 	}

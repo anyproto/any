@@ -1018,8 +1018,9 @@ components:
       properties:
         deleteBy:
           description: |-
-            DeleteBy: "anyone" (default) or "author" (requires a
-            stamp:creator field among fields).
+            DeleteBy: "anyone" (default), "author" (requires a stamp:creator
+            field among fields) or "none" (no record delete at all:
+            delete-records answers 409 dataset.undeletable).
           type: string
         description:
           type: string

@@ -2388,7 +2388,9 @@ scope covers property values only).
 `{objectId, dataset?, recordIds, traceIds?}` (`objectId` and a
 non-empty `recordIds` required — `400 request.missing_field`) →
 `200` with the shared write result. Record tombstones are sticky: a
-deleted id is never reused.
+deleted id is never reused. A dataset declared `deleteBy: none` refuses
+the call before anything is written: `409 dataset.undeletable`
+(details.dataset, details.objectId), every record stays live.
 
 #### Aggregate
 
@@ -3063,8 +3065,14 @@ collection}` (or inline in the part's `datasets` on `POST …/parts`):
   explicit client ids rejected) or `user` (caller-supplied ids under
   `idPattern` / `idMaxLen`, defaults `[A-Za-z0-9._:-]+` / 128; the id
   doubles as the upsert idempotency key).
-- `deleteBy` — `anyone` (default) or `author` (requires a
-  `stamp: creator` field; deletes by anyone else are dropped at apply).
+- `deleteBy` — `anyone` (default), `author` (requires a
+  `stamp: creator` field; deletes by anyone else are dropped at apply)
+  or `none` (no record delete at all: `delete-records` answers
+  `409 dataset.undeletable` and writes nothing, a delete arriving from
+  another device is dropped at apply, so an id is never burned; object
+  deletion still purges). `none` needs no stamp, so with `idRule: user`
+  and `mutableBy: any` fields it is the shape that converges under
+  concurrent same-id creates by different members.
 - per-field `mutableBy` — `never` (default, write-once: writable only
   in the creating change); `author` (requires a `stamp: creator` field)
   or `any` opt into post-create edits. Every allowed edit bumps the

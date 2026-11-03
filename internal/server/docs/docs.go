@@ -1149,7 +1149,7 @@ const docTemplate = `{
             "api.DatasetDraftRequest": {
                 "properties": {
                     "deleteBy": {
-                        "description": "DeleteBy: \"anyone\" (default) or \"author\" (requires a\nstamp:creator field among fields).",
+                        "description": "DeleteBy: \"anyone\" (default), \"author\" (requires a stamp:creator\nfield among fields) or \"none\" (no record delete at all:\ndelete-records answers 409 dataset.undeletable).",
                         "type": "string"
                     },
                     "description": {
