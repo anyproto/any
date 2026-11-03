@@ -1497,8 +1497,8 @@ declaring a `type` objects have, a `collection` they are filed under, a
 `miniapp` the client opens (the root is filed under the built-in
 `miniapp` collection with `bundle` = its id), `parts`
 (records on the root), or several of those — in any combination but
-type with collection, or collection with parts; the general chat is the
-one `derived` root. A bundle another one `supersedes` is listed with
+type with collection, or collection with parts; the general chat and
+the Overview are the `derived` roots. A bundle another one `supersedes` is listed with
 `superseded: true`. The catalog is read-only over HTTP, validated at
 build time (`make catalog-validate`, CI, boot refusal), and installs
 nothing unless a client asks. Full client contract — model, setup
@@ -3310,13 +3310,14 @@ batch ingest into an `id: user` dataset:
 ```
 
 Per record, keyed by the caller-supplied id (the idempotency key):
-absent → created (one multi-field set); present → only declared-mutable
-fields are diffed against stored values, each changed field lands as a
+absent → created (one multi-field set); present → mutable fields
+(declared mutable, or undeclared on a `dynamic` dataset) are diffed
+against stored values, each changed field lands as a
 single-path set, identical records are skipped. Re-running an identical
 batch is a no-op. One CRDT change per page (`pageSize` default 500). Not
 transactional against concurrent writers. Concurrent creates of one id
 by different members converge unless the dataset declares write-once
-fields, stamps or author gates; a dataset that does keeps one writer
+fields (a field without `mutableBy` is one), stamps or author gates; a dataset that does keeps one writer
 per id (the SDK's
 [`docs/user-datasets.md` § The IdRule: user contract](https://github.com/anyproto/any-sync-sdk/blob/main/docs/user-datasets.md#the-idrule-user-contract)).
 

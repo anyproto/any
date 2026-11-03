@@ -324,7 +324,8 @@ and `GET …/collections?includeHidden=true`.
 
 ## Forks
 
-Every catalog root except the chat is a created root, so two devices
+Every catalog root except the general chat and the Overview is a
+created root, so two devices
 of one account that set a usecase up while apart each mint a root —
 two `profile` types with one xKey. After sync the registry names one
 winner and lists the other in `losers`; objects that had the loser
@@ -627,7 +628,8 @@ no bundle means the client's defaults. A reader's write is
 | `t:<collectionId>` | a collection's place in the manual order and in folders |
 
 The dataset admits `settings`, `f:` with a `[A-Za-z0-9_-]{1,64}`
-token, and ids with any other one-letter prefix, up to 256 bytes. A
+token, and ids with any other lowercase one-letter prefix (`x:…`), up
+to 256 bytes. A
 client skips an id whose prefix or source it does not know. Two
 writers adding the same widget write one record, merged per field;
 that holds because every field is `mutableBy: any` and the dataset
@@ -649,7 +651,7 @@ field takes the default below:
 | `name` | string | folder | the folder's name |
 | `parentId` | string | folder, collection | the `f:<token>` it sits in; `""` = top level |
 | `opensWith` | string | settings | the object opened beside the Overview; absent = the space's chat, or its latest page in a space with no chat |
-| `opensTo` | string | settings | `last` \| `overview` \| `app:<rootId>`, an app's root object \| `object:<objectId>`; absent = `overview`, read as `last` by a client that shows no Overview |
+| `opensTo` | string | settings | `last` \| `overview` \| `app:<bundleId>`, a catalog app \| `object:<objectId>`, any other object; absent = `overview`; `overview` reads as `last` while `overviewHidden` is `true` or in a client that shows no Overview |
 | `editRowHidden` | boolean | settings | the "Edit sections" row is off the Overview |
 | `addWidgetRowHidden` | boolean | settings | the "Add widget" row is off the Overview |
 | `overviewHidden` | boolean | settings | the space shows no Overview |
@@ -668,8 +670,10 @@ in every app:
 | `parentId` | `""`, the top level |
 | `editRowHidden`, `addWidgetRowHidden`, `overviewHidden` | `false` |
 
-A client that reorders writes a `pos` for every entry in the list, so
-from then on every entry has one.
+An entry with no `pos` sorts after every entry that has one: sections
+in the order above, widgets by record id. A move writes `pos` on the
+moved entry only, plus on entries that have none yet, so two writers
+moving different entries apart both keep their move.
 
 The dataset is `dynamic`: a field a newer client writes survives an
 older peer. The declaration is fixed for good: a derived root is never
@@ -679,7 +683,8 @@ has it (§ Superseding), so a later field rides the `dynamic` keyspace.
 **Writes.** `POST …/upsert` with `objectId` = the root and `dataset` =
 `<rootId>_entries` diffs field by field; `POST …/modify` `$set`s the
 changed paths. A write that puts an entry on the Overview or in the
-tree sets `removed: false`, so it wins over a removal it has not seen.
+tree sets `removed: false`, so a concurrent removal and re-add resolve
+last-writer-wins instead of the removal always winning.
 Remove with `removed: true`: the dataset is `deleteBy: none`, so
 `delete-records` answers `409 dataset.undeletable` and no id is ever
 burned.
@@ -691,12 +696,21 @@ writers who edit one while apart lose a side.
 device: a folder cycle from concurrent moves, or a `parentId` naming a
 folder that is removed or absent, renders at the top level.
 
+**Forks of what an entry names.** `w:type:`, `w:collection:` and `t:`
+ids name a definition, which may be a forked catalog root. A client
+that resolves a loser (§ Forks) moves each entry naming it to the
+winner's id: a new record with its fields, the old one
+`removed: true`.
+
 **Reads.** `POST …/query/subscribe` on the root and
 `<rootId>_entries` holds the whole Overview live, for readers too.
 While the bundle is absent, a client watches the registry (the
 `bundles` dataset on `spaceIndexObjectId`) for its install, then reads
 the root off `GET …/bundles/system%3Aoverview%2Fv1`, which applies the
-derived-root verdict.
+derived-root verdict. A root that has not fully arrived answers
+`409 bundle.not_ready` there, or `400 dataset.not_declared` /
+`dataset.unknown` on `<rootId>_entries`: a reader retries after sync,
+and a writer runs the setup again, which fills in what is missing.
 
 Per-person state — a folded widget, a reader's own view choices —
 is not in the Overview: it is the account-private per-space settings

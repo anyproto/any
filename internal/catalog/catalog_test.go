@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -786,5 +787,35 @@ func TestCatalog_ReportsAllProblems(t *testing.T) {
 	src = strings.Replace(src, "    extra: 1\n", "", 1)
 	if _, ps = Load([]byte(src), knownTypes); len(ps) < 2 {
 		t.Fatalf("expected several problems, got %v", ps)
+	}
+}
+
+// The Overview's entries declaration is frozen: its derived root holds one
+// declaration for good, so every release must declare it byte for byte alike.
+func TestCatalog_OverviewDeclarationFrozen(t *testing.T) {
+	cat, problems := Load(Embedded(), knownTypes)
+	if len(problems) > 0 {
+		t.Fatal(problems)
+	}
+	u, ok := cat.Get("overview")
+	if !ok || len(u.Bundles) != 1 || !u.Bundles[0].Derived || !u.Bundles[0].Hidden {
+		t.Fatalf("overview usecase: %+v", u)
+	}
+	got, err := json.Marshal(u.Bundles[0].Parts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `[{"key":"entries","datasets":[{"key":"entries","dynamic":true,"idRule":"user",` +
+		`"idPattern":"^(settings|f:[A-Za-z0-9_-]{1,64}|[a-eg-z]:.+)$","idMaxLen":256,"deleteBy":"none","fields":[` +
+		`{"key":"pos","kind":"string","mutableBy":"any"},{"key":"removed","kind":"boolean","mutableBy":"any"},` +
+		`{"key":"layout","kind":"string","mutableBy":"any"},{"key":"view","kind":"string","mutableBy":"any"},` +
+		`{"key":"limit","kind":"number","mutableBy":"any"},{"key":"attachments","kind":"string","mutableBy":"any"},` +
+		`{"key":"counts","kind":"boolean","mutableBy":"any"},{"key":"sort","kind":"string","mutableBy":"any"},` +
+		`{"key":"name","kind":"string","mutableBy":"any"},{"key":"parentId","kind":"string","mutableBy":"any"},` +
+		`{"key":"opensWith","kind":"string","mutableBy":"any"},{"key":"opensTo","kind":"string","mutableBy":"any"},` +
+		`{"key":"editRowHidden","kind":"boolean","mutableBy":"any"},{"key":"addWidgetRowHidden","kind":"boolean","mutableBy":"any"},` +
+		`{"key":"overviewHidden","kind":"boolean","mutableBy":"any"}]}]}]`
+	if string(got) != want {
+		t.Fatalf("the entries declaration changed; installed roots keep the old one:\n got %s\nwant %s", got, want)
 	}
 }

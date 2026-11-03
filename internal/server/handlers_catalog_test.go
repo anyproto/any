@@ -578,11 +578,16 @@ func TestServer_CatalogSetupOverview(t *testing.T) {
 	assertStatusCode(t, rec, http.StatusConflict, "dataset.undeletable")
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/query",
 		`{"objectId":"`+root+`","dataset":"`+dataset+`","filter":{"id":"w:chat"}}`)
-	if err := json.Unmarshal(rec.Body.Bytes(), &q); err != nil || len(q.Records) != 1 {
+	var kept api.QueryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &kept); rec.Code != http.StatusOK || err != nil || len(kept.Records) != 1 {
 		t.Fatalf("w:chat after a refused delete: %d %s (%v)", rec.Code, rec.Body.String(), err)
 	}
 
-	again := setupUsecase(t, e, "overview", sp.Id).Bundles[0]
+	res2 := setupUsecase(t, e, "overview", sp.Id)
+	if len(res2.Bundles) != 1 {
+		t.Fatalf("second setup: %+v", res2)
+	}
+	again := res2.Bundles[0]
 	if again.Installed || again.Bundle.RootId != root {
 		t.Fatalf("second setup: %+v", again)
 	}
