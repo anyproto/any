@@ -891,7 +891,7 @@ carry further extension keywords in the document:
   `x-stamp` (`creator` / `createTime` / `modifyTime` — derived at apply
   time, client writes rejected);
 - doc-level standard `required` (fields that must be present on
-  create), `x-delete-by` (`author`; absent = anyone may delete),
+  create), `x-delete-by` (`author` / `none`; absent = anyone may delete),
   `x-id` (`user`, with `x-id-pattern` / `x-id-max-length`; absent =
   auto-derived record ids), and `x-search` (`{title, text, scope}` —
   the record fields the search indexer extracts and the index scope
@@ -2997,9 +2997,9 @@ dataset under it land in one change:
 - `datasets` — the initial declarations, each `{key?, module?, …}`
   plus the records-module schema fields below. `module` defaults to
   `records`; an unknown module is `400 dataset.module_unknown`. A
-  module-served dataset (`editor`, `chat`) carries **no** `fields` —
-  the module owns the schema — so any field declaration on it is `409
-  dataset.module_owned`.
+  module-served dataset (`editor`, `chat`) carries **no** `fields` and
+  no `deleteBy` — the module owns the schema and the delete rule — so
+  either on it is `409 dataset.module_owned`.
 
 `GET …/types/:typeId/parts` → `{parts: [{id, key, name?, icon?, pos?,
 hidden?, ui?, uses?, datasets: [<DatasetDef>…]}]}` — the compiled

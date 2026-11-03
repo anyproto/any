@@ -62,6 +62,7 @@ func (d *deps) spaceModify(c echo.Context) error {
 //	@Param		body	body		api.DeleteRecordsRequest	true	"Delete params"
 //	@Success	200		{object}	api.ModifyResult
 //	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	409		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/delete-records [post]
 func (d *deps) spaceDeleteRecords(c echo.Context) error {

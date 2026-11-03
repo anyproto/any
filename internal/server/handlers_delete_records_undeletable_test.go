@@ -90,4 +90,47 @@ func TestServer_DeleteRecords_Undeletable(t *testing.T) {
 	if res.Updated != 1 || res.Created != 1 {
 		t.Fatalf("upsert after the refused delete = %+v, want 1 updated and 1 created", res)
 	}
+
+	// A module dataset keeps its module's delete rule.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types/"+typeId+"/parts/"+partId+"/datasets",
+		`{"key": "notes", "module": "editor", "deleteBy": "none"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("editor dataset with a delete policy: %d %s, want 409", rec.Code, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "dataset.module_owned")
+
+	// A shared dataset refuses the same way, an absent-only id included,
+	// and the cross-object read still finds the record.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types/"+typeId+"/parts/"+partId+"/datasets", `{
+		"key": "shared_entries", "idRule": "user", "deleteBy": "none", "shared": true,
+		"fields": [{"key": "pos", "kind": "string", "mutableBy": "any"}]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add shared dataset: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &added); err != nil {
+		t.Fatal(err)
+	}
+	shared := added.Collection
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/upsert",
+		fmt.Sprintf(`{"objectId": %q, "dataset": %q, "records": [{"id": "s:bin", "fields": {"pos": "a0"}}]}`, objectId, shared))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upsert shared: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/delete-records",
+		fmt.Sprintf(`{"objectId": %q, "dataset": %q, "recordIds": ["nope"]}`, objectId, shared))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("delete-records on the shared dataset: %d %s, want 409", rec.Code, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "dataset.undeletable")
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/datasets/query", fmt.Sprintf(`{"dataset": %q}`, shared))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("datasets/query: %d %s", rec.Code, rec.Body.String())
+	}
+	q = api.QueryResponse{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &q); err != nil {
+		t.Fatal(err)
+	}
+	if len(q.Records) != 1 {
+		t.Fatalf("shared records after the refused delete = %d, want 1", len(q.Records))
+	}
 }
