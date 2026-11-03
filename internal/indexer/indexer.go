@@ -251,7 +251,7 @@ type Indexer struct {
 	// the alignment of an open and the drop of dropSpace. An open
 	// re-checks its registration under it before aligning, so an open
 	// that dropSpace overtook never writes after the drop. Per space, so
-	// one space's alignment delays only its own drop. Entries stay.
+	// one space's alignment holds no other space's open. Entries stay.
 	aligning map[string]*sync.Mutex
 	// drops counts the dropSpace calls in flight; Close waits for them
 	// before closing the store, and a dropSpace that starts once closing

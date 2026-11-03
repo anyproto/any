@@ -455,7 +455,8 @@ cursor aligned on a goroutine per space, outside the indexer's lock, so
 a space slow to open holds up neither sign-in, nor the other spaces,
 nor the space-list deltas (a delta that waited would park the SDK's
 dispatch goroutine and overflow its mailbox); a space's alignment
-delays only its own removal. A removal delivered while the list is
+holds no other space's open, and only that space's removal waits for
+it. A removal delivered while the list is
 being read is remembered, so the stale entry does not resurrect the
 space; an open the removal overtook publishes nothing and writes
 nothing after the drop. A listing that fails is retried with backoff.
