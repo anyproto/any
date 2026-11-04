@@ -63,7 +63,7 @@ With a winner already registered, Ensure **adopts** it and `installed` is `false
 
 Installing a created root first waits for the registry to converge — bounded at 30 s, cut to 3 s when no peer is connected. A member that ensures against state it has not synced would read "nothing installed" and mint a root competing with the one already out there. Adopting never waits; a read cannot fork anything. A space never set up converges to an empty registry, which is a valid answer.
 
-When the wait cannot complete, who is asking decides: the space's **owner** installs anyway (only its own devices could compete, and the registry converges those), so an offline owner is never blocked. Any other member is refused with `409 bundle.not_ready` and retries when the network is back. A winner whose tree has not reached this device is likewise `409 bundle.not_ready` — its id would reject every write.
+When the wait cannot complete, who is asking decides: the space's **owner** installs anyway (only its own devices could compete, and the registry converges those), so an offline owner is never blocked. A member whose space index has never arrived is refused with `409 bundle.not_ready` and retries when the network is back; a member that holds the index installs against its local view, offline or not, so two members who set up apart fork and resolve the loser. A winner whose tree has not reached this device is likewise `409 bundle.not_ready` — its id would reject every write.
 
 > **Note.** `rootId` is provisional until the space syncs. Two devices that install while genuinely apart each register a root; the registry converges on one winner and the other lands in `losers`. Re-read after sync.
 
@@ -165,7 +165,7 @@ The server never merges; it enforces timing. A losing root arrives change by cha
 
 | Status | Code | When |
 |--------|------|------|
-| 409 | `bundle.not_ready` | registry not converged (non-owner), or the winner's tree has not arrived |
+| 409 | `bundle.not_ready` | the space index has never arrived (non-owner), or the winner's tree has not arrived |
 | 409 | `bundle.loser_not_ready` | loser not fully synced, or within the grace period — retry |
 | 409 | `bundle.not_loser` | the winner, or a root never claimed for this bundle |
 | 404 | `bundle.not_found` | unknown bundle id on GET / resolve / children |
