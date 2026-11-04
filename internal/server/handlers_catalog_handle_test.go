@@ -16,18 +16,21 @@ import (
 // (absent here) and the id its derived root would have.
 type handleSpace struct {
 	space.Space
-	types   []space.TypeInfo
-	derived string
+	types       []space.TypeInfo
+	collections []space.CollectionInfo
+	derived     string
 }
 
 func (s *handleSpace) Info() space.SpaceInfo {
 	return space.SpaceInfo{Id: "sp", OwnRole: space.PermissionWriter}
 }
-func (s *handleSpace) SpaceIndexObjectId() string        { return "index" }
-func (s *handleSpace) Types() space.TypesAPI             { return &handleTypes{infos: s.types} }
-func (s *handleSpace) Collections() space.CollectionsAPI { return &handleCollections{} }
-func (s *handleSpace) Bundles() space.BundlesAPI         { return &handleBundles{derived: s.derived} }
-func (s *handleSpace) Query(string, string) space.Query  { return &handleQuery{} }
+func (s *handleSpace) SpaceIndexObjectId() string { return "index" }
+func (s *handleSpace) Types() space.TypesAPI      { return &handleTypes{infos: s.types} }
+func (s *handleSpace) Collections() space.CollectionsAPI {
+	return &handleCollections{infos: s.collections}
+}
+func (s *handleSpace) Bundles() space.BundlesAPI        { return &handleBundles{derived: s.derived} }
+func (s *handleSpace) Query(string, string) space.Query { return &handleQuery{} }
 
 type handleTypes struct {
 	space.TypesAPI
@@ -36,16 +39,27 @@ type handleTypes struct {
 
 func (t *handleTypes) List(context.Context) ([]space.TypeInfo, error) { return t.infos, nil }
 
-type handleCollections struct{ space.CollectionsAPI }
+type handleCollections struct {
+	space.CollectionsAPI
+	infos []space.CollectionInfo
+}
 
-func (*handleCollections) List(context.Context) ([]space.CollectionInfo, error) { return nil, nil }
+func (c *handleCollections) List(context.Context) ([]space.CollectionInfo, error) {
+	return c.infos, nil
+}
 
 type handleBundles struct {
 	space.BundlesAPI
 	derived string
 }
 
-func (b *handleBundles) DerivedRootId(context.Context, string) (string, error) { return b.derived, nil }
+// The exemption is computed from the bundle id: any other id gets no root.
+func (b *handleBundles) DerivedRootId(_ context.Context, bundleId string) (string, error) {
+	if bundleId != "system:general-chat/v1" {
+		return "", nil
+	}
+	return b.derived, nil
+}
 
 type handleQuery struct{ space.Query }
 
@@ -66,8 +80,15 @@ func TestCatalogBeforeInstall_DerivedRootHoldsItsHandle(t *testing.T) {
 	if err := catalogBeforeInstall(context.Background(), sp, inst); !errors.As(err, &conflict) || conflict.ExistingTypeId != "user-type" {
 		t.Fatalf("a user type holding the handle: %v", err)
 	}
+	// A collection-declaring derived bundle: its own root is listed as a collection.
+	sp.types = nil
+	sp.collections = []space.CollectionInfo{{Id: "derived-root", XKey: "general_chat"}}
+	if err := catalogBeforeInstall(context.Background(), sp, inst); err != nil {
+		t.Fatalf("own derived collection root reported as a conflict: %v", err)
+	}
 	// A created bundle gets no derived exemption.
 	inst.Derived = false
+	sp.collections = nil
 	sp.types = []space.TypeInfo{{Id: "derived-root", XKey: "general_chat"}}
 	if err := catalogBeforeInstall(context.Background(), sp, inst); !errors.As(err, &conflict) {
 		t.Fatalf("created install past a foreign holder: %v", err)
