@@ -86,16 +86,14 @@ matches neither `{"any.type": "<rootId>"}` nor
 `{"any.collections": "<rootId>"}`, and a member query needs no marker
 exclusion.
 
-**Created roots, two exceptions.** Every catalog root is a created
+**Created roots, one exception.** Every catalog root is a created
 root: deletable (`DELETE …/objects/:rootId` uninstalls it), forking
 when two devices of one account install while apart (§ Forks). The
-general chat and the Library rows are the `derived: true` bundles, so
-their roots are a function of (space, bundle id): they never fork and
-can never be deleted (`409 object.derived_undeletable`). Chat content
-cannot be merged across objects (`creator` / `createdAt` come from the
-change envelope), and a 1-1 space has no owner to break a tie; the
-Library rows are written by every writer of the space, who must be
-able to install them while apart. The general chat is the space's
+general chat is the one `derived: true` bundle — chat content cannot
+be merged across objects (`creator` / `createdAt` come from the change
+envelope), and a 1-1 space has no owner to break a tie — so its root
+is a function of (space, bundle id): it never forks and can never be
+deleted (`409 object.derived_undeletable`). It is the space's
 well-known chat, not its only one: any type may declare the chat
 module (`16-chat.md` § Finding the chat object for a space).
 
@@ -165,7 +163,7 @@ dependencies first, the requested usecase's bundles last:
 Per bundle: `usecase` (the entry it belongs to — the requested one or
 a dependency), `id`, `bundle` (the converged registry row, the
 `03-api.md` § Bundles shape), `installed` (this call registered the
-root; for a derived bundle, two devices can both report `true` for the
+root; for the derived chat, two devices can both report `true` for the
 one root they share), and when the bundle declares a definition the
 root id under the slot it declares — `collectionId` for a
 `collection` bundle, `typeId` for a `type` or `parts` one — plus
@@ -225,8 +223,8 @@ the registry's state.
 
 Who may do what: when the wait cannot complete, the space's **owner**
 installs anyway (only this account's own devices could compete, and
-the registry converges those), and so does every member for a
-derived bundle (its root cannot fork); any other member is
+the registry converges those), and so does every member for the
+derived chat (its root cannot fork); any other member is
 `409 bundle.not_ready` and retries when the network is back — so a
 space set up by its owner before sharing spares joiners the wait. A
 member without write permission adopts but cannot install (`403` on
@@ -323,8 +321,7 @@ and `GET …/collections?includeHidden=true`.
 
 ## Forks
 
-Every catalog root except the general chat and the Library rows is a
-created root, so two devices
+Every catalog root except the chat is a created root, so two devices
 of one account that set a usecase up while apart each mint a root —
 two `profile` types with one xKey. After sync the registry names one
 winner and lists the other in `losers`; objects that had the loser
@@ -439,7 +436,7 @@ schema).
 | usecase | requires | bundle | declares |
 |---|---|---|---|
 | `wiki` | — | `system:wiki/v1` | collection `wiki` (hidden; `parentId`, `pos` — both kept out of the search index — and `folder`, a checkbox) + miniapp |
-| `library-rows` | `wiki` | `system:library-rows/v1` | derived, hidden, no miniapp; records part `rows` hosted by the root (`idRule: user`, the id is the Library page: `recent`, `types`, `collections`; `parentId`, `pos`, `removed`) — Library pages placed in the wiki tree (§ Library rows) |
+| `library-rows` | `wiki` | `system:library-rows/v1` | hidden, no miniapp; records part `rows` hosted by the root (`idRule: user`, the id is the Library page: `recent`, `types`, `collections`; `parentId`, `pos`, `removed`) — Library pages placed in the wiki tree (§ Library rows) |
 | `collections` | — | `system:collections/v1` | miniapp only, a `page` root — a feature switch: installing it turns on working with types in clients; it declares none of its own |
 | `journal` | — | `system:journal/v2` | collection `journal` (hidden; one `date`, a `date`-slug datetime) + miniapp — an entry is a `page` filed under it, one per day; supersedes `system:journal/v1` |
 | | | `system:journal/v1` | superseded: type `journal` with the same `date` + editor `body` part + miniapp |
@@ -574,13 +571,17 @@ The tree is the wiki objects query plus one
 `parentId` and `pos`; a row sorts among the pages of its parent, equal
 positions page first. A row whose `parentId` names an object that is
 absent, binned, or not a folder renders at the top level. A client
-draws the Library's own name for the row. A writer runs
-`POST /v1/catalog/library-rows/setup` when it adds the first row (the
-root is derived, so it installs while apart and never forks) and puts
-a row back with `removed: false`; a reader reads
+draws the Library's own name for the row. The creating client sets
+the usecase up with the wiki, so every joiner adopts one root; a
+writer in a space without it runs
+`POST /v1/catalog/library-rows/setup` when it adds the first row, a
+non-owner's `409 bundle.not_ready` while its registry cannot converge
+(§ Setup). A row goes back with `removed: false`; a reader reads
 `GET …/bundles/system%3Alibrary-rows%2Fv1`, and no bundle means no
-rows. The dataset is `deleteBy: none`: `delete-records` answers
-`409 dataset.undeletable`.
+rows. Two writers that set it up while apart mint two roots: the
+client that observes the loser upserts its live rows into the winner
+where the winner has none, then resolves it (§ Forks). The dataset is
+`deleteBy: none`: `delete-records` answers `409 dataset.undeletable`.
 
 **Journal** is one dated page per day: an entry's type is `journal`,
 with a `date` value (a `date` slug on `kind: datetime` — midnight

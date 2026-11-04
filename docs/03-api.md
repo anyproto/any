@@ -1497,8 +1497,8 @@ declaring a `type` objects have, a `collection` they are filed under, a
 `miniapp` the client opens (the root is filed under the built-in
 `miniapp` collection with `bundle` = its id), `parts`
 (records on the root), or several of those — in any combination but
-type with collection, or collection with parts; the general chat and
-the Library rows are the `derived` roots. A bundle another one `supersedes` is listed with
+type with collection, or collection with parts; the general chat is the
+one `derived` root. A bundle another one `supersedes` is listed with
 `superseded: true`. The catalog is read-only over HTTP, validated at
 build time (`make catalog-validate`, CI, boot refusal), and installs
 nothing unless a client asks. Full client contract — model, setup

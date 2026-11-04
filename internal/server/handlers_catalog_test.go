@@ -472,8 +472,8 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 	}
 }
 
-// TestServer_CatalogSetupLibraryRows pins the Library rows: a derived hidden
-// root after the wiki it requires, records keyed by the page, no deletes.
+// TestServer_CatalogSetupLibraryRows pins the Library rows: a hidden root
+// after the wiki it requires, records keyed by the page, no deletes.
 func TestServer_CatalogSetupLibraryRows(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -486,7 +486,7 @@ func TestServer_CatalogSetupLibraryRows(t *testing.T) {
 	}
 	wiki, lr := res.Bundles[0], res.Bundles[1]
 	root := lr.Bundle.RootId
-	if lr.Id != "system:library-rows/v1" || !lr.Installed || !lr.Bundle.Derived || lr.TypeId != root || lr.Miniapp != nil {
+	if lr.Id != "system:library-rows/v1" || !lr.Installed || lr.Bundle.Derived || lr.TypeId != root || lr.Miniapp != nil {
 		t.Fatalf("library-rows bundle: %+v", lr)
 	}
 	if cols := rowCollections(objectRow(t, e, sp.Id, root)); slices.Contains(cols, "miniapp") || slices.Contains(cols, wiki.CollectionId) {

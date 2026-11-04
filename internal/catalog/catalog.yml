@@ -266,8 +266,7 @@ usecases:
 
   # ── Library rows: Recents, every type and every collection placed in the wiki
   #    tree. Records, not objects, so nothing leaks into lists or search; the
-  #    record id is the page, so each sits in the tree at most once. Derived, so
-  #    any writer installs it while apart and two installs meet on one root.
+  #    record id is the page, so each sits in the tree at most once.
   - id: library-rows
     name: Library rows
     description: Library pages placed in the wiki tree
@@ -275,7 +274,6 @@ usecases:
     bundles:
       - id: system:library-rows/v1
         name: Library rows
-        derived: true
         hidden: true
         parts:
           - key: rows
@@ -285,7 +283,7 @@ usecases:
                 idPattern: '^(recent|types|collections)$'
                 idMaxLen: 32
                 dynamic: true
-                deleteBy: none                         # an id is never burned on a root that cannot be replaced
+                deleteBy: none                         # removal is removed: true
                 skipHistory: true
                 fields:
                   - { key: parentId, kind: string,  mutableBy: any }
