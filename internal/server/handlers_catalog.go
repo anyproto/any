@@ -401,6 +401,14 @@ func catalogBeforeInstall(ctx context.Context, sp space.Space, inst bundles.Inst
 			if own, err = bundleRoots(ctx, sp, inst.Id); err != nil {
 				return err
 			}
+			// A derived root's tree can sync before its registry row.
+			if inst.Derived {
+				id, err := sp.Bundles().DerivedRootId(ctx, inst.Id)
+				if err != nil {
+					return err
+				}
+				own[id] = true
+			}
 		}
 		if own[h.id] {
 			continue

@@ -250,7 +250,8 @@ dependencies before it stand). The check runs only for a member who
 may write (a reader's setup adopts or is refused by permission, never
 by handle), and a root ever claimed for the same bundle id is never a
 conflict — a leftover loser holding the handle is the registry's to
-settle. The registered type ids and the meta ids `any`, `type` and
+settle — nor is a derived bundle's own root, whose tree can sync
+before the registry row that names it. The registered type ids and the meta ids `any`, `type` and
 `collection` are refused as catalog handles at build time, so they
 cannot collide at setup.
 
