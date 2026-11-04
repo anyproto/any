@@ -2039,7 +2039,10 @@ POST /v1/spaces/:spaceId/objects
 ```
 
 A folder is the same create with `<folderPropId>` `true`. What type a tree object has is the client's choice — the wiki
-collection only places it.
+collection only places it. A row that opens one of the client's
+Library pages is not an object but a record of the `library-rows`
+usecase, merged into the tree by the same `parentId` and `pos`
+(`28-well-known-bundles.md` § Library rows).
 
 Children of a node, in order (`""` as the parent lists the top level):
 

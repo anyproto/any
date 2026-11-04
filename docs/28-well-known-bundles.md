@@ -436,6 +436,7 @@ schema).
 | usecase | requires | bundle | declares |
 |---|---|---|---|
 | `wiki` | — | `system:wiki/v1` | collection `wiki` (hidden; `parentId`, `pos` — both kept out of the search index — and `folder`, a checkbox) + miniapp |
+| `library-rows` | `wiki` | `system:library-rows/v1` | hidden, no miniapp; records part `rows` hosted by the root (`idRule: user`, the id is the Library page: `recent`, `types`, `collections`; `parentId`, `pos`, `removed`) — Library pages placed in the wiki tree (§ Library rows) |
 | `collections` | — | `system:collections/v1` | miniapp only, a `page` root — a feature switch: installing it turns on working with types in clients; it declares none of its own |
 | `journal` | — | `system:journal/v2` | collection `journal` (hidden; one `date`, a `date`-slug datetime) + miniapp — an entry is a `page` filed under it, one per day; supersedes `system:journal/v1` |
 | | | `system:journal/v1` | superseded: type `journal` with the same `date` + editor `body` part + miniapp |
@@ -469,7 +470,7 @@ schema).
 | | | `system:deal/v1` | superseded: type `deal` (layout `profile`) with the same properties + editor `body` part |
 | | | `system:crm/v1` | miniapp only, a `page` root |
 
-Eighteen usecases, thirty-three bundles, six of them superseded. What a
+Nineteen usecases, thirty-four bundles, six of them superseded. What a
 space set up today receives is five types — `meeting`, `task`,
 `bookmark`, `general_chat`, `profile` — and fifteen collections with an
 xKey. A
@@ -541,6 +542,52 @@ on `<wikiCollectionId>.<posPropId>`; the whole tree is
 `{"any.collections": "<wikiCollectionId>"}`, which the wiki root — the
 definition — does not match itself. A move is one property write under
 the same owner (`03-api.md` § The wiki tree).
+
+**Library rows.** The Library is a client's set of pages over the whole
+space, and three of them can sit in the tree as rows of their own:
+`recent` (the space's objects by when they were last edited or
+viewed), `types` (the page of every type) and `collections` (the page
+of every collection). A row is a record, never an object: it has no
+id in the space, no body, no name of its own and no children, cannot
+be favourited, linked or filed under, and never reaches a page list,
+a picker or `/search`. The records live in the `rows` dataset of
+`system:library-rows/v1` (storage collection `<rootId>_rows`, read off
+`GET …/types/<rootId>/parts`), keyed by the page, so each page is in
+the tree at most once:
+
+```
+POST /v1/spaces/:spaceId/upsert
+{ "objectId": "<rootId>", "dataset": "<rootId>_rows",
+  "records": [ { "id": "recent", "fields": { "parentId": "", "pos": "a3", "removed": false } } ] }
+```
+
+| field | kind | value |
+|---|---|---|
+| `parentId` | string | `""` = the top level, else a wiki folder's object id; absent = `""` |
+| `pos` | string | lexid in the wiki's `pos` order among the siblings at that parent; absent = after every sibling that has one |
+| `removed` | boolean | `true` = out of the tree; absent = in it |
+
+The tree is the wiki objects query plus one
+`POST …/query/subscribe` on the root and `<rootId>_rows`, merged by
+`parentId` and `pos`; a row sorts among the pages of its parent, equal
+positions page first, then by record id. A row whose `parentId` names
+no folder in the tree query — a page, an object outside the wiki, or
+one in the bin — renders at the top level. A row is drawn whether or
+not the client has the page it names; a client draws the Library's
+own name for it. The creating client sets the usecase up with the
+wiki, so every joiner adopts one root; a writer in a space without it
+runs `POST /v1/catalog/library-rows/setup` when it adds the first
+row, a non-owner's `409 bundle.not_ready` while its registry cannot
+converge (§ Setup). A row goes back with `removed: false`. Every
+member watches the registry (`GET …/bundles/system%3Alibrary-rows%2Fv1`,
+locked on convergence; `synced: false` makes an absence provisional)
+and subscribes to the winner's `<rootId>_rows` once its tree has
+arrived; no bundle means no rows. Two writers that set it up while
+apart mint two roots: the client that observes the loser upserts each
+of the loser's rows that is not `removed` into the winner where the
+winner holds no record of that id at all, then resolves it (§ Forks).
+The dataset is `deleteBy: none`: `delete-records` answers
+`409 dataset.undeletable`.
 
 **Journal** is one dated page per day: an entry's type is `journal`,
 with a `date` value (a `date` slug on `kind: datetime` — midnight

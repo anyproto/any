@@ -264,6 +264,32 @@ usecases:
         rootType: page
         miniapp: {}
 
+  # ── Library rows: Recents, every type and every collection placed in the wiki
+  #    tree. Records, not objects, so nothing leaks into lists or search; the
+  #    record id is the page, so each sits in the tree at most once.
+  - id: library-rows
+    name: Library rows
+    description: Library pages placed in the wiki tree
+    requires: [ wiki ]
+    bundles:
+      - id: system:library-rows/v1
+        name: Library rows
+        hidden: true
+        parts:
+          - key: rows
+            datasets:
+              - key: rows
+                idRule: user
+                idPattern: '^(recent|types|collections)$'
+                idMaxLen: 32
+                dynamic: true
+                deleteBy: none                         # removal is removed: true
+                skipHistory: true
+                fields:
+                  - { key: parentId, kind: string,  mutableBy: any }
+                  - { key: pos,      kind: string,  mutableBy: any }
+                  - { key: removed,  kind: boolean, mutableBy: any }
+
   # ── The space's general chat. Derived: chat content cannot be merged across
   #    objects, and a 1-1 space has no owner to break a tie.
   - id: general-chat
