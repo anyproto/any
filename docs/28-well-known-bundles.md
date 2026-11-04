@@ -573,8 +573,9 @@ POST /v1/spaces/:spaceId/objects
 | `library/types` | the page of every type in the space |
 | `library/collections` | the page of every collection in the space |
 
-A client draws the Library's own name for the row; the stored
-`any.name` is what a client without that page shows. Rules every
+A client draws the Library's own name for the row and never renames
+it; the stored `any.name` is for listings outside the apps and for a
+client without that page. Rules every
 client shares, over the rows in the tree (the tree query, which leaves
 out the bin and templates):
 
@@ -582,6 +583,7 @@ out the bin and templates):
   a row with the same `opens`, and rows made apart render as one, the
   lowest object id at its place;
 - removing a page's row deletes every row with that `opens`;
+- a row's parent is the top level or a folder, never a page;
 - nothing goes under a row: removing one first moves any page under it
   to the row's parent.
 
