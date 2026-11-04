@@ -610,18 +610,22 @@ until a writer changes one: that client runs the setup then and
 writes, and while its registry cannot converge it is a non-owner's
 `409 bundle.not_ready` (§ Setup), retried when the network is back. A
 reader never runs the setup (while the bundle is absent it answers
-`403`, after the registry wait). It reads
-`GET …/bundles/system%3Aoverview%2Fv1` instead, and no bundle means the
-client's defaults. A reader's write is `403 space.read_only`, like any
-write in a space it cannot write. `DELETE …/objects/<rootId>`
-uninstalls the Overview — the space is back at the defaults, and the
-next setup mints an empty one.
+`409 bundle.not_ready` past the registry wait, else `403`). It reads
+the registry instead, and no bundle means the client's defaults. A
+reader's write is `403 space.read_only`, like any write in a space it
+cannot write. `DELETE …/objects/<rootId>` uninstalls the Overview —
+the space is back at the defaults, and the next setup mints an empty
+one.
 
 **Forks.** Two writers that set it up while apart mint two roots; the
-registry names a winner and lists the other in `losers`. The client
-that observes a loser upserts each live record of the loser's
-`entries` into the winner where the winner has no record of that id,
-then `POST …/bundles/system%3Aoverview%2Fv1/resolve` (§ Forks).
+registry names a winner and lists the other in `losers`. The
+Overview's own merge replaces the generic one (§ Forks): once both
+trees have arrived — `<L>_entries` answers records, not
+`404 object.not_found` — the client upserts each record of the loser's
+`entries` into the winner where the winner holds no record of that id
+at all, `removed` values included, and leaves every id the winner
+holds as the winner has it; then
+`POST …/bundles/system%3Aoverview%2Fv1/resolve`.
 
 **The record id says what an entry is**, and no field repeats it:
 
@@ -657,7 +661,7 @@ field takes the default below:
 | `sort` | string | `s:collections` | `name` \| `manual` \| `recent` \| `count` |
 | `name` | string | folder | the folder's name |
 | `parentId` | string | folder, collection | the `f:<token>` it sits in; `""` = top level |
-| `opensWith` | string | settings | the object opened beside the Overview; absent = the space's chat, or its latest page in a space with no chat |
+| `opensWith` | string | settings | the object opened beside the Overview; absent = the space's chat, or the last-modified page in a space with no chat |
 | `opensTo` | string | settings | `last` \| `overview` \| `app:<bundleId>`, a catalog app \| `object:<objectId>`, any other object; absent = `overview`; `overview` reads as `last` while `overviewHidden` is `true` or in a client that shows no Overview |
 | `editRowHidden` | boolean | settings | the "Edit sections" row is off the Overview |
 | `addWidgetRowHidden` | boolean | settings | the "Add widget" row is off the Overview |
@@ -687,7 +691,9 @@ that has one, by record id. Every client derives the same values, so
 a move writes `pos` on the moved entry only, and two writers moving
 different entries apart both keep their move. Under `sort: manual`, a
 collection with no `t:` record or no `pos` sorts after the placed
-ones, by name. An entry whose target is gone — a deleted object, a
+ones, by name; folders sort among collections by `pos` under every
+`sort`, an unplaced folder after the placed ones, by name. An entry
+whose target is gone — a deleted object, a
 resolved loser, a removed definition — is not drawn; its record stays.
 
 The dataset is `dynamic`: a field a newer client writes survives an
@@ -712,17 +718,19 @@ folder that is removed or absent, renders at the top level.
 **Forks of what an entry names.** `w:type:`, `w:collection:` and `t:`
 ids name a definition, which may be a forked catalog root. A client
 that resolves a loser (§ Forks) moves each entry naming it to the
-winner's id: `upsert` of the winner's record with the loser's fields,
-which creates it or, per field, lands only where the winner's value is
-older; the loser's entry is `removed: true`. A value naming the loser
+winner's id: where the winner's id has no entry, an `upsert` with the
+loser's fields and `removed: false`; where it has one, nothing. The
+loser's entry is `removed: true`. A value naming the loser
 (`opensWith`, `opensTo` `object:`) moves the same way.
 
 **Reads.** `POST …/query/subscribe` on the root and
 `<rootId>_entries` holds the whole Overview live, for readers too.
-While the bundle is absent, a client watches the registry (the
-`bundles` dataset on `spaceIndexObjectId`) for its install, then reads
-the root off `GET …/bundles/system%3Aoverview%2Fv1`. Until the
-root's tree has arrived, a read of
+Every member keeps watching the registry (the `bundles` dataset on
+`spaceIndexObjectId`, or `GET …/bundles/system%3Aoverview%2Fv1`,
+locked on convergence; `synced: false` makes an absence provisional)
+and subscribes to the winner's `entries` — the winner can change
+while two installs converge, and then the subscription moves. Until
+the root's tree has arrived, a read of
 `<rootId>_entries` answers `404 object.not_found`, and until its part
 has, no records: the client shows the defaults and retries the read
 when the space's sync status next reports `synced`

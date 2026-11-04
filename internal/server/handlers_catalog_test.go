@@ -576,7 +576,7 @@ func TestServer_CatalogSetupOverview(t *testing.T) {
 		`{"id":"s:bin","fields":{"pos":"a2","removed":true}},` +
 		`{"id":"f:work","fields":{"name":"Work","parentId":"","pos":"a0"}},` +
 		`{"id":"bogus","fields":{"pos":"a3"}},` +
-		`{"id":"f:no spaces","fields":{"name":"Bad"}},` +
+		`{"id":"f:a.b","fields":{"name":"Bad"}},` +
 		`{"id":"w:a b","fields":{"pos":"a4"}}]}`
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert", body)
 	var up api.UpsertResult
@@ -584,7 +584,7 @@ func TestServer_CatalogSetupOverview(t *testing.T) {
 		t.Fatalf("upsert entries: %d %s (%v)", rec.Code, rec.Body.String(), err)
 	}
 	// Ids off the pattern are refused: no prefix, a bad folder token, a char off the alphabet.
-	if up.Created != 5 || len(up.Rejections) != 3 || up.Rejections[0].Id != "bogus" || up.Rejections[1].Id != "f:no spaces" ||
+	if up.Created != 5 || len(up.Rejections) != 3 || up.Rejections[0].Id != "bogus" || up.Rejections[1].Id != "f:a.b" ||
 		up.Rejections[2].Id != "w:a b" ||
 		up.Rejections[0].Code != "upsert.rejected" {
 		t.Fatalf("upsert result: %+v", up)
