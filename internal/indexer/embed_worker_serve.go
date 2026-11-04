@@ -22,6 +22,8 @@ type EmbedWorkerConfig struct {
 	ModelPath   string
 	LibDir      string
 	QueryPrefix string
+	DocPrefix   string
+	Pooling     string
 	ContextSize int
 	Threads     int
 	Dim         int
@@ -53,6 +55,8 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 		ModelPath:   cfg.ModelPath,
 		LibDir:      cfg.LibDir,
 		QueryPrefix: cfg.QueryPrefix,
+		DocPrefix:   cfg.DocPrefix,
+		Pooling:     cfg.Pooling,
 		ContextSize: cfg.ContextSize,
 		Threads:     cfg.Threads,
 		Dim:         cfg.Dim,

@@ -166,6 +166,12 @@ func embedderCmd(s localSpec) (*exec.Cmd, error) {
 	if s.queryPrefix != "" {
 		args = append(args, "--query-prefix", s.queryPrefix)
 	}
+	if s.docPrefix != "" {
+		args = append(args, "--doc-prefix", s.docPrefix)
+	}
+	if s.pooling != "" {
+		args = append(args, "--pooling", s.pooling)
+	}
 	if s.threads > 0 {
 		args = append(args, "--threads", strconv.Itoa(s.threads))
 	}

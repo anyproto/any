@@ -65,6 +65,8 @@ type Local struct {
 	threads      int // 0 = runtime.NumCPU()-1
 	outDim       int // 0 = model dim; >0 = Matryoshka truncate + renormalize
 	queryPrefix  string
+	docPrefix    string
+	pooling      llama.PoolingType
 	gpuLayers    int  // -1 = llama.cpp default (offload all when a GPU is present)
 	batchDocs    int  // max docs packed per llama_decode (≥1)
 	defaultModel bool // pinned Qwen3 (possibly via mirror URL), not a custom GGUF
@@ -104,6 +106,8 @@ type localSpec struct {
 	modelPath    string
 	libDir       string
 	queryPrefix  string
+	docPrefix    string
+	pooling      string // "" = last
 	nCtx         int
 	threads      int // 0 = runtime.NumCPU()-1
 	outDim       int
@@ -124,6 +128,8 @@ func resolveLocalSpec(cfg config.IndexLocal, modelsDir, legacyModelsDir string, 
 		threads:      cfg.Threads,
 		outDim:       cfg.Dim,
 		queryPrefix:  cfg.QueryPrefix,
+		docPrefix:    cfg.DocPrefix,
+		pooling:      cfg.Pooling,
 		gpuLayers:    -1,
 		niceness:     localDefaultNiceness,
 		batchDocs:    cfg.BatchDocs,
@@ -140,6 +146,9 @@ func resolveLocalSpec(cfg config.IndexLocal, modelsDir, legacyModelsDir string, 
 	}
 	if s.batchDocs <= 0 {
 		s.batchDocs = localDefaultBatchDocs
+	}
+	if _, err := poolingType(s.pooling); err != nil {
+		return localSpec{}, nil, err
 	}
 	if per := maxDocTokens(s.nCtx, s.batchDocs); per < s.nCtx {
 		logger.NewNamed("indexer").Warn("index: local embedder batchDocs truncates texts below contextSize",
@@ -185,6 +194,7 @@ func resolveLocalSpec(cfg config.IndexLocal, modelsDir, legacyModelsDir string, 
 }
 
 func newLocalFromSpec(s localSpec, dl *modelDownload) *Local {
+	pooling, _ := poolingType(s.pooling) // validated by resolveLocalSpec
 	return &Local{
 		modelPath:    s.modelPath,
 		libDir:       s.libDir,
@@ -192,6 +202,8 @@ func newLocalFromSpec(s localSpec, dl *modelDownload) *Local {
 		threads:      s.threads,
 		outDim:       s.outDim,
 		queryPrefix:  s.queryPrefix,
+		docPrefix:    s.docPrefix,
+		pooling:      pooling,
 		gpuLayers:    s.gpuLayers,
 		batchDocs:    s.batchDocs,
 		defaultModel: s.defaultModel,
@@ -273,7 +285,7 @@ func (l *Local) ensureLoaded() error {
 	cp.NSeqMax = uint32(l.batchDocs)
 	cp.NThreads = threads
 	cp.NThreadsBatch = threads
-	cp.PoolingType = llama.PoolingTypeLast // Qwen3-Embedding pools the trailing EOS
+	cp.PoolingType = l.pooling
 	cp.Embeddings = 1
 	cp.OpOffload = opOffload(l.gpuLayers)
 	lctx, err := llama.InitFromModel(model, cp)
@@ -284,7 +296,10 @@ func (l *Local) ensureLoaded() error {
 
 	l.model, l.lctx = model, lctx
 	l.vocab = llama.ModelGetVocab(model)
-	l.nEmbd = llama.ModelNEmbd(model)
+	// The pooled embedding has the output width, which differs from the
+	// hidden width for a model with an output projection
+	// (EmbeddingGemma 2: 512 hidden → 768 out).
+	l.nEmbd = llama.ModelNEmbdOut(model)
 	l.loaded = true
 	return nil
 }
@@ -297,6 +312,22 @@ func (l *Local) threadCount() int {
 		return l.threads
 	}
 	return max(1, runtime.NumCPU()-1)
+}
+
+// poolingType maps index.local.pooling onto llama.cpp's pooling enum.
+// The default is last-token: Qwen3-Embedding pools the trailing EOS.
+func poolingType(s string) (llama.PoolingType, error) {
+	switch s {
+	case "", "last":
+		return llama.PoolingTypeLast, nil
+	case "mean":
+		return llama.PoolingTypeMean, nil
+	case "cls":
+		return llama.PoolingTypeCLS, nil
+	case "model":
+		return llama.PoolingTypeUnspecified, nil
+	}
+	return 0, fmt.Errorf("indexer: local embedder: unknown pooling %q (last, mean, cls, model)", s)
 }
 
 // maxDocTokens is the real per-text bound: the unified KV cache splits
@@ -453,7 +484,7 @@ func (l *Local) EmbedDocs(ctx context.Context, texts []string) ([][]float32, err
 	tokenized := make([][]llama.Token, len(texts))
 	lens := make([]int, len(texts))
 	for i, t := range texts {
-		tokenized[i] = l.tokenize(t)
+		tokenized[i] = l.tokenize(l.docPrefix + t)
 		lens[i] = len(tokenized[i])
 	}
 	out := make([][]float32, 0, len(texts))

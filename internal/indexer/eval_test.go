@@ -6,6 +6,7 @@ import (
 	"hash/fnv"
 	"math"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -385,6 +386,10 @@ func runStrategy(t *testing.T, emb Embedder, chunk func(evalObject) []index.Inde
 	return sum
 }
 
+// evalLocalHook builds the local embedder for evals when set (llamacpp
+// builds): the child must be the real `any` binary, not the test binary.
+var evalLocalHook func(t *testing.T, cfg config.IndexLocal) (Embedder, error)
+
 // realEvalEmbedder builds the embedder named by ANY_EVAL_EMBEDDER, reusing
 // an already-downloaded local model via ANY_EVAL_LOCAL_MODEL /
 // ANY_EVAL_LOCAL_LIBDIR (so the eval runs against the SAME model the
@@ -403,11 +408,32 @@ func realEvalEmbedder(t *testing.T) (string, Embedder) {
 			ApiKey:  os.Getenv("ANY_EVAL_OPENAI_API_KEY"),
 		},
 		Local: config.IndexLocal{
-			ModelPath: os.Getenv("ANY_EVAL_LOCAL_MODEL"),
-			LibDir:    os.Getenv("ANY_EVAL_LOCAL_LIBDIR"),
+			ModelPath:   os.Getenv("ANY_EVAL_LOCAL_MODEL"),
+			LibDir:      os.Getenv("ANY_EVAL_LOCAL_LIBDIR"),
+			QueryPrefix: os.Getenv("ANY_EVAL_LOCAL_QUERY_PREFIX"),
+			DocPrefix:   os.Getenv("ANY_EVAL_LOCAL_DOC_PREFIX"),
+			Pooling:     os.Getenv("ANY_EVAL_LOCAL_POOLING"),
 		},
 	}
-	e, err := NewEmbedder(cfg, t.TempDir(), "", nil)
+	if v := os.Getenv("ANY_EVAL_LOCAL_THREADS"); v != "" {
+		cfg.Local.Threads, _ = strconv.Atoi(v)
+	}
+	if v := os.Getenv("ANY_EVAL_LOCAL_DIM"); v != "" {
+		cfg.Local.Dim, _ = strconv.Atoi(v)
+	}
+	if v := os.Getenv("ANY_EVAL_LOCAL_GPU_LAYERS"); v != "" {
+		n, _ := strconv.Atoi(v)
+		cfg.Local.GpuLayers = &n
+	}
+	var (
+		e   Embedder
+		err error
+	)
+	if evalLocalHook != nil && name == "local" {
+		e, err = evalLocalHook(t, cfg.Local)
+	} else {
+		e, err = NewEmbedder(cfg, t.TempDir(), "", nil)
+	}
 	if err != nil || e == nil {
 		t.Fatalf("real embedder %q: %v", name, err)
 	}

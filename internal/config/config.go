@@ -408,6 +408,13 @@ type IndexLocal struct {
 	// nothing on a realistic record mix (docs/13-index.md). 0 = default
 	// 1 (one doc per decode, the whole ContextSize available to it).
 	BatchDocs int `yaml:"batchDocs"`
+	// DocPrefix is prepended to document (not query) texts. Empty embeds
+	// documents bare, which is what the default model expects.
+	DocPrefix string `yaml:"docPrefix"`
+	// Pooling selects how token states pool into one vector: "last"
+	// (default — the default model pools its trailing EOS), "mean",
+	// "cls", or "model" (the GGUF's own pooling metadata).
+	Pooling string `yaml:"pooling"`
 }
 
 type IndexVector struct {

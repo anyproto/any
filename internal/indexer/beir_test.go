@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/index"
@@ -41,6 +42,14 @@ func TestSearchEvalBEIR(t *testing.T) {
 	var inner Embedder = real
 	if inner == nil {
 		inner, name = hashEmbedder{dim: 256}, "hash(FTS-only)"
+	}
+	// ANY_BEIR_VEC_CACHE: one file per model config; ANY_BEIR_TRUNC_DIM
+	// replays it at a Matryoshka dimension without re-embedding.
+	if p := os.Getenv("ANY_BEIR_VEC_CACHE"); p != "" && real != nil {
+		inner = openVecCache(t, p, inner)
+	}
+	if d := envInt("ANY_BEIR_TRUNC_DIM", 0); d > 0 {
+		inner, name = truncEmbedder{inner: inner, dim: d}, name+"@"+strconv.Itoa(d)
 	}
 	emb := &cachingEmbedder{Embedder: inner} // memoize repeated query embeds
 	ctx := context.Background()
@@ -240,6 +249,7 @@ func ingestBEIR(t *testing.T, ix *Indexer, emb Embedder, corpus []beirDoc) []vec
 	var firstErr error
 	jobs := make(chan int)
 	var wg sync.WaitGroup
+	done, start := 0, time.Now()
 	for w := 0; w < conc; w++ {
 		wg.Add(1)
 		go func() {
@@ -251,6 +261,11 @@ func ingestBEIR(t *testing.T, ix *Indexer, emb Embedder, corpus []beirDoc) []vec
 					firstErr = err
 				}
 				vecsByBatch[bi] = v
+				done++
+				if done%50 == 0 || done == len(batches) {
+					el := time.Since(start).Seconds()
+					t.Logf("embedded %d/%d batches, %.1f s, %.2f docs/s", done, len(batches), el, float64(done*batchSize)/el)
+				}
 				mu.Unlock()
 			}
 		}()

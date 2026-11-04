@@ -31,6 +31,8 @@ func embedderCmds() []*cobra.Command {
 	f.StringVar(&cfg.ModelPath, "model", "", "GGUF model file (required)")
 	f.StringVar(&cfg.LibDir, "lib-dir", "", "directory holding the llama.cpp shared libraries")
 	f.StringVar(&cfg.QueryPrefix, "query-prefix", "", "instruction prepended to query texts")
+	f.StringVar(&cfg.DocPrefix, "doc-prefix", "", "prefix prepended to document texts")
+	f.StringVar(&cfg.Pooling, "pooling", "", "last | mean | cls | model (default last)")
 	f.IntVar(&cfg.ContextSize, "ctx", 0, "context size in tokens (0 = default)")
 	f.IntVar(&cfg.Threads, "threads", 0, "compute threads (0 = NumCPU-1)")
 	f.IntVar(&cfg.Dim, "dim", 0, "truncate output vectors to this dimension (0 = model dim)")
