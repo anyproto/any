@@ -578,8 +578,8 @@ not the client has the page it names; a client draws the Library's
 own name for it. The creating client sets the usecase up with the
 wiki, so every joiner adopts one root; a writer in a space without it
 runs `POST /v1/catalog/library-rows/setup` when it adds the first
-row, a non-owner's `409 bundle.not_ready` while its registry cannot
-converge (§ Setup). A row goes back with `removed: false`. Every
+row, and two writers doing so apart fork and merge (below). A row
+goes back with `removed: false`. Every
 member watches the registry (`GET …/bundles/system%3Alibrary-rows%2Fv1`,
 locked on convergence; `synced: false` makes an absence provisional)
 and subscribes to the winner's `<rootId>_rows` once its tree has
