@@ -362,9 +362,10 @@ func (e *xKeyConflictError) Error() string {
 // A root of THIS bundle is never a conflict even when the registry
 // reads it as uninstalled: a deleted winner leaves its losers listed
 // as types (the registry says "install again", and the loser holds
-// the handle), and an owner installing past an unconverged registry
-// may already hold its own root's tree. Both are the registry's to
-// settle, not a user type in the way. Readers are left to the SDK's
+// the handle), an owner installing past an unconverged registry may
+// already hold its own root's tree, and a derived root's tree can sync
+// before the registry row that names it. All three are the registry's
+// to settle, not a user type in the way. Readers are left to the SDK's
 // write gate, so a member without write permission hears about the
 // permission, not the handle.
 func catalogBeforeInstall(ctx context.Context, sp space.Space, inst bundles.Install) error {
@@ -398,8 +399,20 @@ func catalogBeforeInstall(ctx context.Context, sp space.Space, inst bundles.Inst
 			continue
 		}
 		if own == nil {
-			if own, err = bundleRoots(ctx, sp, inst.Id); err != nil {
+			roots, err := bundleRoots(ctx, sp, inst.Id)
+			if err != nil {
 				return err
+			}
+			own = make(map[string]bool, len(roots)+1)
+			for id := range roots {
+				own[id] = true
+			}
+			if inst.Derived {
+				id, err := sp.Bundles().DerivedRootId(ctx, inst.Id)
+				if err != nil {
+					return err
+				}
+				own[id] = true
 			}
 		}
 		if own[h.id] {
