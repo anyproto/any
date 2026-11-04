@@ -224,9 +224,12 @@ the registry's state.
 Who may do what: when the wait cannot complete, the space's **owner**
 installs anyway (only this account's own devices could compete, and
 the registry converges those), and so does every member for the
-derived chat (its root cannot fork); any other member is
-`409 bundle.not_ready` and retries when the network is back — so a
-space set up by its owner before sharing spares joiners the wait. A
+derived chat (its root cannot fork); a member whose space index has
+never arrived is `409 bundle.not_ready` and retries when the network
+is back. A member that holds the index installs against its local
+view, so two members setting up while one is apart, or at the same
+moment, fork and resolve (§ Forks) — a space set up by its owner
+before sharing spares joiners both. A
 member without write permission adopts but cannot install (`403` on
 the install path). The create-and-register section runs detached from
 the request, bounded by shutdown and two minutes for the whole walk,
@@ -417,7 +420,8 @@ for, and the two share a handle. So when a group has neither an old
 nor a new bundle present locally, setup runs the
 registry-convergence wait before it decides, and an expired wait is
 answered as the install gate answers it: the space's owner proceeds,
-any other member gets the retryable `409 bundle.not_ready`. A group
+a member whose index has never arrived gets the retryable
+`409 bundle.not_ready`. A group
 settled either way waits for nothing.
 
 A client reads which shape a space has from the reply, or from the
@@ -656,10 +660,10 @@ the storage collection is `<rootId>_entries`, read off
 `POST /v1/catalog/overview/setup` next to the wiki and the chat, so
 every joiner adopts the one root. A space without it has no Overview
 until a writer changes one: that client runs the setup then and
-writes, and while its registry cannot converge it is a non-owner's
-`409 bundle.not_ready` (§ Setup), retried when the network is back. A
-reader never runs the setup (while the bundle is absent it answers
-`409 bundle.not_ready` past the registry wait, else `403`). It reads
+writes, and two writers doing so while one is apart, or at the same
+moment, fork and merge (below). A reader never runs the setup (while
+the bundle is absent it answers `403`, or `409 bundle.not_ready`
+while its index has never arrived). It reads
 the registry instead, and no bundle means the client's defaults. A
 reader's write is `403 space.read_only`, like any write in a space it
 cannot write. `DELETE …/objects/<rootId>` uninstalls the Overview —

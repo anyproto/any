@@ -1184,27 +1184,31 @@ identity — a marketplace id, an app slug, a versioned convention like
 
 Installing waits for the registry to converge first (bounded, 30s —
 3s when no peer is connected). The registry rides the space's index
-tree, and a member that ensures against state it has not synced yet
+tree, and a member that ensures before that tree has ever reached it
 reads "nothing installed" and mints a root competing with the one
-already out there. Adopting a registered winner never waits. A space
-that has never been set up converges to an empty registry, which is a
-valid answer, not a stall.
+already out there. The wait completes at once for a member that holds
+the index — once synced, a device installs against its local view,
+offline or not — and otherwise runs until a clean head-sync round and
+the `synced` rollup; a space that has never been set up converges to
+an empty registry, which is a valid answer, not a stall. Adopting a
+registered winner never waits.
 
 When the wait cannot complete, who is asking decides: the space's
 **owner** installs anyway (nobody else could have installed into a
 space only this account has, and its own devices converge through the
-registry), so an offline owner is never blocked. Any other member —
-a joiner, either side of a 1-1 — is refused with
-`409 bundle.not_ready` rather than left to fork, and retries when the
-network is back. A **derived** root (below) is never refused *for lack
+registry), so an offline owner is never blocked. Any other member
+whose index has never arrived — a fresh joiner, either side of a 1-1
+before its first sync — is refused with `409 bundle.not_ready` and
+retries when the network is back. A **derived** root (below) is never refused *for lack
 of convergence* — there is no competing id it could mint — though it
 still reports `409 bundle.not_ready` when the live winner is a created
 root whose tree has not arrived.
 
-Two devices that install while genuinely apart still each register a
-root; the registry converges on one winner and the other appears in
-`losers` — so **`rootId` is provisional until the space syncs**, and
-clients re-read after. A winner whose tree has not reached this device
+Two members, or two devices, that install while apart or at the same
+moment each register a root; the registry converges on one winner and
+the other appears in `losers` — so **`rootId` is provisional until
+the space syncs**, clients re-read after, and resolving the loser is
+the protection, not the wait. A winner whose tree has not reached this device
 yet is likewise `409 bundle.not_ready` rather than handed out: its id
 would reject every write. Retry.
 
@@ -1551,7 +1555,8 @@ still answers 200 and the next setup retries it. A
 failure mid-walk leaves the dependencies it installed, names the step
 in `details.usecase` / `details.bundleId`, and the next call resumes.
 Readers adopt, writers install; when the wait expires the owner
-installs anyway and any other member is `409 bundle.not_ready`.
+installs anyway and a member whose index has never arrived is
+`409 bundle.not_ready`.
 
 ```jsonc
 // CatalogSetupResponse — every bundle the call touched, dependencies
