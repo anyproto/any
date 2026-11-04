@@ -281,15 +281,13 @@ usecases:
             datasets: [ { module: chat } ]
 
   # ── The space's Overview: the arrangement its writers share and every member
-  #    reads. Derived: any writer installs it while apart, and two installs meet
-  #    on one root. The record id says what an entry is (docs/28 § The Overview).
+  #    reads. The record id says what an entry is (docs/28 § The Overview).
   - id: overview
     name: Overview
     description: The space's shared Overview arrangement
     bundles:
       - id: system:overview/v1
         name: Overview
-        derived: true
         hidden: true
         parts:
           - key: entries
@@ -299,7 +297,7 @@ usecases:
                 idPattern: '^(settings|f:[A-Za-z0-9_-]{1,64}|[a-eg-z]:[A-Za-z0-9._:-]+)$'
                 idMaxLen: 256
                 dynamic: true
-                deleteBy: none                         # an id is never burned on a root that cannot be replaced
+                deleteBy: none                         # removal is removed: true; a burned id is lost for the root's life
                 skipHistory: true                      # layout churn; no history to browse
                 fields:
                   - { key: pos,                kind: string,  mutableBy: any }

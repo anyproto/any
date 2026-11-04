@@ -513,7 +513,7 @@ func TestServer_CatalogSetupCollectionsAndChat(t *testing.T) {
 	}
 }
 
-// TestServer_CatalogSetupOverview pins the Overview: a derived hidden root,
+// TestServer_CatalogSetupOverview pins the Overview: a hidden created root,
 // no sidebar entry, hosting records keyed by what each entry is.
 func TestServer_CatalogSetupOverview(t *testing.T) {
 	d, teardown := newTestDeps(t)
@@ -527,7 +527,7 @@ func TestServer_CatalogSetupOverview(t *testing.T) {
 	}
 	ov := res.Bundles[0]
 	root := ov.Bundle.RootId
-	if ov.Id != "system:overview/v1" || !ov.Installed || !ov.Bundle.Derived || ov.TypeId != root || ov.Miniapp != nil {
+	if ov.Id != "system:overview/v1" || !ov.Installed || ov.Bundle.Derived || ov.TypeId != root || ov.Miniapp != nil {
 		t.Fatalf("overview bundle: %+v", ov)
 	}
 	if cols := rowCollections(objectRow(t, e, sp.Id, root)); slices.Contains(cols, "miniapp") {
@@ -615,6 +615,17 @@ func TestServer_CatalogSetupOverview(t *testing.T) {
 	again := res2.Bundles[0]
 	if again.Installed || again.Bundle.RootId != root {
 		t.Fatalf("second setup: %+v", again)
+	}
+
+	// A created root: uninstall takes the Overview back to the defaults,
+	// and the next setup mints a fresh one.
+	rec = doJSON(t, e, http.MethodDelete, "/v1/spaces/"+sp.Id+"/objects/"+root, "")
+	if rec.Code != http.StatusNoContent && rec.Code != http.StatusOK {
+		t.Fatalf("uninstall the overview: %d %s", rec.Code, rec.Body.String())
+	}
+	fresh := setupUsecase(t, e, "overview", sp.Id).Bundles[0]
+	if !fresh.Installed || fresh.Bundle.RootId == root {
+		t.Fatalf("setup after uninstall: %+v", fresh)
 	}
 }
 

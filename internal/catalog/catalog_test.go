@@ -800,16 +800,6 @@ func TestCatalog_DerivedDeclarationsFrozen(t *testing.T) {
 	}
 	golden := map[string]string{
 		"system:general-chat/v1": `[{"key":"chat","datasets":[{"module":"chat"}]}]`,
-		"system:overview/v1": `[{"key":"entries","datasets":[{"key":"entries","dynamic":true,"idRule":"user",` +
-			`"idPattern":"^(settings|f:[A-Za-z0-9_-]{1,64}|[a-eg-z]:[A-Za-z0-9._:-]+)$","idMaxLen":256,"deleteBy":"none","skipHistory":true,"fields":[` +
-			`{"key":"pos","kind":"string","mutableBy":"any"},{"key":"removed","kind":"boolean","mutableBy":"any"},` +
-			`{"key":"layout","kind":"string","mutableBy":"any"},{"key":"view","kind":"string","mutableBy":"any"},` +
-			`{"key":"limit","kind":"number","mutableBy":"any"},{"key":"attachments","kind":"string","mutableBy":"any"},` +
-			`{"key":"counts","kind":"boolean","mutableBy":"any"},{"key":"sort","kind":"string","mutableBy":"any"},` +
-			`{"key":"name","kind":"string","mutableBy":"any"},{"key":"parentId","kind":"string","mutableBy":"any"},` +
-			`{"key":"opensWith","kind":"string","mutableBy":"any"},{"key":"opensTo","kind":"string","mutableBy":"any"},` +
-			`{"key":"editRowHidden","kind":"boolean","mutableBy":"any"},{"key":"addWidgetRowHidden","kind":"boolean","mutableBy":"any"},` +
-			`{"key":"overviewHidden","kind":"boolean","mutableBy":"any"}]}]}]`,
 	}
 	seen := 0
 	for _, u := range cat.Usecases {

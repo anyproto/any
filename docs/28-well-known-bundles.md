@@ -86,18 +86,16 @@ matches neither `{"any.type": "<rootId>"}` nor
 `{"any.collections": "<rootId>"}`, and a member query needs no marker
 exclusion.
 
-**Created roots, two exceptions.** Every catalog root is a created
+**Created roots, one exception.** Every catalog root is a created
 root: deletable (`DELETE …/objects/:rootId` uninstalls it), forking
 when two devices of one account install while apart (§ Forks). The
-general chat and the Overview are the `derived: true` bundles, so
-their roots are a function of (space, bundle id): they never fork and
-can never be deleted (`409 object.derived_undeletable`). Chat content
-cannot be merged across objects (`creator` / `createdAt` come from the
-change envelope), and a 1-1 space has no owner to break a tie. The
-Overview is written by every writer of the space, who must be able to
-install it while apart. The general chat is the space's well-known
-chat, not its only one: any type may declare the chat module
-(`16-chat.md` § Finding the chat object for a space).
+general chat is the one `derived: true` bundle — chat content cannot
+be merged across objects (`creator` / `createdAt` come from the change
+envelope), and a 1-1 space has no owner to break a tie — so its root
+is a function of (space, bundle id): it never forks and can never be
+deleted (`409 object.derived_undeletable`). It is the space's
+well-known chat, not its only one: any type may declare the chat
+module (`16-chat.md` § Finding the chat object for a space).
 
 **Naming.** Usecase ids are slugs (`[a-z][a-z0-9-]*`: `wiki`,
 `general-chat`, `contacts`); they never enter a space and need no
@@ -165,7 +163,7 @@ dependencies first, the requested usecase's bundles last:
 Per bundle: `usecase` (the entry it belongs to — the requested one or
 a dependency), `id`, `bundle` (the converged registry row, the
 `03-api.md` § Bundles shape), `installed` (this call registered the
-root; for a derived bundle, two devices can both report `true` for the
+root; for the derived chat, two devices can both report `true` for the
 one root they share), and when the bundle declares a definition the
 root id under the slot it declares — `collectionId` for a
 `collection` bundle, `typeId` for a `type` or `parts` one — plus
@@ -225,9 +223,8 @@ the registry's state.
 
 Who may do what: when the wait cannot complete, the space's **owner**
 installs anyway (only this account's own devices could compete, and
-the registry converges those), and so does every member for a
-derived bundle, the general chat or the Overview (its root cannot
-fork); any other member is
+the registry converges those), and so does every member for the
+derived chat (its root cannot fork); any other member is
 `409 bundle.not_ready` and retries when the network is back — so a
 space set up by its owner before sharing spares joiners the wait. A
 member without write permission adopts but cannot install (`403` on
@@ -324,8 +321,7 @@ and `GET …/collections?includeHidden=true`.
 
 ## Forks
 
-Every catalog root except the general chat and the Overview is a
-created root, so two devices
+Every catalog root except the chat is a created root, so two devices
 of one account that set a usecase up while apart each mint a root —
 two `profile` types with one xKey. After sync the registry names one
 winner and lists the other in `losers`; objects that had the loser
@@ -455,7 +451,7 @@ schema).
 | | | `system:bookmark/v1` | type `bookmark` (layout `bookmark`; `url`, `folder` → `bookmark_folder`, single, `archived`, `position`) + editor `body` part for the reader's notes — a bookmark is listed like a task; starring is the [native favorites](25-favorites.md) |
 | | | `system:bookmarks/v1` | miniapp only, a `page` root — the sidebar entry that opens Bookmarks |
 | `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one `chat` part hosted by the root itself, + miniapp, so the chat is a sidebar entry |
-| `overview` | — | `system:overview/v1` | derived, hidden, no miniapp; records part `entries` hosted by the root (`idRule: user`, `dynamic`, `deleteBy: none`) — the space's shared Overview, one record per entry (§ The Overview) |
+| `overview` | — | `system:overview/v1` | hidden, no miniapp; records part `entries` hosted by the root (`idRule: user`, `dynamic`, `deleteBy: none`) — the space's shared Overview, one record per entry (§ The Overview) |
 | `people` | — | `system:profile/v1` | type `profile` (layout `profile`, no properties) + editor `body` part — the one format a person and an organisation share; supersedes `system:person/v1` and `system:organization/v1` |
 | | | `system:person/v2` | collection `person` (`meta.defaultType: profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags); supersedes `system:person/v1` |
 | | | `system:organization/v2` | collection `organization` (`meta.defaultType: profile`; kind, domain, categories, location, size, linkedin, main_contact → `person`); supersedes `system:organization/v1` |
@@ -607,14 +603,25 @@ one records dataset, `entries`, on the root of `system:overview/v1`;
 the storage collection is `<rootId>_entries`, read off
 `GET …/types/<rootId>/parts`.
 
-**Installed on the first change.** A space has no Overview until a
-writer changes one: the client then runs
-`POST /v1/catalog/overview/setup` and writes. The root is derived, so
-a writer installs it while apart and two installs meet on one root.
-A reader never runs the setup (while the bundle is absent it answers
-`403`, after the registry wait). It reads `GET …/bundles/system%3Aoverview%2Fv1` instead, and
-no bundle means the client's defaults. A reader's write is
-`403 space.read_only`, like any write in a space it cannot write.
+**Set up with the space.** The creating client runs
+`POST /v1/catalog/overview/setup` next to the wiki and the chat, so
+every joiner adopts the one root. A space without it has no Overview
+until a writer changes one: that client runs the setup then and
+writes, and while its registry cannot converge it is a non-owner's
+`409 bundle.not_ready` (§ Setup), retried when the network is back. A
+reader never runs the setup (while the bundle is absent it answers
+`403`, after the registry wait). It reads
+`GET …/bundles/system%3Aoverview%2Fv1` instead, and no bundle means the
+client's defaults. A reader's write is `403 space.read_only`, like any
+write in a space it cannot write. `DELETE …/objects/<rootId>`
+uninstalls the Overview — the space is back at the defaults, and the
+next setup mints an empty one.
+
+**Forks.** Two writers that set it up while apart mint two roots; the
+registry names a winner and lists the other in `losers`. The client
+that observes a loser upserts each live record of the loser's
+`entries` into the winner where the winner has no record of that id,
+then `POST …/bundles/system%3Aoverview%2Fv1/resolve` (§ Forks).
 
 **The record id says what an entry is**, and no field repeats it:
 
@@ -684,9 +691,7 @@ ones, by name. An entry whose target is gone — a deleted object, a
 resolved loser, a removed definition — is not drawn; its record stays.
 
 The dataset is `dynamic`: a field a newer client writes survives an
-older peer. The declaration is fixed for good: a derived root is never
-replaced, and a bundle superseding it would never reach a space that
-has it (§ Superseding), so a later field rides the `dynamic` keyspace.
+older peer. Declaring another field takes a new bundle id (§ Evolution).
 
 **Writes.** `POST …/upsert` with `objectId` = the root and `dataset` =
 `<rootId>_entries` diffs field by field; `POST …/modify` `$set`s the
@@ -716,8 +721,8 @@ older; the loser's entry is `removed: true`. A value naming the loser
 `<rootId>_entries` holds the whole Overview live, for readers too.
 While the bundle is absent, a client watches the registry (the
 `bundles` dataset on `spaceIndexObjectId`) for its install, then reads
-the root off `GET …/bundles/system%3Aoverview%2Fv1`, which applies the
-derived-root verdict. Until the root's tree has arrived, a read of
+the root off `GET …/bundles/system%3Aoverview%2Fv1`. Until the
+root's tree has arrived, a read of
 `<rootId>_entries` answers `404 object.not_found`, and until its part
 has, no records: the client shows the defaults and retries the read
 when the space's sync status next reports `synced`
