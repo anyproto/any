@@ -15,7 +15,7 @@ Space content is encrypted on the device before it syncs, under keys only space 
 | **Device key** | Generated per device: fresh on every `any init --mnemonic` restore, and minted once per account as `device.key` on a managed server. | Identifies this peer on the network. Never copy `wallet.key` between machines — two devices with one device key fight over one network identity. |
 | **Space read key** (symmetric) | Created with the space; delivered to each member through the ACL, encrypted to their account key. Rotates when a member is removed. | Encrypts the payload of every change in the space. |
 | **Profile key** (symmetric) | Account-derived. Shared with a contact only through a shared space's ACL metadata or a 1-1 invite. | Encrypts your name / description / icon in the identity repository. |
-| **Push keys** | Derived from ACL state — the space push key from the ACL's first metadata key, the payload key from the current read key. Never synced; each device mirrors them onto its own space-list row as `SpaceInfo.push`. | Sign push topics; encrypt push payloads. |
+| **Push keys** | Derived from ACL state — the space push key from the space's metadata key (for a derived space, which has none, one derived from the account key and the space id), the payload key from the current read key. Never synced; each device mirrors them onto its own space-list row as `SpaceInfo.push`. | Sign push topics; encrypt push payloads. |
 
 The mnemonic is the root of all of it. Restoring an account on a second device with the same phrase yields the same account key and, through the ACLs, the same read keys.
 
