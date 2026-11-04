@@ -2362,6 +2362,16 @@ derived id for the empty-id upsert above. A dataset the object's type
 does not declare is `400 dataset.not_declared`; a name that is not a
 records dataset in the space is `400 dataset.unknown`.
 
+A call is one change, checked whole before it enters the DAG: a record
+the dataset's rules refuse (an id outside the pattern or over the
+length, a required field missing from a create, a write-once field, a
+value below the declared shape) fails the call with
+`400 dataset.validation`, and nothing is written. `rejections` in a
+`200` carries what only apply decides per record: a tombstoned id, a
+strict update of an absent id, an author-only field written by another
+author. Screening a batch record by record is `/upsert`'s job
+(§ Upsert records).
+
 The body takes an optional **`scope`** selecting the write route:
 `"synced"` (default — the object's own DAG change, synced to every
 member) or `"local"` (device-only materialization: no DAG change,

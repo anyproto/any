@@ -756,7 +756,10 @@ older peer. Declaring another field takes a new bundle id (§ Evolution).
 
 **Writes.** `POST …/upsert` with `objectId` = the root and `dataset` =
 `<rootId>_entries` diffs field by field; `POST …/modify` `$set`s the
-changed paths. A write that puts an entry on the Overview or in the
+changed paths. A `modify` call is one change: a record id outside the
+pattern fails the call whole with `400 dataset.validation` and writes
+nothing (`03-api.md` § Modify records); `upsert` answers it per record
+in `rejections`. A write that puts an entry on the Overview or in the
 tree sets `removed: false`, so a concurrent removal and re-add resolve
 last-writer-wins instead of the removal always winning.
 Remove with `removed: true`: the dataset is `deleteBy: none`, so
