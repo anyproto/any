@@ -27,7 +27,7 @@ SDK's [`space/push.go`](https://github.com/anyproto/any-sync-sdk/blob/main/space
 
 | Key | Derivation | Properties |
 |---|---|---|
-| space push key (Ed25519) | SLIP-10 from the ACL's first metadata key | identical for every member; signs topics + space registration; its pubkey (base58) is the server's space identifier (`spaceKey`) |
+| space push key (Ed25519) | SLIP-10 from the space's metadata key: the ACL's first one; for a 1-1 space the one any-sync derives from both accounts' keys; for a derived space (`bao`), which is never shared and whose ACL has none, one the SDK derives from the account key and the space id | identical for every member (a derived space: every device of the account); signs topics + space registration; its pubkey (base58) is the server's space identifier (`spaceKey`) |
 | payload enc key (AES) | SLIP-21 from the space's current read key | rotates with ACL read-key rotation; `keyId = hex(sha256(key))` routes decryption on the receiver |
 
 The push node is a **direct out-of-band peer** — `{peerId, addrs}` from

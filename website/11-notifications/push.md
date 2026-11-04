@@ -13,7 +13,7 @@ On every chat write, the sender's server calls the push node's `Notify` with sig
 
 | Key | Derived from | Role |
 |---|---|---|
-| space push key (Ed25519) | the ACL's first metadata key | identical for every member; signs topics and space registration; its base58 public key is the push node's identifier for the space (`spaceKey`) |
+| space push key (Ed25519) | the space's metadata key: the ACL's first one; for a derived space such as `bao`, whose ACL has none, one derived from your account key and the space id | identical for every member (a derived space is never shared: every device of your account); signs topics and space registration; its base58 public key is the push node's identifier for the space (`spaceKey`) |
 | payload encryption key (AES-256) | the space's current read key (one-way derivation) | encrypts payloads; rotates with the read key; `encKeyId = hex(sha256(key))` tells the receiver which key to use |
 
 Because the encryption key is a one-way derivation, holding it decrypts push payloads only — never space data. That is what makes it safe to hand to the OS keystore.
