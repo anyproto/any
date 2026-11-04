@@ -710,7 +710,7 @@ field takes the default below:
 | `sort` | string | `s:collections` | `name` \| `manual` \| `recent` \| `count` |
 | `name` | string | folder | the folder's name |
 | `parentId` | string | folder, collection | the `f:<token>` it sits in; `""` = top level |
-| `opensWith` | string | settings | the object opened beside the Overview; absent = the space's chat, or the last-modified page in a space with no chat |
+| `opensWith` | string | settings | the object opened beside the Overview; absent = the space's chat, or in a space with no chat the most recently modified named object of the `page` type, never an app's root |
 | `opensTo` | string | settings | `last` \| `overview` \| `app:<bundleId>`, a catalog app \| `object:<objectId>`, any other object; absent = `overview`; `overview` reads as `last` while `overviewHidden` is `true` or in a client that shows no Overview |
 | `editRowHidden` | boolean | settings | the "Edit sections" row is off the Overview |
 | `addWidgetRowHidden` | boolean | settings | the "Add widget" row is off the Overview |
@@ -740,8 +740,10 @@ that has one, by record id. Every client derives the same values, so
 a move writes `pos` on the moved entry only, and two writers moving
 different entries apart both keep their move. Under `sort: manual`, a
 collection with no `t:` record or no `pos` sorts after the placed
-ones, by name; folders sort among collections by `pos` under every
-`sort`, an unplaced folder after the placed ones, by name. An entry
+ones, by name. A folder sorts among the collections under the
+section's `sort`: by its name, by the count of objects in everything
+it holds, by the latest change among what it holds, or by `pos` under
+`manual`, an unplaced folder after the placed ones, by name. An entry
 whose target is gone — a deleted object, a
 resolved loser, a removed definition — is not drawn; its record stays.
 
@@ -762,7 +764,9 @@ writers who edit one while apart lose a side.
 
 **The folder tree** is resolved on read, the same way on every
 device: a folder cycle from concurrent moves, or a `parentId` naming a
-folder that is removed or absent, renders at the top level.
+folder that is removed or absent, renders at the top level. Folders
+nest two levels deep at most: a folder whose parent itself has a
+parent is drawn at the second level, with what it holds.
 
 **Forks of what an entry names.** `w:type:`, `w:collection:` and `t:`
 ids name a definition, which may be a forked catalog root. A client
