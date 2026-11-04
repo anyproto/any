@@ -1498,7 +1498,7 @@ declaring a `type` objects have, a `collection` they are filed under, a
 `miniapp` collection with `bundle` = its id), `parts`
 (records on the root), or several of those — in any combination but
 type with collection, or collection with parts; the general chat and
-the Library row type are the `derived` roots. A bundle another one `supersedes` is listed with
+the Library rows are the `derived` roots. A bundle another one `supersedes` is listed with
 `superseded: true`. The catalog is read-only over HTTP, validated at
 build time (`make catalog-validate`, CI, boot refusal), and installs
 nothing unless a client asks. Full client contract — model, setup
@@ -2040,8 +2040,9 @@ POST /v1/spaces/:spaceId/objects
 
 A folder is the same create with `<folderPropId>` `true`. What type a tree object has is the client's choice — the wiki
 collection only places it. A row that opens one of the client's
-Library pages is an object of the hidden `library_row` type of the
-`library-rows` usecase (`28-well-known-bundles.md` § Library rows).
+Library pages is not an object but a record of the `library-rows`
+usecase, merged into the tree by the same `parentId` and `pos`
+(`28-well-known-bundles.md` § Library rows).
 
 Children of a node, in order (`""` as the parent lists the top level):
 

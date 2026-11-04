@@ -86,18 +86,18 @@ matches neither `{"any.type": "<rootId>"}` nor
 `{"any.collections": "<rootId>"}`, and a member query needs no marker
 exclusion.
 
-**Created roots, one exception.** Every catalog root is a created
+**Created roots, two exceptions.** Every catalog root is a created
 root: deletable (`DELETE …/objects/:rootId` uninstalls it), forking
 when two devices of one account install while apart (§ Forks). The
-general chat and the Library row type are the `derived: true`
-bundles, so their roots are a function of (space, bundle id): they
-never fork and can never be deleted (`409 object.derived_undeletable`).
-Chat content cannot be merged across objects (`creator` / `createdAt`
-come from the change envelope), and a 1-1 space has no owner to break
-a tie. Every Library row carries the row type's id, and clients filter
-rows out by it, so it must be one id on every device. The general chat
-is the space's well-known chat, not its only one: any type may declare
-the chat module (`16-chat.md` § Finding the chat object for a space).
+general chat and the Library rows are the `derived: true` bundles, so
+their roots are a function of (space, bundle id): they never fork and
+can never be deleted (`409 object.derived_undeletable`). Chat content
+cannot be merged across objects (`creator` / `createdAt` come from the
+change envelope), and a 1-1 space has no owner to break a tie; the
+Library rows are written by every writer of the space, who must be
+able to install them while apart. The general chat is the space's
+well-known chat, not its only one: any type may declare the chat
+module (`16-chat.md` § Finding the chat object for a space).
 
 **Naming.** Usecase ids are slugs (`[a-z][a-z0-9-]*`: `wiki`,
 `general-chat`, `contacts`); they never enter a space and need no
@@ -226,8 +226,7 @@ the registry's state.
 Who may do what: when the wait cannot complete, the space's **owner**
 installs anyway (only this account's own devices could compete, and
 the registry converges those), and so does every member for a
-derived bundle, the general chat or the Library row type (its root
-cannot fork); any other member is
+derived bundle (its root cannot fork); any other member is
 `409 bundle.not_ready` and retries when the network is back — so a
 space set up by its owner before sharing spares joiners the wait. A
 member without write permission adopts but cannot install (`403` on
@@ -324,8 +323,8 @@ and `GET …/collections?includeHidden=true`.
 
 ## Forks
 
-Every catalog root except the general chat and the Library row type
-is a created root, so two devices
+Every catalog root except the general chat and the Library rows is a
+created root, so two devices
 of one account that set a usecase up while apart each mint a root —
 two `profile` types with one xKey. After sync the registry names one
 winner and lists the other in `losers`; objects that had the loser
@@ -440,6 +439,7 @@ schema).
 | usecase | requires | bundle | declares |
 |---|---|---|---|
 | `wiki` | — | `system:wiki/v1` | collection `wiki` (hidden; `parentId`, `pos` — both kept out of the search index — and `folder`, a checkbox) + miniapp |
+| `library-rows` | `wiki` | `system:library-rows/v1` | derived, hidden, no miniapp; records part `rows` hosted by the root (`idRule: user`, the id is the Library page: `recent`, `types`, `collections`; `parentId`, `pos`, `removed`) — Library pages placed in the wiki tree (§ Library rows) |
 | `collections` | — | `system:collections/v1` | miniapp only, a `page` root — a feature switch: installing it turns on working with types in clients; it declares none of its own |
 | `journal` | — | `system:journal/v2` | collection `journal` (hidden; one `date`, a `date`-slug datetime) + miniapp — an entry is a `page` filed under it, one per day; supersedes `system:journal/v1` |
 | | | `system:journal/v1` | superseded: type `journal` with the same `date` + editor `body` part + miniapp |
@@ -454,7 +454,6 @@ schema).
 | `bookmarks` | — | `system:bookmark-folder/v1` | collection `bookmark_folder` (`meta.defaultType: page`; `parent` → `bookmark_folder`, single, and `position`) — a folder is a `page` filed under it and sits inside at most one other folder |
 | | | `system:bookmark/v1` | type `bookmark` (layout `bookmark`; `url`, `folder` → `bookmark_folder`, single, `archived`, `position`) + editor `body` part for the reader's notes — a bookmark is listed like a task; starring is the [native favorites](25-favorites.md) |
 | | | `system:bookmarks/v1` | miniapp only, a `page` root — the sidebar entry that opens Bookmarks |
-| `library-rows` | `wiki` | `system:library-row/v1` | derived, hidden; type `library_row` (layout `library_row`; `opens`, kept out of the search index) — a tree row that opens a Library page (§ Library rows) |
 | `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one `chat` part hosted by the root itself, + miniapp, so the chat is a sidebar entry |
 | `people` | — | `system:profile/v1` | type `profile` (layout `profile`, no properties) + editor `body` part — the one format a person and an organisation share; supersedes `system:person/v1` and `system:organization/v1` |
 | | | `system:person/v2` | collection `person` (`meta.defaultType: profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags); supersedes `system:person/v1` |
@@ -474,9 +473,9 @@ schema).
 | | | `system:crm/v1` | miniapp only, a `page` root |
 
 Eighteen usecases, thirty-three bundles, six of them superseded. What a
-space set up today receives is six types — `meeting`, `task`,
-`bookmark`, `general_chat`, `profile`, `library_row` — and fifteen
-collections with an xKey. A
+space set up today receives is five types — `meeting`, `task`,
+`bookmark`, `general_chat`, `profile` — and fifteen collections with an
+xKey. A
 type is there only for a format; everything that is a set of columns is
 a collection. An identity is a `profile` filed under `person` or
 `organization`, and a relationship is one more collection it is filed
@@ -547,50 +546,41 @@ definition — does not match itself. A move is one property write under
 the same owner (`03-api.md` § The wiki tree).
 
 **Library rows.** The Library is a client's set of pages over the whole
-space; three of them can sit in the tree as rows of their own. A row
-is an object of the hidden `library_row` type, named, filed under the
-wiki and placed like a page. Its `typeId` and `properties.opens` come
-from `POST /v1/catalog/library-rows/setup`, which a writer's client
-runs when it adds the first row; a reader reads
-`GET …/bundles/system%3Alibrary-row%2Fv1`, and no bundle means no rows.
+space, and three of them can sit in the tree as rows of their own:
+`recent` (the space's objects by when they were last edited or
+viewed), `types` (the page of every type) and `collections` (the page
+of every collection). A row is a record, never an object: it has no
+id in the space, no body, no name of its own and no children, cannot
+be favourited, linked or filed under, and never reaches a page list,
+a picker or `/search`. The records live in the `rows` dataset of
+`system:library-rows/v1` (storage collection `<rootId>_rows`, read off
+`GET …/types/<rootId>/parts`), keyed by the page, so each page is in
+the tree at most once:
 
 ```
-POST /v1/spaces/:spaceId/objects
-{
-  "type": "<libraryRowTypeId>",
-  "collections": ["<wikiCollectionId>"],
-  "initialProperties": {
-    "any":                 { "name": "Recents" },
-    "<libraryRowTypeId>":  { "<opensPropId>": "library/recent" },
-    "<wikiCollectionId>":  { "<parentIdPropId>": "", "<posPropId>": "a3" }
-  }
-}
+POST /v1/spaces/:spaceId/upsert
+{ "objectId": "<rootId>", "dataset": "<rootId>_rows",
+  "records": [ { "id": "recent", "fields": { "parentId": "", "pos": "a3", "removed": false } } ] }
 ```
 
-| `opens` | the row opens |
-|---|---|
-| `library/recent` | Recents: the space's objects by when they were last edited or viewed |
-| `library/types` | the page of every type in the space |
-| `library/collections` | the page of every collection in the space |
+| field | kind | value |
+|---|---|---|
+| `parentId` | string | `""` = the top level, else a wiki folder's object id |
+| `pos` | string | lexid in the wiki's `pos` order among the siblings at that parent |
+| `removed` | boolean | `true` = out of the tree; absent = in it |
 
-A client draws the Library's own name for the row and never renames
-it; the stored `any.name` is for listings outside the apps and for a
-client without that page. Rules every
-client shares, over the rows in the tree (the tree query, which leaves
-out the bin and templates):
-
-- each page sits in the tree once: a client adding one first looks for
-  a row with the same `opens`, and rows made apart render as one, the
-  lowest object id at its place;
-- removing a page's row deletes every row with that `opens`;
-- a row's parent is the top level or a folder, never a page;
-- nothing goes under a row: removing one first moves any page under it
-  to the row's parent.
-
-Page lists filtered on `{"any.type": "<pageTypeId>"}` never see a row.
-A list across types — Recents, `/search` — leaves rows out in its
-query, `{"any.type": {"$ne": "<libraryRowTypeId>"}}` in the `filter`,
-never by dropping hits after the `limit`.
+The tree is the wiki objects query plus one
+`POST …/query/subscribe` on the root and `<rootId>_rows`, merged by
+`parentId` and `pos`; a row sorts among the pages of its parent, equal
+positions page first. A row whose `parentId` names an object that is
+absent, binned, or not a folder renders at the top level. A client
+draws the Library's own name for the row. A writer runs
+`POST /v1/catalog/library-rows/setup` when it adds the first row (the
+root is derived, so it installs while apart and never forks) and puts
+a row back with `removed: false`; a reader reads
+`GET …/bundles/system%3Alibrary-rows%2Fv1`, and no bundle means no
+rows. The dataset is `deleteBy: none`: `delete-records` answers
+`409 dataset.undeletable`.
 
 **Journal** is one dated page per day: an entry's type is `journal`,
 with a `date` value (a `date` slug on `kind: datetime` — midnight

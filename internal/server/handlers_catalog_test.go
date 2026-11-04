@@ -470,11 +470,10 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 	if rowType(fr) != "page" || !slices.Contains(rowCollections(fr), wikiId) {
 		t.Fatalf("wiki page membership: type=%q collections=%v", rowType(fr), rowCollections(fr))
 	}
-
 }
 
-// TestServer_CatalogSetupLibraryRows pins the Library row type: derived and
-// hidden, set up after the wiki it requires, carrying `opens` out of search.
+// TestServer_CatalogSetupLibraryRows pins the Library rows: a derived hidden
+// root after the wiki it requires, records keyed by the page, no deletes.
 func TestServer_CatalogSetupLibraryRows(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -486,33 +485,52 @@ func TestServer_CatalogSetupLibraryRows(t *testing.T) {
 		t.Fatalf("library-rows setup: %+v", res.Bundles)
 	}
 	wiki, lr := res.Bundles[0], res.Bundles[1]
-	if lr.Id != "system:library-row/v1" || !lr.Installed || !lr.Bundle.Derived || lr.TypeId == "" ||
-		lr.TypeId != lr.Bundle.RootId || lr.Properties["opens"] == "" || lr.Miniapp != nil {
-		t.Fatalf("library-row bundle: %+v", lr)
+	root := lr.Bundle.RootId
+	if lr.Id != "system:library-rows/v1" || !lr.Installed || !lr.Bundle.Derived || lr.TypeId != root || lr.Miniapp != nil {
+		t.Fatalf("library-rows bundle: %+v", lr)
+	}
+	if cols := rowCollections(objectRow(t, e, sp.Id, root)); slices.Contains(cols, "miniapp") || slices.Contains(cols, wiki.CollectionId) {
+		t.Fatalf("library-rows root collections: %v", cols)
 	}
 	var info api.TypeInfo
-	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+lr.TypeId, &info)
-	if info.XKey != "library_row" || !info.Hidden || !strings.Contains(string(info.Layout), `"library_row"`) {
-		t.Fatalf("library_row type info: %+v", info)
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+root, &info)
+	if !info.Hidden {
+		t.Fatalf("library-rows type info: %+v", info)
 	}
-	var props api.PropertiesListResponse
-	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+lr.TypeId+"/properties", &props)
-	if len(props.Properties) != 1 || props.Properties[0].XKey != "opens" || props.Properties[0].Meta["index"] != "none" {
-		t.Fatalf("library_row properties: %+v", props.Properties)
+	var defs api.TypeDatasetsListResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+root+"/datasets", &defs)
+	if len(defs.Datasets) != 1 || defs.Datasets[0].Collection != root+"_rows" || defs.Datasets[0].IdRule != "user" ||
+		defs.Datasets[0].DeleteBy != "none" || !defs.Datasets[0].SkipHistory || !defs.Datasets[0].Dynamic {
+		t.Fatalf("rows declaration: %+v", defs.Datasets)
 	}
+	dataset := root + "_rows"
 
-	// A row is an object of the type, named and placed by the wiki.
-	wikiId, opensProp := wiki.CollectionId, lr.Properties["opens"]
-	row := mustCreateObject(t, e, sp.Id, `{"type":"`+lr.TypeId+`","collections":["`+wikiId+`"],"initialProperties":{"any":{"name":"Recents"},"`+
-		lr.TypeId+`":{"`+opensProp+`":"library/recent"},"`+wikiId+`":{"`+wiki.Properties["parentId"]+`":"","`+wiki.Properties["pos"]+`":"a0"}}}`)
-	rr := objectRow(t, e, sp.Id, row)
-	if ns, _ := rr[lr.TypeId].(map[string]any); ns[opensProp] != "library/recent" || rowType(rr) != lr.TypeId ||
-		!slices.Contains(rowCollections(rr), wikiId) {
-		t.Fatalf("library row: %v", rr)
+	// The record id is the page; a third one is refused.
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert",
+		`{"objectId":"`+root+`","dataset":"`+dataset+`","records":[`+
+			`{"id":"recent","fields":{"parentId":"","pos":"a3","removed":false}},`+
+			`{"id":"collections","fields":{"parentId":"bafyfolder","pos":"a1"}},`+
+			`{"id":"supertags","fields":{"pos":"a0"}}]}`)
+	var up api.UpsertResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &up); rec.Code != http.StatusOK || err != nil {
+		t.Fatalf("upsert rows: %d %s (%v)", rec.Code, rec.Body.String(), err)
+	}
+	if up.Created != 2 || len(up.Rejections) != 1 || up.Rejections[0].Id != "supertags" || up.Rejections[0].Code != "upsert.rejected" {
+		t.Fatalf("upsert result: %+v", up)
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/delete-records",
+		`{"objectId":"`+root+`","dataset":"`+dataset+`","recordIds":["recent"]}`)
+	assertStatusCode(t, rec, http.StatusConflict, "dataset.undeletable")
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/query",
+		`{"objectId":"`+root+`","dataset":"`+dataset+`","sort":["pos"]}`)
+	var q api.QueryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &q); rec.Code != http.StatusOK || err != nil || len(q.Records) != 2 ||
+		!strings.Contains(string(q.Records[0]), `"collections"`) {
+		t.Fatalf("read rows: %d %s (%v)", rec.Code, rec.Body.String(), err)
 	}
 
 	again := setupUsecase(t, e, "library-rows", sp.Id)
-	if len(again.Bundles) != 2 || again.Bundles[1].Installed || again.Bundles[1].TypeId != lr.TypeId {
+	if len(again.Bundles) != 2 || again.Bundles[1].Installed || again.Bundles[1].Bundle.RootId != root {
 		t.Fatalf("second setup: %+v", again.Bundles)
 	}
 }
