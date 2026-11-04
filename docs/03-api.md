@@ -3317,10 +3317,10 @@ single-path set, identical records are skipped. Re-running an identical
 batch is a no-op. One CRDT change per page (`pageSize` default 500). Not
 transactional against concurrent writers. Concurrent creates of one id
 by different members converge unless the dataset declares write-once
-fields (a field without `mutableBy` is one), stamps or author gates,
-and a create that fails a required field or a value shape is screened
-whole when it applies first, so writers keep the local pre-flight; a dataset that does keeps one writer
-per id (the SDK's
+fields (a field without `mutableBy` is one), stamps or author gates;
+such a dataset keeps one writer per id. A create that fails a required
+field or a value shape is screened whole only when it applies first,
+so writers keep the local pre-flight (the SDK's
 [`docs/user-datasets.md` § The IdRule: user contract](https://github.com/anyproto/any-sync-sdk/blob/main/docs/user-datasets.md#the-idrule-user-contract)).
 
 Response (200 even with rejections — the `/modify` partial-success

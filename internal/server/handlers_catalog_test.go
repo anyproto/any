@@ -551,12 +551,19 @@ func TestServer_CatalogSetupOverview(t *testing.T) {
 		t.Fatalf("overview datasets: %+v", defs.Datasets)
 	}
 	ds := defs.Datasets[0]
-	if ds.Collection != dataset || ds.IdRule != "user" || ds.IdPattern != "^(settings|f:[A-Za-z0-9_-]{1,64}|[a-eg-z]:[A-Za-z0-9._:-]+)$" ||
-		ds.IdMaxLen != 256 || !ds.Dynamic || ds.DeleteBy != "none" || !ds.SkipHistory || len(ds.Fields) != 15 {
-		t.Fatalf("stored entries declaration: %+v", ds)
+	var entry api.CatalogUsecase
+	decodeGet(t, e, "/v1/catalog/overview", &entry)
+	decl := entry.Bundles[0].Parts[0].Datasets[0]
+	if ds.Collection != dataset || ds.IdRule != decl.IdRule || ds.IdPattern != decl.IdPattern || ds.IdMaxLen != decl.IdMaxLen ||
+		ds.Dynamic != decl.Dynamic || ds.DeleteBy != decl.DeleteBy || ds.SkipHistory != decl.SkipHistory || len(ds.Fields) != len(decl.Fields) {
+		t.Fatalf("stored entries declaration: %+v, declared %+v", ds, decl)
+	}
+	declared := map[string]string{}
+	for _, f := range decl.Fields {
+		declared[f.Key] = f.Kind
 	}
 	for _, f := range ds.Fields {
-		if f.MutableBy != "any" || f.Required || f.Stamp != "" {
+		if kind, ok := declared[f.Key]; !ok || f.Kind != kind || f.MutableBy != "any" || f.Required || f.Stamp != "" {
 			t.Fatalf("stored field %s: %+v", f.Key, f)
 		}
 	}

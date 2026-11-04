@@ -662,7 +662,7 @@ in every app:
 | absent | default |
 |---|---|
 | every widget record | no widgets |
-| a section record | `s:recent`, `s:collections` and `s:bin` shown, `s:types` not; after every widget, in the order Recent, Collections, Types, with Bin last |
+| a section record | `s:recent`, `s:collections` and `s:bin` shown, `s:types` not; at the section's default `pos` below |
 | `layout` | `tree` on `w:wiki` and `w:object:` widgets, `messages` on `w:chat`, `list` on the rest |
 | `limit` | 10 on `s:recent`, 20 on `s:types` and `s:collections`, 6 on a widget; none on `s:bin`, one row |
 | `counts` | off on `s:recent`, on on `s:types` and `s:collections`; none on `s:bin` |
@@ -670,15 +670,18 @@ in every app:
 | `parentId` | `""`, the top level |
 | `editRowHidden`, `addWidgetRowHidden`, `overviewHidden` | `false` |
 
-A section with no `pos` has its default position, the editor
-allocator's `Middle()` and the three steps after it (`03-api.md` § The
-wiki tree): `s:recent` `PPPP`, `s:collections` `PPQY`, `s:types`
-`PPRc`, `s:bin` `PPSl`. Every client derives the same value, so a move
-writes `pos` on the moved entry only, and two writers moving different
-entries apart both keep their move. A widget is written with a `pos`;
-a new one goes before the sections unless placed elsewhere. Under
-`sort: manual`, a collection with no `t:` record or no `pos` sorts after
-the placed ones, by name.
+Every entry has a position. A section with no record or no `pos` sits
+at its default, the editor allocator's `Middle()` and the three steps
+after it (`03-api.md` § The wiki tree): `s:recent` `PPPP`,
+`s:collections` `PPQY`, `s:types` `PPRc`, `s:bin` `PPSl`. A widget or
+folder is written with a `pos` (a new widget before `PPPP` unless
+placed elsewhere), and one found without one sorts after every entry
+that has one, by record id. Every client derives the same values, so
+a move writes `pos` on the moved entry only, and two writers moving
+different entries apart both keep their move. Under `sort: manual`, a
+collection with no `t:` record or no `pos` sorts after the placed
+ones, by name. An entry whose target is gone — a deleted object, a
+resolved loser, a removed definition — is not drawn; its record stays.
 
 The dataset is `dynamic`: a field a newer client writes survives an
 older peer. The declaration is fixed for good: a derived root is never
@@ -704,10 +707,10 @@ folder that is removed or absent, renders at the top level.
 **Forks of what an entry names.** `w:type:`, `w:collection:` and `t:`
 ids name a definition, which may be a forked catalog root. A client
 that resolves a loser (§ Forks) moves each entry naming it to the
-winner's id: a new record with its fields, unless the winner's entry
-exists, which then stays as it is; the loser's entry is
-`removed: true`. A value naming the loser (`opensWith`, `opensTo`
-`object:`) moves the same way.
+winner's id: `upsert` of the winner's record with the loser's fields,
+which creates it or, per field, lands only where the winner's value is
+older; the loser's entry is `removed: true`. A value naming the loser
+(`opensWith`, `opensTo` `object:`) moves the same way.
 
 **Reads.** `POST …/query/subscribe` on the root and
 `<rootId>_entries` holds the whole Overview live, for readers too.
@@ -716,10 +719,11 @@ While the bundle is absent, a client watches the registry (the
 the root off `GET …/bundles/system%3Aoverview%2Fv1`, which applies the
 derived-root verdict. Until the root's tree has arrived, a read of
 `<rootId>_entries` answers `404 object.not_found`, and until its part
-has, no records: the client shows the defaults and retries after sync.
-A writer whose write answers `404 object.not_found` or
-`400 dataset.not_declared` runs the setup again, which fills in a part
-that never arrived.
+has, no records: the client shows the defaults and retries the read
+when the space's sync status next reports `synced`
+(`03-api.md` § Sync status). A writer whose write answers
+`400 dataset.unknown` runs the setup again, which fills in a part that
+never arrived.
 
 Per-person state — a folded widget, a reader's own view choices —
 is not in the Overview: it is the account-private per-space settings

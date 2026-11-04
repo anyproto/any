@@ -790,32 +790,48 @@ func TestCatalog_ReportsAllProblems(t *testing.T) {
 	}
 }
 
-// The Overview's entries declaration is frozen: its derived root holds one
-// declaration for good, so every release must declare it byte for byte alike.
-func TestCatalog_OverviewDeclarationFrozen(t *testing.T) {
+// Every derived bundle's parts are frozen: a derived root holds one
+// declaration for good, so every release must declare it byte for byte
+// alike. A new derived bundle adds its golden here.
+func TestCatalog_DerivedDeclarationsFrozen(t *testing.T) {
 	cat, problems := Load(Embedded(), knownTypes)
 	if len(problems) > 0 {
 		t.Fatal(problems)
 	}
-	u, ok := cat.Get("overview")
-	if !ok || len(u.Bundles) != 1 || !u.Bundles[0].Derived || !u.Bundles[0].Hidden {
-		t.Fatalf("overview usecase: %+v", u)
+	golden := map[string]string{
+		"system:general-chat/v1": `[{"key":"chat","datasets":[{"module":"chat"}]}]`,
+		"system:overview/v1": `[{"key":"entries","datasets":[{"key":"entries","dynamic":true,"idRule":"user",` +
+			`"idPattern":"^(settings|f:[A-Za-z0-9_-]{1,64}|[a-eg-z]:[A-Za-z0-9._:-]+)$","idMaxLen":256,"deleteBy":"none","skipHistory":true,"fields":[` +
+			`{"key":"pos","kind":"string","mutableBy":"any"},{"key":"removed","kind":"boolean","mutableBy":"any"},` +
+			`{"key":"layout","kind":"string","mutableBy":"any"},{"key":"view","kind":"string","mutableBy":"any"},` +
+			`{"key":"limit","kind":"number","mutableBy":"any"},{"key":"attachments","kind":"string","mutableBy":"any"},` +
+			`{"key":"counts","kind":"boolean","mutableBy":"any"},{"key":"sort","kind":"string","mutableBy":"any"},` +
+			`{"key":"name","kind":"string","mutableBy":"any"},{"key":"parentId","kind":"string","mutableBy":"any"},` +
+			`{"key":"opensWith","kind":"string","mutableBy":"any"},{"key":"opensTo","kind":"string","mutableBy":"any"},` +
+			`{"key":"editRowHidden","kind":"boolean","mutableBy":"any"},{"key":"addWidgetRowHidden","kind":"boolean","mutableBy":"any"},` +
+			`{"key":"overviewHidden","kind":"boolean","mutableBy":"any"}]}]}]`,
 	}
-	got, err := json.Marshal(u.Bundles[0].Parts)
-	if err != nil {
-		t.Fatal(err)
+	seen := 0
+	for _, u := range cat.Usecases {
+		for _, b := range u.Bundles {
+			if !b.Derived {
+				continue
+			}
+			seen++
+			want, ok := golden[b.Id]
+			if !ok {
+				t.Fatalf("%s is derived and has no frozen declaration here", b.Id)
+			}
+			got, err := json.Marshal(b.Parts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != want {
+				t.Fatalf("%s: the declaration changed; installed roots keep the old one:\n got %s\nwant %s", b.Id, got, want)
+			}
+		}
 	}
-	const want = `[{"key":"entries","datasets":[{"key":"entries","dynamic":true,"idRule":"user",` +
-		`"idPattern":"^(settings|f:[A-Za-z0-9_-]{1,64}|[a-eg-z]:[A-Za-z0-9._:-]+)$","idMaxLen":256,"deleteBy":"none","skipHistory":true,"fields":[` +
-		`{"key":"pos","kind":"string","mutableBy":"any"},{"key":"removed","kind":"boolean","mutableBy":"any"},` +
-		`{"key":"layout","kind":"string","mutableBy":"any"},{"key":"view","kind":"string","mutableBy":"any"},` +
-		`{"key":"limit","kind":"number","mutableBy":"any"},{"key":"attachments","kind":"string","mutableBy":"any"},` +
-		`{"key":"counts","kind":"boolean","mutableBy":"any"},{"key":"sort","kind":"string","mutableBy":"any"},` +
-		`{"key":"name","kind":"string","mutableBy":"any"},{"key":"parentId","kind":"string","mutableBy":"any"},` +
-		`{"key":"opensWith","kind":"string","mutableBy":"any"},{"key":"opensTo","kind":"string","mutableBy":"any"},` +
-		`{"key":"editRowHidden","kind":"boolean","mutableBy":"any"},{"key":"addWidgetRowHidden","kind":"boolean","mutableBy":"any"},` +
-		`{"key":"overviewHidden","kind":"boolean","mutableBy":"any"}]}]}]`
-	if string(got) != want {
-		t.Fatalf("the entries declaration changed; installed roots keep the old one:\n got %s\nwant %s", got, want)
+	if seen != len(golden) {
+		t.Fatalf("%d derived bundles, %d goldens", seen, len(golden))
 	}
 }
