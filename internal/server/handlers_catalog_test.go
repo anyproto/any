@@ -518,14 +518,24 @@ func TestServer_CatalogSetupLibraryRows(t *testing.T) {
 	if up.Created != 2 || len(up.Rejections) != 1 || up.Rejections[0].Id != "supertags" || up.Rejections[0].Code != "upsert.rejected" {
 		t.Fatalf("upsert result: %+v", up)
 	}
+	// A move, a removal and a restore are upserts on the existing row.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert",
+		`{"objectId":"`+root+`","dataset":"`+dataset+`","records":[`+
+			`{"id":"recent","fields":{"parentId":"bafyfolder","pos":"a2","removed":true}},`+
+			`{"id":"types","fields":{"pos":"b0"}}]}`)
+	var moved api.UpsertResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &moved); rec.Code != http.StatusOK || err != nil ||
+		moved.Updated != 1 || moved.Created != 1 || len(moved.Rejections) != 0 {
+		t.Fatalf("move and remove: %d %s (%v) %+v", rec.Code, rec.Body.String(), err, moved)
+	}
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/delete-records",
 		`{"objectId":"`+root+`","dataset":"`+dataset+`","recordIds":["recent"]}`)
 	assertStatusCode(t, rec, http.StatusConflict, "dataset.undeletable")
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/query",
 		`{"objectId":"`+root+`","dataset":"`+dataset+`","sort":["pos"]}`)
 	var q api.QueryResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &q); rec.Code != http.StatusOK || err != nil || len(q.Records) != 2 ||
-		!strings.Contains(string(q.Records[0]), `"collections"`) {
+	if err := json.Unmarshal(rec.Body.Bytes(), &q); rec.Code != http.StatusOK || err != nil || len(q.Records) != 3 ||
+		!strings.Contains(string(q.Records[0]), `"collections"`) || !strings.Contains(string(q.Records[1]), `"removed":true`) {
 		t.Fatalf("read rows: %d %s (%v)", rec.Code, rec.Body.String(), err)
 	}
 

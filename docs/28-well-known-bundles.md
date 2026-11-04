@@ -562,26 +562,31 @@ POST /v1/spaces/:spaceId/upsert
 
 | field | kind | value |
 |---|---|---|
-| `parentId` | string | `""` = the top level, else a wiki folder's object id |
-| `pos` | string | lexid in the wiki's `pos` order among the siblings at that parent |
+| `parentId` | string | `""` = the top level, else a wiki folder's object id; absent = `""` |
+| `pos` | string | lexid in the wiki's `pos` order among the siblings at that parent; absent = after every sibling that has one |
 | `removed` | boolean | `true` = out of the tree; absent = in it |
 
 The tree is the wiki objects query plus one
 `POST …/query/subscribe` on the root and `<rootId>_rows`, merged by
 `parentId` and `pos`; a row sorts among the pages of its parent, equal
-positions page first. A row whose `parentId` names an object that is
-absent, binned, or not a folder renders at the top level. A client
-draws the Library's own name for the row. The creating client sets
-the usecase up with the wiki, so every joiner adopts one root; a
-writer in a space without it runs
-`POST /v1/catalog/library-rows/setup` when it adds the first row, a
-non-owner's `409 bundle.not_ready` while its registry cannot converge
-(§ Setup). A row goes back with `removed: false`; a reader reads
-`GET …/bundles/system%3Alibrary-rows%2Fv1`, and no bundle means no
-rows. Two writers that set it up while apart mint two roots: the
-client that observes the loser upserts its live rows into the winner
-where the winner has none, then resolves it (§ Forks). The dataset is
-`deleteBy: none`: `delete-records` answers `409 dataset.undeletable`.
+positions page first, then by record id. A row whose `parentId` names
+no folder in the tree query — a page, an object outside the wiki, or
+one in the bin — renders at the top level. A row is drawn whether or
+not the client has the page it names; a client draws the Library's
+own name for it. The creating client sets the usecase up with the
+wiki, so every joiner adopts one root; a writer in a space without it
+runs `POST /v1/catalog/library-rows/setup` when it adds the first
+row, a non-owner's `409 bundle.not_ready` while its registry cannot
+converge (§ Setup). A row goes back with `removed: false`. Every
+member watches the registry (`GET …/bundles/system%3Alibrary-rows%2Fv1`,
+locked on convergence; `synced: false` makes an absence provisional)
+and subscribes to the winner's `<rootId>_rows` once its tree has
+arrived; no bundle means no rows. Two writers that set it up while
+apart mint two roots: the client that observes the loser upserts each
+of the loser's rows that is not `removed` into the winner where the
+winner holds no record of that id at all, then resolves it (§ Forks).
+The dataset is `deleteBy: none`: `delete-records` answers
+`409 dataset.undeletable`.
 
 **Journal** is one dated page per day: an entry's type is `journal`,
 with a `date` value (a `date` slug on `kind: datetime` — midnight
