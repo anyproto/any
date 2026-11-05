@@ -20,9 +20,9 @@ func TestIndexer_VectorSearchAfterRestart(t *testing.T) {
 	const sp = "sp1"
 	emb := axisEmbedder{dim: 4}
 	opts := Options{Embedder: emb, AnnounceAfter: -1}.withDefaults()
-	open := func() *Store {
+	open := func(dim int) *Store {
 		t.Helper()
-		st, err := OpenStore(ctx, path, emb.dim, true)
+		st, err := OpenStore(ctx, path, dim, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -39,7 +39,7 @@ func TestIndexer_VectorSearchAfterRestart(t *testing.T) {
 	// No lexical match: every hit comes from the vector leg.
 	searchAll := func(st *Store, want int) {
 		t.Helper()
-		ix := &Indexer{store: st, opts: opts}
+		ix := &Indexer{store: st, lg: logger.NewNamed("indexer.test"), opts: opts}
 		for _, mode := range []string{api.SearchModeVector, api.SearchModeHybrid} {
 			res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "quasar", Mode: mode, Limit: 10}, nil)
 			if err != nil {
@@ -51,7 +51,7 @@ func TestIndexer_VectorSearchAfterRestart(t *testing.T) {
 		}
 	}
 
-	st := open()
+	st := open(emb.dim)
 	if err := st.Apply(ctx, sp, []DocUpsert{
 		{Entry: entry("email", "m1", "email_messages", "r", "Anytype for Android release notes", 1)},
 		{Entry: entry("email", "m2", "email_messages", "r", "Anytype for iOS release notes", 2)},
@@ -68,7 +68,12 @@ func TestIndexer_VectorSearchAfterRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	st = open()
+	// Reopened as the server does by default: the dimension comes from
+	// the db, not the config.
+	st = open(0)
+	if st.Dim() != emb.dim {
+		t.Fatalf("Dim() after restart = %d, want %d", st.Dim(), emb.dim)
+	}
 	if ids, _, err := st.Pending(ctx, sp, 10); err != nil || len(ids) != 0 {
 		t.Fatalf("pending after restart = %v, %v; want none", ids, err)
 	}

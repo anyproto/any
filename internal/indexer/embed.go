@@ -12,9 +12,9 @@ import (
 )
 
 // ErrEmbedderUnavailable wraps query-time embedding failures: the
-// embedder is configured but not currently reachable. Vector-mode
-// searches surface it as a retryable condition; hybrid degrades to FTS
-// instead.
+// embedder is configured but not currently reachable (retryable), or
+// it answers at another dimension than the index (until a rebuild).
+// Vector-mode searches surface it; hybrid degrades to FTS instead.
 var ErrEmbedderUnavailable = errors.New("indexer: embedder unavailable")
 
 // Embedder turns text into vectors. A nil Embedder on the Indexer means

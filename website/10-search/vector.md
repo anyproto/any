@@ -19,7 +19,7 @@ curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/search \
 any search $SPACE "what did we decide about the reranker?" --mode vector
 ```
 
-`score` is the cosine similarity. Unlike `hybrid`, pure `vector` mode does not degrade: without an embedder configured it answers `400 index.no_embedder`, and while a configured embedder is unreachable — or does not embed the query within `index.search.queryEmbedTimeout`, default 5 s — it answers `503 index.embedder_unavailable`, retryable. The vector leg embeds the whole `query` verbatim, so `"phrases"` and `prefix*` have no effect here; `require` and `exclude` still bind every hit, because vector hits are post-filtered against the full-text index.
+`score` is the cosine similarity. Unlike `hybrid`, pure `vector` mode does not degrade: without an embedder configured it answers `400 index.no_embedder`, and while a configured embedder is unreachable — or does not embed the query within `index.search.queryEmbedTimeout`, default 5 s — it answers `503 index.embedder_unavailable`, retryable. It answers the same, until the index is rebuilt, while the model embeds at another dimension than the index ([Dimension pinning](#dimension-pinning)). The vector leg embeds the whole `query` verbatim, so `"phrases"` and `prefix*` have no effect here; `require` and `exclude` still bind every hit, because vector hits are post-filtered against the full-text index.
 
 ## How documents get vectors
 

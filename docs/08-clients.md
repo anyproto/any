@@ -438,7 +438,8 @@ Call patterns:
 - Errors: `409 index.disabled` (indexer off on this server), `400
   index.no_embedder` (`mode: "vector"` on an FTS-only server), `503
   index.embedder_unavailable` (`mode: "vector"` while the embedder is
-  down, loading, or over the query budget — retryable), `400
+  down, loading, or over the query budget — retryable — or answers at
+  another dimension than the index, until it is rebuilt), `400
   filter.invalid` / `filter.unknown_operator` (a bad `filter`), `400
   request.invalid_field` (`scopes` or `passages` with `mode: "title"`),
   `503 index.not_ready` (the space's full-text index is being

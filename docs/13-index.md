@@ -1062,7 +1062,7 @@ Errors:
 | `index.no_embedder` | 400 | `mode=vector` with no embedder configured |
 | `index.disabled` | 409 | `index.enabled: false` |
 | `index.not_ready` | 503 | the space's full-text index is being rewritten in place (§ Store layout) or not created yet — retry; `index.fts_upgrade.<spaceId>` on the process view |
-| `index.embedder_unavailable` | 503 | `mode=vector` while the embedder is unreachable or over the query budget — retryable; hybrid degrades instead |
+| `index.embedder_unavailable` | 503 | `mode=vector` while the embedder is unreachable or over the query budget — retryable — or answers at another dimension than the index, until it is rebuilt; hybrid degrades instead |
 
 ### Filtering by object
 

@@ -1117,7 +1117,8 @@ embedding does not finish within the server's budget
 (`index.search.queryEmbedTimeout`, default 5 s); `mode:
 "vector"` requests get `400 index.no_embedder` (none configured) or
 `503 index.embedder_unavailable` (configured but down or too slow —
-retryable).
+retryable — or answering at another dimension than the index, until it
+is rebuilt).
 
 `vectorStatus` tells the consumer — typically an agent deciding how
 much to trust recall — whether semantic search took part, and why not:
