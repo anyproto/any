@@ -1196,27 +1196,31 @@ identity — a marketplace id, an app slug, a versioned convention like
 
 Installing waits for the registry to converge first (bounded, 30s —
 3s when no peer is connected). The registry rides the space's index
-tree, and a member that ensures against state it has not synced yet
+tree, and a member that ensures before that tree has ever reached it
 reads "nothing installed" and mints a root competing with the one
-already out there. Adopting a registered winner never waits. A space
-that has never been set up converges to an empty registry, which is a
-valid answer, not a stall.
+already out there. The wait completes at once for a member that holds
+the index — once synced, a device installs against its local view,
+offline or not — and otherwise runs until a clean head-sync round and
+the `synced` rollup; a space that has never been set up converges to
+an empty registry, which is a valid answer, not a stall. Adopting a
+registered winner never waits.
 
 When the wait cannot complete, who is asking decides: the space's
 **owner** installs anyway (nobody else could have installed into a
 space only this account has, and its own devices converge through the
-registry), so an offline owner is never blocked. Any other member —
-a joiner, either side of a 1-1 — is refused with
-`409 bundle.not_ready` rather than left to fork, and retries when the
-network is back. A **derived** root (below) is never refused *for lack
+registry), so an offline owner is never blocked. Any other member
+whose index has never arrived — a fresh joiner, either side of a 1-1
+before its first sync — is refused with `409 bundle.not_ready` and
+retries when the network is back. A **derived** root (below) is never refused *for lack
 of convergence* — there is no competing id it could mint — though it
 still reports `409 bundle.not_ready` when the live winner is a created
 root whose tree has not arrived.
 
-Two devices that install while genuinely apart still each register a
-root; the registry converges on one winner and the other appears in
-`losers` — so **`rootId` is provisional until the space syncs**, and
-clients re-read after. A winner whose tree has not reached this device
+Two members, or two devices, that install while apart or at the same
+moment each register a root; the registry converges on one winner and
+the other appears in `losers` — so **`rootId` is provisional until
+the space syncs**, clients re-read after, and resolving the loser is
+the protection, not the wait. A winner whose tree has not reached this device
 yet is likewise `409 bundle.not_ready` rather than handed out: its id
 would reject every write. Retry.
 
@@ -1533,7 +1537,7 @@ is what the catalog's general chat does.
 The server's own well-known bundles: a yaml catalog embedded in the
 binary, grouped into **usecases** — a set of bundles installed together
 plus `requires`, the usecases that must be present first. Every bundle
-is one created root under a permanent `system:<name>/v<n>` id,
+is one root under a permanent `system:<name>/v<n>` id,
 declaring a `type` objects have, a `collection` they are filed under, a
 `miniapp` the client opens (the root is filed under the built-in
 `miniapp` collection with `bundle` = its id), `parts`
@@ -1592,7 +1596,8 @@ still answers 200 and the next setup retries it. A
 failure mid-walk leaves the dependencies it installed, names the step
 in `details.usecase` / `details.bundleId`, and the next call resumes.
 Readers adopt, writers install; when the wait expires the owner
-installs anyway and any other member is `409 bundle.not_ready`.
+installs anyway and a member whose index has never arrived is
+`409 bundle.not_ready`.
 
 ```jsonc
 // CatalogSetupResponse — every bundle the call touched, dependencies
@@ -2394,6 +2399,16 @@ the shared write result (§ Write responses) — `recordIds[0]` is the
 derived id for the empty-id upsert above. A dataset the object's type
 does not declare is `400 dataset.not_declared`; a name that is not a
 records dataset in the space is `400 dataset.unknown`.
+
+A call is one change, checked whole before it enters the DAG: a record
+the dataset's rules refuse (an id outside the pattern or over the
+length, a required field missing from a create, a write-once field, a
+value below the declared shape) fails the call with
+`400 dataset.validation`, and nothing is written. `rejections` in a
+`200` carries what only apply decides per record: a tombstoned id, a
+strict update of an absent id, an author-only field written by another
+author. Screening a batch record by record is `/upsert`'s job
+(§ Upsert records).
 
 The body takes an optional **`scope`** selecting the write route:
 `"synced"` (default — the object's own DAG change, synced to every
@@ -3351,14 +3366,18 @@ batch ingest into an `id: user` dataset:
 ```
 
 Per record, keyed by the caller-supplied id (the idempotency key):
-absent → created (one multi-field set); present → only declared-mutable
-fields are diffed against stored values, each changed field lands as a
+absent → created (one multi-field set); present → mutable fields
+(declared mutable, or undeclared on a `dynamic` dataset) are diffed
+against stored values, each changed field lands as a
 single-path set, identical records are skipped. Re-running an identical
 batch is a no-op. One CRDT change per page (`pageSize` default 500). Not
-transactional against concurrent writers; the intended deployment is a
-single ingest writer per dataset (concurrent creates of the same id by
-different members are outside the convergence contract — the SDK's
-[`docs/17-user-datasets.md` § The IdRule: user contract](https://github.com/anyproto/any-sync-sdk/blob/main/docs/17-user-datasets.md#the-idrule-user-contract)).
+transactional against concurrent writers. Concurrent creates of one id
+by different members converge unless the dataset declares write-once
+fields (a field without `mutableBy` is one), stamps or author gates;
+such a dataset keeps one writer per id. A create that fails a required
+field or a value shape is screened whole only when it applies first,
+so writers keep the local pre-flight (the SDK's
+[`docs/user-datasets.md` § The IdRule: user contract](https://github.com/anyproto/any-sync-sdk/blob/main/docs/user-datasets.md#the-idrule-user-contract)).
 
 Response (200 even with rejections — the `/modify` partial-success
 stance):

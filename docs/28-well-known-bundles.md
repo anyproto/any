@@ -224,9 +224,12 @@ the registry's state.
 Who may do what: when the wait cannot complete, the space's **owner**
 installs anyway (only this account's own devices could compete, and
 the registry converges those), and so does every member for the
-derived chat (its root cannot fork); any other member is
-`409 bundle.not_ready` and retries when the network is back — so a
-space set up by its owner before sharing spares joiners the wait. A
+derived chat (its root cannot fork); a member whose space index has
+never arrived is `409 bundle.not_ready` and retries when the network
+is back. A member that holds the index installs against its local
+view, so two members setting up while one is apart, or at the same
+moment, fork and resolve (§ Forks) — a space set up by its owner
+before sharing spares joiners both. A
 member without write permission adopts but cannot install (`403` on
 the install path). The create-and-register section runs detached from
 the request, bounded by shutdown and two minutes for the whole walk,
@@ -417,7 +420,8 @@ for, and the two share a handle. So when a group has neither an old
 nor a new bundle present locally, setup runs the
 registry-convergence wait before it decides, and an expired wait is
 answered as the install gate answers it: the space's owner proceeds,
-any other member gets the retryable `409 bundle.not_ready`. A group
+a member whose index has never arrived gets the retryable
+`409 bundle.not_ready`. A group
 settled either way waits for nothing.
 
 A client reads which shape a space has from the reply, or from the
@@ -457,6 +461,7 @@ schema).
 | | | `system:bookmark/v1` | type `bookmark` (layout `bookmark`; `url`, `folder` → `bookmark_folder`, single, `archived`, `position`) + editor `body` part for the reader's notes — a bookmark is listed like a task; starring is the [native favorites](25-favorites.md) |
 | | | `system:bookmarks/v1` | miniapp only, a `page` root — the sidebar entry that opens Bookmarks |
 | `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one `chat` part hosted by the root itself, + miniapp, so the chat is a sidebar entry |
+| `overview` | — | `system:overview/v1` | hidden, no miniapp; records part `entries` hosted by the root (`idRule: user`, `dynamic`, `deleteBy: none`) — the space's shared Overview, one record per entry (§ The Overview) |
 | `people` | — | `system:profile/v1` | type `profile` (layout `profile`, no properties) + editor `body` part — the one format a person and an organisation share; supersedes `system:person/v1` and `system:organization/v1` |
 | | | `system:person/v2` | collection `person` (`meta.defaultType: profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags); supersedes `system:person/v1` |
 | | | `system:organization/v2` | collection `organization` (`meta.defaultType: profile`; kind, domain, categories, location, size, linkedin, main_contact → `person`); supersedes `system:organization/v1` |
@@ -474,7 +479,7 @@ schema).
 | | | `system:deal/v1` | superseded: type `deal` (layout `profile`) with the same properties + editor `body` part |
 | | | `system:crm/v1` | miniapp only, a `page` root |
 
-Seventeen usecases, thirty-two bundles, six of them superseded. What a
+Eighteen usecases, thirty-three bundles, six of them superseded. What a
 space set up today receives is five types — `meeting`, `task`,
 `bookmark`, `general_chat`, `profile` — and fifteen collections with an
 xKey. A
@@ -598,6 +603,161 @@ them. `participants` and `labels` are `choice`, so their values are
 option KEYS: an ingest writes the key (minting the option on the
 definition where it needs a new one), and a reader prints
 `xFormat.options.<key>.name`, falling back to the key.
+
+### The Overview
+
+A space's Overview belongs to the space: its widgets and sections,
+their order, what it opens with and where the space opens to. Writers
+change it; every member, readers included, sees the result. It is
+one records dataset, `entries`, on the root of `system:overview/v1`;
+the storage collection is `<rootId>_entries`, read off
+`GET …/types/<rootId>/parts`.
+
+**Set up with the space.** The creating client runs
+`POST /v1/catalog/overview/setup` next to the wiki and the chat, so
+every joiner adopts the one root. A space without it has no Overview
+until a writer changes one: that client runs the setup then and
+writes, and two writers doing so while one is apart, or at the same
+moment, fork and merge (below). A reader never runs the setup (while
+the bundle is absent it answers `403`, or `409 bundle.not_ready`
+while its index has never arrived). It reads
+the registry instead, and no bundle means the client's defaults. A
+reader's write is `403 space.read_only`, like any write in a space it
+cannot write. `DELETE …/bundles/<id>` uninstalls the Overview: the
+space is back at the defaults, and the next setup mints an empty one
+that inherits nothing.
+
+**Forks.** Two writers that set it up while apart mint two roots; the
+registry names a winner and lists the other in `losers`. The
+Overview's own merge replaces the generic one (§ Forks): once both
+trees have arrived — `<L>_entries` answers records, not
+`404 object.not_found` — the client upserts each record of the loser's
+`entries` into the winner where the winner holds no record of that id
+at all, `removed` values included, and leaves every id the winner
+holds as the winner has it; then
+`POST …/bundles/system%3Aoverview%2Fv1/resolve`.
+
+**The record id says what an entry is**, and no field repeats it:
+
+| id | entry |
+|---|---|
+| `settings` | the space's Overview settings |
+| `w:<source>` | a widget with no target: `w:chat`, `w:tasks`, `w:wiki`, `w:recent` |
+| `w:<source>:<id>` | a widget on a definition or an object: `w:type:<typeId>`, `w:collection:<collectionId>`, `w:object:<objectId>` |
+| `s:<section>` | a section: `s:recent`, `s:collections`, `s:types`, `s:bin` |
+| `f:<token>` | a folder of collections; the token is client-minted |
+| `t:<collectionId>` | a collection's place in the manual order and in folders |
+
+The dataset admits `settings`, `f:` with a `[A-Za-z0-9_-]{1,64}`
+token, and ids with any other lowercase one-letter prefix followed by
+`[A-Za-z0-9._:-]` (`x:…`), up to 256 bytes. A
+client skips an id whose prefix or source it does not know. Two
+writers adding the same widget write one record, merged per field;
+that holds because every field is `mutableBy: any` and the dataset
+declares no stamp or author gate.
+
+Fields, every one `mutableBy: any`, none required; an absent record or
+field takes the default below:
+
+| field | kind | on | value |
+|---|---|---|---|
+| `pos` | string | widget, section, folder, collection | lexid; widgets and sections share one order, folders and collections another; equal positions sort by record id |
+| `removed` | boolean | widget, section, folder, collection | `true` = off the Overview, or out of the tree; absent = the entry's default: shown, except `s:types` |
+| `layout` | string | widget | `link` \| `tree` \| `list` \| `compact` \| `messages` \| `attachments` |
+| `view` | string | widget | the saved view shown (for `w:tasks`, the list); absent = the source's first view |
+| `limit` | number | widget, section | rows shown before "See more" |
+| `attachments` | string | widget with `layout: attachments` | `all` \| `objects` \| `media` \| `files` \| `links`; absent = `all` |
+| `counts` | boolean | section | show the numbers beside rows |
+| `sort` | string | `s:collections` | `name` \| `manual` \| `recent` \| `count` |
+| `name` | string | folder | the folder's name |
+| `parentId` | string | folder, collection | the `f:<token>` it sits in; `""` = top level |
+| `opensWith` | string | settings | the object opened beside the Overview; absent = the space's chat, or in a space with no chat the most recently modified named object of the `page` type, never an app's root |
+| `opensTo` | string | settings | `last` \| `overview` \| `app:<bundleId>`, a catalog app \| `object:<objectId>`, any other object; absent = `overview`; `overview` reads as `last` while `overviewHidden` is `true` or in a client that shows no Overview |
+| `editRowHidden` | boolean | settings | the "Edit sections" row is off the Overview |
+| `addWidgetRowHidden` | boolean | settings | the "Add widget" row is off the Overview |
+| `overviewHidden` | boolean | settings | the space shows no Overview |
+
+Every client applies the same defaults, so one space looks the same
+in every app:
+
+| absent | default |
+|---|---|
+| every widget record | no widgets |
+| a section record | `s:recent`, `s:collections` and `s:bin` shown, `s:types` not; at the section's default `pos` below |
+| `layout` | `tree` on `w:wiki` and `w:object:` widgets, `messages` on `w:chat`, `list` on the rest |
+| `limit` | 10 on `s:recent`, 20 on `s:types` and `s:collections`, 6 on a widget; none on `s:bin`, one row |
+| `counts` | off on `s:recent`, on on `s:types` and `s:collections`; none on `s:bin` |
+| `sort` | `name` |
+| `parentId` | `""`, the top level |
+| `editRowHidden`, `addWidgetRowHidden`, `overviewHidden` | `false` |
+
+Every entry has a position. A section with no record or no `pos` sits
+at its default, the editor allocator's `Middle()` and the three steps
+after it (`03-api.md` § The wiki tree): `s:recent` `PPPP`,
+`s:collections` `PPQY`, `s:types` `PPRc`, `s:bin` `PPSl`. A widget or
+folder is written with a `pos` (a new widget before `PPPP` unless
+placed elsewhere), and one found without one sorts after every entry
+that has one, by record id. Every client derives the same values, so
+a move writes `pos` on the moved entry only, and two writers moving
+different entries apart both keep their move. Under `sort: manual`, a
+collection with no `t:` record or no `pos` sorts after the placed
+ones, by name. A folder sorts among the collections under the
+section's `sort`: by its name, by the count of objects in everything
+it holds, by the latest change among what it holds, or by `pos` under
+`manual`, an unplaced folder after the placed ones, by name. An entry
+whose target is gone — a deleted object, a
+resolved loser, a removed definition — is not drawn; its record stays.
+
+The dataset is `dynamic`: a field a newer client writes survives an
+older peer. Declaring another field takes a new bundle id (§ Evolution).
+
+**Writes.** `POST …/upsert` with `objectId` = the root and `dataset` =
+`<rootId>_entries` diffs field by field; `POST …/modify` `$set`s the
+changed paths. A `modify` call is one change: a record id outside the
+pattern fails the call whole with `400 dataset.validation` and writes
+nothing (`03-api.md` § Modify records); `upsert` answers it per record
+in `rejections`. A write that puts an entry on the Overview or in the
+tree sets `removed: false`, so a concurrent removal and re-add resolve
+last-writer-wins instead of the removal always winning.
+Remove with `removed: true`: the dataset is `deleteBy: none`, so
+`delete-records` answers `409 dataset.undeletable` and no id is ever
+burned.
+Return a field to its default with `modify` `$unset`; `upsert` only
+sets. A record holds no lists: an array is replaced whole, so two
+writers who edit one while apart lose a side.
+
+**The folder tree** is resolved on read, the same way on every
+device: a folder cycle from concurrent moves, or a `parentId` naming a
+folder that is removed or absent, renders at the top level. Folders
+nest two levels deep at most: a folder whose parent itself has a
+parent is drawn at the second level, with what it holds.
+
+**Forks of what an entry names.** `w:type:`, `w:collection:` and `t:`
+ids name a definition, which may be a forked catalog root. A client
+that resolves a loser (§ Forks) moves each entry naming it to the
+winner's id: where the winner's id has no entry, an `upsert` with the
+loser's fields and `removed: false`; where it has one, nothing. The
+loser's entry is `removed: true`. A value naming the loser
+(`opensWith`, `opensTo` `object:`) moves the same way.
+
+**Reads.** `POST …/query/subscribe` on the root and
+`<rootId>_entries` holds the whole Overview live, for readers too.
+Every member keeps watching the registry (the `bundles` dataset on
+`spaceIndexObjectId`, or `GET …/bundles/system%3Aoverview%2Fv1`,
+locked on convergence; `synced: false` makes an absence provisional)
+and subscribes to the winner's `entries` — the winner can change
+while two installs converge, and then the subscription moves. Until
+the root's tree has arrived, a read of
+`<rootId>_entries` answers `404 object.not_found`, and until its part
+has, no records: the client shows the defaults and retries the read
+when the space's sync status next reports `synced`
+(`03-api.md` § Sync status). A writer whose write answers
+`400 dataset.unknown` runs the setup again, which fills in a part that
+never arrived.
+
+Per-person state — a folded widget, a reader's own view choices —
+is not in the Overview: it is the account-private per-space settings
+(`03-api.md` § Per-space settings).
 
 ## Validation
 

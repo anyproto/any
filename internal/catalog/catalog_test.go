@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -20,7 +21,7 @@ func TestCatalog_EmbeddedLoads(t *testing.T) {
 	if len(problems) > 0 {
 		t.Fatalf("embedded catalog: %v", problems)
 	}
-	for _, id := range []string{"wiki", "collections", "journal", "meetings", "general-chat", "people", "contact", "contacts", "crm"} {
+	for _, id := range []string{"wiki", "collections", "journal", "meetings", "general-chat", "overview", "people", "contact", "contacts", "crm"} {
 		if _, ok := cat.Get(id); !ok {
 			t.Errorf("usecase %s missing", id)
 		}
@@ -786,5 +787,41 @@ func TestCatalog_ReportsAllProblems(t *testing.T) {
 	src = strings.Replace(src, "    extra: 1\n", "", 1)
 	if _, ps = Load([]byte(src), knownTypes); len(ps) < 2 {
 		t.Fatalf("expected several problems, got %v", ps)
+	}
+}
+
+// Every derived bundle's parts are frozen: a derived root holds one
+// declaration for good, so every release must declare it byte for byte
+// alike. A new derived bundle adds its golden here.
+func TestCatalog_DerivedDeclarationsFrozen(t *testing.T) {
+	cat, problems := Load(Embedded(), knownTypes)
+	if len(problems) > 0 {
+		t.Fatal(problems)
+	}
+	golden := map[string]string{
+		"system:general-chat/v1": `[{"key":"chat","datasets":[{"module":"chat"}]}]`,
+	}
+	seen := 0
+	for _, u := range cat.Usecases {
+		for _, b := range u.Bundles {
+			if !b.Derived {
+				continue
+			}
+			seen++
+			want, ok := golden[b.Id]
+			if !ok {
+				t.Fatalf("%s is derived and has no frozen declaration here", b.Id)
+			}
+			got, err := json.Marshal(b.Parts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != want {
+				t.Fatalf("%s: the declaration changed; installed roots keep the old one:\n got %s\nwant %s", b.Id, got, want)
+			}
+		}
+	}
+	if seen != len(golden) {
+		t.Fatalf("%d derived bundles, %d goldens", seen, len(golden))
 	}
 }

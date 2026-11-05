@@ -90,7 +90,7 @@ func TestServer_CatalogListAndGet(t *testing.T) {
 	for _, u := range list.Usecases {
 		ids[u.Id] = u
 	}
-	for _, want := range []string{"wiki", "collections", "journal", "meetings", "general-chat", "people", "contact", "contacts", "crm"} {
+	for _, want := range []string{"wiki", "collections", "journal", "meetings", "general-chat", "overview", "people", "contact", "contacts", "crm"} {
 		if _, ok := ids[want]; !ok {
 			t.Fatalf("usecase %s missing from the list", want)
 		}
@@ -510,6 +510,122 @@ func TestServer_CatalogSetupCollectionsAndChat(t *testing.T) {
 	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+chat.TypeId, &info)
 	if info.XKey != "general_chat" || !info.Hidden {
 		t.Fatalf("chat type info: %+v", info)
+	}
+}
+
+// TestServer_CatalogSetupOverview pins the Overview: a hidden created root,
+// no sidebar entry, hosting records keyed by what each entry is.
+func TestServer_CatalogSetupOverview(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	sp := createSpaceInfo(t, e, "CatalogOverview")
+
+	res := setupUsecase(t, e, "overview", sp.Id)
+	if len(res.Bundles) != 1 {
+		t.Fatalf("overview bundles: %+v", res.Bundles)
+	}
+	ov := res.Bundles[0]
+	root := ov.Bundle.RootId
+	if ov.Id != "system:overview/v1" || !ov.Installed || ov.Bundle.Derived || ov.TypeId != root || ov.Miniapp != nil {
+		t.Fatalf("overview bundle: %+v", ov)
+	}
+	if cols := rowCollections(objectRow(t, e, sp.Id, root)); slices.Contains(cols, "miniapp") {
+		t.Fatalf("overview root is a sidebar entry: %v", cols)
+	}
+	var info api.TypeInfo
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+root, &info)
+	if !info.Hidden {
+		t.Fatalf("overview type info: %+v", info)
+	}
+	var parts api.TypePartsListResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+root+"/parts", &parts)
+	if len(parts.Parts) != 1 || len(parts.Parts[0].Datasets) != 1 || parts.Parts[0].Datasets[0].Collection != root+"_entries" {
+		t.Fatalf("overview parts: %+v", parts.Parts)
+	}
+	dataset := root + "_entries"
+	// What the SDK stored: the pinned leaves every release must declare alike.
+	var defs api.TypeDatasetsListResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+root+"/datasets", &defs)
+	if len(defs.Datasets) != 1 {
+		t.Fatalf("overview datasets: %+v", defs.Datasets)
+	}
+	ds := defs.Datasets[0]
+	var entry api.CatalogUsecase
+	decodeGet(t, e, "/v1/catalog/overview", &entry)
+	decl := entry.Bundles[0].Parts[0].Datasets[0]
+	if ds.Collection != dataset || ds.IdRule != decl.IdRule || ds.IdPattern != decl.IdPattern || ds.IdMaxLen != decl.IdMaxLen ||
+		ds.Dynamic != decl.Dynamic || ds.DeleteBy != decl.DeleteBy || ds.SkipHistory != decl.SkipHistory || len(ds.Fields) != len(decl.Fields) {
+		t.Fatalf("stored entries declaration: %+v, declared %+v", ds, decl)
+	}
+	declared := map[string]string{}
+	for _, f := range decl.Fields {
+		declared[f.Key] = f.Kind
+	}
+	for _, f := range ds.Fields {
+		if kind, ok := declared[f.Key]; !ok || f.Kind != kind || f.MutableBy != "any" || f.Required || f.Stamp != "" {
+			t.Fatalf("stored field %s: %+v", f.Key, f)
+		}
+	}
+
+	// The root hosts the records; a field no client declared rides along.
+	body := `{"objectId":"` + root + `","dataset":"` + dataset + `","records":[` +
+		`{"id":"settings","fields":{"opensTo":"object:` + root + `","overviewHidden":false}},` +
+		`{"id":"w:chat","fields":{"pos":"a0","layout":"messages","limit":5}},` +
+		`{"id":"w:object:` + root + `","fields":{"pos":"a1","layout":"link","futureField":"x"}},` +
+		`{"id":"s:bin","fields":{"pos":"a2","removed":true}},` +
+		`{"id":"f:work","fields":{"name":"Work","parentId":"","pos":"a0"}},` +
+		`{"id":"bogus","fields":{"pos":"a3"}},` +
+		`{"id":"f:a.b","fields":{"name":"Bad"}},` +
+		`{"id":"w:a b","fields":{"pos":"a4"}}]}`
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/upsert", body)
+	var up api.UpsertResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &up); rec.Code != http.StatusOK || err != nil {
+		t.Fatalf("upsert entries: %d %s (%v)", rec.Code, rec.Body.String(), err)
+	}
+	// Ids off the pattern are refused: no prefix, a bad folder token, a char off the alphabet.
+	if up.Created != 5 || len(up.Rejections) != 3 || up.Rejections[0].Id != "bogus" || up.Rejections[1].Id != "f:a.b" ||
+		up.Rejections[2].Id != "w:a b" ||
+		up.Rejections[0].Code != "upsert.rejected" {
+		t.Fatalf("upsert result: %+v", up)
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/query",
+		`{"objectId":"`+root+`","dataset":"`+dataset+`","filter":{"id":"w:object:`+root+`"}}`)
+	var q api.QueryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &q); err != nil || len(q.Records) != 1 ||
+		!strings.Contains(string(q.Records[0]), `"futureField"`) {
+		t.Fatalf("read the widget back: %d %s (%v)", rec.Code, rec.Body.String(), err)
+	}
+
+	// deleteBy none: a record delete is refused and the entry stays.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/delete-records",
+		`{"objectId":"`+root+`","dataset":"`+dataset+`","recordIds":["w:chat"]}`)
+	assertStatusCode(t, rec, http.StatusConflict, "dataset.undeletable")
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/query",
+		`{"objectId":"`+root+`","dataset":"`+dataset+`","filter":{"id":"w:chat"}}`)
+	var kept api.QueryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &kept); rec.Code != http.StatusOK || err != nil || len(kept.Records) != 1 {
+		t.Fatalf("w:chat after a refused delete: %d %s (%v)", rec.Code, rec.Body.String(), err)
+	}
+
+	res2 := setupUsecase(t, e, "overview", sp.Id)
+	if len(res2.Bundles) != 1 {
+		t.Fatalf("second setup: %+v", res2)
+	}
+	again := res2.Bundles[0]
+	if again.Installed || again.Bundle.RootId != root {
+		t.Fatalf("second setup: %+v", again)
+	}
+
+	// A created root: uninstall takes the Overview back to the defaults,
+	// and the next setup mints a fresh one.
+	rec = doJSON(t, e, http.MethodDelete, "/v1/spaces/"+sp.Id+"/bundles/"+escapedBundleId(again.Bundle.Id), "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("uninstall the overview: %d %s", rec.Code, rec.Body.String())
+	}
+	fresh := setupUsecase(t, e, "overview", sp.Id).Bundles[0]
+	if !fresh.Installed || fresh.Bundle.RootId == root {
+		t.Fatalf("setup after uninstall: %+v", fresh)
 	}
 }
 

@@ -64,7 +64,7 @@ With a winner already registered, Ensure **adopts** it and `installed` is `false
 
 Installing a created root first waits for the registry to converge — bounded at 30 s, cut to 3 s when no peer is connected. A member that ensures against state it has not synced would read "nothing installed" and mint a root competing with the one already out there. Adopting never waits; a read cannot fork anything. A space never set up converges to an empty registry, which is a valid answer.
 
-When the wait cannot complete, who is asking decides: the space's **owner** installs anyway (only its own devices could compete, and the registry converges those), so an offline owner is never blocked. Any other member is refused with `409 bundle.not_ready` and retries when the network is back. A winner whose tree has not reached this device is likewise `409 bundle.not_ready` — its id would reject every write.
+When the wait cannot complete, who is asking decides: the space's **owner** installs anyway (only its own devices could compete, and the registry converges those), so an offline owner is never blocked. A member whose space index has never arrived is refused with `409 bundle.not_ready` and retries when the network is back; a member that holds the index installs against its local view, offline or not, so two members who set up apart fork and resolve the loser. A winner whose tree has not reached this device is likewise `409 bundle.not_ready` — its id would reject every write.
 
 > **Note.** `rootId` is provisional until the space syncs. Two devices that install while genuinely apart each register a root; the registry converges on one winner and the other lands in `losers`. Re-read after sync.
 
@@ -85,7 +85,7 @@ If a created and a derived root are both claimed for one id, the derived one win
 
 ## The usecase catalog
 
-The well-known apps that ship with the product — the wiki, the Collections app (the `collections` usecase: browse and manage objects by type), journal, meetings, tasks, bookmarks, people, CRM, the general chat — are bundles in a catalog embedded in the server, under `system:<name>/v<n>` ids. A **usecase** is a set of those bundles plus the usecases it `requires`. The catalog declares every type, collection, property and dataset its apps use, so each client, device and agent that sets a usecase up resolves the same ids instead of minting its own.
+The well-known apps that ship with the product — the wiki, the Collections app (the `collections` usecase: browse and manage objects by type), journal, meetings, tasks, bookmarks, people, CRM, the general chat, the space's Overview — are bundles in a catalog embedded in the server, under `system:<name>/v<n>` ids. A **usecase** is a set of those bundles plus the usecases it `requires`. The catalog declares every type, collection, property and dataset its apps use, so each client, device and agent that sets a usecase up resolves the same ids instead of minting its own.
 
 Each catalog bundle declares a `type` (parts, layout, columns) **or** a `collection` (columns only), never both. A type is a format — it brings a layout or a part of its own — so `profile`, `task`, `bookmark`, `meeting` and the general chat are types, and everything that only adds columns is a collection: the wiki, the journal, `person`, `organization`, `deal`, `project`, `area`, `bookmark_folder`, and the seven role facets `contact`, `investor`, `customer`, `partner`, `vendor`, `cofounder` and `candidate`. A contact is a `profile` filed under `person` and under `contact`, with each collection's values in its own namespace; a deal, a project, a bookmark folder and a journal entry are pages. A collection names the type of its rows in `meta.defaultType`.
 
@@ -119,6 +119,19 @@ curl -s -X POST http://127.0.0.1:2046/v1/catalog/general-chat/setup \
 ```
 
 Use the entry's `bundle.rootId` as the [chat](../types/chat.html) object. Every client that runs the setup lands on the same root, on both sides of a 1-1 too, and no other object may carry its type.
+
+### The Overview
+
+The `overview` usecase holds the space's shared Overview: its widgets and sections, their order, what it opens with and where the space opens to. Writers arrange it and every member sees the same thing. A writer sets it up on the first change; a reader only reads the registry, and no bundle means the client's defaults:
+
+```bash
+any catalog setup overview "$SPACE"     # writer, on the first change
+curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/bundles/system%3Aoverview%2Fv1   # reader
+```
+
+The creating client sets it up with the wiki and the chat, so every joiner adopts one root; two writers who set it up while apart merge the loser's records into the winner where the winner has none, and resolve it. It hosts one records dataset, `<rootId>_entries`, with one record per entry, and the record id says what the entry is: `settings`, `w:chat` or `w:object:<objectId>` for a widget, `s:bin` for a section, `f:<token>` for a folder of collections, `t:<collectionId>` for a collection's place. Entries are ordered by a lexid `pos`, then by record id, removed with `removed: true` (record deletes are refused: `409 dataset.undeletable`), and read live with one subscribe on the root. A reader's write is `403 space.read_only`. The full contract is the server's `docs/28-well-known-bundles.md`.
+
+> **Why it matters.** A space's layout is shared state with no server to own it. One record per entry lets two editors who rearrange the same Overview offline merge field by field instead of one overwriting the other's list.
 
 ## Children
 
