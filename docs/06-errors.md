@@ -33,10 +33,11 @@ Every error response — regardless of status code — has the same body:
 | 413    | Body over the 1 MiB cap (`request.too_large`; file attach and the avatar upload are exempt), `account.icon_too_large`, or `history.view_too_large` |
 | 415    | `request.unsupported_media_type` — a body that is not `application/json`; `account.icon_not_image` — the avatar upload is not one of the accepted image formats (by signature; SVG refused) |
 | 429    | `access.rate_limited`                                          |
-| 500    | Internal error — unexpected SDK or server failure              |
+| 500    | Internal error — unexpected SDK or server failure; typed: `auth.device_key_corrupt`, `auth.network_pin_corrupt`, `sdk.store_corrupt`, `server.internal` |
 | 501    | `sdk.not_implemented` — `DELETE …/types/:typeId`, `DELETE …/collections/:collectionId` and `GET …/sync-status/peers` |
 | 502    | `access.unavailable`                                           |
 | 503    | Request cancelled or the engine tearing down (`server.unavailable`); embedder unreachable (`index.embedder_unavailable`) |
+| 507    | `storage.no_space` — the device has no disk space left (`POST /v1/auth`) |
 
 No caller authentication in v1 (loopback is the trust boundary). The
 single 401 the server raises itself is `auth.required` — no account is
@@ -107,10 +108,10 @@ account.icon_not_found           # 404 — GET /v1/account/icon with no avatar s
 account.icon_too_large           # 413 — PUT /v1/account/icon body over the 1 MiB avatar cap
 account.icon_not_image           # 415 — PUT /v1/account/icon whose bytes are not a PNG, JPEG, GIF, WebP, AVIF, HEIC, HEIF, BMP, ICO, TIFF or JXL image (by signature; SVG refused)
 
-bundle.not_found                 # 404 — no live install for the bundle id in this space
+bundle.not_found                 # 404 — no live install for the bundle id in this space (on DELETE …/bundles/:bundleId: no row for the id; a dead winner's row still gets its losers swept, 204)
 bundle.not_ready                 # 409 — the winner's tree (or the registry) has not reached this device yet, incl. a tree the SDK does not hold at all right after a join; retry
 bundle.not_loser                 # 409 — resolve target is the current winner or was never claimed
-bundle.loser_not_ready           # 409 — the losing root is still syncing / inside the grace window; the server keeps retrying
+bundle.loser_not_ready           # 409 — resolve: the losing root is still syncing / inside the grace window, the server keeps retrying; DELETE …/bundles/:bundleId: a loser's tree has not reached this device, nothing deleted, retry
 bundle.reserved                  # 409 — a client ensure with an id under the server's `system:` prefix (the embedded catalog's ids)
 catalog.not_found                # 404 — GET /v1/catalog/:usecaseId or POST …/setup naming no usecase of the embedded catalog (details.usecaseId)
 
@@ -118,7 +119,7 @@ object.not_found                 # 404 — objectId unknown or deleted in this s
 object.deleted                   # 410 — GET …/objects/:objectId, a file attach (POST …/objects/:objectId/files), or `from` on POST …/objects, on a deleted object (distinct from never-existed)
 record.deleted                   # 410 — a write addressed a tombstoned record (a block, a message, a runtime record): the id is burned for good, never reused
 record.wrong_object              # 400 — a write to a shared dataset (modify, delete-records) names a record of another object: a record id is the plain id or `<objectId>/<recordId>` of the request's own objectId, and a plain id never holds `/` (details.objectId, details.dataset)
-object.derived_undeletable       # 409 — DELETE on a derived object (a bundle root installed with derived:true, e.g. the general chat); derived objects are permanent
+object.derived_undeletable       # 409 — DELETE on a derived object (a bundle root installed with derived:true, e.g. the general chat), or DELETE …/bundles/:bundleId on a derived install; derived objects are permanent
 object.id_required               # 400 — the object id in the path or body is a serialized nil ("None", "null", "undefined", …): the caller's id variable was unset; never a store lookup failure
 
 dataset.unknown                  # 400 — a record write (modify / delete-records / upsert) names a storage collection the space does not serve as a records dataset (details.dataset): no part declares it, or it is a module's storage collection (chat_messages, editor_blocks — written through the module's routes, never upsertable). A read of an unknown dataset answers 200 {"records": []}
@@ -243,6 +244,9 @@ search.bad_scope                 # 400 — scope not a valid slug ([a-z0-9_-], m
 sdk.not_implemented              # 501 — DELETE …/types/:typeId, DELETE …/collections/:collectionId, GET …/sync-status/peers
 sdk.not_found                    # 404 — the SDK reports the target is gone (object, type, property, part or dataset definition)
 sdk.crdt_version_newer           # 409 — the account's data was written by a newer release (details.stored > details.supported): POST /v1/auth refuses to boot it; a running server whose account is raised by another device turns read-only — every synced write answers this until the server is upgraded (GET /v1/health.crdtVersion)
+sdk.store_corrupt                # 500 — the account's SDK store (sdk.db) failed its integrity check on a dirty open: POST /v1/auth refuses to boot it; never repaired in place — remove sdk.db and the files named after it from the account's sdk dir and boot again: the SDK replays the synced trees into a fresh one; what lived only in sdk.db is lost: the local store, local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone)
+
+storage.no_space                 # 507 — the device has no disk space left: POST /v1/auth could not create the account dir, write the device key or open a store; free space and retry
 
 server.unavailable               # 503 — request cancelled / engine tearing down
 server.internal                  # 500 — the embedded usecase catalog failed to compile (catalog routes)

@@ -39,10 +39,11 @@ Every error response from the any server — whatever the status code — has th
 | 413 | history view too large; request body over the 1 MB limit; avatar upload over the 1 MiB cap (`account.icon_too_large`) |
 | 415 | a body that is not `application/json` (`request.unsupported_media_type`); the avatar upload is not an accepted raster image (`account.icon_not_image`) |
 | 429 | the invite service is throttling this client (`access.rate_limited`) |
-| 500 | unexpected engine or server failure (`internal`); the stack goes to the server log only |
+| 500 | unexpected engine or server failure (`internal`); the stack goes to the server log only — plus the typed `auth.device_key_corrupt`, `auth.network_pin_corrupt`, `sdk.store_corrupt`, `server.internal` |
 | 501 | route registered for an SDK surface that is not implemented yet |
 | 502 | the invite service is unreachable or answered unexpectedly (`access.unavailable`) |
 | 503 | not ready — request cancelled, shutting down, or the embedder is unreachable |
+| 507 | the device has no disk space left (`storage.no_space`) |
 
 Panics are converted to `500 internal` with a generic message.
 
@@ -122,13 +123,13 @@ Panics are converted to `500 internal` with a generic message.
 |---|---|---|
 | `object.not_found` | 404 | object unknown or deleted in this space |
 | `object.deleted` | 410 | `GET …/objects/:objectId`, a file attach, or `from` on `POST …/objects`, on a deleted object — distinct from never-existed |
-| `object.derived_undeletable` | 409 | `DELETE` on a derived object (a bundle root installed with `derived: true`, such as the general chat) |
+| `object.derived_undeletable` | 409 | `DELETE` on a derived object (a bundle root installed with `derived: true`, such as the general chat), or `DELETE …/bundles/:bundleId` on a derived install |
 | `object.id_required` | 400 | the object id is a serialized nil (`"None"`, `"null"`, `"undefined"`) |
 | `record.deleted` | 410 | a write addressed a tombstoned record; the id is burned for good |
 | `record.wrong_object` | 400 | a `modify` or `delete-records` on a shared dataset names a record of another object — a record id is the plain id or the `<objectId>/<recordId>` of the request's own `objectId`, and a plain id never holds `/` (`details.objectId`, `details.dataset`) |
-| `bundle.not_found` | 404 | no live install for the bundle id in this space |
+| `bundle.not_found` | 404 | no live install for the bundle id in this space; on uninstall, a bundle never registered |
 | `bundle.not_ready` | 409 | registry not converged, or the winner's tree is not local yet — retry |
-| `bundle.loser_not_ready` | 409 | losing root not fully synced / grace period not elapsed — retry |
+| `bundle.loser_not_ready` | 409 | resolve: losing root not fully synced / grace period not elapsed; uninstall: a loser's tree not local, nothing deleted — retry |
 | `bundle.not_loser` | 409 | resolve targeted the winner or an unclaimed root |
 | `bundle.reserved` | 409 | a client ensure with an id under the server's `system:` prefix |
 | `catalog.not_found` | 404 | no usecase with that id in the catalog (`details.usecaseId`) |
@@ -262,6 +263,8 @@ Panics are converted to `500 internal` with a generic message.
 | `sdk.not_implemented` | 501 | placeholder route (sync-status peers, type delete, collection delete) |
 | `sdk.not_found` | 404 | the engine reports the target gone (deleted object, unknown property or definition) |
 | `sdk.crdt_version_newer` | 409 | the account's data was written by a newer release (`details.stored` > `details.supported`): booting it refuses, a running server turns read-only until upgraded (`GET /v1/health` → `crdtVersion`) |
+| `sdk.store_corrupt` | 500 | the account's SDK store `sdk.db` failed its integrity check on a dirty open; booting it refuses and it is never repaired in place — remove `sdk.db` and the files named after it from the account's `sdk/` dir and boot again: the SDK replays the synced trees into a fresh one; what lived only in `sdk.db` is lost: the local store, local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone) |
+| `storage.no_space` | 507 | the device has no disk space left — `POST /v1/auth` could not create the account dir, write the device key or open a store; free space and retry |
 | `server.unavailable` | 503 | request cancelled / server shutting down |
 | `server.internal` | 500 | the embedded usecase catalog failed to compile |
 | `internal` | 500 | catch-all |

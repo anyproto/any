@@ -28,6 +28,8 @@ index:
 ANY_INDEX_EMBEDDER=none any run      # FTS-only server
 ```
 
+Switching from `none` to an embedder later is not a rebuild: on the next start every document the embedder would have taken (not `props` scope, no `prop` entry under 64 bytes) that has no vector is queued for embedding, and search gains the vector leg as the queue drains (`index.embed.<spaceId>` on the process view).
+
 ## `local` — llama.cpp in a child process
 
 The default model is **Qwen3-Embedding-0.6B (Q8_0)**: 1024-dimensional, last-token pooling, L2-normalized vectors; queries carry the Qwen retrieval instruction, documents embed bare. The GGUF (639 MB, sha256-pinned) downloads into `<data-dir>/models/` on first boot — resumable, with progress in the server log and as the `index.model_download` [process](../notifications/processes.html) — and never blocks boot. Until it lands the embedder reports unavailable and full-text keeps answering.
@@ -88,7 +90,7 @@ There is no boot-time probe. Whenever an embedder is *configured*, text-bearing 
 - an outage — at boot or mid-run — freezes only the vector side; full-text indexes and answers normally;
 - when the embedder returns, the next embed round (nudged by a page, or the 1-minute retry tick) drains the queue automatically;
 - `hybrid` queries degrade to full-text with `vectorStatus: "unavailable"`; `vector` queries answer `503 index.embedder_unavailable`;
-- the vector dimension is learned from the first successful batch (or `index.vector.dim`) and pinned in the index database — a later dimension change against a populated index is a loud boot error advising `rm <data-dir>/index`, never silent corruption. A model change is a rebuild for the same reason — never mix vectors from two models.
+- the vector dimension is learned from the first successful batch (or `index.vector.dim`) and pinned in the index database — a configured dimension that contradicts a populated index makes the boot remove and rebuild the index (one warning in the server log); a dimension learned from a new model fails every embed round until `<account-dir>/index/` is removed with the server stopped, or `index.vector.dim` names it and the server restarts. A model change at the same dimension is not detected — remove the index by hand, never mix vectors from two models.
 
 "Model still downloading" and "GPU died mid-run" both ride the same path: affected documents stay `pending`. A child that crashes with GPU offload active also moves the server to CPU decoding for the rest of the run; the next start tries the GPU again, so a driver fix recovers on its own.
 

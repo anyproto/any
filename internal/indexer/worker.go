@@ -239,9 +239,11 @@ func (w *spaceWorker) advanceLoop() {
 	// full-text layout is rewritten on this goroutine right after boot
 	// (Store.upgradeFTS), never on a request's: a search on the space
 	// answers not-ready until the rewrite commits. Then a db whose edges
-	// predate the link sink's layout is backfilled, for the same reason.
+	// predate the link sink's layout is backfilled, for the same reason,
+	// and docs an embedder-less run left without a vector are queued.
 	w.openIndex(w.ctx)
 	w.backfillLinks(w.ctx)
+	w.backfillPending(w.ctx)
 	w.runAdvance()
 	for {
 		select {
@@ -376,7 +378,7 @@ func (w *spaceWorker) advancePages(ctx context.Context, onWork func(), progress 
 			w.ix.opts.OnLinks(spaceId, touched)
 		}
 		cursor = changes[len(changes)-1].ApplySeq
-		if err := w.ix.store.SetCursor(ctx, spaceId, cursor, w.generation); err != nil {
+		if err := w.ix.store.AdvanceCursor(ctx, spaceId, cursor, w.generation); err != nil {
 			return err
 		}
 		if !w.linksStamped && !w.linksBackfillFailed {
@@ -912,6 +914,48 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 func (w *spaceWorker) openIndex(ctx context.Context) {
 	if _, err := w.ix.store.spaceColl(ctx, w.sp.Id()); err != nil && ctx.Err() == nil {
 		w.ix.lg.Warn("open the space's index", zap.String("spaceId", w.sp.Id()), zap.Error(err))
+	}
+}
+
+// backfillPending queues the docs a run without an embedder left with
+// neither a vector nor the pending mark. The cursor row's embed field
+// lags the cursor exactly when such docs may exist (embed_backfill.go):
+// the sweep marks them, nudges the embed loop and catches the field up.
+// A failed sweep is logged and retried on the next start: the advance
+// never catches the field up on its own.
+func (w *spaceWorker) backfillPending(ctx context.Context) {
+	if !w.ix.HasEmbedder() {
+		return
+	}
+	spaceId := w.sp.Id()
+	needed, seq, err := w.ix.store.EmbedBackfillNeeded(ctx, spaceId)
+	if err != nil {
+		w.ix.lg.Warn("read embed cursor", zap.String("spaceId", spaceId), zap.Error(err))
+		return
+	}
+	if !needed {
+		return
+	}
+	n, err := w.ix.store.BackfillPending(ctx, spaceId)
+	if n > 0 {
+		// Whatever got marked can drain, even after a failure below.
+		select {
+		case w.embedCh <- struct{}{}:
+		default:
+		}
+	}
+	if err != nil {
+		if ctx.Err() == nil {
+			w.ix.lg.Warn("embed backfill failed; retried on next start", zap.String("spaceId", spaceId), zap.Error(err))
+		}
+		return
+	}
+	if err := w.ix.store.StampEmbed(ctx, spaceId, seq); err != nil {
+		w.ix.lg.Warn("write embed cursor", zap.String("spaceId", spaceId), zap.Error(err))
+		return
+	}
+	if n > 0 {
+		w.ix.lg.Info("queued docs indexed without an embedder", zap.String("spaceId", spaceId), zap.Int("docs", n))
 	}
 }
 

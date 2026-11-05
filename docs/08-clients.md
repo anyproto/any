@@ -749,7 +749,7 @@ spaces, is a bundle on the **tech space** (`techSpaceId` from
    server. The root declares a type, and a declaring root hosts its own
    records, so the parts' records live on it with no flag and no
    self-membership; `hidden` keeps it out of pickers, and it is
-   deletable (uninstall = `DELETE …/objects/<rootId>`). Idempotent: the first
+   deletable (uninstall = `DELETE …/bundles/<id>`). Idempotent: the first
    call installs, later calls adopt. Use a created root: the registry
    already converges installs, so `"derived": true` buys nothing but
    permanence. Derive only when a fork would be UNMERGEABLE (chat-like

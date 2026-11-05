@@ -219,7 +219,7 @@ func (d *deps) objectDelete(c echo.Context) error {
 			return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
 		}
 		if errors.Is(err, settings.ErrCantDeleteDerivedObject) {
-			return writeError(c, http.StatusConflict, "object.derived_undeletable",
+			return writeError(c, http.StatusConflict, api.ErrObjectDerivedUndeletable,
 				"derived objects are permanent and cannot be deleted", details)
 		}
 		if errors.Is(err, space.ErrReadOnlySpace) {

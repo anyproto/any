@@ -48,7 +48,7 @@ curl http://127.0.0.1:2046/v1/health        # any status
 | POST | `/v1/auth` | `{}` \| `{mnemonic, index?, replace?}` \| `{accountId}` (+ header `X-Any-Control-Token` on managed) | `{accountId, created, mnemonic?, alreadyAuthorized?}` | generates / restores / selects an account and boots the engine in place; the running account answers `200 {alreadyAuthorized: true}`; `replace: true` switches a managed server in place; `mnemonic` returned once, only when generated |
 | DELETE | `/v1/auth` | header `X-Any-Control-Token` | 204 | managed only: tears the account down in place, the server stays up unauthorized (`403 auth.not_managed` on standalone) |
 
-Errors: `400 auth.bad_mnemonic`, `400 request.invalid_field` (mnemonic + accountId together, `index` without `mnemonic`, `replace` without a credential, `accountId` on a managed server), `403 control.forbidden`, `403 auth.not_managed`, `404 auth.account_not_found`, `409 auth.account_in_use`, `409 auth.account_mismatch`, `409 auth.mnemonic_mismatch`, `409 auth.already_authorized`, `409 auth.network_mismatch`, `400 auth.passkey_required`, `409 sdk.crdt_version_newer`, `500 auth.device_key_corrupt`, `500 auth.network_pin_corrupt`. Details and the decision table: [Accounts](../auth/accounts.html).
+Errors: `400 auth.bad_mnemonic`, `400 request.invalid_field` (mnemonic + accountId together, `index` without `mnemonic`, `replace` without a credential, `accountId` on a managed server), `403 control.forbidden`, `403 auth.not_managed`, `404 auth.account_not_found`, `409 auth.account_in_use`, `409 auth.account_mismatch`, `409 auth.mnemonic_mismatch`, `409 auth.already_authorized`, `409 auth.network_mismatch`, `400 auth.passkey_required`, `409 sdk.crdt_version_newer`, `500 auth.device_key_corrupt`, `500 auth.network_pin_corrupt`, `500 sdk.store_corrupt`, `507 storage.no_space`. Details and the decision table: [Accounts](../auth/accounts.html).
 
 ```bash
 curl -X POST http://127.0.0.1:2046/v1/auth -H 'Content-Type: application/json' -d '{}'      # any auth login
@@ -119,6 +119,7 @@ Pending rows are discovered through `GET /v1/spaces?status=one_to_one_pending` /
 | GET | `/v1/spaces/:spaceId/bundles` | — | `{bundles: [Bundle], synced}` | answers after the registry convergence wait; `synced: true` means an absent bundle is definitively not installed |
 | GET | `/v1/spaces/:spaceId/bundles/:bundleId` | — | `{bundle, synced}` | `404 bundle.not_found` |
 | POST | `/v1/spaces/:spaceId/bundles/:bundleId/resolve` | `{loserRootId}` | 204 | `409 bundle.loser_not_ready`, `409 bundle.not_loser` |
+| DELETE | `/v1/spaces/:spaceId/bundles/:bundleId` | — | 204 | uninstall: the losers, then the winner, once every one is on this device; idempotent. `409 bundle.loser_not_ready` / `409 bundle.not_ready` while a tree is not local (retry), `409 object.derived_undeletable`, `404 bundle.not_found` |
 | POST | `/v1/spaces/:spaceId/bundles/:bundleId/children` | `{seed, type, collections?}` | `{objectId}` | deterministic child; `type` set on first materialization, missing collections added on every call; `409 bundle.not_ready` |
 
 ```bash

@@ -51,7 +51,8 @@ and leaves everything else alone.
   DAGs AND the only copy of local data. The SDK's own
   rebuild paths (generation bump, handler version bump) are safe —
   they touch CRDT collections only — but deleting the `sdk/` directory
-  loses local collections. There is no automatic backup; § Export and
+  loses local collections, with the local-scope values and the files
+  bookkeeping that live only there. There is no automatic backup; § Export and
   import is the manual one.
 - **Not independently deletable.** Local state cannot be wiped
   without wiping the account's replay cache with it. Drop
