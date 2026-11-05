@@ -75,7 +75,7 @@ var (
 // after the config validated — engine/account boot, listener bind, or a
 // config the runtime rejected. The iOS shim maps a BootError to code 3,
 // EXCEPT when it wraps indexer.ErrIndexRebuildRequired — the boot rebuilds a
-// refused index itself, so this is a fresh db refused too — which gets its
+// refused index itself, so this is a rebuild that failed — which gets its
 // own code 4 because the host has a specific recovery to offer. The distinct
 // type lets a caller tell "the config was fine but boot failed" from "the
 // input was bad" (ErrBadDataDir) without string matching.

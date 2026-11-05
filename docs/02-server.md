@@ -112,9 +112,9 @@ account is standalone-only — a managed login with its phrase lands in
 3. With an account: boot its engine — take the instance lock in the
    account dir, open the wallet, derive the account id, open the SDK
    and the indexer — before the listener binds, so boot failures
-   surface immediately. A search index this build cannot open is
-   removed and rebuilt by the boot itself (`13-index.md`), never a boot
-   failure. Outside the `--wallet` path `run` never
+   surface immediately. A search index this build refuses is removed
+   and rebuilt by the boot itself (`13-index.md`); other index open
+   failures fail the boot. Outside the `--wallet` path `run` never
    generates a wallet; create accounts with `any init` or over HTTP.
    SDK `Open` returns after local wiring only: eager space loading and
    offline catch-up replay run on one SDK-owned serial background pass,

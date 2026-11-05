@@ -39,7 +39,7 @@ package main
 //   1  already running (stop the current instance first)
 //   2  bad data directory (empty, or not creatable)
 //   3  boot failed
-//   4  the on-disk search index must be deleted and rebuilt
+//   4  the boot could not rebuild the search index it refused
 //   5  bad options (unknown mode, or managed without a control token)
 typedef struct {
     int32_t code;
@@ -85,7 +85,7 @@ const (
 	codeBootFailed = 3
 	// codeIndexRebuildRequired: the search index could not be rebuilt —
 	// the boot removes an index db this build cannot open and recreates
-	// it, and the fresh one was refused too. Distinct from
+	// it, and the removal or the fresh db failed too. Distinct from
 	// codeBootFailed because the host has a specific recovery to offer
 	// ("reset local data") rather than a generic retry. Maps from
 	// indexer.ErrIndexRebuildRequired, which arrives wrapped in a

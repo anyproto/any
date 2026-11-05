@@ -46,8 +46,9 @@ const (
 	// as bare value text); v8 = the object's name in its own full-text
 	// field (nameField) — a v7 db is adopted: its stamp moves at open and
 	// each collection is rewritten in place on its first open
-	// (upgradeFTS), so nothing re-embeds. Any other mismatch = boot error
-	// advising removal; the docs themselves are never migrated — the
+	// (upgradeFTS), so nothing re-embeds. Any other mismatch =
+	// ErrIndexRebuildRequired, which the boot answers by removing and
+	// rebuilding the db; the docs themselves are never migrated — the
 	// index is derived state (re-indexes on the next change).
 	indexSchemaVersion = 8
 )
@@ -248,8 +249,8 @@ func (s *Store) Dim() int {
 // (EnsureIndex would also catch it, but per-collection and later — this
 // surfaces it once, at open, with a clear remedy).
 //
-// Both mismatch arms wrap ErrIndexRebuildRequired as a PREFIX, so the
-// cause reads first in the boot's rebuild log line.
+// Both mismatch arms wrap ErrIndexRebuildRequired as a PREFIX: the
+// sentinel text leads, the cause follows.
 func (s *Store) checkMeta(ctx context.Context) error {
 	coll, err := s.db.Collection(ctx, cursorsCollection)
 	if err != nil {
@@ -269,7 +270,7 @@ func (s *Store) checkMeta(ctx context.Context) error {
 	case indexSchemaVersion - 1:
 		// v7 lacks the name field in every collection; each is moved onto
 		// it in place on its first open (upgradeFTS), so the db only moves
-		// its stamp — which an older build then rebuilds instead of
+		// its stamp — which an older build then cannot read, instead of
 		// failing every space on an index definition it cannot apply. The
 		// stored chunk target rides the restamp.
 		if s.chunkRunes == 0 {
@@ -348,10 +349,10 @@ func (s *Store) writeMeta(ctx context.Context, dim int) error {
 // embedding. A no-op when it matches the known dim; an
 // ErrIndexRebuildRequired when the embedder's output contradicts what
 // this DB was built with (model changed under a populated index) — the
-// vectors already stored are unusable, so the db has to go.
-//
-// Unreachable on mobile today (vector is off in both binds), wrapped
-// anyway so the host contract doesn't depend on that staying true.
+// vectors already stored are unusable. The boot never sees this one:
+// the round fails and its docs stay pending until the index is removed
+// or index.vector.dim names the new dimension, which the next boot
+// answers with a rebuild.
 //
 // The meta write takes the store's write lock, which a rewrite in
 // flight holds for seconds, so s.mu — the cache lock every read takes —

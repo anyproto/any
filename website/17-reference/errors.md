@@ -39,7 +39,7 @@ Every error response from the any server — whatever the status code — has th
 | 413 | history view too large; request body over the 1 MB limit; avatar upload over the 1 MiB cap (`account.icon_too_large`) |
 | 415 | a body that is not `application/json` (`request.unsupported_media_type`); the avatar upload is not an accepted raster image (`account.icon_not_image`) |
 | 429 | the invite service is throttling this client (`access.rate_limited`) |
-| 500 | unexpected engine or server failure (`internal`); the stack goes to the server log only |
+| 500 | unexpected engine or server failure (`internal`); the stack goes to the server log only — plus the typed `auth.device_key_corrupt`, `auth.network_pin_corrupt`, `sdk.store_corrupt`, `server.internal` |
 | 501 | route registered for an SDK surface that is not implemented yet |
 | 502 | the invite service is unreachable or answered unexpectedly (`access.unavailable`) |
 | 503 | not ready — request cancelled, shutting down, or the embedder is unreachable |
@@ -263,7 +263,7 @@ Panics are converted to `500 internal` with a generic message.
 | `sdk.not_implemented` | 501 | placeholder route (sync-status peers, type delete, collection delete) |
 | `sdk.not_found` | 404 | the engine reports the target gone (deleted object, unknown property or definition) |
 | `sdk.crdt_version_newer` | 409 | the account's data was written by a newer release (`details.stored` > `details.supported`): booting it refuses, a running server turns read-only until upgraded (`GET /v1/health` → `crdtVersion`) |
-| `sdk.store_corrupt` | 500 | the account's local store failed its integrity check on a dirty open; booting it refuses and it is never repaired in place — remove the account's local data to sign in again and re-sync from the network (the device-local store is lost with it) |
+| `sdk.store_corrupt` | 500 | the account's SDK store `sdk.db` failed its integrity check on a dirty open; booting it refuses and it is never repaired in place — remove `sdk.db` and the files named after it from the account's `sdk/` dir and boot again: the SDK rebuilds it from the synced trees, the local store is lost |
 | `storage.no_space` | 507 | the device has no disk space left — `POST /v1/auth` could not create the account dir, write the device key or open a store; free space and retry |
 | `server.unavailable` | 503 | request cancelled / server shutting down |
 | `server.internal` | 500 | the embedded usecase catalog failed to compile |

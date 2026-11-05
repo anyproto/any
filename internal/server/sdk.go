@@ -298,14 +298,26 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 	if err != nil {
 		return nil, err
 	}
+	return openIndexerWith(ctx, cfg, dataDir, emb, sdk, chunkers, queryEmbedTimeout, onProcess, onLinks)
+}
+
+// openIndexerWith opens the index db under dataDir over an embedder the
+// caller created and owns it from here: closed on failure, handed to the
+// indexer on success. An index db this build refuses
+// (ErrIndexRebuildRequired) is removed and rebuilt once — the index is
+// derived state — instead of failing the boot; a rebuild that fails
+// keeps the refusal in the chain.
+func openIndexerWith(ctx context.Context, cfg config.Index, dataDir string, emb indexer.Embedder, sdk *anysyncsdk.SDK, chunkers *index.Registry, queryEmbedTimeout time.Duration, onProcess func(indexer.ProcessUpdate), onLinks func(spaceId string, targets []string)) (*indexer.Indexer, error) {
 	dbPath := filepath.Join(dataDir, "index", "index.db")
 	ix, err := openIndexerStore(ctx, cfg, dbPath, emb, sdk, chunkers, queryEmbedTimeout, onProcess, onLinks)
-	if errors.Is(err, indexer.ErrIndexRebuildRequired) {
-		// The index is derived state: a db this build cannot open is
-		// removed and rebuilt from cursor 0 instead of failing the boot.
-		engineLog.Warn("search index rebuilt", zap.Error(err))
+	if refused := err; errors.Is(refused, indexer.ErrIndexRebuildRequired) {
 		if err = removeIndexDB(dbPath); err == nil {
 			ix, err = openIndexerStore(ctx, cfg, dbPath, emb, sdk, chunkers, queryEmbedTimeout, onProcess, onLinks)
+		}
+		if err == nil {
+			engineLog.Warn("search index rebuilt", zap.NamedError("refused", refused))
+		} else {
+			err = fmt.Errorf("rebuild search index: %w (%w)", err, refused)
 		}
 	}
 	if err != nil {

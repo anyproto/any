@@ -47,7 +47,7 @@ Both buffers are always NUL-terminated, so a long message loses its tail rather 
 | `1` | An instance is already running in this process — stop it first. |
 | `2` | Bad data dir: empty, or not creatable. |
 | `3` | Boot failed. `message` says why. |
-| `4` | The search index could not be rebuilt: the boot removes an index this build cannot open and recreates it, and the fresh one was refused too. Offer the user a "reset local data" path, not a plain retry — the index is a derived cache, so deleting it is the whole fix. |
+| `4` | The search index could not be rebuilt: the boot removes an index this build cannot open and recreates it, and the removal or the fresh db failed too. Offer the user a "reset local data" path, not a plain retry. |
 | `5` | Bad options: an unknown `mode`, or `"managed"` without a `controlToken`. A host bug — never retryable. |
 
 `nodeconfYAML` selects the network: an empty string means the production any-sync network embedded in the archive; pass a nodeconf's YAML text to join another ([Networks](networks.html)). `pushPeerId` / `pushAddrs` configure the push node — empty strings keep push off ([Push](../notifications/push.html)).
@@ -94,7 +94,7 @@ final class AnyBackend {
 
 Build the URL from `address` rather than interpolating a port — that is the address the listener actually bound.
 
-Code `4` deserves its own branch: it means the on-disk search index can't be read by this build (typically after an app update bumped the index schema). Offer "reset local data and retry" rather than a plain retry — the index is a derived cache, so deleting the account's index directory (`<dataDir>/<accountId>/index`, named in `message`) is the whole fix and nothing syncable is lost.
+Code `4` deserves its own branch: the boot removes a search index this build cannot read and recreates it, so `4` means that rebuild itself failed (the removal, or the fresh index db). Deleting the account's index directory (`<dataDir>/<accountId>/index`) and retrying is the targeted recovery — the index is a derived cache, so nothing syncable is lost; "reset local data" is the fallback when that fails too.
 
 Use Application Support (excluded from iCloud backup if you prefer) as the data dir; it holds the wallet, databases, files, and index for the account ([Data dir](../operations/data-dir.html)).
 
