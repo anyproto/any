@@ -692,8 +692,8 @@ func TestServer_CatalogSetupOverview(t *testing.T) {
 
 	// A created root: uninstall takes the Overview back to the defaults,
 	// and the next setup mints a fresh one.
-	rec = doJSON(t, e, http.MethodDelete, "/v1/spaces/"+sp.Id+"/objects/"+root, "")
-	if rec.Code != http.StatusNoContent && rec.Code != http.StatusOK {
+	rec = doJSON(t, e, http.MethodDelete, "/v1/spaces/"+sp.Id+"/bundles/"+escapedBundleId(again.Bundle.Id), "")
+	if rec.Code != http.StatusNoContent {
 		t.Fatalf("uninstall the overview: %d %s", rec.Code, rec.Body.String())
 	}
 	fresh := setupUsecase(t, e, "overview", sp.Id).Bundles[0]

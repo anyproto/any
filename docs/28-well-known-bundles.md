@@ -670,9 +670,9 @@ the bundle is absent it answers `403`, or `409 bundle.not_ready`
 while its index has never arrived). It reads
 the registry instead, and no bundle means the client's defaults. A
 reader's write is `403 space.read_only`, like any write in a space it
-cannot write. `DELETE …/objects/<rootId>` uninstalls the Overview —
-the space is back at the defaults, and the next setup mints an empty
-one.
+cannot write. `DELETE …/bundles/<id>` uninstalls the Overview: the
+space is back at the defaults, and the next setup mints an empty one
+that inherits nothing.
 
 **Forks.** Two writers that set it up while apart mint two roots; the
 registry names a winner and lists the other in `losers`. The
