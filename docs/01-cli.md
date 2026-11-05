@@ -612,6 +612,7 @@ any bundle ensure  <spaceId> --body '<json>|@FILE|-'
 any bundle list    <spaceId>
 any bundle get     <spaceId> <bundleId>
 any bundle resolve <spaceId> <bundleId> <loserRootId>
+any bundle uninstall <spaceId> <bundleId>
 any bundle child   <spaceId> <bundleId> --seed SEED --type T [--collection C ...]
 ```
 
@@ -633,7 +634,9 @@ self-membership.
 Adopt-or-install: the reply carries the converged row and
 whether THIS call installed it. `get` and `list` are locked on
 registry convergence and report `synced`. `resolve` deletes a losing
-root after its content was merged; `child` derives a setup object
+root after its content was merged; `uninstall` deletes the install,
+its losing roots then the winner, once every one of them is on this
+device; `child` derives a setup object
 under the winner, `--type` and `--collection` binding it on first
 materialization. Bundle ids are passed verbatim (`favorites/v1`);
 the CLI encodes the path. Ids under `system:` are the server's and are

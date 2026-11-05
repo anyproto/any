@@ -51,6 +51,12 @@ func (c *Client) BundleResolve(ctx context.Context, spaceId, bundleId, loserRoot
 		api.BundleResolveRequest{LoserRootId: loserRootId}, nil)
 }
 
+// BundleUninstall deletes the install: its losing roots, then the
+// winner. Returns nil on success (204).
+func (c *Client) BundleUninstall(ctx context.Context, spaceId, bundleId string) error {
+	return c.do(ctx, http.MethodDelete, bundlePath(spaceId, bundleId, ""), nil, nil)
+}
+
 // BundleChild derives a setup object under the bundle's winner.
 func (c *Client) BundleChild(ctx context.Context, spaceId, bundleId string, req api.BundleChildRequest) (*api.BundleChildResponse, error) {
 	var out api.BundleChildResponse

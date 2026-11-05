@@ -425,9 +425,9 @@ registry: the bundle id it finds installed, and whether that bundle
 answers `typeId` or `collectionId`.
 
 Uninstall is `DELETE …/bundles/<id>` (`03-api.md` § Bundles): it
-deletes the winner and the losers this device holds, the id then reads
-as not installed, and a later setup mints a fresh root with nothing of
-the old install to merge back — for a superseded bundle only while the
+deletes the losers and the winner once every one of them is on this
+device, the id then reads as not installed, and a later setup mints a
+fresh root with nothing of the old install to merge back — for a superseded bundle only while the
 space stays on the old shape; once the last bundle of a group's old set
 is gone, the next setup installs the new set instead. Deleting the
 winner object alone leaves its live losers claimed for the next setup

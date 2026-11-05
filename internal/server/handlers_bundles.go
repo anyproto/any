@@ -601,13 +601,13 @@ func (d *deps) bundleResolve(c echo.Context) error {
 }
 
 // bundleUninstall handles DELETE /v1/spaces/:spaceId/bundles/:bundleId
-// — delete the install: every losing root this device holds, then the
-// winner. The claim set is add-only, so a winner deleted on its own
-// leaves its live losers for the next install to inherit; losers first
-// means a device that reads the bundle as uninstalled never finds a
-// loser this one could have deleted. A loser whose tree has not arrived
-// stays claimed and surfaces as a loser of the next install, like a
-// fork.
+// — delete the install: every losing root, then the winner, once every
+// one of them is local. The claim set is add-only, so a winner deleted
+// on its own leaves its live losers for the next install to inherit;
+// losers first means a device that reads the bundle as uninstalled
+// never finds a loser left behind. Routed through the resolver like
+// get and resolve: the registry's convergence wait first, then the
+// SDK, which refuses before the first delete while a tree is missing.
 //
 //	@Summary	Uninstall a bundle: its winner and the losers this device holds
 //	@Tags		bundles
@@ -629,7 +629,14 @@ func (d *deps) bundleUninstall(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	if err := sp.Bundles().Uninstall(c.Request().Context(), bundleId); err != nil {
+	ctx := c.Request().Context()
+	synced := d.bundleResolver().WaitConverged(ctx, sp)
+	if err := d.bundleResolver().Uninstall(ctx, sp, bundleId); err != nil {
+		// Before convergence an absent row is provisional, like a read's
+		// synced: false — the poll-after-join recipe never meets a 404.
+		if !synced && errors.Is(err, bundles.ErrNotInstalled) {
+			err = bundles.ErrRegistryNotSynced
+		}
 		return bundleError(c, err, sp.Id(), bundleId)
 	}
 	return c.NoContent(http.StatusNoContent)

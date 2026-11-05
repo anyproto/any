@@ -154,7 +154,7 @@ The server never merges; it enforces timing. A losing root arrives change by cha
 | Status | Code | When |
 |--------|------|------|
 | 409 | `bundle.not_ready` | registry not converged (non-owner), or the winner's tree has not arrived |
-| 409 | `bundle.loser_not_ready` | loser not fully synced, or within the grace period — retry |
+| 409 | `bundle.loser_not_ready` | resolve: loser not fully synced, or within the grace period; uninstall: a loser's tree has not arrived, nothing deleted — retry |
 | 409 | `bundle.not_loser` | the winner, or a root never claimed for this bundle |
 | 404 | `bundle.not_found` | unknown bundle id on GET / resolve / children / uninstall |
 | 409 | `object.derived_undeletable` | uninstall of a derived install — nothing is deleted |
@@ -173,7 +173,7 @@ Resolving an already-resolved root returns 204 — the call is idempotent.
 
 ## Uninstall
 
-`DELETE …/bundles/:bundleId` deletes the install: every losing root this device holds, then the winner. The claim set is add-only, so deleting the winner object alone also reads as uninstalled but leaves its live losers claimed, and the next install inherits them as losers for a client's fork merge to bring back. Losers go first, so a device that sees the bundle as uninstalled never finds a loser this one could have deleted, and the next ensure mints a fresh root with no losers. Idempotent: 204 for a bundle whose winner is already gone, with its losers swept. A loser whose tree has not arrived on this device stays claimed and surfaces as a loser of the next install, like a fork.
+`DELETE …/bundles/:bundleId` deletes the install: every losing root, then the winner, and only once every one of them is on this device, so a refusal deletes nothing. The claim set is add-only, so deleting the winner object alone also reads as uninstalled but leaves its live losers claimed, and the next install inherits them as losers for a client's fork merge to bring back. Losers go first, so a device that sees the bundle as uninstalled never finds a loser left behind, and the next ensure mints a fresh root with no losers. Idempotent: 204 for a bundle whose winner is already gone, with its losers swept. An uninstall discards, so unlike resolve it has no grace. While a loser's tree has not reached this device the call is `409 bundle.loser_not_ready`; while the winner's has not, `409 bundle.not_ready`; retry either.
 
 ```bash
 curl -s -X DELETE http://127.0.0.1:2046/v1/spaces/$SPACE/bundles/notes%2Fv1

@@ -1479,21 +1479,24 @@ claimed for the bundle, is `409 bundle.not_loser`; a root already
 resolved returns 204 — the call is idempotent.
 
 **Uninstall** (`DELETE …/bundles/:bundleId`) deletes the install:
-every losing root this device holds, then the winner. The claim set is
+every losing root, then the winner, and only once every one of them is
+on this device, so a refusal deletes nothing. The claim set is
 add-only, so deleting the winner object alone
 (`DELETE …/objects/:rootId`) also reads as uninstalled but leaves its
 live losers claimed: the next install inherits them as losers, and a
 client's fork merge brings their content back. Losers go first, so a
-device that sees the bundle as uninstalled never finds a loser this one
-could have deleted, and the next ensure mints a fresh root with no
-losers. Idempotent: a bundle whose winner is already dead still gets
-its losers swept, and 204 either way. `404 bundle.not_found` when the
-bundle was never registered, `409 object.derived_undeletable` for a
-derived install (nothing is deleted), `409 bundle.not_ready` while the
-winner's tree has not reached this device, `403 space.read_only` for a
-reader. A loser whose tree has not arrived here cannot be deleted from
-here (any-sync's settings delete needs the local head), so it stays
-claimed and surfaces as a loser of the next install, like a fork.
+device that sees the bundle as uninstalled never finds a loser left
+behind, and the next ensure mints a fresh root with no losers.
+Idempotent: a bundle whose winner is already dead still gets its
+losers swept, and 204 either way. An uninstall discards, so unlike
+resolve it has no grace: a loser is deleted at the head this device
+holds. It waits for the registry like a read, and answers
+`404 bundle.not_found` for a bundle never registered,
+`409 bundle.not_ready` while the registry or the winner's tree has not
+reached this device, `409 bundle.loser_not_ready` while a loser's tree
+has not (any-sync's settings delete needs the local head; retry),
+`409 object.derived_undeletable` for a derived install,
+`403 space.read_only` for a reader.
 
 **Restore.** On boot the server converges the space list and the space
 index for the well-known derived spaces, so a client ensuring right

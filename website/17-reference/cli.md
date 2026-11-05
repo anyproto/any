@@ -112,6 +112,7 @@ any bundle ensure  <spaceId> --body '<json>'|@FILE|-
 any bundle list    <spaceId>
 any bundle get     <spaceId> <bundleId>
 any bundle resolve <spaceId> <bundleId> <loserRootId>
+any bundle uninstall <spaceId> <bundleId>
 any bundle child   <spaceId> <bundleId> --seed SEED --type T [--collection C]...
 ```
 

@@ -664,6 +664,29 @@ func (r *Resolver) Resolve(ctx context.Context, sp space.Space, bundleId, loserR
 	return nil
 }
 
+// Uninstall deletes the install — every loser, then the winner —
+// through the SDK, which refuses before the first delete while any of
+// them is not local. The pre-read dates the losers like any read; the
+// ones the SDK deleted are forgotten afterwards. A dead winner reads
+// as not installed and its losers still need the sweep, so a failed
+// pre-read is not a verdict.
+func (r *Resolver) Uninstall(ctx context.Context, sp space.Space, bundleId string) error {
+	b, err := sp.Bundles().Get(ctx, bundleId)
+	if err == nil {
+		r.observe(sp, b)
+	}
+	if err := sp.Bundles().Uninstall(ctx, bundleId); err != nil {
+		if errors.Is(err, space.ErrBundleUnknown) {
+			return fmt.Errorf("bundle %s: %w", bundleId, ErrNotInstalled)
+		}
+		return fmt.Errorf("bundle %s: uninstall: %w", bundleId, err)
+	}
+	for _, loser := range b.Losers {
+		r.forget(sp, loser)
+	}
+	return nil
+}
+
 // ResolveRetry keeps trying one loser with backoff, for the window a
 // client has already asked for: the merge decision was made, only the
 // timing is missing. Blocking — callers own the goroutine, and must
