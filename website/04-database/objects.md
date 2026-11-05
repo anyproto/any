@@ -115,7 +115,7 @@ curl -X POST http://127.0.0.1:2046/v1/catalog/wiki/setup \
 | `pos` | string | A lexid ordering key among siblings — allocated by the client. |
 | `folder` | boolean | `true` for a folder. |
 
-An object is in the tree only while it is filed under the wiki collection; its placement is ordinary property values at `<wikiCollectionId>.<propId>`. A page in the tree has `page` as its type for the body and the wiki collection for its place; a folder is the same create with `folder` true. What type a tree object has is up to you — the wiki collection only places it.
+An object is in the tree only while it is filed under the wiki collection; its placement is ordinary property values at `<wikiCollectionId>.<propId>`. A page in the tree has `page` as its type for the body and the wiki collection for its place; a folder is the same create with `folder` true. What type a tree object has is up to you — the wiki collection only places it. A Library row (Recents, every type or every collection placed in the tree) is not an object: it is a record of the `library-rows` usecase, keyed by the page and placed by the same `parentId` / `pos`, so it never reaches a page list or a search. The contract is the server's `docs/28-well-known-bundles.md` § Library rows.
 
 ```bash
 # $WIKI, $PARENT_ID, $POS, $FOLDER: collectionId and properties.* from the setup reply
