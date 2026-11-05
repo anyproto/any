@@ -69,7 +69,7 @@ func TestServer_BundleUninstall(t *testing.T) {
 	derived := ensureBundle(t, e, sp.Id, `{"id":"fixed/v1","name":"Fixed","rootType":"`+edType+`","derived":true}`)
 	derivedPath := "/v1/spaces/" + sp.Id + "/bundles/" + escapedBundleId("fixed/v1")
 	rec = doJSON(t, e, http.MethodDelete, derivedPath, "")
-	if rec.Code != http.StatusConflict || errEnvCode(t, rec.Body.Bytes()) != "object.derived_undeletable" {
+	if rec.Code != http.StatusConflict || errEnvCode(t, rec.Body.Bytes()) != api.ErrObjectDerivedUndeletable {
 		t.Fatalf("derived uninstall: %d %s", rec.Code, rec.Body.String())
 	}
 	var still api.BundleGetResponse

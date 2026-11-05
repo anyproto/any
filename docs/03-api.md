@@ -1490,7 +1490,10 @@ behind, and the next ensure mints a fresh root with no losers.
 Idempotent: a bundle whose winner is already dead still gets its
 losers swept, and 204 either way. An uninstall discards, so unlike
 resolve it has no grace: a loser is deleted at the head this device
-holds. It waits for the registry like a read, and answers
+holds. An uninstall made while apart from another device's install of
+the same id deletes what this device has seen; the other install
+surfaces as the winner once they meet, and the next uninstall takes
+it. It waits for the registry like a read, and answers
 `404 bundle.not_found` for a bundle never registered,
 `409 bundle.not_ready` while the registry or the winner's tree has not
 reached this device, `409 bundle.loser_not_ready` while a loser's tree

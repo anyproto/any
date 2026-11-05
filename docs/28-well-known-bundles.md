@@ -87,7 +87,7 @@ matches neither `{"any.type": "<rootId>"}` nor
 exclusion.
 
 **Created roots, one exception.** Every catalog root is a created
-root: deletable (`DELETE …/objects/:rootId` uninstalls it), forking
+root: deletable (`DELETE …/bundles/<id>` uninstalls it), forking
 when two devices of one account install while apart (§ Forks). The
 general chat is the one `derived: true` bundle — chat content cannot
 be merged across objects (`creator` / `createdAt` come from the change

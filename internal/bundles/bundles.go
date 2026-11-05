@@ -666,25 +666,23 @@ func (r *Resolver) Resolve(ctx context.Context, sp space.Space, bundleId, loserR
 
 // Uninstall deletes the install — every loser, then the winner —
 // through the SDK, which refuses before the first delete while any of
-// them is not local. The pre-read dates the losers like any read; the
-// ones the SDK deleted are forgotten afterwards. A dead winner reads
-// as not installed and its losers still need the sweep, so a failed
-// pre-read is not a verdict.
+// them is not local. A dead winner reads as not installed and its
+// losers still need the sweep, so the registry's live-row reads are
+// not consulted; the caller forgets the swept roots (Forget).
 func (r *Resolver) Uninstall(ctx context.Context, sp space.Space, bundleId string) error {
-	b, err := sp.Bundles().Get(ctx, bundleId)
-	if err == nil {
-		r.observe(sp, b)
-	}
 	if err := sp.Bundles().Uninstall(ctx, bundleId); err != nil {
 		if errors.Is(err, space.ErrBundleUnknown) {
 			return fmt.Errorf("bundle %s: %w", bundleId, ErrNotInstalled)
 		}
 		return fmt.Errorf("bundle %s: uninstall: %w", bundleId, err)
 	}
-	for _, loser := range b.Losers {
-		r.forget(sp, loser)
-	}
 	return nil
+}
+
+// Forget drops a root's loser observation once the root is gone; a
+// root never observed is a no-op.
+func (r *Resolver) Forget(sp space.Space, rootId string) {
+	r.forget(sp, rootId)
 }
 
 // ResolveRetry keeps trying one loser with backoff, for the window a

@@ -8859,7 +8859,7 @@ const docTemplate = `{
                         "description": "Internal Server Error"
                     }
                 },
-                "summary": "Uninstall a bundle: its winner and the losers this device holds",
+                "summary": "Uninstall a bundle: its losers, then the winner, once every one is local",
                 "tags": [
                     "bundles"
                 ]

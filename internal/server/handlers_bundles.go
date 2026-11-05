@@ -609,7 +609,7 @@ func (d *deps) bundleResolve(c echo.Context) error {
 // get and resolve: the registry's convergence wait first, then the
 // SDK, which refuses before the first delete while a tree is missing.
 //
-//	@Summary	Uninstall a bundle: its winner and the losers this device holds
+//	@Summary	Uninstall a bundle: its losers, then the winner, once every one is local
 //	@Tags		bundles
 //	@Param		spaceId		path	string	true	"Space ID"
 //	@Param		bundleId	path	string	true	"Bundle ID, percent-encoded"
@@ -638,6 +638,14 @@ func (d *deps) bundleUninstall(c echo.Context) error {
 			err = bundles.ErrRegistryNotSynced
 		}
 		return bundleError(c, err, sp.Id(), bundleId)
+	}
+	// The row outlives the install and lists every root ever claimed,
+	// the swept losers included — the registry's own reads skip a row
+	// whose winner is dead, so this is where their observations go.
+	if roots, err := bundleRoots(ctx, sp, bundleId); err == nil {
+		for id := range roots {
+			d.bundleResolver().Forget(sp, id)
+		}
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -791,8 +799,8 @@ func bundleErrorWith(c echo.Context, err error, details map[string]any) error {
 	case errors.Is(err, space.ErrBundleNotLoser):
 		return writeError(c, http.StatusConflict, api.ErrBundleNotLoser,
 			"root is not a loser of this bundle", details)
-	case errors.Is(err, settings.ErrCantDeleteDerivedObject):
-		return writeError(c, http.StatusConflict, "object.derived_undeletable",
+	case errors.Is(err, space.ErrBundleDerived), errors.Is(err, settings.ErrCantDeleteDerivedObject):
+		return writeError(c, http.StatusConflict, api.ErrObjectDerivedUndeletable,
 			"the install is derived; derived objects are permanent and cannot be uninstalled", details)
 	case errors.Is(err, space.ErrModuleReserved):
 		return writeError(c, http.StatusBadRequest, api.ErrDatasetModuleReserved,

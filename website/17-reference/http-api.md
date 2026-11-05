@@ -119,6 +119,7 @@ Pending rows are discovered through `GET /v1/spaces?status=one_to_one_pending` /
 | GET | `/v1/spaces/:spaceId/bundles` | — | `{bundles: [Bundle], synced}` | answers after the registry convergence wait; `synced: true` means an absent bundle is definitively not installed |
 | GET | `/v1/spaces/:spaceId/bundles/:bundleId` | — | `{bundle, synced}` | `404 bundle.not_found` |
 | POST | `/v1/spaces/:spaceId/bundles/:bundleId/resolve` | `{loserRootId}` | 204 | `409 bundle.loser_not_ready`, `409 bundle.not_loser` |
+| DELETE | `/v1/spaces/:spaceId/bundles/:bundleId` | — | 204 | uninstall: the losers, then the winner, once every one is on this device; idempotent. `409 bundle.loser_not_ready` / `409 bundle.not_ready` while a tree is not local (retry), `409 object.derived_undeletable`, `404 bundle.not_found` |
 | POST | `/v1/spaces/:spaceId/bundles/:bundleId/children` | `{seed, type, collections?}` | `{objectId}` | deterministic child; `type` set on first materialization, missing collections added on every call; `409 bundle.not_ready` |
 
 ```bash
