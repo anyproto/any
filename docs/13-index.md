@@ -1044,8 +1044,9 @@ survive intact.
 
 `vectorStatus` (`used` / `unavailable` / `disabled` / `skipped`) tells
 the consumer whether semantic recall took part and why not —
-`unavailable` (the configured embedder did not answer in time; a retry
-may differ) versus `disabled` (this server never runs vector search).
+`unavailable` (the configured embedder did not answer in time, a retry
+may differ; or it answers at another dimension than the index, until a
+rebuild) versus `disabled` (this server never runs vector search).
 Value table: `03-api.md` § POST /v1/spaces/:spaceId/search.
 
 The endpoint is consumer-side: no SDK method sits behind it.

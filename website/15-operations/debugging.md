@@ -117,7 +117,7 @@ Every non-2xx response has one shape:
 | 405 | `space.unsupported` | the route does not apply to the tech space |
 | 409 | `index.disabled` / `push.disabled` / `local.disabled` / `access.disabled` | the feature is off on this server |
 | 500 | `internal` | unexpected failure — the server log has the stack |
-| 503 | `server.unavailable` / `index.embedder_unavailable` | shutting down / embedder outage; retry |
+| 503 | `server.unavailable` / `index.embedder_unavailable` | shutting down / embedder outage; retry. A model at another dimension than the index lasts until a rebuild ([Dimension pinning](../search/vector.html#dimension-pinning)) |
 
 The full namespace is in the [error reference](../reference/errors.html). CLI exit codes: `0` success, `1` user error or 4xx, `2` 5xx, `3` cannot reach the server.
 
