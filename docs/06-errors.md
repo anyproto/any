@@ -107,7 +107,7 @@ account.icon_not_found           # 404 — GET /v1/account/icon with no avatar s
 account.icon_too_large           # 413 — PUT /v1/account/icon body over the 1 MiB avatar cap
 account.icon_not_image           # 415 — PUT /v1/account/icon whose bytes are not a PNG, JPEG, GIF, WebP, AVIF, HEIC, HEIF, BMP, ICO, TIFF or JXL image (by signature; SVG refused)
 
-bundle.not_found                 # 404 — no live install for the bundle id in this space (on DELETE …/bundles/:bundleId: never registered; a dead winner's row still gets its losers swept, 204)
+bundle.not_found                 # 404 — no live install for the bundle id in this space (on DELETE …/bundles/:bundleId: no row for the id; a dead winner's row still gets its losers swept, 204)
 bundle.not_ready                 # 409 — the winner's tree (or the registry) has not reached this device yet, incl. a tree the SDK does not hold at all right after a join; retry
 bundle.not_loser                 # 409 — resolve target is the current winner or was never claimed
 bundle.loser_not_ready           # 409 — resolve: the losing root is still syncing / inside the grace window, the server keeps retrying; DELETE …/bundles/:bundleId: a loser's tree has not reached this device, nothing deleted, retry
