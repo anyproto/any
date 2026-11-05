@@ -1492,8 +1492,8 @@ losers swept, and 204 either way. An uninstall discards, so unlike
 resolve it has no grace: a loser is deleted at the head this device
 holds. An uninstall made while apart from another device's install of
 the same id deletes what this device has seen; the other install
-surfaces as the winner once they meet, and the next uninstall takes
-it. It runs behind ensure's convergence gate: a member other than the
+arrives as a live claim the next install inherits as a loser
+(**Conflicts** above), and the next uninstall takes it. It runs behind ensure's convergence gate: a member other than the
 owner is `409 bundle.not_ready` until its registry has converged, the
 owner proceeds. Then `404 bundle.not_found` for a bundle the registry
 does not list, `409 bundle.not_ready` while the winner's tree has not

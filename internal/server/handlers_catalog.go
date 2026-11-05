@@ -398,13 +398,8 @@ func catalogBeforeInstall(ctx context.Context, sp space.Space, inst bundles.Inst
 			continue
 		}
 		if own == nil {
-			roots, err := bundles.Roots(ctx, sp, inst.Id)
-			if err != nil {
+			if own, err = bundles.Roots(ctx, sp, inst.Id); err != nil {
 				return err
-			}
-			own = make(map[string]bool, len(roots)+1)
-			for id := range roots {
-				own[id] = true
 			}
 			if inst.Derived {
 				id, err := sp.Bundles().DerivedRootId(ctx, inst.Id)
