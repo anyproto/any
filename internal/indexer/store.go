@@ -93,7 +93,7 @@ type Store struct {
 	mu     sync.Mutex
 	dim    int // 0 = unknown yet; learned lazily via EnsureDim
 	colls  map[string]anystore.Collection
-	hasVec map[string]bool // spaceId → vector index exists
+	hasVec map[string]bool // spaceId → EnsureVectorIndex confirmed the index since open
 
 	// ftsUpgrades counts the collections upgradeFTS rewrote; ftsRetryAt
 	// holds, per space, when a failed rewrite may be tried again.
@@ -701,7 +701,7 @@ func (s *Store) EnsureVectorIndex(ctx context.Context, spaceId string) (bool, er
 		return false, err
 	}
 	// GetIndexes does not list vector indexes: one built before a restart
-	// is found by EnsureIndex, which leaves an existing index as it is.
+	// is found by EnsureIndex, which skips an index of the same definition.
 	n, err := coll.Find(vectorPresent).Count(ctx)
 	if err != nil {
 		return false, err

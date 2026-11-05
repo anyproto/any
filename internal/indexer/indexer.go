@@ -1020,6 +1020,11 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 			qctx, cancel := context.WithTimeout(ctx, ix.opts.QueryEmbedTimeout)
 			qv, embErr := ix.opts.Embedder.EmbedQuery(qctx, req.Query)
 			cancel()
+			// A model that changed under a learned dimension answers at
+			// another one: the vector side is frozen, FTS still answers.
+			if d := ix.store.Dim(); embErr == nil && d > 0 && len(qv) != d {
+				embErr = fmt.Errorf("query embedding has %d dims, the index %d", len(qv), d)
+			}
 			if embErr != nil {
 				if err := ctx.Err(); err != nil {
 					return api.SearchResponse{}, err // caller gone: nothing to degrade for
