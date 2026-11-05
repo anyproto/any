@@ -1,0 +1,8 @@
+# Local build, models and run outputs.
+/llama*/
+/build*/
+/*.xcodeproj/
+/payload/
+/models/
+/gguf/
+/out/

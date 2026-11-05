@@ -43,3 +43,6 @@ website/dist/
 /anydocs
 /configs/
 /datadirs/
+
+# Local embedder bench data: models, corpora, run outputs (scripts/embedbench).
+/bench/
