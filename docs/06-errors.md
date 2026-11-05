@@ -107,7 +107,7 @@ account.icon_not_found           # 404 — GET /v1/account/icon with no avatar s
 account.icon_too_large           # 413 — PUT /v1/account/icon body over the 1 MiB avatar cap
 account.icon_not_image           # 415 — PUT /v1/account/icon whose bytes are not a PNG, JPEG, GIF, WebP, AVIF, HEIC, HEIF, BMP, ICO, TIFF or JXL image (by signature; SVG refused)
 
-bundle.not_found                 # 404 — no live install for the bundle id in this space
+bundle.not_found                 # 404 — no live install for the bundle id in this space (on DELETE …/bundles/:bundleId: never registered; a dead winner's row still gets its losers swept, 204)
 bundle.not_ready                 # 409 — the winner's tree (or the registry) has not reached this device yet, incl. a tree the SDK does not hold at all right after a join; retry
 bundle.not_loser                 # 409 — resolve target is the current winner or was never claimed
 bundle.loser_not_ready           # 409 — the losing root is still syncing / inside the grace window; the server keeps retrying
@@ -118,7 +118,7 @@ object.not_found                 # 404 — objectId unknown or deleted in this s
 object.deleted                   # 410 — GET …/objects/:objectId, a file attach (POST …/objects/:objectId/files), or `from` on POST …/objects, on a deleted object (distinct from never-existed)
 record.deleted                   # 410 — a write addressed a tombstoned record (a block, a message, a runtime record): the id is burned for good, never reused
 record.wrong_object              # 400 — a write to a shared dataset (modify, delete-records) names a record of another object: a record id is the plain id or `<objectId>/<recordId>` of the request's own objectId, and a plain id never holds `/` (details.objectId, details.dataset)
-object.derived_undeletable       # 409 — DELETE on a derived object (a bundle root installed with derived:true, e.g. the general chat); derived objects are permanent
+object.derived_undeletable       # 409 — DELETE on a derived object (a bundle root installed with derived:true, e.g. the general chat), or DELETE …/bundles/:bundleId on a derived install; derived objects are permanent
 object.id_required               # 400 — the object id in the path or body is a serialized nil ("None", "null", "undefined", …): the caller's id variable was unset; never a store lookup failure
 
 dataset.unknown                  # 400 — a record write (modify / delete-records / upsert) names a storage collection the space does not serve as a records dataset (details.dataset): no part declares it, or it is a module's storage collection (chat_messages, editor_blocks — written through the module's routes, never upsertable). A read of an unknown dataset answers 200 {"records": []}

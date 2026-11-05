@@ -15,6 +15,7 @@ import (
 	"github.com/valyala/fastjson"
 
 	"github.com/anyproto/any-sync-sdk/space"
+	"github.com/anyproto/any-sync/commonspace/settings"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/bundles"
@@ -60,6 +61,7 @@ func registerBundleRoutes(g *echo.Group, d *deps) {
 	g.GET("/spaces/:spaceId/bundles", d.bundleList)
 	g.GET("/spaces/:spaceId/bundles/:bundleId", d.bundleGet)
 	g.POST("/spaces/:spaceId/bundles/:bundleId/resolve", d.bundleResolve)
+	g.DELETE("/spaces/:spaceId/bundles/:bundleId", d.bundleUninstall)
 	g.POST("/spaces/:spaceId/bundles/:bundleId/children", d.bundleChild)
 }
 
@@ -598,6 +600,41 @@ func (d *deps) bundleResolve(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+// bundleUninstall handles DELETE /v1/spaces/:spaceId/bundles/:bundleId
+// — delete the install: every losing root this device holds, then the
+// winner. The claim set is add-only, so a winner deleted on its own
+// leaves its live losers for the next install to inherit; losers first
+// means a device that reads the bundle as uninstalled never finds a
+// loser this one could have deleted. A loser whose tree has not arrived
+// stays claimed and surfaces as a loser of the next install, like a
+// fork.
+//
+//	@Summary	Uninstall a bundle: its winner and the losers this device holds
+//	@Tags		bundles
+//	@Param		spaceId		path	string	true	"Space ID"
+//	@Param		bundleId	path	string	true	"Bundle ID, percent-encoded"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	403	{object}	api.ErrorEnvelope
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	409	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/bundles/{bundleId} [delete]
+func (d *deps) bundleUninstall(c echo.Context) error {
+	bundleId, errResp, done := bundleIdParam(c)
+	if done {
+		return errResp
+	}
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	if err := sp.Bundles().Uninstall(c.Request().Context(), bundleId); err != nil {
+		return bundleError(c, err, sp.Id(), bundleId)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
 // bundleChild handles POST /v1/spaces/:spaceId/bundles/:bundleId/children
 // — derive a setup object under the bundle's current winner. Same
 // semantics as the objects derive: deterministic per (space, root,
@@ -747,6 +784,9 @@ func bundleErrorWith(c echo.Context, err error, details map[string]any) error {
 	case errors.Is(err, space.ErrBundleNotLoser):
 		return writeError(c, http.StatusConflict, api.ErrBundleNotLoser,
 			"root is not a loser of this bundle", details)
+	case errors.Is(err, settings.ErrCantDeleteDerivedObject):
+		return writeError(c, http.StatusConflict, "object.derived_undeletable",
+			"the install is derived; derived objects are permanent and cannot be uninstalled", details)
 	case errors.Is(err, space.ErrModuleReserved):
 		return writeError(c, http.StatusBadRequest, api.ErrDatasetModuleReserved,
 			"a part names a module reserved to the server's own installs", details)

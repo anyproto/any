@@ -424,11 +424,14 @@ A client reads which shape a space has from the reply, or from the
 registry: the bundle id it finds installed, and whether that bundle
 answers `typeId` or `collectionId`.
 
-Uninstall is `DELETE …/objects/<rootId>`: the id then reads as not
-installed and a later setup mints a fresh root — for a superseded
-bundle only while the space stays on the old shape; once the last
-bundle of a group's old set is gone, the next setup installs the new
-set instead. There is no usecase-level uninstall and no reference
+Uninstall is `DELETE …/bundles/<id>` (`03-api.md` § Bundles): it
+deletes the winner and the losers this device holds, the id then reads
+as not installed, and a later setup mints a fresh root with nothing of
+the old install to merge back — for a superseded bundle only while the
+space stays on the old shape; once the last bundle of a group's old set
+is gone, the next setup installs the new set instead. Deleting the
+winner object alone leaves its live losers claimed for the next setup
+to inherit. There is no usecase-level uninstall and no reference
 counting — a dependency stays until its root is deleted, and deleting a
 definition other objects use leaves their values orphaned (readable, no
 schema).
