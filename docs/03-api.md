@@ -1166,6 +1166,7 @@ POST   /v1/spaces/:spaceId/bundles                        → 200 {bundle, insta
 GET    /v1/spaces/:spaceId/bundles                        → 200 {bundles: [Bundle], synced}
 GET    /v1/spaces/:spaceId/bundles/:bundleId              → 200 {bundle, synced}
 POST   /v1/spaces/:spaceId/bundles/:bundleId/resolve      → 204
+DELETE /v1/spaces/:spaceId/bundles/:bundleId              → 204
 POST   /v1/spaces/:spaceId/bundles/:bundleId/children     → 200 {objectId}
 ```
 
@@ -1392,14 +1393,16 @@ settings — lives in bundles on the account's **tech space**, whose id
   (`rootType` / `rootCollections` / `rootProperties` are `400
   request.invalid_field` — a tech bundle root is its own definition;
   `children` is `405`). The normal shape is the default CREATED root —
-  deletable (`DELETE …/objects/:rootId` = uninstall; the id then reads
-  as not installed and a fresh install works), forking on concurrent
-  offline installs and resolving like in any space. `derived: true` is
-  the exception: a permanent, uninstallable root, justified only when a
-  fork would be unmergeable (chat-like content). Records-shaped bundles
-  merge, so they are created;
-- `DELETE …/objects/:objectId` on a bundle root (the SDK refuses any
-  other object);
+  deletable (`DELETE …/bundles/:bundleId` = uninstall; the id then
+  reads as not installed and a fresh install works), forking on
+  concurrent offline installs and resolving like in any space.
+  `derived: true` is the exception: a permanent, uninstallable root,
+  justified only when a fork would be unmergeable (chat-like content).
+  Records-shaped bundles merge, so they are created;
+- `DELETE …/bundles/:bundleId`, the uninstall;
+  `DELETE …/objects/:objectId` on a bundle root (the SDK refuses any
+  other object) is not: a winner deleted alone leaves its losers
+  claimed;
 - `GET …/types`, `GET …/types/:rootId`, `GET …/types/:rootId/properties`
   and the `parts…` / `datasets…` (fields and indexes included) /
   `POST|PATCH|DELETE properties…` routes on bundle roots;
@@ -1486,6 +1489,33 @@ one loop per losing root however often you poll, in-memory and dropped
 on restart, so clients retry too. Resolving the winner, or a root never
 claimed for the bundle, is `409 bundle.not_loser`; a root already
 resolved returns 204 — the call is idempotent.
+
+**Uninstall** (`DELETE …/bundles/:bundleId`) deletes the install:
+every losing root, then the winner, and only once every one of them is
+on this device, so a refusal deletes nothing. The claim set is
+add-only, so deleting the winner object alone
+(`DELETE …/objects/:rootId`) also reads as uninstalled but leaves its
+live losers claimed: the next install inherits them as losers, and a
+client's fork merge brings their content back. Losers go first, so a
+device that sees the bundle as uninstalled never finds a loser left
+behind, and the next ensure mints a fresh root with no losers.
+Idempotent: a bundle whose winner is already dead still gets its
+losers swept, and 204 either way, so call it without a `GET` first: a
+row whose winner died through the object route reads 404 on `GET` and
+204 here. An uninstall discards, so unlike resolve it has no grace: a
+loser is deleted at the head this device holds. An uninstall made
+while apart from another device's install of the same id deletes what
+this device has seen; the other install arrives as a live claim the
+next install inherits as a loser (**Conflicts** above), and the next
+uninstall takes it. It runs behind ensure's convergence gate: a member
+other than the owner is `409 bundle.not_ready` until its registry has
+converged, the owner proceeds. Then `404 bundle.not_found` for a
+bundle the registry does not list, `409 bundle.not_ready` while the
+winner's tree has not reached this device,
+`409 bundle.loser_not_ready` while a loser's tree has not (any-sync's
+settings delete needs the local head; retry),
+`409 object.derived_undeletable` for a derived install,
+`403 space.read_only` for a reader.
 
 **Restore.** On boot the server converges the space list and the space
 index for the well-known derived spaces, so a client ensuring right

@@ -123,13 +123,13 @@ Panics are converted to `500 internal` with a generic message.
 |---|---|---|
 | `object.not_found` | 404 | object unknown or deleted in this space |
 | `object.deleted` | 410 | `GET …/objects/:objectId`, a file attach, or `from` on `POST …/objects`, on a deleted object — distinct from never-existed |
-| `object.derived_undeletable` | 409 | `DELETE` on a derived object (a bundle root installed with `derived: true`, such as the general chat) |
+| `object.derived_undeletable` | 409 | `DELETE` on a derived object (a bundle root installed with `derived: true`, such as the general chat), or `DELETE …/bundles/:bundleId` on a derived install |
 | `object.id_required` | 400 | the object id is a serialized nil (`"None"`, `"null"`, `"undefined"`) |
 | `record.deleted` | 410 | a write addressed a tombstoned record; the id is burned for good |
 | `record.wrong_object` | 400 | a `modify` or `delete-records` on a shared dataset names a record of another object — a record id is the plain id or the `<objectId>/<recordId>` of the request's own `objectId`, and a plain id never holds `/` (`details.objectId`, `details.dataset`) |
-| `bundle.not_found` | 404 | no live install for the bundle id in this space |
+| `bundle.not_found` | 404 | no live install for the bundle id in this space; on uninstall, a bundle never registered |
 | `bundle.not_ready` | 409 | registry not converged, or the winner's tree is not local yet — retry |
-| `bundle.loser_not_ready` | 409 | losing root not fully synced / grace period not elapsed — retry |
+| `bundle.loser_not_ready` | 409 | resolve: losing root not fully synced / grace period not elapsed; uninstall: a loser's tree not local, nothing deleted — retry |
 | `bundle.not_loser` | 409 | resolve targeted the winner or an unclaimed root |
 | `bundle.reserved` | 409 | a client ensure with an id under the server's `system:` prefix |
 | `catalog.not_found` | 404 | no usecase with that id in the catalog (`details.usecaseId`) |

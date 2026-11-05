@@ -11,16 +11,29 @@ import (
 func newBundleCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "bundle",
-		Short: "install / list / read / resolve bundles in a space",
+		Short: "install / list / read / resolve / uninstall bundles in a space",
 	}
 	cmd.AddCommand(
 		newBundleEnsureCmd(),
 		newBundleListCmd(),
 		newBundleGetCmd(),
 		newBundleResolveCmd(),
+		newBundleUninstallCmd(),
 		newBundleChildCmd(),
 	)
 	return cmd
+}
+
+func newBundleUninstallCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "uninstall <spaceId> <bundleId>",
+		Short: "delete the install: its losing roots, then the winner, once every one is on this device",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cl := newClient(flags.Timeout)
+			return cl.BundleUninstall(cmd.Context(), args[0], args[1])
+		},
+	}
 }
 
 func newBundleChildCmd() *cobra.Command {

@@ -82,8 +82,8 @@ Idempotent — the first call installs, later calls adopt. The root
 DECLARES the type, and a declaring root hosts its own records, so the
 entries live on it — no flag, no self-membership, in any space
 (`03-api.md` § Bundles). Uninstall = `DELETE
-/v1/spaces/<tech>/objects/<rootId>`; the id then reads as not
-installed and a later install mints a fresh root.
+/v1/spaces/<tech>/bundles/<id>`; the id then reads as not installed
+and a later install mints a fresh root.
 
 ### Forks
 
