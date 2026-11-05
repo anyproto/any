@@ -73,3 +73,25 @@ headroom). Its vectors go to the app's `Documents/out/`.
 
 Reinstalling the app drops its Neural Engine compile cache, so the next load
 of a Core ML model compiles again.
+
+### Energy (`ppseq.sh`, `ppanalyze.py`)
+
+`ppseq.sh` records each run with Instruments' Power Profiler and Neural Engine
+instruments: an idle baseline, then the three workloads, with idle gaps
+between them. `ppanalyze.py` prints energy per doc above idle, for the whole
+doc loop and for its last 100 s, once the phone has settled to its sustained
+power level.
+
+- Unplug the phone. Power Profiler reports 0 %/hr while it charges. The
+  phone is then reached over Wi-Fi.
+- `xctrace` launches the app itself. A system-wide (`--all-processes`)
+  recording drops off Wi-Fi after about 1.6 s.
+- Before each recording the script wakes the Wi-Fi tunnel with a `devicectl`
+  call. Otherwise `xctrace` lists the phone as offline and times out
+  "waiting for device to boot".
+- System power is battery %/hr, sampled about once a second. Joules assume
+  `WH` (default 16; the iPhone 17 Pro is 15.5 Wh with a SIM tray, 16.6 Wh
+  eSIM-only).
+- The per-process CPU and GPU "power impact" is unitless, and its GPU column
+  stays at 0 for llama.cpp's Metal compute. The Neural Engine has no power
+  column, only busy intervals.
