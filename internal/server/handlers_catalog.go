@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/anyproto/any-store/v2/query"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 
@@ -399,7 +398,7 @@ func catalogBeforeInstall(ctx context.Context, sp space.Space, inst bundles.Inst
 			continue
 		}
 		if own == nil {
-			roots, err := bundleRoots(ctx, sp, inst.Id)
+			roots, err := bundles.Roots(ctx, sp, inst.Id)
 			if err != nil {
 				return err
 			}
@@ -421,29 +420,6 @@ func catalogBeforeInstall(ctx context.Context, sp space.Space, inst bundles.Inst
 		return &xKeyConflictError{XKey: inst.XKey, ExistingTypeId: h.id}
 	}
 	return nil
-}
-
-// bundleRoots reads every root ever claimed for a bundle id straight
-// off the registry row — the raw `roots` set, which the typed
-// Bundles().Get hides behind its live-winner verdict.
-func bundleRoots(ctx context.Context, sp space.Space, bundleId string) (map[string]bool, error) {
-	row, err := sp.Query(sp.SpaceIndexObjectId(), "bundles").
-		Filter(query.Key{Path: []string{"id"}, Filter: query.NewComp(query.CompOpEq, bundleId)}).
-		One(ctx)
-	if errors.Is(err, space.ErrNotFound) {
-		return map[string]bool{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	roots := map[string]bool{}
-	for _, v := range row.GetArray("roots") {
-		roots[string(v.GetStringBytes())] = true
-	}
-	if id := string(row.GetStringBytes("rootId")); id != "" {
-		roots[id] = true
-	}
-	return roots, nil
 }
 
 // healMiniapp writes the `miniapp` values an adopted root lacks — a

@@ -31,6 +31,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anyproto/any-store/v2/query"
 	"github.com/anyproto/any-sync/app/logger"
 	"go.uber.org/zap"
 
@@ -666,9 +667,9 @@ func (r *Resolver) Resolve(ctx context.Context, sp space.Space, bundleId, loserR
 
 // Uninstall deletes the install — every loser, then the winner —
 // through the SDK, which refuses before the first delete while any of
-// them is not local. A dead winner reads as not installed and its
-// losers still need the sweep, so the registry's live-row reads are
-// not consulted; the caller forgets the swept roots (Forget).
+// them is not local. The row outlives the install and lists every
+// root ever claimed, so the swept losers are forgotten off it: the
+// registry's live reads skip a row whose winner is dead.
 func (r *Resolver) Uninstall(ctx context.Context, sp space.Space, bundleId string) error {
 	if err := sp.Bundles().Uninstall(ctx, bundleId); err != nil {
 		if errors.Is(err, space.ErrBundleUnknown) {
@@ -676,13 +677,38 @@ func (r *Resolver) Uninstall(ctx context.Context, sp space.Space, bundleId strin
 		}
 		return fmt.Errorf("bundle %s: uninstall: %w", bundleId, err)
 	}
+	roots, err := Roots(ctx, sp, bundleId)
+	if err != nil {
+		return fmt.Errorf("bundle %s: roots after uninstall: %w", bundleId, err)
+	}
+	for id := range roots {
+		r.forget(sp, id)
+	}
 	return nil
 }
 
-// Forget drops a root's loser observation once the root is gone; a
-// root never observed is a no-op.
-func (r *Resolver) Forget(sp space.Space, rootId string) {
-	r.forget(sp, rootId)
+// Roots reads every root ever claimed for a bundle id straight off the
+// registry row — the raw `roots` set, which the typed Bundles().Get
+// hides behind its live-winner verdict. Empty for a bundle never
+// registered.
+func Roots(ctx context.Context, sp space.Space, bundleId string) (map[string]bool, error) {
+	row, err := sp.Query(sp.SpaceIndexObjectId(), "bundles").
+		Filter(query.Key{Path: []string{"id"}, Filter: query.NewComp(query.CompOpEq, bundleId)}).
+		One(ctx)
+	if errors.Is(err, space.ErrNotFound) {
+		return map[string]bool{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	roots := map[string]bool{}
+	for _, v := range row.GetArray("roots") {
+		roots[string(v.GetStringBytes())] = true
+	}
+	if id := string(row.GetStringBytes("rootId")); id != "" {
+		roots[id] = true
+	}
+	return roots, nil
 }
 
 // ResolveRetry keeps trying one loser with backoff, for the window a

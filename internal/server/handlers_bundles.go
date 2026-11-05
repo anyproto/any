@@ -15,7 +15,6 @@ import (
 	"github.com/valyala/fastjson"
 
 	"github.com/anyproto/any-sync-sdk/space"
-	"github.com/anyproto/any-sync/commonspace/settings"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/bundles"
@@ -601,13 +600,9 @@ func (d *deps) bundleResolve(c echo.Context) error {
 }
 
 // bundleUninstall handles DELETE /v1/spaces/:spaceId/bundles/:bundleId
-// — delete the install: every losing root, then the winner, once every
-// one of them is local. The claim set is add-only, so a winner deleted
-// on its own leaves its live losers for the next install to inherit;
-// losers first means a device that reads the bundle as uninstalled
-// never finds a loser left behind. Routed through the resolver like
-// get and resolve: the registry's convergence wait first, then the
-// SDK, which refuses before the first delete while a tree is missing.
+// — delete the install, losers then winner, once every tree is local.
+// Through the resolver like get and resolve: the convergence wait
+// first (docs/03-api.md § Bundles, Uninstall).
 //
 //	@Summary	Uninstall a bundle: its losers, then the winner, once every one is local
 //	@Tags		bundles
@@ -630,22 +625,9 @@ func (d *deps) bundleUninstall(c echo.Context) error {
 		return errResp
 	}
 	ctx := c.Request().Context()
-	synced := d.bundleResolver().WaitConverged(ctx, sp)
+	d.bundleResolver().WaitConverged(ctx, sp)
 	if err := d.bundleResolver().Uninstall(ctx, sp, bundleId); err != nil {
-		// Before convergence an absent row is provisional, like a read's
-		// synced: false — the poll-after-join recipe never meets a 404.
-		if !synced && errors.Is(err, bundles.ErrNotInstalled) {
-			err = bundles.ErrRegistryNotSynced
-		}
 		return bundleError(c, err, sp.Id(), bundleId)
-	}
-	// The row outlives the install and lists every root ever claimed,
-	// the swept losers included — the registry's own reads skip a row
-	// whose winner is dead, so this is where their observations go.
-	if roots, err := bundleRoots(ctx, sp, bundleId); err == nil {
-		for id := range roots {
-			d.bundleResolver().Forget(sp, id)
-		}
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -799,7 +781,7 @@ func bundleErrorWith(c echo.Context, err error, details map[string]any) error {
 	case errors.Is(err, space.ErrBundleNotLoser):
 		return writeError(c, http.StatusConflict, api.ErrBundleNotLoser,
 			"root is not a loser of this bundle", details)
-	case errors.Is(err, space.ErrBundleDerived), errors.Is(err, settings.ErrCantDeleteDerivedObject):
+	case errors.Is(err, space.ErrBundleDerived):
 		return writeError(c, http.StatusConflict, api.ErrObjectDerivedUndeletable,
 			"the install is derived; derived objects are permanent and cannot be uninstalled", details)
 	case errors.Is(err, space.ErrModuleReserved):
