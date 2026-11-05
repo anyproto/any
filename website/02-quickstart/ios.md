@@ -47,7 +47,7 @@ Both buffers are always NUL-terminated, so a long message loses its tail rather 
 | `1` | An instance is already running in this process — stop it first. |
 | `2` | Bad data dir: empty, or not creatable. |
 | `3` | Boot failed. `message` says why. |
-| `4` | The search index could not be rebuilt: the boot removes an index this build cannot open and recreates it, and the removal or the fresh db failed too. Delete the account's index directory and retry; "reset local data" is the fallback. Standalone starts only: a managed start boots unauthorized and reports a failed rebuild on `POST /v1/auth` as `500 internal` (`507 storage.no_space` when the disk is full). |
+| `4` | The search index could not be rebuilt: the boot removes an index this build cannot open and recreates it, and the removal or the fresh db failed too. Delete the account's index directory and retry; "reset local data" is the fallback. Only a start that boots an account already on disk returns it; a start that comes up unauthorized (managed, or standalone with no account) reports a failed rebuild on `POST /v1/auth` as `500 internal` (`507 storage.no_space` when the disk is full). |
 | `5` | Bad options: an unknown `mode`, or `"managed"` without a `controlToken`. A host bug — never retryable. |
 
 `nodeconfYAML` selects the network: an empty string means the production any-sync network embedded in the archive; pass a nodeconf's YAML text to join another ([Networks](networks.html)). `pushPeerId` / `pushAddrs` configure the push node — empty strings keep push off ([Push](../notifications/push.html)).

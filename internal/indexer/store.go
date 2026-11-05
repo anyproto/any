@@ -813,8 +813,12 @@ func (s *Store) SetCursor(ctx context.Context, spaceId string, seq uint64, gener
 }
 
 // AdvanceCursor is SetCursor for a landed page: while the store marks
-// text docs pending, the page's docs are all embeddable later, so the
-// embed field moves with the cursor (embed_backfill.go).
+// text docs pending, every doc the page lands that the upsert rule
+// embeds carries the mark or a vector, so the embed field moves with
+// the cursor — but only while it is caught up
+// with it. A row left behind by a run without an embedder, or by a
+// failed sweep, stays behind until a sweep stamps it, so the gap a
+// single page cannot vouch for is never papered over (embed_backfill.go).
 func (s *Store) AdvanceCursor(ctx context.Context, spaceId string, seq uint64, generation string) error {
 	return s.setCursor(ctx, spaceId, seq, generation, s.markPending)
 }
@@ -825,12 +829,12 @@ func (s *Store) setCursor(ctx context.Context, spaceId string, seq uint64, gener
 		return err
 	}
 	mod := query.ModifyFunc(func(a *anyenc.Arena, v *anyenc.Value) (*anyenc.Value, bool, error) {
+		if marked && v.GetInt("embed") == v.GetInt("seq") {
+			v.Set("embed", a.NewNumberInt(int(seq)))
+		}
 		v.Set("seq", a.NewNumberInt(int(seq)))
 		if generation != "" {
 			v.Set("gen", a.NewString(generation))
-		}
-		if marked {
-			v.Set("embed", a.NewNumberInt(int(seq)))
 		}
 		return v, true, nil
 	})

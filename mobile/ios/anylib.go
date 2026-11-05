@@ -87,7 +87,8 @@ const (
 	// the boot removes an index db this build cannot open and recreates
 	// it, and the removal or the fresh db failed too. Distinct from
 	// codeBootFailed because the host has a specific recovery to offer
-	// ("reset local data") rather than a generic retry. Maps from
+	// (delete the account's index dir and retry, "reset local data" as
+	// the fallback) rather than a generic retry. Maps from
 	// indexer.ErrIndexRebuildRequired, which arrives wrapped in a
 	// *embedded.BootError — hence the ordering in errCode.
 	codeIndexRebuildRequired = 4

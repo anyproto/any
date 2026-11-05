@@ -23,7 +23,7 @@ order: 30
     ├── server.lock              # per-account single-instance lock (OS file lock)
     ├── server.pid               # holder's pid, for error messages only
     ├── server.addr              # holder's bound address, for the CLI only
-    ├── sdk/                     # any-store databases — owned by the SDK; sdk.db also holds the local store
+    ├── sdk/                     # any-store databases — owned by the SDK; sdk.db also holds the local store, local-scope values and the files bookkeeping
     ├── files/                   # file content, one CARv2 per rootCid — owned by the SDK
     └── index/                   # local search and link index (index.db) — owned by the indexer
 ```
@@ -51,12 +51,12 @@ A `wallet.key` directly at the root is the legacy flat layout: it acts as the de
 
 | Delete | Effect |
 |---|---|
-| `index/` | safe; on the next start every space re-indexes from the beginning — full text first, then the embed drain, which can take a while on a large account. The boot does this itself for an `index.db` it cannot open (schema-version, dimension or chunk-target mismatch, or an integrity-check failure after a crash). |
+| `index/` | safe; on the next start every space re-indexes from the beginning — full text first, then the embed drain, which can take a while on a large account. The boot does this itself for an `index.db` it cannot open (schema-version or chunk-target mismatch, a configured `index.vector.dim` that contradicts it, or an integrity-check failure after a crash). |
 | `models/` | safe; the model downloads again on next boot (a model already in a legacy `<account-dir>/index/models/` keeps being used from there) |
 | `server.lock` | safe when no server is running; the lock lives in the kernel, not in the file, so a leftover file blocks nothing |
 | `server.pid`, `server.addr` | safe any time; they only label the current holder |
 | `files/` | **loses non-durable files** — bytes not yet backed up to the network have no other copy (a LAN peer that fetched them is luck, not custody). Use the cache endpoints or per-file offload instead ([Cache](../files/cache.html)). |
-| `sdk/` | loses every unsynced change, forces a full re-sync of shared spaces and **loses the local store** (`/v1/local` collections have no automatic backup; a manual export can restore exported records); a wiped storage also restarts the index generation, which the indexer detects and re-indexes |
+| `sdk/` | loses every unsynced change, forces a full re-sync of shared spaces and **loses the local store** (`/v1/local` collections have no automatic backup; a manual export can restore exported records), the local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone); a wiped storage also restarts the index generation, which the indexer detects and re-indexes |
 | `wallet.key` | **loses this device's key**. The account survives if you kept the mnemonic — `any init --mnemonic` derives the same account id with a fresh device key. |
 | `network.json` | only to repair the pin: when the account was first booted on the wrong network, or the pin is unreadable (`500 auth.network_pin_corrupt`). Start the server on the account's network afterwards; that boot pins it again. |
 

@@ -126,7 +126,7 @@ If the engine fails to boot after this call created the account dir, the half-cr
 | 409 | `auth.network_mismatch` | the account's data belongs to a different any-sync network than the server's config (`details.pinned`, `details.configured`); start the server with that network's nodeconf, one data root per network |
 | 500 | `auth.device_key_corrupt` | managed: the cached `device.key` is unreadable; remove it to mint a new device identity (this install then registers as a new peer) |
 | 500 | `auth.network_pin_corrupt` | the account's `network.json` is unreadable; it is never rewritten from config — remove it and start on the account's network |
-| 500 | `sdk.store_corrupt` | the account's SDK store `sdk.db` failed its integrity check on a dirty open; it is never repaired in place — remove `sdk.db` and the files named after it from the account's `sdk/` dir and boot again: the SDK replays the synced trees into a fresh one; what lived only in `sdk.db` — the local store, local-scope values, the files bookkeeping — is lost |
+| 500 | `sdk.store_corrupt` | the account's SDK store `sdk.db` failed its integrity check on a dirty open; it is never repaired in place — remove `sdk.db` and the files named after it from the account's `sdk/` dir and boot again: the SDK replays the synced trees into a fresh one; what lived only in `sdk.db` is lost: the local store, local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone) |
 | 507 | `storage.no_space` | the device has no disk space left — the account dir, the device key or a store could not be written; free space and retry |
 
 ## One server, one account

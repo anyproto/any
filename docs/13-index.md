@@ -639,18 +639,20 @@ run and the index is FTS-only.
 
 Enabling an embedder on an index built without one is not a rebuild.
 The cursor row's `embed` field is the cursor up to which every doc the
-upsert rule embeds carries a vector or the pending mark: an advance
-that lands marked docs writes it with the cursor, a run without an
-embedder advances the cursor and leaves it behind. At space open, a
+upsert rule embeds carries a vector or the pending mark. A store that
+marks docs (an embedder configured, or `index.vector.dim` set) moves it
+with the cursor on every landed page, but only while the two agree; a
+store that marks nothing advances the cursor alone and leaves `embed`
+behind, and only a finished sweep catches it up. At space open, a
 worker with an embedder that finds `embed` behind the cursor sweeps the
 space's docs in id order, 500 per page, marking every one that has
 neither a vector nor the mark and that the upsert rule embeds
 (`shouldEmbed`: text present, not `props` scope, `prop` entries of 64
 bytes or more) — each page's marks are written after its iterator
-closes — then nudges the embed loop and catches `embed` up to the
-cursor. Nothing is ever erased, so a failed write only costs another
-sweep on the next start, and an older build advancing the cursor on
-the same db is swept the same way.
+closes — then nudges the embed loop and stamps `embed` with the cursor
+it read before sweeping. Nothing is ever erased, so a failed write or
+sweep only costs another sweep on the next start, and an older build
+advancing the cursor on the same db is swept the same way.
 
 Embedders (`indexer.Embedder`), selected by `index.embedder`:
 
@@ -849,7 +851,7 @@ Mechanics (`internal/indexer`): `NewEmbedder` (`embed_factory.go`) gets
 the local embedder from `newLocalEmbedder`, which `embed_worker.go`
 implements and `embed_local_off.go` stubs with `errLocalNotBuilt`. The
 store marks docs `pending`, and creates the sparse pending index, only
-when an embedder is configured or a vector dimension is already known,
+when an embedder is configured or `index.vector.dim` is set,
 so an FTS-only index never runs the embed loop. Tests that drive the
 local embedder carry the `llamacpp` constraint: `go test ./...` runs
 everything else, and `make test` reruns the packages that hold them with

@@ -921,7 +921,8 @@ func (w *spaceWorker) openIndex(ctx context.Context) {
 // neither a vector nor the pending mark. The cursor row's embed field
 // lags the cursor exactly when such docs may exist (embed_backfill.go):
 // the sweep marks them, nudges the embed loop and catches the field up.
-// A failed sweep is logged and retried on the next start.
+// A failed sweep is logged and retried on the next start: the advance
+// never catches the field up on its own.
 func (w *spaceWorker) backfillPending(ctx context.Context) {
 	if !w.ix.HasEmbedder() {
 		return

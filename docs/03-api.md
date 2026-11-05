@@ -336,12 +336,14 @@ which the next boot pins again), `500 sdk.store_corrupt` (the account's
 SDK store `sdk.db` failed its integrity check on a dirty open; it is
 never repaired in place — remove `sdk.db` and the files named after it
 from the account's `sdk/` dir and boot again: the SDK replays the
-synced trees into a fresh one; what lived only in `sdk.db` — the local
-store, local-scope values, the files bookkeeping — is lost),
-`507 storage.no_space` (the
-device has no disk space left; free space and retry). A search index
-this build refuses is removed and rebuilt by the boot itself
-(`13-index.md`), not reported.
+synced trees into a fresh one; what lived only in `sdk.db` is lost:
+the local store, local-scope values and the files bookkeeping — durable
+files download again, files not yet durable are gone),
+`507 storage.no_space` (the device has no disk space left; free space
+and retry). A search index this build refuses is removed and rebuilt
+by the boot itself (`13-index.md`); only a rebuild that fails is
+reported, as `500 internal` (`507 storage.no_space` when the disk is
+full).
 
 ### Account
 

@@ -299,12 +299,15 @@ deleting `files/` by hand loses them.
 store** (`docs/26-local-store.md`): the `l_*` collections there are
 device-local data with no DAG behind them and no backup. The SDK's
 own re-index paths rebuild only CRDT collections and leave them alone,
-but removing `sdk/` by hand loses them.
+but removing `sdk/` by hand loses them, with the local-scope values and
+the files bookkeeping that live only there (durable files download
+again, files not yet durable are gone).
 The search index (`docs/13-index.md`) is derived state: removing
 `<account-dir>/index/` is safe — its cursors go with it, so the next
 boot re-indexes from the change feed's start and re-embeds. The boot
-does this itself for an `index.db` it cannot open (schema, dimension or
-chunk-target mismatch, or a failed integrity check after a crash),
+does this itself for an `index.db` it cannot open (schema or
+chunk-target mismatch, a configured `index.vector.dim` that contradicts
+it, or a failed integrity check after a crash),
 leaving `models/` beside it. The
 embedder model cache is shared at `<root>/models/` — one ~600MB
 download per root, not per account (a model already sitting in

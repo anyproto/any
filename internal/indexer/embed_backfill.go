@@ -10,11 +10,13 @@ import (
 )
 
 // The cursor row's `embed` field is the cursor up to which every doc the
-// upsert rule embeds carries a vector or the pending mark. An advance
-// that lands marked docs writes it with the cursor (AdvanceCursor); a
-// run without an embedder advances the cursor and leaves it behind,
-// which is what tells the next run with one to sweep. Nothing is ever
-// erased, so a failed write only costs another sweep.
+// upsert rule embeds carries a vector or the pending mark. A store that
+// marks docs (an embedder configured, or index.vector.dim set) moves it
+// with the cursor while the two agree (AdvanceCursor); a store that
+// marks nothing advances the cursor alone and leaves it behind, which is
+// what tells the next run with an embedder to sweep, and only a finished
+// sweep catches it up. Nothing is ever erased, so a failed write or
+// sweep only costs another sweep.
 
 // backfillPage is how many docs one sweep page reads, and so the most
 // one write transaction marks.
@@ -62,12 +64,11 @@ func (s *Store) StampEmbed(ctx context.Context, spaceId string, seq uint64) erro
 // pulled and its iterator closed before the page's marks are written,
 // so memory stays bounded and no iterator is open across a write.
 // Returns how many docs it marked, also on failure.
-func (s *Store) BackfillPending(ctx context.Context, spaceId string) (int, error) {
+func (s *Store) BackfillPending(ctx context.Context, spaceId string) (marked int, err error) {
 	coll, err := s.spaceColl(ctx, spaceId)
 	if err != nil {
 		return 0, err
 	}
-	marked := 0
 	last := ""
 	for {
 		if err := ctx.Err(); err != nil {
@@ -77,10 +78,11 @@ func (s *Store) BackfillPending(ctx context.Context, spaceId string) (int, error
 		if err != nil {
 			return marked, err
 		}
-		if err := markPendingBatch(ctx, coll, ids); err != nil {
+		n, err := markPendingBatch(ctx, coll, ids)
+		marked += n
+		if err != nil {
 			return marked, err
 		}
-		marked += len(ids)
 		if !more {
 			return marked, nil
 		}
@@ -128,14 +130,14 @@ func unembeddedPage(ctx context.Context, coll anystore.Collection, last string) 
 
 // markPendingBatch sets the pending mark on ids in one write
 // transaction, update-only: a doc deleted or embedded meanwhile is left
-// alone.
-func markPendingBatch(ctx context.Context, coll anystore.Collection, ids []string) error {
+// alone and not counted.
+func markPendingBatch(ctx context.Context, coll anystore.Collection, ids []string) (marked int, err error) {
 	if len(ids) == 0 {
-		return nil
+		return 0, nil
 	}
 	tx, err := coll.WriteTx(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback() //nolint:errcheck
 	mod := query.ModifyFunc(func(a *anyenc.Arena, v *anyenc.Value) (*anyenc.Value, bool, error) {
@@ -146,9 +148,14 @@ func markPendingBatch(ctx context.Context, coll anystore.Collection, ids []strin
 		return v, true, nil
 	})
 	for _, id := range ids {
-		if _, err := coll.UpdateId(tx.Context(), id, mod); err != nil && !errors.Is(err, anystore.ErrDocNotFound) {
-			return err
+		res, err := coll.UpdateId(tx.Context(), id, mod)
+		if err != nil && !errors.Is(err, anystore.ErrDocNotFound) {
+			return 0, err
 		}
+		marked += res.Modified
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return marked, nil
 }

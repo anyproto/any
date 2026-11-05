@@ -197,3 +197,63 @@ func TestSpaceWorker_BackfillPending(t *testing.T) {
 		t.Fatal("a caught-up space nudged the embed loop")
 	}
 }
+
+// A sweep that fails leaves the embed cursor behind, and the pages the
+// advance lands afterwards do not catch it up, so the next start sweeps
+// again and finds the doc the failed sweep missed.
+func TestSpaceWorker_BackfillPending_FailedSweepSurvivesAdvance(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "index.db")
+	const sp = "sp1"
+	doc := func(recordId, text string, seq uint64) DocUpsert {
+		return DocUpsert{Entry: index.IndexEntry{Scope: index.ScopeBasic, ObjectId: "O", Dataset: "editor_blocks", RecordId: recordId, Data: text, ApplySeq: seq}}
+	}
+	land := func(st *Store, up DocUpsert) {
+		if _, err := st.ApplyPage(ctx, sp, []DocUpsert{up}, nil, nil, nil, &LinkOps{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.AdvanceCursor(ctx, sp, up.Entry.ApplySeq, "gen1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// No embedder: A lands unmarked.
+	st, err := OpenStore(ctx, dbPath, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	land(st, doc("a", "first", 1))
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// An embedder: the sweep fails (cancelled ctx), then a page lands.
+	st, err = OpenStore(ctx, dbPath, 0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	w := newSpaceWorker(New(nil, nil, st, Options{Embedder: noopEmbedder{}}), idSpace{id: sp})
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	w.backfillPending(cancelled)
+	land(st, doc("b", "second", 2))
+	if needed, _, err := st.EmbedBackfillNeeded(ctx, sp); err != nil || !needed {
+		t.Fatalf("after a failed sweep and an advance: needed = %v (%v), want true", needed, err)
+	}
+
+	// The next start sweeps and finds A.
+	w = newSpaceWorker(New(nil, nil, st, Options{Embedder: noopEmbedder{}}), idSpace{id: sp})
+	w.backfillPending(ctx)
+	ids, _, err := st.Pending(ctx, sp, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(ids)
+	if want := []string{"O:editor_blocks:a", "O:editor_blocks:b"}; strings.Join(ids, ",") != strings.Join(want, ",") {
+		t.Fatalf("pending after the retried sweep = %v, want %v", ids, want)
+	}
+	if needed, _, err := st.EmbedBackfillNeeded(ctx, sp); err != nil || needed {
+		t.Fatalf("after the retried sweep: needed = %v (%v), want false", needed, err)
+	}
+}
