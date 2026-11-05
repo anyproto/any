@@ -124,6 +124,8 @@ If the engine fails to boot after this call created the account dir, the half-cr
 | 400 | `auth.passkey_required` | encrypted wallet with a missing or wrong passkey; the passkey comes from the configured env var, never the body |
 | 409 | `sdk.crdt_version_newer` | the account's data was written by a newer release; upgrade before opening it |
 | 500 | `auth.device_key_corrupt` | managed: the cached `device.key` is unreadable; remove it to mint a new device identity (this install then registers as a new peer) |
+| 500 | `sdk.store_corrupt` | the account's local store failed its integrity check on a dirty open; it is never repaired in place — remove the account's local data to sign in again and re-sync from the network (the device-local store is lost with it) |
+| 507 | `storage.no_space` | the device has no disk space left — the account dir, the device key or a store could not be written; free space and retry |
 
 ## One server, one account
 

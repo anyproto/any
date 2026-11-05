@@ -88,7 +88,7 @@ There is no boot-time probe. Whenever an embedder is *configured*, text-bearing 
 - an outage — at boot or mid-run — freezes only the vector side; full-text indexes and answers normally;
 - when the embedder returns, the next embed round (nudged by a page, or the 1-minute retry tick) drains the queue automatically;
 - `hybrid` queries degrade to full-text with `vectorStatus: "unavailable"`; `vector` queries answer `503 index.embedder_unavailable`;
-- the vector dimension is learned from the first successful batch (or `index.vector.dim`) and pinned in the index database — a later dimension change against a populated index is a loud boot error advising `rm <data-dir>/index`, never silent corruption. A model change is a rebuild for the same reason — never mix vectors from two models.
+- the vector dimension is learned from the first successful batch (or `index.vector.dim`) and pinned in the index database — a configured dimension that contradicts a populated index makes the boot remove and rebuild the index (one warning in the server log), never silent corruption. A model change is a rebuild for the same reason — never mix vectors from two models.
 
 "Model still downloading" and "GPU died mid-run" both ride the same path: affected documents stay `pending`. A child that crashes with GPU offload active also moves the server to CPU decoding for the rest of the run; the next start tries the GPU again, so a driver fix recovers on its own.
 

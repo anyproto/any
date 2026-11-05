@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -13,6 +15,7 @@ import (
 	"github.com/anyproto/any-sync-sdk/auth"
 	sdkconfig "github.com/anyproto/any-sync-sdk/config"
 	"github.com/anyproto/any-sync-sdk/handler"
+	"go.uber.org/zap"
 
 	"github.com/anyproto/any/internal/bin"
 	"github.com/anyproto/any/internal/chat"
@@ -295,12 +298,31 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 	if err != nil {
 		return nil, err
 	}
-	st, err := indexer.OpenStore(ctx, filepath.Join(dataDir, "index", "index.db"), cfg.Vector.Dim, emb != nil)
+	dbPath := filepath.Join(dataDir, "index", "index.db")
+	ix, err := openIndexerStore(ctx, cfg, dbPath, emb, sdk, chunkers, queryEmbedTimeout, onProcess, onLinks)
+	if errors.Is(err, indexer.ErrIndexRebuildRequired) {
+		// The index is derived state: a db this build cannot open is
+		// removed and rebuilt from cursor 0 instead of failing the boot.
+		engineLog.Warn("search index rebuilt", zap.Error(err))
+		if err = removeIndexDB(dbPath); err == nil {
+			ix, err = openIndexerStore(ctx, cfg, dbPath, emb, sdk, chunkers, queryEmbedTimeout, onProcess, onLinks)
+		}
+	}
 	if err != nil {
 		// The local embedder already runs its model download.
 		if c, ok := emb.(io.Closer); ok {
 			_ = c.Close()
 		}
+		return nil, err
+	}
+	return ix, nil
+}
+
+// openIndexerStore opens the index db and builds the indexer over it.
+// On failure the store is closed; the embedder stays the caller's.
+func openIndexerStore(ctx context.Context, cfg config.Index, dbPath string, emb indexer.Embedder, sdk *anysyncsdk.SDK, chunkers *index.Registry, queryEmbedTimeout time.Duration, onProcess func(indexer.ProcessUpdate), onLinks func(spaceId string, targets []string)) (*indexer.Indexer, error) {
+	st, err := indexer.OpenStore(ctx, dbPath, cfg.Vector.Dim, emb != nil)
+	if err != nil {
 		return nil, err
 	}
 	st.SetVectorMode(cfg.Vector.Mode) // ANN strategy; "" = IVF-SQ default
@@ -338,10 +360,27 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 	// the db's pin can never describe boundaries the chunker isn't using.
 	// A db built on a different one is refused here (rebuild required).
 	if err := st.PinChunkRunes(ctx, ix.ChunkRunes()); err != nil {
-		// Closes the store and the embedder: the error tells the user to
-		// remove the index dir, which Windows refuses while it is open.
-		_ = ix.Close()
+		_ = st.Close()
 		return nil, err
 	}
 	return ix, nil
+}
+
+// removeIndexDB deletes the index db with its WAL, shm and dirty
+// sentinel. The rest of the index dir stays: the model cache lives there.
+func removeIndexDB(dbPath string) error {
+	dir, base := filepath.Dir(dbPath), filepath.Base(dbPath)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("remove index db: %w", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), base) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove index db: %w", err)
+		}
+	}
+	return nil
 }

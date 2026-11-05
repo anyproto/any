@@ -47,7 +47,9 @@ import (
 //	ErrAlreadyRunning               -> 1
 //	ErrBadDataDir                   -> 2
 //	a boot failure                  -> 3 (see BootError)
-//	indexer.ErrIndexRebuildRequired -> 4 (inside a BootError; checked first)
+//	indexer.ErrIndexRebuildRequired -> 4 (inside a BootError; checked first — the boot
+//	                                      rebuilds a refused index itself, so only a
+//	                                      refused rebuild gets here)
 //	ErrBadOptions                   -> 5 (a host programming error, never retryable)
 //
 // The Android gomobile shim (mobile/android) surfaces the error string
@@ -72,8 +74,9 @@ var (
 // BootError wraps a failure that occurred while bringing the server up
 // after the config validated — engine/account boot, listener bind, or a
 // config the runtime rejected. The iOS shim maps a BootError to code 3,
-// EXCEPT when it wraps indexer.ErrIndexRebuildRequired, which gets its own
-// code 4 because the host has a specific recovery to offer. The distinct
+// EXCEPT when it wraps indexer.ErrIndexRebuildRequired — the boot rebuilds a
+// refused index itself, so this is a fresh db refused too — which gets its
+// own code 4 because the host has a specific recovery to offer. The distinct
 // type lets a caller tell "the config was fine but boot failed" from "the
 // input was bad" (ErrBadDataDir) without string matching.
 type BootError struct{ Err error }

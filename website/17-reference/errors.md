@@ -43,6 +43,7 @@ Every error response from the any server — whatever the status code — has th
 | 501 | route registered for an SDK surface that is not implemented yet |
 | 502 | the invite service is unreachable or answered unexpectedly (`access.unavailable`) |
 | 503 | not ready — request cancelled, shutting down, or the embedder is unreachable |
+| 507 | the device has no disk space left (`storage.no_space`) |
 
 Panics are converted to `500 internal` with a generic message.
 
@@ -262,6 +263,8 @@ Panics are converted to `500 internal` with a generic message.
 | `sdk.not_implemented` | 501 | placeholder route (sync-status peers, type delete, collection delete) |
 | `sdk.not_found` | 404 | the engine reports the target gone (deleted object, unknown property or definition) |
 | `sdk.crdt_version_newer` | 409 | the account's data was written by a newer release (`details.stored` > `details.supported`): booting it refuses, a running server turns read-only until upgraded (`GET /v1/health` → `crdtVersion`) |
+| `sdk.store_corrupt` | 500 | the account's local store failed its integrity check on a dirty open; booting it refuses and it is never repaired in place — remove the account's local data to sign in again and re-sync from the network (the device-local store is lost with it) |
+| `storage.no_space` | 507 | the device has no disk space left — `POST /v1/auth` could not create the account dir, write the device key or open a store; free space and retry |
 | `server.unavailable` | 503 | request cancelled / server shutting down |
 | `server.internal` | 500 | the embedded usecase catalog failed to compile |
 | `internal` | 500 | catch-all |

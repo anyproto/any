@@ -37,6 +37,7 @@ Every error response — regardless of status code — has the same body:
 | 501    | `sdk.not_implemented` — `DELETE …/types/:typeId`, `DELETE …/collections/:collectionId` and `GET …/sync-status/peers` |
 | 502    | `access.unavailable`                                           |
 | 503    | Request cancelled or the engine tearing down (`server.unavailable`); embedder unreachable (`index.embedder_unavailable`) |
+| 507    | `storage.no_space` — the device has no disk space left (`POST /v1/auth`) |
 
 No caller authentication in v1 (loopback is the trust boundary). The
 single 401 the server raises itself is `auth.required` — no account is
@@ -243,6 +244,9 @@ search.bad_scope                 # 400 — scope not a valid slug ([a-z0-9_-], m
 sdk.not_implemented              # 501 — DELETE …/types/:typeId, DELETE …/collections/:collectionId, GET …/sync-status/peers
 sdk.not_found                    # 404 — the SDK reports the target is gone (object, type, property, part or dataset definition)
 sdk.crdt_version_newer           # 409 — the account's data was written by a newer release (details.stored > details.supported): POST /v1/auth refuses to boot it; a running server whose account is raised by another device turns read-only — every synced write answers this until the server is upgraded (GET /v1/health.crdtVersion)
+sdk.store_corrupt                # 500 — the account's local store (sdk.db) failed its integrity check on a dirty open: POST /v1/auth refuses to boot it; never repaired in place — remove the account's local data to sign in again and re-sync from the network (the device-local store is lost with it)
+
+storage.no_space                 # 507 — the device has no disk space left: POST /v1/auth could not create the account dir, write the device key or open a store; free space and retry
 
 server.unavailable               # 503 — request cancelled / engine tearing down
 server.internal                  # 500 — the embedded usecase catalog failed to compile (catalog routes)

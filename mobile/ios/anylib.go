@@ -83,8 +83,9 @@ const (
 	// account boot, listener bind, or a config the runtime rejected.
 	// Maps from a *embedded.BootError.
 	codeBootFailed = 3
-	// codeIndexRebuildRequired: the on-disk search index can't be opened
-	// by this build and has to be deleted to rebuild. Distinct from
+	// codeIndexRebuildRequired: the search index could not be rebuilt —
+	// the boot removes an index db this build cannot open and recreates
+	// it, and the fresh one was refused too. Distinct from
 	// codeBootFailed because the host has a specific recovery to offer
 	// ("reset local data") rather than a generic retry. Maps from
 	// indexer.ErrIndexRebuildRequired, which arrives wrapped in a

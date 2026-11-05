@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"github.com/anyproto/any-sync/app/logger"
 	"go.uber.org/zap"
 
+	anystore "github.com/anyproto/any-store/v2"
 	"github.com/anyproto/any-sync-sdk/auth"
 	"github.com/anyproto/any-sync-sdk/space"
 
@@ -118,6 +120,8 @@ func (d *deps) rootWalletID(c echo.Context) string {
 //	@Failure	403	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
 //	@Failure	409	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Failure	507	{object}	api.ErrorEnvelope
 //	@Router		/auth [post]
 func (d *deps) authorize(c echo.Context) error {
 	// Token first: an untokened caller on a managed server learns
@@ -351,6 +355,14 @@ func (d *deps) authBootError(c echo.Context, err error) error {
 		return writeError(c, http.StatusConflict, "sdk.crdt_version_newer",
 			"the account's data was written by a newer version — upgrade this server before opening it",
 			crdtVersionDetails(err, nil))
+	case storageFull(err):
+		return writeError(c, http.StatusInsufficientStorage, "storage.no_space",
+			"the device has no disk space left — free space and retry", nil)
+	case errors.Is(err, anystore.ErrQuickCheckFailed) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded):
+		// sdk.db failed its integrity check on a dirty open. A check cut
+		// short by a cancelled boot is not a damaged store.
+		return writeError(c, http.StatusInternalServerError, "sdk.store_corrupt",
+			"this account's local store failed its integrity check and cannot be opened — it is never repaired in place: remove the account's local data to sign in again and re-sync from the network (the device-local store is lost with it)", nil)
 	}
 	authLog.Error("boot account", zap.Error(err))
 	return writeError(c, http.StatusInternalServerError, "internal", "account boot failed", nil)

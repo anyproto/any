@@ -562,12 +562,13 @@ space's rewrite never appear (`Options.OnProcess`, bridged in
   `store.go`), the **vector dimension** and the **chunk target**. A
   stamp one step behind is adopted at open: the layout it lacks (the
   `name` field) is applied per collection on its first open, and the
-  stamp moves, so an older build then refuses the db with the guidance
-  below instead of failing every space on an index definition it cannot
-  apply. Any other mismatch is refused with `ErrIndexRebuildRequired`
-  naming the directory to remove — at open, or for the dimension when an
-  embedder first answers with a different one. The docs themselves are
-  never migrated: the index is derived state and rebuilds from cursor 0.
+  stamp moves, so an older build then rebuilds the db instead of
+  failing every space on an index definition it cannot apply. Any other
+  mismatch is `ErrIndexRebuildRequired`: at open the boot removes the db
+  and rebuilds it (§ Builds and the local embedder); for the dimension
+  an embedder first answers with mid-run, the embed round fails and its
+  docs stay pending. The docs themselves are never migrated: the index
+  is derived state and rebuilds from cursor 0.
 
 ### Re-index triggers — per-space worker boot
 
@@ -680,7 +681,9 @@ answers normally. When the embedder comes back, the next embed round
 drains the queue. The vector dimension is learned from the first
 successful batch (or pinned via `index.vector.dim`) and persisted in
 `_meta`, so a later model or dimension change against a populated index
-is refused (`ErrIndexRebuildRequired`), not silent corruption. A batch
+is never mixed in (`ErrIndexRebuildRequired`: a configured dimension
+that contradicts the db rebuilds the index at boot, one learned mid-run
+fails the embed round), not silent corruption. A batch
 that fails midway lands the vectors embedded so far.
 
 **Batching costs context.** The local child sends a batch one decode
@@ -832,11 +835,14 @@ local embedder carry the `llamacpp` constraint: `go test ./...` runs
 everything else, and `make test` reruns the packages that hold them with
 the tag.
 
-A host that can't open its index gets a distinguishable failure:
-`ErrIndexRebuildRequired` (schema version, vector dimension or chunk
-target mismatch, `internal/indexer/errors.go`) reaches the iOS shim as
-start code `4`, so the app can offer "reset local data". The index is a
-derived cache, so deleting it is always the whole fix.
+An index db this build cannot open is rebuilt by the boot, not
+reported: `ErrIndexRebuildRequired` (schema version, vector dimension
+or chunk target mismatch, or a failed integrity check on a dirty open,
+`internal/indexer/errors.go`) makes `OpenIndexer` remove `index.db`
+with its WAL and sentinel — the model cache beside them stays — and
+open a fresh one, so every space re-indexes from cursor 0. The host
+sees one warning in the server log; only a fresh db that is refused too
+fails the boot (the iOS shim's start code `4`).
 
 ### Search
 

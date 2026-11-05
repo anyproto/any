@@ -112,7 +112,9 @@ account is standalone-only — a managed login with its phrase lands in
 3. With an account: boot its engine — take the instance lock in the
    account dir, open the wallet, derive the account id, open the SDK
    and the indexer — before the listener binds, so boot failures
-   surface immediately. Outside the `--wallet` path `run` never
+   surface immediately. A search index this build cannot open is
+   removed and rebuilt by the boot itself (`13-index.md`), never a boot
+   failure. Outside the `--wallet` path `run` never
    generates a wallet; create accounts with `any init` or over HTTP.
    SDK `Open` returns after local wiring only: eager space loading and
    offline catch-up replay run on one SDK-owned serial background pass,
@@ -300,7 +302,10 @@ own re-index paths rebuild only CRDT collections and leave them alone,
 but removing `sdk/` by hand loses them.
 The search index (`docs/13-index.md`) is derived state: removing
 `<account-dir>/index/` is safe — its cursors go with it, so the next
-boot re-indexes from the change feed's start and re-embeds. The
+boot re-indexes from the change feed's start and re-embeds. The boot
+does this itself for an `index.db` it cannot open (schema, dimension or
+chunk-target mismatch, or a failed integrity check after a crash),
+leaving `models/` beside it. The
 embedder model cache is shared at `<root>/models/` — one ~600MB
 download per root, not per account (a model already sitting in
 `<account-dir>/index/models/` keeps being used from there).

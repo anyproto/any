@@ -189,7 +189,7 @@ func OpenStore(ctx context.Context, path string, dim int, embedderConfigured boo
 		// A check cut short by the caller's ctx or by any-store's own
 		// check timeout is not a torn index.
 		if errors.Is(err, anystore.ErrQuickCheckFailed) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			return nil, quickCheckRebuildErr(path, err)
+			return nil, quickCheckRebuildErr(err)
 		}
 		return nil, fmt.Errorf("indexer: open index db: %w", err)
 	}
@@ -203,8 +203,8 @@ func OpenStore(ctx context.Context, path string, dim int, embedderConfigured boo
 
 // quickCheckRebuildErr maps a failed integrity check on open. The index
 // is derived state: a torn index.db is rebuilt, not repaired.
-func quickCheckRebuildErr(path string, cause error) error {
-	return fmt.Errorf("%w: index db failed its integrity check (%v) — remove %s to rebuild from scratch", ErrIndexRebuildRequired, cause, filepath.Dir(path))
+func quickCheckRebuildErr(cause error) error {
+	return fmt.Errorf("%w: index db failed its integrity check: %v", ErrIndexRebuildRequired, cause)
 }
 
 // OpenStoreInMemory opens a throwaway in-memory store (tests).
@@ -248,12 +248,8 @@ func (s *Store) Dim() int {
 // (EnsureIndex would also catch it, but per-collection and later — this
 // surfaces it once, at open, with a clear remedy).
 //
-// Both mismatch arms wrap ErrIndexRebuildRequired as a PREFIX. Prefix,
-// not suffix, for two reasons: hosts read the head of a truncated
-// message first, and the tails keep the substrings any-kotlin's
-// AnyRuntimeImpl still matches on ("indexer:", "remove ", "to rebuild")
-// so wiring the sentinel doesn't break Android before it adopts the
-// code. Pinned by TestRebuildRequiredMessagesKeepAndroidSubstrings.
+// Both mismatch arms wrap ErrIndexRebuildRequired as a PREFIX, so the
+// cause reads first in the boot's rebuild log line.
 func (s *Store) checkMeta(ctx context.Context) error {
 	coll, err := s.db.Collection(ctx, cursorsCollection)
 	if err != nil {
@@ -273,14 +269,14 @@ func (s *Store) checkMeta(ctx context.Context) error {
 	case indexSchemaVersion - 1:
 		// v7 lacks the name field in every collection; each is moved onto
 		// it in place on its first open (upgradeFTS), so the db only moves
-		// its stamp — which an older build then refuses with the rebuild
-		// guidance instead of failing every space on an index definition
-		// it cannot apply. The stored chunk target rides the restamp.
+		// its stamp — which an older build then rebuilds instead of
+		// failing every space on an index definition it cannot apply. The
+		// stored chunk target rides the restamp.
 		if s.chunkRunes == 0 {
 			s.chunkRunes = v.GetInt("chunkRunes")
 		}
 	default:
-		return fmt.Errorf("%w: index db schema v%d, this build needs v%d — remove %s to rebuild (re-indexes on next change, see docs/13-index.md)", ErrIndexRebuildRequired, schema, indexSchemaVersion, filepath.Dir(s.path))
+		return fmt.Errorf("%w: index db schema v%d, this build needs v%d", ErrIndexRebuildRequired, schema, indexSchemaVersion)
 	}
 	dim := v.GetInt("dim")
 	switch {
@@ -290,7 +286,7 @@ func (s *Store) checkMeta(ctx context.Context) error {
 	case dim == 0:
 		// first run with a known dim: recorded below
 	default:
-		return fmt.Errorf("%w: index db was built with vector dim %d, configured %d — remove %s to rebuild from scratch", ErrIndexRebuildRequired, dim, s.dim, filepath.Dir(s.path))
+		return fmt.Errorf("%w: index db was built with vector dim %d, configured %d", ErrIndexRebuildRequired, dim, s.dim)
 	}
 	if schema != indexSchemaVersion || dim != s.dim {
 		return s.writeMeta(ctx, s.dim)
@@ -325,7 +321,7 @@ func (s *Store) PinChunkRunes(ctx context.Context, n int) error {
 	}
 	if err == nil {
 		if got := doc.Value().GetInt("chunkRunes"); got != 0 && got != n {
-			return fmt.Errorf("%w: index db was built with chunk target %d runes, this build uses %d — remove %s to rebuild from scratch", ErrIndexRebuildRequired, got, n, filepath.Dir(s.path))
+			return fmt.Errorf("%w: index db was built with chunk target %d runes, this build uses %d", ErrIndexRebuildRequired, got, n)
 		}
 	}
 	return s.writeMeta(ctx, s.dim)

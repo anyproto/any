@@ -289,9 +289,8 @@ func TestCopyBounded_TruncatesAndTerminates(t *testing.T) {
 // half-encoded rune, which String(validatingCString:) rejects outright —
 // so the whole rune has to go.
 //
-// The input is not hypothetical: internal/indexer's rebuild-required
-// messages carry an em dash, and they are exactly what lands in this
-// buffer as code 4.
+// The input is not hypothetical: the engine's error messages carry em
+// dashes, and they are what lands in this buffer.
 func TestCopyBounded_TruncatesOnRuneBoundary(t *testing.T) {
 	const emDash = "—" // 3 bytes; the byte cut lands inside it
 	input := strings.Repeat("a", messageLen-2) + emDash + "tail"
