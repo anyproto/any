@@ -1388,9 +1388,10 @@ settings — lives in bundles on the account's **tech space**, whose id
   `derived: true` is the exception: a permanent, uninstallable root,
   justified only when a fork would be unmergeable (chat-like content).
   Records-shaped bundles merge, so they are created;
-- `DELETE …/bundles/:bundleId` (uninstall) and
+- `DELETE …/bundles/:bundleId`, the uninstall;
   `DELETE …/objects/:objectId` on a bundle root (the SDK refuses any
-  other object);
+  other object) is not: a winner deleted alone leaves its losers
+  claimed;
 - `GET …/types`, `GET …/types/:rootId`, `GET …/types/:rootId/properties`
   and the `parts…` / `datasets…` (fields and indexes included) /
   `POST|PATCH|DELETE properties…` routes on bundle roots;
@@ -1488,17 +1489,20 @@ client's fork merge brings their content back. Losers go first, so a
 device that sees the bundle as uninstalled never finds a loser left
 behind, and the next ensure mints a fresh root with no losers.
 Idempotent: a bundle whose winner is already dead still gets its
-losers swept, and 204 either way. An uninstall discards, so unlike
-resolve it has no grace: a loser is deleted at the head this device
-holds. An uninstall made while apart from another device's install of
-the same id deletes what this device has seen; the other install
-arrives as a live claim the next install inherits as a loser
-(**Conflicts** above), and the next uninstall takes it. It runs behind ensure's convergence gate: a member other than the
-owner is `409 bundle.not_ready` until its registry has converged, the
-owner proceeds. Then `404 bundle.not_found` for a bundle the registry
-does not list, `409 bundle.not_ready` while the winner's tree has not
-reached this device, `409 bundle.loser_not_ready` while a loser's tree
-has not (any-sync's settings delete needs the local head; retry),
+losers swept, and 204 either way, so call it without a `GET` first: a
+row whose winner died through the object route reads 404 on `GET` and
+204 here. An uninstall discards, so unlike resolve it has no grace: a
+loser is deleted at the head this device holds. An uninstall made
+while apart from another device's install of the same id deletes what
+this device has seen; the other install arrives as a live claim the
+next install inherits as a loser (**Conflicts** above), and the next
+uninstall takes it. It runs behind ensure's convergence gate: a member
+other than the owner is `409 bundle.not_ready` until its registry has
+converged, the owner proceeds. Then `404 bundle.not_found` for a
+bundle the registry does not list, `409 bundle.not_ready` while the
+winner's tree has not reached this device,
+`409 bundle.loser_not_ready` while a loser's tree has not (any-sync's
+settings delete needs the local head; retry),
 `409 object.derived_undeletable` for a derived install,
 `403 space.read_only` for a reader.
 

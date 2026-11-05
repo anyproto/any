@@ -625,13 +625,14 @@ func (d *deps) bundleUninstall(c echo.Context) error {
 		return errResp
 	}
 	ctx := c.Request().Context()
-	switch sp.Info().OwnRole {
+	role := sp.Info().OwnRole
+	switch role {
 	case space.PermissionOwner, space.PermissionAdmin, space.PermissionWriter:
 	default:
 		// The SDK's write gate would say the same after the wait.
 		return bundleError(c, space.ErrReadOnlySpace, sp.Id(), bundleId)
 	}
-	if !d.bundleResolver().WaitConverged(ctx, sp) && sp.Info().OwnRole != space.PermissionOwner {
+	if !d.bundleResolver().WaitConverged(ctx, sp) && role != space.PermissionOwner {
 		return bundleError(c, bundles.ErrRegistryNotSynced, sp.Id(), bundleId)
 	}
 	if err := d.bundleResolver().Uninstall(ctx, sp, bundleId); err != nil {

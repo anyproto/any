@@ -675,8 +675,9 @@ func (r *Resolver) Uninstall(ctx context.Context, sp space.Space, bundleId strin
 		}
 		return fmt.Errorf("bundle %s: uninstall: %w", bundleId, err)
 	}
-	// Bookkeeping only: the install is gone whatever this read says.
-	roots, err := Roots(ctx, sp, bundleId)
+	// Bookkeeping only: the install is gone whatever this read says,
+	// and a caller that hung up after the sweep must not skip it.
+	roots, err := Roots(context.WithoutCancel(ctx), sp, bundleId)
 	if err != nil {
 		log.Warn("uninstalled bundle keeps its loser observations",
 			zap.String("bundle", bundleId), zap.String("spaceId", sp.Id()), zap.Error(err))
