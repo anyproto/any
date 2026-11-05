@@ -553,21 +553,25 @@ space's rewrite never appear (`Options.OnProcess`, bridged in
   ingest, tombstone-rebuild deletes), `hybrid` (HNSW + RAM cache),
   `bruteforce` / `exact` (exact, O(N) per query). Existing indexes keep
   their mode until rebuilt.
-- A `cursors` collection holds one `{id: spaceId, seq, gen, links}` row
-  per space — `gen` is the SDK's per-space `Changes().Generation()`, the
-  epoch the cursor belongs to; `links` the link-sink layout stamp.
+- A `cursors` collection holds one `{id: spaceId, seq, gen, links,
+  embed}` row per space — `gen` is the SDK's per-space
+  `Changes().Generation()`, the epoch the cursor belongs to; `links` the
+  link-sink layout stamp; `embed` the cursor up to which every doc the
+  upsert rule embeds carries a vector or the pending mark (§ Embed loop).
   Cursor writes MERGE: advancing with no epoch in hand keeps the stamped
   one, because erasing it would silently disable rebuild detection. A
   `_meta` row pins the **schema version** (`indexSchemaVersion` in
   `store.go`), the **vector dimension** and the **chunk target**. A
   stamp one step behind is adopted at open: the layout it lacks (the
   `name` field) is applied per collection on its first open, and the
-  stamp moves, so an older build then refuses the db with the guidance
-  below instead of failing every space on an index definition it cannot
-  apply. Any other mismatch is refused with `ErrIndexRebuildRequired`
-  naming the directory to remove — at open, or for the dimension when an
-  embedder first answers with a different one. The docs themselves are
-  never migrated: the index is derived state and rebuilds from cursor 0.
+  stamp moves, so an older build then sees a schema it cannot read
+  instead of failing every space on an index definition it cannot
+  apply. Any other
+  mismatch is `ErrIndexRebuildRequired`: at open the boot removes the db
+  and rebuilds it (§ Builds and the local embedder); for the dimension
+  an embedder first answers with mid-run, the embed round fails and its
+  docs stay pending. The docs themselves are never migrated: the index
+  is derived state and rebuilds from cursor 0.
 
 ### Re-index triggers — per-space worker boot
 
@@ -633,6 +637,23 @@ new text; a 1-minute ticker retries after embedder failures. A rewritten
 record goes back to `pending`. `index.embedder: none` ⇒ the loop doesn't
 run and the index is FTS-only.
 
+Enabling an embedder on an index built without one is not a rebuild.
+The cursor row's `embed` field is the cursor up to which every doc the
+upsert rule embeds carries a vector or the pending mark. A store that
+marks docs (an embedder configured, or `index.vector.dim` set) moves it
+with the cursor on every landed page, but only while the two agree; a
+store that marks nothing advances the cursor alone and leaves `embed`
+behind, and only a finished sweep catches it up. At space open, a
+worker with an embedder that finds `embed` behind the cursor sweeps the
+space's docs in id order, 500 per page, marking every one that has
+neither a vector nor the mark and that the upsert rule embeds
+(`shouldEmbed`: text present, not `props` scope, `prop` entries of 64
+bytes or more) — each page's marks are written after its iterator
+closes — then nudges the embed loop and stamps `embed` with the cursor
+it read before sweeping. Nothing is ever erased, so a failed write or
+sweep only costs another sweep on the next start, and an older build
+advancing the cursor on the same db is swept the same way.
+
 Embedders (`indexer.Embedder`), selected by `index.embedder`:
 
 - `auto` — **default**: the `local` embedder alone until
@@ -679,8 +700,12 @@ boot or mid-run — only freezes the vector side while FTS indexes and
 answers normally. When the embedder comes back, the next embed round
 drains the queue. The vector dimension is learned from the first
 successful batch (or pinned via `index.vector.dim`) and persisted in
-`_meta`, so a later model or dimension change against a populated index
-is refused (`ErrIndexRebuildRequired`), not silent corruption. A batch
+`_meta`, so a later dimension change against a populated index is never
+mixed in (`ErrIndexRebuildRequired`: a configured dimension that
+contradicts the db rebuilds the index at boot; one learned mid-run fails
+every embed round until the index is removed or `index.vector.dim`
+names it), not silent corruption. A model change at the same dimension
+is not detected: remove the index by hand. A batch
 that fails midway lands the vectors embedded so far.
 
 **Batching costs context.** The local child sends a batch one decode
@@ -826,17 +851,25 @@ Mechanics (`internal/indexer`): `NewEmbedder` (`embed_factory.go`) gets
 the local embedder from `newLocalEmbedder`, which `embed_worker.go`
 implements and `embed_local_off.go` stubs with `errLocalNotBuilt`. The
 store marks docs `pending`, and creates the sparse pending index, only
-when an embedder is configured or a vector dimension is already known,
+when an embedder is configured or `index.vector.dim` is set,
 so an FTS-only index never runs the embed loop. Tests that drive the
 local embedder carry the `llamacpp` constraint: `go test ./...` runs
 everything else, and `make test` reruns the packages that hold them with
 the tag.
 
-A host that can't open its index gets a distinguishable failure:
+An index db this build refuses is rebuilt by the boot, not reported:
 `ErrIndexRebuildRequired` (schema version, vector dimension or chunk
-target mismatch, `internal/indexer/errors.go`) reaches the iOS shim as
-start code `4`, so the app can offer "reset local data". The index is a
-derived cache, so deleting it is always the whole fix.
+target mismatch, or a failed integrity check on a dirty open,
+`internal/indexer/errors.go`) makes `OpenIndexer` remove `index.db` and
+every file named after it (WAL, shm, sentinel) — the model cache beside
+them stays — and open a fresh one, so every space re-indexes from
+cursor 0. The host sees one warning in the server log. A rebuild that
+fails (the removal, or opening the fresh db) fails the boot with the
+refusal still in the chain: start code `4` on the iOS shim, and from
+`POST /v1/auth` `500 internal` (`507 storage.no_space` when the disk is
+full). Any other open error — a torn page the quick check does not
+reach, a v1-format file — fails the boot (start code `3`, `500
+internal`).
 
 ### Search
 

@@ -60,6 +60,7 @@ func registerBundleRoutes(g *echo.Group, d *deps) {
 	g.GET("/spaces/:spaceId/bundles", d.bundleList)
 	g.GET("/spaces/:spaceId/bundles/:bundleId", d.bundleGet)
 	g.POST("/spaces/:spaceId/bundles/:bundleId/resolve", d.bundleResolve)
+	g.DELETE("/spaces/:spaceId/bundles/:bundleId", d.bundleUninstall)
 	g.POST("/spaces/:spaceId/bundles/:bundleId/children", d.bundleChild)
 }
 
@@ -598,6 +599,48 @@ func (d *deps) bundleResolve(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+// bundleUninstall handles DELETE /v1/spaces/:spaceId/bundles/:bundleId
+// — delete the install, losers then winner, once every tree is local.
+// Ensure's convergence gate first: a member other than the owner is
+// refused until the registry converged (docs/03-api.md § Bundles).
+//
+//	@Summary	Uninstall a bundle: its losers, then the winner, once every one is local
+//	@Tags		bundles
+//	@Param		spaceId		path	string	true	"Space ID"
+//	@Param		bundleId	path	string	true	"Bundle ID, percent-encoded"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	403	{object}	api.ErrorEnvelope
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	409	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/bundles/{bundleId} [delete]
+func (d *deps) bundleUninstall(c echo.Context) error {
+	bundleId, errResp, done := bundleIdParam(c)
+	if done {
+		return errResp
+	}
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	ctx := c.Request().Context()
+	role := sp.Info().OwnRole
+	switch role {
+	case space.PermissionOwner, space.PermissionAdmin, space.PermissionWriter:
+	default:
+		// The SDK's write gate would say the same after the wait.
+		return bundleError(c, space.ErrReadOnlySpace, sp.Id(), bundleId)
+	}
+	if !d.bundleResolver().WaitConverged(ctx, sp) && role != space.PermissionOwner {
+		return bundleError(c, bundles.ErrRegistryNotSynced, sp.Id(), bundleId)
+	}
+	if err := d.bundleResolver().Uninstall(ctx, sp, bundleId); err != nil {
+		return bundleError(c, err, sp.Id(), bundleId)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
 // bundleChild handles POST /v1/spaces/:spaceId/bundles/:bundleId/children
 // — derive a setup object under the bundle's current winner. Same
 // semantics as the objects derive: deterministic per (space, root,
@@ -747,6 +790,9 @@ func bundleErrorWith(c echo.Context, err error, details map[string]any) error {
 	case errors.Is(err, space.ErrBundleNotLoser):
 		return writeError(c, http.StatusConflict, api.ErrBundleNotLoser,
 			"root is not a loser of this bundle", details)
+	case errors.Is(err, space.ErrBundleDerived):
+		return writeError(c, http.StatusConflict, api.ErrObjectDerivedUndeletable,
+			"the install is derived; derived objects are permanent and cannot be uninstalled", details)
 	case errors.Is(err, space.ErrModuleReserved):
 		return writeError(c, http.StatusBadRequest, api.ErrDatasetModuleReserved,
 			"a part names a module reserved to the server's own installs", details)

@@ -39,7 +39,7 @@ package main
 //   1  already running (stop the current instance first)
 //   2  bad data directory (empty, or not creatable)
 //   3  boot failed
-//   4  the on-disk search index must be deleted and rebuilt
+//   4  the boot could not rebuild the search index it refused
 //   5  bad options (unknown mode, or managed without a control token)
 typedef struct {
     int32_t code;
@@ -83,10 +83,12 @@ const (
 	// account boot, listener bind, or a config the runtime rejected.
 	// Maps from a *embedded.BootError.
 	codeBootFailed = 3
-	// codeIndexRebuildRequired: the on-disk search index can't be opened
-	// by this build and has to be deleted to rebuild. Distinct from
+	// codeIndexRebuildRequired: the search index could not be rebuilt —
+	// the boot removes an index db this build cannot open and recreates
+	// it, and the removal or the fresh db failed too. Distinct from
 	// codeBootFailed because the host has a specific recovery to offer
-	// ("reset local data") rather than a generic retry. Maps from
+	// (delete the account's index dir and retry, "reset local data" as
+	// the fallback) rather than a generic retry. Maps from
 	// indexer.ErrIndexRebuildRequired, which arrives wrapped in a
 	// *embedded.BootError — hence the ordering in errCode.
 	codeIndexRebuildRequired = 4
@@ -136,9 +138,10 @@ func startEngine(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, mode,
 // errCode maps an internal/embedded error to its C code.
 //
 // The indexer arm comes FIRST and that ordering is load-bearing: a
-// rebuild-required failure reaches us as
-// &BootError{Err: fmt.Errorf("open indexer: %w", ErrIndexRebuildRequired)}
-// (internal/server/engine.go), so the boot-class arm would swallow it if
+// failed index rebuild reaches us as &BootError{Err: "open indexer:
+// rebuild search index: <error> (<refusal>)"} with
+// ErrIndexRebuildRequired wrapped inside the refusal
+// (internal/server/sdk.go), so the boot-class arm would swallow it if
 // it ran first. Anything unrecognised funnels to codeBootFailed rather
 // than crossing the C boundary untyped.
 func errCode(err error) int32 {

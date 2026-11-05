@@ -195,6 +195,10 @@ const (
 	// ErrBundleReserved — the id is under the server's `system:` prefix;
 	// only the server's own catalog installs there.
 	ErrBundleReserved = "bundle.reserved"
+	// ErrObjectDerivedUndeletable — a delete of a derived tree: the
+	// object route on a derived root, the bundle route on a derived
+	// install. Derived objects are permanent.
+	ErrObjectDerivedUndeletable = "object.derived_undeletable"
 	// ErrDatasetModuleReserved — a part or dataset draft names a module
 	// reserved to the server's own installs.
 	ErrDatasetModuleReserved = "dataset.module_reserved"

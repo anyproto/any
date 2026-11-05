@@ -22,7 +22,8 @@ import (
 	"github.com/anyproto/any/internal/index"
 )
 
-// cursorsCollection holds one row per space ({id: spaceId, seq}) plus
+// cursorsCollection holds one row per space ({id: spaceId, seq, gen,
+// links, embed}) plus
 // the metaDocId row recording the vector configuration the DB was
 // created with.
 const (
@@ -46,8 +47,9 @@ const (
 	// as bare value text); v8 = the object's name in its own full-text
 	// field (nameField) — a v7 db is adopted: its stamp moves at open and
 	// each collection is rewritten in place on its first open
-	// (upgradeFTS), so nothing re-embeds. Any other mismatch = boot error
-	// advising removal; the docs themselves are never migrated — the
+	// (upgradeFTS), so nothing re-embeds. Any other mismatch =
+	// ErrIndexRebuildRequired, which the boot answers by removing and
+	// rebuilding the db; the docs themselves are never migrated — the
 	// index is derived state (re-indexes on the next change).
 	indexSchemaVersion = 8
 )
@@ -189,7 +191,7 @@ func OpenStore(ctx context.Context, path string, dim int, embedderConfigured boo
 		// A check cut short by the caller's ctx or by any-store's own
 		// check timeout is not a torn index.
 		if errors.Is(err, anystore.ErrQuickCheckFailed) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			return nil, quickCheckRebuildErr(path, err)
+			return nil, quickCheckRebuildErr(err)
 		}
 		return nil, fmt.Errorf("indexer: open index db: %w", err)
 	}
@@ -203,8 +205,8 @@ func OpenStore(ctx context.Context, path string, dim int, embedderConfigured boo
 
 // quickCheckRebuildErr maps a failed integrity check on open. The index
 // is derived state: a torn index.db is rebuilt, not repaired.
-func quickCheckRebuildErr(path string, cause error) error {
-	return fmt.Errorf("%w: index db failed its integrity check (%v) — remove %s to rebuild from scratch", ErrIndexRebuildRequired, cause, filepath.Dir(path))
+func quickCheckRebuildErr(cause error) error {
+	return fmt.Errorf("%w: index db failed its integrity check: %v", ErrIndexRebuildRequired, cause)
 }
 
 // OpenStoreInMemory opens a throwaway in-memory store (tests).
@@ -248,12 +250,8 @@ func (s *Store) Dim() int {
 // (EnsureIndex would also catch it, but per-collection and later — this
 // surfaces it once, at open, with a clear remedy).
 //
-// Both mismatch arms wrap ErrIndexRebuildRequired as a PREFIX. Prefix,
-// not suffix, for two reasons: hosts read the head of a truncated
-// message first, and the tails keep the substrings any-kotlin's
-// AnyRuntimeImpl still matches on ("indexer:", "remove ", "to rebuild")
-// so wiring the sentinel doesn't break Android before it adopts the
-// code. Pinned by TestRebuildRequiredMessagesKeepAndroidSubstrings.
+// Both mismatch arms wrap ErrIndexRebuildRequired as a PREFIX: the
+// sentinel text leads, the cause follows.
 func (s *Store) checkMeta(ctx context.Context) error {
 	coll, err := s.db.Collection(ctx, cursorsCollection)
 	if err != nil {
@@ -273,14 +271,14 @@ func (s *Store) checkMeta(ctx context.Context) error {
 	case indexSchemaVersion - 1:
 		// v7 lacks the name field in every collection; each is moved onto
 		// it in place on its first open (upgradeFTS), so the db only moves
-		// its stamp — which an older build then refuses with the rebuild
-		// guidance instead of failing every space on an index definition
-		// it cannot apply. The stored chunk target rides the restamp.
+		// its stamp — which an older build then cannot read, instead of
+		// failing every space on an index definition it cannot apply. The
+		// stored chunk target rides the restamp.
 		if s.chunkRunes == 0 {
 			s.chunkRunes = v.GetInt("chunkRunes")
 		}
 	default:
-		return fmt.Errorf("%w: index db schema v%d, this build needs v%d — remove %s to rebuild (re-indexes on next change, see docs/13-index.md)", ErrIndexRebuildRequired, schema, indexSchemaVersion, filepath.Dir(s.path))
+		return fmt.Errorf("%w: index db schema v%d, this build needs v%d", ErrIndexRebuildRequired, schema, indexSchemaVersion)
 	}
 	dim := v.GetInt("dim")
 	switch {
@@ -290,7 +288,7 @@ func (s *Store) checkMeta(ctx context.Context) error {
 	case dim == 0:
 		// first run with a known dim: recorded below
 	default:
-		return fmt.Errorf("%w: index db was built with vector dim %d, configured %d — remove %s to rebuild from scratch", ErrIndexRebuildRequired, dim, s.dim, filepath.Dir(s.path))
+		return fmt.Errorf("%w: index db was built with vector dim %d, configured %d", ErrIndexRebuildRequired, dim, s.dim)
 	}
 	if schema != indexSchemaVersion || dim != s.dim {
 		return s.writeMeta(ctx, s.dim)
@@ -325,7 +323,7 @@ func (s *Store) PinChunkRunes(ctx context.Context, n int) error {
 	}
 	if err == nil {
 		if got := doc.Value().GetInt("chunkRunes"); got != 0 && got != n {
-			return fmt.Errorf("%w: index db was built with chunk target %d runes, this build uses %d — remove %s to rebuild from scratch", ErrIndexRebuildRequired, got, n, filepath.Dir(s.path))
+			return fmt.Errorf("%w: index db was built with chunk target %d runes, this build uses %d", ErrIndexRebuildRequired, got, n)
 		}
 	}
 	return s.writeMeta(ctx, s.dim)
@@ -352,10 +350,10 @@ func (s *Store) writeMeta(ctx context.Context, dim int) error {
 // embedding. A no-op when it matches the known dim; an
 // ErrIndexRebuildRequired when the embedder's output contradicts what
 // this DB was built with (model changed under a populated index) — the
-// vectors already stored are unusable, so the db has to go.
-//
-// Unreachable on mobile today (vector is off in both binds), wrapped
-// anyway so the host contract doesn't depend on that staying true.
+// vectors already stored are unusable. The boot never sees this one:
+// the round fails and its docs stay pending until the index is removed
+// or index.vector.dim names the new dimension, which the next boot
+// answers with a rebuild.
 //
 // The meta write takes the store's write lock, which a rewrite in
 // flight holds for seconds, so s.mu — the cache lock every read takes —
@@ -811,11 +809,29 @@ func (s *Store) Cursor(ctx context.Context, spaceId string) (uint64, string, err
 // pass both re-index triggers unnoticed: the cursor freezes the index on
 // a renumbered applySeq axis with no error anywhere.
 func (s *Store) SetCursor(ctx context.Context, spaceId string, seq uint64, generation string) error {
+	return s.setCursor(ctx, spaceId, seq, generation, false)
+}
+
+// AdvanceCursor is SetCursor for a landed page: while the store marks
+// text docs pending, every doc the page lands that the upsert rule
+// embeds carries the mark or a vector, so the embed field moves with
+// the cursor — but only while it is caught up
+// with it. A row left behind by a run without an embedder, or by a
+// failed sweep, stays behind until a sweep stamps it, so the gap a
+// single page cannot vouch for is never papered over (embed_backfill.go).
+func (s *Store) AdvanceCursor(ctx context.Context, spaceId string, seq uint64, generation string) error {
+	return s.setCursor(ctx, spaceId, seq, generation, s.markPending)
+}
+
+func (s *Store) setCursor(ctx context.Context, spaceId string, seq uint64, generation string, marked bool) error {
 	coll, err := s.db.Collection(ctx, cursorsCollection)
 	if err != nil {
 		return err
 	}
 	mod := query.ModifyFunc(func(a *anyenc.Arena, v *anyenc.Value) (*anyenc.Value, bool, error) {
+		if marked && v.GetInt("embed") == v.GetInt("seq") {
+			v.Set("embed", a.NewNumberInt(int(seq)))
+		}
 		v.Set("seq", a.NewNumberInt(int(seq)))
 		if generation != "" {
 			v.Set("gen", a.NewString(generation))
@@ -1021,10 +1037,16 @@ const minPropEmbedBytes = 64
 // minPropEmbedBytes (so short names/descriptions stay lexical while
 // long descriptions and scope-overridden values still embed).
 func shouldEmbed(e index.IndexEntry) bool {
-	if e.Data == "" || e.Scope == index.ScopeProps {
+	return embedRule(e.Scope, e.Dataset, len(e.Data))
+}
+
+// embedRule is shouldEmbed over the fields a stored doc keeps: the
+// backfill sweep applies it to docs it did not see land.
+func embedRule(scope, dataset string, textBytes int) bool {
+	if textBytes == 0 || scope == index.ScopeProps {
 		return false
 	}
-	return e.Dataset != index.DatasetProp || len(e.Data) >= minPropEmbedBytes
+	return dataset != index.DatasetProp || textBytes >= minPropEmbedBytes
 }
 
 // docHash is the content hash stored alongside each index doc. The

@@ -1,10 +1,10 @@
 package indexer
 
 // Deliberately TAG-FREE. Most of this package's tests sit behind
-// `fts && vector`, but ErrIndexRebuildRequired is a host contract the
-// mobile binds depend on, and the iOS bind builds without `vector`. A
+// `fts && vector`, but ErrIndexRebuildRequired is what the boot's index
+// rebuild keys on, and the mobile binds build without `vector`. A
 // tagged test here would go green in CI while the thing it guards was
-// broken for the only build that reads it.
+// broken for the builds that need it most.
 
 import (
 	"context"
@@ -16,12 +16,12 @@ import (
 	"github.com/anyproto/any-store/v2/anyenc"
 )
 
-// TestOpenStore_SchemaMismatchIsRebuildRequired is the real half of the
-// code-4 contract: a db written by another schema version must come back
-// as ErrIndexRebuildRequired through OpenStore, not merely as some
-// error. This is the arm mobile actually hits — an app updates, the new
-// binary bumped indexSchemaVersion, and the user's on-disk index is
-// suddenly unreadable.
+// TestOpenStore_SchemaMismatchIsRebuildRequired: a db written by another
+// schema version must come back as ErrIndexRebuildRequired through
+// OpenStore, not merely as some error — it is what makes the boot
+// rebuild the index instead of failing. This is the arm an app update
+// hits: the new binary bumped indexSchemaVersion and the on-disk index
+// is suddenly unreadable.
 //
 // It seeds the meta row by hand rather than reusing an old db fixture so
 // it keeps working when indexSchemaVersion is next bumped.
@@ -44,7 +44,7 @@ func TestOpenStore_SchemaMismatchIsRebuildRequired(t *testing.T) {
 // TestOpenStore_DimMismatchIsRebuildRequired covers the second wrapped
 // site: a db built for one vector dimension, opened with another
 // configured. Unreachable on mobile today (vector is off there) and
-// wrapped anyway, so the contract doesn't quietly depend on that.
+// wrapped anyway, so the rebuild doesn't quietly depend on that.
 func TestOpenStore_DimMismatchIsRebuildRequired(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "index.db")

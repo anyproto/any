@@ -31,6 +31,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anyproto/any-store/v2/query"
 	"github.com/anyproto/any-sync/app/logger"
 	"go.uber.org/zap"
 
@@ -662,6 +663,54 @@ func (r *Resolver) Resolve(ctx context.Context, sp space.Space, bundleId, loserR
 	}
 	r.forget(sp, loserRootId)
 	return nil
+}
+
+// Uninstall runs the SDK's, which refuses before the first delete
+// while a tree is not local, then forgets the swept roots off the raw
+// row (the live reads skip a row whose winner is dead).
+func (r *Resolver) Uninstall(ctx context.Context, sp space.Space, bundleId string) error {
+	if err := sp.Bundles().Uninstall(ctx, bundleId); err != nil {
+		if errors.Is(err, space.ErrBundleUnknown) {
+			return fmt.Errorf("bundle %s: %w", bundleId, ErrNotInstalled)
+		}
+		return fmt.Errorf("bundle %s: uninstall: %w", bundleId, err)
+	}
+	// Bookkeeping only: the install is gone whatever this read says,
+	// and a caller that hung up after the sweep must not skip it.
+	roots, err := Roots(context.WithoutCancel(ctx), sp, bundleId)
+	if err != nil {
+		log.Warn("uninstalled bundle keeps its loser observations",
+			zap.String("bundle", bundleId), zap.String("spaceId", sp.Id()), zap.Error(err))
+		return nil
+	}
+	for id := range roots {
+		r.forget(sp, id)
+	}
+	return nil
+}
+
+// Roots reads every root ever claimed for a bundle id straight off the
+// registry row — the raw `roots` set, which the typed Bundles().Get
+// hides behind its live-winner verdict. Empty for a bundle never
+// registered.
+func Roots(ctx context.Context, sp space.Space, bundleId string) (map[string]bool, error) {
+	row, err := sp.Query(sp.SpaceIndexObjectId(), "bundles").
+		Filter(query.Key{Path: []string{"id"}, Filter: query.NewComp(query.CompOpEq, bundleId)}).
+		One(ctx)
+	if errors.Is(err, space.ErrNotFound) {
+		return map[string]bool{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	roots := map[string]bool{}
+	for _, v := range row.GetArray("roots") {
+		roots[string(v.GetStringBytes())] = true
+	}
+	if id := string(row.GetStringBytes("rootId")); id != "" {
+		roots[id] = true
+	}
+	return roots, nil
 }
 
 // ResolveRetry keeps trying one loser with backoff, for the window a

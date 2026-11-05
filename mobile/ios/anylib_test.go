@@ -206,11 +206,12 @@ func TestStartEngine_BadDataDir(t *testing.T) {
 
 // TestErrCode_Mapping asserts the err->code translation directly,
 // including the two arms that only exist because of ordering: a
-// rebuild-required failure reaches the shim wrapped in a *BootError, so
-// the generic boot arm would swallow it if it ran first. The
-// "index rebuild required" case is built as the EXACT shape
-// internal/server/engine.go produces ("open indexer: %w" inside a
-// BootError), so this pins the real chain, not a convenient stand-in.
+// failed index rebuild reaches the shim wrapped in a *BootError, so
+// the generic boot arm would swallow it if it ran first. The "failed
+// index rebuild" case is built as the EXACT shape internal/server
+// produces (the rebuild error wrapping both the failure and the
+// refusal, inside "open indexer: %w", inside a BootError), so this pins
+// the real chain, not a convenient stand-in.
 func TestErrCode_Mapping(t *testing.T) {
 	cases := []struct {
 		name string
@@ -223,8 +224,9 @@ func TestErrCode_Mapping(t *testing.T) {
 		{"boot error", &embedded.BootError{Err: errors.New("bind failed")}, codeBootFailed},
 		{"unknown error funnels to boot", errors.New("some other error"), codeBootFailed},
 		{
-			"index rebuild required, as engine.go wraps it",
-			&embedded.BootError{Err: fmt.Errorf("open indexer: %w", indexer.ErrIndexRebuildRequired)},
+			"failed index rebuild, as the server wraps it",
+			&embedded.BootError{Err: fmt.Errorf("open indexer: %w",
+				fmt.Errorf("rebuild search index: %w (%w)", errors.New("remove index db: permission denied"), indexer.ErrIndexRebuildRequired))},
 			codeIndexRebuildRequired,
 		},
 		{"index rebuild required, bare", indexer.ErrIndexRebuildRequired, codeIndexRebuildRequired},
@@ -289,9 +291,8 @@ func TestCopyBounded_TruncatesAndTerminates(t *testing.T) {
 // half-encoded rune, which String(validatingCString:) rejects outright —
 // so the whole rune has to go.
 //
-// The input is not hypothetical: internal/indexer's rebuild-required
-// messages carry an em dash, and they are exactly what lands in this
-// buffer as code 4.
+// The input is not hypothetical: the engine's error messages carry em
+// dashes, and they are what lands in this buffer.
 func TestCopyBounded_TruncatesOnRuneBoundary(t *testing.T) {
 	const emDash = "—" // 3 bytes; the byte cut lands inside it
 	input := strings.Repeat("a", messageLen-2) + emDash + "tail"

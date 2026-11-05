@@ -18,6 +18,7 @@ POST   /v1/spaces/:spaceId/bundles                        → 200 { bundle, inst
 GET    /v1/spaces/:spaceId/bundles                        → 200 { bundles: [...], synced }
 GET    /v1/spaces/:spaceId/bundles/:bundleId              → 200 { bundle, synced }
 POST   /v1/spaces/:spaceId/bundles/:bundleId/resolve      → 204
+DELETE /v1/spaces/:spaceId/bundles/:bundleId              → 204
 POST   /v1/spaces/:spaceId/bundles/:bundleId/children     → 200 { objectId }
 ```
 
@@ -165,10 +166,11 @@ The server never merges; it enforces timing. A losing root arrives change by cha
 
 | Status | Code | When |
 |--------|------|------|
-| 409 | `bundle.not_ready` | the space index has never arrived (non-owner), or the winner's tree has not arrived |
-| 409 | `bundle.loser_not_ready` | loser not fully synced, or within the grace period — retry |
+| 409 | `bundle.not_ready` | registry not converged (non-owner), or the winner's tree has not arrived |
+| 409 | `bundle.loser_not_ready` | resolve: loser not fully synced, or within the grace period; uninstall: a loser's tree has not arrived, nothing deleted — retry |
 | 409 | `bundle.not_loser` | the winner, or a root never claimed for this bundle |
-| 404 | `bundle.not_found` | unknown bundle id on GET / resolve / children |
+| 404 | `bundle.not_found` | unknown bundle id on GET / resolve / children / uninstall |
+| 409 | `object.derived_undeletable` | uninstall of a derived install — nothing is deleted |
 | 409 | `bundle.reserved` | a client ensure with a `system:` id |
 | 409 | `type.xkey_conflict` | an install whose `xKey` another type or collection in the space already holds (`details.existingTypeId` / `details.existingCollectionId`) |
 | 400 | `dataset.module_reserved` | a part naming a module reserved to the server |
@@ -182,6 +184,15 @@ The server never merges; it enforces timing. A losing root arrives change by cha
 
 Resolving an already-resolved root returns 204 — the call is idempotent.
 
+## Uninstall
+
+`DELETE …/bundles/:bundleId` deletes the install: every losing root, then the winner, and only once every one of them is on this device, so a refusal deletes nothing. The claim set is add-only, so deleting the winner object alone also reads as uninstalled but leaves its live losers claimed, and the next install inherits them as losers for a client's fork merge to bring back. Losers go first, so a device that sees the bundle as uninstalled never finds a loser left behind, and the next ensure mints a fresh root with no losers. Idempotent: 204 for a bundle whose winner is already gone, with its losers swept, so call it without a `GET` first: a row whose winner died through the object route reads 404 on `GET` and 204 here. An uninstall discards, so unlike resolve it has no grace. It runs behind ensure's convergence gate: a member other than the owner is `409 bundle.not_ready` until its registry has converged; a bundle the registry does not list is `404 bundle.not_found`. While a loser's tree has not reached this device the call is `409 bundle.loser_not_ready`; while the winner's has not, `409 bundle.not_ready`; retry either.
+
+```bash
+curl -s -X DELETE http://127.0.0.1:2046/v1/spaces/$SPACE/bundles/notes%2Fv1
+# → 204
+```
+
 ## Agreeing who installs
 
 Nothing stops two members from ensuring the same bundle; the registry converges and reports a loser. To avoid the conflict entirely, either agree on one installer out of band, or ask for a `derived` root — the id both would compute anyway. Bundle records are permanent and `roots` only grows, so treat ids as a small fixed vocabulary, not a scratch namespace.
@@ -190,4 +201,4 @@ On boot, for each well-known [derived space](derived-spaces.html) the account ha
 
 ## Account-level bundles
 
-Account-private data — favourites, pinned items, personal settings — lives in bundles on the account's **tech space**, whose id `GET /v1/account` returns as `techSpaceId`. Ensure, list, get and resolve work there with two differences: the bundle must declare a definition (`parts`, `properties` or an `xKey`, type or collection), and `rootType`, `rootCollections`, `rootProperties` and children are refused. The records live on the root that declares them — a definition hosts itself — and go through `query`, `modify` and `upsert` like in any space; `DELETE /v1/spaces/:techSpaceId/objects/:rootId` uninstalls a created root. Everything else on the tech space answers `405 space.unsupported`.
+Account-private data — favourites, pinned items, personal settings — lives in bundles on the account's **tech space**, whose id `GET /v1/account` returns as `techSpaceId`. Ensure, list, get, resolve and uninstall work there with two differences: the bundle must declare a definition (`parts`, `properties` or an `xKey`, type or collection), and `rootType`, `rootCollections`, `rootProperties` and children are refused. The records live on the root that declares them — a definition hosts itself — and go through `query`, `modify` and `upsert` like in any space; `DELETE /v1/spaces/:techSpaceId/bundles/:bundleId` uninstalls a created install. Everything else on the tech space answers `405 space.unsupported`.
