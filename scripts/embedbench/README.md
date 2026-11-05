@@ -95,3 +95,9 @@ power level.
 - The per-process CPU and GPU "power impact" is unitless, and its GPU column
   stays at 0 for llama.cpp's Metal compute. The Neural Engine has no power
   column, only busy intervals.
+
+## Research (`research/`)
+
+The follow-up on why EG2 trails Qwen3: short-text bias and query-side
+centering, heading-only windows, long chunks under a 512-token cap, and
+token-splitter costs. See `research/README.md`.
