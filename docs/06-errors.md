@@ -33,10 +33,11 @@ Every error response — regardless of status code — has the same body:
 | 413    | Body over the 1 MiB cap (`request.too_large`; file attach and the avatar upload are exempt), `account.icon_too_large`, or `history.view_too_large` |
 | 415    | `request.unsupported_media_type` — a body that is not `application/json`; `account.icon_not_image` — the avatar upload is not one of the accepted image formats (by signature; SVG refused) |
 | 429    | `access.rate_limited`                                          |
-| 500    | Internal error — unexpected SDK or server failure              |
+| 500    | Internal error — unexpected SDK or server failure; typed: `auth.device_key_corrupt`, `auth.network_pin_corrupt`, `sdk.store_corrupt`, `server.internal` |
 | 501    | `sdk.not_implemented` — `DELETE …/types/:typeId`, `DELETE …/collections/:collectionId` and `GET …/sync-status/peers` |
 | 502    | `access.unavailable`                                           |
 | 503    | Request cancelled or the engine tearing down (`server.unavailable`); embedder unreachable (`index.embedder_unavailable`) |
+| 507    | `storage.no_space` — the device has no disk space left (`POST /v1/auth`) |
 
 No caller authentication in v1 (loopback is the trust boundary). The
 single 401 the server raises itself is `auth.required` — no account is
@@ -243,6 +244,9 @@ search.bad_scope                 # 400 — scope not a valid slug ([a-z0-9_-], m
 sdk.not_implemented              # 501 — DELETE …/types/:typeId, DELETE …/collections/:collectionId, GET …/sync-status/peers
 sdk.not_found                    # 404 — the SDK reports the target is gone (object, type, property, part or dataset definition)
 sdk.crdt_version_newer           # 409 — the account's data was written by a newer release (details.stored > details.supported): POST /v1/auth refuses to boot it; a running server whose account is raised by another device turns read-only — every synced write answers this until the server is upgraded (GET /v1/health.crdtVersion)
+sdk.store_corrupt                # 500 — the account's SDK store (sdk.db) failed its integrity check on a dirty open: POST /v1/auth refuses to boot it; never repaired in place — remove sdk.db and the files named after it from the account's sdk dir and boot again: the SDK replays the synced trees into a fresh one; what lived only in sdk.db is lost: the local store, local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone)
+
+storage.no_space                 # 507 — the device has no disk space left: POST /v1/auth could not create the account dir, write the device key or open a store; free space and retry
 
 server.unavailable               # 503 — request cancelled / engine tearing down
 server.internal                  # 500 — the embedded usecase catalog failed to compile (catalog routes)

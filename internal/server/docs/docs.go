@@ -4827,6 +4827,26 @@ const docTemplate = `{
                             }
                         },
                         "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    },
+                    "507": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Insufficient Storage"
                     }
                 },
                 "summary": "Authorize: generate, restore (mnemonic) or select an account; replace switches (managed)",
