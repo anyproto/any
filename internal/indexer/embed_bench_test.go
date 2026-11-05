@@ -288,7 +288,7 @@ func pct(xs []float64) map[string]float64 {
 	for _, x := range s {
 		sum += x
 	}
-	return map[string]float64{"min": s[0], "p50": at(.5), "p90": at(.9), "p99": at(.99), "max": s[len(s)-1], "mean": sum / float64(len(s))}
+	return map[string]float64{"min": s[0], "p50": at(.5), "p90": at(.9), "p95": at(.95), "p99": at(.99), "max": s[len(s)-1], "mean": sum / float64(len(s))}
 }
 
 // procMem returns VmRSS, VmHWM, RssAnon and RssFile in KiB.
