@@ -545,7 +545,9 @@ space's rewrite never appear (`Options.OnProcess`, bridged in
   (the embed queue); and — once at least one embedded doc exists — a
   **cosine vector index** on `vector`, created lazily by the embed loop
   (`Store.EnsureVectorIndex`) because IVF trains from existing docs; a
-  search only looks for it (`Store.vectorColl`), never creates it. The
+  search never creates it, and a space without one answers no vector
+  hits. The index persists in `index.db`, so a restart serves it before
+  the embed loop runs again. The
   strategy (`index.vector.mode`, `Store.vectorIndexParams`) defaults to
   **IVF-SQ**: cheap near-flat incremental ingest and physical deletes,
   ~3–4 recall@10 below exact (`search/README.md` § Index mode).

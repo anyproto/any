@@ -700,14 +700,8 @@ func (s *Store) EnsureVectorIndex(ctx context.Context, spaceId string) (bool, er
 	if err != nil {
 		return false, err
 	}
-	for _, ix := range coll.GetIndexes() {
-		if ix.Info().Kind == anystore.IndexKindVector {
-			s.mu.Lock()
-			s.hasVec[spaceId] = true
-			s.mu.Unlock()
-			return true, nil
-		}
-	}
+	// GetIndexes does not list vector indexes: one built before a restart
+	// is found by EnsureIndex, which leaves an existing index as it is.
 	n, err := coll.Find(vectorPresent).Count(ctx)
 	if err != nil {
 		return false, err
@@ -727,36 +721,6 @@ func (s *Store) EnsureVectorIndex(ctx context.Context, spaceId string) (bool, er
 	s.hasVec[spaceId] = true
 	s.mu.Unlock()
 	return true, nil
-}
-
-// vectorColl is the read side of EnsureVectorIndex: the space's
-// collection when it carries a vector index, ok false when it does not
-// (nothing embedded yet, or no collection) — never creating one, so a
-// search neither takes the write lock nor waits on it. The embed loop
-// creates the index (EnsureVectorIndex) after each batch it lands.
-func (s *Store) vectorColl(ctx context.Context, spaceId string) (anystore.Collection, bool, error) {
-	coll, err := s.spaceCollRead(ctx, spaceId)
-	if errors.Is(err, errNoIndex) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, err
-	}
-	s.mu.Lock()
-	cached := s.hasVec[spaceId]
-	s.mu.Unlock()
-	if cached {
-		return coll, true, nil
-	}
-	for _, ix := range coll.GetIndexes() {
-		if ix.Info().Kind == anystore.IndexKindVector {
-			s.mu.Lock()
-			s.hasVec[spaceId] = true
-			s.mu.Unlock()
-			return coll, true, nil
-		}
-	}
-	return nil, false, nil
 }
 
 // docId is the per-collection primary key of a record's first chunk:
@@ -1434,8 +1398,11 @@ func (s *Store) searchVector(ctx context.Context, spaceId string, vec []float32,
 	if s.Dim() == 0 {
 		return nil, 0, nil
 	}
-	coll, ok, err := s.vectorColl(ctx, spaceId)
-	if err != nil || !ok {
+	coll, err := s.spaceCollRead(ctx, spaceId)
+	if errors.Is(err, errNoIndex) {
+		return nil, 0, nil
+	}
+	if err != nil {
 		return nil, 0, err
 	}
 	// $k bounds the result set; the scope filter is applied before the
@@ -1452,6 +1419,11 @@ func (s *Store) searchVector(ctx context.Context, spaceId string, vec []float32,
 		q = q.IndexHint(anystore.IndexHint{IndexName: objectIdIndex, Boost: probeBoost})
 	}
 	iter, err := q.Iter(ctx)
+	if errors.Is(err, anystore.ErrNoVectorIndex) {
+		// Nothing embedded yet. A search never creates the index (it
+		// would take the write lock); the embed loop does.
+		return nil, 0, nil
+	}
 	if err != nil {
 		return nil, 0, err
 	}
