@@ -556,8 +556,8 @@ space's rewrite never appear (`Options.OnProcess`, bridged in
 - A `cursors` collection holds one `{id: spaceId, seq, gen, links,
   embed}` row per space — `gen` is the SDK's per-space
   `Changes().Generation()`, the epoch the cursor belongs to; `links` the
-  link-sink layout stamp; `embed` says every text doc carries a vector
-  or the pending mark (§ Embed loop).
+  link-sink layout stamp; `embed` the cursor up to which every doc the
+  upsert rule embeds carries a vector or the pending mark (§ Embed loop).
   Cursor writes MERGE: advancing with no epoch in hand keeps the stamped
   one, because erasing it would silently disable rebuild detection. A
   `_meta` row pins the **schema version** (`indexSchemaVersion` in
@@ -637,15 +637,20 @@ new text; a 1-minute ticker retries after embedder failures. A rewritten
 record goes back to `pending`. `index.embedder: none` ⇒ the loop doesn't
 run and the index is FTS-only.
 
-Enabling an embedder on an index built without one is not a rebuild. At
-space open the worker reads the cursor row's `embed` stamp; absent, it
-sweeps the space's docs and marks every one that has neither a vector
-nor the mark as `pending` under the upsert rule (`shouldEmbed`: text
-present, not `props` scope, prop values of 64 bytes or more), in
-batches of 500 per write transaction, then stamps the row and nudges
-the embed loop. A server without an embedder clears the stamp at space
-open, so the next one with an embedder sweeps again. A failed sweep is
-logged and retried on the next start.
+Enabling an embedder on an index built without one is not a rebuild.
+The cursor row's `embed` field is the cursor up to which every doc the
+upsert rule embeds carries a vector or the pending mark: an advance
+that lands marked docs writes it with the cursor, a run without an
+embedder advances the cursor and leaves it behind. At space open, a
+worker with an embedder that finds `embed` behind the cursor sweeps the
+space's docs in id order, 500 per page, marking every one that has
+neither a vector nor the mark and that the upsert rule embeds
+(`shouldEmbed`: text present, not `props` scope, `prop` entries of 64
+bytes or more) — each page's marks are written after its iterator
+closes — then nudges the embed loop and catches `embed` up to the
+cursor. Nothing is ever erased, so a failed write only costs another
+sweep on the next start, and an older build advancing the cursor on
+the same db is swept the same way.
 
 Embedders (`indexer.Embedder`), selected by `index.embedder`:
 
@@ -857,11 +862,12 @@ target mismatch, or a failed integrity check on a dirty open,
 every file named after it (WAL, shm, sentinel) — the model cache beside
 them stays — and open a fresh one, so every space re-indexes from
 cursor 0. The host sees one warning in the server log. A rebuild that
-fails (the removal, or a fresh db refused too) fails the boot with the
-refusal still in the chain: start code `4` on the iOS shim, `500
-internal` on a managed server. Any other open error — a torn page the
-quick check does not reach, a v1-format file — fails the boot (start
-code `3`, `500 internal`).
+fails (the removal, or opening the fresh db) fails the boot with the
+refusal still in the chain: start code `4` on the iOS shim, and from
+`POST /v1/auth` `500 internal` (`507 storage.no_space` when the disk is
+full). Any other open error — a torn page the quick check does not
+reach, a v1-format file — fails the boot (start code `3`, `500
+internal`).
 
 ### Search
 

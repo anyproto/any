@@ -48,8 +48,8 @@ import (
 //	ErrBadDataDir                   -> 2
 //	a boot failure                  -> 3 (see BootError)
 //	indexer.ErrIndexRebuildRequired -> 4 (inside a BootError; checked first — the boot
-//	                                      rebuilds a refused index itself, so only a
-//	                                      refused rebuild gets here)
+//	                                      rebuilds a refused index itself, so this is
+//	                                      a rebuild that failed)
 //	ErrBadOptions                   -> 5 (a host programming error, never retryable)
 //
 // The Android gomobile shim (mobile/android) surfaces the error string

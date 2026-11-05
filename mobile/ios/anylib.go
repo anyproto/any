@@ -137,9 +137,10 @@ func startEngine(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, mode,
 // errCode maps an internal/embedded error to its C code.
 //
 // The indexer arm comes FIRST and that ordering is load-bearing: a
-// rebuild-required failure reaches us as
-// &BootError{Err: fmt.Errorf("open indexer: %w", ErrIndexRebuildRequired)}
-// (internal/server/engine.go), so the boot-class arm would swallow it if
+// failed index rebuild reaches us as &BootError{Err: "open indexer:
+// rebuild search index: <error> (<refusal>)"} with
+// ErrIndexRebuildRequired wrapped inside the refusal
+// (internal/server/sdk.go), so the boot-class arm would swallow it if
 // it ran first. Anything unrecognised funnels to codeBootFailed rather
 // than crossing the C boundary untyped.
 func errCode(err error) int32 {

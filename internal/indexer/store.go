@@ -22,7 +22,8 @@ import (
 	"github.com/anyproto/any/internal/index"
 )
 
-// cursorsCollection holds one row per space ({id: spaceId, seq}) plus
+// cursorsCollection holds one row per space ({id: spaceId, seq, gen,
+// links, embed}) plus
 // the metaDocId row recording the vector configuration the DB was
 // created with.
 const (
@@ -808,6 +809,17 @@ func (s *Store) Cursor(ctx context.Context, spaceId string) (uint64, string, err
 // pass both re-index triggers unnoticed: the cursor freezes the index on
 // a renumbered applySeq axis with no error anywhere.
 func (s *Store) SetCursor(ctx context.Context, spaceId string, seq uint64, generation string) error {
+	return s.setCursor(ctx, spaceId, seq, generation, false)
+}
+
+// AdvanceCursor is SetCursor for a landed page: while the store marks
+// text docs pending, the page's docs are all embeddable later, so the
+// embed field moves with the cursor (embed_backfill.go).
+func (s *Store) AdvanceCursor(ctx context.Context, spaceId string, seq uint64, generation string) error {
+	return s.setCursor(ctx, spaceId, seq, generation, s.markPending)
+}
+
+func (s *Store) setCursor(ctx context.Context, spaceId string, seq uint64, generation string, marked bool) error {
 	coll, err := s.db.Collection(ctx, cursorsCollection)
 	if err != nil {
 		return err
@@ -816,6 +828,9 @@ func (s *Store) SetCursor(ctx context.Context, spaceId string, seq uint64, gener
 		v.Set("seq", a.NewNumberInt(int(seq)))
 		if generation != "" {
 			v.Set("gen", a.NewString(generation))
+		}
+		if marked {
+			v.Set("embed", a.NewNumberInt(int(seq)))
 		}
 		return v, true, nil
 	})
@@ -1018,10 +1033,16 @@ const minPropEmbedBytes = 64
 // minPropEmbedBytes (so short names/descriptions stay lexical while
 // long descriptions and scope-overridden values still embed).
 func shouldEmbed(e index.IndexEntry) bool {
-	if e.Data == "" || e.Scope == index.ScopeProps {
+	return embedRule(e.Scope, e.Dataset, len(e.Data))
+}
+
+// embedRule is shouldEmbed over the fields a stored doc keeps: the
+// backfill sweep applies it to docs it did not see land.
+func embedRule(scope, dataset string, textBytes int) bool {
+	if textBytes == 0 || scope == index.ScopeProps {
 		return false
 	}
-	return e.Dataset != index.DatasetProp || len(e.Data) >= minPropEmbedBytes
+	return dataset != index.DatasetProp || textBytes >= minPropEmbedBytes
 }
 
 // docHash is the content hash stored alongside each index doc. The

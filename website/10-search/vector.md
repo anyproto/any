@@ -52,7 +52,7 @@ Vector search latency is a few milliseconds for both ANN modes; disk use is domi
 
 ## Dimension pinning
 
-The vector dimension is learned from the first successful embedding batch (or fixed with `index.vector.dim`) and pinned in the index database. A different dimension against a populated index is never mixed in: with `index.vector.dim` set, the boot removes and rebuilds the index; with the dimension learned from the model, every embed round fails until `<data-dir>/index/` is removed or `index.vector.dim` names the new dimension. `index.local.dim` can truncate the default model's Matryoshka output to shrink the index.
+The vector dimension is learned from the first successful embedding batch (or fixed with `index.vector.dim`) and pinned in the index database. A different dimension against a populated index is never mixed in: with `index.vector.dim` set, the boot removes and rebuilds the index; with the dimension learned from the model, every embed round fails until `<account-dir>/index/` is removed with the server stopped, or `index.vector.dim` names the new dimension and the server restarts. `index.local.dim` can truncate the default model's Matryoshka output to shrink the index.
 
 ## Similarity scores and the floor
 

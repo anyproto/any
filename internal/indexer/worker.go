@@ -378,7 +378,7 @@ func (w *spaceWorker) advancePages(ctx context.Context, onWork func(), progress 
 			w.ix.opts.OnLinks(spaceId, touched)
 		}
 		cursor = changes[len(changes)-1].ApplySeq
-		if err := w.ix.store.SetCursor(ctx, spaceId, cursor, w.generation); err != nil {
+		if err := w.ix.store.AdvanceCursor(ctx, spaceId, cursor, w.generation); err != nil {
 			return err
 		}
 		if !w.linksStamped && !w.linksBackfillFailed {
@@ -918,46 +918,43 @@ func (w *spaceWorker) openIndex(ctx context.Context) {
 }
 
 // backfillPending queues the docs a run without an embedder left with
-// neither a vector nor the pending mark, once per space, when an
-// embedder appears: the cursor row's embed stamp says every text doc
-// was written with the mark on. A server without an embedder clears the
-// stamp, so the next one with an embedder sweeps. A failed sweep is
-// logged and retried on the next start (the stamp stays behind).
+// neither a vector nor the pending mark. The cursor row's embed field
+// lags the cursor exactly when such docs may exist (embed_backfill.go):
+// the sweep marks them, nudges the embed loop and catches the field up.
+// A failed sweep is logged and retried on the next start.
 func (w *spaceWorker) backfillPending(ctx context.Context) {
-	spaceId := w.sp.Id()
-	stamped, err := w.ix.store.EmbedStamped(ctx, spaceId)
-	if err != nil {
-		w.ix.lg.Warn("read embed stamp", zap.String("spaceId", spaceId), zap.Error(err))
-		return
-	}
 	if !w.ix.HasEmbedder() {
-		if stamped {
-			if err := w.ix.store.StampEmbed(ctx, spaceId, false); err != nil {
-				w.ix.lg.Warn("clear embed stamp", zap.String("spaceId", spaceId), zap.Error(err))
-			}
-		}
 		return
 	}
-	if stamped {
+	spaceId := w.sp.Id()
+	needed, seq, err := w.ix.store.EmbedBackfillNeeded(ctx, spaceId)
+	if err != nil {
+		w.ix.lg.Warn("read embed cursor", zap.String("spaceId", spaceId), zap.Error(err))
+		return
+	}
+	if !needed {
 		return
 	}
 	n, err := w.ix.store.BackfillPending(ctx, spaceId)
+	if n > 0 {
+		// Whatever got marked can drain, even after a failure below.
+		select {
+		case w.embedCh <- struct{}{}:
+		default:
+		}
+	}
 	if err != nil {
 		if ctx.Err() == nil {
 			w.ix.lg.Warn("embed backfill failed; retried on next start", zap.String("spaceId", spaceId), zap.Error(err))
 		}
 		return
 	}
-	if err := w.ix.store.StampEmbed(ctx, spaceId, true); err != nil {
-		w.ix.lg.Warn("write embed stamp", zap.String("spaceId", spaceId), zap.Error(err))
+	if err := w.ix.store.StampEmbed(ctx, spaceId, seq); err != nil {
+		w.ix.lg.Warn("write embed cursor", zap.String("spaceId", spaceId), zap.Error(err))
 		return
 	}
 	if n > 0 {
 		w.ix.lg.Info("queued docs indexed without an embedder", zap.String("spaceId", spaceId), zap.Int("docs", n))
-		select {
-		case w.embedCh <- struct{}{}:
-		default:
-		}
 	}
 }
 

@@ -364,7 +364,7 @@ func (d *deps) authBootError(c echo.Context, err error) error {
 		// short by a cancelled boot is not a damaged store.
 		authLog.Error("boot account", zap.Error(err))
 		return writeError(c, http.StatusInternalServerError, "sdk.store_corrupt",
-			"this account's SDK store (sdk.db) failed its integrity check and cannot be opened — it is never repaired in place: remove sdk.db and the files named after it from the account's sdk dir, then boot the account again; the SDK rebuilds it from the synced trees, the local store is lost with it", nil)
+			"this account's SDK store (sdk.db) failed its integrity check and cannot be opened — it is never repaired in place: remove sdk.db and the files named after it from the account's sdk dir, then boot the account again; the SDK replays the synced trees into a fresh one, and what lived only in sdk.db — the local store, local-scope values and the files bookkeeping — is lost", nil)
 	}
 	authLog.Error("boot account", zap.Error(err))
 	return writeError(c, http.StatusInternalServerError, "internal", "account boot failed", nil)
