@@ -239,9 +239,11 @@ func (w *spaceWorker) advanceLoop() {
 	// full-text layout is rewritten on this goroutine right after boot
 	// (Store.upgradeFTS), never on a request's: a search on the space
 	// answers not-ready until the rewrite commits. Then a db whose edges
-	// predate the link sink's layout is backfilled, for the same reason.
+	// predate the link sink's layout is backfilled, for the same reason,
+	// and docs an embedder-less run left without a vector are queued.
 	w.openIndex(w.ctx)
 	w.backfillLinks(w.ctx)
+	w.backfillPending(w.ctx)
 	w.runAdvance()
 	for {
 		select {
@@ -912,6 +914,50 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 func (w *spaceWorker) openIndex(ctx context.Context) {
 	if _, err := w.ix.store.spaceColl(ctx, w.sp.Id()); err != nil && ctx.Err() == nil {
 		w.ix.lg.Warn("open the space's index", zap.String("spaceId", w.sp.Id()), zap.Error(err))
+	}
+}
+
+// backfillPending queues the docs a run without an embedder left with
+// neither a vector nor the pending mark, once per space, when an
+// embedder appears: the cursor row's embed stamp says every text doc
+// was written with the mark on. A server without an embedder clears the
+// stamp, so the next one with an embedder sweeps. A failed sweep is
+// logged and retried on the next start (the stamp stays behind).
+func (w *spaceWorker) backfillPending(ctx context.Context) {
+	spaceId := w.sp.Id()
+	stamped, err := w.ix.store.EmbedStamped(ctx, spaceId)
+	if err != nil {
+		w.ix.lg.Warn("read embed stamp", zap.String("spaceId", spaceId), zap.Error(err))
+		return
+	}
+	if !w.ix.HasEmbedder() {
+		if stamped {
+			if err := w.ix.store.StampEmbed(ctx, spaceId, false); err != nil {
+				w.ix.lg.Warn("clear embed stamp", zap.String("spaceId", spaceId), zap.Error(err))
+			}
+		}
+		return
+	}
+	if stamped {
+		return
+	}
+	n, err := w.ix.store.BackfillPending(ctx, spaceId)
+	if err != nil {
+		if ctx.Err() == nil {
+			w.ix.lg.Warn("embed backfill failed; retried on next start", zap.String("spaceId", spaceId), zap.Error(err))
+		}
+		return
+	}
+	if err := w.ix.store.StampEmbed(ctx, spaceId, true); err != nil {
+		w.ix.lg.Warn("write embed stamp", zap.String("spaceId", spaceId), zap.Error(err))
+		return
+	}
+	if n > 0 {
+		w.ix.lg.Info("queued docs indexed without an embedder", zap.String("spaceId", spaceId), zap.Int("docs", n))
+		select {
+		case w.embedCh <- struct{}{}:
+		default:
+		}
 	}
 }
 

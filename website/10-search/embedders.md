@@ -28,6 +28,8 @@ index:
 ANY_INDEX_EMBEDDER=none any run      # FTS-only server
 ```
 
+Switching from `none` to an embedder later is not a rebuild: on the next start every document indexed without a vector is queued for embedding, and search gains the vector leg as the queue drains (`index.embed.<spaceId>` on the process view).
+
 ## `local` — llama.cpp in a child process
 
 The default model is **Qwen3-Embedding-0.6B (Q8_0)**: 1024-dimensional, last-token pooling, L2-normalized vectors; queries carry the Qwen retrieval instruction, documents embed bare. The GGUF (639 MB, sha256-pinned) downloads into `<data-dir>/models/` on first boot — resumable, with progress in the server log and as the `index.model_download` [process](../notifications/processes.html) — and never blocks boot. Until it lands the embedder reports unavailable and full-text keeps answering.

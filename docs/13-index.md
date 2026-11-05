@@ -553,9 +553,11 @@ space's rewrite never appear (`Options.OnProcess`, bridged in
   ingest, tombstone-rebuild deletes), `hybrid` (HNSW + RAM cache),
   `bruteforce` / `exact` (exact, O(N) per query). Existing indexes keep
   their mode until rebuilt.
-- A `cursors` collection holds one `{id: spaceId, seq, gen, links}` row
-  per space — `gen` is the SDK's per-space `Changes().Generation()`, the
-  epoch the cursor belongs to; `links` the link-sink layout stamp.
+- A `cursors` collection holds one `{id: spaceId, seq, gen, links,
+  embed}` row per space — `gen` is the SDK's per-space
+  `Changes().Generation()`, the epoch the cursor belongs to; `links` the
+  link-sink layout stamp; `embed` says every text doc carries a vector
+  or the pending mark (§ Embed loop).
   Cursor writes MERGE: advancing with no epoch in hand keeps the stamped
   one, because erasing it would silently disable rebuild detection. A
   `_meta` row pins the **schema version** (`indexSchemaVersion` in
@@ -634,6 +636,16 @@ skipped) → `EnsureVectorIndex`. Advance nudges it after each page with
 new text; a 1-minute ticker retries after embedder failures. A rewritten
 record goes back to `pending`. `index.embedder: none` ⇒ the loop doesn't
 run and the index is FTS-only.
+
+Enabling an embedder on an index built without one is not a rebuild. At
+space open the worker reads the cursor row's `embed` stamp; absent, it
+sweeps the space's docs and marks every one that has neither a vector
+nor the mark as `pending` under the upsert rule (`shouldEmbed`: text
+present, not `props` scope, prop values of 64 bytes or more), in
+batches of 500 per write transaction, then stamps the row and nudges
+the embed loop. A server without an embedder clears the stamp at space
+open, so the next one with an embedder sweeps again. A failed sweep is
+logged and retried on the next start.
 
 Embedders (`indexer.Embedder`), selected by `index.embedder`:
 
