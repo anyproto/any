@@ -601,8 +601,8 @@ func (d *deps) bundleResolve(c echo.Context) error {
 
 // bundleUninstall handles DELETE /v1/spaces/:spaceId/bundles/:bundleId
 // — delete the install, losers then winner, once every tree is local.
-// Through the resolver like get and resolve: the convergence wait
-// first (docs/03-api.md § Bundles, Uninstall).
+// Ensure's convergence gate first: a member other than the owner is
+// refused until the registry converged (docs/03-api.md § Bundles).
 //
 //	@Summary	Uninstall a bundle: its losers, then the winner, once every one is local
 //	@Tags		bundles
@@ -625,7 +625,9 @@ func (d *deps) bundleUninstall(c echo.Context) error {
 		return errResp
 	}
 	ctx := c.Request().Context()
-	d.bundleResolver().WaitConverged(ctx, sp)
+	if !d.bundleResolver().WaitConverged(ctx, sp) && sp.Info().OwnRole != space.PermissionOwner {
+		return bundleError(c, bundles.ErrRegistryNotSynced, sp.Id(), bundleId)
+	}
 	if err := d.bundleResolver().Uninstall(ctx, sp, bundleId); err != nil {
 		return bundleError(c, err, sp.Id(), bundleId)
 	}

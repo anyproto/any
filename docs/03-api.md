@@ -1493,12 +1493,12 @@ resolve it has no grace: a loser is deleted at the head this device
 holds. An uninstall made while apart from another device's install of
 the same id deletes what this device has seen; the other install
 surfaces as the winner once they meet, and the next uninstall takes
-it. It waits for the registry like a read, and answers
-`404 bundle.not_found` for a bundle this device's registry does not
-list (provisional before convergence, like a read's `synced: false`),
-`409 bundle.not_ready` while the winner's tree has not reached this
-device, `409 bundle.loser_not_ready` while a loser's tree has not
-(any-sync's settings delete needs the local head; retry),
+it. It runs behind ensure's convergence gate: a member other than the
+owner is `409 bundle.not_ready` until its registry has converged, the
+owner proceeds. Then `404 bundle.not_found` for a bundle the registry
+does not list, `409 bundle.not_ready` while the winner's tree has not
+reached this device, `409 bundle.loser_not_ready` while a loser's tree
+has not (any-sync's settings delete needs the local head; retry),
 `409 object.derived_undeletable` for a derived install,
 `403 space.read_only` for a reader.
 

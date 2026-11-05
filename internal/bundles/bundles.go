@@ -665,11 +665,9 @@ func (r *Resolver) Resolve(ctx context.Context, sp space.Space, bundleId, loserR
 	return nil
 }
 
-// Uninstall deletes the install — every loser, then the winner —
-// through the SDK, which refuses before the first delete while any of
-// them is not local. The row outlives the install and lists every
-// root ever claimed, so the swept losers are forgotten off it: the
-// registry's live reads skip a row whose winner is dead.
+// Uninstall runs the SDK's, which refuses before the first delete
+// while a tree is not local, then forgets the swept roots off the raw
+// row (the live reads skip a row whose winner is dead).
 func (r *Resolver) Uninstall(ctx context.Context, sp space.Space, bundleId string) error {
 	if err := sp.Bundles().Uninstall(ctx, bundleId); err != nil {
 		if errors.Is(err, space.ErrBundleUnknown) {
@@ -677,9 +675,12 @@ func (r *Resolver) Uninstall(ctx context.Context, sp space.Space, bundleId strin
 		}
 		return fmt.Errorf("bundle %s: uninstall: %w", bundleId, err)
 	}
+	// Bookkeeping only: the install is gone whatever this read says.
 	roots, err := Roots(ctx, sp, bundleId)
 	if err != nil {
-		return fmt.Errorf("bundle %s: roots after uninstall: %w", bundleId, err)
+		log.Warn("uninstalled bundle keeps its loser observations",
+			zap.String("bundle", bundleId), zap.String("spaceId", sp.Id()), zap.Error(err))
+		return nil
 	}
 	for id := range roots {
 		r.forget(sp, id)
