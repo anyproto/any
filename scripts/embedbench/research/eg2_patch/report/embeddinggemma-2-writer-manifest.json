@@ -1,0 +1,85 @@
+{
+  "spec": {
+    "name": "sparse-32-0.5",
+    "alpha": 0.5,
+    "sites": [
+      {
+        "tensor": "blk.23.ffn_down.weight",
+        "layer": 23,
+        "direction": "residual/23",
+        "columns": "mlp_columns/23",
+        "k": 32
+      }
+    ]
+  },
+  "tensors": [
+    {
+      "tensor": "blk.23.ffn_down.weight",
+      "columns": [
+        268,
+        1876,
+        663,
+        1346,
+        2012,
+        1860,
+        209,
+        389,
+        679,
+        765,
+        530,
+        920,
+        1644,
+        1647,
+        1006,
+        418,
+        1971,
+        414,
+        1148,
+        1185,
+        240,
+        1745,
+        1651,
+        1156,
+        1772,
+        1571,
+        1963,
+        1026,
+        818,
+        1134,
+        1454,
+        1536
+      ],
+      "changed_entries": 15299,
+      "relative_frobenius": 0.006801150273531675,
+      "delta_norm": 0.1481555849313736
+    }
+  ],
+  "files": {
+    "BF16": {
+      "path": "bench/eg2-patch/out/embeddinggemma-2-writer-BF16.gguf",
+      "sha256": "02af0f0e3f5c5e63dc9e962803d12814bc36b23b7a5826ee895d0f201ad2da2a",
+      "source_sha256": "68bae29d62fb8c7d23e98d21fd4662753ddd636e6b62b8a70dfe059a9844f216",
+      "different_tensors": [
+        {
+          "name": "blk.23.ffn_down.weight",
+          "type": "BF16",
+          "base_sha256": "721d036e509685d63b2bab2cb85337f6cc85e976a9c48219071d1ca5aebe140f",
+          "patched_sha256": "1684b25e9adbf1ec6c40c986dc11364ba61302ef1de157672ee67b9b41e70b65"
+        }
+      ]
+    },
+    "Q8_0": {
+      "path": "bench/eg2-patch/out/embeddinggemma-2-writer-Q8_0.gguf",
+      "sha256": "44263e4f18fc0283bd520eeae4d633910fe15ee83306a5b28d0bfbc938a1e9f5",
+      "source_sha256": "2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135",
+      "different_tensors": [
+        {
+          "name": "blk.23.ffn_down.weight",
+          "type": "Q8_0",
+          "base_sha256": "f94725e4943f301abc3448b6c8cab74d92d7a65a09599bc52c9d1e08d5a04dd7",
+          "patched_sha256": "a8a3e8aeaae237d16dcc1ddc5d164ee6230691db651076f917b468499f13b2b3"
+        }
+      ]
+    }
+  }
+}

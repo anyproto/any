@@ -1,0 +1,86 @@
+{
+  "spec": {
+    "name": "writer-random",
+    "alpha": 0.5,
+    "sites": [
+      {
+        "tensor": "blk.23.ffn_down.weight",
+        "layer": 23,
+        "direction": "residual/23",
+        "columns": "mlp_columns/23",
+        "k": 32
+      }
+    ],
+    "random": true
+  },
+  "tensors": [
+    {
+      "tensor": "blk.23.ffn_down.weight",
+      "columns": [
+        268,
+        1876,
+        663,
+        1346,
+        2012,
+        1860,
+        209,
+        389,
+        679,
+        765,
+        530,
+        920,
+        1644,
+        1647,
+        1006,
+        418,
+        1971,
+        414,
+        1148,
+        1185,
+        240,
+        1745,
+        1651,
+        1156,
+        1772,
+        1571,
+        1963,
+        1026,
+        818,
+        1134,
+        1454,
+        1536
+      ],
+      "changed_entries": 14623,
+      "relative_frobenius": 0.006803207099437714,
+      "delta_norm": 0.1482003927230835
+    }
+  ],
+  "files": {
+    "BF16": {
+      "path": "bench/eg2-patch/out/embeddinggemma-2-writer-random-BF16.gguf",
+      "sha256": "b23886ac3d729d848d3c2809668b5257a3b2e1c0bd1d6070fc232a0ab075e630",
+      "source_sha256": "68bae29d62fb8c7d23e98d21fd4662753ddd636e6b62b8a70dfe059a9844f216",
+      "different_tensors": [
+        {
+          "name": "blk.23.ffn_down.weight",
+          "type": "BF16",
+          "base_sha256": "721d036e509685d63b2bab2cb85337f6cc85e976a9c48219071d1ca5aebe140f",
+          "patched_sha256": "4af6ccc0428b98178c9e05471492d91f5937bb8a4396ee2529fa7bf25d176939"
+        }
+      ]
+    },
+    "Q8_0": {
+      "path": "bench/eg2-patch/out/embeddinggemma-2-writer-random-Q8_0.gguf",
+      "sha256": "47b542a5cbb880d7e7f6bf68afc9904570496dc7b28adfe5759c4c23c955311f",
+      "source_sha256": "2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135",
+      "different_tensors": [
+        {
+          "name": "blk.23.ffn_down.weight",
+          "type": "Q8_0",
+          "base_sha256": "f94725e4943f301abc3448b6c8cab74d92d7a65a09599bc52c9d1e08d5a04dd7",
+          "patched_sha256": "cd3ef0b8c09ae12fd3479f3ddef47ac5dc38b5c865b1dc1dad7a739a59bfce33"
+        }
+      ]
+    }
+  }
+}

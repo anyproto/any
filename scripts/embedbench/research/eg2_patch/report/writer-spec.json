@@ -1,0 +1,13 @@
+{
+  "name": "sparse-32-0.5",
+  "alpha": 0.5,
+  "sites": [
+    {
+      "tensor": "blk.23.ffn_down.weight",
+      "layer": 23,
+      "direction": "residual/23",
+      "columns": "mlp_columns/23",
+      "k": 32
+    }
+  ]
+}

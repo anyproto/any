@@ -1,0 +1,12 @@
+{
+  "name": "head-random",
+  "alpha": 1.0,
+  "sites": [
+    {
+      "tensor": "output.weight",
+      "direction": "head_mean",
+      "k": 0
+    }
+  ],
+  "random": true
+}

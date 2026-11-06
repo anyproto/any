@@ -1,0 +1,11 @@
+{
+  "name": "head-mean-1.0",
+  "alpha": 1.0,
+  "sites": [
+    {
+      "tensor": "output.weight",
+      "direction": "head_mean",
+      "k": 0
+    }
+  ]
+}
