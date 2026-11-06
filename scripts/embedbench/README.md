@@ -35,6 +35,15 @@ Build `bin/indexer.test` (`go test -c -tags llamacpp -o bin/indexer.test
   doc per `predict` with the same prompts, plus a batched pass. With several
   `--buckets` each doc goes to the smallest fixed-length function that holds
   it. `coreml_seq.sh` holds the flags for each build.
+- `qwen3_coreml_bench.py <sidekick|single> <model> <tokenizer.json> <corpus> <out>
+  [--buckets …]`: the same loop for the published Qwen3-Embedding-0.6B Core ML
+  builds. `sidekick` is a dir of `model_<L>.{0,1}.mlmodelc` (two chained
+  programs per bucket, fp16, right-padded) from
+  `sidekickd/qwen3-embedding-0.6b-coreml`. `single` is a printf format with one
+  package per bucket, left-padded, as in
+  `erjigit17/qwen3-embedding-0.6b-ane-coreml-8bit` (128 and 512 only). In fp16
+  every bucket holds its own ~1 GB weight copy; on an M2 Air three buckets
+  (128–512, 2.6 GB) load, and a fourth crashes Core ML in `predict`.
 - `cos.py <ref.docs.f32> <run.docs.f32> [run.truncated]`: row-wise cosine,
   split by truncated docs.
 - `power_seq.sh [runs.zsh]`, then `power_analyze.py <power dir>`: whole-system
@@ -87,6 +96,14 @@ same-session EG2 controls. It needs:
 - the Granite GGUF;
 - an app built on llama.cpp b11600 or later. Older builds allocate a
   vocab × context logits buffer, about 2.1 GB for a 262k vocab.
+
+For Qwen3 on the ANE, `iseq_qwen3.sh` runs the erjigit17 8-bit build and a
+same-session llama.cpp Q8 Metal control. It needs `prep.py <qwen3
+tokenizer.json> <corpus> payload-qwen3 --qwen3` (bare docs, the Instruct
+query prefix) and the two packages compiled for iOS as
+`models-qwen3/ej/s{128,512}.mlmodelc`. The app's `--model` takes `%d` for one
+file per bucket, `--stage2` chains a second program per bucket, and
+`--pad-left`, `--mask-int32`, `--pad-id` and `--eos` match the build's inputs.
 
 ### Energy (`ppseq.sh`, `ppanalyze.py`)
 

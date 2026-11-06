@@ -10,11 +10,16 @@ struct BenchError: Error, CustomStringConvertible {
 
 struct Opts {
     var mode = "coreml"        // coreml | plan | llama | idle
-    var model = ""             // path under Documents/
+    var model = ""             // path under Documents/; "%d" in it = one model file per bucket
+    var stage2 = ""            // coreml: second model per bucket ("%d" = bucket), fed stage 1's hidden_out as hidden_in
     var units = "ane"          // ane | cpu | gpu | all
     var buckets: [Int] = [512]
     var fnFmt = ""             // multifunction name, "s%d"
     var mask = ""              // attention-mask input name
+    var maskInt = false        // mask as int32 instead of float32
+    var padLeft = false        // left-pad (last token at the end of the window)
+    var padId: Int32 = 0
+    var eos: Int32 = 1         // kept terminal when a text is truncated
     var maxDocs = 0
     var batch = 8
     var skipQueries = false
@@ -42,6 +47,11 @@ struct Opts {
             case "--buckets": buckets = try val().split(separator: ",").compactMap { Int($0) }.sorted()
             case "--function-fmt": fnFmt = try val()
             case "--mask-input": mask = try val()
+            case "--mask-int32": maskInt = true
+            case "--pad-left": padLeft = true
+            case "--pad-id": padId = Int32(try val()) ?? 0
+            case "--eos": eos = Int32(try val()) ?? 1
+            case "--stage2": stage2 = try val()
             case "--max-docs": maxDocs = Int(try val()) ?? 0
             case "--batch": batch = Int(try val()) ?? 1
             case "--skip-queries": skipQueries = true

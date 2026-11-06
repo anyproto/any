@@ -32,11 +32,15 @@ func runCoreML(_ o: Opts, outDir: URL, log: Log) throws -> [String: Any] {
     let uniq = o.maxDocs > 0 ? Array(allDocs.prefix(o.maxDocs)) : allDocs
     let buckets = o.buckets
     guard let maxLen = buckets.last else { throw BenchError("no buckets") }
-    let eos: Int32 = 1, pad: Int32 = 0
-    let url = documents().appendingPathComponent(o.model)
+    let eos = o.eos, pad = o.padId
+    func modelURL(_ path: String, _ L: Int) -> URL {
+        documents().appendingPathComponent(path.replacingOccurrences(of: "%d", with: "\(L)"))
+    }
 
-    // Load: one MLModel per function. First-ever load compiles for the ANE.
+    // Load: one MLModel per function (or per bucket file, plus an optional
+    // second stage). First-ever load compiles for the ANE.
     var models: [Int: MLModel] = [:]
+    var stage2: [Int: MLModel] = [:]
     var loadPer: [String: Double] = [:]
     var memTrace: [[String: Any]] = [["stage": "start", "mem": memStats()]]
     let t0 = now()
@@ -45,7 +49,8 @@ func runCoreML(_ o: Opts, outDir: URL, log: Log) throws -> [String: Any] {
         cfg.computeUnits = computeUnits(o.units)
         if !o.fnFmt.isEmpty { cfg.functionName = o.fnFmt.replacingOccurrences(of: "%d", with: "\(L)") }
         let t = now()
-        models[L] = try MLModel(contentsOf: url, configuration: cfg)
+        models[L] = try MLModel(contentsOf: modelURL(o.model, L), configuration: cfg)
+        if !o.stage2.isEmpty { stage2[L] = try MLModel(contentsOf: modelURL(o.stage2, L), configuration: cfg) }
         loadPer["\(L)"] = now() - t
         memTrace.append(["stage": "load \(L)", "mem": memStats()])
         log("loaded \(L) in \(String(format: "%.1f", now() - t)) s")
@@ -54,19 +59,38 @@ func runCoreML(_ o: Opts, outDir: URL, log: Log) throws -> [String: Any] {
     let footAfterLoad = mb(footprint().cur)
 
     func provider(_ ids: [Int32], _ L: Int) throws -> MLFeatureProvider {
+        // Token i of the text sits at window position off + i.
+        let off = o.padLeft ? L - ids.count : 0
         let x = try MLMultiArray(shape: [1, NSNumber(value: L)], dataType: .int32)
         x.withUnsafeMutableBufferPointer(ofType: Int32.self) { p, _ in
-            for i in 0..<L { p[i] = i < ids.count ? ids[i] : pad }
+            for i in 0..<L { p[i] = pad }
+            for i in 0..<ids.count { p[off + i] = ids[i] }
         }
         var dict: [String: MLFeatureValue] = ["input_ids": MLFeatureValue(multiArray: x)]
         if !o.mask.isEmpty {
-            let m = try MLMultiArray(shape: [1, NSNumber(value: L)], dataType: .float32)
-            m.withUnsafeMutableBufferPointer(ofType: Float.self) { p, _ in
-                for i in 0..<L { p[i] = i < ids.count ? 1 : 0 }
+            let m = try MLMultiArray(shape: [1, NSNumber(value: L)], dataType: o.maskInt ? .int32 : .float32)
+            if o.maskInt {
+                m.withUnsafeMutableBufferPointer(ofType: Int32.self) { p, _ in
+                    for i in 0..<L { p[i] = (i >= off && i < off + ids.count) ? 1 : 0 }
+                }
+            } else {
+                m.withUnsafeMutableBufferPointer(ofType: Float.self) { p, _ in
+                    for i in 0..<L { p[i] = (i >= off && i < off + ids.count) ? 1 : 0 }
+                }
             }
             dict[o.mask] = MLFeatureValue(multiArray: m)
         }
         return try MLDictionaryFeatureProvider(dictionary: dict)
+    }
+
+    // Stage 1, then stage 2 on its hidden states when the model is split.
+    func predict(_ L: Int, _ d: MLFeatureProvider) throws -> MLFeatureProvider {
+        let out = try models[L]!.prediction(from: d)
+        guard let s2 = stage2[L] else { return out }
+        guard let h = out.featureValue(for: "hidden_out") else { throw BenchError("no hidden_out") }
+        var dict: [String: MLFeatureValue] = ["hidden_in": h]
+        if !o.mask.isEmpty, let m = d.featureValue(for: o.mask) { dict[o.mask] = m }
+        return try s2.prediction(from: MLDictionaryFeatureProvider(dictionary: dict))
     }
 
     var truncated: [Int] = []
@@ -88,7 +112,7 @@ func runCoreML(_ o: Opts, outDir: URL, log: Log) throws -> [String: Any] {
         try autoreleasepool {
             let d = try provider(warm, L)
             let t = now()
-            _ = try models[L]!.prediction(from: d)
+            _ = try predict(L, d)
             first["\(L)"] = now() - t
         }
         memTrace.append(["stage": "warm \(L)", "mem": memStats()])
@@ -107,7 +131,7 @@ func runCoreML(_ o: Opts, outDir: URL, log: Log) throws -> [String: Any] {
             try autoreleasepool {
                 let t1 = now()
                 let (L, d, n) = try feed(ids, idx: r == 0 ? i : nil)
-                let v = try embedding(models[L]!.prediction(from: d))
+                let v = try embedding(predict(L, d))
                 let t2 = now()
                 if r == 0 {
                     docs.append(v)
@@ -131,7 +155,7 @@ func runCoreML(_ o: Opts, outDir: URL, log: Log) throws -> [String: Any] {
                 try autoreleasepool {
                     let t1 = now()
                     let (L, d, _) = try feed(q)
-                    let v = try embedding(models[L]!.prediction(from: d))
+                    let v = try embedding(predict(L, d))
                     qlat.append((now() - t1) * 1000)
                     if r == 0 { qv.append(v) }
                 }
@@ -141,7 +165,7 @@ func runCoreML(_ o: Opts, outDir: URL, log: Log) throws -> [String: Any] {
 
     // Batched pass: predictions(fromBatch:) per bucket.
     var bres: [String: Any]? = nil
-    if o.batch > 1 {
+    if o.batch > 1 && stage2.isEmpty {
         var groups: [Int: [(Int, MLFeatureProvider)]] = [:]
         for (i, ids) in uniq.enumerated() {
             let (L, d, _) = try feed(ids)
@@ -187,10 +211,12 @@ func runCoreML(_ o: Opts, outDir: URL, log: Log) throws -> [String: Any] {
 // MLComputePlan on the device: preferred device per op and cost share,
 // for each requested function.
 func runPlan(_ o: Opts, log: Log) throws -> [String: Any] {
-    let url = documents().appendingPathComponent(o.model)
     var res: [String: Any] = [:]
-    let names = o.fnFmt.isEmpty ? [""] : o.buckets.map { o.fnFmt.replacingOccurrences(of: "%d", with: "\($0)") }
-    for name in names {
+    let perFile = o.model.contains("%d")
+    let names = o.fnFmt.isEmpty && !perFile ? [""] : o.buckets.map { (o.fnFmt.isEmpty ? "%d" : o.fnFmt).replacingOccurrences(of: "%d", with: "\($0)") }
+    for (k, name0) in names.enumerated() {
+        let url = documents().appendingPathComponent(perFile ? o.model.replacingOccurrences(of: "%d", with: "\(o.buckets[k])") : o.model)
+        let name = perFile && o.fnFmt.isEmpty ? "" : name0
         let cfg = MLModelConfiguration()
         cfg.computeUnits = computeUnits(o.units)
         if !name.isEmpty { cfg.functionName = name }
@@ -230,7 +256,7 @@ func runPlan(_ o: Opts, log: Log) throws -> [String: Any] {
         }
         sem.wait()
         if let e = err { throw e }
-        for (k, v) in out { res[k] = v; log("plan \(k): \(v)") }
+        for (k, v) in out { let key = perFile ? "\(name0)/\(k)" : k; res[key] = v; log("plan \(key): \(v)") }
     }
     return ["engine": "plan", "model": o.model, "computeUnits": o.units, "functions": res]
 }

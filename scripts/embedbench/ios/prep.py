@@ -1,5 +1,6 @@
-"""prep.py <tokenizer.json> <corpus.jsonl> <outdir> [--no-prompts]
-Writes tokens.bin (HF token ids with the EG2 bench prompts, or none for Granite; untruncated)
+"""prep.py <tokenizer.json> <corpus.jsonl> <outdir> [--no-prompts | --qwen3]
+Writes tokens.bin (HF token ids with the EG2 bench prompts, none for Granite, or Qwen3's:
+bare docs and the Instruct query prefix; untruncated)
 and corpus.json (raw doc texts + the 16 bench queries) for the iPhone app.
 tokens.bin: b"TOK1", u32 nDocs, u32 nQueries, then per text u32 len + i32 ids."""
 import json, struct, sys
@@ -27,6 +28,9 @@ QUERIES = [
 if "--no-prompts" in sys.argv:
     sys.argv.remove("--no-prompts")
     DOC = QRY = ""
+if "--qwen3" in sys.argv:
+    sys.argv.remove("--qwen3")
+    DOC, QRY = "", "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:"
 tok = Tokenizer.from_file(sys.argv[1])
 docs = [json.loads(l)["text"] for l in open(sys.argv[2])]
 out = sys.argv[3]
