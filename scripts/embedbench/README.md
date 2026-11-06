@@ -44,6 +44,10 @@ Build `bin/indexer.test` (`go test -c -tags llamacpp -o bin/indexer.test
   `erjigit17/qwen3-embedding-0.6b-ane-coreml-8bit` (128 and 512 only). In fp16
   every bucket holds its own ~1 GB weight copy; on an M2 Air three buckets
   (128–512, 2.6 GB) load, and a fourth crashes Core ML in `predict`.
+- `mlx_qwen3_bench.py <hf dir> <corpus> <out> [--dtype fp16] [--bits 8]`:
+  Qwen3-Embedding-0.6B on MLX (GPU), one doc per call, no padding. It clears
+  MLX's buffer cache after each doc; with the default cache, fiqa-1500's ~600
+  distinct lengths slow it about 3×.
 - `cos.py <ref.docs.f32> <run.docs.f32> [run.truncated]`: row-wise cosine,
   split by truncated docs.
 - `power_seq.sh [runs.zsh]`, then `power_analyze.py <power dir>`: whole-system
