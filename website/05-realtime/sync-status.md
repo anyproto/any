@@ -40,7 +40,7 @@ any sync-status space SPACE
 
 | Field | Meaning |
 |---|---|
-| `state` | `unknown` / `syncing` / `synced`; `offline` and `error` are reserved in the vocabulary and not emitted |
+| `state` | `unknown` / `syncing` / `synced`; `offline` and `error` are reserved in the vocabulary and not emitted. `syncing` means this device holds heads a responsible node or peer has not acknowledged — its own writes, or an object it is fetching; changes received to an object it already holds never set it |
 | `synced`, `total` | objects converged vs. objects tracked in the space |
 | `networkPeers` | responsible sync nodes with a live connection |
 | `localPeers` | LAN peers sharing this space that are connected right now |

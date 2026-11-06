@@ -178,17 +178,21 @@ Every `any://` reference in a message — text links and mentions, each attachme
 
 ## Chat list and notifications
 
-Each chat object's row already carries its counters, so a chat list is a plain objects query — `{"sort": ["-chat.unreadCount"]}` sorts unread-first, and a thousand chats cost one query. Do **not** subscribe to every chat to detect new messages. One space-wide objects subscription covers them all:
+Each chat object's row already carries its counters, so a chat list is a plain objects query — `{"sort": ["-chat.unreadCount"]}` sorts unread-first, and a thousand chats cost one query. Do **not** subscribe to every chat to detect new messages. One bounded space-wide objects subscription covers every chat with something unread:
 
 ```json
-{ "filter": {"$or": [{"any.type": {"$in": ["<chat-declaring type ids>"]}},
-                     {"id":       {"$in": ["<chat-declaring type ids>"]}}]},
-  "limit": 0 }
+{ "filter": {"$and": [
+    {"$or": [{"chat.unreadCount":          {"$gt": 0}},
+             {"chat.unreadMentions":       {"$gt": 0}},
+             {"chat.unreadReactionsCount": {"$gt": 0}}]},
+    {"any.collections": {"$nin": ["bin", "template"]}}]},
+  "sort": ["-modifiedAt", "-id"],
+  "limit": 1000 }
 ```
 
-The ids are the `owners` of `chat_messages` in `GET /v1/spaces/:spaceId/datasets` — every type whose part declares the chat module; resolve them once per space. Both arms are needed: an ordinary chat object names its type in `any.type`, while a declaring definition — the general chat's root, a user type's own row — hosts its own messages and matches by `id`. A definition row nobody wrote to never moves a counter.
+The SDK writes the counters as local-scope values on whichever row hosts the chat — an ordinary chat object, the general chat's root, a user type's own row — so the filter needs no list of chat-declaring types; the bin clause is the one every ordinary list carries. A counter is absent until it first turns non-zero, and absent never matches `$gt: 0`. A counter write never bumps `modifiedAt`. A counter write re-evaluates the filter: 0 → N arrives as `added`, a change between non-zero values as `updated`, every counter back at 0 as `removed` with reason `filtered-out`. Keep `limit` above the number of chats with something unread; the window then holds every one of them.
 
-Counter went up → new unread in that chat; fetch `{"unread": true}` sorted `-_ver.id` with a small limit and toast only messages above a last-notified `_ver.id` you keep locally. Counter went down → the user read it somewhere (this window, another window, another device) — dismiss that chat's notifications. Total live surface for a desktop client: one objects subscription per space, one `/query/subscribe` for the open chat.
+Counter went up → new unread in that chat; fetch `{"unread": true}` sorted `-_ver.id` with a small limit and toast only messages above a last-notified `_ver.id` you keep locally. Counter went down → messages left the unread set (read in this window, another window or another device, deleted, or a mention edited out) — dismiss the notifications of the messages no longer unread. `removed` (`filtered-out`: nothing unread any more, or binned; `deleted`: the chat is gone) → dismiss all of that chat's notifications. On start the snapshot is the badge set; on any `closed`, resubscribe and let the new snapshot replace it. Total live surface for a desktop client: one objects subscription per space, one `/query/subscribe` for the open chat.
 
 `chat_messages` keeps no [version history](../database/version-history.html): the `/history` endpoints never list chat changes, and there is no per-message edit timeline — clients render live records only (an edit replaces `text`, a delete tombstones).
 

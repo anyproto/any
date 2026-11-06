@@ -313,48 +313,66 @@ subscription holds a record window and mailbox, and puts event-build
 work on every apply. There is no notification service either: a
 desktop client builds OS notifications itself over the existing HTTP
 surface. The SDK already funnels "something notify-worthy happened"
-into the chat rows' counter properties, so ONE space-wide subscription
-covers every chat:
+into the counters on the row of whichever object hosts the chat, so
+ONE bounded space-wide subscription covers every chat with something
+unread:
 
 ```
 POST /v1/spaces/:spaceId/objects/query/subscribe
-{ "filter": {"$or": [{"any.type": {"$in": [<chat-declaring type ids>]}},
-                     {"id":       {"$in": [<chat-declaring type ids>]}}]},
-  "limit": 0 }
+{ "filter": {"$and": [
+    {"$or": [{"chat.unreadCount":          {"$gt": 0}},
+             {"chat.unreadMentions":       {"$gt": 0}},
+             {"chat.unreadReactionsCount": {"$gt": 0}}]},
+    {"any.collections": {"$nin": ["bin", "template"]}}]},
+  "sort":   ["-modifiedAt", "-id"],
+  "limit":  1000 }
 ```
 
-The ids are the `owners` of `chat_messages` in
-`GET /v1/spaces/:spaceId/datasets` — every type in the space whose
-part declares the chat module; resolve them once per space (re-read
-when a part is added). Both arms are needed: an ordinary chat object
-names its type in `any.type`, while a declaring definition — the
-general chat's root, a user type's own row — hosts its own messages and
-matches by `id`. A definition row nobody wrote to never moves a
-counter.
+How the counters move through that window:
 
-Each frame's `updated` entries carry the full row and the ops — watch
-for `chat.unreadCount` / `chat.unreadMentions` changes:
+- They are local-scope values on the hosting row — an ordinary chat
+  object, the general chat's root, a user type's own row — so the
+  filter needs no list of chat-declaring types. The bin clause is the
+  one every ordinary list carries: a binned chat leaves the window.
+- A counter is absent until it first turns non-zero, and absent never
+  matches `$gt: 0`: a chat nobody wrote to never enters the window.
+- A counter write never bumps `modifiedAt`.
+- A counter write re-evaluates the filter. 0 → N arrives as `added`,
+  a change between non-zero values as `updated`, and every counter
+  back at 0 as `removed` with reason `filtered-out`.
+
+Keep `limit` above the number of chats with something unread; the
+window then holds every one of them.
+
+Each frame's `added` / `updated` entries carry the full row and the
+ops — watch for `chat.unreadCount` / `chat.unreadMentions` changes:
 
 - **Counter went up** → new unread in that chat. Fetch what to show:
   `POST /query` on that chat, `{"unread": true}`, sort `-_ver.id`,
-  small limit. Keep a last-notified `_ver.id` per chat in the client's
-  local store and toast only messages above it — that marker is your
-  entire notification cursor. Skip the toast when that chat is open
-  and visible; the viewport rule marks it read instead.
-- **Counter went down** → the user read it here, in another window, or
-  on another device — dismiss that chat's OS notifications. Cross-
-  device dismissal falls out for free.
+  small limit. Keep a last-notified `_ver.id` per chat in the
+  client's local store and toast only messages above it — that marker
+  is your entire notification cursor. Skip the toast when that chat
+  is open and visible; the viewport rule marks it read instead.
+- **Counter went down** → messages left the unread set: read here, in
+  another window or on another device, deleted, or a mention edited
+  out — dismiss the OS notifications of the messages no longer
+  unread. Cross-device dismissal falls out for free.
+- **`removed`** with reason `filtered-out` (nothing unread any more,
+  or the chat was binned) or `deleted` (the chat is gone) → dismiss
+  all of that chat's notifications.
 - The counters already encode the semantics, so no client-side
   filtering is needed: your own messages never bump them (born read),
-  an agent's `done: true` reply under your key does, edits never bump
-  them, deleting an unseen message drops them. "Your agent replied"
-  rides this same subscription in every space — no per-chat streams.
+  an agent's `done: true` reply under your key does, an edit moves
+  only `chat.unreadMentions` (up when its new text mentions you, down
+  when it drops an edit-added mention), deleting an unseen message
+  drops them. "Your agent replied" rides this same subscription in
+  every space — no per-chat streams.
 
 Boot policy: on start, take the subscription's snapshot as badge
-state — don't toast the offline gap (the last-notified markers make
-this automatic). On SSE overflow/drift, resubscribe; the snapshot
-frame re-establishes badges and the markers keep toasts deduplicated.
-Space add/remove: `POST /v1/spaces/query/subscribe`.
+state — every chat in it has something unread, and a chat absent from
+it has nothing. Don't toast the offline gap. On any `closed`,
+resubscribe; the new snapshot replaces the badge set. Space
+add/remove: `POST /v1/spaces/query/subscribe`.
 
 Total live surface for a desktop client: one objects subscription per
 space, one `/query/subscribe` for the currently OPEN chat, plus a

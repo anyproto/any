@@ -39,10 +39,10 @@ The body is the same one `…/query` takes, plus two stream-only knobs:
 | `objectId` | per-object variant only |
 | `dataset` | per-object and shared-dataset variants |
 | `filter`, `sort`, `limit`, `offset` | as in a snapshot query; `limit > 0` without `sort` is `400 request.invalid_field` — a live window has to be ordered |
-| `includeTotal` | populates `total` and `hasNext` in the snapshot frame |
+| `includeTotal` | populates `total` and `hasNext` in the snapshot frame only — no `changes` frame carries a total — at the cost of a second pass over the matching rows |
 | `projection` | shapes the snapshot and every later `changes` record — see [Reading data](../database/reading-data.html) |
 | `mailboxCapacity` | per-subscriber event mailbox; default 256, minimum 16 |
-| `driftBudgetPercent` | how much of the window may leave unreplaced before the stream closes; default 30 |
+| `driftBudgetPercent` | how many losses the window takes before the stream closes, as a percent of `limit`; default 30 — see [Drift](#drift) |
 
 `includeDeleted` is not supported on a subscription. The field set is closed: an unknown top-level key answers `400 request.unknown_field`. Errors raised before the stream opens (`space.not_found`, `request.missing_field`, …) come back as the normal JSON error envelope; once the response is `200 text/event-stream`, problems are `closed` frames.
 
@@ -95,12 +95,16 @@ An object deletion can produce a synthetic removal with an empty `versionId`. Ap
 | `deauthorized` | the account behind the stream was torn down in place (`DELETE /v1/auth`, or a switch to another account) while the server stays up — re-read `GET /v1/auth` before resubscribing |
 | `sdk_closed` | the space or the engine was closed |
 | `overflow` | events arrived faster than the client drained them and the mailbox (`mailboxCapacity`) filled; the engine closes the stream rather than drop events |
-| `drifted` | more than `driftBudgetPercent` of the window left without replacements; the engine refuses to re-query on the hot path |
+| `drifted` | held rows that stopped matching reached `driftBudgetPercent` of `limit`; the engine refuses to re-query on the hot path |
 | `object_deleted` | the object behind a per-object stream (one object's dataset, one object's files) was deleted; the view is gone for good and a new POST for it is refused |
 
 Recovery is the same for all of them but `object_deleted`: **open a new POST and take the fresh snapshot**. There is no replay across reconnects and no resume cursor — the new snapshot already reflects current state, which is strictly cheaper than reconstructing it from a backlog. Before every attempt read `GET /v1/auth`: `authorized: false` means clear the view and wait (a restart, or a managed host between accounts — the example below waits for the original account to come back; a host cancels the watcher on a deliberate sign-out), a different `accountId` means clear the view and stop. Make the same check after a 401, a failed request or a stream that ends without `closed` — an account switch can swallow the terminal frame.
 
 `overflow` and `drifted` are split only so you can log and back off sensibly: a burst of `overflow` on a hot storage collection is the hint to raise `mailboxCapacity` (or to look at how slowly the consumer drains), a stream of `drifted` on a churny list is the hint to raise `driftBudgetPercent` or widen `limit`.
+
+### Drift
+
+The engine holds the `limit` visible rows plus one hidden row past the edge. A held row that stops matching — deleted, purged, or failing the filter after an update, the hidden row included — counts one loss. Nothing lowers the count: an arrival does not offset a loss, and neither does time. A row pushed past the edge by an arrival, or moved out of view by its own sort key (`displaced`), is not a loss. After every apply the stream closes with `drifted` once `losses × 100 ≥ limit × driftBudgetPercent`: at the default 30, the 15th loss closes a 50-row window. ≤ 0 means 30.
 
 > **Note.** Drift detection needs a window to measure against: with `limit: 0` there is no window auto-shift and no drift safety net. Always subscribe with a limit.
 
@@ -234,9 +238,9 @@ From the shell, `curl -N` shows the raw frames, and the CLI prints one JSON obje
 ```bash
 curl -N http://127.0.0.1:2046/v1/spaces/SPACE/objects/query/subscribe \
   -H 'Content-Type: application/json' \
-  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}'
+  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt","-id"],"limit":20}'
 
-any query-subscribe SPACE --properties --filter '{"any.type":"page"}' --sort -modifiedAt --limit 20
+any query-subscribe SPACE --properties --filter '{"any.type":"page"}' --sort -modifiedAt,-id --limit 20
 any query-subscribe SPACE CHAT --dataset chat_messages --sort -_ver.id --limit 50 --total \
   | jq 'select(.event=="changes") | .data[]'
 any query-subscribe SPACE --all-objects --dataset TYPE_hours --sort -start --limit 48

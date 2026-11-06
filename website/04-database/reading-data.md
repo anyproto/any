@@ -25,7 +25,7 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/query \
   -H 'Content-Type: application/json' \
   -d '{"filter": {"$and": [{"any.type": "page"},
                            {"any.collections": {"$nin": ["bin", "template"]}}]},
-       "sort": ["-modifiedAt", "id"], "limit": 20}'
+       "sort": ["-modifiedAt", "-id"], "limit": 20}'
 
 # the blocks of one document, in order
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
@@ -126,7 +126,7 @@ Instants filter as instants. Wrap the literal in `{"$date": …}`:
 
 ## Sort
 
-`sort` is an array of dotted paths, `-` prefix for descending, applied left to right: `["<wikiCollectionId>.<parentIdPropId>", "<wikiCollectionId>.<posPropId>"]` (the wiki tree's columns — [Objects](objects.html)). On `/subscribe`, `sort` is required whenever `limit > 0` so the window is well-defined. `{"sort": ["-modifiedAt"]}` is "recently modified first"; `-createdAt` is creation order. Add `id` as the last key when the others can tie, and re-apply the same sort client-side after each `changes` batch — a map's insertion order is not query order.
+`sort` is an array of dotted paths, `-` prefix for descending, applied left to right: `["<wikiCollectionId>.<parentIdPropId>", "<wikiCollectionId>.<posPropId>"]` (the wiki tree's columns — [Objects](objects.html)). On `/subscribe`, `sort` is required whenever `limit > 0` so the window is well-defined. `{"sort": ["-modifiedAt"]}` is "recently modified first"; `-createdAt` is creation order. Add `id` as the last key, in the direction of the key before it (`["-modifiedAt", "-id"]`), when the others can tie — tied rows have no specified order — and re-apply the same sort client-side after each `changes` batch — a map's insertion order is not query order.
 
 ## Paths
 
@@ -146,7 +146,7 @@ A type's or collection's `xKey` is a client-side label, never a server path.
 
 **`offset` / `limit`** is fine for a frozen snapshot. It floats on a live storage collection: row 50 becomes row 51 the moment something lands ahead of it, so paging across writes skips and repeats rows.
 
-**Cursor paging** is stable: filter on an indexed, monotonic field and keep the same sort. For chat that field is `_ver.id`, assigned at creation and untouched by edits. Chat pages backward with
+**Cursor paging** does not float under inserts: filter past the last row on the indexed sort field (`$lt` on a descending sort, `$gt` on an ascending one) and keep the same sort. A row whose sort key changes mid-pass moves relative to the cursor, so the pass can miss it or return it twice — an edited object jumps past a `modifiedAt` cursor. For chat that field is `_ver.id`, assigned at creation, untouched by edits, and unique because the chat routes write each message as its own change; records one change creates share a `_ver.id`. Chat pages backward with
 
 ```json
 { "objectId": "<chat>", "dataset": "chat_messages",
@@ -155,6 +155,17 @@ A type's or collection's `xKey` is a client-side label, never a server path.
 ```
 
 `_ver.id` orders one object's records only. Records of different objects share no version order, so across a shared dataset the cursor is a declared field that a declared [index](indexes.html#runtime-datasets) leads with.
+
+On `objects` rows `_ver.id` repeats and orders nothing either; the cursor is the sort field. `modifiedAt` holds whole seconds, so rows tie often, and tied rows have no specified order. Sort `["-modifiedAt", "-id"]` and carry the `id` tiebreak into the cursor filter, next to the first page's own filter.
+
+```json
+{ "sort": ["-modifiedAt", "-id"], "limit": 50,
+  "filter": { "$and": [
+    { "any.type": "page" },
+    { "$or": [
+      { "modifiedAt": { "$lt": { "$date": "<last.modifiedAt>" } } },
+      { "modifiedAt": { "$date": "<last.modifiedAt>" }, "id": { "$lt": "<last.id>" } } ] } ] } }
+```
 
 `includeTotal` counts every filter match, ignoring `limit` and `offset`, from the same read as the page; `hasNext` is `offset + len(records) < total`. For counts per group, use a `$count` / `$group` [aggregation](aggregation.html).
 
@@ -170,7 +181,7 @@ A deleted record is a tombstone: its content is wiped, its id is burned, and eve
 
 ```bash
 any query-subscribe $SPACE $OBJ --dataset editor_blocks --sort nav.pos --limit 50
-any query-subscribe $SPACE --properties --filter '{"any.type": "page"}' --sort -modifiedAt --limit 20
+any query-subscribe $SPACE --properties --filter '{"any.type": "page"}' --sort -modifiedAt,-id --limit 20
 any query-subscribe $SPACE --all-objects --dataset $HOURS --sort -start --limit 48
 ```
 

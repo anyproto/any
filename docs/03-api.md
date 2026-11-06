@@ -1868,7 +1868,7 @@ route below; the examples use the canonical name). Nest via
 ```json
 {
   "id":    "<auto-derived from changeId>",
-  "_ver":  { "id": "<VersionId of last change>", ... },
+  "_ver":  { "id": "<creation VersionId>", "<path>": "<VersionId>", ... },
   "type":  "paragraph" | "heading" | "list_item" |
            "check_list_item" | "code" | "quote" |
            "divider" | "html" | "table" | "image",
@@ -1907,6 +1907,8 @@ POST /v1/spaces/:spaceId/query
 ```
 
 Each record carries `id`, `_ver`, `type`, `style`, `text`, `nav`.
+`_ver.id` is the block's creation marker, never bumped by an edit; an
+edit stamps `_ver.<path>` for the paths it wrote.
 Records sort by `nav.pos` ascending (flat order, not DFS — clients
 that want DFS reconstruct the tree by grouping children under each
 `nav.parentId`). Empty `records` array when the object has no body
@@ -2284,7 +2286,8 @@ record, a record delete). They share that change's version, so they
 move as a unit and never pair one change's time with another's
 signer; a late arrival regresses neither, and concurrent writers are
 resolved by DAG order, not by clock, so the winning identity may be
-the one whose wall clock reads earlier. Deleting the object removes
+the one whose wall clock reads earlier — and `modifiedAt` can move
+backwards. Deleting the object removes
 the row outright, stamps included. `modifiedBy` is in the same
 identity encoding as `author`, as chat `creator`, as `identity` in
 `GET /v1/spaces/:spaceId/members` and as `id` from `GET /v1/account`:
@@ -2325,7 +2328,7 @@ into `/query` must treat 404 as "stale hit", not an error.
   "includeTotal":       true,         // populate `total` + `hasNext` in the snapshot
   "includeDeleted":     false,        // per-object `…/query` only — tombstones too, see below
   "mailboxCapacity":    256,          // subscribe only — default 256, min 16
-  "driftBudgetPercent": 30,           // subscribe only — default 30
+  "driftBudgetPercent": 30,           // subscribe only — default 30, see below
   "projection": { "any": 1, "<ownerId>": 1, "_ver": -1 }  // field paths → 1 include / -1 exclude
 }
 ```
@@ -2349,6 +2352,23 @@ record in `changes` events, docs and per-field ops alike, so a
 projected subscription cannot silently widen after the first update.
 Full grammar, the `_ver` rule, and the divergences from mongo:
 [`docs/09-query.md` § Projection](09-query.md).
+
+**`includeTotal`** counts every filter match, ignoring `limit` and
+`offset`. On `…/query/subscribe` it is snapshot-only: `total` and
+`hasNext` ride the `snapshot` frame, no `changes` frame carries a
+total, and the count is a second pass over the matching rows.
+
+**`driftBudgetPercent`** (subscribe with `limit > 0`) bounds how much
+a live window may lose before the stream closes with `drifted`. The
+engine holds the `limit` visible rows plus one hidden row past the
+edge. A held row that stops matching — deleted, purged, or failing the
+filter after an update, the hidden row included — counts one loss.
+Nothing lowers the count: not an arrival, not time. A row pushed past
+the edge by an arrival, or moved out of view by its own sort key
+(`displaced`), is not a loss. After every apply the stream closes once
+`losses × 100 ≥ limit × driftBudgetPercent`: at the default 30, the
+15th loss closes a 50-row window. ≤ 0 means 30. With `limit: 0`
+nothing is counted.
 
 **`includeDeleted`** (per-object `…/query` only) returns the dataset's
 **record-level tombstones** next to the live rows: a deleted record
@@ -2525,7 +2545,8 @@ data: {"reason": "overflow"}
   materialised window (bounded by `limit`/`offset`); `total` is the
   unbounded filter-matching count and `hasNext` reports whether more
   matches exist past this page (`offset+len(records) < total`). Both
-  are present only when `includeTotal` was set in the request body.
+  are present only when `includeTotal` was set in the request body,
+  and no later frame updates them.
 - **`changes`** — JSON array of zero-or-more windowed events. Each
   event has `versionId` (per-change DAG order, locally-scoped — don't
   compare across peers) plus three buckets:
@@ -2562,9 +2583,9 @@ data: {"reason": "overflow"}
   - `overflow` — the per-subscriber mailbox filled before the consumer
     drained it. The SDK closes the sub rather than dropping events —
     resubscribe to get a fresh snapshot.
-  - `drifted` — more than `driftBudgetPercent` of the held window left
-    without replacements, and the engine refuses to re-query on the
-    hot path. Resubscribe.
+  - `drifted` — held rows that stopped matching reached
+    `driftBudgetPercent` of `limit` (§ Snapshot request body), and the
+    engine refuses to re-query on the hot path. Resubscribe.
   - `object_deleted` — per-object streams only (one object's dataset,
     one object's files): the object was deleted. Drop the view; a new
     POST for it is refused.
@@ -4500,6 +4521,12 @@ The two GETs are cheap; safe to call on a render tick. `state` is one
 of `unknown` / `offline` / `syncing` / `synced` / `error`. Unknown
 object ids return `{state: "unknown"}` rather than 404 — existence
 checks go through `GET …/objects/:objectId`.
+
+`syncing` means this device holds heads a responsible node or peer has
+not acknowledged: its own writes, or an object it has just fetched.
+Changes received from other members never set it, and a fetched
+object goes `syncing` → `synced` within one fetch, so the status never
+says that another member's changes arrived.
 
 ```json
 // GET /v1/spaces/:spaceId/sync-status
