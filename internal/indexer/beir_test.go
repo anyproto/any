@@ -188,6 +188,23 @@ func TestSearchEvalBEIR(t *testing.T) {
 		t.Logf("%-34s  %7.4f  %7.4f  %7.4f", s.label, m.ndcgAtK, m.recallAtK, m.mrr)
 	}
 
+	// Query centering and the short-doc bias: ANY_BEIR_QCENTER=a[,a…].
+	if spec := os.Getenv("ANY_BEIR_QCENTER"); spec != "" {
+		var alphas []float64
+		for _, f := range strings.Split(spec, ",") {
+			a, err := strconv.ParseFloat(strings.TrimSpace(f), 64)
+			if err != nil {
+				t.Fatalf("ANY_BEIR_QCENTER: %v", err)
+			}
+			alphas = append(alphas, a)
+		}
+		bq := make([]beirQuery, len(qs))
+		for i, qq := range qs {
+			bq[i] = beirQuery{qq.text, qq.rel}
+		}
+		beirCentering(t, ctx, name, ix, emb, bq, corpus, docVecs, alphas)
+	}
+
 	// $defaultOperator on the pure lexical leg — AND (all terms required)
 	// vs OR (default). Embedder-independent, so it's valid even on the hash
 	// fallback. AND trades recall for precision; the question is whether
