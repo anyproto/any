@@ -59,11 +59,13 @@ curl http://127.0.0.1:2046/v1/spaces/$SPACE/sync-status
 
 | `state` | Meaning |
 |---------|---------|
-| `synced` | Every object's heads match the responsible peers. |
-| `syncing` | Changes are in flight in one direction or the other. |
+| `synced` | No object this device holds has heads a responsible node or peer has yet to acknowledge. |
+| `syncing` | This device holds heads a responsible node or peer has not acknowledged yet: its own writes, or an object it is fetching. |
 | `unknown` | Space not loaded yet on this device (or an object id nobody has seen). |
 | `offline` | No responsible node reachable; local reads and writes continue. |
 | `error` | The network is incompatible with this build. |
+
+Changes from other members to an object this device already holds never set `syncing`, and an object new to this device goes `syncing` → `synced` within the fetch that brings it, so the status cannot tell you that another member's changes have arrived.
 
 The rollup reports `synced`, `syncing` and `unknown`; `offline` and `error` are reserved in the vocabulary for reachability and network-compatibility signals, so render them rather than failing on them.
 

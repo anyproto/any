@@ -36,7 +36,7 @@ Rules that hold for every stream:
 | `deauthorized` | the account behind the stream was torn down in place (`DELETE /v1/auth`, or a `POST /v1/auth` switch) while the server stays up; re-read `GET /v1/auth` before resubscribing | every stream |
 | `sdk_closed` | the engine released the underlying subscription (space or SDK closed) | query/subscribe |
 | `overflow` | the subscriber's mailbox filled before it drained (query/subscribe: capacity `mailboxCapacity`, default 256, min 16; event bus: 16-deep buffer) | query/subscribe, event bus |
-| `drifted` | more than `driftBudgetPercent` (default 30) of the held window left without replacement; the engine refuses to re-query on the hot path | query/subscribe |
+| `drifted` | held rows that stopped matching reached `driftBudgetPercent` (default 30) of `limit`; the engine refuses to re-query on the hot path | query/subscribe |
 | `object_deleted` | the object behind a per-object stream (one object's dataset, one object's files) was deleted; drop the view, a new POST for it is refused | query/subscribe |
 
 `overflow` and `drifted` are split only so clients can log and back off sensibly — recovery is identical.
@@ -48,7 +48,7 @@ Endpoints: `POST /v1/spaces/:id/objects/query/subscribe` (cross-object), `POST /
 | Frame | Payload | Notes |
 |---|---|---|
 | `ready` | `{}` | once |
-| `snapshot` | `{records, total?, hasNext?}` | once, right after `ready`; `total`/`hasNext` only with `includeTotal` |
+| `snapshot` | `{records, total?, hasNext?}` | once, right after `ready`; `total`/`hasNext` only with `includeTotal`, never updated by `changes` |
 | `changes` | `[{versionId, added, updated, removed}]` | zero or more windowed events, coalesced per write |
 | `closed` | `{reason}` | terminal |
 

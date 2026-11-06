@@ -62,10 +62,9 @@ const (
 	// is resubscribe (which re-Snapshots).
 	SubscribeClosedOverflow = "overflow"
 
-	// SubscribeClosedDrifted — only on query/subscribe streams. More
-	// than DriftBudgetPercent of the held window left without
-	// replacements; the SDK closes the subscription rather than
-	// re-Query the database on the hot path. Recovery is resubscribe.
+	// SubscribeClosedDrifted — query/subscribe only. Held rows that stopped
+	// matching reached DriftBudgetPercent of the limit; the SDK closes rather
+	// than re-query on the hot path. Recovery is resubscribe.
 	SubscribeClosedDrifted = "drifted"
 
 	// SubscribeClosedObjectDeleted — only on per-object query/subscribe
