@@ -2,9 +2,11 @@
    [--units CPU_AND_NE] [--buckets 512] [--function-fmt ""] [--max-docs N]
    [--batch N] [--input input_ids] [--output embedding]
    [--mask-input NAME --mask-dtype float32]
+   [--doc-prefix "title: none | text: "] [--query-prefix "task: search result | query: "]
 
 Embeds the corpus one doc per predict (plus a batched pass) with the
-same prompts as TestEmbedBench, dumps .docs.f32/.queries.f32 in the
+same prompts as TestEmbedBench (EG2's by default; pass empty prefixes for
+models without prompts, e.g. Granite), dumps .docs.f32/.queries.f32 in the
 bench format, records truncated doc indices, latency percentiles and
 docs/s, and prints a RESULT json. With several --buckets each text goes
 to the smallest fixed-length function that holds it (function name =
@@ -77,6 +79,8 @@ def main():
     ap.add_argument("--mask-dtype", default="float32")
     ap.add_argument("--pad-id", type=int, default=0)
     ap.add_argument("--skip-queries", action="store_true")
+    ap.add_argument("--doc-prefix", default=DOC)
+    ap.add_argument("--query-prefix", default=QRY)
     a = ap.parse_args()
 
     tok = Tokenizer.from_file(a.tokenizer)
@@ -130,7 +134,7 @@ def main():
 
     # Warm-up: first predict per function loads it onto the device.
     first = {}
-    warm = tok.encode(DOC + texts[0], add_special_tokens=True).ids[:16]
+    warm = tok.encode(a.doc_prefix + texts[0], add_special_tokens=True).ids[:16]
     for L in buckets:
         x = {a.input: np.full((1, L), a.pad_id, dtype=np.int32)}
         x[a.input][0, : len(warm)] = warm
@@ -140,7 +144,7 @@ def main():
         t1 = time.time()
         models[L].predict(x)
         first[L] = time.time() - t1
-    L, d, _ = feed(QRY + "warm up")
+    L, d, _ = feed(a.query_prefix + "warm up")
     predict(L, d)
 
     # One doc per call: tokenize + predict, the production shape.
@@ -149,7 +153,7 @@ def main():
     start = time.time()
     for i, t in enumerate(texts):
         t1 = time.perf_counter()
-        L, d, n = feed(DOC + t, i)
+        L, d, n = feed(a.doc_prefix + t, i)
         t2 = time.perf_counter()
         docs.append(predict(L, d))
         t3 = time.perf_counter()
@@ -164,7 +168,7 @@ def main():
         for r in range(3):
             for q in QUERIES:
                 t1 = time.perf_counter()
-                L, d, _ = feed(QRY + q)
+                L, d, _ = feed(a.query_prefix + q)
                 v = predict(L, d)
                 qlat.append((time.perf_counter() - t1) * 1000)
                 if r == 0:
@@ -175,7 +179,7 @@ def main():
     if a.batch > 1:
         groups = collections.defaultdict(list)
         for i, t in enumerate(texts):
-            L, d, _ = feed(DOC + t)
+            L, d, _ = feed(a.doc_prefix + t)
             groups[L].append((i, d))
         bdocs = {}
         bstart = time.time()

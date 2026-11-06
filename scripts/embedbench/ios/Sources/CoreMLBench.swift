@@ -28,7 +28,7 @@ func embedding(_ out: MLFeatureProvider, _ name: String = "embedding") throws ->
 }
 
 func runCoreML(_ o: Opts, outDir: URL, log: Log) throws -> [String: Any] {
-    let (allDocs, qToks) = try readTokens(documents().appendingPathComponent("payload/tokens.bin"))
+    let (allDocs, qToks) = try readTokens(documents().appendingPathComponent(o.payload + "/tokens.bin"))
     let uniq = o.maxDocs > 0 ? Array(allDocs.prefix(o.maxDocs)) : allDocs
     let buckets = o.buckets
     guard let maxLen = buckets.last else { throw BenchError("no buckets") }

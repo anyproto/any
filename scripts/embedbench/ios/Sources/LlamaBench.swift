@@ -3,7 +3,7 @@ import llama
 
 // llama.cpp half: mirrors internal/indexer/embed_local.go — n_ctx 2048,
 // n_batch = n_ubatch = n_ctx, one sequence per decode, embeddings on,
-// pooling mean for EG2 / model default for Qwen3, op_offload off on CPU,
+// pooling mean for EG2 / CLS for Granite / model default for Qwen3, op_offload off on CPU,
 // tokenize(add_special, parse_special), truncate keeping EOS last,
 // memory cleared before each decode, L2-normalized output.
 
@@ -13,9 +13,10 @@ func runLlama(_ o: Opts, outDir: URL, log: Log) throws -> [String: Any] {
         throw BenchError("bad corpus.json")
     }
     let uniq = o.maxDocs > 0 ? Array(allDocs.prefix(o.maxDocs)) : allDocs
-    let eg2 = o.kind == "eg2"
+    let eg2 = o.kind == "eg2", granite = o.kind == "granite"
     let docPrefix = eg2 ? "title: none | text: " : ""
     let qPrefix = eg2 ? "task: search result | query: "
+        : granite ? ""  // Granite: no prompts on either side
         : "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:"
     let path = documents().appendingPathComponent(o.model).path
 
@@ -33,7 +34,7 @@ func runLlama(_ o: Opts, outDir: URL, log: Log) throws -> [String: Any] {
     cp.n_seq_max = 1
     cp.n_threads = Int32(threads)
     cp.n_threads_batch = Int32(threads)
-    cp.pooling_type = eg2 ? LLAMA_POOLING_TYPE_MEAN : LLAMA_POOLING_TYPE_UNSPECIFIED
+    cp.pooling_type = eg2 ? LLAMA_POOLING_TYPE_MEAN : granite ? LLAMA_POOLING_TYPE_CLS : LLAMA_POOLING_TYPE_UNSPECIFIED
     cp.embeddings = true
     cp.op_offload = o.gpu
     guard let ctx = llama_init_from_model(model, cp) else { throw BenchError("init context failed") }
@@ -137,7 +138,7 @@ func runLlama(_ o: Opts, outDir: URL, log: Log) throws -> [String: Any] {
     if !qv.isEmpty { try writeVecs(outDir.appendingPathComponent(o.out + ".queries.f32"), qv) }
     try truncated.map(String.init).joined(separator: "\n").write(to: outDir.appendingPathComponent(o.out + ".truncated"), atomically: true, encoding: .utf8)
     var res: [String: Any] = [
-        "engine": "llama.cpp b11454", "model": o.model, "kind": o.kind, "gpu": o.gpu, "threads": threads,
+        "engine": "llama.cpp (the xcframework the app was built with)", "model": o.model, "kind": o.kind, "gpu": o.gpu, "threads": threads,
         "ctx": o.ctx, "loadSec": load, "docs": uniq.count, "repeats": o.repeats, "dim": nOut,
         "docWallSec": wall, "docsPerSec": Double(total) / wall, "passDocsPerSec": passWall.map { Double(uniq.count) / $0 },
         "docLatMs": pct(lat), "tokensPerDoc": pct(ntoks), "truncatedDocs": truncated.count,

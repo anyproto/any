@@ -38,6 +38,7 @@ Everything runs on a Mac without the account rig.
   - `-title` builds `title: <title> | text:` from the doc's title.
   - `-prefix` overrides the prompt.
   - `-pool tokens` also writes per-token pooling variants: without prompt tokens, without BOS/EOS, and last-token.
+- **`granite_ane/`:** Granite Embedding 311M multilingual R2 converted for the Neural Engine (fp16, buckets 128–1024), with its HF reference. See its README.
 - **`cml_embed.py`:** EG2 through Core ML on the Neural Engine. Set `EG2_COREML` (the compiled Nemosine `.mlmodelc`) and `EG2_TOKENIZER`. Gotcha: once two Core ML processes had overlapped, Nemosine started segfaulting (exit 139/137) on multi-bucket doc runs. Use `go/embed` for docs when that happens; its vectors match at cosine 0.9999.
 
 ## Analyses

@@ -26,19 +26,24 @@ Build `bin/indexer.test` (`go test -c -tags llamacpp -o bin/indexer.test
 
 ## Mac (`mac/`)
 
-- `run.sh <name> <model.gguf> <eg2|qwen3> <metal|cpu> [threads]`: one
+- `run.sh <name> <model.gguf> <eg2|qwen3|granite> <metal|cpu> [threads]`: one
   `TestEmbedBench` run. It samples the embedder child's `footprint`.
-  `seq.sh` runs the whole matrix with cooldowns.
+  `seq.sh` runs the whole matrix with cooldowns. `EMBEDBENCH_LIBDIR` and
+  `EMBEDBENCH_BIN` point it at other llama.cpp libs and at `any` and
+  `indexer.test` built against a matching yzma.
 - `coreml_bench.py <model> <tokenizer.json> <corpus> <out> [flags]`: one
   doc per `predict` with the same prompts, plus a batched pass. With several
   `--buckets` each doc goes to the smallest fixed-length function that holds
   it. `coreml_seq.sh` holds the flags for each build.
 - `cos.py <ref.docs.f32> <run.docs.f32> [run.truncated]`: row-wise cosine,
   split by truncated docs.
-- `power_seq.sh`, then `power_analyze.py <data>/power`: whole-system power
-  from the `AppleSmartBattery` accumulators. Run on AC with the battery at
-  its charge limit. The gauge publishes about once a minute, so runs repeat
-  the corpus to last at least 4 minutes.
+- `power_seq.sh [runs.zsh]`, then `power_analyze.py <power dir>`: whole-system
+  power from the `AppleSmartBattery` accumulators. Run on AC with the battery
+  at its charge limit, and leave the Mac alone: the idle baseline at the start
+  and end must agree. The gauge publishes about once a minute, so runs repeat
+  the corpus to last at least 4 minutes. The run lists are
+  `power_runs_eg2.zsh` (the default) and `power_runs_granite.zsh`.
+  `POWER_DIR` sets the output dir.
 - `memprobe.py <model.mlmodelc> <fn,fn,…>`: the process's Neural Engine
   memory after each load. On macOS that memory is excluded from
   `phys_footprint`; `footprint` lists it under "(neural) (nofootprint)".
@@ -74,10 +79,20 @@ headroom). Its vectors go to the app's `Documents/out/`.
 Reinstalling the app drops its Neural Engine compile cache, so the next load
 of a Core ML model compiles again.
 
+For Granite, `iseq_granite.sh` runs Granite on the ANE and llama.cpp, with
+same-session EG2 controls. It needs:
+
+- `prep.py <granite tokenizer.json> <corpus> payload-granite --no-prompts`;
+- the `research/granite_ane` build compiled for iOS, as `models/GraniteANE.mlmodelc`;
+- the Granite GGUF;
+- an app built on llama.cpp b11600 or later. Older builds allocate a
+  vocab × context logits buffer, about 2.1 GB for a 262k vocab.
+
 ### Energy (`ppseq.sh`, `ppanalyze.py`)
 
-`ppseq.sh` records each run with Instruments' Power Profiler and Neural Engine
-instruments: an idle baseline, then the three workloads, with idle gaps
+`ppseq.sh [runs.zsh]` records each run with Instruments' Power Profiler and
+Neural Engine instruments: an idle baseline, then the workloads in the run
+list (`pp_runs_eg2.zsh` by default, or `pp_runs_granite.zsh`), with idle gaps
 between them. `ppanalyze.py` prints energy per doc above idle, for the whole
 doc loop and for its last 100 s, once the phone has settled to its sustained
 power level.
@@ -100,4 +115,5 @@ power level.
 
 The follow-up on why EG2 trails Qwen3: short-text bias and query-side
 centering, heading-only windows, long chunks under a 512-token cap, and
-token-splitter costs. See `research/README.md`.
+token-splitter costs. See `research/README.md`. `research/granite_ane/`
+converts Granite Embedding 311M multilingual R2 for the Neural Engine.

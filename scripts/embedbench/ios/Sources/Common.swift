@@ -20,7 +20,8 @@ struct Opts {
     var skipQueries = false
     var out = "run"
     var repeats = 1            // corpus passes (power runs)
-    var kind = "eg2"           // llama: eg2 | qwen3
+    var kind = "eg2"           // llama: eg2 | qwen3 | granite
+    var payload = "payload"    // coreml: dir under Documents/ holding tokens.bin
     var gpu = true             // llama: Metal on/off
     var threads = 0            // llama: 0 = NumCPU-1, as the Go embedder
     var ctx = 2048
@@ -47,6 +48,7 @@ struct Opts {
             case "--out": out = try val()
             case "--repeat": repeats = Int(try val()) ?? 1
             case "--kind": kind = try val()
+            case "--payload": payload = try val()
             case "--cpu": gpu = false
             case "--threads": threads = Int(try val()) ?? 0
             case "--ctx": ctx = Int(try val()) ?? 2048

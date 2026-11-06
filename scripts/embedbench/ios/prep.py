@@ -1,5 +1,5 @@
-"""prep.py <tokenizer.json> <corpus.jsonl> <outdir>
-Writes tokens.bin (EG2 HF token ids with the bench prompts, untruncated)
+"""prep.py <tokenizer.json> <corpus.jsonl> <outdir> [--no-prompts]
+Writes tokens.bin (HF token ids with the EG2 bench prompts, or none for Granite; untruncated)
 and corpus.json (raw doc texts + the 16 bench queries) for the iPhone app.
 tokens.bin: b"TOK1", u32 nDocs, u32 nQueries, then per text u32 len + i32 ids."""
 import json, struct, sys
@@ -24,6 +24,9 @@ QUERIES = [
     "pilot error in bad weather approach",
     "the type and collection object model",
 ]
+if "--no-prompts" in sys.argv:
+    sys.argv.remove("--no-prompts")
+    DOC = QRY = ""
 tok = Tokenizer.from_file(sys.argv[1])
 docs = [json.loads(l)["text"] for l in open(sys.argv[2])]
 out = sys.argv[3]
