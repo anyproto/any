@@ -1020,6 +1020,14 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 			qctx, cancel := context.WithTimeout(ctx, ix.opts.QueryEmbedTimeout)
 			qv, embErr := ix.opts.Embedder.EmbedQuery(qctx, req.Query)
 			cancel()
+			// A model that changed under a learned dimension answers at
+			// another one: the vector side is frozen until the index is
+			// rebuilt, FTS still answers. The embed loop reports it.
+			dimMismatch := false
+			if d := ix.store.Dim(); embErr == nil && d > 0 && len(qv) != d {
+				embErr = fmt.Errorf("query embedding has %d dims, the index %d", len(qv), d)
+				dimMismatch = true
+			}
 			if embErr != nil {
 				if err := ctx.Err(); err != nil {
 					return api.SearchResponse{}, err // caller gone: nothing to degrade for
@@ -1031,11 +1039,14 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 				if mode == api.SearchModeVector {
 					return api.SearchResponse{}, fmt.Errorf("%w: %v", ErrEmbedderUnavailable, embErr)
 				}
-				if overBudget {
+				switch {
+				case overBudget:
 					// Expected while a model loads — one line per search,
 					// not a warning per keystroke.
 					ix.lg.Info("hybrid search degrades to fts: query embedding over budget", zap.Error(embErr))
-				} else {
+				case dimMismatch:
+					ix.lg.Info("hybrid search degrades to fts: query embedding dimension", zap.Error(embErr))
+				default:
 					ix.lg.Warn("hybrid search degrades to fts: query embedding failed", zap.Error(embErr))
 				}
 				mode = api.SearchModeFTS

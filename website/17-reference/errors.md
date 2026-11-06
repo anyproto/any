@@ -251,7 +251,7 @@ Panics are converted to `500 internal` with a generic message.
 | `process.ambiguous` | 409 | several publishers run the same id (`details.identities`) |
 | `index.disabled` | 409 | search index turned off (`index.enabled: false`); also the link and backlink reads |
 | `index.no_embedder` | 400 | `mode: vector` without an embedder |
-| `index.embedder_unavailable` | 503 | embedder configured but unreachable or over the query budget — retryable |
+| `index.embedder_unavailable` | 503 | embedder configured but unreachable or over the query budget — retryable — or answering at another dimension than the index, until it is rebuilt |
 | `index.not_ready` | 503 | the space's full-text index is being rewritten in place or not created yet — retryable (`details.spaceId`; `index.fts_upgrade.<spaceId>` on the process view) |
 | `search.bad_mode` | 400 | mode not `hybrid` \| `fts` \| `vector` \| `title` |
 | `search.bad_scope` | 400 | scope not a valid slug (`[a-z0-9_-]`, max 64) |

@@ -91,7 +91,7 @@ Long-running index work shows up in the process view:
 any process list                       # GET /v1/processes
 ```
 
-`index.fts.<spaceId>` is the change backlog (done counts changes, total unknown), `index.embed.<spaceId>` the vector drain with done/total, `index.links_backfill.<spaceId>` a rebuild of the link index, `index.model_download` the model fetch in bytes. Indexing announces itself only past three seconds of work, so ordinary edits never appear. On a search reply, `vectorStatus: "unavailable"` means the embedder is down or the model is still downloading; `disabled` means this server has none ([Hybrid ranking](../search/hybrid.html)). An index the build refuses (schema-version or chunk-target mismatch, a configured `index.vector.dim` that contradicts it, or an integrity-check failure after a crash) is removed and rebuilt by the boot itself; after that, as after removing `<account-dir>/index/` by hand, every space re-indexes from the beginning, visible as the processes above ([How indexing works](../search/indexing.html)). A dimension learned from a new model is not a boot matter ([Dimension pinning](../search/vector.html#dimension-pinning)).
+`index.fts.<spaceId>` is the change backlog (done counts changes, total unknown), `index.embed.<spaceId>` the vector drain with done/total, `index.links_backfill.<spaceId>` a rebuild of the link index, `index.model_download` the model fetch in bytes. Indexing announces itself only past three seconds of work, so ordinary edits never appear. On a search reply, `vectorStatus: "unavailable"` means the embedder is down, the model is still downloading, or the model embeds at another dimension than the index; `disabled` means this server has none ([Hybrid ranking](../search/hybrid.html)). An index the build refuses (schema-version or chunk-target mismatch, a configured `index.vector.dim` that contradicts it, or an integrity-check failure after a crash) is removed and rebuilt by the boot itself; after that, as after removing `<account-dir>/index/` by hand, every space re-indexes from the beginning, visible as the processes above ([How indexing works](../search/indexing.html)). A dimension learned from a new model is not a boot matter ([Dimension pinning](../search/vector.html#dimension-pinning)).
 
 ## Reading an error
 
@@ -117,7 +117,7 @@ Every non-2xx response has one shape:
 | 405 | `space.unsupported` | the route does not apply to the tech space |
 | 409 | `index.disabled` / `push.disabled` / `local.disabled` / `access.disabled` | the feature is off on this server |
 | 500 | `internal` | unexpected failure — the server log has the stack |
-| 503 | `server.unavailable` / `index.embedder_unavailable` | shutting down / embedder outage; retry |
+| 503 | `server.unavailable` / `index.embedder_unavailable` | shutting down / embedder outage; retry. A model at another dimension than the index lasts until a rebuild ([Dimension pinning](../search/vector.html#dimension-pinning)) |
 
 The full namespace is in the [error reference](../reference/errors.html). CLI exit codes: `0` success, `1` user error or 4xx, `2` 5xx, `3` cannot reach the server.
 

@@ -545,7 +545,9 @@ space's rewrite never appear (`Options.OnProcess`, bridged in
   (the embed queue); and — once at least one embedded doc exists — a
   **cosine vector index** on `vector`, created lazily by the embed loop
   (`Store.EnsureVectorIndex`) because IVF trains from existing docs; a
-  search only looks for it (`Store.vectorColl`), never creates it. The
+  search never creates it, and a space without one answers no vector
+  hits. The index persists in `index.db`, so a restart serves it before
+  the embed loop runs again. The
   strategy (`index.vector.mode`, `Store.vectorIndexParams`) defaults to
   **IVF-SQ**: cheap near-flat incremental ingest and physical deletes,
   ~3–4 recall@10 below exact (`search/README.md` § Index mode).
@@ -1042,8 +1044,9 @@ survive intact.
 
 `vectorStatus` (`used` / `unavailable` / `disabled` / `skipped`) tells
 the consumer whether semantic recall took part and why not —
-`unavailable` (the configured embedder did not answer in time; a retry
-may differ) versus `disabled` (this server never runs vector search).
+`unavailable` (the configured embedder did not answer in time, a retry
+may differ; or it answers at another dimension than the index, until a
+rebuild) versus `disabled` (this server never runs vector search).
 Value table: `03-api.md` § POST /v1/spaces/:spaceId/search.
 
 The endpoint is consumer-side: no SDK method sits behind it.
@@ -1060,7 +1063,7 @@ Errors:
 | `index.no_embedder` | 400 | `mode=vector` with no embedder configured |
 | `index.disabled` | 409 | `index.enabled: false` |
 | `index.not_ready` | 503 | the space's full-text index is being rewritten in place (§ Store layout) or not created yet — retry; `index.fts_upgrade.<spaceId>` on the process view |
-| `index.embedder_unavailable` | 503 | `mode=vector` while the embedder is unreachable or over the query budget — retryable; hybrid degrades instead |
+| `index.embedder_unavailable` | 503 | `mode=vector` while the embedder is unreachable or over the query budget — retryable — or answers at another dimension than the index, until it is rebuilt; hybrid degrades instead |
 
 ### Filtering by object
 

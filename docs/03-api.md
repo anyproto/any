@@ -1117,7 +1117,8 @@ embedding does not finish within the server's budget
 (`index.search.queryEmbedTimeout`, default 5 s); `mode:
 "vector"` requests get `400 index.no_embedder` (none configured) or
 `503 index.embedder_unavailable` (configured but down or too slow —
-retryable).
+retryable — or answering at another dimension than the index, until it
+is rebuilt).
 
 `vectorStatus` tells the consumer — typically an agent deciding how
 much to trust recall — whether semantic search took part, and why not:
@@ -1125,7 +1126,7 @@ much to trust recall — whether semantic search took part, and why not:
 | Value | Meaning |
 |-------|---------|
 | `used` | the vector leg ran and contributed to ranking |
-| `unavailable` | embedder configured but unreachable or over budget for this query — results are lexical-only; retrying later may differ |
+| `unavailable` | embedder configured but unreachable or over budget for this query — results are lexical-only; retrying later may differ — or its model answers at another dimension than the index, until the index is rebuilt |
 | `disabled` | no embedder configured on this server — vector can never run until config changes |
 | `skipped` | the caller asked for `mode: "fts"` or `"title"`, or the title hits filled the page; vector was not attempted |
 

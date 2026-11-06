@@ -38,7 +38,7 @@ A subscription is a moving window, not a feed to accumulate. Keep the window in 
 
 ## 6. Search: hybrid, then read `vectorStatus`
 
-Default `mode: "hybrid"`; pin `fts` for exact ids and error strings. Check `vectorStatus` before trusting an empty result: `used` / `unavailable` (embedder down — retry may differ) / `disabled` (never on this server) / `skipped`. Hits carry `{scope, objectId, dataset, recordId, data, score}`, not records — hydrate through `/query`. Scores compare only within one response ([Search](../search/index.html)).
+Default `mode: "hybrid"`; pin `fts` for exact ids and error strings. Check `vectorStatus` before trusting an empty result: `used` / `unavailable` (embedder down — retry may differ — or a model at another dimension than the index, until a rebuild) / `disabled` (never on this server) / `skipped`. Hits carry `{scope, objectId, dataset, recordId, data, score}`, not records — hydrate through `/query`. Scores compare only within one response ([Search](../search/index.html)).
 
 ## 7. Direct chats: derive by identity, approve incoming
 

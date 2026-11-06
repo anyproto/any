@@ -19,7 +19,7 @@ curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/search \
 any search $SPACE "what did we decide about the reranker?" --mode vector
 ```
 
-`score` is the cosine similarity. Unlike `hybrid`, pure `vector` mode does not degrade: without an embedder configured it answers `400 index.no_embedder`, and while a configured embedder is unreachable — or does not embed the query within `index.search.queryEmbedTimeout`, default 5 s — it answers `503 index.embedder_unavailable`, retryable. The vector leg embeds the whole `query` verbatim, so `"phrases"` and `prefix*` have no effect here; `require` and `exclude` still bind every hit, because vector hits are post-filtered against the full-text index.
+`score` is the cosine similarity. Unlike `hybrid`, pure `vector` mode does not degrade: without an embedder configured it answers `400 index.no_embedder`, and while a configured embedder is unreachable — or does not embed the query within `index.search.queryEmbedTimeout`, default 5 s — it answers `503 index.embedder_unavailable`, retryable. It answers the same, until the index is rebuilt, while the model embeds at another dimension than the index ([Dimension pinning](#dimension-pinning)). The vector leg embeds the whole `query` verbatim, so `"phrases"` and `prefix*` have no effect here; `require` and `exclude` still bind every hit, because vector hits are post-filtered against the full-text index.
 
 ## How documents get vectors
 
@@ -52,7 +52,7 @@ Vector search latency is a few milliseconds for both ANN modes; disk use is domi
 
 ## Dimension pinning
 
-The vector dimension is learned from the first successful embedding batch (or fixed with `index.vector.dim`) and pinned in the index database. A different dimension against a populated index is never mixed in: with `index.vector.dim` set, the boot removes and rebuilds the index; with the dimension learned from the model, every embed round fails until `<account-dir>/index/` is removed with the server stopped, or `index.vector.dim` names the new dimension and the server restarts. `index.local.dim` can truncate the default model's Matryoshka output to shrink the index.
+The vector dimension is learned from the first successful embedding batch (or fixed with `index.vector.dim`) and pinned in the index database. A different dimension against a populated index is never mixed in: with `index.vector.dim` set, the boot removes and rebuilds the index; with the dimension learned from the model, every embed round fails until `<account-dir>/index/` is removed with the server stopped, or `index.vector.dim` names the new dimension and the server restarts. Whenever the model's output and the index disagree, `hybrid` answers full-text with `vectorStatus: "unavailable"` and `vector` answers `503 index.embedder_unavailable`, until the index is rebuilt. `index.local.dim` can truncate the default model's Matryoshka output to shrink the index.
 
 ## Similarity scores and the floor
 
@@ -69,7 +69,7 @@ A record longer than about 2000 runes is indexed as several chunk documents, and
 | Status | Code | When |
 |---|---|---|
 | 400 | `index.no_embedder` | `mode: vector` on a server with `index.embedder: none` (always the case on mobile) |
-| 503 | `index.embedder_unavailable` | `mode: vector` while the embedder is down, the model is still downloading, or the query embedding exceeds `queryEmbedTimeout`; retry |
+| 503 | `index.embedder_unavailable` | `mode: vector` while the embedder is down, the model is still downloading, or the query embedding exceeds `queryEmbedTimeout`; retry. Also while the model answers at a dimension the index does not hold ([Dimension pinning](#dimension-pinning)) |
 | 409 | `index.disabled` | indexer off (`index.enabled: false`) |
 
 Which embedders exist, and what happens when one is unreachable, is on [Embedders](embedders.html).

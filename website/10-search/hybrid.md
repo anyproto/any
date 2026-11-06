@@ -51,7 +51,7 @@ The reply's `mode` is the mode that actually ran, and `vectorStatus` says whethe
 | `vectorStatus` | Meaning | What to do |
 |---|---|---|
 | `used` | the vector leg ran and contributed | trust the fused ranking |
-| `unavailable` | an embedder is configured but did not embed the query — unreachable, or not within `index.search.queryEmbedTimeout` — so results are lexical-only | retry later; results may differ |
+| `unavailable` | an embedder is configured but did not embed the query — unreachable, or not within `index.search.queryEmbedTimeout` — or embedded it at another dimension than the index ([Dimension pinning](vector.html#dimension-pinning)), so results are lexical-only | retry later; results may differ, except for a dimension change, which lasts until the index is rebuilt |
 | `disabled` | this server has no embedder — vector can never run until config changes | adjust the query toward exact terms; don't retry |
 | `skipped` | the caller asked for `mode: "fts"` or `"title"`, a `filter` matched no object, or the title hits filled the page, so no leg ran | the echo of your own choice, an empty filtered set, or a page of titles |
 

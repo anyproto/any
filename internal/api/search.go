@@ -132,8 +132,9 @@ const (
 	// VectorStatusUsed: the vector leg ran and contributed to ranking.
 	VectorStatusUsed = "used"
 	// VectorStatusUnavailable: an embedder is configured but did not
-	// answer for this query — unreachable, or not within the query
-	// budget — retry later may differ. Hybrid degraded to FTS;
+	// answer for this query — unreachable or not within the query budget
+	// (a retry may differ), or at a dimension the index does not hold
+	// (the model changed). Hybrid degraded to FTS;
 	// mode=vector would have returned 503.
 	VectorStatusUnavailable = "unavailable"
 	// VectorStatusDisabled: no embedder is configured on this server —

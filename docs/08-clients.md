@@ -386,7 +386,8 @@ Call patterns:
   participated; `unavailable` means the embedder is configured but
   down, still loading its model, or slower than the server's query
   budget (`index.search.queryEmbedTimeout`, default 5 s) — results are
-  lexical-only *right now*, retry may differ;
+  lexical-only *right now*, retry may differ — or its model answers at
+  a dimension the index does not hold, until the index is rebuilt;
   `disabled` means this server never runs vector search — don't
   retry, adjust your query style to lexical; `skipped` is the echo of
   your own `mode: "fts"` / `"title"`, or the title block filled the
@@ -437,7 +438,8 @@ Call patterns:
 - Errors: `409 index.disabled` (indexer off on this server), `400
   index.no_embedder` (`mode: "vector"` on an FTS-only server), `503
   index.embedder_unavailable` (`mode: "vector"` while the embedder is
-  down, loading, or over the query budget — retryable), `400
+  down, loading, or over the query budget — retryable — or answers at
+  another dimension than the index, until it is rebuilt), `400
   filter.invalid` / `filter.unknown_operator` (a bad `filter`), `400
   request.invalid_field` (`scopes` or `passages` with `mode: "title"`),
   `503 index.not_ready` (the space's full-text index is being
