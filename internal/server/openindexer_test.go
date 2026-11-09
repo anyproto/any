@@ -49,6 +49,23 @@ func TestOpenIndexer_RebuildsRefusedIndex(t *testing.T) {
 				tearStorePage2(t, dbPath)
 			},
 		},
+		// No dirty sentinel: no quick check, and the first read of the
+		// torn page fails its checksum.
+		"page checksum": {
+			refuse: func(t *testing.T, dbPath string) {
+				st, err := indexer.OpenStore(ctx, dbPath, 0, false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := st.Close(); err != nil {
+					t.Fatal(err)
+				}
+				tearStorePage2(t, dbPath)
+				if err := os.Remove(dbPath + ".lock"); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dataDir := t.TempDir()
@@ -174,7 +191,7 @@ func TestOpenIndexerWith_EmbedderSurvivesRebuild(t *testing.T) {
 }
 
 // A rebuild whose removal fails fails the boot with the refusal still
-// in the chain (the iOS shim's code 4) and closes the embedder.
+// in the chain (start code 4 on the mobile shims) and closes the embedder.
 func TestOpenIndexerWith_FailedRebuildKeepsRefusal(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("needs a directory the process cannot delete from")

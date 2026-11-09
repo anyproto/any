@@ -166,8 +166,10 @@ type DocUpsert struct {
 // configured vector dimension; 0 means "unknown — learn it from the
 // first successful embedding" (EnsureDim). embedderConfigured turns on
 // pending-marking even before the dimension is known. A dim change
-// against an existing DB is a hard error — the index must be rebuilt.
-func OpenStore(ctx context.Context, path string, dim int, embedderConfigured bool) (*Store, error) {
+// against an existing DB is a hard error — the index must be rebuilt, as
+// for a damaged db (RefuseDamaged).
+func OpenStore(ctx context.Context, path string, dim int, embedderConfigured bool) (_ *Store, err error) {
+	defer func() { err = RefuseDamaged(err) }()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("indexer: create index dir: %w", err)
 	}
@@ -188,11 +190,6 @@ func OpenStore(ctx context.Context, path string, dim int, embedderConfigured boo
 		},
 	})
 	if err != nil {
-		// A check cut short by the caller's ctx or by any-store's own
-		// check timeout is not a torn index.
-		if errors.Is(err, anystore.ErrQuickCheckFailed) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			return nil, quickCheckRebuildErr(err)
-		}
 		return nil, fmt.Errorf("indexer: open index db: %w", err)
 	}
 	s := newStore(db, path, dim, embedderConfigured)
@@ -203,10 +200,22 @@ func OpenStore(ctx context.Context, path string, dim int, embedderConfigured boo
 	return s, nil
 }
 
-// quickCheckRebuildErr maps a failed integrity check on open. The index
-// is derived state: a torn index.db is rebuilt, not repaired.
-func quickCheckRebuildErr(cause error) error {
-	return fmt.Errorf("%w: index db failed its integrity check: %v", ErrIndexRebuildRequired, cause)
+// damaged reports a damaged db file: a failed quick check or a page that
+// fails its checksum. A cancelled or timed-out open is never damage: it
+// deletes nothing.
+func damaged(err error) bool {
+	return (errors.Is(err, anystore.ErrQuickCheckFailed) || errors.Is(err, anystore.ErrPageIntegrity)) &&
+		!errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
+}
+
+// RefuseDamaged returns err as a rebuild refusal when it is damage to the
+// index db, and any other err unchanged. The cause stays %v so a boot
+// chain never reads it as a corrupt sdk.db (server.StoreCorrupt).
+func RefuseDamaged(err error) error {
+	if err == nil || !damaged(err) {
+		return err
+	}
+	return fmt.Errorf("%w: index db failed its integrity check: %v", ErrIndexRebuildRequired, err)
 }
 
 // OpenStoreInMemory opens a throwaway in-memory store (tests).

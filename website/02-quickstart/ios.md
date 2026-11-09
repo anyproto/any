@@ -47,10 +47,14 @@ Both buffers are always NUL-terminated, so a long message loses its tail rather 
 | `1` | An instance is already running in this process — stop it first. |
 | `2` | Bad data dir: empty, or not creatable. |
 | `3` | Boot failed. `message` says why. |
-| `4` | The search index could not be rebuilt: the boot removes an index this build cannot open and recreates it, and the removal or the fresh db failed too. Delete the account's index directory and retry; "reset local data" is the fallback. Only a start that boots an account already on disk returns it; a start that comes up unauthorized (managed, or standalone with no account) reports a failed rebuild on `POST /v1/auth` as `500 internal` (`507 storage.no_space` when the disk is full). |
-| `5` | Bad options: an unknown `mode`, or `"managed"` without a `controlToken`. A host bug — never retryable. |
+| `4` | The search index could not be rebuilt: the boot removes an index this build cannot open and recreates it, and the removal or the fresh db failed too. Delete the account's index directory and retry; "reset local data" is the fallback. Only a start that boots an account already on disk returns it; a start that comes up unauthorized (managed, or standalone with no account) reports a failed rebuild on `POST /v1/auth` as `500 internal`. |
+| `5` | Bad options: an unknown `mode`, `"managed"` without a `controlToken`, or a `nodeconfYAML` that isn't YAML or names no `networkId`. A host bug — never retryable. |
+| `6` | The disk is full: the data dir, the account dir or a store could not be written. Free space and retry. A full disk is `6` even when it broke the data dir or an index rebuild; on `POST /v1/auth` it is `507 storage.no_space`. |
+| `7` | A page of the account's SDK store failed its checksum while opening, in the quick check on a dirty open or a later read. It is never repaired in place: remove `sdk.db` and the files named after it from `<dataDir>/<accountId>/sdk/` (the `accountId` that `POST /v1/auth` returned) and start again. The SDK replays the synced trees into a fresh store; what lived only in `sdk.db` is lost: the local store, local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone). On `POST /v1/auth` it is `500 sdk.store_corrupt`. |
 
-`nodeconfYAML` selects the network: an empty string means the production any-sync network embedded in the archive; pass a nodeconf's YAML text to join another ([Networks](networks.html)). `pushPeerId` / `pushAddrs` configure the push node — empty strings keep push off ([Push](../notifications/push.html)).
+New codes are only ever added: treat a code you don't know like `3`.
+
+`nodeconfYAML` selects the network: an empty string means the production any-sync network embedded in the archive; pass a nodeconf's YAML text to join another ([Networks](networks.html)). `pushPeerId` / `pushAddrs` configure the push node — empty strings with an empty `nodeconfYAML` select the production push node; with any other `nodeconfYAML` they turn push off ([Push](../notifications/push.html)).
 
 ## Start it
 
@@ -71,7 +75,7 @@ final class AnyBackend {
         let dir = strdup(dataDir), addr = strdup("127.0.0.1:0")   // ":0" → OS picks a port
         defer { free(dir); free(addr) }
 
-        var res = AnyLibStart(dir, addr, nil, nil, nil)        // nil nodeconf = production; nil push pair = off
+        var res = AnyLibStart(dir, addr, nil, nil, nil)        // nil nodeconf and push pair = production
         guard res.code == 0 else {
             throw NSError(domain: "any", code: Int(res.code),
                           userInfo: [NSLocalizedDescriptionKey: read(&res.message)])

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"os"
@@ -11,7 +10,6 @@ import (
 	"github.com/anyproto/any-sync/app/logger"
 	"go.uber.org/zap"
 
-	anystore "github.com/anyproto/any-store/v2"
 	"github.com/anyproto/any-sync-sdk/auth"
 	"github.com/anyproto/any-sync-sdk/space"
 
@@ -355,13 +353,11 @@ func (d *deps) authBootError(c echo.Context, err error) error {
 		return writeError(c, http.StatusConflict, "sdk.crdt_version_newer",
 			"the account's data was written by a newer version — upgrade this server before opening it",
 			crdtVersionDetails(err, nil))
-	case storageFull(err):
+	case StorageFull(err):
 		authLog.Warn("boot account", zap.Error(err))
 		return writeError(c, http.StatusInsufficientStorage, "storage.no_space",
 			"the device has no disk space left — free space and retry", nil)
-	case errors.Is(err, anystore.ErrQuickCheckFailed) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded):
-		// sdk.db failed its integrity check on a dirty open. A check cut
-		// short by a cancelled boot is not a damaged store.
+	case StoreCorrupt(err):
 		authLog.Error("boot account", zap.Error(err))
 		return writeError(c, http.StatusInternalServerError, "sdk.store_corrupt",
 			"this account's SDK store (sdk.db) failed its integrity check and cannot be opened — it is never repaired in place: remove sdk.db and the files named after it from the account's sdk dir, then boot the account again; the SDK replays the synced trees into a fresh one, and what lived only in sdk.db is lost: the local store, local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone)", nil)

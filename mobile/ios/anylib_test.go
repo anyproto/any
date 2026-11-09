@@ -1,7 +1,7 @@
 package main
 
 // Host-build tests for the c-archive shim. They exercise the plain Go
-// funcs (startEngine / stopEngine / errCode / copyBounded) — the
+// funcs (startEngine / stopEngine / copyBounded) — the
 // //export AnyLibStart/Stop/StopNow/Version wrappers cannot be called
 // from `go test` (that's the accepted seam, exercised by the Swift app),
 // and neither can anything typed in terms of C, since cgo is not
@@ -12,13 +12,12 @@ package main
 // The deep lifecycle behaviour (double-start, restart, goroutine/listener
 // leak under -race, GOMEMLIMIT) is owned and tested once by
 // internal/embedded; here we only assert the shim's own three jobs: report
-// the bound address on success, turn each embedded sentinel into the right
-// code, and never overrun a fixed-size C buffer.
+// the bound address on success, return the core's start code on failure
+// (embedded.Code, tested in internal/embedded), and never overrun a
+// fixed-size C buffer.
 
 import (
 	"bytes"
-	"errors"
-	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -28,7 +27,6 @@ import (
 
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/embedded"
-	"github.com/anyproto/any/internal/indexer"
 )
 
 const loopbackEphemeral = "127.0.0.1:0" // OS-assigned free port
@@ -90,8 +88,8 @@ func TestStartEngine_SuccessFillsAddress(t *testing.T) {
 	cleanupEngine(t)
 
 	res := start(t, t.TempDir())
-	if res.code != codeOK {
-		t.Fatalf("startEngine: code %d (%q), want codeOK (%d)", res.code, res.message, codeOK)
+	if res.code != embedded.CodeOK {
+		t.Fatalf("startEngine: code %d (%q), want embedded.CodeOK (%d)", res.code, res.message, embedded.CodeOK)
 	}
 	if res.address == "" {
 		t.Fatal("startEngine: empty address on success")
@@ -118,7 +116,7 @@ func TestStartEngine_SuccessFillsAddress(t *testing.T) {
 
 // TestStartEngine_BadOptions asserts the host-error code: a managed
 // start without a control token, or an unknown mode, is refused as
-// codeBadOptions with an explanation — before any data dir work, so
+// embedded.CodeBadOptions with an explanation — before any data dir work, so
 // nothing is left running.
 func TestStartEngine_BadOptions(t *testing.T) {
 	cleanupEngine(t)
@@ -128,8 +126,8 @@ func TestStartEngine_BadOptions(t *testing.T) {
 		"unknown mode":          {"hosted", "tok"},
 	} {
 		res := startEngine(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), "", "", in[0], in[1])
-		if res.code != codeBadOptions {
-			t.Fatalf("%s: code %d (%q), want codeBadOptions (%d)", name, res.code, res.message, codeBadOptions)
+		if res.code != embedded.CodeBadOptions {
+			t.Fatalf("%s: code %d (%q), want embedded.CodeBadOptions (%d)", name, res.code, res.message, embedded.CodeBadOptions)
 		}
 		if res.message == "" || res.address != "" {
 			t.Fatalf("%s: message %q address %q", name, res.message, res.address)
@@ -141,7 +139,7 @@ func TestStartEngine_BadOptions(t *testing.T) {
 
 	// A managed start with a token boots (unauthorized, as managed does).
 	res := startEngine(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), "", "", "managed", "tok")
-	if res.code != codeOK {
+	if res.code != embedded.CodeOK {
 		t.Fatalf("managed with token: code %d (%q)", res.code, res.message)
 	}
 	stopEngine(true)
@@ -155,8 +153,8 @@ func TestStartEngine_FailureFillsMessage(t *testing.T) {
 	cleanupEngine(t)
 
 	res := start(t, "")
-	if res.code != codeBadDataDir {
-		t.Fatalf("empty data dir: code %d, want codeBadDataDir (%d)", res.code, codeBadDataDir)
+	if res.code != embedded.CodeBadDataDir {
+		t.Fatalf("empty data dir: code %d, want embedded.CodeBadDataDir (%d)", res.code, embedded.CodeBadDataDir)
 	}
 	if res.message == "" {
 		t.Fatal("empty data dir: empty message — the host has nothing to show the user")
@@ -167,29 +165,29 @@ func TestStartEngine_FailureFillsMessage(t *testing.T) {
 }
 
 // TestStartEngine_AlreadyRunning asserts a second start while one is up
-// maps embedded.ErrAlreadyRunning -> codeAlreadyRunning.
+// maps embedded.ErrAlreadyRunning -> embedded.CodeAlreadyRunning.
 func TestStartEngine_AlreadyRunning(t *testing.T) {
 	cleanupEngine(t)
 
-	if res := start(t, t.TempDir()); res.code != codeOK {
-		t.Fatalf("first start: code %d (%q), want codeOK", res.code, res.message)
+	if res := start(t, t.TempDir()); res.code != embedded.CodeOK {
+		t.Fatalf("first start: code %d (%q), want embedded.CodeOK", res.code, res.message)
 	}
 
-	if res := start(t, t.TempDir()); res.code != codeAlreadyRunning {
-		t.Fatalf("second start: code %d, want codeAlreadyRunning (%d)", res.code, codeAlreadyRunning)
+	if res := start(t, t.TempDir()); res.code != embedded.CodeAlreadyRunning {
+		t.Fatalf("second start: code %d, want embedded.CodeAlreadyRunning (%d)", res.code, embedded.CodeAlreadyRunning)
 	}
 }
 
 // TestStartEngine_BadDataDir asserts the bad-data-dir paths map
-// embedded.ErrBadDataDir -> codeBadDataDir: an empty path, and a path
+// embedded.ErrBadDataDir -> embedded.CodeBadDataDir: an empty path, and a path
 // whose parent is a file (so MkdirAll cannot create it). A non-empty
 // nodeconf is supplied so the failure is genuinely the data dir, not a
 // missing nodeconf.
 func TestStartEngine_BadDataDir(t *testing.T) {
 	cleanupEngine(t)
 
-	if res := start(t, ""); res.code != codeBadDataDir {
-		t.Fatalf("empty data dir: code %d, want codeBadDataDir (%d)", res.code, codeBadDataDir)
+	if res := start(t, ""); res.code != embedded.CodeBadDataDir {
+		t.Fatalf("empty data dir: code %d, want embedded.CodeBadDataDir (%d)", res.code, embedded.CodeBadDataDir)
 	}
 
 	// A regular file, then a path UNDER it — EnsureDataDir's MkdirAll must
@@ -199,44 +197,8 @@ func TestStartEngine_BadDataDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	under := filepath.Join(file, "child")
-	if res := start(t, under); res.code != codeBadDataDir {
-		t.Fatalf("data dir under a file: code %d, want codeBadDataDir (%d)", res.code, codeBadDataDir)
-	}
-}
-
-// TestErrCode_Mapping asserts the err->code translation directly,
-// including the two arms that only exist because of ordering: a
-// failed index rebuild reaches the shim wrapped in a *BootError, so
-// the generic boot arm would swallow it if it ran first. The "failed
-// index rebuild" case is built as the EXACT shape internal/server
-// produces (the rebuild error wrapping both the failure and the
-// refusal, inside "open indexer: %w", inside a BootError), so this pins
-// the real chain, not a convenient stand-in.
-func TestErrCode_Mapping(t *testing.T) {
-	cases := []struct {
-		name string
-		err  error
-		want int32
-	}{
-		{"already running", embedded.ErrAlreadyRunning, codeAlreadyRunning},
-		{"bad data dir", embedded.ErrBadDataDir, codeBadDataDir},
-		{"bad data dir wrapped", fmt.Errorf("ensure: %w", embedded.ErrBadDataDir), codeBadDataDir},
-		{"boot error", &embedded.BootError{Err: errors.New("bind failed")}, codeBootFailed},
-		{"unknown error funnels to boot", errors.New("some other error"), codeBootFailed},
-		{
-			"failed index rebuild, as the server wraps it",
-			&embedded.BootError{Err: fmt.Errorf("open indexer: %w",
-				fmt.Errorf("rebuild search index: %w (%w)", errors.New("remove index db: permission denied"), indexer.ErrIndexRebuildRequired))},
-			codeIndexRebuildRequired,
-		},
-		{"index rebuild required, bare", indexer.ErrIndexRebuildRequired, codeIndexRebuildRequired},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := errCode(tc.err); got != tc.want {
-				t.Fatalf("errCode(%v) = %d, want %d", tc.err, got, tc.want)
-			}
-		})
+	if res := start(t, under); res.code != embedded.CodeBadDataDir {
+		t.Fatalf("data dir under a file: code %d, want embedded.CodeBadDataDir (%d)", res.code, embedded.CodeBadDataDir)
 	}
 }
 

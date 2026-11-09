@@ -40,20 +40,8 @@ import (
 	"github.com/anyproto/any/internal/version"
 )
 
-// Exported sentinel errors. Both shims map from this one source so the
-// host error contract has a single definition. The iOS c-archive shim
-// (mobile/ios) maps each to a C code the Swift side mirrors:
-//
-//	ErrAlreadyRunning               -> 1
-//	ErrBadDataDir                   -> 2
-//	a boot failure                  -> 3 (see BootError)
-//	indexer.ErrIndexRebuildRequired -> 4 (inside a BootError; checked first — the boot
-//	                                      rebuilds a refused index itself, so this is
-//	                                      a rebuild that failed)
-//	ErrBadOptions                   -> 5 (a host programming error, never retryable)
-//
-// The Android gomobile shim (mobile/android) surfaces the error string
-// and no code today; converging it is Android-owned work.
+// Exported sentinel errors. Code maps them, and every other Start error,
+// to the start code both mobile shims return (codes.go).
 //
 // An empty nodeconfYAML is not an error: it selects the embedded
 // production nodeconf, the same default the CLI and desktop sidecar boot
@@ -71,14 +59,9 @@ var (
 	ErrBadOptions = errors.New("embedded: bad options")
 )
 
-// BootError wraps a failure that occurred while bringing the server up
-// after the config validated — engine/account boot, listener bind, or a
-// config the runtime rejected. The iOS shim maps a BootError to code 3,
-// EXCEPT when it wraps indexer.ErrIndexRebuildRequired — the boot rebuilds a
-// refused index itself, so this is a rebuild that failed — which gets its
-// own code 4 because the host has a specific recovery to offer. The distinct
-// type lets a caller tell "the config was fine but boot failed" from "the
-// input was bad" (ErrBadDataDir) without string matching.
+// BootError wraps a failure after the config validated: engine or
+// account boot, listener bind, or a config the runtime rejected. Code
+// maps it by its cause, CodeBootFailed when the cause has no code.
 type BootError struct{ Err error }
 
 func (e *BootError) Error() string {
@@ -134,18 +117,19 @@ type Options struct {
 	// OS pick a free port (read it back with Address()).
 	ListenAddr string
 	// NodeconfYAML is the any-sync network config contents (staging/prod
-	// yml). Required — there is no filesystem fallback on this path.
+	// yml). Empty selects the embedded production nodeconf.
 	NodeconfYAML string
 	// PushPeerId is the push node's peer id. The push node is a
 	// direct out-of-band peer, deliberately NOT part of NodeconfYAML —
 	// but it pairs with the nodeconf choice (staging vs prod), so the
-	// host supplies both from the same place. Empty = push stays off
-	// (every /v1/push endpoint returns 409 push.disabled).
+	// host supplies both from the same place. With PushAddrs and
+	// NodeconfYAML also empty, the production push node applies;
+	// otherwise empty = push stays off (409 push.disabled).
 	PushPeerId string
 	// PushAddrs are the push node's dial addresses, comma-separated —
 	// the same format ANY_PUSH_ADDRS parses, e.g.
-	// "quic://host:port" or "host:port,host2:port2". Push activates only
-	// when both PushPeerId and PushAddrs are non-empty.
+	// "quic://host:port" or "host:port,host2:port2". A host-named push
+	// node needs both PushPeerId and PushAddrs (see PushPeerId).
 	PushAddrs string
 	// GlobalP2PEnabled overrides the internet-wide p2p layer: an iroh
 	// UDP endpoint, a permanent relay session, and a dialable ticket
@@ -222,19 +206,16 @@ func assembleConfig(opts Options) config.Config {
 	cfg.WebUI.Enabled = false
 	// Push node: plain field fill — the config.Push tristate does
 	// the enablement on its own (nil Enabled + non-empty PeerId + addrs ⇒
-	// Active). Empty inputs leave the defaults and push stays off.
+	// Active). Empty inputs leave the defaults for ApplyPushDefaults.
 	cfg.Push.PeerId = opts.PushPeerId
 	cfg.Push.Addrs = splitAddrs(opts.PushAddrs)
 	cfg.P2P.LocalDiscovery = opts.LocalDiscovery
 	// Same rule the CLI gets from config.Load: a host that supplied
 	// neither a push node nor a network lands on the production pair.
 	config.ApplyPushDefaults(&cfg)
-	// Global p2p rides the same pairing, so it reaches a host that
-	// supplied no NodeconfYAML — naming a network is what marks a boot
-	// as "not production". The shipped shims pass one today, so for
-	// them this fills nothing; a host on the production default gets
-	// the layer, and GlobalP2PEnabled is how it says otherwise, since
-	// this path reads neither a config file nor ANY_* env.
+	// Global p2p rides the same pairing: a host that supplied no
+	// NodeconfYAML gets the layer, and GlobalP2PEnabled is how it says
+	// otherwise, since this path reads neither a config file nor ANY_* env.
 	config.ApplyGlobalP2PDefaults(&cfg)
 	if opts.GlobalP2PEnabled != nil {
 		v := *opts.GlobalP2PEnabled
@@ -266,7 +247,7 @@ func splitAddrs(v string) []string {
 // opts.NodeconfYAML (see Options for the full input contract). It blocks
 // until the listener binds — returning the bound address — or boot fails,
 // returning one of the package's typed errors (ErrAlreadyRunning,
-// ErrBadDataDir or a *BootError).
+// ErrBadDataDir, ErrBadOptions or a *BootError); Code maps it.
 func Start(opts Options) (string, error) {
 	// Soft memory cap, applied unconditionally at start so it is in force
 	// before the engine allocates. SetMemoryLimit's argument is a soft

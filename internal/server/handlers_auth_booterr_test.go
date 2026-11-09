@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
+	"github.com/anyproto/any/internal/indexer"
 )
 
 // The boot failures a host repairs differently each get a code: a
@@ -41,8 +43,24 @@ func TestAuthBootError_TypedRepairs(t *testing.T) {
 		posix  bool // syscall.ENOSPC never comes back on Windows
 	}{
 		"sdk quick check": {
-			err:    fmt.Errorf("open sdk: anysyncsdk: open sdk db: %w", fmt.Errorf("%w: page 7: checksum mismatch", anystore.ErrQuickCheckFailed)),
+			err:    fmt.Errorf("open sdk: anysyncsdk: open sdk db: %w", fmt.Errorf("%w: %w", anystore.ErrQuickCheckFailed, fmt.Errorf("btree: page 2: %w", anystore.ErrPageIntegrity))),
 			status: http.StatusInternalServerError, code: "sdk.store_corrupt",
+		},
+		"sdk quick check read error": {
+			err:    fmt.Errorf("open sdk: anysyncsdk: open sdk db: %w", fmt.Errorf("%w: %w", anystore.ErrQuickCheckFailed, syscall.EIO)),
+			status: http.StatusInternalServerError, code: "internal",
+		},
+		"sdk page checksum": {
+			err:    fmt.Errorf("open sdk: anysyncsdk: open files store: filestore: open files_local: %w", fmt.Errorf("btree: page 1759: %w", anystore.ErrPageIntegrity)),
+			status: http.StatusInternalServerError, code: "sdk.store_corrupt",
+		},
+		// A refused index keeps its damage as text: a failed rebuild is
+		// not a corrupt sdk.db.
+		"index rebuild failed over a damaged index": {
+			err: fmt.Errorf("open indexer: %w", fmt.Errorf("rebuild search index: %w (%w)",
+				errors.New("remove index db: permission denied"),
+				indexer.RefuseDamaged(fmt.Errorf("btree: page 3: %w", anystore.ErrPageIntegrity)))),
+			status: http.StatusInternalServerError, code: "internal",
 		},
 		"sdk quick check cancelled": {
 			err:    fmt.Errorf("open sdk: anysyncsdk: open sdk db: %w", fmt.Errorf("%w: %w", anystore.ErrQuickCheckFailed, context.Canceled)),

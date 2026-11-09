@@ -362,12 +362,12 @@ hence the explicit `yamux://` scheme in its default address.
 The embedded path reads no config.yaml and no env — the host passes the
 network and push node explicitly at start:
 
-- **Android (gomobile)**: `mobile.StartWithPush(dataDir, listenAddr,
-  nodeconfYAML, pushPeerId, pushAddrs)` — `pushAddrs` comma-separated,
-  same format `ANY_PUSH_ADDRS` parses. `Start(dataDir, listenAddr,
-  nodeconfYAML)` is `StartWithPush` with empty push strings.
-  `StartWithMode(…, mode, controlToken)` adds the ownership mode
-  (`02-server.md` § Modes).
+- **Android (gomobile)**: `mobile.StartWithResult(dataDir, listenAddr,
+  nodeconfYAML, pushPeerId, pushAddrs, mode, controlToken)` —
+  `pushAddrs` comma-separated, same format `ANY_PUSH_ADDRS` parses;
+  `mode` is the ownership mode (`02-server.md` § Modes). `Start`,
+  `StartWithPush` and `StartWithMode` take a prefix of those arguments
+  and return only an error.
 - **iOS (c-archive)**: `AnyLibStart(dataDir, listenAddr,
   nodeconfYAML, pushPeerId, pushAddrs)` — same semantics; there is no
   separate `…WithPush` variant. `AnyLibStartWithMode(…, mode,

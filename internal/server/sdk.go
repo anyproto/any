@@ -331,8 +331,11 @@ func openIndexerWith(ctx context.Context, cfg config.Index, dataDir string, emb 
 }
 
 // openIndexerStore opens the index db and builds the indexer over it.
-// On failure the store is closed; the embedder stays the caller's.
-func openIndexerStore(ctx context.Context, cfg config.Index, dbPath string, emb indexer.Embedder, sdk *anysyncsdk.SDK, chunkers *index.Registry, queryEmbedTimeout time.Duration, onProcess func(indexer.ProcessUpdate), onLinks func(spaceId string, targets []string)) (*indexer.Indexer, error) {
+// On failure the store is closed; the embedder stays the caller's. Damage
+// met anywhere in the open comes back as a refusal, never a typed
+// integrity error that would read as a corrupt sdk.db.
+func openIndexerStore(ctx context.Context, cfg config.Index, dbPath string, emb indexer.Embedder, sdk *anysyncsdk.SDK, chunkers *index.Registry, queryEmbedTimeout time.Duration, onProcess func(indexer.ProcessUpdate), onLinks func(spaceId string, targets []string)) (_ *indexer.Indexer, err error) {
+	defer func() { err = indexer.RefuseDamaged(err) }()
 	st, err := indexer.OpenStore(ctx, dbPath, cfg.Vector.Dim, emb != nil)
 	if err != nil {
 		return nil, err
