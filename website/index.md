@@ -7,7 +7,9 @@ description: Documentation for any — the reactive, local-first, end-to-end enc
 # Any
 
 
-A reactive, **local-first** database. Documents live on your devices, merge as CRDTs, sync end-to-end encrypted, and answer Mongo-style queries with live subscriptions — online or not. Chat and a block editor are built in as CRDT modules, and anyrt runs sandboxed Python programs, scheduled jobs, and agents right alongside your data.
+**any is a local-first backend for collaborative apps.** A single binary combines a reactive document database with a runtime for sandboxed Python programs, scheduled jobs, and agents.
+
+Documents live on your devices, so people and agents can keep working on them offline. Apps can run Mongo-style queries and subscribe to changes. Sync is end-to-end encrypted, and devices can use iroh for peer-to-peer connections over the internet. When devices reconnect, any uses CRDTs to merge concurrent edits automatically.
 
 **Developer preview.** APIs may change; MIT licensed. [Preview status](understanding/preview.html).
 
