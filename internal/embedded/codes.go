@@ -31,7 +31,7 @@ const (
 	// CodeStorageFull: the disk is full (server.StorageFull). The host
 	// frees space and retries.
 	CodeStorageFull int32 = 6
-	// CodeStoreCorrupt: the account's sdk.db failed its integrity check
+	// CodeStoreCorrupt: a page of the account's sdk.db failed its checksum
 	// (server.StoreCorrupt). It is never repaired in place.
 	CodeStoreCorrupt int32 = 7
 )

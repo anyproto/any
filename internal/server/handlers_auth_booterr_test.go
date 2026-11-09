@@ -43,8 +43,12 @@ func TestAuthBootError_TypedRepairs(t *testing.T) {
 		posix  bool // syscall.ENOSPC never comes back on Windows
 	}{
 		"sdk quick check": {
-			err:    fmt.Errorf("open sdk: anysyncsdk: open sdk db: %w", fmt.Errorf("%w: page 7: checksum mismatch", anystore.ErrQuickCheckFailed)),
+			err:    fmt.Errorf("open sdk: anysyncsdk: open sdk db: %w", fmt.Errorf("%w: %w", anystore.ErrQuickCheckFailed, fmt.Errorf("btree: page 2: %w", anystore.ErrPageIntegrity))),
 			status: http.StatusInternalServerError, code: "sdk.store_corrupt",
+		},
+		"sdk quick check read error": {
+			err:    fmt.Errorf("open sdk: anysyncsdk: open sdk db: %w", fmt.Errorf("%w: %w", anystore.ErrQuickCheckFailed, syscall.EIO)),
+			status: http.StatusInternalServerError, code: "internal",
 		},
 		"sdk page checksum": {
 			err:    fmt.Errorf("open sdk: anysyncsdk: open files store: filestore: open files_local: %w", fmt.Errorf("btree: page 1759: %w", anystore.ErrPageIntegrity)),
