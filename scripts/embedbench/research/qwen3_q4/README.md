@@ -32,18 +32,18 @@ dimension whatever the model's bit width.
 
 ## Results (nDCG@10, Δ against Q8, * = 95% CI excludes 0)
 
-| set (queries) | Q8 | Q4_K_M | Q4_K_M imat | Q5_K_M |
-|---|---|---|---|---|
-| sealed-ru (204) | 0.749 | −0.007 | −0.003 | −0.001 |
-| new-rig (64) | 0.946 | −0.007 | −0.008 | −0.005 |
-| ru (48) | 0.868 | **−0.058*** | **−0.043*** | −0.017 [−0.046, +0.003] |
-| miracl-ru-pool (200) | 0.836 | **−0.010*** | 0.000 | +0.001 |
-| miracl-de-pool (200) | 0.776 | −0.001 | −0.002 | −0.004 |
-| scifact (300) | 0.701 | +0.004 | 0.000 | −0.002 |
-| wiki-mix (65) | 0.838 | **−0.010*** | −0.013 | −0.011 |
-| rig-known (105) | 0.963 | −0.002 | −0.012 | −0.001 |
-| rig-topical (12) | 0.691 | −0.017 | −0.006 | +0.006 |
-| mean doc cosine to Q8 | 1 | 0.975 | 0.983 | 0.992 |
+| set (queries) | Q8 | Q4_K_M | Q4_K_M imat | Q5_K_M | MLX DWQ |
+|---|---|---|---|---|---|
+| sealed-ru (204) | 0.749 | −0.007 | −0.003 | −0.001 | **−0.017*** |
+| new-rig (64) | 0.946 | −0.007 | −0.008 | −0.005 | **−0.032*** |
+| ru (48) | 0.868 | **−0.058*** | **−0.043*** | −0.017 [−0.046, +0.003] | **−0.042*** |
+| miracl-ru-pool (200) | 0.836 | **−0.010*** | 0.000 | +0.001 | −0.004 |
+| miracl-de-pool (200) | 0.776 | −0.001 | −0.002 | −0.004 | −0.006 |
+| scifact (300) | 0.701 | +0.004 | 0.000 | −0.002 | −0.008 |
+| wiki-mix (65) | 0.838 | **−0.010*** | −0.013 | −0.011 | −0.014 |
+| rig-known (105) | 0.963 | −0.002 | −0.012 | −0.001 | +0.001 |
+| rig-topical (12) | 0.691 | −0.017 | −0.006 | +0.006 | −0.003 |
+| mean doc cosine to Q8 | 1 | 0.975 | 0.983 | 0.992 | 0.962 |
 
 **NFCorpus ties for all arms.** Its CIs are unreliable: 323 queries collapse into 6 relevance clusters.
 
@@ -57,6 +57,7 @@ The full tables, with MRR, are in `bench/qwen3-q4/RESULTS.md` and `results.json`
 - **Q4_K_M costs Russian encyclopedic text.** The dev-slang chat cases hold.
 - **imatrix calibration helps only partly.**
 - **Q5_K_M has no significant loss on any set,** for 31% less model RAM and disk than Q8. It's the low-bit candidate for the rig.
+- **MLX DWQ is the worst of the four.** It's the only one that also loses the dev-slang cases.
 
 ## Core ML (ANE) builds on HF (2026-11-09)
 
