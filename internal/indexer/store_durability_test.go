@@ -47,6 +47,8 @@ func TestRefuseDamaged_CauseUntyped(t *testing.T) {
 	for _, cause := range []error{
 		fmt.Errorf("%w: btree: page 2: checksum mismatch", anystore.ErrQuickCheckFailed),
 		fmt.Errorf("btree: page 3: %w", anystore.ErrPageIntegrity),
+		// A page checksum failure is damage even in a cancelled boot.
+		errors.Join(fmt.Errorf("btree: page 3: %w", anystore.ErrPageIntegrity), context.Canceled),
 	} {
 		err := RefuseDamaged(cause)
 		if !errors.Is(err, ErrIndexRebuildRequired) {

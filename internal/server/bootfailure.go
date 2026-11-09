@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 
 	anystore "github.com/anyproto/any-store/v2"
@@ -15,8 +16,9 @@ func StorageFull(err error) bool {
 }
 
 // StoreCorrupt reports a boot failure caused by a damaged sdk.db: a page
-// that fails its checksum, in the quick check or a later read. A quick
-// check that failed on a read error is not damage.
+// that fails its checksum. A read error is not damage, and a cancelled or
+// timed-out boot never answers with a deletion.
 func StoreCorrupt(err error) bool {
-	return errors.Is(err, anystore.ErrPageIntegrity)
+	return errors.Is(err, anystore.ErrPageIntegrity) &&
+		!errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
 }

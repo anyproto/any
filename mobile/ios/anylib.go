@@ -165,8 +165,8 @@ var versionString = C.CString(embedded.Version())
 // the AnyLibStartResult typedef and embedded.Code.
 //
 // Any argument may be NULL and reads as an empty string (C.GoString
-// treats NULL as ""), which spares the Swift caller a strdup for the
-// push pair it usually leaves off.
+// treats NULL as ""), which spares the Swift caller a strdup for each
+// argument it leaves empty.
 //
 //export AnyLibStart
 func AnyLibStart(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs *C.char) C.AnyLibStartResult {

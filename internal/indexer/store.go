@@ -188,9 +188,6 @@ func OpenStore(ctx context.Context, path string, dim int, embedderConfigured boo
 		},
 	})
 	if err != nil {
-		if damaged(err) {
-			return nil, RefuseDamaged(err)
-		}
 		return nil, fmt.Errorf("indexer: open index db: %w", err)
 	}
 	s := newStore(db, path, dim, embedderConfigured)
@@ -201,11 +198,14 @@ func OpenStore(ctx context.Context, path string, dim int, embedderConfigured boo
 	return s, nil
 }
 
-// damaged reports a damaged db file: a failed quick check or a page that
-// fails its checksum. A check cut short by the caller's ctx or by
-// any-store's own check timeout is not damage.
+// damaged reports a damaged db file: a page that fails its checksum, or a
+// failed quick check that was not cut short by the caller's ctx or by
+// any-store's own check timeout.
 func damaged(err error) bool {
-	return (errors.Is(err, anystore.ErrQuickCheckFailed) || errors.Is(err, anystore.ErrPageIntegrity)) &&
+	if errors.Is(err, anystore.ErrPageIntegrity) {
+		return true
+	}
+	return errors.Is(err, anystore.ErrQuickCheckFailed) &&
 		!errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
 }
 
