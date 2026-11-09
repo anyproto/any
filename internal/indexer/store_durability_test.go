@@ -2,9 +2,13 @@ package indexer
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	anystore "github.com/anyproto/any-store/v2"
 )
 
 // index.db runs with the dirty sentinel: a write creates index.db.lock
@@ -27,5 +31,17 @@ func TestOpenStore_SentinelClearsOnClose(t *testing.T) {
 	}
 	if _, err := os.Stat(path + ".lock"); !os.IsNotExist(err) {
 		t.Fatalf("sentinel after close: err=%v", err)
+	}
+}
+
+// A torn index.db is a rebuild and never carries a typed any-store
+// quick-check failure: a boot chain holding one reads as a corrupt sdk.db.
+func TestQuickCheckRebuildErr_CauseUntyped(t *testing.T) {
+	err := quickCheckRebuildErr(fmt.Errorf("%w: page 2: checksum mismatch", anystore.ErrQuickCheckFailed))
+	if !errors.Is(err, ErrIndexRebuildRequired) {
+		t.Fatalf("%v: want ErrIndexRebuildRequired", err)
+	}
+	if errors.Is(err, anystore.ErrQuickCheckFailed) {
+		t.Fatalf("%v: carries a typed anystore.ErrQuickCheckFailed", err)
 	}
 }

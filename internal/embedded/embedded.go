@@ -128,8 +128,8 @@ type Options struct {
 	PushPeerId string
 	// PushAddrs are the push node's dial addresses, comma-separated —
 	// the same format ANY_PUSH_ADDRS parses, e.g.
-	// "quic://host:port" or "host:port,host2:port2". Push activates only
-	// when both PushPeerId and PushAddrs are non-empty.
+	// "quic://host:port" or "host:port,host2:port2". A host-named push
+	// node needs both PushPeerId and PushAddrs (see PushPeerId).
 	PushAddrs string
 	// GlobalP2PEnabled overrides the internet-wide p2p layer: an iroh
 	// UDP endpoint, a permanent relay session, and a dialable ticket
@@ -213,12 +213,9 @@ func assembleConfig(opts Options) config.Config {
 	// Same rule the CLI gets from config.Load: a host that supplied
 	// neither a push node nor a network lands on the production pair.
 	config.ApplyPushDefaults(&cfg)
-	// Global p2p rides the same pairing, so it reaches a host that
-	// supplied no NodeconfYAML — naming a network is what marks a boot
-	// as "not production". The shipped shims pass one today, so for
-	// them this fills nothing; a host on the production default gets
-	// the layer, and GlobalP2PEnabled is how it says otherwise, since
-	// this path reads neither a config file nor ANY_* env.
+	// Global p2p rides the same pairing: a host that supplied no
+	// NodeconfYAML gets the layer, and GlobalP2PEnabled is how it says
+	// otherwise, since this path reads neither a config file nor ANY_* env.
 	config.ApplyGlobalP2PDefaults(&cfg)
 	if opts.GlobalP2PEnabled != nil {
 		v := *opts.GlobalP2PEnabled

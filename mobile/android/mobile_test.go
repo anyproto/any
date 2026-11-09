@@ -97,25 +97,25 @@ func TestStartWithResult(t *testing.T) {
 	reset(t)
 	defer reset(t)
 	nodeconf := nodeconfFixture(t)
-	start := func(dataDir, mode string) *StartResult {
+	startRes := func(dataDir, mode string) *StartResult {
 		return StartWithResult(dataDir, loopbackEphemeral, nodeconf, "", "", mode, "")
 	}
 
-	if res := start("", ""); res.Code != embedded.CodeBadDataDir || res.Message == "" || res.Address != "" {
+	if res := startRes("", ""); res.Code != embedded.CodeBadDataDir || res.Message == "" || res.Address != "" {
 		t.Fatalf("empty data dir: %+v, want code %d with a message", res, embedded.CodeBadDataDir)
 	}
-	if res := start(t.TempDir(), "managed"); res.Code != embedded.CodeBadOptions || res.Message == "" {
+	if res := startRes(t.TempDir(), "managed"); res.Code != embedded.CodeBadOptions || res.Message == "" {
 		t.Fatalf("managed without a token: %+v, want code %d with a message", res, embedded.CodeBadOptions)
 	}
 
-	res := start(t.TempDir(), "")
+	res := startRes(t.TempDir(), "")
 	if res.Code != embedded.CodeOK || res.Message != "" {
 		t.Fatalf("start: %+v, want code %d", res, embedded.CodeOK)
 	}
 	if res.Address == "" || res.Address != Address() {
 		t.Fatalf("start address %q, Address() %q: want the same bound host:port", res.Address, Address())
 	}
-	if res := start(t.TempDir(), ""); res.Code != embedded.CodeAlreadyRunning || res.Address != "" {
+	if res := startRes(t.TempDir(), ""); res.Code != embedded.CodeAlreadyRunning || res.Message == "" || res.Address != "" {
 		t.Fatalf("second start: %+v, want code %d", res, embedded.CodeAlreadyRunning)
 	}
 }
