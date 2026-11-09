@@ -1,0 +1,200 @@
+[
+  {
+    "id": 11816,
+    "en": "nick",
+    "source_ids": [
+      20243
+    ],
+    "lemmas": [
+      "ник"
+    ],
+    "token": "ника"
+  },
+  {
+    "id": 21977,
+    "en": "computer",
+    "source_ids": [
+      5194
+    ],
+    "lemmas": [
+      "комп"
+    ],
+    "token": "▁компа"
+  },
+  {
+    "id": 22484,
+    "en": "computer",
+    "source_ids": [
+      5194
+    ],
+    "lemmas": [
+      "комп"
+    ],
+    "token": "▁комп"
+  },
+  {
+    "id": 23761,
+    "en": "nick",
+    "source_ids": [
+      20243
+    ],
+    "lemmas": [
+      "ник"
+    ],
+    "token": "ников"
+  },
+  {
+    "id": 48159,
+    "en": "nick",
+    "source_ids": [
+      20243
+    ],
+    "lemmas": [
+      "ник"
+    ],
+    "token": "ником"
+  },
+  {
+    "id": 57415,
+    "en": "nick",
+    "source_ids": [
+      20243
+    ],
+    "lemmas": [
+      "ник"
+    ],
+    "token": "▁ника"
+  },
+  {
+    "id": 62655,
+    "en": "nick",
+    "source_ids": [
+      20243
+    ],
+    "lemmas": [
+      "ник"
+    ],
+    "token": "никами"
+  },
+  {
+    "id": 80977,
+    "en": "nick",
+    "source_ids": [
+      20243
+    ],
+    "lemmas": [
+      "ник"
+    ],
+    "token": "никам"
+  },
+  {
+    "id": 81212,
+    "en": "nick",
+    "source_ids": [
+      20243
+    ],
+    "lemmas": [
+      "ник"
+    ],
+    "token": "нику"
+  },
+  {
+    "id": 94449,
+    "en": "nick",
+    "source_ids": [
+      20243
+    ],
+    "lemmas": [
+      "ник"
+    ],
+    "token": "нике"
+  },
+  {
+    "id": 95876,
+    "en": "comment",
+    "source_ids": [
+      5739
+    ],
+    "lemmas": [
+      "коммент"
+    ],
+    "token": "▁коммента"
+  },
+  {
+    "id": 151467,
+    "en": "fix",
+    "source_ids": [
+      7562
+    ],
+    "lemmas": [
+      "фиксить"
+    ],
+    "token": "▁фикси"
+  },
+  {
+    "id": 153705,
+    "en": "seed",
+    "source_ids": [
+      10338
+    ],
+    "lemmas": [
+      "сид"
+    ],
+    "token": "сида"
+  },
+  {
+    "id": 157416,
+    "en": "computer",
+    "source_ids": [
+      5194
+    ],
+    "lemmas": [
+      "комп"
+    ],
+    "token": "компа"
+  },
+  {
+    "id": 158704,
+    "en": "nick",
+    "source_ids": [
+      20243
+    ],
+    "lemmas": [
+      "ник"
+    ],
+    "token": "никах"
+  },
+  {
+    "id": 167084,
+    "en": "sign",
+    "source_ids": [
+      1519
+    ],
+    "lemmas": [
+      "сигна"
+    ],
+    "token": "▁сигна"
+  },
+  {
+    "id": 174624,
+    "en": "computer",
+    "source_ids": [
+      5194
+    ],
+    "lemmas": [
+      "комп"
+    ],
+    "token": "комп"
+  },
+  {
+    "id": 205921,
+    "en": "fix",
+    "source_ids": [
+      7562
+    ],
+    "lemmas": [
+      "фиксить"
+    ],
+    "token": "фикси"
+  }
+]

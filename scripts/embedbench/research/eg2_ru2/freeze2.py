@@ -1,0 +1,7 @@
+from util2 import *
+verify_seal();assert not (BASE/'FROZEN.json').exists()
+selected=json.loads((BASE/'dev/selected.json').read_text())
+paths=sorted(CODE.glob('*.py'))+sorted(CODE.glob('*.json'))+[BASE/'PLAN.md',BASE/'SEALED.json',BASE/'AMENDMENTS.md',BASE/'dev/alias_rows.npz',BASE/'sources/provenance.json',BASE/'sources/pages.jsonl',BASE/'sources/ATTRIBUTION.md']+[ROOT/'scripts/embedbench/research/eg2_patch'/n for n in ['eg2.py','qwen.py','common.py']]
+modelpaths=['bench/embeddinggemma-2-Q8_0.gguf','bench/Qwen3-Embedding-0.6B-Q8_0.gguf','scripts/embedbench/research/eg2_head_patch/head_mean.npy']
+save(BASE/'FROZEN.json',dict(selected,created=datetime.datetime.now(datetime.timezone.utc).isoformat(),files={str(p.relative_to(ROOT)):sha(p) for p in paths},models={p:sha(ROOT/p) for p in modelpaths},search=dict(context=2048,EG2_doc_prefix='title: none | text: ',EG2_query_prefix='task: search result | query: ',EG2_pool='mean',Qwen='unchanged round-1 loader, instruction query/last-token',head='exact normalize(v-u(u dot v))',retrieval='exact',bm25_k1=1.2,bm25_b=.75,rrf_k=60,fetch=30),primary='C',secondary_arms=['H','Q','V','L','S','W','R'],bootstrap=dict(n=10000,seed=391,unit='connected relevant-target clusters'),rig='confirmation only; no subsequent tuning'))
+log('FROZEN before held-out scoring: C remains preregistered primary; source dictionary, row edits/dose, scripts, data seals and model hashes fixed. Rig confirmation can now begin.')
