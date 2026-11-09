@@ -52,6 +52,8 @@ Both buffers are always NUL-terminated, so a long message loses its tail rather 
 | `6` | The disk is full: the data dir, the account dir or a store could not be written. Free space and retry. A full disk is `6` even when it broke the data dir or an index rebuild; on `POST /v1/auth` it is `507 storage.no_space`. |
 | `7` | The account's SDK store failed its integrity check on a dirty open. It is never repaired in place: remove `sdk.db` and the files named after it from `<dataDir>/<accountId>/sdk/` (the `accountId` that `POST /v1/auth` returned) and start again. The SDK replays the synced trees into a fresh store; what lived only in `sdk.db` is lost: the local store, local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone). On `POST /v1/auth` it is `500 sdk.store_corrupt`. |
 
+New codes are only ever added: treat a code you don't know like `3`.
+
 `nodeconfYAML` selects the network: an empty string means the production any-sync network embedded in the archive; pass a nodeconf's YAML text to join another ([Networks](networks.html)). `pushPeerId` / `pushAddrs` configure the push node — empty strings with an empty `nodeconfYAML` select the production push node; with any other `nodeconfYAML` they turn push off ([Push](../notifications/push.html)).
 
 ## Start it

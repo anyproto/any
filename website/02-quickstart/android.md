@@ -51,6 +51,8 @@ The binding is deliberately flat — top-level functions over strings, plus one 
 | `6` | The disk is full: the data dir, the account dir or a store could not be written. Free space and retry. A full disk is `6` even when it broke the data dir or an index rebuild. |
 | `7` | The account's SDK store failed its integrity check on a dirty open. It is never repaired in place: remove `sdk.db` and the files named after it from `<dataDir>/<accountId>/sdk/` (the `accountId` that `POST /v1/auth` returned) and start again. The SDK replays the synced trees into a fresh store; what lived only in `sdk.db` is lost: the local store, local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone). |
 
+New codes are only ever added: treat a code you don't know like `3`.
+
 Codes `4` and `7` come only from a start that boots an account already on disk; `6` also covers the data dir. A start that comes up unauthorized (managed, or no account yet) reports the account's failures on `POST /v1/auth` ([Accounts](../auth/accounts.html)).
 
 ## Start it

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	anystore "github.com/anyproto/any-store/v2"
 	"github.com/anyproto/go-sqlite"
@@ -87,7 +88,8 @@ func TestStartCodeStoreCorrupt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	resp, err := http.Post("http://"+addr+"/v1/auth", "application/json", strings.NewReader(`{}`))
+	client := &http.Client{Timeout: time.Minute}
+	resp, err := client.Post("http://"+addr+"/v1/auth", "application/json", strings.NewReader(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,7 +14,7 @@
 // host-idiom adapter: the //export wrappers only marshal C<->Go types and
 // return the core's start codes (embedded.Code), which the Swift side
 // mirrors. The plain Go functions (startEngine / stopEngine /
-// copyBounded) carry that translation and are what the host-build test
+// copyBounded) carry the Go side of the bridge and are what the host-build test
 // suite exercises; the //export wrappers themselves cannot be called from
 // `go test`, and neither can anything typed in terms of C (cgo is not
 // permitted in _test.go). That's why the core below is pure Go and the
