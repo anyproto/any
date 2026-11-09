@@ -1,0 +1,22 @@
+# source row index|keywords|Russian paraphrase|English cross-language query
+1|убунту ред хат порт|Почему сетевое приложение запускается в одном дистрибутиве Linux, но отказывается в другом?|Why does a network application start on one Linux distribution but fail on another?
+2|pyinstaller PATH|Как запускать установленную утилиту по короткому имени вместо полного расположения файла?|How can an installed command be launched by name without its full filesystem path?
+3|байты строка шифруете|Почему преобразование текста в последовательность чисел не означает его криптографическую защиту?|Why does turning text into bytes not mean it has been encrypted?
+4|writeBundle short putShort|Как передать короткое целое через контейнер значений Android?|How can a short integer be passed through an Android value container?
+5|cloneDeep Object.assign|Почему рекурсивная функция не создает независимые копии вложенных объектов?|Why does a recursive function fail to create independent copies of nested objects?
+6|PHP многомерный двумерный|Как превратить цепочку вложенных родительских категорий в последовательный список?|How can a chain of nested parent categories be converted into a flat list?
+8|de4dot реактор|Поможет ли устаревшее средство снятия защиты против новой версии упаковщика программы?|Can an outdated deobfuscation tool handle a new version of an executable protector?
+9|Chart.Series графика|Как показать две кривые в одной области визуализации без столкновения имен рядов?|How can two curves share a chart area without conflicting series identifiers?
+10|Yii2 сессию авторизации|Почему после размещения приложения на другом сервере вход проходит, но состояние пользователя не сохраняется?|Why does login succeed after moving an app to another server while user state is not retained?
+11|Jenkins shell FAILURE|Как не прерывать командный сценарий автоматической сборки при первой неудачной проверке?|How can an automated build shell script continue after the first failed test?
+12|setVisibility GONE VISIBLE|Как снова отобразить ранее полностью скрытый элемент интерфейса Android?|How can a previously hidden Android interface element be made visible again?
+13|dict.items len(val)|Как посчитать число значений словаря, содержащих больше одного элемента?|How can we count dictionary values that contain more than one item?
+14|SELECT DELETE вопрос|Почему пример чтения базы не помогает разобраться с ошибкой удаления записей?|Why is a database read example insufficient to diagnose a record deletion problem?
+15|htaccess скрипт констант|Как автоматически определить настройку для простого установочного сценария в неизвестном размещении?|How can a simple installation script detect a setting automatically at an unknown deployment location?
+16|Yii save UPDATE INSERT|Почему сохранение нескольких загруженных картинок меняет одну строку базы вместо добавления новых?|Why does saving several uploaded images update a single database row rather than inserting new rows?
+17|php.ini post_max_size memory_limit|Какие ограничения конфигурации влияют на прием крупных файлов конкретным веб-сайтом?|Which configuration limits affect a particular website's ability to accept large file uploads?
+18|Owl Carousel vertical-align|Как выровнять картинки разной высоты внутри прокручиваемой галереи без скачков ее размера?|How can images of different heights be aligned in a carousel without its height jumping?
+19|AppDomain сборка выгружена|Как освободить память от динамически загруженного исполняемого модуля в .NET?|How can memory occupied by a dynamically loaded executable assembly be released in .NET?
+21|defval checked Requests|Почему состояние флажка по умолчанию не учитывается при программном обращении к странице?|Why is a checkbox's default state ignored when accessing a page programmatically?
+22|splash-screen скорость загрузки|Как искусственно замедлить получение маленьких страниц для наблюдения за индикатором ожидания?|How can small page downloads be deliberately slowed to inspect a loading indicator?
+23|Python быстродействие библиотеки|Как заранее сравнить скорость разных средств языка помимо выбора алгоритма и экспериментальных замеров?|How can language features be compared for speed beyond algorithm choice and experimental timing?
