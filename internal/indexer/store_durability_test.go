@@ -40,15 +40,18 @@ func TestRefuseDamaged_CauseUntyped(t *testing.T) {
 	if err := RefuseDamaged(nil); err != nil {
 		t.Fatalf("RefuseDamaged(nil) = %v", err)
 	}
-	other := errors.New("open: permission denied")
-	if err := RefuseDamaged(other); err != other {
-		t.Fatalf("RefuseDamaged(%v) = %v, want it unchanged", other, err)
+	// A cancelled open deletes nothing, damaged page or not.
+	for _, other := range []error{
+		errors.New("open: permission denied"),
+		errors.Join(fmt.Errorf("btree: page 3: %w", anystore.ErrPageIntegrity), context.Canceled),
+	} {
+		if err := RefuseDamaged(other); err != other {
+			t.Fatalf("RefuseDamaged(%v) = %v, want it unchanged", other, err)
+		}
 	}
 	for _, cause := range []error{
 		fmt.Errorf("%w: btree: page 2: checksum mismatch", anystore.ErrQuickCheckFailed),
 		fmt.Errorf("btree: page 3: %w", anystore.ErrPageIntegrity),
-		// A page checksum failure is damage even in a cancelled boot.
-		errors.Join(fmt.Errorf("btree: page 3: %w", anystore.ErrPageIntegrity), context.Canceled),
 	} {
 		err := RefuseDamaged(cause)
 		if !errors.Is(err, ErrIndexRebuildRequired) {

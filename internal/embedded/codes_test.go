@@ -74,11 +74,9 @@ func TestCode(t *testing.T) {
 	}
 }
 
-// A standalone relaunch over a torn sdk.db reports CodeStoreCorrupt, with
-// the dirty sentinel (the quick check fails) and without it (the first read
-// fails its page checksum): the real boot chain, not a built one. Needs the
-// gitignored staging nodeconf to create the account, like the server's
-// SDK-booting tests.
+// A standalone relaunch over a torn sdk.db reports CodeStoreCorrupt through
+// the real boot chain, with and without the dirty sentinel. Needs the
+// staging nodeconf to create the account.
 func TestStartCodeStoreCorrupt(t *testing.T) {
 	nodeconf, err := os.ReadFile("../../staging.yml")
 	if err != nil {
