@@ -166,8 +166,10 @@ type DocUpsert struct {
 // configured vector dimension; 0 means "unknown — learn it from the
 // first successful embedding" (EnsureDim). embedderConfigured turns on
 // pending-marking even before the dimension is known. A dim change
-// against an existing DB is a hard error — the index must be rebuilt.
-func OpenStore(ctx context.Context, path string, dim int, embedderConfigured bool) (*Store, error) {
+// against an existing DB is a hard error — the index must be rebuilt, as
+// for a damaged db (RefuseDamaged).
+func OpenStore(ctx context.Context, path string, dim int, embedderConfigured bool) (_ *Store, err error) {
+	defer func() { err = RefuseDamaged(err) }()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("indexer: create index dir: %w", err)
 	}

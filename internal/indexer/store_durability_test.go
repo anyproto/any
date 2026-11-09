@@ -62,3 +62,36 @@ func TestRefuseDamaged_CauseUntyped(t *testing.T) {
 		}
 	}
 }
+
+// OpenStore refuses a torn index.db: the first read fails its page
+// checksum, and the refusal carries no typed integrity error.
+func TestOpenStore_RefusesTornPage(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "index.db")
+	s, err := OpenStore(ctx, path, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetCursor(ctx, "space", 1, "g1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const pageSize = 4096
+	for i := pageSize + 100; i < pageSize+600; i++ {
+		b[i] ^= 0xff
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = OpenStore(ctx, path, 0, false)
+	if !errors.Is(err, ErrIndexRebuildRequired) || errors.Is(err, anystore.ErrPageIntegrity) {
+		t.Fatalf("OpenStore over a torn page: %v, want an untyped rebuild refusal", err)
+	}
+}
