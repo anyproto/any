@@ -31,8 +31,7 @@ func TestCode(t *testing.T) {
 	sdkOpen := func(err error) error {
 		return &BootError{Err: fmt.Errorf("open sdk: anysyncsdk: open sdk db: %w", err)}
 	}
-	// A refused index carries its quick-check cause as text, never typed.
-	indexRefusal := fmt.Errorf("%w: index db failed its integrity check: %v", indexer.ErrIndexRebuildRequired, anystore.ErrQuickCheckFailed)
+	indexRefusal := indexer.RefuseDamaged(fmt.Errorf("btree: page 3: %w", anystore.ErrPageIntegrity))
 	rebuildFailed := func(err error) error {
 		return &BootError{Err: fmt.Errorf("open indexer: %w",
 			fmt.Errorf("rebuild search index: %w (%w)", err, indexRefusal))}
@@ -106,7 +105,8 @@ func TestStartCodeStoreCorrupt(t *testing.T) {
 			}
 			Stop(true)
 
-			// Tear page 2, the system namespace root every open reads.
+			// Tear page 2, the system namespace root: the quick check reads
+			// it on a dirty open, the first catalog read otherwise.
 			db := filepath.Join(config.AccountDir(root, auth.AccountId), "sdk", "sdk.db")
 			b, err := os.ReadFile(db)
 			if err != nil {

@@ -189,16 +189,13 @@ func OpenStore(ctx context.Context, path string, dim int, embedderConfigured boo
 	})
 	if err != nil {
 		if damaged(err) {
-			return nil, integrityRebuildErr(err)
+			return nil, RefuseDamaged(err)
 		}
 		return nil, fmt.Errorf("indexer: open index db: %w", err)
 	}
 	s := newStore(db, path, dim, embedderConfigured)
 	if err := s.checkMeta(ctx); err != nil {
 		_ = db.Close()
-		if damaged(err) {
-			return nil, integrityRebuildErr(err)
-		}
 		return nil, err
 	}
 	return s, nil
@@ -212,11 +209,14 @@ func damaged(err error) bool {
 		!errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
 }
 
-// integrityRebuildErr maps a damaged index.db met while opening it: it is
-// rebuilt. The cause stays %v so a boot chain never reads it as a corrupt
-// sdk.db (server.StoreCorrupt).
-func integrityRebuildErr(cause error) error {
-	return fmt.Errorf("%w: index db failed its integrity check: %v", ErrIndexRebuildRequired, cause)
+// RefuseDamaged returns err as a rebuild refusal when it is damage to the
+// index db, and any other err unchanged. The cause stays %v so a boot
+// chain never reads it as a corrupt sdk.db (server.StoreCorrupt).
+func RefuseDamaged(err error) error {
+	if err == nil || !damaged(err) {
+		return err
+	}
+	return fmt.Errorf("%w: index db failed its integrity check: %v", ErrIndexRebuildRequired, err)
 }
 
 // OpenStoreInMemory opens a throwaway in-memory store (tests).
@@ -319,16 +319,6 @@ func (s *Store) checkMeta(ctx context.Context) error {
 // written before the pin existed carries none and is adopted — and
 // pinned on the spot, since nothing else writes that row.
 func (s *Store) PinChunkRunes(ctx context.Context, n int) error {
-	if err := s.pinChunkRunes(ctx, n); err != nil {
-		if damaged(err) {
-			return integrityRebuildErr(err)
-		}
-		return err
-	}
-	return nil
-}
-
-func (s *Store) pinChunkRunes(ctx context.Context, n int) error {
 	if n <= 0 {
 		n = DefaultChunkRunes
 	}

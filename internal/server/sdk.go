@@ -309,10 +309,14 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 // keeps the refusal in the chain.
 func openIndexerWith(ctx context.Context, cfg config.Index, dataDir string, emb indexer.Embedder, sdk *anysyncsdk.SDK, chunkers *index.Registry, queryEmbedTimeout time.Duration, onProcess func(indexer.ProcessUpdate), onLinks func(spaceId string, targets []string)) (*indexer.Indexer, error) {
 	dbPath := filepath.Join(dataDir, "index", "index.db")
+	// Damage met anywhere in the open is a refusal, never a typed
+	// integrity error that would read as a corrupt sdk.db.
 	ix, err := openIndexerStore(ctx, cfg, dbPath, emb, sdk, chunkers, queryEmbedTimeout, onProcess, onLinks)
+	err = indexer.RefuseDamaged(err)
 	if refused := err; errors.Is(refused, indexer.ErrIndexRebuildRequired) {
 		if err = removeIndexDB(dbPath); err == nil {
 			ix, err = openIndexerStore(ctx, cfg, dbPath, emb, sdk, chunkers, queryEmbedTimeout, onProcess, onLinks)
+			err = indexer.RefuseDamaged(err)
 		}
 		if err == nil {
 			engineLog.Warn("search index rebuilt", zap.NamedError("refused", refused))

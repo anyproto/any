@@ -36,12 +36,19 @@ func TestOpenStore_SentinelClearsOnClose(t *testing.T) {
 
 // A damaged index.db is a rebuild and never carries a typed any-store
 // integrity failure: a boot chain holding one reads as a corrupt sdk.db.
-func TestIntegrityRebuildErr_CauseUntyped(t *testing.T) {
+func TestRefuseDamaged_CauseUntyped(t *testing.T) {
+	if err := RefuseDamaged(nil); err != nil {
+		t.Fatalf("RefuseDamaged(nil) = %v", err)
+	}
+	other := errors.New("open: permission denied")
+	if err := RefuseDamaged(other); err != other {
+		t.Fatalf("RefuseDamaged(%v) = %v, want it unchanged", other, err)
+	}
 	for _, cause := range []error{
 		fmt.Errorf("%w: btree: page 2: checksum mismatch", anystore.ErrQuickCheckFailed),
 		fmt.Errorf("btree: page 3: %w", anystore.ErrPageIntegrity),
 	} {
-		err := integrityRebuildErr(cause)
+		err := RefuseDamaged(cause)
 		if !errors.Is(err, ErrIndexRebuildRequired) {
 			t.Fatalf("%v: want ErrIndexRebuildRequired", err)
 		}
