@@ -333,7 +333,8 @@ it is decided before the running account goes down, so that account
 stays up), `500 auth.network_pin_corrupt` (the account's `network.json`
 is unreadable; remove it and start the server on the account's network,
 which the next boot pins again), `500 sdk.store_corrupt` (the account's
-SDK store `sdk.db` failed its integrity check on a dirty open; it is
+SDK store `sdk.db` failed an integrity check while opening — the quick
+check on a dirty open, or a page checksum; it is
 never repaired in place — remove `sdk.db` and the files named after it
 from the account's `sdk/` dir and boot again: the SDK replays the
 synced trees into a fresh one; what lived only in `sdk.db` is lost:

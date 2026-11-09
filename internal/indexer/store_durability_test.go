@@ -34,14 +34,19 @@ func TestOpenStore_SentinelClearsOnClose(t *testing.T) {
 	}
 }
 
-// A torn index.db is a rebuild and never carries a typed any-store
-// quick-check failure: a boot chain holding one reads as a corrupt sdk.db.
-func TestQuickCheckRebuildErr_CauseUntyped(t *testing.T) {
-	err := quickCheckRebuildErr(fmt.Errorf("%w: page 2: checksum mismatch", anystore.ErrQuickCheckFailed))
-	if !errors.Is(err, ErrIndexRebuildRequired) {
-		t.Fatalf("%v: want ErrIndexRebuildRequired", err)
-	}
-	if errors.Is(err, anystore.ErrQuickCheckFailed) {
-		t.Fatalf("%v: carries a typed anystore.ErrQuickCheckFailed", err)
+// A damaged index.db is a rebuild and never carries a typed any-store
+// integrity failure: a boot chain holding one reads as a corrupt sdk.db.
+func TestIntegrityRebuildErr_CauseUntyped(t *testing.T) {
+	for _, cause := range []error{
+		fmt.Errorf("%w: btree: page 2: checksum mismatch", anystore.ErrQuickCheckFailed),
+		fmt.Errorf("btree: page 3: %w", anystore.ErrPageIntegrity),
+	} {
+		err := integrityRebuildErr(cause)
+		if !errors.Is(err, ErrIndexRebuildRequired) {
+			t.Fatalf("%v: want ErrIndexRebuildRequired", err)
+		}
+		if errors.Is(err, anystore.ErrQuickCheckFailed) || errors.Is(err, anystore.ErrPageIntegrity) {
+			t.Fatalf("%v: carries a typed any-store integrity failure", err)
+		}
 	}
 }

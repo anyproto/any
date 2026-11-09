@@ -861,17 +861,18 @@ the tag.
 
 An index db this build refuses is rebuilt by the boot, not reported:
 `ErrIndexRebuildRequired` (schema version, vector dimension or chunk
-target mismatch, or a failed integrity check on a dirty open,
+target mismatch, or damage met while opening it: a failed quick check on
+a dirty open or a page that fails its checksum,
 `internal/indexer/errors.go`) makes `OpenIndexer` remove `index.db` and
 every file named after it (WAL, shm, sentinel) — the model cache beside
 them stays — and open a fresh one, so every space re-indexes from
 cursor 0. The host sees one warning in the server log. A rebuild that
 fails (the removal, or opening the fresh db) fails the boot with the
 refusal still in the chain: start code `4` on the mobile shims, and
-from `POST /v1/auth` `500 internal`. Any other open error — a torn page
-the quick check does not reach, a v1-format file — fails the boot (start
-code `3`, `500 internal`). A full disk under either is start code `6`
-and `507 storage.no_space`.
+from `POST /v1/auth` `500 internal`. Any other open error, such as a
+v1-format file, fails the boot (start code `3`, `500 internal`). A full
+disk under either is start code `6` and `507 storage.no_space`. A torn
+page the open does not read fails later, on the read that meets it.
 
 ### Search
 

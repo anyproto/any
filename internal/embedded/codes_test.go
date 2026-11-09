@@ -54,6 +54,7 @@ func TestCode(t *testing.T) {
 		"index rebuild failed":            {rebuildFailed(errors.New("remove index db: permission denied")), CodeIndexRebuildRequired, false},
 		"index rebuild failed, disk full": {rebuildFailed(enospc("write")), CodeStorageFull, true},
 		"sdk.db quick check":              {sdkOpen(fmt.Errorf("%w: page 7: checksum mismatch", anystore.ErrQuickCheckFailed)), CodeStoreCorrupt, false},
+		"sdk.db page checksum":            {&BootError{Err: fmt.Errorf("open sdk: anysyncsdk: open files store: filestore: open files_local: %w", fmt.Errorf("btree: page 1759: %w", anystore.ErrPageIntegrity))}, CodeStoreCorrupt, false},
 		"sdk.db quick check cancelled":    {sdkOpen(fmt.Errorf("%w: %w", anystore.ErrQuickCheckFailed, context.Canceled)), CodeBootFailed, false},
 		"sdk.db quick check timed out":    {sdkOpen(fmt.Errorf("%w: %w", anystore.ErrQuickCheckFailed, context.DeadlineExceeded)), CodeBootFailed, false},
 		"sdk.db disk full":                {sdkOpen(enospc("write")), CodeStorageFull, true},
@@ -72,58 +73,68 @@ func TestCode(t *testing.T) {
 	}
 }
 
-// A standalone relaunch over a torn sdk.db reports CodeStoreCorrupt: the
-// real boot chain, not a built one. Needs the gitignored staging nodeconf
-// to create the account, like the server's SDK-booting tests.
+// A standalone relaunch over a torn sdk.db reports CodeStoreCorrupt, with
+// the dirty sentinel (the quick check fails) and without it (the first read
+// fails its page checksum): the real boot chain, not a built one. Needs the
+// gitignored staging nodeconf to create the account, like the server's
+// SDK-booting tests.
 func TestStartCodeStoreCorrupt(t *testing.T) {
 	nodeconf, err := os.ReadFile("../../staging.yml")
 	if err != nil {
 		t.Skipf("staging config not available: %v", err)
 	}
-	resetState(t)
-	defer resetState(t)
+	for name, sentinel := range map[string]bool{"quick check": true, "page checksum": false} {
+		t.Run(name, func(t *testing.T) {
+			resetState(t)
+			defer resetState(t)
 
-	root := t.TempDir()
-	addr, err := start(root, string(nodeconf))
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	client := &http.Client{Timeout: time.Minute}
-	resp, err := client.Post("http://"+addr+"/v1/auth", "application/json", strings.NewReader(`{}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var auth api.AuthResponse
-	err = json.NewDecoder(resp.Body).Decode(&auth)
-	resp.Body.Close()
-	if err != nil || resp.StatusCode != http.StatusOK || auth.AccountId == "" {
-		t.Fatalf("create account: %d %+v %v", resp.StatusCode, auth, err)
-	}
-	Stop(true)
+			root := t.TempDir()
+			addr, err := start(root, string(nodeconf))
+			if err != nil {
+				t.Fatalf("Start: %v", err)
+			}
+			client := &http.Client{Timeout: time.Minute}
+			resp, err := client.Post("http://"+addr+"/v1/auth", "application/json", strings.NewReader(`{}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var auth api.AuthResponse
+			err = json.NewDecoder(resp.Body).Decode(&auth)
+			resp.Body.Close()
+			if err != nil || resp.StatusCode != http.StatusOK || auth.AccountId == "" {
+				t.Fatalf("create account: %d %+v %v", resp.StatusCode, auth, err)
+			}
+			Stop(true)
 
-	// Tear page 2 and leave the dirty-open sentinel, so the open runs the
-	// quick check and the check fails.
-	db := filepath.Join(config.AccountDir(root, auth.AccountId), "sdk", "sdk.db")
-	b, err := os.ReadFile(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	const pageSize = 4096
-	if len(b) < 2*pageSize {
-		t.Fatalf("sdk.db is %d bytes, want at least two pages", len(b))
-	}
-	for i := pageSize + 100; i < pageSize+600; i++ {
-		b[i] ^= 0xff
-	}
-	if err := os.WriteFile(db, b, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(db+".lock", nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
+			// Tear page 2, the system namespace root every open reads.
+			db := filepath.Join(config.AccountDir(root, auth.AccountId), "sdk", "sdk.db")
+			b, err := os.ReadFile(db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			const pageSize = 4096
+			if len(b) < 2*pageSize {
+				t.Fatalf("sdk.db is %d bytes, want at least two pages", len(b))
+			}
+			for i := pageSize + 100; i < pageSize+600; i++ {
+				b[i] ^= 0xff
+			}
+			if err := os.WriteFile(db, b, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(db + ".lock"); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			if sentinel {
+				if err := os.WriteFile(db+".lock", nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
 
-	_, err = start(root, string(nodeconf))
-	if got := Code(err); got != CodeStoreCorrupt {
-		t.Fatalf("relaunch over a torn sdk.db: Code(%v) = %d, want %d", err, got, CodeStoreCorrupt)
+			_, err = start(root, string(nodeconf))
+			if got := Code(err); got != CodeStoreCorrupt {
+				t.Fatalf("relaunch over a torn sdk.db: Code(%v) = %d, want %d", err, got, CodeStoreCorrupt)
+			}
+		})
 	}
 }

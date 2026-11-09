@@ -49,6 +49,23 @@ func TestOpenIndexer_RebuildsRefusedIndex(t *testing.T) {
 				tearStorePage2(t, dbPath)
 			},
 		},
+		// No dirty sentinel: no quick check, and the first read of the
+		// torn page fails its checksum.
+		"page checksum": {
+			refuse: func(t *testing.T, dbPath string) {
+				st, err := indexer.OpenStore(ctx, dbPath, 0, false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := st.Close(); err != nil {
+					t.Fatal(err)
+				}
+				tearStorePage2(t, dbPath)
+				if err := os.Remove(dbPath + ".lock"); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dataDir := t.TempDir()

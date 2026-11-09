@@ -49,7 +49,7 @@ The binding is deliberately flat — top-level functions over strings, plus one 
 | `4` | The boot could not rebuild a search index it refused. Delete the account's index directory (`<dataDir>/<accountId>/index`) and retry — the index is a derived cache, so nothing syncable is lost; "reset local data" is the fallback. |
 | `5` | Bad options: an unknown `mode`, `"managed"` without a `controlToken`, or a `nodeconfYAML` that isn't YAML or names no `networkId`. A host bug — never retryable. |
 | `6` | The disk is full: the data dir, the account dir or a store could not be written. Free space and retry. A full disk is `6` even when it broke the data dir or an index rebuild. |
-| `7` | The account's SDK store failed its integrity check on a dirty open. It is never repaired in place: remove `sdk.db` and the files named after it from `<dataDir>/<accountId>/sdk/` (the `accountId` that `POST /v1/auth` returned) and start again. The SDK replays the synced trees into a fresh store; what lived only in `sdk.db` is lost: the local store, local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone). |
+| `7` | The account's SDK store failed an integrity check while opening: the quick check on a dirty open, or a page checksum. It is never repaired in place: remove `sdk.db` and the files named after it from `<dataDir>/<accountId>/sdk/` (the `accountId` that `POST /v1/auth` returned) and start again. The SDK replays the synced trees into a fresh store; what lived only in `sdk.db` is lost: the local store, local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone). |
 
 New codes are only ever added: treat a code you don't know like `3`.
 
@@ -58,6 +58,8 @@ Codes `4` and `7` come only from a start that boots an account already on disk; 
 ## Start it
 
 ```kotlin
+import android.os.Handler
+import android.os.Looper
 import io.anyproto.any.mobile.Mobile
 
 class AnyService : Service() {
@@ -67,10 +69,12 @@ class AnyService : Service() {
             // "127.0.0.1:0": the OS picks a free port; "" nodeconf and push pair = production; "" mode = standalone
             val res = Mobile.startWithResult(filesDir.absolutePath, "127.0.0.1:0", "", "", "", "", "")
             if (res.code != 0) {
-                showLaunchError(res.code, res.message)               // one branch per code above
+                // one branch per code above, on the main thread
+                Handler(Looper.getMainLooper()).post { showLaunchError(res.code, res.message) }
                 return@Thread
             }
-            AnyClient.baseUrl = "http://${res.address}/v1"            // e.g. 127.0.0.1:41823
+            val addr = res.address                                   // e.g. 127.0.0.1:41823
+            AnyClient.baseUrl = "http://$addr/v1"
         }.start()
     }
     override fun onDestroy() { Mobile.stop(); super.onDestroy() }
