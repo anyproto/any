@@ -75,9 +75,10 @@ type startResult struct {
 // testable core behind the //export AnyLibStart wrapper.
 //
 // The search index is not a host parameter: FTS on, no embedder, same as
-// the Android bind. pushPeerId/pushAddrs configure the
-// push node (addrs comma-separated, see embedded.Options) — empty strings
-// with an empty nodeconf select the production push node. mode/controlToken select the ownership mode ("" =
+// the Android bind. pushPeerId/pushAddrs configure the push node (addrs
+// comma-separated, see embedded.Options); empty strings select the
+// production push node when nodeconfYAML is empty too, and turn push off
+// when it is not. mode/controlToken select the ownership mode ("" =
 // standalone; "managed" needs a non-empty controlToken).
 func startEngine(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, mode, controlToken string) startResult {
 	addr, err := embedded.Start(embedded.Options{

@@ -21,8 +21,8 @@ import (
 	"github.com/anyproto/any/internal/indexer"
 )
 
-// Each case is built in the shape internal/server and internal/indexer
-// produce, so the table pins the real chains rather than stand-ins.
+// Each case copies the wraps internal/server and internal/indexer apply;
+// TestStartCodeStoreCorrupt covers one real chain end to end.
 func TestCode(t *testing.T) {
 	enospc := func(op string) error {
 		return &os.PathError{Op: op, Path: "/data/A1/x", Err: syscall.ENOSPC}
