@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/anyproto/any/internal/config"
+	"github.com/anyproto/any/internal/embedded"
 )
 
 const loopbackEphemeral = "127.0.0.1:0" // OS-assigned free port
@@ -86,6 +87,36 @@ func TestDoubleStartIsError(t *testing.T) {
 	}
 	if err := Start(t.TempDir(), loopbackEphemeral, nodeconfFixture(t)); err == nil {
 		t.Fatal("second Start returned nil, want already-running error")
+	}
+}
+
+// TestStartWithResult proves the typed start: the bound address on
+// success, and embedded.Code's code with a message on each failure the
+// shim can produce without an account on disk.
+func TestStartWithResult(t *testing.T) {
+	reset(t)
+	defer reset(t)
+	nodeconf := nodeconfFixture(t)
+	start := func(dataDir, mode string) *StartResult {
+		return StartWithResult(dataDir, loopbackEphemeral, nodeconf, "", "", mode, "")
+	}
+
+	if res := start("", ""); res.Code != embedded.CodeBadDataDir || res.Message == "" || res.Address != "" {
+		t.Fatalf("empty data dir: %+v, want code %d with a message", res, embedded.CodeBadDataDir)
+	}
+	if res := start(t.TempDir(), "managed"); res.Code != embedded.CodeBadOptions || res.Message == "" {
+		t.Fatalf("managed without a token: %+v, want code %d with a message", res, embedded.CodeBadOptions)
+	}
+
+	res := start(t.TempDir(), "")
+	if res.Code != embedded.CodeOK || res.Message != "" {
+		t.Fatalf("start: %+v, want code %d", res, embedded.CodeOK)
+	}
+	if res.Address == "" || res.Address != Address() {
+		t.Fatalf("start address %q, Address() %q: want the same bound host:port", res.Address, Address())
+	}
+	if res := start(t.TempDir(), ""); res.Code != embedded.CodeAlreadyRunning || res.Address != "" {
+		t.Fatalf("second start: %+v, want code %d", res, embedded.CodeAlreadyRunning)
 	}
 }
 

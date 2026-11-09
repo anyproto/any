@@ -2,8 +2,9 @@
 
 // Package mobile is the gomobile bind surface for embedding the any HTTP
 // server inside an Android (or, in principle, iOS) process. Only basic
-// types cross the bridge — keep the surface flat (top-level funcs,
-// string/error only). All lifecycle logic lives in internal/embedded; this
+// types cross the bridge — keep the surface flat: top-level funcs over
+// strings and errors, plus StartResult, a struct of basic fields. All
+// lifecycle logic lives in internal/embedded; this
 // package is a thin host-idiom adapter over it so both mobile shims (this
 // gomobile one and the iOS c-archive at mobile/ios) share one tested core.
 //
@@ -42,9 +43,9 @@ func Start(dataDir, listenAddr, nodeconfYAML string) error {
 // pairs with the nodeconf choice, so a host overriding the network passes
 // both from the same place. pushPeerId is the node's peer id; pushAddrs
 // its dial addresses, comma-separated (same format ANY_PUSH_ADDRS
-// parses, e.g. "quic://host:port" or "host:port"). Push activates only
-// when both are non-empty; pass empty strings for the exact Start
-// behavior (every /v1/push endpoint returns 409 push.disabled).
+// parses, e.g. "quic://host:port" or "host:port"). Empty strings are the
+// Start behavior: the production push node when nodeconfYAML is empty
+// too, push off (409 push.disabled) when it is not.
 func StartWithPush(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs string) error {
 	return StartWithMode(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, "", "")
 }
@@ -57,8 +58,33 @@ func StartWithPush(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs stri
 // only with controlToken (X-Any-Control-Token). A managed start without
 // a token is an error (embedded.ErrBadOptions).
 func StartWithMode(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, mode, controlToken string) error {
-	// The index policy (FTS on, no embedder) is not a bind parameter.
-	_, err := embedded.Start(embedded.Options{
+	_, err := start(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, mode, controlToken)
+	return err
+}
+
+// StartResult is the outcome of StartWithResult. Code is the start code
+// (embedded.Code, the iOS shim's set): 0 means up with Address bound,
+// anything else means not, and Message says why.
+type StartResult struct {
+	Code    int32
+	Address string
+	Message string
+}
+
+// StartWithResult is StartWithMode with a typed outcome: it never throws,
+// and a failed start carries its code in the result.
+func StartWithResult(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, mode, controlToken string) *StartResult {
+	addr, err := start(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, mode, controlToken)
+	if err != nil {
+		return &StartResult{Code: embedded.Code(err), Message: err.Error()}
+	}
+	return &StartResult{Code: embedded.CodeOK, Address: addr}
+}
+
+// start is the one call into the core. The index policy (FTS on, no
+// embedder) is not a bind parameter.
+func start(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, mode, controlToken string) (string, error) {
+	return embedded.Start(embedded.Options{
 		DataDir:      dataDir,
 		ListenAddr:   listenAddr,
 		NodeconfYAML: nodeconfYAML,
@@ -67,7 +93,6 @@ func StartWithMode(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, mod
 		Mode:         mode,
 		ControlToken: controlToken,
 	})
-	return err
 }
 
 // Stop signals graceful shutdown and waits for the server goroutine to exit.

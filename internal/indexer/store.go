@@ -203,8 +203,9 @@ func OpenStore(ctx context.Context, path string, dim int, embedderConfigured boo
 	return s, nil
 }
 
-// quickCheckRebuildErr maps a failed integrity check on open. The index
-// is derived state: a torn index.db is rebuilt, not repaired.
+// quickCheckRebuildErr maps a failed integrity check on open: a torn
+// index.db is rebuilt. The cause stays %v so a boot chain never reads it
+// as a corrupt sdk.db (server.StoreCorrupt).
 func quickCheckRebuildErr(cause error) error {
 	return fmt.Errorf("%w: index db failed its integrity check: %v", ErrIndexRebuildRequired, cause)
 }

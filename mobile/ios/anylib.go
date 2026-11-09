@@ -12,8 +12,8 @@
 // All real lifecycle logic lives in internal/embedded — the shared,
 // build-tag-free core both mobile shims sit on. This package is a thin
 // host-idiom adapter: the //export wrappers only marshal C<->Go types and
-// translate the core's typed errors to the C codes the Swift side
-// mirrors. The plain Go functions (startEngine / stopEngine / errCode /
+// return the core's start codes (embedded.Code), which the Swift side
+// mirrors. The plain Go functions (startEngine / stopEngine /
 // copyBounded) carry that translation and are what the host-build test
 // suite exercises; the //export wrappers themselves cannot be called from
 // `go test`, and neither can anything typed in terms of C (cgo is not
@@ -40,7 +40,10 @@ package main
 //   2  bad data directory (empty, or not creatable)
 //   3  boot failed
 //   4  the boot could not rebuild the search index it refused
-//   5  bad options (unknown mode, or managed without a control token)
+//   5  bad options (unknown mode, managed without a control token, or a
+//      nodeconfYAML that isn't YAML or names no networkId)
+//   6  the disk is full (free space and retry)
+//   7  the account's sdk.db failed its integrity check
 typedef struct {
     int32_t code;
     char    address[64];  // "127.0.0.1:53421" when code == 0, empty otherwise
@@ -50,53 +53,10 @@ typedef struct {
 import "C"
 
 import (
-	"errors"
 	"unicode/utf8"
 	"unsafe"
 
 	"github.com/anyproto/any/internal/embedded"
-	"github.com/anyproto/any/internal/indexer"
-)
-
-// Codes returned in AnyLibStartResult.code. The Swift side mirrors this
-// set and maps each to an error case, so the contract is: 0 means it is
-// up and `address` is bound; anything else means it is not, and
-// `message` says why.
-//
-// They are positive (and 0 means ok) because the code no longer shares a
-// return slot with the port — the old surface packed both into one int,
-// which is what forced the negative codes and left no room for a
-// message. This is also the shape Android can adopt.
-const (
-	// codeOK: the engine is running and `address` holds the bound
-	// host:port.
-	codeOK = 0
-	// codeAlreadyRunning: an instance is already started in this process.
-	// The caller must stop the current one before starting again.
-	// Maps from embedded.ErrAlreadyRunning.
-	codeAlreadyRunning = 1
-	// codeBadDataDir: the data directory argument is empty, or could not
-	// be resolved / created (bad path, unwritable parent). Maps from
-	// embedded.ErrBadDataDir.
-	codeBadDataDir = 2
-	// codeBootFailed: boot failed after the config validated — engine /
-	// account boot, listener bind, or a config the runtime rejected.
-	// Maps from a *embedded.BootError.
-	codeBootFailed = 3
-	// codeIndexRebuildRequired: the search index could not be rebuilt —
-	// the boot removes an index db this build cannot open and recreates
-	// it, and the removal or the fresh db failed too. Distinct from
-	// codeBootFailed because the host has a specific recovery to offer
-	// (delete the account's index dir and retry, "reset local data" as
-	// the fallback) rather than a generic retry. Maps from
-	// indexer.ErrIndexRebuildRequired, which arrives wrapped in a
-	// *embedded.BootError — hence the ordering in errCode.
-	codeIndexRebuildRequired = 4
-	// codeBadOptions: an argument the host controls is invalid — an
-	// unknown mode, or "managed" without a control token. A programming
-	// error on the host side, never retryable and never a "reset local
-	// data" case. Maps from embedded.ErrBadOptions.
-	codeBadOptions = 5
 )
 
 // startResult is the Go-side mirror of C.AnyLibStartResult. Keeping the
@@ -110,14 +70,14 @@ type startResult struct {
 }
 
 // startEngine boots the embedded engine and blocks until the listener
-// binds (returning codeOK and the bound host:port) or boot fails
+// binds (returning embedded.CodeOK and the bound host:port) or boot fails
 // (returning a code and the underlying error's message). It is the
 // testable core behind the //export AnyLibStart wrapper.
 //
 // The search index is not a host parameter: FTS on, no embedder, same as
 // the Android bind. pushPeerId/pushAddrs configure the
 // push node (addrs comma-separated, see embedded.Options) — empty strings
-// keep push off. mode/controlToken select the ownership mode ("" =
+// with an empty nodeconf select the production push node. mode/controlToken select the ownership mode ("" =
 // standalone; "managed" needs a non-empty controlToken).
 func startEngine(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, mode, controlToken string) startResult {
 	addr, err := embedded.Start(embedded.Options{
@@ -130,35 +90,9 @@ func startEngine(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, mode,
 		ControlToken: controlToken,
 	})
 	if err != nil {
-		return startResult{code: errCode(err), message: err.Error()}
+		return startResult{code: embedded.Code(err), message: err.Error()}
 	}
-	return startResult{code: codeOK, address: addr}
-}
-
-// errCode maps an internal/embedded error to its C code.
-//
-// The indexer arm comes FIRST and that ordering is load-bearing: a
-// failed index rebuild reaches us as &BootError{Err: "open indexer:
-// rebuild search index: <error> (<refusal>)"} with
-// ErrIndexRebuildRequired wrapped inside the refusal
-// (internal/server/sdk.go), so the boot-class arm would swallow it if
-// it ran first. Anything unrecognised funnels to codeBootFailed rather
-// than crossing the C boundary untyped.
-func errCode(err error) int32 {
-	switch {
-	case errors.Is(err, indexer.ErrIndexRebuildRequired):
-		return codeIndexRebuildRequired
-	case errors.Is(err, embedded.ErrAlreadyRunning):
-		return codeAlreadyRunning
-	case errors.Is(err, embedded.ErrBadDataDir):
-		return codeBadDataDir
-	case errors.Is(err, embedded.ErrBadOptions):
-		return codeBadOptions
-	default:
-		// *embedded.BootError (and any unforeseen error) are all
-		// boot-class config/boot failures.
-		return codeBootFailed
-	}
+	return startResult{code: embedded.CodeOK, address: addr}
 }
 
 // stopEngine tears down the running engine via the core. graceful waits
@@ -221,13 +155,13 @@ var versionString = C.CString(embedded.Version())
 // direct out-of-band peer, not part of nodeconfYAML, but it pairs with
 // the nodeconf choice (staging vs prod), so the host passes both from
 // the same place. pushAddrs is comma-separated, the same format
-// ANY_PUSH_ADDRS parses (e.g. "quic://host:port"). Push activates only
-// when both are non-empty; empty strings mean every /v1/push endpoint
-// returns 409 push.disabled.
+// ANY_PUSH_ADDRS parses (e.g. "quic://host:port"). Empty strings select
+// the production push node when nodeconfYAML is empty too, and turn push
+// off (409 push.disabled) when it is not.
 //
 // It blocks until the listener binds, then returns code 0 with the bound
 // address, or a non-zero code with the engine's own error message. See
-// the AnyLibStartResult typedef and the code constants.
+// the AnyLibStartResult typedef and embedded.Code.
 //
 // Any argument may be NULL and reads as an empty string (C.GoString
 // treats NULL as ""), which spares the Swift caller a strdup for the

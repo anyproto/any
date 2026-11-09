@@ -174,7 +174,7 @@ func TestOpenIndexerWith_EmbedderSurvivesRebuild(t *testing.T) {
 }
 
 // A rebuild whose removal fails fails the boot with the refusal still
-// in the chain (the iOS shim's code 4) and closes the embedder.
+// in the chain (start code 4 on the mobile shims) and closes the embedder.
 func TestOpenIndexerWith_FailedRebuildKeepsRefusal(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("needs a directory the process cannot delete from")

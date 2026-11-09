@@ -12,7 +12,7 @@ import "errors"
 //
 // The boot keys on it with errors.Is: the server removes the db and
 // opens a fresh one, so the host sees no error; a rebuild that fails
-// keeps it in the chain (the iOS shim's start code 4). Mid-run,
+// keeps it in the chain (start code 4 on the mobile shims). Mid-run,
 // EnsureDim returns it when an embedder answers with another dimension,
 // and the embed round fails. Wrapped as a PREFIX: the sentinel text
 // leads, the cause follows.

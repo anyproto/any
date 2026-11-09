@@ -26,32 +26,49 @@ dependencies {
 
 ## The surface
 
-The binding is deliberately flat — top-level functions, strings and errors only:
+The binding is deliberately flat — top-level functions over strings, plus one result type:
 
 | Function | Purpose |
 |----------|---------|
-| `Mobile.start(dataDir, listenAddr, nodeconfYAML)` | Boot the server. Returns once the listener is bound; throws on wallet / SDK / listener failure with the underlying message. A second call while running throws. |
-| `Mobile.startWithPush(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs)` | Same, plus the push-notification node (`pushAddrs` comma-separated). Empty strings = no push. |
-| `Mobile.startWithMode(…, mode, controlToken)` | `startWithPush` plus the ownership mode. `"managed"` makes the app the owner: the account arrives over `POST /v1/auth` on every launch, keys never touch disk, and sign-out / switch / shutdown need `controlToken` (`X-Any-Control-Token`). `""` or `"standalone"` is the `start` behavior; `"managed"` without a token throws. |
+| `Mobile.startWithResult(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, mode, controlToken) -> StartResult` | Boot the server. Returns once the listener is bound or the boot failed, and never throws: `code` says which. `mode` `""` (or `"standalone"`) boots the account on disk inside the start. `"managed"` makes the app the owner: the account arrives over `POST /v1/auth` on every launch, keys never touch disk, and sign-out / switch / shutdown need `controlToken` (`X-Any-Control-Token`). |
 | `Mobile.address()` | The actually bound `host:port`. Differs from `listenAddr` when you passed `:0`. Empty when not running. |
 | `Mobile.stop()` | Graceful shutdown; waits for the server to exit. Safe when not running. |
 | `Mobile.stopNow()` | Hard stop, returns promptly — for a deadline-bounded teardown. |
 | `Mobile.version()` | Build-stamped version string. |
 
-`nodeconfYAML` is the network: pass `""` for the production any-sync network embedded in the AAR, or a nodeconf's YAML text to join another one ([Networks](networks.html)). The AAR runs the index with no embedder, so `/search` runs `fts` only.
+`nodeconfYAML` is the network: pass `""` for the production any-sync network embedded in the AAR, or a nodeconf's YAML text to join another one ([Networks](networks.html)). `pushPeerId` / `pushAddrs` (comma-separated) name the push node; empty strings with an empty `nodeconfYAML` select the production push node; with any other `nodeconfYAML` they turn push off ([Push](../notifications/push.html)). The AAR runs the index with no embedder, so `/search` runs `fts` only.
+
+`StartResult` carries `code`, `address` (the bound `host:port` when `code` is `0`) and `message` (the engine's own detail otherwise). The codes are the iOS shim's:
+
+| `code` | Meaning |
+|--------|---------|
+| `0` | Up. `address` holds the bound host:port. |
+| `1` | An instance is already running in this process — stop it first. |
+| `2` | Bad data dir: empty, or not creatable. |
+| `3` | Boot failed. `message` says why. |
+| `4` | The boot could not rebuild a search index it refused. Delete the account's index directory (`<dataDir>/<accountId>/index`) and retry — the index is a derived cache, so nothing syncable is lost; "reset local data" is the fallback. |
+| `5` | Bad options: an unknown `mode`, `"managed"` without a `controlToken`, or a `nodeconfYAML` that isn't YAML or names no `networkId`. A host bug — never retryable. |
+| `6` | The disk is full: the data dir, the account dir, the device key or a store could not be written. Free space and retry. A full disk is `6` even when it broke the data dir or an index rebuild. |
+| `7` | The account's SDK store failed its integrity check on a dirty open. It is never repaired in place: remove `sdk.db` and the files named after it from `<dataDir>/<accountId>/sdk/` (the `accountId` that `POST /v1/auth` returned) and start again. The SDK replays the synced trees into a fresh store; what lived only in `sdk.db` is lost: the local store, local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone). |
+
+Codes `4` and `7` come only from a start that boots an account already on disk; `6` also covers the data dir. A start that comes up unauthorized (managed, or no account yet) reports the account's failures on `POST /v1/auth` ([Accounts](../auth/accounts.html)).
 
 ## Start it
 
 ```kotlin
-import mobile.Mobile
+import io.anyproto.any.mobile.Mobile
 
 class AnyService : Service() {
     override fun onCreate() {
         super.onCreate()
         Thread {
-            Mobile.start(filesDir.absolutePath, "127.0.0.1:0", "")   // OS picks a free port
-            val addr = Mobile.address()                              // e.g. 127.0.0.1:41823
-            AnyClient.baseUrl = "http://$addr/v1"
+            // "127.0.0.1:0": the OS picks a free port; "" nodeconf and push pair = production; "" mode = standalone
+            val res = Mobile.startWithResult(filesDir.absolutePath, "127.0.0.1:0", "", "", "", "", "")
+            if (res.code != 0) {
+                showLaunchError(res.code, res.message)               // one branch per code above
+                return@Thread
+            }
+            AnyClient.baseUrl = "http://${res.address}/v1"            // e.g. 127.0.0.1:41823
         }.start()
     }
     override fun onDestroy() { Mobile.stop(); super.onDestroy() }
@@ -73,7 +90,7 @@ POST http://$addr/v1/auth      {}
 POST http://$addr/v1/auth      { "mnemonic": "w1 … w12" }
 ```
 
-Until then every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json`, `/v1/auth` answers `401 auth.required`. On later launches a standalone server finds the wallet in `filesDir` and boots the engine on `start`; a managed one waits for `POST /v1/auth` again ([Accounts](../auth/accounts.html)).
+Until then every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json`, `/v1/auth` answers `401 auth.required`. On later launches a standalone server finds the wallet in `filesDir` and boots the engine on `startWithResult`; a managed one waits for `POST /v1/auth` again ([Accounts](../auth/accounts.html)).
 
 ## Then it is just HTTP
 
@@ -92,8 +109,8 @@ Live reads are the same streaming POST as everywhere else — read the response 
 
 ## Lifecycle notes
 
-- **One server per process.** `start` while running throws; restart on the same data dir is serialized by `stop`.
+- **One server per process.** A second start while running answers code `1`; restart on the same data dir is serialized by `stop`.
 - **Background limits.** Use `stopNow()` from a deadline-bounded callback; `stop()` drains open streams with a 10 s ceiling.
-- **Push.** Pass the push node to `startWithPush` and cache each space's `SpaceInfo.push` keys in the Keystore so a notification extension can decrypt while the server is not running ([Push](../notifications/push.html)).
+- **Push.** Pass the push node to `startWithResult` and cache each space's `SpaceInfo.push` keys in the Keystore so a notification extension can decrypt while the server is not running ([Push](../notifications/push.html)).
 
 > **Why it matters.** The phone holds the whole database. There is no "mobile API" that returns less than the desktop one, no offline cache to invalidate, and no request that fails because the network is down — the app talks to `127.0.0.1` and sync happens whenever it can.

@@ -867,11 +867,11 @@ every file named after it (WAL, shm, sentinel) — the model cache beside
 them stays — and open a fresh one, so every space re-indexes from
 cursor 0. The host sees one warning in the server log. A rebuild that
 fails (the removal, or opening the fresh db) fails the boot with the
-refusal still in the chain: start code `4` on the iOS shim, and from
-`POST /v1/auth` `500 internal` (`507 storage.no_space` when the disk is
-full). Any other open error — a torn page the quick check does not
-reach, a v1-format file — fails the boot (start code `3`, `500
-internal`).
+refusal still in the chain: start code `4` on the mobile shims, and
+from `POST /v1/auth` `500 internal`. Any other open error — a torn page
+the quick check does not reach, a v1-format file — fails the boot (start
+code `3`, `500 internal`). A full disk under either is start code `6`
+and `507 storage.no_space`.
 
 ### Search
 
