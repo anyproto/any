@@ -40,7 +40,7 @@ any sync-status space SPACE
 
 | Field | Meaning |
 |---|---|
-| `state` | `unknown` / `syncing` / `synced`; `offline` and `error` are reserved in the vocabulary and not emitted |
+| `state` | first match of: `error` (the network refuses this client's protocol version), `offline` (no responsible node and no direct peer connected), `syncing` (an object has heads no peer has acknowledged), `synced` (a node or direct peer confirmed this space's heads in this run and nothing is pending), `unknown` (a peer is connected but none has confirmed yet, or the space is not tracked on this device) |
 | `synced`, `total` | objects converged vs. objects tracked in the space |
 | `networkPeers` | responsible sync nodes with a live connection |
 | `localPeers` | LAN peers sharing this space that are connected right now |
@@ -61,7 +61,7 @@ any sync-status object SPACE OBJ
 { "objectId": "obj_…", "state": "synced", "lastSyncAt": "2026-05-15T12:00:00Z" }
 ```
 
-Unknown object ids return `{"state": "unknown"}` rather than a 404 — use the object catalog when you need an existence check.
+An object with no sync activity in this run reads `synced` when its tree is stored on this device and a peer has confirmed the space, and `{"state": "unknown"}` otherwise. An id nobody has seen is `unknown` rather than a 404 — use the object catalog when you need an existence check.
 
 > **Why it matters.** Writes never wait on the network, so a UI needs a separate, honest signal about whether a change has left the device. `synced` is that signal: it comes from the same engine that holds the data, not from a round-trip to a server that may be unreachable — and a space can converge over the LAN with no sync node in sight.
 

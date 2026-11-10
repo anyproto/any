@@ -52,7 +52,7 @@ Endpoints: `POST /v1/spaces/:id/objects/query/subscribe` (cross-object), `POST /
 | `changes` | `[{versionId, added, updated, removed}]` | zero or more windowed events, coalesced per write |
 | `closed` | `{reason}` | terminal |
 
-`added` and `updated` entries are `{id, doc, ops}` — the full post-apply record plus the `$set`/`$unset` ops that triggered the transition (`$inc`/`$addToSet`/`$pull` are collapsed to the resulting `$set` before delivery). `removed` entries are `{id, reason}` with `reason` one of `deleted` (tombstoned — drop for good), `filtered-out` (still exists, no longer matches) or `displaced` (still matches, pushed past `limit`). `versionId` is per-change DAG order local to this peer — never compare it across devices.
+`added` and `updated` entries are `{id, doc, ops}` — the full post-apply record plus the `$set`/`$unset` ops that triggered the transition (`$inc`/`$addToSet`/`$pull` are collapsed to the resulting `$set` before delivery). `removed` entries are `{id, reason}` with `reason` one of `deleted` (tombstoned — drop for good), `filtered-out` (still exists, no longer matches) or `displaced` (still matches, pushed past `limit`). `versionId` is per-change DAG order local to this peer — never compare it across devices. It is empty on the engine's re-read of a window from storage: those entries carry `doc` and no `ops`.
 
 ```bash
 curl -N -X POST http://127.0.0.1:2046/v1/spaces/$SP/query/subscribe \

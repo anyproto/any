@@ -56,9 +56,11 @@ user-space. The CLI (`any query-subscribe`) and Go client
      or SDK closed).
    - `overflow` — per-sub mailbox filled before the consumer could
      drain it. The SDK closes the sub rather than dropping events.
-   - `drifted` — more than `driftBudgetPercent` of the held window
-     left without replacements; the SDK refuses to re-query on the
-     hot path. Resubscribe — the new snapshot reflects current state.
+   - `drifted` — the engine could not keep the window equal to
+     storage. A window at `offset: 0` re-reads storage when rows leave
+     it and closes only when those re-reads fail; a window past an
+     offset closes once `driftBudgetPercent` of `limit` rows left it.
+     Resubscribe — the new snapshot reflects current state.
    - `object_deleted` — the object behind a per-object stream (one
      object's dataset or files) was deleted. Drop the view; a new
      POST for it is refused.
@@ -91,6 +93,15 @@ user-space. The CLI (`any query-subscribe`) and Go client
    `versionId` is the change's local DAG order — each peer assigns its
    own, so never compare it across peers. `_ver` travels only inside a
    record's `doc`; the batch and its ops carry none.
+
+   An event with an **empty `versionId`** is the engine's re-read of
+   the window from storage (or an object deletion, item 6): its
+   records carry `doc` and no `ops`, and it is never an own write.
+   A window at `offset: 0` stays equal to a fresh query of the same
+   body — when a row leaves it and matches wait past its edge, the
+   re-read's rows arrive in such an event, after the event of the
+   change behind it. Apply every event; never drop one through a
+   version fence.
 6. **`removed` carries a `reason`.** Each removed entry is
    `{"id":…, "reason":…}` where `reason` is one of:
    - `"deleted"` — the record was tombstoned; it no longer exists.
@@ -247,10 +258,12 @@ lock).
 ## Capacity
 
 Per-subscriber mailbox capacity defaults to 256 (`mailboxCapacity` in
-the request body; minimum 16). Drift budget defaults to 30% of the
-window (`driftBudgetPercent`). Both close the subscription on exceed
-with the matching `closed` reason — query/subscribe streams have no
-`lagged` frame.
+the request body; minimum 16); a re-read's event takes a slot of its
+own. Drift budget defaults to 30% of `limit` (`driftBudgetPercent`): a
+window at `offset: 0` spends it only while its re-reads fail, a window
+past an offset on every row that leaves. Both close the subscription
+on exceed with the matching `closed` reason — query/subscribe streams
+have no `lagged` frame.
 
 ## Sync-status streams (a separate SSE primitive)
 

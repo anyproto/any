@@ -62,10 +62,10 @@ const (
 	// is resubscribe (which re-Snapshots).
 	SubscribeClosedOverflow = "overflow"
 
-	// SubscribeClosedDrifted — only on query/subscribe streams. More
-	// than DriftBudgetPercent of the held window left without
-	// replacements; the SDK closes the subscription rather than
-	// re-Query the database on the hot path. Recovery is resubscribe.
+	// SubscribeClosedDrifted — only on query/subscribe streams. The
+	// SDK could not keep the window equal to storage: a window at
+	// offset 0 failed to re-read it, a window past an offset lost
+	// DriftBudgetPercent of its limit. Recovery is resubscribe.
 	SubscribeClosedDrifted = "drifted"
 
 	// SubscribeClosedObjectDeleted — only on per-object query/subscribe
@@ -106,7 +106,9 @@ type QuerySubscribeSnapshot struct {
 // VersionId is the per-change DAG order of the underlying CRDT apply.
 // Useful for fence-and-replay semantics ("I've processed up to X —
 // discard ≤ X"). VersionIds are locally-scoped (each peer assigns its
-// own); don't compare across peers.
+// own); don't compare across peers. It is empty on a re-read of the
+// window from storage and on an object deletion: those records carry
+// no ops and are applied whatever the fence.
 //
 // Total is intentionally absent — the windowed engine does not
 // maintain a live counter. Callers who need a refreshed count call

@@ -2551,6 +2551,13 @@ data: {"reason": "overflow"}
   `$unset` reach the wire (other operators arrive as their post-apply
   value). Events accumulated while a frame was being written coalesce
   into the next frame, so a slow client gets fewer, larger frames.
+
+  An event with an empty `versionId` is the engine's re-read of the
+  window from storage, or an object deletion: its records carry `doc`
+  and no `ops`, and it is never an own write. A window at `offset: 0`
+  stays equal to a fresh query of the same body, so when a row leaves
+  it and matches wait past its edge, the rows that take its place
+  arrive in such an event, after the event of the change behind it.
 - **`: keepalive`** — comment frame every 25s during silence; defeats
   idle middlebox timeouts.
 - **`closed`** — terminal frame. Reasons:
@@ -2563,9 +2570,11 @@ data: {"reason": "overflow"}
   - `overflow` — the per-subscriber mailbox filled before the consumer
     drained it. The SDK closes the sub rather than dropping events —
     resubscribe to get a fresh snapshot.
-  - `drifted` — more than `driftBudgetPercent` of the held window left
-    without replacements, and the engine refuses to re-query on the
-    hot path. Resubscribe.
+  - `drifted` — the engine could not keep the window equal to storage.
+    A window at `offset: 0` re-reads storage when rows leave it and
+    closes only when those re-reads fail; a window past an offset
+    closes once `driftBudgetPercent` of `limit` rows left it.
+    Resubscribe.
   - `object_deleted` — per-object streams only (one object's dataset,
     one object's files): the object was deleted. Drop the view; a new
     POST for it is refused.
@@ -4497,10 +4506,21 @@ An unknown permission value in a request body returns
 | GET    | `/v1/sync-status/subscribe`                                       | account-wide SSE — every space's rollup    |
 | GET    | `/v1/spaces/:spaceId/sync-status/peers`                           | `501 sdk.not_implemented` — `/debug` is the diagnostic equivalent |
 
-The two GETs are cheap; safe to call on a render tick. `state` is one
-of `unknown` / `offline` / `syncing` / `synced` / `error`. Unknown
-object ids return `{state: "unknown"}` rather than 404 — existence
-checks go through `GET …/objects/:objectId`.
+The two GETs are cheap; safe to call on a render tick. A space's
+`state` is the first match of:
+
+- `error` — the network refuses this client's protocol version;
+- `offline` — no responsible node and no direct peer is connected;
+- `syncing` — at least one object has heads no peer has acknowledged;
+- `synced` — a responsible node or a direct peer confirmed this
+  space's heads in this run and nothing is pending;
+- `unknown` — a peer is connected but none has confirmed yet, or the
+  space is not tracked on this device.
+
+An object id with no sync activity in this run reads `synced` when its
+tree is stored locally and a peer has confirmed the space, and
+`{state: "unknown"}` otherwise — never 404; existence checks go
+through `GET …/objects/:objectId`.
 
 ```json
 // GET /v1/spaces/:spaceId/sync-status
