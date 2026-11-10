@@ -200,11 +200,11 @@ func OpenStore(ctx context.Context, path string, dim int, embedderConfigured boo
 	return s, nil
 }
 
-// damaged reports a damaged db file: a failed quick check or a page that
-// fails its checksum. A cancelled or timed-out open is never damage: it
-// deletes nothing.
+// damaged reports a damaged db file (anystore.ErrCorrupt), a quick check
+// cut short by a read error included: a rebuild loses nothing. A
+// cancelled or timed-out open is never damage: it deletes nothing.
 func damaged(err error) bool {
-	return (errors.Is(err, anystore.ErrQuickCheckFailed) || errors.Is(err, anystore.ErrPageIntegrity)) &&
+	return errors.Is(err, anystore.ErrCorrupt) &&
 		!errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
 }
 

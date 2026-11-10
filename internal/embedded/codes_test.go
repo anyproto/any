@@ -54,6 +54,8 @@ func TestCode(t *testing.T) {
 		"index rebuild failed, disk full":      {rebuildFailed(enospc("write")), CodeStorageFull, true},
 		"sdk.db quick check":                   {sdkOpen(fmt.Errorf("%w: %w", anystore.ErrQuickCheckFailed, fmt.Errorf("btree: page 2: %w", anystore.ErrPageIntegrity))), CodeStoreCorrupt, false},
 		"sdk.db quick check read error":        {sdkOpen(fmt.Errorf("%w: %w", anystore.ErrQuickCheckFailed, syscall.EIO)), CodeBootFailed, false},
+		"sdk.db header":                        {sdkOpen(fmt.Errorf("btree: open: %w", anystore.ErrHeaderCorrupt)), CodeStoreCorrupt, false},
+		"sdk.db WAL":                           {sdkOpen(fmt.Errorf("btree: read page 4: %w", anystore.ErrWALCorrupt)), CodeStoreCorrupt, false},
 		"sdk.db page checksum":                 {&BootError{Err: fmt.Errorf("open sdk: anysyncsdk: open files store: filestore: open files_local: %w", fmt.Errorf("btree: page 1759: %w", anystore.ErrPageIntegrity))}, CodeStoreCorrupt, false},
 		"sdk.db page checksum, cancelled boot": {sdkOpen(errors.Join(fmt.Errorf("btree: page 2: %w", anystore.ErrPageIntegrity), context.Canceled)), CodeBootFailed, false},
 		"sdk.db quick check cancelled":         {sdkOpen(fmt.Errorf("%w: %w", anystore.ErrQuickCheckFailed, context.Canceled)), CodeBootFailed, false},
