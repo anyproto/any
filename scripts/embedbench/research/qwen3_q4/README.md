@@ -19,6 +19,19 @@ dimension whatever the model's bit width.
 - GGUF arms load their tensors dequantized with gguf-py, so the weights are exactly the quantized ones.
 - **Parity on 200 FiQA docs, against llama.cpp b11600 Metal with the same file:** cos 0.99996 for Q4_K_M and 0.999998 for Q8.
 
+> **Both PeterAM4 files are broken as shipped (found on the rig 2026-11-10).** `Qwen3-Embedding-0.6B-Q5_K_M.gguf`
+> and `-Q4_K_M-imat.gguf` set `tokenizer.ggml.add_eos_token = false`, unlike the official Q8_0 and enacimie's
+> Q4_K_M. llama.cpp then skips the EOS, so last-token pooling takes the last content token:
+> - against Q8, docs come out at cos 0.753 (min 0.253) and queries at 0.502;
+> - on the account, known-item MRR drops −0.45 vector and −0.24 hybrid.
+>
+> **Fix:** set the flag to `true` (one byte in the header). Then the rig measures cos 0.990 docs and 0.992 queries.
+>
+> **Why this eval missed it:** it builds token ids with its own tokenizer, which appends EOS 151643. So its quality
+> numbers hold for the *fixed* files. The llama.cpp parity check covered only enacimie's Q4_K_M and Q8.
+>
+> **Check any third-party Qwen3 GGUF with `gguf_flags.py`** before using it. It reads the header only.
+
 **Scoring:** exact vector search, vector leg only, with a paired cluster bootstrap from `eg2_ru2/util2.ci`.
 
 **Sets:**
@@ -59,6 +72,12 @@ The full tables, with MRR, are in `bench/qwen3-q4/RESULTS.md` and `results.json`
 - **Q5_K_M has no significant loss on any set,** for 31% less model RAM and disk than Q8. It's the low-bit candidate for the rig.
 - **MLX DWQ is the worst of the four.** It's the only one that also loses the dev-slang cases.
 
+**Rig follow-up (2026-11-10, Q5_K_M at 768, flag-broken run):**
+- **Speed:** on the GTX 1080 (Vulkan), Q5_K_M is 12% slower than Q8 (7.2 against 8.2 docs/s). It buys model size only.
+- **Storage:** the run still gives valid numbers here, since record size depends only on the dimension. The IVF
+  vector index is 167 MiB at 768 against 737 MiB at 1024 (−77%). That's 823 B per vector, inline in the page. The
+  whole index is 1,718 MiB against 2,547 (−33%).
+
 ## Core ML (ANE) builds on HF (2026-11-09)
 
 There's no correct 4-bit build:
@@ -76,6 +95,7 @@ py=bench/mlx/.venv/bin/python   # mlx 0.32.4, mlx_lm, gguf, tokenizers
 $py scripts/embedbench/research/qwen3_q4/q4_eval.py parity
 for a in q8 q4km q4km-imat q5km dwq; do $py scripts/embedbench/research/qwen3_q4/q4_eval.py encode $a; done
 $py scripts/embedbench/research/qwen3_q4/q4_eval.py score
+python3 scripts/embedbench/research/qwen3_q4/gguf_flags.py bench/qwen3-q4/*/*/*.gguf   # tokenizer/pooling flags
 ```
 
 Model files go under `bench/qwen3-q4/<hf repo>/`. The `new-rig` set needs `bench/eg2-ru2/FROZEN.json`, which round 2 wrote.
