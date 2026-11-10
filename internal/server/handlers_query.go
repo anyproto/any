@@ -88,23 +88,28 @@ func (d *deps) spaceQuery(c echo.Context) error {
 func (d *deps) spaceQueryWithDeleted(c echo.Context, pq perObjectQuery, details map[string]any) error {
 	ctx := c.Request().Context()
 	q := pq.q.Projection(space.ProjectionOpts{IncludeDeleted: true})
-	it, err := q.Iter(ctx)
-	if err != nil {
-		return sdkOpError(c, err, details)
-	}
-	defer it.Close()
 	fa := getFastjsonArena()
 	defer putFastjsonArena(fa)
-	records := make([]json.RawMessage, 0, 16)
-	for it.Next() {
-		doc, err := it.Doc()
+	// The iterator holds a read transaction: it closes before the count
+	// opens its own.
+	records, err := func() ([]json.RawMessage, error) {
+		it, err := q.Iter(ctx)
 		if err != nil {
-			return sdkOpError(c, err, details)
+			return nil, err
 		}
-		// Doc is valid only until the next Next — render it now.
-		records = append(records, renderQueryRecord(fa, doc, pq.shaper))
-	}
-	if err := it.Err(); err != nil {
+		defer it.Close()
+		records := make([]json.RawMessage, 0, 16)
+		for it.Next() {
+			doc, err := it.Doc()
+			if err != nil {
+				return nil, err
+			}
+			// Doc is valid only until the next Next — render it now.
+			records = append(records, renderQueryRecord(fa, doc, pq.shaper))
+		}
+		return records, it.Err()
+	}()
+	if err != nil {
 		return sdkOpError(c, err, details)
 	}
 	out := api.QueryResponse{Records: records}
