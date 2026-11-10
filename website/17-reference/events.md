@@ -36,7 +36,7 @@ Rules that hold for every stream:
 | `deauthorized` | the account behind the stream was torn down in place (`DELETE /v1/auth`, or a `POST /v1/auth` switch) while the server stays up; re-read `GET /v1/auth` before resubscribing | every stream |
 | `sdk_closed` | the engine released the underlying subscription (space or SDK closed) | query/subscribe |
 | `overflow` | the subscriber's mailbox filled before it drained (query/subscribe: capacity `mailboxCapacity`, default 256, min 16; event bus: 16-deep buffer) | query/subscribe, event bus |
-| `drifted` | the engine could not keep the held window equal to storage: its losses reached `driftBudgetPercent` (default 30) of `limit`, or a row could not be read | query/subscribe |
+| `drifted` | the engine could not keep the held window equal to storage: its losses reached `driftBudgetPercent` (default 30) of `limit`, a row could not be read, or the window could not be re-read after a rebuild of its rows | query/subscribe |
 | `object_deleted` | the object behind a per-object stream (one object's dataset, one object's files) was deleted; drop the view, a new POST for it is refused | query/subscribe |
 
 `overflow` and `drifted` are split only so clients can log and back off sensibly — recovery is identical.
@@ -52,7 +52,7 @@ Endpoints: `POST /v1/spaces/:id/objects/query/subscribe` (cross-object), `POST /
 | `changes` | `[{versionId, added, updated, removed}]` | zero or more windowed events |
 | `closed` | `{reason}` | terminal |
 
-`added` and `updated` entries are `{id, doc, ops}` — the full post-apply record plus the `$set`/`$unset` ops that triggered the transition (`$inc`/`$addToSet`/`$pull` are collapsed to the resulting `$set` before delivery). `removed` entries are `{id, reason}` with `reason` one of `deleted` (tombstoned — drop for good), `filtered-out` (still exists, no longer matches) or `displaced` (still matches, pushed past `limit`). `versionId` is per-change DAG order local to this peer — never compare it across devices. It is empty on the engine's re-read of a window from storage: those entries carry `doc` and no `ops`.
+`added` and `updated` entries are `{id, doc, ops}` — the full post-apply record plus the `$set`/`$unset` ops that triggered the transition (`$inc`/`$addToSet`/`$pull` are collapsed to the resulting `$set` before delivery). `removed` entries are `{id, reason}` with `reason` one of `deleted` (tombstoned — drop for good), `filtered-out` (still exists, no longer matches) or `displaced` (still matches, pushed past `limit`). `versionId` is per-change DAG order local to this peer — never compare it across devices. It is empty on the engine's re-read of a window from storage and on an object deletion. An entry can carry no `ops`: take its `doc` whole.
 
 ```bash
 curl -N -X POST http://127.0.0.1:2046/v1/spaces/$SP/query/subscribe \

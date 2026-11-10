@@ -97,7 +97,7 @@ An object deletion also arrives as a removal with an empty `versionId`. Apply ev
 | `deauthorized` | the account behind the stream was torn down in place (`DELETE /v1/auth`, or a switch to another account) while the server stays up — re-read `GET /v1/auth` before resubscribing |
 | `sdk_closed` | the space or the engine was closed |
 | `overflow` | events arrived faster than the client drained them and the mailbox (`mailboxCapacity`) filled; the engine closes the stream rather than drop events |
-| `drifted` | the engine could not keep the window equal to storage: its losses reached `driftBudgetPercent` of `limit`, or a row could not be read |
+| `drifted` | the engine could not keep the window equal to storage: its losses reached `driftBudgetPercent` of `limit`, a row could not be read, or the window could not be re-read after a rebuild of its rows |
 | `object_deleted` | the object behind a per-object stream (one object's dataset, one object's files) was deleted; the view is gone for good and a new POST for it is refused |
 
 Recovery is the same for all of them but `object_deleted`: **open a new POST and take the fresh snapshot**. There is no replay across reconnects and no resume cursor — the new snapshot already reflects current state, which is strictly cheaper than reconstructing it from a backlog. Before every attempt read `GET /v1/auth`: `authorized: false` means clear the view and wait (a restart, or a managed host between accounts — the example below waits for the original account to come back; a host cancels the watcher on a deliberate sign-out), a different `accountId` means clear the view and stop. Make the same check after a 401, a failed request or a stream that ends without `closed` — an account switch can swallow the terminal frame.

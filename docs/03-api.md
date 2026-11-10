@@ -2576,11 +2576,13 @@ data: {"reason": "overflow"}
     A window at `offset: 0` re-reads storage when rows leave it: a
     re-read that fails counts the rows it lost, and the stream closes
     once they reach `driftBudgetPercent` of `limit`, or at once when a
-    row cannot be read and no re-read settles it. A window that holds
+    row cannot be read and no re-read settles it, or when the re-read
+    after a rebuild of the object's rows fails. A window that holds
     every match counts nothing. A window past an offset cannot
     re-read: every held row that is deleted or stops matching counts
     (a `displaced` row does not), and it also closes on a row it
-    cannot read or when its object's rows are rebuilt. Resubscribe.
+    cannot read, and when a rebuild of an object's rows leaves it
+    unable to confirm the rows it holds. Resubscribe.
   - `object_deleted` — per-object streams only (one object's dataset,
     one object's files): the object was deleted. Drop the view; a new
     POST for it is refused.

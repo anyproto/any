@@ -57,8 +57,8 @@ user-space. The CLI (`any query-subscribe`) and Go client
    - `overflow` — per-sub mailbox filled before the consumer could
      drain it. The SDK closes the sub rather than dropping events.
    - `drifted` — the engine could not keep the window equal to
-     storage (`03-api.md` § Subscribe, `closed` reasons, has the
-     rule). Resubscribe — the new snapshot reflects current state.
+     storage (`03-api.md` § Subscribe (Server-Sent Events), `closed`
+     reasons, has the rule). Resubscribe — the new snapshot reflects current state.
    - `object_deleted` — the object behind a per-object stream (one
      object's dataset or files) was deleted. Drop the view; a new
      POST for it is refused.
@@ -262,7 +262,7 @@ own. Drift budget defaults to 30% of `limit` (`driftBudgetPercent`): a
 window at `offset: 0` spends it only while its re-reads fail, a window
 past an offset on every held row that is deleted or stops matching.
 Both close the subscription
-on exceed with the matching `closed` reason — query/subscribe streams
+once reached with the matching `closed` reason — query/subscribe streams
 have no `lagged` frame.
 
 ## Sync-status streams (a separate SSE primitive)
