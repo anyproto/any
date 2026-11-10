@@ -854,8 +854,9 @@ title pass alone, below). The query
 embedding is bounded by `index.search.queryEmbedTimeout` (default 5 s,
 every embedder): a cold model load, a wedged child or a slow API
 degrades the search instead of holding it, and a caller that disconnects
-leaves the embedder's queue at once. Scores are comparable only within
-one response. `limit` defaults to 10 and is clamped to 100. CLI:
+leaves the embedder's queue at once. BM25 and cosine scores are
+comparable only within one response; a hybrid content score is 0–1 and
+comparable across responses (§ Ranking knobs). `limit` defaults to 10 and is clamped to 100. CLI:
 `any search <spaceId> <query> [--scopes a,b] [--limit N] [--mode …]
 [--require T …] [--exclude T …] [--max-data N] [--passages N]`.
 
@@ -983,8 +984,10 @@ survive intact.
   stop list (`stopwords.go`) is removed from the FTS-leg query only; the
   vector leg gets the full query. An all-stop-words query is left
   unchanged.
-- **Weighted RRF** (`ftsWeight` / `vectorWeight`, default 1 / 1) — scales
-  each leg's fusion contribution.
+- **Weighted RRF** (`ftsWeight` / `vectorWeight`, default 1 / 2) — scales
+  each leg's fusion contribution. The fused score is divided by its
+  maximum, `(ftsWeight + vectorWeight) / 61`, so a hybrid score reads
+  0–1 whatever the weights and clients can gate on it.
 - **Adaptive leg weighting** (`adaptiveWeights`, default **off**) —
   down-weights the FTS leg per query by its score concentration, so a
   flat BM25 distribution (paraphrastic queries) can't drag hybrid below

@@ -82,9 +82,11 @@ const DefaultSearchMaxData = 512
 
 // SearchHit is one ranked result — the indexed record's identity plus
 // its indexed text. Score semantics depend on the effective mode: BM25
-// for fts, cosine similarity for vector, RRF for hybrid, and BM25 for a
-// title hit whatever the mode; within one block of one response higher
-// is better, and the order across blocks is authoritative.
+// for fts, cosine similarity for vector, and for hybrid the RRF sum
+// divided by its maximum (0–1 whatever the leg weights, comparable
+// across responses); a title hit carries BM25 whatever the mode. Within
+// one block of one response higher is better, and the order across
+// blocks is authoritative.
 type SearchHit struct {
 	Scope    string `json:"scope"`
 	ObjectId string `json:"objectId"`

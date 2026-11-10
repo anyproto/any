@@ -285,11 +285,10 @@ type Index struct {
 }
 
 // IndexSearch tunes hybrid search ranking (chunker-hybrid-search-report
-// § 5). All zero values pick safe defaults that reproduce pre-tuning
-// behavior, so an absent `index.search` block changes nothing.
+// § 5). Zero values pick the defaults.
 type IndexSearch struct {
 	// FtsWeight / VectorWeight scale each leg's reciprocal-rank-fusion
-	// contribution in hybrid mode. Default 1 each (plain RRF). Lowering
+	// contribution in hybrid mode. Default 1 / 2. Lowering
 	// VectorWeight trusts the lexical leg more — useful while the dense
 	// leg is noisy (short chunks, weak embedder).
 	FtsWeight    float64 `yaml:"ftsWeight"`

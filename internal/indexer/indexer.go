@@ -76,7 +76,7 @@ type Options struct {
 	// --- hybrid-search ranking knobs (chunker-hybrid-search-report § 5) ---
 
 	// FtsWeight / VectorWeight scale each leg's RRF contribution in
-	// hybrid mode. Default 1 each (plain RRF).
+	// hybrid mode. Default 1 / 2.
 	FtsWeight    float64
 	VectorWeight float64
 	// FTSDefaultAnd makes the lexical leg require ALL query terms (AND)
@@ -207,7 +207,7 @@ func (o Options) withDefaults() Options {
 		o.FtsWeight = 1
 	}
 	if o.VectorWeight <= 0 {
-		o.VectorWeight = 1
+		o.VectorWeight = 2
 	}
 	if o.ChunkRunes <= 0 {
 		o.ChunkRunes = DefaultChunkRunes
@@ -1087,7 +1087,9 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 				// ever raises the confidence.
 				ftsW *= legConfidence(ftsHits[:min(len(ftsHits), fetch)])
 			}
-			fused = fuseRRF([][]Hit{ftsHits, vecHits}, []float64{ftsW, ix.opts.VectorWeight}, 0)
+			weights := []float64{ftsW, ix.opts.VectorWeight}
+			fused = fuseRRF([][]Hit{ftsHits, vecHits}, weights, 0)
+			normalizeRRF(fused, weights, 2)
 		case api.SearchModeFTS:
 			fused = ftsHits
 		case api.SearchModeVector:

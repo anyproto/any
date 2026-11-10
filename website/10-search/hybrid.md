@@ -40,7 +40,10 @@ Each leg returns a ranked list; a document's fused score is the sum over the leg
 
 ```
 fused(doc) = ftsWeight / (60 + rank_fts) + vectorWeight / (60 + rank_vec)
+score(doc) = fused(doc) / ((ftsWeight + vectorWeight) / 61)
 ```
+
+Ranks start at 1, so a document ranked first by both legs scores 1. The score reads 0–1 whatever the weights, so a client can keep one threshold when the weights change.
 
 Full-text operators (`"phrases"`, `prefix*`) shape the lexical leg's list; the vector leg always embeds the whole `query` verbatim, stop words included. `require` / `exclude` bind every hit regardless of leg: vector hits are post-filtered against the FTS index before fusion, so a fused result never contains a doc the lexical constraint would have refused.
 
@@ -82,12 +85,12 @@ Two replies need care:
 
 ## Weighting knobs
 
-All under `index.search.*` in [configuration](../operations/configuration.html); defaults reproduce the untuned behaviour, so an absent block changes nothing.
+All under `index.search.*` in [configuration](../operations/configuration.html); an absent block takes the defaults.
 
 | Key | Default | Effect |
 |---|---|---|
 | `ftsWeight` | 1 | RRF weight of the lexical leg |
-| `vectorWeight` | 1 | RRF weight of the dense leg |
+| `vectorWeight` | 2 | RRF weight of the dense leg |
 | `adaptiveWeights` | false | per query, down-weight the FTS leg when its BM25 scores are flat/weak |
 | `stopWords` | true | strip stop words from the FTS-leg query |
 | `defaultOperator` | `or` | how bare FTS terms combine |

@@ -63,10 +63,7 @@ func fuseRRF(lists [][]Hit, weights []float64, limit int) []Hit {
 	}
 	byKey := map[string]*acc{}
 	for li, list := range lists {
-		w := 1.0
-		if li < len(weights) && weights[li] > 0 {
-			w = weights[li]
-		}
+		w := legWeight(weights, li)
 		for rank, h := range list {
 			key := hitDocId(h)
 			a, ok := byKey[key]
@@ -92,6 +89,27 @@ func fuseRRF(lists [][]Hit, weights []float64, limit int) []Hit {
 		out = out[:limit]
 	}
 	return out
+}
+
+// legWeight is list li's fusion weight: a missing or non-positive entry is 1.
+func legWeight(weights []float64, li int) float64 {
+	if li < len(weights) && weights[li] > 0 {
+		return weights[li]
+	}
+	return 1
+}
+
+// normalizeRRF divides fused scores by the best a doc can score — rank 1
+// on every leg — so a hybrid score reads 0–1 whatever the weights and a
+// client can gate on it.
+func normalizeRRF(hits []Hit, weights []float64, legs int) {
+	var top float64
+	for li := 0; li < legs; li++ {
+		top += legWeight(weights, li) / float64(rrfK+1)
+	}
+	for i := range hits {
+		hits[i].Score /= top
+	}
 }
 
 // Group is one record in a reply: its best-ranked chunk plus, when
