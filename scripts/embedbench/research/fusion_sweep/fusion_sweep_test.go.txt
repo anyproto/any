@@ -1,0 +1,183 @@
+//go:build llamacpp && !android && !ios
+
+package indexer
+
+// TestFusionSweep (SYN-391 scratch, not for merge) runs the production hybrid Search over an existing
+// index.db copy at several vector weights, and dumps each query's title block and both content legs
+// at chunk level (replicating Search's windows at limit 10) for offline re-fusion.
+//
+// SWEEP_DB       path of an index.db copy (opened read-write: use a copy)
+// SWEEP_QUERIES  JSONL {"qid","space","query"}
+// SWEEP_OUT      JSONL output
+// SWEEP_MODEL / SWEEP_LIBDIR / SWEEP_QUERY_PREFIX / SWEEP_ANY_BIN  the embedder child, as the app runs it
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/config"
+)
+
+type sweepHit struct {
+	ObjectId string  `json:"o"`
+	Dataset  string  `json:"d"`
+	RecordId string  `json:"r"`
+	Chunk    int     `json:"c"`
+	Score    float64 `json:"s"`
+	Match    string  `json:"m,omitempty"`
+	Data     string  `json:"t,omitempty"`
+}
+
+func sweepSlim(hits []Hit, withData bool) []sweepHit {
+	out := make([]sweepHit, 0, len(hits))
+	for _, h := range hits {
+		s := sweepHit{ObjectId: h.ObjectId, Dataset: h.Dataset, RecordId: h.RecordId, Chunk: h.Chunk, Score: h.Score, Match: h.Match}
+		if withData {
+			s.Data = truncRunes(h.Data, 400)
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func truncRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) > n {
+		return string(r[:n])
+	}
+	return s
+}
+
+func TestFusionSweep(t *testing.T) {
+	dbPath := os.Getenv("SWEEP_DB")
+	if dbPath == "" {
+		t.Skip("SWEEP_DB not set")
+	}
+	ctx := context.Background()
+	store, err := OpenStore(ctx, dbPath, 1024, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	zero := 0
+	cfg := config.IndexLocal{
+		ModelPath:   os.Getenv("SWEEP_MODEL"),
+		LibDir:      os.Getenv("SWEEP_LIBDIR"),
+		QueryPrefix: os.Getenv("SWEEP_QUERY_PREFIX"),
+		ContextSize: 2048,
+		BatchDocs:   1,
+		Niceness:    &zero,
+	}
+	spec, _, err := resolveLocalSpec(cfg, t.TempDir(), "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := newWorkerEmbedderFromSpec(spec, 10*time.Minute)
+	bin := os.Getenv("SWEEP_ANY_BIN")
+	w.newCmd = func(s localSpec) (*exec.Cmd, error) {
+		c, err := embedderCmd(s)
+		if err != nil {
+			return nil, err
+		}
+		if bin != "" {
+			c.Path, c.Args[0] = bin, bin
+		}
+		return c, nil
+	}
+	defer w.Close()
+
+	type query struct{ Qid, Space, Query string }
+	var qs []query
+	f, err := os.Open(os.Getenv("SWEEP_QUERIES"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 1<<22)
+	for sc.Scan() {
+		var q query
+		if err := json.Unmarshal(sc.Bytes(), &q); err != nil {
+			t.Fatal(err)
+		}
+		qs = append(qs, q)
+	}
+	f.Close()
+
+	of, err := os.Create(os.Getenv("SWEEP_OUT"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer of.Close()
+	enc := json.NewEncoder(of)
+
+	weights := []float64{0.5, 1, 1.5, 2, 3}
+	ixs := map[float64]*Indexer{}
+	for _, wt := range weights {
+		ixs[wt] = New(nil, nil, store, Options{Embedder: w, StopWords: true, VectorWeight: wt, QueryEmbedTimeout: 2 * time.Minute})
+	}
+	base := ixs[1]
+	const limit = 10
+	start := time.Now()
+	for i, q := range qs {
+		req := api.SearchRequest{Query: q.Query, Limit: limit, Mode: api.SearchModeHybrid}
+		hs, err := newHostSet(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		titles, _, err := base.titlePass(ctx, q.Space, req, limit, hs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		shown := shownRecords(titles)
+		rest := limit - len(titles)
+		var ftsHits, vecHits []Hit
+		if rest > 0 {
+			fetch := min(max(rest*3, 30), 100)
+			qv, err := w.EmbedQuery(ctx, q.Query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if vecHits, _, err = base.vectorLeg(ctx, q.Space, qv, req, legCover{fetch: fetch, groups: rest}, hs, shown); err != nil {
+				t.Fatal(err)
+			}
+			ftsQuery := q.Query
+			if !strings.Contains(ftsQuery, `"`) {
+				ftsQuery = stripStopWords(ftsQuery)
+			}
+			if ftsHits, _, err = base.ftsLeg(ctx, q.Space, FTSQuery{Query: ftsQuery}, nil, legCover{fetch: fetch, groups: 2 * rest}, hs, shown); err != nil {
+				t.Fatal(err)
+			}
+		}
+		pages := map[string]any{}
+		for _, wt := range weights {
+			res, err := ixs[wt].Search(ctx, q.Space, req, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hits := make([]sweepHit, 0, len(res.Hits))
+			for _, h := range res.Hits {
+				hits = append(hits, sweepHit{ObjectId: h.ObjectId, Dataset: h.Dataset, RecordId: h.RecordId, Chunk: h.Chunk, Score: h.Score, Match: h.Match, Data: truncRunes(h.Data, 400)})
+			}
+			pages[fmt.Sprint(wt)] = map[string]any{"hits": hits, "vectorStatus": res.VectorStatus, "mode": res.Mode}
+		}
+		if err := enc.Encode(map[string]any{
+			"qid": q.Qid, "space": q.Space, "query": q.Query,
+			"titles": sweepSlim(titles, true), "fts": sweepSlim(ftsHits, true), "vec": sweepSlim(vecHits, true),
+			"pages": pages,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if (i+1)%20 == 0 {
+			t.Logf("%d/%d queries, %s", i+1, len(qs), time.Since(start).Round(time.Second))
+		}
+	}
+}
