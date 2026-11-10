@@ -861,9 +861,8 @@ the tag.
 
 An index db this build refuses is rebuilt by the boot, not reported:
 `ErrIndexRebuildRequired` (schema version, vector dimension or chunk
-target mismatch, or damage met while opening it: a broken header or
-write-ahead log, a failed quick check on a dirty open, or a page that
-fails its checksum,
+target mismatch, or damage met while opening it: a broken header, a
+failed quick check on a dirty open, or a page that fails its checksum,
 `internal/indexer/errors.go`) makes `OpenIndexer` remove `index.db` and
 every file named after it (WAL, shm, sentinel) — the model cache beside
 them stays — and open a fresh one, so every space re-indexes from

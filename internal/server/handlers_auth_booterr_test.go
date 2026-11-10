@@ -54,9 +54,10 @@ func TestAuthBootError_TypedRepairs(t *testing.T) {
 			err:    fmt.Errorf("open sdk: anysyncsdk: open sdk db: %w", fmt.Errorf("btree: open: %w", anystore.ErrHeaderCorrupt)),
 			status: http.StatusInternalServerError, code: "sdk.store_corrupt",
 		},
-		"sdk WAL": {
+		// Not lasting damage: a peer process's WAL restart or a closed db.
+		"sdk WAL read past its tail": {
 			err:    fmt.Errorf("open sdk: anysyncsdk: open sdk db: %w", fmt.Errorf("btree: read page 4: %w", anystore.ErrWALCorrupt)),
-			status: http.StatusInternalServerError, code: "sdk.store_corrupt",
+			status: http.StatusInternalServerError, code: "internal",
 		},
 		"sdk page checksum": {
 			err:    fmt.Errorf("open sdk: anysyncsdk: open files store: filestore: open files_local: %w", fmt.Errorf("btree: page 1759: %w", anystore.ErrPageIntegrity)),

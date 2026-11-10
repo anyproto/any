@@ -31,9 +31,9 @@ const (
 	// CodeStorageFull: the disk is full (server.StorageFull). The host
 	// frees space and retries.
 	CodeStorageFull int32 = 6
-	// CodeStoreCorrupt: the account's sdk.db has a broken header or WAL, or
-	// a page that fails its checksum (server.StoreCorrupt). It is never
-	// repaired in place.
+	// CodeStoreCorrupt: the account's sdk.db has a broken header or a page
+	// that fails its checksum (server.StoreCorrupt). It is never repaired
+	// in place.
 	CodeStoreCorrupt int32 = 7
 )
 

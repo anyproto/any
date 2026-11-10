@@ -215,7 +215,7 @@ func RefuseDamaged(err error) error {
 	if err == nil || !damaged(err) {
 		return err
 	}
-	return fmt.Errorf("%w: index db failed its integrity check: %v", ErrIndexRebuildRequired, err)
+	return fmt.Errorf("%w: index db is damaged: %v", ErrIndexRebuildRequired, err)
 }
 
 // OpenStoreInMemory opens a throwaway in-memory store (tests).

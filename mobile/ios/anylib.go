@@ -43,7 +43,7 @@ package main
 //   5  bad options (unknown mode, managed without a control token, or a
 //      nodeconfYAML that isn't YAML or names no networkId)
 //   6  the disk is full (free space and retry)
-//   7  the account's sdk.db failed its integrity check
+//   7  the account's sdk.db is damaged (never repaired in place)
 typedef struct {
     int32_t code;
     char    address[64];  // "127.0.0.1:53421" when code == 0, empty otherwise

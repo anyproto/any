@@ -312,9 +312,8 @@ func New(sdk *anysyncsdk.SDK, reg *index.Registry, store *Store, opts Options) *
 // transaction ends, and the outcome with its duration in the log. The
 // rewrite is one transaction, so the row carries no counters; it is
 // what a client shows while searches on that space answer not-ready.
-// Only a rewrite that stopped for the caller's cancellation reports
-// cancelled: the transaction itself never observes the ctx, so a
-// failure under a dead ctx is still a failure.
+// Only a rewrite that ended with the context's error reports
+// cancelled; any other failure under a dead ctx is still a failure.
 func (ix *Indexer) reportFTSUpgrade(ctx context.Context, spaceId string) func(error) {
 	rep := newProcReporter(ix.opts.OnProcess,
 		ProcessUpdate{Kind: ProcessKindFTSUpgrade, SpaceId: spaceId}, ix.opts.AnnounceAfter)

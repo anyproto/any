@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -102,8 +103,8 @@ func TestOpenStore_RefusesTornPage(t *testing.T) {
 }
 
 // OpenStore refuses an index.db whose header is damaged (overwritten,
-// cut inside the header, or not a database), and the refusal carries no
-// typed integrity error.
+// cut inside the header, or a whole file that is not a database), and
+// the refusal carries no typed integrity error.
 func TestOpenStore_RefusesDamagedHeader(t *testing.T) {
 	ctx := context.Background()
 	for name, damage := range map[string]func(t *testing.T, path string){
@@ -124,8 +125,9 @@ func TestOpenStore_RefusesDamagedHeader(t *testing.T) {
 				t.Fatal(err)
 			}
 		},
+		// Full size, so the open reads a whole header and rejects its magic.
 		"not a database": func(t *testing.T, path string) {
-			if err := os.WriteFile(path, []byte("this is not a database"), 0o600); err != nil {
+			if err := os.WriteFile(path, bytes.Repeat([]byte("not a database "), 1024), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		},

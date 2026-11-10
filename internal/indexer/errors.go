@@ -6,7 +6,8 @@ import "errors"
 // whose ONLY remedy is deleting the index db and letting it rebuild from
 // the CRDT — a schema version this build can't read, a vector dimension
 // or chunk target that contradicts the one the db was built with, or
-// damage met while opening it (a failed quick check or page checksum).
+// damage met while opening it (anystore.ErrCorrupt: a broken header, a
+// failed quick check, a page checksum).
 // Nothing in the db is salvageable and no migration exists: the index is
 // a derived cache (docs/13-index.md).
 //
