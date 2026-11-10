@@ -2526,7 +2526,9 @@ data: {"reason": "overflow"}
   materialised window (bounded by `limit`/`offset`); `total` is the
   unbounded filter-matching count and `hasNext` reports whether more
   matches exist past this page (`offset+len(records) < total`). Both
-  are present only when `includeTotal` was set in the request body.
+  are present only when `includeTotal` was set in the request body,
+  and are counted in the snapshot's own read, so they describe exactly
+  its rows.
 - **`changes`** — JSON array of zero-or-more windowed events. Each
   event has `versionId` (per-change DAG order, locally-scoped — don't
   compare across peers) plus three buckets:

@@ -314,7 +314,8 @@ accumulate. Treat it as one and the lifecycle stays simple.
   is the expensive path the engine is deliberately refusing:
   - `drifted` — the engine could not keep the window equal to storage. A
     window at `offset: 0` re-reads storage when rows leave it, so it closes
-    only when those re-reads fail; a window past an offset closes once
+    only when those re-reads fail, and a window that holds every match
+    counts nothing; a window past an offset closes once
     `driftBudgetPercent` of `limit` rows left it (default 30 — 15 rows of a
     50-row window).
   - `overflow` — events arrived faster than the client drained the SSE mailbox
