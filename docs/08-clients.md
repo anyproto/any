@@ -313,11 +313,12 @@ accumulate. Treat it as one and the lifecycle stays simple.
   snapshot *already* reflects current state — rebuilding it from a giant delta
   is the expensive path the engine is deliberately refusing:
   - `drifted` — the engine could not keep the window equal to storage. A
-    window at `offset: 0` re-reads storage when rows leave it, so it closes
-    only when those re-reads fail, and a window that holds every match
-    counts nothing; a window past an offset closes once
-    `driftBudgetPercent` of `limit` rows left it (default 30 — 15 rows of a
-    50-row window).
+    window at `offset: 0` re-reads storage when rows leave it, so it loses
+    rows only while those re-reads fail, and a window that holds every
+    match counts nothing; a window past an offset counts every held row
+    that is deleted or stops matching. Either closes once the losses reach
+    `driftBudgetPercent` of `limit` (default 30 — 15 rows of a 50-row
+    window).
   - `overflow` — events arrived faster than the client drained the SSE mailbox
     (`mailboxCapacity`, default 256, min 16) — e.g. a cold reconnect against a
     busy dataset.
@@ -328,8 +329,9 @@ accumulate. Treat it as one and the lifecycle stays simple.
   window auto-shift *and* the drift safety net — one more reason never to
   subscribe without a limit.
 
-  A re-read's rows arrive in a `changes` event with an empty `versionId`
-  and no `ops`: apply it like any other, taking each `doc` whole.
+  What a re-read found arrives in a `changes` event with an empty
+  `versionId` and no `ops`: apply it like any other, taking each `doc`
+  whole.
 
 - **Window size is free on the server; the cost is the client's.** The server
   streams the window straight from the indexed DB and is indifferent to

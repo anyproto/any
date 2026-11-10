@@ -2538,8 +2538,7 @@ data: {"reason": "overflow"}
     multi-field `$set` at path `[]`).
   - `updated` — records already in the window whose state changed.
     Same `doc`+`ops` shape as `added`. Under a `projection`, `ops` can
-    be absent — nothing the projection covers changed; `doc` stays
-    authoritative.
+    be absent — no op fell inside it; `doc` stays authoritative.
   - `removed` — `[{id, reason}]` for records that left the window.
     `reason` is `deleted` (the record is gone), `filtered-out` (an
     update made it stop matching the filter) or `displaced` (pushed
@@ -2555,11 +2554,12 @@ data: {"reason": "overflow"}
   into the next frame, so a slow client gets fewer, larger frames.
 
   An event with an empty `versionId` is the engine's re-read of the
-  window from storage, or an object deletion: its records carry `doc`
-  and no `ops`, and it is never an own write. A window at `offset: 0`
-  stays equal to a fresh query of the same body, so when a row leaves
-  it and matches wait past its edge, the rows that take its place
-  arrive in such an event, after the event of the change behind it.
+  window from storage, or an object deletion. A window at `offset: 0`
+  stays equal to a fresh query of the same body: what a change's own
+  event could not say about the window, the re-read ships right after
+  it — `added`, `updated` and `removed` alike, the first two with
+  `doc` and no `ops`. A record without `ops`, in any event, is applied
+  by taking `doc` whole.
 - **`: keepalive`** — comment frame every 25s during silence; defeats
   idle middlebox timeouts.
 - **`closed`** — terminal frame. Reasons:
@@ -2573,10 +2573,14 @@ data: {"reason": "overflow"}
     drained it. The SDK closes the sub rather than dropping events —
     resubscribe to get a fresh snapshot.
   - `drifted` — the engine could not keep the window equal to storage.
-    A window at `offset: 0` re-reads storage when rows leave it and
-    closes only when those re-reads fail; a window past an offset
-    closes once `driftBudgetPercent` of `limit` rows left it.
-    Resubscribe.
+    A window at `offset: 0` re-reads storage when rows leave it: a
+    re-read that fails counts the rows it lost, and the stream closes
+    once they reach `driftBudgetPercent` of `limit`, or at once when a
+    row cannot be read and no re-read settles it. A window that holds
+    every match counts nothing. A window past an offset cannot
+    re-read: every held row that is deleted or stops matching counts
+    (a `displaced` row does not), and it also closes on a row it
+    cannot read or when its object's rows are rebuilt. Resubscribe.
   - `object_deleted` — per-object streams only (one object's dataset,
     one object's files): the object was deleted. Drop the view; a new
     POST for it is refused.
@@ -4513,16 +4517,17 @@ The two GETs are cheap; safe to call on a render tick. A space's
 
 - `error` — the network refuses this client's protocol version;
 - `offline` — no responsible node and no direct peer is connected;
-- `syncing` — at least one object has heads no peer has acknowledged;
+- `syncing` — at least one object has heads no node or direct peer
+  has confirmed;
 - `synced` — a responsible node or a direct peer confirmed this
   space's heads in this run and nothing is pending;
-- `unknown` — a peer is connected but none has confirmed yet, or the
-  space is not tracked on this device.
+- `unknown` — a peer is connected but none has confirmed yet.
 
 An object id with no sync activity in this run reads `synced` when its
-tree is stored locally and a peer has confirmed the space, and
-`{state: "unknown"}` otherwise — never 404; existence checks go
-through `GET …/objects/:objectId`.
+tree is stored locally and a sync round with a peer found nothing to
+exchange, and `{state: "unknown"}` otherwise — never 404; existence
+checks go through `GET …/objects/:objectId`. A space can therefore
+read `synced` while an untouched object still reads `unknown`.
 
 ```json
 // GET /v1/spaces/:spaceId/sync-status

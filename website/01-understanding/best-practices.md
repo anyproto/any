@@ -22,7 +22,7 @@ Property values are admitted only under an **owner** the object has — its type
 ## 3. Reads go through query / subscribe
 
 - **Prefer `query`.** Open a `subscribe` only when the UI renders changes live.
-- **Always set `limit`.** An unbounded read is a bug: it can produce a huge snapshot or overflow a subscribe mailbox, and drift detection is off when `limit == 0`.
+- **Always set `limit`.** An unbounded read is a bug: it can produce a huge snapshot or overflow a subscribe mailbox, and the drift budget is off when `limit == 0`.
 - **Page on a cursor, not `offset`.** Offsets float under writes. Page with `{"_ver.id": {"$lt": "<last>"}}` and the same sort — indexed, absolute, and correct while the storage collection mutates.
 - **Recency is `-modifiedAt`**, creation order `-createdAt` — author's clock, display quality only.
 - **Timestamps are `{"$date": …}`** in filters too; a bare value compares only within its own type bracket, so it silently returns nothing.

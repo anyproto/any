@@ -63,9 +63,9 @@ const (
 	SubscribeClosedOverflow = "overflow"
 
 	// SubscribeClosedDrifted — only on query/subscribe streams. The
-	// SDK could not keep the window equal to storage: a window at
-	// offset 0 failed to re-read it, a window past an offset lost
-	// DriftBudgetPercent of its limit. Recovery is resubscribe.
+	// SDK could not keep the window equal to storage: its losses
+	// reached DriftBudgetPercent of the limit, or a row could not be
+	// read. Recovery is resubscribe.
 	SubscribeClosedDrifted = "drifted"
 
 	// SubscribeClosedObjectDeleted — only on per-object query/subscribe
@@ -92,8 +92,8 @@ type QuerySubscribeSnapshot struct {
 }
 
 // QuerySubscribeEvent is one batch of windowed transitions delivered
-// in an `event: changes` SSE frame. It groups every record-level
-// change observed during one CRDT apply:
+// in an `event: changes` SSE frame. It groups the record-level
+// changes of one CRDT apply, or of one re-read of the window:
 //
 //   - Added — records that entered the visible window.
 //   - Updated — records already in the window whose state changed.
@@ -146,11 +146,10 @@ type RemovedRecord struct {
 // atomic updates against a local mirror without re-materialising the
 // whole record.
 //
-// Under a request `projection`, both halves are shaped and Ops can
-// come back EMPTY — every op of the triggering change fell outside the
-// projection, so nothing the caller holds changed. Treat an empty Ops
-// as "no visible change", never as "re-materialise from Doc": Doc is
-// authoritative either way.
+// Ops is empty for a record the engine re-read from storage, for a
+// row that slid into the window, and under a request `projection`
+// (which shapes both halves) when every op fell outside it. Doc is
+// authoritative either way: with no Ops, take it whole.
 type QuerySubscribeRecord struct {
 	Id  string             `json:"id"`
 	Doc json.RawMessage    `json:"doc"`
