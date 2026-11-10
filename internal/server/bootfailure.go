@@ -15,10 +15,10 @@ func StorageFull(err error) bool {
 	return diskFull(err) || sqlite.ErrCode(err).ToPrimary() == sqlite.ResultFull
 }
 
-// StoreCorrupt reports a boot failure caused by a damaged sdk.db: a page
-// that fails its checksum. A read error is not damage, and a cancelled or
-// timed-out boot never answers with a deletion.
+// StoreCorrupt reports a boot failure caused by lasting damage to sdk.db:
+// a broken header or a page that fails its checksum. A read error, a WAL
+// read past its tail and a cancelled or timed-out boot never delete it.
 func StoreCorrupt(err error) bool {
-	return errors.Is(err, anystore.ErrPageIntegrity) &&
+	return (errors.Is(err, anystore.ErrPageIntegrity) || errors.Is(err, anystore.ErrHeaderCorrupt)) &&
 		!errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
 }

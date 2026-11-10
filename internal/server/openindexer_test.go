@@ -13,9 +13,9 @@ import (
 )
 
 // An index db this build cannot open — pinned to another chunk target,
-// built on another vector dimension, or failing its integrity check on
-// a dirty open — is removed and rebuilt by OpenIndexer instead of
-// failing the boot. Everything named after the db goes with it; the
+// built on another vector dimension, with a broken header, or failing
+// its integrity check on a dirty open — is removed and rebuilt by
+// OpenIndexer instead of failing the boot. Everything named after the db goes with it; the
 // model cache beside it stays.
 func TestOpenIndexer_RebuildsRefusedIndex(t *testing.T) {
 	ctx := context.Background()
@@ -47,6 +47,18 @@ func TestOpenIndexer_RebuildsRefusedIndex(t *testing.T) {
 					t.Fatal(err)
 				}
 				tearStorePage2(t, dbPath)
+			},
+		},
+		"broken header": {
+			refuse: func(t *testing.T, dbPath string) {
+				st, err := indexer.OpenStore(ctx, dbPath, 0, false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := st.Close(); err != nil {
+					t.Fatal(err)
+				}
+				breakStoreHeader(t, dbPath)
 			},
 		},
 		// No dirty sentinel: no quick check, and the first read of the
@@ -136,6 +148,22 @@ func tearStorePage2(t *testing.T, dbPath string) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(dbPath+".lock", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// breakStoreHeader zeroes the database header of a closed any-store v2
+// db, so the next open fails with anystore.ErrHeaderCorrupt.
+func breakStoreHeader(t *testing.T, dbPath string) {
+	t.Helper()
+	f, err := os.OpenFile(dbPath, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteAt(make([]byte, 100), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
 }

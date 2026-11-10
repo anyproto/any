@@ -50,6 +50,15 @@ func TestAuthBootError_TypedRepairs(t *testing.T) {
 			err:    fmt.Errorf("open sdk: anysyncsdk: open sdk db: %w", fmt.Errorf("%w: %w", anystore.ErrQuickCheckFailed, syscall.EIO)),
 			status: http.StatusInternalServerError, code: "internal",
 		},
+		"sdk header": {
+			err:    fmt.Errorf("open sdk: anysyncsdk: open sdk db: %w", fmt.Errorf("btree: open: %w", anystore.ErrHeaderCorrupt)),
+			status: http.StatusInternalServerError, code: "sdk.store_corrupt",
+		},
+		// Not lasting damage: a peer process's WAL restart or a closed db.
+		"sdk WAL read past its tail": {
+			err:    fmt.Errorf("open sdk: anysyncsdk: open sdk db: %w", fmt.Errorf("btree: read page 4: %w", anystore.ErrWALCorrupt)),
+			status: http.StatusInternalServerError, code: "internal",
+		},
 		"sdk page checksum": {
 			err:    fmt.Errorf("open sdk: anysyncsdk: open files store: filestore: open files_local: %w", fmt.Errorf("btree: page 1759: %w", anystore.ErrPageIntegrity)),
 			status: http.StatusInternalServerError, code: "sdk.store_corrupt",
@@ -105,13 +114,23 @@ func TestAuthBootError_TypedRepairs(t *testing.T) {
 	}
 }
 
-// A managed login over a damaged sdk.db answers sdk.store_corrupt with
-// no path in the body, and the server stays up unauthorized. Needs the
-// staging nodeconf like every other SDK-booting test here.
+// A managed login over a damaged sdk.db (a torn page or a broken
+// header) answers sdk.store_corrupt with no path in the body, and the
+// server stays up unauthorized. Needs the staging nodeconf like every
+// other SDK-booting test here.
 func TestAuth_ManagedBootStoreCorrupt(t *testing.T) {
 	if _, err := config.LoadNodeconf(config.Network{NodeconfPath: stagingPath}); err != nil {
 		t.Skipf("staging config not available: %v", err)
 	}
+	for name, damage := range map[string]func(t *testing.T, dbPath string){
+		"torn page":     tearStorePage2,
+		"broken header": breakStoreHeader,
+	} {
+		t.Run(name, func(t *testing.T) { managedBootOverDamagedStore(t, damage) })
+	}
+}
+
+func managedBootOverDamagedStore(t *testing.T, damage func(t *testing.T, dbPath string)) {
 	d := newUnauthorizedDeps(t)
 	d.cfg.Mode = config.ModeManaged
 	d.controlToken = "tok"
@@ -129,7 +148,7 @@ func TestAuth_ManagedBootStoreCorrupt(t *testing.T) {
 	d.teardownEngine(logger.NewNamed("test"), api.SubscribeClosedDeauthorized)
 
 	dir := config.AccountDir(d.root, first.AccountId)
-	tearStorePage2(t, filepath.Join(dir, "sdk", "sdk.db"))
+	damage(t, filepath.Join(dir, "sdk", "sdk.db"))
 
 	rec = doJSONH(t, e, http.MethodPost, "/v1/auth", `{"mnemonic":`+strconv.Quote(first.Mnemonic)+`}`, tok)
 	expectAuthError(t, rec, http.StatusInternalServerError, "sdk.store_corrupt", "")

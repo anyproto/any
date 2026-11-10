@@ -51,7 +51,7 @@ A `wallet.key` directly at the root is the legacy flat layout: it acts as the de
 
 | Delete | Effect |
 |---|---|
-| `index/` | safe; on the next start every space re-indexes from the beginning — full text first, then the embed drain, which can take a while on a large account. The boot does this itself for an `index.db` it cannot open (schema-version or chunk-target mismatch, a configured `index.vector.dim` that contradicts it, or damage met while opening it: an integrity-check failure after a crash, or a page that fails its checksum). |
+| `index/` | safe; on the next start every space re-indexes from the beginning — full text first, then the embed drain, which can take a while on a large account. The boot does this itself for an `index.db` it cannot open (schema-version or chunk-target mismatch, a configured `index.vector.dim` that contradicts it, or damage met while opening it: a broken header, an integrity-check failure after a crash, or a page that fails its checksum). |
 | `models/` | safe; the model downloads again on next boot (a model already in a legacy `<account-dir>/index/models/` keeps being used from there) |
 | `server.lock` | safe when no server is running; the lock lives in the kernel, not in the file, so a leftover file blocks nothing |
 | `server.pid`, `server.addr` | safe any time; they only label the current holder |

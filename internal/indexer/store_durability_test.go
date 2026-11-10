@@ -1,11 +1,13 @@
 package indexer
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	anystore "github.com/anyproto/any-store/v2"
@@ -51,13 +53,17 @@ func TestRefuseDamaged_CauseUntyped(t *testing.T) {
 	}
 	for _, cause := range []error{
 		fmt.Errorf("%w: btree: page 2: checksum mismatch", anystore.ErrQuickCheckFailed),
+		fmt.Errorf("%w: %w", anystore.ErrQuickCheckFailed, syscall.EIO),
 		fmt.Errorf("btree: page 3: %w", anystore.ErrPageIntegrity),
+		fmt.Errorf("btree: open: %w", anystore.ErrHeaderCorrupt),
+		fmt.Errorf("btree: read page 4: %w", anystore.ErrWALCorrupt),
+		fmt.Errorf("btree: page 5: %w", anystore.ErrCorrupt),
 	} {
 		err := RefuseDamaged(cause)
 		if !errors.Is(err, ErrIndexRebuildRequired) {
 			t.Fatalf("%v: want ErrIndexRebuildRequired", err)
 		}
-		if errors.Is(err, anystore.ErrQuickCheckFailed) || errors.Is(err, anystore.ErrPageIntegrity) {
+		if errors.Is(err, anystore.ErrCorrupt) {
 			t.Fatalf("%v: carries a typed any-store integrity failure", err)
 		}
 	}
@@ -93,5 +99,63 @@ func TestOpenStore_RefusesTornPage(t *testing.T) {
 	_, err = OpenStore(ctx, path, 0, false)
 	if !errors.Is(err, ErrIndexRebuildRequired) || errors.Is(err, anystore.ErrPageIntegrity) {
 		t.Fatalf("OpenStore over a torn page: %v, want an untyped rebuild refusal", err)
+	}
+}
+
+// OpenStore refuses an index.db whose header is damaged (overwritten,
+// cut inside the header, or a whole file that is not a database), and
+// the refusal carries no typed integrity error.
+func TestOpenStore_RefusesDamagedHeader(t *testing.T) {
+	ctx := context.Background()
+	for name, damage := range map[string]func(t *testing.T, path string){
+		"header overwritten": func(t *testing.T, path string) {
+			f, err := os.OpenFile(path, os.O_WRONLY, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.WriteAt(make([]byte, 100), 0); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.Close(); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"cut inside the header": func(t *testing.T, path string) {
+			if err := os.Truncate(path, 50); err != nil {
+				t.Fatal(err)
+			}
+		},
+		// Full size, so the open reads a whole header and rejects its magic.
+		"not a database": func(t *testing.T, path string) {
+			if err := os.WriteFile(path, bytes.Repeat([]byte("not a database "), 1024), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "index.db")
+			s, err := OpenStore(ctx, path, 0, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.SetCursor(ctx, "space", 1, "g1"); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			damage(t, path)
+
+			if db, err := anystore.Open(ctx, path, nil); !errors.Is(err, anystore.ErrHeaderCorrupt) {
+				if err == nil {
+					_ = db.Close()
+				}
+				t.Fatalf("anystore.Open over the damage: %v, want ErrHeaderCorrupt", err)
+			}
+			_, err = OpenStore(ctx, path, 0, false)
+			if !errors.Is(err, ErrIndexRebuildRequired) || errors.Is(err, anystore.ErrCorrupt) {
+				t.Fatalf("OpenStore over a damaged header: %v, want an untyped rebuild refusal", err)
+			}
+		})
 	}
 }
