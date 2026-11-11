@@ -104,7 +104,7 @@ battery reached 39 °C.
 - **A 10,000-chunk index of 256-token chunks:** about 9 Wh on the CPU, half of this phone's battery (about
   19 Wh), and about 3 h with the screen off.
 
-## 4. Throttling on battery (`charging.sh`)
+## 4. The slowdown on battery with the screen off (`charging.sh`)
 
 Phone at 11%, Battery Saver off, battery temperature 28–30 °C, so it isn't thermal.
 
@@ -116,14 +116,25 @@ Phone at 11%, Battery Saver off, battery temperature 28–30 °C, so it isn't th
 | battery, screen off | **1,111 ms** (min 352) | 1,726 ms (min 615) |
 
 On battery with the screen off, the phone runs at full speed only now and then: the minimum matches the
-sweep, the average is about 3× slower. On the charger, screen off is full speed. Not separated yet: whether this
-is an on-battery policy at any level or a low-battery (≤ 15%) one.
+sweep, the average is about 3× slower. On the charger, screen off is full speed.
+
+**Cause, as far as it's known:**
+- **No wakelock.** A shell process holds no wakelock. cheggaaa's agent saw the same slowdown on a Pixel 9 Pro at
+  92% battery and traced it to suspend: sampler gaps over more than half of each window, and a 60 s `sleep`
+  taking 132 s.
+- **Suspend on the Nothing.** Our first idle phase shows the same signature: a 180 s `sleep` took 344 s.
+- **The Nothing's timed runs didn't suspend.** The sampler was running, and its realtime stamps have no gap over
+  5 s, the same 2–3 s mix as the idle phase after the runs. So on the Nothing a second mechanism is involved, such
+  as CPU frequency caps or scheduling for a screen-off shell process on battery. It isn't separated here.
+- **Either way:** an indexer should hold a wakelock (WorkManager does), ideally on the charger. The energy figures
+  in § 3 were measured in this slowed state, so treat them as rough. A clean per-doc figure needs a run with a
+  wakelock or the screen on.
 
 ## What it means for item 6
 
 - **Quality:** EG2 on Android is the same model as on desktop, within noise, and the head projection carries over
   as a post-step: `v' = normalize(v − u(u·v))`, with the same `u`.
-- **Cost:** on a mid-range phone, embedding is about 10× the iPhone's energy per token. Indexing should run while
-  charging (for example WorkManager `requiresCharging`), where it's also 3× faster than on battery with the screen
-  off, and it should stay off the GPU unless the 1–2 GB peak is acceptable.
+- **Cost:** on a mid-range phone, embedding is roughly 10× the iPhone's energy per token (rough: measured in the
+  slowed screen-off state, § 4). Indexing should run under a wakelock (WorkManager) and preferably while charging
+  (`requiresCharging`), and it should stay off the GPU unless the 1–2 GB peak is acceptable.
 - **Backend:** CPU with 4 threads for short chunks and low RAM; GPU only for long chunks when memory allows.
