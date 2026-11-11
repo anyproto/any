@@ -59,8 +59,12 @@ func TestStore_RenameRequeuesVectors(t *testing.T) {
 		DocUpsert{Entry: entry("basic", "obj3", "editor_blocks", "win_a", body, 6), Vector: vec},
 	)
 	// Writing the name in the same page as the docs requeues them too:
-	// their vectors may predate it.
-	if err := s.SetVectors(ctx, sp, pending(), [][]float32{vec, vec, vec}[:len(pending())]); err != nil {
+	// their vectors may predate it. obj3 has no name and stays landed.
+	first := pending()
+	if !slices.Equal(first, []string{"obj1:editor_blocks:win_a", "obj1:editor_blocks:win_b", "obj2:editor_blocks:win_a"}) {
+		t.Fatalf("pending after the first page = %v", first)
+	}
+	if err := s.SetVectors(ctx, sp, first, [][]float32{vec, vec, vec}); err != nil {
 		t.Fatal(err)
 	}
 	if got := pending(); len(got) != 0 {
@@ -143,16 +147,45 @@ func TestStore_RenameRequeuesVectors(t *testing.T) {
 	}
 }
 
-// A doc whose object was renamed while its batch embedded is not landed.
-func TestSameTitle(t *testing.T) {
-	ids := []string{"a", "b", "c"}
-	vecs := [][]float32{{1}, {2}, {3}}
-	was := []string{"x", "y", ""}
-	if gotIds, gotVecs := sameTitle(ids, vecs, was, []string{"x", "y", ""}); !slices.Equal(gotIds, ids) || len(gotVecs) != 3 {
-		t.Fatalf("unchanged names dropped docs: %v", gotIds)
+// A vector embedded under a name that changed before it landed is not
+// written: the doc stays pending for the next round.
+func TestStore_SetTitledVectors(t *testing.T) {
+	ctx := context.Background()
+	s := mustStore(t, 4)
+	s.SetEmbedTitles(true)
+	const sp = "space1"
+	body := "a paragraph long enough to be embedded as a document of this object"
+	if err := s.Apply(ctx, sp, []DocUpsert{
+		{Entry: entry("basic", "obj1", index.DatasetProp, index.NamePropRecordId, "Old name", 1)},
+		{Entry: entry("basic", "obj1", "editor_blocks", "win_a", body, 2)},
+		{Entry: entry("basic", "obj2", "editor_blocks", "win_a", body, 3)},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
 	}
-	gotIds, gotVecs := sameTitle(ids, vecs, was, []string{"x", "renamed", "named"})
-	if !slices.Equal(gotIds, []string{"a"}) || len(gotVecs) != 1 || gotVecs[0][0] != 1 {
-		t.Fatalf("kept %v %v, want only the doc whose name stood", gotIds, gotVecs)
+	ids := []string{"obj1:editor_blocks:win_a", "obj2:editor_blocks:win_a"}
+	titles, err := s.DocTitles(ctx, sp, ids)
+	if err != nil || !slices.Equal(titles, []string{"Old name", ""}) {
+		t.Fatalf("titles = %q, %v", titles, err)
+	}
+	// The rename lands while the batch embeds.
+	if err := s.Apply(ctx, sp, []DocUpsert{{Entry: entry("basic", "obj1", index.DatasetProp, index.NamePropRecordId, "New name", 4)}}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	vec := []float32{1, 0, 0, 0}
+	if err := s.SetTitledVectors(ctx, sp, ids, titles, [][]float32{vec, vec}); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := s.Pending(ctx, sp, 10)
+	if err != nil || !slices.Equal(got, ids[:1]) {
+		t.Fatalf("pending = %v, %v; want only the renamed object's doc", got, err)
+	}
+	if err := s.SetTitledVectors(ctx, sp, ids[:1], []string{"New name"}, [][]float32{vec}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _ := s.Pending(ctx, sp, 10); len(got) != 0 {
+		t.Fatalf("pending after landing under the current name: %v", got)
+	}
+	if err := s.SetTitledVectors(ctx, sp, ids, []string{"x"}, [][]float32{vec, vec}); err == nil {
+		t.Fatal("mismatched titles must be refused")
 	}
 }
