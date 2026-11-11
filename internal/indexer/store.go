@@ -92,6 +92,9 @@ type Store struct {
 	// when it was last written, with stale trailing chunks under the old
 	// scheme.
 	chunkRunes int
+	// embedder is the stamp of the embedder whose vectors this DB holds
+	// ("" = unknown), persisted in the meta row.
+	embedder string
 
 	mu     sync.Mutex
 	dim    int // 0 = unknown yet; learned lazily via EnsureDim
@@ -296,6 +299,7 @@ func (s *Store) checkMeta(ctx context.Context) error {
 	default:
 		return fmt.Errorf("%w: index db schema v%d, this build needs v%d", ErrIndexRebuildRequired, schema, indexSchemaVersion)
 	}
+	s.embedder = string(v.GetStringBytes("embedder"))
 	dim := v.GetInt("dim")
 	switch {
 	case dim == s.dim:
@@ -345,6 +349,32 @@ func (s *Store) PinChunkRunes(ctx context.Context, n int) error {
 	return s.writeMeta(ctx, s.dim)
 }
 
+// PinEmbedder records the embedder whose vectors this index holds and
+// refuses a db another one built: two models' vectors in one index rank
+// against each other meaninglessly, and the same dimension hides it. A
+// db written before the stamp existed is adopted when legacy says its
+// vectors may be this embedder's, or when it holds no vectors yet.
+func (s *Store) PinEmbedder(ctx context.Context, id string, legacy bool) error {
+	coll, err := s.db.Collection(ctx, cursorsCollection)
+	if err != nil {
+		return err
+	}
+	doc, err := coll.FindId(ctx, metaDocId)
+	if err != nil {
+		return err
+	}
+	stored := string(doc.Value().GetStringBytes("embedder"))
+	switch {
+	case stored == id:
+		return nil
+	case stored == "" && (legacy || doc.Value().GetInt("dim") == 0):
+	default:
+		return fmt.Errorf("%w: index db holds vectors of embedder %q, configured %q", ErrIndexRebuildRequired, stored, id)
+	}
+	s.embedder = id
+	return s.writeMeta(ctx, s.Dim())
+}
+
 // writeMeta records what this db is built on: schema version, vector
 // dimension, and the chunk target once PinChunkRunes has supplied it (0
 // until then — an unpinned db is adopted, never refused).
@@ -359,6 +389,9 @@ func (s *Store) writeMeta(ctx context.Context, dim int) error {
 	meta.Set("schema", arena.NewNumberInt(indexSchemaVersion))
 	meta.Set("dim", arena.NewNumberInt(dim))
 	meta.Set("chunkRunes", arena.NewNumberInt(s.chunkRunes))
+	if s.embedder != "" {
+		meta.Set("embedder", arena.NewString(s.embedder))
+	}
 	return coll.UpsertOne(ctx, meta)
 }
 

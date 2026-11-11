@@ -64,6 +64,8 @@ type Local struct {
 	gpuLayers   int       // -1 = llama.cpp default (offload all when a GPU is present)
 	batchDocs   int       // max docs packed per llama_decode (≥1)
 	modelDim    int       // output width known without loading; 0 = load to learn it
+	stampId     string
+	stampLegacy bool
 
 	dl *modelDownload // nil when modelPath overridden or file already present
 
@@ -208,6 +210,7 @@ func resolveLocalSpec(cfg config.IndexLocal, modelsDir, legacyModelsDir string, 
 
 func newLocalFromSpec(s localSpec, dl *modelDownload) *Local {
 	pooling, _ := poolingType(s.pooling) // validated by resolveLocalSpec
+	stampId, stampLegacy := s.stamp()
 	var project []float32
 	if s.profile != "" {
 		if m, err := lookupLocalModel(s.profile); err == nil {
@@ -227,6 +230,8 @@ func newLocalFromSpec(s localSpec, dl *modelDownload) *Local {
 		gpuLayers:   s.gpuLayers,
 		batchDocs:   s.batchDocs,
 		modelDim:    s.modelDim,
+		stampId:     stampId,
+		stampLegacy: stampLegacy,
 		dl:          dl,
 	}
 }
@@ -485,6 +490,8 @@ func (l *Local) embedGroup(tokenized [][]llama.Token) ([][]float32, error) {
 func (l *Local) EmbedDocs(ctx context.Context, texts []string) ([][]float32, error) {
 	return l.EmbedTitledDocs(ctx, nil, texts)
 }
+
+func (l *Local) Stamp() (string, bool) { return l.stampId, l.stampLegacy }
 
 // EmbedsTitles: the document prompt has a title slot.
 func (l *Local) EmbedsTitles() bool {

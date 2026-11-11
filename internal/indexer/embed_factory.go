@@ -58,6 +58,10 @@ func NewEmbedder(cfg config.Index, modelsDir, legacyModelsDir string, onProcess 
 		}
 		// Only Qwen3 has a hosted twin: another local model embeds with
 		// its own prompts and post-processing, which no endpoint applies.
+		// An unset local model is Qwen3 here, whatever the local default.
+		if cfg.Local.Model == "" && cfg.Local.ModelPath == "" {
+			cfg.Local.Model = config.LocalModelQwen3
+		}
 		if m := cfg.Local.Model; localEmbedderBuilt && m != "" && m != config.LocalModelQwen3 {
 			return nil, fmt.Errorf("indexer: auto embedder with an apiKey pairs the online primary with the local model %s; index.local.model is %q — use index.embedder: local, or drop the apiKey", config.LocalModelQwen3, m)
 		}

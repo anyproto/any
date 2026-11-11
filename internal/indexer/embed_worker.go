@@ -206,6 +206,8 @@ func (w *workerEmbedder) EmbedDocs(ctx context.Context, texts []string) ([][]flo
 	return w.EmbedTitledDocs(ctx, nil, texts)
 }
 
+func (w *workerEmbedder) Stamp() (string, bool) { return w.childSpec().stamp() }
+
 // EmbedsTitles: the child's document prompt has a title slot.
 func (w *workerEmbedder) EmbedsTitles() bool {
 	return strings.Contains(w.childSpec().docPrefix, titlePlaceholder)

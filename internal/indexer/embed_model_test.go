@@ -93,6 +93,7 @@ func TestResolveLocalSpec_Model(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	def, _ := lookupLocalModel("")
 	touch(eg2.file)
 	touch(qwen3(t).file)
 	custom := touch("custom.gguf")
@@ -109,7 +110,7 @@ func TestResolveLocalSpec_Model(t *testing.T) {
 		{"unnamed GGUF takes only the config", config.IndexLocal{ModelPath: custom, Pooling: "cls", DocPrefix: "passage: "},
 			localSpec{modelPath: custom, pooling: "cls", docPrefix: "passage: "}},
 		{"a ModelUrl alone is another source for the default model", config.IndexLocal{ModelUrl: "https://example.invalid/m.gguf"},
-			localSpec{profile: qwen3(t).id, modelPath: filepath.Join(dir, qwen3(t).file), modelDim: 1024, pooling: "last", queryPrefix: qwen3(t).queryPrefix}},
+			localSpec{profile: def.id, modelPath: filepath.Join(dir, def.file), modelDim: def.dim, pooling: def.pooling, queryPrefix: def.queryPrefix, docPrefix: def.docPrefix}},
 		{"config overrides the model's prompts and pooling", config.IndexLocal{Model: config.LocalModelEmbeddingGemma2, QueryPrefix: "q: ", DocPrefix: "d: ", Pooling: "last"},
 			localSpec{profile: eg2.id, modelPath: filepath.Join(dir, eg2.file), modelDim: 768, pooling: "last", queryPrefix: "q: ", docPrefix: "d: "}},
 	} {
@@ -251,4 +252,40 @@ func cosine(a, b []float32) float64 {
 		nb += float64(b[i]) * float64(b[i])
 	}
 	return dot / math.Sqrt(na*nb)
+}
+
+// The stamp tells models, revisions and prompt overrides apart; an
+// unnamed GGUF is unknown.
+func TestLocalSpecStamp(t *testing.T) {
+	dir := t.TempDir()
+	custom := filepath.Join(dir, "custom.gguf")
+	if err := os.WriteFile(custom, []byte("stub"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stamp := func(cfg config.IndexLocal) (string, bool) {
+		t.Helper()
+		cfg.ModelPath = custom
+		s, _, err := resolveLocalSpec(cfg, dir, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.stamp()
+	}
+	eg2, eg2Legacy := stamp(config.IndexLocal{Model: config.LocalModelEmbeddingGemma2})
+	qwen, qwenLegacy := stamp(config.IndexLocal{Model: config.LocalModelQwen3})
+	if eg2 == "" || qwen == "" || eg2 == qwen {
+		t.Fatalf("stamps: %q, %q", eg2, qwen)
+	}
+	if eg2Legacy || !qwenLegacy {
+		t.Errorf("legacy: EmbeddingGemma 2 %v, Qwen3 %v — only Qwen3 predates the stamp", eg2Legacy, qwenLegacy)
+	}
+	if again, _ := stamp(config.IndexLocal{Model: config.LocalModelEmbeddingGemma2}); again != eg2 {
+		t.Errorf("the stamp is not stable: %q then %q", eg2, again)
+	}
+	if other, _ := stamp(config.IndexLocal{Model: config.LocalModelEmbeddingGemma2, DocPrefix: "passage: "}); other == eg2 {
+		t.Error("a prompt override must change the stamp")
+	}
+	if id, legacy := stamp(config.IndexLocal{}); id != "" || !legacy {
+		t.Errorf("an unnamed GGUF: stamp %q, legacy %v", id, legacy)
+	}
 }

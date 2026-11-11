@@ -70,14 +70,14 @@ The passkey is the one secret the server may need at boot: it comes from the env
 | `index.ollama.url` | `ANY_INDEX_OLLAMA_URL` | `http://localhost:11434` | |
 | `index.ollama.model` | `ANY_INDEX_OLLAMA_MODEL` | `embeddinggemma` | |
 | `index.openai.baseUrl` | `ANY_INDEX_OPENAI_BASE_URL` | empty | any OpenAI-compatible `/embeddings` host; required for `openai`, and for `auto` once a key is set |
-| `index.openai.model` | `ANY_INDEX_OPENAI_MODEL` | `Qwen/Qwen3-Embedding-0.6B` | the local model's name; override with the provider's spelling of the **same** model — a different model makes the index incompatible with the local fallback |
+| `index.openai.model` | `ANY_INDEX_OPENAI_MODEL` | `Qwen/Qwen3-Embedding-0.6B` | the model `auto` runs locally with a key; override with the provider's spelling of the **same** model — a different model makes the index incompatible with the local fallback |
 | `index.openai.apiKey` | `ANY_INDEX_OPENAI_API_KEY` | empty | turns the `auto` primary on; sent as Bearer; never logged |
 | `index.local.modelPath` | `ANY_INDEX_LOCAL_MODEL_PATH` | `""` | existing GGUF; set ⇒ no download (air-gapped) |
 | `index.local.modelUrl` | `ANY_INDEX_LOCAL_MODEL_URL` | `""` | another download source for the model `index.local.model` names |
 | `index.local.modelSha256` | `ANY_INDEX_LOCAL_MODEL_SHA256` | `""` | checksum override |
 | `index.local.libDir` | `ANY_INDEX_LOCAL_LIB_DIR` | `<exe-dir>/llamacpp` | llama.cpp shared libs |
 | `index.local.contextSize` | `ANY_INDEX_LOCAL_CONTEXT_SIZE` | `2048` | truncation bound in tokens |
-| `index.local.model` | `ANY_INDEX_LOCAL_MODEL` | `""` | pinned model: `qwen3-embedding-0.6b` (default) or `embeddinggemma-2` |
+| `index.local.model` | `ANY_INDEX_LOCAL_MODEL` | `""` | pinned model: `embeddinggemma-2` (default) or `qwen3-embedding-0.6b` (the default when `auto` has an API key); changing it rebuilds the index |
 | `index.local.queryPrefix` | `ANY_INDEX_LOCAL_QUERY_PREFIX` | `""` | empty = the pinned model's query prompt |
 | `index.local.docPrefix` | `ANY_INDEX_LOCAL_DOC_PREFIX` | `""` | empty = the pinned model's document prompt |
 | `index.local.pooling` | `ANY_INDEX_LOCAL_POOLING` | `""` | `last`, `mean`, `cls`; empty = the pinned model's |
@@ -99,7 +99,7 @@ The passkey is the one secret the server may need at boot: it comes from the env
 | `index.search.titleWeight` | `ANY_INDEX_SEARCH_TITLE_WEIGHT` | `0` | BM25F title boost; 0 = no boost and no title field in the index (0 → non-zero needs a rebuild) |
 | `index.search.queryEmbedTimeout` | `ANY_INDEX_SEARCH_QUERY_EMBED_TIMEOUT` | `5s` | bound on embedding one search query; past it hybrid answers lexical-only and `mode: vector` answers `503 index.embedder_unavailable` |
 
-An unavailable embedder never breaks boot or FTS — the vector side reports `unavailable` until it recovers. In a build with the local embedder, its model (639 MB) downloads on first boot into `<root>/models/`, resumable, without blocking. Details: [Embedders](../search/embedders.html).
+An unavailable embedder never breaks boot or FTS — the vector side reports `unavailable` until it recovers. In a build with the local embedder, its model (296 MB) downloads on first boot into `<root>/models/`, resumable, without blocking. Details: [Embedders](../search/embedders.html).
 
 ## Files and push
 

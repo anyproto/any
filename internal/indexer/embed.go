@@ -35,6 +35,24 @@ type Embedder interface {
 	Dim(ctx context.Context) (int, error)
 }
 
+// StampedEmbedder names the vector space it embeds into, so an index
+// built by another one is rebuilt instead of mixing vectors.
+type StampedEmbedder interface {
+	// Stamp identifies the model with its prompts and post-processing;
+	// "" is unknown. legacy reports whether an index written before
+	// stamps existed may hold this embedder's vectors.
+	Stamp() (id string, legacy bool)
+}
+
+// EmbedderStamp is e's stamp; an embedder without one is unknown and
+// may own any unstamped index.
+func EmbedderStamp(e Embedder) (id string, legacy bool) {
+	if s, ok := e.(StampedEmbedder); ok {
+		return s.Stamp()
+	}
+	return "", true
+}
+
 // TitleEmbedder is an Embedder whose document prompt can carry the name
 // of the object a text belongs to.
 type TitleEmbedder interface {

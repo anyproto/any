@@ -681,15 +681,16 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   llama.cpp shared libs from `index.local.libDir` (else `$YZMA_LIB`,
   else `llamacpp/` next to the binary — populated by `make llamacpp`,
   which `make build` runs failure-tolerant; § GPU offload). Default
-  model: **Qwen3-Embedding-0.6B Q8_0** (1024-dim, last-token pooling,
-  L2-normalized; queries carry the Qwen retrieval instruction, docs embed
-  bare). `index.local.model: embeddinggemma-2` runs **EmbeddingGemma 2
-  Q8_0** instead (768-dim, mean pooling; queries embed as
+  model: **EmbeddingGemma 2 Q8_0** (`embeddinggemma-2`: 768-dim, mean
+  pooling, L2-normalized; queries embed as
   `task: search result | query: <query>`, docs as
-  `title: <object name> | text: <chunk>`, `none` for an unnamed object),
-  and removes one fixed direction — the
-  mean of the model's outputs — from every vector before normalizing,
-  which takes out its bias toward short texts. A `modelUrl` is
+  `title: <object name> | text: <chunk>`, `none` for an unnamed object).
+  One fixed direction — the mean of the model's outputs — is removed
+  from every vector before normalizing, which takes out its bias toward
+  short texts. `index.local.model: qwen3-embedding-0.6b` runs
+  **Qwen3-Embedding-0.6B Q8_0** instead (1024-dim, last-token pooling;
+  queries carry the Qwen retrieval instruction, docs embed bare); it is
+  also the local model whenever `auto` has an API key. A `modelUrl` is
   another download source for the model, and a `modelPath` with `model`
   set is that model on disk; a `modelPath` without `model` is an unnamed
   GGUF that takes only `index.local.pooling`
@@ -699,7 +700,12 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   `none`. With such a prompt the name is part of every vector of the
   object: a rename, or clearing the name, puts the object's embedded docs
   back in the embed queue, and they keep serving their old vectors until
-  the new ones land. The output width is the model's `n_embd_out`. The GGUF (sha256-pinned) is downloaded into the shared model
+  the new ones land. The output width is the model's `n_embd_out`. The
+  index db records the embedder that built it — the pinned model, its
+  revision, and the prompts and pooling in effect; a db another one
+  built is removed and rebuilt at boot, like one of another dimension. A
+  db from before that record is kept only for Qwen3 or an unnamed GGUF.
+  The GGUF (sha256-pinned) is downloaded into the shared model
   cache `<root>/models/` (a copy already in the account's `index/models/`
   is used in place); the download is resumable, logs progress, reports
   `index.model_download`, and never blocks boot — until it completes the
@@ -707,9 +713,9 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   Air-gapped: set `index.local.modelPath` (no download). `index.local.dim`
   truncates output vectors (Matryoshka) to shrink the index. Compute
   threads default to `NumCPU()-1` (`index.local.threads`); past the
-  physical core count can regress on hyperthreaded CPUs. Loaded cost ≈
-  640 MB mmap + ~200 MB context; nothing loads before the first embed
-  call. Linux needs a system `libffi.so.8` (NixOS: `nix develop`).
+  physical core count can regress on hyperthreaded CPUs. The model
+  file is mmapped (≈ 300 MB for the default, ≈ 640 MB for Qwen3) next
+  to the context; nothing loads before the first embed call. Linux needs a system `libffi.so.8` (NixOS: `nix develop`).
 - `ollama` — local `/api/embed`, default `embeddinggemma`, doc/query
   task prompts.
 - `openai` — any OpenAI-compatible `/embeddings` API (`index.openai.baseUrl`

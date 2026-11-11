@@ -43,7 +43,7 @@ A `wallet.key` directly at the root is the legacy flat layout: it acts as the de
 | `sdk/` | SDK | the CRDT storage — every space's change DAGs, materialized records, the tech space — plus the device-local store's `l_*` collections | CRDT content re-syncs from peers; local collections need a manual export for backup |
 | `files/` | SDK | file bytes; a durable file's bytes are a cache, a non-durable file's bytes are the only copy | partly — see [Status and durability](../files/status-and-durability.html) |
 | `index/` | indexer | `index.db` — BM25 + vector index and link edges per space, cursors, schema version; `index.db.lock` is present only while writes await a checkpoint and disappears after the idle flush or a clean stop | yes — rebuilt from the synced data |
-| `models/` | indexer | the embedding model GGUF (~639 MB), one per root, not per account | yes — re-downloaded |
+| `models/` | indexer | the embedding model GGUF (~296 MB), one per root, not per account | yes — re-downloaded |
 
 > **Why it matters.** This directory *is* your database. There is no server-side copy to restore from — a device that syncs a space holds the whole space, and unsynced changes, the local store and non-durable file bytes exist nowhere else. It is not encrypted at rest: records, the local store and the search index are readable by anyone who can read the directory, and a plain `wallet.key` holds the mnemonic itself. Treat it the way you would treat a private key directory.
 
