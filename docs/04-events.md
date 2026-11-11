@@ -179,9 +179,7 @@ Each `added` or `updated` record carries `doc` (the full post-apply
 JSON) plus `ops` (the per-field `$set` / `$unset` ops from the
 triggering change). Most consumers take `doc` and overwrite their
 local entry. Consumers that merge fields into a richer local model
-apply the ops, and take `doc` whole when a record carries none — a
-row that slid into the window, or one the engine re-read from
-storage:
+apply the ops, and take `doc` whole when a record carries none:
 
 - `$set` with `path: ["a","b"]`, `payload: V` — assign `V` to `a.b`.
 - `$set` with `path: []` and an object payload — multi-field set: each

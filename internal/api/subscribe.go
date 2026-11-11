@@ -62,11 +62,9 @@ const (
 	// is resubscribe (which re-Snapshots).
 	SubscribeClosedOverflow = "overflow"
 
-	// SubscribeClosedDrifted — only on query/subscribe streams. The
-	// SDK could not keep the window equal to storage: its losses
-	// reached DriftBudgetPercent of the limit, a row could not be
-	// read, or the window could not be re-read after a rebuild of its
-	// rows. Recovery is resubscribe.
+	// SubscribeClosedDrifted — only on query/subscribe streams. The SDK
+	// could not keep the window equal to storage: drift budget spent, an
+	// unreadable row, or a failed re-read after a rebuild. Resubscribe.
 	SubscribeClosedDrifted = "drifted"
 
 	// SubscribeClosedObjectDeleted — only on per-object query/subscribe
@@ -147,10 +145,9 @@ type RemovedRecord struct {
 // atomic updates against a local mirror without re-materialising the
 // whole record.
 //
-// Ops can be empty: a record the engine re-read from storage, a row
-// that slid into the window, a request `projection` (which shapes
-// both halves) that every op fell outside. Doc is authoritative
-// either way: with no Ops, take it whole.
+// Ops can be empty (a re-read or unreadable record, a row that slid
+// into the window, ops outside the `projection` or on withheld
+// fields). Doc is authoritative: with no Ops, take it whole.
 type QuerySubscribeRecord struct {
 	Id  string             `json:"id"`
 	Doc json.RawMessage    `json:"doc"`

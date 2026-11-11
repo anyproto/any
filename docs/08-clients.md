@@ -318,7 +318,8 @@ accumulate. Treat it as one and the lifecycle stays simple.
     match counts nothing; a window past an offset counts every held row
     that is deleted or stops matching. Either closes once the losses reach
     `driftBudgetPercent` of `limit` (default 30 — 15 rows of a 50-row
-    window).
+    window), and at once when a row cannot be read or the window cannot
+    be re-read after a rebuild of its rows.
   - `overflow` — events arrived faster than the client drained the SSE mailbox
     (`mailboxCapacity`, default 256, min 16) — e.g. a cold reconnect against a
     busy dataset.

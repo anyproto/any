@@ -61,7 +61,7 @@ curl http://127.0.0.1:2046/v1/spaces/$SPACE/sync-status
 |---------|---------|
 | `synced` | A node or direct peer confirmed heads of this space in this run, and no object is waiting for one. |
 | `syncing` | Changes are in flight in one direction or the other. |
-| `unknown` | A peer is connected but none has confirmed the space yet (or an object with no sync activity in this run that no completed round has covered). |
+| `unknown` | A peer is connected but none has confirmed the space yet (or an object with no sync activity in this run, until a sync round with a peer finds nothing to exchange). |
 | `offline` | No responsible node and no direct peer connected; local reads and writes continue. |
 | `error` | The network refuses this build's protocol version. |
 
