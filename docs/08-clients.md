@@ -158,16 +158,26 @@ lifecycle is in `04-events.md`.
   repeats rows. A cursor filter on an indexed sort field doesn't float:
   the next page is `{ "<field>": { "$lt": <lastSeen> } }` (`$gt` on an
   ascending sort) with the same `sort`, and the index bounds the read.
-  A field that can tie needs an `id` tiebreak — tied rows have no
-  specified order — and a row whose
-  sort key changes mid-pass moves relative to the cursor, so the pass
-  can miss it or return it twice. In chat that field is `_ver.id` —
-  the chat routes write one message per change, so it doesn't tie.
-  Records one change creates share a `_ver.id`, and across `objects`
-  rows it repeats and orders nothing, so elsewhere the cursor is the
-  declared sort field. `modifiedAt` ties often (whole seconds), so a
-  `modifiedAt` cursor carries the `id` tiebreak in both `sort` and the
-  filter, next to the first page's own filter.
+  A row whose sort key changes mid-pass moves relative to the cursor,
+  so the pass can miss it or return it twice.
+
+  A field that can tie carries an `id` tiebreak in both `sort` and the
+  filter, next to the first page's own filter. Without it, tied rows
+  have no specified order and a page boundary inside a tie skips rows.
+  - `id` takes the last key's direction: `-<field>` pairs with `-id` and
+    `$lt`, an ascending field with `id` and `$gt`. A mismatched
+    direction skips and repeats rows.
+  - Ids compare as byte strings: a fixed order for the tiebreak, never a
+    time order.
+  - The cursor values are the last row's values exactly as it returned
+    them. A `modifiedAt` cursor takes the `{"$date": …}` object; a bare
+    number matches nothing.
+
+  `modifiedAt` ties often (whole seconds). Chat's field, `_ver.id`, ties
+  too: the records one change creates share it, as when a batch of
+  messages is written through `…/modify`. Across `objects` rows `_ver.id`
+  repeats and orders nothing, so there the cursor is the declared sort
+  field.
 
   ```json
   { "sort":   ["-modifiedAt", "-id"], "limit": 50,
@@ -256,8 +266,9 @@ cannot fork even when two sides install while apart (the 1-1 case,
 where neither participant is the owner). Full guidance: `16-chat.md`
 § Finding the chat object for a space, `03-api.md` § Chat.
 
-Chat uses `-_ver.id` (descending) **uniformly** — initial view, live tail,
-and history paging all sort the same way. `_ver.id` is the record's
+Chat sorts `["-_ver.id", "-id"]` (descending) **uniformly** — initial view,
+live tail and history paging all sort the same way; `-id` breaks the tie
+between messages one change created. `_ver.id` is the record's
 `VersionId` at creation — its position in the any-sync DAG (the SDK's
 lex-monotonic, per-change DAG order). Sorting by it orders messages by
 **logical DAG order**, not wall-clock time. It's stamped once at creation
@@ -277,7 +288,7 @@ live updates.
 POST /v1/spaces/:spaceId/query/subscribe
 { "objectId": "<chatObjectId>",
   "dataset":  "chat_messages",
-  "sort":     ["-_ver.id"],
+  "sort":     ["-_ver.id", "-id"],
   "limit":    50 }
 ```
 
@@ -292,20 +303,23 @@ reaction-offs in `removed`).
 POST /v1/spaces/:spaceId/query
 { "objectId": "<chatObjectId>",
   "dataset":  "chat_messages",
-  "sort":     ["-_ver.id"],
+  "sort":     ["-_ver.id", "-id"],
   "limit":    50 }
 ```
 
 **Page into history** — scrolling up past the window. Take the oldest
-`_ver.id` you currently hold and `query` older messages (the subscribe
-window only tracks the newest `limit`; older history lives behind a paged
-query, not the stream):
+message you currently hold (the last row of the sort: lowest `_ver.id`,
+then lowest `id`) and `query` older messages (the subscribe window only
+tracks the newest `limit`; older history lives behind a paged query, not
+the stream). The cursor carries the `id` tiebreak (§ 3):
 
 ```
 { "objectId": "<chatObjectId>",
   "dataset":  "chat_messages",
-  "sort":     ["-_ver.id"],
-  "filter":   { "_ver.id": { "$lt": "<oldestMessageVersion>" } },
+  "sort":     ["-_ver.id", "-id"],
+  "filter":   { "$or": [
+    { "_ver.id": { "$lt": "<oldest._ver.id>" } },
+    { "_ver.id": "<oldest._ver.id>", "id": { "$lt": "<oldest.id>" } } ] },
   "limit":    50 }
 ```
 

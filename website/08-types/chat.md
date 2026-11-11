@@ -111,16 +111,20 @@ Open a chat view by subscribing — the stream's `snapshot` frame *is* your init
 ```bash
 curl -N -X POST http://127.0.0.1:2046/v1/spaces/$SP/query/subscribe \
   -H 'Content-Type: application/json' \
-  -d '{"objectId": "'$CHAT'", "dataset": "chat_messages", "sort": ["-_ver.id"], "limit": 50}'
+  -d '{"objectId": "'$CHAT'", "dataset": "chat_messages", "sort": ["-_ver.id", "-id"], "limit": 50}'
 ```
 
 Subscribe **descending** with a `limit`. The window holds the top of the sort, so with `-_ver.id` new arrivals enter it and the oldest drops out as `removed`; ascending would pin the oldest 50 forever. New messages arrive in `added` (with the full body in `doc`); edits and reaction toggles in `updated`; deletes (`deleted`) and messages leaving the window (`displaced`) in `removed`. Always set a limit — an unbounded subscribe risks overflowing the mailbox.
 
-`_ver.id` is the record's position in the sync DAG — logical order, not wall-clock time — stamped once at creation and never bumped by edits. Page into history with a one-shot query on the oldest id you hold:
+`_ver.id` is the record's position in the sync DAG — logical order, not wall-clock time — stamped once at creation and never bumped by edits. The messages one change creates share a `_ver.id`, so the sort and the cursor carry an `id` tiebreak. Page into history with a one-shot query from the oldest message you hold:
 
 ```json
 { "objectId": "<chatId>", "dataset": "chat_messages",
-  "sort": ["-_ver.id"], "filter": {"_ver.id": {"$lt": "<oldestVersion>"}}, "limit": 50 }
+  "sort": ["-_ver.id", "-id"],
+  "filter": { "$or": [
+    { "_ver.id": { "$lt": "<oldest._ver.id>" } },
+    { "_ver.id": "<oldest._ver.id>", "id": { "$lt": "<oldest.id>" } } ] },
+  "limit": 50 }
 ```
 
 Repeat until a short page; reverse each page client-side for oldest-at-top. The same body without the filter, against `/query`, is the point-in-time read when you don't want live updates.

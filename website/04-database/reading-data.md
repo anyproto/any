@@ -146,17 +146,21 @@ A type's or collection's `xKey` is a client-side label, never a server path.
 
 **`offset` / `limit`** is fine for a frozen snapshot. It floats on a live storage collection: row 50 becomes row 51 the moment something lands ahead of it, so paging across writes skips and repeats rows.
 
-**Cursor paging** does not float under inserts: filter past the last row on the indexed sort field (`$lt` on a descending sort, `$gt` on an ascending one) and keep the same sort. A row whose sort key changes mid-pass moves relative to the cursor, so the pass can miss it or return it twice — an edited object jumps past a `modifiedAt` cursor. For chat that field is `_ver.id`, assigned at creation, untouched by edits, and unique because the chat routes write each message as its own change; records one change creates share a `_ver.id`. Chat pages backward with
+**Cursor paging** does not float under inserts: filter past the last row on the indexed sort field (`$lt` on a descending sort, `$gt` on an ascending one) and keep the same sort. A row whose sort key changes mid-pass moves relative to the cursor, so the pass can miss it or return it twice — an edited object jumps past a `modifiedAt` cursor. A field that can tie carries an `id` tiebreak in both `sort` and the filter, in the last key's direction: `-x` pairs with `-id` and `$lt`, an ascending field with `id` and `$gt`. A mismatched direction, or a sort without `id`, skips and repeats rows at a page boundary inside a tie. Ids compare as byte strings: a fixed order for the tiebreak, never a time order. The cursor values are the last row's values exactly as it returned them.
+
+For chat that field is `_ver.id`, assigned at creation and untouched by edits. The records one change creates share it, as when a batch of messages is written through `…/modify`, so chat carries the tiebreak too. Chat pages backward from the oldest message held with
 
 ```json
 { "objectId": "<chat>", "dataset": "chat_messages",
-  "filter": { "_ver.id": { "$lt": "<oldestSeen>" } },
-  "sort": ["-_ver.id"], "limit": 50 }
+  "filter": { "$or": [
+    { "_ver.id": { "$lt": "<oldest._ver.id>" } },
+    { "_ver.id": "<oldest._ver.id>", "id": { "$lt": "<oldest.id>" } } ] },
+  "sort": ["-_ver.id", "-id"], "limit": 50 }
 ```
 
 `_ver.id` orders one object's records only. Records of different objects share no version order, so across a shared dataset the cursor is a declared field that a declared [index](indexes.html#runtime-datasets) leads with.
 
-On `objects` rows `_ver.id` repeats and orders nothing either; the cursor is the sort field. `modifiedAt` holds whole seconds, so rows tie often, and tied rows have no specified order. Sort `["-modifiedAt", "-id"]` and carry the `id` tiebreak into the cursor filter, next to the first page's own filter.
+On `objects` rows `_ver.id` repeats and orders nothing either; the cursor is the sort field. `modifiedAt` holds whole seconds, so rows tie often. Sort `["-modifiedAt", "-id"]` and carry the `id` tiebreak into the cursor filter, next to the first page's own filter; the `modifiedAt` value is the `{"$date": …}` object the row returned, since a bare number matches nothing.
 
 ```json
 { "sort": ["-modifiedAt", "-id"], "limit": 50,

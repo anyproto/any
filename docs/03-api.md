@@ -3868,11 +3868,12 @@ Liveness goes through the per-object query/subscribe endpoint with
 POST /v1/spaces/:spaceId/query/subscribe
 { "objectId": "<chatObjectId>",
   "dataset":  "chat_messages",
-  "sort":     ["-_ver.id"],
+  "sort":     ["-_ver.id", "-id"],
   "limit":    50 }
 ```
 
-Subscribe descending (`-_ver.id`) with a `limit`: the window holds the
+Subscribe descending (`-_ver.id`, then `-id` for messages one change
+created) with a `limit`: the window holds the
 *newest* `limit` messages, so new arrivals enter it. Ascending would pin
 the oldest `limit` and new messages would never appear. Always set a
 `limit` — an unbounded subscribe risks overflowing the mailbox.
@@ -4043,19 +4044,22 @@ Reads go through the per-object query primitive with
 POST /v1/spaces/:spaceId/query
 { "objectId": "<chatObjectId>",
   "dataset":  "chat_messages",
-  "sort":     ["-_ver.id"],
+  "sort":     ["-_ver.id", "-id"],
   "limit":    50 }
 ```
 
-Sort descending (`-_ver.id`) with a `limit` — that loads the *newest*
+Sort descending (`-_ver.id`, then `-id`) with a `limit` — that loads the *newest*
 page first, the usual chat default. `_ver.id` is the record's `VersionId`
 at creation — its position in the any-sync DAG (lex-monotonic, per-change
 DAG order) — so sorting by it is logical DAG order, not wall-clock time.
 It's stamped once at creation and never bumped by edits, so that order is
 stable across edits; only the read direction flips.
 Page backward into history as a client-side two-step: take the oldest
-`_ver.id` from the page you have, then chain a second query with the same
-sort and `filter: {"_ver.id": {"$lt": <id>}}` (older messages). Always
+message from the page you have, then chain a second query with the same
+sort and `filter: {"$or": [{"_ver.id": {"$lt": <v>}}, {"_ver.id": <v>,
+"id": {"$lt": <id>}}]}` (older messages), where `<v>` and `<id>` are that
+message's `_ver.id` and `id`: the records one change creates share a
+`_ver.id`, so the cursor carries the `id` tiebreak. Always
 set a `limit` so a long history can't produce a huge response; reverse
 each page client-side for oldest-at-top display. See `08-clients.md`
 § 4 for the full read/write recommendations.

@@ -23,14 +23,14 @@ Property values are admitted only under an **owner** the object has — its type
 
 - **Prefer `query`.** Open a `subscribe` only when the UI renders changes live.
 - **Always set `limit`.** An unbounded read is a bug: it can produce a huge snapshot or overflow a subscribe mailbox, and the drift budget is off when `limit == 0`.
-- **Page on a cursor, not `offset`.** Offsets float under writes. Filter past the last row on the indexed sort field and keep the same sort. In chat that field is `_ver.id` (one message per change): `{"_ver.id": {"$lt": "<last>"}}`. Across `objects` rows `_ver.id` repeats and orders nothing; page on the sort field, and since `modifiedAt` holds whole seconds, carry the `id` tiebreak in both `sort` and the filter ([Reading data](../database/reading-data.html#paging)).
+- **Page on a cursor, not `offset`.** Offsets float under writes. Filter past the last row on the indexed sort field and keep the same sort. A field that can tie carries the `id` tiebreak in both `sort` and the filter, in the last key's direction: `["-x", "-id"]` with `{"$or": [{"x": {"$lt": v}}, {"x": v, "id": {"$lt": lastId}}]}`. In chat that field is `_ver.id`, which ties for the messages one change creates. Across `objects` rows `_ver.id` repeats and orders nothing; page on the sort field, and since `modifiedAt` holds whole seconds, it ties often ([Reading data](../database/reading-data.html#paging)).
 - **Recency is `-modifiedAt`**, creation order `-createdAt` — author's clock, display quality only. `modifiedAt` resolves by version, not by clock, so it can move backwards.
 - **Timestamps are `{"$date": …}`** in filters too; a bare value compares only within its own type bracket, so it silently returns nothing.
 - **Aggregate server-side.** Counts and top-N go through `…/aggregate`, `$match` first ([Aggregation](../database/aggregation.html)).
 
 ## 4. Chat: newest-first, subscribe first
 
-Find the chat through the catalog (`POST /v1/catalog/general-chat/setup`, the chat is the returned `bundle.rootId`) so every client lands on the one object. Open the view with a **subscribe** — its `snapshot` *is* the initial load; a separate query first opens a gap/dup race. Sort `-_ver.id` everywhere: the window holds the top of the sort, so descending is the only direction where new messages enter it. Page history with `{"_ver.id": {"$lt": oldest}}` ([Chat](../types/chat.html)).
+Find the chat through the catalog (`POST /v1/catalog/general-chat/setup`, the chat is the returned `bundle.rootId`) so every client lands on the one object. Open the view with a **subscribe** — its `snapshot` *is* the initial load; a separate query first opens a gap/dup race. Sort `["-_ver.id", "-id"]` everywhere: the window holds the top of the sort, so descending is the only direction where new messages enter it. Page history from the oldest message held, with the `id` tiebreak in the cursor ([Chat](../types/chat.html)).
 
 ## 5. Hold a window; recover by resubscribing
 
