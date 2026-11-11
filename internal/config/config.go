@@ -355,14 +355,14 @@ type IndexOpenAI struct {
 type IndexLocal struct {
 	// Model names a pinned model: LocalModelQwen3 (default) or
 	// LocalModelEmbeddingGemma2. It sets the download, the prompts, the
-	// pooling and the output width. With ModelPath or ModelUrl it
-	// declares what that file is; without Model such a file is an
-	// unnamed GGUF that takes only what this block sets.
+	// pooling and the output width. With ModelPath it declares what
+	// that file is; a ModelPath without Model is an unnamed GGUF that
+	// takes only what this block sets.
 	Model string `yaml:"model"`
 	// ModelPath points at an existing GGUF file; when set, no download
 	// is attempted (air-gapped operation).
 	ModelPath string `yaml:"modelPath"`
-	// ModelUrl overrides the download source for the default model path.
+	// ModelUrl is another download source for the model Model names.
 	ModelUrl string `yaml:"modelUrl"`
 	// ModelSha256 is the expected checksum of the downloaded model.
 	// Empty with a custom ModelUrl skips verification (logged once).
@@ -375,7 +375,7 @@ type IndexLocal struct {
 	ContextSize int `yaml:"contextSize"`
 	// QueryPrefix is prepended to query (not document) texts. Empty
 	// means the pinned model's own query prompt, nothing for an unnamed
-	// GGUF.
+	// GGUF (a ModelPath without Model).
 	QueryPrefix string `yaml:"queryPrefix"`
 	// DocPrefix is prepended to document (not query) texts. Empty means
 	// the pinned model's own document prompt, nothing for an unnamed GGUF.

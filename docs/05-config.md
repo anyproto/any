@@ -181,8 +181,7 @@ index:
                                       # embeddinggemma-2; sets download, prompts, pooling, dim
     modelPath: ""                     # existing GGUF; set ⇒ no download (air-gapped). Without
                                       # `model` it is an unnamed GGUF: no pinned prompts or pooling
-    modelUrl: ""                      # download-source override for the default path;
-                                      # without `model`, an unnamed GGUF like modelPath
+    modelUrl: ""                      # another download source for the model `model` names
     modelSha256: ""                   # checksum override; "" with modelUrl ⇒ skip verify
     libDir: ""                        # llama.cpp shared libs; default $YZMA_LIB, else
                                       # <exe-dir>/llamacpp

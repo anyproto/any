@@ -108,8 +108,8 @@ func TestResolveLocalSpec_Model(t *testing.T) {
 			localSpec{profile: eg2.id, modelPath: custom, pooling: "mean", queryPrefix: eg2.queryPrefix, docPrefix: eg2.docPrefix}},
 		{"unnamed GGUF takes only the config", config.IndexLocal{ModelPath: custom, Pooling: "cls", DocPrefix: "passage: "},
 			localSpec{modelPath: custom, pooling: "cls", docPrefix: "passage: "}},
-		{"a ModelUrl without a model is unnamed too, once downloaded", config.IndexLocal{ModelUrl: "https://example.invalid/m.gguf"},
-			localSpec{modelPath: filepath.Join(dir, qwen3(t).file)}},
+		{"a ModelUrl alone is another source for the default model", config.IndexLocal{ModelUrl: "https://example.invalid/m.gguf"},
+			localSpec{profile: qwen3(t).id, modelPath: filepath.Join(dir, qwen3(t).file), modelDim: 1024, pooling: "last", queryPrefix: qwen3(t).queryPrefix}},
 		{"config overrides the model's prompts and pooling", config.IndexLocal{Model: config.LocalModelEmbeddingGemma2, QueryPrefix: "q: ", DocPrefix: "d: ", Pooling: "last"},
 			localSpec{profile: eg2.id, modelPath: filepath.Join(dir, eg2.file), modelDim: 768, pooling: "last", queryPrefix: "q: ", docPrefix: "d: "}},
 	} {

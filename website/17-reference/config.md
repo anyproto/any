@@ -73,7 +73,7 @@ The passkey is the one secret the server may need at boot: it comes from the env
 | `index.openai.model` | `ANY_INDEX_OPENAI_MODEL` | `Qwen/Qwen3-Embedding-0.6B` | the local model's name; override with the provider's spelling of the **same** model — a different model makes the index incompatible with the local fallback |
 | `index.openai.apiKey` | `ANY_INDEX_OPENAI_API_KEY` | empty | turns the `auto` primary on; sent as Bearer; never logged |
 | `index.local.modelPath` | `ANY_INDEX_LOCAL_MODEL_PATH` | `""` | existing GGUF; set ⇒ no download (air-gapped) |
-| `index.local.modelUrl` | `ANY_INDEX_LOCAL_MODEL_URL` | `""` | download-source override |
+| `index.local.modelUrl` | `ANY_INDEX_LOCAL_MODEL_URL` | `""` | another download source for the model `index.local.model` names |
 | `index.local.modelSha256` | `ANY_INDEX_LOCAL_MODEL_SHA256` | `""` | checksum override |
 | `index.local.libDir` | `ANY_INDEX_LOCAL_LIB_DIR` | `<exe-dir>/llamacpp` | llama.cpp shared libs |
 | `index.local.contextSize` | `ANY_INDEX_LOCAL_CONTEXT_SIZE` | `2048` | truncation bound in tokens |

@@ -121,6 +121,9 @@ func newWorkerEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string,
 	return w, nil
 }
 
+// localEmbedderBuilt: this build has the local embedder.
+const localEmbedderBuilt = true
+
 // newLocalEmbedder backs index.embedder "local" and the "auto" fallback
 // (embed_local_off.go is the build without it).
 func newLocalEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string, onProcess func(ProcessUpdate)) (Embedder, error) {
