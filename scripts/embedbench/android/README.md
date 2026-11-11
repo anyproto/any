@@ -52,6 +52,36 @@ Phone on the charger, benchmark mode, latency per embedding at a fixed token cou
 - **The GPU's peak RAM is 1–2 GB, against 0.3–0.5 GB on the CPU.** That's a lot for a background indexer.
 - **Init takes 0.7–0.9 s on the CPU and 2–4.5 s on the GPU,** with the caches warm.
 
+## 2b. The Mac/iPhone per-doc bench (`eg2bench.c`, `prep_corpus.py`, `build.sh`, `results/fiqa-*.json`)
+
+This is the `TestEmbedBench` loop (`internal/indexer/embed_bench_test.go`), ported to the LiteRT-LM C API
+(`litert_lm_c_api-1.0.0.zip`, `lib/android_arm64/liblitert-lm.so`, loaded with `dlopen` because it ships
+without a SONAME):
+- one engine, a one-doc and one-query warm-up, then `fiqa-1500.jsonl` one doc per call with the production doc
+  prompt;
+- the 16 bench queries, 3 rounds;
+- `max_input_length` 2048 with truncation, matching the indexer's context.
+
+Phone on the Mac's USB port. That couldn't keep up: the battery fell from 12% to 10% during the GPU run, and the
+battery reached 39 °C.
+
+| device, backend | docs/s | doc p50 / mean / p99 | query p50 | peak memory | load |
+|---|---|---|---|---|---|
+| **Nothing 2a, LiteRT int4, CPU 4 threads** | **1.66** | 219 / 602 / 3,732 ms | 207 ms | 1.24 GB RSS | 0.6 s |
+| **Nothing 2a, LiteRT int4, GPU** | **2.72** | 313 / 367 / 1,243 ms | 194 ms | 2.24 GB RSS | 6.6 s |
+| iPhone 17 Pro, EG2 Q8, Metal (b11600) | 30.0 | 25.6 ms p50 | 13.5 ms | 229 MB | |
+| iPhone 17 Pro, EG2, ANE (Nemosine) | 55.9 | 12.1 ms p50 | 7.0 ms | 2.25 GB | |
+| iPhone 17 Pro, EG2 Q8, CPU | 5.3 | 123 ms p50 | – | 399 MB | |
+| M2 Air, EG2 Q8, Metal | 15.2 | 43.6 ms p50 | 12.2 ms | 2.6 GB | 0.7 s |
+| M2 Air, EG2, ANE (Nemosine) | 58.0 | 10.5 ms p50 | 6.5 ms | 864 MB | |
+
+- **Vectors:** they match the M2 Q8 Metal run at cos 0.985 (CPU) and 0.986 (GPU) on docs, min 0.959, and 0.990
+  on queries.
+- **Speed:** the phone is 11–18× slower than iPhone Metal per doc. Long docs dominate on the CPU (mean 2.7× the
+  median), and the GPU flattens that.
+- **Memory:** loading every bucket up to 2,048 tokens raises the peak to 1.2 GB on the CPU and 2.2 GB on the GPU.
+  A lower `max_input_length` with chunk-and-average would trade some long-doc fidelity for memory; not measured.
+
 ## 3. Energy (`energy.sh`, `sampler.sh`, `power.py`, `results/energy.log`, `results/current.log`)
 
 - **Method:** cable unplugged, adb over Wi-Fi, screen off. Battery current comes from
