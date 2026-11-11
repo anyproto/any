@@ -285,19 +285,18 @@ type Index struct {
 }
 
 // IndexSearch tunes hybrid search ranking (chunker-hybrid-search-report
-// § 5). All zero values pick safe defaults that reproduce pre-tuning
-// behavior, so an absent `index.search` block changes nothing.
+// § 5). Zero values pick the defaults.
 type IndexSearch struct {
-	// FtsWeight / VectorWeight scale each leg's reciprocal-rank-fusion
-	// contribution in hybrid mode. Default 1 each (plain RRF). Lowering
-	// VectorWeight trusts the lexical leg more — useful while the dense
-	// leg is noisy (short chunks, weak embedder).
+	// FtsWeight / VectorWeight fix each leg's reciprocal-rank-fusion
+	// weight in hybrid mode (k 60; an unset one is 1). Both unset
+	// (default): each query picks its RRF form (indexer planFusion).
 	FtsWeight    float64 `yaml:"ftsWeight"`
 	VectorWeight float64 `yaml:"vectorWeight"`
 	// AdaptiveWeights down-weights the FTS leg per query by its score
 	// concentration — so a weak lexical leg (e.g. paraphrastic queries
-	// where BM25 is flat) can't drag hybrid below the dense leg. Off by
-	// default. docs/search/README.md § per-corpus leg weighting.
+	// where BM25 is flat) can't drag hybrid below the dense leg. Fixed
+	// weights only; off by default. docs/search/README.md § per-corpus
+	// leg weighting.
 	AdaptiveWeights bool `yaml:"adaptiveWeights"`
 	// DefaultOperator controls how bare FTS terms combine: "or" (default,
 	// any term) or "and" (all terms — higher precision, lower recall).

@@ -3554,6 +3554,10 @@ const docTemplate = `{
                     "mode": {
                         "type": "string"
                     },
+                    "scoreScale": {
+                        "description": "ScoreScale names the scale of the content hits' scores: \"unit\" in\nhybrid mode (0–1, comparable across responses). Absent otherwise:\nBM25 and cosine compare only within one response.",
+                        "type": "string"
+                    },
                     "truncated": {
                         "description": "Truncated is set when a leg's read budget under Filter ended and\nthe page holds fewer than Limit records: the index may hold\nmatches the reply cannot show. Absent without a filter. A Filter\nno object satisfies answers empty without running a leg\n(VectorStatus then reads skipped, or disabled without an embedder).",
                         "type": "boolean"

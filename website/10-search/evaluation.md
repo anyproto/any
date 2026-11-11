@@ -40,7 +40,7 @@ Hybrid beats both legs; the FTS number matches published BM25 for SciFact (~0.66
 | vector (HNSW) | 0.466 | 0.542 | 0.550 |
 | hybrid, equal weights | 0.385 | — | — |
 
-Here vector alone beats hybrid: a weak BM25 list drags equal-weight fusion below the dense leg. **Decision:** equal weights stay the corpus-agnostic default; `ftsWeight` / `vectorWeight` are the lever for corpora where one leg is much weaker.
+Here vector alone beats hybrid: a weak BM25 list drags equal-weight fusion below the dense leg. **Decision:** fixed `ftsWeight` / `vectorWeight` are the lever for a corpus where one leg is much weaker; by default each query picks its RRF form ([hybrid ranking](hybrid.html)).
 
 ### Adaptive weighting
 
@@ -115,7 +115,7 @@ Packing several documents into one local decode (`index.local.batchDocs`) buys n
 |---|---|---|
 | editor chunk unit | ~1.5 KB windows | chunk-length distribution, recall |
 | `vector.mode` | `ivfsq` | incremental ingest cost vs ~3–4 recall@10 |
-| `ftsWeight` / `vectorWeight` | 1 / 1 | optimal on SciFact, safe elsewhere |
+| `ftsWeight` / `vectorWeight` | unset: per-query RRF form | gains on lookups, paraphrase and cross-language queries on a real account; a fixed weight above ~1.2 costs one-word lookups |
 | `adaptiveWeights` | off | wins on paraphrastic, small cost on lexical corpora |
 | `defaultOperator` | `or` | AND recall cliff |
 | `stopWords` | on | helps conversational, neutral on BEIR |

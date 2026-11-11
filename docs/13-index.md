@@ -879,7 +879,9 @@ page the open does not read fails later, on the read that meets it.
 `POST /v1/spaces/:spaceId/search` `{query, scopes?, limit?, mode?,
 require?, exclude?, maxData?, passages?, filter?}` →
 `{hits: [{scope, objectId, dataset, recordId, chunk?, data, dataOffset?,
-dataTotal, score, match?, passages?}], mode, vectorStatus, truncated?}`.
+dataTotal, score, match?, passages?}], mode, vectorStatus, truncated?,
+scoreScale?}`. `scoreScale: "unit"` marks a hybrid reply, whose content
+scores read 0–1.
 
 Modes: `fts` (BM25), `vector` (cosine ANN; requires an embedder; hits
 with similarity ≤ 0 — or ≤ `minVectorSim` — are dropped), `hybrid`
@@ -890,8 +892,9 @@ title pass alone, below). The query
 embedding is bounded by `index.search.queryEmbedTimeout` (default 5 s,
 every embedder): a cold model load, a wedged child or a slow API
 degrades the search instead of holding it, and a caller that disconnects
-leaves the embedder's queue at once. Scores are comparable only within
-one response. `limit` defaults to 10 and is clamped to 100. CLI:
+leaves the embedder's queue at once. BM25 and cosine scores are
+comparable only within one response; a hybrid content score is 0–1 and
+comparable across responses (§ Ranking knobs). `limit` defaults to 10 and is clamped to 100. CLI:
 `any search <spaceId> <query> [--scopes a,b] [--limit N] [--mode …]
 [--require T …] [--exclude T …] [--max-data N] [--passages N]`.
 
@@ -1019,9 +1022,21 @@ survive intact.
   stop list (`stopwords.go`) is removed from the FTS-leg query only; the
   vector leg gets the full query. An all-stop-words query is left
   unchanged.
-- **Weighted RRF** (`ftsWeight` / `vectorWeight`, default 1 / 1) — scales
-  each leg's fusion contribution.
-- **Adaptive leg weighting** (`adaptiveWeights`, default **off**) —
+- **Fusion form** — by default each query picks its RRF form
+  (`fusion.go`). The share of its words found in the best of the top
+  three FTS chunks, then how peaked the stronger leg is (cosine top-1 −
+  top-5, or BM25's relative top-1 − top-2 gap), choose vector-heavy RRF
+  (1 / 2 at k 20), the vector leg alone, lexical-heavy RRF (1 / 0.5 at
+  k 20) or the FTS leg alone. A single leg fuses at k 0, so its score is
+  1 / (1 + rank) and a gate above 0.5 admits its rank 1 only. One fixed weight can't serve both kinds of
+  query: above ~1.2 every vector-only hit outranks every FTS-only one,
+  FTS #1 included, which costs word, name and id lookups. Setting
+  `ftsWeight` / `vectorWeight` fixes weighted RRF at k 60 instead (an
+  unset one is 1). Every form's score is divided by its maximum,
+  `Σ weight / (k + 1)`, so a hybrid score reads 0–1 and clients can gate
+  on it.
+- **Adaptive leg weighting** (`adaptiveWeights`, default **off**, fixed
+  weights only) —
   down-weights the FTS leg per query by its score concentration, so a
   flat BM25 distribution (paraphrastic queries) can't drag hybrid below
   the dense leg. FTS only — cosine is uncalibrated. Wins on weak-lexical

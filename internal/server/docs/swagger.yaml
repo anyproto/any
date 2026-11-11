@@ -2935,6 +2935,12 @@ components:
           uniqueItems: false
         mode:
           type: string
+        scoreScale:
+          description: |-
+            ScoreScale names the scale of the content hits' scores: "unit" in
+            hybrid mode (0–1, comparable across responses). Absent otherwise:
+            BM25 and cosine compare only within one response.
+          type: string
         truncated:
           description: |-
             Truncated is set when a leg's read budget under Filter ended and

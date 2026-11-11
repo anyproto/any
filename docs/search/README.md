@@ -442,7 +442,7 @@ the vector index inserts thousands per second. Two mechanisms address this
 | editor chunk unit | coalesced ~1.5 KB windows | distribution + recall (above) |
 | long-record chunk target | 2000 runes | fits the local embedder's 2048-token clamp; a hit's data is the passage |
 | `vector.mode` | IVF-SQ | cheap near-flat incremental ingest + physical deletes; HNSW's ≈-exact recall (+3–4 recall@10) isn't worth its ~15–47× serial ingest and tombstone rebuilds for a continuously written local index. `btree` opt-in |
-| `ftsWeight` / `vectorWeight` | 1 / 1 | safe corpus-agnostic default (optimal on SciFact); dense-favorable corpora like FiQA want vector-heavier |
+| `ftsWeight` / `vectorWeight` | unset: each query picks its RRF form (`fusion.go`) | on a real account against 1 / 1: blind real-query nDCG@3 +0.013 (assistant lookups +0.065*), known-item +0.04 to +0.07*, topical +0.02; a fixed weight above ~1.2 ranks every vector-only hit above every FTS-only one, which costs one-word lookups |
 | `stopWords` | on | helps conversational queries, neutral on BEIR |
 | `minVectorSim` | 0 | a static floor can't separate signal from noise for the local model |
 | `adaptiveWeights` | off | wins on paraphrastic corpora (FiQA +3 recall@10), small cost on lexical-friendly ones; opt-in |

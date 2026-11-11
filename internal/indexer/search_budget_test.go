@@ -82,6 +82,9 @@ func TestIndexer_SearchQueryEmbedBudget(t *testing.T) {
 	if out.res.Mode != api.SearchModeFTS || out.res.VectorStatus != api.VectorStatusUnavailable {
 		t.Fatalf("mode %q vectorStatus %q, want fts/unavailable", out.res.Mode, out.res.VectorStatus)
 	}
+	if out.res.ScoreScale != "" {
+		t.Fatalf("degraded reply carries scoreScale %q: its scores are BM25", out.res.ScoreScale)
+	}
 	if len(out.res.Hits) != 1 {
 		t.Fatalf("lexical leg lost: %d hits", len(out.res.Hits))
 	}

@@ -82,9 +82,11 @@ const DefaultSearchMaxData = 512
 
 // SearchHit is one ranked result — the indexed record's identity plus
 // its indexed text. Score semantics depend on the effective mode: BM25
-// for fts, cosine similarity for vector, RRF for hybrid, and BM25 for a
-// title hit whatever the mode; within one block of one response higher
-// is better, and the order across blocks is authoritative.
+// for fts, cosine similarity for vector, and for hybrid the RRF sum
+// divided by its maximum (0–1 whatever the leg weights, comparable
+// across responses); a title hit carries BM25 whatever the mode. Within
+// one block of one response higher is better, and the order across
+// blocks is authoritative.
 type SearchHit struct {
 	Scope    string `json:"scope"`
 	ObjectId string `json:"objectId"`
@@ -162,4 +164,11 @@ type SearchResponse struct {
 	// no object satisfies answers empty without running a leg
 	// (VectorStatus then reads skipped, or disabled without an embedder).
 	Truncated bool `json:"truncated,omitempty"`
+	// ScoreScale names the scale of the content hits' scores: "unit" in
+	// hybrid mode (0–1, comparable across responses). Absent otherwise:
+	// BM25 and cosine compare only within one response.
+	ScoreScale string `json:"scoreScale,omitempty"`
 }
+
+// ScoreScaleUnit marks hybrid content scores: the RRF sum over its maximum.
+const ScoreScaleUnit = "unit"
