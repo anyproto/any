@@ -68,7 +68,9 @@ func Windows(ordered []Block) []Window {
 				cur.Title = b.Text // window opens on a heading → boost it
 			}
 			started = true
-			headingsOnly = isHeading
+			// An empty heading leads nothing: the next heading starts
+			// its own window, as after any empty block.
+			headingsOnly = isHeading && b.Text != ""
 		} else if !isHeading && b.Text != "" {
 			headingsOnly = false
 		}

@@ -101,6 +101,9 @@ func TestWindows_HeadingOnlyFolds(t *testing.T) {
 		{"a heading after text still starts a window",
 			[]Block{blk("h1", TypeHeading, "A"), blk("p1", TypeParagraph, "text"), blk("h2", TypeHeading, "B"), blk("p2", TypeParagraph, "more")},
 			[][]string{{"h1", "p1"}, {"h2", "p2"}}},
+		{"an empty heading leads nothing",
+			[]Block{blk("h0", TypeHeading, ""), blk("h1", TypeHeading, "A"), blk("p1", TypeParagraph, "text")},
+			[][]string{{"h1", "p1"}}},
 		{"trailing headings stand alone",
 			[]Block{blk("p1", TypeParagraph, "text"), blk("h1", TypeHeading, "A"), blk("h2", TypeHeading, "B")},
 			[][]string{{"p1"}, {"h1", "h2"}}},
@@ -113,8 +116,8 @@ func TestWindows_HeadingOnlyFolds(t *testing.T) {
 		if !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: windows %v, want %v", c.name, got, c.want)
 		}
-		if len(wins) > 0 && wins[0].AnchorId != c.blocks[0].Id {
-			t.Errorf("%s: first anchor %q", c.name, wins[0].AnchorId)
+		if len(wins) > 0 && (wins[0].AnchorId != c.want[0][0] || wins[0].Title == "" && c.blocks[0].Type == TypeHeading) {
+			t.Errorf("%s: first window anchor %q, title %q", c.name, wins[0].AnchorId, wins[0].Title)
 		}
 	}
 	// The leading heading stays the window's title.

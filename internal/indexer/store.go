@@ -868,6 +868,42 @@ func (s *Store) ApplyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 	}
 	defer tx.Rollback() //nolint:errcheck — no-op after Commit
 
+	// Objects whose name this page changes. Read before the writes: a
+	// name entry is re-streamed with every change to its object, so only
+	// a stored name that differs counts.
+	var renamed []string
+	if s.embedTitles && s.markPending {
+		storedName := func(objectId string) (string, error) {
+			doc, err := coll.FindId(tx.Context(), objectId+nameDocSuffix)
+			if errors.Is(err, anystore.ErrDocNotFound) {
+				return "", nil
+			}
+			if err != nil {
+				return "", err
+			}
+			return string(doc.Value().GetStringBytes(nameField)), nil
+		}
+		names := map[string]string{} // the name each object ends the page with
+		for _, id := range dels {
+			if objectId, ok := strings.CutSuffix(id, nameDocSuffix); ok {
+				names[objectId] = ""
+			}
+		}
+		for _, up := range ups {
+			if isNameDoc(up.Entry) && up.Chunk == 0 {
+				names[up.Entry.ObjectId] = up.Entry.Data
+			}
+		}
+		for objectId, name := range names {
+			old, err := storedName(objectId)
+			if err != nil {
+				return nil, err
+			}
+			if old != name {
+				renamed = append(renamed, objectId)
+			}
+		}
+	}
 	for _, p := range append(append([]string(nil), prefixDels...), textPrefixDels...) {
 		// Find joins the open tx via tx.Context(); the id range drives
 		// the primary btree directly, and Delete cleans FTS + vector
@@ -893,12 +929,6 @@ func (s *Store) ApplyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 
 	gone := newRemovals(dels, append(append([]string(nil), prefixDels...), textPrefixDels...))
 	arena := &anyenc.Arena{}
-	var renamed []string // objects whose name doc this page writes or removes
-	for _, id := range dels {
-		if objectId, ok := strings.CutSuffix(id, nameDocSuffix); ok {
-			renamed = append(renamed, objectId)
-		}
-	}
 	for _, up := range ups {
 		e := up.Entry
 		id := chunkDocId(docId(e.ObjectId, e.Dataset, e.RecordId), up.Chunk)
@@ -916,7 +946,6 @@ func (s *Store) ApplyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 		}
 		if isNameDoc(e) && up.Chunk == 0 {
 			doc.Set(nameField, arena.NewString(e.Data))
-			renamed = append(renamed, e.ObjectId)
 		} else {
 			doc.Set("data", arena.NewString(e.Data))
 		}
@@ -937,7 +966,7 @@ func (s *Store) ApplyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 			return nil, err
 		}
 	}
-	if s.embedTitles && s.markPending {
+	{
 		// The name is part of every document prompt of the object: its
 		// vectors are stale. They keep serving until re-embedded.
 		for _, objectId := range renamed {

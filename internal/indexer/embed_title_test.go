@@ -106,6 +106,29 @@ func TestStore_RenameRequeuesVectors(t *testing.T) {
 		t.Fatalf("pending after the name was cleared = %v, want %v", got, want)
 	}
 
+	// The name entry is re-streamed with every change to the object: an
+	// unchanged name, and the delete an unnamed object's empty name
+	// plans, requeue nothing.
+	if err := s.SetVectors(ctx, sp, want, [][]float32{vec, vec}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Apply(ctx, sp, nil, []string{
+		docId("obj1", index.DatasetProp, index.NamePropRecordId),
+		docId("obj3", index.DatasetProp, index.NamePropRecordId),
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	apply(DocUpsert{Entry: entry("basic", "obj2", index.DatasetProp, index.NamePropRecordId, "Other", 9)})
+	if got := pending(); len(got) != 0 {
+		t.Fatalf("pending after re-streamed unchanged names: %v", got)
+	}
+	// Naming it again is a change.
+	apply(DocUpsert{Entry: entry("basic", "obj1", index.DatasetProp, index.NamePropRecordId, "Game Consoles", 10)})
+	if got := pending(); !slices.Equal(got, want) {
+		t.Fatalf("pending after naming the object again = %v, want %v", got, want)
+	}
+	got = want
+
 	// An embedder without a title slot: no names, no requeue.
 	s.SetEmbedTitles(false)
 	if err := s.SetVectors(ctx, sp, got, [][]float32{vec, vec}); err != nil {
@@ -117,5 +140,19 @@ func TestStore_RenameRequeuesVectors(t *testing.T) {
 	}
 	if titles, err := s.DocTitles(ctx, sp, want); err != nil || titles != nil {
 		t.Fatalf("titles without the switch = %q, %v", titles, err)
+	}
+}
+
+// A doc whose object was renamed while its batch embedded is not landed.
+func TestSameTitle(t *testing.T) {
+	ids := []string{"a", "b", "c"}
+	vecs := [][]float32{{1}, {2}, {3}}
+	was := []string{"x", "y", ""}
+	if gotIds, gotVecs := sameTitle(ids, vecs, was, []string{"x", "y", ""}); !slices.Equal(gotIds, ids) || len(gotVecs) != 3 {
+		t.Fatalf("unchanged names dropped docs: %v", gotIds)
+	}
+	gotIds, gotVecs := sameTitle(ids, vecs, was, []string{"x", "renamed", "named"})
+	if !slices.Equal(gotIds, []string{"a"}) || len(gotVecs) != 1 || gotVecs[0][0] != 1 {
+		t.Fatalf("kept %v %v, want only the doc whose name stood", gotIds, gotVecs)
 	}
 }

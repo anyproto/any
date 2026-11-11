@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -895,7 +896,17 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 		landed := false
 		for _, c := range chunks {
 			if n := len(c.vecs); n > 0 {
-				if err := w.ix.store.SetVectors(ctx, spaceId, c.ids[:n], c.vecs); err != nil {
+				ids, vecs := c.ids[:n], c.vecs
+				if c.titles != nil {
+					// A rename since the read left these vectors embedded
+					// under the old name: they stay pending for the next round.
+					now, err := w.ix.store.DocTitles(ctx, spaceId, ids)
+					if err != nil {
+						return err
+					}
+					ids, vecs = sameTitle(ids, vecs, c.titles[:n], now)
+				}
+				if err := w.ix.store.SetVectors(ctx, spaceId, ids, vecs); err != nil {
 					return err
 				}
 				landed = true
@@ -1056,4 +1067,20 @@ func (w *spaceWorker) backfillLinksPages(ctx context.Context, rep *procReporter)
 		}
 	}
 	return w.ix.store.StampLinksVersion(ctx, spaceId)
+}
+
+// sameTitle keeps the docs whose object name is still the one they were
+// embedded under.
+func sameTitle(ids []string, vecs [][]float32, was, now []string) ([]string, [][]float32) {
+	if slices.Equal(was, now) {
+		return ids, vecs
+	}
+	var keptIds []string
+	var keptVecs [][]float32
+	for i := range ids {
+		if was[i] == now[i] {
+			keptIds, keptVecs = append(keptIds, ids[i]), append(keptVecs, vecs[i])
+		}
+	}
+	return keptIds, keptVecs
 }
