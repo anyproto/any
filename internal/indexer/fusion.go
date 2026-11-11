@@ -66,21 +66,34 @@ func coverageWords(s string) map[string]struct{} {
 }
 
 // queryWords is the query's word set minus coverageStop; the value marks
-// a word typed as a prefix (`word*`), which any word starting with it
-// covers.
+// a word typed as a prefix (`word*`, `"a phrase"*`), which any word
+// starting with it covers and which is never a stop word.
 func queryWords(query string) map[string]bool {
 	out := map[string]bool{}
 	for _, f := range strings.Fields(strings.ToLower(query)) {
-		prefix := strings.HasSuffix(strings.TrimRight(f, `"`), "*")
+		prefix := strings.HasSuffix(f, "*")
 		words := strings.FieldsFunc(f, coverageSep)
 		for i, w := range words {
-			if _, skip := coverageStop[w]; skip {
+			isPrefix := prefix && i == len(words)-1
+			if _, skip := coverageStop[w]; skip && !isPrefix {
 				continue
 			}
-			out[w] = out[w] || (prefix && i == len(words)-1)
+			out[w] = out[w] || isPrefix
 		}
 	}
 	return out
+}
+
+// unsegmented reports whether w is written in a script without word
+// spaces. Such a word is a whole run of text, so a chunk covers it by
+// containing it, not by holding an equal word.
+func unsegmented(w string) bool {
+	for _, r := range w {
+		if unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul, unicode.Thai) {
+			return true
+		}
+	}
+	return false
 }
 
 // queryCoverage is the largest share of the query's words found in one
@@ -94,9 +107,21 @@ func queryCoverage(query string, fts []Hit) float64 {
 	var best float64
 	for _, h := range fts[:min(3, len(fts))] {
 		dw := coverageWords(h.Data)
+		lower := ""
 		n := 0
 		for w, prefix := range qw {
-			if _, ok := dw[w]; ok || (prefix && hasPrefixWord(dw, w)) {
+			_, ok := dw[w]
+			switch {
+			case ok:
+			case prefix:
+				ok = hasPrefixWord(dw, w)
+			case unsegmented(w):
+				if lower == "" {
+					lower = strings.ToLower(h.Data)
+				}
+				ok = strings.Contains(lower, w)
+			}
+			if ok {
 				n++
 			}
 		}
@@ -176,4 +201,23 @@ func (p fusionPlan) backfill(fused, fts, vec []Hit) []Hit {
 		fused = append(fused, h)
 	}
 	return fused
+}
+
+// fusionPlan is the query's RRF form under these options: planFusion,
+// unless a configured weight or AdaptiveWeights fixes weighted RRF at
+// rrfK. fetch is the over-fetch window AdaptiveWeights judges the FTS
+// leg on.
+func (o Options) fusionPlan(query string, fts, vec []Hit, fetch int) fusionPlan {
+	if o.FtsWeight <= 0 && o.VectorWeight <= 0 && !o.AdaptiveWeights {
+		return planFusion(query, fts, vec)
+	}
+	plan := fusionPlan{fts: legWeight([]float64{o.FtsWeight}, 0), vec: legWeight([]float64{o.VectorWeight}, 0), k: rrfK}
+	if o.AdaptiveWeights {
+		// Down-weight a flat/weak BM25 leg. Judged on the fixed
+		// over-fetch window, not the whole pull: the pull's depth
+		// follows how records are chunked, and a deeper tail only
+		// ever raises the confidence.
+		plan.fts = legWeight([]float64{plan.fts * legConfidence(fts[:min(len(fts), fetch)])}, 0)
+	}
+	return plan
 }

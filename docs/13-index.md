@@ -1032,7 +1032,8 @@ survive intact.
   only; the hits only the other leg holds follow, scored as the next
   ranks, so the page is never shorter for it. A hit missing from a fused
   leg can't reach 1, an empty leg included. A `word*` in the query is
-  covered by any word it starts. One fixed weight can't serve both kinds of
+  covered by any word it starts, and a word in a script without spaces
+  by a chunk that contains it. One fixed weight can't serve both kinds of
   query: above ~1.2 every vector-only hit outranks every FTS-only one,
   FTS #1 included, which costs word, name and id lookups. Setting
   `ftsWeight` / `vectorWeight` fixes weighted RRF at k 60 instead (an

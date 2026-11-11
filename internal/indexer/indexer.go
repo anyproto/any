@@ -1085,17 +1085,7 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 		var fused []Hit
 		switch mode {
 		case api.SearchModeHybrid:
-			plan := planFusion(req.Query, ftsHits, vecHits)
-			if ix.opts.FtsWeight > 0 || ix.opts.VectorWeight > 0 || ix.opts.AdaptiveWeights {
-				plan = fusionPlan{fts: legWeight([]float64{ix.opts.FtsWeight}, 0), vec: legWeight([]float64{ix.opts.VectorWeight}, 0), k: rrfK}
-				if ix.opts.AdaptiveWeights {
-					// Down-weight a flat/weak BM25 leg. Judged on the fixed
-					// over-fetch window, not the whole pull: the pull's depth
-					// follows how records are chunked, and a deeper tail only
-					// ever raises the confidence.
-					plan.fts = legWeight([]float64{plan.fts * legConfidence(ftsHits[:min(len(ftsHits), fetch)])}, 0)
-				}
-			}
+			plan := ix.opts.fusionPlan(req.Query, ftsHits, vecHits, fetch)
 			lists, weights := plan.lists(ftsHits, vecHits)
 			fused = fuseRRFK(lists, weights, plan.k, 0)
 			normalizeRRF(fused, weights, len(lists), plan.k)

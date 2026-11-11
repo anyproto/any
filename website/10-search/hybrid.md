@@ -37,7 +37,7 @@ any search $SPACE "what did we decide about the reranker?" --scopes chat,basic -
 
 ## Reciprocal-rank fusion
 
-Each leg returns a ranked list; a document's fused score is the sum over the legs that returned it of `weight / (k + rank)`. Rank, not raw score, is what gets combined, so BM25 and cosine never have to be put on one scale. A document found by both legs rises above one found by only one.
+Each leg returns a ranked list; a document's fused score is the sum over the legs that returned it of `weight / (k + rank)`. Rank, not raw score, is what gets combined, so BM25 and cosine never have to be put on one scale. When two legs fuse, a document found by both rises above one found by only one.
 
 ```
 fused(doc) = ftsWeight / (k + rank_fts) + vectorWeight / (k + rank_vec)

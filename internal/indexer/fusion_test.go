@@ -103,8 +103,10 @@ func TestQueryCoverage_Prefix(t *testing.T) {
 		{"hydraul*", 1},
 		{"hydraul", 0}, // not a prefix: a whole word or nothing
 		{"pump hydr*", 1},
-		{`"hydraulic pu*"`, 1},
+		{`"hydraulic pu"*`, 1},
+		{`"hydraulic pu*"`, 0.5}, // a star inside the quotes is no prefix
 		{"engine*", 0},
+		{"the*", 1}, // a prefix term is never a stop word
 	} {
 		if got := queryCoverage(c.q, fts); got != c.want {
 			t.Errorf("queryCoverage(%q) = %v, want %v", c.q, got, c.want)
@@ -137,5 +139,47 @@ func TestFusionPlan_Backfill(t *testing.T) {
 	both := fusionPlan{fts: 1, vec: 2, k: 20}
 	if got := both.backfill([]Hit{a}, fts, vec); len(got) != 1 {
 		t.Errorf("a two-leg plan backfilled %d hits", len(got)-1)
+	}
+}
+
+// A word in a script without spaces is covered by the chunk containing it.
+func TestQueryCoverage_Unsegmented(t *testing.T) {
+	fts := []Hit{scored("議事録を共有しました", 3)}
+	if got := queryCoverage("議事録", fts); got != 1 {
+		t.Errorf("coverage of a contained run = %v, want 1", got)
+	}
+	if got := queryCoverage("東京", fts); got != 0 {
+		t.Errorf("coverage of an absent run = %v, want 0", got)
+	}
+}
+
+// Configured weights or AdaptiveWeights fix weighted RRF at rrfK; the
+// query picks its own form only with none of them set.
+func TestOptionsFusionPlan(t *testing.T) {
+	fts := []Hit{scored("pfand bottle deposit", 5), scored("pfand", 2)}
+	vec := []Hit{scored("", 0.70), scored("", 0.69)}
+	if got := (Options{}).fusionPlan("pfand", fts, vec, 30); got != (fusionPlan{fts: 1}) {
+		t.Errorf("no weights: plan %+v, want the query's own form", got)
+	}
+	if got := (Options{VectorWeight: 2}).fusionPlan("pfand", fts, vec, 30); got != (fusionPlan{fts: 1, vec: 2, k: rrfK}) {
+		t.Errorf("one weight set: plan %+v", got)
+	}
+	got := (Options{AdaptiveWeights: true}).fusionPlan("pfand", fts, vec, 30)
+	if got.k != rrfK || got.vec != 1 || got.fts <= 0 || got.fts > 1 {
+		t.Errorf("adaptive alone: plan %+v, want fixed weights at k %d with the FTS leg scaled", got, rrfK)
+	}
+}
+
+// The vector leg deciding alone keeps FTS-only hits on the page.
+func TestFusionPlan_BackfillFromFTS(t *testing.T) {
+	a, b, c := h("ds", "a"), h("ds", "b"), h("ds", "c")
+	fts, vec := []Hit{c, a}, []Hit{a, b}
+	p := fusionPlan{vec: 1}
+	lists, weights := p.lists(fts, vec)
+	fused := fuseRRFK(lists, weights, p.k, 0)
+	normalizeRRF(fused, weights, len(lists), p.k)
+	fused = p.backfill(fused, fts, vec)
+	if len(fused) != 3 || fused[2].RecordId != "c" || math.Abs(fused[2].Score-1.0/3) > 1e-12 {
+		t.Fatalf("fused = %+v, want a, b, then the FTS-only c at 1/3", fused)
 	}
 }
