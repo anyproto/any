@@ -55,6 +55,13 @@ git.
 - **The head projection is essential:** stock EG2 loses 0.041*.
 - **Fusion hides embedder differences.** At L3 w1 on Roma's data, EG2 − Qwen3 is only +0.012 (n.s.).
 
+**Qwen3 at 768 dims against 1024 on Roma's data** (875 queries, `RESULTS_DIM768.md`):
+- L1 −0.007 (n.s.);
+- fused at w1 −0.001;
+- fused at w2 −0.012*.
+
+So the 768 default costs nothing measurable under w1-style fusion.
+
 ## L2: FTS alone, and its holes
 
 - **Typos:** FTS scores 0.000 on one-edit typos; it has no fuzzy matching. Only the vector leg finds them, at 0.31.
