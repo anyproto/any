@@ -265,6 +265,18 @@ recall candidates, each scored by the fusion's own score.)
   threshold fits neither. Per-branch calibration would recover it; one scale on every branch avoids it.
 - **Limit:** the candidates are the w1 page's top 10, not each rule's own page.
 
+**Item 4 decided (11-11):** cheggaaa chose the RRF-only tree. On EG2 legs its 0.103 cosine cut sends fewer queries to
+vector only (6% against Qwen3's 9% on M0, `tree_mix.py`), which is the safe side.
+
+**Gate floors under the tree** (`RESULTS_GATE_TREE.md`, `gate_tree.py`; M1's 126 judged queries, each on its own tree
+page; benchmark lookups, not real recall prompts).
+- **Single-leg branches can't be gated.** In FTS only and vector only (33% of queries here, 34% on cheggaaa's rig)
+  the normalized score is 61 / (61 + rank): 1.000, 0.984, 0.968, … So any floor up to 0.968 admits the top 3 of
+  every such query, while only rank 1 is reliably relevant (91% FTS only, 100% vector only; ranks 2–5 11–48%).
+- **Fix that keeps the contract:** normalize single-leg branches with k = 0. Order is unchanged (one leg), the
+  score is 1 / (1 + rank), and a floor above 0.5 admits only rank 1. At floor 0.915, cap 3: 0.92 injected per query
+  at 84% relevant, against 1.37 at 71% as decided.
+
 **Graded relevance on Roma's data** (M1, `RESULTS_M1_GRADED.md`):
 - **Method:** 126 queries, 14 per shape.
   - The pool is the top 10 of w1, w2 and both F2 forms, plus the top 5 of each leg alone (1,591 records).
