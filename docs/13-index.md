@@ -985,7 +985,10 @@ survive intact.
   vector leg gets the full query. An all-stop-words query is left
   unchanged.
 - **Weighted RRF** (`ftsWeight` / `vectorWeight`, default 1 / 2) — scales
-  each leg's fusion contribution. The fused score is divided by its
+  each leg's fusion contribution. A one-token query (no whitespace: a
+  word, a name, an id) fuses with the vector weight capped at 1: above
+  ~1.2 every vector-only hit outranks every FTS-only one, FTS #1 included,
+  which costs lookups. The fused score is divided by its
   maximum, `(ftsWeight + vectorWeight) / 61`, so a hybrid score reads
   0–1 whatever the weights and clients can gate on it.
 - **Adaptive leg weighting** (`adaptiveWeights`, default **off**) —

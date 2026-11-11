@@ -211,7 +211,8 @@ index:
   search:                             # hybrid-ranking knobs (docs/13-index.md § Search)
     stopWords: true                   # strip stop words from the FTS-leg query (default on)
     ftsWeight: 1                      # RRF weight for the lexical leg (default 1)
-    vectorWeight: 2                   # RRF weight for the dense leg (default 2)
+    vectorWeight: 2                   # RRF weight for the dense leg (default 2; at most 1
+                                      # for a one-token query)
     adaptiveWeights: false            # auto-down-weight FTS per query when its scores are
                                       # flat/weak; helps paraphrastic corpora, small cost on
                                       # lexical-friendly ones — off by default

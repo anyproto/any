@@ -90,7 +90,7 @@ All under `index.search.*` in [configuration](../operations/configuration.html);
 | Key | Default | Effect |
 |---|---|---|
 | `ftsWeight` | 1 | RRF weight of the lexical leg |
-| `vectorWeight` | 2 | RRF weight of the dense leg |
+| `vectorWeight` | 2 | RRF weight of the dense leg; a one-token query uses at most 1 |
 | `adaptiveWeights` | false | per query, down-weight the FTS leg when its BM25 scores are flat/weak |
 | `stopWords` | true | strip stop words from the FTS-leg query |
 | `defaultOperator` | `or` | how bare FTS terms combine |

@@ -228,3 +228,21 @@ func TestNormalizeRRF_ZeroToOneWhateverTheWeights(t *testing.T) {
 		}
 	}
 }
+
+func TestQueryVectorWeight_OneTokenCappedAtOne(t *testing.T) {
+	for _, c := range []struct {
+		q    string
+		w    float64
+		want float64
+	}{
+		{"pfand", 2, 1},
+		{"  bafyreiabc  ", 2, 1},
+		{"vacation travel", 2, 2},
+		{"pfand", 0.5, 0.5},
+		{"", 2, 2},
+	} {
+		if got := queryVectorWeight(c.q, c.w); got != c.want {
+			t.Errorf("queryVectorWeight(%q, %v) = %v, want %v", c.q, c.w, got, c.want)
+		}
+	}
+}

@@ -288,7 +288,8 @@ type Index struct {
 // § 5). Zero values pick the defaults.
 type IndexSearch struct {
 	// FtsWeight / VectorWeight scale each leg's reciprocal-rank-fusion
-	// contribution in hybrid mode. Default 1 / 2. Lowering
+	// contribution in hybrid mode. Default 1 / 2; a one-token query uses
+	// a vector weight of at most 1. Lowering
 	// VectorWeight trusts the lexical leg more — useful while the dense
 	// leg is noisy (short chunks, weak embedder).
 	FtsWeight    float64 `yaml:"ftsWeight"`

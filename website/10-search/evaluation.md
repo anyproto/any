@@ -115,7 +115,7 @@ Packing several documents into one local decode (`index.local.batchDocs`) buys n
 |---|---|---|
 | editor chunk unit | ~1.5 KB windows | chunk-length distribution, recall |
 | `vector.mode` | `ivfsq` | incremental ingest cost vs ~3–4 recall@10 |
-| `ftsWeight` / `vectorWeight` | 1 / 2 | paraphrase and cross-language gains on a real account, small keyword cost |
+| `ftsWeight` / `vectorWeight` | 1 / 2 (one-token queries: 1 / 1) | paraphrase and cross-language gains on a real account; one-word lookups lose above 1 |
 | `adaptiveWeights` | off | wins on paraphrastic, small cost on lexical corpora |
 | `defaultOperator` | `or` | AND recall cliff |
 | `stopWords` | on | helps conversational, neutral on BEIR |

@@ -3,6 +3,7 @@ package indexer
 import (
 	"cmp"
 	"slices"
+	"strings"
 )
 
 // rrfK is the standard reciprocal-rank-fusion damping constant: a doc at
@@ -97,6 +98,16 @@ func legWeight(weights []float64, li int) float64 {
 		return weights[li]
 	}
 	return 1
+}
+
+// queryVectorWeight caps a one-token query's vector weight at 1: above
+// ~1.2 every vector-only hit outranks every FTS-only one, FTS #1 included,
+// which costs word, name and id lookups.
+func queryVectorWeight(query string, w float64) float64 {
+	if len(strings.Fields(query)) == 1 {
+		return min(w, 1)
+	}
+	return w
 }
 
 // normalizeRRF divides fused scores by the best a doc can score — rank 1
