@@ -689,9 +689,10 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   `title: <object name> | text: <chunk>`, `none` for an unnamed object),
   and removes one fixed direction — the
   mean of the model's outputs — from every vector before normalizing,
-  which takes out its bias toward short texts. A `modelPath` or
-  `modelUrl` with `model` set is that model from another place; without
-  `model` it is an unnamed GGUF that takes only `index.local.pooling`
+  which takes out its bias toward short texts. A `modelUrl` is
+  another download source for the model, and a `modelPath` with `model`
+  set is that model on disk; a `modelPath` without `model` is an unnamed
+  GGUF that takes only `index.local.pooling`
   (`last` by default, `mean` or `cls`),
   `queryPrefix` and `docPrefix`. A `{title}` in a document prompt
   is replaced by the object's name on one line, clamped to 200 runes, or

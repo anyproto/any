@@ -42,7 +42,7 @@ The child exists so a llama.cpp fault costs a round of embedding, not the server
 |---|---|---|
 | `local.model` | "" | pinned model: `qwen3-embedding-0.6b` (default) or `embeddinggemma-2` (768-dimensional, mean pooling, its own query and document prompts) |
 | `local.modelPath` | "" | an existing GGUF; set it and no download is attempted (air-gapped). Set `local.model` too when the file is a pinned model |
-| `local.modelUrl` / `modelSha256` | "" | override the download source / checksum |
+| `local.modelUrl` / `modelSha256` | "" | another download source for the model `local.model` names, and its checksum |
 | `local.libDir` | `<exe-dir>/llamacpp` | where the shared libraries live |
 | `local.contextSize` | 2048 | truncation bound in tokens, shared by the texts of one decode |
 | `local.queryPrefix` / `docPrefix` | "" | "" = the pinned model's query / document prompt; `{title}` in `docPrefix` is replaced by the object's name, and renaming the object then re-embeds its documents |
@@ -62,7 +62,7 @@ Platform notes: only builds with `-tags llamacpp` carry the local embedder; with
 
 No provider ships with the binary, so a fresh install's `auto` is the local model and nothing leaves the device. Point `index.openai.baseUrl` at any OpenAI-compatible `/embeddings` host and set `index.openai.apiKey` (`ANY_INDEX_OPENAI_BASE_URL` / `ANY_INDEX_OPENAI_API_KEY`), and `auto` prefers the online API for speed and falls back to the local model during an outage through a circuit breaker (repeated failures skip the primary for a cooldown, then re-probe), so vector search stays fresh instead of pausing. A semantic query gives the primary half of the remaining timeout budget so the local fallback still has time to answer.
 
-> **Note.** Both sides must be the **same embedding model** — the index holds one vector space and one dimension, and mixing models yields incoherent similarity. The supported pairing is one model served two ways: the local Qwen3-Embedding-0.6B and a host that serves the same model. `index.openai.model` defaults to that model's common name, `Qwen/Qwen3-Embedding-0.6B`; override it only when your provider spells the same model differently. A provider serving a different model is not a fallback pair but a second, incompatible vector space. fp16-versus-Q8 drift is negligible.
+> **Note.** Both sides must be the **same embedding model** — the index holds one vector space and one dimension, and mixing models yields incoherent similarity. The supported pairing is one model served two ways: the local Qwen3-Embedding-0.6B and a host that serves the same model; a key with another `index.local.model` is refused at boot. `index.openai.model` defaults to that model's common name, `Qwen/Qwen3-Embedding-0.6B`; override it only when your provider spells the same model differently. A provider serving a different model is not a fallback pair but a second, incompatible vector space. fp16-versus-Q8 drift is negligible.
 
 ## `ollama` and `openai`
 

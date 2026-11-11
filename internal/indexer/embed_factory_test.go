@@ -14,7 +14,14 @@ func TestNewEmbedder_AutoRefusesKeyWithAnotherLocalModel(t *testing.T) {
 		OpenAI: config.IndexOpenAI{BaseUrl: "http://127.0.0.1:1", Model: "Qwen/Qwen3-Embedding-0.6B", ApiKey: "k"},
 		Local:  config.IndexLocal{Model: config.LocalModelEmbeddingGemma2},
 	}
-	_, err := NewEmbedder(cfg, t.TempDir(), "", nil)
+	emb, err := NewEmbedder(cfg, t.TempDir(), "", nil)
+	if !localEmbedderBuilt {
+		// No local leg to mismatch: the primary runs alone.
+		if err != nil || emb == nil {
+			t.Fatalf("a build without the local embedder: %v, %v", emb, err)
+		}
+		return
+	}
 	if err == nil || !strings.Contains(err.Error(), "index.local.model") {
 		t.Fatalf("err = %v, want a refusal naming index.local.model", err)
 	}

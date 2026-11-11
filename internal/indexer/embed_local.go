@@ -114,7 +114,7 @@ type localSpec struct {
 
 // resolveLocalSpec turns config into a runnable spec: the model and its
 // path (incl. the legacy per-data-dir location), lib dir, prompts,
-// pooling and decode bounds. A ModelPath or ModelUrl with no
+// pooling and decode bounds. A ModelPath with no
 // index.local.model is an unnamed GGUF: it takes no pinned model's
 // prompts or pooling, only what the config sets. A missing default model starts the background download, whose
 // handle it returns — readiness is the destination file, so callers keep
@@ -131,9 +131,8 @@ func resolveLocalSpec(cfg config.IndexLocal, modelsDir, legacyModelsDir string, 
 		niceness:    localDefaultNiceness,
 		batchDocs:   cfg.BatchDocs,
 	}
-	// The default model's file name is also where an unnamed ModelUrl
-	// downloads to.
-	named := cfg.Model != "" || (cfg.ModelPath == "" && cfg.ModelUrl == "")
+	// A ModelUrl alone is another source for the default model.
+	named := cfg.Model != "" || cfg.ModelPath == ""
 	model, err := lookupLocalModel(cfg.Model)
 	if err != nil {
 		return localSpec{}, nil, err

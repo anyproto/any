@@ -58,7 +58,7 @@ func NewEmbedder(cfg config.Index, modelsDir, legacyModelsDir string, onProcess 
 		}
 		// Only Qwen3 has a hosted twin: another local model embeds with
 		// its own prompts and post-processing, which no endpoint applies.
-		if m := cfg.Local.Model; m != "" && m != config.LocalModelQwen3 {
+		if m := cfg.Local.Model; localEmbedderBuilt && m != "" && m != config.LocalModelQwen3 {
 			return nil, fmt.Errorf("indexer: auto embedder with an apiKey pairs the online primary with the local model %s; index.local.model is %q — use index.embedder: local, or drop the apiKey", config.LocalModelQwen3, m)
 		}
 		primary := NewOpenAI(cfg.OpenAI.BaseUrl, cfg.OpenAI.Model, cfg.OpenAI.ApiKey)
