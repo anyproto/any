@@ -30,9 +30,9 @@ type Window struct {
 // block's text would exceed windowBudgetBytes. The heading (or the run's
 // first block) leads its window — cheap context that also lifts BM25 term
 // frequency for heading words. A window holding only headings takes the
-// next block whatever it is — a heading, or text past the budget — so a
-// heading run leads the text below it and stands alone only at the end
-// of the document (an embedder ranks a bare heading above the passage
+// next heading while the run fits the budget, and the next text block
+// whatever its size, so a heading run leads the text below it and
+// stands alone only at the end of the document (an embedder ranks a bare heading above the passage
 // that answers the query).
 //
 // Blocks with empty text (dividers, images) still count as members for
@@ -59,7 +59,8 @@ func Windows(ordered []Block) []Window {
 		// Break before a heading, or when this block would overflow the
 		// budget — but never on an empty window (a single over-budget
 		// block becomes its own window).
-		if started && !headingsOnly && (isHeading || len(cur.Text)+len(b.Text)+1 > windowBudgetBytes) {
+		over := len(cur.Text)+len(b.Text)+1 > windowBudgetBytes
+		if started && ((isHeading && (!headingsOnly || over)) || (!isHeading && !headingsOnly && over)) {
 			flush()
 		}
 		if !started {
@@ -70,7 +71,7 @@ func Windows(ordered []Block) []Window {
 			started = true
 			// An empty heading leads nothing: the next heading starts
 			// its own window, as after any empty block.
-			headingsOnly = isHeading && b.Text != ""
+			headingsOnly = isHeading && strings.TrimSpace(b.Text) != ""
 		} else if !isHeading && b.Text != "" {
 			headingsOnly = false
 		}

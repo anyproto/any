@@ -100,8 +100,9 @@ set, and a row's members are read once per page from the row itself.
 - **Editor = coalesced windows.** Consecutive blocks in document order
   (the `List` tree walk) group into ~1.5 KB windows, breaking before
   each heading (`internal/editor/window.go`). A window holding only
-  headings takes the next block whatever it is, so a heading run leads
-  the text below it and stands alone only at the end of the document.
+  headings takes the next heading while the run fits the budget, and the
+  next text block whatever its size, so a heading run leads the text
+  below it and stands alone only at the end of the document.
   One index doc per window,
   anchored on its first block (`recordId = win_<firstBlockId>`), `Data`
   = the member texts joined by newline with the heading leading, `Title`

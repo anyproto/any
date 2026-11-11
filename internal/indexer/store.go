@@ -1630,8 +1630,16 @@ func (s *Store) PendingCount(ctx context.Context, spaceId string) (int, error) {
 // $set vector + clear pending, update-only (a doc deleted since Pending
 // is skipped, not resurrected).
 func (s *Store) SetVectors(ctx context.Context, spaceId string, ids []string, vecs [][]float32) error {
-	if len(ids) != len(vecs) {
-		return fmt.Errorf("indexer: SetVectors: %d ids, %d vectors", len(ids), len(vecs))
+	return s.SetTitledVectors(ctx, spaceId, ids, nil, vecs)
+}
+
+// SetTitledVectors is SetVectors for vectors embedded under titles (as
+// DocTitles returned them; nil = none). A doc whose object was renamed
+// since is skipped inside the transaction and stays pending: its vector
+// carries the old name.
+func (s *Store) SetTitledVectors(ctx context.Context, spaceId string, ids, titles []string, vecs [][]float32) error {
+	if len(ids) != len(vecs) || (titles != nil && len(titles) != len(ids)) {
+		return fmt.Errorf("indexer: SetVectors: %d ids, %d vectors, %d titles", len(ids), len(vecs), len(titles))
 	}
 	coll, err := s.spaceColl(ctx, spaceId)
 	if err != nil {
@@ -1643,7 +1651,25 @@ func (s *Store) SetVectors(ctx context.Context, spaceId string, ids []string, ve
 	}
 	defer tx.Rollback() //nolint:errcheck
 
+	names := map[string]string{}
 	for i, id := range ids {
+		if titles != nil {
+			objectId, _, _ := strings.Cut(id, ":")
+			name, ok := names[objectId]
+			if !ok {
+				doc, err := coll.FindId(tx.Context(), objectId+nameDocSuffix)
+				switch {
+				case err == nil:
+					name = string(doc.Value().GetStringBytes(nameField))
+				case !errors.Is(err, anystore.ErrDocNotFound):
+					return err
+				}
+				names[objectId] = name
+			}
+			if name != titles[i] {
+				continue
+			}
+		}
 		vec := vecs[i]
 		mod := query.ModifyFunc(func(a *anyenc.Arena, v *anyenc.Value) (*anyenc.Value, bool, error) {
 			v.Set("vector", a.NewVectorF32(vec))
