@@ -126,6 +126,25 @@ So the 768 default costs nothing measurable under w1-style fusion.
 - **The best fixed blend α is opposite on the two datasets.**
 - **Only the router family is good on both, and it's flat across its cut points,** so it isn't a knife-edge tune.
 
+## L4: recall gate (first pass, `RESULTS_GATE.md`)
+
+Measured on the 9 public sets, whose qrels cover their pooled results. The gate injects a content hit when its fused
+score is ≥ θ, up to the cap.
+
+| gate | precision | injected per query |
+|---|---|---|
+| bao 0.015, cap 5, w1 | 0.25 | 5.00 (100% of queries) |
+| bao, normalized 0.4575 at w2 | 0.25 | 5.00 |
+| any-agents 0.030, cap 3, w1 | 0.41 | 2.09 (89%) |
+| any-agents raw 0.030 at w2 | 0.34 | 3.00, the cap, every time |
+| any-agents normalized 0.915 at w2 | 0.43 | 2.12 |
+| a stricter 0.032 at w1 | 0.60 | 0.99 (70%) |
+
+- **bao's gate never filters.** It injects its full cap at 0.25 precision, before and after normalization.
+- **Scale normalization fixes any-agents only.**
+- **The threshold is the problem, not the signal.** Fused score separates relevant from non-relevant candidates almost
+  as well as raw cosine: AUC 0.773 against 0.786, and 0.794 for cosine relative to the query's top-1 cosine.
+
 ## What this suggests (decisions are cheggaaa's and Tolya's)
 
 - **Don't ship a global vectorWeight of 2.** It is the wrong switch position for lookups, ids and pastes, which make up
@@ -138,7 +157,7 @@ So the 768 default costs nothing measurable under w1-style fusion.
 
 ## Not covered yet
 
-- **The recall-gate layer (L4):** it needs graded negatives beyond rank 1.
+- **The recall gate on Roma's data:** it needs graded negatives beyond rank 1. A first pass on public qrels is above.
 - **Human calibration labels:** about 30 pairs from Roma.
 - **Real logged queries on Roma's side:** there are no bao traces on Nightly.
 - **Big-space behaviour:** Air Crash, 61.6k chunks, is running.
