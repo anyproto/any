@@ -32,7 +32,7 @@ type Window struct {
 // frequency for heading words. A window holding only headings takes the
 // next heading while the run fits the budget, and the next text block
 // whatever its size, so a heading run leads the text below it and
-// stands alone only at the end of the document (an embedder ranks a bare heading above the passage
+// stands alone only at the end of the document or past the budget (an embedder ranks a bare heading above the passage
 // that answers the query).
 //
 // Blocks with empty text (dividers, images) still count as members for
@@ -72,7 +72,7 @@ func Windows(ordered []Block) []Window {
 			// An empty heading leads nothing: the next heading starts
 			// its own window, as after any empty block.
 			headingsOnly = isHeading && strings.TrimSpace(b.Text) != ""
-		} else if !isHeading && b.Text != "" {
+		} else if !isHeading && strings.TrimSpace(b.Text) != "" {
 			headingsOnly = false
 		}
 		cur.BlockIds = append(cur.BlockIds, b.Id)
