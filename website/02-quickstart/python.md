@@ -65,7 +65,7 @@ A document is an object carrying a type whose part declares the `editor` module 
 A query is a POST with a Mongo-style body against the space's `objects` storage collection — an indexed read on your disk. A live window needs a sort and a limit, so the same body is reused for the subscription below.
 
 ```python
-query = {"filter": {"any.type": "page"}, "sort": ["-modifiedAt", "id"], "limit": 20}
+query = {"filter": {"any.type": "page"}, "sort": ["-modifiedAt", "-id"], "limit": 20}
 page = call("POST", f"/spaces/{SPACE}/objects/query", {**query, "includeTotal": True})
 print("Pages:", page["total"], [r["any"]["name"] for r in page["records"]])
 
@@ -73,11 +73,11 @@ print("Pages:", page["total"], [r["any"]["name"] for r in page["records"]])
 def display(records):
     def order(row):
         modified = datetime.fromisoformat(row["modifiedAt"]["$date"].replace("Z", "+00:00"))
-        return (-modified.timestamp(), row["id"])
-    print("Live:", [r["any"]["name"] for r in sorted(records, key=order)])
+        return (modified.timestamp(), row["id"])
+    print("Live:", [r["any"]["name"] for r in sorted(records, key=order, reverse=True)])
 ```
 
-Expect `Pages: 1 ['Reading list']`. The renderer matches the query: newest modification first, then ascending object ID. Timestamps arrive as `{"$date":"…"}`, and a filter that compares one must use the same wrapper: `{"modifiedAt": {"$gte": {"$date": "2026-08-01T00:00:00Z"}}}`. A bare string does not error — it compares only within its own type bracket, so it matches nothing ([Data types](../database/data-types.html)).
+Expect `Pages: 1 ['Reading list']`. The renderer matches the query: newest modification first, then descending object ID. Timestamps arrive as `{"$date":"…"}`, and a filter that compares one must use the same wrapper: `{"modifiedAt": {"$gte": {"$date": "2026-08-01T00:00:00Z"}}}`. A bare string does not error — it compares only within its own type bracket, so it matches nothing ([Data types](../database/data-types.html)).
 
 ## 3. Read a dataset
 

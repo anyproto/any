@@ -47,12 +47,12 @@ const { id: SPACE } = await call("POST", "/spaces", { name: "JavaScript notebook
 const { objectId } = await call("POST", `/spaces/${SPACE}/objects`, {
   type: "page", initialProperties: { any: { name: "Reading list" } },
 });
-const query = { filter: { "any.type": "page" }, sort: ["-modifiedAt", "id"], limit: 20 };
+const query = { filter: { "any.type": "page" }, sort: ["-modifiedAt", "-id"], limit: 20 };
 const page = await call("POST", `/spaces/${SPACE}/objects/query`, { ...query, includeTotal: true });
 console.log("Pages:", page.total, page.records.map(r => r.any.name));
 ```
 
-Expect `Pages: 1 [ 'Reading list' ]`. The query uses an explicit ascending ID as the second sort key, so equal timestamps have the same order in the server and renderer.
+Expect `Pages: 1 [ 'Reading list' ]`. The query uses a descending ID as the second sort key, so equal timestamps have the same order in the server and renderer.
 
 ## 3. Read the stream
 
@@ -106,7 +106,7 @@ const live = new Promise((resolve, reject) => { resolveLive = resolve; rejectLiv
 function render() {
   const rows = [...view.values()].sort((a, b) =>
     Date.parse(b.modifiedAt.$date) - Date.parse(a.modifiedAt.$date) ||
-    (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
   console.log("Live:", rows.map(r => r.any.name));
 }
 

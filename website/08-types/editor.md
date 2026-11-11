@@ -16,7 +16,7 @@ One record per block in the object's editor storage collection:
 ```json
 {
   "id":    "<auto-derived from changeId>",
-  "_ver":  { "id": "<VersionId of last change>" },
+  "_ver":  { "id": "<creation VersionId>" },
   "type":  "heading",
   "style": { "level": 2 },
   "text":  "**bold** inline markdown",
@@ -26,6 +26,7 @@ One record per block in the object's editor storage collection:
 
 | Field | Meaning |
 |-------|---------|
+| `_ver` | `_ver.id` is the block's creation marker, never bumped by an edit; an edit stamps `_ver.<path>` for the paths it wrote ([System fields](../database/system-fields.html)). |
 | `type` | Required, ≤ 64 bytes. Known values: `paragraph`, `heading`, `list_item`, `check_list_item`, `code`, `quote`, `divider`, `html`, `table`, `image`; any other non-empty string is accepted, so clients can add block kinds. |
 | `style` | Open-ended object. Known keys: `level` (heading, 1–6), `ordered` and `number` (list_item; `number` omitted when 1), `checked` (check_list_item), `lang` (code). |
 | `text` | **Inline** markdown only — bold, italic, inline code, links, strikethrough. ≤ 64 KiB per block. |

@@ -30,7 +30,7 @@ The `objects` storage collection's other row-root stamps — `author`, `createdA
 
 ## Cheap patterns
 
-**Page on an indexed cursor, not `offset`.** A cursor filter on an indexed monotonic field returns straight from the index and is stable under concurrent writes:
+**Page on an indexed cursor, not `offset`.** A cursor filter on an indexed field returns straight from the index and does not float under inserts the way `offset` does ([Reading data](reading-data.html#paging)):
 
 ```json
 { "objectId": "<chat>", "dataset": "chat_messages",

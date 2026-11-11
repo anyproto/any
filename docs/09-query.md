@@ -48,7 +48,9 @@ Snapshot reply: `{ "records": [ ... ], "total"?: <int>, "hasNext"?: <bool> }`.
 Records are the stored documents (per-object storage collections) or object rows
 (cross-object). With `includeTotal`, `total` is the full match count,
 independent of `limit` / `offset`, and `hasNext` is `offset + len(records)
-< total`. `/subscribe` frames are documented in `docs/04-events.md`.
+< total`. On `/subscribe` both ride the snapshot frame only and are
+counted in the snapshot's own read. `/subscribe` frames are documented
+in `docs/04-events.md`.
 
 ## Projection
 
@@ -333,10 +335,15 @@ keying a filter by xKey matches nothing.
 
 - **offset / limit** is simple but floats: row 50 becomes row 51 the moment
   a record lands ahead of it. Fine for one-shot reads of stable data.
-- **cursor** paging is stable for mutable storage collections: filter on an
-  indexed, monotonic field. Chat pages backward with
+- **cursor** paging doesn't float under inserts: filter past the last row
+  on the indexed sort field. A row whose sort key changes mid-pass moves
+  relative to the cursor. Chat pages backward with
   `{ "_ver.id": { "$lt": "<oldestSeen>" } }` sorted `["-_ver.id"]` —
-  `docs/08-clients.md` § 4.
+  `docs/08-clients.md` § 4. `_ver.id` orders one object's records only;
+  across `objects` rows it repeats, so the cursor is the sort field.
+  `modifiedAt` holds whole seconds and ties often: sort
+  `["-modifiedAt", "-id"]` and carry the `id` tiebreak into the cursor
+  filter (`docs/08-clients.md` § 3).
 
 ## Indexes & cost
 
@@ -350,9 +357,13 @@ Indexed paths:
 - `dataviews` → `(pos)`; `views` → `(dataview, pos)`, `(pos)`
 
 Property values on the `objects` storage collection have **no indexes**:
-filtering or sorting on an `<ownerId>.<propId>` path is a scan proportional
-to the space's object count — scope by `any.type` or `any.collections` so
-the index narrows the scan first.
+filtering or sorting on an `<ownerId>.<propId>` path — or on a module
+path such as the chat counters `chat.unreadCount` — is a scan
+proportional to the space's object count. A subscription pays it at
+open, at every reopen and at every re-read of its window; its other
+live updates are evaluated per change.
+Scope by `any.type` or `any.collections` so the index narrows the scan
+first.
 
 A runtime `records` dataset is indexed by its declared indexes
 (`docs/03-api.md` § Declared indexes) and by `id`:
