@@ -21,7 +21,10 @@ import (
 type EmbedWorkerConfig struct {
 	ModelPath   string
 	LibDir      string
+	Profile     string // pinned model id; "" = an unnamed GGUF
 	QueryPrefix string
+	DocPrefix   string
+	Pooling     string
 	ContextSize int
 	Threads     int
 	Dim         int
@@ -52,7 +55,10 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 	local := config.IndexLocal{
 		ModelPath:   cfg.ModelPath,
 		LibDir:      cfg.LibDir,
+		Model:       cfg.Profile,
 		QueryPrefix: cfg.QueryPrefix,
+		DocPrefix:   cfg.DocPrefix,
+		Pooling:     cfg.Pooling,
 		ContextSize: cfg.ContextSize,
 		Threads:     cfg.Threads,
 		Dim:         cfg.Dim,

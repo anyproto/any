@@ -679,7 +679,17 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   which `make build` runs failure-tolerant; § GPU offload). Default
   model: **Qwen3-Embedding-0.6B Q8_0** (1024-dim, last-token pooling,
   L2-normalized; queries carry the Qwen retrieval instruction, docs embed
-  bare). The GGUF (sha256-pinned) is downloaded into the shared model
+  bare). `index.local.model: embeddinggemma-2` runs **EmbeddingGemma 2
+  Q8_0** instead (768-dim, mean pooling; queries embed as
+  `task: search result | query: <query>`, docs as
+  `title: none | text: <chunk>`), and removes one fixed direction — the
+  mean of the model's outputs — from every vector before normalizing,
+  which takes out its bias toward short texts. A `modelPath` or
+  `modelUrl` with `model` set is that model from another place; without
+  `model` it is an unnamed GGUF that takes only `index.local.pooling`
+  (`last` by default, `mean`, `cls`, or `model` for the file's own),
+  `queryPrefix` and `docPrefix`. The output width is the model's
+  `n_embd_out`. The GGUF (sha256-pinned) is downloaded into the shared model
   cache `<root>/models/` (a copy already in the account's `index/models/`
   is used in place); the download is resumable, logs progress, reports
   `index.model_download`, and never blocks boot — until it completes the

@@ -972,8 +972,8 @@ func TestWorkerEmbedder_DimFromHandshake(t *testing.T) {
 	}
 	// The pinned default model answers without spawning at all.
 	w2 := newTestWorker(t, &helperSpawner{modes: []string{"exit"}}, 0)
-	w2.spec.defaultModel = true
-	if dim, err := w2.Dim(context.Background()); err != nil || dim != localDefaultDim {
+	w2.spec.modelDim = 1024
+	if dim, err := w2.Dim(context.Background()); err != nil || dim != 1024 {
 		t.Fatalf("default-model dim = %d, %v", dim, err)
 	}
 }

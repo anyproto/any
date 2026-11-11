@@ -40,12 +40,14 @@ The child exists so a llama.cpp fault costs a round of embedding, not the server
 
 | Key | Default | Purpose |
 |---|---|---|
-| `local.modelPath` | "" | an existing GGUF; set it and no download is attempted (air-gapped) |
+| `local.model` | "" | pinned model: `qwen3-embedding-0.6b` (default) or `embeddinggemma-2` (768-dimensional, mean pooling, its own query and document prompts) |
+| `local.modelPath` | "" | an existing GGUF; set it and no download is attempted (air-gapped). Set `local.model` too when the file is a pinned model |
 | `local.modelUrl` / `modelSha256` | "" | override the download source / checksum |
 | `local.libDir` | `<exe-dir>/llamacpp` | where the shared libraries live |
 | `local.contextSize` | 2048 | truncation bound in tokens, shared by the texts of one decode |
-| `local.queryPrefix` | "" | "" = the Qwen retrieval instruction |
-| `local.dim` | 0 | Matryoshka truncation; 0 = the model's 1024 |
+| `local.queryPrefix` / `docPrefix` | "" | "" = the pinned model's query / document prompt |
+| `local.pooling` | "" | `last`, `mean`, `cls` or `model` (the file's own); "" = the pinned model's |
+| `local.dim` | 0 | Matryoshka truncation; 0 = the model's dimension |
 | `local.threads` | 0 | the child's CPU budget; 0 = CPU count − 1 |
 | `local.gpuLayers` | absent | absent = offload all when a GPU backend is usable; 0 = force CPU |
 | `local.batchDocs` | 1 | documents packed per decode; each then gets `contextSize / batchDocs` tokens, so a wider batch embeds less of each text |

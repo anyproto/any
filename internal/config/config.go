@@ -350,10 +350,15 @@ type IndexOpenAI struct {
 
 // IndexLocal configures the built-in llama.cpp embedder. All fields are
 // optional — `embedder: local` alone is the supported zero-config path:
-// Qwen3-Embedding-0.6B Q8_0 is downloaded into <data-dir>/index/models
-// on first run, llama.cpp shared libs are expected next to the binary
-// (`make llamacpp`).
+// the default model is downloaded on first run, llama.cpp shared libs
+// are expected next to the binary (`make llamacpp`).
 type IndexLocal struct {
+	// Model names a pinned model: LocalModelQwen3 (default) or
+	// LocalModelEmbeddingGemma2. It sets the download, the prompts, the
+	// pooling and the output width. With ModelPath or ModelUrl it
+	// declares what that file is; without Model such a file is an
+	// unnamed GGUF that takes only what this block sets.
+	Model string `yaml:"model"`
 	// ModelPath points at an existing GGUF file; when set, no download
 	// is attempted (air-gapped operation).
 	ModelPath string `yaml:"modelPath"`
@@ -369,11 +374,18 @@ type IndexLocal struct {
 	// truncated (docs/13-index.md § Known limits). Default 2048.
 	ContextSize int `yaml:"contextSize"`
 	// QueryPrefix is prepended to query (not document) texts. Empty
-	// means: the default model's retrieval instruction for the default
-	// model, nothing for a custom ModelPath/ModelUrl.
+	// means the pinned model's own query prompt, nothing for an unnamed
+	// GGUF.
 	QueryPrefix string `yaml:"queryPrefix"`
+	// DocPrefix is prepended to document (not query) texts. Empty means
+	// the pinned model's own document prompt, nothing for an unnamed GGUF.
+	DocPrefix string `yaml:"docPrefix"`
+	// Pooling selects how token states pool into one vector: "last",
+	// "mean", "cls" or "model" (the GGUF's own metadata). Empty means the
+	// pinned model's pooling, "last" for an unnamed GGUF.
+	Pooling string `yaml:"pooling"`
 	// Dim truncates output vectors (Matryoshka) and renormalizes;
-	// 0 keeps the model's full dimension (1024 for the default model).
+	// 0 keeps the model's full dimension.
 	Dim int `yaml:"dim"`
 	// Threads sets the llama.cpp compute thread count (NThreads /
 	// NThreadsBatch) — the CPU budget the embedder child decodes with.
@@ -422,6 +434,12 @@ type IndexVector struct {
 	// § index mode.
 	Mode string `yaml:"mode"`
 }
+
+// Pinned local models (IndexLocal.Model).
+const (
+	LocalModelQwen3           = "qwen3-embedding-0.6b"
+	LocalModelEmbeddingGemma2 = "embeddinggemma-2"
+)
 
 // defaultEmbedModel is the online primary's model under "auto": the same
 // model the local fallback runs, spelled the way most OpenAI-compatible
