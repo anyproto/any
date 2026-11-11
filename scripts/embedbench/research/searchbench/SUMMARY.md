@@ -204,6 +204,31 @@ ids stay unsolved.
   inside the sweep (1,044 queries in 28 min, two searches each plus a query embedding). A proper latency bench is
   still to do.
 
+**A learned router** (`RESULTS_ROUTER_LEARN.md`).
+- **Setup:**
+  - **Features:** coverage, the BM25 top-1/top-2 gap, the top cosine, the top-1 − top-5 cosine gap, the legs'
+    top-5 agreement, query length and title count.
+  - **Actions:** FTS only, vector only, RRF w0.5 / w1 / w2, blend α0.3 / α0.7.
+  - **Training:** a greedy depth-1/2 tree, weighting M0, AirM and the public sets equally. Trained on the tune
+    halves, scored on the held-out halves (new targets for M0 and AirM).
+- **Depth 1 learns "two blends":** full coverage → blend α0.3, otherwise blend α0.7.
+- **Depth 2 refines it:**
+  - **Partial coverage:** a flat vector top (cosine gap < 0.071) → RRF w2, else blend α0.7.
+  - **Full coverage:** one-word → RRF w0.5, else blend α0.3.
+
+| held-out, Δ against F2 two-branch | M0 | AirM | public |
+|---|---|---|---|
+| two blends | +0.003 | −0.013* | **+0.041*** |
+| learned depth 2 | **+0.012*** | −0.003 | **+0.031*** |
+| F2, low cut 0.5 | +0.008* | −0.001 | +0.014* |
+
+- **Gap to the oracle:** the per-query oracle is still 0.05–0.08 above the best rule on every dataset.
+- **Limits:**
+  - The depth-2 rule's cosine cut is on Qwen3's scale and would need re-fitting for EG2.
+  - Held-out here means new queries from the same three data kinds, not a new kind of data.
+- **Read:** F2 two-branch is the robust baseline. The learned rule is a candidate upgrade, to be checked on the
+  account replay before anyone adopts it.
+
 **Graded relevance on Roma's data** (M1, `RESULTS_M1_GRADED.md`):
 - **Method:** 126 queries, 14 per shape.
   - The pool is the top 10 of w1, w2 and both F2 forms, plus the top 5 of each leg alone (1,591 records).
