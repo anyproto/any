@@ -244,6 +244,26 @@ blend code.
 - **Against F2 two-branch:** +0.002 / −0.007 / +0.022*.
 - **Not replayed on the account.** Its new branches (vector only on a peaked cosine top, FTS only on a clear BM25
   lead) are the kind that cost real queries in the low-cut replay, so it needs the same check before it is preferred.
+- **Account replay and blind judgement** (cheggaaa's agent, 11-11): the RRF-only tree is level with the blend tree on
+  known-item (+0.040* to +0.069* against w1). Blind nDCG@3 on 237 real queries against w1: blend tree +0.031*, F2
+  +0.022*, RRF-only tree +0.013 (n.s.; bao model searches +0.065*), shape rule −0.002 (bao autorecall −0.061*).
+
+**Can a recall gate threshold blend scores?** (`RESULTS_GATE_BLEND.md`, `gate_blend.py`; Roma's 1,243 judged M1
+recall candidates, each scored by the fusion's own score.)
+
+| score | AUC | precision at 1.6 injected / query | queries whose top hit scores ≥ 0.9 |
+|---|---|---|---|
+| RRF w1, normalized | 0.735 | 0.64 | 0.76 |
+| blend α0.3 | 0.728 | 0.61 | 0.48 |
+| learned depth-2, blends (mixed scales) | 0.688 | 0.62 | 0.63 |
+| F2 two-branch (mixed scales) | 0.658 | 0.60 | 0.58 |
+| learned depth-2, RRF only | 0.730 | 0.67 | 0.76 |
+
+- **A min-max blend gates about as well as RRF.** Its top hit is near 1 less often than RRF's, not more.
+- **The cost is mixing the two scales under one threshold.** Within the blend tree each branch separates well (AUC
+  0.709 blend, 0.754 RRF), but relevant hits average 0.51 on the blend branch and 0.76 on the RRF branch, so one
+  threshold fits neither. Per-branch calibration would recover it; one scale on every branch avoids it.
+- **Limit:** the candidates are the w1 page's top 10, not each rule's own page.
 
 **Graded relevance on Roma's data** (M1, `RESULTS_M1_GRADED.md`):
 - **Method:** 126 queries, 14 per shape.
