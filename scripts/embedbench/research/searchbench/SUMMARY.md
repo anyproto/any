@@ -72,6 +72,12 @@ So the 768 default costs nothing measurable under w1-style fusion.
   - id-like lookups, 0.83;
   - names via the title pass, 0.91 (0.47 without it).
 
+**Two cheap rewrites tested through the production FTS leg** (`RESULTS_FTS_PREFIX.md`; MRR point estimates):
+- **Search-as-you-type:** putting `*` on the unfinished last word, as the title pass already does, takes FTS from 0.581
+  to **0.710** and fusion at w1 from 0.663 to **0.723** (n=76).
+- **Typos:** a prefix fallback (each word cut to its first 3–5 chars + `*`) only reaches 0.113 FTS and 0.326 fused,
+  against 0.310 vector-only. Typos need real fuzzy matching.
+
 ## L3: fusion
 
 1. **vectorWeight is a three-position switch, not a dial.**
