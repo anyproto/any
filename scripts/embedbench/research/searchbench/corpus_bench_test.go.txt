@@ -1,0 +1,229 @@
+package indexer
+
+// TestCorpusBench (SYN-391 scratch, not for merge) loads any corpus with precomputed doc vectors into an in-memory
+// production store and runs the production hybrid Search on it. The query vectors are precomputed too, served by a
+// lookup embedder. It writes the same JSONL as TestFusionSweep: the title block, both legs at chunk level with
+// Search's windows at limit 10, and the production page at several vector weights.
+//
+// CB_CORPUS   JSONL {"o","d","r","c","text","name"?}, one chunk per line. "name" adds the object's name doc
+//             (title pass); objects repeat across lines.
+// CB_DOCVEC   f32 file (uint32 n, uint32 dim, then n*dim float32 LE) aligned with CB_CORPUS lines
+// CB_QUERIES  JSONL {"Qid","Query"}
+// CB_QVEC     f32 file aligned with CB_QUERIES lines
+// CB_OUT      JSONL output; CB_WEIGHTS default "0.5,1,1.5,2,3"
+
+import (
+	"bufio"
+	"context"
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
+	"math"
+	"os"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/index"
+)
+
+const cbSpace = "corpusbench"
+
+type lookupEmbedder struct {
+	dim int
+	q   map[string][]float32
+}
+
+func (e lookupEmbedder) EmbedDocs(context.Context, []string) ([][]float32, error) {
+	return nil, fmt.Errorf("lookupEmbedder: docs are precomputed")
+}
+func (e lookupEmbedder) EmbedQuery(_ context.Context, text string) ([]float32, error) {
+	v, ok := e.q[text]
+	if !ok {
+		return nil, fmt.Errorf("lookupEmbedder: no vector for query %q", text)
+	}
+	return v, nil
+}
+func (e lookupEmbedder) Dim(context.Context) (int, error) { return e.dim, nil }
+
+func readF32(t *testing.T, path string) [][]float32 {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, d := int(binary.LittleEndian.Uint32(b[0:4])), int(binary.LittleEndian.Uint32(b[4:8]))
+	if len(b) != 8+4*n*d {
+		t.Fatalf("%s: size %d does not match n=%d dim=%d", path, len(b), n, d)
+	}
+	out := make([][]float32, n)
+	for i := 0; i < n; i++ {
+		v := make([]float32, d)
+		for j := 0; j < d; j++ {
+			v[j] = math.Float32frombits(binary.LittleEndian.Uint32(b[8+4*(i*d+j):]))
+		}
+		out[i] = v
+	}
+	return out
+}
+
+func readJSONL[T any](t *testing.T, path string) []T {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	var out []T
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 1<<24)
+	for sc.Scan() {
+		var v T
+		if err := json.Unmarshal(sc.Bytes(), &v); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+func TestCorpusBench(t *testing.T) {
+	if os.Getenv("CB_CORPUS") == "" {
+		t.Skip("CB_CORPUS not set")
+	}
+	ctx := context.Background()
+	type doc struct {
+		O, D, R string
+		C       int
+		Text    string
+		Name    string
+	}
+	docs := readJSONL[doc](t, os.Getenv("CB_CORPUS"))
+	dvec := readF32(t, os.Getenv("CB_DOCVEC"))
+	if len(dvec) != len(docs) {
+		t.Fatalf("doc vectors %d != docs %d", len(dvec), len(docs))
+	}
+	type query struct{ Qid, Query string }
+	qs := readJSONL[query](t, os.Getenv("CB_QUERIES"))
+	qvec := readF32(t, os.Getenv("CB_QVEC"))
+	if len(qvec) != len(qs) {
+		t.Fatalf("query vectors %d != queries %d", len(qvec), len(qs))
+	}
+	dim := len(dvec[0])
+	emb := lookupEmbedder{dim: dim, q: map[string][]float32{}}
+	for i, q := range qs {
+		emb.q[q.Query] = qvec[i]
+	}
+	store, err := OpenStoreInMemory(ctx, dim, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	named := map[string]bool{}
+	var ups []DocUpsert
+	flush := func() {
+		if len(ups) == 0 {
+			return
+		}
+		if err := store.Apply(ctx, cbSpace, ups, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		ups = ups[:0]
+	}
+	for i, d := range docs {
+		ups = append(ups, DocUpsert{Entry: index.IndexEntry{Scope: index.ScopeBasic, ObjectId: d.O, Dataset: d.D, RecordId: d.R, Data: d.Text}, Chunk: d.C, Vector: dvec[i]})
+		if d.Name != "" && !named[d.O] {
+			named[d.O] = true
+			ups = append(ups, DocUpsert{Entry: index.IndexEntry{Scope: index.ScopeBasic, ObjectId: d.O, Dataset: index.DatasetProp, RecordId: index.NamePropRecordId, Data: d.Name}})
+		}
+		if len(ups) >= 256 {
+			flush()
+		}
+	}
+	flush()
+	if ok, err := store.EnsureVectorIndex(ctx, cbSpace); err != nil || !ok {
+		t.Logf("ensure vector index: ok=%v err=%v (searching without it)", ok, err)
+	}
+	t.Logf("ingested %d chunks, %d named objects, dim %d", len(docs), len(named), dim)
+
+	weights := []float64{0.5, 1, 1.5, 2, 3}
+	if s := os.Getenv("CB_WEIGHTS"); s != "" {
+		weights = weights[:0]
+		for _, p := range strings.Split(s, ",") {
+			w, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
+			if err != nil {
+				t.Fatal(err)
+			}
+			weights = append(weights, w)
+		}
+	}
+	ixs := map[float64]*Indexer{}
+	for _, w := range weights {
+		ixs[w] = New(nil, nil, store, Options{Embedder: emb, StopWords: true, VectorWeight: w, QueryEmbedTimeout: time.Minute})
+	}
+	base := New(nil, nil, store, Options{Embedder: emb, StopWords: true, QueryEmbedTimeout: time.Minute})
+
+	of, err := os.Create(os.Getenv("CB_OUT"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer of.Close()
+	enc := json.NewEncoder(of)
+	const limit = 10
+	emptyVec := 0
+	for _, q := range qs {
+		req := api.SearchRequest{Query: q.Query, Limit: limit, Mode: api.SearchModeHybrid}
+		hs, err := newHostSet(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		titles, _, err := base.titlePass(ctx, cbSpace, req, limit, hs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		shown := shownRecords(titles)
+		rest := limit - len(titles)
+		var ftsHits, vecHits []Hit
+		if rest > 0 {
+			fetch := min(max(rest*3, 30), 100)
+			if vecHits, _, err = base.vectorLeg(ctx, cbSpace, emb.q[q.Query], req, legCover{fetch: fetch, groups: rest}, hs, shown); err != nil {
+				t.Fatal(err)
+			}
+			ftsQuery := q.Query
+			if !strings.Contains(ftsQuery, `"`) {
+				ftsQuery = stripStopWords(ftsQuery)
+			}
+			if ftsHits, _, err = base.ftsLeg(ctx, cbSpace, FTSQuery{Query: ftsQuery}, nil, legCover{fetch: fetch, groups: 2 * rest}, hs, shown); err != nil {
+				t.Fatal(err)
+			}
+		}
+		pages := map[string]any{}
+		for _, w := range weights {
+			res, err := ixs[w].Search(ctx, cbSpace, req, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.VectorStatus == api.VectorStatusUsed && rest > 0 && len(vecHits) == 0 {
+				emptyVec++
+			}
+			hits := make([]sweepHit, 0, len(res.Hits))
+			for _, h := range res.Hits {
+				hits = append(hits, sweepHit{ObjectId: h.ObjectId, Dataset: h.Dataset, RecordId: h.RecordId, Chunk: h.Chunk, Score: h.Score, Match: h.Match})
+			}
+			pages[fmt.Sprint(w)] = map[string]any{"hits": hits, "vectorStatus": res.VectorStatus, "mode": res.Mode}
+		}
+		if err := enc.Encode(map[string]any{
+			"qid": q.Qid, "space": cbSpace, "query": q.Query,
+			"titles": sweepSlim(titles, false), "fts": sweepSlim(ftsHits, false), "vec": sweepSlim(vecHits, false),
+			"pages": pages,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if emptyVec > 0 {
+		t.Fatalf("integrity: %d pages report vectorStatus used with an empty vector leg", emptyVec)
+	}
+}
