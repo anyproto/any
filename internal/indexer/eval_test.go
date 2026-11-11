@@ -493,7 +493,7 @@ func TestSearchEvalKnobs(t *testing.T) {
 		name string
 		opts Options
 	}{
-		{"baseline (no stopwords, 1/1, floor 0)", Options{}},
+		{"baseline (no stopwords, 1/1, floor 0)", Options{FtsWeight: 1, VectorWeight: 1}},
 		{"stopwords", Options{StopWords: true}},
 		{"stopwords + vec×0.5", Options{StopWords: true, VectorWeight: 0.5}},
 		{"stopwords + vec×0.3 + floor .3", Options{StopWords: true, VectorWeight: 0.3, MinVectorSim: 0.3}},

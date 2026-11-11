@@ -212,7 +212,7 @@ index:
     stopWords: true                   # strip stop words from the FTS-leg query (default on)
     ftsWeight: 0                      # fixed RRF weights at k 60 (an unset one is 1); both 0
     vectorWeight: 0                   # (default): each query picks its RRF form (13-index.md)
-    adaptiveWeights: false            # fixed weights only: auto-down-weight FTS per query
+    adaptiveWeights: false            # turns fixed weights on: auto-down-weight FTS per query
                                       # when its scores are flat/weak; helps paraphrastic
                                       # corpora, small cost on lexical-friendly ones — off
                                       # by default

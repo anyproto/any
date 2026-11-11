@@ -55,7 +55,7 @@ By default each query picks its weights and k from its own legs. The first test 
 | 80% or more | BM25 flat (relative top 1 − top 2 < 0.184) | lexical-heavy: `1 / 0.5`, k 20 |
 | 80% or more | BM25 peaked | the lexical leg alone, k 0 |
 
-A single leg fuses at k 0: its order doesn't change, and its score becomes 1 / (1 + rank), so a threshold above 0.5 admits only its first hit — the one a single leg reliably gets right. One fixed weight can't serve both kinds of query: above about 1.2, every vector-only hit outranks every lexical-only one, the lexical first hit included, which costs word, name and id lookups.
+A single leg fuses at k 0: its order doesn't change, and its score becomes 1 / rank, so a threshold above 0.5 admits only its first hit — the one a single leg reliably gets right. The hits only the other leg holds follow, scored as the next ranks, so the page is never shorter for it. A hit missing from a fused leg can't reach 1, an empty leg included. A `word*` in the query counts as found when any word starts with it. One fixed weight can't serve both kinds of query: above about 1.2, every vector-only hit outranks every lexical-only one, the lexical first hit included, which costs word, name and id lookups.
 
 Full-text operators (`"phrases"`, `prefix*`) shape the lexical leg's list; the vector leg always embeds the whole `query` verbatim, stop words included. `require` / `exclude` bind every hit regardless of leg: vector hits are post-filtered against the FTS index before fusion, so a fused result never contains a doc the lexical constraint would have refused.
 
@@ -103,7 +103,7 @@ All under `index.search.*` in [configuration](../operations/configuration.html);
 |---|---|---|
 | `ftsWeight` | unset | fixed RRF weight of the lexical leg (k 60); with `vectorWeight` also unset, each query picks its form |
 | `vectorWeight` | unset | fixed RRF weight of the dense leg (k 60) |
-| `adaptiveWeights` | false | with fixed weights, per query, down-weight the FTS leg when its BM25 scores are flat/weak |
+| `adaptiveWeights` | false | turns fixed weights on (1 / 1 unless set) and, per query, down-weights the FTS leg when its BM25 scores are flat/weak |
 | `stopWords` | true | strip stop words from the FTS-leg query |
 | `defaultOperator` | `or` | how bare FTS terms combine |
 | `minVectorSim` | 0 | cosine floor applied to vector hits before fusion |

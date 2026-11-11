@@ -131,7 +131,7 @@ type SearchPassage struct {
 // an agent deciding how much to trust recall) what happened to the
 // vector leg, not just that it silently fell back to lexical search.
 const (
-	// VectorStatusUsed: the vector leg ran and contributed to ranking.
+	// VectorStatusUsed: the vector leg ran and took part in the ranking.
 	VectorStatusUsed = "used"
 	// VectorStatusUnavailable: an embedder is configured but did not
 	// answer for this query — unreachable or not within the query budget

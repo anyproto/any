@@ -26,8 +26,9 @@ const (
 // coverage: a peaked vector leg decides alone, a flat one fuses
 // vector-heavy. High coverage: a peaked BM25 leg decides alone, a flat
 // one fuses lexical-heavy. A single leg fuses at k 0: the order is the
-// same for any k, and its normalized score 1/(1+rank) lets a gate above
-// 0.5 admit rank 1 only — the one reliably relevant single-leg hit.
+// same for any k, and its normalized score 1/rank (ranks from 1) lets a
+// gate above 0.5 admit the first hit only — the one reliably relevant
+// single-leg hit. The other leg's hits follow it (backfill).
 func planFusion(query string, fts, vec []Hit) fusionPlan {
 	if queryCoverage(query, fts) < treeCoverage {
 		if vectorGap(vec) < treeVecGap {
@@ -51,15 +52,32 @@ func init() {
 	}
 }
 
-// coverageWords is s's lowercase word set (letters, digits, '_'), minus
-// coverageStop when stop is set.
-func coverageWords(s string, stop bool) map[string]struct{} {
+func coverageSep(r rune) bool {
+	return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
+}
+
+// coverageWords is s's lowercase word set (letters, digits, '_').
+func coverageWords(s string) map[string]struct{} {
 	out := map[string]struct{}{}
-	for _, w := range strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
-	}) {
-		if _, skip := coverageStop[w]; !(stop && skip) {
-			out[w] = struct{}{}
+	for _, w := range strings.FieldsFunc(strings.ToLower(s), coverageSep) {
+		out[w] = struct{}{}
+	}
+	return out
+}
+
+// queryWords is the query's word set minus coverageStop; the value marks
+// a word typed as a prefix (`word*`), which any word starting with it
+// covers.
+func queryWords(query string) map[string]bool {
+	out := map[string]bool{}
+	for _, f := range strings.Fields(strings.ToLower(query)) {
+		prefix := strings.HasSuffix(strings.TrimRight(f, `"`), "*")
+		words := strings.FieldsFunc(f, coverageSep)
+		for i, w := range words {
+			if _, skip := coverageStop[w]; skip {
+				continue
+			}
+			out[w] = out[w] || (prefix && i == len(words)-1)
 		}
 	}
 	return out
@@ -69,22 +87,31 @@ func coverageWords(s string, stop bool) map[string]struct{} {
 // of the top three FTS chunks (their full text); 0 for a query with no
 // words or no FTS hit.
 func queryCoverage(query string, fts []Hit) float64 {
-	qw := coverageWords(query, true)
+	qw := queryWords(query)
 	if len(qw) == 0 {
 		return 0
 	}
 	var best float64
 	for _, h := range fts[:min(3, len(fts))] {
-		dw := coverageWords(h.Data, false)
+		dw := coverageWords(h.Data)
 		n := 0
-		for w := range qw {
-			if _, ok := dw[w]; ok {
+		for w, prefix := range qw {
+			if _, ok := dw[w]; ok || (prefix && hasPrefixWord(dw, w)) {
 				n++
 			}
 		}
 		best = max(best, float64(n)/float64(len(qw)))
 	}
 	return best
+}
+
+func hasPrefixWord(words map[string]struct{}, prefix string) bool {
+	for w := range words {
+		if strings.HasPrefix(w, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // vectorGap is the cosine drop from the vector leg's first to its fifth
@@ -119,4 +146,34 @@ func (p fusionPlan) lists(fts, vec []Hit) ([][]Hit, []float64) {
 		lists, weights = append(lists, vec), append(weights, p.vec)
 	}
 	return lists, weights
+}
+
+// backfill appends to a single leg's fused hits the hits only the other
+// leg holds, in that leg's order and scored as the ranks that follow, so
+// a leg that decides alone never shortens the page. Both legs fused:
+// nothing to add.
+func (p fusionPlan) backfill(fused, fts, vec []Hit) []Hit {
+	var rest []Hit
+	switch {
+	case p.fts > 0 && p.vec > 0:
+		return fused
+	case p.fts > 0:
+		rest = vec
+	default:
+		rest = fts
+	}
+	seen := make(map[string]struct{}, len(fused))
+	for _, h := range fused {
+		seen[hitDocId(h)] = struct{}{}
+	}
+	for _, h := range rest {
+		id := hitDocId(h)
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		h.Score = 1 / float64(len(fused)+1)
+		fused = append(fused, h)
+	}
+	return fused
 }

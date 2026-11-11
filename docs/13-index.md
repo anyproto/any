@@ -885,7 +885,7 @@ scores read 0–1.
 
 Modes: `fts` (BM25), `vector` (cosine ANN; requires an embedder; hits
 with similarity ≤ 0 — or ≤ `minVectorSim` — are dropped), `hybrid`
-(default — both legs fused by reciprocal rank, k = 60; degrades to `fts`
+(default — both legs fused by reciprocal rank, § Ranking knobs; degrades to `fts`
 when no embedder is configured or the query embedding fails or exceeds
 its budget — `mode` in the reply is the mode that ran), `title` (the
 title pass alone, below). The query
@@ -1028,15 +1028,19 @@ survive intact.
   top-5, or BM25's relative top-1 − top-2 gap), choose vector-heavy RRF
   (1 / 2 at k 20), the vector leg alone, lexical-heavy RRF (1 / 0.5 at
   k 20) or the FTS leg alone. A single leg fuses at k 0, so its score is
-  1 / (1 + rank) and a gate above 0.5 admits its rank 1 only. One fixed weight can't serve both kinds of
+  1 / rank (ranks from 1) and a gate above 0.5 admits its first hit
+  only; the hits only the other leg holds follow, scored as the next
+  ranks, so the page is never shorter for it. A hit missing from a fused
+  leg can't reach 1, an empty leg included. A `word*` in the query is
+  covered by any word it starts. One fixed weight can't serve both kinds of
   query: above ~1.2 every vector-only hit outranks every FTS-only one,
   FTS #1 included, which costs word, name and id lookups. Setting
   `ftsWeight` / `vectorWeight` fixes weighted RRF at k 60 instead (an
   unset one is 1). Every form's score is divided by its maximum,
   `Σ weight / (k + 1)`, so a hybrid score reads 0–1 and clients can gate
   on it.
-- **Adaptive leg weighting** (`adaptiveWeights`, default **off**, fixed
-  weights only) —
+- **Adaptive leg weighting** (`adaptiveWeights`, default **off**; turns
+  fixed weights on, 1 / 1 unless set) —
   down-weights the FTS leg per query by its score concentration, so a
   flat BM25 distribution (paraphrastic queries) can't drag hybrid below
   the dense leg. FTS only — cosine is uncalibrated. Wins on weak-lexical

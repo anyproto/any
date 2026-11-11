@@ -22,7 +22,7 @@ Chat (~232 chars) and property entries (~13, exact-match labels) stay per record
 
 Measured with the exact deployed model (Qwen3-Embedding-0.6B) on two standard labeled IR sets.
 
-**SciFact** (5,183 docs, 300 queries; scientific claims with high lexical overlap), production knobs:
+**SciFact** (5,183 docs, 300 queries; scientific claims with high lexical overlap), fixed RRF 1/1:
 
 | mode | nDCG@10 | recall@10 | MRR |
 |---|---|---|---|

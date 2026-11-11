@@ -165,8 +165,9 @@ func TestSearchEvalBEIR(t *testing.T) {
 		label string
 		opts  Options
 	}{
-		{"no stopwords, 1/1", Options{}},
-		{"stopwords, 1/1", Options{StopWords: true}},
+		{"no stopwords, 1/1", Options{FtsWeight: 1, VectorWeight: 1}},
+		{"stopwords, 1/1", Options{StopWords: true, FtsWeight: 1, VectorWeight: 1}},
+		{"stopwords, per-query form", Options{StopWords: true}},
 		{"stopwords, fts x1.5", Options{StopWords: true, FtsWeight: 1.5, VectorWeight: 1}},
 		{"stopwords, vec x1.5", Options{StopWords: true, FtsWeight: 1, VectorWeight: 1.5}},
 		{"stopwords, vec x2", Options{StopWords: true, FtsWeight: 1, VectorWeight: 2}},

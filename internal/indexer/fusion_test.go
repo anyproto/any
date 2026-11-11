@@ -1,6 +1,9 @@
 package indexer
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func scored(data string, score float64) Hit { return Hit{Data: data, Score: score} }
 
@@ -87,5 +90,52 @@ func TestFusionPlan_SingleLegScoresByRank(t *testing.T) {
 		if d := fused[i].Score - want; d > 1e-12 || d < -1e-12 {
 			t.Errorf("rank %d: score %v, want %v", i+1, fused[i].Score, want)
 		}
+	}
+}
+
+// A `word*` in the query is covered by any word it starts.
+func TestQueryCoverage_Prefix(t *testing.T) {
+	fts := []Hit{scored("the hydraulic pump failed", 3)}
+	for _, c := range []struct {
+		q    string
+		want float64
+	}{
+		{"hydraul*", 1},
+		{"hydraul", 0}, // not a prefix: a whole word or nothing
+		{"pump hydr*", 1},
+		{`"hydraulic pu*"`, 1},
+		{"engine*", 0},
+	} {
+		if got := queryCoverage(c.q, fts); got != c.want {
+			t.Errorf("queryCoverage(%q) = %v, want %v", c.q, got, c.want)
+		}
+	}
+}
+
+// A leg that decides alone keeps its order and scores; the hits only
+// the other leg holds follow as the next ranks.
+func TestFusionPlan_Backfill(t *testing.T) {
+	a, b, c, d := h("ds", "a"), h("ds", "b"), h("ds", "c"), h("ds", "d")
+	fts, vec := []Hit{a}, []Hit{b, a, c, d}
+	p := fusionPlan{fts: 1}
+	lists, weights := p.lists(fts, vec)
+	fused := fuseRRFK(lists, weights, p.k, 0)
+	normalizeRRF(fused, weights, len(lists), p.k)
+	fused = p.backfill(fused, fts, vec)
+	if len(fused) != 4 {
+		t.Fatalf("page holds %d hits, want the FTS hit and the three the vector leg adds", len(fused))
+	}
+	for i, want := range []struct {
+		id    string
+		score float64
+	}{{"a", 1}, {"b", 0.5}, {"c", 1.0 / 3}, {"d", 0.25}} {
+		if fused[i].RecordId != want.id || math.Abs(fused[i].Score-want.score) > 1e-12 {
+			t.Errorf("rank %d: %s at %v, want %s at %v", i+1, fused[i].RecordId, fused[i].Score, want.id, want.score)
+		}
+	}
+
+	both := fusionPlan{fts: 1, vec: 2, k: 20}
+	if got := both.backfill([]Hit{a}, fts, vec); len(got) != 1 {
+		t.Errorf("a two-leg plan backfilled %d hits", len(got)-1)
 	}
 }

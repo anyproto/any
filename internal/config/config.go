@@ -288,15 +288,16 @@ type Index struct {
 // § 5). Zero values pick the defaults.
 type IndexSearch struct {
 	// FtsWeight / VectorWeight fix each leg's reciprocal-rank-fusion
-	// weight in hybrid mode (k 60; an unset one is 1). Both unset
-	// (default): each query picks its RRF form (indexer planFusion).
+	// weight in hybrid mode (k 60; an unset one is 1). Both unset and
+	// AdaptiveWeights off (default): each query picks its RRF form
+	// (indexer planFusion).
 	FtsWeight    float64 `yaml:"ftsWeight"`
 	VectorWeight float64 `yaml:"vectorWeight"`
 	// AdaptiveWeights down-weights the FTS leg per query by its score
 	// concentration — so a weak lexical leg (e.g. paraphrastic queries
-	// where BM25 is flat) can't drag hybrid below the dense leg. Fixed
-	// weights only; off by default. docs/search/README.md § per-corpus
-	// leg weighting.
+	// where BM25 is flat) can't drag hybrid below the dense leg. Turns
+	// fixed weights on; off by default. docs/search/README.md
+	// § per-corpus leg weighting.
 	AdaptiveWeights bool `yaml:"adaptiveWeights"`
 	// DefaultOperator controls how bare FTS terms combine: "or" (default,
 	// any term) or "and" (all terms — higher precision, lower recall).
