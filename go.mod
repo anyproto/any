@@ -14,7 +14,7 @@ require (
 	github.com/ebitengine/purego v0.10.2
 	github.com/gabriel-vasile/mimetype v1.4.15
 	github.com/gofrs/flock v0.13.1
-	github.com/hybridgroup/yzma v1.25.0
+	github.com/hybridgroup/yzma v1.30.0
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/pb33f/libopenapi v0.38.7
 	github.com/sergi/go-diff v1.4.0
@@ -91,7 +91,7 @@ require (
 	github.com/ipld/go-ipld-prime v0.24.0 // indirect
 	github.com/jbenet/go-temp-err-catcher v0.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
-	github.com/jupiterrider/ffi v0.7.0 // indirect
+	github.com/jupiterrider/ffi v0.8.0 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
