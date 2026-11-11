@@ -421,6 +421,9 @@ func realEvalEmbedder(t *testing.T) (string, Embedder) {
 	if v := os.Getenv("ANY_EVAL_LOCAL_DIM"); v != "" {
 		cfg.Local.Dim, _ = strconv.Atoi(v)
 	}
+	if v := os.Getenv("ANY_EVAL_LOCAL_CTX"); v != "" {
+		cfg.Local.ContextSize, _ = strconv.Atoi(v)
+	}
 	if v := os.Getenv("ANY_EVAL_LOCAL_GPU_LAYERS"); v != "" {
 		n, _ := strconv.Atoi(v)
 		cfg.Local.GpuLayers = &n
