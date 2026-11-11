@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -214,6 +215,27 @@ func (d *deps) collectionPatch(c echo.Context) error {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "collectionId": id})
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// collectionDelete handles DELETE /v1/spaces/:spaceId/collections/:collectionId
+// — deletes a user collection. Its members keep its id in
+// `any.collections`.
+//
+//	@Summary	Delete a collection
+//	@Tags		collections
+//	@Param		spaceId			path	string	true	"Space ID"
+//	@Param		collectionId	path	string	true	"Collection ID"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	403	{object}	api.ErrorEnvelope
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	409	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/collections/{collectionId} [delete]
+func (d *deps) collectionDelete(c echo.Context) error {
+	return d.definitionDelete(c, "collectionId", collectionLookupError, "collection.registered",
+		"collection is a built-in or registered collection and cannot be deleted",
+		func(ctx context.Context, sp space.Space, id string) error { return sp.Collections().Delete(ctx, id) })
 }
 
 // collectionProperties handles GET /v1/spaces/:spaceId/collections/:collectionId/properties.

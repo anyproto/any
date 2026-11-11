@@ -185,7 +185,8 @@ is the common mistake, and the collection's columns then disappear from
 the UI.
 
 Every object has a type — `POST …/objects` refuses a body without one
-and the type is never cleared — so there is always a layout to render.
+and the type is never cleared — so there is a layout to render unless
+the type was deleted: the id then names no type (`404 type.not_found`).
 `page` is the plain document.
 
 `layout` is opaque to the server — `{"type": "<slug>", "config": {…}}` in
@@ -220,7 +221,7 @@ data, read-tolerant, and so do its datasets' records — which its parts no
 longer admit writes to. Unfiling likewise leaves that collection's values
 in place.
 
-Deleting a collection (`DELETE …/objects/:collectionId`) leaves its
+Deleting a collection (`DELETE …/collections/:collectionId`) leaves its
 members as they are: each keeps the collection id in `any.collections`
 and its values for the collection's columns. The server cannot clean
 them up reliably — a device that was offline can file an object under

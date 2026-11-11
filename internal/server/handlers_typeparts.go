@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/anyproto/any-sync-sdk/space"
+	"github.com/anyproto/any-sync/commonspace/settings"
 
 	"github.com/anyproto/any/internal/api"
 )
@@ -412,6 +414,58 @@ func (d *deps) typePatch(c echo.Context) error {
 				"type is a registered built-in; its metadata is statically declared", map[string]any{"typeId": typeId})
 		}
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// typeDelete handles DELETE /v1/spaces/:spaceId/types/:typeId — deletes
+// a user type. Objects of the type keep its id in `any.type`.
+//
+//	@Summary	Delete a type
+//	@Tags		types
+//	@Param		spaceId	path	string	true	"Space ID"
+//	@Param		typeId	path	string	true	"Type ID"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	403	{object}	api.ErrorEnvelope
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	409	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/types/{typeId} [delete]
+func (d *deps) typeDelete(c echo.Context) error {
+	return d.definitionDelete(c, "typeId", typeLookupError, "type.registered",
+		"type is a built-in or registered type and cannot be deleted",
+		func(ctx context.Context, sp space.Space, id string) error { return sp.Types().Delete(ctx, id) })
+}
+
+// definitionDelete serves the type and collection deletes: lookup
+// refusals answer as the surface's GET does.
+func (d *deps) definitionDelete(c echo.Context, param string, lookup func(echo.Context, error, string, string) (error, bool),
+	registeredCode, registeredMsg string, del func(context.Context, space.Space, string) error) error {
+	id := c.Param(param)
+	if id == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", param+" required", nil)
+	}
+	if isSerializedNil(id) {
+		return serializedNilIdError(c, param, id)
+	}
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	details := map[string]any{"spaceId": sp.Id(), param: id}
+	if err := del(c.Request().Context(), sp, id); err != nil {
+		if resp, done := lookup(c, err, sp.Id(), id); done {
+			return resp
+		}
+		switch {
+		case errors.Is(err, space.ErrTypeRegistered):
+			return writeError(c, http.StatusBadRequest, registeredCode, registeredMsg, details)
+		case errors.Is(err, settings.ErrCantDeleteDerivedObject):
+			return writeError(c, http.StatusConflict, api.ErrObjectDerivedUndeletable,
+				"derived objects are permanent and cannot be deleted", details)
+		}
+		return sdkOpError(c, err, details)
 	}
 	return c.NoContent(http.StatusNoContent)
 }

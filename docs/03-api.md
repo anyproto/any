@@ -2737,7 +2737,7 @@ diffs are leaf-level; an absent side is omitted (`added` has no
 | POST   | `/v1/spaces/:spaceId/types`                                   | `TypesAPI.Create`      |
 | GET    | `/v1/spaces/:spaceId/types/:typeId`                           | `TypesAPI.Get`         |
 | PATCH  | `/v1/spaces/:spaceId/types/:typeId`                           | `TypesAPI.Patch` — name / description / icon / layout |
-| DELETE | `/v1/spaces/:spaceId/types/:typeId`                           | `501 sdk.not_implemented` |
+| DELETE | `/v1/spaces/:spaceId/types/:typeId`                           | `TypesAPI.Delete` — objects of the type keep its id |
 | GET    | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.Properties`  |
 | POST   | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.AddProperty` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.RemoveProperty` |
@@ -2849,6 +2849,18 @@ answer `404`),
 so a `200 []`
 properties list always means "the type exists and has no property
 definitions yet".
+
+`DELETE …/types/:typeId` deletes a user type → `204`. Its objects are
+not touched: each keeps the id in `any.type` and its values under the
+type's namespace, and `{"any.type": "<typeId>"}` still returns them.
+Its parts go with it, so, as after a retype, its datasets' records stay
+but take no more writes (`400 dataset.not_declared`). A bundle root is
+uninstalled with `DELETE …/bundles/:bundleId` (§ Bundles). A
+built-in or registered type is `400 type.registered`, a user collection
+id `400 type.not_a_type`, any other id — unknown, already deleted, or a
+registered collection's — `404 type.not_found`; a reader or guest is
+`403 space.read_only` and a derived root `409 object.derived_undeletable`,
+as on object deletion (§ Object deletion).
 
 **Property definitions are one surface.** Everything from here to the
 end of this subsection holds verbatim for a collection's columns:
@@ -3559,7 +3571,7 @@ no `layout`: an object of type `page` renders by the client's default.
 | POST   | `/v1/spaces/:spaceId/collections`                             | `CollectionsAPI.Create` |
 | GET    | `/v1/spaces/:spaceId/collections/:collectionId`               | `CollectionsAPI.Get`   |
 | PATCH  | `/v1/spaces/:spaceId/collections/:collectionId`               | `CollectionsAPI.Patch` — name / description / icon / hidden / meta |
-| DELETE | `/v1/spaces/:spaceId/collections/:collectionId`               | `501 sdk.not_implemented` |
+| DELETE | `/v1/spaces/:spaceId/collections/:collectionId`               | `CollectionsAPI.Delete` — members keep its id |
 | GET    | `/v1/spaces/:spaceId/collections/:collectionId/properties`    | list the columns       |
 | POST   | `/v1/spaces/:spaceId/collections/:collectionId/properties`    | add a column           |
 | PATCH  | `/v1/spaces/:spaceId/collections/:collectionId/properties/:propId` | patch a column    |
@@ -3622,8 +3634,14 @@ marker exclusion.
 Filing an object is `POST …/properties/:objectId/collections/:collectionId`,
 unfiling the matching DELETE (§ Properties).
 
-**Deleting a collection** is `DELETE …/objects/:collectionId` (§ Object
-deletion). Its members are not touched: each keeps the collection id in
+**Deleting a collection** is `DELETE …/collections/:collectionId` →
+`204`; the meta row `collection` or a registered collection is `400
+collection.registered`, a user type id `400 collection.not_a_collection`,
+any other id — unknown, already deleted, or a built-in or registered
+type's — `404 collection.not_found`; a reader or guest is `403
+space.read_only` and a derived root `409 object.derived_undeletable`, as
+on object deletion (§ Object deletion). Its members are not touched: each
+keeps the collection id in
 `any.collections` and its values for the collection's columns, and
 `{"any.collections": "<collectionId>"}` still returns them. The server
 does not clean them up because it cannot do it reliably: a device that
