@@ -708,7 +708,7 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   revision, and the document prompt and pooling in effect; a db another
   one built is removed and rebuilt at boot, like one of another
   dimension. A db from before that record is kept for Qwen3, an unnamed
-  GGUF or a network embedder, and when it holds no vectors. Under `auto`
+  GGUF or a network embedder, and when it never learned a dimension. Under `auto`
   the API key decides the local model, so adding or removing
   `index.openai.apiKey` rebuilds the index. A model file whose output
   width is not the pinned model's is refused at load.
