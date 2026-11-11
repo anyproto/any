@@ -1869,7 +1869,7 @@ route below; the examples use the canonical name). Nest via
 ```json
 {
   "id":    "<auto-derived from changeId>",
-  "_ver":  { "id": "<VersionId of last change>", ... },
+  "_ver":  { "id": "<creation VersionId>", "<path>": "<VersionId>", ... },
   "type":  "paragraph" | "heading" | "list_item" |
            "check_list_item" | "code" | "quote" |
            "divider" | "html" | "table" | "image",
@@ -1908,6 +1908,8 @@ POST /v1/spaces/:spaceId/query
 ```
 
 Each record carries `id`, `_ver`, `type`, `style`, `text`, `nav`.
+`_ver.id` is the block's creation marker, never bumped by an edit; an
+edit stamps `_ver.<path>` for the paths it wrote.
 Records sort by `nav.pos` ascending (flat order, not DFS — clients
 that want DFS reconstruct the tree by grouping children under each
 `nav.parentId`). Empty `records` array when the object has no body
@@ -2285,7 +2287,8 @@ record, a record delete). They share that change's version, so they
 move as a unit and never pair one change's time with another's
 signer; a late arrival regresses neither, and concurrent writers are
 resolved by DAG order, not by clock, so the winning identity may be
-the one whose wall clock reads earlier. Deleting the object removes
+the one whose wall clock reads earlier — and `modifiedAt` can move
+backwards. Deleting the object removes
 the row outright, stamps included. `modifiedBy` is in the same
 identity encoding as `author`, as chat `creator`, as `identity` in
 `GET /v1/spaces/:spaceId/members` and as `id` from `GET /v1/account`:
@@ -2528,7 +2531,7 @@ data: {"reason": "overflow"}
   matches exist past this page (`offset+len(records) < total`). Both
   are present only when `includeTotal` was set in the request body,
   and are counted in the snapshot's own read, so they describe exactly
-  its rows.
+  its rows; no later frame updates them.
 - **`changes`** — JSON array of zero-or-more windowed events. Each
   event has `versionId` (per-change DAG order, locally-scoped — don't
   compare across peers) plus three buckets:
@@ -4530,6 +4533,11 @@ tree is stored locally and a sync round with a peer found nothing to
 exchange, and `{state: "unknown"}` otherwise — never 404; existence
 checks go through `GET …/objects/:objectId`. A space can therefore
 read `synced` while an untouched object still reads `unknown`.
+
+`syncing` covers this device's own writes and an object it has just
+fetched. Other members' changes to an object it already holds never
+set it, and a fetched object goes `syncing` → `synced` within one
+fetch, so the status never says that another member's changes arrived.
 
 ```json
 // GET /v1/spaces/:spaceId/sync-status

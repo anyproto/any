@@ -52,7 +52,7 @@ Reads are POSTs with a Mongo-style body. The cross-object query reads the space'
 
 ```bash
 curl -fsS -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/json' \
-  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt","id"],"limit":20,"includeTotal":true}'
+  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt","-id"],"limit":20,"includeTotal":true}'
 ```
 
 ```json
@@ -75,7 +75,7 @@ Same body, sibling path, `-N` to keep the stream open. The response is `text/eve
 
 ```bash
 curl -fsS -N -X POST $API/spaces/$SPACE/objects/query/subscribe -H 'content-type: application/json' \
-  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt","id"],"limit":20}'
+  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt","-id"],"limit":20}'
 ```
 
 ```

@@ -60,10 +60,12 @@ curl http://127.0.0.1:2046/v1/spaces/$SPACE/sync-status
 | `state` | Meaning |
 |---------|---------|
 | `synced` | A node or direct peer confirmed heads of this space in this run, and no object is waiting for one. |
-| `syncing` | Changes are in flight in one direction or the other. |
+| `syncing` | An object has heads no node or direct peer has confirmed yet: this device's own writes, or an object it has just fetched. |
 | `unknown` | A peer is connected but none has confirmed the space yet (or an object with no sync activity in this run, until a sync round with a peer finds nothing to exchange). |
 | `offline` | No responsible node and no direct peer connected; local reads and writes continue. |
 | `error` | The network refuses this build's protocol version. |
+
+Changes from other members to an object this device already holds never set `syncing`, and an object new to this device goes `syncing` → `synced` within the fetch that brings it, so the status cannot tell you that another member's changes have arrived.
 
 When several apply, the space reports the first of `error`, `offline`, `syncing`, `synced`, `unknown`. A space that syncs over the LAN alone is never `offline`, and a device that reached nobody never reads `synced`.
 

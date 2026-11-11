@@ -13,7 +13,7 @@ Present on every record returned by [`/query`](reading-data.html) and in subscri
 
 | Field | Scope | Meaning |
 |---|---|---|
-| `_ver.id` | peer-local | The record's **creation marker** — the version id of the change that created it. Set once, never bumped by edits. Monotonic on one device (and indexed on `chat_messages`): the standard cursor for stable paging (`{"_ver.id": {"$lt": "<oldestSeen>"}}` sorted `["-_ver.id"]`) and the chronological order chat sorts on. |
+| `_ver.id` | peer-local | The record's **creation marker** — the version id of the change that created it. Set once, never bumped by edits. It is the creating change's DAG order id, so a change that merges late sorts between existing ones. Indexed on `chat_messages`: the chronological order chat sorts on and its paging cursor (`{"_ver.id": {"$lt": "<oldestSeen>"}}` sorted `["-_ver.id"]`), unique there because the chat routes write each message as its own change. Records one change creates share it. Across `objects` rows it repeats and orders nothing ([Reading data](reading-data.html#paging)). |
 | `_ver.<path>` | peer-local | Per-field high-water mark: the version id of the last change that touched that path. Clients running subscribe-then-query-then-apply compare against it to dedupe live events. |
 | `_addSeq` | peer-local | The space's monotonic delivery counter on this device — advances on every change to any of an object's datasets. The search indexer's cursor. Compare and persist it; never assume another peer holds the same value for the same change. |
 | `_deletedAt` | synced | Present on a record-level tombstone. Tombstones are excluded from `/query`, subscribe and aggregation; they surface only to consumers that opt in (`"includeDeleted": true` on a per-object `/query` snapshot, the search feed, the history record read with `deleted: true`). |
@@ -31,7 +31,7 @@ Every row of the per-space `objects` storage collection carries these next to `i
 |---|---|
 | `author` | Identity that created the object (the root-change signer). |
 | `createdAt` | Creation instant — the root change's time. |
-| `modifiedAt` | Instant of the latest **synced** change that touched the object, whatever dataset it landed on. Any property write bumps it; peers converge on one value (last-writer-wins on DAG order). Local- and account-scope writes deliberately don't bump it. |
+| `modifiedAt` | Instant of the latest **synced** change that touched the object, whatever dataset it landed on, in whole seconds. Any property write bumps it; peers converge on one value (last-writer-wins on DAG order, so it can move backwards). Local- and account-scope writes deliberately don't bump it. |
 | `modifiedBy` | Account identity that signed the change `modifiedAt` points at — the object's last writer. Equal to `author` on an object nobody has edited since it was created. |
 | `spaceId` | The hosting space. |
 

@@ -39,7 +39,7 @@ The body is the same one `…/query` takes, plus two stream-only knobs:
 | `objectId` | per-object variant only |
 | `dataset` | per-object and shared-dataset variants |
 | `filter`, `sort`, `limit`, `offset` | as in a snapshot query; `limit > 0` without `sort` is `400 request.invalid_field` — a live window has to be ordered |
-| `includeTotal` | populates `total` and `hasNext` in the snapshot frame |
+| `includeTotal` | populates `total` and `hasNext` in the snapshot frame only, counted in the snapshot's own read — no `changes` frame carries a total |
 | `projection` | shapes the snapshot and every later `changes` record — see [Reading data](../database/reading-data.html) |
 | `mailboxCapacity` | per-subscriber event mailbox; default 256, minimum 16 |
 | `driftBudgetPercent` | share of `limit` the window may lose before the stream closes; default 30. A window at `offset: 0` refills from storage and loses rows only while a refill fails; a window past an offset loses every held row that is deleted or stops matching |
@@ -236,9 +236,9 @@ From the shell, `curl -N` shows the raw frames, and the CLI prints one JSON obje
 ```bash
 curl -N http://127.0.0.1:2046/v1/spaces/SPACE/objects/query/subscribe \
   -H 'Content-Type: application/json' \
-  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}'
+  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt","-id"],"limit":20}'
 
-any query-subscribe SPACE --properties --filter '{"any.type":"page"}' --sort -modifiedAt --limit 20
+any query-subscribe SPACE --properties --filter '{"any.type":"page"}' --sort -modifiedAt,-id --limit 20
 any query-subscribe SPACE CHAT --dataset chat_messages --sort -_ver.id --limit 50 --total \
   | jq 'select(.event=="changes") | .data[]'
 any query-subscribe SPACE --all-objects --dataset TYPE_hours --sort -start --limit 48

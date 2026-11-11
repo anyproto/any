@@ -23,8 +23,8 @@ Property values are admitted only under an **owner** the object has — its type
 
 - **Prefer `query`.** Open a `subscribe` only when the UI renders changes live.
 - **Always set `limit`.** An unbounded read is a bug: it can produce a huge snapshot or overflow a subscribe mailbox, and the drift budget is off when `limit == 0`.
-- **Page on a cursor, not `offset`.** Offsets float under writes. Page with `{"_ver.id": {"$lt": "<last>"}}` and the same sort — indexed, absolute, and correct while the storage collection mutates.
-- **Recency is `-modifiedAt`**, creation order `-createdAt` — author's clock, display quality only.
+- **Page on a cursor, not `offset`.** Offsets float under writes. Filter past the last row on the indexed sort field and keep the same sort. In chat that field is `_ver.id` (one message per change): `{"_ver.id": {"$lt": "<last>"}}`. Across `objects` rows `_ver.id` repeats and orders nothing; page on the sort field, and since `modifiedAt` holds whole seconds, carry the `id` tiebreak in both `sort` and the filter ([Reading data](../database/reading-data.html#paging)).
+- **Recency is `-modifiedAt`**, creation order `-createdAt` — author's clock, display quality only. `modifiedAt` resolves by version, not by clock, so it can move backwards.
 - **Timestamps are `{"$date": …}`** in filters too; a bare value compares only within its own type bracket, so it silently returns nothing.
 - **Aggregate server-side.** Counts and top-N go through `…/aggregate`, `$match` first ([Aggregation](../database/aggregation.html)).
 
@@ -34,7 +34,7 @@ Find the chat through the catalog (`POST /v1/catalog/general-chat/setup`, the ch
 
 ## 5. Hold a window; recover by resubscribing
 
-A subscription is a moving window, not a feed to accumulate. Keep the window in memory, apply `added` / `updated` / `removed`, and keep no second store to reconcile. Every `closed` reason is terminal — `drifted` (the engine could not keep the window equal to storage) and `overflow` (mailbox of `mailboxCapacity` filled, default 256) included; only `object_deleted` (a per-object stream whose object is gone) is not followed by a resubscribe. The fresh snapshot already reflects current state; rebuilding it from a delta is the expensive path the server refuses. Window size costs the client memory, not the server ([Subscriptions](../realtime/subscribe.html)).
+A subscription is a moving window, not a feed to accumulate. Keep the window in memory, apply `added` / `updated` / `removed`, and keep no second store to reconcile. Every `closed` reason is terminal — `drifted` (the engine could not keep the window equal to storage) and `overflow` (mailbox of `mailboxCapacity` filled, default 256) included; only `object_deleted` (a per-object stream whose object is gone) is not followed by a resubscribe. The fresh snapshot already reflects current state; rebuilding it from a delta is the expensive path the server refuses. Window size costs memory on both sides: the server keeps a copy of every row a windowed subscription holds, and the client holds the same rows ([Subscriptions](../realtime/subscribe.html)).
 
 ## 6. Search: hybrid, then read `vectorStatus`
 

@@ -155,11 +155,31 @@ lifecycle is in `04-events.md`.
 - **Page on an absolute cursor, not `offset`, for anything that mutates under
   you.** `offset` floats — row 50 becomes row 51 the moment a record lands
   ahead of it, so paging a live dataset by offset silently skips and
-  repeats rows. A `_ver.id` (or other indexed-field) cursor filter is
-  absolute: the next page is `{ "<field>": { "$lt": <lastSeen> } }` with the
-  same `sort`, and because the storage collection is indexed on it the page returns
-  from disk directly. `offset` is fine only for a frozen, point-in-time
-  snapshot you won't page across writes.
+  repeats rows. A cursor filter on an indexed sort field doesn't float:
+  the next page is `{ "<field>": { "$lt": <lastSeen> } }` (`$gt` on an
+  ascending sort) with the same `sort`, and the index bounds the read.
+  A field that can tie needs an `id` tiebreak — tied rows have no
+  specified order — and a row whose
+  sort key changes mid-pass moves relative to the cursor, so the pass
+  can miss it or return it twice. In chat that field is `_ver.id` —
+  the chat routes write one message per change, so it doesn't tie.
+  Records one change creates share a `_ver.id`, and across `objects`
+  rows it repeats and orders nothing, so elsewhere the cursor is the
+  declared sort field. `modifiedAt` ties often (whole seconds), so a
+  `modifiedAt` cursor carries the `id` tiebreak in both `sort` and the
+  filter, next to the first page's own filter.
+
+  ```json
+  { "sort":   ["-modifiedAt", "-id"], "limit": 50,
+    "filter": { "$and": [
+      { "any.type": "<typeId>" },
+      { "$or": [
+        { "modifiedAt": { "$lt": { "$date": "<last.modifiedAt>" } } },
+        { "modifiedAt": { "$date": "<last.modifiedAt>" }, "id": { "$lt": "<last.id>" } } ] } ] } }
+  ```
+
+  `offset` is fine only for a frozen, point-in-time snapshot you won't
+  page across writes.
 
 - `sort` is an array of field-path strings; a `-` prefix means descending.
   `filter` is mongo-style — operators include `$lt` / `$gt`. On `subscribe`,
@@ -171,6 +191,9 @@ lifecycle is in `04-events.md`.
   recency ordering (`-createdAt` for creation order). `modifiedAt` bumps on any
   synced write to the object and converges across peers, but it's the
   author's wall clock — fine for sorting and display, never a sync fence.
+  It holds whole seconds and resolves last-writer-wins by version, not by
+  clock: the winning change can carry an earlier timestamp, so
+  `modifiedAt` can move backwards.
 
 - **"Modified by X" comes from the same change as `modifiedAt`.** Render the
   two together — the pair always names one change, never one change's time
@@ -334,10 +357,10 @@ accumulate. Treat it as one and the lifecycle stays simple.
   `versionId` and no `ops`: apply it like any other, taking each `doc`
   whole.
 
-- **Window size is free on the server; the cost is the client's.** The server
-  streams the window straight from the indexed DB and is indifferent to
-  whether it holds 50 rows or 50,000 — size the window for the UI, not the
-  server. The real cost of a large window is client memory.
+- **Window size costs memory on both sides.** The server keeps a copy of
+  every row a windowed subscription holds for as long as the stream is
+  open, and the client holds the same rows. Size the window for what the
+  UI shows.
 
 - **Cross-check client state against the DB when debugging.** `any-store-cli`
   reads the same local DB that backs `any-store`. Sort a storage collection by

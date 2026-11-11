@@ -48,7 +48,7 @@ Endpoints: `POST /v1/spaces/:id/objects/query/subscribe` (cross-object), `POST /
 | Frame | Payload | Notes |
 |---|---|---|
 | `ready` | `{}` | once |
-| `snapshot` | `{records, total?, hasNext?}` | once, right after `ready`; `total`/`hasNext` only with `includeTotal` |
+| `snapshot` | `{records, total?, hasNext?}` | once, right after `ready`; `total`/`hasNext` only with `includeTotal`, never updated by `changes` |
 | `changes` | `[{versionId, added, updated, removed}]` | zero or more windowed events |
 | `closed` | `{reason}` | terminal |
 
