@@ -1,0 +1,117 @@
+# SearchBench: what the three-layer benchmark found (2026-11-11, overnight)
+
+SYN-391 follow-up. Design in `DESIGN.md`. Everything below is aggregate. Private inputs stayed on Roma's Mac, outside
+git.
+
+## What was run
+
+- **Harnesses** (`*.txt` files drop into `internal/indexer/` at the app's commit):
+  - `fusion_sweep`: the production `Search` over an `index.db` copy. It dumps the title block and both legs at chunk
+    level.
+  - `TestCorpusBench`: any corpus with precomputed vectors, loaded into an in-memory production store.
+- **Layers.** One set of queries and labels is scored at every layer:
+  - L0 integrity;
+  - L1 vector only (exact cosine, no titles, no FTS);
+  - L2 FTS and title pass only;
+  - L3 fusion on frozen legs, with production's window rule.
+- **Data:**
+  - **Roma's Nightly snapshot,** Team Agents and Agents. 875 known-item queries on 120 targets, in 9 shapes: one
+    word, id-like, name, typo, search-as-you-type prefix, 2–3 words, 4–5 words, question, pasted excerpt. 63 of the
+    targets were held out.
+  - **9 public and synthetic sets,** 2,064 queries with graded qrels: RU wiki, wiki-mix, MIRACL-RU, MIRACL-DE,
+    SciFact, NFCorpus, FiQA-10k, sealed RU dev-slang chat, rig RU look-alikes.
+- **Embedders:**
+  - Qwen3-Embedding-0.6B Q8 at 1024 dims;
+  - EG2 Q8 with the head projection;
+  - stock EG2 as a control.
+- **Labels:** known-item. A blind judge (2 Haiku votes, Sonnet deciding splits) graded the 880 rank-1 disagreements
+  against a written need.
+  - It graded all 60 hidden targets 3, and 51 of 60 random records 0.
+  - The two Haiku votes agreed exactly 90% of the time, and 100% on the useful / not-useful side.
+  - The judged results confirm every known-item direction.
+
+## L0: the pipeline is what we think it is
+
+- Offline re-fusion reproduces 100% of production pages at every weight.
+- The production Qwen3 vector leg overlaps exact search at 0.98–0.99 in its top 10 chunks.
+- Stored vectors are unit-norm.
+- **A labelling pitfall:** memories, chats and config live in container objects, so a known item has to match by
+  record. Object-level matching inflated MRR for 42 of 59 targets.
+
+## L1: embedder alone
+
+| | Qwen3 | EG2-head | EG2 stock |
+|---|---|---|---|
+| Roma's data (MRR, 679 queries) | 0.496 | +0.009 | −0.041* |
+| names | 0.286 | +0.118 (borderline) | +0.112 |
+| SciFact (nDCG) | 0.701 | **+0.149*** | |
+| FiQA | 0.633 | **−0.122*** | |
+| MIRACL-RU / RU wiki | 0.836 / 0.868 | +0.023 / +0.029 | |
+| RU dev-slang chat (sealed / rig) | 0.781 / 0.946 | −0.033* / −0.102* | |
+| Japanese (9 queries) | 0.932 | −0.236* | |
+
+- **On Roma's data EG2-head ties Qwen3.**
+- **On public sets the result swings by domain:** EG2 wins science, and loses finance Q&A and Russian dev slang.
+- **The head projection is essential:** stock EG2 loses 0.041*.
+- **Fusion hides embedder differences.** At L3 w1 on Roma's data, EG2 − Qwen3 is only +0.012 (n.s.).
+
+## L2: FTS alone, and its holes
+
+- **Typos:** FTS scores 0.000 on one-edit typos; it has no fuzzy matching. Only the vector leg finds them, at 0.31.
+- **Chinese and Japanese:** FTS scores 0.04–0.11, because the analyzer doesn't segment them.
+- **Cross-language (en→ru):** FTS scores 0.000, as expected.
+- **Strengths:**
+  - pasted excerpts, 0.975;
+  - id-like lookups, 0.83;
+  - names via the title pass, 0.91 (0.47 without it).
+
+## L3: fusion
+
+1. **vectorWeight is a three-position switch, not a dial.**
+   - **Why:** at k=60 over a ~30-chunk window, a single-leg contribution spans only 1.49×.
+   - **≤0.8:** every FTS-only hit ranks above every vector-only hit.
+   - **≥1.2:** the reverse, so 1.5, 2 and 3 rank identically.
+   - The rig shows the same: 0%, 29% and 44% vector-only slots.
+2. **No fixed weight fits both kinds of data:**
+   - **Roma's agent-memory data:** global w2 is −0.052* (id-like −0.269*, pasted excerpts −0.088*); w0.5 is +0.017*.
+   - **Public paraphrase and question sets:** w2 is +0.012* and w0.5 is −0.051*.
+3. **RRF ignores how confident a leg is.**
+   - **Exact hits lose:** a mediocre two-leg record beats FTS #1. Pasted excerpts score 0.975 in FTS alone, but 0.764
+     fused at w1.
+   - **Fusion can trail vector-only search:** on paraphrase sets fusion at w1 often scores below vector-only (public
+     average 0.606 against 0.670; RU wiki 0.643 against 0.868).
+4. **A query-time router works on both kinds of data.**
+   - **Signal:** `cov`, the share of the query's words found in the best of the top-3 FTS chunks.
+   - **Router F2:**
+     - `cov` = 1 → a min-max score blend with α 0.3 (vector share);
+     - `cov` < 0.5 → vector leg only;
+     - otherwise → RRF w2.
+
+| Δ against w1 | Roma's data, Qwen3 (MRR) | Roma's data, EG2 | public, Qwen3 (nDCG) | public, EG2 |
+|---|---|---|---|---|
+| global w2 | −0.052* | −0.050* | +0.012* | +0.003 |
+| router C (RRF w0.5 at `cov` = 1) | +0.028* | +0.015* | +0.024* | +0.020* |
+| **router F2** | **+0.043*** (held-out targets +0.054*) | **+0.029*** | **+0.024*** | **+0.020*** |
+
+   F2 is never significantly worse than w1 in any shape on Roma's data. Its biggest gains are pasted excerpts
+   (+0.200*), id-like queries (+0.080*), RU wiki (+0.166*) and MIRACL (+0.05*).
+
+   **Caveat:** the router was designed after seeing the pooled M0 numbers. The public sets, cheggaaa's account (replay
+   requested) and the Air Crash space are its independent checks.
+
+## What this suggests (decisions are cheggaaa's and Tolya's)
+
+- **Don't ship a global vectorWeight of 2.** It is the wrong switch position for lookups, ids and pastes, which make up
+  most real queries.
+- **Route by FTS coverage instead.** It's one signal from the FTS leg at the fusion site, as in router F2, or C if a
+  score blend is unwanted. Its cut points still need confirming on the account.
+- **FTS work with clear payoff:** typo tolerance, and CJK segmentation.
+- **Embedder choice:** on this evidence EG2-head is competitive in fusion. Its real losses are Russian dev slang and
+  finance-style Q&A, and both show up only in vector-only tests.
+
+## Not covered yet
+
+- **The recall-gate layer (L4):** it needs graded negatives beyond rank 1.
+- **Human calibration labels:** about 30 pairs from Roma.
+- **Real logged queries on Roma's side:** there are no bao traces on Nightly.
+- **Big-space behaviour:** Air Crash, 61.6k chunks, is running.

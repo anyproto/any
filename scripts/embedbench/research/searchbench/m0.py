@@ -154,7 +154,7 @@ def fmt(d):
     return f"{m:+.3f}{'*' if lo > 0 or hi < 0 else ''} [{lo:+.3f}, {hi:+.3f}]"
 
 
-SHAPES = ['1 word', 'id-like', 'name', 'typo', '2-3 words', '4-5 words', 'question']
+SHAPES = ['1 word', 'id-like', 'name', 'typo', 'prefix', '2-3 words', '4-5 words', 'question', 'paste']
 qs = [q for q in Q if q['Qid'] in D]
 out = ['# SearchBench M0: results', '',
        f"Snapshot: Roma's Any Nightly (Team Agents, Agents), {len(qs)} queries on {len({q['tid'] for q in qs})} targets.",
