@@ -337,13 +337,16 @@ keying a filter by xKey matches nothing.
   a record lands ahead of it. Fine for one-shot reads of stable data.
 - **cursor** paging doesn't float under inserts: filter past the last row
   on the indexed sort field. A row whose sort key changes mid-pass moves
-  relative to the cursor. Chat pages backward with
-  `{ "_ver.id": { "$lt": "<oldestSeen>" } }` sorted `["-_ver.id"]` —
-  `docs/08-clients.md` § 4. `_ver.id` orders one object's records only;
-  across `objects` rows it repeats, so the cursor is the sort field.
-  `modifiedAt` holds whole seconds and ties often: sort
-  `["-modifiedAt", "-id"]` and carry the `id` tiebreak into the cursor
-  filter (`docs/08-clients.md` § 3).
+  relative to the cursor. A field that can tie carries the `id`
+  tiebreak in both `sort` and the cursor filter, in the last key's
+  direction (`docs/08-clients.md` § 3). Chat pages backward sorted
+  `["-_ver.id", "-id"]` with
+  `{"$or": [{"_ver.id": {"$lt": v}}, {"_ver.id": v, "id": {"$lt": id}}]}`
+  from the oldest message held — `docs/08-clients.md` § 4; the records
+  one change creates share a `_ver.id`. `_ver.id` orders one object's
+  records only; across `objects` rows it repeats, so the cursor is the
+  sort field. `modifiedAt` holds whole seconds and ties often: sort
+  `["-modifiedAt", "-id"]` and carry the same tiebreak.
 
 ## Indexes & cost
 

@@ -90,20 +90,21 @@ receipt = call("POST", f"/spaces/{SPACE}/objects/{CHAT}/chat/messages", {"text":
 print("Message:", receipt["recordIds"][0])
 
 msgs = call("POST", f"/spaces/{SPACE}/query", {
-    "objectId": CHAT, "dataset": "chat_messages", "sort": ["-_ver.id"], "limit": 50,
+    "objectId": CHAT, "dataset": "chat_messages", "sort": ["-_ver.id", "-id"], "limit": 50,
 })
 print("Messages:", len(msgs["records"]))
 
 if msgs["records"]:
-    oldest = msgs["records"][-1]["_ver"]["id"]
+    last = msgs["records"][-1]
+    v, rid = last["_ver"]["id"], last["id"]
     older = call("POST", f"/spaces/{SPACE}/query", {
-        "objectId": CHAT, "dataset": "chat_messages", "sort": ["-_ver.id"], "limit": 50,
-        "filter": {"_ver.id": {"$lt": oldest}},
+        "objectId": CHAT, "dataset": "chat_messages", "sort": ["-_ver.id", "-id"], "limit": 50,
+        "filter": {"$or": [{"_ver.id": {"$lt": v}}, {"_ver.id": v, "id": {"$lt": rid}}]},
     })
     print("Older messages:", len(older["records"]))
 ```
 
-Expect one message and no older messages in this new chat. Page history with an absolute cursor on `_ver.id` rather than `offset`, which floats under writes: the cursor is the oldest record on the current page, an edit does not move a message, and an empty page has nothing older.
+Expect one message and no older messages in this new chat. Page history with an absolute cursor on `_ver.id` and `id` rather than `offset`, which floats under writes: the cursor is the oldest record on the current page, an edit does not move a message, `id` breaks the tie between messages one change created, and an empty page has nothing older.
 
 Writes return the change, not the record: `{versionId, changeId, recordIds}`. Read it back through a query or let the subscription deliver it; stamp `versionId` to recognise your own delta on that server's stream — it is not a version to compare across devices.
 

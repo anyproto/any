@@ -14,7 +14,7 @@ Built-in datasets declare indexes for their hot paths:
 | Storage collection | Index | Serves |
 |---------|-------|--------|
 | `editor_blocks` | `(nav.parentId, nav.pos)` | Listing a document's blocks in order; finding the tail position for appends. |
-| `chat_messages` | `(_ver.id)` | Chronological paging — `sort: ["-_ver.id"]` with a `_ver.id` cursor. |
+| `chat_messages` | `(_ver.id)` | Chronological paging — `sort: ["-_ver.id", "-id"]` with a `_ver.id` cursor and its `id` tiebreak. |
 | `chat_messages` | `idx_mentions` (sparse, multikey) | `{"mentions": "<identity>"}` filters. |
 | `chat_messages` | `unread`, `unreadMention`, `unreadReactions` (sparse, each with `_ver.id`) | Unread lists and badges — only currently-flagged messages carry an entry. |
 | `dataviews`, `views` | `pos`; on `views` also `(dataview, pos)` | A host's tables and one table's views, in order. |
@@ -34,8 +34,10 @@ The `objects` storage collection's other row-root stamps — `author`, `createdA
 
 ```json
 { "objectId": "<chat>", "dataset": "chat_messages",
-  "filter": { "_ver.id": { "$lt": "<oldestSeen>" } },
-  "sort": ["-_ver.id"], "limit": 50 }
+  "filter": { "$or": [
+    { "_ver.id": { "$lt": "<oldest._ver.id>" } },
+    { "_ver.id": "<oldest._ver.id>", "id": { "$lt": "<oldest.id>" } } ] },
+  "sort": ["-_ver.id", "-id"], "limit": 50 }
 ```
 
 **List a block's children through the tree index.** `{"filter": {"nav.parentId": "<block>"}, "sort": ["nav.pos"]}` on `editor_blocks` hits `(nav.parentId, nav.pos)` directly. The wiki tree on `objects` has no such index — its `parentId` / `pos` are ordinary columns of the wiki collection and scan ([Objects](objects.html)). Put `{"any.collections": "<wikiCollectionId>"}` in the same filter so the sparse index narrows the scan first.
