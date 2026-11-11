@@ -106,6 +106,20 @@ So the 768 default costs nothing measurable under w1-style fusion.
    **Caveat:** the router was designed after seeing the pooled M0 numbers. The public sets, cheggaaa's account (replay
    requested) and the Air Crash space are its independent checks.
 
+**Constant maps** (`RESULTS_CONSTS.md`, Qwen3 legs; M0 MRR / public nDCG):
+
+| setting | M0 | public |
+|---|---|---|
+| RRF w1, k=60 | 0.665 | 0.606 |
+| RRF w1, k=5 | 0.670 | 0.628 |
+| RRF w3, k=5 | 0.588 | 0.657 |
+| best blend α (0.4 for M0, 0.8 for public) | 0.697 | 0.662 |
+| router F2 region (low cut 0.5–0.75, α 0.2–0.3, middle w2) | **0.705–0.709** | **0.629–0.653** |
+
+- **RRF k barely matters at w ≤ 1.** A small k only helps the vector-heavy public sets at high weights.
+- **The best fixed blend α is opposite on the two datasets.**
+- **Only the router family is good on both, and it's flat across its cut points,** so it isn't a knife-edge tune.
+
 ## What this suggests (decisions are cheggaaa's and Tolya's)
 
 - **Don't ship a global vectorWeight of 2.** It is the wrong switch position for lookups, ids and pastes, which make up
