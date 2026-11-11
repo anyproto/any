@@ -102,7 +102,8 @@ set, and a row's members are read once per page from the row itself.
   each heading (`internal/editor/window.go`). A window holding only
   headings takes the next heading while the run fits the budget, and the
   next text block whatever its size, so a heading run leads the text
-  below it and stands alone only at the end of the document.
+  below it and stands alone only at the end of the document or when the
+  run itself fills the budget.
   One index doc per window,
   anchored on its first block (`recordId = win_<firstBlockId>`), `Data`
   = the member texts joined by newline with the heading leading, `Title`
