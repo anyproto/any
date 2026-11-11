@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -119,12 +120,28 @@ func TestFusionSweep(t *testing.T) {
 	defer of.Close()
 	enc := json.NewEncoder(of)
 
+	// SWEEP_WEIGHTS (comma list, e.g. "1") limits the production pages; "none" skips them. Default: all five.
 	weights := []float64{0.5, 1, 1.5, 2, 3}
+	if v := os.Getenv("SWEEP_WEIGHTS"); v == "none" {
+		weights = nil
+	} else if v != "" {
+		weights = nil
+		for _, f := range strings.Split(v, ",") {
+			wt, err := strconv.ParseFloat(strings.TrimSpace(f), 64)
+			if err != nil {
+				t.Fatal(err)
+			}
+			weights = append(weights, wt)
+		}
+	}
 	ixs := map[float64]*Indexer{}
 	for _, wt := range weights {
 		ixs[wt] = New(nil, nil, store, Options{Embedder: w, StopWords: true, VectorWeight: wt, QueryEmbedTimeout: 2 * time.Minute})
 	}
 	base := ixs[1]
+	if base == nil {
+		base = New(nil, nil, store, Options{Embedder: w, StopWords: true, VectorWeight: 1, QueryEmbedTimeout: 2 * time.Minute})
+	}
 	const limit = 10
 	start := time.Now()
 	for i, q := range qs {

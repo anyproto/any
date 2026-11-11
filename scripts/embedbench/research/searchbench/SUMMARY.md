@@ -156,6 +156,29 @@ So the 768 default costs nothing measurable under w1-style fusion.
 - **The best fixed blend α is opposite on the two datasets.**
 - **Only the router family is good on both, and it's flat across its cut points,** so it isn't a knife-edge tune.
 
+**Graded relevance on Roma's data** (M1, `RESULTS_M1_GRADED.md`):
+- **Method:** 126 queries, 14 per shape.
+  - The pool is the top 10 of w1, w2 and both F2 forms, plus the top 5 of each leg alone (1,591 records).
+  - Each record is blind-judged against the written need. That counts the useful records that aren't the known
+    item, which known-item labels can't see.
+  - Haiku votes agreed exactly 90% of the time, and 100% on the ≥2 side. 68 splits went to Sonnet.
+
+| Qwen3 legs | nDCG@10 | Δ vs w1 | known-item MRR, same queries | Δ vs w1 |
+|---|---|---|---|---|
+| vector only | 0.617 | −0.155* | 0.504 | −0.191* |
+| FTS only | 0.627 | −0.145* | 0.651 | −0.043 |
+| w1 | 0.772 | | 0.695 | |
+| w2 | 0.717 | **−0.056*** | 0.666 | −0.029 |
+| F2 two-branch | 0.788 | +0.016 | 0.731 | +0.036* |
+| F2, low cut 0.5 | 0.789 | +0.016 | 0.736 | +0.041* |
+
+- **w2's loss holds up under graded labels.** It isn't an artefact of known-item scoring.
+- **The router's gain roughly halves under graded labels, and isn't significant overall** (+0.016).
+  - It stays significant on id-like queries (+0.104*) and questions (+0.019*).
+  - The w1 page often puts other useful records where the router puts the known item.
+- **Leg alone vs fused:** pastes are the one shape where FTS alone (0.846) beats every fused page except the blend
+  (0.866). Typos score 0 in FTS and are carried by the vector leg alone (0.602 in every fused rule).
+
 ## L4: recall gate (first pass, `RESULTS_GATE.md`)
 
 Measured on the 9 public sets, whose qrels cover their pooled results. The gate injects a content hit when its fused
@@ -175,6 +198,20 @@ score is ≥ θ, up to the cap.
 - **The threshold is the problem, not the signal.** Fused score separates relevant from non-relevant candidates almost
   as well as raw cosine: AUC 0.773 against 0.786, and 0.794 for cosine relative to the query's top-1 cosine.
 
+**On Roma's data** (M1 graded pool, w1 content hits, Qwen3; 1,243 judged candidates, 31% relevant):
+
+| gate | precision (≥2) | injected per query | queries with ≥1 relevant injected |
+|---|---|---|---|
+| bao 0.015, cap 5 | 0.40 | 4.96 | 0.90 |
+| any-agents 0.030, cap 3 | 0.64 | 1.60 | 0.63 |
+| 0.032, cap 3 | 0.85 | 0.71 | 0.51 |
+
+- **bao's 0.015 still injects the full cap,** at 0.40 precision.
+- **Signal choice flips with the data.** Here the fused RRF score separates best (AUC 0.735), ahead of raw cosine
+  (0.673) and relative cosine (0.581). On the public sets relative cosine was best.
+- **So the gate signal should be the fused score**, which is what the clients already have. Only its threshold
+  needs moving.
+
 ## What this suggests (decisions are cheggaaa's and Tolya's)
 
 - **Don't ship a global vectorWeight of 2.** It is the wrong switch position for lookups, ids and pastes, which make up
@@ -184,14 +221,18 @@ score is ≥ θ, up to the cap.
     every dataset and embedder.
   - **The vector-only branch for low coverage is an optional tune.** Its cut point should come from the account
     replay, not from these sets.
+  - **Expect a modest gain.** Under graded labels on Roma's data it is +0.016 (n.s.), mostly from ids, pastes and
+    questions. The large, unambiguous effect is avoiding w2.
+- **Recall gates:** keep the fused score as the signal, and raise the threshold. bao's 0.015 never filters; 0.030–0.032
+  gives 0.64–0.85 precision on Roma's data.
 - **FTS work with clear payoff:** typo tolerance, and CJK segmentation.
 - **Embedder choice:** on this evidence EG2-head is competitive in fusion. Its real losses are Russian dev slang and
   finance-style Q&A, and both show up only in vector-only tests.
 
 ## Not covered yet
 
-- **The recall gate on Roma's data:** it needs graded negatives beyond rank 1. A first pass on public qrels is above.
-- **Human calibration labels:** about 30 pairs from Roma.
+- **Human calibration labels:** about 30 pairs from Roma. Until then, every graded number rests on the LLM judge
+  (checked only by its controls and vote agreement).
 - **Real logged queries on Roma's side:** there are no bao traces on Nightly.
 - **The full-coverage branch at scale:** Air Crash keyword lookups are saturated. A big space with harder lookups
   (near-duplicate pages, many partial matches) is still missing.
