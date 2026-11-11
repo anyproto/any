@@ -147,6 +147,12 @@ same directory keeps the existing account.
 
 Wait for `LISTENING 127.0.0.1:2046`, then leave the server running.
 
+`127.0.0.1:2046` is the default address for a server started this way. The
+Any desktop app starts its own server, with its own data directory and
+address, so an application that should share the app's data connects to
+that server instead. A running server records its address in `server.addr`
+in its account directory; see [Server lifecycle](docs/02-server.md).
+
 The local embedding model (about 600 MB) downloads in the background the
 first time the server starts. You can create and query data while it
 downloads.
