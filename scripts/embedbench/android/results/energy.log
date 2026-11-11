@@ -1,0 +1,34 @@
+idle-start t=1794404690 cc=799680 mv=0
+3755 level=16
+2 usb=false temp=300
+idle-end t=1794405034 cc=799680 mv=0
+3749 level=16
+2 usb=false temp=280
+cpu4-512-start t=1794405098 cc=799680 mv=0
+3748 level=16
+2 usb=false temp=280
+cpu4-512-end t=1794405598 cc=749700 mv=0
+3688 level=15
+2 usb=false temp=300
+cpu4-512 len=512 iters=160 Average Latency: 3070.79 ms (min: 1043.83 ms, max: 4772.76 ms)
+gpu-512-start t=1794405665 cc=749700 mv=0
+3734 level=15
+2 usb=false temp=300
+gpu-512-end t=1794406149 cc=699720 mv=0
+3705 level=14
+2 usb=false temp=300
+gpu-512 len=512 iters=270 Average Latency: 1726.39 ms (min: 615.34 ms, max: 2708.18 ms)
+cpu4-256-start t=1794406212 cc=699720 mv=0
+3725 level=14
+2 usb=false temp=300
+cpu4-256-end t=1794406729 cc=649740 mv=0
+3669 level=13
+2 usb=false temp=310
+cpu4-256 len=256 iters=460 Average Latency: 1110.73 ms (min: 351.92 ms, max: 2262.32 ms)
+idle2-start t=1794406729 cc=649740 mv=0
+3702 level=13
+2 usb=false temp=310
+idle2-end t=1794406988 cc=599760 mv=0
+3717 level=12
+2 usb=false temp=290
+ENERGY DONE
