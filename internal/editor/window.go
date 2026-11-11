@@ -1,6 +1,9 @@
 package editor
 
-import "strings"
+import (
+	"os"
+	"strings"
+)
 
 // windowBudgetBytes bounds a coalesced window's text. ~1.5 KB ≈ 256–512
 // tokens — large enough to embed meaningfully (well under the local
@@ -34,10 +37,13 @@ type Window struct {
 // Blocks with empty text (dividers, images) still count as members for
 // ordering but add no text; a window whose total text is empty is omitted
 // (nothing to index).
+var foldHeadings = os.Getenv("ANY_EXP_FOLD_HEADINGS") == "1"
+
 func Windows(ordered []Block) []Window {
 	var out []Window
 	var cur Window
 	started := false
+	headingsOnly := false // experiment only: every block in cur so far is a heading
 
 	flush := func() {
 		if started {
@@ -54,7 +60,9 @@ func Windows(ordered []Block) []Window {
 		// Break before a heading, or when this block would overflow the
 		// budget — but never on an empty window (a single over-budget
 		// block becomes its own window).
-		if started && (isHeading || len(cur.Text)+len(b.Text)+1 > windowBudgetBytes) {
+		// experiment only: ANY_EXP_FOLD_HEADINGS=1 folds a lone heading into the next window
+		foldHere := isHeading && foldHeadings && headingsOnly
+		if started && ((isHeading && !foldHere) || len(cur.Text)+len(b.Text)+1 > windowBudgetBytes) {
 			flush()
 		}
 		if !started {
@@ -63,6 +71,11 @@ func Windows(ordered []Block) []Window {
 				cur.Title = b.Text // window opens on a heading → boost it
 			}
 			started = true
+		}
+		if len(cur.BlockIds) == 0 {
+			headingsOnly = isHeading
+		} else if !isHeading && b.Text != "" {
+			headingsOnly = false
 		}
 		cur.BlockIds = append(cur.BlockIds, b.Id)
 		if b.Text != "" {

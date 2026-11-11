@@ -1509,7 +1509,31 @@ func (s *Store) Pending(ctx context.Context, spaceId string, limit int) (ids []s
 		ids = append(ids, string(v.GetStringBytes("id")))
 		texts = append(texts, docText(v))
 	}
-	return ids, texts, iter.Err()
+	if err := iter.Err(); err != nil {
+		return ids, texts, err
+	}
+	_ = iter.Close()
+	// experiment only: ANY_EXP_TITLE_PROMPT=1 embeds EG2's doc prompt with the object's name as the title
+	if os.Getenv("ANY_EXP_TITLE_PROMPT") == "1" {
+		for i, id := range ids {
+			title := "none"
+			if j := strings.IndexByte(id, ':'); j > 0 {
+				if doc, ferr := coll.FindId(ctx, id[:j]+":"+index.DatasetProp+":"+index.NamePropRecordId); ferr == nil {
+					if n := doc.Value().GetStringBytes(nameField); len(n) > 0 {
+						title = strings.Join(strings.Fields(string(n)), " ")
+					}
+				}
+			}
+			if os.Getenv("ANY_EXP_TITLE_FMT") == "nl" { // a model without a doc prompt: "<name>\n<chunk>"
+				if title != "none" {
+					texts[i] = title + "\n" + texts[i]
+				}
+				continue
+			}
+			texts[i] = "title: " + title + " | text: " + texts[i]
+		}
+	}
+	return ids, texts, nil
 }
 
 // PendingCount reports how many docs still await embedding — the

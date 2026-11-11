@@ -1094,6 +1094,9 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 			fused = vecHits
 		}
 		groups = groupHits(fused, rest, req.Passages)
+		expDumpLegs(spaceId, req.Query, string(mode), limit, titles, ftsHits, vecHits, groups)
+	} else {
+		expDumpLegs(spaceId, req.Query, string(mode), limit, titles, nil, nil, nil)
 	}
 
 	maxData := req.MaxData
