@@ -200,6 +200,15 @@ func embedderCmd(s localSpec) (*exec.Cmd, error) {
 // caller lands those, and only the rest stays pending for the next
 // round.
 func (w *workerEmbedder) EmbedDocs(ctx context.Context, texts []string) ([][]float32, error) {
+	return w.EmbedTitledDocs(ctx, nil, texts)
+}
+
+// EmbedsTitles: the child's document prompt has a title slot.
+func (w *workerEmbedder) EmbedsTitles() bool {
+	return strings.Contains(w.childSpec().docPrefix, titlePlaceholder)
+}
+
+func (w *workerEmbedder) EmbedTitledDocs(ctx context.Context, titles, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
@@ -207,7 +216,11 @@ func (w *workerEmbedder) EmbedDocs(ctx context.Context, texts []string) ([][]flo
 	out := make([][]float32, 0, len(texts))
 	for start := 0; start < len(texts); start += group {
 		end := min(start+group, len(texts))
-		vecs, err := w.embed(ctx, workerRoleDoc, texts[start:end])
+		var frameTitles []string
+		if len(titles) == len(texts) {
+			frameTitles = titles[start:end]
+		}
+		vecs, err := w.embed(ctx, workerRoleDoc, frameTitles, texts[start:end])
 		out = append(out, vecs...)
 		if err != nil {
 			return out, err
@@ -218,7 +231,7 @@ func (w *workerEmbedder) EmbedDocs(ctx context.Context, texts []string) ([][]flo
 
 func (w *workerEmbedder) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
 	// The child prefixes: its Local carries the resolved queryPrefix.
-	vecs, err := w.embed(ctx, workerRoleQuery, []string{text})
+	vecs, err := w.embed(ctx, workerRoleQuery, nil, []string{text})
 	if err != nil {
 		return nil, err
 	}
@@ -306,8 +319,8 @@ func (w *workerEmbedder) childSpec() localSpec {
 }
 
 // embed runs one frame of texts in the given role.
-func (w *workerEmbedder) embed(ctx context.Context, role string, texts []string) ([][]float32, error) {
-	r := w.run(ctx, workerReq{Op: workerOpEmbed, Role: role, Texts: texts})
+func (w *workerEmbedder) embed(ctx context.Context, role string, titles, texts []string) ([][]float32, error) {
+	r := w.run(ctx, workerReq{Op: workerOpEmbed, Role: role, Texts: texts, Titles: titles})
 	return r.vecs, r.err
 }
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/anyproto/any-sync/app/logger"
@@ -483,6 +484,15 @@ func (l *Local) embedGroup(tokenized [][]llama.Token) ([][]float32, error) {
 }
 
 func (l *Local) EmbedDocs(ctx context.Context, texts []string) ([][]float32, error) {
+	return l.EmbedTitledDocs(ctx, nil, texts)
+}
+
+// EmbedsTitles: the document prompt has a title slot.
+func (l *Local) EmbedsTitles() bool {
+	return strings.Contains(l.docPrefix, titlePlaceholder)
+}
+
+func (l *Local) EmbedTitledDocs(ctx context.Context, titles, texts []string) ([][]float32, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if err := l.ensureLoaded(); err != nil {
@@ -491,7 +501,11 @@ func (l *Local) EmbedDocs(ctx context.Context, texts []string) ([][]float32, err
 	tokenized := make([][]llama.Token, len(texts))
 	lens := make([]int, len(texts))
 	for i, t := range texts {
-		tokenized[i] = l.tokenize(l.docPrefix + t)
+		title := ""
+		if i < len(titles) {
+			title = titles[i]
+		}
+		tokenized[i] = l.tokenize(docPrompt(l.docPrefix, title) + t)
 		lens[i] = len(tokenized[i])
 	}
 	out := make([][]float32, 0, len(texts))

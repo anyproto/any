@@ -23,7 +23,7 @@ type localModel struct {
 	dim         int    // output width
 	pooling     string // poolingType name
 	queryPrefix string
-	docPrefix   string
+	docPrefix   string // may hold titlePlaceholder
 	// project is a unit direction removed from every vector
 	// (v − u(u·v), renormalized); nil for none.
 	project []float32
@@ -57,7 +57,7 @@ var localModels = []localModel{
 		dim:         768,
 		pooling:     "mean",
 		queryPrefix: "task: search result | query: ",
-		docPrefix:   "title: none | text: ",
+		docPrefix:   "title: " + titlePlaceholder + " | text: ",
 		project:     decodeFloat32s(eg2HeadRaw),
 	},
 }

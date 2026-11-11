@@ -35,6 +35,46 @@ type Embedder interface {
 	Dim(ctx context.Context) (int, error)
 }
 
+// TitleEmbedder is an Embedder whose document prompt can carry the name
+// of the object a text belongs to.
+type TitleEmbedder interface {
+	Embedder
+	// EmbedsTitles reports whether the name is part of what a document
+	// embeds as; when it is, a rename makes the object's vectors stale.
+	EmbedsTitles() bool
+	// EmbedTitledDocs is EmbedDocs with titles[i] the name of texts[i]'s
+	// object ("" for none).
+	EmbedTitledDocs(ctx context.Context, titles, texts []string) ([][]float32, error)
+}
+
+// embedsTitles reports whether e puts object names into document prompts.
+func embedsTitles(e Embedder) bool {
+	te, ok := e.(TitleEmbedder)
+	return ok && te.EmbedsTitles()
+}
+
+// titlePlaceholder in a document prompt is replaced by the object's name.
+const titlePlaceholder = "{title}"
+
+// maxTitleRunes bounds the name a document prompt carries.
+const maxTitleRunes = 200
+
+// docPrompt fills a document prompt's title placeholder: the name on one
+// line, clamped, or "none".
+func docPrompt(prefix, title string) string {
+	if !strings.Contains(prefix, titlePlaceholder) {
+		return prefix
+	}
+	title = strings.Join(strings.Fields(title), " ")
+	if r := []rune(title); len(r) > maxTitleRunes {
+		title = string(r[:maxTitleRunes])
+	}
+	if title == "" {
+		title = "none"
+	}
+	return strings.Replace(prefix, titlePlaceholder, title, 1)
+}
+
 // Hardware is what the embedder actually runs on, as llama.cpp reports
 // it: the backends it registered, the devices they found, and the libs
 // they came from. The child collects it once at startup and hands it to

@@ -188,7 +188,8 @@ index:
                                       # <exe-dir>/llamacpp
     contextSize: 2048                 # truncation bound in tokens (docs/13-index.md)
     queryPrefix: ""                   # "" = the pinned model's query prompt
-    docPrefix: ""                     # "" = the pinned model's document prompt
+    docPrefix: ""                     # "" = the pinned model's document prompt; {title} in it
+                                      # is replaced by the object's name
     pooling: ""                       # last | mean | cls; "" = the pinned model's,
                                       # last for an unnamed GGUF
     dim: 0                            # Matryoshka output truncation; 0 = model dim

@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -77,5 +78,47 @@ func TestWindows_NoLeadingHeading(t *testing.T) {
 	}
 	if wins[0].Text != "intro line\nsecond line" {
 		t.Errorf("joined text = %q", wins[0].Text)
+	}
+}
+
+// A window never holds headings alone when anything follows them.
+func TestWindows_HeadingOnlyFolds(t *testing.T) {
+	big := strings.Repeat("x", windowBudgetBytes+10)
+	for _, c := range []struct {
+		name   string
+		blocks []Block
+		want   [][]string // member block ids per window
+	}{
+		{"a heading run leads the text below it",
+			[]Block{blk("h1", TypeHeading, "Games"), blk("h2", TypeHeading, "Handhelds"), blk("p1", TypeParagraph, "the list")},
+			[][]string{{"h1", "h2", "p1"}}},
+		{"a heading takes an over-budget block",
+			[]Block{blk("h1", TypeHeading, "Log"), blk("p1", TypeParagraph, big), blk("p2", TypeParagraph, "tail")},
+			[][]string{{"h1", "p1"}, {"p2"}}},
+		{"an empty block between does not end the run",
+			[]Block{blk("h1", TypeHeading, "A"), blk("d1", TypeDivider, ""), blk("h2", TypeHeading, "B"), blk("p1", TypeParagraph, "text")},
+			[][]string{{"h1", "d1", "h2", "p1"}}},
+		{"a heading after text still starts a window",
+			[]Block{blk("h1", TypeHeading, "A"), blk("p1", TypeParagraph, "text"), blk("h2", TypeHeading, "B"), blk("p2", TypeParagraph, "more")},
+			[][]string{{"h1", "p1"}, {"h2", "p2"}}},
+		{"trailing headings stand alone",
+			[]Block{blk("p1", TypeParagraph, "text"), blk("h1", TypeHeading, "A"), blk("h2", TypeHeading, "B")},
+			[][]string{{"p1"}, {"h1", "h2"}}},
+	} {
+		wins := Windows(c.blocks)
+		var got [][]string
+		for _, w := range wins {
+			got = append(got, w.BlockIds)
+		}
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: windows %v, want %v", c.name, got, c.want)
+		}
+		if len(wins) > 0 && wins[0].AnchorId != c.blocks[0].Id {
+			t.Errorf("%s: first anchor %q", c.name, wins[0].AnchorId)
+		}
+	}
+	// The leading heading stays the window's title.
+	if w := Windows([]Block{blk("h1", TypeHeading, "Games"), blk("h2", TypeHeading, "Handhelds"), blk("p1", TypeParagraph, "the list")}); w[0].Title != "Games" || w[0].Text != "Games\nHandhelds\nthe list" {
+		t.Errorf("folded window: %+v", w[0])
 	}
 }

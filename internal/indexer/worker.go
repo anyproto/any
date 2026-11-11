@@ -834,6 +834,10 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 		if len(ids) == 0 {
 			return nil
 		}
+		titles, err := w.ix.store.DocTitles(ctx, spaceId, ids)
+		if err != nil {
+			return err
+		}
 		remaining, cerr := w.ix.store.PendingCount(ctx, spaceId)
 		if cerr != nil {
 			remaining = -1 // progress keeps the last known total
@@ -842,15 +846,20 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 
 		// Split the page into batch-sized chunks, embed concurrently.
 		type chunk struct {
-			ids   []string
-			texts []string
-			vecs  [][]float32
-			err   error
+			ids    []string
+			texts  []string
+			titles []string // nil unless documents embed under their names
+			vecs   [][]float32
+			err    error
 		}
 		var chunks []*chunk
 		for off := 0; off < len(ids); off += batch {
 			end := min(off+batch, len(ids))
-			chunks = append(chunks, &chunk{ids: ids[off:end], texts: texts[off:end]})
+			c := &chunk{ids: ids[off:end], texts: texts[off:end]}
+			if titles != nil {
+				c.titles = titles[off:end]
+			}
+			chunks = append(chunks, c)
 		}
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, conc)
@@ -860,7 +869,11 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 			go func(c *chunk) {
 				defer wg.Done()
 				defer func() { <-sem }()
-				c.vecs, c.err = w.ix.opts.Embedder.EmbedDocs(ctx, c.texts)
+				if te, ok := w.ix.opts.Embedder.(TitleEmbedder); ok && c.titles != nil {
+					c.vecs, c.err = te.EmbedTitledDocs(ctx, c.titles, c.texts)
+				} else {
+					c.vecs, c.err = w.ix.opts.Embedder.EmbedDocs(ctx, c.texts)
+				}
 			}(c)
 		}
 		wg.Wait()

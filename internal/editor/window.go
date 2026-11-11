@@ -29,7 +29,11 @@ type Window struct {
 // new window starts before every heading and whenever appending the next
 // block's text would exceed windowBudgetBytes. The heading (or the run's
 // first block) leads its window — cheap context that also lifts BM25 term
-// frequency for heading words.
+// frequency for heading words. A window holding only headings takes the
+// next block whatever it is — a heading, or text past the budget — so a
+// heading run leads the text below it and stands alone only at the end
+// of the document (an embedder ranks a bare heading above the passage
+// that answers the query).
 //
 // Blocks with empty text (dividers, images) still count as members for
 // ordering but add no text; a window whose total text is empty is omitted
@@ -38,6 +42,7 @@ func Windows(ordered []Block) []Window {
 	var out []Window
 	var cur Window
 	started := false
+	headingsOnly := false // every text-bearing block in cur is a heading
 
 	flush := func() {
 		if started {
@@ -54,7 +59,7 @@ func Windows(ordered []Block) []Window {
 		// Break before a heading, or when this block would overflow the
 		// budget — but never on an empty window (a single over-budget
 		// block becomes its own window).
-		if started && (isHeading || len(cur.Text)+len(b.Text)+1 > windowBudgetBytes) {
+		if started && !headingsOnly && (isHeading || len(cur.Text)+len(b.Text)+1 > windowBudgetBytes) {
 			flush()
 		}
 		if !started {
@@ -63,6 +68,9 @@ func Windows(ordered []Block) []Window {
 				cur.Title = b.Text // window opens on a heading → boost it
 			}
 			started = true
+			headingsOnly = isHeading
+		} else if !isHeading && b.Text != "" {
+			headingsOnly = false
 		}
 		cur.BlockIds = append(cur.BlockIds, b.Id)
 		if b.Text != "" {

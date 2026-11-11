@@ -99,7 +99,10 @@ set, and a row's members are read once per page from the row itself.
   are not indexed text.
 - **Editor = coalesced windows.** Consecutive blocks in document order
   (the `List` tree walk) group into ~1.5 KB windows, breaking before
-  each heading (`internal/editor/window.go`); one index doc per window,
+  each heading (`internal/editor/window.go`). A window holding only
+  headings takes the next block whatever it is, so a heading run leads
+  the text below it and stands alone only at the end of the document.
+  One index doc per window,
   anchored on its first block (`recordId = win_<firstBlockId>`), `Data`
   = the member texts joined by newline with the heading leading, `Title`
   = that heading. One-block chunks are too short for vector recall and
@@ -683,14 +686,19 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   bare). `index.local.model: embeddinggemma-2` runs **EmbeddingGemma 2
   Q8_0** instead (768-dim, mean pooling; queries embed as
   `task: search result | query: <query>`, docs as
-  `title: none | text: <chunk>`), and removes one fixed direction — the
+  `title: <object name> | text: <chunk>`, `none` for an unnamed object),
+  and removes one fixed direction — the
   mean of the model's outputs — from every vector before normalizing,
   which takes out its bias toward short texts. A `modelPath` or
   `modelUrl` with `model` set is that model from another place; without
   `model` it is an unnamed GGUF that takes only `index.local.pooling`
   (`last` by default, `mean` or `cls`),
-  `queryPrefix` and `docPrefix`. The output width is the model's
-  `n_embd_out`. The GGUF (sha256-pinned) is downloaded into the shared model
+  `queryPrefix` and `docPrefix`. A `{title}` in a document prompt
+  is replaced by the object's name on one line, clamped to 200 runes, or
+  `none`. With such a prompt the name is part of every vector of the
+  object: a rename, or clearing the name, puts the object's embedded docs
+  back in the embed queue, and they keep serving their old vectors until
+  the new ones land. The output width is the model's `n_embd_out`. The GGUF (sha256-pinned) is downloaded into the shared model
   cache `<root>/models/` (a copy already in the account's `index/models/`
   is used in place); the download is resumable, logs progress, reports
   `index.model_download`, and never blocks boot — until it completes the

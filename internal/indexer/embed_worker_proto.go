@@ -49,6 +49,9 @@ type workerReq struct {
 	Op    string   `json:"op"`
 	Role  string   `json:"role,omitempty"`
 	Texts []string `json:"texts,omitempty"`
+	// Titles, when set, pairs with Texts in the doc role: the name of
+	// each text's object.
+	Titles []string `json:"titles,omitempty"`
 }
 
 type workerResp struct {
