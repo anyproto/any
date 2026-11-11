@@ -984,14 +984,20 @@ survive intact.
   stop list (`stopwords.go`) is removed from the FTS-leg query only; the
   vector leg gets the full query. An all-stop-words query is left
   unchanged.
-- **Weighted RRF** (`ftsWeight` / `vectorWeight`, default 1 / 2) — scales
-  each leg's fusion contribution. A one-token query (no whitespace: a
-  word, a name, an id) fuses with the vector weight capped at 1: above
-  ~1.2 every vector-only hit outranks every FTS-only one, FTS #1 included,
-  which costs lookups. The fused score is divided by its
-  maximum, `(ftsWeight + vectorWeight) / 61`, so a hybrid score reads
-  0–1 whatever the weights and clients can gate on it.
-- **Adaptive leg weighting** (`adaptiveWeights`, default **off**) —
+- **Fusion form** — by default each query picks its RRF form
+  (`fusion.go`). The share of its words found in the best of the top
+  three FTS chunks, then how peaked the stronger leg is (cosine top-1 −
+  top-5, or BM25's relative top-1 − top-2 gap), choose vector-heavy RRF
+  (1 / 2 at k 20), the vector leg alone, lexical-heavy RRF (1 / 0.5 at
+  k 20) or the FTS leg alone. One fixed weight can't serve both kinds of
+  query: above ~1.2 every vector-only hit outranks every FTS-only one,
+  FTS #1 included, which costs word, name and id lookups. Setting
+  `ftsWeight` / `vectorWeight` fixes weighted RRF at k 60 instead (an
+  unset one is 1). Every form's score is divided by its maximum,
+  `Σ weight / (k + 1)`, so a hybrid score reads 0–1 and clients can gate
+  on it.
+- **Adaptive leg weighting** (`adaptiveWeights`, default **off**, fixed
+  weights only) —
   down-weights the FTS leg per query by its score concentration, so a
   flat BM25 distribution (paraphrastic queries) can't drag hybrid below
   the dense leg. FTS only — cosine is uncalibrated. Wins on weak-lexical

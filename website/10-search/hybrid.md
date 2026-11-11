@@ -39,11 +39,22 @@ any search $SPACE "what did we decide about the reranker?" --scopes chat,basic -
 Each leg returns a ranked list; a document's fused score is the sum over the legs that returned it of `weight / (k + rank)`. Rank, not raw score, is what gets combined, so BM25 and cosine never have to be put on one scale. A document found by both legs rises above one found by only one.
 
 ```
-fused(doc) = ftsWeight / (60 + rank_fts) + vectorWeight / (60 + rank_vec)
-score(doc) = fused(doc) / ((ftsWeight + vectorWeight) / 61)
+fused(doc) = ftsWeight / (k + rank_fts) + vectorWeight / (k + rank_vec)
+score(doc) = fused(doc) / ((ftsWeight + vectorWeight) / (k + 1))
 ```
 
-Ranks start at 1, so a document ranked first by both legs scores 1. The score reads 0–1 whatever the weights, so a client can keep one threshold when the weights change.
+Ranks start at 1, so a document ranked first by every fused leg scores 1. The score reads 0–1 whatever the weights and k, so a client keeps one threshold.
+
+By default each query picks its weights and k from its own legs. The first test is how many of the query's words appear in the best of the top three lexical chunks:
+
+| query words found | stronger leg | fusion |
+|---|---|---|
+| under 80% | cosine flat (top 1 − top 5 < 0.103) | vector-heavy: `1 / 2`, k 20 |
+| under 80% | cosine peaked | the vector leg alone |
+| 80% or more | BM25 flat (relative top 1 − top 2 < 0.184) | lexical-heavy: `1 / 0.5`, k 20 |
+| 80% or more | BM25 peaked | the lexical leg alone |
+
+One fixed weight can't serve both kinds of query: above about 1.2, every vector-only hit outranks every lexical-only one, the lexical first hit included, which costs word, name and id lookups.
 
 Full-text operators (`"phrases"`, `prefix*`) shape the lexical leg's list; the vector leg always embeds the whole `query` verbatim, stop words included. `require` / `exclude` bind every hit regardless of leg: vector hits are post-filtered against the FTS index before fusion, so a fused result never contains a doc the lexical constraint would have refused.
 
@@ -89,15 +100,15 @@ All under `index.search.*` in [configuration](../operations/configuration.html);
 
 | Key | Default | Effect |
 |---|---|---|
-| `ftsWeight` | 1 | RRF weight of the lexical leg |
-| `vectorWeight` | 2 | RRF weight of the dense leg; a one-token query uses at most 1 |
-| `adaptiveWeights` | false | per query, down-weight the FTS leg when its BM25 scores are flat/weak |
+| `ftsWeight` | unset | fixed RRF weight of the lexical leg (k 60); with `vectorWeight` also unset, each query picks its form |
+| `vectorWeight` | unset | fixed RRF weight of the dense leg (k 60) |
+| `adaptiveWeights` | false | with fixed weights, per query, down-weight the FTS leg when its BM25 scores are flat/weak |
 | `stopWords` | true | strip stop words from the FTS-leg query |
 | `defaultOperator` | `or` | how bare FTS terms combine |
 | `minVectorSim` | 0 | cosine floor applied to vector hits before fusion |
 | `queryEmbedTimeout` | `5s` | budget for embedding the query; past it hybrid answers lexical-only |
 
-Equal weights (1/1) are optimal on the lexical-friendly reference corpus and a safe default elsewhere. Corpora where one leg is much weaker want a tilt: on paraphrastic Q&A the dense leg alone beats equal-weight hybrid, because a weak BM25 list drags the fusion down. `adaptiveWeights` automates that tilt from the query's own score distribution — a big win where the lexical leg is weak, a small cost where it is strong, hence off by default. It is asymmetric on purpose: only the FTS leg is ever down-weighted, since cosine scores are not calibrated enough to judge.
+Fixed weights suit a corpus measured on its own. Equal weights (1/1) are optimal on the lexical-friendly reference corpus. Corpora where one leg is much weaker want a tilt: on paraphrastic Q&A the dense leg alone beats equal-weight hybrid, because a weak BM25 list drags the fusion down. `adaptiveWeights` automates that tilt from the query's own score distribution — a big win where the lexical leg is weak, a small cost where it is strong, hence off by default. It is asymmetric on purpose: only the FTS leg is ever down-weighted, since cosine scores are not calibrated enough to judge.
 
 ```yaml
 index:

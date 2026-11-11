@@ -214,7 +214,7 @@ func TestNormalizeRRF_ZeroToOneWhateverTheWeights(t *testing.T) {
 	for _, w := range [][]float64{nil, {1, 2}, {0.5, 3}} {
 		weights := w
 		fused := fuseRRF([][]Hit{{both, ftsOnly}, {both, vecOnly}}, weights, 0)
-		normalizeRRF(fused, weights, 2)
+		normalizeRRF(fused, weights, 2, rrfK)
 		wf, wv := legWeight(weights, 0), legWeight(weights, 1)
 		want := map[string]float64{
 			"both": 1,
@@ -225,24 +225,6 @@ func TestNormalizeRRF_ZeroToOneWhateverTheWeights(t *testing.T) {
 			if d := f.Score - want[f.RecordId]; d > 1e-12 || d < -1e-12 {
 				t.Errorf("weights %v: %s score = %v, want %v", weights, f.RecordId, f.Score, want[f.RecordId])
 			}
-		}
-	}
-}
-
-func TestQueryVectorWeight_OneTokenCappedAtOne(t *testing.T) {
-	for _, c := range []struct {
-		q    string
-		w    float64
-		want float64
-	}{
-		{"pfand", 2, 1},
-		{"  bafyreiabc  ", 2, 1},
-		{"vacation travel", 2, 2},
-		{"pfand", 0.5, 0.5},
-		{"", 2, 2},
-	} {
-		if got := queryVectorWeight(c.q, c.w); got != c.want {
-			t.Errorf("queryVectorWeight(%q, %v) = %v, want %v", c.q, c.w, got, c.want)
 		}
 	}
 }
