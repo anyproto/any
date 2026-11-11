@@ -26,7 +26,7 @@ rels = json.load(open(f'{A}/qrels.json'))
 def recrel(qid):
     out = {}
     for k, g in rels[qid].items():
-        o, d, r = k.split('|'); r = r.split(':')[0]
+        o, d, r = k.split('|')  # ':N' is part of an editor block's record id
         out[(o, d, r)] = max(out.get((o, d, r), 0), g)
     return out
 
@@ -37,7 +37,9 @@ def score(page, rel):
     ideal = sorted([2 ** g - 1 for g in rel.values() if g > 0], reverse=True)[:LIMIT]
     nd = sum(g * d for g, d in zip(gains, disc)) / sum(g * d for g, d in zip(ideal, disc)) if ideal else 0.
     mrr = next((1 / (i + 1) for i, g in enumerate(gains) if g > 0), 0.)
-    return nd, mrr
+    objs = {o for (o, d, r), g in rel.items() if g > 0}
+    omrr = next((1 / (i + 1) for i, h in enumerate(page[:LIMIT]) if h['o'] in objs), 0.)
+    return nd, mrr, omrr
 
 
 def exact_leg(emb, i, r):
@@ -79,11 +81,14 @@ for i, q in enumerate(qs):
         for w in [0.5, 1, 2]:
             M[q['Qid']][f'{emb} w{w}'] = score(fuse(r['titles'], r['fts'], vl, 1, w), rel)
         wf, wv = ROUTE_C(c); M[q['Qid']][f'{emb} router C'] = score(fuse(r['titles'], r['fts'], vl, wf, wv), rel)
+        for lo in [0.75, 0.5, 0.25, 0.0]:
+            pg = blend(r['titles'], r['fts'], vl, .3) if c >= 1 else (fuse(r['titles'], [], vl, 0, 1) if c < lo else fuse(r['titles'], r['fts'], vl, 1, 2))
+            M[q['Qid']][f'{emb} F2 lo{lo}'] = score(pg, rel)
     M[q['Qid']]['_cov'] = c
 
 out = ['# Air Crash Database: the rig\'s cleared queries on Roma\'s snapshot (61,577 embedded chunks)', '',
        f'L0: production Qwen3 vector leg against exact search, top-10 chunk overlap {np.mean(ov):.3f} ({len(ov)} queries).',
-       'Known-item: MRR@10 at record level. Topical: graded nDCG@10. Exact vector legs with production window rule; production title block and FTS leg.', '']
+       'Known-item: MRR@10 at record level (the exact passage the query was written from) and at article level (any block of the right page). Topical: graded nDCG@10. Exact vector legs with production window rule; production title block and FTS leg.', '']
 cols = ['L1 qwen', 'L1 eg2', 'L2 fts', 'qwen w0.5', 'qwen w1', 'qwen w2', 'qwen router C', 'eg2 w0.5', 'eg2 w1', 'eg2 w2', 'eg2 router C']
 out += ['| set / kind (n) | metric | ' + ' | '.join(cols) + ' |', '|' + '---|' * (len(cols) + 2)]
 groups = collections.defaultdict(list)
@@ -91,10 +96,35 @@ for q in qs:
     groups[(q['set'], q['kind'])].append(q)
     groups[(q['set'], 'all')].append(q)
 for (s, k), sel in sorted(groups.items()):
-    mi = 1 if s == 'rig-known' else 0
-    cells = [f"{np.mean([M[q['Qid']][c][mi] for q in sel]):.3f}" for c in cols]
-    out.append(f"| {s} / {k} ({len(sel)}) | {'MRR' if mi else 'nDCG@10'} | " + ' | '.join(cells) + ' |')
+    for mi, mname in ([(1, 'MRR record'), (2, 'MRR article')] if s == 'rig-known' else [(0, 'nDCG@10')]):
+        cells = [f"{np.mean([M[q['Qid']][c][mi] for q in sel]):.3f}" for c in cols]
+        out.append(f"| {s} / {k} ({len(sel)}) | {mname} | " + ' | '.join(cells) + ' |')
 cb = collections.Counter('full' if M[q['Qid']]['_cov'] >= 1 else '<0.5' if M[q['Qid']]['_cov'] < .5 else 'partial' for q in qs)
 out += ['', f'coverage buckets: {dict(cb)}', '']
+def bs(a, b, groups, n=2000, seed=391):
+    d = np.array(a) - np.array(b); rnd = np.random.default_rng(seed); g = collections.defaultdict(list)
+    for i, t in enumerate(groups): g[t].append(i)
+    keys = list(g); o = []
+    for _ in range(n):
+        idx = [i for k in rnd.integers(0, len(keys), len(keys)) for i in g[keys[k]]]; o.append(d[idx].mean())
+    o = np.sort(o); return d.mean(), o[int(.025 * n)], o[int(.975 * n) - 1]
+fm = lambda t: f"{t[0]:+.3f}{'*' if t[1] > 0 or t[2] < 0 else ''} [{t[1]:+.3f}, {t[2]:+.3f}]"
+out += ['## Routers and deltas against w1 (paired bootstrap, clustered by target; * = 95% CI excludes 0)', '',
+        '| emb | variant | known MRR article (51) | Δ | known MRR record | Δ | topical nDCG (6) |', '|---|---|---|---|---|---|---|']
+kn = [q for q in qs if q['set'] == 'rig-known']; tp = [q for q in qs if q['set'] != 'rig-known']
+grp = [q['Qid'].split(':')[1] for q in kn]
+for emb in ['qwen', 'eg2']:
+    for v in ['L1 ' + emb, 'w0.5', 'w2', 'router C', 'F2 lo0.75', 'F2 lo0.5', 'F2 lo0.25', 'F2 lo0.0']:
+        col = v if v.startswith('L1') else f'{emb} {v}'
+        a2 = [M[q['Qid']][col][2] for q in kn]; b2 = [M[q['Qid']][f'{emb} w1'][2] for q in kn]
+        a1 = [M[q['Qid']][col][1] for q in kn]; b1 = [M[q['Qid']][f'{emb} w1'][1] for q in kn]
+        out.append(f"| {emb} | {v} | {np.mean(a2):.3f} | {fm(bs(a2, b2, grp))} | {np.mean(a1):.3f} | {fm(bs(a1, b1, grp))} | {np.mean([M[q['Qid']][col][0] for q in tp]):.3f} |")
+a = [M[q['Qid']]['L1 eg2'][2] for q in kn]; b = [M[q['Qid']]['L1 qwen'][2] for q in kn]
+out += ['', f"L1 EG2-head − Qwen3, article MRR: {fm(bs(a, b, grp))}; at eg2 w2 − qwen w2: {fm(bs([M[q['Qid']]['eg2 w2'][2] for q in kn], [M[q['Qid']]['qwen w2'][2] for q in kn], grp))}", '']
+for kind in ['kw', 'para', 'cross']:
+    sel = [q for q in kn if q['kind'] == kind]
+    cb = collections.Counter('full' if M[q['Qid']]['_cov'] >= 1 else '<0.5' if M[q['Qid']]['_cov'] < .5 else 'partial' for q in sel)
+    out.append(f'- coverage, {kind}: {dict(cb)}')
+out.append('')
 open(f'{W}/AIR.md', 'w').write('\n'.join(out) + '\n')
 print('\n'.join(out))

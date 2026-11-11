@@ -20,6 +20,9 @@ git.
     targets were held out.
   - **9 public and synthetic sets,** 2,064 queries with graded qrels: RU wiki, wiki-mix, MIRACL-RU, MIRACL-DE,
     SciFact, NFCorpus, FiQA-10k, sealed RU dev-slang chat, rig RU look-alikes.
+  - **The Air Crash Database space on Roma's Nightly** (61,577 chunks, both embedders), with the rig's cleared
+    queries: 51 known-item (17 keyword, 17 paraphrase, 17 cross-language) and 6 graded topical. This is the
+    big-space check, and it played no part in designing the router.
 - **Embedders:**
   - Qwen3-Embedding-0.6B Q8 at 1024 dims;
   - EG2 Q8 with the head projection;
@@ -109,8 +112,35 @@ So the 768 default costs nothing measurable under w1-style fusion.
    F2 is never significantly worse than w1 in any shape on Roma's data. Its biggest gains are pasted excerpts
    (+0.200*), id-like queries (+0.080*), RU wiki (+0.166*) and MIRACL (+0.05*).
 
-   **Caveat:** the router was designed after seeing the pooled M0 numbers. The public sets, cheggaaa's account (replay
-   requested) and the Air Crash space are its independent checks.
+   **Caveat:** the router was designed after seeing the pooled M0 numbers. The public sets, the Air Crash space and
+   cheggaaa's account (replay requested) are its independent checks.
+
+5. **The Air Crash check, and the fragile branch** (`RESULTS_AIR.md`, `RESULTS_F2_LOWCUT.md`).
+   - **On Air Crash, w2 helps** (+0.033* Qwen3, +0.057* EG2, article-level MRR), as on the public sets. w0.5 hurts
+     (−0.073*, −0.120*).
+   - **Keyword lookups are saturated:** every setting scores about 1.0, so this space can't test the full-coverage
+     branch.
+   - **Paraphrases need both legs:** fusion scores 0.44–0.47, against 0.27 for either leg alone (record level).
+   - **The vector-only branch for low coverage is the fragile part.** Its best cut point moves with the data, while
+     the full-coverage blend branch holds everywhere:
+
+| Δ against w1 | Roma's data Qwen3 / EG2 | public Qwen3 / EG2 | Air Crash Qwen3 / EG2 |
+|---|---|---|---|
+| F2, low cut 0.75 | +0.041* / +0.024* | **+0.047* / +0.039*** | −0.013 / +0.069* |
+| F2, low cut 0.5 (as above) | **+0.043* / +0.029*** | +0.024* / +0.020* | +0.011 / **+0.074*** |
+| F2, low cut 0.25 | +0.040* / +0.026* | +0.017* / +0.010* | **+0.043*** / +0.057* |
+| **F2, two branches** (full → blend α0.3, else RRF w2) | +0.040* / +0.025* | +0.014* / +0.007* | +0.033* / +0.057* |
+
+   - **Only the two-branch form is significantly positive on all six columns.**
+   - **The best cut on one dataset is the worst on another:** cut 0.75 adds +0.033 on the public paraphrase sets,
+     but takes Air Crash's Qwen3 gain from +0.033* to −0.013.
+   - **Where it hurts:** 12 of the 17 Air paraphrases have coverage < 0.5, yet their FTS leg still contributes.
+
+   **Embedders on Air Crash:**
+   - **Known-item:** EG2-head beats Qwen3 by +0.090 at L1 (article MRR, n.s., 51 queries), and by +0.049 fused at
+     w2 (n.s.). The cross-language queries account for most of it: 0.495 against 0.349.
+   - **Topical:** Qwen3 0.693 against EG2 0.453 at L1, but on only 6 queries.
+   - **L0:** the production Qwen3 vector leg overlaps exact search at 0.979 at this size.
 
 **Constant maps** (`RESULTS_CONSTS.md`, Qwen3 legs; M0 MRR / public nDCG):
 
@@ -149,8 +179,11 @@ score is ≥ θ, up to the cap.
 
 - **Don't ship a global vectorWeight of 2.** It is the wrong switch position for lookups, ids and pastes, which make up
   most real queries.
-- **Route by FTS coverage instead.** It's one signal from the FTS leg at the fusion site, as in router F2, or C if a
-  score blend is unwanted. Its cut points still need confirming on the account.
+- **Route by FTS coverage instead.** It's one signal from the FTS leg at the fusion site.
+  - **The safe default is two branches:** full coverage → min-max blend α0.3, otherwise RRF w2. It's positive on
+    every dataset and embedder.
+  - **The vector-only branch for low coverage is an optional tune.** Its cut point should come from the account
+    replay, not from these sets.
 - **FTS work with clear payoff:** typo tolerance, and CJK segmentation.
 - **Embedder choice:** on this evidence EG2-head is competitive in fusion. Its real losses are Russian dev slang and
   finance-style Q&A, and both show up only in vector-only tests.
@@ -160,4 +193,6 @@ score is ≥ θ, up to the cap.
 - **The recall gate on Roma's data:** it needs graded negatives beyond rank 1. A first pass on public qrels is above.
 - **Human calibration labels:** about 30 pairs from Roma.
 - **Real logged queries on Roma's side:** there are no bao traces on Nightly.
-- **Big-space behaviour:** Air Crash, 61.6k chunks, is running.
+- **The full-coverage branch at scale:** Air Crash keyword lookups are saturated. A big space with harder lookups
+  (near-duplicate pages, many partial matches) is still missing.
+- **cheggaaa's account replay** of router F2: requested, and needed for the low-cut choice.
