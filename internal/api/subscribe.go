@@ -62,10 +62,9 @@ const (
 	// is resubscribe (which re-Snapshots).
 	SubscribeClosedOverflow = "overflow"
 
-	// SubscribeClosedDrifted — only on query/subscribe streams. More
-	// than DriftBudgetPercent of the held window left without
-	// replacements; the SDK closes the subscription rather than
-	// re-Query the database on the hot path. Recovery is resubscribe.
+	// SubscribeClosedDrifted — only on query/subscribe streams. The SDK
+	// could not keep the window equal to storage: drift budget spent, an
+	// unreadable row, or a failed re-read after a rebuild. Resubscribe.
 	SubscribeClosedDrifted = "drifted"
 
 	// SubscribeClosedObjectDeleted — only on per-object query/subscribe
@@ -92,8 +91,8 @@ type QuerySubscribeSnapshot struct {
 }
 
 // QuerySubscribeEvent is one batch of windowed transitions delivered
-// in an `event: changes` SSE frame. It groups every record-level
-// change observed during one CRDT apply:
+// in an `event: changes` SSE frame. It groups the record-level
+// changes of one CRDT apply, or of one re-read of the window:
 //
 //   - Added — records that entered the visible window.
 //   - Updated — records already in the window whose state changed.
@@ -106,7 +105,9 @@ type QuerySubscribeSnapshot struct {
 // VersionId is the per-change DAG order of the underlying CRDT apply.
 // Useful for fence-and-replay semantics ("I've processed up to X —
 // discard ≤ X"). VersionIds are locally-scoped (each peer assigns its
-// own); don't compare across peers.
+// own); don't compare across peers. It is empty on a re-read of the
+// window from storage and on an object deletion: those records carry
+// no ops and are applied whatever the fence.
 //
 // Total is intentionally absent — the windowed engine does not
 // maintain a live counter. Callers who need a refreshed count call
@@ -144,11 +145,9 @@ type RemovedRecord struct {
 // atomic updates against a local mirror without re-materialising the
 // whole record.
 //
-// Under a request `projection`, both halves are shaped and Ops can
-// come back EMPTY — every op of the triggering change fell outside the
-// projection, so nothing the caller holds changed. Treat an empty Ops
-// as "no visible change", never as "re-materialise from Doc": Doc is
-// authoritative either way.
+// Ops can be empty (a re-read or unreadable record, a row that slid
+// into the window, ops outside the `projection` or on withheld
+// fields). Doc is authoritative: with no Ops, take it whole.
 type QuerySubscribeRecord struct {
 	Id  string             `json:"id"`
 	Doc json.RawMessage    `json:"doc"`

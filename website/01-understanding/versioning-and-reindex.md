@@ -45,7 +45,7 @@ Type objects rebuild too. While a type's `shortIds` / `properties` / `datasets` 
 
 ## What clients see during the window
 
-A subscription is not told about the wipe — the rebuild never touches the subscribe engine. A held window keeps its rows and then sees the replay as one `updated` delta per change in the tree, with intermediate partial documents, converging when the replay ends. Snapshot reads against a space mid-sweep can return both shapes of a rebuilt field at once; a sort over that field groups by type until the sweep finishes.
+A subscription is not told about the wipe. A held window keeps its rows and sees the replay as one `updated` delta per change in the tree, with intermediate partial documents. When the rebuild ends the engine re-reads the window from storage and ships the difference as one event with an empty `versionId`, so the window ends equal to a fresh query. A window past an `offset` cannot be re-read: a per-object one closes `drifted` when its object is rebuilt, a shared one when a rebuilt object's held row is gone or no longer matches — resubscribe. Snapshot reads against a space mid-sweep can return both shapes of a rebuilt field at once; a sort over that field groups by type until the sweep finishes.
 
 Two rules keep a client correct across this:
 

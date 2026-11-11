@@ -40,13 +40,13 @@ any sync-status space SPACE
 
 | Field | Meaning |
 |---|---|
-| `state` | `unknown` / `syncing` / `synced`; `offline` and `error` are reserved in the vocabulary and not emitted |
+| `state` | first match of: `error` (the network refuses this client's protocol version), `offline` (no responsible node and no direct peer connected), `syncing` (an object has heads no node or direct peer has confirmed), `synced` (a node or direct peer confirmed this space's heads in this run and nothing is pending), `unknown` (a peer is connected but none has confirmed yet) |
 | `synced`, `total` | objects converged vs. objects tracked in the space |
 | `networkPeers` | responsible sync nodes with a live connection |
 | `localPeers` | LAN peers sharing this space that are connected right now |
 | `globalPeers` | internet-wide direct peers — relayed or hole-punched — connected right now |
 | `p2p` | direct-layer state, covering both: `unknown` / `notpossible` / `notconnected` / `connected` / `restricted` (OS denied local-network access) |
-| `lastSyncedAt` | time of the last completed round; zero value until one has run |
+| `lastSyncedAt` | time a node or direct peer last confirmed heads of this space; zero value until one has |
 
 A space can be `synced` with `networkPeers: 0` — it converged entirely over the LAN, or over the global layer.
 
@@ -61,7 +61,7 @@ any sync-status object SPACE OBJ
 { "objectId": "obj_…", "state": "synced", "lastSyncAt": "2026-05-15T12:00:00Z" }
 ```
 
-Unknown object ids return `{"state": "unknown"}` rather than a 404 — use the object catalog when you need an existence check.
+An object with no sync activity in this run reads `synced` when its tree is stored on this device and a sync round with a peer found nothing to exchange, and `{"state": "unknown"}` otherwise. An id nobody has seen is `unknown` rather than a 404 — use the object catalog when you need an existence check.
 
 > **Why it matters.** Writes never wait on the network, so a UI needs a separate, honest signal about whether a change has left the device. `synced` is that signal: it comes from the same engine that holds the data, not from a round-trip to a server that may be unreachable — and a space can converge over the LAN with no sync node in sight.
 

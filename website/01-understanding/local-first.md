@@ -59,13 +59,13 @@ curl http://127.0.0.1:2046/v1/spaces/$SPACE/sync-status
 
 | `state` | Meaning |
 |---------|---------|
-| `synced` | Every object's heads match the responsible peers. |
+| `synced` | A node or direct peer confirmed heads of this space in this run, and no object is waiting for one. |
 | `syncing` | Changes are in flight in one direction or the other. |
-| `unknown` | Space not loaded yet on this device (or an object id nobody has seen). |
-| `offline` | No responsible node reachable; local reads and writes continue. |
-| `error` | The network is incompatible with this build. |
+| `unknown` | A peer is connected but none has confirmed the space yet (or an object with no sync activity in this run, until a sync round with a peer finds nothing to exchange). |
+| `offline` | No responsible node and no direct peer connected; local reads and writes continue. |
+| `error` | The network refuses this build's protocol version. |
 
-The rollup reports `synced`, `syncing` and `unknown`; `offline` and `error` are reserved in the vocabulary for reachability and network-compatibility signals, so render them rather than failing on them.
+When several apply, the space reports the first of `error`, `offline`, `syncing`, `synced`, `unknown`. A space that syncs over the LAN alone is never `offline`, and a device that reached nobody never reads `synced`.
 
 Per-object state lives at `…/sync-status/objects/:objectId`, and both levels stream transitions over SSE ([Sync status](../realtime/sync-status.html)).
 

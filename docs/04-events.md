@@ -56,9 +56,9 @@ user-space. The CLI (`any query-subscribe`) and Go client
      or SDK closed).
    - `overflow` — per-sub mailbox filled before the consumer could
      drain it. The SDK closes the sub rather than dropping events.
-   - `drifted` — more than `driftBudgetPercent` of the held window
-     left without replacements; the SDK refuses to re-query on the
-     hot path. Resubscribe — the new snapshot reflects current state.
+   - `drifted` — the engine could not keep the window equal to
+     storage (`03-api.md` § Subscribe (Server-Sent Events), `closed`
+     reasons, has the rule). Resubscribe — the new snapshot reflects current state.
    - `object_deleted` — the object behind a per-object stream (one
      object's dataset or files) was deleted. Drop the view; a new
      POST for it is refused.
@@ -91,6 +91,15 @@ user-space. The CLI (`any query-subscribe`) and Go client
    `versionId` is the change's local DAG order — each peer assigns its
    own, so never compare it across peers. `_ver` travels only inside a
    record's `doc`; the batch and its ops carry none.
+
+   An event with an **empty `versionId`** is the engine's re-read of
+   the window from storage (or an object deletion, item 6). It carries
+   what the re-read found changed — `added`, `updated` and `removed`
+   alike — after the event of the change behind it, and its `added`
+   and `updated` records carry `doc` and no `ops`. A window at
+   `offset: 0` stays equal to a fresh query of the same body this
+   way. Apply every event, never drop one through a version fence,
+   and take `doc` whole for a record that carries no `ops`.
 6. **`removed` carries a `reason`.** Each removed entry is
    `{"id":…, "reason":…}` where `reason` is one of:
    - `"deleted"` — the record was tombstoned; it no longer exists.
@@ -154,8 +163,7 @@ unless the reason is `object_deleted`: the object is gone, drop the view.
 > `changes`, per-field ops included, so a projected subscription never
 > widens after the first update. `id` always ships and `_ver` narrows
 > to match; `{"_ver": -1}` drops it. Under a projection `ops` can come
-> back empty — nothing the client holds changed; `doc` stays
-> authoritative. Without a `projection` every record ships its full
+> back empty — no op fell inside it; `doc` stays authoritative. Without a `projection` every record ships its full
 > anyenc form.
 
 ### Why no buffer-then-replay step?
@@ -171,7 +179,7 @@ Each `added` or `updated` record carries `doc` (the full post-apply
 JSON) plus `ops` (the per-field `$set` / `$unset` ops from the
 triggering change). Most consumers take `doc` and overwrite their
 local entry. Consumers that merge fields into a richer local model
-apply the ops:
+apply the ops, and take `doc` whole when a record carries none:
 
 - `$set` with `path: ["a","b"]`, `payload: V` — assign `V` to `a.b`.
 - `$set` with `path: []` and an object payload — multi-field set: each
@@ -247,10 +255,13 @@ lock).
 ## Capacity
 
 Per-subscriber mailbox capacity defaults to 256 (`mailboxCapacity` in
-the request body; minimum 16). Drift budget defaults to 30% of the
-window (`driftBudgetPercent`). Both close the subscription on exceed
-with the matching `closed` reason — query/subscribe streams have no
-`lagged` frame.
+the request body; minimum 16); a re-read's event takes a slot of its
+own. Drift budget defaults to 30% of `limit` (`driftBudgetPercent`): a
+window at `offset: 0` spends it only while its re-reads fail, a window
+past an offset on every held row that is deleted or stops matching.
+Both close the subscription
+once reached with the matching `closed` reason — query/subscribe streams
+have no `lagged` frame.
 
 ## Sync-status streams (a separate SSE primitive)
 

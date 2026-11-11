@@ -42,7 +42,7 @@ The body is the same one `…/query` takes, plus two stream-only knobs:
 | `includeTotal` | populates `total` and `hasNext` in the snapshot frame |
 | `projection` | shapes the snapshot and every later `changes` record — see [Reading data](../database/reading-data.html) |
 | `mailboxCapacity` | per-subscriber event mailbox; default 256, minimum 16 |
-| `driftBudgetPercent` | how much of the window may leave unreplaced before the stream closes; default 30 |
+| `driftBudgetPercent` | share of `limit` the window may lose before the stream closes; default 30. A window at `offset: 0` refills from storage and loses rows only while a refill fails; a window past an offset loses every held row that is deleted or stops matching |
 
 `includeDeleted` is not supported on a subscription. The field set is closed: an unknown top-level key answers `400 request.unknown_field`. Errors raised before the stream opens (`space.not_found`, `request.missing_field`, …) come back as the normal JSON error envelope; once the response is `200 text/event-stream`, problems are `closed` frames.
 
@@ -75,6 +75,8 @@ data: {"reason":"overflow"}
 
 `versionId` is the per-change DAG order on *this* peer. It is useful for fencing ("processed up to X") but is not comparable across devices.
 
+A window at `offset: 0` stays equal to a fresh query of the same body. When a change's own event cannot say everything that happened to the window, the engine re-reads the window from storage and sends what it found — `added`, `updated` and `removed` alike — in an event of its own, right after. That event has an empty `versionId`, and its `added` and `updated` records carry `doc` and no `ops`. Apply every event, and take `doc` whole for any record that carries no `ops`.
+
 ### `removed` carries a reason
 
 | Reason | Meaning | What to do |
@@ -85,7 +87,7 @@ data: {"reason":"overflow"}
 
 Only `deleted` means the record or object is gone. The other reasons remove it from this view only: the same filtered, limited snapshot can still exclude it. A separate query by ID can establish whether it still exists.
 
-An object deletion can produce a synthetic removal with an empty `versionId`. Apply the removal directly; do not discard it because a version comparison fails. Tombstone rows are not streamed: `includeDeleted` is snapshot-only and refused on `/subscribe` with `400 request.invalid_field`.
+An object deletion also arrives as a removal with an empty `versionId`. Apply every such event directly; do not discard it because a version comparison fails. Tombstone rows are not streamed: `includeDeleted` is snapshot-only and refused on `/subscribe` with `400 request.invalid_field`.
 
 ## Closing and recovery
 
@@ -95,14 +97,14 @@ An object deletion can produce a synthetic removal with an empty `versionId`. Ap
 | `deauthorized` | the account behind the stream was torn down in place (`DELETE /v1/auth`, or a switch to another account) while the server stays up — re-read `GET /v1/auth` before resubscribing |
 | `sdk_closed` | the space or the engine was closed |
 | `overflow` | events arrived faster than the client drained them and the mailbox (`mailboxCapacity`) filled; the engine closes the stream rather than drop events |
-| `drifted` | more than `driftBudgetPercent` of the window left without replacements; the engine refuses to re-query on the hot path |
+| `drifted` | the engine could not keep the window equal to storage: its losses reached `driftBudgetPercent` of `limit`, a row could not be read, or the window could not be re-read after a rebuild of its rows |
 | `object_deleted` | the object behind a per-object stream (one object's dataset, one object's files) was deleted; the view is gone for good and a new POST for it is refused |
 
 Recovery is the same for all of them but `object_deleted`: **open a new POST and take the fresh snapshot**. There is no replay across reconnects and no resume cursor — the new snapshot already reflects current state, which is strictly cheaper than reconstructing it from a backlog. Before every attempt read `GET /v1/auth`: `authorized: false` means clear the view and wait (a restart, or a managed host between accounts — the example below waits for the original account to come back; a host cancels the watcher on a deliberate sign-out), a different `accountId` means clear the view and stop. Make the same check after a 401, a failed request or a stream that ends without `closed` — an account switch can swallow the terminal frame.
 
-`overflow` and `drifted` are split only so you can log and back off sensibly: a burst of `overflow` on a hot storage collection is the hint to raise `mailboxCapacity` (or to look at how slowly the consumer drains), a stream of `drifted` on a churny list is the hint to raise `driftBudgetPercent` or widen `limit`.
+`overflow` and `drifted` are split only so you can log and back off sensibly: a burst of `overflow` on a hot storage collection is the hint to raise `mailboxCapacity` (or to look at how slowly the consumer drains), a stream of `drifted` on a churny list paged past an offset is the hint to raise `driftBudgetPercent` or widen `limit`.
 
-> **Note.** Drift detection needs a window to measure against: with `limit: 0` there is no window auto-shift and no drift safety net. Always subscribe with a limit.
+> **Note.** The drift budget needs a window to measure against: with `limit: 0` there is no window auto-shift and no drift safety net. Always subscribe with a limit.
 
 ## Client example: fetch streaming, no EventSource
 
