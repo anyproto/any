@@ -567,7 +567,8 @@ space's rewrite never appear (`Options.OnProcess`, bridged in
   Cursor writes MERGE: advancing with no epoch in hand keeps the stamped
   one, because erasing it would silently disable rebuild detection. A
   `_meta` row pins the **schema version** (`indexSchemaVersion` in
-  `store.go`), the **vector dimension** and the **chunk target**. A
+  `store.go`), the **vector dimension**, the **chunk target** and the
+  **embedder** whose vectors it holds. A
   stamp one step behind is adopted at open: the layout it lacks (the
   `name` field) is applied per collection on its first open, and the
   stamp moves, so an older build then sees a schema it cannot read
@@ -703,9 +704,13 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   back in the embed queue, and they keep serving their old vectors until
   the new ones land. The output width is the model's `n_embd_out`. The
   index db records the embedder that built it — the pinned model, its
-  revision, and the prompts and pooling in effect; a db another one
-  built is removed and rebuilt at boot, like one of another dimension. A
-  db from before that record is kept only for Qwen3 or an unnamed GGUF.
+  revision, and the document prompt and pooling in effect; a db another
+  one built is removed and rebuilt at boot, like one of another
+  dimension. A db from before that record is kept for Qwen3, an unnamed
+  GGUF or a network embedder, and when it holds no vectors. Under `auto`
+  the API key decides the local model, so adding or removing
+  `index.openai.apiKey` rebuilds the index. A model file whose output
+  width is not the pinned model's is refused at load.
   The GGUF (sha256-pinned) is downloaded into the shared model
   cache `<root>/models/` (a copy already in the account's `index/models/`
   is used in place); the download is resumable, logs progress, reports
@@ -733,8 +738,11 @@ successful batch (or pinned via `index.vector.dim`) and persisted in
 mixed in (`ErrIndexRebuildRequired`: a configured dimension that
 contradicts the db rebuilds the index at boot; one learned mid-run fails
 every embed round until the index is removed or `index.vector.dim`
-names it), not silent corruption. A model change at the same dimension
-is not detected: remove the index by hand. A batch
+names it), not silent corruption. A change of pinned local model, or of
+its document prompt or pooling, is detected at boot by the embedder
+record and rebuilds the index; a change between network models or
+unnamed GGUFs at the same dimension is not detected: remove the index
+by hand. A batch
 that fails midway lands the vectors embedded so far.
 
 **Batching costs context.** The local child sends a batch one decode
@@ -887,8 +895,8 @@ everything else, and `make test` reruns the packages that hold them with
 the tag.
 
 An index db this build refuses is rebuilt by the boot, not reported:
-`ErrIndexRebuildRequired` (schema version, vector dimension or chunk
-target mismatch, or damage met while opening it: a broken header, a
+`ErrIndexRebuildRequired` (schema version, vector dimension, chunk
+target or embedder mismatch, or damage met while opening it: a broken header, a
 failed quick check on a dirty open, or a page that fails its checksum,
 `internal/indexer/errors.go`) makes `OpenIndexer` remove `index.db` and
 every file named after it (WAL, shm, sentinel) — the model cache beside

@@ -35,9 +35,10 @@ type localModel struct {
 	legacy bool
 }
 
-// stamp names the vector space a spec embeds into: the pinned model,
-// its revision, and the prompts and pooling in effect (config may
-// override them). An unnamed GGUF is unknown.
+// stamp names the vector space a spec's documents embed into: the
+// pinned model, its revision, and the document prompt and pooling in
+// effect (config may override them). The query prompt moves no stored
+// vector. An unnamed GGUF is unknown.
 func (s localSpec) stamp() (string, bool) {
 	if s.profile == "" {
 		return "", true
@@ -47,7 +48,7 @@ func (s localSpec) stamp() (string, bool) {
 		return "", true
 	}
 	h := fnv.New32a()
-	for _, part := range []string{s.pooling, s.queryPrefix, s.docPrefix} {
+	for _, part := range []string{s.pooling, s.docPrefix} {
 		_, _ = h.Write([]byte(part))
 		_, _ = h.Write([]byte{0x1f})
 	}

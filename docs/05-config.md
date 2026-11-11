@@ -180,7 +180,8 @@ index:
     model: ""                         # pinned model: embeddinggemma-2 (default) or
                                       # qwen3-embedding-0.6b (the default when `auto` has an
                                       # apiKey); sets download, prompts, pooling, dim. Changing
-                                      # it rebuilds the index
+                                      # it — or adding/removing the apiKey under `auto` —
+                                      # rebuilds the index
     modelPath: ""                     # existing GGUF; set ⇒ no download (air-gapped). Without
                                       # `model` it is an unnamed GGUF: no pinned prompts or pooling
     modelUrl: ""                      # another download source for the model `model` names
@@ -397,7 +398,7 @@ they're met.
   with `index.local.libDir` or `$YZMA_LIB`). Release tarballs carry them
   (`docs/18-ci.md`).
 - **Model**: downloaded automatically into `<data-dir>/models/` on
-  first boot (296 MB, progress in the server log; resumable, never
+  first boot (310 MB, progress in the server log; resumable, never
   blocks boot — vector search reports `unavailable` until it lands).
 - **Linux**: a system `libffi.so.8` must be loadable (preinstalled on
   mainstream distros; on NixOS use `nix develop` — the repo flake's

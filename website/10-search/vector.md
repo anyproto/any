@@ -58,7 +58,7 @@ The vector dimension is learned from the first successful embedding batch (or fi
 
 `index.search.minVectorSim` drops vector hits at or below a cosine cutoff before ranking; `0` (the default) keeps the built-in "> 0" noise floor only.
 
-> **Note.** For the default local model a static floor is a poor noise filter. Measured on a live index, gibberish queries score ~0.6 cosine — as high as on-topic queries, and *above* real off-topic ones — so any cutoff that drops noise also drops signal. Keep `0` for Qwen3-Embedding and let [hybrid fusion](hybrid.html) plus the full-text leg do the discrimination; raise it only for a better-calibrated embedder.
+> **Note.** For Qwen3-Embedding a static floor is a poor noise filter. Measured on a live index, gibberish queries score ~0.6 cosine — as high as on-topic queries, and *above* real off-topic ones — so any cutoff that drops noise also drops signal. Keep `0` for Qwen3-Embedding and let [hybrid fusion](hybrid.html) plus the full-text leg do the discrimination; raise it only for a better-calibrated embedder.
 
 ## Long records
 

@@ -95,6 +95,8 @@ type Store struct {
 	// embedder is the stamp of the embedder whose vectors this DB holds
 	// ("" = unknown), persisted in the meta row.
 	embedder string
+	// fresh: this open created the db, so it holds no one's vectors.
+	fresh bool
 
 	mu     sync.Mutex
 	dim    int // 0 = unknown yet; learned lazily via EnsureDim
@@ -278,6 +280,7 @@ func (s *Store) checkMeta(ctx context.Context) error {
 	}
 	doc, err := coll.FindId(ctx, metaDocId)
 	if errors.Is(err, anystore.ErrDocNotFound) {
+		s.fresh = true
 		return s.writeMeta(ctx, s.dim)
 	}
 	if err != nil {
@@ -353,7 +356,8 @@ func (s *Store) PinChunkRunes(ctx context.Context, n int) error {
 // refuses a db another one built: two models' vectors in one index rank
 // against each other meaninglessly, and the same dimension hides it. A
 // db written before the stamp existed is adopted when legacy says its
-// vectors may be this embedder's, or when it holds no vectors yet.
+// vectors may be this embedder's, or when it holds none: this open
+// created it, or it never learned a dimension.
 func (s *Store) PinEmbedder(ctx context.Context, id string, legacy bool) error {
 	coll, err := s.db.Collection(ctx, cursorsCollection)
 	if err != nil {
@@ -367,7 +371,7 @@ func (s *Store) PinEmbedder(ctx context.Context, id string, legacy bool) error {
 	switch {
 	case stored == id:
 		return nil
-	case stored == "" && (legacy || doc.Value().GetInt("dim") == 0):
+	case stored == "" && (legacy || s.fresh || doc.Value().GetInt("dim") == 0):
 	default:
 		return fmt.Errorf("%w: index db holds vectors of embedder %q, configured %q", ErrIndexRebuildRequired, stored, id)
 	}

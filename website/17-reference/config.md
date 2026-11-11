@@ -99,7 +99,7 @@ The passkey is the one secret the server may need at boot: it comes from the env
 | `index.search.titleWeight` | `ANY_INDEX_SEARCH_TITLE_WEIGHT` | `0` | BM25F title boost; 0 = no boost and no title field in the index (0 → non-zero needs a rebuild) |
 | `index.search.queryEmbedTimeout` | `ANY_INDEX_SEARCH_QUERY_EMBED_TIMEOUT` | `5s` | bound on embedding one search query; past it hybrid answers lexical-only and `mode: vector` answers `503 index.embedder_unavailable` |
 
-An unavailable embedder never breaks boot or FTS — the vector side reports `unavailable` until it recovers. In a build with the local embedder, its model (296 MB) downloads on first boot into `<root>/models/`, resumable, without blocking. Details: [Embedders](../search/embedders.html).
+An unavailable embedder never breaks boot or FTS — the vector side reports `unavailable` until it recovers. In a build with the local embedder, its model (310 MB) downloads on first boot into `<root>/models/`, resumable, without blocking. Details: [Embedders](../search/embedders.html).
 
 ## Files and push
 

@@ -58,12 +58,22 @@ func TestStore_PinEmbedder(t *testing.T) {
 
 func TestStore_PinEmbedder_Unstamped(t *testing.T) {
 	ctx := context.Background()
+	// A db an earlier run filled: reopened, with a learned dimension.
 	withVectors := func() *Store {
 		t.Helper()
-		s := mustStore(t, 0)
+		path := filepath.Join(t.TempDir(), "index.db")
+		s, err := OpenStore(ctx, path, 0, true)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := s.EnsureDim(ctx, 4); err != nil {
 			t.Fatal(err)
 		}
+		_ = s.Close()
+		if s, err = OpenStore(ctx, path, 0, true); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = s.Close() })
 		return s
 	}
 	// Vectors of unknown origin: only an embedder that predates the
@@ -81,5 +91,32 @@ func TestStore_PinEmbedder_Unstamped(t *testing.T) {
 	// An unknown embedder leaves an unstamped db alone.
 	if err := withVectors().PinEmbedder(ctx, "", true); err != nil {
 		t.Fatalf("unknown embedder on an unstamped db: %v", err)
+	}
+}
+
+// A configured dimension is written into a new db before any vector
+// exists: the db this open created is adopted by any embedder.
+func TestStore_PinEmbedder_FreshWithConfiguredDim(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "index.db")
+	s, err := OpenStore(ctx, path, 768, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PinEmbedder(ctx, "local:new/1", false); err != nil {
+		t.Fatalf("a new db with index.vector.dim set: %v", err)
+	}
+	_ = s.Close()
+	// Reopened, it is stamped: the same embedder passes, another does not.
+	s, err = OpenStore(ctx, path, 768, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.PinEmbedder(ctx, "local:new/1", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PinEmbedder(ctx, "local:other/1", false); !errors.Is(err, ErrIndexRebuildRequired) {
+		t.Fatalf("another embedder: %v", err)
 	}
 }

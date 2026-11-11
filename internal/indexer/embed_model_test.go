@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/hybridgroup/yzma/pkg/llama"
@@ -228,6 +229,17 @@ func TestLocal_EmbeddingGemma2(t *testing.T) {
 			t.Errorf("doc %d: a title left the vector unchanged (cosine %v)", i, c)
 		}
 	}
+	// A file that is not the model it stands for is refused at load.
+	if qwenPath := os.Getenv("ANY_INDEX_LOCAL_MODEL_PATH"); qwenPath != "" {
+		wrong, err := NewLocal(config.IndexLocal{Model: config.LocalModelEmbeddingGemma2, ModelPath: qwenPath, LibDir: libDir}, t.TempDir(), "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer wrong.Close()
+		if _, err := wrong.EmbedDocs(ctx, docs[:1]); err == nil || !strings.Contains(err.Error(), "not the configured model") {
+			t.Errorf("another model's file under this model's name: %v", err)
+		}
+	}
 	if cosine(vecs[3], vecs[0]) <= cosine(vecs[3], vecs[1]) {
 		t.Error("the query should sit closer to the on-topic doc")
 	}
@@ -283,7 +295,11 @@ func TestLocalSpecStamp(t *testing.T) {
 		t.Errorf("the stamp is not stable: %q then %q", eg2, again)
 	}
 	if other, _ := stamp(config.IndexLocal{Model: config.LocalModelEmbeddingGemma2, DocPrefix: "passage: "}); other == eg2 {
-		t.Error("a prompt override must change the stamp")
+		t.Error("a document prompt override must change the stamp")
+	}
+	// Settings that move no stored vector leave it alone.
+	if same, _ := stamp(config.IndexLocal{Model: config.LocalModelEmbeddingGemma2, QueryPrefix: "q: ", Threads: 2, ContextSize: 1024, BatchDocs: 1}); same != eg2 {
+		t.Errorf("a query prompt or decode setting changed the stamp: %q vs %q", same, eg2)
 	}
 	if id, legacy := stamp(config.IndexLocal{}); id != "" || !legacy {
 		t.Errorf("an unnamed GGUF: stamp %q, legacy %v", id, legacy)
