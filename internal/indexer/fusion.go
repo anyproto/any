@@ -25,18 +25,20 @@ const (
 // planFusion picks a query's RRF form from its legs. Low lexical
 // coverage: a peaked vector leg decides alone, a flat one fuses
 // vector-heavy. High coverage: a peaked BM25 leg decides alone, a flat
-// one fuses lexical-heavy.
+// one fuses lexical-heavy. A single leg fuses at k 0: the order is the
+// same for any k, and its normalized score 1/(1+rank) lets a gate above
+// 0.5 admit rank 1 only — the one reliably relevant single-leg hit.
 func planFusion(query string, fts, vec []Hit) fusionPlan {
 	if queryCoverage(query, fts) < treeCoverage {
 		if vectorGap(vec) < treeVecGap {
 			return fusionPlan{fts: 1, vec: 2, k: 20}
 		}
-		return fusionPlan{vec: 1, k: rrfK}
+		return fusionPlan{vec: 1}
 	}
 	if lexicalGap(fts) < treeFtsGap {
 		return fusionPlan{fts: 1, vec: 0.5, k: 20}
 	}
-	return fusionPlan{fts: 1, k: rrfK}
+	return fusionPlan{fts: 1}
 }
 
 // coverageStop is the stop list the tree was learned with; it is not the

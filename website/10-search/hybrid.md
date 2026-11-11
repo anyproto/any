@@ -50,11 +50,11 @@ By default each query picks its weights and k from its own legs. The first test 
 | query words found | stronger leg | fusion |
 |---|---|---|
 | under 80% | cosine flat (top 1 − top 5 < 0.103) | vector-heavy: `1 / 2`, k 20 |
-| under 80% | cosine peaked | the vector leg alone |
+| under 80% | cosine peaked | the vector leg alone, k 0 |
 | 80% or more | BM25 flat (relative top 1 − top 2 < 0.184) | lexical-heavy: `1 / 0.5`, k 20 |
-| 80% or more | BM25 peaked | the lexical leg alone |
+| 80% or more | BM25 peaked | the lexical leg alone, k 0 |
 
-One fixed weight can't serve both kinds of query: above about 1.2, every vector-only hit outranks every lexical-only one, the lexical first hit included, which costs word, name and id lookups.
+A single leg fuses at k 0: its order doesn't change, and its score becomes 1 / (1 + rank), so a threshold above 0.5 admits only its first hit — the one a single leg reliably gets right. One fixed weight can't serve both kinds of query: above about 1.2, every vector-only hit outranks every lexical-only one, the lexical first hit included, which costs word, name and id lookups.
 
 Full-text operators (`"phrases"`, `prefix*`) shape the lexical leg's list; the vector leg always embeds the whole `query` verbatim, stop words included. `require` / `exclude` bind every hit regardless of leg: vector hits are post-filtered against the FTS index before fusion, so a fused result never contains a doc the lexical constraint would have refused.
 

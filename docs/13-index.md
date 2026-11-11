@@ -989,7 +989,8 @@ survive intact.
   three FTS chunks, then how peaked the stronger leg is (cosine top-1 −
   top-5, or BM25's relative top-1 − top-2 gap), choose vector-heavy RRF
   (1 / 2 at k 20), the vector leg alone, lexical-heavy RRF (1 / 0.5 at
-  k 20) or the FTS leg alone. One fixed weight can't serve both kinds of
+  k 20) or the FTS leg alone. A single leg fuses at k 0, so its score is
+  1 / (1 + rank) and a gate above 0.5 admits its rank 1 only. One fixed weight can't serve both kinds of
   query: above ~1.2 every vector-only hit outranks every FTS-only one,
   FTS #1 included, which costs word, name and id lookups. Setting
   `ftsWeight` / `vectorWeight` fixes weighted RRF at k 60 instead (an

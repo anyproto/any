@@ -55,9 +55,9 @@ func TestPlanFusion_Branches(t *testing.T) {
 		want     fusionPlan
 	}{
 		{"low coverage, flat vector leg", "returnable bottles", match(5, 4), flatVec, fusionPlan{fts: 1, vec: 2, k: 20}},
-		{"low coverage, peaked vector leg", "returnable bottles", match(5, 4), peakedVec, fusionPlan{vec: 1, k: rrfK}},
+		{"low coverage, peaked vector leg", "returnable bottles", match(5, 4), peakedVec, fusionPlan{vec: 1}},
 		{"full coverage, no lexical winner", "pfand", match(5, 4.5), flatVec, fusionPlan{fts: 1, vec: 0.5, k: 20}},
-		{"full coverage, lexical winner", "pfand", match(5, 2), flatVec, fusionPlan{fts: 1, k: rrfK}},
+		{"full coverage, lexical winner", "pfand", match(5, 2), flatVec, fusionPlan{fts: 1}},
 	} {
 		if got := planFusion(c.q, c.fts, c.vec); got != c.want {
 			t.Errorf("%s: plan %+v, want %+v", c.name, got, c.want)
@@ -67,12 +67,25 @@ func TestPlanFusion_Branches(t *testing.T) {
 
 func TestFusionPlan_NormalizedTopIsOne(t *testing.T) {
 	a, b := h("ds", "a"), h("ds", "b")
-	for _, p := range []fusionPlan{{fts: 1, vec: 2, k: 20}, {vec: 1, k: rrfK}, {fts: 1, vec: 0.5, k: 20}, {fts: 1, k: rrfK}} {
+	for _, p := range []fusionPlan{{fts: 1, vec: 2, k: 20}, {vec: 1}, {fts: 1, vec: 0.5, k: 20}, {fts: 1}} {
 		lists, weights := p.lists([]Hit{a, b}, []Hit{a, b})
 		fused := fuseRRFK(lists, weights, p.k, 0)
 		normalizeRRF(fused, weights, len(lists), p.k)
 		if d := fused[0].Score - 1; d > 1e-12 || d < -1e-12 {
 			t.Errorf("plan %+v: top score %v, want 1", p, fused[0].Score)
+		}
+	}
+}
+
+func TestFusionPlan_SingleLegScoresByRank(t *testing.T) {
+	a, b, c := h("ds", "a"), h("ds", "b"), h("ds", "c")
+	p := fusionPlan{fts: 1}
+	lists, weights := p.lists([]Hit{a, b, c}, nil)
+	fused := fuseRRFK(lists, weights, p.k, 0)
+	normalizeRRF(fused, weights, len(lists), p.k)
+	for i, want := range []float64{1, 0.5, 1.0 / 3} {
+		if d := fused[i].Score - want; d > 1e-12 || d < -1e-12 {
+			t.Errorf("rank %d: score %v, want %v", i+1, fused[i].Score, want)
 		}
 	}
 }
