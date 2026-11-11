@@ -52,18 +52,18 @@ through their subscriptions.
 flowchart TB
     subgraph device["Your device"]
         ui["any-ui<br/>knowledge base"]
-        app["your app<br/>vibe-coded or by hand"]
-        rt["anyrt<br/>programs, schedules"]
+        app["your app<br/>vibe-coded<br/>or by hand"]
+        rt["anyrt<br/>programs,<br/>schedules"]
         agents["your agents<br/>and scripts"]
-        server["any server<br/>localhost HTTP API<br/>database · search<br/>identity · sync"]
+        server["any server<br/>local HTTP API<br/>database · sync"]
         ui <--> server
         app <--> server
         rt <--> server
         agents <--> server
     end
     subgraph network[" "]
-        peers["other devices<br/>yours and collaborators',<br/>each with its own server"]
-        nodes["sync nodes<br/>store and relay encrypted<br/>content, cannot read it"]
+        peers["other devices<br/>each runs its<br/>own any server"]
+        nodes["sync nodes<br/>cannot read<br/>what they relay"]
     end
     server <-- "end-to-end encrypted" --> peers
     server <-- "end-to-end encrypted" --> nodes
