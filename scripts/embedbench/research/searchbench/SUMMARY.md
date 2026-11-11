@@ -79,7 +79,21 @@ So the 768 default costs nothing measurable under w1-style fusion.
 - **Search-as-you-type:** putting `*` on the unfinished last word, as the title pass already does, takes FTS from 0.581
   to **0.710** and fusion at w1 from 0.663 to **0.723** (n=76).
 - **Typos:** a prefix fallback (each word cut to its first 3–5 chars + `*`) only reaches 0.113 FTS and 0.326 fused,
-  against 0.310 vector-only. Typos need real fuzzy matching.
+  against 0.310 vector-only. On AirM it makes fusion worse (0.103 → 0.075).
+
+**Vocabulary typo correction works** (`RESULTS_SPELL.md`).
+- **The rule:** each query word missing from the space's vocabulary is replaced by the most frequent vocabulary word
+  at edit distance 1 (2 for words of 8+ letters), and the corrected query goes to both legs. It needs no index change,
+  only the FTS term list.
+- **How accurate:** of the 117 queries it changed, it recovered the intended word in 106.
+
+| fused w1, typo queries | original | corrected |
+|---|---|---|
+| Roma's data (102) | 0.310 | **0.416** (FTS 0.000 → 0.292) |
+| AirM (88) | 0.103 | **0.397** (FTS 0.000 → 0.408) |
+
+Correcting the FTS leg alone gets most of it (0.402 and 0.367). Words with digits or hyphens are left alone, so typo'd
+ids stay unsolved.
 
 ## L3: fusion
 
@@ -156,6 +170,40 @@ So the 768 default costs nothing measurable under w1-style fusion.
 - **The best fixed blend α is opposite on the two datasets.**
 - **Only the router family is good on both, and it's flat across its cut points,** so it isn't a knife-edge tune.
 
+**AirM: every lookup shape at scale** (`RESULTS_AIRM.md`).
+- **The set:** 100 target passages from distinct Air Crash articles, among 2,815 look-alike airline and crash pages;
+  61.6k chunks. 877 queries in 10 shapes:
+  - by code: name (first 2 title words), full name, registration id, typo, prefix, 10-word paste;
+  - by Haiku: one word, 2–3 words, 4–5 words, question.
+  - 50 targets are held out. Article-level MRR.
+- **This set exercises the full-coverage branch:** 95% of one-word, 94% of paste and 100% of id-like queries have
+  full coverage.
+
+| Δ against w1 (w1 = 0.648 Qwen3 / 0.660 EG2) | Qwen3 | EG2-head |
+|---|---|---|
+| w0.5 | +0.013* | +0.014* |
+| w2 | −0.059* | −0.065* |
+| router C | +0.005 | +0.014* |
+| F2, low cut 0.5 | +0.030* | +0.031* |
+| **F2, two branches** | **+0.033*** (held-out +0.036*) | **+0.030*** (held-out +0.028*) |
+| per-query oracle (best of FTS, vector, w1, w2, blend) | +0.084* | +0.078* |
+
+- **The router's gain is concentrated.** Pastes +0.233*, id-like +0.080*, one word +0.042.
+- **It gives back a little on partial-coverage shapes.** Prefix queries lose 0.021*. Questions lose 0.021 (n.s.).
+- **It captures about 40% of the oracle bound.** Most of the rest is in the partial-coverage shapes, where no rule
+  tested here picks the right leg.
+- **Prefix rewrite at scale:** the `*` on the unfinished word takes FTS from 0.626 to 0.713, and w1 from 0.648 to
+  0.711. That matches M0.
+- **Title pass:**
+  - Two-word name prefixes score 0.652 with it and 0.474 without. They are ambiguous: many titles share "X Airlines".
+  - Full names score 0.993, against 0.913 without it.
+- **Embedders:** vector-only, EG2-head ties Qwen3 (0.493 vs 0.491). Fused with the two-branch router, EG2 is at 0.691
+  vs Qwen3's 0.681.
+- **L0:** production ANN vs exact top-10 overlap is 0.973.
+- **Latency:** a hybrid search here (a 61.6k-chunk space, M2 Air, Nightly running, index copy) takes ~0.8 s per query
+  inside the sweep (1,044 queries in 28 min, two searches each plus a query embedding). A proper latency bench is
+  still to do.
+
 **Graded relevance on Roma's data** (M1, `RESULTS_M1_GRADED.md`):
 - **Method:** 126 queries, 14 per shape.
   - The pool is the top 10 of w1, w2 and both F2 forms, plus the top 5 of each leg alone (1,591 records).
@@ -225,7 +273,10 @@ score is ≥ θ, up to the cap.
     questions. The large, unambiguous effect is avoiding w2.
 - **Recall gates:** keep the fused score as the signal, and raise the threshold. bao's 0.015 never filters; 0.030–0.032
   gives 0.64–0.85 precision on Roma's data.
-- **FTS work with clear payoff:** typo tolerance, and CJK segmentation.
+- **FTS work with clear payoff:**
+  - typo tolerance: vocabulary correction at query time already recovers 0.10–0.29 MRR on typo queries;
+  - the `*` prefix on the unfinished last word (+0.06 fused);
+  - CJK segmentation.
 - **Embedder choice:** on this evidence EG2-head is competitive in fusion. Its real losses are Russian dev slang and
   finance-style Q&A, and both show up only in vector-only tests.
 
@@ -234,6 +285,7 @@ score is ≥ θ, up to the cap.
 - **Human calibration labels:** about 30 pairs from Roma. Until then, every graded number rests on the LLM judge
   (checked only by its controls and vote agreement).
 - **Real logged queries on Roma's side:** there are no bao traces on Nightly.
-- **The full-coverage branch at scale:** Air Crash keyword lookups are saturated. A big space with harder lookups
-  (near-duplicate pages, many partial matches) is still missing.
+- **Partial-coverage queries:** they are where the remaining oracle gap is (prefix, 2–5 words, questions). No rule
+  tested here routes them well.
+- **Search latency at scale:** measured only incidentally.
 - **cheggaaa's account replay** of router F2: requested, and needed for the low-cut choice.
