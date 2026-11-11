@@ -228,6 +228,22 @@ ids stay unsolved.
   - Held-out here means new queries from the same three data kinds, not a new kind of data.
 - **Read:** F2 two-branch is the robust baseline. The learned rule is a candidate upgrade, to be checked on the
   account replay before anyone adopts it.
+- **Account replay** (cheggaaa's agent, 11-11, on his 676 dumps, aggregates; his account was never in training).
+  Δ against w1 for the depth-2 rule: known-item +0.056* / +0.048* / +0.068* (Qwen3-768 / Qwen3-ft / EG2-ft),
+  topical +0.035* / +0.026* / +0.031, real used-item −0.002 / −0.011 / −0.019 (n.s., labels from w1 pages). It
+  leads every rule replayed there, including the shape rule cheggaaa chose for item 4 (+0.017* / +0.011 / +0.017*
+  known-item). The cosine cut held on EG2 without re-fitting.
+
+**RRF-only variant** (`RESULTS_ROUTER_RRF.md`, `router_rrf.py`). Leaves may pick only RRF actions (FTS only,
+vector only, w0.25 to w3, w0.5 and w2 at k20), so every branch keeps the normalized-score contract and needs no
+blend code.
+- **Learned depth 2:** coverage < 0.8 → (cosine gap < 0.103 → w2 k20, else vector only); otherwise → (BM25
+  top-1/top-2 gap < 0.184 → w0.5 k20, else FTS only).
+- **Held-out, Δ against w1:** M0 +0.048*, AirM +0.030*, public +0.036*. The blend rule gets +0.059* / +0.034* /
+  +0.046*, so the blends add about 0.01 on each set; the RRF tree keeps about 80% of the gain.
+- **Against F2 two-branch:** +0.002 / −0.007 / +0.022*.
+- **Not replayed on the account.** Its new branches (vector only on a peaked cosine top, FTS only on a clear BM25
+  lead) are the kind that cost real queries in the low-cut replay, so it needs the same check before it is preferred.
 
 **Graded relevance on Roma's data** (M1, `RESULTS_M1_GRADED.md`):
 - **Method:** 126 queries, 14 per shape.
