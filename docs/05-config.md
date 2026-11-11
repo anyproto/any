@@ -181,15 +181,16 @@ index:
                                       # embeddinggemma-2; sets download, prompts, pooling, dim
     modelPath: ""                     # existing GGUF; set ⇒ no download (air-gapped). Without
                                       # `model` it is an unnamed GGUF: no pinned prompts or pooling
-    modelUrl: ""                      # download-source override for the default path
+    modelUrl: ""                      # download-source override for the default path;
+                                      # without `model`, an unnamed GGUF like modelPath
     modelSha256: ""                   # checksum override; "" with modelUrl ⇒ skip verify
     libDir: ""                        # llama.cpp shared libs; default $YZMA_LIB, else
                                       # <exe-dir>/llamacpp
     contextSize: 2048                 # truncation bound in tokens (docs/13-index.md)
     queryPrefix: ""                   # "" = the pinned model's query prompt
     docPrefix: ""                     # "" = the pinned model's document prompt
-    pooling: ""                       # last | mean | cls | model (the GGUF's own);
-                                      # "" = the pinned model's, last for an unnamed GGUF
+    pooling: ""                       # last | mean | cls; "" = the pinned model's,
+                                      # last for an unnamed GGUF
     dim: 0                            # Matryoshka output truncation; 0 = model dim
     threads: 0                        # CPU budget of the embedder child process; 0 = runtime.NumCPU()-1
                                       # (leave one free). Lower it to keep background indexing off the

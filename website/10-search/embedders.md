@@ -46,7 +46,7 @@ The child exists so a llama.cpp fault costs a round of embedding, not the server
 | `local.libDir` | `<exe-dir>/llamacpp` | where the shared libraries live |
 | `local.contextSize` | 2048 | truncation bound in tokens, shared by the texts of one decode |
 | `local.queryPrefix` / `docPrefix` | "" | "" = the pinned model's query / document prompt |
-| `local.pooling` | "" | `last`, `mean`, `cls` or `model` (the file's own); "" = the pinned model's |
+| `local.pooling` | "" | `last`, `mean` or `cls`; "" = the pinned model's |
 | `local.dim` | 0 | Matryoshka truncation; 0 = the model's dimension |
 | `local.threads` | 0 | the child's CPU budget; 0 = CPU count − 1 |
 | `local.gpuLayers` | absent | absent = offload all when a GPU backend is usable; 0 = force CPU |

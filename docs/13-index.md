@@ -663,10 +663,11 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   with the `local` embedder as fallback — the primary alone in a build
   without the local embedder, which without a key then embeds nothing and
   the index runs FTS-only. Both MUST serve the same model
-  (one vector space, one dimension); the default pairing is
-  Qwen3-Embedding-0.6B online and locally. `index.openai.baseUrl` and
+  (one vector space, one dimension); the only pairing is
+  Qwen3-Embedding-0.6B online and locally, and a key with another
+  `index.local.model` is refused at boot. `index.openai.baseUrl` and
   `apiKey` name the primary (any OpenAI-compatible host; neither has a
-  default); `model` defaults to the local model's name and is overridden
+  default); `model` defaults to that model's name and is overridden
   only for a provider that spells the same model differently. A circuit
   breaker skips the primary for 30 s after 3 consecutive failures. A
   query gives the primary half of the remaining query budget, so the
@@ -687,7 +688,7 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   which takes out its bias toward short texts. A `modelPath` or
   `modelUrl` with `model` set is that model from another place; without
   `model` it is an unnamed GGUF that takes only `index.local.pooling`
-  (`last` by default, `mean`, `cls`, or `model` for the file's own),
+  (`last` by default, `mean` or `cls`),
   `queryPrefix` and `docPrefix`. The output width is the model's
   `n_embd_out`. The GGUF (sha256-pinned) is downloaded into the shared model
   cache `<root>/models/` (a copy already in the account's `index/models/`

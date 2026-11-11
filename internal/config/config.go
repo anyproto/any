@@ -381,8 +381,8 @@ type IndexLocal struct {
 	// the pinned model's own document prompt, nothing for an unnamed GGUF.
 	DocPrefix string `yaml:"docPrefix"`
 	// Pooling selects how token states pool into one vector: "last",
-	// "mean", "cls" or "model" (the GGUF's own metadata). Empty means the
-	// pinned model's pooling, "last" for an unnamed GGUF.
+	// "mean" or "cls". Empty means the pinned model's pooling, "last" for
+	// an unnamed GGUF.
 	Pooling string `yaml:"pooling"`
 	// Dim truncates output vectors (Matryoshka) and renormalizes;
 	// 0 keeps the model's full dimension.

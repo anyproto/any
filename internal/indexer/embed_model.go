@@ -110,8 +110,6 @@ func poolingType(s string) (llama.PoolingType, error) {
 		return llama.PoolingTypeMean, nil
 	case "cls":
 		return llama.PoolingTypeCLS, nil
-	case "model":
-		return llama.PoolingTypeUnspecified, nil
 	}
-	return 0, fmt.Errorf("indexer: local embedder: unknown pooling %q (last, mean, cls, model)", s)
+	return 0, fmt.Errorf("indexer: local embedder: unknown pooling %q (last, mean, cls)", s)
 }

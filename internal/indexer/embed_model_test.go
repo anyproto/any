@@ -94,6 +94,7 @@ func TestResolveLocalSpec_Model(t *testing.T) {
 		t.Fatal(err)
 	}
 	touch(eg2.file)
+	touch(qwen3(t).file)
 	custom := touch("custom.gguf")
 
 	for _, c := range []struct {
@@ -107,6 +108,8 @@ func TestResolveLocalSpec_Model(t *testing.T) {
 			localSpec{profile: eg2.id, modelPath: custom, pooling: "mean", queryPrefix: eg2.queryPrefix, docPrefix: eg2.docPrefix}},
 		{"unnamed GGUF takes only the config", config.IndexLocal{ModelPath: custom, Pooling: "cls", DocPrefix: "passage: "},
 			localSpec{modelPath: custom, pooling: "cls", docPrefix: "passage: "}},
+		{"a ModelUrl without a model is unnamed too, once downloaded", config.IndexLocal{ModelUrl: "https://example.invalid/m.gguf"},
+			localSpec{modelPath: filepath.Join(dir, qwen3(t).file)}},
 		{"config overrides the model's prompts and pooling", config.IndexLocal{Model: config.LocalModelEmbeddingGemma2, QueryPrefix: "q: ", DocPrefix: "d: ", Pooling: "last"},
 			localSpec{profile: eg2.id, modelPath: filepath.Join(dir, eg2.file), modelDim: 768, pooling: "last", queryPrefix: "q: ", docPrefix: "d: "}},
 	} {
@@ -126,8 +129,10 @@ func TestResolveLocalSpec_Model(t *testing.T) {
 	if _, _, err := resolveLocalSpec(config.IndexLocal{Model: "nope"}, dir, "", nil); err == nil {
 		t.Error("an unknown model must be refused")
 	}
-	if _, _, err := resolveLocalSpec(config.IndexLocal{ModelPath: custom, Pooling: "max"}, dir, "", nil); err == nil {
-		t.Error("an unknown pooling must be refused")
+	for _, pooling := range []string{"max", "model"} {
+		if _, _, err := resolveLocalSpec(config.IndexLocal{ModelPath: custom, Pooling: pooling}, dir, "", nil); err == nil {
+			t.Errorf("pooling %q must be refused", pooling)
+		}
 	}
 
 	// The child is told which model the file is, and embeds the same way.

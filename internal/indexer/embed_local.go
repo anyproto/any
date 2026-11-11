@@ -130,14 +130,12 @@ func resolveLocalSpec(cfg config.IndexLocal, modelsDir, legacyModelsDir string, 
 		niceness:    localDefaultNiceness,
 		batchDocs:   cfg.BatchDocs,
 	}
-	named := cfg.Model != "" || cfg.ModelPath == ""
-	var model localModel
-	if named {
-		m, err := lookupLocalModel(cfg.Model)
-		if err != nil {
-			return localSpec{}, nil, err
-		}
-		model = m
+	// The default model's file name is also where an unnamed ModelUrl
+	// downloads to.
+	named := cfg.Model != "" || (cfg.ModelPath == "" && cfg.ModelUrl == "")
+	model, err := lookupLocalModel(cfg.Model)
+	if err != nil {
+		return localSpec{}, nil, err
 	}
 	if cfg.Niceness != nil {
 		s.niceness = max(*cfg.Niceness, 0)
@@ -179,14 +177,13 @@ func resolveLocalSpec(cfg config.IndexLocal, modelsDir, legacyModelsDir string, 
 				s.modelPath = legacy
 			}
 		}
-		s.modelDim = model.dim
+		if named {
+			s.modelDim = model.dim
+		}
 		if _, err := os.Stat(s.modelPath); err != nil {
 			url, sha := model.url, model.sha256
 			if cfg.ModelUrl != "" {
 				url, sha = cfg.ModelUrl, cfg.ModelSha256
-				if cfg.Model == "" {
-					named, s.modelDim = false, 0
-				}
 			}
 			dl = startModelDownload(url, s.modelPath, sha, nil, onProcess)
 		}

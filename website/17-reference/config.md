@@ -80,7 +80,7 @@ The passkey is the one secret the server may need at boot: it comes from the env
 | `index.local.model` | `ANY_INDEX_LOCAL_MODEL` | `""` | pinned model: `qwen3-embedding-0.6b` (default) or `embeddinggemma-2` |
 | `index.local.queryPrefix` | `ANY_INDEX_LOCAL_QUERY_PREFIX` | `""` | empty = the pinned model's query prompt |
 | `index.local.docPrefix` | `ANY_INDEX_LOCAL_DOC_PREFIX` | `""` | empty = the pinned model's document prompt |
-| `index.local.pooling` | `ANY_INDEX_LOCAL_POOLING` | `""` | `last`, `mean`, `cls`, `model`; empty = the pinned model's |
+| `index.local.pooling` | `ANY_INDEX_LOCAL_POOLING` | `""` | `last`, `mean`, `cls`; empty = the pinned model's |
 | `index.local.dim` | `ANY_INDEX_LOCAL_DIM` | `0` | Matryoshka truncation; 0 = model dim |
 | `index.local.threads` | `ANY_INDEX_LOCAL_THREADS` | `0` | CPU budget of the embedder child; 0 = `NumCPU()-1` |
 | `index.local.niceness` | `ANY_INDEX_LOCAL_NICENESS` | `10` | scheduling priority of the embedder child (0–19); 0 = the server's own priority |
