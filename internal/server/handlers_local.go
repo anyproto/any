@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -321,6 +322,7 @@ func (d *deps) localMeta(c echo.Context) error {
 //	@Produce	json
 //	@Param		scope	query		string	false	"account | space (absent = both)"
 //	@Param		spaceId	query		string	false	"restrict to one space (scope=space)"
+//	@Param		count	query		bool	false	"true counts each collection's documents (reads every page)"
 //	@Success	200		{object}	api.LocalListResponse
 //	@Failure	400		{object}	api.ErrorEnvelope
 //	@Failure	409		{object}	api.ErrorEnvelope
@@ -334,7 +336,15 @@ func (d *deps) localCollectionsList(c echo.Context) error {
 	if spaceId != "" && scope == "" {
 		scope = localstore.ScopeSpace
 	}
-	infos, err := d.local.List(c.Request().Context(), scope, spaceId)
+	var count bool
+	if v := c.QueryParam("count"); v != "" {
+		var err error
+		if count, err = strconv.ParseBool(v); err != nil {
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"count must be true or false", map[string]any{"field": "count"})
+		}
+	}
+	infos, err := d.local.List(c.Request().Context(), scope, spaceId, count)
 	if err != nil {
 		return localError(c, err, localstore.Ref{Scope: scope, SpaceId: spaceId})
 	}
@@ -387,10 +397,6 @@ func (d *deps) localCollectionsEnsure(c echo.Context) error {
 	if err != nil {
 		return localError(c, err, ref)
 	}
-	count, err := coll.Count(ctx)
-	if err != nil {
-		return localError(c, err, ref)
-	}
 	status := http.StatusOK
 	if created {
 		status = http.StatusCreated
@@ -400,7 +406,6 @@ func (d *deps) localCollectionsEnsure(c echo.Context) error {
 		Collection: api.LocalCollectionInfo{
 			LocalCollection: api.LocalCollection{Scope: string(ref.Scope), SpaceId: ref.SpaceId, Name: ref.Name},
 			StorageName:     ref.StorageName(),
-			Count:           count,
 			Indexes:         localIndexesToAPI(coll),
 		},
 	})
@@ -818,14 +823,11 @@ func (d *deps) localQuery(c echo.Context) error {
 		filter = f
 	}
 	q := coll.Find(filter)
-	if sortArr := root.GetArray("sort"); len(sortArr) > 0 {
-		keys := make([]any, 0, len(sortArr))
-		for _, s := range sortArr {
-			keys = append(keys, string(s.GetStringBytes()))
-		}
-		if _, err := query.ParseSort(keys...); err != nil {
-			return localError(c, err, ref)
-		}
+	keys, err := sortKeys(root)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, "local.bad_sort", "invalid sort: "+err.Error(), localDetails(ref))
+	}
+	if len(keys) > 0 {
 		q = q.Sort(keys...)
 	}
 	limit := localQueryDefaultLimit
@@ -1107,7 +1109,7 @@ func (d *deps) localExport(c echo.Context) error {
 	}
 	var refs []localstore.Ref
 	if names := c.QueryParam("names"); names == "" {
-		infos, err := d.local.List(ctx, scope, spaceId)
+		infos, err := d.local.List(ctx, scope, spaceId, false)
 		if err != nil {
 			return localError(c, err, localstore.Ref{Scope: scope, SpaceId: spaceId})
 		}

@@ -166,7 +166,9 @@ separable from the listener: a managed server tears it down in place on
 step 4 without a restart (`03-api.md` § Auth). Every request and
 stream runs inside an engine gate; a teardown flips the server
 unauthorized, cancels the engine's context (streams end with
-`closed{reason: deauthorized}`), drains the gate (10s bound), joins the
+`closed{reason: deauthorized}`; every gated response gets 1s more to
+write, so a client that stopped reading cannot hold the drain), drains
+the gate (10s bound), joins the
 engine's goroutines, drops the account-bound in-memory state, closes
 the resources and clears the fields — so a later boot in the same
 process is the same code path as the first.

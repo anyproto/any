@@ -2288,6 +2288,7 @@ const docTemplate = `{
             "api.LocalCollectionInfo": {
                 "properties": {
                     "count": {
+                        "description": "Count is the number of documents, present only on a listing with\ncount=true and on an import: counting reads every page of the\ncollection.",
                         "type": "integer"
                     },
                     "indexes": {
@@ -6190,6 +6191,14 @@ const docTemplate = `{
                         "name": "spaceId",
                         "schema": {
                             "type": "string"
+                        }
+                    },
+                    {
+                        "description": "true counts each collection's documents (reads every page)",
+                        "in": "query",
+                        "name": "count",
+                        "schema": {
+                            "type": "boolean"
                         }
                     }
                 ],

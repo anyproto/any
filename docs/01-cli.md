@@ -312,6 +312,9 @@ any chat send   <spaceId> <objectId> --text "..." | --file FILE|-  [--reply-to <
 any chat edit   <spaceId> <objectId> <msgId> --text "..." | --file FILE|-
 any chat delete <spaceId> <objectId> <msgId>
 any chat react  <spaceId> <objectId> <msgId> <emoji>
+any chat read           <spaceId> <objectId> <msgId>   # POST …/chat/messages/:msgId/read
+any chat read-all       <spaceId> <objectId>           # POST …/chat/read-all
+any chat reactions-read <spaceId> <objectId> <msgId>   # POST …/chat/messages/:msgId/reactions-read
 ```
 
 The `<objectId>` is any object whose type declares a chat part. For
@@ -325,7 +328,11 @@ delete only work on your own messages (server returns 403 otherwise).
 React is a toggle — adds the emoji on the first call, removes on the
 second. `--agent-name` marks the message agent-authored under that
 display name; `--agent-debug-link` and `--agent-done` (default true)
-require it (`03-api.md` § Chat).
+require it (`03-api.md` § Chat). `read` marks a message and everything
+before it read, `read-all` the whole chat, `reactions-read` a message's
+reactions; they print nothing on success. Read state is the account's,
+so an agent never marks read a chat it serves (`16-chat.md` § Things
+not to do).
 
 Read and tail messages with the windowed subscribe (§ Subscribe):
 
@@ -784,7 +791,7 @@ endpoints); watch the raw frames with
 
 ```
 any local meta                                        # GET    /v1/local/meta
-any local collections [--scope account|space] [--space ID]   # GET /v1/local/collections
+any local collections [--scope account|space] [--space ID] [--count]   # GET /v1/local/collections
 any local ensure NAME [--space ID] [--index a,-b]... [--unique-index k]...   # PUT /v1/local/collections
 any local drop NAME [--space ID] --yes                # DELETE /v1/local/collections
 any local insert NAME [--space ID] --doc JSON         # POST   /v1/local/insert   (object or array; @FILE / -)

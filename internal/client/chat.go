@@ -60,3 +60,26 @@ func (c *Client) ChatReact(ctx context.Context, spaceId, objectId, msgId, emoji 
 	}
 	return &out, nil
 }
+
+// ChatReadAll marks every message, mention and reaction in the chat
+// read (204).
+func (c *Client) ChatReadAll(ctx context.Context, spaceId, objectId string) error {
+	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/chat/read-all",
+		url.PathEscape(spaceId), url.PathEscape(objectId))
+	return c.do(ctx, http.MethodPost, path, nil, nil)
+}
+
+// ChatRead marks a message and everything ordered before it read
+// (204).
+func (c *Client) ChatRead(ctx context.Context, spaceId, objectId, msgId string) error {
+	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/chat/messages/%s/read",
+		url.PathEscape(spaceId), url.PathEscape(objectId), url.PathEscape(msgId))
+	return c.do(ctx, http.MethodPost, path, nil, nil)
+}
+
+// ChatReactionsRead marks a message's unread reactions read (204).
+func (c *Client) ChatReactionsRead(ctx context.Context, spaceId, objectId, msgId string) error {
+	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/chat/messages/%s/reactions-read",
+		url.PathEscape(spaceId), url.PathEscape(objectId), url.PathEscape(msgId))
+	return c.do(ctx, http.MethodPost, path, nil, nil)
+}

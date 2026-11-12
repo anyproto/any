@@ -210,7 +210,7 @@ local.duplicate_id               # 409 — insert of an id that already exists
 local.unique_violation           # 409 — a unique index rejected the write
 local.too_many_docs              # 400 — insert/upsert over 1000 docs in one request (details.max / got)
 local.bad_filter                 # 400 — filter failed to parse (filter.* codes cover the boundary check; this is the store-side fallback)
-local.bad_sort                   # 400 — unparseable sort key
+local.bad_sort                   # 400 — a sort that is not an array of strings, or an unparseable sort key
 local.bad_modifier               # 400 — unparseable or unknown-operator modifier
 local.bad_pipeline               # 400 — unparseable pipeline, sink into the aggregated collection, sink result without id, $lookup from another collection
 local.limit_exceeded             # 400 — a blocking-stage bound blew (details.limit: group | accumArray | memory)

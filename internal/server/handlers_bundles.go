@@ -797,7 +797,7 @@ func bundleErrorWith(c echo.Context, err error, details map[string]any) error {
 		return writeError(c, http.StatusBadRequest, api.ErrDatasetModuleReserved,
 			"a part names a module reserved to the server's own installs", details)
 	case errors.Is(err, space.ErrBundleBadRequest):
-		details["reason"] = err.Error()
+		details["reason"] = sanitizeSDKMessage(err)
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"invalid bundle request", details)
 	}

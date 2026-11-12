@@ -110,8 +110,9 @@ neither can serve the bytes — no peer holds them and the file isn't
 durable yet, or the network advertises no public read base — the
 endpoint returns `409 file.not_available`; retry once the row gains
 `networkSign`. Downloads are plain HTTP responses (not SSE): one in
-flight when the server shuts down is cut by the 10s drain deadline;
-the client retries with a `Range` from where it stopped.
+flight when the engine tears down (shutdown, logout, account switch)
+is cut 1s later, even if its client stopped reading; the client
+retries with a `Range` from where it stopped.
 
 ## Cache, offload, pin
 

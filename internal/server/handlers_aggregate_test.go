@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/anyproto/any/internal/api"
@@ -196,15 +197,18 @@ func TestServer_Aggregate_Errors(t *testing.T) {
 	// Per-object endpoint requires objectId + dataset.
 	aggExpectError(t, e, dsPath, `{"pipeline": []}`, http.StatusBadRequest, "request.missing_field")
 	aggExpectError(t, e, dsPath, `{"objectId": "x", "pipeline": []}`, http.StatusBadRequest, "request.missing_field")
-	// Unknown stage.
-	aggExpectError(t, e, objPath, `{"pipeline": [{"$bogus": {}}]}`, http.StatusBadRequest, "aggregate.bad_pipeline")
+	// Unknown stage; the message carries no SDK package prefix.
+	apiErr := aggExpectError(t, e, objPath, `{"pipeline": [{"$bogus": {}}]}`, http.StatusBadRequest, "aggregate.bad_pipeline")
+	if strings.HasPrefix(apiErr.Message, "space: ") || !strings.Contains(apiErr.Message, "$bogus") {
+		t.Errorf("bad_pipeline message = %q", apiErr.Message)
+	}
 	// $text outside the pushdown prefix.
 	aggExpectError(t, e, objPath,
 		`{"pipeline": [{"$group": {"_id": "$a"}}, {"$match": {"$text": "x"}}]}`,
 		http.StatusBadRequest, "aggregate.bad_pipeline")
 	// Group-limit overrun (2 distinct years, limit 1) — surfaces
 	// mid-iteration, still a 400 with the limit kind in details.
-	apiErr := aggExpectError(t, e, objPath, fmt.Sprintf(
+	apiErr = aggExpectError(t, e, objPath, fmt.Sprintf(
 		`{"groupLimit": 1, "pipeline": [{"$group": {"_id": "$%s", "n": {"$count": {}}}}]}`, yearPath),
 		http.StatusBadRequest, "aggregate.limit_exceeded")
 	if apiErr.Details["limit"] != "group" {

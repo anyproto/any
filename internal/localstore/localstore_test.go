@@ -210,41 +210,47 @@ func TestListFence(t *testing.T) {
 		return out
 	}
 
-	all, err := s.List(ctx, "", "")
+	all, err := s.List(ctx, "", "", true)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []Ref{accScratch, accZ, aCache, aIngest, bCache}, refs(all))
 	for _, i := range all {
+		require.NotNil(t, i.Count)
 		if i.Ref == aCache {
-			require.Equal(t, 2, i.Count)
+			require.Equal(t, 2, *i.Count)
 			require.Len(t, i.Indexes, 1)
 			require.Equal(t, []string{"k"}, i.Indexes[0].Fields)
 		} else {
-			require.Equal(t, 0, i.Count)
+			require.Equal(t, 0, *i.Count)
 			require.Empty(t, i.Indexes)
 		}
 	}
+	uncounted, err := s.List(ctx, "", "", false)
+	require.NoError(t, err)
+	for _, i := range uncounted {
+		require.Nil(t, i.Count, i.StorageName())
+	}
 
-	acc, err := s.List(ctx, ScopeAccount, "")
+	acc, err := s.List(ctx, ScopeAccount, "", false)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []Ref{accScratch, accZ}, refs(acc))
 
-	spaces, err := s.List(ctx, ScopeSpace, "")
+	spaces, err := s.List(ctx, ScopeSpace, "", false)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []Ref{aCache, aIngest, bCache}, refs(spaces))
 
-	onlyA, err := s.List(ctx, ScopeSpace, spaceA)
+	onlyA, err := s.List(ctx, ScopeSpace, spaceA, false)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []Ref{aCache, aIngest}, refs(onlyA))
 
-	none, err := s.List(ctx, ScopeSpace, "bafynothing.x")
+	none, err := s.List(ctx, ScopeSpace, "bafynothing.x", false)
 	require.NoError(t, err)
 	require.Empty(t, none)
 
-	_, err = s.List(ctx, Scope("device"), "")
+	_, err = s.List(ctx, Scope("device"), "", false)
 	require.ErrorIs(t, err, ErrBadName)
-	_, err = s.List(ctx, ScopeSpace, "bad_id")
+	_, err = s.List(ctx, ScopeSpace, "bad_id", false)
 	require.ErrorIs(t, err, ErrBadName)
-	_, err = s.List(ctx, ScopeAccount, spaceA)
+	_, err = s.List(ctx, ScopeAccount, spaceA, false)
 	require.ErrorIs(t, err, ErrBadName)
 
 	// The other direction: enumerate the raw DB and assert the tagged
