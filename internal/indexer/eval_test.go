@@ -445,7 +445,7 @@ func TestSearchEval(t *testing.T) {
 		{"coalesced", coalescedDocs},
 	}
 
-	// Production-like defaults: stop-word stripping on, plain RRF, legacy
+	// Production-like defaults: stop-word stripping on, per-query fusion, legacy
 	// floor.
 	baseOpts := Options{StopWords: true}
 	for ename, emb := range embedders {

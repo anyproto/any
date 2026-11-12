@@ -151,6 +151,37 @@ func TestQueryCoverage_Unsegmented(t *testing.T) {
 	if got := queryCoverage("東京", fts); got != 0 {
 		t.Errorf("coverage of an absent run = %v, want 0", got)
 	}
+	for _, q := range []string{"議事録*", `"議事録を共"*`} {
+		if got := queryCoverage(q, fts); got != 1 {
+			t.Errorf("coverage of the prefix %s = %v, want 1", q, got)
+		}
+	}
+}
+
+// A combining mark stays inside its word, in either normal form.
+func TestQueryCoverage_Marks(t *testing.T) {
+	cases := []struct {
+		q, doc string
+		want   float64
+	}{
+		{"दिल्ली मौसम", "दिल्ली में सम्मेलन", 0.5},
+		{"ที่นี่", "ฉันทำงานที่บ้าน", 0},
+		{"ที่บ้าน", "ฉันทำงานที่บ้าน", 1},
+		{"café", "un cafe\u0301 noir", 1},
+	}
+	for _, c := range cases {
+		if got := queryCoverage(c.q, []Hit{scored(c.doc, 3)}); got != c.want {
+			t.Errorf("queryCoverage(%q, %q) = %v, want %v", c.q, c.doc, got, c.want)
+		}
+	}
+}
+
+// A `*` after a phrase that ends in a space marks the phrase's last word.
+func TestQueryCoverage_PrefixAfterSpace(t *testing.T) {
+	fts := []Hit{scored("the hydraulics failed", 3)}
+	if got := queryCoverage(`"hydraulic "*`, fts); got != 1 {
+		t.Errorf("coverage = %v, want 1", got)
+	}
 }
 
 // Configured weights or AdaptiveWeights fix weighted RRF at rrfK; the

@@ -3,6 +3,8 @@ package indexer
 import (
 	"strings"
 	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // fusionPlan is one query's RRF form: per-leg weights (0 drops the leg)
@@ -52,14 +54,21 @@ func init() {
 	}
 }
 
+// coverageSep keeps combining marks inside a word: a vowel or tone sign
+// does not end it.
 func coverageSep(r rune) bool {
-	return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
+	return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !unicode.IsMark(r) && r != '_'
 }
 
-// coverageWords is s's lowercase word set (letters, digits, '_').
-func coverageWords(s string) map[string]struct{} {
+// coverageFold is s in the form coverage compares: NFKC, lowercase.
+func coverageFold(s string) string {
+	return strings.ToLower(norm.NFKC.String(s))
+}
+
+// coverageWords is a folded text's word set (letters, marks, digits, '_').
+func coverageWords(folded string) map[string]struct{} {
 	out := map[string]struct{}{}
-	for _, w := range strings.FieldsFunc(strings.ToLower(s), coverageSep) {
+	for _, w := range strings.FieldsFunc(folded, coverageSep) {
 		out[w] = struct{}{}
 	}
 	return out
@@ -67,13 +76,19 @@ func coverageWords(s string) map[string]struct{} {
 
 // queryWords is the query's word set minus coverageStop; the value marks
 // a word typed as a prefix (`word*`, `"a phrase"*`), which any word
-// starting with it covers and which is never a stop word.
+// starting with it covers and which is never a stop word. A `*` field
+// with no word of its own (`"a phrase "*`) marks the word before it.
 func queryWords(query string) map[string]bool {
 	out := map[string]bool{}
-	for _, f := range strings.Fields(strings.ToLower(query)) {
+	last := ""
+	for _, f := range strings.Fields(coverageFold(query)) {
 		prefix := strings.HasSuffix(f, "*")
 		words := strings.FieldsFunc(f, coverageSep)
+		if prefix && len(words) == 0 && last != "" {
+			out[last] = true
+		}
 		for i, w := range words {
+			last = w
 			isPrefix := prefix && i == len(words)-1
 			if _, skip := coverageStop[w]; skip && !isPrefix {
 				continue
@@ -106,20 +121,17 @@ func queryCoverage(query string, fts []Hit) float64 {
 	}
 	var best float64
 	for _, h := range fts[:min(3, len(fts))] {
-		dw := coverageWords(h.Data)
-		lower := ""
+		folded := coverageFold(h.Data)
+		dw := coverageWords(folded)
 		n := 0
 		for w, prefix := range qw {
 			_, ok := dw[w]
 			switch {
 			case ok:
+			case unsegmented(w):
+				ok = strings.Contains(folded, w)
 			case prefix:
 				ok = hasPrefixWord(dw, w)
-			case unsegmented(w):
-				if lower == "" {
-					lower = strings.ToLower(h.Data)
-				}
-				ok = strings.Contains(lower, w)
 			}
 			if ok {
 				n++

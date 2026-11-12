@@ -108,7 +108,7 @@ func TestSearchEvalBEIR(t *testing.T) {
 	ix.store.SetFTSParams(envFloat("ANY_BEIR_BM25_B"), envFloat("ANY_BEIR_BM25_K1"), envFloat("ANY_BEIR_TITLE_WEIGHT"))
 	docVecs := ingestBEIR(t, ix, emb, corpus)
 
-	t.Logf("=== %s: production knobs (stopwords on, RRF 1/1, floor 0) — nDCG@%d / recall@%d / MRR ===", name, k, k)
+	t.Logf("=== %s: production knobs (stopwords on, per-query fusion, floor 0) — nDCG@%d / recall@%d / MRR ===", name, k, k)
 	t.Logf("%-8s  %7s  %7s  %7s", "mode", "ndcg", "recall", "mrr")
 	for _, mode := range []string{api.SearchModeFTS, api.SearchModeVector, api.SearchModeHybrid} {
 		m := eval(ix, mode)
