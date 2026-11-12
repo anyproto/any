@@ -42,7 +42,7 @@ The child exists so a llama.cpp fault costs a round of embedding, not the server
 |---|---|---|
 | `local.model` | "" | pinned model: `qwen3-embedding-0.6b` (default) or `embeddinggemma-2` (768-dimensional, mean pooling, its own query and document prompts) |
 | `local.modelPath` | "" | an existing GGUF; set it and no download is attempted (air-gapped). Set `local.model` too when the file is a pinned model |
-| `local.modelUrl` / `modelSha256` | "" | another download source for the model `local.model` names, and its checksum |
+| `local.modelUrl` / `modelSha256` | "" | another download source for the model `local.model` names, and a checksum that replaces the pinned one |
 | `local.libDir` | `<exe-dir>/llamacpp` | where the shared libraries live |
 | `local.contextSize` | 2048 | truncation bound in tokens, shared by the texts of one decode |
 | `local.queryPrefix` / `docPrefix` | "" | "" = the pinned model's query / document prompt |
