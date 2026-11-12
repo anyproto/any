@@ -821,7 +821,8 @@ func (w *spaceWorker) drainPending(ctx context.Context) error {
 // EnsureVectorIndex stay serial. The vector index is created lazily after
 // the first batch lands. progress is called with (0, remaining) when a
 // round found work (before embedding; remaining = pending count, -1
-// when the count read failed) and with (landed, -1) after each batch.
+// when the count read failed) and with (landed, -1) after each batch
+// that landed vectors.
 func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, remaining int)) error {
 	spaceId := w.sp.Id()
 	batch := w.ix.opts.EmbedBatch
@@ -899,11 +900,16 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 				if c.titles != nil {
 					titles = c.titles[:n]
 				}
-				if err := w.ix.store.SetTitledVectors(ctx, spaceId, c.ids[:n], titles, c.vecs); err != nil {
+				// A doc rewritten, renamed or deleted while it embedded
+				// takes no vector and is not counted.
+				took, err := w.ix.store.SetTitledVectors(ctx, spaceId, c.ids[:n], c.texts[:n], titles, c.vecs)
+				if err != nil {
 					return err
 				}
-				landed = true
-				progress(n, -1)
+				if took > 0 {
+					landed = true
+					progress(took, -1)
+				}
 			}
 			if c.err != nil && firstErr == nil {
 				firstErr = c.err

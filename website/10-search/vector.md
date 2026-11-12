@@ -33,6 +33,8 @@ write ──▶ advance (FTS, 250ms) ──▶ pending ──▶ embed batch ─
 
 A re-written record goes back to `pending`, but only if its indexed text actually changed: every doc stores a content hash, and a record that re-streams with the same text (a chat message gaining a reaction, a memory item bumping a counter) is not re-embedded. Editor documents are reconciled per window — an append re-embeds one window, not the page.
 
+A vector lands only on the text it was embedded from. The landing transaction skips a doc whose text was rewritten while its batch was at the embedder: it keeps its `pending` mark and embeds from the new text in a later round. A doc deleted meanwhile stays deleted.
+
 Some documents never get vectors by design: everything in the `props` scope, and any `prop`-dataset entry under 64 bytes. Short name-like strings land in a flat similarity band for relevant and irrelevant queries alike and would fill top-N slots without discriminating; BM25 is the right tool for labels.
 
 ## The ANN index

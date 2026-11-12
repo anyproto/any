@@ -1644,28 +1644,29 @@ func (s *Store) PendingCount(ctx context.Context, spaceId string) (int, error) {
 	return coll.Find(pendingEqOne).Count(ctx)
 }
 
-// SetVectors lands one embed batch in a single write transaction:
-// $set vector + clear pending, update-only (a doc deleted since Pending
-// is skipped, not resurrected).
+// SetVectors lands vectors by doc id alone, whatever text the docs hold
+// now — only for a caller that races no writer. Update-only: a doc
+// deleted since is skipped, not resurrected.
 func (s *Store) SetVectors(ctx context.Context, spaceId string, ids []string, vecs [][]float32) error {
-	return s.SetTitledVectors(ctx, spaceId, ids, nil, vecs)
+	_, err := s.SetTitledVectors(ctx, spaceId, ids, nil, nil, vecs)
+	return err
 }
 
-// SetTitledVectors is SetVectors for vectors embedded under titles (as
-// DocTitles returned them; nil = none). A doc whose object was renamed
-// since is skipped inside the transaction and stays pending: its vector
-// carries the old name.
-func (s *Store) SetTitledVectors(ctx context.Context, spaceId string, ids, titles []string, vecs [][]float32) error {
-	if len(ids) != len(vecs) || (titles != nil && len(titles) != len(ids)) {
-		return fmt.Errorf("indexer: SetVectors: %d ids, %d vectors, %d titles", len(ids), len(vecs), len(titles))
+// SetTitledVectors lands, in one write transaction, vectors embedded from
+// texts (as Pending read them) under titles (as DocTitles did; nil =
+// none), and returns how many docs took one. A doc rewritten or renamed
+// since is skipped and stays pending; a deleted one is not resurrected.
+func (s *Store) SetTitledVectors(ctx context.Context, spaceId string, ids, texts, titles []string, vecs [][]float32) (landed int, err error) {
+	if len(ids) != len(vecs) || (texts != nil && len(texts) != len(ids)) || (titles != nil && len(titles) != len(ids)) {
+		return 0, fmt.Errorf("indexer: SetVectors: %d ids, %d vectors, %d texts, %d titles", len(ids), len(vecs), len(texts), len(titles))
 	}
 	coll, err := s.spaceColl(ctx, spaceId)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	tx, err := coll.WriteTx(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback() //nolint:errcheck
 
@@ -1679,7 +1680,7 @@ func (s *Store) SetTitledVectors(ctx context.Context, spaceId string, ids, title
 				case err == nil:
 					name = string(doc.Value().GetStringBytes(nameField))
 				case !errors.Is(err, anystore.ErrDocNotFound):
-					return err
+					return 0, err
 				}
 				names[objectId] = name
 			}
@@ -1689,13 +1690,23 @@ func (s *Store) SetTitledVectors(ctx context.Context, spaceId string, ids, title
 		}
 		vec := vecs[i]
 		mod := query.ModifyFunc(func(a *anyenc.Arena, v *anyenc.Value) (*anyenc.Value, bool, error) {
+			// The doc's text as the transaction sees it: a rewrite
+			// committed after Pending read it makes the vector stale.
+			if texts != nil && docText(v) != texts[i] {
+				return v, false, nil
+			}
 			v.Set("vector", a.NewVectorF32(vec))
 			v.Del("pending")
 			return v, true, nil
 		})
-		if _, err := coll.UpdateId(tx.Context(), id, mod); err != nil && !errors.Is(err, anystore.ErrDocNotFound) {
-			return err
+		res, err := coll.UpdateId(tx.Context(), id, mod)
+		if err != nil && !errors.Is(err, anystore.ErrDocNotFound) {
+			return 0, err
 		}
+		landed += res.Modified
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return landed, nil
 }
