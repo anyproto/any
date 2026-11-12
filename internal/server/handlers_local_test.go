@@ -242,6 +242,8 @@ func TestServer_Local_Documents(t *testing.T) {
 		t.Fatalf("paged: %d total=%d hasNext=%v", len(q.Records), *q.Total, *q.HasNext)
 	}
 	localExpectError(t, e, http.MethodPost, "/v1/local/query", `{"coll":`+accColl+`,"filter":{"n":{"$bogus":1}}}`, http.StatusBadRequest, "filter.unknown_operator")
+	localExpectError(t, e, http.MethodPost, "/v1/local/query", `{"coll":`+accColl+`,"sort":["{bad"]}`, http.StatusBadRequest, "local.bad_sort")
+	localExpectError(t, e, http.MethodPost, "/v1/local/query", `{"coll":`+accColl+`,"sort":[1]}`, http.StatusBadRequest, "local.bad_sort")
 	localExpectError(t, e, http.MethodPost, "/v1/local/query", `{"coll":`+accColl+`,"limit":"x","filters":{}}`, http.StatusBadRequest, "request.unknown_field")
 
 	// Delete by ids (missing ids are not counted, not errors).

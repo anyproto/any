@@ -818,14 +818,11 @@ func (d *deps) localQuery(c echo.Context) error {
 		filter = f
 	}
 	q := coll.Find(filter)
-	if sortArr := root.GetArray("sort"); len(sortArr) > 0 {
-		keys := make([]any, 0, len(sortArr))
-		for _, s := range sortArr {
-			keys = append(keys, string(s.GetStringBytes()))
-		}
-		if _, err := query.ParseSort(keys...); err != nil {
-			return localError(c, err, ref)
-		}
+	keys, err := sortKeys(root)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, "local.bad_sort", "invalid sort: "+err.Error(), localDetails(ref))
+	}
+	if len(keys) > 0 {
 		q = q.Sort(keys...)
 	}
 	limit := localQueryDefaultLimit
