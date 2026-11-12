@@ -700,8 +700,9 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   (`last` by default, `mean` or `cls`),
   `queryPrefix` and `docPrefix`. A `{title}` in a document prompt
   is replaced by the object's name on one line, clamped to 200 runes, or
-  `none`. With such a prompt the name is part of every vector of the
-  object: a rename, or clearing the name, puts the object's embedded docs
+  `none`. Only the body windows embed under the name; every other doc
+  (a chat message, a dataset record, a property) embeds as `none`. So a
+  rename, or clearing the name, puts the object's embedded body windows
   back in the embed queue, and they keep serving their old vectors until
   the new ones land. The output width is the model's `n_embd_out`. The
   index db records the embedder that built it — the pinned model, its

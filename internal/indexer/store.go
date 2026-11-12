@@ -19,6 +19,7 @@ import (
 	"github.com/anyproto/any-store/v2/query"
 	"github.com/anyproto/any-sync-sdk"
 
+	"github.com/anyproto/any/internal/editor"
 	"github.com/anyproto/any/internal/index"
 )
 
@@ -553,6 +554,18 @@ const ftsIndex = "fts"
 // nameDocSuffix ends the id of an object's name doc.
 const nameDocSuffix = ":" + index.DatasetProp + ":" + index.NamePropRecordId
 
+// titledInfix follows the object id in the id of a doc embedded under
+// the object's name: the body windows only, so a rename re-embeds the
+// body and never a chat's messages or a dataset's records.
+const titledInfix = editor.Dataset + ":"
+
+// titledDoc reports whether id is embedded under its object's name, and
+// the object.
+func titledDoc(id string) (objectId string, ok bool) {
+	objectId, rest, _ := strings.Cut(id, ":")
+	return objectId, strings.HasPrefix(rest, titledInfix)
+}
+
 // isNameDoc reports whether the entry is the object's name — the record
 // whose first chunk holds its text in nameField.
 func isNameDoc(e index.IndexEntry) bool {
@@ -1007,7 +1020,7 @@ func (s *Store) ApplyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 		// The name is part of every document prompt of the object: its
 		// vectors are stale. They keep serving until re-embedded.
 		for _, objectId := range renamed {
-			p := objectId + ":"
+			p := objectId + ":" + titledInfix
 			idRange := query.And{
 				query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGte, p)},
 				query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, prefixUpper(p))},
@@ -1622,8 +1635,9 @@ func (s *Store) Pending(ctx context.Context, spaceId string, limit int) (ids []s
 	return ids, texts, iter.Err()
 }
 
-// DocTitles returns, for each doc id, the name of its object ("" for
-// none) when documents embed under their names; nil otherwise.
+// DocTitles returns, for each doc id, the name it embeds under — its
+// object's for a body window, "" for an unnamed object or any other
+// doc — when documents embed under names; nil otherwise.
 func (s *Store) DocTitles(ctx context.Context, spaceId string, ids []string) ([]string, error) {
 	if !s.embedTitles || len(ids) == 0 {
 		return nil, nil
@@ -1635,7 +1649,10 @@ func (s *Store) DocTitles(ctx context.Context, spaceId string, ids []string) ([]
 	names := map[string]string{}
 	titles := make([]string, len(ids))
 	for i, id := range ids {
-		objectId, _, _ := strings.Cut(id, ":")
+		objectId, titled := titledDoc(id)
+		if !titled {
+			continue
+		}
 		name, ok := names[objectId]
 		if !ok {
 			doc, err := coll.FindId(ctx, docId(objectId, index.DatasetProp, index.NamePropRecordId))
@@ -1690,8 +1707,7 @@ func (s *Store) SetTitledVectors(ctx context.Context, spaceId string, ids, title
 
 	names := map[string]string{}
 	for i, id := range ids {
-		if titles != nil {
-			objectId, _, _ := strings.Cut(id, ":")
+		if objectId, titled := titledDoc(id); titles != nil && titled {
 			name, ok := names[objectId]
 			if !ok {
 				doc, err := coll.FindId(tx.Context(), objectId+nameDocSuffix)
