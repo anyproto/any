@@ -199,7 +199,7 @@ func runAggregate(c echo.Context, agg space.Agg, explain bool, details map[strin
 // errors surface mid-iteration from All, not from the builder.
 func aggOpError(c echo.Context, err error, details map[string]any) error {
 	if errors.Is(err, space.ErrBadPipeline) {
-		return writeError(c, http.StatusBadRequest, "aggregate.bad_pipeline", err.Error(), details)
+		return writeError(c, http.StatusBadRequest, "aggregate.bad_pipeline", sanitizeSDKMessage(err), details)
 	}
 	var limit string
 	switch {
@@ -216,5 +216,5 @@ func aggOpError(c echo.Context, err error, details map[string]any) error {
 	for k, v := range details {
 		d[k] = v
 	}
-	return writeError(c, http.StatusBadRequest, "aggregate.limit_exceeded", err.Error(), d)
+	return writeError(c, http.StatusBadRequest, "aggregate.limit_exceeded", sanitizeSDKMessage(err), d)
 }
