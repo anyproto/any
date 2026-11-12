@@ -54,6 +54,7 @@ func TestStore_RenameRequeuesVectors(t *testing.T) {
 		DocUpsert{Entry: entry("basic", "obj1", index.DatasetProp, index.NamePropRecordId, "Consoles", 1)},
 		DocUpsert{Entry: entry("basic", "obj1", "editor_blocks", "win_a", body, 2), Vector: vec},
 		DocUpsert{Entry: entry("basic", "obj1", "editor_blocks", "win_b", body+" two", 3), Vector: vec},
+		DocUpsert{Entry: entry("basic", "obj1", "chat_messages", "m1", body+" chat", 7), Vector: vec},
 		DocUpsert{Entry: entry("basic", "obj2", index.DatasetProp, index.NamePropRecordId, "Other", 4)},
 		DocUpsert{Entry: entry("basic", "obj2", "editor_blocks", "win_a", body, 5), Vector: vec},
 		DocUpsert{Entry: entry("basic", "obj3", "editor_blocks", "win_a", body, 6), Vector: vec},
@@ -91,11 +92,12 @@ func TestStore_RenameRequeuesVectors(t *testing.T) {
 		}
 	}
 
-	titles, err := s.DocTitles(ctx, sp, append(got, "obj2:editor_blocks:win_a", "obj3:editor_blocks:win_a"))
+	// A chat message embeds under no name, so the rename left it alone.
+	titles, err := s.DocTitles(ctx, sp, append(got, "obj2:editor_blocks:win_a", "obj3:editor_blocks:win_a", "obj1:chat_messages:m1"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(titles, []string{"Game Consoles", "Game Consoles", "Other", ""}) {
+	if !slices.Equal(titles, []string{"Game Consoles", "Game Consoles", "Other", "", ""}) {
 		t.Fatalf("titles = %q", titles)
 	}
 
