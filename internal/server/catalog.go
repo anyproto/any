@@ -55,6 +55,31 @@ type compiledUsecase struct {
 type compiledCatalog struct {
 	cat      *catalog.Catalog
 	usecases map[string]*compiledUsecase
+	// handles maps every type and collection xKey the catalog declares
+	// to the bundles that declare it, the one a new space receives
+	// first when a supersede group shares the handle.
+	handles map[string][]catalogHandle
+}
+
+// catalogHandle names a bundle declaring a catalog xKey and its usecase.
+type catalogHandle struct {
+	bundleId, usecase string
+}
+
+// reservedHandle reports whether xKey is a catalog handle the bundle
+// bundleId may not take — every one, except by a catalog bundle that
+// declares it — and the bundle it belongs to.
+func (cc *compiledCatalog) reservedHandle(bundleId, xKey string) (catalogHandle, bool) {
+	hs := cc.handles[xKey]
+	for _, h := range hs {
+		if h.bundleId == bundleId {
+			return catalogHandle{}, false
+		}
+	}
+	if len(hs) == 0 {
+		return catalogHandle{}, false
+	}
+	return hs[0], true
 }
 
 // order is the usecase's transitive dependency closure in setup order,
@@ -101,7 +126,8 @@ func compileCatalog(src []byte) (*compiledCatalog, catalog.Problems) {
 	}
 	// The structural findings and the gate's are reported together —
 	// one pass for the author, whichever layer the problem is on.
-	cc := &compiledCatalog{cat: cat, usecases: make(map[string]*compiledUsecase, len(cat.Usecases))}
+	cc := &compiledCatalog{cat: cat, usecases: make(map[string]*compiledUsecase, len(cat.Usecases)),
+		handles: map[string][]catalogHandle{}}
 	add := func(path, code, msg string) {
 		problems = append(problems, catalog.Problem{Path: path, Code: code, Message: msg})
 	}
@@ -181,6 +207,14 @@ func compileCatalog(src []byte) (*compiledCatalog, catalog.Problems) {
 				inst.RootProperties = map[string]map[string]any{miniapp.Id: values}
 			}
 			cb.install = inst
+			if inst.XKey != "" {
+				h := catalogHandle{bundleId: b.Id, usecase: u.Id}
+				if cb.superseded {
+					cc.handles[inst.XKey] = append(cc.handles[inst.XKey], h)
+				} else {
+					cc.handles[inst.XKey] = append([]catalogHandle{h}, cc.handles[inst.XKey]...)
+				}
+			}
 			cu.bundles = append(cu.bundles, cb)
 		}
 		cu.CatalogUsecase = cat.Usecases[ui]

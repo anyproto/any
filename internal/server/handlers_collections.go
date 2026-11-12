@@ -127,7 +127,7 @@ func (d *deps) collectionCreate(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	if errResp, done := requireHandleFree(c, sp, req.XKey); done {
+	if errResp, done := d.requireHandleFree(c, sp, req.XKey); done {
 		return errResp
 	}
 	for k, v := range req.Meta {

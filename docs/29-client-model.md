@@ -259,11 +259,13 @@ collection sets its own through `PATCH …/collections/:collectionId`.
       {name?, description?, iconCid?, xKey, hidden?, meta?}
       → 201 {"collectionId": "…"}
 
-Both require a non-empty `xKey` (slug the name; it must survive renames)
+Both require a non-empty `xKey` (slug the name, with a `_2`, `_3`, …
+suffix while the slug is taken; it must survive renames)
 — without one it is `400 type.xkey_required`. The handle is unique across
 types **and** collections in the space: a collision with an existing
 `xKey` or id is `409 type.xkey_conflict`, whose `details` name
-`existingTypeId` or `existingCollectionId`. Neither create takes inline
+`existingTypeId` or `existingCollectionId`; so is a handle the usecase
+catalog declares (`details.catalogBundleId`, `details.usecase`). Neither create takes inline
 property definitions (`400 request.unknown_field`) — add each column
 afterwards through `POST …/types/:typeId/properties` or
 `POST …/collections/:collectionId/properties`.

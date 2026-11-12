@@ -164,7 +164,7 @@ Panics are converted to `500 internal` with a generic message.
 | `type.not_found` | 404 | unknown typeId, or on `DELETE …/types/:typeId` one already deleted (400 inside a bundle ensure) |
 | `type.not_a_type` | 400 | a `…/types` route, or `POST …/properties/:objectId/type/:typeId`, names a user **collection** (`details.collectionId`) — use the `…/collections` routes. A registered collection id (`miniapp`, `bin`, `template`) answers `404 type.not_found` |
 | `type.xkey_required` | 400 | a type or a collection created without an `xKey` |
-| `type.xkey_conflict` | 409 | `xKey` collides with an existing type's or collection's xKey or id (`details.xKey`, `details.existingTypeId` or `details.existingCollectionId`) — the two surfaces share one handle namespace; also raised by a bundle or catalog install |
+| `type.xkey_conflict` | 409 | `xKey` collides with an existing type's or collection's xKey or id (`details.xKey`, `details.existingTypeId` or `details.existingCollectionId`) — the two surfaces share one handle namespace; on type and collection create, a bundle install or adopt and an `xkey` change also a handle the usecase catalog declares (`details.catalogBundleId`, `details.usecase`); also raised by a bundle or catalog install whose handle a type or collection holds |
 | `type.registered` | 400 | add/patch/remove a property, part or dataset, or PATCH or DELETE the type, on a built-in or registered type; also a column write on a registered built-in collection |
 | `type.reserved_carrier` | 400 | object create, `POST …/type/:typeId` or an `any.type` op names a type only its own root may carry — one declaring a reserved module (`details.typeId`) |
 | `collection.not_found` | 404 | unknown collectionId, or on `DELETE …/collections/:collectionId` one already deleted (400 inside a bundle ensure) |
@@ -266,7 +266,7 @@ Panics are converted to `500 internal` with a generic message.
 | `sdk.store_corrupt` | 500 | the account's SDK store `sdk.db` has a broken header or a page that fails its checksum while opening (in the quick check on a dirty open or a later read); booting it refuses and it is never repaired in place — remove `sdk.db` and the files named after it from the account's `sdk/` dir and boot again: the SDK replays the synced trees into a fresh one; what lived only in `sdk.db` is lost: the local store, local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone) |
 | `storage.no_space` | 507 | the device has no disk space left — `POST /v1/auth` could not create the account dir, write the device key or open a store; free space and retry |
 | `server.unavailable` | 503 | request cancelled / server shutting down |
-| `server.internal` | 500 | the embedded usecase catalog failed to compile |
+| `server.internal` | 500 | the embedded usecase catalog failed to compile — on the catalog routes and on every write the catalog handles gate (type and collection create, a bundle install, an `xkey` rename) |
 | `internal` | 500 | catch-all |
 
 > **Note.** `/modify` and `/aggregate` bodies hand their op and stage vocabularies straight to the engine, so unknown top-level keys there are dropped rather than rejected. Every other strict endpoint is listed with `additionalProperties: false` in `GET /v1/openapi.json`.

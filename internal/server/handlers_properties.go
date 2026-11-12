@@ -67,6 +67,7 @@ func (d *deps) propertiesGet(c echo.Context) error {
 //	@Param		body		body		api.PropertiesSetRequest	true	"Patch map"
 //	@Success	200			{object}	api.ModifyResult
 //	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	409			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/properties/{objectId}/set/{typeId} [post]
 func (d *deps) propertiesSet(c echo.Context) error {
@@ -104,6 +105,15 @@ func (d *deps) propertiesSet(c echo.Context) error {
 		}
 		patch[string(propId)] = v
 	})
+
+	// A rename of a definition's handle never takes a catalog handle.
+	if typeId == metaTypeId || typeId == metaCollectionId {
+		if v, ok := patch[metaXKeyProp].(*fastjson.Value); ok && v.Type() == fastjson.TypeString {
+			if errResp, done := d.requireRenameFree(c, sp, typeId, objectId, string(v.GetStringBytes())); done {
+				return errResp
+			}
+		}
+	}
 
 	// Every value is checked against its property's current descriptor
 	// slug here — the SDK stores descriptors opaquely and enforces only

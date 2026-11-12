@@ -35,9 +35,9 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/collections \
 any collection create $SPACE --name "Reading list" --xkey reading_list
 ```
 
-Body: `{name?, description?, iconCid?, xKey, hidden?, meta?}` — the type body minus `layout`. **`xKey` is required**: the stable handle the collection resolves by, a slug of the name that survives renames. An empty one is `400 type.xkey_required`.
+Body: `{name?, description?, iconCid?, xKey, hidden?, meta?}` — the type body minus `layout`. **`xKey` is required**: the stable handle the collection resolves by, a slug of the name that survives renames, with a `_2`, `_3`, … suffix while the slug is taken. An empty one is `400 type.xkey_required`.
 
-Types and collections share **one handle namespace**. An `xKey` (or id) a type already holds cannot be taken by a collection and the other way round — `409 type.xkey_conflict`, whose `details` name `existingTypeId` or `existingCollectionId`.
+Types and collections share **one handle namespace**. An `xKey` (or id) a type already holds cannot be taken by a collection and the other way round — `409 type.xkey_conflict`, whose `details` name `existingTypeId` or `existingCollectionId`. A handle the usecase catalog declares is refused the same way (`details.catalogBundleId`, `details.usecase`).
 
 Property definitions are not part of the create body; a `properties` key, like any unknown key, is `400 request.unknown_field`. Create the collection, then add each column.
 

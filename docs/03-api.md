@@ -1318,11 +1318,16 @@ holds the marker.
   no columns and no parts. Unique among the space's handles, types and
   collections together: an install whose xKey is already held (as an
   xKey or an id, hidden or not) is
-  `409 type.xkey_conflict` (`details: {xKey, existingTypeId,
-  bundleId}`), checked on the install path only — an adopted root
-  holds the handle by design and never conflicts with itself.
-  Written on install; a writer's adopt fills in a handle the root
-  lacks, and an existing handle is never changed.
+  `409 type.xkey_conflict` (`details: {xKey, existingTypeId |
+  existingCollectionId, bundleId}`), checked on the install path only
+  — an adopted root holds the handle by design and never conflicts
+  with itself. A handle the usecase catalog declares is refused on
+  install, and on an adopt that would fill it in, the same way
+  (`details: {xKey, catalogBundleId, usecase, spaceId, bundleId}`).
+  Written on install; a writer's adopt — or the materialize of a
+  derived root not yet here — fills in a handle the root lacks unless
+  it is a catalog handle the bundle does not declare, and an existing
+  handle is never changed.
 - `layout` (the type's rendering slice, § Types; refused with
   `collection`) and `hidden` are written with the root's name on
   install. **`hidden` is explicit**: a root that only hosts its
@@ -1591,7 +1596,7 @@ member — and
 never overwrites what it has), otherwise the handle check runs (no type
 or collection in the space
 may already hold the bundle's xKey — `409 type.xkey_conflict`, install
-path only) and the root is minted with everything the bundle declares
+path only, its message naming the rename that frees the handle) and the root is minted with everything the bundle declares
 (root + up to 3 changes). Idempotent: a second call adopts everything. A
 heal that fails (a permission or sync race) is not an error: the setup
 still answers 200 and the next setup retries it. A
@@ -1628,7 +1633,9 @@ Errors: `404 catalog.not_found` (`details.usecaseId`);
 (the tech space is not a setup target); the space errors; per bundle
 the § Bundles set — `409 bundle.not_ready`, `403` for a member without
 write permission on an install, `409 type.xkey_conflict`
-(`details.xKey`, `details.existingTypeId`). Every error of the walk
+(`details.xKey`, and `details.existingTypeId` or
+`details.existingCollectionId` by the holder's surface; the message
+names the rename that frees the handle). Every error of the walk
 carries `details.spaceId`, `details.usecaseId`, and for a failing
 step `details.usecase` + `details.bundleId`. A client `POST …/bundles`
 with a `system:` id stays `409 bundle.reserved`. CLI: `any catalog
@@ -2764,9 +2771,14 @@ enforces it: empty → `400 type.xkey_required`; collision with an
 existing type's or collection's `xKey` **or** id in the same space →
 `409 type.xkey_conflict` (`details: {xKey, existingTypeId}`, or
 `{xKey, existingCollectionId}` when a collection holds the handle — the
-two surfaces share one namespace). Clients derive
+two surfaces share one namespace); a handle a usecase catalog bundle
+declares → `409 type.xkey_conflict` (`details: {xKey, catalogBundleId,
+usecase, spaceId}`) whether or not the usecase is set up, since holding it would
+block that setup (docs/28-well-known-bundles.md § Handles). Clients derive
 the xKey as a slug of the name (`"Pages"` → `pages`); it must survive
-display-name renames. Create → `201 {"typeId": "…"}`. Built-in types (the hidden
+display-name renames. When the slug is taken — a handle of the space or
+one the usecase catalog declares (`409 type.xkey_conflict`) — they
+append a suffix until it is free (`task_2`, `task_3`). Create → `201 {"typeId": "…"}`. Built-in types (the hidden
 `dataview` and `page`) are registered, not created here,
 and resolve by their literal id; a registered type's parts are static —
 `GET …/types/:typeId/parts` reads them compiled (keys as ids, a static
@@ -3589,7 +3601,8 @@ hidden?, meta?}` → `201 {"collectionId": "…"}`. **`xKey` is required**
 and follows the type rules exactly: empty → `400 type.xkey_required`;
 already a handle in the space, on either surface → `409
 type.xkey_conflict` (`details: {xKey, existingCollectionId}`, or
-`existingTypeId` when a type holds it). **Inline property definitions
+`existingTypeId` when a type holds it), and so is a catalog handle
+(`details: {xKey, catalogBundleId, usecase, spaceId}`). **Inline property definitions
 are not part of collection create** — a `properties` key, or any other
 unknown top-level key, answers `400 request.unknown_field` pointing at
 `POST …/collections/:collectionId/properties`. `hidden` and `meta`
@@ -3752,7 +3765,12 @@ SAME declared scope (synced, account or local — inferred from the
 definitions); a mixed-scope or unknown-key patch is rejected. A value
 set under an `ownerId` the object does not have — not its type, not a
 collection it is filed under — is `400 dataset.not_declared`. Values pass the
-descriptor gate (`400 property.format_violation`, § Types).
+descriptor gate (`400 property.format_violation`, § Types). A handle
+change (`ownerId` `type` or `collection`, propId `xkey`) onto a handle
+the usecase catalog declares is `409 type.xkey_conflict` (`details:
+{xKey, catalogBundleId, usecase, spaceId, objectId}`) unless the object is the current winner root of a
+catalog bundle declaring it; a patch that keeps the current handle passes
+(docs/28-well-known-bundles.md § Handles).
 
 **The type.** `POST …/type/:typeId` sets the object's one type
 (`any.type`, a `$set`): a previous type is replaced, and its values and
