@@ -7,10 +7,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/hybridgroup/yzma/pkg/llama"
 
@@ -251,4 +255,37 @@ func cosine(a, b []float32) float64 {
 		nb += float64(b[i]) * float64(b[i])
 	}
 	return dot / math.Sqrt(na*nb)
+}
+
+// A refused spec starts no download, and a mirror keeps the pinned checksum.
+func TestResolveLocalSpec_Download(t *testing.T) {
+	var gets atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gets.Add(1)
+		w.Write([]byte("not the model"))
+	}))
+	defer srv.Close()
+
+	if _, dl, err := resolveLocalSpec(config.IndexLocal{ModelUrl: srv.URL, Pooling: "max"}, t.TempDir(), "", nil); err == nil || dl != nil {
+		t.Fatalf("a refused pooling returned dl=%v err=%v", dl, err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if n := gets.Load(); n != 0 {
+		t.Errorf("a refused spec fetched the model %d times", n)
+	}
+
+	dir := t.TempDir()
+	spec, dl, err := resolveLocalSpec(config.IndexLocal{ModelUrl: srv.URL}, dir, "", nil)
+	if err != nil || dl == nil {
+		t.Fatalf("dl=%v err=%v", dl, err)
+	}
+	defer dl.Close()
+	pinned, _ := lookupLocalModel("")
+	if dl.sha != pinned.sha256 {
+		t.Errorf("a mirror download checks %q, want the pinned checksum", dl.sha)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if _, err := os.Stat(spec.modelPath); err == nil {
+		t.Error("a file that fails the pinned checksum was installed")
+	}
 }

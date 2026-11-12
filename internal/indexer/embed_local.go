@@ -166,6 +166,24 @@ func resolveLocalSpec(cfg config.IndexLocal, modelsDir, legacyModelsDir string, 
 		s.libDir = filepath.Join(filepath.Dir(exe), "llamacpp")
 	}
 
+	if named {
+		s.profile = model.id
+		if s.queryPrefix == "" {
+			s.queryPrefix = model.queryPrefix
+		}
+		if s.docPrefix == "" {
+			s.docPrefix = model.docPrefix
+		}
+		if s.pooling == "" {
+			s.pooling = model.pooling
+		}
+	}
+	// Every config check precedes the download: a refused spec must not
+	// leave one running.
+	if _, err := poolingType(s.pooling); err != nil {
+		return localSpec{}, nil, err
+	}
+
 	var dl *modelDownload
 	if cfg.ModelPath != "" {
 		// Air-gapped: the file is the user's responsibility, no download.
@@ -182,26 +200,15 @@ func resolveLocalSpec(cfg config.IndexLocal, modelsDir, legacyModelsDir string, 
 		}
 		if _, err := os.Stat(s.modelPath); err != nil {
 			url, sha := model.url, model.sha256
+			// A mirror serves the pinned file, so the pinned checksum holds.
 			if cfg.ModelUrl != "" {
-				url, sha = cfg.ModelUrl, cfg.ModelSha256
+				url = cfg.ModelUrl
+			}
+			if cfg.ModelSha256 != "" {
+				sha = cfg.ModelSha256
 			}
 			dl = startModelDownload(url, s.modelPath, sha, nil, onProcess)
 		}
-	}
-	if named {
-		s.profile = model.id
-		if s.queryPrefix == "" {
-			s.queryPrefix = model.queryPrefix
-		}
-		if s.docPrefix == "" {
-			s.docPrefix = model.docPrefix
-		}
-		if s.pooling == "" {
-			s.pooling = model.pooling
-		}
-	}
-	if _, err := poolingType(s.pooling); err != nil {
-		return localSpec{}, nil, err
 	}
 	return s, dl, nil
 }

@@ -182,7 +182,7 @@ index:
     modelPath: ""                     # existing GGUF; set ⇒ no download (air-gapped). Without
                                       # `model` it is an unnamed GGUF: no pinned prompts or pooling
     modelUrl: ""                      # another download source for the model `model` names
-    modelSha256: ""                   # checksum override; "" with modelUrl ⇒ skip verify
+    modelSha256: ""                   # checksum override; "" ⇒ the model's pinned checksum
     libDir: ""                        # llama.cpp shared libs; default $YZMA_LIB, else
                                       # <exe-dir>/llamacpp
     contextSize: 2048                 # truncation bound in tokens (docs/13-index.md)
