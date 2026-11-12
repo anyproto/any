@@ -181,6 +181,15 @@ per bundle the `03-api.md` § Bundles set — `409 bundle.not_ready`,
 carries `details.usecaseId` (the id asked for), `details.usecase` and
 `details.bundleId` (the step that failed) and `details.spaceId`.
 
+The whole call is bounded at 90 seconds, the install included. A step
+still waiting then is `503 catalog.setup_timeout` with `details.step`:
+`space` (opening the space — one this device holds no data for waits
+for a node or a peer that has it), `superseded` (reading which
+supersede set the space is on), `install` (the registry wait and the
+adopt-or-install walk) or `declarations` (property ids and heals). What
+the walk landed stays and a retry resumes. The server logs each call's
+step durations (`catalog: setup`).
+
 CLI: `any catalog list`, `any catalog get <usecaseId>`,
 `any catalog setup <usecaseId> <spaceId>` (`01-cli.md` § Catalog).
 

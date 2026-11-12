@@ -42,7 +42,7 @@ Every error response from the any server — whatever the status code — has th
 | 500 | unexpected engine or server failure (`internal`); the stack goes to the server log only — plus the typed `auth.device_key_corrupt`, `auth.network_pin_corrupt`, `sdk.store_corrupt`, `server.internal` |
 | 501 | route registered for an SDK surface that is not implemented yet |
 | 502 | the invite service is unreachable or answered unexpectedly (`access.unavailable`) |
-| 503 | not ready — request cancelled, shutting down, or the embedder is unreachable |
+| 503 | not ready — request cancelled, shutting down, the embedder is unreachable, or a catalog setup at its bound |
 | 507 | the device has no disk space left (`storage.no_space`) |
 
 Panics are converted to `500 internal` with a generic message.
@@ -133,6 +133,7 @@ Panics are converted to `500 internal` with a generic message.
 | `bundle.not_loser` | 409 | resolve targeted the winner or an unclaimed root |
 | `bundle.reserved` | 409 | a client ensure with an id under the server's `system:` prefix |
 | `catalog.not_found` | 404 | no usecase with that id in the catalog (`details.usecaseId`) |
+| `catalog.setup_timeout` | 503 | the setup was still waiting at its 90-second bound — retry; `details.step` names the step (`space`, `superseded`, `install`, `declarations`) |
 
 ### Datasets, filters, upsert
 

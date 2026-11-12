@@ -664,7 +664,9 @@ POST /v1/spaces/derived/:name  → 201 SpaceInfo   (404 space.derived_unknown,
   `created` reports whether a usable tech-space row exists —
   materialized here or on any of the account's devices (rows sync).
   `status` is the row status when a row exists; a `deleted` row
-  reports `created:false`.
+  reports `created:false`. A `created` space whose data has not
+  reached this device opens from its seed on first use, with no node
+  reachable.
 - **POST materializes lazily and idempotently** (`Service.Derive`) and
   returns the full single-space `SpaceInfo`. On first materialization the registry's display name is
   written as the space name (`DeriveRequest.Name` — not part of the
@@ -1604,7 +1606,10 @@ failure mid-walk leaves the dependencies it installed, names the step
 in `details.usecase` / `details.bundleId`, and the next call resumes.
 Readers adopt, writers install; when the wait expires the owner
 installs anyway and a member whose index has never arrived is
-`409 bundle.not_ready`.
+`409 bundle.not_ready`. The whole call is bounded at 90 seconds: a step
+still waiting then is `503 catalog.setup_timeout` naming it in
+`details.step`, what the walk landed stays, and a retry resumes
+(`28-well-known-bundles.md` § Endpoints).
 
 ```jsonc
 // CatalogSetupResponse — every bundle the call touched, dependencies

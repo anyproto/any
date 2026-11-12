@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
@@ -99,6 +100,10 @@ func catalogNotFound(c echo.Context, id string) error {
 // A failure mid-walk leaves the dependencies it installed and names
 // the failing usecase and bundle; the next call resumes.
 //
+// The whole call runs under catalogSetupTimeout. A step still waiting
+// then is `503 catalog.setup_timeout` naming it; what the walk landed
+// stays, and the next call adopts it.
+//
 //	@Summary	Set a usecase up in a space, dependencies included
 //	@Tags		catalog
 //	@Accept		json
@@ -112,6 +117,7 @@ func catalogNotFound(c echo.Context, id string) error {
 //	@Failure	405			{object}	api.ErrorEnvelope
 //	@Failure	409			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
+//	@Failure	503			{object}	api.ErrorEnvelope
 //	@Router		/catalog/{usecaseId}/setup [post]
 func (d *deps) catalogSetup(c echo.Context) error {
 	cc, err := d.usecaseCatalog()
@@ -133,14 +139,47 @@ func (d *deps) catalogSetup(c echo.Context) error {
 	if d.isTechSpace(req.SpaceId) {
 		return unsupportedOnTechSpace(c, req.SpaceId)
 	}
-	ctx := c.Request().Context()
+	start := time.Now()
+	deadline := start.Add(catalogSetupTimeout)
+	ctx, cancel := context.WithDeadline(c.Request().Context(), deadline)
+	defer cancel()
+	var steps setupSteps
+	defer func() {
+		steps.enter("")
+		handlerLog.Info("catalog: setup", append([]zap.Field{
+			zap.String("usecaseId", usecaseId), zap.String("spaceId", req.SpaceId),
+			zap.Duration("total", time.Since(start)),
+		}, steps.took...)...)
+	}()
+	// timedOut reports an error the setup's own deadline caused; a
+	// client that went away is a cancel, not a timeout.
+	timedOut := func(err error) bool {
+		return errors.Is(err, context.DeadlineExceeded) && !time.Now().Before(deadline)
+	}
+	timeout := func() error {
+		handlerLog.Warn("catalog: setup timed out", zap.String("usecaseId", usecaseId),
+			zap.String("spaceId", req.SpaceId), zap.String("step", steps.step))
+		return writeError(c, http.StatusServiceUnavailable, api.ErrCatalogSetupTimeout,
+			"the setup did not finish in time; retry", map[string]any{
+				"spaceId": req.SpaceId, "usecaseId": usecaseId, "step": steps.step,
+			})
+	}
+
+	steps.enter(setupStepSpace)
 	sp, err := d.sdk.Spaces().Get(ctx, req.SpaceId)
 	if err != nil {
+		if timedOut(err) {
+			return timeout()
+		}
 		return spaceError(c, err, req.SpaceId)
 	}
 
+	steps.enter(setupStepSuperseded)
 	have, err := d.supersededInstalled(ctx, sp, order)
 	if err != nil {
+		if timedOut(err) {
+			return timeout()
+		}
 		return bundleErrorWith(c, err, map[string]any{"spaceId": sp.Id(), "usecaseId": usecaseId})
 	}
 	var (
@@ -160,15 +199,19 @@ func (d *deps) catalogSetup(c echo.Context) error {
 
 	// Detached from the request, as the single-bundle ensure is: a
 	// client that disconnects mid-walk must not leave a root nothing
-	// references. Bounded by shutdown and the create timeout, which
-	// here covers the whole walk. No checkBundleRoot: the only root
-	// type a catalog install attaches is the registered `miniapp`,
-	// whose values the compile step already gated.
-	createCtx, cancel := context.WithTimeout(d.backgroundCtx(), bundleCreateTimeout)
-	defer cancel()
+	// references. Bounded by shutdown and the setup's deadline. No
+	// checkBundleRoot: the only root type a catalog install attaches
+	// is the registered `miniapp`, whose values the compile step
+	// already gated.
+	createCtx, cancelCreate := context.WithDeadline(d.backgroundCtx(), deadline)
+	defer cancelCreate()
 
+	steps.enter(setupStepInstall)
 	results, err := d.bundleResolver().Setup(ctx, createCtx, sp, installs, d.installGates(cc))
 	if err != nil {
+		if timedOut(err) {
+			return timeout()
+		}
 		var se *bundles.SetupError
 		details := map[string]any{"spaceId": sp.Id(), "usecaseId": usecaseId}
 		if errors.As(err, &se) {
@@ -188,6 +231,7 @@ func (d *deps) catalogSetup(c echo.Context) error {
 		return bundleErrorWith(c, err, details)
 	}
 
+	steps.enter(setupStepDeclarations)
 	out := api.CatalogSetupResponse{Usecase: usecaseId, Bundles: make([]api.CatalogSetupBundle, 0, len(results))}
 	for _, r := range results {
 		cb := byId[r.Install.Id]
@@ -203,6 +247,9 @@ func (d *deps) catalogSetup(c echo.Context) error {
 			}
 			props, err := sp.Types().Properties(ctx, r.Bundle.RootId)
 			if err != nil {
+				if timedOut(err) {
+					return timeout()
+				}
 				return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "bundleId": r.Install.Id})
 			}
 			row.Properties = make(map[string]string, len(props))
@@ -241,6 +288,37 @@ func (d *deps) catalogSetup(c echo.Context) error {
 		out.Bundles = append(out.Bundles, row)
 	}
 	return c.JSON(http.StatusOK, out)
+}
+
+// catalogSetupTimeout bounds one setup call, the detached install
+// included. It stays above the two registry waits a walk can pay
+// (bundles.DefaultIndexWait each) and well under the request timeout
+// of a client. A variable for tests.
+var catalogSetupTimeout = 90 * time.Second
+
+// The steps of a setup, as `details.step` of the timeout and as the
+// duration keys of its log line.
+const (
+	setupStepSpace        = "space"        // opening the space
+	setupStepSuperseded   = "superseded"   // reading which supersede set the space is on
+	setupStepInstall      = "install"      // the registry wait and the adopt-or-install walk
+	setupStepDeclarations = "declarations" // property ids and heals
+)
+
+// setupSteps times the steps of one setup call.
+type setupSteps struct {
+	step string
+	at   time.Time
+	took []zap.Field
+}
+
+// enter ends the running step and starts the next; "" starts none.
+func (s *setupSteps) enter(step string) {
+	now := time.Now()
+	if s.step != "" {
+		s.took = append(s.took, zap.Duration(s.step, now.Sub(s.at)))
+	}
+	s.step, s.at = step, now
 }
 
 // walksBundle reports whether setup ensures the bundle in a space whose
