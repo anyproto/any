@@ -94,6 +94,44 @@ func TestStore_PinEmbedder_Unstamped(t *testing.T) {
 	}
 }
 
+// A network embedder names its model: it adopts an unstamped db once,
+// and a later switch to another model or embedder is refused.
+func TestStore_PinEmbedder_Network(t *testing.T) {
+	ctx := context.Background()
+	if id, legacy := EmbedderStamp(NewOpenAI("http://127.0.0.1:1", "bge-m3", "")); id != "openai:bge-m3" || !legacy {
+		t.Fatalf("openai stamp = %q, %v", id, legacy)
+	}
+	if id, legacy := EmbedderStamp(NewOllama("", "mxbai-embed-large")); id != "ollama:mxbai-embed-large" || !legacy {
+		t.Fatalf("ollama stamp = %q, %v", id, legacy)
+	}
+
+	path := filepath.Join(t.TempDir(), "index.db")
+	s, err := OpenStore(ctx, path, 0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnsureDim(ctx, 4); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	if s, err = OpenStore(ctx, path, 0, true); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	if err := s.PinEmbedder(ctx, "ollama:mxbai-embed-large", true); err != nil {
+		t.Fatalf("a network embedder on unstamped vectors: %v", err)
+	}
+	if err := s.PinEmbedder(ctx, "ollama:mxbai-embed-large", true); err != nil {
+		t.Fatalf("the same embedder again: %v", err)
+	}
+	for _, other := range []string{"ollama:nomic-embed-text", "openai:bge-m3", "local:qwen3-embedding-0.6b/1/0"} {
+		if err := s.PinEmbedder(ctx, other, true); !errors.Is(err, ErrIndexRebuildRequired) {
+			t.Errorf("%s on a db %s filled: %v", other, "ollama:mxbai-embed-large", err)
+		}
+	}
+}
+
 // A configured dimension is written into a new db before any vector
 // exists: the db this open created is adopted by any embedder.
 func TestStore_PinEmbedder_FreshWithConfiguredDim(t *testing.T) {

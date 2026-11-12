@@ -707,11 +707,12 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   back in the embed queue, and they keep serving their old vectors until
   the new ones land. The output width is the model's `n_embd_out`. The
   index db records the embedder that built it — the pinned model, its
-  revision, and the document prompt and pooling in effect; a db another
-  one built is removed and rebuilt at boot, like one of another
-  dimension. A db without that record is kept for Qwen3, an unnamed
-  GGUF or a network embedder, whichever of them filled it, and when it
-  holds no dimension. Under `auto` with neither `index.local.model` nor `modelPath` set,
+  revision, and the document prompt and pooling in effect, or a network
+  embedder's model name (`openai:<model>`, `ollama:<model>`); a db
+  another one built is removed and rebuilt at boot, like one of another
+  dimension. An unnamed GGUF leaves no record. A db without a record is
+  kept for Qwen3, a network embedder or an unnamed GGUF, whichever opens
+  it, and when it holds no dimension. Under `auto` with neither `index.local.model` nor `modelPath` set,
   the API key decides the local model, so adding or removing
   `index.openai.apiKey` rebuilds the index. A model file whose output
   width is not the pinned model's is refused at load.
@@ -751,11 +752,12 @@ successful batch (or pinned via `index.vector.dim`) and persisted in
 mixed in (`ErrIndexRebuildRequired`: a configured dimension that
 contradicts the db rebuilds the index at boot; one learned mid-run fails
 every embed round until the index is removed or `index.vector.dim`
-names it), not silent corruption. A change of pinned local model, or of
-its document prompt or pooling, is detected at boot by the embedder
-record and rebuilds the index; a change between network models or
-unnamed GGUFs at the same dimension is not detected: remove the index
-by hand. A batch
+names it), not silent corruption. A configured dimension the pinned
+local model cannot fill (its width, or `index.local.dim`) fails the
+boot. A change of pinned local model, of its document prompt or
+pooling, or of a network embedder's model is detected at boot by the
+embedder record and rebuilds the index; a change between unnamed GGUFs
+at the same dimension is not detected: remove the index by hand. A batch
 that fails midway lands the vectors embedded so far.
 
 **Batching costs context.** The local child sends a batch one decode

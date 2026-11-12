@@ -44,8 +44,8 @@ type StampedEmbedder interface {
 	Stamp() (id string, legacy bool)
 }
 
-// EmbedderStamp is e's stamp; an embedder without one is unknown and
-// may own any unstamped index.
+// EmbedderStamp is e's stamp; an embedder without one (an unnamed GGUF)
+// is unknown and may own any unstamped index.
 func EmbedderStamp(e Embedder) (id string, legacy bool) {
 	if s, ok := e.(StampedEmbedder); ok {
 		return s.Stamp()

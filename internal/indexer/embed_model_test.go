@@ -342,3 +342,50 @@ func TestResolveLocalSpec_Download(t *testing.T) {
 		t.Error("a file that fails the pinned checksum was installed")
 	}
 }
+
+// A configured index dimension the pinned local model cannot fill is
+// refused before anything is built.
+func TestCheckVectorDim(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		want   int
+		local  config.IndexLocal
+		refuse bool
+	}{
+		{"learned", 0, config.IndexLocal{}, false},
+		{"the default model's width", 768, config.IndexLocal{}, false},
+		{"another width than the default model's", 1024, config.IndexLocal{}, true},
+		{"Qwen3's width", 1024, config.IndexLocal{Model: config.LocalModelQwen3}, false},
+		{"another width than Qwen3's", 768, config.IndexLocal{Model: config.LocalModelQwen3}, true},
+		{"a truncated width", 512, config.IndexLocal{Dim: 512}, false},
+		{"another width than the truncated one", 768, config.IndexLocal{Dim: 512}, true},
+		{"an unnamed GGUF is only known once loaded", 1024, config.IndexLocal{ModelPath: "custom.gguf"}, false},
+	} {
+		err := checkVectorDim(c.want, c.local)
+		if (err != nil) != c.refuse {
+			t.Errorf("%s: err = %v, refuse = %v", c.name, err, c.refuse)
+		}
+		if err != nil && !(strings.Contains(err.Error(), "index.vector.dim") && strings.Contains(err.Error(), "index.local.dim")) {
+			t.Errorf("%s: the refusal must name both keys: %v", c.name, err)
+		}
+	}
+
+	// The factory refuses in every mode that runs the local model, and
+	// starts no download first.
+	for _, cfg := range []config.Index{
+		{Embedder: "local", Vector: config.IndexVector{Dim: 1024}},
+		{Embedder: "auto", Vector: config.IndexVector{Dim: 1024}},
+		// With a key the local model is Qwen3, 1024 wide.
+		{Embedder: "auto", Vector: config.IndexVector{Dim: 768},
+			OpenAI: config.IndexOpenAI{BaseUrl: "http://127.0.0.1:1", Model: "Qwen/Qwen3-Embedding-0.6B", ApiKey: "k"}},
+	} {
+		dir := t.TempDir()
+		emb, err := NewEmbedder(cfg, dir, "", nil)
+		if err == nil || emb != nil || !strings.Contains(err.Error(), "index.vector.dim") {
+			t.Errorf("%s with index.vector.dim %d: %v, %v", cfg.Embedder, cfg.Vector.Dim, emb, err)
+		}
+		if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+			t.Errorf("%s: a refused config left %d files in the models dir", cfg.Embedder, len(entries))
+		}
+	}
+}

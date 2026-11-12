@@ -214,7 +214,8 @@ index:
     batchDocs: 1                      # docs per llama_decode; N caps each text at contextSize/N tokens;
                                       # 1 = sequential
   vector:
-    dim: 0                            # 0 = learned from the first successful embedding
+    dim: 0                            # 0 = learned from the first successful embedding; a
+                                      # value the pinned local model cannot fill fails boot
     mode: ivfsq                       # ANN index: ivfsq (default — cheap ingest, churn-
                                       # friendly, ~3-4 recall@10 below exact) | btree/hnsw
                                       # (recall≈exact, costly serial ingest) | hybrid

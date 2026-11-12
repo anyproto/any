@@ -34,6 +34,9 @@ func NewEmbedder(cfg config.Index, modelsDir, legacyModelsDir string, onProcess 
 		}
 		return NewOpenAI(cfg.OpenAI.BaseUrl, cfg.OpenAI.Model, cfg.OpenAI.ApiKey), nil
 	case "local":
+		if err := checkVectorDim(cfg.Vector.Dim, cfg.Local); err != nil {
+			return nil, err
+		}
 		return newLocalEmbedder(cfg.Local, modelsDir, legacyModelsDir, onProcess)
 	case "auto":
 		// Graceful degradation: prefer the online OpenAI-compatible primary
@@ -46,6 +49,9 @@ func NewEmbedder(cfg config.Index, modelsDir, legacyModelsDir string, onProcess 
 		// build without the local embedder has neither leg then, so the
 		// index runs FTS-only rather than refusing the default config.
 		if cfg.OpenAI.ApiKey == "" {
+			if err := checkVectorDim(cfg.Vector.Dim, cfg.Local); err != nil {
+				return nil, err
+			}
 			e, err := newLocalEmbedder(cfg.Local, modelsDir, legacyModelsDir, onProcess)
 			if errors.Is(err, errLocalNotBuilt) {
 				logger.NewNamed("indexer.embedder").Warn("auto embedder: no online provider (index.openai.apiKey) and no local embedder in this build (-tags llamacpp) — the index runs full-text only")
@@ -65,6 +71,9 @@ func NewEmbedder(cfg config.Index, modelsDir, legacyModelsDir string, onProcess 
 		if m := cfg.Local.Model; localEmbedderBuilt && m != "" && m != config.LocalModelQwen3 {
 			return nil, fmt.Errorf("indexer: auto embedder with an apiKey pairs the online primary with the local model %s; index.local.model is %q — use index.embedder: local, or drop the apiKey", config.LocalModelQwen3, m)
 		}
+		if err := checkVectorDim(cfg.Vector.Dim, cfg.Local); err != nil {
+			return nil, err
+		}
 		primary := NewOpenAI(cfg.OpenAI.BaseUrl, cfg.OpenAI.Model, cfg.OpenAI.ApiKey)
 		fallback, err := newLocalEmbedder(cfg.Local, modelsDir, legacyModelsDir, onProcess)
 		if errors.Is(err, errLocalNotBuilt) {
@@ -78,4 +87,15 @@ func NewEmbedder(cfg config.Index, modelsDir, legacyModelsDir string, onProcess 
 	default:
 		return nil, fmt.Errorf("indexer: unknown embedder %q (want \"local\", \"auto\", \"ollama\", \"openai\" or \"none\")", cfg.Embedder)
 	}
+}
+
+// checkVectorDim refuses a configured index dimension the pinned local
+// model cannot fill: the index would turn every vector away. It runs
+// before the embedder exists, so a refused config starts no download.
+func checkVectorDim(want int, local config.IndexLocal) error {
+	model, got := localPinnedDim(local)
+	if want == 0 || got == 0 || want == got {
+		return nil
+	}
+	return fmt.Errorf("indexer: index.vector.dim is %d, but the local model %s embeds at %d; drop index.vector.dim, or set index.local.dim or index.local.model to match", want, model, got)
 }

@@ -142,3 +142,17 @@ func poolingType(s string) (llama.PoolingType, error) {
 	}
 	return 0, fmt.Errorf("indexer: local embedder: unknown pooling %q (last, mean, cls)", s)
 }
+
+// localPinnedDim is the pinned model a local config resolves to and the
+// width its vectors have; 0 for an unnamed GGUF, whose width only the
+// loaded file tells.
+func localPinnedDim(cfg config.IndexLocal) (model string, dim int) {
+	if cfg.Model == "" && cfg.ModelPath != "" {
+		return "", 0
+	}
+	m, err := lookupLocalModel(cfg.Model)
+	if err != nil {
+		return "", 0 // resolveLocalSpec reports it
+	}
+	return m.id, min(orDefault(cfg.Dim, m.dim), m.dim)
+}
