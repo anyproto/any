@@ -713,9 +713,9 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   for the installed file and takes the download over once the lock is
   free. A transfer that sends nothing for 2 minutes is cut and retried
   with backoff, so a stalled connection never holds the lock. A source
-  whose file fails the checksum twice is not fetched again until the
-  next start: the `index.model_download` process ends failed and the
-  embedder stays unavailable.
+  that twice serves a whole file failing the checksum is not fetched
+  again until the next start: the `index.model_download` process ends
+  failed.
   Air-gapped: set `index.local.modelPath` (no download). `index.local.dim`
   truncates output vectors (Matryoshka) to shrink the index. Compute
   threads default to `NumCPU()-1` (`index.local.threads`); past the
