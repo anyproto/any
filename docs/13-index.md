@@ -688,7 +688,8 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   bare). `index.local.model: embeddinggemma-2` runs **EmbeddingGemma 2
   Q8_0** instead (768-dim, mean pooling; queries embed as
   `task: search result | query: <query>`, docs as
-  `title: <object name> | text: <chunk>`, `none` for an unnamed object),
+  `title: <object name> | text: <chunk>`, `none` for an unnamed object and
+  for any doc but an editor window),
   and removes one fixed direction — the
   mean of the model's outputs — from every vector before normalizing,
   which takes out its bias toward short texts. A `modelUrl` is
@@ -698,9 +699,9 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   (`last` by default, `mean` or `cls`),
   `queryPrefix` and `docPrefix`. A `{title}` in a document prompt
   is replaced by the object's name on one line, clamped to 200 runes, or
-  `none`. Only the body windows embed under the name; every other doc
+  `none`. Only the editor windows embed under the name; every other doc
   (a chat message, a dataset record, a property) embeds as `none`. So a
-  rename, or clearing the name, puts the object's embedded body windows
+  rename, or clearing the name, puts the object's embedded editor windows
   back in the embed queue, and they keep serving their old vectors until
   the new ones land. The output width is the model's `n_embd_out`. The GGUF (sha256-pinned) is downloaded into the shared model
   cache `<root>/models/` (a copy already in the account's `index/models/`

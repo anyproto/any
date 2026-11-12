@@ -8,12 +8,12 @@ import "strings"
 // chunker-hybrid-search-report § 4.1.
 const windowBudgetBytes = 1500
 
-// windowRecordPrefix prefixes a window's synthetic record id, anchored on
+// WindowRecordPrefix prefixes a window's synthetic record id, anchored on
 // its first member block: win_<firstBlockId>. The anchor keeps the id
 // stable across edits/appends within the window; a full reconcile
 // (prefix-delete + re-upsert) handles the cases where it shifts. Uses '_'
 // (not ':') so the id stays colon-free, matching the docId convention.
-const windowRecordPrefix = "win_"
+const WindowRecordPrefix = "win_"
 
 // Window is one coalesced index unit: the concatenated text of a run of
 // consecutive document-ordered blocks.
