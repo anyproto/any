@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -87,6 +88,9 @@ func runEmbedHelper(mode string) int {
 	for {
 		var req workerReq
 		if _, err := readFrame(in, &req); err != nil {
+			if mode == "linger" { // ignores stdin EOF until killed
+				exitWhenOrphaned()
+			}
 			return 0 // parent closed stdin: clean exit, like the real child
 		}
 		if crashAfter > 0 && served >= crashAfter {
@@ -128,6 +132,17 @@ func runEmbedHelper(mode string) int {
 			return 1
 		}
 	}
+}
+
+// exitWhenOrphaned blocks until the parent is gone (bounded), for a
+// helper that has already seen stdin close: a killed test binary leaves
+// no helper behind.
+func exitWhenOrphaned() {
+	ppid := os.Getppid()
+	for deadline := time.Now().Add(time.Minute); os.Getppid() == ppid && time.Now().Before(deadline); {
+		time.Sleep(50 * time.Millisecond)
+	}
+	os.Exit(0)
 }
 
 // exitWithParent blocks forever but dies when stdin closes, so a test
@@ -804,6 +819,154 @@ func TestWorkerEmbedder_CloseReapsChild(t *testing.T) {
 	}
 	if _, err := w.EmbedDocs(context.Background(), []string{"x"}); err == nil {
 		t.Fatal("want an error after Close")
+	}
+}
+
+// waitRetired blocks until the idle timer has stopped the child. It
+// polls the lock-free live pointer, cleared once the child is reaped.
+func waitRetired(t *testing.T, w *workerEmbedder, within time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for w.live.Load() != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("idle child was not retired")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// An idle child is stopped gracefully and the next request respawns it.
+func TestWorkerEmbedder_IdleRetiresChild(t *testing.T) {
+	h := &helperSpawner{modes: []string{"ok"}}
+	w := newTestWorker(t, h, 0)
+	w.idleTimeout = 100 * time.Millisecond
+	if _, err := w.EmbedDocs(context.Background(), []string{"x"}); err != nil {
+		t.Fatal(err)
+	}
+	waitRetired(t, w, 5*time.Second)
+	if hasChild(w) {
+		t.Fatal("child kept after the idle timeout")
+	}
+	if st := h.cmdAt(0).ProcessState; st == nil || !st.Success() {
+		t.Fatalf("idle child exited %v, want a clean exit on stdin EOF", st)
+	}
+	if _, err := w.EmbedQuery(context.Background(), "q"); err != nil {
+		t.Fatal(err)
+	}
+	if h.spawns() != 2 {
+		t.Fatalf("spawned %d children, want a respawn after retirement", h.spawns())
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * w.idleTimeout) // a countdown armed before Close must not act after it
+	if h.spawns() != 2 {
+		t.Fatalf("spawned %d children after Close", h.spawns())
+	}
+}
+
+// A slot held without a frame when the timer fires (a caller that gave
+// up, a doc frame yielding to a query) only postpones the retirement.
+func TestWorkerEmbedder_IdleRetiresAfterBusySlot(t *testing.T) {
+	const idle = 100 * time.Millisecond
+	h := &helperSpawner{modes: []string{"ok"}}
+	w := newTestWorker(t, h, 0)
+	w.idleTimeout = idle
+	if _, err := w.EmbedDocs(context.Background(), []string{"x"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = w.slot.acquire(context.Background(), false)
+	time.Sleep(3 * idle) // the timer fires into a held slot
+	w.slot.release(false)
+	waitRetired(t, w, 5*time.Second)
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children, want 1", h.spawns())
+	}
+}
+
+// The countdown runs from the end of the last frame: a frame longer
+// than the timeout, and frames spaced closer than it, keep the child.
+func TestWorkerEmbedder_IdleCountsFromLastFrame(t *testing.T) {
+	const idle = time.Second
+	h := &helperSpawner{modes: []string{"slow"}, env: delayEnv(idle + idle/5)}
+	w := newTestWorker(t, h, 0)
+	w.idleTimeout = idle
+	for i := range 2 {
+		if _, err := w.EmbedDocs(context.Background(), []string{"long"}); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(idle / 5)
+		if w.live.Load() == nil {
+			t.Fatalf("frame %d: child retired inside the idle window", i)
+		}
+	}
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children, want 1", h.spawns())
+	}
+	waitRetired(t, w, 10*time.Second)
+}
+
+// A request racing the retirement either finds the child or waits for
+// the stop and spawns a fresh one — it never fails. Odd rounds send the
+// request once the retirement holds the slot (or has finished).
+func TestWorkerEmbedder_RequestRacingIdleRetirement(t *testing.T) {
+	const rounds = 10
+	h := &helperSpawner{modes: []string{"ok"}}
+	w := newTestWorker(t, h, 0)
+	w.idleTimeout = time.Hour // the test fires the retirement itself
+	for i := range rounds {
+		if _, err := w.EmbedDocs(context.Background(), []string{"x"}); err != nil {
+			t.Fatal(err)
+		}
+		_ = w.slot.acquire(context.Background(), false)
+		w.lastFrame = time.Time{} // idle long enough
+		w.slot.release(false)
+		done := make(chan struct{})
+		go func() {
+			w.retireIdle()
+			close(done)
+		}()
+		if i%2 == 1 {
+			deadline := time.Now().Add(5 * time.Second)
+			for len(w.slot.slot) == 0 && w.live.Load() != nil {
+				if time.Now().After(deadline) {
+					t.Fatalf("round %d: retirement never started", i)
+				}
+				runtime.Gosched()
+			}
+		}
+		if _, err := w.EmbedQuery(context.Background(), "q"); err != nil {
+			t.Fatalf("round %d: request racing the retirement failed: %v", i, err)
+		}
+		<-done
+	}
+	if n := h.spawns(); n < 1+rounds/2 {
+		t.Fatalf("spawned %d children, want a fresh one after every retirement", n)
+	}
+}
+
+// Close during an idle retirement kills the child instead of waiting out
+// the stop grace of one that ignores stdin EOF.
+func TestWorkerEmbedder_CloseDuringIdleRetirement(t *testing.T) {
+	h := &helperSpawner{modes: []string{"linger"}}
+	w := newTestWorker(t, h, 0)
+	w.idleTimeout = 50 * time.Millisecond
+	if _, err := w.EmbedDocs(context.Background(), []string{"x"}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for len(w.slot.slot) == 0 { // the retirement holds the slot through the grace
+		if time.Now().After(deadline) {
+			t.Fatal("retirement never started")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	start := time.Now()
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed > workerStopGrace/2 {
+		t.Fatalf("Close waited %s for the retirement's grace", elapsed)
 	}
 }
 
