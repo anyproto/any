@@ -5,7 +5,10 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"io"
+	"sync"
 	"testing"
+	"time"
 
 	anystore "github.com/anyproto/any-store/v2"
 	"github.com/anyproto/any-store/v2/anyenc"
@@ -213,4 +216,109 @@ func TestImport_BadFiles(t *testing.T) {
 	_, err = s.Import(ctx, bytes.NewReader(gzOf(clash)))
 	require.True(t, errors.Is(err, anystore.ErrIndexMismatch), "%v", err)
 	require.ErrorAs(t, err, &ie)
+}
+
+// A stalled upload holds no write transaction: while the body is cut
+// off mid-chunk, another write on the same DB commits.
+func TestImport_StalledBodyHoldsNoWriter(t *testing.T) {
+	ctx := context.Background()
+	s := New(openDB(t))
+	other, _ := ParseRef(ScopeAccount, "", "other")
+	_, err := s.Ensure(ctx, other, nil)
+	require.NoError(t, err)
+	otherColl, err := s.Collection(ctx, other)
+	require.NoError(t, err)
+
+	a := &anyenc.Arena{}
+	ref, _ := ParseRef(ScopeAccount, "", "notes")
+	doc := func(id string) *anyenc.Value {
+		d := a.NewObject()
+		d.Set("id", a.NewString(id))
+		return d
+	}
+	// the manifest and one of two documents, then the body stalls
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	w := anyenc.NewWriter(gz)
+	require.NoError(t, w.Write(manifestValue(a, &Manifest{Format: FormatName, Version: FormatVersion,
+		Collections: []ManifestCollection{{Ref: ref, StorageName: ref.StorageName(), Count: 2}}})))
+	require.NoError(t, w.Write(doc("a")))
+	require.NoError(t, w.Flush())
+	require.NoError(t, gz.Flush())
+	stallAt := buf.Len()
+	require.NoError(t, w.Write(doc("b")))
+	require.NoError(t, w.Flush())
+	require.NoError(t, gz.Close())
+	body := &stallReader{data: buf.Bytes(), stallAt: stallAt, blocked: make(chan struct{}), resume: make(chan struct{})}
+	var resumeOnce sync.Once
+	resume := func() { resumeOnce.Do(func() { close(body.resume) }) }
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.Import(ctx, body)
+		done <- err
+	}()
+	// on failure: release the body and join the import before the DB closes
+	t.Cleanup(func() {
+		resume()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+		}
+	})
+	// Import consumed everything sent and waits for the second
+	// document; a write transaction open here would block the insert.
+	select {
+	case <-body.blocked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("import never reached the stall")
+	}
+	inserted := make(chan error, 1)
+	go func() { inserted <- otherColl.Insert(ctx, anyenc.MustParseJson(`{"id":"x"}`)) }()
+	t.Cleanup(func() {
+		resume() // cleanups run last-first: release the body before joining
+		select {
+		case <-inserted:
+		case <-time.After(5 * time.Second):
+		}
+	})
+	select {
+	case err := <-inserted:
+		inserted <- nil // the cleanup's join
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("a write blocked behind a stalled import")
+	}
+	resume()
+	require.NoError(t, <-done)
+	done <- nil // the cleanup's join
+	coll, err := s.Collection(ctx, ref)
+	require.NoError(t, err)
+	require.Len(t, docsOf(t, coll), 2)
+}
+
+// stallReader serves data, blocking once at stallAt until resume closes;
+// blocked closes when a Read reaches the stall.
+type stallReader struct {
+	data            []byte
+	stallAt, off    int
+	stalled         bool
+	blocked, resume chan struct{}
+}
+
+func (r *stallReader) Read(p []byte) (int, error) {
+	if r.off == r.stallAt && !r.stalled {
+		r.stalled = true
+		close(r.blocked)
+		<-r.resume
+	}
+	if r.off >= len(r.data) {
+		return 0, io.EOF
+	}
+	end := len(r.data)
+	if !r.stalled {
+		end = r.stallAt
+	}
+	n := copy(p, r.data[r.off:end])
+	r.off += n
+	return n, nil
 }

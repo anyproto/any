@@ -206,8 +206,10 @@ POST /v1/local/import   (body = the file, exempt from the 1 MiB body cap)
   byte — a missing collection is a JSON 404, never a truncated file.
   A failure after the first byte aborts the connection, so the client
   sees a cut body, never a clean end.
-- **Import = ensure + upsert**, 256 documents per transaction like
-  every other write here: an existing collection keeps what it has
+- **Import = ensure + upsert**, 256 documents (at most ~4 MiB) per
+  transaction like every other write here, each chunk read off the
+  body before its transaction opens, so a stalled upload holds no
+  writer: an existing collection keeps what it has
   and is overlaid (re-importing the same file is a no-op; a newer
   export of the same collections updates the older); an index that
   exists under the same name with a different definition is `400
