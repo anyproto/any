@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -160,6 +161,10 @@ func buildBodyQuery(c echo.Context, fields []string, base func(root *fastjson.Va
 	if errResp, done := checkFilter(c, root); done {
 		return nil, space.QueryOpts{}, none, errResp, true
 	}
+	keys, errResp, done := checkSort(c, root)
+	if done {
+		return nil, space.QueryOpts{}, none, errResp, true
+	}
 	if errResp, done := checkSubscribeWindow(c, root); done {
 		return nil, space.QueryOpts{}, none, errResp, true
 	}
@@ -167,7 +172,7 @@ func buildBodyQuery(c echo.Context, fields []string, base func(root *fastjson.Va
 	if done {
 		return nil, space.QueryOpts{}, none, errResp, true
 	}
-	q, opts := applyQueryParams(root, q)
+	q, opts := applyQueryParams(root, q, keys)
 	return q, opts, recordShaper{proj: proj}, nil, false
 }
 
@@ -263,6 +268,10 @@ func buildPerObjectQuery(c echo.Context, sp space.Space, vet perObjectVet) (perO
 	if errResp, done := checkFilter(c, root); done {
 		return none, errResp, true
 	}
+	keys, errResp, done := checkSort(c, root)
+	if done {
+		return none, errResp, true
+	}
 	if errResp, done := checkSubscribeWindow(c, root); done {
 		return none, errResp, true
 	}
@@ -279,7 +288,7 @@ func buildPerObjectQuery(c echo.Context, sp space.Space, vet perObjectVet) (perO
 	if done {
 		return none, errResp, true
 	}
-	q, opts := applyQueryParams(root, sp.Query(objectId, dataset))
+	q, opts := applyQueryParams(root, sp.Query(objectId, dataset), keys)
 	pq := perObjectQuery{
 		q: q, opts: opts, objectId: objectId, dataset: dataset,
 		shaper: recordShaper{proj: proj, strip: strip},
@@ -331,13 +340,52 @@ func checkFilter(c echo.Context, root *fastjson.Value) (error, bool) {
 	return nil, false
 }
 
-// applyQueryParams reads filter / sort / limit / offset / includeTotal
-// / mailboxCapacity / driftBudgetPercent off root and threads them
-// into the chained query builder. `projection` is read by
+// checkSort parses the body's sort at the request boundary and returns
+// its keys for applyQueryParams: the SDK's sort parse error has no
+// type sdkOpError can map, so it would answer 500.
+func checkSort(c echo.Context, root *fastjson.Value) ([]any, error, bool) {
+	keys, err := sortKeys(root)
+	if err != nil {
+		return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"invalid sort: "+err.Error(), map[string]any{"field": "sort"}), true
+	}
+	return keys, nil, false
+}
+
+// sortKeys reads the body's sort as ParseSort arguments and parses
+// them. An absent or null sort is no keys; anything but an array of
+// strings ParseSort accepts is an error.
+func sortKeys(root *fastjson.Value) ([]any, error) {
+	v := root.Get("sort")
+	if v == nil || v.Type() == fastjson.TypeNull {
+		return nil, nil
+	}
+	arr, err := v.Array()
+	if err != nil {
+		return nil, errors.New("sort must be an array of strings")
+	}
+	keys := make([]any, 0, len(arr))
+	for i, s := range arr {
+		if s.Type() != fastjson.TypeString {
+			return nil, fmt.Errorf("sort[%d] must be a string", i)
+		}
+		keys = append(keys, string(s.GetStringBytes()))
+	}
+	if len(keys) > 0 {
+		if _, err := query.ParseSort(keys...); err != nil {
+			return nil, err
+		}
+	}
+	return keys, nil
+}
+
+// applyQueryParams reads filter / limit / offset / includeTotal
+// / mailboxCapacity / driftBudgetPercent off root and threads them and
+// the sort keys checkSort returned into the chained query builder. `projection` is read by
 // parseProjection, not here. MailboxCapacity /
 // DriftBudgetPercent only matter on the Subscribe terminal; Snapshot
 // ignores them.
-func applyQueryParams(root *fastjson.Value, q space.Query) (space.Query, space.QueryOpts) {
+func applyQueryParams(root *fastjson.Value, q space.Query, keys []any) (space.Query, space.QueryOpts) {
 	opts := space.QueryOpts{}
 	if root == nil {
 		return q, opts
@@ -345,11 +393,7 @@ func applyQueryParams(root *fastjson.Value, q space.Query) (space.Query, space.Q
 	if filter := root.Get("filter"); filter != nil && filter.Type() != fastjson.TypeNull {
 		q = q.Filter(filter)
 	}
-	if sortArr := root.GetArray("sort"); len(sortArr) > 0 {
-		keys := make([]any, 0, len(sortArr))
-		for _, s := range sortArr {
-			keys = append(keys, string(s.GetStringBytes()))
-		}
+	if len(keys) > 0 {
 		q = q.Sort(keys...)
 	}
 	if v := root.Get("limit"); v != nil {

@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	_ "net/http/pprof"
+	"sync"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -16,6 +18,10 @@ import (
 
 	"github.com/anyproto/any/internal/api"
 )
+
+// teardownWriteGrace is how long a gated response may keep writing once
+// teardown cancels the engine (a stream's terminal frame fits in it).
+const teardownWriteGrace = time.Second
 
 // recoverLog surfaces recovered panics (which otherwise render as a bare
 // "internal error" 500 with nothing in the log) through the app logger with
@@ -147,10 +153,29 @@ func buildEcho(d *deps) *echo.Echo {
 				// engine ctx, and every SDK call takes the request ctx,
 				// so in-flight work unwinds instead of holding the
 				// drain open. shutdownCtx is stable inside the gate.
+				// A write parked on a peer that stopped reading ignores the
+				// ctx, so teardown also sets a write deadline — never once
+				// the request is over: the connection may serve the next.
 				if engCtx := d.shutdownCtx; engCtx != nil {
 					ctx, cancel := context.WithCancel(c.Request().Context())
-					stop := context.AfterFunc(engCtx, cancel)
-					defer stop()
+					resp := c.Response()
+					var mu sync.Mutex
+					finished := false
+					stop := context.AfterFunc(engCtx, func() {
+						cancel()
+						mu.Lock()
+						defer mu.Unlock()
+						if !finished {
+							_ = http.NewResponseController(resp).SetWriteDeadline(time.Now().Add(teardownWriteGrace))
+						}
+					})
+					defer func() {
+						if !stop() {
+							mu.Lock()
+							finished = true
+							mu.Unlock()
+						}
+					}()
 					defer cancel()
 					c.SetRequest(c.Request().WithContext(ctx))
 				}

@@ -150,19 +150,28 @@ func (d *deps) bundleEnsure(c echo.Context) error {
 	defer cancel()
 
 	// One install through the same walk a catalog setup runs, so the
-	// pre-install rule (a listed type already holding the xKey) is one
-	// rule in one place.
-	results, err := d.bundleResolver().Setup(ctx, createCtx, sp, []bundles.Install{inst}, catalogBeforeInstall)
+	// pre-install rules (a catalog handle, a listed definition already
+	// holding the xKey) are one gate in one place.
+	cc, err := d.usecaseCatalog()
+	if err != nil {
+		return writeError(c, http.StatusInternalServerError, "server.internal", "usecase catalog failed to compile", nil)
+	}
+	results, err := d.bundleResolver().Setup(ctx, createCtx, sp, []bundles.Install{inst}, d.installGates(cc))
 	if err != nil {
 		var se *bundles.SetupError
 		if errors.As(err, &se) {
 			err = se.Err
 		}
+		var ch *catalogHandleError
+		if errors.As(err, &ch) {
+			return catalogHandleConflict(c, sp.Id(), ch.XKey, ch.handle, map[string]any{"bundleId": inst.Id})
+		}
 		var xc *xKeyConflictError
 		if errors.As(err, &xc) {
+			details := map[string]any{"spaceId": sp.Id(), "bundleId": inst.Id}
+			holder := xc.addHolder(details)
 			return writeError(c, http.StatusConflict, "type.xkey_conflict",
-				"xKey already in use by another type in this space",
-				map[string]any{"xKey": xc.XKey, "existingTypeId": xc.ExistingTypeId, "spaceId": sp.Id(), "bundleId": inst.Id})
+				"xKey already in use by a "+holder+" in this space", details)
 		}
 		return bundleError(c, err, sp.Id(), inst.Id)
 	}
@@ -797,7 +806,7 @@ func bundleErrorWith(c echo.Context, err error, details map[string]any) error {
 		return writeError(c, http.StatusBadRequest, api.ErrDatasetModuleReserved,
 			"a part names a module reserved to the server's own installs", details)
 	case errors.Is(err, space.ErrBundleBadRequest):
-		details["reason"] = err.Error()
+		details["reason"] = sanitizeSDKMessage(err)
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"invalid bundle request", details)
 	}

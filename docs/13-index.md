@@ -707,13 +707,19 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   cache `<root>/models/` (a copy already in the account's `index/models/`
   is used in place); the download is resumable, logs progress, reports
   `index.model_download`, and never blocks boot — until it completes the
-  embedder reports unavailable (outage semantics below).
+  embedder reports unavailable (outage semantics below). One process per
+  root downloads, holding an OS lock on `<model>.gguf.lock` that the
+  kernel drops if it dies; another instance under the same root polls
+  for the installed file and takes the download over once the lock is
+  free. A transfer that sends nothing for 2 minutes is cut and retried
+  with backoff, so a stalled connection never holds the lock.
   Air-gapped: set `index.local.modelPath` (no download). `index.local.dim`
   truncates output vectors (Matryoshka) to shrink the index. Compute
   threads default to `NumCPU()-1` (`index.local.threads`); past the
   physical core count can regress on hyperthreaded CPUs. Loaded cost ≈
   640 MB mmap + ~200 MB context; nothing loads before the first embed
-  call. Linux needs a system `libffi.so.8` (NixOS: `nix develop`).
+  call, and an idle child is retired (§ The embedder child process).
+  Linux needs a system `libffi.so.8` (NixOS: `nix develop`).
 - `ollama` — local `/api/embed`, default `embeddinggemma`, doc/query
   task prompts.
 - `openai` — any OpenAI-compatible `/embeddings` API (`index.openai.baseUrl`
@@ -764,6 +770,20 @@ most the decode in flight (~1–2 s worst case for a 2048-token doc on
 CPU), never for a 64-doc batch. A cold spawn or a wedged child holds the
 slot longer; the query budget in § Search covers that. Acquisition is
 context-aware: a caller that gives up leaves the queue.
+
+**Idle retirement.** A child that serves no frame for 5 minutes is
+stopped (stdin EOF), which returns all of its memory: llama.cpp keeps
+its decode buffers at their high-water mark for the life of the
+process, over 1 GB after one 2048-token document. The countdown starts
+when a frame ends, so a frame in flight is never cut; a slot held
+without a frame when it runs out only postpones the check. The stop
+holds the slot: a request that arrives meanwhile waits for it and spawns
+a fresh child (about a second warm; a cold model load takes longer), and
+a shutdown that arrives meanwhile kills the child rather than waiting
+out the stop grace. A GPU respawn that fails (VRAM taken while the child
+was retired, say) retries with the spawn backoff and recovers once the
+GPU is free; until then embedding is unavailable and hybrid search
+degrades to `fts`.
 
 **Why a child.** llama.cpp faults are not recoverable in Go: a Vulkan
 device-lost throws a C++ exception through a purego frame with no
@@ -914,7 +934,11 @@ title pass alone, below). The query
 embedding is bounded by `index.search.queryEmbedTimeout` (default 5 s,
 every embedder): a cold model load, a wedged child or a slow API
 degrades the search instead of holding it, and a caller that disconnects
-leaves the embedder's queue at once. Scores are comparable only within
+leaves the embedder's queue at once. The first query after the local
+child's idle retirement (§ The embedder child process) spawns it again,
+about a second warm; a spawn that outlasts the budget degrades a
+`hybrid` search to `fts` and answers a `vector` search `503
+index.embedder_unavailable`. Scores are comparable only within
 one response. `limit` defaults to 10 and is clamped to 100. CLI:
 `any search <spaceId> <query> [--scopes a,b] [--limit N] [--mode …]
 [--require T …] [--exclude T …] [--max-data N] [--passages N]`.
@@ -1324,14 +1348,20 @@ run).
 - `internal/indexer/embed_local_download_test.go` — the download manager
   against `httptest`: happy path, sha256 mismatch, Range resume,
   progress strings, `Close` during a retry backoff (the goroutine is
-  joined and the process row ends cancelled).
+  joined and the process row ends cancelled), a lock held by another
+  process (no request, no `.part`) and its takeover once released, a
+  stalled transfer cut by the watchdog, the waiting row's counters, a
+  takeover restarting the retry backoff, and every install path ending
+  at the file's size.
 - `internal/indexer/embed_worker_test.go` — the child supervisor against
   a helper process (the test binary re-exec'd, speaking the frame
   protocol in place of a model): per-frame batching, a query jumping the
   doc queue, abandoned callers keeping the child, crash → CPU demotion,
-  request timeout, spawn backoff, `SetThreads` idle/busy, `Close`
-  mid-request and mid-spawn; plus a gated real-child comparison against
-  the in-process model.
+  request timeout, spawn backoff, an installed model spawning while the
+  downloader still reports a wait, `SetThreads` idle/busy, idle
+  retirement (also after a slot held without a frame), a request and a
+  `Close` racing it, `Close` mid-request and mid-spawn; plus a gated
+  real-child comparison against the in-process model.
 - `internal/indexer/search_budget_test.go` — the query-embedding budget
   in `Search`: hybrid degrades to fts / `unavailable`, vector fails as
   embedder-unavailable, a cancelled caller gets its own cancellation.

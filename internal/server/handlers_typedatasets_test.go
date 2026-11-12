@@ -1208,3 +1208,22 @@ func TestTypeDatasets_FieldPatch(t *testing.T) {
 		t.Fatalf("unknown field: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// TestSanitizeSDKMessage pins prefix stripping at the front and after
+// every ": " separator a wrap chain adds, never inside quoted text.
+func TestSanitizeSDKMessage(t *testing.T) {
+	for in, want := range map[string]string{
+		`typesAPI: dataset "samples": schema: invalid dataset declaration: field "x"`: `dataset "samples": invalid dataset declaration: field "x"`,
+		`spaceimpl: bundle bad request: empty bundle id`:                              `bundle bad request: empty bundle id`,
+		`space: aggregate: bad pipeline: unknown stage "$bogus"`:                      `aggregate: bad pipeline: unknown stage "$bogus"`,
+		`typesAPI: crdt: missing required field "title"`:                              `missing required field "title"`,
+		`no prefix: at all`: `no prefix: at all`,
+		`typesAPI: invalid dataset declaration: field "a: schema: b" key must match`:     `invalid dataset declaration: field "a: schema: b" key must match`,
+		`space: bad pipeline: cannot parse JSON: missing closing '"'; tail: x: space: y`: `bad pipeline: cannot parse JSON: missing closing '"'; tail: x: y`,
+		`space: bad pipeline: field "x \": space: y": space: z`:                          `bad pipeline: field "x \": space: y": z`,
+	} {
+		if got := sanitizeSDKMessage(errors.New(in)); got != want {
+			t.Errorf("sanitizeSDKMessage(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

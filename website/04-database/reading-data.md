@@ -126,7 +126,7 @@ Instants filter as instants. Wrap the literal in `{"$date": …}`:
 
 ## Sort
 
-`sort` is an array of dotted paths, `-` prefix for descending, applied left to right: `["<wikiCollectionId>.<parentIdPropId>", "<wikiCollectionId>.<posPropId>"]` (the wiki tree's columns — [Objects](objects.html)). On `/subscribe`, `sort` is required whenever `limit > 0` so the window is well-defined. `{"sort": ["-modifiedAt"]}` is "recently modified first"; `-createdAt` is creation order. Add `id` as the last key, in the direction of the key before it (`["-modifiedAt", "-id"]`), when the others can tie — tied rows have no specified order — and re-apply the same sort client-side after each `changes` batch — a map's insertion order is not query order.
+`sort` is an array of dotted paths, `-` prefix for descending, applied left to right (anything else, or a key that does not parse, is `400 request.invalid_field` with `details.field: "sort"`): `["<wikiCollectionId>.<parentIdPropId>", "<wikiCollectionId>.<posPropId>"]` (the wiki tree's columns — [Objects](objects.html)). On `/subscribe`, `sort` is required whenever `limit > 0` so the window is well-defined. `{"sort": ["-modifiedAt"]}` is "recently modified first"; `-createdAt` is creation order. Add `id` as the last key, in the direction of the key before it (`["-modifiedAt", "-id"]`), when the others can tie — tied rows have no specified order — and re-apply the same sort client-side after each `changes` batch — a map's insertion order is not query order.
 
 ## Paths
 

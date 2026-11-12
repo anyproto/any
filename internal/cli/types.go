@@ -24,9 +24,30 @@ func newTypeCmd() *cobra.Command {
 		newTypeCreateCmd(),
 		newTypeListCmd(),
 		newTypeUpdateCmd(),
+		newTypeDeleteCmd(),
 		newTypePropertyCmd(),
 		newTypePartCmd(),
 	)
+	return cmd
+}
+
+// newTypeDeleteCmd: `any type delete` — DELETE …/types/:typeId.
+// Irreversible and synced, so it refuses to run without --yes.
+func newTypeDeleteCmd() *cobra.Command {
+	var yes bool
+	cmd := &cobra.Command{
+		Use:   "delete <spaceId> <typeId>",
+		Short: "delete a type; its objects keep the id (irreversible; requires --yes)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !yes {
+				return fmt.Errorf("refusing to delete %s without --yes (this is irreversible)", args[1])
+			}
+			cl := newClient(flags.Timeout)
+			return cl.TypeDelete(cmd.Context(), args[0], args[1])
+		},
+	}
+	cmd.Flags().BoolVar(&yes, "yes", false, "confirm the irreversible delete")
 	return cmd
 }
 

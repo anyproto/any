@@ -38,19 +38,15 @@ var errDeviceKeyCorrupt = errors.New("device key cache unreadable")
 // deviceKeyPath is the cache location for an account dir.
 func deviceKeyPath(dir string) string { return filepath.Join(dir, deviceKeyFile) }
 
-// managedCredential is the host-owned custody: the account key comes
-// from the mnemonic the host supplied for this boot and never touches
-// disk; the device key is the account dir's cached one, minted on the
-// first boot and reused after, so the peerId stays stable across
-// logins. Index is applied explicitly — the SDK's own default is 0,
-// any's is 1.
-func managedCredential(dir, mnemonic string, index uint32) credential {
+// managedCredential is the host-owned custody: derivedKey never touches
+// disk; the dir's cached device key keeps the peerId stable across logins.
+func managedCredential(dir string, derivedKey []byte) credential {
 	return func(ctx context.Context) (auth.Provider, bool, error) {
 		deviceKey, created, err := loadOrCreateDeviceKey(ctx, dir)
 		if err != nil {
 			return nil, false, err
 		}
-		p, err := auth.NewMnemonicProvider(auth.MnemonicConfig{Mnemonic: mnemonic, Index: index, DeviceKey: deviceKey})
+		p, err := auth.NewKeyProvider(auth.KeyConfig{AccountKey: derivedKey, DeviceKey: deviceKey})
 		if err != nil {
 			return nil, created, err
 		}

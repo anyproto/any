@@ -184,6 +184,10 @@ usecases:
             - { xKey: completedAt, name: Completed at,    kind: datetime, xFormat: { type: datetime } }
             - { xKey: position,    name: Order,           kind: number,   meta: { index: none },
                 description: Fractional rank shared by every list }
+        parts:
+          - key: body                                  # the task's page; the body a page has
+            ui: { type: document }
+            datasets: [ { module: editor } ]
       - id: system:project/v2
         name: Projects
         supersedes: [ system:project/v1 ]
