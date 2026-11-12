@@ -78,7 +78,7 @@ One synced record per run — fires, conversations and control-API runs — on t
 | `tokens` | `{in, out, cacheRead, cacheWrite}` |
 | `costUsd`, `model`, `title` | |
 
-Read them through `POST /v1/spaces/:id/query` with `objectId` = the runs child, `dataset` = the `<typeId>_agent_runs` collection, `filter: {"triggerId": "<id>"}`, `sort: ["-startedAt"]`.
+Read them through `POST /v1/spaces/:id/query` with `objectId` = the runs child, `dataset` = the `<typeId>_agent_runs` collection, `filter: {"triggerId": "<id>"}`, `sort: ["-startedAt", "-id"]`, a `limit`.
 
 ## Control-plane routes
 

@@ -52,7 +52,7 @@ Concurrent edits to the **same** path pick one winner by DAG order — the other
 | `$addToSet` / `$pull` | Set semantics — concurrent adds all land. Concurrent add + pull of the same element has no per-element guarantee. |
 | `delete` | **Delete wins absolutely.** A tombstone is sticky; every later modify on that record id is dropped and reported to the local writer as a rejection. |
 
-Creates are upserts: two concurrent creates of the same id merge per field, and the record's creation marker `_ver.id` converges to the causally earliest one (the `min` rule), so a chat sorted by `-_ver.id` orders identically everywhere.
+Creates are upserts: two concurrent creates of the same id merge per field, and the record's creation marker `_ver.id` converges to the causally earliest one (the `min` rule), so a chat sorted `["-_ver.id", "-id"]` orders identically everywhere.
 
 ## Versus transactions
 

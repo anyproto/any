@@ -45,10 +45,10 @@ curl 'http://127.0.0.1:2046/v1/spaces?status=invite_pending'
 
 `GET /v1/spaces` returns the mapped `SpaceInfo` rows and hides non-active spaces by default. Pending invites, incoming direct spaces and deleted tombstones are the same list filtered on `status`.
 
-For a filterable, sortable or live view use the query primitive over the raw space rows — `POST /v1/spaces/query` and `POST /v1/spaces/query/subscribe` take the standard [query body](reading-data.html). Rows there carry `createdAt` as an instant, so `{"sort": ["-createdAt"]}` is newest-first. See [Space list](../realtime/space-list.html).
+For a filterable, sortable or live view use the query primitive over the raw space rows — `POST /v1/spaces/query` and `POST /v1/spaces/query/subscribe` take the standard [query body](reading-data.html). Rows there carry `createdAt` as an instant, so `{"sort": ["-createdAt", "-id"]}` is newest-first. See [Space list](../realtime/space-list.html).
 
 ```bash
-any space query --sort -createdAt --limit 10
+any space query --sort -createdAt,-id --limit 10
 any space subscribe
 ```
 

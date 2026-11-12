@@ -26,9 +26,9 @@ The allowlist is closed: any other name is `400 request.invalid_field`. The same
 ```bash
 curl http://127.0.0.1:2046/v1/spaces/query \
   -H 'Content-Type: application/json' \
-  -d '{"filter":{"spaceType":"any.onetoone"},"sort":["-createdAt"],"limit":50,"includeTotal":true}'
+  -d '{"filter":{"spaceType":"any.onetoone"},"sort":["-createdAt","-id"],"limit":50,"includeTotal":true}'
 
-any space query --filter '{"spaceType":"any.onetoone"}' --sort -createdAt --limit 50 --total
+any space query --filter '{"spaceType":"any.onetoone"}' --sort -createdAt,-id --limit 50 --total
 ```
 
 ## Raw rows, not `SpaceInfo`
@@ -42,7 +42,7 @@ Fields worth knowing on a raw row:
 | `remoteStatus` | the synced, account-wide lifecycle: absent or `active`, `joining` / `joinEnded`, `invitePending` / `inviteDeclined`, `deleted` (a sticky tombstone), … |
 | `localStatus` | the device-local lifecycle: absent means active; `oneToOnePending` marks an incoming one-to-one request |
 | `spaceType` | `any.space`, `any.onetoone`, … |
-| `createdAt` | added-to-account instant, `{"$date": "…"}`; absent when unknown. Sort `["-createdAt"]`, range-filter with `{"$gte": {"$date": "…"}}` |
+| `createdAt` | added-to-account instant, `{"$date": "…"}`; absent when unknown. Sort `["-createdAt", "-id"]`, range-filter with `{"$gte": {"$date": "…"}}` |
 | `ownRole` | your own role, mirrored from ACL state: `owner` / `admin` / `writer` / `reader` / `guest` / `none`; absent until mirrored on this device |
 | `settings` | the account-private settings object written via `PATCH /v1/spaces/:id/settings` (e.g. `notifyMode`) |
 | `push` | `{spaceKey, encKey, encKeyId}` push key material; absent until the mirror has run for the space |
@@ -63,9 +63,9 @@ Because these are plain row fields, changes to them arrive as ordinary `updated`
 ```bash
 curl -N http://127.0.0.1:2046/v1/spaces/query/subscribe \
   -H 'Content-Type: application/json' \
-  -d '{"sort":["-createdAt"],"limit":100}'
+  -d '{"sort":["-createdAt","-id"],"limit":100}'
 
-any space subscribe --sort -createdAt --limit 100 \
+any space subscribe --sort -createdAt,-id --limit 100 \
   | jq 'select(.event=="changes") | .data[] | .updated[]? | {id, ownRole: .doc.ownRole}'
 ```
 

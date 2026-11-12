@@ -338,7 +338,7 @@ not to do).
 Read and tail messages with the windowed subscribe (§ Subscribe):
 
 ```
-any query-subscribe <spaceId> <objectId> --dataset chat_messages --sort=-_ver.id --limit 50
+any query-subscribe <spaceId> <objectId> --dataset chat_messages --sort=-_ver.id,-id --limit 50
 ```
 
 ### Files
@@ -393,11 +393,12 @@ objects with `--all-objects` — and prints
 one JSON object per SSE frame on stdout, `{"event": "<name>", "data": <payload>}`:
 `ready`, `snapshot`, `changes`, `closed`. The first `snapshot` is the
 query's answer; the stream stays open for live changes. `--sort` is a
-comma-separated key list (`-` prefix = descending) and needs `--limit`;
-`--total` adds the unbounded match count and `hasNext`.
+comma-separated key list (`-` prefix = descending), and a window
+(`--limit` above 0) needs `--sort`; `--total` adds the unbounded match
+count and `hasNext`.
 
 ```bash
-any query-subscribe $SPID --properties \
+any query-subscribe $SPID --properties --sort -modifiedAt,-id --limit 50 \
   | jq 'select(.event=="changes") | .data[]'
 ```
 

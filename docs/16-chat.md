@@ -208,13 +208,13 @@ First unread message (the divider position / scroll target):
 POST /v1/spaces/:spaceId/query
 { "objectId": "<chatId>", "dataset": "chat_messages",
   "filter": {"unread": true},
-  "sort": ["_ver.id"], "limit": 1 }
+  "sort": ["_ver.id", "id"], "limit": 1 }
 ```
 
 Then load a window of messages around its `_ver.id` (range filters on
 `_ver.id`, same as normal pagination) and place the "New messages"
 divider above it. The newest unread (for a "↓ new messages" jump-down
-pill) is the same query with `"sort": ["-_ver.id"]`.
+pill) is the same query with `"sort": ["-_ver.id", "-id"]`.
 
 **Unread can appear mid-history.** Ordering is collaborative: a
 message written offline by another member can slot *between* messages
@@ -277,10 +277,10 @@ a `_ver.id` tiebreak; use the equality form, not `$exists`):
 POST /v1/spaces/:spaceId/query
 { "objectId": "<chatId>", "dataset": "chat_messages",
   "filter": {"mentions": "<myIdentity>"},
-  "sort": ["-_ver.id"], "limit": 20 }
+  "sort": ["-_ver.id", "-id"], "limit": 20 }
 
 # My unread mentions (divider / jump target — same shape as unread):
-{ …, "filter": {"unreadMention": true}, "sort": ["_ver.id"], "limit": 1 }
+{ …, "filter": {"unreadMention": true}, "sort": ["_ver.id", "id"], "limit": 1 }
 ```
 
 Badge from the row's `chat.unreadMentions`, exactly like
@@ -302,7 +302,7 @@ Query the chat objects as usual; each row already carries
 `chat.unreadCount` / `chat.unreadMentions` /
 `chat.unreadReactionsCount`, so sorting "unread first" or badging is
 a plain filter/sort on the list query (nested paths work everywhere:
-`{"sort": ["-chat.unreadCount"]}`), and live updates arrive through
+`{"sort": ["-chat.unreadCount", "-id"]}`), and live updates arrive through
 the normal objects subscription. No per-chat calls, no chat opens — a
 thousand chats cost one query.
 

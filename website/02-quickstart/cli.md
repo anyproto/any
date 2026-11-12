@@ -64,16 +64,16 @@ OBJ=$(any object create $SPACE --type page \
 
 # cross-object live window: the space's objects storage collection
 any query-subscribe $SPACE --properties \
-  --filter '{"any.type":"page"}' --sort='-modifiedAt' --limit 20 --total
+  --filter '{"any.type":"page"}' --sort='-modifiedAt,-id' --limit 20 --total
 
 # per-object dataset: the blocks of one document
-any query-subscribe $SPACE $OBJ --dataset editor_blocks --sort nav.pos --limit 200
+any query-subscribe $SPACE $OBJ --dataset editor_blocks --sort nav.pos,id
 ```
 
 Output is one JSON object per SSE frame — `{"event": "...", "data": ...}` — so it pipes through `jq`:
 
 ```bash
-any query-subscribe $SPACE --properties --sort='-modifiedAt' --limit 20 \
+any query-subscribe $SPACE --properties --sort='-modifiedAt,-id' --limit 20 \
   | jq -c 'select(.event=="changes") | .data[] | {added: [.added[]?.id], updated: [.updated[]?.id]}'
 ```
 
@@ -90,7 +90,7 @@ any editor edit $SPACE $OBJ --old '- [ ] Dune' --new '- [x] Dune'          # PAT
 CHAT=$(any catalog setup general-chat $SPACE | jq -r '.bundles[0].bundle.rootId')
 MSG=$(any chat send $SPACE $CHAT --text 'hi there' | jq -r '.recordIds[0]')
 any chat react $SPACE $CHAT $MSG 👍
-any query-subscribe $SPACE $CHAT --dataset chat_messages --sort='-_ver.id' --limit 50
+any query-subscribe $SPACE $CHAT --dataset chat_messages --sort='-_ver.id,-id' --limit 50
 ```
 
 ## Everything else
