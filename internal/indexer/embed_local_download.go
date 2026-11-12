@@ -33,8 +33,8 @@ import (
 // downloads resume via a Range request (re-hashing the existing .part
 // prefix first). Failures retry with capped backoff — the destination
 // file is the readiness signal, not this object — until the source
-// fails the checksum twice: it serves another file, and fetching it
-// again cannot help.
+// twice serves a whole file that fails the checksum: it is another
+// file, and fetching it again cannot help.
 //
 // The models dir is shared by every account under one root, so the
 // .part is guarded across processes by an OS lock on <dest>.lock: one
@@ -132,11 +132,25 @@ var downloadPollInterval = 5 * time.Second
 // doubles up to 5 minutes (a var so tests can shorten it).
 var downloadRetryBackoff = 5 * time.Second
 
-// errChecksumMismatch is a fully fetched file that is not the expected one.
-var errChecksumMismatch = errors.New("sha256 mismatch")
+// checksumMismatch is a fetched file that is not the expected one.
+// whole marks the source's own file: a complete body of declared
+// length, fetched from its first byte and too large for an error page.
+// A resumed, undeclared or tiny body can be a damaged transfer.
+type checksumMismatch struct {
+	got, want string
+	whole     bool
+}
+
+func (e *checksumMismatch) Error() string {
+	return "sha256 mismatch: got " + e.got + " want " + e.want
+}
+
+// downloadMinWhole is the smallest body taken for a model file rather
+// than an error page (a var so tests can shorten it).
+var downloadMinWhole int64 = 1 << 20
 
 // errDownloadStopped ends the retries until the next start: the source
-// served a file that failed the checksum twice.
+// twice served a whole file that failed the checksum.
 var errDownloadStopped = errors.New("model download stopped: the source serves a file that is not the expected model; correct index.local.modelUrl or modelSha256 and restart")
 
 // errDownloadStalled is a transfer the stall watchdog cut.
@@ -202,9 +216,9 @@ func (d *modelDownload) run(ctx context.Context, client *http.Client) {
 			d.rep.finish(ctx, err) // terminal cancelled; the .part resumes next boot
 			return
 		}
-		// The first mismatch may come from a stale .part, now removed; a
-		// second one is the source's own file.
-		if errors.Is(err, errChecksumMismatch) {
+		// Two whole files that fail the checksum are the source's own
+		// file, not a damaged transfer.
+		if mm := (*checksumMismatch)(nil); errors.As(err, &mm) && mm.whole {
 			if mismatches++; mismatches >= 2 {
 				d.mu.Lock()
 				d.err = fmt.Errorf("%w (%v)", errDownloadStopped, err)
@@ -352,6 +366,7 @@ func (d *modelDownload) fetch(ctx context.Context, client *http.Client) error {
 	if resp.ContentLength < 0 {
 		total = 0
 	}
+	whole := offset == 0 && resp.ContentLength >= downloadMinWhole
 	d.mu.Lock()
 	d.got, d.total, d.err = offset, total, nil
 	d.mu.Unlock()
@@ -378,7 +393,7 @@ func (d *modelDownload) fetch(ctx context.Context, client *http.Client) error {
 	if d.sha != "" {
 		if got := hex.EncodeToString(h.Sum(nil)); got != d.sha {
 			_ = os.Remove(part)
-			return fmt.Errorf("%w: got %s want %s", errChecksumMismatch, got, d.sha)
+			return &checksumMismatch{got: got, want: d.sha, whole: whole}
 		}
 	}
 	return os.Rename(part, d.dest)
