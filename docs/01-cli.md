@@ -667,7 +667,10 @@ adopt-or-install per bundle, idempotent, resumable after a failure —
 and prints every bundle touched with the converged row, whether THIS
 call installed it, `typeId` or `collectionId` (whichever the bundle
 declares) and the xKey → propId map. Usecase ids are slugs (`wiki`,
-`general-chat`, `crm`), passed as-is. `make
+`general-chat`, `crm`), passed as-is. A setup that waits answers at
+the server's bounds (90 s of waits, two minutes inside the install),
+past the CLI's 30 s request timeout: pass `--timeout 4m` to get its
+reply. `make
 catalog-validate [FILES=…]` checks the catalog file itself — a build
 step in the repo, not a CLI command.
 

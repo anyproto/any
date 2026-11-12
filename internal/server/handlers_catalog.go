@@ -100,8 +100,10 @@ func catalogNotFound(c echo.Context, id string) error {
 // A failure mid-walk leaves the dependencies it installed and names
 // the failing usecase and bundle; the next call resumes.
 //
-// The whole call runs under catalogSetupTimeout. A step still waiting
-// then is `503 catalog.setup_timeout` naming it; what the walk landed
+// The call's waits and reads run under catalogSetupTimeout; the
+// install section keeps bundleCreateTimeout, so the first never cuts
+// an install that is writing. Past either the reply is
+// `503 catalog.setup_timeout` naming the step; what the walk landed
 // stays, and the next call adopts it.
 //
 //	@Summary	Set a usecase up in a space, dependencies included
@@ -140,8 +142,7 @@ func (d *deps) catalogSetup(c echo.Context) error {
 		return unsupportedOnTechSpace(c, req.SpaceId)
 	}
 	start := time.Now()
-	deadline := start.Add(catalogSetupTimeout)
-	ctx, cancel := context.WithDeadline(c.Request().Context(), deadline)
+	ctx, cancel := context.WithTimeout(c.Request().Context(), catalogSetupTimeout)
 	defer cancel()
 	var steps setupSteps
 	defer func() {
@@ -151,11 +152,7 @@ func (d *deps) catalogSetup(c echo.Context) error {
 			zap.Duration("total", time.Since(start)),
 		}, steps.took...)...)
 	}()
-	// timedOut reports an error the setup's own deadline caused; a
-	// client that went away is a cancel, not a timeout.
-	timedOut := func(err error) bool {
-		return errors.Is(err, context.DeadlineExceeded) && !time.Now().Before(deadline)
-	}
+	timedOut := func(err error) bool { return setupTimedOut(ctx, err) }
 	timeout := func() error {
 		handlerLog.Warn("catalog: setup timed out", zap.String("usecaseId", usecaseId),
 			zap.String("spaceId", req.SpaceId), zap.String("step", steps.step))
@@ -199,11 +196,11 @@ func (d *deps) catalogSetup(c echo.Context) error {
 
 	// Detached from the request, as the single-bundle ensure is: a
 	// client that disconnects mid-walk must not leave a root nothing
-	// references. Bounded by shutdown and the setup's deadline. No
-	// checkBundleRoot: the only root type a catalog install attaches
-	// is the registered `miniapp`, whose values the compile step
-	// already gated.
-	createCtx, cancelCreate := context.WithDeadline(d.backgroundCtx(), deadline)
+	// references. Bounded by shutdown and the create timeout, which
+	// here covers the whole walk. No checkBundleRoot: the only root
+	// type a catalog install attaches is the registered `miniapp`,
+	// whose values the compile step already gated.
+	createCtx, cancelCreate := context.WithTimeout(d.backgroundCtx(), bundleCreateTimeout)
 	defer cancelCreate()
 
 	steps.enter(setupStepInstall)
@@ -290,11 +287,22 @@ func (d *deps) catalogSetup(c echo.Context) error {
 	return c.JSON(http.StatusOK, out)
 }
 
-// catalogSetupTimeout bounds one setup call, the detached install
-// included. It stays above the two registry waits a walk can pay
-// (bundles.DefaultIndexWait each) and well under the request timeout
-// of a client. A variable for tests.
+// catalogSetupTimeout bounds the waits and reads of one setup call:
+// opening the space, the registry waits, every read. It stays above
+// the two registry waits a walk can pay (bundles.DefaultIndexWait
+// each). The install section runs under bundleCreateTimeout instead,
+// so this bound never cuts an install between minting a root and
+// registering it. A variable for tests.
 var catalogSetupTimeout = 90 * time.Second
+
+// setupTimedOut reports an error one of a setup's bounds caused: a
+// deadline error, or a member's registry wait the wait bound cut short
+// (ctx is the setup's wait ctx). A client that went away and a shutdown
+// are cancels, not timeouts.
+func setupTimedOut(ctx context.Context, err error) bool {
+	return errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, bundles.ErrRegistryNotSynced) && errors.Is(ctx.Err(), context.DeadlineExceeded)
+}
 
 // The steps of a setup, as `details.step` of the timeout and as the
 // duration keys of its log line.

@@ -1606,9 +1606,10 @@ failure mid-walk leaves the dependencies it installed, names the step
 in `details.usecase` / `details.bundleId`, and the next call resumes.
 Readers adopt, writers install; when the wait expires the owner
 installs anyway and a member whose index has never arrived is
-`409 bundle.not_ready`. The whole call is bounded at 90 seconds: a step
-still waiting then is `503 catalog.setup_timeout` naming it in
-`details.step`, what the walk landed stays, and a retry resumes
+`409 bundle.not_ready`. The call's waits are bounded at 90 seconds and
+its install section at two minutes: past either it is
+`503 catalog.setup_timeout` naming the step in `details.step`, what the
+walk landed stays, and a retry resumes
 (`28-well-known-bundles.md` § Endpoints).
 
 ```jsonc

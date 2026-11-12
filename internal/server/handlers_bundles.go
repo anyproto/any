@@ -38,8 +38,9 @@ const (
 )
 
 // bundleCreateTimeout bounds the detached create-and-register section
-// of one install. A catalog setup bounds its walk by its own deadline.
-const bundleCreateTimeout = 2 * time.Minute
+// — one install here, the whole ordered walk of a catalog setup. A
+// variable for tests.
+var bundleCreateTimeout = 2 * time.Minute
 
 // bundleEnsureFields is the closed Ensure vocabulary, derived from the
 // api request struct — the same source the swagger spec is generated
