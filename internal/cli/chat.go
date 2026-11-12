@@ -11,23 +11,26 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-// newChatCmd is the root for `any chat <subcommand>`. The five
-// subcommands (send / list / edit / delete / react) line up 1:1 with
-// the HTTP endpoints under /v1/spaces/:id/objects/:objectId/messages.
+// newChatCmd is the root for `any chat <subcommand>`. The subcommands
+// line up 1:1 with the chat write endpoints under
+// /v1/spaces/:id/objects/:objectId/chat.
 //
-// For tailing live messages use the existing `any subscribe SPACE OBJ
+// For tailing live messages use `any query-subscribe SPACE OBJ
 // --dataset chat_messages` — the chat endpoints intentionally don't
 // expose a chat-specific subscribe.
 func newChatCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "chat",
-		Short: "send / edit / delete / react to messages on a chat object (reads via `any query`)",
+		Short: "send / edit / delete / react to messages and mark them read on a chat object (reads via `any query`)",
 	}
 	cmd.AddCommand(
 		newChatSendCmd(),
 		newChatEditCmd(),
 		newChatDeleteCmd(),
 		newChatReactCmd(),
+		newChatReadCmd(),
+		newChatReadAllCmd(),
+		newChatReactionsReadCmd(),
 	)
 	return cmd
 }
@@ -132,6 +135,39 @@ func newChatReactCmd() *cobra.Command {
 				return err
 			}
 			return printJSON(out)
+		},
+	}
+}
+
+func newChatReadCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "read <spaceId> <objectId> <msgId>",
+		Short: "mark a message and everything ordered before it read",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return newClient(flags.Timeout).ChatRead(cmd.Context(), args[0], args[1], args[2])
+		},
+	}
+}
+
+func newChatReadAllCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "read-all <spaceId> <objectId>",
+		Short: "mark every message, mention and reaction in the chat read",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return newClient(flags.Timeout).ChatReadAll(cmd.Context(), args[0], args[1])
+		},
+	}
+}
+
+func newChatReactionsReadCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "reactions-read <spaceId> <objectId> <msgId>",
+		Short: "mark a message's unread reactions read",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return newClient(flags.Timeout).ChatReactionsRead(cmd.Context(), args[0], args[1], args[2])
 		},
 	}
 }

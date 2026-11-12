@@ -35,7 +35,7 @@ Content that is not yet local streams in on demand, and every fetched block pers
 
 A file whose bytes are neither local nor fetchable yet answers **`409 file.not_available`**. This is a retry-later resource state, not a fault: no peer holds the bytes and the file is not durable yet (its sender's backup has not completed), or the network advertises no public read base for fetches. The signal that it became fetchable is the payload row gaining `networkSign` — an `updated` frame on `…/files/query/subscribe`, or `durable: true` on a re-GET of `…/files/:fileId`. Wait for that event rather than polling in a loop; see [status and durability](status-and-durability.html).
 
-Downloads are plain HTTP responses, not SSE: one in flight when the server shuts down is cut by the drain deadline, and the client retries with a `Range` from where it stopped.
+Downloads are plain HTTP responses, not SSE: one in flight when the server stops or switches accounts is cut a second later, even if the client stopped reading, and the client retries with a `Range` from where it stopped.
 
 > **Why it matters.** The same URL works with the network down, as long as the bytes are local — and once fetched, they stay. A member who opened a photo once on a train keeps it without any "make available offline" step, because the local store is the primary copy, not a cache in front of someone else's server.
 

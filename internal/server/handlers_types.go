@@ -56,7 +56,7 @@ func (d *deps) typeCreate(c echo.Context) error {
 		return errResp
 	}
 
-	if errResp, done := requireHandleFree(c, sp, req.XKey); done {
+	if errResp, done := d.requireHandleFree(c, sp, req.XKey); done {
 		return errResp
 	}
 
@@ -500,11 +500,10 @@ func (d *deps) typeRemoveProperty(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// requireHandleFree refuses an xKey any type or collection of the
-// space already resolves by — registered definitions resolve by their
-// literal Id ("page", "miniapp", …) as well as by xKey, so a new xKey
-// must dodge both namespaces, on both surfaces.
-func requireHandleFree(c echo.Context, sp space.Space, xKey string) (errResp error, done bool) {
+// requireHandleFree refuses an xKey a type or collection of the space
+// resolves by — its xKey or a registered literal id, on either surface
+// — and one the usecase catalog declares, which would block its setup.
+func (d *deps) requireHandleFree(c echo.Context, sp space.Space, xKey string) (errResp error, done bool) {
 	ctx := c.Request().Context()
 	types, err := sp.Types().List(ctx)
 	if err != nil {
@@ -528,7 +527,80 @@ func requireHandleFree(c echo.Context, sp space.Space, xKey string) (errResp err
 				map[string]any{"xKey": xKey, "existingCollectionId": col.Id}), true
 		}
 	}
+	cc, err := d.usecaseCatalog()
+	if err != nil {
+		return writeError(c, http.StatusInternalServerError, "server.internal", "usecase catalog failed to compile", nil), true
+	}
+	if h, reserved := d.reservedIn(cc, sp, "", xKey); reserved {
+		return catalogHandleConflict(c, sp.Id(), xKey, h, nil), true
+	}
 	return nil, false
+}
+
+// The meta-types type and collection objects carry their values under,
+// and the handle property they share.
+const (
+	metaTypeId       = "type"
+	metaCollectionId = "collection"
+	metaXKeyProp     = "xkey"
+)
+
+// requireRenameFree refuses moving a definition's handle onto a catalog
+// handle; keeping the current handle passes, and the winner root of a
+// declaring catalog bundle may restore it.
+func (d *deps) requireRenameFree(c echo.Context, sp space.Space, surface, objectId, xKey string) (errResp error, done bool) {
+	cc, err := d.usecaseCatalog()
+	if err != nil {
+		return writeError(c, http.StatusInternalServerError, "server.internal", "usecase catalog failed to compile", nil), true
+	}
+	first, reserved := d.reservedIn(cc, sp, "", xKey)
+	if !reserved {
+		return nil, false
+	}
+	ctx := c.Request().Context()
+	var current string
+	if surface == metaCollectionId {
+		info, err := sp.Collections().Get(ctx, objectId)
+		if err != nil {
+			return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId}), true
+		}
+		current = info.XKey
+	} else {
+		info, err := sp.Types().Get(ctx, objectId)
+		if err != nil {
+			return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId}), true
+		}
+		current = info.XKey
+	}
+	if current == xKey {
+		return nil, false
+	}
+	winner, err := declaringWinner(ctx, sp, objectId, cc.handles[xKey])
+	if err != nil {
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId}), true
+	}
+	if winner {
+		return nil, false
+	}
+	return catalogHandleConflict(c, sp.Id(), xKey, first, map[string]any{"objectId": objectId}), true
+}
+
+// declaringWinner reports whether objectId is the current winner root of
+// one of the catalog bundles hs; a losing root never is.
+func declaringWinner(ctx context.Context, sp space.Space, objectId string, hs []catalogHandle) (bool, error) {
+	for _, h := range hs {
+		b, err := sp.Bundles().Get(ctx, h.bundleId)
+		if errors.Is(err, space.ErrBundleUnknown) {
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
+		if b.RootId == objectId {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // ownerSurface names which definition surface a property route was

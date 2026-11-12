@@ -79,10 +79,12 @@ func TestE2E_LocalStore(t *testing.T) {
 		waitForReady(t, addr, 30*time.Second)
 
 		var list api.LocalListResponse
-		mustJSON(t, http.MethodGet, base+"/v1/local/collections", "", http.StatusOK, &list)
+		mustJSON(t, http.MethodGet, base+"/v1/local/collections?count=true", "", http.StatusOK, &list)
 		got := map[string]int{}
 		for _, c := range list.Collections {
-			got[c.StorageName] = c.Count
+			if c.Count != nil {
+				got[c.StorageName] = *c.Count
+			}
 		}
 		want := map[string]int{"l_a_scratch": 2, "l_a_rollup": 1, "l_s_" + spaceId + "_cache": 1}
 		for name, n := range want {
@@ -126,8 +128,8 @@ func TestE2E_LocalStore(t *testing.T) {
 			t.Fatalf("query on deleted space: %+v", q.Records)
 		}
 		var list api.LocalListResponse
-		mustJSON(t, http.MethodGet, base+"/v1/local/collections?spaceId="+spaceId, "", http.StatusOK, &list)
-		if len(list.Collections) != 1 || list.Collections[0].Count != 1 {
+		mustJSON(t, http.MethodGet, base+"/v1/local/collections?spaceId="+spaceId+"&count=true", "", http.StatusOK, &list)
+		if len(list.Collections) != 1 || list.Collections[0].Count == nil || *list.Collections[0].Count != 1 {
 			t.Fatalf("space collection after space delete: %+v", list.Collections)
 		}
 

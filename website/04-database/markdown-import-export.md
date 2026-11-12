@@ -25,6 +25,8 @@ curl http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ/editor/editor_blocks/ma
 
 Returns `{"content": "<markdown>", "version": "<version>"}`: every top-level block rendered to its canonical markdown and joined with a blank line, plus the version of that state ([Saving an edited body](#saving-an-edited-body--ifversion)). Block `text` holds inline markdown only; block-level structure (headings, list items, checkboxes) comes from the block's `type` and `style`. A code block renders with a backtick fence one longer than the longest run of three or more backticks in its text, and three at least, so no line of its text closes it.
 
+Front matter — a first line exactly `---`, then lines that are each blank or YAML-shaped — a key line (a bare key of letters and digits in any script, `_`, `.` and `-`, no spaces, or a quoted key, then `:` and a space or the end of the line), a `- ` list item, or an indented line — the first of them a key line, up to a line exactly `---` or `...`, with at most 64 KiB between the delimiters — is one `front_matter` block whose `text` is the lines between the delimiters, verbatim; it renders between two `---` lines, so a `...` closer reads back as `---`. Only a whole-document write (`PUT`, `PATCH`) recognises it, and only on the first line: anywhere else, with any other line before the closer (a heading, a list or quote marker, a table row, prose, a fence; a blank second line makes the `---` a divider), without a closer, over the size, or in content appended to a page that already has blocks those lines are ordinary markdown. A `front_matter` block that is not first, or whose text would not read back as front matter, renders as a `yaml` code block, and the next whole-document save of that rendering stores it as one. A page whose first block opens with `---` but is not front matter renders a lone `---` block that would close it as `***`. Its GET can still read back as front matter when the rendering is YAML-shaped up to a later line that is exactly `---` or `...` — a list item written `* x` renders as `- x`, a paragraph `---\na: b\n---` becomes the first block once the block above it is deleted. Re-saving that GET converts those blocks into one `front_matter` block once; after that it is stable.
+
 ## Import — `PUT`
 
 ```sh
@@ -34,7 +36,7 @@ curl -X PUT http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ/editor/editor_bl
 # → {"inserted": ["blk_…"], "updated": [], "deleted": ["blk_…"], "unchanged": 12, "version": "…"}
 ```
 
-The server parses the markdown, diffs against the current block tree by type + position + text, and emits per-block create / update / delete ops. Unchanged blocks keep their ids. Re-`PUT`ting what `GET` returned writes nothing — `unchanged` equals the block count.
+The server parses the markdown, diffs against the current block tree by type + position + text, and emits per-block create / update / delete ops. Unchanged blocks keep their ids. Re-`PUT`ting what `GET` returned writes nothing — `unchanged` equals the block count — apart from the front matter cases under Export.
 
 A heading's closing sequence — a trailing run of `#` that is its whole text or follows a space or tab — is dropped, so `## Title ##` stores `Title`. A run that ends a word (`## Learn C#`) or follows a backslash (`## Title \#`) is text and is kept. A heading whose text ends in a run that would read as a closing sequence renders with a real closing sequence after it (`Title ##` renders as `## Title ## ##`), so the next `PUT` drops the added run and keeps the text as stored.
 
@@ -106,7 +108,7 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ/editor/editor_b
 # → {"inserted": ["blk_…", "blk_…"], "updated": [], "deleted": [], "unchanged": 0}
 ```
 
-Parses the fragment, looks up only the tail position (one indexed query, never the existing block bodies), and creates the new blocks in a single change. Cost is O(appended content) regardless of document size — a run of N appends is O(N), where N `PUT`s would be O(N²). It is purely additive: no update or delete, it inserts no leading separator, and it happily creates a block identical to an existing one. Blank content is a `200` no-op. Use it for grow-by-append pages such as logs.
+Parses the content — as the start of the document, front matter included, when the page has no blocks yet; as a fragment otherwise — looks up only the tail position (one indexed query, never the existing block bodies), and creates the new blocks in a single change. Cost is O(appended content) regardless of document size — a run of N appends is O(N), where N `PUT`s would be O(N²). It is purely additive: no update or delete, it inserts no leading separator, and it happily creates a block identical to an existing one. Blank content is a `200` no-op. Use it for grow-by-append pages such as logs.
 
 ## Empty paragraphs
 

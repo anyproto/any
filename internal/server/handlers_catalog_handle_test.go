@@ -19,6 +19,7 @@ type handleSpace struct {
 	types       []space.TypeInfo
 	collections []space.CollectionInfo
 	derived     string
+	rows        map[string]space.Bundle
 }
 
 func (s *handleSpace) Info() space.SpaceInfo {
@@ -29,7 +30,9 @@ func (s *handleSpace) Types() space.TypesAPI      { return &handleTypes{infos: s
 func (s *handleSpace) Collections() space.CollectionsAPI {
 	return &handleCollections{infos: s.collections}
 }
-func (s *handleSpace) Bundles() space.BundlesAPI        { return &handleBundles{derived: s.derived} }
+func (s *handleSpace) Bundles() space.BundlesAPI {
+	return &handleBundles{derived: s.derived, rows: s.rows}
+}
 func (s *handleSpace) Query(string, string) space.Query { return &handleQuery{} }
 
 type handleTypes struct {
@@ -51,6 +54,15 @@ func (c *handleCollections) List(context.Context) ([]space.CollectionInfo, error
 type handleBundles struct {
 	space.BundlesAPI
 	derived string
+	rows    map[string]space.Bundle
+}
+
+func (b *handleBundles) Get(_ context.Context, bundleId string) (space.Bundle, error) {
+	row, ok := b.rows[bundleId]
+	if !ok {
+		return space.Bundle{}, space.ErrBundleUnknown
+	}
+	return row, nil
 }
 
 // The exemption is computed from the bundle id: any other id gets no root.
@@ -77,7 +89,7 @@ func TestCatalogBeforeInstall_DerivedRootHoldsItsHandle(t *testing.T) {
 	}
 	sp.types = []space.TypeInfo{{Id: "user-type", XKey: "general_chat"}}
 	var conflict *xKeyConflictError
-	if err := catalogBeforeInstall(context.Background(), sp, inst); !errors.As(err, &conflict) || conflict.ExistingTypeId != "user-type" {
+	if err := catalogBeforeInstall(context.Background(), sp, inst); !errors.As(err, &conflict) || conflict.HolderId != "user-type" {
 		t.Fatalf("a user type holding the handle: %v", err)
 	}
 	// A collection-declaring derived bundle: its own root is listed as a collection.
@@ -92,5 +104,23 @@ func TestCatalogBeforeInstall_DerivedRootHoldsItsHandle(t *testing.T) {
 	sp.types = []space.TypeInfo{{Id: "derived-root", XKey: "general_chat"}}
 	if err := catalogBeforeInstall(context.Background(), sp, inst); !errors.As(err, &conflict) {
 		t.Fatalf("created install past a foreign holder: %v", err)
+	}
+}
+
+// Only the winner root of a declaring catalog bundle may rename onto its
+// handle; a losing root of the same bundle may not.
+func TestDeclaringWinner(t *testing.T) {
+	hs := []catalogHandle{{bundleId: "system:task/v1", usecase: "tasks"}}
+	sp := &handleSpace{rows: map[string]space.Bundle{
+		"system:task/v1": {Id: "system:task/v1", RootId: "winner", Roots: []string{"winner", "loser"}},
+	}}
+	for id, want := range map[string]bool{"winner": true, "loser": false, "other": false} {
+		got, err := declaringWinner(context.Background(), sp, id, hs)
+		if err != nil || got != want {
+			t.Errorf("%s: got %v %v, want %v", id, got, err, want)
+		}
+	}
+	if got, err := declaringWinner(context.Background(), &handleSpace{}, "winner", hs); err != nil || got {
+		t.Errorf("not installed: got %v %v", got, err)
 	}
 }

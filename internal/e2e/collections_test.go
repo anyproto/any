@@ -40,7 +40,7 @@ func TestE2E_CollectionsSurface(t *testing.T) {
 	// A collection: a handle and columns, no parts, no layout.
 	var createdColl api.CollectionsCreateResponse
 	mustJSON(t, http.MethodPost, spaceBase+"/collections",
-		`{"name":"Wiki","description":"Pages of the wiki","xKey":"wiki"}`,
+		`{"name":"Notebook","description":"Pages of the notebook","xKey":"notebook"}`,
 		http.StatusCreated, &createdColl)
 	collID := createdColl.CollectionId
 	if collID == "" {
@@ -65,7 +65,7 @@ func TestE2E_CollectionsSurface(t *testing.T) {
 		if seen == nil {
 			t.Fatalf("created collection missing from the listing: %+v", colls.Collections)
 		}
-		if seen.XKey != "wiki" || seen.Name != "Wiki" || seen.BuiltIn || seen.Hidden {
+		if seen.XKey != "notebook" || seen.Name != "Notebook" || seen.BuiltIn || seen.Hidden {
 			t.Errorf("collection info = %+v", *seen)
 		}
 
@@ -92,7 +92,7 @@ func TestE2E_CollectionsSurface(t *testing.T) {
 
 		// One handle namespace across both surfaces.
 		code := mustErrorCode(t, http.MethodPost, spaceBase+"/types",
-			`{"name":"Wiki type","xKey":"wiki"}`, http.StatusConflict)
+			`{"name":"Notebook type","xKey":"notebook"}`, http.StatusConflict)
 		if code != "type.xkey_conflict" {
 			t.Errorf("code = %q, want type.xkey_conflict", code)
 		}
