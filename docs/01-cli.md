@@ -421,6 +421,7 @@ any type create <spaceId> --name "..." --xkey ... [--description "..."] [--icon-
 any type update <spaceId> <typeId> [--name ...] [--description ...] [--icon ...]
                 [--layout '<json>'|''] [--hidden[=false]] [--meta k=v|k= ...]
 any type list   <spaceId> [--include-hidden]
+any type delete <spaceId> <typeId> --yes          # objects of the type keep its id
 
 any type property list   <spaceId> <typeId>
 any type property add    <spaceId> <typeId> --name ... --kind string|number|boolean|array|object|datetime
@@ -512,6 +513,7 @@ any collection create <spaceId> --name "..." --xkey ... [--description "..."] [-
                       [--hidden] [--meta k=v ...]
 any collection update <spaceId> <collectionId> [--name ...] [--description ...] [--icon ...]
                       [--hidden[=false]] [--meta k=v|k= ...]
+any collection delete <spaceId> <collectionId> --yes   # members keep its id
 
 any collection property list   <spaceId> <collectionId>
 any collection property add    <spaceId> <collectionId> --name ... --kind string|number|boolean|array|object|datetime

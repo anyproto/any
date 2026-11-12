@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -488,8 +489,8 @@ func TestServer_TypeHiddenAndMeta(t *testing.T) {
 // TestServer_CollectionsRoutes walks the collections surface: the
 // listing (hidden behind includeHidden), create with its required
 // handle, the handle reserved across BOTH surfaces, get, patch, the
-// property CRUD, and the two typed misses — a type id on a collections
-// route and back.
+// property CRUD, the two typed misses — a type id on a collections
+// route and back — and the deletes.
 func TestServer_CollectionsRoutes(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -613,8 +614,72 @@ func TestServer_CollectionsRoutes(t *testing.T) {
 		assertErrorCode(t, rec, tc.code)
 	}
 
-	// Deleting a collection is not implemented yet and says so.
-	if rec = doJSON(t, e, http.MethodDelete, base+"/collections/"+stash, ""); rec.Code != http.StatusNotImplemented {
-		t.Errorf("delete collection: %d %s, want 501", rec.Code, rec.Body.String())
+	// Delete refuses the other surface's user id, a built-in, a
+	// serialized nil and an unknown id; any other id answers as GET does.
+	for name, tc := range map[string]struct {
+		path   string
+		status int
+		code   string
+	}{
+		"type id on the collections route":           {base + "/collections/" + task.TypeId, http.StatusBadRequest, "collection.not_a_collection"},
+		"collection id on the types route":           {base + "/types/" + shelf, http.StatusBadRequest, "type.not_a_type"},
+		"the meta collection row":                    {base + "/collections/collection", http.StatusBadRequest, "collection.registered"},
+		"a registered collection":                    {base + "/collections/bin", http.StatusBadRequest, "collection.registered"},
+		"the built-in type":                          {base + "/types/type", http.StatusBadRequest, "type.registered"},
+		"a registered type":                          {base + "/types/page", http.StatusBadRequest, "type.registered"},
+		"a registered type on the collections route": {base + "/collections/page", http.StatusNotFound, "collection.not_found"},
+		"a registered collection on the types route": {base + "/types/bin", http.StatusNotFound, "type.not_found"},
+		"a serialized nil":                           {base + "/types/undefined", http.StatusBadRequest, "object.id_required"},
+		"a serialized nil collection":                {base + "/collections/null", http.StatusBadRequest, "object.id_required"},
+		"unknown collection":                         {base + "/collections/nope", http.StatusNotFound, "collection.not_found"},
+		"unknown type":                               {base + "/types/nope", http.StatusNotFound, "type.not_found"},
+	} {
+		rec = doJSON(t, e, http.MethodDelete, tc.path, "")
+		if rec.Code != tc.status {
+			t.Errorf("delete %s: %d %s, want %d", name, rec.Code, rec.Body.String(), tc.status)
+			continue
+		}
+		assertErrorCode(t, rec, tc.code)
+	}
+
+	// A refused delete leaves its target in place.
+	for _, path := range []string{base + "/collections/" + shelf, base + "/types/" + task.TypeId} {
+		if rec = doJSON(t, e, http.MethodGet, path, ""); rec.Code != http.StatusOK {
+			t.Errorf("get %s after refused deletes: %d %s, want 200", path, rec.Code, rec.Body.String())
+		}
+	}
+
+	// A member of the deleted type and collection keeps both ids; the
+	// deleted definitions then 404, on a second delete too.
+	member := mustCreateObject(t, e, sp.Id, `{"type":"`+task.TypeId+`","collections":["`+stash+`"]}`)
+	for _, tc := range []struct{ path, code string }{
+		{base + "/collections/" + stash, "collection.not_found"},
+		{base + "/types/" + task.TypeId, "type.not_found"},
+	} {
+		if rec = doJSON(t, e, http.MethodDelete, tc.path, ""); rec.Code != http.StatusNoContent {
+			t.Fatalf("delete %s: %d %s, want 204", tc.path, rec.Code, rec.Body.String())
+		}
+		if rec = doJSON(t, e, http.MethodGet, tc.path, ""); rec.Code != http.StatusNotFound {
+			t.Errorf("get %s after delete: %d %s, want 404", tc.path, rec.Code, rec.Body.String())
+		} else {
+			assertErrorCode(t, rec, tc.code)
+		}
+		if rec = doJSON(t, e, http.MethodDelete, tc.path, ""); rec.Code != http.StatusNotFound {
+			t.Errorf("second delete %s: %d %s, want 404", tc.path, rec.Code, rec.Body.String())
+		} else {
+			assertErrorCode(t, rec, tc.code)
+		}
+	}
+	var row struct {
+		Record struct {
+			Any struct {
+				Type        string   `json:"type"`
+				Collections []string `json:"collections"`
+			} `json:"any"`
+		} `json:"record"`
+	}
+	decodeGet(t, e, base+"/properties/"+member, &row)
+	if row.Record.Any.Type != task.TypeId || !slices.Equal(row.Record.Any.Collections, []string{stash}) {
+		t.Errorf("member after the deletes: any = %+v, want type %s and collections [%s]", row.Record.Any, task.TypeId, stash)
 	}
 }

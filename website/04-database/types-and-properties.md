@@ -42,7 +42,7 @@ Each row is `{id, name?, description?, iconCid?, xKey, builtIn?, layout?, hidden
 
 A type is more than its columns. Its **parts** are the display units a client renders for an object of the type — a body, a transcript, a task list — each owning storage collections a module serves (`POST …/types/:typeId/parts`; see [Modules](../types/index.html) and [Runtime datasets](runtime-datasets.html)). Its **layout** is the descriptor a client renders the object with: `{"type": "<slug>", "config": {…}}`, your vocabulary, opaque to the server. Both are the type's alone — a collection has neither.
 
-Because an object has exactly one type, its layout and its parts are that type's, with no primary-type contest to resolve. Set the layout at create or through `PATCH …/types/:typeId` (`{name?, description?, iconCid?, layout?, hidden?, meta?}` — absent keeps, `"layout": null` clears; `400 type.registered` on a built-in).
+Because an object has exactly one type, its layout and its parts are that type's, with no primary-type contest to resolve. A deleted type takes both with it: its objects keep the id, which then names no type. Set the layout at create or through `PATCH …/types/:typeId` (`{name?, description?, iconCid?, layout?, hidden?, meta?}` — absent keeps, `"layout": null` clears; `400 type.registered` on a built-in).
 
 A document type is the built-in `page` (hidden, one editor part, no properties) or a user type with an editor part, registered as a bundle so every device agrees on one. See [Page](../types/page.html).
 

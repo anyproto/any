@@ -205,6 +205,7 @@ any type create <spaceId> --name N --xkey K [--description D] [--icon-cid CID]
 any type list   <spaceId> [--include-hidden]
 any type update <spaceId> <typeId> [--name N] [--description D] [--icon CID]
                 [--layout '<json>'|''] [--hidden[=false]] [--meta k=v]...
+any type delete <spaceId> <typeId> --yes                         # objects of the type keep its id
 
 any type property list   <spaceId> <typeId>                        # alias: any type prop
 any type property add    <spaceId> <typeId> --name N --kind string|number|boolean|array|object|datetime
@@ -245,6 +246,7 @@ any collection create <spaceId> --name N --xkey K [--description D] [--icon-cid 
                       [--hidden] [--meta k=v]...
 any collection update <spaceId> <collectionId> [--name N] [--description D] [--icon CID]
                       [--hidden[=false]] [--meta k=v]...
+any collection delete <spaceId> <collectionId> --yes             # members keep its id
 
 any collection property list   <spaceId> <collectionId>            # alias: any collection prop
 any collection property add    <spaceId> <collectionId> --name N --kind string|number|boolean|array|object|datetime

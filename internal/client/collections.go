@@ -58,6 +58,13 @@ func (c *Client) CollectionPatch(ctx context.Context, spaceId, collectionId stri
 	return c.do(ctx, http.MethodPatch, path, req, nil)
 }
 
+// CollectionDelete deletes a user collection; its members keep the id.
+func (c *Client) CollectionDelete(ctx context.Context, spaceId, collectionId string) error {
+	path := fmt.Sprintf("/v1/spaces/%s/collections/%s",
+		url.PathEscape(spaceId), url.PathEscape(collectionId))
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
 // CollectionListProperties returns a collection's property definitions.
 func (c *Client) CollectionListProperties(ctx context.Context, spaceId, collectionId string) (*api.PropertiesListResponse, error) {
 	var out api.PropertiesListResponse

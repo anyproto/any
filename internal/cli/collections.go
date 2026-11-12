@@ -26,8 +26,30 @@ func newCollectionCmd() *cobra.Command {
 		newCollectionListCmd(),
 		newCollectionGetCmd(),
 		newCollectionUpdateCmd(),
+		newCollectionDeleteCmd(),
 		newCollectionPropertyCmd(),
 	)
+	return cmd
+}
+
+// newCollectionDeleteCmd: `any collection delete` — DELETE
+// …/collections/:collectionId. Irreversible and synced, so it refuses
+// to run without --yes.
+func newCollectionDeleteCmd() *cobra.Command {
+	var yes bool
+	cmd := &cobra.Command{
+		Use:   "delete <spaceId> <collectionId>",
+		Short: "delete a collection; members keep its id (irreversible; requires --yes)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !yes {
+				return fmt.Errorf("refusing to delete %s without --yes (this is irreversible)", args[1])
+			}
+			cl := newClient(flags.Timeout)
+			return cl.CollectionDelete(cmd.Context(), args[0], args[1])
+		},
+	}
+	cmd.Flags().BoolVar(&yes, "yes", false, "confirm the irreversible delete")
 	return cmd
 }
 

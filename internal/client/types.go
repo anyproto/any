@@ -87,6 +87,12 @@ func (c *Client) TypePatch(ctx context.Context, spaceId, typeId string, req api.
 	return c.do(ctx, http.MethodPatch, path, req, nil)
 }
 
+// TypeDelete deletes a user type; its objects keep the id.
+func (c *Client) TypeDelete(ctx context.Context, spaceId, typeId string) error {
+	path := fmt.Sprintf("/v1/spaces/%s/types/%s", url.PathEscape(spaceId), url.PathEscape(typeId))
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
 // TypeParts lists a type's parts with their datasets.
 func (c *Client) TypeParts(ctx context.Context, spaceId, typeId string) (*api.TypePartsListResponse, error) {
 	var out api.TypePartsListResponse
