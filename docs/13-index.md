@@ -683,7 +683,12 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   cache `<root>/models/` (a copy already in the account's `index/models/`
   is used in place); the download is resumable, logs progress, reports
   `index.model_download`, and never blocks boot — until it completes the
-  embedder reports unavailable (outage semantics below).
+  embedder reports unavailable (outage semantics below). One process per
+  root downloads, holding an OS lock on `<model>.gguf.lock` that the
+  kernel drops if it dies; another instance under the same root polls
+  for the installed file and takes the download over once the lock is
+  free. A transfer that sends nothing for 2 minutes is cut and retried
+  with backoff, so a stalled connection never holds the lock.
   Air-gapped: set `index.local.modelPath` (no download). `index.local.dim`
   truncates output vectors (Matryoshka) to shrink the index. Compute
   threads default to `NumCPU()-1` (`index.local.threads`); past the
@@ -1300,12 +1305,17 @@ run).
 - `internal/indexer/embed_local_download_test.go` — the download manager
   against `httptest`: happy path, sha256 mismatch, Range resume,
   progress strings, `Close` during a retry backoff (the goroutine is
-  joined and the process row ends cancelled).
+  joined and the process row ends cancelled), a lock held by another
+  process (no request, no `.part`) and its takeover once released, a
+  stalled transfer cut by the watchdog, the waiting row's counters, a
+  takeover restarting the retry backoff, and every install path ending
+  at the file's size.
 - `internal/indexer/embed_worker_test.go` — the child supervisor against
   a helper process (the test binary re-exec'd, speaking the frame
   protocol in place of a model): per-frame batching, a query jumping the
   doc queue, abandoned callers keeping the child, crash → CPU demotion,
-  request timeout, spawn backoff, `SetThreads` idle/busy, `Close`
+  request timeout, spawn backoff, an installed model spawning while the
+  downloader still reports a wait, `SetThreads` idle/busy, `Close`
   mid-request and mid-spawn; plus a gated real-child comparison against
   the in-process model.
 - `internal/indexer/search_budget_test.go` — the query-embedding budget

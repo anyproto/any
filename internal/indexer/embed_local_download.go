@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/anyproto/any-sync/app/logger"
+	"github.com/gofrs/flock"
 	"go.uber.org/zap"
 )
 
@@ -31,6 +33,10 @@ import (
 // downloads resume via a Range request (re-hashing the existing .part
 // prefix first). Failures retry forever with capped backoff — the
 // destination file is the readiness signal, not this object.
+//
+// The models dir is shared by every account under one root, so the
+// .part is guarded across processes by an OS lock on <dest>.lock: one
+// process downloads, the others poll for the installed file.
 type modelDownload struct {
 	url    string
 	dest   string
@@ -47,6 +53,10 @@ type modelDownload struct {
 	// machine included — is exactly the state worth showing; the
 	// reporter's heartbeat keeps the row alive through retry backoffs.
 	rep *procReporter
+	// lock is the cross-process download lock on <dest>.lock, one handle
+	// for the process: after a failed unlock its next TryLock finds the
+	// lock still held here instead of waiting on itself.
+	lock *flock.Flock
 
 	mu    sync.Mutex
 	done  bool
@@ -68,6 +78,7 @@ func startModelDownload(url, dest, sha string, client *http.Client, onProcess fu
 		finished: make(chan struct{}),
 		rep: newProcReporter(onProcess,
 			ProcessUpdate{Kind: ProcessKindModelDownload, Name: filepath.Base(dest)}, -1),
+		lock: flock.New(dest + ".lock"),
 	}
 	if client == nil {
 		client = &http.Client{} // no timeout: a 640MB body on slow links is legitimate
@@ -87,6 +98,9 @@ func (d *modelDownload) Status() error {
 	if d.done {
 		return nil
 	}
+	if errors.Is(d.err, errDownloadElsewhere) {
+		return d.err
+	}
 	if d.err != nil {
 		return fmt.Errorf("model download failed (retrying): %w", d.err)
 	}
@@ -104,18 +118,72 @@ func (d *modelDownload) Close() {
 	<-d.finished
 }
 
+// errDownloadElsewhere is an attempt that found another process
+// holding the download lock — a wait, not a failure.
+var errDownloadElsewhere = errors.New("model download in progress in another process")
+
+// downloadPollInterval is how often a process that lost the download
+// lock looks for the installed file (a var so tests can shorten it).
+var downloadPollInterval = 5 * time.Second
+
+// downloadRetryBackoff is the first wait after a failed attempt; it
+// doubles up to 5 minutes (a var so tests can shorten it).
+var downloadRetryBackoff = 5 * time.Second
+
+// errDownloadStalled is a transfer the stall watchdog cut.
+var errDownloadStalled = errors.New("model download stalled")
+
+// downloadStallTimeout is how long a transfer may send nothing before it
+// is cut and retried: it holds the lock every process under the root
+// waits on (a var so tests can shorten it).
+var downloadStallTimeout = 2 * time.Minute
+
 func (d *modelDownload) run(ctx context.Context, client *http.Client) {
 	defer close(d.finished)
 	d.rep.begin() // announce up front — "still fetching the model" must be visible even offline
-	backoff := 5 * time.Second
+	backoff := downloadRetryBackoff
+	waiting := false
 	for {
-		err := d.attempt(ctx, client)
+		fetched, err := d.attempt(ctx, client)
+		if errors.Is(err, errDownloadElsewhere) {
+			if !waiting {
+				waiting = true
+				d.mu.Lock()
+				d.err = err
+				d.got, d.total = 0, 0 // this process transfers nothing while it waits
+				d.mu.Unlock()
+				d.lg.Info("local embedder: another process is downloading the model; waiting for it", zap.String("dest", d.dest))
+				d.rep.progress(0, 0, "waiting for another process's download")
+			}
+			select {
+			case <-ctx.Done():
+				d.rep.finish(ctx, ctx.Err())
+				return
+			case <-time.After(downloadPollInterval):
+			}
+			continue
+		}
+		if waiting {
+			waiting = false
+			backoff = downloadRetryBackoff // a takeover starts its own retries
+		}
 		if err == nil {
+			// Every install path ends at the installed file's size: a
+			// verified .part, a 416, a transfer, another process's file.
+			if st, err := os.Stat(d.dest); err == nil {
+				d.mu.Lock()
+				d.got, d.total = st.Size(), st.Size()
+				d.mu.Unlock()
+			}
 			d.mu.Lock()
 			d.done = true
 			got, total := d.got, d.total
 			d.mu.Unlock()
-			d.lg.Info("local embedder: model downloaded", zap.String("dest", d.dest))
+			if fetched {
+				d.lg.Info("local embedder: model downloaded", zap.String("dest", d.dest))
+			} else {
+				d.lg.Info("local embedder: model installed by another process", zap.String("dest", d.dest))
+			}
 			d.rep.progress(got, total, "")
 			d.rep.finish(ctx, nil)
 			return
@@ -145,10 +213,50 @@ func (d *modelDownload) run(ctx context.Context, client *http.Client) {
 	}
 }
 
-func (d *modelDownload) attempt(ctx context.Context, client *http.Client) error {
+// attempt installs the model unless another process has, under the
+// cross-process download lock. fetched is false when the file was
+// already in place.
+func (d *modelDownload) attempt(ctx context.Context, client *http.Client) (fetched bool, err error) {
 	if err := os.MkdirAll(filepath.Dir(d.dest), 0o755); err != nil {
-		return err
+		return false, err
 	}
+	if _, err := os.Stat(d.dest); err == nil {
+		return false, nil
+	}
+	// The lock file is never removed: unlinking it under a lock lets the
+	// next process lock a fresh inode while the old one is still held.
+	ok, err := d.lock.TryLock()
+	if err != nil {
+		return false, fmt.Errorf("lock %s: %w", d.lock.Path(), err)
+	}
+	if !ok {
+		return false, errDownloadElsewhere
+	}
+	defer func() {
+		if err := d.lock.Unlock(); err != nil {
+			d.lg.Warn("local embedder: model download lock not released; this process keeps it until the next attempt or exit",
+				zap.String("lock", d.lock.Path()), zap.Error(err))
+		}
+	}()
+	d.mu.Lock()
+	tookOver := errors.Is(d.err, errDownloadElsewhere)
+	if tookOver {
+		d.err = nil
+	}
+	d.mu.Unlock()
+	if tookOver {
+		d.rep.progress(-1, -1, "")
+	}
+	// The holder may have installed the file between the stat and the lock.
+	if _, err := os.Stat(d.dest); err == nil {
+		return false, nil
+	}
+	return true, d.fetch(ctx, client)
+}
+
+// fetch streams the model into the .part and installs it. Caller holds
+// the download lock.
+func (d *modelDownload) fetch(ctx context.Context, client *http.Client) error {
 	part := d.dest + ".part"
 
 	// Resume: re-hash whatever is already on disk so the streaming
@@ -173,7 +281,13 @@ func (d *modelDownload) attempt(ctx context.Context, client *http.Client) error 
 		return os.Rename(part, d.dest)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.url, nil)
+	// The stall watchdog cuts a request that sends nothing, headers
+	// included, so the attempt fails and frees the lock.
+	reqCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	stall := time.AfterFunc(downloadStallTimeout, func() { cancel(errDownloadStalled) })
+	defer stall.Stop()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, d.url, nil)
 	if err != nil {
 		return err
 	}
@@ -182,7 +296,7 @@ func (d *modelDownload) attempt(ctx context.Context, client *http.Client) error 
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return stallCause(reqCtx, err)
 	}
 	defer resp.Body.Close()
 
@@ -230,9 +344,9 @@ func (d *modelDownload) attempt(ctx context.Context, client *http.Client) error 
 	if err != nil {
 		return err
 	}
-	if err := d.stream(ctx, f, resp.Body, h, offset); err != nil {
+	if err := d.stream(reqCtx, f, resp.Body, h, offset, stall); err != nil {
 		f.Close()
-		return err
+		return stallCause(reqCtx, err)
 	}
 	if err := f.Close(); err != nil {
 		return err
@@ -247,9 +361,17 @@ func (d *modelDownload) attempt(ctx context.Context, client *http.Client) error 
 	return os.Rename(part, d.dest)
 }
 
+// stallCause names a request the stall watchdog cut.
+func stallCause(ctx context.Context, err error) error {
+	if errors.Is(context.Cause(ctx), errDownloadStalled) {
+		return fmt.Errorf("%w: no data for %s", errDownloadStalled, downloadStallTimeout)
+	}
+	return err
+}
+
 // stream copies body → file + hash, updating progress and logging it
-// every ~5s.
-func (d *modelDownload) stream(ctx context.Context, f *os.File, body io.Reader, h hash.Hash, got int64) error {
+// every ~5s. Every chunk re-arms the stall watchdog.
+func (d *modelDownload) stream(ctx context.Context, f *os.File, body io.Reader, h hash.Hash, got int64, stall *time.Timer) error {
 	w := io.MultiWriter(f, h)
 	buf := make([]byte, 1<<20)
 	lastLog := time.Now()
@@ -259,6 +381,7 @@ func (d *modelDownload) stream(ctx context.Context, f *os.File, body io.Reader, 
 		}
 		n, err := body.Read(buf)
 		if n > 0 {
+			stall.Reset(downloadStallTimeout)
 			if _, werr := w.Write(buf[:n]); werr != nil {
 				return werr
 			}

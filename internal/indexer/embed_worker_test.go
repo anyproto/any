@@ -1128,3 +1128,23 @@ func TestWorkerEmbedder_RealChild(t *testing.T) {
 		}
 	}
 }
+
+// An installed model spawns the child even while the downloader still
+// reports waiting for another process's download (it polls for the file).
+func TestWorkerEmbedder_InstalledModelBeatsDownloadStatus(t *testing.T) {
+	h := &helperSpawner{modes: []string{"ok"}}
+	w := newTestWorker(t, h, 0)
+	finished := make(chan struct{})
+	close(finished)
+	w.dl = &modelDownload{err: errDownloadElsewhere, cancel: func() {}, finished: finished}
+	if _, err := w.EmbedDocs(context.Background(), []string{"x"}); err != nil {
+		t.Fatalf("installed model refused: %v", err)
+	}
+	if err := os.Remove(w.childSpec().modelPath); err != nil {
+		t.Fatal(err)
+	}
+	w.SetThreads(3) // retires the idle child
+	if _, err := w.EmbedDocs(context.Background(), []string{"x"}); !errors.Is(err, errDownloadElsewhere) {
+		t.Fatalf("err = %v, want the downloader's status while the model is missing", err)
+	}
+}

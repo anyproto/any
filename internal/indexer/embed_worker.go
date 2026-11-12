@@ -418,12 +418,14 @@ func (w *workerEmbedder) ensureChild(retireStale bool) error {
 		}
 		w.stopChild(true)
 	}
-	if w.dl != nil {
-		if st := w.dl.Status(); st != nil {
-			return fmt.Errorf("indexer: local embedder: model not ready: %w", st)
-		}
-	}
+	// An installed file is ready even while the downloader's status
+	// still says otherwise (it polls for another process's install).
 	if _, err := os.Stat(spec.modelPath); err != nil {
+		if w.dl != nil {
+			if st := w.dl.Status(); st != nil {
+				return fmt.Errorf("indexer: local embedder: model not ready: %w", st)
+			}
+		}
 		return fmt.Errorf("indexer: local embedder: model not found at %s", spec.modelPath)
 	}
 	if now := w.now(); now.Before(w.nextTry) {

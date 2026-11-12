@@ -239,8 +239,13 @@ late heartbeat can resurrect a finished row. Work stopped mid-pass
   through the backoff; the only terminals are `done` and (on
   shutdown) `cancelled`. A `.part` interrupted between the last byte
   and the rename installs on the next boot with no network
-  round-trip. This surfaces the "semantic search is empty because the
-  model is still downloading" state.
+  round-trip. While another server under the same data-dir root holds
+  the download, the row stays `running` with the message `waiting for
+  another process's download` and no byte counters (`done` 0, `total`
+  0 = unknown). `done` always carries the installed file's size in
+  both counters — also for a model another process installed, where
+  this process transferred nothing. This surfaces the "semantic search
+  is empty because the model is still downloading" state.
 
 Common rules: failure messages are generic (`error.code` is
 `<kind>_failed`) — indexer errors carry filesystem paths and upstream
