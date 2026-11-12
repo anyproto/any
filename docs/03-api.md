@@ -1698,7 +1698,32 @@ with `\n\n` (see *Empty paragraphs* below for the blank-line rule),
 plus the document version (*Versions and conflicts* below). A code
 block renders with a backtick fence one longer than the longest run of
 three or more backticks in its text, and three at least, so no line of
-its text closes it. `PUT`
+its text closes it. Front matter — a first line exactly `---`, then
+lines that are each blank or YAML-shaped — a key line (a bare key of
+letters and digits in any script, `_`, `.` and `-`, no spaces, or a
+quoted key, then `:` and a space or the end of the line), a `- ` list
+item, or an indented line — the first of them a key line, up to a line
+exactly `---` or `...`, with at most 64 KiB between the delimiters —
+is one `front_matter` block whose `text` is the lines between the
+delimiters, verbatim; it renders between two `---` lines, so a `...`
+closer reads back as `---`. Only a whole-document write (`PUT`,
+`PATCH`) recognises it, and only on the first line: anywhere else,
+with any other line before the closer (a heading, a list or quote
+marker, a table row, prose, a fence; a blank second line makes the
+`---` a divider), without a closer, over the size, or in content
+appended to a page that already has blocks those lines are ordinary
+markdown. A `front_matter` block that is not first, or whose text
+would not read back as front matter, renders as a `yaml` code block,
+and the next whole-document save of that rendering stores it as one. A
+page whose first block opens with `---` but is not front matter
+renders a lone `---` block that would close it as `***`. Its GET can
+still read back as front matter when the rendering is YAML-shaped up
+to a later line that is exactly `---` or `...` — a list item written
+`* x` renders as `- x`, a paragraph `---\na: b\n---` becomes the first
+block once the block above it is deleted. Re-saving that GET converts
+those blocks into one `front_matter` block once; after that it is
+stable.
+`PUT`
 takes `{"content": "…", "ifVersion": "…"}`, parses `content`, diffs it
 against the current block tree by (type + position + text), and emits
 per-block create / update / delete ops through the same write path the
@@ -1816,7 +1841,9 @@ ships O(edit) bytes instead of O(document) — use `PATCH`, not a
 client-side `GET → string-replace → PUT`.
 
 `POST …/editor/:collection/markdown/append` is the append-only fast path. It
-parses the supplied `{"content": "..."}`, looks up only the tail
+parses the supplied `{"content": "..."}` — as the start of the document,
+front matter included, when the page has no blocks yet; as a fragment
+otherwise — looks up only the tail
 position (one indexed `-nav.pos` query, never the existing block
 bodies), allocates lexids past the last block, and creates every
 parsed block in a single ModifyBatch. Cost is O(appended content),
@@ -1854,8 +1881,9 @@ Consequences worth designing against:
 
 - `GET` after `PUT` returns the same bytes for any document expressed
   in this form, and re-`PUT`ting a `GET` writes nothing (`unchanged`
-  equals the block count). A client that hydrates from `GET` will not
-  see its own save come back reshaped.
+  equals the block count) apart from the front matter cases above. A
+  client that hydrates from `GET` will not see its own save come back
+  reshaped.
 - The encoding is **ours, not CommonMark's**: every other markdown
   renderer collapses blank runs. Content that round-trips through an
   external tool, a paste, or a client that does not implement this
@@ -1879,7 +1907,8 @@ route below; the examples use the canonical name). Nest via
   "_ver":  { "id": "<creation VersionId>", "<path>": "<VersionId>", ... },
   "type":  "paragraph" | "heading" | "list_item" |
            "check_list_item" | "code" | "quote" |
-           "divider" | "html" | "table" | "image",
+           "divider" | "html" | "table" | "image" |
+           "front_matter",
   "style": { "level": 1..6,         /* heading */
              "ordered": true|false, /* list_item */
              "number":  10,         /* ordered list_item; omitted when 1 */
@@ -1894,7 +1923,10 @@ route below; the examples use the canonical name). Nest via
 `text` is INLINE markdown only — bold, italic, inline code, links,
 strikethrough. Block-level syntax (heading hashes, list bullets,
 fences, quote `>` prefixes) lives in `type` + `style` instead so
-clients render blocks structurally without re-parsing.
+clients render blocks structurally without re-parsing. A
+`front_matter` block is a page's leading metadata (YAML between `---`
+lines in the markdown); its `text` is the lines between the
+delimiters, verbatim.
 
 An ordered list item renders with its own `style.number` (1 when
 absent). A list item's continuation lines stay in its `text`, indented

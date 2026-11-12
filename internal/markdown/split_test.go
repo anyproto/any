@@ -2,11 +2,15 @@ package markdown
 
 import (
 	"math/rand"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/anyproto/any/internal/editor"
 )
 
 func TestSplit_Empty(t *testing.T) {
@@ -282,4 +286,70 @@ func TestSplitJoin_RoundTripFuzz(t *testing.T) {
 		}
 		require.Equal(t, blocks, got, "case %d: joined %q", i, joined)
 	}
+}
+
+// TestRenderParse_RoundTripFuzz: every save leaves blocks whose GET is
+// the saved document, and re-saving a GET keeps the document, except the
+// residue (residueShape).
+func TestRenderParse_RoundTripFuzz(t *testing.T) {
+	var vocab []existingBlock
+	for _, raw := range []string{
+		"", "alpha", "# heading", "- item", "> quote", "```yaml\n---\na: 1\n```",
+		"first line\nsecond line", "---", "...", "- [ ] todo", "---\nfoo", "---\nkey: v", "a: b", "a: b\n...",
+		"<div>\n---\n</div>", "<p>x</p>",
+	} {
+		p := ParseBlock(raw)
+		vocab = append(vocab, existingBlock{Type: p.Type, Style: p.Style, Text: p.Text})
+	}
+	vocab = append(vocab, existingBlock{Type: "callout", Text: "..."})
+	fmTexts := []string{"a: 1\n\nb: two", "", "\nleading blank", "a: 1\n---\nb: 2", "a: 1\n```"}
+	contents := []string{"", "alpha", "---", "...", "---\nfoo: bar\n---", "---\nfoo", "<div>\n---\n</div>", "```yaml\n---\n```", "# h", "x\n---"}
+	rng := rand.New(rand.NewSource(374))
+	residue := 0
+	for i := 0; i < 20000; i++ {
+		existing := make([]existingBlock, rng.Intn(6))
+		for j := range existing {
+			existing[j] = vocab[rng.Intn(len(vocab))]
+			existing[j].Id = strconv.Itoa(j)
+		}
+		if rng.Intn(3) == 0 {
+			at := rng.Intn(len(existing) + 1)
+			fm := existingBlock{Id: "fm", Type: editor.TypeFrontMatter, Text: fmTexts[rng.Intn(len(fmTexts))]}
+			existing = slices.Insert(existing, at, fm)
+		}
+		doc := existingDocument(existing)
+		stored, saved, _ := save(t, existing, doc)
+		require.Equal(t, saved, existingDocument(stored), "case %d: re-save of %q", i, doc)
+
+		parts := make([]string, rng.Intn(5))
+		for j := range parts {
+			parts[j] = contents[rng.Intn(len(contents))]
+		}
+		content := Join(parts)
+		stored, saved, _ = save(t, existing, content)
+		require.Equal(t, saved, existingDocument(stored), "case %d: save of %q over %q", i, content, doc)
+
+		_, again, _ := save(t, existing, doc)
+		if again != doc && residueShape(existing) {
+			residue++
+			continue
+		}
+		require.Equal(t, doc, again, "case %d: re-save of a GET changes the document", i)
+	}
+	require.Positive(t, residue, "the fuzz reaches the residue")
+}
+
+// residueShape: the stored first block is not front matter, yet the GET
+// text parses as front matter.
+func residueShape(existing []existingBlock) bool {
+	blocks := make([]ParsedBlock, len(existing))
+	for i, b := range existing {
+		blocks[i] = b.parsed()
+	}
+	types, rendered := documentBlocks(blocks)
+	if len(rendered) == 0 || types[0] == editor.TypeFrontMatter {
+		return false
+	}
+	_, ok := frontMatterEnd(splitLines(Join(rendered)))
+	return ok
 }
