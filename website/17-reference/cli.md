@@ -288,7 +288,7 @@ The attach receipt normally shows `durable: false` — backup is background work
 
 ```
 any local meta                                       # pipeline stages and accumulators
-any local collections [--scope account|space] [--space ID]
+any local collections [--scope account|space] [--space ID] [--count]
 any local ensure  <name> [--space ID] [--index 'a,-b']... [--unique-index 'k']...
 any local drop    <name> --yes [--space ID]
 any local insert | upsert <name> --doc '<json>'|@FILE|- [--space ID]

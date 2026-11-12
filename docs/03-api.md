@@ -4698,7 +4698,7 @@ when `local.enabled: false`.
 | Method | Path                     | Purpose                                                       |
 |--------|--------------------------|---------------------------------------------------------------|
 | GET    | `/v1/local/meta`         | `{stages, accumulators}` — the pipeline vocabulary any-store accepts |
-| GET    | `/v1/local/collections`  | list `?scope=account\|space&spaceId=` → `{collections: [{scope, spaceId?, name, storageName, count, indexes}]}` |
+| GET    | `/v1/local/collections`  | list `?scope=account\|space&spaceId=&count=true` → `{collections: [{scope, spaceId?, name, storageName, count?, indexes}]}` — `count` only with `count=true`: it reads every page of every listed collection |
 | PUT    | `/v1/local/collections`  | ensure `{scope, spaceId?, name, indexes?}` → `{collection, created}` (201 created / 200 existed) |
 | DELETE | `/v1/local/collections`  | drop `?scope=&spaceId=&name=` → 204 (no space pre-flight: the cleanup path for a gone space) |
 | POST   | `/v1/local/insert`       | `{coll, docs: [..]}` → `{ids}` — a missing `id` is minted; existing `id` → `409 local.duplicate_id` |

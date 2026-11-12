@@ -106,7 +106,7 @@ func TestServer_Local_Collections(t *testing.T) {
 
 	// Ensure: 201 then 200; indexes ride along.
 	created := localEnsure(t, e, `{"scope":"account","name":"notes","indexes":[{"fields":["kind","-at"]}]}`, http.StatusCreated)
-	if !created.Created || created.Collection.StorageName != "l_a_notes" || created.Collection.Count != 0 {
+	if !created.Created || created.Collection.StorageName != "l_a_notes" || created.Collection.Count != nil {
 		t.Fatalf("created: %+v", created)
 	}
 	if len(created.Collection.Indexes) != 1 || created.Collection.Indexes[0].Name != "kind,-at" {
@@ -135,8 +135,13 @@ func TestServer_Local_Collections(t *testing.T) {
 		t.Fatalf("space storage name: %s", sc.Collection.StorageName)
 	}
 	list = localDo[api.LocalListResponse](t, e, http.MethodGet, "/v1/local/collections", "", http.StatusOK)
-	if len(list.Collections) != 2 {
+	if len(list.Collections) != 2 || list.Collections[0].Count != nil {
 		t.Fatalf("list all: %+v", list.Collections)
+	}
+	localExpectError(t, e, http.MethodGet, "/v1/local/collections?count=yes", "", http.StatusBadRequest, "request.invalid_field")
+	list = localDo[api.LocalListResponse](t, e, http.MethodGet, "/v1/local/collections?count=true", "", http.StatusOK)
+	if len(list.Collections) != 2 || list.Collections[0].Count == nil || *list.Collections[0].Count != 0 {
+		t.Fatalf("list all with counts: %+v", list.Collections)
 	}
 	list = localDo[api.LocalListResponse](t, e, http.MethodGet, "/v1/local/collections?spaceId="+spaceId, "", http.StatusOK)
 	if len(list.Collections) != 1 || list.Collections[0].Name != "cache" || list.Collections[0].SpaceId != spaceId {
@@ -509,7 +514,7 @@ func TestServer_Local_ExportImport(t *testing.T) {
 	if err := json.Unmarshal(imp.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Collections) != 1 || out.Collections[0].Count != 2 || out.Collections[0].SpaceId != sp || len(out.Collections[0].Indexes) != 1 {
+	if len(out.Collections) != 1 || out.Collections[0].Count == nil || *out.Collections[0].Count != 2 || out.Collections[0].SpaceId != sp || len(out.Collections[0].Indexes) != 1 {
 		t.Fatalf("import reply: %s", imp.Body.String())
 	}
 	got := localDo[api.LocalRecordResponse](t, e, http.MethodPost, "/v1/local/get", `{"coll":`+coll+`,"id":"run_1:1"}`, http.StatusOK)
@@ -534,8 +539,8 @@ func TestServer_Local_ExportImport(t *testing.T) {
 	if imp.Code != http.StatusOK {
 		t.Fatalf("import on a stranger: status=%d body=%s", imp.Code, imp.Body.String())
 	}
-	list := localDo[api.LocalListResponse](t, e2, http.MethodGet, "/v1/local/collections?spaceId="+sp, "", http.StatusOK)
-	if len(list.Collections) != 1 || list.Collections[0].Count != 2 {
+	list := localDo[api.LocalListResponse](t, e2, http.MethodGet, "/v1/local/collections?spaceId="+sp+"&count=true", "", http.StatusOK)
+	if len(list.Collections) != 1 || list.Collections[0].Count == nil || *list.Collections[0].Count != 2 {
 		t.Fatalf("stranger's listing: %+v", list.Collections)
 	}
 	// …and readable there: reads, aggregate and delete skip the space

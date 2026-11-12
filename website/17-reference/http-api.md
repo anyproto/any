@@ -407,7 +407,7 @@ Device-local, non-CRDT collections that never sync — query, modifiers, indexes
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
 | GET | `/v1/local/meta` | — | `{stages, accumulators}` | the pipeline vocabulary |
-| GET | `/v1/local/collections` | `?scope=account\|space&spaceId` | `{collections: [{scope, spaceId?, name, storageName, count, indexes}]}` | |
+| GET | `/v1/local/collections` | `?scope=account\|space&spaceId&count=true` | `{collections: [{scope, spaceId?, name, storageName, count?, indexes}]}` | `count` only with `count=true`; it reads every page of every listed collection |
 | PUT | `/v1/local/collections` | `{scope, spaceId?, name, indexes?}` | 201 \| 200 `{collection, created}` | ensure; `400 local.bad_index` leaves nothing behind |
 | DELETE | `/v1/local/collections` | `?scope&spaceId&name` | 204 | drop; no space pre-flight |
 | POST | `/v1/local/insert` | `{coll, docs}` | `{ids}` | missing `id` minted; `409 local.duplicate_id`; ≤ 1000 docs (`400 local.too_many_docs`) |

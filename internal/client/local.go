@@ -26,13 +26,16 @@ func (c *Client) LocalMeta(ctx context.Context) (*api.LocalMetaResponse, error) 
 
 // LocalCollections — GET /v1/local/collections. Empty scope lists both
 // scopes; a spaceId alone implies scope=space.
-func (c *Client) LocalCollections(ctx context.Context, scope, spaceId string) (*api.LocalListResponse, error) {
+func (c *Client) LocalCollections(ctx context.Context, scope, spaceId string, count bool) (*api.LocalListResponse, error) {
 	q := url.Values{}
 	if scope != "" {
 		q.Set("scope", scope)
 	}
 	if spaceId != "" {
 		q.Set("spaceId", spaceId)
+	}
+	if count {
+		q.Set("count", "true")
 	}
 	path := "/v1/local/collections"
 	if len(q) > 0 {

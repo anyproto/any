@@ -784,7 +784,7 @@ endpoints); watch the raw frames with
 
 ```
 any local meta                                        # GET    /v1/local/meta
-any local collections [--scope account|space] [--space ID]   # GET /v1/local/collections
+any local collections [--scope account|space] [--space ID] [--count]   # GET /v1/local/collections
 any local ensure NAME [--space ID] [--index a,-b]... [--unique-index k]...   # PUT /v1/local/collections
 any local drop NAME [--space ID] --yes                # DELETE /v1/local/collections
 any local insert NAME [--space ID] --doc JSON         # POST   /v1/local/insert   (object or array; @FILE / -)

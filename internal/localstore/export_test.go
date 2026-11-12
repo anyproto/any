@@ -95,7 +95,7 @@ func TestExportImport_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, infos, 3)
 	require.Equal(t, traces, infos[1].Ref)
-	require.Equal(t, importChunk+7, infos[1].Count)
+	require.Equal(t, importChunk+7, *infos[1].Count)
 	require.Len(t, infos[1].Indexes, 2)
 
 	for _, ref := range []Ref{notes, traces, empty} {
@@ -109,7 +109,7 @@ func TestExportImport_RoundTrip(t *testing.T) {
 	// idempotent: the same file again changes nothing
 	infos, err = dst.Import(ctx, bytes.NewReader(buf.Bytes()))
 	require.NoError(t, err)
-	require.Equal(t, importChunk+7, infos[1].Count)
+	require.Equal(t, importChunk+7, *infos[1].Count)
 	d, _ := dst.Collection(ctx, traces)
 	n, _ := d.Count(ctx)
 	require.Equal(t, importChunk+7, n)
@@ -198,7 +198,7 @@ func TestImport_BadFiles(t *testing.T) {
 	// a good file after all that still imports — no state leaked
 	infos, err := s.Import(ctx, bytes.NewReader(gzOf(manifest(2), doc("a"), doc("b"))))
 	require.NoError(t, err)
-	require.Equal(t, 2, infos[0].Count)
+	require.Equal(t, 2, *infos[0].Count)
 
 	// an index under an existing name with a different definition is
 	// any-store's mismatch, attributed to the collection

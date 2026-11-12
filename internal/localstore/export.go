@@ -216,7 +216,7 @@ func (s *Store) Import(ctx context.Context, r io.Reader) ([]Info, error) {
 		if err != nil {
 			return out, &ImportError{Ref: ref, Err: err}
 		}
-		info := Info{Ref: ref, Count: count}
+		info := Info{Ref: ref, Count: &count}
 		for _, ix := range coll.GetIndexes() {
 			info.Indexes = append(info.Indexes, ix.Info())
 		}

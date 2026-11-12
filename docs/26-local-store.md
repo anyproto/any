@@ -126,7 +126,7 @@ store; CLI: docs/01-cli.md § Local store.
 
 ```
 GET    /v1/local/meta                 stage + accumulator vocabulary (from any-store)
-GET    /v1/local/collections          list  ?scope=&spaceId=
+GET    /v1/local/collections          list  ?scope=&spaceId=&count=true
 PUT    /v1/local/collections          ensure {scope, spaceId?, name, indexes?} → 201 | 200
 DELETE /v1/local/collections          drop  ?scope=&spaceId=&name=
 POST   /v1/local/insert               {coll, docs}          → {ids}
@@ -140,6 +140,11 @@ POST   /v1/local/indexes              {coll, ensure?, drop?} → {indexes}
 GET    /v1/local/export               ?scope=&spaceId=&names=a,b → the file (application/gzip)
 POST   /v1/local/import               body = the file → {collections}
 ```
+
+A collection's `count` costs a read of every page it holds, so only
+two replies carry it: a listing with `count=true`, and an import's
+reply for the collections it wrote. Ensure and a plain listing touch
+no documents.
 
 `filter` / `sort` / `modifier` / `pipeline` are the raw any-store
 shapes `/query` and `/aggregate` accept (docs/09-query.md,
