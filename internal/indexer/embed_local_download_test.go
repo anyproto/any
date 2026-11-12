@@ -85,6 +85,51 @@ func TestModelDownload_ShaMismatch(t *testing.T) {
 	}
 }
 
+// A source that fails the checksum twice is not fetched a third time.
+func TestModelDownload_ShaMismatchStops(t *testing.T) {
+	prev := downloadRetryBackoff
+	downloadRetryBackoff = 10 * time.Millisecond
+	t.Cleanup(func() { downloadRetryBackoff = prev })
+	var gets atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gets.Add(1)
+		w.Write([]byte("not the expected bytes"))
+	}))
+	defer srv.Close()
+
+	var mu sync.Mutex
+	var phases []string
+	dest := filepath.Join(t.TempDir(), "m.gguf")
+	d := startModelDownload(srv.URL, dest, strings.Repeat("ab", 32), srv.Client(), func(u ProcessUpdate) {
+		mu.Lock()
+		phases = append(phases, u.Phase)
+		mu.Unlock()
+	})
+	select {
+	case <-d.finished:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("the download kept retrying: %v", d.Status())
+	}
+	if err := d.Status(); !errors.Is(err, errDownloadStopped) || !strings.Contains(err.Error(), "sha256 mismatch") {
+		t.Fatalf("status = %v, want the stopped download naming the mismatch", err)
+	}
+	time.Sleep(20 * downloadRetryBackoff)
+	if n := gets.Load(); n != 2 {
+		t.Errorf("the source was fetched %d times, want 2", n)
+	}
+	for _, p := range []string{dest, dest + ".part"} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("%s must not exist after a mismatch", filepath.Base(p))
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(phases) == 0 || phases[len(phases)-1] != ProcessFailed {
+		t.Errorf("process phases = %v, want a failed last one", phases)
+	}
+	d.Close()
+}
+
 func TestModelDownload_Resume(t *testing.T) {
 	body := []byte(strings.Repeat("0123456789", 500))
 	sum := sha256.Sum256(body)
