@@ -31,8 +31,10 @@ import (
 // The body streams to <dest>.part with the sha256 computed on the way;
 // on success the file is atomically renamed into place. Interrupted
 // downloads resume via a Range request (re-hashing the existing .part
-// prefix first). Failures retry forever with capped backoff — the
-// destination file is the readiness signal, not this object.
+// prefix first). Failures retry with capped backoff — the destination
+// file is the readiness signal, not this object — until the source
+// fails the checksum twice: it serves another file, and fetching it
+// again cannot help.
 //
 // The models dir is shared by every account under one root, so the
 // .part is guarded across processes by an OS lock on <dest>.lock: one
@@ -98,7 +100,7 @@ func (d *modelDownload) Status() error {
 	if d.done {
 		return nil
 	}
-	if errors.Is(d.err, errDownloadElsewhere) {
+	if errors.Is(d.err, errDownloadElsewhere) || errors.Is(d.err, errDownloadStopped) {
 		return d.err
 	}
 	if d.err != nil {
@@ -130,6 +132,13 @@ var downloadPollInterval = 5 * time.Second
 // doubles up to 5 minutes (a var so tests can shorten it).
 var downloadRetryBackoff = 5 * time.Second
 
+// errChecksumMismatch is a fully fetched file that is not the expected one.
+var errChecksumMismatch = errors.New("sha256 mismatch")
+
+// errDownloadStopped ends the retries until the next start: the source
+// served a file that failed the checksum twice.
+var errDownloadStopped = errors.New("model download stopped: the source serves a file that is not the expected model; correct index.local.modelUrl or modelSha256 and restart")
+
 // errDownloadStalled is a transfer the stall watchdog cut.
 var errDownloadStalled = errors.New("model download stalled")
 
@@ -143,6 +152,7 @@ func (d *modelDownload) run(ctx context.Context, client *http.Client) {
 	d.rep.begin() // announce up front — "still fetching the model" must be visible even offline
 	backoff := downloadRetryBackoff
 	waiting := false
+	mismatches := 0
 	for {
 		fetched, err := d.attempt(ctx, client)
 		if errors.Is(err, errDownloadElsewhere) {
@@ -192,12 +202,25 @@ func (d *modelDownload) run(ctx context.Context, client *http.Client) {
 			d.rep.finish(ctx, err) // terminal cancelled; the .part resumes next boot
 			return
 		}
+		// The first mismatch may come from a stale .part, now removed; a
+		// second one is the source's own file.
+		if errors.Is(err, errChecksumMismatch) {
+			if mismatches++; mismatches >= 2 {
+				d.mu.Lock()
+				d.err = fmt.Errorf("%w (%v)", errDownloadStopped, err)
+				d.mu.Unlock()
+				d.lg.Error("local embedder: model download stopped, the source fails the checksum",
+					zap.String("url", d.url), zap.String("dest", d.dest), zap.Error(err))
+				d.rep.finish(ctx, errDownloadStopped)
+				return
+			}
+		}
 		d.mu.Lock()
 		d.err = err
 		d.mu.Unlock()
 		d.lg.Warn("local embedder: model download failed, will retry",
 			zap.Duration("backoff", backoff), zap.Error(err))
-		// Not terminal — the download retries forever; the row stays
+		// Not terminal — the download retries; the row stays
 		// running with a generic status (real error carries paths/
 		// response bodies and stays in the log above).
 		d.rep.progress(-1, -1, "download failed; retrying — see server log")
@@ -355,7 +378,7 @@ func (d *modelDownload) fetch(ctx context.Context, client *http.Client) error {
 	if d.sha != "" {
 		if got := hex.EncodeToString(h.Sum(nil)); got != d.sha {
 			_ = os.Remove(part)
-			return fmt.Errorf("sha256 mismatch: got %s want %s", got, d.sha)
+			return fmt.Errorf("%w: got %s want %s", errChecksumMismatch, got, d.sha)
 		}
 	}
 	return os.Rename(part, d.dest)
