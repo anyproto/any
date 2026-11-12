@@ -1,0 +1,30 @@
+EmbeddingGemma 2 owned Core ML conversion
+
+Source weights: Google DeepMind, google/embeddinggemma-2, revision
+914f7f89142e33e77833254d9c9b90c3cef7303b, Apache License 2.0.
+
+eg2.py is an independently organized fixed-shape/channel-first adaptation of
+the text forward defined in Hugging Face Transformers v5.19.0:
+Copyright 2026 the HuggingFace Team. All rights reserved.
+Apache License 2.0. Upstream source and license are preserved in upstream/.
+
+Overflow-safe RMS and L2 rescaling formulas are adapted from
+tetherto/qvac-fabric-llm.cpp/examples/embedding-coreml/export_coreml.py,
+commit 2ed826df0c0eefc7135e9c3acc45aaa277f9b6ff, MIT license.
+The source file, recipe, requirements and full copyright/license text are
+preserved in upstream/qvac/.
+
+Modifications: text-only weights; fixed 128/256/512/1024 sequence lengths;
+int32 token input plus float32 right-padding mask; fixed FP32-generated RoPE;
+channel-first activations and 1x1 convolutions; explicit attention heads;
+inclusive bidirectional sliding-window radius 512; finite -10000 mask;
+masked mean including prompt and special tokens before bias-free projection;
+overflow-safe normalization; FP16 Core ML encoder weights/compute and FP32
+final L2 normalization over the 768 output values; shared-weight
+multifunction packaging. Original 768-dimensional normalized embeddings are
+preserved. No downstream head projection, truncation, pruning or weight
+quantization is applied.
+
+Nemosine and CoreAI cards were consulted as research only. No weights or
+converter code from those packages are included in this conversion.
+This work is not endorsed by Google, Hugging Face, Apple or Tether.

@@ -1,0 +1,94 @@
+EG2 owned Core ML conversion — final measured report
+
+RESULT: PASS. Stock weights -> pinned converter -> shared four-function package -> native M2 Air validation.
+The encoder and all 433 matrix operations per function are FP16. Final L2 normalization over 768 values is FP32.
+No community converted weights were used. No application-specific head removal is inside the model.
+
+ARTIFACTS
+Source: scripts/embedbench/research/eg2_coreml
+Delivered package: models/EmbeddingGemma2Owned.mlpackage
+Source-only handoff: eg2-coreml-source-20261112.tar.gz; SHA256SUMS inside pins scripts, fixtures, licenses, report and evidence.
+Target: M2 MacBook Air / 16 GiB / macOS 27.0.1
+Old failed all-FP16 normalization run is archived in the original local experiment archive; it is not the delivered model.
+
+PROVENANCE
+Stock: google/embeddinggemma-2 @ 914f7f89142e33e77833254d9c9b90c3cef7303b
+Weight SHA256: 197a32965d4b1105faf060417baa899e193fb73cd401f42ec9295234d5553d79
+Tokenizer SHA256: 4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4
+Python 3.12.9; torch 2.7.0, transformers 5.19.0, coremltools 9.0, numpy 2.2.6, safetensors 0.8.0, tokenizers 0.23.3
+Conversion host: macOS-26.7.1-arm64-arm-64bit; target: Apple M2, 16 GiB, Version 27.0.1 (Build 26A434).
+Native compiler: Apple Swift 6.4.2; target arm64-apple-macos27.0.
+Architecture adaptation: Transformers v5.19.0 (Apache-2.0). Safe RMS/L2 formulas: QVAC commit 2ed826df0c0eefc7135e9c3acc45aaa277f9b6ff (MIT).
+Source/license copies and exact file hashes are retained. Source manifest and converter/toolchain hashes gate parity and output reuse.
+
+NUMERICAL VALIDATION
+{"cases": 12, "maximumAbsoluteError": 2.8219074010849e-07, "minimumCosine": 0.9999999999969833}
+Fresh stock-HF FP32 vs native Core ML: {"cases": 12, "maximumAbsoluteError": 0.001569405198097229, "maximumNormError": 8.305185117407632e-08, "meanCosine": 0.9999746728881429, "minimumCosine": 0.9999525415174594}
+Cases include short/padded text at all lengths, multilingual text, 593/622 real-token sliding-window cases, and FiQA document 52 (413 tokens).
+Regression: all-FP16 final normalization gave document 52 norm 0.9987607818. Corrected s512 norm: 1.0000000369; cosine vs HF 0.9999780211.
+Tokenizer: 3012/3012 prompted GGUF-fixture token rows match the pinned stock tokenizer.
+Corpus: 1491/1500 FiQA documents; nine >1024 are explicitly excluded, never truncated or sent through a fictitious fallback.
+Retained 2026-11-05 BF16 CPU reference (not regenerated): {"count": 1491, "maxAbs": 0.00178890364053641, "meanCosine": 0.999975629106595, "minCosine": 0.9999342433617312, "p01Cosine": 0.9999590297362787}
+Same downstream head projection applied to both sides: {"count": 1491, "maxAbs": 0.0020283547838819, "meanCosine": 0.999959851755051, "minCosine": 0.9998673087975717, "p01Cosine": 0.9999244399634559}
+Independent Nemosine output reference: {"count": 1491, "maxAbs": 0.0009376662310690009, "meanCosine": 0.9999971319467266, "minCosine": 0.9999853002739557, "p01Cosine": 0.9999937475228808}
+No nonfinite or zero vectors. Corpus norm range: [0.9999998931240269, 1.0000000965439224]
+Raw normalized model vectors remain separate from the application-specific head projection and Matryoshka truncation.
+
+PREFERRED PLACEMENT (MLComputePlan; cost is an estimate, not measured operator wall time)
+length  ANE_ops  CPU_ops  ANE_cost_%  CPU_operators
+   128     6195       14      53.372  ios18.greater_equal, ios18.add, select, ios18.gather, ios18.transpose, ios18.cast, ios18.abs, ios16.reduce_max, ios18.maximum, ios18.real_div, ios18.mul, ios16.reduce_sum, ios18.sqrt, ios18.real_div
+   256     6196       13      70.196  ios18.greater_equal, ios18.add, select, ios18.gather, ios18.cast, ios18.abs, ios16.reduce_max, ios18.maximum, ios18.real_div, ios18.mul, ios16.reduce_sum, ios18.sqrt, ios18.real_div
+   512     6196       13      83.309  ios18.greater_equal, ios18.add, select, ios18.gather, ios18.cast, ios18.abs, ios16.reduce_max, ios18.maximum, ios18.real_div, ios18.mul, ios16.reduce_sum, ios18.sqrt, ios18.real_div
+  1024     6196       13      91.604  ios18.greater_equal, ios18.add, select, ios18.gather, ios18.cast, ios18.abs, ios16.reduce_max, ios18.maximum, ios18.real_div, ios18.mul, ios16.reduce_sum, ios18.sqrt, ios18.real_div
+CPU convolution/matmul/linear/softmax core operations are rejected by the validator. Every requested function produced a plan.
+cpuAndNeuralEngine permits CPU. This is preferred placement plus successful native inference, not an ANE-only claim or Instruments runtime trace.
+
+LOAD AND INFERENCE
+length  cold_load_s  warm_load_s  first_predict_ms  corpus_n  corpus_p50_ms
+   128       25.490        0.787            14.996       763          7.324
+   256       26.780        0.744            26.416       444         14.295
+   512       30.397        0.764            40.015       227         34.577
+  1024       37.702        0.669            96.062        57         95.424
+Cold specialization total 120.369s; same executable/path warm total 2.964s.
+Package compile total 2.299s, separate from specialization.
+Corpus 58.940 docs/s; p50 7.801ms; p95 35.008ms.
+Timing includes array fill, async prediction and output copy; excludes tokenization. Existing desktop apps stayed open; this is a validation sample.
+
+MEMORY (footprint --wired; retain Clean, Reclaimable and Wired separately)
+Neural allocations are in a nofootprint ledger and are not included in ordinary phys_footprint.
+cold-start: ordinary 3808 KB
+  Dirty / Clean / Reclaimable / Wired / Regions: none
+cold-s128: ordinary 262 MB
+  Dirty / Clean / Reclaimable / Wired / Regions: 0 B     282 MB       400 KB     282 MB          3    Owned physical footprint (unmapped) (neural) (nofootprint)
+cold-s256: ordinary 301 MB
+  Dirty / Clean / Reclaimable / Wired / Regions: 0 B     306 MB       283 MB     306 MB          6    Owned physical footprint (unmapped) (neural) (nofootprint)
+cold-s512: ordinary 302 MB
+  Dirty / Clean / Reclaimable / Wired / Regions: 0 B     350 MB       590 MB     350 MB          9    Owned physical footprint (unmapped) (neural) (nofootprint)
+cold-s1024: ordinary 305 MB
+  Dirty / Clean / Reclaimable / Wired / Regions: 0 B     444 MB       929 MB     444 MB         12    Owned physical footprint (unmapped) (neural) (nofootprint)
+cold-all-active: ordinary 305 MB
+  Dirty / Clean / Reclaimable / Wired / Regions: 0 B    1382 MB      2032 KB    1382 MB         12    Owned physical footprint (unmapped) (neural) (nofootprint)
+cold-after-corpus: ordinary 408 MB
+  Dirty / Clean / Reclaimable / Wired / Regions: 0 B    1382 MB      2032 KB    1382 MB         12    Owned physical footprint (unmapped) (neural) (nofootprint)
+warm-all-active: ordinary 40 MB
+  Dirty / Clean / Reclaimable / Wired / Regions: 0 B    1382 MB      2032 KB    1382 MB         12    Owned physical footprint (unmapped) (neural) (nofootprint)
+No forced pressure, cache flush, service restart, or 8 GiB safety claim. These are M2/16 GiB/macOS 27 measurements.
+
+DISK SHARING AND REPRODUCTION
+Merged package 557942311 bytes (532.095 MiB); standalone sum 2184012628 bytes.
+Each function references 399 external tensors; 394 offsets are shared across all four functions (414 distinct offsets total).
+This disk deduplication does not eliminate per-function neural allocations.
+Clean s128 rebuild: identical weight bytes and parsed protobuf. Canonical protobuf SHA256: 1cae78411712f1a282af7e6c47e39116eeeacbe97603b33d3307dbe596a24bf7
+Raw protobuf map serialization order and package UUIDs differ; whole-package byte identity is not claimed.
+Run the commands in ../../README.md. Use a fresh deployment directory or remove only the adjacent owned .mlmodelc when replacing model bytes.
+Detailed output hashes, contracts, precision selectors, fixture vectors, plans, timing samples and memory ledgers are in this results directory. Full corpus output vectors remain in the original experiment archive.
+All owned conversion and validation processes exited; see evidence/process-exit-check.txt.
+
+PRIMARY RECIPES / SOURCES
+https://github.com/tetherto/qvac-fabric-llm.cpp/blob/2ed826df0c0eefc7135e9c3acc45aaa277f9b6ff/examples/embedding-coreml/README.md
+https://github.com/tetherto/qvac-fabric-llm.cpp/blob/2ed826df0c0eefc7135e9c3acc45aaa277f9b6ff/examples/embedding-coreml/export_coreml.py
+https://github.com/huggingface/transformers/blob/v5.19.0/src/transformers/models/embedding_gemma2/modeling_embedding_gemma2.py
+https://apple.github.io/coremltools/docs-guides/source/multifunction-models.html
+https://huggingface.co/FilBona/embeddinggemma-2-coreml-ane/tree/cecc10efab079b842899591aeb73f44e0f895efc/conversion
+FilBona has a public fixed 512 conversion recipe; it was inspected as an additional source and not reused here.
+Nemosine names a converter path but did not expose it in the inspected model files. CoreAI is a different runtime and was reference-only.

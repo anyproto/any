@@ -1,0 +1,22 @@
+{
+  "repo": "google/embeddinggemma-2",
+  "revision": "914f7f89142e33e77833254d9c9b90c3cef7303b",
+  "files": {
+    "config.json": {
+      "sha256": "b8f1e9931b57fbc054acdb445c41765d55b0074c58d145fa82839941ad1b5bb3",
+      "bytes": 4455
+    },
+    "model.safetensors": {
+      "sha256": "197a32965d4b1105faf060417baa899e193fb73cd401f42ec9295234d5553d79",
+      "bytes": 1488915288
+    },
+    "tokenizer.json": {
+      "sha256": "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4",
+      "bytes": 32170510
+    },
+    "tokenizer_config.json": {
+      "sha256": "17bd5d6e9364ca49a534e1502076593317c298d4a663623091ed45388f004874",
+      "bytes": 1599
+    }
+  }
+}

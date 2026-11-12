@@ -1,0 +1,11 @@
+ProductName:		macOS
+ProductVersion:		27.0.1
+BuildVersion:		26A434
+hw.model: Mac14,15
+hw.memsize: 17179869184
+swift-driver version: 1.168.6 Apple Swift version 6.4.2 (swiftlang-6.4.2.1.9 clang-2100.4.1.1)
+Target: arm64-apple-macosx27.0.0
+Now drawing from 'AC Power'
+ -InternalBattery-0 (id=22347875)	100%; charged; 0:00 remaining present: true
+cf12e0a8bfa2844454546143c9e72a0e20e38782a30f11fccbd19618d3793cbf  target-run/validate
+54d9e95a4026ec12d884aa409f5b7675a477d2f147089a633eaeb7566b29bbd0  target-run/validate.swift

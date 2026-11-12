@@ -1,0 +1,11 @@
+s128 load 25.48996901512146 first 0.014995932579040527
+s256 load 26.780367970466614 first 0.02641594409942627
+s512 load 30.396572947502136 first 0.04001498222351074
+s1024 load 37.70216202735901 first 0.0960620641708374
+HF FP32 parity passed for 12 cases
+Corpus passed: 1491 documents
+Compute plan s128: ["none": 5896, "cpu": 14, "ane": 6195]
+Compute plan s256: ["cpu": 13, "ane": 6196, "none": 5896]
+Compute plan s512: ["none": 5896, "cpu": 13, "ane": 6196]
+Compute plan s1024: ["cpu": 13, "ane": 6196, "none": 5896]
+PASS: stock HF parity and non-CPU-only placement; wrote cold.json

@@ -1,0 +1,53 @@
+{
+  "python": "3.12.9 (main, Feb  4 2025, 14:38:38) [Clang 16.0.0 (clang-1600.0.26.6)]",
+  "platform": "macOS-26.7.1-arm64-arm-64bit",
+  "dependencies": {
+    "torch": "2.7.0",
+    "transformers": "5.19.0",
+    "coremltools": "9.0",
+    "numpy": "2.2.6",
+    "safetensors": "0.8.0",
+    "tokenizers": "0.23.3"
+  },
+  "modelSource": {
+    "repo": "google/embeddinggemma-2",
+    "revision": "914f7f89142e33e77833254d9c9b90c3cef7303b",
+    "files": {
+      "config.json": {
+        "sha256": "b8f1e9931b57fbc054acdb445c41765d55b0074c58d145fa82839941ad1b5bb3",
+        "bytes": 4455
+      },
+      "model.safetensors": {
+        "sha256": "197a32965d4b1105faf060417baa899e193fb73cd401f42ec9295234d5553d79",
+        "bytes": 1488915288
+      },
+      "tokenizer.json": {
+        "sha256": "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4",
+        "bytes": 32170510
+      },
+      "tokenizer_config.json": {
+        "sha256": "17bd5d6e9364ca49a534e1502076593317c298d4a663623091ed45388f004874",
+        "bytes": 1599
+      }
+    }
+  },
+  "upstream": {
+    "qvacCommit": "2ed826df0c0eefc7135e9c3acc45aaa277f9b6ff",
+    "transformersRelease": "v5.19.0"
+  },
+  "upstreamFileSha256": {
+    "upstream/hf-blobs.json": "2d13f18257ac4eb33adb2b2bf7ca08bb89fc258664b2360365b05c8ab889a492",
+    "upstream/coreai-README.md": "8926ecfb31c048bca42fd7c93bb64e92e8a7af767c4ceeaf1531b6b3b8e06761",
+    "upstream/nemosine-README.md": "84b17013570f81aeb0020389777d899af154a3e426f56a768e667300e22d1abe",
+    "upstream/transformers-LICENSE": "77fd4710def9ec3c0f6225800e0235f15a425abd4a8b03559127fcd782612049",
+    "upstream/stock-README.md": "b677a0ee2818c36f091b65fd3d9b4baea9f04d53b02b49cae916c74bf9682037",
+    "upstream/hf-model-info.json": "7e445c242ecad657d72b5edf1d7be852180e79682949ad6236b85298a5495d4c",
+    "upstream/nemosine-conversion_report.json": "93e8906a2f7fce51195b816dcc87ef8df4c32b942d9115589a2fa96bbc487a09",
+    "upstream/modeling_embedding_gemma2.py": "132d8714852fa8f0c376af797229e7b48fe94e0cf6cae6f6640681e934062923",
+    "upstream/coreai-convert_gemma2.py": "2a731c4dd36cac9b96187b144e58c4396f2e38dc6245dfeba78f4b6e177e6356",
+    "upstream/qvac/LICENSE": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
+    "upstream/qvac/requirements.txt": "b33c80ea0f097c533acb68b9d310d795cce7f262acae78ffd70a07fa71d029b9",
+    "upstream/qvac/README.md": "b87b9d24bb4f27cf644022950d7070930b9fae625d1563cfff3d2838f494828a",
+    "upstream/qvac/export_coreml.py": "5069938b448ae1469edea758140f4710883c1317b1f889778e24e57d07f0d638"
+  }
+}

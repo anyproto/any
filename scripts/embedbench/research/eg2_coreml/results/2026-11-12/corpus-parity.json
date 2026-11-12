@@ -1,0 +1,73 @@
+{
+  "retainedBF16ReferenceDate": "2026-11-05; historical reference, not regenerated",
+  "sourceFiles": {
+    "historical-references/eg2-bf16-cpu.docs.f32": "4a18a2e789e091cced279ab3058533b32441fcb003edb3609201f98d490ab999",
+    "historical-references/coreml-cold-vectors.json": "b2cbb58c669b1678adafcdf4195a498ef402963591050a9515e76382e26dc792",
+    "historical-references/eg2_head.f32": "f547f6ae4382d393e6cd25a27cb47eb5827424345ede417f7ec84c9eb7ed94a2"
+  },
+  "finite": true,
+  "zeroVectors": 0,
+  "normRange": [
+    0.9999998931240269,
+    1.0000000965439224
+  ],
+  "excludedOver1024": [
+    {
+      "documentIndex": 178,
+      "tokens": 2212
+    },
+    {
+      "documentIndex": 344,
+      "tokens": 1151
+    },
+    {
+      "documentIndex": 360,
+      "tokens": 1553
+    },
+    {
+      "documentIndex": 376,
+      "tokens": 1352
+    },
+    {
+      "documentIndex": 679,
+      "tokens": 1077
+    },
+    {
+      "documentIndex": 720,
+      "tokens": 1485
+    },
+    {
+      "documentIndex": 741,
+      "tokens": 1368
+    },
+    {
+      "documentIndex": 1030,
+      "tokens": 1263
+    },
+    {
+      "documentIndex": 1425,
+      "tokens": 1210
+    }
+  ],
+  "stockRawVsRetainedBF16": {
+    "count": 1491,
+    "meanCosine": 0.999975629106595,
+    "minCosine": 0.9999342433617312,
+    "p01Cosine": 0.9999590297362787,
+    "maxAbs": 0.00178890364053641
+  },
+  "sameDownstreamHeadProjectedVsRetainedBF16": {
+    "count": 1491,
+    "meanCosine": 0.999959851755051,
+    "minCosine": 0.9998673087975717,
+    "p01Cosine": 0.9999244399634559,
+    "maxAbs": 0.0020283547838819
+  },
+  "stockRawVsNemosineReference": {
+    "count": 1491,
+    "meanCosine": 0.9999971319467266,
+    "minCosine": 0.9999853002739557,
+    "p01Cosine": 0.9999937475228808,
+    "maxAbs": 0.0009376662310690009
+  }
+}

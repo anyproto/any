@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+stock/
+models/
+evidence/
+reproducibility-rebuild/
+tokens.json
+validate
+/*.log

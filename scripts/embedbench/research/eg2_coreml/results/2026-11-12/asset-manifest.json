@@ -1,0 +1,263 @@
+{
+  "source": {
+    "repo": "google/embeddinggemma-2",
+    "revision": "914f7f89142e33e77833254d9c9b90c3cef7303b",
+    "files": {
+      "config.json": {
+        "sha256": "b8f1e9931b57fbc054acdb445c41765d55b0074c58d145fa82839941ad1b5bb3",
+        "bytes": 4455
+      },
+      "model.safetensors": {
+        "sha256": "197a32965d4b1105faf060417baa899e193fb73cd401f42ec9295234d5553d79",
+        "bytes": 1488915288
+      },
+      "tokenizer.json": {
+        "sha256": "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4",
+        "bytes": 32170510
+      },
+      "tokenizer_config.json": {
+        "sha256": "17bd5d6e9364ca49a534e1502076593317c298d4a663623091ed45388f004874",
+        "bytes": 1599
+      }
+    }
+  },
+  "conversionProvenance": {
+    "files": {
+      "eg2.py": "773b5fd8a36388fd484d3113ac09d258c6136f1577141a29bc84c028c7bd8410",
+      "parity.py": "05d6e507a3644e7752a8a9799342a6ec08d6d4b6a5b268ea5f2ba4d049f822ff",
+      "fetch_stock.py": "cfb7629e2b6e0f3d847b2accf3b9ff56394d73740c5c31258e67ffca93f7b65b",
+      "source-manifest.json": "1cb8409645fbb2187f61781193a7fd89c53af34b0c2cd9d7d081715b674ce071",
+      "provenance.py": "006b3138302d9458d52104656a275383da68eec8927972d2e820612dda879ba4",
+      "convert.py": "c6a64923e8f856359ca69f76c7a5355c841cb86517d822db59dc28ca988cc072"
+    },
+    "versions": {
+      "torch": "2.7.0",
+      "transformers": "5.19.0",
+      "coremltools": "9.0",
+      "numpy": "2.2.6",
+      "safetensors": "0.8.0",
+      "tokenizers": "0.23.3"
+    },
+    "python": "3.12.9",
+    "fingerprint": "011b9bf29297ac837ed483c9ec03242416ffb77cd30064558d158ab6343adbda"
+  },
+  "packages": {
+    "EmbeddingGemma2Owned.mlpackage": {
+      "bytes": 557942311,
+      "files": {
+        "Data/com.apple.CoreML/model.mlmodel": {
+          "bytes": 7235070,
+          "sha256": "8763b7383a097ac3f8c8115eaff8974f932ee7f0ef909710ddcb84e07d166d88"
+        },
+        "Data/com.apple.CoreML/weights/weight.bin": {
+          "bytes": 550706624,
+          "sha256": "e3ddcdd72119e5a6ea1646a5fff1653dadcf29cfb0ad64be6bc909e258097ec0"
+        },
+        "Manifest.json": {
+          "bytes": 617,
+          "sha256": "44b94c7cccfe6c93fc227444ca3a0c6f1841c175724c14b2a112f6d415bcb928"
+        }
+      }
+    },
+    "s1024.mlpackage": {
+      "bytes": 549075157,
+      "files": {
+        "Data/com.apple.CoreML/model.mlmodel": {
+          "bytes": 1809516,
+          "sha256": "3904740c5103cf5a9424f39e8ef5ad553a9c69c002292875d29b7094b199fe7c"
+        },
+        "Data/com.apple.CoreML/weights/weight.bin": {
+          "bytes": 547265024,
+          "sha256": "f2af7e0d98c788310d234039e87bf91e2a95489c623119389c2a422b88dfd99a"
+        },
+        "Manifest.json": {
+          "bytes": 617,
+          "sha256": "4eaf479df25f291839d974306ac86be53ee762c76859ceba710a5cf6c3bb8f06"
+        }
+      }
+    },
+    "s128.mlpackage": {
+      "bytes": 544258261,
+      "files": {
+        "Data/com.apple.CoreML/model.mlmodel": {
+          "bytes": 1809516,
+          "sha256": "05537c763c2b3bf458541bdde0fc116d811d02e669d5400da6eae908954488c9"
+        },
+        "Data/com.apple.CoreML/weights/weight.bin": {
+          "bytes": 542448128,
+          "sha256": "84ca5157c0540b722f69988b8173af16bcfb884cf6b6dbd9c7793e401c6ba9b3"
+        },
+        "Manifest.json": {
+          "bytes": 617,
+          "sha256": "193d40f86376dc8e4c488c419910a468fa0b7179a7aabd82df4ebb2c4686637c"
+        }
+      }
+    },
+    "s256.mlpackage": {
+      "bytes": 544749781,
+      "files": {
+        "Data/com.apple.CoreML/model.mlmodel": {
+          "bytes": 1809516,
+          "sha256": "07a452f1f676519d3068892edee101c5db1e23d0b247a359286324d32006d2e0"
+        },
+        "Data/com.apple.CoreML/weights/weight.bin": {
+          "bytes": 542939648,
+          "sha256": "c18557a35fd7d5d6017799eb1ab065943febe533f4917b7bdf3bc5f00c2ea3e3"
+        },
+        "Manifest.json": {
+          "bytes": 617,
+          "sha256": "13740206e8d9ff32ffff582f7cd82f5cd19e613113c74ae3af56a2b90cc16d4c"
+        }
+      }
+    },
+    "s512.mlpackage": {
+      "bytes": 545929429,
+      "files": {
+        "Data/com.apple.CoreML/model.mlmodel": {
+          "bytes": 1809516,
+          "sha256": "5463dc387be1689cbcef67d815853ec981c04252cd7874ee563c359f3ae85dd7"
+        },
+        "Data/com.apple.CoreML/weights/weight.bin": {
+          "bytes": 544119296,
+          "sha256": "2f92ffe28d01b4cecc5f47f9c0774a966ad041d2983f47315cf299bd0c0371cf"
+        },
+        "Manifest.json": {
+          "bytes": 617,
+          "sha256": "d394e086eda6a92aacf7b4299926c426686de7d7c89bfb920fb654e78574c3e5"
+        }
+      }
+    }
+  },
+  "functions": [
+    "s1024",
+    "s128",
+    "s256",
+    "s512"
+  ],
+  "contracts": {
+    "s128": {
+      "inputs": {
+        "input_ids": [
+          [
+            1,
+            128
+          ],
+          131104
+        ],
+        "attention_mask": [
+          [
+            1,
+            128
+          ],
+          65568
+        ]
+      },
+      "outputs": {
+        "embedding": [
+          [
+            1,
+            768
+          ],
+          65568
+        ]
+      }
+    },
+    "s256": {
+      "inputs": {
+        "input_ids": [
+          [
+            1,
+            256
+          ],
+          131104
+        ],
+        "attention_mask": [
+          [
+            1,
+            256
+          ],
+          65568
+        ]
+      },
+      "outputs": {
+        "embedding": [
+          [
+            1,
+            768
+          ],
+          65568
+        ]
+      }
+    },
+    "s512": {
+      "inputs": {
+        "input_ids": [
+          [
+            1,
+            512
+          ],
+          131104
+        ],
+        "attention_mask": [
+          [
+            1,
+            512
+          ],
+          65568
+        ]
+      },
+      "outputs": {
+        "embedding": [
+          [
+            1,
+            768
+          ],
+          65568
+        ]
+      }
+    },
+    "s1024": {
+      "inputs": {
+        "input_ids": [
+          [
+            1,
+            1024
+          ],
+          131104
+        ],
+        "attention_mask": [
+          [
+            1,
+            1024
+          ],
+          65568
+        ]
+      },
+      "outputs": {
+        "embedding": [
+          [
+            1,
+            768
+          ],
+          65568
+        ]
+      }
+    }
+  },
+  "verifiedFP16MatrixOperations": {
+    "s256": 433,
+    "s512": 433,
+    "s128": 433,
+    "s1024": 433
+  },
+  "externalTensorReferences": {
+    "s256": 399,
+    "s512": 399,
+    "s128": 399,
+    "s1024": 399
+  },
+  "sharedExternalTensorOffsetsAcrossAllFunctions": 394,
+  "allDistinctExternalTensorOffsets": 414,
+  "standaloneTotalBytes": 2184012628,
+  "mergedBytes": 557942311
+}

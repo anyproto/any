@@ -1,0 +1,29 @@
+{
+  "freshOutputDirectory": "reproducibility-rebuild/s128.mlpackage",
+  "files": {
+    "Manifest.json": {
+      "initialSHA256": "193d40f86376dc8e4c488c419910a468fa0b7179a7aabd82df4ebb2c4686637c",
+      "rebuiltSHA256": "df700541886a045d34a51338e097a0b14650248f93fc52e639dfeba755f06112",
+      "equal": false
+    },
+    "Data/com.apple.CoreML/model.mlmodel": {
+      "initialSHA256": "05537c763c2b3bf458541bdde0fc116d811d02e669d5400da6eae908954488c9",
+      "rebuiltSHA256": "42e2ac934b31579ddc998001efb42c81df84ee9346ba7b51390566b44341d0dd",
+      "equal": false
+    },
+    "Data/com.apple.CoreML/weights/weight.bin": {
+      "initialSHA256": "84ca5157c0540b722f69988b8173af16bcfb884cf6b6dbd9c7793e401c6ba9b3",
+      "rebuiltSHA256": "84ca5157c0540b722f69988b8173af16bcfb884cf6b6dbd9c7793e401c6ba9b3",
+      "equal": true
+    }
+  },
+  "weightBlobIdentical": true,
+  "modelProtoIdentical": false,
+  "wholePackageFilesIdentical": false,
+  "modelProtoSemanticallyIdentical": true,
+  "deterministicProtoSHA256": {
+    "initial": "1cae78411712f1a282af7e6c47e39116eeeacbe97603b33d3307dbe596a24bf7",
+    "rebuilt": "1cae78411712f1a282af7e6c47e39116eeeacbe97603b33d3307dbe596a24bf7"
+  },
+  "interpretation": "Same weight bytes and identical parsed protobuf; raw protobuf map serialization order and package UUIDs differ. Not a byte-identical whole package."
+}

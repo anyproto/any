@@ -1,0 +1,24 @@
+{
+  "testDate": "2026-11-12",
+  "sourceArchiveSHA256": "8fd24a0dc4fa83a440b2561945c14acf056a85da4d284c94a09ff4439285f811",
+  "testedSourceSHA256": {
+    "eg2.py": "773b5fd8a36388fd484d3113ac09d258c6136f1577141a29bc84c028c7bd8410",
+    "fetch_stock.py": "cfb7629e2b6e0f3d847b2accf3b9ff56394d73740c5c31258e67ffca93f7b65b",
+    "parity.py": "05d6e507a3644e7752a8a9799342a6ec08d6d4b6a5b268ea5f2ba4d049f822ff",
+    "convert.py": "c6a64923e8f856359ca69f76c7a5355c841cb86517d822db59dc28ca988cc072",
+    "provenance.py": "006b3138302d9458d52104656a275383da68eec8927972d2e820612dda879ba4",
+    "measure_assets.py": "13715cc802441f638539c9fc89883df3807f96f3be161ff7f0865f1ad3191131",
+    "compare_rebuild.py": "703f172cb068c566ee650481fc78e1144e4bc486723622f05a13e912a9a08d08",
+    "analyze.py": "1b5eee0c6c71f5df57ece6536387571f90a055ecfc1f34254a5c659740f14fd6",
+    "validate.swift": "54d9e95a4026ec12d884aa409f5b7675a477d2f147089a633eaeb7566b29bbd0",
+    "requirements.lock": "448293cf8031689a3a57035f0620e375b6eb18f684b621ef35df556b51b51efd",
+    "source-manifest.json": "1cb8409645fbb2187f61781193a7fd89c53af34b0c2cd9d7d081715b674ce071",
+    "NOTICE": "0006b0064b10eead7cc0f6cbabc0c544b0c75ad7c722ed9671d7c9d054183e07"
+  },
+  "fixtureSHA256": "ff7f41a9586d566abf33f14aa9033f40e6d701698baa1d552b2f12f8f742a13a",
+  "notes": [
+    "Core conversion and validation sources are byte-identical to the tested handoff.",
+    "Results preserve measurements; private host names and local filesystem paths are replaced with portable labels.",
+    "Model binaries, stock weights, environment and the full corpus vector dump are not committed."
+  ]
+}
