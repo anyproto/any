@@ -6,7 +6,7 @@ import (
 
 	"github.com/anyproto/any-store/v2/query"
 	"golang.org/x/text/cases"
-	"golang.org/x/text/unicode/norm"
+	textnorm "golang.org/x/text/unicode/norm"
 )
 
 // fusionPlan is one query's RRF form: per-leg weights (0 drops the leg)
@@ -82,7 +82,7 @@ func coverageSplit(folded string) []string {
 // coverageFold is s in the form coverage compares: NFKC, case-folded,
 // as the FTS analyzer folds.
 func coverageFold(s string) string {
-	return cases.Fold().String(norm.NFKC.String(s))
+	return cases.Fold().String(textnorm.NFKC.String(s))
 }
 
 // coverageWords is a folded text's word set (letters, marks, digits, '_').
