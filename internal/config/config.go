@@ -364,8 +364,7 @@ type IndexLocal struct {
 	ModelPath string `yaml:"modelPath"`
 	// ModelUrl is another download source for the model Model names.
 	ModelUrl string `yaml:"modelUrl"`
-	// ModelSha256 is the expected checksum of the downloaded model.
-	// Empty with a custom ModelUrl skips verification (logged once).
+	// ModelSha256 replaces the model's pinned checksum for the download.
 	ModelSha256 string `yaml:"modelSha256"`
 	// LibDir holds the llama.cpp shared libraries; default is the
 	// `llamacpp` directory next to the executable.
