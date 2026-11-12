@@ -192,10 +192,14 @@ func TestStore_SetTitledVectors(t *testing.T) {
 	if got, _, _ := s.Pending(ctx, sp, 10); len(got) != 0 {
 		t.Fatalf("pending after landing under the current name: %v", got)
 	}
-	if _, err := s.SetTitledVectors(ctx, sp, ids, texts, []string{"x"}, [][]float32{vec, vec}); err == nil {
+	vecs := [][]float32{vec, vec, vec}
+	if _, err := s.SetTitledVectors(ctx, sp, ids, texts, append(titles, "x"), vecs); err == nil {
 		t.Fatal("mismatched titles must be refused")
 	}
-	if _, err := s.SetTitledVectors(ctx, sp, ids, texts[:1], nil, [][]float32{vec, vec, vec}); err == nil {
+	if _, err := s.SetTitledVectors(ctx, sp, ids, append(texts, body), titles, vecs); err == nil {
 		t.Fatal("mismatched texts must be refused")
+	}
+	if _, err := s.SetTitledVectors(ctx, sp, ids, texts, titles, vecs[:2]); err == nil {
+		t.Fatal("mismatched vectors must be refused")
 	}
 }

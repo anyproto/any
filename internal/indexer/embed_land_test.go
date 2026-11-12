@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync"
 	"testing"
 
 	anystore "github.com/anyproto/any-store/v2"
@@ -95,13 +96,14 @@ func testVectorLandsOnEmbeddedText(t *testing.T, titled bool) {
 		t.Fatalf("titles = %q, %v", titles, err)
 	}
 
-	// What lands while the batch embeds.
+	// What lands while the batch embeds: an append, a cut and a change
+	// of case among the rewrites.
 	rewritten := map[string]string{
-		edited:  "new text",
+		edited:  "old text, appended",
 		reborn:  "new text",
 		name1:   long("new name"),
-		winEdit: "new window",
-		chunk1:  "new chunk one",
+		winEdit: "old",
+		chunk1:  "Old chunk one",
 	}
 	apply([]DocUpsert{
 		{Entry: entry("chat", "o1", "chat_messages", "same", "same text", 20)},
@@ -176,33 +178,34 @@ func testVectorLandsOnEmbeddedText(t *testing.T, titled bool) {
 	}
 }
 
-// editingEmbedder embeds under titles and runs edit once, while its
-// first batch embeds — an advance page landing mid-round.
+// editingEmbedder embeds under titles and runs edit once, while the
+// first round's batches embed — an advance page landing mid-round.
 type editingEmbedder struct {
 	axisEmbedder
 	edit func()
+	once sync.Once
 }
 
 func (e *editingEmbedder) EmbedsTitles() bool { return true }
 
 func (e *editingEmbedder) EmbedTitledDocs(ctx context.Context, _, texts []string) ([][]float32, error) {
-	if e.edit != nil {
-		e.edit()
-		e.edit = nil
-	}
+	e.once.Do(e.edit)
 	return e.EmbedDocs(ctx, texts)
 }
 
 // A doc rewritten or renamed while its batch embeds takes no vector,
 // stays pending and is not reported as landed; the next drain lands it.
+// The round is three batches, so each lands against its own texts.
 func TestEmbedDrain_SkipsDocChangedMidRound(t *testing.T) {
 	ctx := context.Background()
 	st := mustStore(t, 4)
 	st.SetEmbedTitles(true)
 	emb := &editingEmbedder{axisEmbedder: axisEmbedder{dim: 4}}
 	ix := &Indexer{store: st, lg: logger.NewNamed("indexer.test"), opts: Options{
-		Embedder:      emb,
-		AnnounceAfter: -1,
+		Embedder:         emb,
+		EmbedBatch:       2,
+		EmbedConcurrency: 3,
+		AnnounceAfter:    -1,
 	}.withDefaults()}
 	w := &spaceWorker{ix: ix, sp: staticIdSpace{}}
 	const sp = "sp1"
@@ -216,13 +219,16 @@ func TestEmbedDrain_SkipsDocChangedMidRound(t *testing.T) {
 		DocUpsert{Entry: entry("basic", "o1", index.DatasetProp, index.NamePropRecordId, "Old name", 1)},
 		DocUpsert{Entry: entry("basic", "o1", "editor_blocks", "win_a", "a window", 2)},
 		DocUpsert{Entry: entry("chat", "o2", "chat_messages", "m1", "old message", 3)},
-		DocUpsert{Entry: entry("chat", "o2", "chat_messages", "m2", "kept message", 4)},
+		DocUpsert{Entry: entry("chat", "o2", "chat_messages", "m2", "second message", 4)},
+		DocUpsert{Entry: entry("chat", "o2", "chat_messages", "m3", "third message", 5)},
+		DocUpsert{Entry: entry("chat", "o2", "chat_messages", "m4", "fourth message", 6)},
 	)
+	var editErr error
 	emb.edit = func() {
-		apply(
-			DocUpsert{Entry: entry("basic", "o1", index.DatasetProp, index.NamePropRecordId, "New name", 5)},
-			DocUpsert{Entry: entry("chat", "o2", "chat_messages", "m1", "new message", 6)},
-		)
+		editErr = st.Apply(ctx, sp, []DocUpsert{
+			{Entry: entry("basic", "o1", index.DatasetProp, index.NamePropRecordId, "New name", 7)},
+			{Entry: entry("chat", "o2", "chat_messages", "m1", "new message", 8)},
+		}, nil, nil)
 	}
 	drain := func() (landed int) {
 		t.Helper()
@@ -231,8 +237,12 @@ func TestEmbedDrain_SkipsDocChangedMidRound(t *testing.T) {
 		}
 		return landed
 	}
-	if n := drain(); n != 1 {
-		t.Errorf("round reported %d docs landed, want 1 (the untouched message)", n)
+	n := drain()
+	if editErr != nil {
+		t.Fatal(editErr)
+	}
+	if n != 3 {
+		t.Errorf("round reported %d docs landed, want the 3 untouched messages", n)
 	}
 	changed := []string{docId("o1", "editor_blocks", "win_a"), docId("o2", "chat_messages", "m1")}
 	ids, _, err := st.Pending(ctx, sp, 10)
