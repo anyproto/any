@@ -710,7 +710,7 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   one built is removed and rebuilt at boot, like one of another
   dimension. A db without that record is kept for Qwen3, an unnamed
   GGUF or a network embedder, whichever of them filled it, and when it
-  holds no dimension. Under `auto` with no `index.local.model` set,
+  holds no dimension. Under `auto` with neither `index.local.model` nor `modelPath` set,
   the API key decides the local model, so adding or removing
   `index.openai.apiKey` rebuilds the index. A model file whose output
   width is not the pinned model's is refused at load.

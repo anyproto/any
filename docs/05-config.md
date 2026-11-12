@@ -180,8 +180,9 @@ index:
     model: ""                         # pinned model: embeddinggemma-2 (default) or
                                       # qwen3-embedding-0.6b (the default when `auto` has an
                                       # apiKey); sets download, prompts, pooling, dim. Changing
-                                      # it — or, while it is unset, adding/removing the
-                                      # apiKey under `auto` — rebuilds the index
+                                      # it — or, while it and modelPath are unset,
+                                      # adding/removing the apiKey under `auto` —
+                                      # rebuilds the index
     modelPath: ""                     # existing GGUF; set ⇒ no download (air-gapped). Without
                                       # `model` it is an unnamed GGUF: no pinned prompts or pooling
     modelUrl: ""                      # another download source for the model `model` names
@@ -356,7 +357,7 @@ ANY_INDEX_SEARCH_TITLE_WEIGHT=2       # index.search.titleWeight (BM25F title bo
 ANY_INDEX_SEARCH_QUERY_EMBED_TIMEOUT=5s # index.search.queryEmbedTimeout (query embedding budget)
 ANY_INDEX_LOCAL_MODEL_PATH=/models/q.gguf
 ANY_INDEX_LOCAL_MODEL_URL=https://...
-ANY_INDEX_LOCAL_MODEL_SHA256=06507c...
+ANY_INDEX_LOCAL_MODEL_SHA256=2188ac...
 ANY_INDEX_LOCAL_LIB_DIR=/opt/llamacpp
 ANY_INDEX_LOCAL_CONTEXT_SIZE=2048
 ANY_INDEX_LOCAL_MODEL=embeddinggemma-2
