@@ -167,7 +167,7 @@ func (d *deps) catalogSetup(c echo.Context) error {
 	createCtx, cancel := context.WithTimeout(d.backgroundCtx(), bundleCreateTimeout)
 	defer cancel()
 
-	results, err := d.bundleResolver().Setup(ctx, createCtx, sp, installs, catalogBeforeInstall)
+	results, err := d.bundleResolver().Setup(ctx, createCtx, sp, installs, d.installGates(cc))
 	if err != nil {
 		var se *bundles.SetupError
 		details := map[string]any{"spaceId": sp.Id(), "usecaseId": usecaseId}
@@ -178,10 +178,10 @@ func (d *deps) catalogSetup(c echo.Context) error {
 			}
 			var xc *xKeyConflictError
 			if errors.As(se.Err, &xc) {
-				details["xKey"] = xc.XKey
-				details["existingTypeId"] = xc.ExistingTypeId
+				holder := xc.addHolder(details)
 				return writeError(c, http.StatusConflict, "type.xkey_conflict",
-					"a type in this space already holds the handle the catalog type declares — remove that type, then set up again", details)
+					"a "+holder+" in this space already holds the handle the catalog declares — rename it with POST /v1/spaces/"+
+						sp.Id()+"/properties/"+xc.HolderId+"/set/"+holder+` {"patch":{"xkey":"<new handle>"}}, then set up again`, details)
 			}
 			err = se.Err
 		}
@@ -339,16 +339,95 @@ func healCollectionMeta(ctx context.Context, sp space.Space, rootId string, meta
 	return sp.Collections().Patch(ctx, rootId, space.CollectionPatch{Meta: missing})
 }
 
-// xKeyConflictError reports a listed type already holding a catalog
-// type's handle. Raised before the root is minted, so a refused setup
-// leaves nothing behind.
+// xKeyConflictError reports a listed type or collection already holding
+// an install's handle. Raised before the root is minted, so a refused
+// setup leaves nothing behind.
 type xKeyConflictError struct {
-	XKey           string
-	ExistingTypeId string
+	XKey       string
+	HolderId   string
+	Collection bool
 }
 
 func (e *xKeyConflictError) Error() string {
-	return "xKey " + e.XKey + " already held by type " + e.ExistingTypeId
+	return "xKey " + e.XKey + " already held by " + e.HolderId
+}
+
+// addHolder puts the xKey and the holder into details — existingTypeId
+// or existingCollectionId — and returns the holder's surface.
+func (e *xKeyConflictError) addHolder(details map[string]any) string {
+	details["xKey"] = e.XKey
+	if e.Collection {
+		details["existingCollectionId"] = e.HolderId
+		return "collection"
+	}
+	details["existingTypeId"] = e.HolderId
+	return "type"
+}
+
+// catalogHandleError reports an install taking a catalog handle that
+// its bundle does not declare.
+type catalogHandleError struct {
+	XKey   string
+	handle catalogHandle
+}
+
+func (e *catalogHandleError) Error() string {
+	return "xKey " + e.XKey + " is reserved by catalog bundle " + e.handle.bundleId
+}
+
+// catalogHandleConflict answers a catalog handle taken outside the
+// bundles that declare it; details name the catalog bundle it belongs
+// to (catalogBundleId, usecase) and the space.
+func catalogHandleConflict(c echo.Context, spaceId, xKey string, h catalogHandle, details map[string]any) error {
+	if details == nil {
+		details = map[string]any{}
+	}
+	details["spaceId"] = spaceId
+	details["xKey"] = xKey
+	details["catalogBundleId"] = h.bundleId
+	details["usecase"] = h.usecase
+	return writeError(c, http.StatusConflict, "type.xkey_conflict",
+		"xKey is reserved by the "+h.usecase+" usecase in the catalog — choose another handle", details)
+}
+
+// installGates: before a root is minted, the space's holders first (a
+// holder is named, a reader meets the permission refusal), then the
+// catalog reservation; before a handle heal, the reservation.
+func (d *deps) installGates(cc *compiledCatalog) bundles.Gates {
+	reservation := func(_ context.Context, sp space.Space, inst bundles.Install) error {
+		if h, reserved := d.reservedIn(cc, sp, inst.Id, inst.XKey); reserved {
+			return &catalogHandleError{XKey: inst.XKey, handle: h}
+		}
+		return nil
+	}
+	return bundles.Gates{
+		BeforeInstall: func(ctx context.Context, sp space.Space, inst bundles.Install) error {
+			if err := catalogBeforeInstall(ctx, sp, inst); err != nil {
+				return err
+			}
+			return reservation(ctx, sp, inst)
+		},
+		BeforeHandleHeal: reservation,
+	}
+}
+
+// reservedIn is reservedHandle for a write in sp: never in the tech
+// space, which has no catalog, and never for a member who may not write,
+// whom the SDK refuses on permission.
+func (d *deps) reservedIn(cc *compiledCatalog, sp space.Space, bundleId, xKey string) (catalogHandle, bool) {
+	if d.isTechSpace(sp.Id()) || !mayWrite(sp) {
+		return catalogHandle{}, false
+	}
+	return cc.reservedHandle(bundleId, xKey)
+}
+
+// mayWrite reports whether this account may write in sp.
+func mayWrite(sp space.Space) bool {
+	switch sp.Info().OwnRole {
+	case space.PermissionOwner, space.PermissionAdmin, space.PermissionWriter:
+		return true
+	}
+	return false
 }
 
 // catalogBeforeInstall is the pre-install rule the resolver runs for a
@@ -376,21 +455,24 @@ func catalogBeforeInstall(ctx context.Context, sp space.Space, inst bundles.Inst
 	default:
 		return nil
 	}
-	type handle struct{ id, xkey string }
+	type handle struct {
+		id, xkey   string
+		collection bool
+	}
 	var handles []handle
 	infos, err := sp.Types().List(ctx)
 	if err != nil {
 		return err
 	}
 	for _, t := range infos {
-		handles = append(handles, handle{t.Id, t.XKey})
+		handles = append(handles, handle{t.Id, t.XKey, false})
 	}
 	colls, err := sp.Collections().List(ctx)
 	if err != nil {
 		return err
 	}
 	for _, col := range colls {
-		handles = append(handles, handle{col.Id, col.XKey})
+		handles = append(handles, handle{col.Id, col.XKey, true})
 	}
 	var own map[string]bool
 	for _, h := range handles {
@@ -412,7 +494,7 @@ func catalogBeforeInstall(ctx context.Context, sp space.Space, inst bundles.Inst
 		if own[h.id] {
 			continue
 		}
-		return &xKeyConflictError{XKey: inst.XKey, ExistingTypeId: h.id}
+		return &xKeyConflictError{XKey: inst.XKey, HolderId: h.id, Collection: h.collection}
 	}
 	return nil
 }

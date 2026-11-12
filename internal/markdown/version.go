@@ -41,7 +41,7 @@ func readDocument(ctx context.Context, sp space.Space, objectId, collection, gen
 	if err != nil {
 		return Document{}, nil, 0, err
 	}
-	content := Join(renderExisting(existing))
+	content := existingDocument(existing)
 	return Document{Content: content, Version: formatVersion(gen, seq, content)}, existing, seq, nil
 }
 

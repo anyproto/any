@@ -517,17 +517,34 @@ func TestServer_CollectionsRoutes(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), shelf) {
 		t.Errorf("conflict does not name the holding collection: %s", rec.Body.String())
 	}
-	rec = doJSON(t, e, http.MethodPost, base+"/types", `{"name":"Task","xKey":"task"}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/types", `{"name":"Chore","xKey":"chore"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
 	}
 	var task api.TypesCreateResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &task)
-	rec = doJSON(t, e, http.MethodPost, base+"/collections", `{"name":"Task","xKey":"task"}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/collections", `{"name":"Chore","xKey":"chore"}`)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("collection taking a type's handle: %d %s", rec.Code, rec.Body.String())
 	}
 	assertErrorCode(t, rec, "type.xkey_conflict")
+
+	// A handle the usecase catalog declares is refused on both surfaces,
+	// even before the usecase is set up: holding it would block setup.
+	for _, path := range []string{"/types", "/collections"} {
+		rec = doJSON(t, e, http.MethodPost, base+path, `{"name":"Task","xKey":"task"}`)
+		if rec.Code != http.StatusConflict {
+			t.Fatalf("%s taking a catalog handle: %d %s", path, rec.Code, rec.Body.String())
+		}
+		assertErrorCode(t, rec, "type.xkey_conflict")
+		var env api.ErrorEnvelope
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatalf("decode envelope: %v", err)
+		}
+		if det := env.Error.Details; det["xKey"] != "task" || det["catalogBundleId"] != "system:task/v1" || det["usecase"] != "tasks" || det["spaceId"] != sp.Id {
+			t.Fatalf("%s catalog handle details: %+v", path, det)
+		}
+	}
 
 	// Get, and the listing: a user collection is visible by default, a
 	// hidden one only with includeHidden.

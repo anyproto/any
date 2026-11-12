@@ -536,8 +536,9 @@ collection carries a name, description, icon, `--xkey`, `--hidden`,
 verbs are the type ones on a collection owner, same flags and same
 `{set, unset}` patch rules.
 
-`--xkey` is required on create and unique across the space's types and
-collections together (`409 type.xkey_conflict`). `collection update`
+`--xkey` is required on create, unique across the space's types and
+collections together, and never a handle the usecase catalog declares
+(`409 type.xkey_conflict`). `collection update`
 uses cobra's `Changed` semantics like `type update`: an absent flag
 keeps the value, an empty string clears it, `--hidden=false` unhides.
 `collection list` omits hidden collections (the built-in `miniapp` /
@@ -546,7 +547,7 @@ keeps the value, an empty string clears it, `--hidden=false` unhides.
 refuses a metadata write (`400 collection.registered`).
 
 ```
-any collection create $SPID --name Contacts --xkey contact
+any collection create $SPID --name Clients --xkey client
 any collection property add $SPID $CID --name Company --xkey company --kind string
 any collection update $SPID $CID --hidden=false --meta pinned=true
 ```

@@ -260,10 +260,10 @@ any collection property remove <spaceId> <collectionId> <propId>
 
 A collection is what an object is filed under; a type is what it is. A collection takes a name, description, icon, `--xkey`, `--hidden`, `--meta` and property definitions — no parts, no layout. The property verbs are the type ones on a collection owner, same flags and same `{set, unset}` patch rules; the choice-option sugar is on the type group only, so patch the descriptor path directly here.
 
-`--xkey` is required on create and unique across the space's types and collections together (`409 type.xkey_conflict`). `collection list` omits hidden collections (the built-in `miniapp` / `bin` / `template`, and any you marked hidden) without `--include-hidden`; `collection get` resolves them always. A registered built-in refuses a metadata write (`400 collection.registered`).
+`--xkey` is required on create, unique across the space's types and collections together, and never a handle the usecase catalog declares (`409 type.xkey_conflict`). `collection list` omits hidden collections (the built-in `miniapp` / `bin` / `template`, and any you marked hidden) without `--include-hidden`; `collection get` resolves them always. A registered built-in refuses a metadata write (`400 collection.registered`).
 
 ```bash
-any collection create $SP --name Contacts --xkey contact
+any collection create $SP --name Clients --xkey client
 any collection property add $SP $C --name Company --xkey company --kind string
 any collection update $SP $C --hidden=false --meta pinned=true
 ```

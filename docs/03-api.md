@@ -1318,11 +1318,16 @@ holds the marker.
   no columns and no parts. Unique among the space's handles, types and
   collections together: an install whose xKey is already held (as an
   xKey or an id, hidden or not) is
-  `409 type.xkey_conflict` (`details: {xKey, existingTypeId,
-  bundleId}`), checked on the install path only — an adopted root
-  holds the handle by design and never conflicts with itself.
-  Written on install; a writer's adopt fills in a handle the root
-  lacks, and an existing handle is never changed.
+  `409 type.xkey_conflict` (`details: {xKey, existingTypeId |
+  existingCollectionId, bundleId}`), checked on the install path only
+  — an adopted root holds the handle by design and never conflicts
+  with itself. A handle the usecase catalog declares is refused on
+  install, and on an adopt that would fill it in, the same way
+  (`details: {xKey, catalogBundleId, usecase, spaceId, bundleId}`).
+  Written on install; a writer's adopt — or the materialize of a
+  derived root not yet here — fills in a handle the root lacks unless
+  it is a catalog handle the bundle does not declare, and an existing
+  handle is never changed.
 - `layout` (the type's rendering slice, § Types; refused with
   `collection`) and `hidden` are written with the root's name on
   install. **`hidden` is explicit**: a root that only hosts its
@@ -1591,7 +1596,7 @@ member — and
 never overwrites what it has), otherwise the handle check runs (no type
 or collection in the space
 may already hold the bundle's xKey — `409 type.xkey_conflict`, install
-path only) and the root is minted with everything the bundle declares
+path only, its message naming the rename that frees the handle) and the root is minted with everything the bundle declares
 (root + up to 3 changes). Idempotent: a second call adopts everything. A
 heal that fails (a permission or sync race) is not an error: the setup
 still answers 200 and the next setup retries it. A
@@ -1628,7 +1633,9 @@ Errors: `404 catalog.not_found` (`details.usecaseId`);
 (the tech space is not a setup target); the space errors; per bundle
 the § Bundles set — `409 bundle.not_ready`, `403` for a member without
 write permission on an install, `409 type.xkey_conflict`
-(`details.xKey`, `details.existingTypeId`). Every error of the walk
+(`details.xKey`, and `details.existingTypeId` or
+`details.existingCollectionId` by the holder's surface; the message
+names the rename that frees the handle). Every error of the walk
 carries `details.spaceId`, `details.usecaseId`, and for a failing
 step `details.usecase` + `details.bundleId`. A client `POST …/bundles`
 with a `system:` id stays `409 bundle.reserved`. CLI: `any catalog
@@ -1691,7 +1698,32 @@ with `\n\n` (see *Empty paragraphs* below for the blank-line rule),
 plus the document version (*Versions and conflicts* below). A code
 block renders with a backtick fence one longer than the longest run of
 three or more backticks in its text, and three at least, so no line of
-its text closes it. `PUT`
+its text closes it. Front matter — a first line exactly `---`, then
+lines that are each blank or YAML-shaped — a key line (a bare key of
+letters and digits in any script, `_`, `.` and `-`, no spaces, or a
+quoted key, then `:` and a space or the end of the line), a `- ` list
+item, or an indented line — the first of them a key line, up to a line
+exactly `---` or `...`, with at most 64 KiB between the delimiters —
+is one `front_matter` block whose `text` is the lines between the
+delimiters, verbatim; it renders between two `---` lines, so a `...`
+closer reads back as `---`. Only a whole-document write (`PUT`,
+`PATCH`) recognises it, and only on the first line: anywhere else,
+with any other line before the closer (a heading, a list or quote
+marker, a table row, prose, a fence; a blank second line makes the
+`---` a divider), without a closer, over the size, or in content
+appended to a page that already has blocks those lines are ordinary
+markdown. A `front_matter` block that is not first, or whose text
+would not read back as front matter, renders as a `yaml` code block,
+and the next whole-document save of that rendering stores it as one. A
+page whose first block opens with `---` but is not front matter
+renders a lone `---` block that would close it as `***`. Its GET can
+still read back as front matter when the rendering is YAML-shaped up
+to a later line that is exactly `---` or `...` — a list item written
+`* x` renders as `- x`, a paragraph `---\na: b\n---` becomes the first
+block once the block above it is deleted. Re-saving that GET converts
+those blocks into one `front_matter` block once; after that it is
+stable.
+`PUT`
 takes `{"content": "…", "ifVersion": "…"}`, parses `content`, diffs it
 against the current block tree by (type + position + text), and emits
 per-block create / update / delete ops through the same write path the
@@ -1809,7 +1841,9 @@ ships O(edit) bytes instead of O(document) — use `PATCH`, not a
 client-side `GET → string-replace → PUT`.
 
 `POST …/editor/:collection/markdown/append` is the append-only fast path. It
-parses the supplied `{"content": "..."}`, looks up only the tail
+parses the supplied `{"content": "..."}` — as the start of the document,
+front matter included, when the page has no blocks yet; as a fragment
+otherwise — looks up only the tail
 position (one indexed `-nav.pos` query, never the existing block
 bodies), allocates lexids past the last block, and creates every
 parsed block in a single ModifyBatch. Cost is O(appended content),
@@ -1847,8 +1881,9 @@ Consequences worth designing against:
 
 - `GET` after `PUT` returns the same bytes for any document expressed
   in this form, and re-`PUT`ting a `GET` writes nothing (`unchanged`
-  equals the block count). A client that hydrates from `GET` will not
-  see its own save come back reshaped.
+  equals the block count) apart from the front matter cases above. A
+  client that hydrates from `GET` will not see its own save come back
+  reshaped.
 - The encoding is **ours, not CommonMark's**: every other markdown
   renderer collapses blank runs. Content that round-trips through an
   external tool, a paste, or a client that does not implement this
@@ -1872,7 +1907,8 @@ route below; the examples use the canonical name). Nest via
   "_ver":  { "id": "<creation VersionId>", "<path>": "<VersionId>", ... },
   "type":  "paragraph" | "heading" | "list_item" |
            "check_list_item" | "code" | "quote" |
-           "divider" | "html" | "table" | "image",
+           "divider" | "html" | "table" | "image" |
+           "front_matter",
   "style": { "level": 1..6,         /* heading */
              "ordered": true|false, /* list_item */
              "number":  10,         /* ordered list_item; omitted when 1 */
@@ -1887,7 +1923,10 @@ route below; the examples use the canonical name). Nest via
 `text` is INLINE markdown only — bold, italic, inline code, links,
 strikethrough. Block-level syntax (heading hashes, list bullets,
 fences, quote `>` prefixes) lives in `type` + `style` instead so
-clients render blocks structurally without re-parsing.
+clients render blocks structurally without re-parsing. A
+`front_matter` block is a page's leading metadata (YAML between `---`
+lines in the markdown); its `text` is the lines between the
+delimiters, verbatim.
 
 An ordered list item renders with its own `style.number` (1 when
 absent). A list item's continuation lines stay in its `text`, indented
@@ -2764,9 +2803,14 @@ enforces it: empty → `400 type.xkey_required`; collision with an
 existing type's or collection's `xKey` **or** id in the same space →
 `409 type.xkey_conflict` (`details: {xKey, existingTypeId}`, or
 `{xKey, existingCollectionId}` when a collection holds the handle — the
-two surfaces share one namespace). Clients derive
+two surfaces share one namespace); a handle a usecase catalog bundle
+declares → `409 type.xkey_conflict` (`details: {xKey, catalogBundleId,
+usecase, spaceId}`) whether or not the usecase is set up, since holding it would
+block that setup (docs/28-well-known-bundles.md § Handles). Clients derive
 the xKey as a slug of the name (`"Pages"` → `pages`); it must survive
-display-name renames. Create → `201 {"typeId": "…"}`. Built-in types (the hidden
+display-name renames. When the slug is taken — a handle of the space or
+one the usecase catalog declares (`409 type.xkey_conflict`) — they
+append a suffix until it is free (`task_2`, `task_3`). Create → `201 {"typeId": "…"}`. Built-in types (the hidden
 `dataview` and `page`) are registered, not created here,
 and resolve by their literal id; a registered type's parts are static —
 `GET …/types/:typeId/parts` reads them compiled (keys as ids, a static
@@ -3589,7 +3633,8 @@ hidden?, meta?}` → `201 {"collectionId": "…"}`. **`xKey` is required**
 and follows the type rules exactly: empty → `400 type.xkey_required`;
 already a handle in the space, on either surface → `409
 type.xkey_conflict` (`details: {xKey, existingCollectionId}`, or
-`existingTypeId` when a type holds it). **Inline property definitions
+`existingTypeId` when a type holds it), and so is a catalog handle
+(`details: {xKey, catalogBundleId, usecase, spaceId}`). **Inline property definitions
 are not part of collection create** — a `properties` key, or any other
 unknown top-level key, answers `400 request.unknown_field` pointing at
 `POST …/collections/:collectionId/properties`. `hidden` and `meta`
@@ -3752,7 +3797,12 @@ SAME declared scope (synced, account or local — inferred from the
 definitions); a mixed-scope or unknown-key patch is rejected. A value
 set under an `ownerId` the object does not have — not its type, not a
 collection it is filed under — is `400 dataset.not_declared`. Values pass the
-descriptor gate (`400 property.format_violation`, § Types).
+descriptor gate (`400 property.format_violation`, § Types). A handle
+change (`ownerId` `type` or `collection`, propId `xkey`) onto a handle
+the usecase catalog declares is `409 type.xkey_conflict` (`details:
+{xKey, catalogBundleId, usecase, spaceId, objectId}`) unless the object is the current winner root of a
+catalog bundle declaring it; a patch that keeps the current handle passes
+(docs/28-well-known-bundles.md § Handles).
 
 **The type.** `POST …/type/:typeId` sets the object's one type
 (`any.type`, a `$set`): a previous type is replaced, and its values and
