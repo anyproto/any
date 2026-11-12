@@ -171,6 +171,9 @@ any chat send   <spaceId> <objectId> --text S | --file FILE|-  [--reply-to MSG]
 any chat edit   <spaceId> <objectId> <msgId> --text S | --file FILE|-
 any chat delete <spaceId> <objectId> <msgId>
 any chat react  <spaceId> <objectId> <msgId> <emoji>          # toggle
+any chat read           <spaceId> <objectId> <msgId>          # this message and everything before it
+any chat read-all       <spaceId> <objectId>
+any chat reactions-read <spaceId> <objectId> <msgId>
 ```
 
 `<objectId>` is any object whose type declares a chat part; for the space's general chat it is the `rootId` that `any catalog setup general-chat <spaceId>` installs or adopts and prints. Text is markdown; `--file -` reads it from stdin. Edit and delete work on your own messages only. Reading is `any query-subscribe … --dataset chat_messages`.
