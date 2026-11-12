@@ -1653,9 +1653,9 @@ func (s *Store) SetVectors(ctx context.Context, spaceId string, ids []string, ve
 }
 
 // SetTitledVectors lands, in one write transaction, vectors embedded from
-// texts (as Pending read them) under titles (as DocTitles did; nil =
-// none), and returns how many docs took one. A doc rewritten, renamed or
-// deleted since is skipped and stays as that write left it.
+// texts (as Pending read them; nil = any text) under titles (as DocTitles
+// did; nil = none), and returns how many docs took one. A doc rewritten,
+// renamed or deleted since is skipped and stays as that write left it.
 func (s *Store) SetTitledVectors(ctx context.Context, spaceId string, ids, texts, titles []string, vecs [][]float32) (landed int, err error) {
 	if len(ids) != len(vecs) || (texts != nil && len(texts) != len(ids)) || (titles != nil && len(titles) != len(ids)) {
 		return 0, fmt.Errorf("indexer: SetVectors: %d ids, %d vectors, %d texts, %d titles", len(ids), len(vecs), len(texts), len(titles))

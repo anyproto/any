@@ -192,14 +192,22 @@ func TestStore_SetTitledVectors(t *testing.T) {
 	if got, _, _ := s.Pending(ctx, sp, 10); len(got) != 0 {
 		t.Fatalf("pending after landing under the current name: %v", got)
 	}
+	// Texts, titles and vectors are one per id.
 	vecs := [][]float32{vec, vec, vec}
-	if _, err := s.SetTitledVectors(ctx, sp, ids, texts, append(titles, "x"), vecs); err == nil {
-		t.Fatal("mismatched titles must be refused")
-	}
-	if _, err := s.SetTitledVectors(ctx, sp, ids, append(texts, body), titles, vecs); err == nil {
-		t.Fatal("mismatched texts must be refused")
-	}
-	if _, err := s.SetTitledVectors(ctx, sp, ids, texts, titles, vecs[:2]); err == nil {
-		t.Fatal("mismatched vectors must be refused")
+	for _, c := range []struct {
+		what          string
+		texts, titles []string
+		vecs          [][]float32
+	}{
+		{"fewer texts", texts[:2], titles, vecs},
+		{"more texts", append(texts, body), titles, vecs},
+		{"fewer titles", texts, titles[:2], vecs},
+		{"more titles", texts, append(titles, "x"), vecs},
+		{"fewer vectors", texts, titles, vecs[:2]},
+		{"more vectors", texts, titles, append(vecs, vec)},
+	} {
+		if _, err := s.SetTitledVectors(ctx, sp, ids, c.texts, c.titles, c.vecs); err == nil {
+			t.Errorf("%s than ids must be refused", c.what)
+		}
 	}
 }
