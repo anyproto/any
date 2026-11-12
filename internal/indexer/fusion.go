@@ -54,10 +54,27 @@ func init() {
 	}
 }
 
-// coverageSep keeps combining marks inside a word: a vowel or tone sign
-// does not end it.
+// coverageSep keeps combining marks and joiners inside a word: a vowel
+// or tone sign does not end it.
 func coverageSep(r rune) bool {
-	return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !unicode.IsMark(r) && r != '_'
+	return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !unicode.IsMark(r) &&
+		r != '_' && r != '\u200c' && r != '\u200d'
+}
+
+// coverageSplit is a folded text's words. A mark or joiner with no
+// letter before it (an emoji's selector) belongs to no word.
+func coverageSplit(folded string) []string {
+	words := strings.FieldsFunc(folded, coverageSep)
+	out := words[:0]
+	for _, w := range words {
+		w = strings.TrimLeftFunc(w, func(r rune) bool {
+			return unicode.IsMark(r) || r == '\u200c' || r == '\u200d'
+		})
+		if w != "" {
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 // coverageFold is s in the form coverage compares: NFKC, lowercase.
@@ -68,7 +85,7 @@ func coverageFold(s string) string {
 // coverageWords is a folded text's word set (letters, marks, digits, '_').
 func coverageWords(folded string) map[string]struct{} {
 	out := map[string]struct{}{}
-	for _, w := range strings.FieldsFunc(folded, coverageSep) {
+	for _, w := range coverageSplit(folded) {
 		out[w] = struct{}{}
 	}
 	return out
@@ -76,17 +93,19 @@ func coverageWords(folded string) map[string]struct{} {
 
 // queryWords is the query's word set minus coverageStop; the value marks
 // a word typed as a prefix (`word*`, `"a phrase"*`), which any word
-// starting with it covers and which is never a stop word. A `*` field
-// with no word of its own (`"a phrase "*`) marks the word before it.
+// starting with it covers and which is never a stop word. The `"*` that
+// closes a phrase after a space (`"a phrase "*`) marks the word before it.
 func queryWords(query string) map[string]bool {
 	out := map[string]bool{}
 	last := ""
-	for _, f := range strings.Fields(coverageFold(query)) {
+	quotes := 0
+	for _, f := range strings.Fields(query) {
 		prefix := strings.HasSuffix(f, "*")
-		words := strings.FieldsFunc(f, coverageSep)
-		if prefix && len(words) == 0 && last != "" {
+		if f == `"*` && quotes%2 == 1 && last != "" {
 			out[last] = true
 		}
+		quotes += strings.Count(f, `"`)
+		words := coverageSplit(coverageFold(f))
 		for i, w := range words {
 			last = w
 			isPrefix := prefix && i == len(words)-1
@@ -104,7 +123,7 @@ func queryWords(query string) map[string]bool {
 // containing it, not by holding an equal word.
 func unsegmented(w string) bool {
 	for _, r := range w {
-		if unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul, unicode.Thai) {
+		if unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul, unicode.Thai, unicode.Lao, unicode.Khmer, unicode.Myanmar) {
 			return true
 		}
 	}

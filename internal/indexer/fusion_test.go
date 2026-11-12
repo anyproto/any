@@ -151,9 +151,37 @@ func TestQueryCoverage_Unsegmented(t *testing.T) {
 	if got := queryCoverage("東京", fts); got != 0 {
 		t.Errorf("coverage of an absent run = %v, want 0", got)
 	}
+	mid := []Hit{scored("会議の議事録を共有しました", 3)}
 	for _, q := range []string{"議事録*", `"議事録を共"*`} {
-		if got := queryCoverage(q, fts); got != 1 {
+		if got := queryCoverage(q, mid); got != 1 {
 			t.Errorf("coverage of the prefix %s = %v, want 1", q, got)
+		}
+	}
+	for _, c := range [][2]string{{"ភាសាខ្មែរ", "ខ្ញុំនិយាយភាសាខ្មែរ"}, {"မြန်မာ", "ကျွန်ုပ်မြန်မာစကားပြောသည်"}} {
+		if got := queryCoverage(c[0], []Hit{scored(c[1], 3)}); got != 1 {
+			t.Errorf("coverage of %s inside a run = %v, want 1", c[0], got)
+		}
+	}
+}
+
+// Only what the query parser reads as a word or a prefix counts.
+func TestQueryCoverage_NotWords(t *testing.T) {
+	cases := []struct {
+		q, doc string
+		want   float64
+	}{
+		{"deploy ⚠️", "deploy succeeded", 1},
+		{"✔️done", "all done", 1},
+		{"paris ✈️", "paris trip", 1},
+		{"hydraulic pump *", "hydraulic pumps failed", 0.5},
+		{`hydraulic pump "*`, "hydraulic pumps failed", 0.5},
+		{`"hydraulic" *`, "the hydraulics failed", 0},
+		{"ｈｙｄｒａｕｌ＊", "hydraulic", 0},
+		{"می‌خواهم", "خواهم رفت و می‌روم", 0},
+	}
+	for _, c := range cases {
+		if got := queryCoverage(c.q, []Hit{scored(c.doc, 3)}); got != c.want {
+			t.Errorf("queryCoverage(%q, %q) = %v, want %v", c.q, c.doc, got, c.want)
 		}
 	}
 }
