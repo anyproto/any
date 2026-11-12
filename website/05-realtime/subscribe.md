@@ -93,7 +93,7 @@ An object deletion also arrives as a removal with an empty `versionId`. Apply ev
 
 | Reason | Cause |
 |---|---|
-| `server_shutdown` | the server received a signal (or, on a managed server, `POST /v1/shutdown`); in-flight streams emit this frame before the listener goes down (10 s deadline) |
+| `server_shutdown` | the server received a signal (or, on a managed server, `POST /v1/shutdown`); in-flight streams emit this frame before the listener goes down; a stream still writing a second later is cut |
 | `deauthorized` | the account behind the stream was torn down in place (`DELETE /v1/auth`, or a switch to another account) while the server stays up — re-read `GET /v1/auth` before resubscribing |
 | `sdk_closed` | the space or the engine was closed |
 | `overflow` | events arrived faster than the client drained them and the mailbox (`mailboxCapacity`) filled; the engine closes the stream rather than drop events |
