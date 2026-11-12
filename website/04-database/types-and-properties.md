@@ -19,13 +19,13 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/types \
 any type create $SPACE --name Book --xkey book
 ```
 
-Body: `{name?, description?, iconCid?, xKey, layout?, hidden?, meta?}`. **`xKey` is required** — it is the stable programmatic handle a type resolves by; the display `name` is not a resolution key and may be renamed freely. Clients derive it as a slug of the name. An empty xKey is `400 type.xkey_required`; one that collides with an existing **type's or collection's** xKey *or id* in the same space is `409 type.xkey_conflict` (`details: {xKey, existingTypeId}`, or `existingCollectionId` when a collection holds the handle — the two surfaces share one namespace).
+Body: `{name?, description?, iconCid?, xKey, layout?, hidden?, meta?}`. **`xKey` is required** — it is the stable programmatic handle a type resolves by; the display `name` is not a resolution key and may be renamed freely. Clients derive it as a slug of the name; when that slug is taken — a handle of the space or one the usecase catalog declares — they append a suffix until it is free (`task_2`, `task_3`). An empty xKey is `400 type.xkey_required`; one that collides with an existing **type's or collection's** xKey *or id* in the same space is `409 type.xkey_conflict` (`details: {xKey, existingTypeId}`, or `existingCollectionId` when a collection holds the handle — the two surfaces share one namespace). A handle a [usecase catalog](../collaboration/bundles.html) bundle declares (`task`, `project`, `person`, …) is refused the same way, with `details: {xKey, catalogBundleId, usecase, spaceId}`, whether or not the usecase is set up: holding it would block that setup.
 
 Property definitions are not part of the create body — a `properties` key, like any unknown key, is `400 request.unknown_field`. Create the type, then add properties one by one.
 
 Create a type only when the thing needs a layout or a part of its own; whatever only adds columns is a collection, and the objects filed under it keep their own type ([Collections](collections.html)).
 
-Well-known definitions — the `profile`, `task` and `meeting` types, the `person`, `organization` and `deal` collections — are not created here: the server's usecase catalog installs them (`POST /v1/catalog/:usecaseId/setup`) so every client and member lands on one definition ([Bundles](../collaboration/bundles.html)). A type you create under a handle the catalog later installs blocks that install with `409 type.xkey_conflict`.
+Well-known definitions — the `profile`, `task` and `meeting` types, the `person`, `organization` and `deal` collections — are not created here: the server's usecase catalog installs them (`POST /v1/catalog/:usecaseId/setup`) so every client and member lands on one definition ([Bundles](../collaboration/bundles.html)). A definition that already holds a catalog handle — written by a device that admits it, or through a raw objects write — still blocks that usecase's setup with `409 type.xkey_conflict`, whose message names the rename that frees the handle.
 
 ## List and read types
 
@@ -42,7 +42,7 @@ Each row is `{id, name?, description?, iconCid?, xKey, builtIn?, layout?, hidden
 
 A type is more than its columns. Its **parts** are the display units a client renders for an object of the type — a body, a transcript, a task list — each owning storage collections a module serves (`POST …/types/:typeId/parts`; see [Modules](../types/index.html) and [Runtime datasets](runtime-datasets.html)). Its **layout** is the descriptor a client renders the object with: `{"type": "<slug>", "config": {…}}`, your vocabulary, opaque to the server. Both are the type's alone — a collection has neither.
 
-Because an object has exactly one type, its layout and its parts are that type's, with no primary-type contest to resolve. Set the layout at create or through `PATCH …/types/:typeId` (`{name?, description?, iconCid?, layout?, hidden?, meta?}` — absent keeps, `"layout": null` clears; `400 type.registered` on a built-in).
+Because an object has exactly one type, its layout and its parts are that type's, with no primary-type contest to resolve. A deleted type takes both with it: its objects keep the id, which then names no type. Set the layout at create or through `PATCH …/types/:typeId` (`{name?, description?, iconCid?, layout?, hidden?, meta?}` — absent keeps, `"layout": null` clears; `400 type.registered` on a built-in).
 
 A document type is the built-in `page` (hidden, one editor part, no properties) or a user type with an editor part, registered as a bundle so every device agrees on one. See [Page](../types/page.html).
 

@@ -3,12 +3,18 @@ package markdown
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
+
+	"github.com/anyproto/any/internal/editor"
 )
 
 // Split breaks raw markdown into block-records.
 //
 // A "block" is one of:
 //
+//   - Front matter: line 1 exactly `---`, YAML-shaped lines (fmScan),
+//     a line exactly `---` or `...`; kept verbatim, at the very start of
+//     a document only. Otherwise those lines read as the blocks below.
 //   - ATX heading (`# foo` … `###### foo`) — single line.
 //   - Setext heading (text line followed by `===` or `---` underline).
 //   - Fenced code block (``` … ``` or ~~~ … ~~~), opening fence to
@@ -37,17 +43,42 @@ import (
 // canonical markdown document; round-trip is idempotent —
 // Split(Join(Split(x))) == Split(x).
 func Split(md string) []string {
+	blocks, _ := splitDocument(md)
+	return blocks
+}
+
+// splitDocument is Split that also reports whether the first block is
+// front matter.
+func splitDocument(md string) ([]string, bool) {
+	return split(md, true)
+}
+
+// splitFragment is Split for content that does not start a document
+// (an append): it has no front matter.
+func splitFragment(md string) []string {
+	blocks, _ := split(md, false)
+	return blocks
+}
+
+func split(md string, document bool) (out []string, frontMatter bool) {
 	if md == "" {
-		return nil
+		return nil, false
 	}
 	lines := splitLines(md)
-	var out []string
 	// blanks counts the current run of blank lines; sawContent says
 	// whether a content block precedes it, which is what decides
 	// whether one of those lines is spent on separation.
 	blanks := 0
 	sawContent := false
 	i := 0
+	if document {
+		if end, ok := frontMatterEnd(lines); ok {
+			out = append(out, strings.Join(lines[:end], "\n"))
+			sawContent = true
+			frontMatter = true
+			i = end
+		}
+	}
 	for i < len(lines) {
 		if isBlank(lines[i]) {
 			blanks++
@@ -93,7 +124,7 @@ func Split(md string) []string {
 	}
 	// A trailing run has no following block to separate from, so every
 	// line of it is an empty paragraph — same rule as a leading run.
-	return appendEmpties(out, blanks, false)
+	return appendEmpties(out, blanks, false), frontMatter
 }
 
 // appendEmpties appends the empty entries a blank run of n lines
@@ -128,6 +159,100 @@ func splitLines(s string) []string {
 }
 
 func isBlank(l string) bool { return strings.TrimSpace(l) == "" }
+
+// frontMatterEnd reports whether lines open with front matter — line 1
+// exactly `---`, then lines fmScan admits up to a closer — and the index
+// of the first line after the closer.
+func frontMatterEnd(lines []string) (int, bool) {
+	if len(lines) < 2 || lines[0] != "---" {
+		return 0, false
+	}
+	var scan fmScan
+	for j := 1; j < len(lines); j++ {
+		switch scan.step(lines[j]) {
+		case fmClosed:
+			return j + 1, true
+		case fmNone:
+			return 0, false
+		}
+	}
+	return 0, false
+}
+
+func isFrontMatterCloser(l string) bool { return l == "---" || l == "..." }
+
+type fmState int
+
+const (
+	fmOpen   fmState = iota // the line belongs to the front matter
+	fmClosed                // the line closes it
+	fmNone                  // the line makes it markdown
+)
+
+// fmScan walks the lines after an opening `---`. Every line before the
+// closer is blank or YAML-shaped (yamlLine), the first a key line, and
+// the text between the delimiters fits one block.
+type fmScan struct {
+	lines, size int
+}
+
+func (s *fmScan) step(l string) fmState {
+	l = strings.TrimSuffix(l, "\r")
+	switch {
+	case isFrontMatterCloser(l):
+		return fmClosed
+	case isFenceOpen(l):
+		return fmNone
+	case s.lines == 0 && !yamlKeyLine(l):
+		return fmNone
+	case !isBlank(l) && !yamlLine(l):
+		return fmNone
+	}
+	if s.lines > 0 {
+		s.size++
+	}
+	s.lines++
+	s.size += len(l)
+	if s.size > editor.MaxTextBytes {
+		return fmNone
+	}
+	return fmOpen
+}
+
+// yamlLine: a key line, a `- ` list item, or an indented line.
+func yamlLine(l string) bool {
+	return yamlKeyLine(l) || strings.HasPrefix(l, "- ") || l[0] == ' ' || l[0] == '\t'
+}
+
+// yamlKeyLine: a bare key — letters, digits and `_`, then also `.` and
+// `-`, no spaces — or a quoted one, then `:` and a space, tab or end.
+func yamlKeyLine(l string) bool {
+	var rest string
+	switch {
+	case l == "":
+		return false
+	case l[0] == '"' || l[0] == '\'':
+		end := strings.IndexByte(l[1:], l[0])
+		if end < 0 {
+			return false
+		}
+		rest = l[end+2:]
+	default:
+		n := 0
+		for n < len(l) {
+			r, size := utf8.DecodeRuneInString(l[n:])
+			if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && (n == 0 || (r != '.' && r != '-')) {
+				break
+			}
+			n += size
+		}
+		if n == 0 {
+			return false
+		}
+		rest = l[n:]
+	}
+	return rest == ":" || strings.HasPrefix(rest, ": ") || strings.HasPrefix(rest, ":\t")
+}
 
 // looksLikeAnyOpener reports whether a line starts a non-paragraph
 // block — used to gate the Setext underline lookahead so a heading

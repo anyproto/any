@@ -161,12 +161,13 @@ func (d *deps) authorize(c echo.Context) error {
 		idx = *req.Index
 	}
 	target := req.AccountId
+	var derivedKey []byte // derived once; a managed boot serves it as is
 	if req.Mnemonic != "" {
-		id, err := auth.AccountId(req.Mnemonic, idx)
+		id, key, err := auth.DeriveAccount(req.Mnemonic, idx)
 		if err != nil {
 			return writeError(c, http.StatusBadRequest, "auth.bad_mnemonic", "invalid mnemonic", nil)
 		}
-		target = id
+		target, derivedKey = id, key
 	}
 
 	// Pre-check outside authMu: the cheap, common answers. The boot
@@ -191,7 +192,7 @@ func (d *deps) authorize(c echo.Context) error {
 	)
 	switch {
 	case req.Mnemonic != "":
-		identity, open, created = d.credentialFor(c, target, req.Mnemonic, idx)
+		identity, open, created = d.credentialFor(c, target, req.Mnemonic, derivedKey, idx)
 
 	case req.AccountId != "":
 		identity = d.identityForAccount(c, req.AccountId)
@@ -207,12 +208,12 @@ func (d *deps) authorize(c echo.Context) error {
 			authLog.Error("generate mnemonic", zap.Error(err))
 			return writeError(c, http.StatusInternalServerError, "internal", "generate mnemonic", nil)
 		}
-		id, err := auth.AccountId(m, auth.DefaultAccountIndex)
+		id, key, err := auth.DeriveAccount(m, auth.DefaultAccountIndex)
 		if err != nil {
 			authLog.Error("derive account id", zap.Error(err))
 			return writeError(c, http.StatusInternalServerError, "internal", "derive account id", nil)
 		}
-		identity, open, created = d.credentialFor(c, id, m, auth.DefaultAccountIndex)
+		identity, open, created = d.credentialFor(c, id, m, key, auth.DefaultAccountIndex)
 		generated = m
 	}
 
@@ -288,15 +289,13 @@ func (d *deps) deauthorize(c echo.Context) error {
 }
 
 // credentialFor resolves where an account derived from a phrase lives
-// and how its keys open, by mode. Managed: <root>/<id>/ with the
-// account key held in memory for this boot and the device key cached
-// in the dir (created = no cache yet, i.e. first login on this
-// install). Standalone: the wallet file (created = none on disk yet).
-func (d *deps) credentialFor(c echo.Context, id, mnemonic string, index uint32) (*Identity, credential, bool) {
+// and how its keys open: managed serves derivedKey, standalone opens the
+// wallet from (mnemonic, index). created = no device key / wallet yet.
+func (d *deps) credentialFor(c echo.Context, id, mnemonic string, derivedKey []byte, index uint32) (*Identity, credential, bool) {
 	if d.cfg.Managed() {
 		dir := config.AccountDir(d.root, id)
 		_, err := os.Stat(deviceKeyPath(dir))
-		return &Identity{Account: id, Dir: dir}, managedCredential(dir, mnemonic, index), os.IsNotExist(err)
+		return &Identity{Account: id, Dir: dir}, managedCredential(dir, derivedKey), os.IsNotExist(err)
 	}
 	identity := d.identityForAccount(c, id)
 	_, err := os.Stat(identity.WalletPath)

@@ -65,7 +65,7 @@ Two triggers, one path, gated by ownership:
 1. `SIGINT` / `SIGTERM` — every server. `any stop` sends it: it finds the server serving the data dir's account by its held instance lock (proof of life), signals it and waits for the lock to be released — so it works against a wedged server and one on an ephemeral port. An unauthorized standalone server holds no account lock yet; stop it with Ctrl-C. Windows has no signal to send, so there `any stop` errors and stopping is the host's job.
 2. `POST /v1/shutdown` — managed servers only, with the `X-Any-Control-Token` header. A standalone server answers `403 shutdown.not_managed`.
 
-The server tears the engine down — open SSE streams emit their terminal `closed{reason: "server_shutdown"}` frame, in-flight requests drain with a 10-second deadline — closes the listener and exits 0. After the deadline, remaining requests are aborted and the process still exits 0. An app embedding the server stops it through the embedding API in either mode.
+The server tears the engine down — open SSE streams emit their terminal `closed{reason: "server_shutdown"}` frame, in-flight requests drain with a 10-second deadline, and a response still writing a second after teardown starts is cut, so a client that stopped reading cannot hold it — closes the listener and exits 0. After the deadline, remaining requests are aborted and the process still exits 0. An app embedding the server stops it through the embedding API in either mode.
 
 A managed server also tears its engine down in place, without exiting: `DELETE /v1/auth` signs out and `POST /v1/auth` with `replace: true` switches account. Streams then end with `closed{reason: "deauthorized"}`, and the listener stays up.
 

@@ -18,8 +18,8 @@ type ParsedBlock struct {
 }
 
 // ParseBlock classifies a raw block from Split into a typed
-// ParsedBlock. The classification mirrors the splitter's block
-// recognisers — same checks, just lifted into structured form.
+// ParsedBlock with the splitter's own recognisers. Front matter depends
+// on position, so parseBlocks types it.
 func ParseBlock(raw string) ParsedBlock {
 	if raw == "" {
 		return ParsedBlock{Type: editor.TypeParagraph}
@@ -100,6 +100,28 @@ func ParseBlock(raw string) ParsedBlock {
 	return ParsedBlock{Type: editor.TypeParagraph, Text: raw}
 }
 
+// frontMatterBlock is the front matter block of a raw block Split cut
+// as one: its inner lines verbatim as text.
+func frontMatterBlock(raw string) ParsedBlock {
+	lines := strings.Split(raw, "\n")
+	return ParsedBlock{Type: editor.TypeFrontMatter, Text: strings.Join(lines[1:len(lines)-1], "\n")}
+}
+
+// frontMatterRenders reports whether text, rendered between `---` lines,
+// parses back as front matter with the same text.
+func frontMatterRenders(text string) bool {
+	if text == "" {
+		return true
+	}
+	var scan fmScan
+	for _, l := range strings.Split(text, "\n") {
+		if strings.HasSuffix(l, "\r") || scan.step(l) != fmOpen {
+			return false
+		}
+	}
+	return true
+}
+
 // RenderBlock produces the canonical markdown bytes for a ParsedBlock.
 // Inverse of ParseBlock for the canonical-output case — input
 // `"+ foo"` parses as `{list_item}` and renders as `"- foo"`; setext
@@ -142,6 +164,11 @@ func RenderBlock(b ParsedBlock) string {
 		return fence + lang + "\n" + body + "\n" + fence
 	case editor.TypeQuote:
 		return prefixLines(b.Text, "> ")
+	case editor.TypeFrontMatter:
+		if b.Text == "" {
+			return "---\n---"
+		}
+		return "---\n" + b.Text + "\n---"
 	case editor.TypeDivider:
 		return "---"
 	case editor.TypeHTML, editor.TypeTable:

@@ -154,10 +154,11 @@ func listPrefix(scope Scope, spaceId string) string {
 	}
 }
 
-// Info describes an existing local collection.
+// Info describes an existing local collection. Count is nil unless
+// the caller asked for it: a count reads every page of the collection.
 type Info struct {
 	Ref
-	Count   int
+	Count   *int
 	Indexes []anystore.IndexInfo
 }
 
@@ -230,8 +231,9 @@ func (s *Store) Collection(ctx context.Context, ref Ref) (anystore.Collection, e
 // List enumerates local collections. scope "" lists every local
 // collection; ScopeSpace with an empty spaceId lists every space-scoped
 // one. Untagged names are never returned. Order is the DB's (sorted by
-// storage name).
-func (s *Store) List(ctx context.Context, scope Scope, spaceId string) ([]Info, error) {
+// storage name). withCount fills each Info.Count, which reads every
+// page of every listed collection.
+func (s *Store) List(ctx context.Context, scope Scope, spaceId string, withCount bool) ([]Info, error) {
 	// The same (scope, spaceId) rules ParseRef applies, minus the name:
 	// a spaceId is only meaningful under space scope.
 	switch {
@@ -263,11 +265,14 @@ func (s *Store) List(ctx context.Context, scope Scope, spaceId string) ([]Info, 
 			}
 			return nil, err
 		}
-		count, err := coll.Count(ctx)
-		if err != nil {
-			return nil, err
+		info := Info{Ref: ref}
+		if withCount {
+			count, err := coll.Count(ctx)
+			if err != nil {
+				return nil, err
+			}
+			info.Count = &count
 		}
-		info := Info{Ref: ref, Count: count}
 		for _, ix := range coll.GetIndexes() {
 			info.Indexes = append(info.Indexes, ix.Info())
 		}

@@ -152,7 +152,8 @@ func (d *deps) fileGet(c echo.Context) error {
 // happens at attach, never here), Content-Disposition inline with the stored name, and full
 // Range/206 support via http.ServeContent (the SDK reader is
 // seekable). Content not yet local streams in on demand; a download in
-// flight at server shutdown is cut by the drain deadline.
+// flight at teardown is cut by the gate's deadline (routes.go), even
+// when the client stopped reading.
 //
 // `?variant=` selects an alternate representation (a sibling file
 // attached with variant/variantOf); default is the original.

@@ -657,7 +657,7 @@ func TestServer_BundleEnsureRootPropertiesGate(t *testing.T) {
 	e := buildEcho(d)
 
 	sp := createSpaceInfo(t, e, "BundleGate")
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Task","xKey":"task"}`)
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Chore","xKey":"chore"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
 	}

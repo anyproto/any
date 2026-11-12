@@ -526,7 +526,8 @@ func (d *deps) teardownEngine(lg logger.CtxLogger, reason string) {
 //     engine stops reporting (late indexer frames are dropped);
 //  2. cancel the engine ctx — streams write their terminal frame and
 //     unwind, engine goroutines return, and every gated request's
-//     context is cancelled with it (routes.go), so SDK calls in flight
+//     context is cancelled with it and its response gets a 1s write
+//     deadline (routes.go), so SDK calls and writes to a stalled peer
 //     return instead of holding the drain;
 //  3. drain the gate — every in-flight handler and stream leaves
 //     (bounded: a handler wedged past the deadline is abandoned, and

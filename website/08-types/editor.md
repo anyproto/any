@@ -27,7 +27,7 @@ One record per block in the object's editor storage collection:
 | Field | Meaning |
 |-------|---------|
 | `_ver` | `_ver.id` is the block's creation marker, never bumped by an edit; an edit stamps `_ver.<path>` for the paths it wrote ([System fields](../database/system-fields.html)). |
-| `type` | Required, ≤ 64 bytes. Known values: `paragraph`, `heading`, `list_item`, `check_list_item`, `code`, `quote`, `divider`, `html`, `table`, `image`; any other non-empty string is accepted, so clients can add block kinds. |
+| `type` | Required, ≤ 64 bytes. Known values: `paragraph`, `heading`, `list_item`, `check_list_item`, `code`, `quote`, `divider`, `html`, `table`, `image`, `front_matter` (a page's leading metadata block; `text` is the lines between its `---` delimiters, verbatim); any other non-empty string is accepted, so clients can add block kinds. |
 | `style` | Open-ended object. Known keys: `level` (heading, 1–6), `ordered` and `number` (list_item; `number` omitted when 1), `checked` (check_list_item), `lang` (code). |
 | `text` | **Inline** markdown only — bold, italic, inline code, links, strikethrough. ≤ 64 KiB per block. |
 | `nav.parentId` | Parent block id; `""` for top-level. |
@@ -106,7 +106,7 @@ curl -X PUT http://127.0.0.1:2046/v1/spaces/$SP/objects/$OBJ/editor/editor_block
 
 An editor that saves what it read sends that read's `version` as `ifVersion`: the PUT writes only while the document is still at it, and answers `409 markdown.conflict` with the current `content` and `version` otherwise, so a stale save cannot revert a newer change. Each 200's `version` is the next save's `ifVersion` ([Saving an edited body](../database/markdown-import-export.html#saving-an-edited-body--ifversion)).
 
-Re-PUTting a GET writes nothing (`unchanged` equals the block count), so a client that hydrates from GET never sees its own save come back reshaped. The wider import/export story is on [markdown import & export](../database/markdown-import-export.html).
+Re-PUTting a GET writes nothing (`unchanged` equals the block count), except in the front matter cases on [markdown import & export](../database/markdown-import-export.html) — front matter GET renders as yaml code, and a page whose first block opens with `---` but reads back as front matter — each of which converts once and is then stable; so a client that hydrates from GET never sees its own save come back reshaped. The wider import/export story is on [markdown import & export](../database/markdown-import-export.html).
 
 ### Surgical edits with PATCH
 
