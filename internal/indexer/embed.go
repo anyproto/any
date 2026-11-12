@@ -53,6 +53,15 @@ func EmbedderStamp(e Embedder) (id string, legacy bool) {
 	return "", true
 }
 
+// EmbedderStampTwins lists the other stamps whose vector space is e's:
+// an index one of them built is e's own.
+func EmbedderStampTwins(e Embedder) []string {
+	if t, ok := e.(interface{ StampTwins() []string }); ok {
+		return t.StampTwins()
+	}
+	return nil
+}
+
 // TitleEmbedder is an Embedder whose document prompt can carry the name
 // of the object a text belongs to.
 type TitleEmbedder interface {

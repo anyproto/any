@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -129,6 +130,22 @@ func TestStore_PinEmbedder_Network(t *testing.T) {
 		if err := s.PinEmbedder(ctx, other, true); !errors.Is(err, ErrIndexRebuildRequired) {
 			t.Errorf("%s on a db %s filled: %v", other, "ollama:mxbai-embed-large", err)
 		}
+	}
+
+	// The online/local pair names its primary as a twin: an index the
+	// hosted model built alone is the pair's, and keeps its stamp.
+	pair := newFallbackEmbedder(NewOllama("", "mxbai-embed-large"), &stubEmbedder{dim: 4})
+	if twins := EmbedderStampTwins(pair); !slices.Equal(twins, []string{"ollama:mxbai-embed-large"}) {
+		t.Fatalf("the pair's twins = %q", twins)
+	}
+	if err := s.PinEmbedder(ctx, "local:qwen3-embedding-0.6b/1/0", true, EmbedderStampTwins(pair)...); err != nil {
+		t.Fatalf("the pair on its primary's index: %v", err)
+	}
+	if err := s.PinEmbedder(ctx, "ollama:mxbai-embed-large", true); err != nil {
+		t.Fatalf("the primary alone after the pair: %v", err)
+	}
+	if err := s.PinEmbedder(ctx, "local:qwen3-embedding-0.6b/1/0", true, "openai:bge-m3"); !errors.Is(err, ErrIndexRebuildRequired) {
+		t.Errorf("a pair with another primary: %v", err)
 	}
 }
 

@@ -358,8 +358,9 @@ func (s *Store) PinChunkRunes(ctx context.Context, n int) error {
 // against each other meaninglessly, and the same dimension hides it. A
 // db written before the stamp existed is adopted when legacy says its
 // vectors may be this embedder's, or when it holds none: this open
-// created it, or it never learned a dimension.
-func (s *Store) PinEmbedder(ctx context.Context, id string, legacy bool) error {
+// created it, or it never learned a dimension. A db stamped by one of
+// twins holds this embedder's vector space and keeps its stamp.
+func (s *Store) PinEmbedder(ctx context.Context, id string, legacy bool, twins ...string) error {
 	coll, err := s.db.Collection(ctx, cursorsCollection)
 	if err != nil {
 		return err
@@ -370,7 +371,7 @@ func (s *Store) PinEmbedder(ctx context.Context, id string, legacy bool) error {
 	}
 	stored := string(doc.Value().GetStringBytes("embedder"))
 	switch {
-	case stored == id:
+	case stored == id, stored != "" && slices.Contains(twins, stored):
 		return nil
 	case stored == "" && (legacy || s.fresh || doc.Value().GetInt("dim") == 0):
 	default:

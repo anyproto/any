@@ -371,7 +371,13 @@ func TestCheckVectorDim(t *testing.T) {
 	}
 
 	// The factory refuses in every mode that runs the local model, and
-	// starts no download first.
+	// fetches nothing first: the model's source is a server that counts.
+	var gets atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gets.Add(1)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
 	for _, cfg := range []config.Index{
 		{Embedder: "local", Vector: config.IndexVector{Dim: 1024}},
 		{Embedder: "auto", Vector: config.IndexVector{Dim: 1024}},
@@ -379,13 +385,14 @@ func TestCheckVectorDim(t *testing.T) {
 		{Embedder: "auto", Vector: config.IndexVector{Dim: 768},
 			OpenAI: config.IndexOpenAI{BaseUrl: "http://127.0.0.1:1", Model: "Qwen/Qwen3-Embedding-0.6B", ApiKey: "k"}},
 	} {
-		dir := t.TempDir()
-		emb, err := NewEmbedder(cfg, dir, "", nil)
+		cfg.Local.ModelUrl = srv.URL
+		emb, err := NewEmbedder(cfg, t.TempDir(), "", nil)
 		if err == nil || emb != nil || !strings.Contains(err.Error(), "index.vector.dim") {
 			t.Errorf("%s with index.vector.dim %d: %v, %v", cfg.Embedder, cfg.Vector.Dim, emb, err)
 		}
-		if entries, _ := os.ReadDir(dir); len(entries) != 0 {
-			t.Errorf("%s: a refused config left %d files in the models dir", cfg.Embedder, len(entries))
-		}
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := gets.Load(); n != 0 {
+		t.Errorf("refused configs fetched the model %d times", n)
 	}
 }
