@@ -40,7 +40,7 @@ The child exists so a llama.cpp fault costs a round of embedding, not the server
 
 | Key | Default | Purpose |
 |---|---|---|
-| `local.model` | "" | pinned model: `embeddinggemma-2` (default) or `qwen3-embedding-0.6b` (1024-dimensional, last-token pooling; the default when `auto` has an API key). Changing it rebuilds the index, and so does adding or removing the API key under `auto` |
+| `local.model` | "" | pinned model: `embeddinggemma-2` (default) or `qwen3-embedding-0.6b` (1024-dimensional, last-token pooling; the default when `auto` has an API key). Changing it rebuilds the index, and so does adding or removing the API key under `auto` while this key is unset |
 | `local.modelPath` | "" | an existing GGUF; set it and no download is attempted (air-gapped). Set `local.model` too when the file is a pinned model |
 | `local.modelUrl` / `modelSha256` | "" | another download source for the model `local.model` names, and a checksum that replaces the pinned one |
 | `local.libDir` | `<exe-dir>/llamacpp` | where the shared libraries live |

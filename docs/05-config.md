@@ -180,8 +180,8 @@ index:
     model: ""                         # pinned model: embeddinggemma-2 (default) or
                                       # qwen3-embedding-0.6b (the default when `auto` has an
                                       # apiKey); sets download, prompts, pooling, dim. Changing
-                                      # it — or adding/removing the apiKey under `auto` —
-                                      # rebuilds the index
+                                      # it — or, while it is unset, adding/removing the
+                                      # apiKey under `auto` — rebuilds the index
     modelPath: ""                     # existing GGUF; set ⇒ no download (air-gapped). Without
                                       # `model` it is an unnamed GGUF: no pinned prompts or pooling
     modelUrl: ""                      # another download source for the model `model` names
