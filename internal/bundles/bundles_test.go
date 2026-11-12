@@ -900,6 +900,66 @@ func TestEnsureCollectionDeclaration(t *testing.T) {
 	}
 }
 
+// TestSetupHandleHealGate: Ensure writing the request's XKey onto an
+// existing root — an adopt heal, a derived root not here yet — runs
+// BeforeHandleHeal first; a root that carries a handle never does.
+func TestSetupHandleHealGate(t *testing.T) {
+	ctx := context.Background()
+	inst := Install{Id: "mine/v1", Name: "Mine", XKey: "task", Collection: true}
+	row := space.Bundle{Id: "mine/v1", RootId: "root-1", Roots: []string{"root-1"}}
+	refuse := errors.New("catalog handle")
+	var calls int
+	gates := Gates{BeforeHandleHeal: func(context.Context, space.Space, Install) error {
+		calls++
+		return refuse
+	}}
+
+	sp := newInstallFake(space.PermissionWriter, nil)
+	sp.bundles.getErr = nil
+	sp.bundles.row = row
+	sp.collections = &fakeCollections{}
+	if _, err := newTestResolver(0).Setup(ctx, ctx, sp, []Install{inst}, gates); !errors.Is(err, refuse) {
+		t.Fatalf("heal of a missing handle: err = %v, want the gate's refusal", err)
+	}
+	if calls != 1 || len(sp.bundles.ensured) != 0 {
+		t.Fatalf("calls=%d ensured=%d, want the gate once and no SDK Ensure", calls, len(sp.bundles.ensured))
+	}
+
+	calls = 0
+	sp = newInstallFake(space.PermissionWriter, nil)
+	sp.bundles.getErr = nil
+	sp.bundles.row = row
+	sp.collections = &fakeCollections{info: map[string]space.CollectionInfo{"root-1": {Id: "root-1", XKey: "task"}}}
+	if _, err := newTestResolver(0).Setup(ctx, ctx, sp, []Install{inst}, gates); err != nil || calls != 0 {
+		t.Fatalf("root holding the handle: err=%v calls=%d", err, calls)
+	}
+
+	calls = 0
+	derived := Install{Id: "mine/v1", Name: "Mine", XKey: "task", Collection: true, Derived: true}
+	sp = newInstallFake(space.PermissionWriter, nil)
+	sp.objects.absent = true
+	sp.bundles.getErr = nil
+	sp.bundles.row = space.Bundle{Id: "mine/v1", RootId: "derived-root", Roots: []string{"derived-root"}, Derived: true}
+	if _, err := newTestResolver(0).Setup(ctx, ctx, sp, []Install{derived}, gates); !errors.Is(err, refuse) {
+		t.Fatalf("derived root not here yet: err = %v, want the gate's refusal", err)
+	}
+	if calls != 1 || len(sp.bundles.ensured) != 0 {
+		t.Fatalf("derived: calls=%d ensured=%d, want the gate once and no SDK Ensure", calls, len(sp.bundles.ensured))
+	}
+
+	// A root whose handle cannot be read meets the gate too.
+	calls = 0
+	healing := Install{Id: "mine/v1", Name: "Mine", XKey: "task", Collection: true, Parts: []space.PartDraft{{Key: "body"}}}
+	sp = newInstallFake(space.PermissionWriter, nil)
+	sp.bundles.getErr = nil
+	sp.bundles.row = row
+	sp.types = &fakeTypes{}
+	sp.collections = &fakeCollections{err: errors.New("read failed")}
+	if _, err := newTestResolver(0).Setup(ctx, ctx, sp, []Install{healing}, gates); !errors.Is(err, refuse) || calls != 1 {
+		t.Fatalf("unreadable handle: err=%v calls=%d, want the gate's refusal", err, calls)
+	}
+}
+
 // TestSetupWaitsOnce pins the reason Setup exists: a walk over several
 // installs consults the registry-convergence wait once and reuses the
 // verdict, runs the caller's pre-install rule once per genuine
@@ -910,11 +970,11 @@ func TestSetupWaitsOnce(t *testing.T) {
 	installs := []Install{{Id: "a/v1"}, {Id: "b/v1"}, {Id: "c/v1"}}
 
 	var seen []string
-	results, err := newTestResolver(0).Setup(ctx, ctx, sp, installs,
-		func(_ context.Context, _ space.Space, inst Install) error {
+	results, err := newTestResolver(0).Setup(ctx, ctx, sp, installs, Gates{
+		BeforeInstall: func(_ context.Context, _ space.Space, inst Install) error {
 			seen = append(seen, inst.Id)
 			return nil
-		})
+		}})
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
@@ -932,13 +992,13 @@ func TestSetupWaitsOnce(t *testing.T) {
 	// before it stand and the error names the install.
 	sp = newInstallFake(space.PermissionOwner, nil)
 	refuse := errors.New("handle taken")
-	results, err = newTestResolver(0).Setup(ctx, ctx, sp, installs,
-		func(_ context.Context, _ space.Space, inst Install) error {
+	results, err = newTestResolver(0).Setup(ctx, ctx, sp, installs, Gates{
+		BeforeInstall: func(_ context.Context, _ space.Space, inst Install) error {
 			if inst.Id == "b/v1" {
 				return refuse
 			}
 			return nil
-		})
+		}})
 	var se *SetupError
 	if !errors.As(err, &se) || se.Install.Id != "b/v1" || !errors.Is(err, refuse) {
 		t.Fatalf("err = %v, want SetupError on b/v1", err)

@@ -261,7 +261,7 @@ func (r *Resolver) Reset() {
 // id worth handing back yet — except for a derived winner, which this
 // device mints for itself instead of refusing.
 func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst Install) (space.Bundle, bool, error) {
-	return r.ensure(ctx, createCtx, sp, inst, r.oneWait(ctx, sp), nil)
+	return r.ensure(ctx, createCtx, sp, inst, r.oneWait(ctx, sp), Gates{})
 }
 
 // SetupResult is one install a Setup call ensured, in order.
@@ -269,6 +269,14 @@ type SetupResult struct {
 	Install   Install
 	Bundle    space.Bundle
 	Installed bool
+}
+
+// Gates are a caller's rules on a Setup's writes: BeforeInstall before a
+// root is minted (never on adopt), BeforeHandleHeal before Ensure writes
+// the request's XKey onto an existing root that lacks one.
+type Gates struct {
+	BeforeInstall    func(ctx context.Context, sp space.Space, inst Install) error
+	BeforeHandleHeal func(ctx context.Context, sp space.Space, inst Install) error
 }
 
 // SetupError names the install a Setup call failed on. The results
@@ -283,28 +291,41 @@ func (e *SetupError) Error() string { return "bundle " + e.Install.Id + ": " + e
 func (e *SetupError) Unwrap() error { return e.Err }
 
 // Setup ensures an ordered list of installs — a usecase and its
-// dependencies — against ONE registry-convergence wait. Ensure waits
-// before every install it cannot adopt, so a non-owner with an
-// unconverged registry would otherwise pay the full wait per bundle
-// before its refusal; here the first install that needs the verdict
-// pays it, the rest reuse it.
-//
-// beforeInstall runs before a root is minted for an entry (never on
-// adopt, never on a declaration heal): the caller's own pre-install
-// rules, such as a handle-conflict check. A non-nil error stops the
-// walk at that entry.
-func (r *Resolver) Setup(ctx, createCtx context.Context, sp space.Space, installs []Install,
-	beforeInstall func(ctx context.Context, sp space.Space, inst Install) error) ([]SetupResult, error) {
+// dependencies — against ONE registry-convergence wait, applying gates;
+// a non-nil error stops the walk at that entry.
+func (r *Resolver) Setup(ctx, createCtx context.Context, sp space.Space, installs []Install, gates Gates) ([]SetupResult, error) {
 	wait := r.oneWait(ctx, sp)
 	out := make([]SetupResult, 0, len(installs))
 	for _, inst := range installs {
-		b, installed, err := r.ensure(ctx, createCtx, sp, inst, wait, beforeInstall)
+		b, installed, err := r.ensure(ctx, createCtx, sp, inst, wait, gates)
 		if err != nil {
 			return out, &SetupError{Install: inst, Err: err}
 		}
 		out = append(out, SetupResult{Install: inst, Bundle: b, Installed: installed})
 	}
 	return out, nil
+}
+
+// lacksXKey reports whether Ensure may write inst.XKey onto the root of
+// b: a root not here yet, one without a handle, or one whose handle
+// cannot be read now.
+func lacksXKey(ctx context.Context, sp space.Space, inst Install, b space.Bundle, local bool) bool {
+	if !local {
+		return true
+	}
+	xkey, err := rootXKey(ctx, sp, inst, b.RootId)
+	return err != nil || xkey == ""
+}
+
+// rootXKey reads the handle a bundle root carries on the surface inst
+// declares.
+func rootXKey(ctx context.Context, sp space.Space, inst Install, rootId string) (string, error) {
+	if inst.Collection {
+		info, err := sp.Collections().Get(ctx, rootId)
+		return info.XKey, err
+	}
+	info, err := sp.Types().Get(ctx, rootId)
+	return info.XKey, err
 }
 
 // oneWait memoizes the registry-convergence wait for one call: the
@@ -325,7 +346,7 @@ func (r *Resolver) oneWait(ctx context.Context, sp space.Space) func() error {
 }
 
 func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst Install, wait func() error,
-	beforeInstall func(ctx context.Context, sp space.Space, inst Install) error) (space.Bundle, bool, error) {
+	gates Gates) (space.Bundle, bool, error) {
 	// A type-declaring request reaches the SDK's Ensure only when the
 	// adopted root does not carry the declaration yet (the SDK heals
 	// on its own adopt path: parts when none exist, properties per
@@ -367,19 +388,9 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		if !missing && inst.XKey != "" {
 			// A handle the root lacks (an install that predates it) is
 			// filled by the SDK's adopt path, like an absent property.
-			var xkey string
-			if inst.Collection {
-				info, err := sp.Collections().Get(ctx, b.RootId)
-				if err != nil {
-					return true
-				}
-				xkey = info.XKey
-			} else {
-				info, err := sp.Types().Get(ctx, b.RootId)
-				if err != nil {
-					return true
-				}
-				xkey = info.XKey
+			xkey, err := rootXKey(ctx, sp, inst, b.RootId)
+			if err != nil {
+				return true
 			}
 			missing = xkey == ""
 		}
@@ -433,10 +444,17 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		// A genuine install (no winner anywhere): the caller's own
 		// pre-install rules run now, after the wait and before the
 		// root is minted.
-		if existing.RootId == "" && beforeInstall != nil {
-			if err := beforeInstall(ctx, sp, inst); err != nil {
+		if existing.RootId == "" && gates.BeforeInstall != nil {
+			if err := gates.BeforeInstall(ctx, sp, inst); err != nil {
 				return space.Bundle{}, false, err
 			}
+		}
+	}
+	// An existing root reaching Ensure — an adopt that heals, a derived
+	// root to materialize — takes the request's XKey where it has none.
+	if existing.RootId != "" && inst.XKey != "" && gates.BeforeHandleHeal != nil && lacksXKey(ctx, sp, inst, existing, adopted) {
+		if err := gates.BeforeHandleHeal(ctx, sp, inst); err != nil {
+			return space.Bundle{}, false, err
 		}
 	}
 

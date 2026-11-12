@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/anyproto/any-sync-sdk/space"
 
@@ -34,19 +35,9 @@ type SetResult struct {
 // Set replaces the markdown content of objectId with content,
 // operating over the editor_blocks dataset.
 //
-// Pipeline:
-//
-//  1. Split content into raw markdown blocks, then ParseBlock each
-//     into a typed ParsedBlock {type, style, text}.
-//  2. List existing top-level editor_blocks records in pos order.
-//  3. Diff old-vs-new by their canonical-rendered string. Matched
-//     pairs become Update (only fields that changed land as $set);
-//     leftover new entries become Insert; leftover old ones become
-//     Delete.
-//  4. Allocate nav.pos lexids for new inserts so they slot between
-//     their kept neighbours in document order.
-//  5. Submit creates, updates and tombstones as one ModifyBatch — one
-//     atomic any-sync change.
+// Pipeline: parse content as a document (front matter on line 1), diff
+// it against the stored top-level blocks by each block's own rendering
+// (planDiff), and write creates, updates and tombstones as one change.
 //
 // content is stored as INLINE markdown inside each block's `text`
 // field — no full-block markdown bytes survive on disk. Empty
@@ -67,7 +58,7 @@ type SetResult struct {
 // state, and written unconditionally when other writers keep landing
 // first (writeAgainstRead).
 func Set(ctx context.Context, sp space.Space, objectId, collection, content, ifVersion string) (SetResult, error) {
-	parsed, rendered, err := parseContent(content)
+	parsed, keys, err := parseContent(content)
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Set: %w", err)
 	}
@@ -75,12 +66,14 @@ func Set(ctx context.Context, sp space.Space, objectId, collection, content, ifV
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Set: generation: %w", err)
 	}
-	saved := Join(rendered)
+	// The write leaves the stored blocks equal to parsed, so their
+	// document is what the next GET returns.
+	saved := documentText(parsed)
 	return writeAgainstRead(ctx, sp, objectId, collection, gen, ifVersion == "", func(read Document, existing []existingBlock, ifUnchangedSince *uint64) (SetResult, error) {
 		if ifVersion != "" && ifVersion != read.Version {
 			return SetResult{}, ConflictError{Current: read}
 		}
-		res, applied, err := applyDiff(ctx, sp, objectId, collection, existing, ifUnchangedSince, parsed, rendered)
+		res, applied, err := applyDiff(ctx, sp, objectId, collection, existing, ifUnchangedSince, parsed, keys)
 		if err != nil {
 			return SetResult{}, err
 		}
@@ -127,24 +120,30 @@ func writeAgainstRead(ctx context.Context, sp space.Space, objectId, collection,
 	}
 }
 
-// parseContent splits content into blocks and parses them (parseBlocks).
+// parseContent splits a whole document into blocks and parses them
+// (parseBlocks).
 func parseContent(content string) ([]ParsedBlock, []string, error) {
-	return parseBlocks(Split(content))
+	return parseBlocks(splitDocument(content))
 }
 
-// parseBlocks parses raw markdown blocks, returning the parsed blocks
-// and their canonical renderings, or a BlockTooLargeError.
-func parseBlocks(raw []string) ([]ParsedBlock, []string, error) {
+// parseBlocks parses raw blocks into blocks and diff keys (each block
+// rendered alone), or a BlockTooLargeError; frontMatter says Split cut
+// the first block as front matter.
+func parseBlocks(raw []string, frontMatter bool) ([]ParsedBlock, []string, error) {
 	parsed := make([]ParsedBlock, len(raw))
-	rendered := make([]string, len(raw))
+	keys := make([]string, len(raw))
 	for i, r := range raw {
-		parsed[i] = ParseBlock(r)
-		rendered[i] = RenderBlock(parsed[i])
+		if frontMatter && i == 0 {
+			parsed[i] = frontMatterBlock(r)
+		} else {
+			parsed[i] = ParseBlock(r)
+		}
+		keys[i] = RenderBlock(parsed[i])
 	}
 	if err := checkBlockSizes(parsed); err != nil {
 		return nil, nil, err
 	}
-	return parsed, rendered, nil
+	return parsed, keys, nil
 }
 
 // BlockTooLargeError: a block's text is over the editor's per-block cap.
@@ -186,10 +185,8 @@ func checkPositions(positions []string) error {
 // read the blocks came from (ModifyBatch.IfUnchangedSince). A write that
 // lost that race is space.ErrPreconditionFailed with nothing written.
 // appliedSeq is the change's _applySeq, 0 when the diff wrote nothing.
-func applyDiff(ctx context.Context, sp space.Space, objectId, collection string, existing []existingBlock, ifUnchangedSince *uint64, newParsed []ParsedBlock, newRendered []string) (result SetResult, appliedSeq uint64, err error) {
-	oldRendered := renderExisting(existing)
-
-	plan := Diff(oldRendered, newRendered)
+func applyDiff(ctx context.Context, sp space.Space, objectId, collection string, existing []existingBlock, ifUnchangedSince *uint64, newParsed []ParsedBlock, newKeys []string) (result SetResult, appliedSeq uint64, err error) {
+	plan := planDiff(existing, newParsed, newKeys)
 
 	// Allocate per-insert nav.pos lexids. neighbouring positions come
 	// from the existing blocks' pos values (or the kept entries to
@@ -303,20 +300,28 @@ func applyDiff(ctx context.Context, sp space.Space, objectId, collection string,
 //
 // Empty (or blank-only) content is a no-op that returns a zero result.
 func Append(ctx context.Context, sp space.Space, objectId, collection, content string) (SetResult, error) {
-	rawNew := trimEdgeEmpties(Split(content))
+	raw, frontMatter := splitDocument(content)
+	rawNew := trimEdgeEmpties(raw)
 	if len(rawNew) == 0 {
 		return SetResult{}, nil
 	}
-	parsed, _, err := parseBlocks(rawNew)
+	parsed, _, err := parseBlocks(rawNew, frontMatter)
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Append: %w", err)
 	}
-
 	maxPos, err := editor.MaxPos(ctx, sp, objectId, collection, editor.RootParentId)
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Append: max pos: %w", err)
 	}
-	positions, err := editor.AllocateRun(maxPos, "", len(rawNew))
+	// Front matter starts only a page with no blocks yet; anywhere else
+	// the content is a fragment.
+	if frontMatter && maxPos != "" {
+		if parsed, _, err = parseBlocks(trimEdgeEmpties(splitFragment(content)), false); err != nil {
+			return SetResult{}, fmt.Errorf("markdown: Append: %w", err)
+		}
+	}
+
+	positions, err := editor.AllocateRun(maxPos, "", len(parsed))
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Append: allocate pos: %w", err)
 	}
@@ -383,18 +388,105 @@ func trimEdgeEmpties(blocks []string) []string {
 	return blocks[start:end]
 }
 
-// renderExisting renders each listed block to its canonical markdown
-// bytes, in document order.
-func renderExisting(existing []existingBlock) []string {
-	rendered := make([]string, len(existing))
+// planDiff matches blocks by each block's rendering alone. A kept block
+// stays as stored unless front matter is on either side, which is
+// updated to the parse: documentText renders front matter by position.
+func planDiff(existing []existingBlock, newParsed []ParsedBlock, newKeys []string) DiffResult {
+	oldKeys := make([]string, len(existing))
 	for i, b := range existing {
-		rendered[i] = RenderBlock(ParsedBlock{
-			Type:  b.Type,
-			Style: b.Style,
-			Text:  b.Text,
-		})
+		oldKeys[i] = RenderBlock(b.parsed())
 	}
-	return rendered
+	plan := Diff(oldKeys, newKeys)
+	for i, op := range plan.NewSeq {
+		if op.Kind != OpKeep {
+			continue
+		}
+		oldType, newType := existing[op.OldIdx].Type, newParsed[i].Type
+		if oldType != newType && (oldType == editor.TypeFrontMatter || newType == editor.TypeFrontMatter) {
+			plan.NewSeq[i].Kind = OpUpdate
+		}
+	}
+	return plan
+}
+
+// documentText renders blocks as the document a GET returns and a
+// version hashes: front matter that cannot open the document renders as
+// yaml code, and guardFrontMatter rewrites one `---` block.
+func documentText(blocks []ParsedBlock) string {
+	_, rendered := documentBlocks(blocks)
+	return Join(rendered)
+}
+
+// documentBlocks is documentText before the join: each block's type as
+// rendered and its rendering.
+func documentBlocks(blocks []ParsedBlock) (types, rendered []string) {
+	types = make([]string, len(blocks))
+	rendered = make([]string, len(blocks))
+	for i, b := range blocks {
+		if b.Type == editor.TypeFrontMatter && (i > 0 || !frontMatterRenders(b.Text)) {
+			b = ParsedBlock{Type: editor.TypeCode, Style: map[string]any{editor.StyleLang: "yaml"}, Text: b.Text}
+		}
+		types[i] = b.Type
+		rendered[i] = RenderBlock(b)
+	}
+	guardFrontMatter(types, rendered)
+	return types, rendered
+}
+
+// existingDocument is documentText of stored blocks.
+func existingDocument(existing []existingBlock) string {
+	blocks := make([]ParsedBlock, len(existing))
+	for i, b := range existing {
+		blocks[i] = b.parsed()
+	}
+	return documentText(blocks)
+}
+
+// guardFrontMatter keeps a first block that opens like front matter
+// without being it from reading back as front matter: the lone `---`
+// block that would close it renders as `***`.
+func guardFrontMatter(types, rendered []string) {
+	if len(rendered) < 2 || types[0] == editor.TypeFrontMatter {
+		return
+	}
+	scan, open := openFrontMatter(rendered[0])
+	if !open {
+		return
+	}
+	// One blank line precedes each later entry, as Join writes them.
+	for i := 1; i < len(rendered); i++ {
+		if scan.step("") != fmOpen {
+			return
+		}
+		switch rendered[i] {
+		case "":
+			continue
+		case "---":
+			rendered[i] = "***"
+			return
+		}
+		for _, l := range strings.Split(rendered[i], "\n") {
+			if scan.step(l) != fmOpen {
+				return
+			}
+		}
+	}
+}
+
+// openFrontMatter reports whether a first block's rendering opens front
+// matter that only a later line could close, and the scan so far.
+func openFrontMatter(first string) (fmScan, bool) {
+	var scan fmScan
+	lines := strings.Split(first, "\n")
+	if len(lines) < 2 || strings.TrimSuffix(lines[0], "\r") != "---" {
+		return scan, false
+	}
+	for _, l := range lines[1:] {
+		if scan.step(l) != fmOpen {
+			return scan, false
+		}
+	}
+	return scan, true
 }
 
 // --- helpers ---------------------------------------------------------------
@@ -405,6 +497,10 @@ type existingBlock struct {
 	Style map[string]any
 	Text  string
 	Pos   string
+}
+
+func (b existingBlock) parsed() ParsedBlock {
+	return ParsedBlock{Type: b.Type, Style: b.Style, Text: b.Text}
 }
 
 // listTopLevel returns the object's top-level editor_blocks

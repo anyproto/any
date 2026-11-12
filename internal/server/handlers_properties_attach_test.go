@@ -88,7 +88,7 @@ func TestServer_PropertiesSetType(t *testing.T) {
 	ensureDataview(t, e, sp.Id, obj, "default", `{"name": "Table", "pos": "a0"}`)
 	createView(t, e, sp.Id, obj, "default", defaultViewPayload)
 
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Task","xKey":"task"}`)
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Chore","xKey":"chore"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
 	}
@@ -186,7 +186,7 @@ func TestServer_PropertiesSlotsAreTyped(t *testing.T) {
 	sp := createSpaceInfo(t, e, "SlotGuards")
 
 	shelf := mustCreateCollection(t, e, sp.Id, `{"name":"Shelf","xKey":"shelf"}`)
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Task","xKey":"task"}`)
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Chore","xKey":"chore"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
 	}
@@ -273,7 +273,7 @@ func TestServer_PropertiesDataviewHostsADefinition(t *testing.T) {
 	e := buildEcho(d)
 	sp := createSpaceInfo(t, e, "TypeHost")
 
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Task","xKey":"task"}`)
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Chore","xKey":"chore"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
 	}

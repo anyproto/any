@@ -243,3 +243,55 @@ func TestSubscribeLimitRequiresSort(t *testing.T) {
 		}
 	}
 }
+
+// TestSortInvalid pins the boundary sort check: a sort key the parser
+// rejects, a non-string key or a non-array sort is 400
+// request.invalid_field naming "sort" on every query route family.
+func TestSortInvalid(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", `{"name":"SortInvalid"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create space: %d %s", rec.Code, rec.Body.String())
+	}
+	var sp api.SpaceInfo
+	_ = json.Unmarshal(rec.Body.Bytes(), &sp)
+	base := "/v1/spaces/" + sp.Id
+	obj := mustCreateModuleObject(t, e, sp.Id, "editor")
+	perObject := `"objectId":"` + obj + `","dataset":"editor_blocks",`
+	// the files query answers 404 for an object without files
+	if rec := doRaw(t, e, http.MethodPost, base+"/objects/"+obj+"/files?name=a.txt", "text/plain", []byte("x")); rec.Code != http.StatusCreated {
+		t.Fatalf("attach: %d %s", rec.Code, rec.Body.String())
+	}
+
+	for _, sort := range []string{`["{bad"]`, `[5]`, `"-id"`} {
+		for _, tc := range []struct{ path, body string }{
+			{base + "/objects/query", `{"sort":` + sort + `}`},
+			{base + "/objects/query/subscribe", `{"sort":` + sort + `}`},
+			{base + "/query", `{` + perObject + `"sort":` + sort + `}`},
+			{base + "/query/subscribe", `{` + perObject + `"sort":` + sort + `}`},
+			{base + "/datasets/query", `{"dataset":"samples","sort":` + sort + `}`},
+			{base + "/datasets/query/subscribe", `{"dataset":"samples","sort":` + sort + `}`},
+			{base + "/objects/" + obj + "/files/query", `{"sort":` + sort + `}`},
+			{base + "/objects/" + obj + "/files/query/subscribe", `{"sort":` + sort + `}`},
+			{"/v1/spaces/query", `{"sort":` + sort + `}`},
+			{"/v1/spaces/query/subscribe", `{"sort":` + sort + `}`},
+			{"/v1/devices/query", `{"sort":` + sort + `}`},
+			{"/v1/devices/query/subscribe", `{"sort":` + sort + `}`},
+		} {
+			rec := doJSON(t, e, http.MethodPost, tc.path, tc.body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("%s %s: status = %d, want 400: %s", tc.path, sort, rec.Code, rec.Body.String())
+			}
+			apiErr := decodeErrEnvelope(t, rec.Body.Bytes())
+			if apiErr.Code != "request.invalid_field" || apiErr.Details["field"] != "sort" {
+				t.Errorf("%s %s: code = %s details = %v, want request.invalid_field on sort", tc.path, sort, apiErr.Code, apiErr.Details)
+			}
+		}
+	}
+	if rec := doJSON(t, e, http.MethodPost, base+"/objects/query", `{"sort":["-id"]}`); rec.Code != http.StatusOK {
+		t.Errorf("valid sort: status = %d: %s", rec.Code, rec.Body.String())
+	}
+}

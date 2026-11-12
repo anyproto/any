@@ -35,9 +35,12 @@ type LocalCollectionInfo struct {
 	// StorageName is the collection's any-store name (the "l_"-tagged
 	// form). It is what a pipeline's $out / $merge `into` / $lookup
 	// `from` must name — those stages take raw collection names.
-	StorageName string       `json:"storageName"`
-	Count       int          `json:"count"`
-	Indexes     []LocalIndex `json:"indexes"`
+	StorageName string `json:"storageName"`
+	// Count is the number of documents, present only on a listing with
+	// count=true and on an import: counting reads every page of the
+	// collection.
+	Count   *int         `json:"count,omitempty"`
+	Indexes []LocalIndex `json:"indexes"`
 }
 
 // LocalListResponse is the body of GET /v1/local/collections.

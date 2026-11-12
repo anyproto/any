@@ -161,15 +161,15 @@ Panics are converted to `500 internal` with a generic message.
 
 | Code | Status | Meaning |
 |---|---|---|
-| `type.not_found` | 404 | unknown typeId (400 inside a bundle ensure) |
+| `type.not_found` | 404 | unknown typeId, or on `DELETE …/types/:typeId` one already deleted (400 inside a bundle ensure) |
 | `type.not_a_type` | 400 | a `…/types` route, or `POST …/properties/:objectId/type/:typeId`, names a user **collection** (`details.collectionId`) — use the `…/collections` routes. A registered collection id (`miniapp`, `bin`, `template`) answers `404 type.not_found` |
 | `type.xkey_required` | 400 | a type or a collection created without an `xKey` |
-| `type.xkey_conflict` | 409 | `xKey` collides with an existing type's or collection's xKey or id (`details.xKey`, `details.existingTypeId` or `details.existingCollectionId`) — the two surfaces share one handle namespace; also raised by a bundle or catalog install |
-| `type.registered` | 400 | add/patch/remove a property, part or dataset, or PATCH the type, on a registered built-in type; also a column write on a registered built-in collection |
+| `type.xkey_conflict` | 409 | `xKey` collides with an existing type's or collection's xKey or id (`details.xKey`, `details.existingTypeId` or `details.existingCollectionId`) — the two surfaces share one handle namespace; on type and collection create, a bundle install or adopt and an `xkey` change also a handle the usecase catalog declares (`details.catalogBundleId`, `details.usecase`); also raised by a bundle or catalog install whose handle a type or collection holds |
+| `type.registered` | 400 | add/patch/remove a property, part or dataset, or PATCH or DELETE the type, on a built-in or registered type; also a column write on a registered built-in collection |
 | `type.reserved_carrier` | 400 | object create, `POST …/type/:typeId` or an `any.type` op names a type only its own root may carry — one declaring a reserved module (`details.typeId`) |
-| `collection.not_found` | 404 | unknown collectionId (400 inside a bundle ensure) |
+| `collection.not_found` | 404 | unknown collectionId, or on `DELETE …/collections/:collectionId` one already deleted (400 inside a bundle ensure) |
 | `collection.not_a_collection` | 400 | a `…/collections` route, or `POST …/properties/:objectId/collections/:collectionId`, names a user **type** (`details.typeId`). A registered type id (`page`, `dataview`) answers `404 collection.not_found` |
-| `collection.registered` | 400 | PATCH the metadata of a registered built-in collection (`miniapp`, `bin`, `template`) |
+| `collection.registered` | 400 | PATCH the metadata of a registered built-in collection (`miniapp`, `bin`, `template`), or DELETE it or the meta row `collection` |
 | `template.type_mismatch` | 400 | `POST …/objects` with `from` and a `type` that is not the source's (`details.from`, `details.type`) — a copy keeps the source's type; omit `type` |
 | `template.record_refused` | 409 | `POST …/objects` with `from`: a record of the source no longer passes its dataset's create rules, or a handler rejects it at apply (`details.from`); the half copy is deleted — repair the source |
 | `membership.wrong_slot` | 400 | a raw `…/modify` write put a known collection id in `any.type` or a known type id in `any.collections` |
@@ -234,7 +234,7 @@ Panics are converted to `500 internal` with a generic message.
 | `local.bad_name` | 400 | scope, spaceId or name failed validation |
 | `local.bad_index` | 400 | an index was rejected (same name, different definition; invalid name), including during import |
 | `local.bad_export` | 400 | import file has invalid gzip, format/version, document sections or storage names; `details.imported` counts fully completed collections; earlier chunks may remain committed |
-| `local.bad_filter` / `local.bad_sort` / `local.bad_modifier` | 400 | the filter, sort key or modifier did not parse |
+| `local.bad_filter` / `local.bad_sort` / `local.bad_modifier` | 400 | the filter, sort or modifier did not parse (a sort must be an array of strings) |
 | `local.bad_pipeline` | 400 | unparseable pipeline, a sink into the aggregated storage collection, a sink result without `id`, `$lookup` from another one |
 | `local.bad_sink_target` | 400 | `$out` / `$merge into` / `$lookup from` names a storage collection outside the local store |
 | `local.limit_exceeded` | 400 | a blocking-stage bound blew (`details.limit`) |
@@ -260,13 +260,13 @@ Panics are converted to `500 internal` with a generic message.
 
 | Code | Status | Meaning |
 |---|---|---|
-| `sdk.not_implemented` | 501 | placeholder route (sync-status peers, type delete, collection delete) |
+| `sdk.not_implemented` | 501 | placeholder route (sync-status peers) |
 | `sdk.not_found` | 404 | the engine reports the target gone (deleted object, unknown property or definition) |
 | `sdk.crdt_version_newer` | 409 | the account's data was written by a newer release (`details.stored` > `details.supported`): booting it refuses, a running server turns read-only until upgraded (`GET /v1/health` → `crdtVersion`) |
 | `sdk.store_corrupt` | 500 | the account's SDK store `sdk.db` has a broken header or a page that fails its checksum while opening (in the quick check on a dirty open or a later read); booting it refuses and it is never repaired in place — remove `sdk.db` and the files named after it from the account's `sdk/` dir and boot again: the SDK replays the synced trees into a fresh one; what lived only in `sdk.db` is lost: the local store, local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone) |
 | `storage.no_space` | 507 | the device has no disk space left — `POST /v1/auth` could not create the account dir, write the device key or open a store; free space and retry |
 | `server.unavailable` | 503 | request cancelled / server shutting down |
-| `server.internal` | 500 | the embedded usecase catalog failed to compile |
+| `server.internal` | 500 | the embedded usecase catalog failed to compile — on the catalog routes and on every write the catalog handles gate (type and collection create, a bundle install, an `xkey` rename) |
 | `internal` | 500 | catch-all |
 
 > **Note.** `/modify` and `/aggregate` bodies hand their op and stage vocabularies straight to the engine, so unknown top-level keys there are dropped rather than rejected. Every other strict endpoint is listed with `additionalProperties: false` in `GET /v1/openapi.json`.

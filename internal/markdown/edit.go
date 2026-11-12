@@ -28,11 +28,11 @@ func EditContent(ctx context.Context, sp space.Space, objectId, collection strin
 		if err != nil {
 			return SetResult{}, fmt.Errorf("markdown: Edit: %w", err)
 		}
-		parsed, rendered, err := parseContent(edited)
+		parsed, keys, err := parseContent(edited)
 		if err != nil {
 			return SetResult{}, fmt.Errorf("markdown: Edit: %w", err)
 		}
-		res, _, err := applyDiff(ctx, sp, objectId, collection, existing, ifUnchangedSince, parsed, rendered)
+		res, _, err := applyDiff(ctx, sp, objectId, collection, existing, ifUnchangedSince, parsed, keys)
 		return res, err
 	})
 }

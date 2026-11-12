@@ -1,11 +1,15 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/catalog"
@@ -237,6 +241,36 @@ func TestServer_CatalogSetupJournal(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &q); err != nil || len(q.Records) != 1 ||
 		!strings.Contains(string(q.Records[0]), entry) {
 		t.Fatalf("query the day: %d %s (%v)", rec.Code, rec.Body.String(), err)
+	}
+}
+
+// A task is a page: its type declares the editor body, so a task holds
+// a page body beside its columns.
+func TestServer_CatalogSetupTasks(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	sp := createSpaceInfo(t, e, "CatalogTasks")
+
+	var task api.CatalogSetupBundle
+	for _, b := range setupUsecase(t, e, "tasks", sp.Id).Bundles {
+		if b.Id == "system:task/v1" {
+			task = b
+		}
+	}
+	if task.TypeId == "" || task.Properties["notes"] == "" {
+		t.Fatalf("task bundle: %+v", task)
+	}
+	var parts api.TypePartsListResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+task.TypeId+"/parts", &parts)
+	if len(parts.Parts) != 1 || parts.Parts[0].Key != "body" || len(parts.Parts[0].Datasets) != 1 ||
+		parts.Parts[0].Datasets[0].Collection != "editor_blocks" {
+		t.Fatalf("task parts: %+v", parts.Parts)
+	}
+	obj := mustCreateObject(t, e, sp.Id, `{"type":"`+task.TypeId+`"}`)
+	rec := doJSON(t, e, http.MethodPut, "/v1/spaces/"+sp.Id+"/objects/"+obj+"/editor/editor_blocks/markdown", `{"content":"a page inside a task"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("write a task's body: %d %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -842,26 +876,39 @@ func TestServer_CatalogSetupValidation(t *testing.T) {
 	}
 }
 
-// TestServer_CatalogSetupXKeyConflict pins the install-path rule: a
-// user type already holding a catalog handle refuses the setup and
-// names itself; a re-setup of an installed usecase never conflicts
-// with its own root.
+// TestServer_CatalogSetupXKeyConflict: a definition holding a catalog
+// handle refuses setup, named on its surface with the freeing rename; a
+// rename never takes a catalog handle; a re-setup adopts its own root.
 func TestServer_CatalogSetupXKeyConflict(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
 	e := buildEcho(d)
+	ctx := context.Background()
 	sp := createSpaceInfo(t, e, "CatalogXKey")
 
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"My contact","xKey":"contact"}`)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("create user type: %d %s", rec.Code, rec.Body.String())
+	// Create and rename refuse catalog handles, so the holder is made
+	// through the SDK — the shape a space synced from a device that
+	// admits it is in.
+	sdkSp, err := d.sdk.Spaces().Get(ctx, sp.Id)
+	if err != nil {
+		t.Fatalf("get space: %v", err)
 	}
-	var created api.TypesCreateResponse
-	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+	holder, err := sdkSp.Types().Create(ctx, space.TypeCreateParams{Name: "My contact", XKey: "contact"})
+	if err != nil {
+		t.Fatalf("create holder: %v", err)
+	}
+	rename := func(spaceId, id, surface, xkey string) *httptest.ResponseRecorder {
+		t.Helper()
+		return doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/properties/"+id+"/set/"+surface,
+			`{"patch":{"xkey":"`+xkey+`"}}`)
+	}
 
-	rec = doJSON(t, e, http.MethodPost, "/v1/catalog/contact/setup", `{"spaceId":"`+sp.Id+`"}`)
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "type.xkey_conflict") ||
-		!strings.Contains(rec.Body.String(), created.TypeId) || !strings.Contains(rec.Body.String(), `"usecase":"contact"`) {
+	rec := doJSON(t, e, http.MethodPost, "/v1/catalog/contact/setup", `{"spaceId":"`+sp.Id+`"}`)
+	var env api.ErrorEnvelope
+	_ = json.Unmarshal(rec.Body.Bytes(), &env)
+	if rec.Code != http.StatusConflict || env.Error.Code != "type.xkey_conflict" ||
+		env.Error.Details["existingTypeId"] != holder || env.Error.Details["usecase"] != "contact" ||
+		!strings.Contains(env.Error.Message, "/properties/"+holder+"/set/type") {
 		t.Fatalf("xKey conflict: %d %s", rec.Code, rec.Body.String())
 	}
 	// Dependencies before the conflicting one stayed installed: people
@@ -876,35 +923,147 @@ func TestServer_CatalogSetupXKeyConflict(t *testing.T) {
 		t.Fatalf("bundles after the refusal: %v", ids)
 	}
 
-	// The same rule on the per-space ensure route.
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/bundles", `{"id":"mine/v1","xKey":"contact"}`)
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "type.xkey_conflict") {
-		t.Fatalf("bundle xKey conflict: %d %s", rec.Code, rec.Body.String())
+	// Saving the holder's own handle unchanged passes; a rename onto
+	// another catalog handle is refused and names it.
+	if rec = rename(sp.Id, holder, "type", "contact"); rec.Code != http.StatusOK {
+		t.Fatalf("unchanged handle: %d %s", rec.Code, rec.Body.String())
 	}
-	// A space without the user type sets the usecase up, twice, on one
-	// root: an adopted install never conflicts with itself.
-	sp2 := createSpaceInfo(t, e, "CatalogXKeyFree")
-	first := setupUsecase(t, e, "contact", sp2.Id)
-	second := setupUsecase(t, e, "contact", sp2.Id)
+	rec = rename(sp.Id, holder, "type", "deal")
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"catalogBundleId":"system:deal/v2"`) {
+		t.Fatalf("rename onto a catalog handle: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// The per-space ensure route: a handle a type or a collection holds
+	// is refused naming it on its surface, a catalog handle naming its
+	// bundle.
+	if rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Shelf","xKey":"shelf"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
+	}
+	box := mustCreateCollection(t, e, sp.Id, `{"name":"Box","xKey":"box"}`)
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/bundles", `{"id":"mine/v1","xKey":"box"}`)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"existingCollectionId":"`+box+`"`) ||
+		!strings.Contains(rec.Body.String(), "by a collection") {
+		t.Fatalf("bundle xKey held by a collection: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/bundles", `{"id":"mine/v1","xKey":"shelf"}`)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"existingTypeId"`) {
+		t.Fatalf("bundle xKey held by a type: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/bundles", `{"id":"mine/v1","xKey":"task"}`)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"catalogBundleId":"system:task/v1"`) ||
+		!strings.Contains(rec.Body.String(), `"usecase":"tasks"`) || !strings.Contains(rec.Body.String(), `"bundleId":"mine/v1"`) {
+		t.Fatalf("bundle taking a catalog handle: %d %s", rec.Code, rec.Body.String())
+	}
+	// A catalog handle a definition already holds names the holder.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/bundles", `{"id":"mine/v1","xKey":"contact"}`)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"existingTypeId":"`+holder+`"`) {
+		t.Fatalf("bundle taking a held catalog handle: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// The rename the refusal names frees the handle; the user type and
+	// its id stay, and the setup proceeds.
+	if rec = rename(sp.Id, holder, "type", "contact_own"); rec.Code != http.StatusOK {
+		t.Fatalf("rename to a free handle: %d %s", rec.Code, rec.Body.String())
+	}
+	res := setupUsecase(t, e, "contact", sp.Id)
+	contact := res.Bundles[len(res.Bundles)-1]
+	if contact.Id != "system:contact/v1" || !contact.Installed {
+		t.Fatalf("setup after the rename: %+v", res.Bundles)
+	}
+	var mine api.TypeInfo
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+holder, &mine)
+	if mine.XKey != "contact_own" {
+		t.Fatalf("user type after the rename: %+v", mine)
+	}
+	// The catalog root may keep and restore its own handle.
+	for _, xkey := range []string{"contact", "contact_moved", "contact"} {
+		if rec = rename(sp.Id, contact.CollectionId, "collection", xkey); rec.Code != http.StatusOK {
+			t.Fatalf("catalog root rename to %s: %d %s", xkey, rec.Code, rec.Body.String())
+		}
+	}
+
+	// A collection holding the handle is named as one.
+	sp2 := createSpaceInfo(t, e, "CatalogXKeyCollection")
+	sdkSp2, err := d.sdk.Spaces().Get(ctx, sp2.Id)
+	if err != nil {
+		t.Fatalf("get space: %v", err)
+	}
+	collHolder, err := sdkSp2.Collections().Create(ctx, space.CollectionCreateParams{Name: "Deals", XKey: "deal"})
+	if err != nil {
+		t.Fatalf("create collection holder: %v", err)
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/catalog/crm/setup", `{"spaceId":"`+sp2.Id+`"}`)
+	env = api.ErrorEnvelope{}
+	_ = json.Unmarshal(rec.Body.Bytes(), &env)
+	if rec.Code != http.StatusConflict || env.Error.Details["existingCollectionId"] != collHolder ||
+		env.Error.Details["existingTypeId"] != nil || !strings.Contains(env.Error.Message, "/properties/"+collHolder+"/set/collection") {
+		t.Fatalf("collection holder: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// A space without a holder sets the usecase up, twice, on one root:
+	// an adopted install never conflicts with itself.
+	sp3 := createSpaceInfo(t, e, "CatalogXKeyFree")
+	first := setupUsecase(t, e, "contact", sp3.Id)
+	second := setupUsecase(t, e, "contact", sp3.Id)
 	if first.Bundles[len(first.Bundles)-1].Bundle.RootId != second.Bundles[len(second.Bundles)-1].Bundle.RootId {
 		t.Fatalf("re-setup minted a second root")
 	}
 	// And a bundle xKey that is free installs a marker type.
-	out := ensureBundle(t, e, sp2.Id, `{"id":"flag/v1","name":"Flag","xKey":"flag","hidden":true}`)
+	out := ensureBundle(t, e, sp3.Id, `{"id":"flag/v1","name":"Flag","xKey":"flag","hidden":true}`)
 	if !out.Installed {
 		t.Fatalf("marker bundle: %+v", out)
 	}
 	var info api.TypeInfo
-	decodeGet(t, e, "/v1/spaces/"+sp2.Id+"/types/"+out.Bundle.RootId, &info)
+	decodeGet(t, e, "/v1/spaces/"+sp3.Id+"/types/"+out.Bundle.RootId, &info)
 	if info.XKey != "flag" || !info.Hidden {
 		t.Fatalf("marker type: %+v", info)
 	}
 }
 
-// The evolution rules, on a catalog a test owns: a property added to
-// a type, a miniapp added to a bundle, a bundle added to a usecase,
-// each landing on the existing install at the next setup — and a
-// marker type, a two-level chain and a relation across it.
+// TestServer_BundleAdoptRefusesCatalogHandle: a later ensure cannot give
+// a client bundle's root a catalog handle; a bundle already holding one
+// adopts, and the tech space reserves none.
+func TestServer_BundleAdoptRefusesCatalogHandle(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	ctx := context.Background()
+	sp := createSpaceInfo(t, e, "BundleAdoptHandle")
+
+	props := `"properties":[{"name":"Note","xKey":"note","kind":"string"}]`
+	first := ensureBundle(t, e, sp.Id, `{"id":"mine/v1","name":"Mine",`+props+`}`)
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/bundles", `{"id":"mine/v1","name":"Mine","xKey":"task",`+props+`}`)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"catalogBundleId":"system:task/v1"`) {
+		t.Fatalf("adopt taking a catalog handle: %d %s", rec.Code, rec.Body.String())
+	}
+	var info api.TypeInfo
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+first.Bundle.RootId, &info)
+	if info.XKey != "" {
+		t.Fatalf("the refused adopt wrote the handle: %+v", info)
+	}
+
+	// A bundle that already holds a catalog handle keeps adopting.
+	sdkSp, err := d.sdk.Spaces().Get(ctx, sp.Id)
+	if err != nil {
+		t.Fatalf("get space: %v", err)
+	}
+	if _, _, err := sdkSp.Bundles().Ensure(ctx, space.EnsureBundleRequest{Id: "legacy/v1", Name: "Legacy", XKey: "project"}); err != nil {
+		t.Fatalf("legacy install: %v", err)
+	}
+	if out := ensureBundle(t, e, sp.Id, `{"id":"legacy/v1","name":"Legacy","xKey":"project"}`); out.Installed {
+		t.Fatalf("legacy re-ensure installed again: %+v", out)
+	}
+
+	var acct api.AccountResponse
+	decodeGet(t, e, "/v1/account", &acct)
+	if out := ensureBundle(t, e, acct.TechSpaceId, `{"id":"techtask/v1","name":"Tech task","xKey":"task"}`); !out.Installed {
+		t.Fatalf("tech-space install: %+v", out)
+	}
+}
+
+// The evolution rules on a test catalog — a property, parts on a type
+// that had none, a miniapp, a bundle added — each land at the next setup;
+// plus a marker type, a two-level chain and a relation across it.
 const testCatalogV1 = `
 usecases:
   - id: seam-tag
@@ -963,6 +1122,10 @@ usecases:
             - { xKey: stage, name: Stage, kind: array,
                 xFormat: { type: choice, options: { open: { name: Open, pos: a0 }, closed: { name: Closed, pos: a1 } } } }
             - { xKey: done,  name: Done,  kind: boolean, xFormat: { type: checkbox } }
+        parts:
+          - key: body
+            ui: { type: document }
+            datasets: [ { module: editor } ]
   - id: seam-app
     name: App
     requires: [ seam-note ]
@@ -1025,6 +1188,19 @@ func TestServer_CatalogEvolution(t *testing.T) {
 	// The added property healed onto the existing root, ids stable.
 	if note2.Installed || note2.TypeId != note.TypeId || note2.Properties["title"] != note.Properties["title"] || note2.Properties["done"] == "" {
 		t.Fatalf("property heal: %+v", note2)
+	}
+	// The parts declared on a type that had none healed onto it: a
+	// note's body takes editor writes.
+	var parts api.TypePartsListResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+note.TypeId+"/parts", &parts)
+	if len(parts.Parts) != 1 || parts.Parts[0].Key != "body" || len(parts.Parts[0].Datasets) != 1 ||
+		parts.Parts[0].Datasets[0].Collection != "editor_blocks" {
+		t.Fatalf("parts heal: %+v", parts.Parts)
+	}
+	noteObj := mustCreateObject(t, e, sp.Id, `{"type":"`+note.TypeId+`"}`)
+	rec = doJSON(t, e, http.MethodPut, "/v1/spaces/"+sp.Id+"/objects/"+noteObj+"/editor/editor_blocks/markdown", `{"content":"# hello"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("write a healed body: %d %s", rec.Code, rec.Body.String())
 	}
 	// The added option key healed onto the installed choice; the
 	// space's recolour of the existing key stands.

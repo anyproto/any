@@ -97,7 +97,7 @@ GET  /v1/catalog/:usecaseId         → 200 usecase             404 catalog.not_
 POST /v1/catalog/:usecaseId/setup   → 200 { usecase, bundles: [...] }      body { spaceId }
 ```
 
-Setup walks the dependency closure (dependencies first) against one convergence wait and runs Ensure's adopt-or-install per bundle; it is idempotent, and a failure names the step in `details.bundleId` while the steps before it stand, so the next call resumes. Each reply entry carries the registry row (`bundle`), `installed`, and — for a bundle that declares a definition — `typeId` or `collectionId` (the root id, whichever kind it declares) plus `properties` (xKey → property id). An install whose `xKey` a type or collection in the space already holds is `409 type.xkey_conflict` with `details.existingTypeId` or `details.existingCollectionId`. Which usecases a space has reads off `GET …/bundles`. CLI: `any catalog list | get | setup`.
+Setup walks the dependency closure (dependencies first) against one convergence wait and runs Ensure's adopt-or-install per bundle; it is idempotent, and a failure names the step in `details.bundleId` while the steps before it stand, so the next call resumes. Each reply entry carries the registry row (`bundle`), `installed`, and — for a bundle that declares a definition — `typeId` or `collectionId` (the root id, whichever kind it declares) plus `properties` (xKey → property id). An install whose `xKey` a type or collection in the space already holds is `409 type.xkey_conflict` with `details.existingTypeId` or `details.existingCollectionId`; its message names the rename that frees the handle (`POST …/properties/<id>/set/type`, or `…/set/collection`, with `{"patch":{"xkey":"<new handle>"}}`). Type and collection create, a client bundle install or adopt and a handle change all refuse a catalog handle, so a user definition never takes one that way. Which usecases a space has reads off `GET …/bundles`. CLI: `any catalog list | get | setup`.
 
 ### Bookmarks
 
@@ -172,7 +172,7 @@ The server never merges; it enforces timing. A losing root arrives change by cha
 | 404 | `bundle.not_found` | unknown bundle id on GET / resolve / children / uninstall |
 | 409 | `object.derived_undeletable` | uninstall of a derived install — nothing is deleted |
 | 409 | `bundle.reserved` | a client ensure with a `system:` id |
-| 409 | `type.xkey_conflict` | an install whose `xKey` another type or collection in the space already holds (`details.existingTypeId` / `details.existingCollectionId`) |
+| 409 | `type.xkey_conflict` | an install whose `xKey` another type or collection in the space already holds (`details.existingTypeId` / `details.existingCollectionId`), or a client install or adopt taking a handle the usecase catalog declares (`details.catalogBundleId`, `details.usecase`) |
 | 400 | `dataset.module_reserved` | a part naming a module reserved to the server |
 | 400 | `request.missing_field` | a bundle that declares nothing and has no `rootType` |
 | 400 | `type.not_found` | `rootType` does not exist in the space |

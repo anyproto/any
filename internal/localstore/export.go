@@ -38,6 +38,9 @@ const (
 	// same 256 every /v1/local write uses: any-store has one writer
 	// per DB and a long transaction stalls every CRDT apply.
 	importChunk = 256
+	// importChunkBytes caps the documents one chunk buffers before its
+	// transaction; a chunk always takes at least one document.
+	importChunkBytes = 4 << 20
 )
 
 // ErrBadExport reports a file that is not an export this version
@@ -177,8 +180,9 @@ func exportSection(ctx context.Context, coll anystore.Collection, enc *anyenc.Wr
 // Import loads an export into this store: each collection is ensured
 // with the file's indexes (idempotent — an existing collection keeps
 // its documents, a different definition under the same index name is
-// any-store's ErrIndexMismatch) and its documents are upserted 256
-// per transaction, so re-importing the same file is a no-op and a
+// any-store's ErrIndexMismatch) and its documents are upserted in
+// chunks (importSection) read off the stream before each transaction,
+// so re-importing the same file is a no-op and a
 // newer export of the same collections overlays the older. No space
 // pre-flight: the file's spaces need not exist here — that is the
 // point (a reporter's traces on a developer's scratch server). The
@@ -216,7 +220,7 @@ func (s *Store) Import(ctx context.Context, r io.Reader) ([]Info, error) {
 		if err != nil {
 			return out, &ImportError{Ref: ref, Err: err}
 		}
-		info := Info{Ref: ref, Count: count}
+		info := Info{Ref: ref, Count: &count}
 		for _, ix := range coll.GetIndexes() {
 			info.Indexes = append(info.Indexes, ix.Info())
 		}
@@ -233,38 +237,55 @@ func (s *Store) Import(ctx context.Context, r io.Reader) ([]Info, error) {
 	return out, nil
 }
 
+// importSection reads each chunk off the body before its write
+// transaction opens: the local store shares the account's DB and its
+// one writer, so a stalled upload must never hold it.
 func importSection(ctx context.Context, coll anystore.Collection, dec *anyenc.Reader, p *anyenc.Parser, count int) error {
+	var (
+		buf  []byte
+		ends []int
+	)
 	for done := 0; done < count; {
-		n := min(count-done, importChunk)
+		buf, ends = buf[:0], ends[:0]
+		for done+len(ends) < count && len(ends) < importChunk && (len(ends) == 0 || len(buf) < importChunkBytes) {
+			i := done + len(ends)
+			v, err := dec.Read(p)
+			if err != nil {
+				if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+					return fmt.Errorf("%w: truncated after document %d of %d", ErrBadExport, i, count)
+				}
+				return fmt.Errorf("%w: document %d: %v", ErrBadExport, i, err)
+			}
+			if v.Type() != anyenc.TypeObject {
+				return fmt.Errorf("%w: document %d is not an object", ErrBadExport, i)
+			}
+			// Read's value lives only until the next Read: copy it out.
+			buf = v.MarshalTo(buf)
+			ends = append(ends, len(buf))
+		}
 		tx, err := coll.WriteTx(ctx)
 		if err != nil {
 			return err
 		}
-		for i := range n {
-			v, err := dec.Read(p)
+		start := 0
+		for j, end := range ends {
+			v, err := p.ParseOwned(buf[start:end])
+			if err == nil {
+				err = coll.UpsertOne(tx.Context(), v)
+			}
 			if err != nil {
 				_ = tx.Rollback()
-				if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-					return fmt.Errorf("%w: truncated after document %d of %d", ErrBadExport, done+i, count)
-				}
-				return fmt.Errorf("%w: document %d: %v", ErrBadExport, done+i, err)
-			}
-			if v.Type() != anyenc.TypeObject {
-				_ = tx.Rollback()
-				return fmt.Errorf("%w: document %d is not an object", ErrBadExport, done+i)
-			}
-			if err := coll.UpsertOne(tx.Context(), v); err != nil {
-				_ = tx.Rollback()
 				if errors.Is(err, anystore.ErrDocWithoutId) {
-					return fmt.Errorf("%w: document %d has no id", ErrBadExport, done+i)
+					return fmt.Errorf("%w: document %d has no id", ErrBadExport, done+j)
 				}
 				return err
 			}
+			start = end
 		}
 		if err := tx.Commit(); err != nil {
 			return err
 		}
-		done += n
+		done += len(ends)
 	}
 	return nil
 }
