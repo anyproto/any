@@ -35,9 +35,9 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/collections \
 any collection create $SPACE --name "Reading list" --xkey reading_list
 ```
 
-Body: `{name?, description?, iconCid?, xKey, hidden?, meta?}` — the type body minus `layout`. **`xKey` is required**: the stable handle the collection resolves by, a slug of the name that survives renames. An empty one is `400 type.xkey_required`.
+Body: `{name?, description?, iconCid?, xKey, hidden?, meta?}` — the type body minus `layout`. **`xKey` is required**: the stable handle the collection resolves by, a slug of the name that survives renames, with a `_2`, `_3`, … suffix while the slug is taken. An empty one is `400 type.xkey_required`.
 
-Types and collections share **one handle namespace**. An `xKey` (or id) a type already holds cannot be taken by a collection and the other way round — `409 type.xkey_conflict`, whose `details` name `existingTypeId` or `existingCollectionId`.
+Types and collections share **one handle namespace**. An `xKey` (or id) a type already holds cannot be taken by a collection and the other way round — `409 type.xkey_conflict`, whose `details` name `existingTypeId` or `existingCollectionId`. A handle the usecase catalog declares is refused the same way (`details.catalogBundleId`, `details.usecase`).
 
 Property definitions are not part of the create body; a `properties` key, like any unknown key, is `400 request.unknown_field`. Create the collection, then add each column.
 
@@ -84,7 +84,7 @@ The POST pre-flights its ids — `404 object.not_found`, `404 collection.not_fou
 
 **Unfiling is not a delete.** That collection's values stay on the row as orphan data, read-tolerant, and filing the object again brings them back into view — writes to that group are refused in between. Filter a member list on `any.collections`, never on a property value alone: the orphan values still match.
 
-**Deleting a collection leaves its members as they are.** `DELETE …/objects/$COLL` deletes the collection, but each member keeps its id in `any.collections` and its values for the collection's columns. The server cannot clean them up reliably: a device that was offline can file an object under the collection after the delete. When you show an object's collections — its property groups, its collection chips, the ticked boxes in a picker — ignore an id that is not a known collection. Lists are not affected: nobody lists the members of a collection that no longer exists. To clean up, unfile the object from the dead id; filing under it again is `404 collection.not_found`.
+**Deleting a collection leaves its members as they are.** `DELETE …/collections/$COLL` deletes the collection, but each member keeps its id in `any.collections` and its values for the collection's columns. The server cannot clean them up reliably: a device that was offline can file an object under the collection after the delete. When you show an object's collections — its property groups, its collection chips, the ticked boxes in a picker — ignore an id that is not a known collection. Lists are not affected: nobody lists the members of a collection that no longer exists. To clean up, unfile the object from the dead id; filing under it again is `404 collection.not_found`.
 
 An object that is new takes its collections in the create body instead — [Objects](objects.html). `$PERSON` is the type, `$CONTACT` the collection, `$STATUS` a choice property declared on it:
 

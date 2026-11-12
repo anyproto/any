@@ -122,12 +122,13 @@ func newLocalMetaCmd() *cobra.Command {
 
 func newLocalCollectionsCmd() *cobra.Command {
 	var scope, spaceId string
+	var count bool
 	cmd := &cobra.Command{
 		Use:   "collections",
-		Short: "list local collections (count, indexes, storage name)",
+		Short: "list local collections (indexes, storage name; --count adds document counts)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			out, err := newClient(flags.Timeout).LocalCollections(cmd.Context(), scope, spaceId)
+			out, err := newClient(flags.Timeout).LocalCollections(cmd.Context(), scope, spaceId, count)
 			if err != nil {
 				return err
 			}
@@ -136,6 +137,7 @@ func newLocalCollectionsCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&scope, "scope", "", "account | space (default: both)")
 	cmd.Flags().StringVar(&spaceId, "space", "", "only this space's collections")
+	cmd.Flags().BoolVar(&count, "count", false, "count each collection's documents (reads every page)")
 	return cmd
 }
 

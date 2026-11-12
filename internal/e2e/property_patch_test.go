@@ -26,7 +26,7 @@ func TestE2E_PropertyPatch(t *testing.T) {
 
 	base := "http://" + addr
 	spaceID := createSpace(t, base, "PropPatch", "property patch e2e")
-	taskType := createType(t, base, spaceID, "Task")
+	taskType := createType(t, base, spaceID, "Chore")
 	propsURL := base + "/v1/spaces/" + spaceID + "/types/" + taskType + "/properties"
 
 	// A many-valued choice property.

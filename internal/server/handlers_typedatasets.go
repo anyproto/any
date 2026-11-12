@@ -755,19 +755,46 @@ func (d *deps) datasetWriteError(c echo.Context, err error, details map[string]a
 }
 
 // sdkMessagePrefixes are the SDK package prefixes stripped off error
-// messages before they ride an envelope. Stripped iteratively from the
-// front only (wrap chains stack several), so mid-message text — field
-// names, quoted values — is never touched.
+// messages before they ride an envelope. A wrap chain stacks them at
+// the front and after each ": " separator.
 var sdkMessagePrefixes = []string{
 	"typesAPI: ", "spaceimpl: ", "Upsert: ", "schema: ", "crdt: ",
 	"upsert: ", "space: ", "typetype: ",
 }
 
-// sanitizeSDKMessage strips SDK package prefixes from an error message.
-// The remaining text names only caller-supplied fields and declaration
-// rules.
+// sanitizeSDKMessage strips SDK package prefixes from an error message
+// wherever a wrap put one: at the start of each ": "-separated segment
+// outside double quotes, so quoted caller values are never touched.
 func sanitizeSDKMessage(err error) string {
-	msg := err.Error()
+	rest := cutSDKPrefixes(err.Error())
+	var b strings.Builder
+	quoted := false
+	for len(rest) > 0 {
+		switch {
+		case quoted && rest[0] == '\\' && len(rest) > 1:
+			b.WriteString(rest[:2])
+			rest = rest[2:]
+			continue
+		case !quoted && strings.HasPrefix(rest, ": "):
+			b.WriteString(": ")
+			rest = cutSDKPrefixes(rest[2:])
+			continue
+		case strings.HasPrefix(rest, `'"'`):
+			b.WriteString(`'"'`) // a quote character named in a message, not a quote
+			rest = rest[3:]
+			continue
+		case rest[0] == '"':
+			quoted = !quoted
+		}
+		b.WriteByte(rest[0])
+		rest = rest[1:]
+	}
+	return b.String()
+}
+
+// cutSDKPrefixes strips every SDK package prefix stacked at the front
+// of msg.
+func cutSDKPrefixes(msg string) string {
 	for stripped := true; stripped; {
 		stripped = false
 		for _, p := range sdkMessagePrefixes {

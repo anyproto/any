@@ -243,11 +243,29 @@ a setup is the convenient form of the same information.
 
 ## Handles
 
+These routes keep the catalog's handles free: `POST …/types`, `POST
+…/collections`, a client `POST …/bundles` install — or adopt, which
+fills in a handle the root lacks — and a handle change through `POST
+…/properties/<id>/set/type` or `…/set/collection` with `xkey`. Each
+refuses an xKey any catalog bundle declares with `409
+type.xkey_conflict` (`details.xKey`, `details.catalogBundleId` and
+`details.usecase` — the catalog bundle the handle belongs to —
+`details.spaceId`), whether
+or not the usecase is set up in the space. Only a catalog bundle that
+declares the handle installs with it, a rename that keeps a
+definition's current handle passes, and only the current winner root
+of a declaring bundle renames onto it — a losing root does not. The check runs for a member who may write (a
+reader is refused on permission) and never in the tech space, which
+has no catalog. A raw `…/modify` or `…/upsert` on the objects dataset
+can still write `type.xkey` and is not checked.
+
 The catalog's xKeys are checked against the space **on the install
 path only**: before a root is minted, no type and no collection in the
 space — hidden or not, user or registered — may hold the bundle's
 `xKey` (as its `xKey` or as its id). A hit is `409 type.xkey_conflict`
-with `details.xKey` and `details.existingTypeId`, raised before
+with `details.xKey`, the holder as `details.existingTypeId` or
+`details.existingCollectionId`, and a message naming the rename below
+on the holder's surface, raised before
 anything is created, so a refused setup leaves nothing behind (the
 dependencies before it stand). The check runs only for a member who
 may write (a reader's setup adopts or is refused by permission, never
@@ -260,14 +278,16 @@ handles at build time, so they
 cannot collide at setup.
 
 A definition that holds a catalog handle before the usecase is set up
-— a user's own `contact` — blocks that usecase in that space. To free
-the handle, rename it: `xkey` is an ordinary value in the
-meta-type's namespace, so `POST …/properties/<typeId>/set/type` (or
+— a user's own `contact`, synced from a device that admits it —
+blocks that usecase in that space. To free the handle, rename it:
+`xkey` is an ordinary value in the meta-type's namespace, so `POST
+…/properties/<typeId>/set/type` (or
 `…/properties/<collectionId>/set/collection`) with `{"patch":
-{"xkey": "contact_own"}}` renames it and the next setup proceeds. That
-write is unguarded — the uniqueness check lives on `POST …/types` and
-`POST …/collections` — so the client doing it owns the outcome,
-including re-homing the objects that had the old definition.
+{"xkey": "contact_own"}}` renames it and the next setup proceeds. The
+rename checks catalog handles only — uniqueness against the space's
+other definitions lives on `POST …/types` and `POST …/collections` —
+so the client doing it owns the outcome, including re-homing the
+objects that had the old definition.
 
 An adopt heals a missing handle onto an installed root without this
 check, so a space can end with two definitions holding one handle.
@@ -452,7 +472,7 @@ schema).
 | | | `system:journal/v1` | superseded: type `journal` with the same `date` + editor `body` part + miniapp |
 | `meetings` | — | `system:meeting/v1` | type `meeting` (layout `page`; date, duration, participants, labels, words, source) with three surfaces — `notes` (the canonical editor body), `summary` (a second, namespaced editor) and `transcript` (records, `idRule: user`, author-mutable and author-deletable, `skipHistory`, dynamic, search `text` under scope `meetings`) |
 | | | `system:meetings/v1` | miniapp only, a `page` root — the sidebar entry that opens the meetings list |
-| `tasks` | — | `system:task/v1` | type `task` (layout `task`; `notes`, `parent` → `project` / `area`, `planning` — a `choice` of inbox / anytime / someday, `planned` and `deadline` — `date` days, `completed`, `completedAt`, `position` — a rank kept out of the index) |
+| `tasks` | — | `system:task/v1` | type `task` (layout `task`; `notes`, `parent` → `project` / `area`, `planning` — a `choice` of inbox / anytime / someday, `planned` and `deadline` — `date` days, `completed`, `completedAt`, `position` — a rank kept out of the index) + editor `body` part — the task's page |
 | | | `system:project/v2` | collection `project` (`notes`, `parent` → `area`, `completed`, `completedAt`, `position`) — a project is a `page` filed under it; supersedes `system:project/v1` |
 | | | `system:area/v2` | collection `area` (`notes`) — an area is a `page` filed under it; supersedes `system:area/v1`. A task, a project and an area are all listed: ordinary objects the planner creates and a table may show |
 | | | `system:project/v1` | superseded: type `project` with the same properties |

@@ -307,6 +307,10 @@ Multi-key sorts apply left to right:
 `["<wikiCollectionId>.<parentIdPropId>", "<wikiCollectionId>.<posPropId>"]`
 (the wiki tree's columns, `03-api.md` § The wiki tree).
 
+A `sort` that is not an array of strings, or a key the parser rejects, is
+`400 request.invalid_field` with `details.field: "sort"` (`local.bad_sort`
+on the local store), checked at the request boundary like `filter`.
+
 ## Paths
 
 On the wire, property paths are `<ownerId>.<propId>` — both content ids.

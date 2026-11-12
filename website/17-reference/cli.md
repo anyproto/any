@@ -171,6 +171,9 @@ any chat send   <spaceId> <objectId> --text S | --file FILE|-  [--reply-to MSG]
 any chat edit   <spaceId> <objectId> <msgId> --text S | --file FILE|-
 any chat delete <spaceId> <objectId> <msgId>
 any chat react  <spaceId> <objectId> <msgId> <emoji>          # toggle
+any chat read           <spaceId> <objectId> <msgId>          # this message and everything before it
+any chat read-all       <spaceId> <objectId>
+any chat reactions-read <spaceId> <objectId> <msgId>
 ```
 
 `<objectId>` is any object whose type declares a chat part; for the space's general chat it is the `rootId` that `any catalog setup general-chat <spaceId>` installs or adopts and prints. Text is markdown; `--file -` reads it from stdin. Edit and delete work on your own messages only. Reading is `any query-subscribe … --dataset chat_messages`.
@@ -205,6 +208,7 @@ any type create <spaceId> --name N --xkey K [--description D] [--icon-cid CID]
 any type list   <spaceId> [--include-hidden]
 any type update <spaceId> <typeId> [--name N] [--description D] [--icon CID]
                 [--layout '<json>'|''] [--hidden[=false]] [--meta k=v]...
+any type delete <spaceId> <typeId> --yes                         # objects of the type keep its id
 
 any type property list   <spaceId> <typeId>                        # alias: any type prop
 any type property add    <spaceId> <typeId> --name N --kind string|number|boolean|array|object|datetime
@@ -245,6 +249,7 @@ any collection create <spaceId> --name N --xkey K [--description D] [--icon-cid 
                       [--hidden] [--meta k=v]...
 any collection update <spaceId> <collectionId> [--name N] [--description D] [--icon CID]
                       [--hidden[=false]] [--meta k=v]...
+any collection delete <spaceId> <collectionId> --yes             # members keep its id
 
 any collection property list   <spaceId> <collectionId>            # alias: any collection prop
 any collection property add    <spaceId> <collectionId> --name N --kind string|number|boolean|array|object|datetime
@@ -255,10 +260,10 @@ any collection property remove <spaceId> <collectionId> <propId>
 
 A collection is what an object is filed under; a type is what it is. A collection takes a name, description, icon, `--xkey`, `--hidden`, `--meta` and property definitions — no parts, no layout. The property verbs are the type ones on a collection owner, same flags and same `{set, unset}` patch rules; the choice-option sugar is on the type group only, so patch the descriptor path directly here.
 
-`--xkey` is required on create and unique across the space's types and collections together (`409 type.xkey_conflict`). `collection list` omits hidden collections (the built-in `miniapp` / `bin` / `template`, and any you marked hidden) without `--include-hidden`; `collection get` resolves them always. A registered built-in refuses a metadata write (`400 collection.registered`).
+`--xkey` is required on create, unique across the space's types and collections together, and never a handle the usecase catalog declares (`409 type.xkey_conflict`). `collection list` omits hidden collections (the built-in `miniapp` / `bin` / `template`, and any you marked hidden) without `--include-hidden`; `collection get` resolves them always. A registered built-in refuses a metadata write (`400 collection.registered`).
 
 ```bash
-any collection create $SP --name Contacts --xkey contact
+any collection create $SP --name Clients --xkey client
 any collection property add $SP $C --name Company --xkey company --kind string
 any collection update $SP $C --hidden=false --meta pinned=true
 ```
@@ -286,7 +291,7 @@ The attach receipt normally shows `durable: false` — backup is background work
 
 ```
 any local meta                                       # pipeline stages and accumulators
-any local collections [--scope account|space] [--space ID]
+any local collections [--scope account|space] [--space ID] [--count]
 any local ensure  <name> [--space ID] [--index 'a,-b']... [--unique-index 'k']...
 any local drop    <name> --yes [--space ID]
 any local insert | upsert <name> --doc '<json>'|@FILE|- [--space ID]

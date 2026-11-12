@@ -18,7 +18,8 @@
 //	  "_ver":   { "id": "<VersionId of creating change>", ... },  // SDK-managed
 //	  "type":   "paragraph" | "heading" | "list_item" |
 //	            "check_list_item" | "code" | "quote" |
-//	            "divider" | "html" | "table" | "image",
+//	            "divider" | "html" | "table" | "image" |
+//	            "front_matter",
 //	  "style":  { "level": 1..6,         // heading
 //	              "ordered": true|false, // list_item
 //	              "number":  10,         // ordered list_item; omitted when 1
@@ -118,6 +119,9 @@ const (
 	TypeHTML          = "html"
 	TypeTable         = "table"
 	TypeImage         = "image"
+	// TypeFrontMatter is a document's leading `---` metadata block; its
+	// text is the lines between the delimiters, verbatim.
+	TypeFrontMatter = "front_matter"
 )
 
 // NewModule returns the handler.Module to add to config.Config.Modules

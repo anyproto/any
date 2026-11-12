@@ -40,6 +40,10 @@ const (
 	// workerStderrTail is how many of the child's last stderr lines are
 	// quoted when it dies — enough for llama.cpp's abort message.
 	workerStderrTail = 12
+	// workerIdleTimeout retires a child that has served no frame for this
+	// long, returning the memory its decode buffers keep
+	// (docs/13-index.md § The embedder child process).
+	workerIdleTimeout = 5 * time.Minute
 )
 
 // workerEmbedder runs the local model in a child process (`any run
@@ -54,16 +58,19 @@ const (
 // and the next tick retries, the outage semantics the pipeline already
 // has for an unreachable embedder.
 //
-// One child, spawned lazily on the first request and shared by every
-// space worker. The stream carries one request at a time, owned through
-// slot: EmbedDocs sends one decode group per frame and takes the slot
-// per frame, and a query takes it ahead of waiting doc frames, so a
-// search waits for at most the decode in flight — never for a batch.
+// One child, spawned lazily on the first request, shared by every space
+// worker and retired after idleTimeout without a frame. The stream
+// carries one request at a time, owned through slot: EmbedDocs sends one
+// decode group per frame and takes the slot per frame, and a query takes
+// it ahead of waiting doc frames, so a search waits for at most the
+// decode in flight — never for a batch.
 type workerEmbedder struct {
 	dl           *modelDownload
 	lg           logger.CtxLogger
 	reqTimeout   time.Duration
 	startTimeout time.Duration
+	// idleTimeout is workerIdleTimeout; 0 never retires an idle child.
+	idleTimeout time.Duration
 	// newCmd builds the child command from a spec; injectable so tests
 	// can drive a helper process instead of a real model.
 	newCmd func(localSpec) (*exec.Cmd, error)
@@ -76,13 +83,19 @@ type workerEmbedder struct {
 	closing   atomic.Bool
 	closeOnce sync.Once
 
+	// idleTimer runs retireIdle. Created stopped and never reassigned,
+	// so its callback uses it without the slot.
+	idleTimer *time.Timer
+
 	// slot is ownership of the child's stream. Its holder alone touches
-	// child, backoff and nextTry.
+	// child, backoff, nextTry and lastFrame.
 	slot *childSlot
 	// Slot-guarded.
 	child   *embedChild
 	backoff time.Duration
 	nextTry time.Time
+	// lastFrame is when the last frame ended, in real time like the timer.
+	lastFrame time.Time
 
 	mu sync.Mutex // guards spec, gpuDisabled, hw — nothing else
 	// spec holds the parameters every spawn is rendered from. Two
@@ -134,15 +147,19 @@ func newLocalEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string, 
 // newWorkerEmbedderFromSpec wires the supervisor around a resolved spec
 // (tests build one around a helper process).
 func newWorkerEmbedderFromSpec(spec localSpec, reqTimeout time.Duration) *workerEmbedder {
-	return &workerEmbedder{
+	w := &workerEmbedder{
 		spec:         spec,
 		lg:           logger.NewNamed("indexer.embedder"),
 		reqTimeout:   reqTimeout,
 		startTimeout: workerStartTimeout,
+		idleTimeout:  workerIdleTimeout,
 		newCmd:       embedderCmd,
 		now:          time.Now,
 		slot:         newChildSlot(),
 	}
+	w.idleTimer = time.AfterFunc(time.Hour, w.retireIdle)
+	w.idleTimer.Stop()
+	return w
 }
 
 // embedderCmd re-execs this binary as the hidden `any run embedder`
@@ -276,6 +293,7 @@ func (w *workerEmbedder) Close() error {
 			_ = w.slot.acquire(context.Background(), false)
 		}
 		w.stopChild(true)
+		w.idleTimer.Stop()
 		w.slot.release(false)
 		if w.dl != nil {
 			w.dl.Close()
@@ -330,6 +348,7 @@ func (w *workerEmbedder) run(ctx context.Context, req workerReq) frameResult {
 	res := make(chan frameResult, 1)
 	go func() {
 		r := w.serve(ctx, req)
+		w.armIdle()
 		w.slot.release(urgent) // before the send: a caller that returns finds the slot free
 		res <- r
 	}()
@@ -418,12 +437,14 @@ func (w *workerEmbedder) ensureChild(retireStale bool) error {
 		}
 		w.stopChild(true)
 	}
-	if w.dl != nil {
-		if st := w.dl.Status(); st != nil {
-			return fmt.Errorf("indexer: local embedder: model not ready: %w", st)
-		}
-	}
+	// An installed file is ready even while the downloader's status
+	// still says otherwise (it polls for another process's install).
 	if _, err := os.Stat(spec.modelPath); err != nil {
+		if w.dl != nil {
+			if st := w.dl.Status(); st != nil {
+				return fmt.Errorf("indexer: local embedder: model not ready: %w", st)
+			}
+		}
 		return fmt.Errorf("indexer: local embedder: model not found at %s", spec.modelPath)
 	}
 	if now := w.now(); now.Before(w.nextTry) {
@@ -570,16 +591,52 @@ func (w *workerEmbedder) failChild(cause error) {
 	w.lg.Warn("local embedder child died; restarting on the next round", fields...)
 }
 
-// stopChild retires the current child gracefully (stdin EOF, then kill
-// if it lingers). Caller holds the slot.
+// stopChild retires the current child gracefully (stdin EOF, then kill).
+// live stays set until it is reaped, so a Close meanwhile can kill it.
+// Caller holds the slot.
 func (w *workerEmbedder) stopChild(graceful bool) {
 	if w.child == nil {
 		return
 	}
 	c := w.child
 	w.child = nil
-	w.live.Store(nil)
 	_ = c.stop(graceful)
+	w.live.Store(nil)
+}
+
+// armIdle restarts the idle countdown after a frame. Caller holds the
+// slot.
+func (w *workerEmbedder) armIdle() {
+	w.lastFrame = time.Now()
+	if w.child != nil && w.idleTimeout > 0 && !w.closing.Load() {
+		w.idleTimer.Reset(w.idleTimeout)
+	}
+}
+
+// retireIdle stops a child that served no frame for idleTimeout, under
+// the slot; a busy slot or a recent frame re-arms the timer instead
+// (docs/13-index.md § The embedder child process).
+func (w *workerEmbedder) retireIdle() {
+	if w.closing.Load() || w.idleTimeout <= 0 {
+		return
+	}
+	if !w.slot.tryAcquire() {
+		w.idleTimer.Reset(w.idleTimeout)
+		if w.closing.Load() { // Close may have stopped the timer before the Reset
+			w.idleTimer.Stop()
+		}
+		return
+	}
+	defer w.slot.release(false)
+	if w.child == nil || w.closing.Load() {
+		return
+	}
+	if rest := w.idleTimeout - time.Since(w.lastFrame); rest > 0 {
+		w.idleTimer.Reset(rest)
+		return
+	}
+	w.lg.Info("local embedder child retired while idle", zap.Duration("idle", w.idleTimeout))
+	w.stopChild(true)
 }
 
 func (w *workerEmbedder) penalize() {

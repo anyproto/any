@@ -185,7 +185,8 @@ is the common mistake, and the collection's columns then disappear from
 the UI.
 
 Every object has a type — `POST …/objects` refuses a body without one
-and the type is never cleared — so there is always a layout to render.
+and the type is never cleared — so there is a layout to render unless
+the type was deleted: the id then names no type (`404 type.not_found`).
 `page` is the plain document.
 
 `layout` is opaque to the server — `{"type": "<slug>", "config": {…}}` in
@@ -220,7 +221,7 @@ data, read-tolerant, and so do its datasets' records — which its parts no
 longer admit writes to. Unfiling likewise leaves that collection's values
 in place.
 
-Deleting a collection (`DELETE …/objects/:collectionId`) leaves its
+Deleting a collection (`DELETE …/collections/:collectionId`) leaves its
 members as they are: each keeps the collection id in `any.collections`
 and its values for the collection's columns. The server cannot clean
 them up reliably — a device that was offline can file an object under
@@ -258,11 +259,13 @@ collection sets its own through `PATCH …/collections/:collectionId`.
       {name?, description?, iconCid?, xKey, hidden?, meta?}
       → 201 {"collectionId": "…"}
 
-Both require a non-empty `xKey` (slug the name; it must survive renames)
+Both require a non-empty `xKey` (slug the name, with a `_2`, `_3`, …
+suffix while the slug is taken; it must survive renames)
 — without one it is `400 type.xkey_required`. The handle is unique across
 types **and** collections in the space: a collision with an existing
 `xKey` or id is `409 type.xkey_conflict`, whose `details` name
-`existingTypeId` or `existingCollectionId`. Neither create takes inline
+`existingTypeId` or `existingCollectionId`; so is a handle the usecase
+catalog declares (`details.catalogBundleId`, `details.usecase`). Neither create takes inline
 property definitions (`400 request.unknown_field`) — add each column
 afterwards through `POST …/types/:typeId/properties` or
 `POST …/collections/:collectionId/properties`.
