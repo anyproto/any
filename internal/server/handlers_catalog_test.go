@@ -240,6 +240,36 @@ func TestServer_CatalogSetupJournal(t *testing.T) {
 	}
 }
 
+// A task is a page: its type declares the editor body, so a task holds
+// a page body beside its columns.
+func TestServer_CatalogSetupTasks(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	sp := createSpaceInfo(t, e, "CatalogTasks")
+
+	var task api.CatalogSetupBundle
+	for _, b := range setupUsecase(t, e, "tasks", sp.Id).Bundles {
+		if b.Id == "system:task/v1" {
+			task = b
+		}
+	}
+	if task.TypeId == "" || task.Properties["notes"] == "" {
+		t.Fatalf("task bundle: %+v", task)
+	}
+	var parts api.TypePartsListResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+task.TypeId+"/parts", &parts)
+	if len(parts.Parts) != 1 || parts.Parts[0].Key != "body" || len(parts.Parts[0].Datasets) != 1 ||
+		parts.Parts[0].Datasets[0].Collection != "editor_blocks" {
+		t.Fatalf("task parts: %+v", parts.Parts)
+	}
+	obj := mustCreateObject(t, e, sp.Id, `{"type":"`+task.TypeId+`"}`)
+	rec := doJSON(t, e, http.MethodPut, "/v1/spaces/"+sp.Id+"/objects/"+obj+"/editor/editor_blocks/markdown", `{"content":"a page inside a task"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("write a task's body: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 // A meeting is one OBJECT: the type says what it is, and its three
 // surfaces are the notes (the common editor), a second editor for the
 // summary and a transcript of one record per spoken turn.
@@ -901,10 +931,9 @@ func TestServer_CatalogSetupXKeyConflict(t *testing.T) {
 	}
 }
 
-// The evolution rules, on a catalog a test owns: a property added to
-// a type, a miniapp added to a bundle, a bundle added to a usecase,
-// each landing on the existing install at the next setup — and a
-// marker type, a two-level chain and a relation across it.
+// The evolution rules on a test catalog — a property, parts on a type
+// that had none, a miniapp, a bundle added — each land at the next setup;
+// plus a marker type, a two-level chain and a relation across it.
 const testCatalogV1 = `
 usecases:
   - id: seam-tag
@@ -963,6 +992,10 @@ usecases:
             - { xKey: stage, name: Stage, kind: array,
                 xFormat: { type: choice, options: { open: { name: Open, pos: a0 }, closed: { name: Closed, pos: a1 } } } }
             - { xKey: done,  name: Done,  kind: boolean, xFormat: { type: checkbox } }
+        parts:
+          - key: body
+            ui: { type: document }
+            datasets: [ { module: editor } ]
   - id: seam-app
     name: App
     requires: [ seam-note ]
@@ -1025,6 +1058,19 @@ func TestServer_CatalogEvolution(t *testing.T) {
 	// The added property healed onto the existing root, ids stable.
 	if note2.Installed || note2.TypeId != note.TypeId || note2.Properties["title"] != note.Properties["title"] || note2.Properties["done"] == "" {
 		t.Fatalf("property heal: %+v", note2)
+	}
+	// The parts declared on a type that had none healed onto it: a
+	// note's body takes editor writes.
+	var parts api.TypePartsListResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+note.TypeId+"/parts", &parts)
+	if len(parts.Parts) != 1 || parts.Parts[0].Key != "body" || len(parts.Parts[0].Datasets) != 1 ||
+		parts.Parts[0].Datasets[0].Collection != "editor_blocks" {
+		t.Fatalf("parts heal: %+v", parts.Parts)
+	}
+	noteObj := mustCreateObject(t, e, sp.Id, `{"type":"`+note.TypeId+`"}`)
+	rec = doJSON(t, e, http.MethodPut, "/v1/spaces/"+sp.Id+"/objects/"+noteObj+"/editor/editor_blocks/markdown", `{"content":"# hello"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("write a healed body: %d %s", rec.Code, rec.Body.String())
 	}
 	// The added option key healed onto the installed choice; the
 	// space's recolour of the existing key stands.

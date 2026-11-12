@@ -452,7 +452,7 @@ schema).
 | | | `system:journal/v1` | superseded: type `journal` with the same `date` + editor `body` part + miniapp |
 | `meetings` | — | `system:meeting/v1` | type `meeting` (layout `page`; date, duration, participants, labels, words, source) with three surfaces — `notes` (the canonical editor body), `summary` (a second, namespaced editor) and `transcript` (records, `idRule: user`, author-mutable and author-deletable, `skipHistory`, dynamic, search `text` under scope `meetings`) |
 | | | `system:meetings/v1` | miniapp only, a `page` root — the sidebar entry that opens the meetings list |
-| `tasks` | — | `system:task/v1` | type `task` (layout `task`; `notes`, `parent` → `project` / `area`, `planning` — a `choice` of inbox / anytime / someday, `planned` and `deadline` — `date` days, `completed`, `completedAt`, `position` — a rank kept out of the index) |
+| `tasks` | — | `system:task/v1` | type `task` (layout `task`; `notes`, `parent` → `project` / `area`, `planning` — a `choice` of inbox / anytime / someday, `planned` and `deadline` — `date` days, `completed`, `completedAt`, `position` — a rank kept out of the index) + editor `body` part — the task's page |
 | | | `system:project/v2` | collection `project` (`notes`, `parent` → `area`, `completed`, `completedAt`, `position`) — a project is a `page` filed under it; supersedes `system:project/v1` |
 | | | `system:area/v2` | collection `area` (`notes`) — an area is a `page` filed under it; supersedes `system:area/v1`. A task, a project and an area are all listed: ordinary objects the planner creates and a table may show |
 | | | `system:project/v1` | superseded: type `project` with the same properties |
