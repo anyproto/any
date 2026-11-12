@@ -178,6 +178,11 @@ func TestQueryCoverage_NotWords(t *testing.T) {
 		{`"hydraulic" *`, "the hydraulics failed", 0},
 		{"ｈｙｄｒａｕｌ＊", "hydraulic", 0},
 		{"می‌خواهم", "خواهم رفت و می‌روم", 0},
+		{`"hydraul* pump" failure`, "hydraulic pump failure", 2.0 / 3},
+		{`27" screen "*`, `27" screens`, 0.5},
+		{`foo " "*`, "foobar", 0},
+		{`"a bx "**`, "a bxx", 1},
+		{"strasse", "Straße gesperrt", 1},
 	}
 	for _, c := range cases {
 		if got := queryCoverage(c.q, []Hit{scored(c.doc, 3)}); got != c.want {

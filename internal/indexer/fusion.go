@@ -4,6 +4,8 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/anyproto/any-store/v2/query"
+	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -77,9 +79,10 @@ func coverageSplit(folded string) []string {
 	return out
 }
 
-// coverageFold is s in the form coverage compares: NFKC, lowercase.
+// coverageFold is s in the form coverage compares: NFKC, case-folded,
+// as the FTS analyzer folds.
 func coverageFold(s string) string {
-	return strings.ToLower(norm.NFKC.String(s))
+	return cases.Fold().String(norm.NFKC.String(s))
 }
 
 // coverageWords is a folded text's word set (letters, marks, digits, '_').
@@ -93,22 +96,14 @@ func coverageWords(folded string) map[string]struct{} {
 
 // queryWords is the query's word set minus coverageStop; the value marks
 // a word typed as a prefix (`word*`, `"a phrase"*`), which any word
-// starting with it covers and which is never a stop word. The `"*` that
-// closes a phrase after a space (`"a phrase "*`) marks the word before it.
-func queryWords(query string) map[string]bool {
+// starting with it covers and which is never a stop word. The FTS
+// query parser decides what is a clause and what is a prefix.
+func queryWords(search string) map[string]bool {
 	out := map[string]bool{}
-	last := ""
-	quotes := 0
-	for _, f := range strings.Fields(query) {
-		prefix := strings.HasSuffix(f, "*")
-		if f == `"*` && quotes%2 == 1 && last != "" {
-			out[last] = true
-		}
-		quotes += strings.Count(f, `"`)
-		words := coverageSplit(coverageFold(f))
+	for _, c := range query.ParseTextSearch(search) {
+		words := coverageSplit(coverageFold(c.Raw))
 		for i, w := range words {
-			last = w
-			isPrefix := prefix && i == len(words)-1
+			isPrefix := c.Prefix && i == len(words)-1
 			if _, skip := coverageStop[w]; skip && !isPrefix {
 				continue
 			}
