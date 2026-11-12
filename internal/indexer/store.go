@@ -74,8 +74,8 @@ type Store struct {
 	// unreachable or the dimension is still unknown, so an outage
 	// freezes the vector pipeline without losing work.
 	markPending bool
-	// embedTitles: documents embed under their object's name, so DocTitles
-	// answers and a rename re-marks the object's vectors pending.
+	// embedTitles: editor windows embed under their object's name, so
+	// DocTitles answers and a rename re-marks their vectors pending.
 	embedTitles bool
 
 	// vectorMode selects the ANN index strategy (see vectorIndexParams);
@@ -554,16 +554,13 @@ const ftsIndex = "fts"
 // nameDocSuffix ends the id of an object's name doc.
 const nameDocSuffix = ":" + index.DatasetProp + ":" + index.NamePropRecordId
 
-// titledInfix follows the object id in the id of a doc embedded under
-// the object's name: the body windows only, so a rename re-embeds the
-// body and never a chat's messages or a dataset's records.
-const titledInfix = editor.Dataset + ":"
-
 // titledDoc reports whether id is embedded under its object's name, and
-// the object.
+// the object. Only editor windows are, so a rename re-embeds the
+// object's text and never a chat's messages or a dataset's records.
 func titledDoc(id string) (objectId string, ok bool) {
 	objectId, rest, _ := strings.Cut(id, ":")
-	return objectId, strings.HasPrefix(rest, titledInfix)
+	_, recordId, _ := strings.Cut(rest, ":")
+	return objectId, strings.HasPrefix(recordId, editor.WindowRecordPrefix)
 }
 
 // isNameDoc reports whether the entry is the object's name — the record
@@ -1017,10 +1014,10 @@ func (s *Store) ApplyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 		}
 	}
 	{
-		// The name is part of every document prompt of the object: its
-		// vectors are stale. They keep serving until re-embedded.
+		// The name is part of the prompt of the object's editor windows:
+		// their vectors are stale. They keep serving until re-embedded.
 		for _, objectId := range renamed {
-			p := objectId + ":" + titledInfix
+			p := objectId + ":"
 			idRange := query.And{
 				query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGte, p)},
 				query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, prefixUpper(p))},
@@ -1040,10 +1037,14 @@ func (s *Store) ApplyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 	return touched, nil
 }
 
-// remarkPending puts an embedded doc back in the embed queue, keeping
-// its vector until the new one lands.
+// remarkPending puts an embedded doc that embeds under its object's
+// name back in the embed queue, keeping its vector until the new one
+// lands.
 var remarkPending = query.ModifyFunc(func(a *anyenc.Arena, v *anyenc.Value) (*anyenc.Value, bool, error) {
 	if v.Get("vector") == nil || v.Get("pending") != nil {
+		return v, false, nil
+	}
+	if _, titled := titledDoc(string(v.GetStringBytes("id"))); !titled {
 		return v, false, nil
 	}
 	v.Set("pending", a.NewNumberInt(1))
@@ -1636,7 +1637,7 @@ func (s *Store) Pending(ctx context.Context, spaceId string, limit int) (ids []s
 }
 
 // DocTitles returns, for each doc id, the name it embeds under — its
-// object's for a body window, "" for an unnamed object or any other
+// object's for an editor window, "" for an unnamed object or any other
 // doc — when documents embed under names; nil otherwise.
 func (s *Store) DocTitles(ctx context.Context, spaceId string, ids []string) ([]string, error) {
 	if !s.embedTitles || len(ids) == 0 {

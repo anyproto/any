@@ -58,10 +58,11 @@ func EmbedderStamp(e Embedder) (id string, legacy bool) {
 type TitleEmbedder interface {
 	Embedder
 	// EmbedsTitles reports whether the name is part of what a document
-	// embeds as; when it is, a rename makes the object's vectors stale.
+	// embeds as; when it is, a rename makes the vectors of the object's
+	// editor windows stale.
 	EmbedsTitles() bool
-	// EmbedTitledDocs is EmbedDocs with titles[i] the name of texts[i]'s
-	// object ("" for none).
+	// EmbedTitledDocs is EmbedDocs with titles[i] the name texts[i]
+	// embeds under ("" for none).
 	EmbedTitledDocs(ctx context.Context, titles, texts []string) ([][]float32, error)
 }
 
