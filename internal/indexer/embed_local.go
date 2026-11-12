@@ -205,7 +205,7 @@ func resolveLocalSpec(cfg config.IndexLocal, modelsDir, legacyModelsDir string, 
 				url = cfg.ModelUrl
 			}
 			if cfg.ModelSha256 != "" {
-				sha = cfg.ModelSha256
+				sha = strings.ToLower(cfg.ModelSha256)
 			}
 			dl = startModelDownload(url, s.modelPath, sha, nil, onProcess)
 		}
