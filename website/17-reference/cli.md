@@ -358,6 +358,8 @@ any sync-status space     <spaceId>
 any sync-status object    <spaceId> <objectId>
 any sync-status subscribe [<spaceId> <objectId>]    # account-wide without args
 
+any read-state unread <spaceId> [--cursor C] [--limit N]    # what became unread after a cursor
+
 any events publish --type T [--scope device|account|space] [--space ID] [--target X] [--data J|@FILE|-]
 any events subscribe [--scope S]... [--type T|x.*]... [--space ID]... [--target X]...
 

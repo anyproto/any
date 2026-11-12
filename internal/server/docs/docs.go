@@ -4256,6 +4256,50 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.UnreadChange": {
+                "properties": {
+                    "changeId": {
+                        "type": "string"
+                    },
+                    "dataset": {
+                        "type": "string"
+                    },
+                    "objectId": {
+                        "type": "string"
+                    },
+                    "recordIds": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "tags": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.UnreadResponse": {
+                "properties": {
+                    "changes": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.UnreadChange"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "cursor": {
+                        "description": "Cursor resumes after the last returned change. Opaque.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.UpsertRecord": {
                 "properties": {
                     "fields": {
@@ -14759,6 +14803,83 @@ const docTemplate = `{
                 "summary": "Subscribe to a windowed per-object query (SSE)",
                 "tags": [
                     "data"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/read-state/unread": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Cursor from the previous call; omit to start at the present",
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Page size (default 100, max 1000)",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.UnreadResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List the changes that became unread on this device after a cursor",
+                "tags": [
+                    "readstate"
                 ]
             }
         },

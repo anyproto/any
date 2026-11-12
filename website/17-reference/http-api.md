@@ -293,6 +293,14 @@ Values are keyed by `propId`, never `xKey`. See [Types and properties](../databa
 
 Reads: `POST /v1/spaces/:spaceId/query` with `dataset: "chat_messages"`, `sort: ["-_ver.id"]`, a `limit`. See [Chat](../types/chat.html).
 
+## Read state
+
+| Method | Path | Body/params | Returns | Notes |
+|---|---|---|---|---|
+| GET | `/v1/spaces/:spaceId/read-state/unread` | `?cursor&limit` | `{changes, cursor}` | the changes that became unread on this device after `cursor` and still are, oldest arrival first; no `cursor` starts at the present; `limit` default 100, cap 1000; `400 request.invalid_field` (malformed `cursor` or `limit`); `405 space.unsupported` on the tech space |
+
+A change is `{objectId, dataset, recordIds, tags, changeId}`. The cursor is opaque and the server keeps nothing between calls. See [Chat](../types/chat.html) § Chat list and notifications.
+
 ## Files
 
 | Method | Path | Body/params | Returns | Notes |

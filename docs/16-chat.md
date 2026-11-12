@@ -84,7 +84,7 @@ subscribe frames):
 | field | meaning |
 |---|---|
 | `unread: true` | the message itself is unread. Absent (not `false`) once read — filter with `{"unread": true}`. |
-| `unreadMention: true` | unread mention of you — the message's derived `mentions` contains your identity (a text `any://u/…` link or a reply to your message; see § Mentions). Sets alongside `unread` on new messages, and on its own when an edit adds a mention of you. |
+| `unreadMention: true` | unread mention of you — the message's derived `mentions` contains your identity (a text `any://u/…` link or a reply to your message; see § Mentions). Sets alongside `unread` on new messages, and on its own when a message that mentions you is edited. |
 | `unreadReactions: true` | someone reacted to this message and you haven't seen it. Only ever sets on messages **you authored** — a reaction is a signal to the message's author, so it badges only them. |
 
 Per chat (properties on the chat object's row, present in any
@@ -306,7 +306,7 @@ a plain filter/sort on the list query (nested paths work everywhere:
 the normal objects subscription. No per-chat calls, no chat opens — a
 thousand chats cost one query.
 
-## Desktop notifications (no per-chat subscriptions, no server help)
+## Desktop notifications (no per-chat subscriptions, no notification service)
 
 Do NOT subscribe to every chat to detect new messages — each
 subscription holds a record window and mailbox, and puts event-build
@@ -345,45 +345,130 @@ Keep `limit` above the number of chats with something unread; the
 window then holds every one of them.
 
 Each frame's `added` / `updated` entries carry the full row and the
-ops — watch for `chat.unreadCount` / `chat.unreadMentions` changes:
+ops. A frame that touches one of the three counters — a row `added`,
+a counter moving up or down, a row `removed` — says the unread set of
+that chat changed: something arrived, something left, or both. Do two
+things on every such frame.
 
-- **Counter went up** → new unread in that chat. Fetch what to show:
-  `POST /query` on that chat, `{"unread": true}`, sort `-_ver.id`,
-  small limit. Keep a last-notified `_ver.id` per chat in the
-  client's local store and toast only messages above it — that marker
-  is your entire notification cursor. Skip the toast when that chat
-  is open and visible; the viewport rule marks it read instead.
-- **Counter went down** → messages left the unread set: read here, in
-  another window or on another device, deleted, or a mention edited
-  out — dismiss the OS notifications of the messages no longer
-  unread. Cross-device dismissal falls out for free.
-- **`removed`** with reason `filtered-out` (nothing unread any more,
-  or the chat was binned) or `deleted` (the chat is gone) → dismiss
-  all of that chat's notifications.
-- The counters already encode the semantics, so no client-side
-  filtering is needed: your own messages never bump them (born read),
-  an agent's `done: true` reply under your key does, an edit moves
-  only `chat.unreadMentions` (up when its new text mentions you, down
-  when it drops an edit-added mention), deleting an unseen message
-  drops them. "Your agent replied" rides this same subscription in
-  every space — no per-chat streams.
+**Ask the feed what arrived:**
 
-Boot policy: on start, take the subscription's snapshot as badge
-state — every chat in it has something unread, and a chat absent from
-it has nothing. Don't toast the offline gap. On any `closed`,
-resubscribe; the new snapshot replaces the badge set. Space
-add/remove: `POST /v1/spaces/query/subscribe`.
+```
+GET /v1/spaces/:spaceId/read-state/unread?cursor=<cursor>&limit=100
+
+{ "changes": [ { "objectId":  "<chatId>",
+                 "dataset":   "chat_messages",
+                 "recordIds": ["<msgId>"],
+                 "tags":      ["message"],
+                 "changeId":  "<changeId>" } ],
+  "cursor": "<cursor>" }
+```
+
+Each change is one thing that became unread on this device after the
+cursor and still is, oldest arrival first. `objectId` is the chat,
+`recordIds` the message it touched, `tags` the reason:
+
+| tags | what happened |
+|---|---|
+| `message` | a new message |
+| `message`, `mention` | a new message that mentions you |
+| `mention` | a message that mentions you was edited |
+| `reaction` | someone reacted to your message |
+
+- Fetch the messages by id (`POST /query` on the chat,
+  `{"id": {"$in": [...]}}`) for the notification text, and keep the
+  returned cursor.
+- A page as long as the limit in effect — yours, at most 1000 — may
+  have more behind it: call again.
+- Keep one notification per message. A change for a message whose
+  notification is showing updates that notification.
+- An edit of a message that mentions you is a change every time: a
+  typo fix counts, and so does an edit of a message that mentioned you
+  from the start.
+- A `reaction` change names the message only. The feed does not say
+  who reacted or with which emoji.
+
+The feed covers every chat of the space, so three kinds of change are
+dropped, not shown:
+
+- the chat is open and visible — the user is looking at it;
+- the chat is in `bin` or `template` (`any.collections` on its row):
+  the subscription leaves those out, the feed does not;
+- the chat is muted: its notify mode is `none`, or it is `mentions`
+  and the change carries no `mention` tag. The mode is
+  `chat.notifyMode` when that is `all`, `mentions` or `none`,
+  otherwise the space's `settings.notifyMode`, otherwise `all`.
+
+**Check what left.** A notification is over when its message is
+deleted or carries none of `unread`, `unreadMention` and
+`unreadReactions`. Re-check a chat's notifications when one of its
+counters fell. `removed` ends all of them — reason `filtered-out`:
+nothing unread any more, or the chat moved to `bin` or `template`;
+`deleted`: the chat is gone — and so does the space going away.
+Cross-device dismissal falls out for free: a read on another device
+clears the flags and lowers the counters here.
+
+The counters already encode the semantics, so no client-side filtering
+is needed: your own messages never bump them (born read), an agent's
+`done: true` reply under your key does, an edit moves only
+`chat.unreadMentions` (up when its text mentions you, down when it
+drops an edit-added mention), deleting an unseen message drops them.
+"Your agent replied" rides this same subscription in every space — no
+per-chat streams.
+
+The cursor is all the client keeps to know what is new — one per
+space, held in memory:
+
+- Make the first call without one, before subscribing. It returns no
+  changes and a cursor at the present, so nothing that was already
+  unread on this device is shown.
+- Send back the cursor the last call returned. It is opaque, and the
+  server keeps nothing between calls.
+- Keep one call in flight per space. A frame that arrives meanwhile
+  means one more call when it returns.
+- Don't persist it across app starts: a stored cursor shows everything
+  that arrived while the app was closed.
+- It stays valid across a resubscribe and a server restart. When the
+  account's local store was rebuilt, the server answers an old cursor
+  as it answers none.
+
+The feed orders changes by arrival on this device, which the chat's own
+order cannot do: a message another member wrote offline merges between
+messages you already have, and an edit-added mention or a reaction
+creates no message at all. What that means at the edges:
+
+- **A device that is catching up lists history.** Freshly linked, or
+  back online, it applies old changes as they reach it. What the
+  account has not read is listed. What it read on another device is
+  listed too until that read position arrives here; the counters then
+  fall and the check above ends those notifications. How many of them
+  to show is the client's call; the cursor moves on either way.
+- **Flags and counters trail the feed.** The feed lists a change as
+  soon as it is applied. The flags and counters follow in a debounced
+  pass (50 ms, plus the pass itself), so a check made in between finds
+  an unread message without a flag.
+- **A still counter fires no frame.** When something leaves a chat's
+  unread set in the same pass as something enters it and the counter
+  ends where it was, no frame fires. The arrival is listed by the next
+  call, whenever another frame causes one.
+
+Boot policy: make the first feed call, subscribe, and take the
+subscription's snapshot as badge state — every chat in it has
+something unread, and a chat absent from it has nothing. Then call the
+feed again: it returns what arrived in between. Don't toast the
+offline gap. On any `closed`, resubscribe; the new snapshot replaces
+the badge set. Then check every notification that is showing and call
+the feed with the cursor you hold: it returns what became unread while
+the stream was down. Space add/remove:
+`POST /v1/spaces/query/subscribe`.
 
 Total live surface for a desktop client: one objects subscription per
-space, one `/query/subscribe` for the currently OPEN chat, plus a
-last-notified marker per chat in local storage. Nothing per closed
-chat, nothing server-side.
+space, one `/query/subscribe` for the currently OPEN chat, plus one
+feed cursor per space in memory. Nothing per closed chat, nothing
+stored, nothing server-side.
 
-(In-process consumers with SDK access — the server itself, native
-wrappers — can use the per-space read-state feed instead:
-`ReadState().Subscribe` + `ChangedSince(cursor)` yields dirty objects;
-`UnreadSnapshot(objectId)` is the per-object pull to diff against.
-Same semantics as the HTTP recipe, one hop closer to the engine.)
+(In-process consumers with SDK access call `ReadState().UnreadSince`
+directly. `ReadState().Subscribe` pings them after every read-state
+change.)
 
 ## Things not to do
 
@@ -395,6 +480,10 @@ Same semantics as the HTTP recipe, one hop closer to the engine.)
   visibility.
 - Don't subscribe to all chats to build notifications or badges — see
   § Desktop notifications; subscriptions are for the open chat only.
+- Don't decide what is new from `_ver.id`. It is a message's place in
+  the chat, not when it arrived: a message merged into mid-history
+  sorts below ones already notified. The unread feed is the only
+  source of "became unread".
 - Don't maintain your own read cursor or counters in client storage;
   the SDK's state is the durable, multi-device one. A client cache of
   rendered flags is fine — it gets corrected by events.

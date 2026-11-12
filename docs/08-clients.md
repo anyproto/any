@@ -725,8 +725,9 @@ Budget it by principle:
   ask for it to be — do not fan out around the gap.
 
 - **Durable consumers use cursors, not event streams.** Anything that
-  must not miss changes (an indexer, a notifier, an exporter) persists
-  its own cursor / high-water marks in its own storage, treats live
+  must not miss changes (an indexer, a notifier, an exporter) keeps
+  its own cursor / high-water marks — in its own storage when it has
+  to pick up where it stopped across a restart — treats live
   events purely as a wake-up signal, and catches up by pulling
   since-cursor or diffing against a snapshot. Events may drop by
   design (overflow, drift, restarts); the recovery contract is always
@@ -739,9 +740,10 @@ Budget it by principle:
 
 Worked example of all five at once: desktop notifications across every
 chat in every space — one objects subscription per space watching
-counter properties, point queries for toast bodies, a client-local
-last-notified marker as the cursor, snapshot-as-badges on boot. See
-`16-chat.md` § Desktop notifications.
+counter properties, the space's unread feed for what to toast, point
+queries for toast bodies, snapshot-as-badges on boot. Its feed cursor
+stays in memory: a notifier does not replay what arrived while it was
+closed. See `16-chat.md` § Desktop notifications.
 
 ## 11. Mobile push: cache the space keys, decrypt without the server
 

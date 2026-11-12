@@ -55,6 +55,7 @@
     - [Read](#read)
     - [Edit / delete (own only)](#edit--delete-own-only)
     - [React (toggle)](#react-toggle)
+  - [Read state](#read-state)
   - [Files (files v2)](#files-files-v2)
     - [Upload (attach)](#upload-attach)
     - [Download (content)](#download-content)
@@ -4159,6 +4160,49 @@ unique per (emoji, identity), two clients toggling at the same time
 can't corrupt each other. Returns `200` with the shared write result
 `{versionId, changeId, recordIds}` (`recordIds=[msgId]`); read the
 updated `reactions` back via the query path.
+
+### Read state
+
+| Method | Path                                    | Purpose                            |
+|--------|-----------------------------------------|------------------------------------|
+| GET    | `/v1/spaces/:spaceId/read-state/unread` | `Space.ReadState().UnreadSince`    |
+
+`GET …/read-state/unread?cursor=<cursor>&limit=<n>` lists the changes
+that became unread on this device after `cursor` and still are, across
+every object of the space, oldest arrival first:
+
+```json
+{ "changes": [ { "objectId":  "<objectId>",
+                 "dataset":   "chat_messages",
+                 "recordIds": ["<recordId>"],
+                 "tags":      ["message", "mention"],
+                 "changeId":  "<changeId>" } ],
+  "cursor": "<cursor>" }
+```
+
+- `tags` are the read-tracking labels of the change's dataset. Chat
+  uses `message`, `mention` and `reaction` (`16-chat.md`).
+- `cursor` is opaque: send back the one the previous call returned.
+  With no `cursor` the call returns no changes and a cursor at the
+  present. A cursor issued before the account's local store was
+  rebuilt is answered the same way.
+- `limit` defaults to 100 and is capped at 1000. A page as long as the
+  limit in effect may have more behind it.
+- Only additions are listed. A change read or deleted since is gone
+  from the feed; flags and counters carry removals. A change that
+  replaces an unread one (a further edit of a message that mentions
+  you) is a new change and is listed too.
+- The order is arrival on this device. A device that is catching up
+  lists history as it applies it (`16-chat.md` § Desktop
+  notifications).
+- The server keeps nothing between calls.
+
+Errors: `400 request.invalid_field` for a malformed `cursor` or a
+`limit` that is not a positive integer; the tech space answers
+`405 space.unsupported`. A well-formed cursor is not checked further:
+one issued for another space, or before the store was rebuilt, starts
+at the present. Marking read is a module write (§ Chat). CLI:
+`any read-state unread`.
 
 ### Files (files v2)
 
