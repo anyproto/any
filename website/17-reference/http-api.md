@@ -64,6 +64,7 @@ curl -X POST http://127.0.0.1:2046/v1/auth -H 'Content-Type: application/json' -
 | GET | `/v1/account/icon` | — | image bytes (Range) | `404 account.icon_not_found`, `409 file.not_available` |
 | DELETE | `/v1/account/icon` | — | 204 | no-op without an avatar |
 | POST | `/v1/account/access-code` | `{code}` | `{status: accepted\|already_redeemed, redemptionId?}` | signs the code with the account key and relays it to the invite service at `access.redeemUrl`; `409 access.disabled` without one; refusals are `access.*` with the service's code in `details.code` |
+| GET | `/v1/account/limits` | — | `{storage?: {limitBytes, usageBytes, fetchedAt}, sharedSpaces?: {limit, fetchedAt}}` | what the network grants the account; waits for the network at most 5 s, and not at all while it is failing or slow; each part is the network's last answer (`fetchedAt`), omitted when it never answered on this device; never fails on an unreachable network |
 | GET | `/v1/identities` | — | `{identities: [IdentityInfo]}` | account-global directory of every identity encountered; carries no rights |
 | GET | `/v1/identities/:identity` | — | `IdentityInfo` | `404 identity.not_found` |
 | GET | `/v1/identities/:identity/icon` | — | image bytes (Range) | the avatar the row's `iconCid` names, fetched by content address; `404 identity.icon_not_found`, `409 file.not_available` |
@@ -154,7 +155,7 @@ Full semantics in [Bundles](../collaboration/bundles.html).
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects \
   -H 'Content-Type: application/json' -d '{"type":"page","initialProperties":{"any":{"name":"Dune"}}}'
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects/query \
-  -H 'Content-Type: application/json' -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}'
+  -H 'Content-Type: application/json' -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt","-id"],"limit":20}'
 ```
 
 Every `objects` row carries derived `author`, `createdAt`, `spaceId`, `modifiedAt`, `modifiedBy` (instants as `{"$date": …}`; `modifiedBy` is the identity that signed the change `modifiedAt` names). See [Objects](../database/objects.html) and [System fields](../database/system-fields.html).
@@ -183,7 +184,7 @@ Reads over the link index the search indexer maintains — not SDK methods. All 
 | PATCH | `…/objects/:objectId/editor/:collection/blocks/:blockId` | `{set: {"dotted.path": v}, unset: [path]}` | write result | required fields cannot be unset; `404 blocks.not_found` |
 | DELETE | `…/objects/:objectId/editor/:collection/blocks/:blockId` | — | write result | no cascade to children; `404 blocks.not_found` |
 
-Reads: `POST /v1/spaces/:spaceId/query` with `{"objectId", "dataset": "editor_blocks", "sort": ["nav.pos"]}`. See [Editor](../types/editor.html) and [Markdown import/export](../database/markdown-import-export.html).
+Reads: `POST /v1/spaces/:spaceId/query` with `{"objectId", "dataset": "editor_blocks", "sort": ["nav.pos", "id"]}` — a document is read whole. See [Editor](../types/editor.html) and [Markdown import/export](../database/markdown-import-export.html).
 
 ## Data plane
 
@@ -205,8 +206,8 @@ Snapshot body (closed field set — unknown keys `400 request.unknown_field`):
 
 ```json
 { "objectId": "obj", "dataset": "chat_messages",
-  "filter": {"unread": true}, "sort": ["-_ver.id"],
-  "limit": 50, "offset": 0, "includeTotal": true,
+  "filter": {"unread": true}, "sort": ["-_ver.id", "-id"],
+  "limit": 50, "includeTotal": true,
   "projection": {"text": 1, "creator": 1} }
 ```
 
@@ -217,7 +218,7 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/modify -H 'Content-Type: applic
   "objectId":"'$OBJ'","dataset":"notes",
   "records":[{"id":"","upsert":true,"ops":[{"type":"$set","path":"","value":{"title":"x"}}]}]}'
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/datasets/query \
-  -H 'Content-Type: application/json' -d '{"dataset":"'$T'_hours","sort":["-start"],"limit":48}'   # any query-subscribe $SP --all-objects --dataset ${T}_hours --sort -start --limit 48
+  -H 'Content-Type: application/json' -d '{"dataset":"'$T'_hours","sort":["-start","-_objectId","-id"],"limit":48}'   # any query-subscribe $SP --all-objects --dataset ${T}_hours --sort -start,-_objectId,-id --limit 48
 ```
 
 ## Version history
@@ -291,7 +292,15 @@ Values are keyed by `propId`, never `xKey`. See [Types and properties](../databa
 | POST | `…/chat/messages/:msgId/read` | — | 204 | marks this and everything before it |
 | POST | `…/chat/messages/:msgId/reactions-read` | — | 204 | |
 
-Reads: `POST /v1/spaces/:spaceId/query` with `dataset: "chat_messages"`, `sort: ["-_ver.id"]`, a `limit`. See [Chat](../types/chat.html).
+Reads: `POST /v1/spaces/:spaceId/query` with `dataset: "chat_messages"`, `sort: ["-_ver.id", "-id"]`, a `limit`. See [Chat](../types/chat.html).
+
+## Read state
+
+| Method | Path | Body/params | Returns | Notes |
+|---|---|---|---|---|
+| GET | `/v1/spaces/:spaceId/read-state/unread` | `?cursor&limit` | `{changes, cursor}` | the changes that became unread on this device after `cursor` and still are, oldest arrival first; no `cursor` starts at the present; `limit` default 100, cap 1000; `400 request.invalid_field` (malformed `cursor` or `limit`); `405 space.unsupported` on the tech space |
+
+A change is `{objectId, dataset, recordIds, tags, changeId}`. The cursor is opaque and the server keeps nothing between calls. See [Chat](../types/chat.html) § Chat list and notifications.
 
 ## Files
 
@@ -330,18 +339,18 @@ See [Files](../files/index.html).
 | GET | `/v1/spaces/:spaceId/members/requests` | — | `{requests: [{recordId, identity, name?, description?, iconCid?}]}` | pass `recordId` as `requestRecordId` to `acl/accept` |
 | GET | `/v1/spaces/:spaceId/members/subscribe` | — | SSE `member` frames | |
 | GET | `/v1/spaces/:spaceId/members/:identity` | — | `Member` | |
-| POST | `/v1/spaces/:spaceId/invites` | — | 201 `{spaceId, inviteToken}` | replaces any prior invite; owner only (`403 acl.forbidden`); `409 invite.duplicate` when the engine refuses a second one |
+| POST | `/v1/spaces/:spaceId/invites` | — | 201 `{spaceId, inviteToken}` | replaces any prior invite; owner only (`403 acl.forbidden`); `409 invite.duplicate` when the engine refuses a second one; `409 acl.limit_reached` at the owner's shared-spaces limit; `409 space.derived_unshareable` on a derived space |
 | GET | `/v1/spaces/:spaceId/invites` | — | `{invites: [{recordId, permission, inviteToken?}]}` | token only on the minting account's devices |
 | GET | `/v1/spaces/:spaceId/invites/:recordId` | — | one invite | `404 invite.not_found` |
 | DELETE | `/v1/spaces/:spaceId/invites` | — | 204 | revoke all |
 | DELETE | `/v1/spaces/:spaceId/invites/:recordId` | — | 204 | |
-| POST | `/v1/spaces/:spaceId/guest-key` | — | 201 `{spaceId, inviteToken}` | public read-only token; owner only, idempotent |
+| POST | `/v1/spaces/:spaceId/guest-key` | — | 201 `{spaceId, inviteToken}` | public read-only token; owner only, idempotent; `409 acl.limit_reached` at the owner's limit of shared spaces or of the space's readers; `409 space.derived_unshareable` on a derived space |
 | DELETE | `/v1/spaces/:spaceId/guest-key` | — | 204 | rotates the read key; `404 guest_key.not_found` |
-| POST | `/v1/spaces/:spaceId/acl/accept` | `{requestRecordId, permission}` | 204 | |
+| POST | `/v1/spaces/:spaceId/acl/accept` | `{requestRecordId, permission}` | 204 | `409 acl.limit_reached` at the owner's limit of readers or writers |
 | POST | `/v1/spaces/:spaceId/acl/decline` | `{identity}` | 204 | |
-| POST | `/v1/spaces/:spaceId/acl/permissions` | `{changes: [{identity, permission}]}` | 204 | |
+| POST | `/v1/spaces/:spaceId/acl/permissions` | `{changes: [{identity, permission}]}` | 204 | `409 acl.limit_reached` at the owner's limit of readers or writers |
 | POST | `/v1/spaces/:spaceId/acl/remove` | `{identities}` | 204 | rotates the read key |
-| POST | `/v1/spaces/:spaceId/acl/add` | `{accounts: [{identity, permission, metadata?}]}` | 204 | added accounts see an `invite_pending` row |
+| POST | `/v1/spaces/:spaceId/acl/add` | `{accounts: [{identity, permission, metadata?}]}` | 204 | added accounts see an `invite_pending` row; `409 acl.limit_reached` at the owner's limit of shared spaces, readers or writers; `409 space.derived_unshareable` on a derived space |
 | POST | `/v1/spaces/:spaceId/acl/ownership` | `{newOwner, oldOwnerPerm}` | 204 | |
 | POST | `/v1/spaces/:spaceId/acl/self-remove` | — | 204 | |
 | POST | `/v1/spaces/:spaceId/acl/cancel-join` | — | 204 | joiner row reads `deleted`, re-request via `/v1/spaces/join`; `404 space.not_found`, `409 space.join_not_pending` |
@@ -443,4 +452,4 @@ The import response lists the resulting collections. For space-scoped traces, ex
 
 Import overlays existing collections: matching IDs are replaced, new IDs are inserted, and documents absent from the file remain. Indexes are ensured; a same-name index with a different definition is `400 local.bad_index`. Re-importing an unchanged file leaves the same stored data. Import commits in chunks of 256 documents, so a failure can leave earlier collections and chunks committed. Invalid gzip, format/version, document sections or storage names return `400 local.bad_export`; `details.imported` is the number of fully completed collections, not a rollback guarantee.
 
-> **Note.** Synced writes are not idempotent — each POST produces a new DAG change. The exceptions are `/upsert`, where the caller-supplied record id is the idempotency key, and the adopt-or-install routes (`…/bundles`, `/v1/catalog/:usecaseId/setup`), where a second call adopts. Pagination is offset-based on every list.
+> **Note.** Synced writes are not idempotent — each POST produces a new DAG change. The exceptions are `/upsert`, where the caller-supplied record id is the idempotency key, and the adopt-or-install routes (`…/bundles`, `/v1/catalog/:usecaseId/setup`), where a second call adopts. A GET list takes a `limit` and no `offset`, and version history and `…/read-state/unread` page with an opaque `cursor`; query reads grow a live window or page on a cursor ([Reading data](../database/reading-data.html#paging)).

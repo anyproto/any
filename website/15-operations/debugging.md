@@ -146,7 +146,7 @@ log:
 Every subscription is SSE, and the CLI prints one JSON object per frame, so the fastest way to see what a client sees is to attach the same stream:
 
 ```bash
-any query-subscribe $SPACE $CHAT --dataset chat_messages --sort=-_ver.id --limit 20
+any query-subscribe $SPACE $CHAT --dataset chat_messages --sort=-_ver.id,-id --limit 20
 any events subscribe --scope space --space $SPACE
 any sync-status subscribe
 ```

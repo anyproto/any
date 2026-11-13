@@ -98,14 +98,14 @@ There is no bespoke inbox endpoint. Pending requests are rows in the space list,
 ```bash
 curl -s "http://127.0.0.1:2046/v1/spaces?status=one_to_one_pending"        # snapshot
 curl -s -N -X POST http://127.0.0.1:2046/v1/spaces/query/subscribe \
-  -H 'Content-Type: application/json' -d '{"filter": {"localStatus": "oneToOnePending"}, "sort": ["-createdAt"], "limit": 50}'   # live
+  -H 'Content-Type: application/json' -d '{"filter": {"spaceType": "any.onetoone", "remoteStatus": null}, "sort": ["-createdAt", "-id"], "limit": 50}'   # live
 ```
 
 ```bash
 any one-to-one pending
 ```
 
-On the raw rows the prompt is the device-local `localStatus: "oneToOnePending"`; a synced `remoteStatus` of `active` or a decline on the same row outranks it, which is the rule `?status=one_to_one_pending` applies for you — check both fields when you filter the stream.
+The live window holds the direct chats with no synced status, every pending request among them: a request enters it, and an accept, a decline or a delete on any device removes its row. A row's status resolves from several fields, which `?status=one_to_one_pending` applies for you: on each change, re-read the snapshot rather than classifying raw rows.
 
 The pending row carries the peer's display hint (`name` / `iconCid`) so a UI can render "Alice wants to chat" without syncing anything. `GET /v1/spaces/:id` on a pending row serves the row info only — it never materializes a non-active space.
 

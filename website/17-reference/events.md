@@ -56,16 +56,16 @@ Endpoints: `POST /v1/spaces/:id/objects/query/subscribe` (cross-object), `POST /
 
 ```bash
 curl -N -X POST http://127.0.0.1:2046/v1/spaces/$SP/query/subscribe \
-  -H 'Content-Type: application/json' -d '{"objectId":"'$CHAT'","dataset":"chat_messages","sort":["-_ver.id"],"limit":50}'
-# any query-subscribe $SP $CHAT --dataset chat_messages --sort=-_ver.id --limit 50
+  -H 'Content-Type: application/json' -d '{"objectId":"'$CHAT'","dataset":"chat_messages","sort":["-_ver.id","-id"],"limit":50}'
+# any query-subscribe $SP $CHAT --dataset chat_messages --sort=-_ver.id,-id --limit 50
 ```
 
-On the shared-dataset stream, record ids are `<objectId>/<recordId>`, and a deleted object's records leave as `removed` entries in batches with an empty `versionId`. Give that stream a `filter`, or a `sort` with a `limit`: an unbounded one holds every record of the dataset ([Shared datasets](../database/runtime-datasets.html#shared-datasets)). `$HOURS` is the dataset's storage collection, `<typeId>_<key>`:
+On the shared-dataset stream, record ids are `<objectId>/<recordId>`, and a deleted object's records leave as `removed` entries in batches with an empty `versionId`. Give that stream a `limit` and a sort that ends in `id`: an unbounded one holds every record of the dataset ([Shared datasets](../database/runtime-datasets.html#shared-datasets)). `$HOURS` is the dataset's storage collection, `<typeId>_<key>`:
 
 ```bash
 curl -N -X POST http://127.0.0.1:2046/v1/spaces/$SP/datasets/query/subscribe \
-  -H 'Content-Type: application/json' -d '{"dataset":"'$HOURS'","sort":["-start"],"limit":48}'
-# any query-subscribe $SP --all-objects --dataset $HOURS --sort -start --limit 48
+  -H 'Content-Type: application/json' -d '{"dataset":"'$HOURS'","sort":["-start","-_objectId","-id"],"limit":48}'
+# any query-subscribe $SP --all-objects --dataset $HOURS --sort -start,-_objectId,-id --limit 48
 ```
 
 Contract and client recipe: [Subscribe](../realtime/subscribe.html).

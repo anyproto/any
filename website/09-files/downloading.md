@@ -56,15 +56,15 @@ curl "http://127.0.0.1:2046/v1/spaces/$SP/files/$FILE"
                "name": "photo.jpg", "mime": "image/jpeg" } ] }
 ```
 
-`any file list $SP [--object OBJ] [--limit N]` and `any file get $SP $FILE` are the CLI forms. The unfiltered listing walks every file in the space — fine at human scale. `?limit=` caps the response; it is not a pagination cursor — for an ordered, paged list on one object use the payload query below and join names from typed GETs.
+`any file list $SP [--object OBJ] [--limit N]` and `any file get $SP $FILE` are the CLI forms. `?limit=` caps the response; it is not a pagination cursor — for an ordered, paged list on one object use the payload query below and join names from typed GETs.
 
 **Windowed payload-row query / subscribe** — the generic snapshot + SSE primitive over one object's rows, for live per-object file lists:
 
 ```bash
 curl -N -X POST "http://127.0.0.1:2046/v1/spaces/$SP/objects/$OBJ/files/query/subscribe" \
-  -H 'Content-Type: application/json' -d '{"sort": ["-_ver.id"], "limit": 50}'
+  -H 'Content-Type: application/json' -d '{"sort": ["-_ver.id", "-id"], "limit": 50}'
 ```
 
-Body and frames are identical to every other [query](../database/reading-data.html) and [subscribe](../realtime/subscribe.html): `filter`, `sort`, `limit`, `offset`, `includeTotal`; `ready` → `snapshot` → `changes`; a positive `limit` on the subscribe requires a `sort`. It exists because the `payloads` dataset lives on a derived child object whose id clients don't know, so the generic `/query` cannot reach it. Rows expose the **cleartext fields only** — `id`, `rootCid`, `size`, `networkSign`, `objectId` — never name, mime or key; join names from a `GET /files` pass. It returns `404 file.not_found` until the object's first attach (the backing dataset materializes then) — treat that as an empty list.
+Body and frames are identical to every other [query](../database/reading-data.html) and [subscribe](../realtime/subscribe.html): `filter`, `sort`, `limit`, `offset`, `includeTotal`; `ready` → `snapshot` → `changes`; a positive `limit` on the subscribe requires a `sort`. It exists because the `payloads` dataset lives on a derived child object whose id clients don't know, so the generic `/query` cannot reach it. Rows expose the **cleartext fields only** — `id`, `rootCid`, `size`, `networkSign`, `objectId` — never name, mime or key; read names with `GET …/files/:fileId` for the rows shown. It returns `404 file.not_found` until the object's first attach (the backing dataset materializes then) — treat that as an empty list.
 
 > **Note.** A file another member attached shows up as an `added` row on this stream, and the moment it becomes fetchable shows up as an update on the same row when `networkSign` lands. That is the receive-side signal — not the per-space status stream, which reports local transitions only.

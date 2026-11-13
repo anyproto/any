@@ -111,7 +111,7 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/query \
   -H 'Content-Type: application/json' \
   -d '{"filter": {"$and": [{"any.collections": "'$COLL'"},
                            {"any.collections": {"$nin": ["bin", "template"]}}]},
-       "sort": ["-modifiedAt"], "limit": 50}'
+       "sort": ["-modifiedAt", "-id"], "limit": 50}'
 ```
 
 A collection definition's own row carries the marker `__collection__` in `any.type` and its handle at `collection.xkey`, never its own id in either slot — so it never matches a member query and no marker exclusion is needed. The path is indexed (sparse) on the `objects` storage collection; a column value under `<collectionId>.<propId>` is not, so put the membership clause in the filter and let the index narrow the scan ([Indexes](indexes.html)).
@@ -128,7 +128,7 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/query \
   -d '{"filter": {"$and": [{"any.collections": "miniapp"},
                            {"any.collections": {"$nin": ["bin"]}},
                            {"miniapp.hidden": {"$ne": true}}]},
-       "sort": ["miniapp.pos"]}'
+       "sort": ["miniapp.pos", "id"], "limit": 50}'
 ```
 
 **`bin`** is move-to-bin. Filing under it stamps `bin.movedAt` and `bin.movedBy` in the same change as the membership op, so a bin member never lacks its stamps; unfiling clears them. The object keeps its type and its other collections throughout — restore brings it back exactly as it was. Permanent deletion is `DELETE …/objects/:objectId`.
@@ -138,7 +138,7 @@ any object collection attach $SPACE $OBJ bin     # to the bin
 any object collection detach $SPACE $OBJ bin     # restore
 ```
 
-List the bin with `{"any.collections": "bin"}` sorted `["-bin.movedAt"]`; exclude its members from ordinary lists with `{"any.collections": {"$nin": ["bin", "template"]}}`, templates excluded by the same clause.
+List the bin with `{"any.collections": "bin"}` sorted `["-bin.movedAt", "-id"]`; exclude its members from ordinary lists with `{"any.collections": {"$nin": ["bin", "template"]}}`, templates excluded by the same clause.
 
 **`template`** marks a template: an object of the type it is for, filed under `template`, whose name, values, collections and body are the pre-fill. The collection adds `title` (the picker label) and `version`. `POST …/objects` with `from` copies it and stamps `any.template` on the new row — [Templates](templates.html). Ordinary lists exclude templates with the bin: `{"any.collections": {"$nin": ["bin", "template"]}}`.
 

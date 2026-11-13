@@ -523,7 +523,7 @@ a client pins any other object with
 `POST /v1/spaces/:spaceId/properties/:objectId/collections/miniapp`
 and unpins it with the `DELETE` on the same path. The sidebar is
 `{"any.collections": "miniapp"}`, minus bin members and
-`miniapp.hidden`, sorted on `miniapp.pos`. Order (`miniapp.pos`, a
+`miniapp.hidden`, sorted `["miniapp.pos", "id"]`. Order (`miniapp.pos`, a
 client-allocated lexid) and visibility (`miniapp.hidden`) are ordinary
 property values —
 `POST /v1/spaces/:spaceId/properties/:rootId/set/miniapp` with
@@ -568,7 +568,7 @@ POST /v1/spaces/:spaceId/objects
 same create with `<folderPropId>` `true` and no `type`. Children of a
 node, in order, are
 `{"<wikiCollectionId>.<parentIdPropId>": "<parentObjectId>"}` sorted
-on `<wikiCollectionId>.<posPropId>`; the whole tree is
+`["<wikiCollectionId>.<posPropId>", "id"]`; the tree is
 `{"any.collections": "<wikiCollectionId>"}`, which the wiki root — the
 definition — does not match itself. A move is one property write under
 the same owner (`03-api.md` § The wiki tree).
@@ -601,8 +601,10 @@ The tree is the wiki objects query plus one
 `POST …/query/subscribe` on the root and `<rootId>_rows`, merged by
 `parentId` and `pos`; a row sorts among the pages of its parent, equal
 positions page first, then by record id. A row whose `parentId` names
-no folder in the tree query — a page, an object outside the wiki, or
-one in the bin — renders at the top level. A row is drawn whether or
+no folder of the tree — a page, an object outside the wiki, or one in
+the bin — renders at the top level; a subscription on the rows' `parentId`s,
+`{"id": {"$in": [<parentIds>]}}` with the folder property and the
+membership clause, tells which do. A row is drawn whether or
 not the client has the page it names; a client draws the Library's
 own name for it. The creating client sets the usecase up with the
 wiki, so every joiner adopts one root; a writer in a space without it
@@ -645,7 +647,7 @@ its three parts are the surfaces a client renders:
   (`<typeId>_summary`), because the condensed takeaways are a separate
   document from the notes somebody types during the call;
 - **transcript**, one record per spoken turn (`startedAt`, `speaker`,
-  `text`), read sorted on `startedAt`.
+  `text`), read sorted `["startedAt", "id"]`.
 
 An ingest agent creates the object and writes all three; a reader
 renders them and edits only the notes. `idRule: user` makes a

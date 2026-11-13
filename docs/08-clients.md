@@ -148,14 +148,17 @@ lifecycle is in `04-events.md`.
   manage, and can't close on overflow. Only open a `subscribe` stream when
   the client actually renders changes in realtime.
 
-- **Always set `limit`.** Every read should carry a bounded `limit`, and page
-  the rest. An unbounded read can produce a huge snapshot response or overflow
-  a subscribe mailbox. Treat an unbounded read as a bug.
+- **Always set `limit`, sized to what the view shows.** A live list
+  loads more by growing its window: it resubscribes at `offset: 0` with
+  a larger `limit`. A one-shot read pages on a cursor. An unbounded read
+  can produce a huge snapshot response or overflow a subscribe mailbox;
+  treat it as a bug. Only a whole-object read has no `limit`: one
+  document's `editor_blocks`, a history view at a version.
 
-- **Page on an absolute cursor, not `offset`, for anything that mutates under
-  you.** `offset` floats — row 50 becomes row 51 the moment a record lands
-  ahead of it, so paging a live dataset by offset silently skips and
-  repeats rows. A cursor filter on an indexed sort field doesn't float:
+- **Page a one-shot read on an absolute cursor, not `offset`, for
+  anything that mutates under you.** `offset` floats — row 50 becomes
+  row 51 the moment a record lands ahead of it, so paging a live
+  dataset by offset silently skips and repeats rows. A cursor filter on an indexed sort field doesn't float:
   the next page is `{ "<field>": { "$lt": <lastSeen> } }` (`$gt` on an
   ascending sort) with the same `sort`, and the index bounds the read.
   A row whose sort key changes mid-pass moves relative to the cursor,
@@ -172,6 +175,10 @@ lifecycle is in `04-events.md`.
   - The cursor values are the last row's values exactly as it returned
     them. A `modifiedAt` cursor takes the `{"$date": …}` object; a bare
     number matches nothing.
+
+  A sort with several keys pages on an `$or` with one arm per key
+  (`09-query.md` § Paging); a list sorted on a multi-value property
+  grows its window instead.
 
   `modifiedAt` ties often (whole seconds). Chat's field, `_ver.id`, ties
   too: the records one change creates share it, as when a batch of
@@ -197,10 +204,11 @@ lifecycle is in `04-events.md`.
 
 - **"Recently modified" lists sort on `modifiedAt`.** Every `objects` row
   carries the derived row-root stamps `author` / `createdAt` /
-  `modifiedAt` / `modifiedBy` / `spaceId`; `{"sort": ["-modifiedAt"]}` is the
-  recency ordering (`-createdAt` for creation order). `modifiedAt` bumps on any
-  synced write to the object and converges across peers, but it's the
-  author's wall clock — fine for sorting and display, never a sync fence.
+  `modifiedAt` / `modifiedBy` / `spaceId`; `{"sort": ["-modifiedAt", "-id"]}`
+  is the recency ordering (`["-createdAt", "-id"]` for creation order).
+  `modifiedAt` bumps on any synced write to the object and converges
+  across peers, but it's the author's wall clock — fine for sorting and
+  display, never a sync fence.
   It holds whole seconds and resolves last-writer-wins by version, not by
   clock: the winning change can carry an earlier timestamp, so
   `modifiedAt` can move backwards.
@@ -230,8 +238,8 @@ lifecycle is in `04-events.md`.
   filed under the built-in `bin` collection (`03-api.md` § Collections);
   every list, tree and picker adds
   `{"any.collections": {"$nin": ["bin", "template"]}}` to its filter, and the bin
-  view is `{"any.collections": "bin"}` sorted `-bin.movedAt`, rendering
-  `bin.movedBy` through the members list like `modifiedBy`. Move and
+  view is `{"any.collections": "bin"}` sorted `["-bin.movedAt", "-id"]`,
+  rendering `bin.movedBy` through the members list like `modifiedBy`. Move and
   restore are the plain `POST` / `DELETE
   …/properties/:objectId/collections/bin` calls — the server stamps and
   clears the two properties in the same change — and permanent deletion
@@ -362,10 +370,7 @@ accumulate. Treat it as one and the lifecycle stays simple.
     busy dataset.
 
   Both thresholds are request-tunable when a workload needs more headroom.
-  Note the corollary to "always set a `limit`" (§3): the drift budget is
-  **ignored when `limit == 0`**, so an unbounded subscribe loses both the
-  window auto-shift *and* the drift safety net — one more reason never to
-  subscribe without a limit.
+  The drift budget is **ignored when `limit == 0`**.
 
   What a re-read found arrives in a `changes` event with an empty
   `versionId` and no `ops`: apply it like any other, taking each `doc`
@@ -526,8 +531,14 @@ explicitly:
 
 ```
 GET /v1/spaces?status=one_to_one_pending        // snapshot
-POST /v1/spaces/query/subscribe { "dataset": "spaces" }   // live (filter rows on status)
+POST /v1/spaces/query/subscribe                  // live
+{ "dataset": "spaces",
+  "filter": { "spaceType": "any.onetoone", "remoteStatus": null },
+  "sort": ["-createdAt", "-id"], "limit": 50 }
 ```
+
+On each change, re-read the snapshot: a row's status resolves from
+several fields, which `?status=one_to_one_pending` applies for you.
 
 The pending row carries the peer's display hint (`name` / `iconCid`) for
 rendering "Alice wants to chat" without syncing anything.
@@ -650,7 +661,8 @@ Treat the 201 as done and don't block the UI on `durable`. For a
 "not backed up" badge, hold `GET …/files/stats` and refresh it on
 `GET …/files/subscribe` events (state `inflight`/`limited` →
 `durable`). `limited` means the network refused for quota — offer a
-retry (`POST …/files/:fileId/retry`) after the user frees space.
+retry (`POST …/files/:fileId/retry`) after the user frees space;
+`GET /v1/account/limits` reads the account's storage pool.
 
 **Receiving a file another member sent.** There is no push
 notification channel to build — the file IS space data. Subscribe to
@@ -684,9 +696,10 @@ thumbnails, attach the rendered image as a variant
 (`?variant=thumb&variantOf=<fileId>`) and request
 `…/content?variant=thumb`.
 
-**Per-object file lists** come from `GET …/files?objectId=` (typed,
-with names) or live from `POST …/objects/:objId/files/query/subscribe`
-(cleartext rows — join names from a `GET /files` pass). The query path
+**File lists are per object:** `GET …/files?objectId=` (typed, with
+names) or live from `POST …/objects/:objId/files/query/subscribe`
+(cleartext rows — read names with `GET …/files/:fileId` for the rows
+shown). The query path
 404s (`file.not_found`) until the object's first attach — treat that
 as an empty list, not an error.
 
@@ -728,8 +741,9 @@ Budget it by principle:
   ask for it to be — do not fan out around the gap.
 
 - **Durable consumers use cursors, not event streams.** Anything that
-  must not miss changes (an indexer, a notifier, an exporter) persists
-  its own cursor / high-water marks in its own storage, treats live
+  must not miss changes (an indexer, a notifier, an exporter) keeps
+  its own cursor / high-water marks — in its own storage when it has
+  to pick up where it stopped across a restart — treats live
   events purely as a wake-up signal, and catches up by pulling
   since-cursor or diffing against a snapshot. Events may drop by
   design (overflow, drift, restarts); the recovery contract is always
@@ -742,9 +756,10 @@ Budget it by principle:
 
 Worked example of all five at once: desktop notifications across every
 chat in every space — one objects subscription per space watching
-counter properties, point queries for toast bodies, a client-local
-last-notified marker as the cursor, snapshot-as-badges on boot. See
-`16-chat.md` § Desktop notifications.
+counter properties, the space's unread feed for what to toast, point
+queries for toast bodies, snapshot-as-badges on boot. Its feed cursor
+stays in memory: a notifier does not replay what arrived while it was
+closed. See `16-chat.md` § Desktop notifications.
 
 ## 11. Mobile push: cache the space keys, decrypt without the server
 
@@ -830,7 +845,8 @@ patterns matter more than the record shape.
   host.** A dataview is its own object — `type: "dataview"`, with the
   property `dataview.host` naming what its views are over: an ordinary
   object, a type or a collection. Find it with a plain objects query,
-  `{"any.type": "dataview", "dataview.host": "<hostId>"}`, and create it
+  `{"any.type": "dataview", "dataview.host": "<hostId>"}` sorted
+  `["id"]`, and create it
   only when that comes back empty:
 
   ```
@@ -887,12 +903,12 @@ patterns matter more than the record shape.
   key.
 
 - **One subscription per list, not one per view.** The dataview list is
-  a `…/query/subscribe` window on `dataset: "dataviews"` sorted by
-  `pos`; the active dataview's view list is a second window on
+  a `…/query/subscribe` window on `dataset: "dataviews"` sorted
+  `["pos", "id"]`; the active dataview's view list is a second window on
   `dataset: "views"` with `{"filter": {"dataview": "<id>"}}`, sorted
-  by `pos` (indexed) — §10's budget applies unchanged. The *contents* of
-  the active view are a third window; inactive dataviews and views cost
-  nothing.
+  `["pos", "id"]` (indexed) — §10's budget applies unchanged. The
+  *contents* of the active view are a third window; inactive dataviews
+  and views cost nothing.
 
 - **Save the query keyed by `propId`, and scope it by type.** `xKey`
   paths never reach the server, so a saved view keyed by xKey resolves
@@ -1097,8 +1113,8 @@ Call patterns:
   For an `any://` link, the `recordId` segment is the part after the
   `/`.
 - **Bound a live stream.** Subscribe to the dataset scope with a
-  `filter`, or a `sort` and a `limit`. An unbounded stream holds every
-  record of the dataset.
+  `limit` and a sort that ends in `id`, next to the `filter`. An
+  unbounded stream holds every record of the dataset.
 - **Retention is deleting objects.** Deleting an object removes its
   records; a live stream sees them leave as `removed`.
 

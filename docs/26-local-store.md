@@ -186,7 +186,7 @@ backup is not this: `sdk.db` is the whole account.
 ```
 GET /v1/local/export?scope=space&spaceId=<id>&names=trace_runs,trace_records,trace_blobs
                                       → 200 application/gzip, Content-Disposition attachment
-POST /v1/local/import   (body = the file, exempt from the 1 MiB body cap)
+POST /v1/local/import   (body = the file, exempt from the 1 MB body cap)
                                       → {collections: [{scope, spaceId?, name, storageName, count, indexes}]}
 ```
 
@@ -247,7 +247,7 @@ values as-is.
 
 ## Limits
 
-- Request body: the global 1 MiB `BodyLimit`.
+- Request body: the global 1 MB `BodyLimit`.
 - `insert` / `upsert`: ≤ 1000 docs per request
   (`400 local.too_many_docs`), written 256 per transaction. A failure
   mid-way leaves earlier chunks committed.

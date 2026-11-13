@@ -178,6 +178,17 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.AccountLimitsResponse": {
+                "properties": {
+                    "sharedSpaces": {
+                        "$ref": "#/components/schemas/api.AccountSharedSpacesLimits"
+                    },
+                    "storage": {
+                        "$ref": "#/components/schemas/api.AccountStorageLimits"
+                    }
+                },
+                "type": "object"
+            },
             "api.AccountMetadata": {
                 "properties": {
                     "description": {
@@ -203,6 +214,36 @@ const docTemplate = `{
                     "techSpaceId": {
                         "description": "TechSpaceId is the account's tech space — the :spaceId for\naccount-level bundles (see docs/03-api.md § Bundles).",
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.AccountSharedSpacesLimits": {
+                "properties": {
+                    "fetchedAt": {
+                        "description": "FetchedAt is when the network gave this answer.",
+                        "type": "string"
+                    },
+                    "limit": {
+                        "description": "Limit is how many shared spaces the account may own.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "api.AccountStorageLimits": {
+                "properties": {
+                    "fetchedAt": {
+                        "description": "FetchedAt is when the network gave this answer.",
+                        "type": "string"
+                    },
+                    "limitBytes": {
+                        "description": "LimitBytes is the pool's cap; 0 when the network grants none.",
+                        "type": "integer"
+                    },
+                    "usageBytes": {
+                        "description": "UsageBytes is the bytes of durable files the account uploaded,\nacross its spaces.",
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -4260,6 +4301,50 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.UnreadChange": {
+                "properties": {
+                    "changeId": {
+                        "type": "string"
+                    },
+                    "dataset": {
+                        "type": "string"
+                    },
+                    "objectId": {
+                        "type": "string"
+                    },
+                    "recordIds": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "tags": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.UnreadResponse": {
+                "properties": {
+                    "changes": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.UnreadChange"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "cursor": {
+                        "description": "Cursor resumes after the last returned change. Opaque.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.UpsertRecord": {
                 "properties": {
                     "fields": {
@@ -4644,6 +4729,37 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Set the account avatar (raw body upload)",
+                "tags": [
+                    "account"
+                ]
+            }
+        },
+        "/account/limits": {
+            "get": {
+                "description": "The file-storage pool with its usage and the shared-spaces limit. Each part is the network's last answer, kept on the device (see fetchedAt), and omitted when the network never answered. A request waits for the network at most five seconds; an unreachable network is a 200.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AccountLimitsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Network limits of the account",
                 "tags": [
                     "account"
                 ]
@@ -8144,6 +8260,16 @@ const docTemplate = `{
                         },
                         "description": "Bad Request"
                     },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "acl.limit_reached — the owner's plan is at its limit of readers or writers for the space"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -8207,6 +8333,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "acl.limit_reached — the owner's plan is at its limit of shared spaces, or of readers or writers for the space; space.derived_unshareable — a derived space"
                     },
                     "500": {
                         "content": {
@@ -8454,6 +8590,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "acl.limit_reached — the owner's plan is at its limit of readers or writers for the space"
                     },
                     "500": {
                         "content": {
@@ -10902,6 +11048,16 @@ const docTemplate = `{
                         },
                         "description": "Created"
                     },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "acl.limit_reached — the owner's plan is at its limit of shared spaces or of this space's readers; space.derived_unshareable — a derived space"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -11157,7 +11313,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "Duplicate invite"
+                        "description": "invite.duplicate — an invite already exists; acl.limit_reached — the owner's plan is at its shared-spaces limit; space.derived_unshareable — a derived space"
                     },
                     "500": {
                         "content": {
@@ -14753,6 +14909,83 @@ const docTemplate = `{
                 "summary": "Subscribe to a windowed per-object query (SSE)",
                 "tags": [
                     "data"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/read-state/unread": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Cursor from the previous call; omit to start at the present",
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Page size (default 100, max 1000)",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.UnreadResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List the changes that became unread on this device after a cursor",
+                "tags": [
+                    "readstate"
                 ]
             }
         },

@@ -42,6 +42,12 @@ any acl decline <spaceId> --identity <identity>
 
 On the joiner's side the space row flips from `joining` to `active`, or to `deleted` on a decline; the owner's members list shows `active` or `declined`.
 
+A request takes no seat until it is accepted. An accept the owner's plan has no reader or writer seat for answers `409 acl.limit_reached`, and so does a permission change or a direct add that needs one:
+
+```json
+{"error": {"code": "acl.limit_reached", "message": "the space owner's plan is at its limit of shared spaces, or of this space's readers or writers", "details": {"spaceId": "bafyrei…"}}}
+```
+
 ## Changing permissions
 
 ```bash

@@ -107,13 +107,15 @@ curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/j
   "filter": {"$and": [{"any.type": "'$CRED'"},
                       {"any.collections": {"$nin": ["bin", "template"]}},
                       {"'$CRED.$CATEGORY'": "work"}]},
-  "sort": ["'$CRED.$ROTATED'"], "limit": 50}'
+  "sort": ["'$CRED.$ROTATED'", "id"], "limit": 50}'
 ```
 
 ```bash
 # rotated more than 90 days ago
 curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/json' -d '{
-  "filter": {"'$CRED.$ROTATED'": {"$lt": {"$date": "2026-06-10T00:00:00Z"}}}}'
+  "filter": {"$and": [{"'$CRED.$ROTATED'": {"$lt": {"$date": "2026-06-10T00:00:00Z"}}},
+                      {"any.collections": {"$nin": ["bin", "template"]}}]},
+  "sort": ["'$CRED.$ROTATED'", "id"], "limit": 50}'
 ```
 
 Two things to notice. `{"any.type": "<typeId>"}` is "objects of this type" — plain equality on a scalar, because an object has exactly one type. And the one exclusion. A type definition is itself an object row, but it carries the marker `__type__` in `any.type` rather than its own id, so it never turns up among its own objects and needs no exclusion clause. A binned object keeps its type, and so does a template, so an ordinary list leaves out both with `{"any.collections": {"$nin": ["bin", "template"]}}` ([Reading data](../database/reading-data.html), [Templates](../database/templates.html)).

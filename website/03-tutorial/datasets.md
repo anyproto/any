@@ -132,7 +132,7 @@ Dataset reads are the per-object query with the storage collection name. Newest 
 curl -s -X POST $API/spaces/$SPACE/query -H 'content-type: application/json' -d '{
   "objectId": "'$INBOX'", "dataset": "'$DS'",
   "filter": {"read": false},
-  "sort": ["-receivedAt"], "limit": 50, "offset": 0, "includeTotal": true}'
+  "sort": ["-receivedAt", "-id"], "limit": 50, "includeTotal": true}'
 ```
 
 `…/query/subscribe` with the same body is the live inbox: a snapshot of the window, then `added` / `updated` / `removed` frames as messages arrive or get marked read — on this device or any other. A `limit` on a subscription requires a `sort`, because a live window has to be ordered ([Subscribe](../realtime/subscribe.html)).
