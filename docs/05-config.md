@@ -170,15 +170,19 @@ index:
                                       # is set, otherwise `auto` is the local model
                                       # alone. Any OpenAI-compatible /embeddings host.
     baseUrl: ""                       # required with a key (no default host)
-    model: Qwen/Qwen3-Embedding-0.6B  # default: the local model's name. Override with
+    model: Qwen/Qwen3-Embedding-0.6B  # default: the model `auto` runs locally with a key. Override with
                                       # the provider's spelling, but it MUST be the same
                                       # model — a different one makes the index's
                                       # vectors incompatible with the local fallback
     apiKey: ...                       # sent as Bearer; never logged
   local:                              # llama.cpp in a child process — all fields optional;
                                       # the default embedder needs no config at all
-    model: ""                         # pinned model: qwen3-embedding-0.6b (default) or
-                                      # embeddinggemma-2; sets download, prompts, pooling, dim
+    model: ""                         # pinned model: embeddinggemma-2 (default) or
+                                      # qwen3-embedding-0.6b (the default when `auto` has an
+                                      # apiKey); sets download, prompts, pooling, dim. Changing
+                                      # it — or, while it and modelPath are unset,
+                                      # adding/removing the apiKey under `auto` —
+                                      # rebuilds the index
     modelPath: ""                     # existing GGUF; set ⇒ no download (air-gapped). Without
                                       # `model` it is an unnamed GGUF: no pinned prompts or pooling
     modelUrl: ""                      # another download source for the model `model` names
@@ -210,7 +214,9 @@ index:
     batchDocs: 1                      # docs per llama_decode; N caps each text at contextSize/N tokens;
                                       # 1 = sequential
   vector:
-    dim: 0                            # 0 = learned from the first successful embedding
+    dim: 0                            # 0 = learned from the first successful embedding; a
+                                      # value other than the width the pinned local model
+                                      # writes fails boot
     mode: ivfsq                       # ANN index: ivfsq (default — cheap ingest, churn-
                                       # friendly, ~3-4 recall@10 below exact) | btree/hnsw
                                       # (recall≈exact, costly serial ingest) | hybrid
@@ -353,7 +359,7 @@ ANY_INDEX_SEARCH_TITLE_WEIGHT=2       # index.search.titleWeight (BM25F title bo
 ANY_INDEX_SEARCH_QUERY_EMBED_TIMEOUT=5s # index.search.queryEmbedTimeout (query embedding budget)
 ANY_INDEX_LOCAL_MODEL_PATH=/models/q.gguf
 ANY_INDEX_LOCAL_MODEL_URL=https://...
-ANY_INDEX_LOCAL_MODEL_SHA256=06507c...
+ANY_INDEX_LOCAL_MODEL_SHA256=2188ac...
 ANY_INDEX_LOCAL_LIB_DIR=/opt/llamacpp
 ANY_INDEX_LOCAL_CONTEXT_SIZE=2048
 ANY_INDEX_LOCAL_MODEL=embeddinggemma-2
@@ -395,7 +401,7 @@ they're met.
   with `index.local.libDir` or `$YZMA_LIB`). Release tarballs carry them
   (`docs/18-ci.md`).
 - **Model**: downloaded automatically into `<data-dir>/models/` on
-  first boot (639 MB, progress in the server log; resumable, never
+  first boot (310 MB, progress in the server log; resumable, never
   blocks boot — vector search reports `unavailable` until it lands).
 - **Linux**: a system `libffi.so.8` must be loadable (preinstalled on
   mainstream distros; on NixOS use `nix develop` — the repo flake's

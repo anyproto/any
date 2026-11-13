@@ -84,7 +84,7 @@ Without `--addr` the CLI finds the server serving the data dir's account through
 ```
 ~/.any/                         # dataDir — a ROOT that can hold several accounts
 ├── config.yaml                 # optional
-├── models/                     # shared embedder model cache (~600 MB, downloaded once)
+├── models/                     # shared embedder model cache (~310 MB, downloaded once)
 └── <accountId>/
     ├── wallet.key              # standalone: account + device keys (0600)
     ├── device.key              # managed: this device's key only (0600)

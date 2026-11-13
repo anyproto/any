@@ -35,6 +35,33 @@ type Embedder interface {
 	Dim(ctx context.Context) (int, error)
 }
 
+// StampedEmbedder names the vector space it embeds into, so an index
+// built by another one is rebuilt instead of mixing vectors.
+type StampedEmbedder interface {
+	// Stamp identifies the model with its prompts and post-processing;
+	// "" is unknown. legacy reports whether an index written before
+	// stamps existed may hold this embedder's vectors.
+	Stamp() (id string, legacy bool)
+}
+
+// EmbedderStamp is e's stamp; an embedder without one (an unnamed GGUF)
+// is unknown and may own any unstamped index.
+func EmbedderStamp(e Embedder) (id string, legacy bool) {
+	if s, ok := e.(StampedEmbedder); ok {
+		return s.Stamp()
+	}
+	return "", true
+}
+
+// EmbedderStampTwins lists the other stamps whose vector space is e's:
+// an index one of them built is e's own.
+func EmbedderStampTwins(e Embedder) []string {
+	if t, ok := e.(interface{ StampTwins() []string }); ok {
+		return t.StampTwins()
+	}
+	return nil
+}
+
 // TitleEmbedder is an Embedder whose document prompt can carry the name
 // of the object a text belongs to.
 type TitleEmbedder interface {

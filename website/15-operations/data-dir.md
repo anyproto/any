@@ -43,7 +43,7 @@ A `wallet.key` directly at the root is the legacy flat layout: it acts as the de
 | `sdk/` | SDK | the CRDT storage — every space's change DAGs, materialized records, the tech space — plus the device-local store's `l_*` collections | CRDT content re-syncs from peers; local collections need a manual export for backup |
 | `files/` | SDK | file bytes; a durable file's bytes are a cache, a non-durable file's bytes are the only copy | partly — see [Status and durability](../files/status-and-durability.html) |
 | `index/` | indexer | `index.db` — BM25 + vector index and link edges per space, cursors, schema version; `index.db.lock` is present only while writes await a checkpoint and disappears after the idle flush or a clean stop | yes — rebuilt from the synced data |
-| `models/` | indexer | the embedding model GGUF (~639 MB), one per root, not per account; `<model>.gguf.lock` beside it is the download lock (an OS file lock, held only while a server downloads, so servers under one root never fetch the model twice) | yes — re-downloaded |
+| `models/` | indexer | the embedding model GGUF (~310 MB), one per root, not per account; `<model>.gguf.lock` beside it is the download lock (an OS file lock, held only while a server downloads, so servers under one root never fetch the model twice) | yes — re-downloaded |
 
 > **Why it matters.** This directory *is* your database. There is no server-side copy to restore from — a device that syncs a space holds the whole space, and unsynced changes, the local store and non-durable file bytes exist nowhere else. It is not encrypted at rest: records, the local store and the search index are readable by anyone who can read the directory, and a plain `wallet.key` holds the mnemonic itself. Treat it the way you would treat a private key directory.
 
@@ -51,7 +51,7 @@ A `wallet.key` directly at the root is the legacy flat layout: it acts as the de
 
 | Delete | Effect |
 |---|---|
-| `index/` | safe; on the next start every space re-indexes from the beginning — full text first, then the embed drain, which can take a while on a large account. The boot does this itself for an `index.db` it cannot open (schema-version or chunk-target mismatch, a configured `index.vector.dim` that contradicts it, or damage met while opening it: a broken header, an integrity-check failure after a crash, or a page that fails its checksum). |
+| `index/` | safe; on the next start every space re-indexes from the beginning — full text first, then the embed drain, which can take a while on a large account. The boot does this itself for an `index.db` it cannot open (schema-version or chunk-target mismatch, a configured `index.vector.dim` that contradicts it, another embedder than the one that built it, or damage met while opening it: a broken header, an integrity-check failure after a crash, or a page that fails its checksum). |
 | `models/` | safe when no server under this root is running; the model downloads again on next boot (a model already in a legacy `<account-dir>/index/models/` keeps being used from there) |
 | `server.lock` | safe when no server is running; the lock lives in the kernel, not in the file, so a leftover file blocks nothing |
 | `server.pid`, `server.addr` | safe any time; they only label the current holder |

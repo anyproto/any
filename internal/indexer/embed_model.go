@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"encoding/binary"
 	"fmt"
+	"hash/fnv"
 	"math"
 
 	"github.com/hybridgroup/yzma/pkg/llama"
@@ -27,6 +28,31 @@ type localModel struct {
 	// project is a unit direction removed from every vector
 	// (v − u(u·v), renormalized); nil for none.
 	project []float32
+	// rev changes with anything above that moves the model's vectors.
+	rev int
+	// legacy: indexes written before they recorded their embedder may
+	// hold this model's vectors.
+	legacy bool
+}
+
+// stamp names the vector space a spec's documents embed into: the
+// pinned model, its revision, and the document prompt and pooling in
+// effect (config may override them). The query prompt moves no stored
+// vector. An unnamed GGUF is unknown.
+func (s localSpec) stamp() (string, bool) {
+	if s.profile == "" {
+		return "", true
+	}
+	m, err := lookupLocalModel(s.profile)
+	if err != nil {
+		return "", true
+	}
+	h := fnv.New32a()
+	for _, part := range []string{s.pooling, s.docPrefix} {
+		_, _ = h.Write([]byte(part))
+		_, _ = h.Write([]byte{0x1f})
+	}
+	return fmt.Sprintf("local:%s/%d/%08x", m.id, m.rev, h.Sum32()), m.legacy
 }
 
 // eg2Head is EmbeddingGemma 2's mean pooled-output direction, 768
@@ -48,6 +74,8 @@ var localModels = []localModel{
 		// points of retrieval quality per the model card).
 		pooling:     "last",
 		queryPrefix: "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:",
+		rev:         1,
+		legacy:      true,
 	},
 	{
 		id:          config.LocalModelEmbeddingGemma2,
@@ -59,11 +87,12 @@ var localModels = []localModel{
 		queryPrefix: "task: search result | query: ",
 		docPrefix:   "title: " + titlePlaceholder + " | text: ",
 		project:     decodeFloat32s(eg2HeadRaw),
+		rev:         1,
 	},
 }
 
 // localDefaultModel is the model `index.local.model` unset resolves to.
-const localDefaultModel = config.LocalModelQwen3
+const localDefaultModel = config.LocalModelEmbeddingGemma2
 
 // lookupLocalModel resolves an index.local.model value; "" is the default.
 func lookupLocalModel(id string) (localModel, error) {
@@ -112,4 +141,18 @@ func poolingType(s string) (llama.PoolingType, error) {
 		return llama.PoolingTypeCLS, nil
 	}
 	return 0, fmt.Errorf("indexer: local embedder: unknown pooling %q (last, mean, cls)", s)
+}
+
+// localPinnedDim is the pinned model a local config resolves to and the
+// width its vectors have; 0 for an unnamed GGUF, whose width only the
+// loaded file tells.
+func localPinnedDim(cfg config.IndexLocal) (model string, dim int) {
+	if cfg.Model == "" && cfg.ModelPath != "" {
+		return "", 0
+	}
+	m, err := lookupLocalModel(cfg.Model)
+	if err != nil {
+		return "", 0 // resolveLocalSpec reports it
+	}
+	return m.id, min(orDefault(cfg.Dim, m.dim), m.dim)
 }

@@ -13,3 +13,6 @@ const localEmbedderBuilt = false
 func newLocalEmbedder(config.IndexLocal, string, string, func(ProcessUpdate)) (Embedder, error) {
 	return nil, errLocalNotBuilt
 }
+
+// localPinnedDim: no local model, no width to contradict.
+func localPinnedDim(config.IndexLocal) (model string, dim int) { return "", 0 }

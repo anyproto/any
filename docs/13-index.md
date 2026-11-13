@@ -568,7 +568,8 @@ space's rewrite never appear (`Options.OnProcess`, bridged in
   Cursor writes MERGE: advancing with no epoch in hand keeps the stamped
   one, because erasing it would silently disable rebuild detection. A
   `_meta` row pins the **schema version** (`indexSchemaVersion` in
-  `store.go`), the **vector dimension** and the **chunk target**. A
+  `store.go`), the **vector dimension**, the **chunk target** and the
+  **embedder** whose vectors it holds. A
   stamp one step behind is adopted at open: the layout it lacks (the
   `name` field) is applied per collection on its first open, and the
   stamp moves, so an older build then sees a schema it cannot read
@@ -683,16 +684,17 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   llama.cpp shared libs from `index.local.libDir` (else `$YZMA_LIB`,
   else `llamacpp/` next to the binary — populated by `make llamacpp`,
   which `make build` runs failure-tolerant; § GPU offload). Default
-  model: **Qwen3-Embedding-0.6B Q8_0** (1024-dim, last-token pooling,
-  L2-normalized; queries carry the Qwen retrieval instruction, docs embed
-  bare). `index.local.model: embeddinggemma-2` runs **EmbeddingGemma 2
-  Q8_0** instead (768-dim, mean pooling; queries embed as
+  model: **EmbeddingGemma 2 Q8_0** (`embeddinggemma-2`: 768-dim, mean
+  pooling, L2-normalized; queries embed as
   `task: search result | query: <query>`, docs as
   `title: <object name> | text: <chunk>`, `none` for an unnamed object and
-  for any doc but an editor window),
-  and removes one fixed direction — the
-  mean of the model's outputs — from every vector before normalizing,
-  which takes out its bias toward short texts. A `modelUrl` is
+  for any doc but an editor window).
+  One fixed direction — the mean of the model's outputs — is removed
+  from every vector before normalizing, which takes out its bias toward
+  short texts. `index.local.model: qwen3-embedding-0.6b` runs
+  **Qwen3-Embedding-0.6B Q8_0** instead (1024-dim, last-token pooling;
+  queries carry the Qwen retrieval instruction, docs embed bare); it is
+  also the local model whenever `auto` has an API key. A `modelUrl` is
   another download source for the model, and a `modelPath` with `model`
   set is that model on disk; a `modelPath` without `model` is an unnamed
   GGUF that takes only `index.local.pooling`
@@ -703,7 +705,20 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   (a chat message, a dataset record, a property) embeds as `none`. So a
   rename, or clearing the name, puts the object's embedded editor windows
   back in the embed queue, and they keep serving their old vectors until
-  the new ones land. The output width is the model's `n_embd_out`. The GGUF (sha256-pinned) is downloaded into the shared model
+  the new ones land. The output width is the model's `n_embd_out`. The
+  index db records the embedder that built it — the pinned model, its
+  revision, and the document prompt and pooling in effect, or a network
+  embedder's model name (`openai:<model>`, `ollama:<model>`); a db
+  another one built is removed and rebuilt at boot, like one of another
+  dimension. Under `auto` with an API key the pair records the local
+  model, and keeps a db the same hosted model built alone under that
+  model's record. An unnamed GGUF leaves no record. A db without a record is
+  kept for Qwen3, a network embedder or an unnamed GGUF, whichever opens
+  it, and when it holds no dimension. Under `auto` with neither `index.local.model` nor `modelPath` set,
+  the API key decides the local model, so adding or removing
+  `index.openai.apiKey` rebuilds the index. A model file whose output
+  width is not the pinned model's is refused at load.
+  The GGUF (sha256-pinned) is downloaded into the shared model
   cache `<root>/models/` (a copy already in the account's `index/models/`
   is used in place); the download is resumable, logs progress, reports
   `index.model_download`, and never blocks boot — until it completes the
@@ -720,7 +735,7 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   truncates output vectors (Matryoshka) to shrink the index. Compute
   threads default to `NumCPU()-1` (`index.local.threads`); past the
   physical core count can regress on hyperthreaded CPUs. Loaded cost ≈
-  640 MB mmap + ~200 MB context; nothing loads before the first embed
+  300 MB mmap (≈ 640 MB for Qwen3) + ~200 MB context; nothing loads before the first embed
   call, and an idle child is retired (§ The embedder child process).
   Linux needs a system `libffi.so.8` (NixOS: `nix develop`).
 - `ollama` — local `/api/embed`, default `embeddinggemma`, doc/query
@@ -739,8 +754,14 @@ successful batch (or pinned via `index.vector.dim`) and persisted in
 mixed in (`ErrIndexRebuildRequired`: a configured dimension that
 contradicts the db rebuilds the index at boot; one learned mid-run fails
 every embed round until the index is removed or `index.vector.dim`
-names it), not silent corruption. A model change at the same dimension
-is not detected: remove the index by hand. A batch
+names it), not silent corruption. A configured dimension that is not
+the width the pinned local model writes (its own, or `index.local.dim`
+when that is smaller) fails the boot. A change of pinned local model, of its document prompt or
+pooling, or of a network embedder's model is detected at boot by the
+embedder record and rebuilds the index. An unnamed GGUF leaves no
+record: an index one built is kept by another GGUF, Qwen3, a network
+embedder or the online/local pair at the same dimension, so remove it
+by hand. A batch
 that fails midway lands the vectors embedded so far.
 
 **Batching costs context.** The local child sends a batch one decode
@@ -907,8 +928,8 @@ everything else, and `make test` reruns the packages that hold them with
 the tag.
 
 An index db this build refuses is rebuilt by the boot, not reported:
-`ErrIndexRebuildRequired` (schema version, vector dimension or chunk
-target mismatch, or damage met while opening it: a broken header, a
+`ErrIndexRebuildRequired` (schema version, vector dimension, chunk
+target or embedder mismatch, or damage met while opening it: a broken header, a
 failed quick check on a dirty open, or a page that fails its checksum,
 `internal/indexer/errors.go`) makes `OpenIndexer` remove `index.db` and
 every file named after it (WAL, shm, sentinel) — the model cache beside

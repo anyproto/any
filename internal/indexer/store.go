@@ -93,6 +93,11 @@ type Store struct {
 	// when it was last written, with stale trailing chunks under the old
 	// scheme.
 	chunkRunes int
+	// embedder is the stamp of the embedder whose vectors this DB holds
+	// ("" = unknown), persisted in the meta row.
+	embedder string
+	// fresh: this open created the db, so it holds no one's vectors.
+	fresh bool
 
 	mu     sync.Mutex
 	dim    int // 0 = unknown yet; learned lazily via EnsureDim
@@ -276,6 +281,7 @@ func (s *Store) checkMeta(ctx context.Context) error {
 	}
 	doc, err := coll.FindId(ctx, metaDocId)
 	if errors.Is(err, anystore.ErrDocNotFound) {
+		s.fresh = true
 		return s.writeMeta(ctx, s.dim)
 	}
 	if err != nil {
@@ -297,6 +303,7 @@ func (s *Store) checkMeta(ctx context.Context) error {
 	default:
 		return fmt.Errorf("%w: index db schema v%d, this build needs v%d", ErrIndexRebuildRequired, schema, indexSchemaVersion)
 	}
+	s.embedder = string(v.GetStringBytes("embedder"))
 	dim := v.GetInt("dim")
 	switch {
 	case dim == s.dim:
@@ -346,6 +353,34 @@ func (s *Store) PinChunkRunes(ctx context.Context, n int) error {
 	return s.writeMeta(ctx, s.dim)
 }
 
+// PinEmbedder records the embedder whose vectors this index holds and
+// refuses a db another one built: two models' vectors in one index rank
+// against each other meaninglessly, and the same dimension hides it. A
+// db written before the stamp existed is adopted when legacy says its
+// vectors may be this embedder's, or when it holds none: this open
+// created it, or it never learned a dimension. A db stamped by one of
+// twins holds this embedder's vector space and keeps its stamp.
+func (s *Store) PinEmbedder(ctx context.Context, id string, legacy bool, twins ...string) error {
+	coll, err := s.db.Collection(ctx, cursorsCollection)
+	if err != nil {
+		return err
+	}
+	doc, err := coll.FindId(ctx, metaDocId)
+	if err != nil {
+		return err
+	}
+	stored := string(doc.Value().GetStringBytes("embedder"))
+	switch {
+	case stored == id, stored != "" && slices.Contains(twins, stored):
+		return nil
+	case stored == "" && (legacy || s.fresh || doc.Value().GetInt("dim") == 0):
+	default:
+		return fmt.Errorf("%w: index db holds vectors of embedder %q, configured %q", ErrIndexRebuildRequired, stored, id)
+	}
+	s.embedder = id
+	return s.writeMeta(ctx, s.Dim())
+}
+
 // writeMeta records what this db is built on: schema version, vector
 // dimension, and the chunk target once PinChunkRunes has supplied it (0
 // until then — an unpinned db is adopted, never refused).
@@ -360,6 +395,9 @@ func (s *Store) writeMeta(ctx context.Context, dim int) error {
 	meta.Set("schema", arena.NewNumberInt(indexSchemaVersion))
 	meta.Set("dim", arena.NewNumberInt(dim))
 	meta.Set("chunkRunes", arena.NewNumberInt(s.chunkRunes))
+	if s.embedder != "" {
+		meta.Set("embedder", arena.NewString(s.embedder))
+	}
 	return coll.UpsertOne(ctx, meta)
 }
 

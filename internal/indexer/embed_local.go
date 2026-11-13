@@ -64,6 +64,9 @@ type Local struct {
 	gpuLayers   int       // -1 = llama.cpp default (offload all when a GPU is present)
 	batchDocs   int       // max docs packed per llama_decode (≥1)
 	modelDim    int       // output width known without loading; 0 = load to learn it
+	wantDim     int       // the pinned model's output width; 0 = an unnamed GGUF
+	stampId     string
+	stampLegacy bool
 
 	dl *modelDownload // nil when modelPath overridden or file already present
 
@@ -110,6 +113,7 @@ type localSpec struct {
 	gpuLayers   int // -1 = llama.cpp default (offload all when a GPU is present)
 	niceness    int // child scheduling priority; 0 = same as the server
 	modelDim    int // pinned model at its default path: width known without loading
+	wantDim     int // the pinned model's output width; 0 = an unnamed GGUF
 }
 
 // resolveLocalSpec turns config into a runnable spec: the model and its
@@ -168,6 +172,7 @@ func resolveLocalSpec(cfg config.IndexLocal, modelsDir, legacyModelsDir string, 
 
 	if named {
 		s.profile = model.id
+		s.wantDim = model.dim
 		if s.queryPrefix == "" {
 			s.queryPrefix = model.queryPrefix
 		}
@@ -215,6 +220,7 @@ func resolveLocalSpec(cfg config.IndexLocal, modelsDir, legacyModelsDir string, 
 
 func newLocalFromSpec(s localSpec, dl *modelDownload) *Local {
 	pooling, _ := poolingType(s.pooling) // validated by resolveLocalSpec
+	stampId, stampLegacy := s.stamp()
 	var project []float32
 	if s.profile != "" {
 		if m, err := lookupLocalModel(s.profile); err == nil {
@@ -234,6 +240,9 @@ func newLocalFromSpec(s localSpec, dl *modelDownload) *Local {
 		gpuLayers:   s.gpuLayers,
 		batchDocs:   s.batchDocs,
 		modelDim:    s.modelDim,
+		wantDim:     s.wantDim,
+		stampId:     stampId,
+		stampLegacy: stampLegacy,
 		dl:          dl,
 	}
 }
@@ -321,11 +330,19 @@ func (l *Local) ensureLoaded() error {
 		return fmt.Errorf("indexer: local embedder: init context: %w", err)
 	}
 
-	l.model, l.lctx = model, lctx
-	l.vocab = llama.ModelGetVocab(model)
 	// The pooled vector has the output width, which a model with an
 	// output projection has wider than its hidden width.
-	l.nEmbd = llama.ModelNEmbdOut(model)
+	nEmbd := llama.ModelNEmbdOut(model)
+	// A file that is not the model it stands for (a mirror of another
+	// one) would embed under the wrong prompts into the wrong stamp.
+	if l.wantDim > 0 && int(nEmbd) != l.wantDim {
+		_ = llama.Free(lctx)
+		_ = llama.ModelFree(model)
+		return fmt.Errorf("indexer: local embedder: %s is not the configured model: output width %d, want %d — set index.local.model to the model the file is", l.modelPath, nEmbd, l.wantDim)
+	}
+	l.model, l.lctx = model, lctx
+	l.vocab = llama.ModelGetVocab(model)
+	l.nEmbd = nEmbd
 	l.loaded = true
 	return nil
 }
@@ -492,6 +509,8 @@ func (l *Local) embedGroup(tokenized [][]llama.Token) ([][]float32, error) {
 func (l *Local) EmbedDocs(ctx context.Context, texts []string) ([][]float32, error) {
 	return l.EmbedTitledDocs(ctx, nil, texts)
 }
+
+func (l *Local) Stamp() (string, bool) { return l.stampId, l.stampLegacy }
 
 // EmbedsTitles: the document prompt has a title slot.
 func (l *Local) EmbedsTitles() bool {

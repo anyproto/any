@@ -378,6 +378,15 @@ func openIndexerStore(ctx context.Context, cfg config.Index, dbPath string, emb 
 		_ = st.Close()
 		return nil, err
 	}
+	// A db another embedder built is refused the same way. Without an
+	// embedder nothing embeds, and the db keeps what it has.
+	if emb != nil {
+		id, legacy := indexer.EmbedderStamp(emb)
+		if err := st.PinEmbedder(ctx, id, legacy, indexer.EmbedderStampTwins(emb)...); err != nil {
+			_ = st.Close()
+			return nil, err
+		}
+	}
 	return ix, nil
 }
 

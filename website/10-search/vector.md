@@ -52,13 +52,13 @@ Vector search latency is a few milliseconds for both ANN modes; disk use is domi
 
 ## Dimension pinning
 
-The vector dimension is learned from the first successful embedding batch (or fixed with `index.vector.dim`) and pinned in the index database. A different dimension against a populated index is never mixed in: with `index.vector.dim` set, the boot removes and rebuilds the index; with the dimension learned from the model, every embed round fails until `<account-dir>/index/` is removed with the server stopped, or `index.vector.dim` names the new dimension and the server restarts. Whenever the model's output and the index disagree, `hybrid` answers full-text with `vectorStatus: "unavailable"` and `vector` answers `503 index.embedder_unavailable`, until the index is rebuilt. `index.local.dim` can truncate the default model's Matryoshka output to shrink the index.
+The vector dimension is learned from the first successful embedding batch (or fixed with `index.vector.dim`) and pinned in the index database. A different dimension against a populated index is never mixed in: with `index.vector.dim` set, the boot removes and rebuilds the index; with the dimension learned from the model, every embed round fails until `<account-dir>/index/` is removed with the server stopped, or `index.vector.dim` names the new dimension and the server restarts. Whenever the model's output and the index disagree, `hybrid` answers full-text with `vectorStatus: "unavailable"` and `vector` answers `503 index.embedder_unavailable`, until the index is rebuilt. `index.local.dim` can truncate the default model's Matryoshka output to shrink the index. An `index.vector.dim` that is not the width the pinned local model writes — its own, or `index.local.dim` when that is smaller — fails the boot.
 
 ## Similarity scores and the floor
 
 `index.search.minVectorSim` drops vector hits at or below a cosine cutoff before ranking; `0` (the default) keeps the built-in "> 0" noise floor only.
 
-> **Note.** For the default local model a static floor is a poor noise filter. Measured on a live index, gibberish queries score ~0.6 cosine — as high as on-topic queries, and *above* real off-topic ones — so any cutoff that drops noise also drops signal. Keep `0` for Qwen3-Embedding and let [hybrid fusion](hybrid.html) plus the full-text leg do the discrimination; raise it only for a better-calibrated embedder.
+> **Note.** For Qwen3-Embedding a static floor is a poor noise filter. Measured on a live index, gibberish queries score ~0.6 cosine — as high as on-topic queries, and *above* real off-topic ones — so any cutoff that drops noise also drops signal. Keep `0` for Qwen3-Embedding and let [hybrid fusion](hybrid.html) plus the full-text leg do the discrimination; raise it only for a better-calibrated embedder.
 
 ## Long records
 

@@ -304,7 +304,7 @@ type IndexSearch struct {
 	DefaultOperator string `yaml:"defaultOperator"`
 	// MinVectorSim drops vector hits below this cosine similarity before
 	// fusion. Default 0 keeps the legacy floor (similarity must be > 0).
-	// NOTE: measured against the default local model (Qwen3-Embedding-0.6B)
+	// NOTE: measured against Qwen3-Embedding-0.6B
 	// a static floor is a poor noise filter — gibberish queries score
 	// ~0.6 cosine, on par with on-topic, so any cutoff that drops noise
 	// also drops real hits (internal/indexer/live_probe_test.go). Leave
@@ -353,8 +353,8 @@ type IndexOpenAI struct {
 // the default model is downloaded on first run, llama.cpp shared libs
 // are expected next to the binary (`make llamacpp`).
 type IndexLocal struct {
-	// Model names a pinned model: LocalModelQwen3 (default) or
-	// LocalModelEmbeddingGemma2. It sets the download, the prompts, the
+	// Model names a pinned model: LocalModelEmbeddingGemma2 (default) or
+	// LocalModelQwen3 (the default when "auto" has an API key). It sets the download, the prompts, the
 	// pooling and the output width. With ModelPath it declares what
 	// that file is; a ModelPath without Model is an unnamed GGUF that
 	// takes only what this block sets.

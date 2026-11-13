@@ -74,7 +74,7 @@ LDFLAGS="-s -w -X $PKG/internal/version.Version=$VERSION -X $PKG/internal/versio
 # the local embedder). It stays pure Go — the llama.cpp libs are loaded at
 # runtime via purego from the llamacpp/ dir staged below — so CGO_ENABLED=0
 # cross-builds keep working. With it, the default `auto` embedder falls
-# back to the local model, downloading its GGUF (~639 MB) into the data dir
+# back to the local model, downloading its GGUF (~310 MB) into the data dir
 # on first use.
 TAGS=llamacpp
 
