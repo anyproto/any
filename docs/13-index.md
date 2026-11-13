@@ -635,14 +635,25 @@ one updated to deleted, stops it and drops its index. A failed
 
 ### Embed loop (vector path) — parallel, batched
 
-A second per-space goroutine drains `pending` docs: `EmbedDocs` in
-batches of `index.embedBatch` (default 64), `index.embedConcurrency`
-batches in parallel (default 1; 4 for `openai`, and for `auto` with a key) → `SetVectors`
-(one write transaction, update-only — docs deleted meanwhile are
-skipped) → `EnsureVectorIndex`. Advance nudges it after each page with
-new text; a 1-minute ticker retries after embedder failures. A rewritten
-record goes back to `pending`. `index.embedder: none` ⇒ the loop doesn't
-run and the index is FTS-only.
+A second per-space goroutine drains `pending` docs: `Store.Pending`
+reads their ids and texts → `EmbedDocs` in batches of
+`index.embedBatch` (default 64), `index.embedConcurrency` batches in
+parallel (default 1; 4 for `openai`, and for `auto` with a key) →
+`SetTitledVectors` (one write transaction per batch, update-only) →
+`EnsureVectorIndex`. Advance nudges it after each page with new text; a
+1-minute ticker retries after embedder failures. A rewritten record goes
+back to `pending`. `index.embedder: none` ⇒ the loop doesn't run and the
+index is FTS-only.
+
+A vector lands only on the input it was embedded from. The advance loop
+writes while a batch embeds, so the landing checks each doc inside its
+write transaction: one deleted meanwhile is skipped, not resurrected;
+one whose stored text differs from the text the batch read is skipped;
+and so is an editor window whose object's name differs from the name it
+was embedded under (the `{title}` document prompt, below). A skipped doc
+that still embeds keeps its `pending` mark and is embedded from its
+current text in a later round, and `index.embed.<spaceId>` counts only
+the docs that took a vector.
 
 Enabling an embedder on an index built without one is not a rebuild.
 The cursor row's `embed` field is the cursor up to which every doc the
