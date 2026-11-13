@@ -85,6 +85,106 @@ func TestModelDownload_ShaMismatch(t *testing.T) {
 	}
 }
 
+// shortDownload shortens the retry backoff and takes any body for a
+// whole file, for the length of a test.
+func shortDownload(t *testing.T) {
+	t.Helper()
+	prevBackoff, prevWhole := downloadRetryBackoff, downloadMinWhole
+	downloadRetryBackoff, downloadMinWhole = 10*time.Millisecond, 1
+	t.Cleanup(func() { downloadRetryBackoff, downloadMinWhole = prevBackoff, prevWhole })
+}
+
+// A source that twice serves a whole file failing the checksum is not
+// fetched a third time.
+func TestModelDownload_ShaMismatchStops(t *testing.T) {
+	shortDownload(t)
+	var gets atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gets.Add(1)
+		w.Write([]byte("not the expected bytes"))
+	}))
+	defer srv.Close()
+
+	var mu sync.Mutex
+	var phases []string
+	dest := filepath.Join(t.TempDir(), "m.gguf")
+	d := startModelDownload(srv.URL, dest, strings.Repeat("ab", 32), srv.Client(), func(u ProcessUpdate) {
+		mu.Lock()
+		phases = append(phases, u.Phase)
+		mu.Unlock()
+	})
+	defer d.Close()
+	select {
+	case <-d.finished:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("the download kept retrying: %v", d.Status())
+	}
+	if err := d.Status(); !errors.Is(err, errDownloadStopped) || !strings.Contains(err.Error(), "sha256 mismatch") {
+		t.Fatalf("status = %v, want the stopped download naming the mismatch", err)
+	}
+	if n := gets.Load(); n != 2 {
+		t.Errorf("the source was fetched %d times, want 2", n)
+	}
+	for _, p := range []string{dest, dest + ".part"} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("%s must not exist after a mismatch", filepath.Base(p))
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(phases) == 0 || phases[len(phases)-1] != ProcessFailed {
+		t.Errorf("process phases = %v, want a failed last one", phases)
+	}
+}
+
+// A mismatch that can be a damaged transfer does not count toward the
+// stop: a resumed body, and a body too small to be a model.
+func TestModelDownload_DamagedTransferKeepsRetrying(t *testing.T) {
+	shortDownload(t)
+	var gets atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gets.Add(1)
+		if r.Header.Get("Range") != "" {
+			w.WriteHeader(http.StatusPartialContent)
+		}
+		w.Write([]byte("not the expected bytes"))
+	}))
+	defer srv.Close()
+
+	// A stale .part: the first mismatch comes from a resumed body, so
+	// the stop takes two more fetches.
+	dest := filepath.Join(t.TempDir(), "m.gguf")
+	if err := os.WriteFile(dest+".part", []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := startModelDownload(srv.URL, dest, strings.Repeat("ab", 32), srv.Client(), nil)
+	defer d.Close()
+	select {
+	case <-d.finished:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("the download kept retrying: %v", d.Status())
+	}
+	if n := gets.Load(); n != 3 {
+		t.Errorf("after a stale .part the source was fetched %d times, want 3", n)
+	}
+
+	// An error page in place of the model is fetched again and again.
+	downloadMinWhole = 1 << 20
+	gets.Store(0)
+	small := startModelDownload(srv.URL, filepath.Join(t.TempDir(), "m.gguf"), strings.Repeat("ab", 32), srv.Client(), nil)
+	defer small.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for gets.Load() < 4 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if n := gets.Load(); n < 4 {
+		t.Fatalf("a small body was fetched %d times, want it retried", n)
+	}
+	if err := small.Status(); errors.Is(err, errDownloadStopped) {
+		t.Errorf("a small body stopped the download: %v", err)
+	}
+}
+
 func TestModelDownload_Resume(t *testing.T) {
 	body := []byte(strings.Repeat("0123456789", 500))
 	sum := sha256.Sum256(body)

@@ -662,3 +662,27 @@ func TestSearch_FTSUpgradeProcessBridge(t *testing.T) {
 		t.Errorf("process error = %+v, want the generic failure", p.Error)
 	}
 }
+
+// A failed model download is one that stopped: its row says so, where
+// every other failure promises a retry.
+func TestSearch_ModelDownloadStoppedProcessBridge(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	emit := d.indexerProcessFor(d.eng)
+	emit(indexer.ProcessUpdate{Kind: indexer.ProcessKindModelDownload, Name: "m.gguf", Phase: indexer.ProcessStarted})
+	emit(indexer.ProcessUpdate{Kind: indexer.ProcessKindModelDownload, Name: "m.gguf", Phase: indexer.ProcessFailed, Message: "https://mirror/private: sha256 mismatch"})
+	var list api.ProcessListResponse
+	decodeGet(t, e, "/v1/processes", &list)
+	i := slices.IndexFunc(list.Processes, func(p api.Process) bool { return p.Kind == "index.model_download" })
+	if i < 0 {
+		t.Fatalf("the model download is not on the process view: %+v", list.Processes)
+	}
+	p := list.Processes[i]
+	if p.State != api.ProcessStateFailed || p.Error == nil || p.Error.Code != "index.model_download_failed" {
+		t.Fatalf("process row = %+v, error %+v", p, p.Error)
+	}
+	if m := p.Error.Message; strings.Contains(m, "retrying") || strings.Contains(m, "mirror") || !strings.Contains(m, "restart") {
+		t.Errorf("process error = %q, want the stop without the source", m)
+	}
+}

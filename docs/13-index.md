@@ -663,10 +663,11 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   with the `local` embedder as fallback — the primary alone in a build
   without the local embedder, which without a key then embeds nothing and
   the index runs FTS-only. Both MUST serve the same model
-  (one vector space, one dimension); the default pairing is
-  Qwen3-Embedding-0.6B online and locally. `index.openai.baseUrl` and
+  (one vector space, one dimension); the only pairing is
+  Qwen3-Embedding-0.6B online and locally, and a key with another
+  `index.local.model` is refused at boot. `index.openai.baseUrl` and
   `apiKey` name the primary (any OpenAI-compatible host; neither has a
-  default); `model` defaults to the local model's name and is overridden
+  default); `model` defaults to that model's name and is overridden
   only for a provider that spells the same model differently. A circuit
   breaker skips the primary for 30 s after 3 consecutive failures. A
   query gives the primary half of the remaining query budget, so the
@@ -679,7 +680,18 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   which `make build` runs failure-tolerant; § GPU offload). Default
   model: **Qwen3-Embedding-0.6B Q8_0** (1024-dim, last-token pooling,
   L2-normalized; queries carry the Qwen retrieval instruction, docs embed
-  bare). The GGUF (sha256-pinned) is downloaded into the shared model
+  bare). `index.local.model: embeddinggemma-2` runs **EmbeddingGemma 2
+  Q8_0** instead (768-dim, mean pooling; queries embed as
+  `task: search result | query: <query>`, docs as
+  `title: none | text: <chunk>`), and removes one fixed direction — the
+  mean of the model's outputs — from every vector before normalizing,
+  which takes out its bias toward short texts. A `modelUrl` is
+  another download source for the model, and a `modelPath` with `model`
+  set is that model on disk; a `modelPath` without `model` is an unnamed
+  GGUF that takes only `index.local.pooling`
+  (`last` by default, `mean` or `cls`),
+  `queryPrefix` and `docPrefix`. The output width is the model's
+  `n_embd_out`. The GGUF (sha256-pinned) is downloaded into the shared model
   cache `<root>/models/` (a copy already in the account's `index/models/`
   is used in place); the download is resumable, logs progress, reports
   `index.model_download`, and never blocks boot — until it completes the
@@ -688,7 +700,10 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`:
   kernel drops if it dies; another instance under the same root polls
   for the installed file and takes the download over once the lock is
   free. A transfer that sends nothing for 2 minutes is cut and retried
-  with backoff, so a stalled connection never holds the lock.
+  with backoff, so a stalled connection never holds the lock. A source
+  that twice serves a whole file failing the checksum is not fetched
+  again until the next start: the `index.model_download` process ends
+  failed.
   Air-gapped: set `index.local.modelPath` (no download). `index.local.dim`
   truncates output vectors (Matryoshka) to shrink the index. Compute
   threads default to `NumCPU()-1` (`index.local.threads`); past the

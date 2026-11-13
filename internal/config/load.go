@@ -209,8 +209,17 @@ func applyEnv(cfg *Config) error {
 	if v := os.Getenv("ANY_INDEX_LOCAL_LIB_DIR"); v != "" {
 		cfg.Index.Local.LibDir = v
 	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_MODEL"); v != "" {
+		cfg.Index.Local.Model = v
+	}
 	if v := os.Getenv("ANY_INDEX_LOCAL_QUERY_PREFIX"); v != "" {
 		cfg.Index.Local.QueryPrefix = v
+	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_DOC_PREFIX"); v != "" {
+		cfg.Index.Local.DocPrefix = v
+	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_POOLING"); v != "" {
+		cfg.Index.Local.Pooling = v
 	}
 	if v := os.Getenv("ANY_INDEX_LOCAL_CONTEXT_SIZE"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
