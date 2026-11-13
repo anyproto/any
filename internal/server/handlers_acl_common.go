@@ -101,6 +101,18 @@ func aclOpError(c echo.Context, err error, details map[string]any) error {
 	return sdkOpError(c, err, details)
 }
 
+// derivedUnshareable refuses to share a derived space. Such a space
+// belongs to one account for good: the network admits no second
+// member, and words that refusal as a plan limit.
+func (d *deps) derivedUnshareable(c echo.Context, sp space.Space) (error, bool) {
+	if !sp.Info().Derived && !d.isDerivedSpaceId(sp.Id()) {
+		return nil, false
+	}
+	return writeError(c, http.StatusConflict, "space.derived_unshareable",
+		"a derived space belongs to its account alone and cannot be shared",
+		map[string]any{"spaceId": sp.Id()}), true
+}
+
 // inviteDecodeError reshapes an invalid-invite failure into a uniform
 // 400 invite.invalid envelope. The message is static so it never leaks
 // SDK internal types or paths.

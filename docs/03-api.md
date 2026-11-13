@@ -721,10 +721,12 @@ POST /v1/spaces/derived/:name  → 201 SpaceInfo   (404 space.derived_unknown,
   (`space.ErrIsDerivedSpace`), its space-index handler drops
   `remoteStatus=deleted` writes on flagged rows from any peer, and its
   deletion reconciler exempts them. `SpaceInfo.derived` surfaces the
-  flag; joiners of someone else's derived space never carry it, so
-  their removal stays allowed.
+  flag.
+- **Derived spaces are not shared.** A derived space belongs to its
+  account alone: invite create, the guest key and a direct add answer
+  `409 space.derived_unshareable`.
 - `spaceType` is `any.space` — derived spaces are ordinary spaces in
-  every other respect (members, invites, datasets, search).
+  every other respect (datasets, search).
 
 #### One-to-one (direct) spaces
 
@@ -4483,7 +4485,11 @@ invite's `permission` is `"none"` — the role is chosen by the owner at
 `/acl/accept`, not carried by the invite. A mint the ACL refuses as a
 duplicate is `409 invite.duplicate`. A mint by a non-owner is
 `403 acl.forbidden`: the coordinator's make-shareable, which the mint
-runs first, is owner-only. Owners share the token
+runs first, is owner-only. A mint that would take the owner past the
+plan's shared-spaces limit (`GET /v1/account/limits`) is
+`409 acl.limit_reached`; the guest key and a direct add share a space
+the same way. On a derived space all
+three answer `409 space.derived_unshareable`. Owners share the token
 out-of-band; joiners pass it back verbatim:
 
 ```json
@@ -4614,8 +4620,12 @@ Bodies (every successful op returns `204 No Content`):
 `self-remove`, `cancel-join`, and `stop-sharing` take no body. A missing
 required field or an empty batch is `400 request.missing_field`; an
 unknown permission string is `400 request.schema`. SDK refusals map to
-`403 acl.forbidden` (insufficient permissions) and
-`404 acl.record_not_found` (no such ACL record).
+`403 acl.forbidden` (insufficient permissions),
+`404 acl.record_not_found` (no such ACL record) and
+`409 acl.limit_reached` (the owner's plan is at its limit of readers or
+writers for the space, or of shared spaces). A join request counts
+against neither limit: the space takes it, and the refusal comes when
+the owner accepts.
 
 `cancel-join` is the one ACL op that never resolves the space: a
 pending join is never materialized, so the server posts the withdrawal

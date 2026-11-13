@@ -92,10 +92,12 @@ space.join_not_pending           # 409 — POST …/acl/cancel-join with nothing
 space.read_only                  # 403 — synced write into a space this account cannot write (guest access or reader role)
 space.derived_unknown            # 404 — POST /v1/spaces/derived/:name outside the embedded registry
 space.derived_undeletable        # 409 — DELETE on a derived space; derived spaces are permanent
+space.derived_unshareable        # 409 — invite create, guest key or direct add on a derived space; a derived space belongs to its account alone
 space.unsupported                # 405 — the route is not available on the tech space (allowed there: bundles, type reads and dataset declarations on bundle roots, records on bundle roots, GET space, sync-status, debug)
 
 members.not_found                # 404 — the member a members / ACL operation names is unknown (e.g. GET …/members/:identity)
 acl.forbidden                    # 403 — the ACL refuses the operation for this account's permissions, or the coordinator refuses it (make-shareable on invite create is owner-only)
+acl.limit_reached                # 409 — the coordinator refuses an ACL operation for the space owner's plan, whoever calls: the owner's shared spaces on the first share of a space (invite create, guest key, direct add), or the space's readers or writers (accept, change permissions, direct add, guest key). One code for both limits; GET /v1/account/limits reads the shared-spaces limit
 acl.record_not_found             # 404 — the ACL record the operation names does not exist
 invite.invalid                   # 400 — invite token malformed or not decodable as an invite
 invite.duplicate                 # 409 — POST …/invites while an invite already exists
