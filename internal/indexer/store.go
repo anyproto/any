@@ -19,6 +19,7 @@ import (
 	"github.com/anyproto/any-store/v2/query"
 	"github.com/anyproto/any-sync-sdk"
 
+	"github.com/anyproto/any/internal/editor"
 	"github.com/anyproto/any/internal/index"
 )
 
@@ -73,6 +74,9 @@ type Store struct {
 	// unreachable or the dimension is still unknown, so an outage
 	// freezes the vector pipeline without losing work.
 	markPending bool
+	// embedTitles: editor windows embed under their object's name, so
+	// DocTitles answers and a rename re-marks their vectors pending.
+	embedTitles bool
 
 	// vectorMode selects the ANN index strategy (see vectorIndexParams);
 	// "" resolves to the default. Set once at boot, before any search.
@@ -114,6 +118,10 @@ func (s *Store) SetFTSUpgradeHook(fn func(ctx context.Context, spaceId string) f
 // SetVectorMode picks the ANN index strategy for indexes created after the
 // call (existing indexes keep their mode until rebuilt). Empty = default.
 func (s *Store) SetVectorMode(mode string) { s.vectorMode = mode }
+
+// SetEmbedTitles tells the store whether documents embed under their
+// object's name (TitleEmbedder). Call before indexing starts.
+func (s *Store) SetEmbedTitles(on bool) { s.embedTitles = on }
 
 // SetFTSParams sets the BM25 tuning for FTS indexes created after the
 // call. All three are part of the index definition: b, k1 and the
@@ -506,6 +514,18 @@ const nameField = "name"
 // ftsIndex is the name of the collection's full-text index.
 const ftsIndex = "fts"
 
+// nameDocSuffix ends the id of an object's name doc.
+const nameDocSuffix = ":" + index.DatasetProp + ":" + index.NamePropRecordId
+
+// titledDoc reports whether id is embedded under its object's name, and
+// the object. Only editor windows are, so a rename re-embeds the
+// object's text and never a chat's messages or a dataset's records.
+func titledDoc(id string) (objectId string, ok bool) {
+	objectId, rest, _ := strings.Cut(id, ":")
+	_, recordId, _ := strings.Cut(rest, ":")
+	return objectId, strings.HasPrefix(recordId, editor.WindowRecordPrefix)
+}
+
 // isNameDoc reports whether the entry is the object's name — the record
 // whose first chunk holds its text in nameField.
 func isNameDoc(e index.IndexEntry) bool {
@@ -858,6 +878,42 @@ func (s *Store) ApplyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 	}
 	defer tx.Rollback() //nolint:errcheck — no-op after Commit
 
+	// Objects whose name this page changes. Read before the writes: a
+	// name entry is re-streamed with every change to its object, so only
+	// a stored name that differs counts.
+	var renamed []string
+	if s.embedTitles && s.markPending {
+		storedName := func(objectId string) (string, error) {
+			doc, err := coll.FindId(tx.Context(), objectId+nameDocSuffix)
+			if errors.Is(err, anystore.ErrDocNotFound) {
+				return "", nil
+			}
+			if err != nil {
+				return "", err
+			}
+			return string(doc.Value().GetStringBytes(nameField)), nil
+		}
+		names := map[string]string{} // the name each object ends the page with
+		for _, id := range dels {
+			if objectId, ok := strings.CutSuffix(id, nameDocSuffix); ok {
+				names[objectId] = ""
+			}
+		}
+		for _, up := range ups {
+			if isNameDoc(up.Entry) && up.Chunk == 0 {
+				names[up.Entry.ObjectId] = up.Entry.Data
+			}
+		}
+		for objectId, name := range names {
+			old, err := storedName(objectId)
+			if err != nil {
+				return nil, err
+			}
+			if old != name {
+				renamed = append(renamed, objectId)
+			}
+		}
+	}
 	for _, p := range append(append([]string(nil), prefixDels...), textPrefixDels...) {
 		// Find joins the open tx via tx.Context(); the id range drives
 		// the primary btree directly, and Delete cleans FTS + vector
@@ -920,6 +976,20 @@ func (s *Store) ApplyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 			return nil, err
 		}
 	}
+	{
+		// The name is part of the prompt of the object's editor windows:
+		// their vectors are stale. They keep serving until re-embedded.
+		for _, objectId := range renamed {
+			p := objectId + ":"
+			idRange := query.And{
+				query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGte, p)},
+				query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, prefixUpper(p))},
+			}
+			if _, err := coll.Find(idRange).Update(tx.Context(), remarkPending); err != nil {
+				return nil, err
+			}
+		}
+	}
 	touched, err := s.applyLinks(tx.Context(), linksColl, prefixDels, links)
 	if err != nil {
 		return nil, err
@@ -929,6 +999,20 @@ func (s *Store) ApplyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 	}
 	return touched, nil
 }
+
+// remarkPending puts an embedded doc that embeds under its object's
+// name back in the embed queue, keeping its vector until the new one
+// lands.
+var remarkPending = query.ModifyFunc(func(a *anyenc.Arena, v *anyenc.Value) (*anyenc.Value, bool, error) {
+	if v.Get("vector") == nil || v.Get("pending") != nil {
+		return v, false, nil
+	}
+	if _, titled := titledDoc(string(v.GetStringBytes("id"))); !titled {
+		return v, false, nil
+	}
+	v.Set("pending", a.NewNumberInt(1))
+	return v, true, nil
+})
 
 // removals indexes one page's deletions so an upsert can be tested in
 // constant time. A page carries thousands of each on the cold path — the
@@ -1515,6 +1599,40 @@ func (s *Store) Pending(ctx context.Context, spaceId string, limit int) (ids []s
 	return ids, texts, iter.Err()
 }
 
+// DocTitles returns, for each doc id, the name it embeds under — its
+// object's for an editor window, "" for an unnamed object or any other
+// doc — when documents embed under names; nil otherwise.
+func (s *Store) DocTitles(ctx context.Context, spaceId string, ids []string) ([]string, error) {
+	if !s.embedTitles || len(ids) == 0 {
+		return nil, nil
+	}
+	coll, err := s.spaceColl(ctx, spaceId)
+	if err != nil {
+		return nil, err
+	}
+	names := map[string]string{}
+	titles := make([]string, len(ids))
+	for i, id := range ids {
+		objectId, titled := titledDoc(id)
+		if !titled {
+			continue
+		}
+		name, ok := names[objectId]
+		if !ok {
+			doc, err := coll.FindId(ctx, docId(objectId, index.DatasetProp, index.NamePropRecordId))
+			switch {
+			case err == nil:
+				name = string(doc.Value().GetStringBytes(nameField))
+			case !errors.Is(err, anystore.ErrDocNotFound):
+				return nil, err
+			}
+			names[objectId] = name
+		}
+		titles[i] = name
+	}
+	return titles, nil
+}
+
 // PendingCount reports how many docs still await embedding — the
 // denominator for embed-progress reporting (rides the sparse pending
 // index, so it stays cheap).
@@ -1530,8 +1648,16 @@ func (s *Store) PendingCount(ctx context.Context, spaceId string) (int, error) {
 // $set vector + clear pending, update-only (a doc deleted since Pending
 // is skipped, not resurrected).
 func (s *Store) SetVectors(ctx context.Context, spaceId string, ids []string, vecs [][]float32) error {
-	if len(ids) != len(vecs) {
-		return fmt.Errorf("indexer: SetVectors: %d ids, %d vectors", len(ids), len(vecs))
+	return s.SetTitledVectors(ctx, spaceId, ids, nil, vecs)
+}
+
+// SetTitledVectors is SetVectors for vectors embedded under titles (as
+// DocTitles returned them; nil = none). A doc whose object was renamed
+// since is skipped inside the transaction and stays pending: its vector
+// carries the old name.
+func (s *Store) SetTitledVectors(ctx context.Context, spaceId string, ids, titles []string, vecs [][]float32) error {
+	if len(ids) != len(vecs) || (titles != nil && len(titles) != len(ids)) {
+		return fmt.Errorf("indexer: SetVectors: %d ids, %d vectors, %d titles", len(ids), len(vecs), len(titles))
 	}
 	coll, err := s.spaceColl(ctx, spaceId)
 	if err != nil {
@@ -1543,7 +1669,24 @@ func (s *Store) SetVectors(ctx context.Context, spaceId string, ids []string, ve
 	}
 	defer tx.Rollback() //nolint:errcheck
 
+	names := map[string]string{}
 	for i, id := range ids {
+		if objectId, titled := titledDoc(id); titles != nil && titled {
+			name, ok := names[objectId]
+			if !ok {
+				doc, err := coll.FindId(tx.Context(), objectId+nameDocSuffix)
+				switch {
+				case err == nil:
+					name = string(doc.Value().GetStringBytes(nameField))
+				case !errors.Is(err, anystore.ErrDocNotFound):
+					return err
+				}
+				names[objectId] = name
+			}
+			if name != titles[i] {
+				continue
+			}
+		}
 		vec := vecs[i]
 		mod := query.ModifyFunc(func(a *anyenc.Arena, v *anyenc.Value) (*anyenc.Value, bool, error) {
 			v.Set("vector", a.NewVectorF32(vec))

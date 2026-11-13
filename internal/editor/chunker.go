@@ -42,7 +42,7 @@ func windowEntries(ctx context.Context, sp space.Space, objectId, collection str
 			Scope:    index.ScopeBasic,
 			ObjectId: objectId,
 			Dataset:  collection,
-			RecordId: windowRecordPrefix + w.AnchorId,
+			RecordId: WindowRecordPrefix + w.AnchorId,
 			Data:     w.Text,
 			Title:    w.Title, // heading — BM25F boosted (also in Data)
 		}

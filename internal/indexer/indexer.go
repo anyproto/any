@@ -289,6 +289,9 @@ func (ix *Indexer) spaces() space.Service {
 
 // New constructs the indexer. Call Start to begin; Close to stop.
 func New(sdk *anysyncsdk.SDK, reg *index.Registry, store *Store, opts Options) *Indexer {
+	if store != nil {
+		store.SetEmbedTitles(embedsTitles(opts.Embedder))
+	}
 	ix := &Indexer{
 		sdk:      sdk,
 		reg:      reg,

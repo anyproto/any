@@ -210,6 +210,27 @@ func TestLocal_EmbeddingGemma2(t *testing.T) {
 			t.Errorf("vector %d keeps %v of the removed direction", i, d)
 		}
 	}
+	// The object's name is part of what a document embeds as.
+	l, err := NewLocal(config.IndexLocal{Model: config.LocalModelEmbeddingGemma2, ModelPath: path, LibDir: libDir}, t.TempDir(), "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	if !l.EmbedsTitles() {
+		t.Fatal("EmbeddingGemma 2's document prompt has a title slot")
+	}
+	titled, err := l.EmbedTitledDocs(ctx, []string{"", "Financial report", "Game consoles"}, docs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := cosine(titled[0], vecs[0]); c < 0.999999 {
+		t.Errorf("no title must embed as EmbedDocs does: cosine %v", c)
+	}
+	for i := 1; i < 3; i++ {
+		if c := cosine(titled[i], vecs[i]); c > 0.9999 {
+			t.Errorf("doc %d: a title left the vector unchanged (cosine %v)", i, c)
+		}
+	}
 	if cosine(vecs[3], vecs[0]) <= cosine(vecs[3], vecs[1]) {
 		t.Error("the query should sit closer to the on-topic doc")
 	}
