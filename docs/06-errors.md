@@ -36,7 +36,7 @@ Every error response — regardless of status code — has the same body:
 | 500    | Internal error — unexpected SDK or server failure; typed: `auth.device_key_corrupt`, `auth.network_pin_corrupt`, `sdk.store_corrupt`, `server.internal` |
 | 501    | `sdk.not_implemented` — `GET …/sync-status/peers` |
 | 502    | `access.unavailable`                                           |
-| 503    | Request cancelled or the engine tearing down (`server.unavailable`); embedder unreachable (`index.embedder_unavailable`); a catalog setup past a bound (`catalog.setup_timeout`) |
+| 503    | Request cancelled or the engine tearing down (`server.unavailable`); embedder unreachable (`index.embedder_unavailable`) |
 | 507    | `storage.no_space` — the device has no disk space left (`POST /v1/auth`) |
 
 No caller authentication in v1 (loopback is the trust boundary). The
@@ -114,7 +114,6 @@ bundle.not_loser                 # 409 — resolve target is the current winner 
 bundle.loser_not_ready           # 409 — resolve: the losing root is still syncing / inside the grace window, the server keeps retrying; DELETE …/bundles/:bundleId: a loser's tree has not reached this device, nothing deleted, retry
 bundle.reserved                  # 409 — a client ensure with an id under the server's `system:` prefix (the embedded catalog's ids)
 catalog.not_found                # 404 — GET /v1/catalog/:usecaseId or POST …/setup naming no usecase of the embedded catalog (details.usecaseId)
-catalog.setup_timeout            # 503 — POST …/setup past a bound: 90 s of waits, or 2 min inside the install section (details.step: space | superseded | install | declarations; details.spaceId, details.usecaseId); what the walk landed stays; retry
 
 object.not_found                 # 404 — objectId unknown or deleted in this space (per-object query, editor, markdown, history …)
 object.deleted                   # 410 — GET …/objects/:objectId, a file attach (POST …/objects/:objectId/files), or `from` on POST …/objects, on a deleted object (distinct from never-existed)

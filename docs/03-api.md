@@ -356,6 +356,7 @@ full).
 | GET    | `/v1/account/icon`           | `Account.OpenIcon` — raw bytes          |
 | DELETE | `/v1/account/icon`           | `Account.DeleteIcon`                   |
 | POST   | `/v1/account/access-code`    | redeem an alpha invite code (any-invite) |
+| GET    | `/v1/account/limits`         | `Account.Limits` — storage pool, shared-spaces limit |
 
 `GET /v1/account` → `{id, techSpaceId, metadata?}`. `metadata`
 (`{name?, description?, iconCid?}`) is the locally stored profile,
@@ -440,6 +441,42 @@ redeemed a code before (nothing consumed). Refusals are relayed as
 > until the key arrives and the SDK's background fetch resolves the
 > profile. Clients must tolerate an empty name everywhere a contact
 > profile surfaces (members list, identities directory).
+
+**Limits.** `GET /v1/account/limits` (`Account.Limits`) is what the
+network grants the account:
+
+```jsonc
+{
+  "storage": {                      // the file-storage pool, shared by all the account's spaces
+    "limitBytes": 1073741824,       // the cap; 0 = the network grants no storage
+    "usageBytes": 52428800,         // bytes of durable files this account uploaded, in every space
+    "fetchedAt":  "2026-08-20T17:06:40Z"
+  },
+  "sharedSpaces": {
+    "limit":     3,                 // shared spaces the account may own
+    "fetchedAt": "2026-08-20T17:06:40Z"
+  }
+}
+```
+
+The file nodes answer `storage` and the coordinator answers
+`sharedSpaces`. The server keeps each answer on the device, and
+`fetchedAt` says when the network gave it. Requests a few seconds apart
+share one answer.
+
+A request waits for the network at most five seconds, and not at all
+while the network is failing or slower than that, so give it a longer
+timeout than five seconds. A part the network has not answered is its
+last answer. A part is omitted when the network never answered for it
+on this device: a device that has never been online, or runs with no
+network, reads `{}`. `storage` is also omitted on a network that has no
+file nodes or keeps no account pool. An unreachable network is never an
+error: the route answers `200` offline.
+
+The network accounts the pool on its own schedule: a new grant or a
+finished backup shows some minutes later. A file the pool has no room
+for stays `limited` (docs/17-files.md § Durability states) until the
+pool grows or files are deleted.
 
 ### Identities (account-global directory)
 
@@ -664,9 +701,7 @@ POST /v1/spaces/derived/:name  → 201 SpaceInfo   (404 space.derived_unknown,
   `created` reports whether a usable tech-space row exists —
   materialized here or on any of the account's devices (rows sync).
   `status` is the row status when a row exists; a `deleted` row
-  reports `created:false`. A `created` space whose data has not
-  reached this device opens from its seed on first use, with no node
-  reachable.
+  reports `created:false`.
 - **POST materializes lazily and idempotently** (`Service.Derive`) and
   returns the full single-space `SpaceInfo`. On first materialization the registry's display name is
   written as the space name (`DeriveRequest.Name` — not part of the
@@ -1606,11 +1641,7 @@ failure mid-walk leaves the dependencies it installed, names the step
 in `details.usecase` / `details.bundleId`, and the next call resumes.
 Readers adopt, writers install; when the wait expires the owner
 installs anyway and a member whose index has never arrived is
-`409 bundle.not_ready`. The call's waits are bounded at 90 seconds and
-its install section at two minutes: past either it is
-`503 catalog.setup_timeout` naming the step in `details.step`, what the
-walk landed stays, and a retry resumes
-(`28-well-known-bundles.md` § Endpoints).
+`409 bundle.not_ready`.
 
 ```jsonc
 // CatalogSetupResponse — every bundle the call touched, dependencies

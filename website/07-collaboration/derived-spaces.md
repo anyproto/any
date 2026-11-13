@@ -40,7 +40,7 @@ curl -s http://127.0.0.1:2046/v1/spaces/derived
 |-------|---------|
 | `name` | registry name |
 | `spaceId` | the derived id — computed once at engine boot, never created by this call |
-| `created` | a usable space row exists, materialized here or on any of the account's devices (rows sync); a space whose data has not reached this device opens from its seed on first use, with no node reachable |
+| `created` | a usable space row exists, materialized here or on any of the account's devices (rows sync) |
 | `status` | the row's status (the `SpaceInfo.status` strings) when a row exists; a tombstoned row reports `created: false` |
 
 ```bash

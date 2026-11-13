@@ -647,7 +647,8 @@ Treat the 201 as done and don't block the UI on `durable`. For a
 "not backed up" badge, hold `GET …/files/stats` and refresh it on
 `GET …/files/subscribe` events (state `inflight`/`limited` →
 `durable`). `limited` means the network refused for quota — offer a
-retry (`POST …/files/:fileId/retry`) after the user frees space.
+retry (`POST …/files/:fileId/retry`) after the user frees space;
+`GET /v1/account/limits` reads the account's storage pool.
 
 **Receiving a file another member sent.** There is no push
 notification channel to build — the file IS space data. Subscribe to
