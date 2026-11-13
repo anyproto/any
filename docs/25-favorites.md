@@ -123,6 +123,9 @@ POST /v1/spaces/<tech>/modify
   { "id": "any://o/…", "ops": [ { "type": "$set", "path": "removed", "value": true } ] } ] }
 ```
 
+Deleting a folder also sets `removed: true` on every entry under it,
+subfolders included, in the same `modify`.
+
 Never hard-delete (`delete-records`): CRDT tombstones are sticky, so a
 deleted id can never be created again — the link would be un-star-able
 forever. Move / reorder / rename are `$set` of `parentId` / `pos` /
@@ -130,12 +133,36 @@ forever. Move / reorder / rename are `$set` of `parentId` / `pos` /
 
 ## Reading and rendering
 
-The whole tree is one subscription — the set is small, hold it whole:
+The tree is read a level at a time, each level a window that grows to
+load more. An expanded folder's level:
 
 ```
 POST /v1/spaces/<tech>/query/subscribe
-{ "objectId": "<root>", "dataset": "<rootId>_entries", "sort": ["parentId", "pos"] }
+{ "objectId": "<root>", "dataset": "<rootId>_entries",
+  "filter": { "parentId": "<folderId>", "removed": { "$ne": true } },
+  "sort": ["pos", "id"], "limit": 50 }
 ```
+
+Every live folder, for § Tree semantics:
+
+```
+{ "objectId": "<root>", "dataset": "<rootId>_entries",
+  "filter": { "id": { "$gte": "f:", "$lt": "f;" }, "removed": { "$ne": true } },
+  "sort": ["id"], "limit": 1000 }
+```
+
+The top level holds every entry whose `parentId` names no live folder:
+
+```
+{ "objectId": "<root>", "dataset": "<rootId>_entries",
+  "filter": { "parentId": { "$nin": ["<every live folder id>"] },
+              "removed": { "$ne": true } },
+  "sort": ["pos", "id"], "limit": 50 }
+```
+
+Rebuild it when the live folder set changes. Folders on a `parentId`
+cycle render at the top level, merged by `pos`, then `id`, and leave
+their parent's window.
 
 Render **from the entries alone**: the mirrored `name` / `iconCid` /
 `type` make every entry displayable instantly — offline, and on a
@@ -144,8 +171,8 @@ with **batched target subscriptions**:
 
 ### Target subscriptions, in batches
 
-Group the item links by `spaceId` (the id prefix) and open ONE stream
-per space that has favourites:
+Group the held entries' links by `spaceId` (the id prefix) and open ONE
+stream per space they point into:
 
 ```
 POST /v1/spaces/<spaceId>/objects/query/subscribe
@@ -154,9 +181,7 @@ POST /v1/spaces/<spaceId>/objects/query/subscribe
 ```
 
 - `limit` = the batch size: the window must hold every id, or targets
-  past the window read as absent. Favourites are small — one stream
-  per space carries the whole batch; there is no per-stream ceiling to
-  design around.
+  past the window read as absent.
 - Skip spaces whose row is not loaded on this device (`localStatus`
   from the space-list stream below) — the subscribe would fail; those
   targets render from the mirror as unavailable-fresh.
@@ -176,9 +201,11 @@ POST /v1/spaces/<spaceId>/objects/query/subscribe
   answers `410 object.deleted` when a definitive single check is
   needed.
 
-Plus one account-wide `POST /v1/spaces/query/subscribe` for the raw
-space rows — `name` / `icon` / `remoteStatus` / `localStatus` — which
-feeds both the "… in <Space>" labels and the space-gone cleanup signal.
+Plus one account-wide `POST /v1/spaces/query/subscribe` for those
+spaces' raw rows, `{"id": {"$in": [<spaceIds>]}}` sorted `["id"]`, `limit`
+the number of spaces — `name` / `icon` / `remoteStatus` / `localStatus` —
+which feeds both the "… in <Space>" labels and the space-gone cleanup
+signal. Reconnect it when that set of spaces changes.
 
 Target state, derived from those subscriptions:
 
@@ -202,16 +229,14 @@ Rules:
 
 Every device must compute the same view from the same records:
 resolution is read-side and deterministic, and no client repairs state
-with writes. The policy covers:
+with writes. The policy:
 
-- an entry whose folder is `removed` — including one that syncs in
-  *after* the folder was removed elsewhere (grey the removed folder with
-  its late children, treat them as removed with it, or hoist to root);
+- an entry whose folder is `removed` (one that synced in after the
+  delete) — render at top level;
 - cycles from concurrent moves (A: F1→F2, B: F2→F1) — render the cycle
   members at top level;
-- a `parentId` with no folder record — render, never hide;
-- "is starred" — decide whether it considers the ancestor chain when
-  removal is inherited.
+- a `parentId` with no folder record — render at top level, never hide;
+- "is starred" — the object has a live entry, wherever it renders.
 
 ## See also
 

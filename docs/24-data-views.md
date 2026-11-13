@@ -84,7 +84,8 @@ A view record — `dataview` names the dataview it belongs to:
 ```
 
 `filter` and `sort` are the `/query` body shapes **verbatim**, so a view
-feeds straight into `…/objects/query[/subscribe]` with no translation.
+feeds straight into `…/objects/query[/subscribe]`; the client adds only
+the exclusion and the `id` tiebreak.
 
 ### What the server does and does not know
 
@@ -135,7 +136,7 @@ Deleting a record **burns its id permanently** in that dataset — see
 well-known id.
 
 `pos` is required in both datasets precisely because they are read in
-`pos` order: an absent one sorts as `""`, ahead of every positioned
+`pos` order: an absent one sorts lowest, ahead of every positioned
 record on every peer.
 
 Read the rules from `GET /v1/spaces/:spaceId/datasets` (`x-scope`,
@@ -153,10 +154,10 @@ them.
 ### `pos` — order
 
 A client-assigned lexid string, opaque to the server, in both datasets.
-Sort with `{"sort": ["pos"]}`; insert between two records by minting a
-lexid between their `pos` values. Views are ordered within their
-dataview — the documented read `{"filter": {"dataview": "<id>"},
-"sort": ["pos"]}` is served by the `(dataview, pos)` index.
+Sort with `{"sort": ["pos", "id"]}`; insert between two records by
+minting a lexid between their `pos` values. Views are ordered within
+their dataview — the documented read `{"filter": {"dataview": "<id>"},
+"sort": ["pos", "id"]}` is served by the `(dataview, pos)` index.
 
 ### `layoutSettings` vs `localSettings`
 
@@ -193,7 +194,8 @@ POST /v1/spaces/:spaceId/objects
 
 ```json
 POST /v1/spaces/:spaceId/objects/query
-{"filter": {"any.type": "dataview", "dataview.host": "<hostId>"}}
+{"filter": {"any.type": "dataview", "dataview.host": "<hostId>"},
+ "sort": ["id"], "limit": 50}
 ```
 
 **Write** through `POST /v1/spaces/:spaceId/modify` with
@@ -280,10 +282,10 @@ already exist), no `traceIds`:
 
 **Read** through `POST /v1/spaces/:spaceId/query` (snapshot) or
 `…/query/subscribe` (live), again with the dataview object's id: the
-dataview list is `dataset: "dataviews"`, `sort: ["pos"]`; one dataview's
-views are `dataset: "views"`, `filter: {"dataview": "<id>"}`,
-`sort: ["pos"]`. Both scopes of a view come back on one record — there
-is no second read for the local half.
+dataview list is `dataset: "dataviews"`, `sort: ["pos", "id"]`; one
+dataview's views are `dataset: "views"`, `filter: {"dataview": "<id>"}`,
+`sort: ["pos", "id"]`. Both scopes of a view come
+back on one record — there is no second read for the local half.
 
 Saved views are **not** search-indexed: a view name is navigation
 chrome, not knowledge.
@@ -331,18 +333,20 @@ filter like "status is not done" quietly returns the whole space. A
 filter built once and replayed for months is exactly where that bites.
 
 **Sort:** dotted paths, `-` prefix for descending, applied
-left-to-right. A `/query/subscribe` with `limit > 0` **requires** a
-sort — a windowed live view without one is a 400, so a view whose sort
-a user cleared still needs a fallback (`["-modifiedAt"]`).
+left-to-right. The stored `sort` holds the user's rules; the client
+appends `id` in the last key's direction when it runs the view. A `/query/subscribe` with `limit > 0` **requires** a sort — a
+windowed live view without one is a 400, so a view whose sort a user
+cleared runs with a fallback (`["-modifiedAt", "-id"]`).
 
 **Dates:** filter literals are instants — `{"createdAt": {"$gte":
 {"$date": "2026-01-01T00:00:00Z"}}}`. A bare number or ISO string does
 not error, it answers empty: ordering comparisons are bracketed by
 type, so a number or string literal never matches an instant.
 
-**Paging:** `limit` / `offset` for a table page. `includeTotal` adds
-`total` (the filter-matching count, independent of `limit` / `offset`)
-and `hasNext` to the snapshot; the count is taken once and not updated
+**Paging:** a table grows its window at `offset: 0` to load more
+(`08-clients.md` § 3). `includeTotal` adds
+`total` (the filter-matching count, independent of `limit`) and
+`hasNext` to the snapshot; the count is taken once and not updated
 by `changes` frames, so a live footer re-reads it with a snapshot.
 
 ### Reconciling a stale query
@@ -471,7 +475,7 @@ that simply lacks the field, definitions included.
 
 ```json
 {"filter": {"any.type": "<typeId>", "<typeId>.<propId>": "<optionKey>"},
- "sort": ["-modifiedAt"], "limit": 50}
+ "sort": ["-modifiedAt", "-id"], "limit": 50}
 ```
 
 Against an array the scalar spelling is **contains**, so an object
@@ -497,7 +501,7 @@ collection object):
 
 ```json
 POST /v1/spaces/:spaceId/query/subscribe
-{"objectId": "<typeId>", "dataset": "properties", "sort": ["_ver.id"], "limit": 100}
+{"objectId": "<typeId>", "dataset": "properties", "sort": ["_ver.id", "id"], "limit": 1000}
 ```
 
 Hold that one stream while a grouped view is open and a new option — or

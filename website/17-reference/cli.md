@@ -139,10 +139,10 @@ any backlinks --target <any://uri> [--kind K]... [--limit N]  # across every ind
 any links     <spaceId> <objectId> [--record R] [--dataset D] [--prop P] [--kind K]... [--limit N]
 ```
 
-`query-subscribe` prints the `ready` → `snapshot` → `changes` → `closed` frames as JSON lines; `--limit` is required when `--sort` is set. `--kind` takes `mention`, `link`, `card`, `embed` or `relation`.
+`query-subscribe` prints the `ready` → `snapshot` → `changes` → `closed` frames as JSON lines; a window (`--limit` above 0) needs `--sort`. `--kind` takes `mention`, `link`, `card`, `embed` or `relation`.
 
 ```bash
-any query-subscribe $SP $CHAT --dataset chat_messages --sort=-_ver.id --limit 50 \
+any query-subscribe $SP $CHAT --dataset chat_messages --sort=-_ver.id,-id --limit 50 \
   | jq 'select(.event=="changes") | .data[]'
 ```
 
@@ -311,7 +311,7 @@ Without `--space` a local storage collection is account-scoped; with it, bound t
 ```bash
 any local ensure scratch --index k,-at
 any local insert scratch --doc '[{"id":"a","k":1},{"k":2}]'
-any local query scratch --filter '{"k":{"$gt":0}}' --sort -k --total
+any local query scratch --filter '{"k":{"$gt":0}}' --sort -k,-id --limit 50 --total
 ```
 
 With that collection on an authorized server, export and re-import it:

@@ -21,13 +21,13 @@ import (
 //
 //	POST /v1/spaces/:spaceId/query
 //	{ "objectId": "<oid>", "dataset": "editor_blocks",
-//	  "sort": ["nav.pos"] }
+//	  "sort": ["nav.pos", "id"] }
 //
 // Liveness:
 //
 //	POST /v1/spaces/:spaceId/query/subscribe
 //	{ "objectId": "<oid>", "dataset": "editor_blocks",
-//	  "sort": ["nav.pos"] }
+//	  "sort": ["nav.pos", "id"] }
 
 // blocksCreate handles POST .../editor/blocks.
 //

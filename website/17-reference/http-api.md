@@ -155,7 +155,7 @@ Full semantics in [Bundles](../collaboration/bundles.html).
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects \
   -H 'Content-Type: application/json' -d '{"type":"page","initialProperties":{"any":{"name":"Dune"}}}'
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects/query \
-  -H 'Content-Type: application/json' -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}'
+  -H 'Content-Type: application/json' -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt","-id"],"limit":20}'
 ```
 
 Every `objects` row carries derived `author`, `createdAt`, `spaceId`, `modifiedAt`, `modifiedBy` (instants as `{"$date": …}`; `modifiedBy` is the identity that signed the change `modifiedAt` names). See [Objects](../database/objects.html) and [System fields](../database/system-fields.html).
@@ -184,7 +184,7 @@ Reads over the link index the search indexer maintains — not SDK methods. All 
 | PATCH | `…/objects/:objectId/editor/:collection/blocks/:blockId` | `{set: {"dotted.path": v}, unset: [path]}` | write result | required fields cannot be unset; `404 blocks.not_found` |
 | DELETE | `…/objects/:objectId/editor/:collection/blocks/:blockId` | — | write result | no cascade to children; `404 blocks.not_found` |
 
-Reads: `POST /v1/spaces/:spaceId/query` with `{"objectId", "dataset": "editor_blocks", "sort": ["nav.pos"]}`. See [Editor](../types/editor.html) and [Markdown import/export](../database/markdown-import-export.html).
+Reads: `POST /v1/spaces/:spaceId/query` with `{"objectId", "dataset": "editor_blocks", "sort": ["nav.pos", "id"]}` — a document is read whole. See [Editor](../types/editor.html) and [Markdown import/export](../database/markdown-import-export.html).
 
 ## Data plane
 
@@ -206,8 +206,8 @@ Snapshot body (closed field set — unknown keys `400 request.unknown_field`):
 
 ```json
 { "objectId": "obj", "dataset": "chat_messages",
-  "filter": {"unread": true}, "sort": ["-_ver.id"],
-  "limit": 50, "offset": 0, "includeTotal": true,
+  "filter": {"unread": true}, "sort": ["-_ver.id", "-id"],
+  "limit": 50, "includeTotal": true,
   "projection": {"text": 1, "creator": 1} }
 ```
 
@@ -218,7 +218,7 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/modify -H 'Content-Type: applic
   "objectId":"'$OBJ'","dataset":"notes",
   "records":[{"id":"","upsert":true,"ops":[{"type":"$set","path":"","value":{"title":"x"}}]}]}'
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/datasets/query \
-  -H 'Content-Type: application/json' -d '{"dataset":"'$T'_hours","sort":["-start"],"limit":48}'   # any query-subscribe $SP --all-objects --dataset ${T}_hours --sort -start --limit 48
+  -H 'Content-Type: application/json' -d '{"dataset":"'$T'_hours","sort":["-start","-_objectId","-id"],"limit":48}'   # any query-subscribe $SP --all-objects --dataset ${T}_hours --sort -start,-_objectId,-id --limit 48
 ```
 
 ## Version history
@@ -292,7 +292,7 @@ Values are keyed by `propId`, never `xKey`. See [Types and properties](../databa
 | POST | `…/chat/messages/:msgId/read` | — | 204 | marks this and everything before it |
 | POST | `…/chat/messages/:msgId/reactions-read` | — | 204 | |
 
-Reads: `POST /v1/spaces/:spaceId/query` with `dataset: "chat_messages"`, `sort: ["-_ver.id"]`, a `limit`. See [Chat](../types/chat.html).
+Reads: `POST /v1/spaces/:spaceId/query` with `dataset: "chat_messages"`, `sort: ["-_ver.id", "-id"]`, a `limit`. See [Chat](../types/chat.html).
 
 ## Read state
 
@@ -452,4 +452,4 @@ The import response lists the resulting collections. For space-scoped traces, ex
 
 Import overlays existing collections: matching IDs are replaced, new IDs are inserted, and documents absent from the file remain. Indexes are ensured; a same-name index with a different definition is `400 local.bad_index`. Re-importing an unchanged file leaves the same stored data. Import commits in chunks of 256 documents, so a failure can leave earlier collections and chunks committed. Invalid gzip, format/version, document sections or storage names return `400 local.bad_export`; `details.imported` is the number of fully completed collections, not a rollback guarantee.
 
-> **Note.** Synced writes are not idempotent — each POST produces a new DAG change. The exceptions are `/upsert`, where the caller-supplied record id is the idempotency key, and the adopt-or-install routes (`…/bundles`, `/v1/catalog/:usecaseId/setup`), where a second call adopts. Pagination is offset-based on every list.
+> **Note.** Synced writes are not idempotent — each POST produces a new DAG change. The exceptions are `/upsert`, where the caller-supplied record id is the idempotency key, and the adopt-or-install routes (`…/bundles`, `/v1/catalog/:usecaseId/setup`), where a second call adopts. A GET list takes a `limit` and no `offset`, and version history and `…/read-state/unread` page with an opaque `cursor`; query reads grow a live window or page on a cursor ([Reading data](../database/reading-data.html#paging)).

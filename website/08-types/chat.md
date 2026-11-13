@@ -163,7 +163,7 @@ A counter is absent until first materialized — treat absent as 0, and read it 
 
 ```json
 { "objectId": "<chatId>", "dataset": "chat_messages",
-  "filter": {"unread": true}, "sort": ["_ver.id"], "limit": 1 }
+  "filter": {"unread": true}, "sort": ["_ver.id", "id"], "limit": 1 }
 ```
 
 Unread can appear mid-history: a message written offline by another member can slot between messages you already read once it syncs, so there can be more than one unread region and `unreadCount` can be nonzero while the bottom of the chat is read. The divider query finds the first region wherever it is.
@@ -176,13 +176,13 @@ A mention is a markdown link whose destination is an identity URI (see [links](l
 Hey [Zarko](any://u/<identity>), take a look
 ```
 
-The server derives `mentions: ["<identity>", …]` on every message at write time from two sources: every `any://u/…` link in the text (deduped, first-occurrence order; the legacy `any://m/<spaceId>/<identity>` form counts too) and — because a reply is a ping — the replied-to message's creator. Clients never write the array; text is the source of truth, so a spoofed array can neither silent-ping nor suppress a real ping. It is capped at 64 identities, and the reply fold-in always survives the cap. "All my mentions" and "my unread mentions" are the same shapes as the unread queries: `{"mentions": "<myIdentity>"}` sorted `-_ver.id`, and `{"unreadMention": true}` sorted `_ver.id` with `limit: 1`. Self-mentions list you (an objective fact of the message) but never badge you, except on an agent's `done: true` message, which counts like anyone else's.
+The server derives `mentions: ["<identity>", …]` on every message at write time from two sources: every `any://u/…` link in the text (deduped, first-occurrence order; the legacy `any://m/<spaceId>/<identity>` form counts too) and — because a reply is a ping — the replied-to message's creator. Clients never write the array; text is the source of truth, so a spoofed array can neither silent-ping nor suppress a real ping. It is capped at 64 identities, and the reply fold-in always survives the cap. "All my mentions" and "my unread mentions" are the same shapes as the unread queries: `{"mentions": "<myIdentity>"}` sorted `["-_ver.id", "-id"]`, and `{"unreadMention": true}` sorted `["_ver.id", "id"]` with `limit: 1`. Self-mentions list you (an objective fact of the message) but never badge you, except on an agent's `done: true` message, which counts like anyone else's.
 
 Every `any://` reference in a message — text links and mentions, each attachment's `link`, the agent's `debugLink` — also lands in the server's link index, so "which messages mention this member" or "which messages link this page" is a backlinks read (see [objects](../database/objects.html#links-and-backlinks)).
 
 ## Chat list and notifications
 
-Each chat object's row already carries its counters, so a chat list is a plain objects query — `{"sort": ["-chat.unreadCount"]}` sorts unread-first, and a thousand chats cost one query. Do **not** subscribe to every chat to detect new messages. One bounded space-wide objects subscription covers every chat with something unread:
+Each chat object's row already carries its counters, so a chat list is a plain objects query — `{"sort": ["-chat.unreadCount", "-id"]}` sorts unread-first, and a thousand chats cost one query. Do **not** subscribe to every chat to detect new messages. One bounded space-wide objects subscription covers every chat with something unread:
 
 ```json
 { "filter": {"$and": [

@@ -872,7 +872,7 @@ of `spaces` rows (`guestKey`, `issuedGuestKey`, `issuedInviteKeys`) are
 withheld, and a filter, sort or projection naming one is
 `400 request.invalid_field`. Rows carry `createdAt` as an instant —
 `{"$date": "<RFC 3339>"}`, absent on unstamped rows — so newest-first
-creation ordering is `{"sort": ["-createdAt"]}` and a range filter
+creation ordering is `{"sort": ["-createdAt", "-id"]}` and a range filter
 takes the same shape (`{"$gte": {"$date": "…"}}`). The mapped
 `SpaceInfo.createdAt` on `GET /v1/spaces` is a plain RFC 3339 string.
 The subscribe frame set and `closed` reasons are identical to the
@@ -1983,13 +1983,13 @@ Reads go through the per-object query primitive with
 POST /v1/spaces/:spaceId/query
 { "objectId": "<oid>",
   "dataset":  "editor_blocks",
-  "sort":     ["nav.pos"] }
+  "sort":     ["nav.pos", "id"] }
 ```
 
 Each record carries `id`, `_ver`, `type`, `style`, `text`, `nav`.
 `_ver.id` is the block's creation marker, never bumped by an edit; an
 edit stamps `_ver.<path>` for the paths it wrote.
-Records sort by `nav.pos` ascending (flat order, not DFS — clients
+Records sort by `nav.pos`, then `id` (flat order, not DFS — clients
 that want DFS reconstruct the tree by grouping children under each
 `nav.parentId`). Empty `records` array when the object has no body
 blocks yet.
@@ -2060,7 +2060,7 @@ with `dataset=editor_blocks`:
 
 ```
 POST /v1/spaces/:spaceId/query/subscribe
-{ "objectId": "<oid>", "dataset": "editor_blocks", "sort": ["nav.pos"] }
+{ "objectId": "<oid>", "dataset": "editor_blocks", "sort": ["nav.pos", "id"] }
 ```
 
 `changes` frames carry `added` / `updated` / `removed` for blocks
@@ -2181,9 +2181,13 @@ POST /v1/spaces/:spaceId/objects/query
   "filter": { "$and": [ { "<wikiCollectionId>.<parentIdPropId>": "<parentObjectId>" },
                         { "any.collections": "<wikiCollectionId>" },
                         { "any.collections": { "$nin": ["bin", "template"] } } ] },
-  "sort":   [ "<wikiCollectionId>.<posPropId>" ]
+  "sort":   [ "<wikiCollectionId>.<posPropId>", "id" ],
+  "limit":  50
 }
 ```
+
+Library rows merge in by the order `28-well-known-bundles.md`
+§ Library rows gives, once the level is read past them.
 
 The columns are ordinary properties: unindexed on the `objects`
 storage collection (a scan, `09-query.md` § Indexes); `parentId` and `pos` are
@@ -2352,7 +2356,7 @@ addressing them are rejected):
   the object's last writer, `author` on an object nobody edited since
   it was created.
 
-"Recently modified first" is `{"sort": ["-modifiedAt"]}`.
+"Recently modified first" is `{"sort": ["-modifiedAt", "-id"]}`.
 
 All six take POST (the filter/sort body doesn't fit a query string).
 The bare `…/query` returns a point-in-time snapshot;
@@ -2402,7 +2406,7 @@ into `/query` must treat 404 as "stale hit", not an error.
   "objectId":   "obj_abc",            // per-object variant only
   "dataset":    "notes",              // per-object variant only
   "filter":     { "tags": "idea" },
-  "sort":       ["-_ver.id"],         // required when limit > 0 on subscribe
+  "sort":       ["-_ver.id", "-id"],  // required when limit > 0 on subscribe
   "limit":      100,
   "offset":     0,
   "includeTotal":       true,         // populate `total` + `hasNext` in the snapshot
@@ -2637,9 +2641,9 @@ data: {"reason": "overflow"}
 
   An event with an empty `versionId` is the engine's re-read of the
   window from storage, or an object deletion. A window at `offset: 0`
-  stays equal to a fresh query of the same body: what a change's own
-  event could not say about the window, the re-read ships right after
-  it — `added`, `updated` and `removed` alike, the first two with
+  whose sort ends in `id` stays equal to a fresh query of the same
+  body: what a change's own event could not say about the window, the
+  re-read ships right after it — `added`, `updated` and `removed` alike, the first two with
   `doc` and no `ops`. A record without `ops`, in any event, is applied
   by taking `doc` whole.
 - **`: keepalive`** — comment frame every 25s during silence; defeats
@@ -3411,7 +3415,8 @@ POST /v1/spaces/:spaceId/datasets/aggregate         { dataset, pipeline, groupLi
   value, in both scopes: one object's record ids from `a` up to `b`
   are `{"id": {"$gte": "<objectId>/a", "$lt": "<objectId>/b"}}`.
 - **Order.** `_ver` orders the changes of one object. Records of
-  different objects share no version order: sort on a declared field.
+  different objects share no version order: sort on a declared field,
+  then `id`.
 - **Errors.** `400 dataset.not_shared` — the dataset is not shared, or
   the space does not hold it. `400 request.unknown_field` — a key the
   body does not take, `objectId` included. `405 space.unsupported` on
@@ -3599,9 +3604,10 @@ client to delete or re-parent (`$set dataview`).
 No bespoke endpoints and no `dataview` module: write through
 `POST /v1/spaces/:spaceId/modify` with the dataview object's
 `objectId` and `dataset: "dataviews"` /
-`"views"`, read through `…/query[/subscribe]` — the dataview list sorted
-by `pos`, one dataview's views with `{"filter": {"dataview": "<id>"},
-"sort": ["pos"]}` (indexed). `name` + `pos` are required on a dataview,
+`"views"`, read through `…/query[/subscribe]` — the dataview list
+sorted `["pos", "id"]`, one dataview's views with
+`{"filter": {"dataview": "<id>"}, "sort": ["pos", "id"]}` (indexed).
+`name` + `pos` are required on a dataview,
 `dataview` + `name` + `pos` + `layout` on a view; `creator` / `createdAt`
 / `modifiedAt` are server-stamped and reject client writes; every synced
 field is `mutableBy: any` and any writer may delete a record.
@@ -3753,9 +3759,9 @@ by construction.
 **`miniapp`** — the sidebar entry: an object that runs an installed
 bundle, or an ordinary object the user pinned. The space sidebar is the
 list of members — `{"any.collections": "miniapp"}` minus `bin` members
-and `miniapp.hidden`, sorted on `miniapp.pos`. A collection, not a
-type, so an app root keeps its own type slot (its definition marker, or
-the type a pinned object has). Three properties:
+and `miniapp.hidden`, sorted `["miniapp.pos", "id"]`. A collection,
+not a type, so an app root keeps its own type slot (its
+definition marker, or the type a pinned object has). Three properties:
 
 - `bundle` (string) — the id of the installed bundle (§ Bundles —
   `system:wiki/v1`, a marketplace id, …), which is what a client
@@ -3793,10 +3799,10 @@ its stamps and a restored object never keeps stale ones; a second move
 re-stamps. Clients filter members out of ordinary lists —
 `{"any.collections": {"$nin": ["bin", "template"]}}`, templates
 excluded by the same clause — and list the bin with
-`{"any.collections": "bin"}` sorted `-bin.movedAt` (not indexed; the
-bin is small). Restore brings the object back as it was: unfiling is
-not a delete, nothing else on the row changes, and the object keeps its
-type throughout. Permanent deletion stays
+`{"any.collections": "bin"}` sorted `["-bin.movedAt", "-id"]` (not
+indexed). Restore brings the object back as it was: unfiling is not a
+delete, nothing else on the row changes, and the object keeps its type
+throughout. Permanent deletion stays
 `DELETE …/objects/:objectId`. The stamps are ordinary synced
 properties: the server writes them, but a peer can write the namespace
 directly, so a reader treats an absent stamp as unknown, never as "not
@@ -5114,8 +5120,8 @@ keeps the QUIC listener down.
 - `middleware.RequestID` — generate an id per request for the logs.
 - **Logger middleware** wired to `any-sync/app/logger` — one line per
   request (path, status, duration).
-- `middleware.BodyLimit("1M")` — reject larger bodies, except the
-  routes whose raw body streams into the SDK or the local store: file
+- `middleware.BodyLimit("1M")` — reject bodies over 1 MB (1,000,000
+  bytes), except the routes whose raw body streams into the SDK or the local store: file
   attach (§ Files), the avatar upload (§ Account, capped by the SDK)
   and the local-store import.
 - **JSON body check**: on every other `/v1` route, a `POST`, `PUT`,
@@ -5144,10 +5150,9 @@ loopback-only listen stays the trust boundary.
 
 ## Pagination
 
-Offset-based (`limit` / `offset`), mirroring the SDK. Version history
-and chat backward paging are the exceptions: history pages with an
-opaque `cursor` (§ Version history), chat with a `_ver.id` filter
-(§ Chat → Read).
+A GET list takes a `limit` and no `offset`. Version history and
+`…/read-state/unread` page with an opaque `cursor`; query reads follow
+`08-clients.md` § 3.
 
 ## Idempotency
 

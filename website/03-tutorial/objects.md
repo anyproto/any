@@ -49,13 +49,13 @@ curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/j
 } ] }
 ```
 
-`author`, `createdAt`, `modifiedAt` and `modifiedBy` are derived by the server and read-only. `modifiedAt` bumps on every synced write and `modifiedBy` names who signed it, so "recently edited" is `{"sort": ["-modifiedAt"]}` with no work on your side ([System fields](../database/system-fields.html)).
+`author`, `createdAt`, `modifiedAt` and `modifiedBy` are derived by the server and read-only. `modifiedAt` bumps on every synced write and `modifiedBy` names who signed it, so "recently edited" is `{"sort": ["-modifiedAt", "-id"]}` with no work on your side ([System fields](../database/system-fields.html)).
 
 Make a few more objects, then list them newest first:
 
 ```bash
 curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/json' \
-  -d '{"sort": ["-modifiedAt"], "limit": 20, "includeTotal": true}'
+  -d '{"sort": ["-modifiedAt", "-id"], "limit": 20, "includeTotal": true}'
 ```
 
 Filters use the same grammar throughout the system — `{"any.name": "Groceries"}`, `{"createdAt": {"$gte": {"$date": "2026-09-01T00:00:00Z"}}}`, and from Part 2 on `{"any.type": "<typeId>"}` for the type and `{"any.collections": "<collectionId>"}` for membership in a collection (an array field matches on any element). The full grammar is in [Reading data](../database/reading-data.html).
@@ -72,7 +72,7 @@ Then start the stream in your current terminal:
 
 ```bash
 curl -s -N -X POST $API/spaces/$SPACE/objects/query/subscribe -H 'content-type: application/json' \
-  -d '{"sort": ["-modifiedAt"], "limit": 20}'
+  -d '{"sort": ["-modifiedAt", "-id"], "limit": 20}'
 ```
 
 ```

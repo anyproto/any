@@ -77,10 +77,9 @@ object (`files/query/subscribe`), or ride the status stream.
 
 ## Reads: which endpoint when
 
-1. **Typed member view** — `GET /files[?objectId=]`,
+1. **Typed member view** — `GET /files?objectId=`,
    `GET /files/:fileId`: unsealed `FileInfo` incl. name/mime. The
-   normal client path. The unfiltered listing walks every file in the
-   space — fine at human scale; page with `?limit=` for huge spaces.
+   normal client path.
 2. **Windowed query/subscribe** —
    `POST /objects/:objectId/files/query[/subscribe]`: the generic
    snapshot+SSE primitive over one object's payload rows (cleartext

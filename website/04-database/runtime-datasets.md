@@ -145,7 +145,7 @@ curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/modify \
 # read
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
-  -d '{"objectId": "'$OBJ'", "dataset": "'$TYPE'_articles", "sort": ["-createdAt"]}'
+  -d '{"objectId": "'$OBJ'", "dataset": "'$TYPE'_articles", "sort": ["-createdAt", "-id"], "limit": 50}'
 ```
 
 A `200` does not mean every record landed. The change commits, and whatever the handler refused at apply comes back in `rejections` — the same write without `upsert` on a fresh dataset is one, since strict mode updates only ids that exist:
@@ -223,7 +223,7 @@ Every read returns a record with `id: "<objectId>/<recordId>"` and `_objectId: "
 ```sh
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
-  -d '{"objectId": "'$MON'", "dataset": "'$HOURS'", "sort": ["id"]}'
+  -d '{"objectId": "'$MON'", "dataset": "'$HOURS'", "sort": ["id"], "limit": 50}'
 ```
 
 Every object's records are read through the dataset scope. The body names `dataset` — the storage collection, `<typeId>_<key>` — and no `objectId`; the reply shapes and the SSE frames are the per-object ones:
@@ -239,7 +239,7 @@ curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/datasets/query \
   -H 'Content-Type: application/json' -d '{
   "dataset": "'$HOURS'",
   "filter": {"start": {"$gte": {"$date": "2026-01-05T15:00:00Z"}}},
-  "sort": ["start"], "limit": 100, "projection": {"_ver": -1}}'
+  "sort": ["start", "id"], "limit": 100, "projection": {"_ver": -1}}'
 ```
 
 ```json
@@ -267,10 +267,10 @@ curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/datasets/aggregate \
 any aggregate $SPACE --all-objects --dataset $HOURS \
   --pipeline '[{"$group":{"_id":"$_objectId","steps":{"$sum":"$steps"}}}]'
 
-any query-subscribe $SPACE --all-objects --dataset $HOURS --sort -start --limit 48
+any query-subscribe $SPACE --all-objects --dataset $HOURS --sort -start,-_objectId,-id --limit 48
 ```
 
-A dataset-scope subscription carries the changes of every object's records. Deleting an object removes its records, and the stream sees them leave as `removed` entries in batches with an empty `versionId` — apply them directly. Give the stream a `filter`, or a `sort` with a `limit`: an unbounded one holds every record of the dataset ([Subscribe](../realtime/subscribe.html)).
+A dataset-scope subscription carries the changes of every object's records. Deleting an object removes its records, and the stream sees them leave as `removed` entries in batches with an empty `versionId` — apply them directly. Give the stream a `limit` and a sort that ends in `id`: an unbounded one holds every record of the dataset ([Subscribe](../realtime/subscribe.html)).
 
 ### Record ids on writes
 

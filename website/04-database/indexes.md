@@ -18,7 +18,7 @@ Built-in datasets declare indexes for their hot paths:
 | `chat_messages` | `idx_mentions` (sparse, multikey) | `{"mentions": "<identity>"}` filters. |
 | `chat_messages` | `unread`, `unreadMention`, `unreadReactions` (sparse, each with `_ver.id`) | Unread lists and badges — only currently-flagged messages carry an entry. |
 | `dataviews`, `views` | `pos`; on `views` also `(dataview, pos)` | A host's tables and one table's views, in order. |
-| `objects` | `modifiedAt` (dense) | `sort: ["-modifiedAt"]` recency lists and range filters on it. |
+| `objects` | `modifiedAt` (dense) | `sort: ["-modifiedAt", "-id"]` recency lists and range filters on it. |
 | `objects` | `any.type` (dense) | `{"any.type": "<typeId>"}` — equality on the object's one type. |
 | `objects` | `any.collections` (sparse) | `{"any.collections": "<collectionId>"}` — membership; the sidebar, the bin, the wiki tree's member set. |
 
@@ -40,7 +40,7 @@ The `objects` storage collection's other row-root stamps — `author`, `createdA
   "sort": ["-_ver.id", "-id"], "limit": 50 }
 ```
 
-**List a block's children through the tree index.** `{"filter": {"nav.parentId": "<block>"}, "sort": ["nav.pos"]}` on `editor_blocks` hits `(nav.parentId, nav.pos)` directly. The wiki tree on `objects` has no such index — its `parentId` / `pos` are ordinary columns of the wiki collection and scan ([Objects](objects.html)). Put `{"any.collections": "<wikiCollectionId>"}` in the same filter so the sparse index narrows the scan first.
+**List a block's children through the tree index.** `{"filter": {"nav.parentId": "<block>"}, "sort": ["nav.pos", "id"]}` on `editor_blocks` hits `(nav.parentId, nav.pos)` directly. The wiki tree on `objects` has no such index — its `parentId` / `pos` are ordinary columns of the wiki collection and scan ([Objects](objects.html)). Put `{"any.collections": "<wikiCollectionId>"}` in the same filter so the sparse index narrows the scan first.
 
 **Put `$match` first in a pipeline.** [Aggregation](aggregation.html) pushes a leading `$match` down to the index plan; tombstone exclusion folds into the same prefix so it stays index-planned.
 
