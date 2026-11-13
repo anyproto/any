@@ -87,9 +87,9 @@ The passkey is the one secret the server may need at boot: it comes from the env
 | `index.vector.dim` | `ANY_INDEX_VECTOR_DIM` | `0` | 0 = learned from the first embedding, then pinned |
 | `index.vector.mode` | `ANY_INDEX_VECTOR_MODE` | `ivfsq` | `ivfsq` \| `btree` \| `hnsw` \| `hybrid` \| `bruteforce` |
 | `index.search.stopWords` | `ANY_INDEX_SEARCH_STOP_WORDS` | `true` | strip stop words from the FTS leg |
-| `index.search.ftsWeight` | `ANY_INDEX_SEARCH_FTS_WEIGHT` | `1` | RRF weight, lexical leg |
-| `index.search.vectorWeight` | `ANY_INDEX_SEARCH_VECTOR_WEIGHT` | `1` | RRF weight, dense leg |
-| `index.search.adaptiveWeights` | `ANY_INDEX_SEARCH_ADAPTIVE_WEIGHTS` | `false` | auto-down-weight flat FTS scores |
+| `index.search.ftsWeight` | `ANY_INDEX_SEARCH_FTS_WEIGHT` | unset | fixed RRF weight, lexical leg; both unset and `adaptiveWeights` off: per-query form |
+| `index.search.vectorWeight` | `ANY_INDEX_SEARCH_VECTOR_WEIGHT` | unset | fixed RRF weight, dense leg |
+| `index.search.adaptiveWeights` | `ANY_INDEX_SEARCH_ADAPTIVE_WEIGHTS` | `false` | turns fixed weights on (1 / 1 at k 60 unless set) and down-weights flat FTS scores |
 | `index.search.defaultOperator` | `ANY_INDEX_SEARCH_DEFAULT_OPERATOR` | `or` | `or` \| `and` for bare FTS terms |
 | `index.search.minVectorSim` | `ANY_INDEX_SEARCH_MIN_VECTOR_SIM` | `0` | cosine floor; 0 = `> 0` |
 | `index.search.bm25B` / `bm25K1` | `ANY_INDEX_SEARCH_BM25_B` / `_K1` | `0` | 0 = engine defaults 0.75 / 1.2 |

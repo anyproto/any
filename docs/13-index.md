@@ -899,11 +899,13 @@ page the open does not read fails later, on the read that meets it.
 `POST /v1/spaces/:spaceId/search` `{query, scopes?, limit?, mode?,
 require?, exclude?, maxData?, passages?, filter?}` →
 `{hits: [{scope, objectId, dataset, recordId, chunk?, data, dataOffset?,
-dataTotal, score, match?, passages?}], mode, vectorStatus, truncated?}`.
+dataTotal, score, match?, passages?}], mode, vectorStatus, truncated?,
+scoreScale?}`. `scoreScale: "unit"` marks a hybrid reply, whose content
+scores read 0–1.
 
 Modes: `fts` (BM25), `vector` (cosine ANN; requires an embedder; hits
 with similarity ≤ 0 — or ≤ `minVectorSim` — are dropped), `hybrid`
-(default — both legs fused by reciprocal rank, k = 60; degrades to `fts`
+(default — both legs fused by reciprocal rank, § Ranking knobs; degrades to `fts`
 when no embedder is configured or the query embedding fails or exceeds
 its budget — `mode` in the reply is the mode that ran), `title` (the
 title pass alone, below). The query
@@ -914,8 +916,9 @@ leaves the embedder's queue at once. The first query after the local
 child's idle retirement (§ The embedder child process) spawns it again,
 about a second warm; a spawn that outlasts the budget degrades a
 `hybrid` search to `fts` and answers a `vector` search `503
-index.embedder_unavailable`. Scores are comparable only within
-one response. `limit` defaults to 10 and is clamped to 100. CLI:
+index.embedder_unavailable`. BM25 and cosine scores are
+comparable only within one response; a hybrid content score is 0–1 and
+comparable across responses (§ Ranking knobs). `limit` defaults to 10 and is clamped to 100. CLI:
 `any search <spaceId> <query> [--scopes a,b] [--limit N] [--mode …]
 [--require T …] [--exclude T …] [--max-data N] [--passages N]`.
 
@@ -1043,9 +1046,26 @@ survive intact.
   stop list (`stopwords.go`) is removed from the FTS-leg query only; the
   vector leg gets the full query. An all-stop-words query is left
   unchanged.
-- **Weighted RRF** (`ftsWeight` / `vectorWeight`, default 1 / 1) — scales
-  each leg's fusion contribution.
-- **Adaptive leg weighting** (`adaptiveWeights`, default **off**) —
+- **Fusion form** — by default each query picks its RRF form
+  (`fusion.go`). The share of its words found in the best of the top
+  three FTS chunks, then how peaked the stronger leg is (cosine top-1 −
+  top-5, or BM25's relative top-1 − top-2 gap), choose vector-heavy RRF
+  (1 / 2 at k 20), the vector leg alone, lexical-heavy RRF (1 / 0.5 at
+  k 20) or the FTS leg alone. A single leg fuses at k 0, so its score is
+  1 / rank (ranks from 1) and a gate above 0.5 admits its first hit
+  only; the hits only the other leg holds follow, scored as the next
+  ranks, so the page is never shorter for it. A hit missing from a fused
+  leg can't reach 1, an empty leg included. A `word*` in the query is
+  covered by any word it starts, and a word in a script without spaces
+  by a chunk that contains it. One fixed weight can't serve both kinds of
+  query: above ~1.2 every vector-only hit outranks every FTS-only one,
+  FTS #1 included, which costs word, name and id lookups. Setting
+  `ftsWeight` / `vectorWeight` fixes weighted RRF at k 60 instead (an
+  unset one is 1). Every form's score is divided by its maximum,
+  `Σ weight / (k + 1)`, so a hybrid score reads 0–1 and clients can gate
+  on it.
+- **Adaptive leg weighting** (`adaptiveWeights`, default **off**; turns
+  fixed weights on, 1 / 1 unless set) —
   down-weights the FTS leg per query by its score concentration, so a
   flat BM25 distribution (paraphrastic queries) can't drag hybrid below
   the dense leg. FTS only — cosine is uncalibrated. Wins on weak-lexical

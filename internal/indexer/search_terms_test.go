@@ -216,6 +216,17 @@ func TestIndexer_SearchLimitCountsRecords(t *testing.T) {
 		if len(res.Hits) != 2 {
 			t.Fatalf("%s: hits = %d, want both records: %+v", mode, len(res.Hits), res.Hits)
 		}
+		// Only a hybrid reply scores on the unit scale.
+		if want := map[string]string{api.SearchModeHybrid: api.ScoreScaleUnit}[mode]; res.ScoreScale != want {
+			t.Fatalf("%s: scoreScale %q, want %q", mode, res.ScoreScale, want)
+		}
+		if mode == api.SearchModeHybrid {
+			for _, h := range res.Hits {
+				if h.Match == "" && (h.Score <= 0 || h.Score > 1) {
+					t.Fatalf("hybrid content score %v outside (0, 1]: %+v", h.Score, h)
+				}
+			}
+		}
 		byRec := map[string]api.SearchHit{}
 		for _, h := range res.Hits {
 			byRec[h.RecordId] = h

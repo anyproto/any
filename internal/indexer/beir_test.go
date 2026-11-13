@@ -108,7 +108,7 @@ func TestSearchEvalBEIR(t *testing.T) {
 	ix.store.SetFTSParams(envFloat("ANY_BEIR_BM25_B"), envFloat("ANY_BEIR_BM25_K1"), envFloat("ANY_BEIR_TITLE_WEIGHT"))
 	docVecs := ingestBEIR(t, ix, emb, corpus)
 
-	t.Logf("=== %s: production knobs (stopwords on, RRF 1/1, floor 0) — nDCG@%d / recall@%d / MRR ===", name, k, k)
+	t.Logf("=== %s: production knobs (stopwords on, per-query fusion, floor 0) — nDCG@%d / recall@%d / MRR ===", name, k, k)
 	t.Logf("%-8s  %7s  %7s  %7s", "mode", "ndcg", "recall", "mrr")
 	for _, mode := range []string{api.SearchModeFTS, api.SearchModeVector, api.SearchModeHybrid} {
 		m := eval(ix, mode)
@@ -165,8 +165,9 @@ func TestSearchEvalBEIR(t *testing.T) {
 		label string
 		opts  Options
 	}{
-		{"no stopwords, 1/1", Options{}},
-		{"stopwords, 1/1", Options{StopWords: true}},
+		{"no stopwords, 1/1", Options{FtsWeight: 1, VectorWeight: 1}},
+		{"stopwords, 1/1", Options{StopWords: true, FtsWeight: 1, VectorWeight: 1}},
+		{"stopwords, per-query form", Options{StopWords: true}},
 		{"stopwords, fts x1.5", Options{StopWords: true, FtsWeight: 1.5, VectorWeight: 1}},
 		{"stopwords, vec x1.5", Options{StopWords: true, FtsWeight: 1, VectorWeight: 1.5}},
 		{"stopwords, vec x2", Options{StopWords: true, FtsWeight: 1, VectorWeight: 2}},

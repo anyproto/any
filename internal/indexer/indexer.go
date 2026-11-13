@@ -75,8 +75,9 @@ type Options struct {
 
 	// --- hybrid-search ranking knobs (chunker-hybrid-search-report § 5) ---
 
-	// FtsWeight / VectorWeight scale each leg's RRF contribution in
-	// hybrid mode. Default 1 each (plain RRF).
+	// FtsWeight / VectorWeight fix each leg's RRF weight in hybrid mode
+	// (k 60; an unset one is 1). Both unset, and AdaptiveWeights off:
+	// each query picks its RRF form (planFusion).
 	FtsWeight    float64
 	VectorWeight float64
 	// FTSDefaultAnd makes the lexical leg require ALL query terms (AND)
@@ -88,7 +89,8 @@ type Options struct {
 	// confidence (legConfidence) — auto-down-weighting BM25 when its
 	// scores are flat/weak (e.g. paraphrastic corpora), so a weak lexical
 	// leg can't drag hybrid below the dense leg. Vector weight is left
-	// alone (cosine is uncalibrated). Off by default.
+	// alone (cosine is uncalibrated). Turns fixed weights on; off by
+	// default.
 	AdaptiveWeights bool
 	// ChunkRunes is the split target for long records (chunk.go): an
 	// entry longer than this many runes is indexed as several chunk
@@ -202,12 +204,6 @@ func (o Options) withDefaults() Options {
 	}
 	if o.AnnounceAfter == 0 {
 		o.AnnounceAfter = 3 * time.Second
-	}
-	if o.FtsWeight <= 0 {
-		o.FtsWeight = 1
-	}
-	if o.VectorWeight <= 0 {
-		o.VectorWeight = 1
 	}
 	if o.ChunkRunes <= 0 {
 		o.ChunkRunes = DefaultChunkRunes
@@ -1089,15 +1085,11 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 		var fused []Hit
 		switch mode {
 		case api.SearchModeHybrid:
-			ftsW := ix.opts.FtsWeight
-			if ix.opts.AdaptiveWeights {
-				// Down-weight a flat/weak BM25 leg. Judged on the fixed
-				// over-fetch window, not the whole pull: the pull's depth
-				// follows how records are chunked, and a deeper tail only
-				// ever raises the confidence.
-				ftsW *= legConfidence(ftsHits[:min(len(ftsHits), fetch)])
-			}
-			fused = fuseRRF([][]Hit{ftsHits, vecHits}, []float64{ftsW, ix.opts.VectorWeight}, 0)
+			plan := ix.opts.fusionPlan(req.Query, ftsHits, vecHits, fetch)
+			lists, weights := plan.lists(ftsHits, vecHits)
+			fused = fuseRRFK(lists, weights, plan.k, 0)
+			normalizeRRF(fused, weights, len(lists), plan.k)
+			fused = plan.backfill(fused, ftsHits, vecHits)
 		case api.SearchModeFTS:
 			fused = ftsHits
 		case api.SearchModeVector:
@@ -1116,6 +1108,9 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 	// is short — in hybrid the other leg may have filled it.
 	out := api.SearchResponse{Hits: make([]api.SearchHit, 0, len(titles)+len(groups)), Mode: mode, VectorStatus: vectorStatus,
 		Truncated: budgetOut && len(titles)+len(groups) < limit}
+	if mode == api.SearchModeHybrid {
+		out.ScoreScale = api.ScoreScaleUnit
+	}
 	for _, h := range titles {
 		out.Hits = append(out.Hits, searchHit(h, window))
 	}

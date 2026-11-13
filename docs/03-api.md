@@ -1068,13 +1068,14 @@ Reply:
       "dataTotal": 26, "score": 4.21, "match": "prefix" },
     { "scope": "chat", "objectId": "…", "dataset": "chat_messages",
       "recordId": "…", "data": "the zeppelin disaster of 1937",
-      "dataTotal": 29, "score": 0.0328 },
+      "dataTotal": 29, "score": 0.92 },
     { "scope": "email", "objectId": "…", "dataset": "email_messages",
       "recordId": "…", "chunk": 2, "data": "…the Hindenburg burned at…",
-      "dataOffset": 1210, "dataTotal": 1984, "score": 0.0161 }
+      "dataOffset": 1210, "dataTotal": 1984, "score": 0.47 }
   ],
   "mode": "hybrid",
-  "vectorStatus": "used"
+  "vectorStatus": "used",
+  "scoreScale": "unit"
 }
 ```
 
@@ -1166,14 +1167,17 @@ much to trust recall — whether semantic search took part, and why not:
 
 | Value | Meaning |
 |-------|---------|
-| `used` | the vector leg ran and contributed to ranking |
+| `used` | the vector leg ran and took part in the ranking |
 | `unavailable` | embedder configured but unreachable or over budget for this query — results are lexical-only; retrying later may differ — or its model answers at another dimension than the index, until the index is rebuilt |
 | `disabled` | no embedder configured on this server — vector can never run until config changes |
 | `skipped` | the caller asked for `mode: "fts"` or `"title"`, or the title hits filled the page; vector was not attempted |
 
-Scores are comparable only within one response and within one block
-(BM25 for fts and for title hits, cosine similarity for vector, RRF for
-hybrid). The index covers content written while indexing is on — "index
+BM25 (fts, and title hits in every mode) and cosine (vector) scores are
+comparable only within one response and within one block. A hybrid
+content score is the RRF sum divided by its maximum: 0–1, comparable
+across responses, and the reply carries `scoreScale: "unit"`. A reply
+without `scoreScale` — hybrid degraded to fts included — carries BM25 or
+cosine. The index covers content written while indexing is on — "index
 from the next change" (`docs/13-index.md`).
 
 Request errors: `400 request.missing_field` (no `query`),
