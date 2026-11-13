@@ -94,7 +94,7 @@ func addWindowQueryFlags(cmd *cobra.Command, filter, sort, projection *string, l
 	cmd.Flags().StringVar(projection, "projection", "",
 		"comma-separated field paths to return, '-' prefix to exclude (e.g. 'any,page' or '-_ver'); id always rides along and _ver follows the projection")
 	cmd.Flags().StringVar(sort, "sort", "", "comma-separated sort keys (prefix '-' for descending)")
-	cmd.Flags().IntVar(limit, "limit", 0, "window size; required when --sort is set")
+	cmd.Flags().IntVar(limit, "limit", 0, "rows to return (0 = unbounded); a subscribe window needs --sort")
 	cmd.Flags().IntVar(offset, "offset", 0, "skip the first N records of the snapshot")
 	cmd.Flags().BoolVar(includeTot, "total", false, "include the unbounded match count and hasNext flag")
 }

@@ -40,7 +40,7 @@ $ curl -fsS $API/spaces/$S/objects -H 'content-type: application/json' \
   "objectId": "bafyrei…"
 }</span>
 $ curl -fsSN $API/spaces/$S/objects/query/subscribe -H 'content-type: application/json' \
-    -d '{"sort":["-modifiedAt"],"limit":20}'
+    -d '{"sort":["-modifiedAt","-id"],"limit":20}'
 <span class="out">event: ready
 data: {}
 

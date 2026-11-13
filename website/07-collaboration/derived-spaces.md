@@ -69,9 +69,11 @@ any space derived create bao    # materialize
 - its space-index handler drops `remoteStatus=deleted` writes on flagged rows arriving from any peer;
 - its deletion reconciler exempts them, so a coordinator reporting a space it never saw (derived offline) does not tombstone it.
 
-`SpaceInfo.derived` surfaces the flag. Joiners of someone else's derived space never carry it, so their removal stays allowed.
+`SpaceInfo.derived` surfaces the flag.
 
-> **Note.** A derived space is an ordinary space in every other respect — `spaceType: "any.space"`, members, [invites](invites.html), datasets, search. Only its id and its permanence are special.
+A derived space belongs to its account alone. Invite create, the guest key and a direct add answer `409 space.derived_unshareable`.
+
+> **Note.** A derived space is an ordinary space in every other respect — `spaceType: "any.space"`, datasets, search. Its id, its permanence and its single owner are what is special.
 
 ## Alongside an ad-hoc space
 

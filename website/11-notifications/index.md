@@ -38,7 +38,7 @@ Long-running operations broadcast `process.*` events on the [event bus](../realt
 | register / progress / finish / cancel a process | `POST /v1/processes[/:id/progress|finish|cancel]` |
 | live process view | `GET /v1/processes`; raw frames on `GET /v1/events/subscribe?type=process.*` |
 
-Desktop notifications for chat are a client concern built from subscriptions and materialized unread counters rather than push — see [Chat](../types/chat.html). ACL and invite events are surfaced in-app, never pushed.
+Desktop notifications for chat are a client concern built from subscriptions, materialized unread counters and the space's unread feed rather than push — see [Chat](../types/chat.html). ACL and invite events are surfaced in-app, never pushed.
 
 <div class="cards">
 <a href="push.html"><strong>Push notifications</strong><span>Sender-pushes E2E model, topics, notifyMode settings, receiver-side keys and configuration</span></a>

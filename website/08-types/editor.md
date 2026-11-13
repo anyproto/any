@@ -42,7 +42,7 @@ Reads go through the generic per-object query with `dataset=editor_blocks`, sort
 ```bash
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/query \
   -H 'Content-Type: application/json' \
-  -d '{"objectId": "'$OBJ'", "dataset": "editor_blocks", "sort": ["nav.pos"]}'
+  -d '{"objectId": "'$OBJ'", "dataset": "editor_blocks", "sort": ["nav.pos", "id"]}'
 ```
 
 Records come back in flat `nav.pos` order, not depth-first — a client that wants the tree groups children under each `nav.parentId`. An object with no body yet returns an empty `records` array. For a live document view use the same body against `…/query/subscribe`: `added` carries the full block as `doc` plus its per-field ops, `updated` the post-apply doc and the triggering ops, `removed` just the id. The same frames fire whether the change came from a block PATCH, a markdown PUT, or another member's device — see [subscribe](../realtime/subscribe.html).

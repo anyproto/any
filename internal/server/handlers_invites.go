@@ -20,13 +20,16 @@ import (
 //	@Param		spaceId	path		string	true	"Space ID"
 //	@Success	201		{object}	api.InviteCreateResponse
 //	@Failure	403		{object}	api.ErrorEnvelope	"acl.forbidden — only the space owner can make the space shareable"
-//	@Failure	409		{object}	api.ErrorEnvelope	"Duplicate invite"
+//	@Failure	409		{object}	api.ErrorEnvelope	"invite.duplicate — an invite already exists; acl.limit_reached — the owner's plan is at its shared-spaces limit; space.derived_unshareable — a derived space"
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/invites [post]
 func (d *deps) inviteCreate(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
 		return errResp
+	}
+	if resp, refused := d.derivedUnshareable(c, sp); refused {
+		return resp
 	}
 	inv, err := sp.ACL().CreateInvite(c.Request().Context())
 	if err != nil {
@@ -175,12 +178,16 @@ func (d *deps) inviteRevokeAll(c echo.Context) error {
 //	@Produce	json
 //	@Param		spaceId	path		string	true	"Space ID"
 //	@Success	201		{object}	api.InviteCreateResponse
+//	@Failure	409		{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of shared spaces or of this space's readers; space.derived_unshareable — a derived space"
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/guest-key [post]
 func (d *deps) guestKeyCreate(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
 		return errResp
+	}
+	if resp, refused := d.derivedUnshareable(c, sp); refused {
+		return resp
 	}
 	inv, err := sp.ACL().CreateGuestKey(c.Request().Context())
 	if err != nil {

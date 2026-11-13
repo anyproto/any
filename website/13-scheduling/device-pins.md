@@ -77,7 +77,7 @@ A server without the devices registry disables the election for the run (single-
 ```sh
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
-  -d "{\"objectId\": \"$ANCHOR\", \"dataset\": \"$TRIGGERS\"}" \
+  -d "{\"objectId\": \"$ANCHOR\", \"dataset\": \"$TRIGGERS\", \"sort\": [\"id\"], \"limit\": 50}" \
   | jq '.records[] | {id, name, kind, owner, enabled, lastStatus}'
 ```
 

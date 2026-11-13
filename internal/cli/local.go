@@ -29,7 +29,7 @@ collection outlives its space.
 
   any local ensure scratch --index k,-at
   any local insert scratch --doc '[{"id":"a","k":1},{"k":2}]'
-  any local query scratch --filter '{"k":{"$gt":0}}' --sort -k --total
+  any local query scratch --filter '{"k":{"$gt":0}}' --sort -k,-id --limit 50 --total
   any local aggregate scratch --pipeline '[{"$group":{"_id":null,"n":{"$count":{}}}}]'
 `,
 	}

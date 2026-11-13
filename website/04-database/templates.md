@@ -96,7 +96,7 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/query \
   -d '{"filter": {"$and": [{"any.collections": "template"},
                            {"any.type": "'$TYPE'"},
                            {"any.collections": {"$nin": ["bin"]}}]},
-       "sort": ["template.title"]}'
+       "sort": ["template.title", "id"], "limit": 50}'
 ```
 
 For a collection's rows use `{"any.collections": {"$all": ["template", "<collectionId>"]}}` instead of the type clause. A template without `title` is labelled by its `any.name`.

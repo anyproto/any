@@ -31,7 +31,7 @@ curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/invites
 { "spaceId": "bafyrei…", "inviteToken": "5ZHbdx…" }
 ```
 
-`inviteToken` is a base58-packed `(spaceId, invitePrivKey)`. Share the string however you like — a link, a QR code, a message. Only the owner can mint: the coordinator refuses to make the space shareable for anyone else, and the call answers `403 acl.forbidden`.
+`inviteToken` is a base58-packed `(spaceId, invitePrivKey)`. Share the string however you like — a link, a QR code, a message. Only the owner can mint: the coordinator refuses to make the space shareable for anyone else, and the call answers `403 acl.forbidden`. It also refuses once the owner's plan is at its [shared-spaces limit](../auth/profile.html#reading-the-accounts-limits), and the call answers `409 acl.limit_reached`.
 
 ```bash
 any invite create <spaceId>
