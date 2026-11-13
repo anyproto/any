@@ -742,6 +742,17 @@ wrapper as `any query-subscribe`:
 {"event": "closed",  "data": {"reason": "server_shutdown"}}
 ```
 
+### Read state
+
+```
+any read-state unread <spaceId> [--cursor C] [--limit N]   # GET …/read-state/unread
+```
+
+Lists the changes that became unread on this device after the cursor,
+oldest arrival first, and prints the cursor for the next call. Without
+`--cursor` it lists nothing and prints a cursor at the present
+(`03-api.md` § Read state). Marking read is `any chat read…`.
+
 ### Events
 
 ```
