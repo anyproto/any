@@ -8256,6 +8256,16 @@ const docTemplate = `{
                         },
                         "description": "Bad Request"
                     },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "acl.limit_reached — the owner's plan is at its limit of readers or writers for the space"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -8319,6 +8329,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "acl.limit_reached — the owner's plan is at its limit of shared spaces, or of readers or writers for the space; space.derived_unshareable — a derived space"
                     },
                     "500": {
                         "content": {
@@ -8566,6 +8586,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "acl.limit_reached — the owner's plan is at its limit of readers or writers for the space"
                     },
                     "500": {
                         "content": {
@@ -11014,6 +11044,16 @@ const docTemplate = `{
                         },
                         "description": "Created"
                     },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "acl.limit_reached — the owner's plan is at its limit of shared spaces or of this space's readers; space.derived_unshareable — a derived space"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -11269,7 +11309,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "Duplicate invite"
+                        "description": "invite.duplicate — an invite already exists; acl.limit_reached — the owner's plan is at its shared-spaces limit; space.derived_unshareable — a derived space"
                     },
                     "500": {
                         "content": {

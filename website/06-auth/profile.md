@@ -126,7 +126,7 @@ any account limits
 
 `storage` is one pool for the whole account: the file nodes charge every file to the account that uploaded it, in whichever space it lives. `usageBytes` is the bytes of files whose backup is durable.
 
-`sharedSpaces.limit` is how many shared spaces the account may own. The coordinator refuses to make another space shareable beyond it.
+`sharedSpaces.limit` is how many shared spaces the account may own. The coordinator refuses to make another space shareable beyond it, and the share answers `409 acl.limit_reached`.
 
 The network accounts the pool on its own schedule, so a redeemed code or a finished backup shows some minutes later. A file the pool has no room for stays `limited` ([status and durability](../files/status-and-durability.html)) until the pool grows or files are deleted.
 
