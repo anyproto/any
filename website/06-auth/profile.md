@@ -1,6 +1,6 @@
 ---
 title: Profile
-description: Read your own account id and metadata, publish the encrypted name, description and icon other members see, and redeem an alpha access code.
+description: Read your own account id and metadata, publish the encrypted name, description and icon other members see, redeem an alpha access code and read the account's network limits.
 order: 40
 ---
 # Profile
@@ -100,6 +100,43 @@ any account redeem K7QX-4MDP-…
 | 401 | `access.signature_rejected` | the service could not verify the account's signature |
 | 429 | `access.rate_limited` | the service is throttling this client |
 | 502 | `access.unavailable` | the service is unreachable or answered unexpectedly |
+
+## Reading the account's limits
+
+The any-sync network grants each account a file-storage pool and a number of shared spaces it may own. `GET /v1/account/limits` reads both:
+
+```bash
+curl -s http://127.0.0.1:2046/v1/account/limits
+any account limits
+```
+
+```json
+{
+  "storage": {
+    "limitBytes": 1073741824,
+    "usageBytes": 52428800,
+    "fetchedAt": "2026-08-20T17:06:40Z"
+  },
+  "sharedSpaces": {
+    "limit": 3,
+    "fetchedAt": "2026-08-20T17:06:40Z"
+  }
+}
+```
+
+`storage` is one pool for the whole account: the file nodes charge every file to the account that uploaded it, in whichever space it lives. `usageBytes` is the bytes of files whose backup is durable.
+
+`sharedSpaces.limit` is how many shared spaces the account may own. The coordinator refuses to make another space shareable beyond it.
+
+The network accounts the pool on its own schedule, so a redeemed code or a finished backup shows some minutes later. A file the pool has no room for stays `limited` ([status and durability](../files/status-and-durability.html)) until the pool grows or files are deleted.
+
+The file nodes answer `storage` and the coordinator answers `sharedSpaces`. The server keeps each answer in the device's database, and `fetchedAt` says when the network gave it. Requests a few seconds apart share one answer.
+
+A request waits for the network at most five seconds, and not at all while the network is failing or slower than that, so give it a longer timeout than five seconds. A part the network has not answered is its last answer.
+
+A part is missing when the network never answered for it on this device: a device that has never been online, or one that runs with no network, reads `{}`. `storage` is also missing on a network that has no file nodes or keeps no account pool. The route answers `200` in every one of these cases.
+
+> **Why it matters.** On a hosted backend a quota is a gate in front of the database. Here the limits bound only what the network stores and shares for the account: every read, write and query runs on the device without them, so this route answers with no network at all.
 
 ## Related
 

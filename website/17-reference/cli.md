@@ -56,6 +56,7 @@ any account set-icon <path> [--name N]                                  # PUT /v
 any account icon [-o PATH]                                              # GET /v1/account/icon
 any account delete-icon                                                 # DELETE /v1/account/icon
 any account redeem <code>                                               # POST /v1/account/access-code
+any account limits                                                      # GET /v1/account/limits
 
 any identities list | get <identity> | icon <identity> [-o PATH] | subscribe     # alias: any contacts
 

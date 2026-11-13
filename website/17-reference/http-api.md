@@ -64,6 +64,7 @@ curl -X POST http://127.0.0.1:2046/v1/auth -H 'Content-Type: application/json' -
 | GET | `/v1/account/icon` | — | image bytes (Range) | `404 account.icon_not_found`, `409 file.not_available` |
 | DELETE | `/v1/account/icon` | — | 204 | no-op without an avatar |
 | POST | `/v1/account/access-code` | `{code}` | `{status: accepted\|already_redeemed, redemptionId?}` | signs the code with the account key and relays it to the invite service at `access.redeemUrl`; `409 access.disabled` without one; refusals are `access.*` with the service's code in `details.code` |
+| GET | `/v1/account/limits` | — | `{storage?: {limitBytes, usageBytes, fetchedAt}, sharedSpaces?: {limit, fetchedAt}}` | what the network grants the account; waits for the network at most 5 s, and not at all while it is failing or slow; each part is the network's last answer (`fetchedAt`), omitted when it never answered on this device; never fails on an unreachable network |
 | GET | `/v1/identities` | — | `{identities: [IdentityInfo]}` | account-global directory of every identity encountered; carries no rights |
 | GET | `/v1/identities/:identity` | — | `IdentityInfo` | `404 identity.not_found` |
 | GET | `/v1/identities/:identity/icon` | — | image bytes (Range) | the avatar the row's `iconCid` names, fetched by content address; `404 identity.icon_not_found`, `409 file.not_available` |
@@ -135,7 +136,7 @@ Full semantics in [Bundles](../collaboration/bundles.html).
 |---|---|---|---|---|
 | GET | `/v1/catalog` | — | `{usecases}` | the server's well-known `system:` bundles, grouped into usecases |
 | GET | `/v1/catalog/:usecaseId` | — | usecase | `404 catalog.not_found` |
-| POST | `/v1/catalog/:usecaseId/setup` | `{spaceId}` | `{usecase, bundles: [{usecase, id, bundle, installed, typeId?, collectionId?, properties?, miniapp?}]}` | idempotent adopt-or-install, dependencies first; `typeId` for a bundle declaring a type, `collectionId` for one declaring a collection; `properties` maps xKey → propId; `409 type.xkey_conflict`, `409 bundle.not_ready`, `405 space.unsupported` on the tech space, `503 catalog.setup_timeout` past a bound (`details.step`; retry) |
+| POST | `/v1/catalog/:usecaseId/setup` | `{spaceId}` | `{usecase, bundles: [{usecase, id, bundle, installed, typeId?, collectionId?, properties?, miniapp?}]}` | idempotent adopt-or-install, dependencies first; `typeId` for a bundle declaring a type, `collectionId` for one declaring a collection; `properties` maps xKey → propId; `409 type.xkey_conflict`, `409 bundle.not_ready`, `405 space.unsupported` on the tech space |
 
 `wiki` is the usecase that gives a space its tree — a **collection** pages are filed under ([Objects](../database/objects.html)).
 

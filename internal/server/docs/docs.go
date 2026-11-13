@@ -178,6 +178,17 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.AccountLimitsResponse": {
+                "properties": {
+                    "sharedSpaces": {
+                        "$ref": "#/components/schemas/api.AccountSharedSpacesLimits"
+                    },
+                    "storage": {
+                        "$ref": "#/components/schemas/api.AccountStorageLimits"
+                    }
+                },
+                "type": "object"
+            },
             "api.AccountMetadata": {
                 "properties": {
                     "description": {
@@ -203,6 +214,36 @@ const docTemplate = `{
                     "techSpaceId": {
                         "description": "TechSpaceId is the account's tech space — the :spaceId for\naccount-level bundles (see docs/03-api.md § Bundles).",
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.AccountSharedSpacesLimits": {
+                "properties": {
+                    "fetchedAt": {
+                        "description": "FetchedAt is when the network gave this answer.",
+                        "type": "string"
+                    },
+                    "limit": {
+                        "description": "Limit is how many shared spaces the account may own.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "api.AccountStorageLimits": {
+                "properties": {
+                    "fetchedAt": {
+                        "description": "FetchedAt is when the network gave this answer.",
+                        "type": "string"
+                    },
+                    "limitBytes": {
+                        "description": "LimitBytes is the pool's cap; 0 when the network grants none.",
+                        "type": "integer"
+                    },
+                    "usageBytes": {
+                        "description": "UsageBytes is the bytes of durable files the account uploaded,\nacross its spaces.",
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -4689,6 +4730,37 @@ const docTemplate = `{
                 ]
             }
         },
+        "/account/limits": {
+            "get": {
+                "description": "The file-storage pool with its usage and the shared-spaces limit. Each part is the network's last answer, kept on the device (see fetchedAt), and omitted when the network never answered. A request waits for the network at most five seconds; an unreachable network is a 200.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AccountLimitsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Network limits of the account",
+                "tags": [
+                    "account"
+                ]
+            }
+        },
         "/account/metadata": {
             "put": {
                 "requestBody": {
@@ -5164,16 +5236,6 @@ const docTemplate = `{
                             }
                         },
                         "description": "Internal Server Error"
-                    },
-                    "503": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
-                                }
-                            }
-                        },
-                        "description": "Service Unavailable"
                     }
                 },
                 "summary": "Set a usecase up in a space, dependencies included",

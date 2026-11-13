@@ -92,6 +92,7 @@ any account set-icon <path> [--name N]              # PUT /v1/account/icon (raw 
 any account icon [-o PATH]                          # GET /v1/account/icon (bytes to stdout, or PATH + receipt)
 any account delete-icon                             # DELETE /v1/account/icon
 any account redeem <code>                           # POST /v1/account/access-code
+any account limits                                  # GET /v1/account/limits
 ```
 
 ### Identities (account-global directory)
@@ -667,10 +668,7 @@ adopt-or-install per bundle, idempotent, resumable after a failure —
 and prints every bundle touched with the converged row, whether THIS
 call installed it, `typeId` or `collectionId` (whichever the bundle
 declares) and the xKey → propId map. Usecase ids are slugs (`wiki`,
-`general-chat`, `crm`), passed as-is. A setup that waits answers at
-the server's bounds (90 s of waits, two minutes inside the install),
-past the CLI's 30 s request timeout: pass `--timeout 4m` to get its
-reply. `make
+`general-chat`, `crm`), passed as-is. `make
 catalog-validate [FILES=…]` checks the catalog file itself — a build
 step in the repo, not a CLI command.
 
