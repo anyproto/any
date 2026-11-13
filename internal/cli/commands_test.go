@@ -42,6 +42,19 @@ func TestTypesAndCollectionsCommands(t *testing.T) {
 	}
 }
 
+// TestReadStateCommand pins the unread feed's command and flags.
+func TestReadStateCommand(t *testing.T) {
+	cmd, rest, err := newRootCmd().Find([]string{"read-state", "unread"})
+	if err != nil || len(rest) > 0 || cmd.RunE == nil {
+		t.Fatalf("read-state unread: cmd=%v rest=%v err=%v", cmd, rest, err)
+	}
+	for _, name := range []string{"cursor", "limit"} {
+		if cmd.Flags().Lookup(name) == nil {
+			t.Errorf("read-state unread has no --%s", name)
+		}
+	}
+}
+
 // TestNoObjectTypeUnset — every object has exactly one type, so there
 // is no verb that clears it.
 func TestNoObjectTypeUnset(t *testing.T) {

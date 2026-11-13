@@ -30,7 +30,7 @@ Every error response — regardless of status code — has the same body:
 | 405    | Route not available on the tech space (`space.unsupported`), or wrong method for the route |
 | 409    | Conflict (duplicate, precondition failed, state not ready)     |
 | 410    | Deleted for good (`object.deleted`, `record.deleted`, `invite.revoked`) |
-| 413    | Body over the 1 MiB cap (`request.too_large`; file attach and the avatar upload are exempt), `account.icon_too_large`, or `history.view_too_large` |
+| 413    | Body over the 1 MB cap (`request.too_large`; file attach, the avatar upload and the local store import are exempt), `account.icon_too_large`, or `history.view_too_large` |
 | 415    | `request.unsupported_media_type` — a body that is not `application/json`; `account.icon_not_image` — the avatar upload is not one of the accepted image formats (by signature; SVG refused) |
 | 429    | `access.rate_limited`                                          |
 | 500    | Internal error — unexpected SDK or server failure; typed: `auth.device_key_corrupt`, `auth.network_pin_corrupt`, `sdk.store_corrupt`, `server.internal` |
@@ -65,7 +65,7 @@ request.unknown_field            # 400 — a body key outside the endpoint's acc
 request.bad                      # 400 — rejected by the HTTP layer before a handler ran
 request.not_found                # 404 — no such route
 request.method_not_allowed       # 405 — the route exists, not with this method
-request.too_large                # 413 — body over the 1 MiB cap
+request.too_large                # 413 — body over the 1 MB cap
 request.unsupported_media_type   # 415 — a body whose Content-Type is missing or not application/json (file attach, the avatar upload and the local-store import take raw bodies)
 
 auth.required                    # 401 — server unauthorized; POST /v1/auth first
@@ -92,10 +92,12 @@ space.join_not_pending           # 409 — POST …/acl/cancel-join with nothing
 space.read_only                  # 403 — synced write into a space this account cannot write (guest access or reader role)
 space.derived_unknown            # 404 — POST /v1/spaces/derived/:name outside the embedded registry
 space.derived_undeletable        # 409 — DELETE on a derived space; derived spaces are permanent
+space.derived_unshareable        # 409 — invite create, guest key or direct add on a derived space; a derived space belongs to its account alone
 space.unsupported                # 405 — the route is not available on the tech space (allowed there: bundles, type reads and dataset declarations on bundle roots, records on bundle roots, GET space, sync-status, debug)
 
 members.not_found                # 404 — the member a members / ACL operation names is unknown (e.g. GET …/members/:identity)
 acl.forbidden                    # 403 — the ACL refuses the operation for this account's permissions, or the coordinator refuses it (make-shareable on invite create is owner-only)
+acl.limit_reached                # 409 — the coordinator refuses an ACL operation for the space owner's plan, whoever calls: the owner's shared spaces on the first share of a space (invite create, guest key, direct add), or the space's readers or writers (accept, change permissions, direct add, guest key). One code for both limits; GET /v1/account/limits reads the shared-spaces limit
 acl.record_not_found             # 404 — the ACL record the operation names does not exist
 invite.invalid                   # 400 — invite token malformed or not decodable as an invite
 invite.duplicate                 # 409 — POST …/invites while an invite already exists

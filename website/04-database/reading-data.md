@@ -30,12 +30,12 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/query \
 # the blocks of one document, in order
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
-  -d '{"objectId": "'$OBJ'", "dataset": "editor_blocks", "sort": ["nav.pos"]}'
+  -d '{"objectId": "'$OBJ'", "dataset": "editor_blocks", "sort": ["nav.pos", "id"]}'
 
 # one shared dataset across every object that holds it, latest hours first
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/datasets/query \
   -H 'Content-Type: application/json' \
-  -d '{"dataset": "'$HOURS'", "sort": ["-start"], "limit": 48}'
+  -d '{"dataset": "'$HOURS'", "sort": ["-start", "-_objectId", "-id"], "limit": 48}'
 ```
 
 ## Request body
@@ -45,7 +45,7 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/datasets/query \
   "objectId":     "<oid>",          // per-object only (required there)
   "dataset":      "<name>",         // per-object and shared-dataset (required there)
   "filter":       { "…": "…" },     // mongo-style; omit = match all
-  "sort":         ["-_ver.id"],
+  "sort":         ["-_ver.id", "-id"],
   "limit":        50,
   "offset":       0,
   "includeTotal": true,             // adds total + hasNext
@@ -126,7 +126,7 @@ Instants filter as instants. Wrap the literal in `{"$date": …}`:
 
 ## Sort
 
-`sort` is an array of dotted paths, `-` prefix for descending, applied left to right (anything else, or a key that does not parse, is `400 request.invalid_field` with `details.field: "sort"`): `["<wikiCollectionId>.<parentIdPropId>", "<wikiCollectionId>.<posPropId>"]` (the wiki tree's columns — [Objects](objects.html)). On `/subscribe`, `sort` is required whenever `limit > 0` so the window is well-defined. `{"sort": ["-modifiedAt"]}` is "recently modified first"; `-createdAt` is creation order. Add `id` as the last key, in the direction of the key before it (`["-modifiedAt", "-id"]`), when the others can tie — tied rows have no specified order — and re-apply the same sort client-side after each `changes` batch — a map's insertion order is not query order.
+`sort` is an array of dotted paths, `-` prefix for descending, applied left to right (anything else, or a key that does not parse, is `400 request.invalid_field` with `details.field: "sort"`): `["<wikiCollectionId>.<parentIdPropId>", "<wikiCollectionId>.<posPropId>", "id"]` (the wiki tree's columns — [Objects](objects.html)). On `/subscribe`, `sort` is required whenever `limit > 0` so the window is well-defined. `{"sort": ["-modifiedAt", "-id"]}` is "recently modified first"; `["-createdAt", "-id"]` is creation order. A sort that can tie ends in `id`, in the direction of the key before it — tied rows have no specified order. A row that lacks a sort field, or holds `null` there, sorts lowest: first ascending, last descending. Re-apply the same sort client-side after each `changes` batch — a map's insertion order is not query order.
 
 ## Paths
 
@@ -145,6 +145,8 @@ A type's or collection's `xKey` is a client-side label, never a server path.
 ## Paging
 
 **`offset` / `limit`** is fine for a frozen snapshot. It floats on a live storage collection: row 50 becomes row 51 the moment something lands ahead of it, so paging across writes skips and repeats rows.
+
+**A growing window** is how a live list loads more: resubscribe at `offset: 0` with a larger `limit`.
 
 **Cursor paging** does not float under inserts: filter past the last row on the indexed sort field (`$lt` on a descending sort, `$gt` on an ascending one) and keep the same sort. A row whose sort key changes mid-pass moves relative to the cursor, so the pass can miss it or return it twice — an edited object jumps past a `modifiedAt` cursor. A field that can tie carries an `id` tiebreak in both `sort` and the filter, in the last key's direction: `-x` pairs with `-id` and `$lt`, an ascending field with `id` and `$gt`. A mismatched direction, or a sort without `id`, skips and repeats rows at a page boundary inside a tie. Ids compare as byte strings: a fixed order for the tiebreak, never a time order. The cursor values are the last row's values exactly as it returned them.
 
@@ -171,6 +173,8 @@ On `objects` rows `_ver.id` repeats and orders nothing either; the cursor is the
       { "modifiedAt": { "$date": "<last.modifiedAt>" }, "id": { "$lt": "<last.id>" } } ] } ] } }
 ```
 
+A sort with several keys pages on an `$or` with one arm per key, `id` the last: arm *i* holds every key before *i* equal to the last row's value and key *i* past it. Past a descending key is `{"$or": [{"k": {"$lt": v}}, {"k": null}]}` — missing and `null` sort after every value there, and `$lt` / `$gt` never match them; past an ascending key is `{"k": {"$gt": v}}`. When the last row lacks the key, equality is `{"k": null}`, past it ascending is `{"k": {"$ne": null}}`, and descending that arm is dropped. A field every row has (`id`, `modifiedAt`, `_ver.id`) takes no null arm. The cursor holds for a key with one value per row, of one kind across rows; a list sorted on a multi-value property grows its window instead.
+
 `includeTotal` counts every filter match, ignoring `limit` and `offset`, from the same read as the page; `hasNext` is `offset + len(records) < total`. For counts per group, use a `$count` / `$group` [aggregation](aggregation.html).
 
 > **Why it matters.** Every query runs against a local database, so the cost of a read is disk, not network. Always set a `limit` anyway: an omitted or zero limit is unbounded, an unbounded read builds a huge snapshot, and on a subscription it can overflow the mailbox.
@@ -184,9 +188,9 @@ A deleted record is a tombstone: its content is wiped, its id is burned, and eve
 `any query-subscribe` is the CLI form of all three scopes — it prints one JSON object per SSE frame, so the `snapshot` frame is the one-shot read, and it keeps listening until you stop it:
 
 ```bash
-any query-subscribe $SPACE $OBJ --dataset editor_blocks --sort nav.pos --limit 50
+any query-subscribe $SPACE $OBJ --dataset editor_blocks --sort nav.pos,id
 any query-subscribe $SPACE --properties --filter '{"any.type": "page"}' --sort -modifiedAt,-id --limit 20
-any query-subscribe $SPACE --all-objects --dataset $HOURS --sort -start --limit 48
+any query-subscribe $SPACE --all-objects --dataset $HOURS --sort -start,-_objectId,-id --limit 48
 ```
 
 ## Related

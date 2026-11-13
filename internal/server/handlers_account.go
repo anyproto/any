@@ -19,6 +19,7 @@ func registerAccountRoutes(g *echo.Group, d *deps) {
 	g.GET("/account/icon", d.accountIconGet)
 	g.DELETE("/account/icon", d.accountIconDelete)
 	g.POST("/account/access-code", d.accountRedeemAccessCode)
+	g.GET("/account/limits", d.accountLimits)
 }
 
 // accountGet handles GET /v1/account.
@@ -38,6 +39,33 @@ func (d *deps) accountGet(c echo.Context) error {
 	if present && (meta.Name != "" || meta.Description != "" || meta.IconCID != "") {
 		m := accountMetadataToAPI(meta)
 		resp.Metadata = &m
+	}
+	return c.JSON(http.StatusOK, resp)
+}
+
+// accountLimits handles GET /v1/account/limits.
+//
+// An unreachable network is not an error: each part is the network's
+// last answer, and is omitted when there never was one.
+//
+//	@Summary		Network limits of the account
+//	@Description	The file-storage pool with its usage and the shared-spaces limit. Each part is the network's last answer, kept on the device (see fetchedAt), and omitted when the network never answered. A request waits for the network at most five seconds; an unreachable network is a 200.
+//	@Tags			account
+//	@Produce		json
+//	@Success		200	{object}	api.AccountLimitsResponse
+//	@Failure		500	{object}	api.ErrorEnvelope
+//	@Router			/account/limits [get]
+func (d *deps) accountLimits(c echo.Context) error {
+	limits, err := d.sdk.Account().Limits(c.Request().Context())
+	if err != nil {
+		return sdkOpError(c, err, nil)
+	}
+	var resp api.AccountLimitsResponse
+	if s := limits.Storage; s != nil {
+		resp.Storage = &api.AccountStorageLimits{LimitBytes: s.LimitBytes, UsageBytes: s.UsageBytes, FetchedAt: s.FetchedAt}
+	}
+	if s := limits.SharedSpaces; s != nil {
+		resp.SharedSpaces = &api.AccountSharedSpacesLimits{Limit: s.Limit, FetchedAt: s.FetchedAt}
 	}
 	return c.JSON(http.StatusOK, resp)
 }

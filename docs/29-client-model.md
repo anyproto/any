@@ -72,7 +72,7 @@ never reaches storage. Keying a value by `xKey` is `property.not_found`.
 3. `POST /v1/spaces/:spaceId/objects/query/subscribe` with
    `{"filter": {"$and": [{"any.collections": "miniapp"},
    {"any.collections": {"$nin": ["bin"]}}, {"miniapp.hidden": {"$ne": true}}]},
-   "sort": ["miniapp.pos"]}` — the sidebar. It lists exactly the members
+   "sort": ["miniapp.pos", "id"], "limit": 50}` — the sidebar. It lists exactly the members
    of the `miniapp` collection: a row with `miniapp.bundle` is an
    installed app (the wiki, the general chat, contacts, …) and the bundle
    id says what to run; a row without one is an object the user pinned,
@@ -399,7 +399,7 @@ Record stamps are ext-JSON instants in both directions:
 literals must be wrapped the same way — a bare number or ISO string does
 not error, it silently matches nothing, because comparisons are bracketed
 by type. `createdAt` / `modifiedAt` / `modifiedBy` on the object row are
-server-derived; sort recency with `{"sort": ["-modifiedAt"]}`.
+server-derived; sort recency with `{"sort": ["-modifiedAt", "-id"]}`.
 
 The mapped convenience structs are the exception: `SpaceInfo.createdAt`
 is an RFC3339 string and `HistoryChange.timestamp` is unix seconds. Both
@@ -449,9 +449,9 @@ answer with the new id under a per-kind key (`objectId`, `typeId`,
 
 | surface | how |
 |---|---|
-| **Document** | set a type with an editor part — `page` is the built-in one. Blocks: `…/objects/:o/editor/:collection/blocks`; whole body: `GET/PUT/PATCH …/editor/:collection/markdown`. Read with `dataset` set to **the same `:collection`** — the storage collection — sorted on `nav.pos`: `editor_blocks` for the canonical body `page` uses, `<typeId>_<key>` for an editor dataset a type declares under a key of its own. |
-| **Chat** | set a type with a chat part — any user type may declare `{"module": "chat"}`, next to an editor part or alone, and each of its objects is a conversation. The space-wide one is the `general-chat` usecase; its root is filed under `miniapp`, so it sits in the sidebar with the other apps. Writes: `…/objects/:chat/chat/messages`. Read via `dataset=chat_messages` sorted on `_ver.id`. |
-| **Wiki tree** | the `wiki` collection's three properties on the objects filed under it: `parentId` (`""` = top level), `pos` (lexid), `folder`. Children = objects query filtered on the parent property, the collection and the shared `$nin` clause, sorted on the pos property, plus the `library-rows` records merged in by the same two values ([`28-well-known-bundles.md`](28-well-known-bundles.md) § Library rows). The server allocates no positions. |
+| **Document** | set a type with an editor part — `page` is the built-in one. Blocks: `…/objects/:o/editor/:collection/blocks`; whole body: `GET/PUT/PATCH …/editor/:collection/markdown`. Read with `dataset` set to **the same `:collection`** — the storage collection — sorted `["nav.pos", "id"]` and read whole: `editor_blocks` for the canonical body `page` uses, `<typeId>_<key>` for an editor dataset a type declares under a key of its own. |
+| **Chat** | set a type with a chat part — any user type may declare `{"module": "chat"}`, next to an editor part or alone, and each of its objects is a conversation. The space-wide one is the `general-chat` usecase; its root is filed under `miniapp`, so it sits in the sidebar with the other apps. Writes: `…/objects/:chat/chat/messages`. Read via `dataset=chat_messages` sorted `["-_ver.id", "-id"]`. |
+| **Wiki tree** | the `wiki` collection's three properties on the objects filed under it: `parentId` (`""` = top level), `pos` (lexid), `folder`. Children = objects query filtered on the parent property, the collection and the shared `$nin` clause, sorted on the pos property, then `id`, plus the `library-rows` records merged in by the same two values ([`28-well-known-bundles.md`](28-well-known-bundles.md) § Library rows). The server allocates no positions. |
 | **Saved views** | one `dataview` object per host, holding `dataviews` (tables on the host) and `views` (views of a table). |
 | **Favourites** | the client-registered `favorites/v1` bundle on the tech space. |
 | **Bin** | file the object under the `bin` collection, unfile to restore. |

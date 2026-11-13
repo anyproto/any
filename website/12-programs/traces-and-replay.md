@@ -93,7 +93,7 @@ TURNS=$(curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/datasets \
   | jq -r '.datasets[].name | select(endswith("_agent_turns"))')
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
-  -d "{\"objectId\": \"$LOG\", \"dataset\": \"$TURNS\", \"sort\": [\"-seq\"], \"limit\": 1}" \
+  -d "{\"objectId\": \"$LOG\", \"dataset\": \"$TURNS\", \"sort\": [\"-seq\", \"-id\"], \"limit\": 1}" \
   | jq -r '.records[0].traceRef'
 ```
 

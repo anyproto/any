@@ -13,7 +13,7 @@ Present on every record returned by [`/query`](reading-data.html) and in subscri
 
 | Field | Scope | Meaning |
 |---|---|---|
-| `_ver.id` | peer-local | The record's **creation marker** — the version id of the change that created it. Set once, never bumped by edits. It is the creating change's DAG order id, so a change that merges late sorts between existing ones. Indexed on `chat_messages`: the chronological order chat sorts on and its paging cursor (`{"_ver.id": {"$lt": "<oldestSeen>"}}` sorted `["-_ver.id"]`), unique there because the chat routes write each message as its own change. Records one change creates share it. Across `objects` rows it repeats and orders nothing ([Reading data](reading-data.html#paging)). |
+| `_ver.id` | peer-local | The record's **creation marker** — the version id of the change that created it. Set once, never bumped by edits. It is the creating change's DAG order id, so a change that merges late sorts between existing ones. Indexed on `chat_messages`: the chronological order chat sorts on, `["-_ver.id", "-id"]`. Records one change creates share it, so its paging cursor carries the `id` arm. Across `objects` rows it repeats and orders nothing ([Reading data](reading-data.html#paging)). |
 | `_ver.<path>` | peer-local | Per-field high-water mark: the version id of the last change that touched that path. Clients running subscribe-then-query-then-apply compare against it to dedupe live events. |
 | `_addSeq` | peer-local | The space's monotonic delivery counter on this device — advances on every change to any of an object's datasets. The search indexer's cursor. Compare and persist it; never assume another peer holds the same value for the same change. |
 | `_deletedAt` | synced | Present on a record-level tombstone. Tombstones are excluded from `/query`, subscribe and aggregation; they surface only to consumers that opt in (`"includeDeleted": true` on a per-object `/query` snapshot, the search feed, the history record read with `deleted: true`). |
@@ -44,7 +44,7 @@ Both instants are the **author's clock** and are written in the `{"$date": …}`
   "modifiedBy": "A9t…" }
 ```
 
-"Recently modified first" is `{"sort": ["-modifiedAt"]}`. A filter literal must take the same shape — `{"modifiedAt": {"$gte": {"$date": "2026-01-01T00:00:00Z"}}}`. A bare number or string does not error; it silently matches nothing, because ordering comparisons are bracketed by type and a number never compares against an instant. See [Data types](data-types.html).
+"Recently modified first" is `{"sort": ["-modifiedAt", "-id"]}`. A filter literal must take the same shape — `{"modifiedAt": {"$gte": {"$date": "2026-01-01T00:00:00Z"}}}`. A bare number or string does not error; it silently matches nothing, because ordering comparisons are bracketed by type and a number never compares against an instant. See [Data types](data-types.html).
 
 **`modifiedAt` and `modifiedBy` are one pair.** Both come from a single change — the object's latest by DAG order, whatever dataset it landed on: a property write, an editor block, a chat message, a runtime-dataset record, a record delete. They carry that change's version, so they move together and never pair one change's time with another's signer. A change that arrives late regresses neither. Concurrent writers are resolved by DAG order, not by clock, so the identity that wins can be the one whose wall clock reads earlier. Deleting the object removes the row outright, stamps included.
 

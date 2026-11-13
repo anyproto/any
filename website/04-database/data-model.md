@@ -80,14 +80,14 @@ Whatever produced a dataset, it is read the same way: the per-object query with 
 ```bash
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
-  -d '{"objectId": "'$CHAT'", "dataset": "chat_messages", "sort": ["-_ver.id"], "limit": 50}'
+  -d '{"objectId": "'$CHAT'", "dataset": "chat_messages", "sort": ["-_ver.id", "-id"], "limit": 50}'
 
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
-  -d '{"objectId": "'$OBJ'", "dataset": "'$MOVIE'_reviews", "filter": {"score": {"$gte": 8}}}'
+  -d '{"objectId": "'$OBJ'", "dataset": "'$MOVIE'_reviews", "filter": {"score": {"$gte": 8}}, "sort": ["-score", "-id"], "limit": 50}'
 ```
 
-`any query-subscribe $SPACE $CHAT --dataset chat_messages --sort=-_ver.id --limit 50` is the CLI form (its first `snapshot` frame is the read). Aggregation pipelines run over a dataset the same way — [Aggregation](aggregation.html).
+`any query-subscribe $SPACE $CHAT --dataset chat_messages --sort=-_ver.id,-id --limit 50` is the CLI form (its first `snapshot` frame is the read). Aggregation pipelines run over a dataset the same way — [Aggregation](aggregation.html).
 
 ## Schemas and scopes
 

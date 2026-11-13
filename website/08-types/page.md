@@ -70,7 +70,7 @@ List a space's documents with a filter on the type, most recently edited first. 
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects/query \
   -H 'Content-Type: application/json' \
   -d '{"filter": {"$and": [{"any.type": "'$DOC'"}, {"any.collections": {"$nin": ["bin", "template"]}}]},
-       "sort": ["-modifiedAt"], "limit": 50}'
+       "sort": ["-modifiedAt", "-id"], "limit": 50}'
 ```
 
 The same body against `…/objects/query/subscribe` gives a live document list. Filter by label with `{"any.tags": "books"}` — array fields match on any element. "Every object with a body, whatever its type" is a filter on every type that declares the editor body: the `owners` of `editor_blocks` in `GET /v1/spaces/:spaceId/datasets` (the built-in `page` is always among them), matched with `{"$and": [{"any.type": {"$in": [...]}}, {"any.collections": {"$nin": ["bin", "template"]}}]}`. A type's own definition row carries the marker in `any.type`, so it never matches and needs no exclusion.

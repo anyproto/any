@@ -34,7 +34,7 @@ The `any://` link grammar is not a type, but it is the glue between them: a ment
 
 ## One read path, one wire shape
 
-Because reads are generic, everything you know about [reading data](../database/reading-data.html) applies to built-in types unchanged: filters, sorts, paging, `includeTotal`, and the windowed [subscribe](../realtime/subscribe.html) stream with its `snapshot` → `changes` frames. A chat client is "a subscription sorted by `-_ver.id` with a limit"; a document view is "a subscription sorted by `nav.pos`".
+Because reads are generic, everything you know about [reading data](../database/reading-data.html) applies to built-in types unchanged: filters, sorts, paging, `includeTotal`, and the windowed [subscribe](../realtime/subscribe.html) stream with its `snapshot` → `changes` frames. A chat client is "a subscription sorted `["-_ver.id", "-id"]` with a limit"; a document view is "a subscription sorted `["nav.pos", "id"]`", read whole.
 
 Every write endpoint returns the same small result instead of the record body:
 

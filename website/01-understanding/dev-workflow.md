@@ -75,7 +75,7 @@ Without `--addr` the CLI finds the server serving the data dir's account through
 
 - **Sync** — `any sync-status space $SPACE`, `any sync-status subscribe`.
 - **Search index** — `any search $SPACE "reranker"`; check `vectorStatus` in the reply.
-- **Raw datasets** — `any query-subscribe $SPACE $OBJ --dataset chat_messages --limit 20 --sort='-_ver.id'` prints one JSON line per SSE frame.
+- **Raw datasets** — `any query-subscribe $SPACE $OBJ --dataset chat_messages --limit 20 --sort='-_ver.id,-id'` prints one JSON line per SSE frame.
 - **Diagnostics** — `any debug space $SPACE` / `any debug object $SPACE $OBJ` dump head-sync counters and per-object tree state (unstable output, diagnostic only).
 - **Logs** — one stream on stderr through the SDK logger; `--log-level debug` or `ANY_LOG_LEVEL=debug`. Add an absolute file path under `log.outputPaths` in `config.yaml` to tee to a file ([Debugging](../operations/debugging.html)).
 

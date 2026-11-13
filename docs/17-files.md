@@ -46,7 +46,7 @@ and the client recipe in [`08-clients.md`](08-clients.md).
 |-------|---------|
 | `durable` | a verified network-custody receipt (`networkSign`) is recorded on the row — or the file is inline |
 | `inflight` | registered in the CRDT; backup queued, running, or being driven by another device |
-| `limited` | the network refused backup (storage limit); retried on a slow cadence and on `POST …/retry` |
+| `limited` | the network refused backup for a space or account storage limit (`GET /v1/account/limits` reads the account's pool); retried on a slow cadence and on `POST …/retry` |
 
 Attach is **offline-first** and never waits on the network: the
 request registers the file in the CRDT, stores the bytes locally,
@@ -77,10 +77,9 @@ object (`files/query/subscribe`), or ride the status stream.
 
 ## Reads: which endpoint when
 
-1. **Typed member view** — `GET /files[?objectId=]`,
+1. **Typed member view** — `GET /files?objectId=`,
    `GET /files/:fileId`: unsealed `FileInfo` incl. name/mime. The
-   normal client path. The unfiltered listing walks every file in the
-   space — fine at human scale; page with `?limit=` for huge spaces.
+   normal client path.
 2. **Windowed query/subscribe** —
    `POST /objects/:objectId/files/query[/subscribe]`: the generic
    snapshot+SSE primitive over one object's payload rows (cleartext

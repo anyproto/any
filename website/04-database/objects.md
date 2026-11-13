@@ -87,7 +87,7 @@ An illustrative row for a page filed under the wiki collection:
 } ] }
 ```
 
-`author`, `spaceId`, `createdAt`, `modifiedAt` and `modifiedBy` are derived by the SDK and read-only; `modifiedAt` bumps on every synced write to the object and converges across peers on DAG order, and `modifiedBy` names the identity that signed that same change (`author` stays the creator). `modifiedAt` is the author's clock — good for `{"sort": ["-modifiedAt"]}`, never a fencing token. Full list in [System fields](system-fields.html).
+`author`, `spaceId`, `createdAt`, `modifiedAt` and `modifiedBy` are derived by the SDK and read-only; `modifiedAt` bumps on every synced write to the object and converges across peers on DAG order, and `modifiedBy` names the identity that signed that same change (`author` stays the creator). `modifiedAt` is the author's clock — good for `{"sort": ["-modifiedAt", "-id"]}`, never a fencing token. Full list in [System fields](system-fields.html).
 
 `GET /v1/spaces/:spaceId/objects/:objectId` returns the same row as `{"objectId": "…", "record": {…}}` when you already hold the id — `404 object.not_found` for an id the space never had, `410 object.deleted` for a deleted one.
 
@@ -131,7 +131,7 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects \
   }'
 ```
 
-List a node's children in order (`""` as the parent lists the top level). The membership clause is not decoration: an unfiled object keeps its orphan `parentId`, and a binned one keeps its collections.
+List a node's children in order (`""` as the parent lists the top level), one read per level ([Reading data](reading-data.html#paging)). The membership clause is not decoration: an unfiled object keeps its orphan `parentId`, and a binned one keeps its collections.
 
 ```bash
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/query \
@@ -140,7 +140,7 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/objects/query \
          {"'$WIKI.$PARENT_ID'": "'$NODE'"},
          {"any.collections": "'$WIKI'"},
          {"any.collections": {"$nin": ["bin", "template"]}}
-       ]}, "sort": ["'$WIKI.$POS'"]}'
+       ]}, "sort": ["'$WIKI.$POS'", "id"], "limit": 50}'
 ```
 
 The columns are plain properties: unindexed on the `objects` storage collection (a scan — [Indexes](indexes.html)), excluded from search, and strings rather than relations, so backlinks never report a parent link.
