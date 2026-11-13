@@ -82,7 +82,7 @@ The last five turns of the general chat (`$LOG` is the chat's `bao/log/v1` child
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'content-type: application/json' \
   -d '{"objectId": "'$LOG'", "dataset": "'$TURNS'",
-       "sort": ["-seq"], "limit": 5}'
+       "sort": ["-seq", "-id"], "limit": 5}'
 ```
 
 Every memory item in one category, live (`$BRAIN` resolved above, `$MEMORY` discovered like `$TURNS`, with the `_agent_memory_items` suffix):
@@ -93,7 +93,7 @@ MEMORY=$(curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/datasets \
 curl -N -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query/subscribe \
   -H 'content-type: application/json' \
   -d '{"objectId": "'$BRAIN'", "dataset": "'$MEMORY'",
-       "filter": {"category": "decision"}, "sort": ["-createdAt"], "limit": 50}'
+       "filter": {"category": "decision"}, "sort": ["-createdAt", "-id"], "limit": 50}'
 ```
 
 The stream opens with the matching window, then the deltas; an empty window is a valid state. Frames and reconnect rules: [Subscribe](../realtime/subscribe.html).

@@ -340,6 +340,13 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 	if resp, done := unsupportedError(c, err, details); done {
 		return resp
 	}
+	// The coordinator refuses for the space owner's plan: shared spaces
+	// on make-shareable, readers or writers on an ACL record. A derived
+	// space never gets here: derivedUnshareable answers for it.
+	if errors.Is(err, space.ErrCoordinatorLimitReached) {
+		return writeError(c, http.StatusConflict, "acl.limit_reached",
+			"the space owner's plan is at its limit of shared spaces, or of this space's readers or writers", details)
+	}
 	if errors.Is(err, space.ErrTypeRequired) {
 		return writeError(c, http.StatusBadRequest, "membership.type_required",
 			"an object needs a type: any.type cannot be cleared", details)

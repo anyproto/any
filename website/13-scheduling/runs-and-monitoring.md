@@ -56,7 +56,7 @@ RUNS=$(curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/datasets \
 curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'Content-Type: application/json' \
   -d "{\"objectId\": \"$RUNS_ANCHOR\", \"dataset\": \"$RUNS\",
-       \"filter\": {\"triggerId\": \"daily-digest\"}, \"sort\": [\"-startedAt\"], \"limit\": 20}" \
+       \"filter\": {\"triggerId\": \"daily-digest\"}, \"sort\": [\"-startedAt\", \"-id\"], \"limit\": 20}" \
   | jq '.records[] | {runId, startedAt, status, durationMs, errorType, device}'
 ```
 

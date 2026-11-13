@@ -20,6 +20,7 @@ import (
 //	@Param		body	body	api.ACLAcceptRequest	true	"Request record + permission"
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	409	{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of readers or writers for the space"
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/accept [post]
 func (d *deps) aclAccept(c echo.Context) error {
@@ -83,6 +84,7 @@ func (d *deps) aclDecline(c echo.Context) error {
 //	@Param		body	body	api.ACLChangePermissionsRequest	true	"Permission changes"
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	409	{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of readers or writers for the space"
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/permissions [post]
 func (d *deps) aclChangePermissions(c echo.Context) error {
@@ -154,6 +156,7 @@ func (d *deps) aclRemove(c echo.Context) error {
 //	@Param		body	body	api.ACLAddRequest	true	"Accounts to add"
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	409	{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of shared spaces, or of readers or writers for the space; space.derived_unshareable — a derived space"
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/add [post]
 func (d *deps) aclAdd(c echo.Context) error {
@@ -188,6 +191,9 @@ func (d *deps) aclAdd(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
 		return errResp
+	}
+	if resp, refused := d.derivedUnshareable(c, sp); refused {
+		return resp
 	}
 	if err := sp.ACL().AddAccounts(c.Request().Context(), out); err != nil {
 		return aclOpError(c, err, map[string]any{"spaceId": sp.Id()})

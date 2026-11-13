@@ -24,7 +24,7 @@ Every dataset — objects, chat messages, editor blocks, files, devices, the spa
 ```bash
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/query \
   -H 'content-type: application/json' \
-  -d '{"objectId":"'$OBJ'","dataset":"chat_messages","sort":["-_ver.id"],"limit":50}'
+  -d '{"objectId":"'$OBJ'","dataset":"chat_messages","sort":["-_ver.id","-id"],"limit":50}'
 ```
 
 The single exception is `GET …/editor/:collection/markdown`, which is a render transform, not a dataset read.

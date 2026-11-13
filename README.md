@@ -185,7 +185,7 @@ In the same terminal, query the pages in your space:
 ```sh
 curl -fsS "$API/spaces/$SPACE/objects/query" \
   -H 'Content-Type: application/json' \
-  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}' | jq
+  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt","-id"],"limit":20}' | jq
 ```
 
 The response's `records` array includes your Reading list page. To receive
@@ -194,7 +194,7 @@ updates as the results change, subscribe to the same query:
 ```sh
 curl -fsSN "$API/spaces/$SPACE/objects/query/subscribe" \
   -H 'Content-Type: application/json' \
-  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt"],"limit":20}'
+  -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt","-id"],"limit":20}'
 ```
 
 The stream sends `ready`, then a `snapshot` of the current records, followed

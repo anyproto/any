@@ -104,12 +104,14 @@ Panics are converted to `500 internal` with a generic message.
 | `space.join_not_pending` | 409 | `POST …/acl/cancel-join` with nothing to withdraw: the row is not `joining`, or the owner already accepted (the row settles to `active` on its own) |
 | `space.derived_unknown` | 404 | name outside the derived-spaces registry |
 | `space.derived_undeletable` | 409 | derived spaces are permanent |
+| `space.derived_unshareable` | 409 | invite create, guest key or direct add on a derived space: it belongs to its account alone |
 | `space.not_invite_pending` | 409 | invite accept on a row not awaiting approval |
 | `space.already_member` | 409 | a guest token for a space this account already tracks as a member |
 | `space.read_only` | 403 | a guest or reader tried to write |
 | `space.unsupported` | 405 | the surface is not available on the tech space (object and type lifecycle, members, files, chat, editor, history, search, shared-dataset reads, metadata, settings, non-bundle writes, catalog setup) |
 | `members.not_found` | 404 | unknown member identity in this space |
 | `acl.forbidden` | 403 | the caller's role does not allow this ACL operation (minting an invite is owner-only) |
+| `acl.limit_reached` | 409 | the coordinator refuses for the space owner's plan: shared spaces on the first share of a space (invite create, guest key, direct add), or the space's readers or writers (accept, change permissions, direct add, guest key) |
 | `acl.record_not_found` | 404 | the ACL record named (a join request) does not exist |
 | `invite.invalid` | 400 | invite token malformed or not decodable as an invite |
 | `invite.not_found` | 404 | unknown invite record |
