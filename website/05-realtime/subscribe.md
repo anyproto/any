@@ -25,9 +25,8 @@ The body is the same one `…/query` takes, plus two stream-only knobs:
   "objectId": "obj_abc",
   "dataset": "chat_messages",
   "filter": { "creator": "A5k…" },
-  "sort": ["-_ver.id"],
+  "sort": ["-_ver.id", "-id"],
   "limit": 50,
-  "offset": 0,
   "includeTotal": true,
   "mailboxCapacity": 256,
   "driftBudgetPercent": 30
@@ -75,7 +74,7 @@ data: {"reason":"overflow"}
 
 `versionId` is the per-change DAG order on *this* peer. It is useful for fencing ("processed up to X") but is not comparable across devices.
 
-A window at `offset: 0` stays equal to a fresh query of the same body. When a change's own event cannot say everything that happened to the window, the engine re-reads the window from storage and sends what it found — `added`, `updated` and `removed` alike — in an event of its own, right after. That event has an empty `versionId`, and its `added` and `updated` records carry `doc` and no `ops`. Apply every event, and take `doc` whole for any record that carries no `ops`.
+A window at `offset: 0` whose sort ends in `id` stays equal to a fresh query of the same body. When a change's own event cannot say everything that happened to the window, the engine re-reads the window from storage and sends what it found — `added`, `updated` and `removed` alike — in an event of its own, right after. That event has an empty `versionId`, and its `added` and `updated` records carry `doc` and no `ops`. Apply every event, and take `doc` whole for any record that carries no `ops`.
 
 ### `removed` carries a reason
 
@@ -104,11 +103,11 @@ Recovery is the same for all of them but `object_deleted`: **open a new POST and
 
 `overflow` and `drifted` are split only so you can log and back off sensibly: a burst of `overflow` on a hot storage collection is the hint to raise `mailboxCapacity` (or to look at how slowly the consumer drains), a stream of `drifted` on a churny list paged past an offset is the hint to raise `driftBudgetPercent` or widen `limit`.
 
-> **Note.** The drift budget needs a window to measure against: with `limit: 0` there is no window auto-shift and no drift safety net. Always subscribe with a limit.
+> **Note.** The drift budget needs a window to measure against: with `limit: 0` it is off and the stream holds every match. Only a whole-object read, such as one document's `editor_blocks`, subscribes without a limit.
 
 ## Client example: fetch streaming, no EventSource
 
-Windowed subscribes are `POST`, so the browser's `EventSource` cannot open them. Parse the SSE frames from a streaming `fetch` body instead, and wrap the stream in one retry loop: a `closed` frame, a stream that ends without one, and a failed request all mean "open a new POST and replace the window with its snapshot" — except `closed{object_deleted}`, which ends the view: the object is gone and a new POST for it is refused. Node.js 18+ or an allowlisted desktop renderer (an ordinary web page hits the server's CORS policy); `SPACE` is a space id, `CHAT` the [general chat's root](../types/chat.html#finding-the-chat-object), `ACCOUNT` the `accountId` from `GET /v1/auth`. `windowChanged` is where your renderer goes — sort by `-_ver.id` for this query — and `stop.abort()` is what the view calls on close:
+Windowed subscribes are `POST`, so the browser's `EventSource` cannot open them. Parse the SSE frames from a streaming `fetch` body instead, and wrap the stream in one retry loop: a `closed` frame, a stream that ends without one, and a failed request all mean "open a new POST and replace the window with its snapshot" — except `closed{object_deleted}`, which ends the view: the object is gone and a new POST for it is refused. Node.js 18+ or an allowlisted desktop renderer (an ordinary web page hits the server's CORS policy); `SPACE` is a space id, `CHAT` the [general chat's root](../types/chat.html#finding-the-chat-object), `ACCOUNT` the `accountId` from `GET /v1/auth`. `windowChanged` is where your renderer goes — sort by `_ver.id`, then `id`, both descending, for this query — and `stop.abort()` is what the view calls on close:
 
 ```js
 const API = "http://127.0.0.1:2046/v1";
@@ -213,7 +212,7 @@ async function run(signal) {
         return;                            // another account is authorized
       }
       await subscribe(`${API}/spaces/${SPACE}/query/subscribe`,
-        { objectId: CHAT, dataset: "chat_messages", sort: ["-_ver.id"], limit: 50 },
+        { objectId: CHAT, dataset: "chat_messages", sort: ["-_ver.id", "-id"], limit: 50 },
         onFrame, signal);
     } catch (e) {
       if (signal.aborted) return;
@@ -239,9 +238,9 @@ curl -N http://127.0.0.1:2046/v1/spaces/SPACE/objects/query/subscribe \
   -d '{"filter":{"any.type":"page"},"sort":["-modifiedAt","-id"],"limit":20}'
 
 any query-subscribe SPACE --properties --filter '{"any.type":"page"}' --sort -modifiedAt,-id --limit 20
-any query-subscribe SPACE CHAT --dataset chat_messages --sort -_ver.id --limit 50 --total \
+any query-subscribe SPACE CHAT --dataset chat_messages --sort -_ver.id,-id --limit 50 --total \
   | jq 'select(.event=="changes") | .data[]'
-any query-subscribe SPACE --all-objects --dataset TYPE_hours --sort -start --limit 48
+any query-subscribe SPACE --all-objects --dataset TYPE_hours --sort -start,-_objectId,-id --limit 48
 ```
 
 ## What to subscribe to
@@ -249,6 +248,6 @@ any query-subscribe SPACE --all-objects --dataset TYPE_hours --sort -start --lim
 - **`objects`** (cross-object) — one row per object holding computed property values. Creates land as `added`, property writes as `updated`, deletes as `removed` with `reason: "deleted"` — the canonical place to observe deletion across a space.
 - **`editor_blocks`** — the block tree of one document; every frame ships the full post-apply block, whether it came from a block write or a bulk markdown import. See [Editor](../types/editor.html).
 - **`chat_messages`** — one message per `added`; a reaction toggle arrives as an `updated` event with a `$set` / `$unset` op under `reactions.<emoji>.<accountId>`. See [Chat](../types/chat.html).
-- **A shared dataset** (`…/datasets/query/subscribe`) — the changes of every object's records, ids `<objectId>/<recordId>`. Deleting an object arrives as `removed` entries for the records it held, in batches with an empty `versionId`. `_ver` orders one object's changes only, so sort on a declared field, and bound the stream with a `filter` or a `sort` and a `limit`: an unbounded one holds every record of the dataset. See [Shared datasets](../database/runtime-datasets.html#shared-datasets).
+- **A shared dataset** (`…/datasets/query/subscribe`) — the changes of every object's records, ids `<objectId>/<recordId>`. Deleting an object arrives as `removed` entries for the records it held, in batches with an empty `versionId`. `_ver` orders one object's changes only, so sort on a declared field, then `id`, and bound the stream with a `limit`: an unbounded one holds every record of the dataset. See [Shared datasets](../database/runtime-datasets.html#shared-datasets).
 
 Records ship their full stored form — `_ver` included (and `_traces` / `_deletedAt` when present) — unless you send a `projection`, which shapes the snapshot and every later `changes` record alike, so the stream cannot widen on you. Hold one subscription per open view and size the window for the UI — the engine holds the window on the server side as well, so `limit` is memory on both ends.

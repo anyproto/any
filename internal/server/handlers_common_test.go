@@ -62,3 +62,33 @@ func TestSdkOpError_CRDTVersionNewer(t *testing.T) {
 		}
 	}
 }
+
+// The coordinator's plan refusal is a typed conflict on every route: the
+// generic mapper and the ACL mapper that falls through to it.
+func TestOpError_CoordinatorLimitReached(t *testing.T) {
+	e := echo.New()
+	refusal := fmt.Errorf("make shareable: %w", space.ErrCoordinatorLimitReached)
+	for name, mapper := range map[string]func(echo.Context, error, map[string]any) error{
+		"sdkOpError": sdkOpError,
+		"aclOpError": aclOpError,
+	} {
+		rec := httptest.NewRecorder()
+		c := e.NewContext(httptest.NewRequest(http.MethodPost, "/", nil), rec)
+		if err := mapper(c, refusal, map[string]any{"spaceId": "s"}); err != nil {
+			t.Fatalf("%s returned %v", name, err)
+		}
+		if rec.Code != http.StatusConflict {
+			t.Fatalf("%s: status = %d, want 409; body=%s", name, rec.Code, rec.Body.String())
+		}
+		var env api.ErrorEnvelope
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatal(err)
+		}
+		if env.Error.Code != "acl.limit_reached" {
+			t.Errorf("%s: code = %q, want acl.limit_reached", name, env.Error.Code)
+		}
+		if env.Error.Details["spaceId"] != "s" {
+			t.Errorf("%s: details = %v, want the spaceId kept", name, env.Error.Details)
+		}
+	}
+}

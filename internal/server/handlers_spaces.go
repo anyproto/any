@@ -103,6 +103,10 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read", d.chatRead)
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions-read", d.chatReadReactions)
 
+	// Read state (SDK Space.ReadState()): what became unread on this
+	// device after a cursor. Marks are module writes (chat above).
+	g.GET("/spaces/:spaceId/read-state/unread", d.readStateUnread)
+
 	// Version history (SDK Space.History(); SDK
 	// docs/version-history-proposal.md). Read-only; versions are the
 	// ChangeIds every write already returns. The static `diff` segment

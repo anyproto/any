@@ -47,7 +47,7 @@ Fields mix scopes on purpose: `type`, `name`, `description`, `icon`, `remoteStat
 ```bash
 curl -N -X POST http://127.0.0.1:2046/v1/spaces/query/subscribe \
   -H 'content-type: application/json' \
-  -d '{"sort":["-createdAt"],"limit":50}'
+  -d '{"sort":["-createdAt","-id"],"limit":50}'
 # event: ready → snapshot{records} → changes[{added,updated,removed}] …
 ```
 

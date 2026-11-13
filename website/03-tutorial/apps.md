@@ -127,7 +127,7 @@ curl -s -N -X POST $API/spaces/$SPACE/objects/query/subscribe -H 'content-type: 
   "filter": {"$and": [{"any.collections": "miniapp"},
                       {"any.collections": {"$nin": ["bin"]}},
                       {"miniapp.hidden": {"$ne": true}}]},
-  "sort": ["miniapp.pos"]}'
+  "sort": ["miniapp.pos", "id"], "limit": 50}'
 ```
 
 A row with `miniapp.bundle` is an installed app and the bundle id says what to run — `mail/v1` opens your mailbox UI, `system:wiki/v1` the wiki. A row without one is an object the user pinned, rendered as the object it is. Pinning the Part 3 inbox:

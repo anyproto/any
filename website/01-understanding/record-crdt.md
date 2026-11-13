@@ -40,7 +40,7 @@ else:                                       skip this path
 
 `_ver` is a tree. A write to `a.b` stamps exactly that path; a whole-object `$set` of `a` collapses the subtree to one string, and a `*` entry holds the default for keys a broad write claimed without enumerating. A broad write over finer entries merges per leaf — newer leaves survive, older ones are replaced — so "replace the whole object" and "edit one key" race to the same result in every delivery order.
 
-`_ver.id` is special: it is the **creation marker**, the versionId of the earliest upsert that targeted the id, updated only downward (`min`). That is what makes `sort: ["-_ver.id"]` a stable creation order on every peer ([System fields](../database/system-fields.html)).
+`_ver.id` is special: it is the **creation marker**, the versionId of the earliest upsert that targeted the id, updated only downward (`min`). That is what makes `sort: ["-_ver.id", "-id"]` a stable creation order on every peer ([System fields](../database/system-fields.html)).
 
 ## Content-addressed record ids
 

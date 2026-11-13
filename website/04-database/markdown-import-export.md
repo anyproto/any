@@ -126,8 +126,8 @@ An empty paragraph is a real block — a `paragraph` record with `text: ""` — 
 
 ## Reading blocks directly
 
-The markdown routes are a transform, not a read path. Block records themselves are read through the per-object query surface with `dataset: "editor_blocks"`, sorted by `nav.pos`, and watched through [subscribe](../realtime/subscribe.html):
+The markdown routes are a transform, not a read path. Block records themselves are read through the per-object query surface with `dataset: "editor_blocks"`, sorted `["nav.pos", "id"]` and read whole, and watched through [subscribe](../realtime/subscribe.html):
 
 ```sh
-any query-subscribe $SPACE $OBJ --dataset editor_blocks --sort nav.pos --limit 500
+any query-subscribe $SPACE $OBJ --dataset editor_blocks --sort nav.pos,id
 ```

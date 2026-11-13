@@ -15,7 +15,7 @@ Durability is about the *network* copy. Availability — whether the bytes can b
 |-------|---------|
 | `durable` | a verified network-custody receipt (`networkSign`) is recorded on the row — or the file is inline |
 | `inflight` | registered in the CRDT; backup queued, running, or being driven by another device |
-| `limited` | the network refused backup (storage limit); retried on a slow cadence and on `POST …/retry` |
+| `limited` | the network refused backup for a space or account storage limit (`GET /v1/account/limits` reads the account's pool); retried on a slow cadence and on `POST …/retry` |
 
 Inline files (under 4096 bytes) are born `durable`. Larger files start `inflight` and flip to `durable` on a persistent background queue that starts the upload as soon as attach returns, retries with backoff and survives restarts. The one exception is content already backed up in the space: an attach that deduplicates against an already-durable file is born `durable`.
 
@@ -75,7 +75,7 @@ Names and mime for rendering come from `GET …/files/:fileId`; the payload rows
 
 ## Retry
 
-`POST /v1/spaces/:spaceId/files/:fileId/retry` makes pending background work due now (→ 204). It is the right response to `limited`: once the user has freed network storage, offer a retry instead of waiting for the slow cadence. `any file retry $SP $FILE`.
+`POST /v1/spaces/:spaceId/files/:fileId/retry` makes pending background work due now (→ 204). It is the right response to `limited`: once the user has freed network storage ([the account's pool](../auth/profile.html#reading-the-accounts-limits)), offer a retry instead of waiting for the slow cadence. `any file retry $SP $FILE`.
 
 ## What attach latency includes
 

@@ -1,5 +1,7 @@
 package api
 
+import "time"
+
 // AccountResponse is the body of GET /v1/account. Metadata is the
 // locally-stored profile (read from tech-space); omitted when no
 // profile has ever been written on this device. Symmetric with the
@@ -20,6 +22,35 @@ type AccountMetadata struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	IconCID     string `json:"iconCid,omitempty"`
+}
+
+// AccountLimitsResponse is the body of GET /v1/account/limits: what the
+// network grants the account. A part is omitted while the network has
+// never answered for it on this device; storage also on a network that
+// has no file nodes or keeps no account pool.
+type AccountLimitsResponse struct {
+	Storage      *AccountStorageLimits      `json:"storage,omitempty"`
+	SharedSpaces *AccountSharedSpacesLimits `json:"sharedSpaces,omitempty"`
+}
+
+// AccountStorageLimits is the account's file-storage pool: every file
+// is charged to its uploader, across all spaces.
+type AccountStorageLimits struct {
+	// LimitBytes is the pool's cap; 0 when the network grants none.
+	LimitBytes uint64 `json:"limitBytes"`
+	// UsageBytes is the bytes of durable files the account uploaded,
+	// across its spaces.
+	UsageBytes uint64 `json:"usageBytes"`
+	// FetchedAt is when the network gave this answer.
+	FetchedAt time.Time `json:"fetchedAt"`
+}
+
+// AccountSharedSpacesLimits bounds the shared spaces the account owns.
+type AccountSharedSpacesLimits struct {
+	// Limit is how many shared spaces the account may own.
+	Limit uint32 `json:"limit"`
+	// FetchedAt is when the network gave this answer.
+	FetchedAt time.Time `json:"fetchedAt"`
 }
 
 // Error code namespace for the account avatar.

@@ -184,7 +184,7 @@ POST /v1/spaces/:spaceId/objects/query
 { "filter": { "$and": [ { "any.collections": "template" },
                         { "any.type": "<typeId>" },
                         { "any.collections": { "$nin": ["bin"] } } ] },
-  "sort": ["template.title"] }
+  "sort": ["template.title", "id"], "limit": 50 }
 ```
 
 For a collection's rows use `{"any.collections": {"$all": ["template",

@@ -55,6 +55,7 @@
     - [Read](#read)
     - [Edit / delete (own only)](#edit--delete-own-only)
     - [React (toggle)](#react-toggle)
+  - [Read state](#read-state)
   - [Files (files v2)](#files-files-v2)
     - [Upload (attach)](#upload-attach)
     - [Download (content)](#download-content)
@@ -356,6 +357,7 @@ full).
 | GET    | `/v1/account/icon`           | `Account.OpenIcon` — raw bytes          |
 | DELETE | `/v1/account/icon`           | `Account.DeleteIcon`                   |
 | POST   | `/v1/account/access-code`    | redeem an alpha invite code (any-invite) |
+| GET    | `/v1/account/limits`         | `Account.Limits` — storage pool, shared-spaces limit |
 
 `GET /v1/account` → `{id, techSpaceId, metadata?}`. `metadata`
 (`{name?, description?, iconCid?}`) is the locally stored profile,
@@ -440,6 +442,42 @@ redeemed a code before (nothing consumed). Refusals are relayed as
 > until the key arrives and the SDK's background fetch resolves the
 > profile. Clients must tolerate an empty name everywhere a contact
 > profile surfaces (members list, identities directory).
+
+**Limits.** `GET /v1/account/limits` (`Account.Limits`) is what the
+network grants the account:
+
+```jsonc
+{
+  "storage": {                      // the file-storage pool, shared by all the account's spaces
+    "limitBytes": 1073741824,       // the cap; 0 = the network grants no storage
+    "usageBytes": 52428800,         // bytes of durable files this account uploaded, in every space
+    "fetchedAt":  "2026-08-20T17:06:40Z"
+  },
+  "sharedSpaces": {
+    "limit":     3,                 // shared spaces the account may own
+    "fetchedAt": "2026-08-20T17:06:40Z"
+  }
+}
+```
+
+The file nodes answer `storage` and the coordinator answers
+`sharedSpaces`. The server keeps each answer on the device, and
+`fetchedAt` says when the network gave it. Requests a few seconds apart
+share one answer.
+
+A request waits for the network at most five seconds, and not at all
+while the network is failing or slower than that, so give it a longer
+timeout than five seconds. A part the network has not answered is its
+last answer. A part is omitted when the network never answered for it
+on this device: a device that has never been online, or runs with no
+network, reads `{}`. `storage` is also omitted on a network that has no
+file nodes or keeps no account pool. An unreachable network is never an
+error: the route answers `200` offline.
+
+The network accounts the pool on its own schedule: a new grant or a
+finished backup shows some minutes later. A file the pool has no room
+for stays `limited` (docs/17-files.md § Durability states) until the
+pool grows or files are deleted.
 
 ### Identities (account-global directory)
 
@@ -683,10 +721,12 @@ POST /v1/spaces/derived/:name  → 201 SpaceInfo   (404 space.derived_unknown,
   (`space.ErrIsDerivedSpace`), its space-index handler drops
   `remoteStatus=deleted` writes on flagged rows from any peer, and its
   deletion reconciler exempts them. `SpaceInfo.derived` surfaces the
-  flag; joiners of someone else's derived space never carry it, so
-  their removal stays allowed.
+  flag.
+- **Derived spaces are not shared.** A derived space belongs to its
+  account alone: invite create, the guest key and a direct add answer
+  `409 space.derived_unshareable`.
 - `spaceType` is `any.space` — derived spaces are ordinary spaces in
-  every other respect (members, invites, datasets, search).
+  every other respect (datasets, search).
 
 #### One-to-one (direct) spaces
 
@@ -832,7 +872,7 @@ of `spaces` rows (`guestKey`, `issuedGuestKey`, `issuedInviteKeys`) are
 withheld, and a filter, sort or projection naming one is
 `400 request.invalid_field`. Rows carry `createdAt` as an instant —
 `{"$date": "<RFC 3339>"}`, absent on unstamped rows — so newest-first
-creation ordering is `{"sort": ["-createdAt"]}` and a range filter
+creation ordering is `{"sort": ["-createdAt", "-id"]}` and a range filter
 takes the same shape (`{"$gte": {"$date": "…"}}`). The mapped
 `SpaceInfo.createdAt` on `GET /v1/spaces` is a plain RFC 3339 string.
 The subscribe frame set and `closed` reasons are identical to the
@@ -1943,13 +1983,13 @@ Reads go through the per-object query primitive with
 POST /v1/spaces/:spaceId/query
 { "objectId": "<oid>",
   "dataset":  "editor_blocks",
-  "sort":     ["nav.pos"] }
+  "sort":     ["nav.pos", "id"] }
 ```
 
 Each record carries `id`, `_ver`, `type`, `style`, `text`, `nav`.
 `_ver.id` is the block's creation marker, never bumped by an edit; an
 edit stamps `_ver.<path>` for the paths it wrote.
-Records sort by `nav.pos` ascending (flat order, not DFS — clients
+Records sort by `nav.pos`, then `id` (flat order, not DFS — clients
 that want DFS reconstruct the tree by grouping children under each
 `nav.parentId`). Empty `records` array when the object has no body
 blocks yet.
@@ -2020,7 +2060,7 @@ with `dataset=editor_blocks`:
 
 ```
 POST /v1/spaces/:spaceId/query/subscribe
-{ "objectId": "<oid>", "dataset": "editor_blocks", "sort": ["nav.pos"] }
+{ "objectId": "<oid>", "dataset": "editor_blocks", "sort": ["nav.pos", "id"] }
 ```
 
 `changes` frames carry `added` / `updated` / `removed` for blocks
@@ -2141,9 +2181,13 @@ POST /v1/spaces/:spaceId/objects/query
   "filter": { "$and": [ { "<wikiCollectionId>.<parentIdPropId>": "<parentObjectId>" },
                         { "any.collections": "<wikiCollectionId>" },
                         { "any.collections": { "$nin": ["bin", "template"] } } ] },
-  "sort":   [ "<wikiCollectionId>.<posPropId>" ]
+  "sort":   [ "<wikiCollectionId>.<posPropId>", "id" ],
+  "limit":  50
 }
 ```
+
+Library rows merge in by the order `28-well-known-bundles.md`
+§ Library rows gives, once the level is read past them.
 
 The columns are ordinary properties: unindexed on the `objects`
 storage collection (a scan, `09-query.md` § Indexes); `parentId` and `pos` are
@@ -2312,7 +2356,7 @@ addressing them are rejected):
   the object's last writer, `author` on an object nobody edited since
   it was created.
 
-"Recently modified first" is `{"sort": ["-modifiedAt"]}`.
+"Recently modified first" is `{"sort": ["-modifiedAt", "-id"]}`.
 
 All six take POST (the filter/sort body doesn't fit a query string).
 The bare `…/query` returns a point-in-time snapshot;
@@ -2362,7 +2406,7 @@ into `/query` must treat 404 as "stale hit", not an error.
   "objectId":   "obj_abc",            // per-object variant only
   "dataset":    "notes",              // per-object variant only
   "filter":     { "tags": "idea" },
-  "sort":       ["-_ver.id"],         // required when limit > 0 on subscribe
+  "sort":       ["-_ver.id", "-id"],  // required when limit > 0 on subscribe
   "limit":      100,
   "offset":     0,
   "includeTotal":       true,         // populate `total` + `hasNext` in the snapshot
@@ -2597,9 +2641,9 @@ data: {"reason": "overflow"}
 
   An event with an empty `versionId` is the engine's re-read of the
   window from storage, or an object deletion. A window at `offset: 0`
-  stays equal to a fresh query of the same body: what a change's own
-  event could not say about the window, the re-read ships right after
-  it — `added`, `updated` and `removed` alike, the first two with
+  whose sort ends in `id` stays equal to a fresh query of the same
+  body: what a change's own event could not say about the window, the
+  re-read ships right after it — `added`, `updated` and `removed` alike, the first two with
   `doc` and no `ops`. A record without `ops`, in any event, is applied
   by taking `doc` whole.
 - **`: keepalive`** — comment frame every 25s during silence; defeats
@@ -3371,7 +3415,8 @@ POST /v1/spaces/:spaceId/datasets/aggregate         { dataset, pipeline, groupLi
   value, in both scopes: one object's record ids from `a` up to `b`
   are `{"id": {"$gte": "<objectId>/a", "$lt": "<objectId>/b"}}`.
 - **Order.** `_ver` orders the changes of one object. Records of
-  different objects share no version order: sort on a declared field.
+  different objects share no version order: sort on a declared field,
+  then `id`.
 - **Errors.** `400 dataset.not_shared` — the dataset is not shared, or
   the space does not hold it. `400 request.unknown_field` — a key the
   body does not take, `objectId` included. `405 space.unsupported` on
@@ -3559,9 +3604,10 @@ client to delete or re-parent (`$set dataview`).
 No bespoke endpoints and no `dataview` module: write through
 `POST /v1/spaces/:spaceId/modify` with the dataview object's
 `objectId` and `dataset: "dataviews"` /
-`"views"`, read through `…/query[/subscribe]` — the dataview list sorted
-by `pos`, one dataview's views with `{"filter": {"dataview": "<id>"},
-"sort": ["pos"]}` (indexed). `name` + `pos` are required on a dataview,
+`"views"`, read through `…/query[/subscribe]` — the dataview list
+sorted `["pos", "id"]`, one dataview's views with
+`{"filter": {"dataview": "<id>"}, "sort": ["pos", "id"]}` (indexed).
+`name` + `pos` are required on a dataview,
 `dataview` + `name` + `pos` + `layout` on a view; `creator` / `createdAt`
 / `modifiedAt` are server-stamped and reject client writes; every synced
 field is `mutableBy: any` and any writer may delete a record.
@@ -3713,9 +3759,9 @@ by construction.
 **`miniapp`** — the sidebar entry: an object that runs an installed
 bundle, or an ordinary object the user pinned. The space sidebar is the
 list of members — `{"any.collections": "miniapp"}` minus `bin` members
-and `miniapp.hidden`, sorted on `miniapp.pos`. A collection, not a
-type, so an app root keeps its own type slot (its definition marker, or
-the type a pinned object has). Three properties:
+and `miniapp.hidden`, sorted `["miniapp.pos", "id"]`. A collection,
+not a type, so an app root keeps its own type slot (its
+definition marker, or the type a pinned object has). Three properties:
 
 - `bundle` (string) — the id of the installed bundle (§ Bundles —
   `system:wiki/v1`, a marketplace id, …), which is what a client
@@ -3753,10 +3799,10 @@ its stamps and a restored object never keeps stale ones; a second move
 re-stamps. Clients filter members out of ordinary lists —
 `{"any.collections": {"$nin": ["bin", "template"]}}`, templates
 excluded by the same clause — and list the bin with
-`{"any.collections": "bin"}` sorted `-bin.movedAt` (not indexed; the
-bin is small). Restore brings the object back as it was: unfiling is
-not a delete, nothing else on the row changes, and the object keeps its
-type throughout. Permanent deletion stays
+`{"any.collections": "bin"}` sorted `["-bin.movedAt", "-id"]` (not
+indexed). Restore brings the object back as it was: unfiling is not a
+delete, nothing else on the row changes, and the object keeps its type
+throughout. Permanent deletion stays
 `DELETE …/objects/:objectId`. The stamps are ordinary synced
 properties: the server writes them, but a peer can write the namespace
 directly, so a reader treats an absent stamp as unknown, never as "not
@@ -4154,6 +4200,49 @@ can't corrupt each other. Returns `200` with the shared write result
 `{versionId, changeId, recordIds}` (`recordIds=[msgId]`); read the
 updated `reactions` back via the query path.
 
+### Read state
+
+| Method | Path                                    | Purpose                            |
+|--------|-----------------------------------------|------------------------------------|
+| GET    | `/v1/spaces/:spaceId/read-state/unread` | `Space.ReadState().UnreadSince`    |
+
+`GET …/read-state/unread?cursor=<cursor>&limit=<n>` lists the changes
+that became unread on this device after `cursor` and still are, across
+every object of the space, oldest arrival first:
+
+```json
+{ "changes": [ { "objectId":  "<objectId>",
+                 "dataset":   "chat_messages",
+                 "recordIds": ["<recordId>"],
+                 "tags":      ["message", "mention"],
+                 "changeId":  "<changeId>" } ],
+  "cursor": "<cursor>" }
+```
+
+- `tags` are the read-tracking labels of the change's dataset. Chat
+  uses `message`, `mention` and `reaction` (`16-chat.md`).
+- `cursor` is opaque: send back the one the previous call returned.
+  With no `cursor` the call returns no changes and a cursor at the
+  present. A cursor issued before the account's local store was
+  rebuilt is answered the same way.
+- `limit` defaults to 100 and is capped at 1000. A page as long as the
+  limit in effect may have more behind it.
+- Only additions are listed. A change read or deleted since is gone
+  from the feed; flags and counters carry removals. A change that
+  replaces an unread one (a further edit of a message that mentions
+  you) is a new change and is listed too.
+- The order is arrival on this device. A device that is catching up
+  lists history as it applies it (`16-chat.md` § Desktop
+  notifications).
+- The server keeps nothing between calls.
+
+Errors: `400 request.invalid_field` for a malformed `cursor` or a
+`limit` that is not a positive integer; the tech space answers
+`405 space.unsupported`. A well-formed cursor is not checked further:
+one issued for another space, or before the store was rebuilt, starts
+at the present. Marking read is a module write (§ Chat). CLI:
+`any read-state unread`.
+
 ### Files (files v2)
 
 Full model — storage tiers, durability states, cache/offload, variants
@@ -4402,7 +4491,11 @@ invite's `permission` is `"none"` — the role is chosen by the owner at
 `/acl/accept`, not carried by the invite. A mint the ACL refuses as a
 duplicate is `409 invite.duplicate`. A mint by a non-owner is
 `403 acl.forbidden`: the coordinator's make-shareable, which the mint
-runs first, is owner-only. Owners share the token
+runs first, is owner-only. A mint that would take the owner past the
+plan's shared-spaces limit (`GET /v1/account/limits`) is
+`409 acl.limit_reached`; the guest key and a direct add share a space
+the same way. On a derived space all
+three answer `409 space.derived_unshareable`. Owners share the token
 out-of-band; joiners pass it back verbatim:
 
 ```json
@@ -4533,8 +4626,12 @@ Bodies (every successful op returns `204 No Content`):
 `self-remove`, `cancel-join`, and `stop-sharing` take no body. A missing
 required field or an empty batch is `400 request.missing_field`; an
 unknown permission string is `400 request.schema`. SDK refusals map to
-`403 acl.forbidden` (insufficient permissions) and
-`404 acl.record_not_found` (no such ACL record).
+`403 acl.forbidden` (insufficient permissions),
+`404 acl.record_not_found` (no such ACL record) and
+`409 acl.limit_reached` (the owner's plan is at its limit of readers or
+writers for the space, or of shared spaces). A join request counts
+against neither limit: the space takes it, and the refusal comes when
+the owner accepts.
 
 `cancel-join` is the one ACL op that never resolves the space: a
 pending join is never materialized, so the server posts the withdrawal
@@ -5023,8 +5120,8 @@ keeps the QUIC listener down.
 - `middleware.RequestID` — generate an id per request for the logs.
 - **Logger middleware** wired to `any-sync/app/logger` — one line per
   request (path, status, duration).
-- `middleware.BodyLimit("1M")` — reject larger bodies, except the
-  routes whose raw body streams into the SDK or the local store: file
+- `middleware.BodyLimit("1M")` — reject bodies over 1 MB (1,000,000
+  bytes), except the routes whose raw body streams into the SDK or the local store: file
   attach (§ Files), the avatar upload (§ Account, capped by the SDK)
   and the local-store import.
 - **JSON body check**: on every other `/v1` route, a `POST`, `PUT`,
@@ -5053,10 +5150,9 @@ loopback-only listen stays the trust boundary.
 
 ## Pagination
 
-Offset-based (`limit` / `offset`), mirroring the SDK. Version history
-and chat backward paging are the exceptions: history pages with an
-opaque `cursor` (§ Version history), chat with a `_ver.id` filter
-(§ Chat → Read).
+A GET list takes a `limit` and no `offset`. Version history and
+`…/read-state/unread` page with an opaque `cursor`; query reads follow
+`08-clients.md` § 3.
 
 ## Idempotency
 
