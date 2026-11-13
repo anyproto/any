@@ -97,8 +97,8 @@ user-space. The CLI (`any query-subscribe`) and Go client
    what the re-read found changed — `added`, `updated` and `removed`
    alike — after the event of the change behind it, and its `added`
    and `updated` records carry `doc` and no `ops`. A window at
-   `offset: 0` stays equal to a fresh query of the same body this
-   way. Apply every event, never drop one through a version fence,
+   `offset: 0` whose sort ends in `id` stays equal to a fresh query of
+   the same body this way. Apply every event, never drop one through a version fence,
    and take `doc` whole for a record that carries no `ops`.
 6. **`removed` carries a `reason`.** Each removed entry is
    `{"id":…, "reason":…}` where `reason` is one of:
@@ -206,7 +206,7 @@ dataset is watched across its objects on
 `POST /v1/spaces/:id/datasets/query/subscribe` (`dataset`, no
 `objectId`): record ids are `<objectId>/<recordId>`, and a deleted
 object's records leave as `removed` entries in batches with an empty
-`versionId`. Give that stream a `filter`, or a `sort` with a `limit`:
+`versionId`. Give that stream a `limit` and a sort that ends in `id`:
 an unbounded one holds every record of the dataset.
 
 - **`editor_blocks`** (or a namespaced editor storage collection) — per-object

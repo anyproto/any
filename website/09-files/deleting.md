@@ -22,7 +22,7 @@ The CLI refuses to run without `--yes`.
 
 ## What every member sees
 
-The payload row is deleted in one synced change, so the file disappears from `GET /files`, from `…/files/query` snapshots, and from live `…/files/query/subscribe` windows as a `removed` frame on every device once the deletion syncs. A record that still references the `fileId` will find `GET …/files/:fileId` answering `404 file.not_found`; the reference in your own data is yours to clean up.
+The payload row is deleted in one synced change, so the file disappears from `GET …/files?objectId=`, from `…/files/query` snapshots, and from live `…/files/query/subscribe` windows as a `removed` frame on every device once the deletion syncs. A record that still references the `fileId` will find `GET …/files/:fileId` answering `404 file.not_found`; the reference in your own data is yours to clean up.
 
 **Variants cascade.** Deleting an original also deletes its variants (thumbnails and other alternate representations), since they are unresolvable without it.
 
@@ -40,7 +40,7 @@ A client that holds a live per-object file list sees the deletion the same way i
 
 ```bash
 curl -N -X POST "http://127.0.0.1:2046/v1/spaces/$SP/objects/$OBJ/files/query/subscribe" \
-  -H 'Content-Type: application/json' -d '{"sort": ["-_ver.id"], "limit": 50}'
+  -H 'Content-Type: application/json' -d '{"sort": ["-_ver.id", "-id"], "limit": 50}'
 ```
 
 ```
@@ -51,7 +51,7 @@ data: [{ "versionId": "…", "removed": [{ "id": "<fileId>", "reason": "deleted"
 Only `reason: "deleted"` means the file is gone; `"displaced"` means it merely left the window's limit. Drop the row from your view and, if the deleted file had variants, expect their ids to follow. Without a subscription, a `GET …/files?objectId=` after the deletion syncs simply no longer lists the file, and the per-space `GET …/files/stats` counts drop accordingly.
 
 ```bash
-any file query-subscribe $SP $OBJ --sort=-_ver.id --limit 50     # one JSON line per frame
+any file query-subscribe $SP $OBJ --sort=-_ver.id,-id --limit 50     # one JSON line per frame
 any file list $SP --object $OBJ
 ```
 

@@ -25,6 +25,14 @@ func (c *Client) AccountRedeemAccessCode(ctx context.Context, code string) (api.
 	return out, err
 }
 
+// AccountLimits reads what the network grants the account.
+// GET /v1/account/limits.
+func (c *Client) AccountLimits(ctx context.Context) (api.AccountLimitsResponse, error) {
+	var out api.AccountLimitsResponse
+	err := c.do(ctx, http.MethodGet, "/v1/account/limits", nil, &out)
+	return out, err
+}
+
 // AccountSetIcon uploads r as the account avatar — the raw request body
 // IS the image, streamed without buffering; the server reads the type
 // from the bytes. PUT /v1/account/icon.

@@ -24,7 +24,7 @@ MongoDB-style aggregation pipelines at the sibling `…/aggregate` endpoints
   "objectId": "<oid>",        // per-object only (required there)
   "dataset":  "<name>",       // per-object and shared-dataset (required there)
   "filter":   { ... },        // mongo-style; omit/empty = match all
-  "sort":     ["-_ver.id"],
+  "sort":     ["-_ver.id", "-id"],
   "limit":    50,             // 0 / absent = unbounded
   "offset":   0,
   "includeTotal": false,      // adds total + hasNext to the snapshot reply
@@ -245,7 +245,7 @@ matches any element, `$all` requires several, `$nin` excludes.
 
 Ordinary listings exclude bin members and templates with
 `{"any.collections": {"$nin": ["bin", "template"]}}`; the bin itself is
-`{"any.collections": "bin"}` sorted `["-bin.movedAt"]`, and the
+`{"any.collections": "bin"}` sorted `["-bin.movedAt", "-id"]`, and the
 templates of a type are `{"$and": [{"any.collections": "template"},
 {"any.type": "<typeId>"}, {"any.collections": {"$nin": ["bin"]}}]}`
 (`31-templates.md`).
@@ -304,8 +304,14 @@ tombstone-inclusive read can still tell the two apart.
 
 `sort` is an array of dotted field paths; prefix with `-` for descending.
 Multi-key sorts apply left to right:
-`["<wikiCollectionId>.<parentIdPropId>", "<wikiCollectionId>.<posPropId>"]`
-(the wiki tree's columns, `03-api.md` § The wiki tree).
+`["<wikiCollectionId>.<parentIdPropId>", "<wikiCollectionId>.<posPropId>", "id"]`
+(the wiki tree's columns, `03-api.md` § The wiki tree). A sort that can
+tie ends in `id`, in the last key's direction; without it tied rows have
+no specified order.
+
+A row that lacks a sort field, or holds `null` there, sorts lowest: first
+on an ascending key, last on a descending one. An array sorts on its
+smallest element ascending and its largest descending.
 
 A `sort` that is not an array of strings, or a key the parser rejects, is
 `400 request.invalid_field` with `details.field: "sort"` (`local.bad_sort`
@@ -321,7 +327,7 @@ built-in paths `any.type`, `any.collections`, `any.name`,
 `any.description`, `any.tags`, `_ver.id`, and the row-root derived stamps
 `author`, `createdAt`, `modifiedAt`, `modifiedBy`, `spaceId` (`objects`
 storage collection only — `03-api.md` § Data plane). `{"sort":
-["-modifiedAt"]}` is the recency ordering; `modifiedBy` — the signer of
+["-modifiedAt", "-id"]}` is the recency ordering; `modifiedBy` — the signer of
 that same change — is unindexed, so a filter on it scans. The wiki tree is
 no exception: the wiki collection's `parentId` / `pos` / `folder` are
 `<wikiCollectionId>.<propId>` paths, the ids resolved from
@@ -339,6 +345,8 @@ keying a filter by xKey matches nothing.
 
 - **offset / limit** is simple but floats: row 50 becomes row 51 the moment
   a record lands ahead of it. Fine for one-shot reads of stable data.
+- **A growing window** is how a live list loads more: it resubscribes at
+  `offset: 0` with a larger `limit` (`08-clients.md` § 3).
 - **cursor** paging doesn't float under inserts: filter past the last row
   on the indexed sort field. A row whose sort key changes mid-pass moves
   relative to the cursor. A field that can tie carries the `id`
@@ -351,6 +359,20 @@ keying a filter by xKey matches nothing.
   records only; across `objects` rows it repeats, so the cursor is the
   sort field. `modifiedAt` holds whole seconds and ties often: sort
   `["-modifiedAt", "-id"]` and carry the same tiebreak.
+- **A sort with several keys** pages on an `$or` with one arm per key,
+  `id` included as the last key. Arm *i* holds every key before *i* equal
+  to the last row's value and key *i* past it:
+  - past a descending key: `{"$or": [{"k": {"$lt": v}}, {"k": null}]}`,
+    since `$lt` / `$gt` never match missing or `null`.
+  - past an ascending key: `{"k": {"$gt": v}}`.
+  - when the last row lacks the key: equality is `{"k": null}` (it
+    matches missing and `null`), past it ascending is
+    `{"k": {"$ne": null}}`, and descending that arm is dropped.
+
+  A field every row has (`id`, `modifiedAt`, chat `_ver.id`) takes no
+  null arm. The cursor holds for a key with one value per row, of one
+  kind across rows; a list sorted on a multi-value property grows its
+  window instead.
 
 ## Indexes & cost
 
