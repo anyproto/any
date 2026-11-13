@@ -142,4 +142,7 @@ type CatalogSetupBundle struct {
 const (
 	// ErrCatalogNotFound — no usecase with that id in the catalog.
 	ErrCatalogNotFound = "catalog.not_found"
+	// ErrCatalogSetupTimeout — a setup still waiting at the server's
+	// bound; details.step names the step. Retryable.
+	ErrCatalogSetupTimeout = "catalog.setup_timeout"
 )

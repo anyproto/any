@@ -135,7 +135,7 @@ Full semantics in [Bundles](../collaboration/bundles.html).
 |---|---|---|---|---|
 | GET | `/v1/catalog` | — | `{usecases}` | the server's well-known `system:` bundles, grouped into usecases |
 | GET | `/v1/catalog/:usecaseId` | — | usecase | `404 catalog.not_found` |
-| POST | `/v1/catalog/:usecaseId/setup` | `{spaceId}` | `{usecase, bundles: [{usecase, id, bundle, installed, typeId?, collectionId?, properties?, miniapp?}]}` | idempotent adopt-or-install, dependencies first; `typeId` for a bundle declaring a type, `collectionId` for one declaring a collection; `properties` maps xKey → propId; `409 type.xkey_conflict`, `409 bundle.not_ready`, `405 space.unsupported` on the tech space |
+| POST | `/v1/catalog/:usecaseId/setup` | `{spaceId}` | `{usecase, bundles: [{usecase, id, bundle, installed, typeId?, collectionId?, properties?, miniapp?}]}` | idempotent adopt-or-install, dependencies first; `typeId` for a bundle declaring a type, `collectionId` for one declaring a collection; `properties` maps xKey → propId; `409 type.xkey_conflict`, `409 bundle.not_ready`, `405 space.unsupported` on the tech space, `503 catalog.setup_timeout` past a bound (`details.step`; retry) |
 
 `wiki` is the usecase that gives a space its tree — a **collection** pages are filed under ([Objects](../database/objects.html)).
 
