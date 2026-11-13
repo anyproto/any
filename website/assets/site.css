@@ -3,13 +3,13 @@
  * IBM Plex Mono (DS Mono/*) for chrome, code and the terminal furniture,
  * colours from the DS dark spectrum (color/spectrum/on-bg/*).
  * Sizes and line-heights are DS steps in px — no fractional rem values.
- * The mono voice is Iosevka Comfy, self-hosted beside Inter. */
+ * The mono voice is Iosevka Extended, self-hosted beside Inter. */
 @font-face{font-family:"Inter";src:url(inter-normal.woff2) format("woff2");font-weight:400 700;font-style:normal;font-display:swap}
 @font-face{font-family:"Inter";src:url(inter-italic.woff2) format("woff2");font-weight:400 700;font-style:italic;font-display:swap}
-@font-face{font-family:"Iosevka Comfy";src:url(comfy-regular.woff2) format("woff2");font-weight:400;font-style:normal;font-display:swap}
-@font-face{font-family:"Iosevka Comfy";src:url(comfy-medium.woff2) format("woff2");font-weight:500;font-style:normal;font-display:swap}
-@font-face{font-family:"Iosevka Comfy";src:url(comfy-bold.woff2) format("woff2");font-weight:700;font-style:normal;font-display:swap}
-@font-face{font-family:"Iosevka Comfy";src:url(comfy-italic.woff2) format("woff2");font-weight:400;font-style:italic;font-display:swap}
+@font-face{font-family:"Iosevka Extended";src:url(iosevka-extended-regular.woff2) format("woff2");font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:"Iosevka Extended";src:url(iosevka-extended-medium.woff2) format("woff2");font-weight:500;font-style:normal;font-display:swap}
+@font-face{font-family:"Iosevka Extended";src:url(iosevka-extended-bold.woff2) format("woff2");font-weight:700;font-style:normal;font-display:swap}
+@font-face{font-family:"Iosevka Extended";src:url(iosevka-extended-italic.woff2) format("woff2");font-weight:400;font-style:italic;font-display:swap}
 :root{
   --bg:#0f0f0f;--panel:#060606;--bg1:#161616;--bg2:#060606;--bg3:rgba(255,255,255,.05);
   --surface-hover:rgba(255,255,255,.05);--line:#252525;--line2:#2e2e2e;
@@ -20,7 +20,7 @@
   /* DS 2.0 dark spectrum — color/spectrum/on-bg/*, the ramp built for coloured text on dark */
   --cyan:#76e1ff;--amber:#ffcd6b;--magenta:#db8cf6;--red:#ff9b8c;--code-fg:#c8c8c8;--code-k:#9cb2ff;
   --measure:752px;--side:304px;--r:6px;
-  --mono:"Iosevka Comfy",ui-monospace,Menlo,Consolas,monospace;
+  --mono:"Iosevka Extended",ui-monospace,Menlo,Consolas,monospace;
   --sans:Inter,"Inter Variable",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
 *{box-sizing:border-box}html{color-scheme:dark;scroll-padding-top:64px;scrollbar-gutter:stable}
