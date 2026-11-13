@@ -138,7 +138,7 @@ func deviceDescription(line string) string {
 }
 
 // libVersionStamp reads the VERSION file fetch-llamacpp.sh writes next
-// to the shared libs ("b10620-ubuntu-vulkan-x64"). Absent for a custom
+// to the shared libs ("b11600-ubuntu-vulkan-x64"). Absent for a custom
 // build pointed at by index.local.libDir.
 func libVersionStamp(libDir string) string {
 	if libDir == "" {

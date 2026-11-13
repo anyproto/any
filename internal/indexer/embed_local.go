@@ -411,8 +411,9 @@ func (l *Local) embedGroup(tokenized [][]llama.Token) ([][]float32, error) {
 	}
 
 	// Sequences are reused across decodes — drop the previous KV state.
+	// Metadata only: zeroing the buffers memsets the whole cache per call.
 	if mem, err := llama.GetMemory(l.lctx); err == nil {
-		_ = llama.MemoryClear(mem, true)
+		_ = llama.MemoryClear(mem, false)
 	}
 	ret, err := llama.Decode(l.lctx, batch)
 	if err != nil {

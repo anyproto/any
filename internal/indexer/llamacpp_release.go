@@ -11,4 +11,4 @@ package indexer
 // a one loads but reads shifted struct fields (llama_model_n_embd comes
 // back 0 and context creation aborts). yzma's README carries the
 // compatibility table; verify a bump by embedding with the real model.
-const llamaCppRelease = "b10620"
+const llamaCppRelease = "b11600"
