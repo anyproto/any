@@ -91,6 +91,27 @@ An illustrative row for a page filed under the wiki collection:
 
 `GET /v1/spaces/:spaceId/objects/:objectId` returns the same row as `{"objectId": "…", "record": {…}}` when you already hold the id — `404 object.not_found` for an id the space never had, `410 object.deleted` for a deleted one.
 
+### Short ids
+
+A request that names an object also takes a short id: 5 to 52 characters of `[a-z2-7]`, read as the part of the id after `bafyrei`, with or without that prefix. The server finds the object in the space's `objects` rows and proceeds with the full id; replies always carry full ids.
+
+```bash
+curl http://127.0.0.1:2046/v1/spaces/$SPACE/objects/${OBJ:7:6}
+# → {"objectId": "bafyrei…", "record": {…}}
+```
+
+A short id no object carries is `404 object.not_found`. One that several objects share is `409 object.ambiguous_id`: nothing is executed, and the reply lists the matches so the caller retries with a full id.
+
+```json
+{ "error": { "code": "object.ambiguous_id",
+    "message": "short id \"ab3xqd\" matches 2 objects in this space; retry with the full id",
+    "details": { "shortId": "ab3xqd",
+      "candidates": [ { "id": "bafyreiab3xqd…", "name": "Release checklist" },
+                      { "id": "bafyreiab3xqd…", "name": "Q3 planning" } ] } } }
+```
+
+A short id names whichever object carries it now, so it is for the request at hand: once its object is deleted it answers 404, or names another object that shares those characters. Store and link full ids.
+
 ## The wiki tree
 
 The space's tree is the catalog usecase `wiki`: a hidden **collection** whose three columns place any object filed under it. There is no built-in tree type, nothing is stamped on create, and there is no tree endpoint. Set it up once per space and keep the reply — every client, device and member lands on the same ids:

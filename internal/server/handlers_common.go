@@ -241,7 +241,8 @@ func (d *deps) resolveSpace(c echo.Context) (space.Space, error, bool) {
 // every object has a row in, holding `any.*` and every type namespace.
 const objectsDataset = "objects"
 
-// resolveSpaceObject is resolveSpace plus the :objectId param check.
+// resolveSpaceObject is resolveSpace plus the :objectId param, which may
+// be a short id: the returned id is always the full one.
 func (d *deps) resolveSpaceObject(c echo.Context) (space.Space, string, error, bool) {
 	objectId := c.Param("objectId")
 	if objectId == "" {
@@ -254,6 +255,9 @@ func (d *deps) resolveSpaceObject(c echo.Context) (space.Space, string, error, b
 	if done {
 		return nil, "", errResp, true
 	}
+	if objectId, errResp, done = resolveObjectId(c, sp, objectId); done {
+		return nil, "", errResp, true
+	}
 	return sp, objectId, nil, false
 }
 
@@ -264,10 +268,7 @@ func (d *deps) resolveSpaceObjectMsg(c echo.Context) (space.Space, string, strin
 	if objectId == "" || msgId == "" {
 		return nil, "", "", writeError(c, http.StatusBadRequest, "request.missing_field", "objectId and msgId required", nil), true
 	}
-	if isSerializedNil(objectId) {
-		return nil, "", "", serializedNilIdError(c, "objectId", objectId), true
-	}
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return nil, "", "", errResp, true
 	}

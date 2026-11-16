@@ -44,6 +44,9 @@ func (d *deps) spaceModify(c echo.Context) error {
 	if err != nil {
 		return writeError(c, http.StatusBadRequest, "request.schema", err.Error(), nil)
 	}
+	if batch.ObjectId, errResp, done = resolveObjectId(c, sp, batch.ObjectId); done {
+		return errResp
+	}
 
 	res, err := sp.Modify(c.Request().Context(), batch)
 	if err != nil {
@@ -86,15 +89,19 @@ func (d *deps) spaceDeleteRecords(c echo.Context) error {
 	if len(req.RecordIds) == 0 {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "recordIds required", nil)
 	}
+	objectId, errResp, done := resolveObjectId(c, sp, req.ObjectId)
+	if done {
+		return errResp
+	}
 
 	res, err := sp.Delete(c.Request().Context(), space.DeleteBatch{
-		ObjectId:  req.ObjectId,
+		ObjectId:  objectId,
 		Dataset:   req.Dataset,
 		RecordIds: req.RecordIds,
 		TraceIds:  req.TraceIds,
 	})
 	if err != nil {
-		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": req.ObjectId, "dataset": req.Dataset})
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId, "dataset": req.Dataset})
 	}
 	return c.JSON(http.StatusOK, modifyResultToAPI(res))
 }

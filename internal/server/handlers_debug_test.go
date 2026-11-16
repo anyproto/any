@@ -142,7 +142,7 @@ func TestServer_DebugFlow(t *testing.T) {
 	// .../debug/objects/). Spot-check 404 for an unknown object id —
 	// the SDK errors with "load <id>: not found".
 	rec = doJSON(t, e, http.MethodGet,
-		"/v1/spaces/"+sp.Id+"/debug/objects/does-not-exist", "")
+		"/v1/spaces/"+sp.Id+"/debug/objects/"+absentObjectId, "")
 	if rec.Code < 400 {
 		t.Errorf("unknown objectId status=%d, want >= 400; body=%s", rec.Code, rec.Body.String())
 	}
