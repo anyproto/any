@@ -1,0 +1,30 @@
+Full-app EG2 / ANE lifecycle — b7d2c5ee on 16 GiB M2 Air
+
+Synthetic mixed-length pages/queries sharing a topic: application-flow and lifetime validation, not retrieval-quality evaluation. 16 GiB M2 Air only; no 8 GiB claim.
+
+RESULT: PASS. Fresh managed staging account; public GGUF and exact five-function CoreML package downloaded by the app into an empty cache.
+Five synthetic pages created and indexed; all five CoreML functions became ready. Ten measured vector HTTP requests returned finite scores and hits belonging to created pages.
+Download completion order: embeddinggemma-2-Q8_0.gguf, Manifest.json, model.mlmodel, weight.bin. One index.model_download process observed at a time.
+CoreML package weights SHA256: 86bf461bce224075ea9ff6fc6a2c2abe50cd701eee58f1d3f5d8e6988d234657
+
+HTTP query times in milliseconds (two per bucket, complete app path; all five functions ready):
+{"1024": [89.94754099990132, 90.27270800004317], "128": [8.425832999932936, 8.203458000025421], "2048": [298.2883749999701, 298.05099999998674], "256": [13.930916999925103, 13.535541000010198], "512": [32.46050000007017, 33.61604199994872]}
+
+Idle interval sent no embedding requests or writes. Per-function release logs independently checked against that interval:
+s256: release logged 59.490 s after idle snapshot.
+s512: release logged 59.547 s after idle snapshot.
+s1024: release logged 59.551 s after idle snapshot.
+s2048: release logged 59.609 s after idle snapshot.
+Child retirement logged at 299.897 s; original child alive at 65 s and absent at 315 s.
+
+Memory comes from footprint --wired for parent and child. Neural Clean/Reclaimable/Wired is outside ordinary footprint:
+footprint-active-33393.txt: phys 127 MB; no neural ledger
+footprint-active-33462.txt: phys 778 MB; {'dirty': 0.0, 'clean': 2031.0, 'reclaimable': 1047.0, 'wired': 2031.0}
+footprint-idle-315s-33393.txt: phys 112 MB; no neural ledger
+footprint-idle-65s-33393.txt: phys 127 MB; no neural ledger
+footprint-idle-65s-33462.txt: phys 635 MB; {'dirty': 0.0, 'clean': 0.0625, 'reclaimable': 2991.0, 'wired': 0.0}
+
+Explicit managed shutdown exited 0. Temporary recovery/control files and account SDK state removed; no owned embedding child remains. Public model cache retained.
+Ordinary footprint and neural nofootprint columns are reported separately; their sum is not an exact total-RAM measure. Reclaimable is not already freed. One active snapshot does not bound peak use.
+App binary source is b7d2c5ee; the harness explicitly configures contextSize 2048, batchDocs 1, embedConcurrency 1 and embedBatch 8. This run makes no claim about subsequent code heads, 8 GiB systems, realistic-corpus retrieval quality, or framework leak elimination.
+Shareable evidence omits network configuration and credentials; staging endpoint values are redacted.

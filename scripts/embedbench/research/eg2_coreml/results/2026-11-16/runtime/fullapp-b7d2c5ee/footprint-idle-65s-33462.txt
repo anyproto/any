@@ -1,0 +1,46 @@
+================================================================================
+any [33462]: 64-bit    Footprint: 635 MB (16384 bytes per page)
+================================================================================
+
+  Dirty      Clean  Reclaimable    (Wired)    Regions    Category
+    ---        ---          ---        ---        ---    ---
+ 502 MB        0 B        45 MB        0 B        198    Malloc Small
+  62 MB        0 B          0 B        0 B         12    Malloc Large
+  56 MB        0 B       192 KB     244 MB        109    Untagged
+4320 KB     208 KB          0 B        0 B        431    __DATA_CONST
+3888 KB        0 B          0 B        0 B         15    Malloc Metadata
+1849 KB        0 B          0 B        0 B        400    __DATA
+1410 KB        0 B          0 B    1410 KB          1    page table
+ 928 KB        0 B          0 B        0 B         34    Stack
+ 736 KB        0 B       528 KB        0 B        137    IOAccelerator (graphics)
+ 621 KB        0 B          0 B        0 B        416    __DATA_DIRTY
+ 512 KB        0 B          0 B        0 B          1    Deferred Reclaim
+ 272 KB        0 B          0 B        0 B          1    Malloc Tiny
+ 176 KB        0 B          0 B     112 KB          9    IOSurface
+ 136 KB        0 B          0 B        0 B       1294    unused dyld shared cache area
+  64 KB        0 B          0 B      64 KB          2    IOAccelerator
+  64 KB        0 B          0 B        0 B          2    Malloc Nano
+  64 KB        0 B          0 B     112 KB          8    IOKit
+  48 KB        0 B          0 B        0 B          1    Activity Tracing
+  48 KB        0 B          0 B        0 B          4    __TPRO_CONST
+  47 KB        0 B          0 B        0 B        186    __AUTH
+  36 KB        0 B          0 B        0 B          1    __OBJC_RW
+  16 KB        0 B          0 B        0 B          1    OS Alloc Once
+  16 KB        0 B          0 B      16 KB          1    Owned physical footprint (unmapped) (graphics)
+    0 B      64 KB      2991 MB        0 B         12    Owned physical footprint (unmapped) (neural) (nofootprint)
+    0 B     281 MB          0 B     144 MB         11    mapped file
+    0 B    7952 KB          0 B        0 B        509    __TEXT
+    0 B        0 B          0 B        0 B          1    __OBJC_RO
+    0 B        0 B          0 B        0 B         10    __LINKEDIT
+    0 B        0 B          0 B        0 B          1    __FONT_DATA
+    0 B        0 B          0 B        0 B          1    __CTF
+    0 B        0 B          0 B        0 B        424    __AUTH_CONST
+    0 B        0 B          0 B        0 B          3    Neural Engine
+    ---        ---          ---        ---        ---    ---
+ 635 MB     289 MB      3036 MB     391 MB       4238    TOTAL
+
+Auxiliary data:
+    neural: 64 KB
+    neural_peak: 2031 MB
+    phys_footprint: 635 MB
+    phys_footprint_peak: 781 MB

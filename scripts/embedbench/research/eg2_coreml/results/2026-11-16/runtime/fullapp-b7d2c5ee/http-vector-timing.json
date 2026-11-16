@@ -1,0 +1,62 @@
+[
+  {
+    "bucket": 128,
+    "seconds": 0.008425832999932936,
+    "vectorStatus": "used",
+    "hits": 9
+  },
+  {
+    "bucket": 256,
+    "seconds": 0.013930916999925103,
+    "vectorStatus": "used",
+    "hits": 9
+  },
+  {
+    "bucket": 512,
+    "seconds": 0.03246050000007017,
+    "vectorStatus": "used",
+    "hits": 9
+  },
+  {
+    "bucket": 1024,
+    "seconds": 0.08994754099990132,
+    "vectorStatus": "used",
+    "hits": 9
+  },
+  {
+    "bucket": 2048,
+    "seconds": 0.2982883749999701,
+    "vectorStatus": "used",
+    "hits": 9
+  },
+  {
+    "bucket": 128,
+    "seconds": 0.008203458000025421,
+    "vectorStatus": "used",
+    "hits": 9
+  },
+  {
+    "bucket": 256,
+    "seconds": 0.013535541000010198,
+    "vectorStatus": "used",
+    "hits": 9
+  },
+  {
+    "bucket": 512,
+    "seconds": 0.03361604199994872,
+    "vectorStatus": "used",
+    "hits": 9
+  },
+  {
+    "bucket": 1024,
+    "seconds": 0.09027270800004317,
+    "vectorStatus": "used",
+    "hits": 9
+  },
+  {
+    "bucket": 2048,
+    "seconds": 0.29805099999998674,
+    "vectorStatus": "used",
+    "hits": 9
+  }
+]

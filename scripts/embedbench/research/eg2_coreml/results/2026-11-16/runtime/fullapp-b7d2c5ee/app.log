@@ -1,0 +1,104 @@
+2026-11-16T19:19:42.489+0100	[33mWARN[0m	indexer	embed pending failed, will retry on tick	{"spaceId": "bafyreiedsobdsypjmbwwnuk6fe6tdpt7gat4nc6p44s6ouogklyo54lwiu.3i9rlermx76op", "error": "indexer: local embedder: model not ready: downloading model: 0 MB so far"}
+2026-11-16T19:19:47.811+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 3, "gotMB": 9, "totalMB": 295}
+2026-11-16T19:19:52.827+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 6, "gotMB": 18, "totalMB": 295}
+2026-11-16T19:19:57.828+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 9, "gotMB": 27, "totalMB": 295}
+2026-11-16T19:20:02.837+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 12, "gotMB": 37, "totalMB": 295}
+2026-11-16T19:20:07.853+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 16, "gotMB": 48, "totalMB": 295}
+2026-11-16T19:20:12.861+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 19, "gotMB": 58, "totalMB": 295}
+2026-11-16T19:20:17.864+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 23, "gotMB": 67, "totalMB": 295}
+2026-11-16T19:20:22.878+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 26, "gotMB": 78, "totalMB": 295}
+2026-11-16T19:20:27.879+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 29, "gotMB": 88, "totalMB": 295}
+2026-11-16T19:20:32.881+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 32, "gotMB": 97, "totalMB": 295}
+2026-11-16T19:20:37.900+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 35, "gotMB": 106, "totalMB": 295}
+2026-11-16T19:20:42.218+0100	[33mWARN[0m	indexer	embed pending failed, will retry on tick	{"spaceId": "bafyreiedsobdsypjmbwwnuk6fe6tdpt7gat4nc6p44s6ouogklyo54lwiu.3i9rlermx76op", "error": "indexer: local embedder: model not ready: downloading model: 38% (114/295 MB)"}
+2026-11-16T19:20:42.905+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 39, "gotMB": 115, "totalMB": 295}
+2026-11-16T19:20:47.907+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 42, "gotMB": 126, "totalMB": 295}
+2026-11-16T19:20:52.910+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 46, "gotMB": 135, "totalMB": 295}
+2026-11-16T19:20:57.912+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 49, "gotMB": 147, "totalMB": 295}
+2026-11-16T19:21:02.915+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 53, "gotMB": 158, "totalMB": 295}
+2026-11-16T19:21:07.919+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 57, "gotMB": 169, "totalMB": 295}
+2026-11-16T19:21:13.016+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 60, "gotMB": 178, "totalMB": 295}
+2026-11-16T19:21:18.023+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 63, "gotMB": 188, "totalMB": 295}
+2026-11-16T19:21:23.023+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 67, "gotMB": 198, "totalMB": 295}
+2026-11-16T19:21:28.044+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 70, "gotMB": 208, "totalMB": 295}
+2026-11-16T19:21:33.064+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 73, "gotMB": 218, "totalMB": 295}
+2026-11-16T19:21:38.076+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 76, "gotMB": 226, "totalMB": 295}
+2026-11-16T19:21:42.217+0100	[33mWARN[0m	indexer	embed pending failed, will retry on tick	{"spaceId": "bafyreiedsobdsypjmbwwnuk6fe6tdpt7gat4nc6p44s6ouogklyo54lwiu.3i9rlermx76op", "error": "indexer: local embedder: model not ready: downloading model: 79% (233/295 MB)"}
+2026-11-16T19:21:43.089+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 79, "gotMB": 235, "totalMB": 295}
+2026-11-16T19:21:48.096+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 82, "gotMB": 245, "totalMB": 295}
+2026-11-16T19:21:53.121+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 86, "gotMB": 254, "totalMB": 295}
+2026-11-16T19:21:58.129+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 89, "gotMB": 263, "totalMB": 295}
+2026-11-16T19:22:03.158+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 92, "gotMB": 273, "totalMB": 295}
+2026-11-16T19:22:08.164+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 96, "gotMB": 284, "totalMB": 295}
+2026-11-16T19:22:13.165+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 99, "gotMB": 294, "totalMB": 295}
+2026-11-16T19:22:13.730+0100	[34mINFO[0m	indexer	local embedder: model downloaded	{"dest": "/private/tmp/ane-fullapp-20261116/run-b7d2c5ee/data/models/embeddinggemma-2-Q8_0.gguf"}
+2026-11-16T19:22:14.091+0100	[34mINFO[0m	indexer	local embedder: model downloaded	{"dest": "/private/tmp/ane-fullapp-20261116/run-b7d2c5ee/data/models/embeddinggemma-2-858f354d.mlpackage/Manifest.json"}
+2026-11-16T19:22:19.815+0100	[34mINFO[0m	indexer	local embedder: model downloaded	{"dest": "/private/tmp/ane-fullapp-20261116/run-b7d2c5ee/data/models/embeddinggemma-2-858f354d.mlpackage/Data/com.apple.CoreML/model.mlmodel"}
+2026-11-16T19:22:25.588+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 1, "gotMB": 10, "totalMB": 539}
+2026-11-16T19:22:30.599+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 3, "gotMB": 19, "totalMB": 539}
+2026-11-16T19:22:35.619+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 5, "gotMB": 29, "totalMB": 539}
+2026-11-16T19:22:40.623+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 7, "gotMB": 38, "totalMB": 539}
+2026-11-16T19:22:42.773+0100	[34mINFO[0m	indexer.embedder	local embedder child started	{"dim": 768, "gpuLayers": -1, "threads": 7, "hardware": "darwin/arm64 | llama.cpp b11600-macos-arm64 | MTL0 (Apple M2)"}
+2026-11-16T19:22:45.627+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 8, "gotMB": 48, "totalMB": 539}
+2026-11-16T19:22:50.630+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 10, "gotMB": 58, "totalMB": 539}
+2026-11-16T19:22:55.640+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 12, "gotMB": 68, "totalMB": 539}
+2026-11-16T19:23:00.640+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 14, "gotMB": 78, "totalMB": 539}
+2026-11-16T19:23:05.641+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 16, "gotMB": 89, "totalMB": 539}
+2026-11-16T19:23:10.648+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 18, "gotMB": 98, "totalMB": 539}
+2026-11-16T19:23:15.656+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 19, "gotMB": 107, "totalMB": 539}
+2026-11-16T19:23:20.659+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 21, "gotMB": 117, "totalMB": 539}
+2026-11-16T19:23:25.662+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 23, "gotMB": 125, "totalMB": 539}
+2026-11-16T19:23:30.670+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 25, "gotMB": 136, "totalMB": 539}
+2026-11-16T19:23:35.703+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 27, "gotMB": 145, "totalMB": 539}
+2026-11-16T19:23:40.704+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 28, "gotMB": 155, "totalMB": 539}
+2026-11-16T19:23:45.709+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 30, "gotMB": 165, "totalMB": 539}
+2026-11-16T19:23:50.738+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 32, "gotMB": 175, "totalMB": 539}
+2026-11-16T19:23:55.739+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 34, "gotMB": 185, "totalMB": 539}
+2026-11-16T19:24:00.741+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 36, "gotMB": 195, "totalMB": 539}
+2026-11-16T19:24:05.745+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 38, "gotMB": 205, "totalMB": 539}
+2026-11-16T19:24:10.748+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 40, "gotMB": 216, "totalMB": 539}
+2026-11-16T19:24:15.751+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 42, "gotMB": 226, "totalMB": 539}
+2026-11-16T19:24:20.756+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 43, "gotMB": 235, "totalMB": 539}
+2026-11-16T19:24:25.768+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 45, "gotMB": 246, "totalMB": 539}
+2026-11-16T19:24:30.776+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 47, "gotMB": 256, "totalMB": 539}
+2026-11-16T19:24:35.780+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 49, "gotMB": 267, "totalMB": 539}
+2026-11-16T19:24:40.813+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 51, "gotMB": 276, "totalMB": 539}
+2026-11-16T19:24:45.814+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 53, "gotMB": 285, "totalMB": 539}
+2026-11-16T19:24:50.818+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 54, "gotMB": 295, "totalMB": 539}
+2026-11-16T19:24:55.889+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 56, "gotMB": 304, "totalMB": 539}
+2026-11-16T19:25:00.891+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 58, "gotMB": 314, "totalMB": 539}
+2026-11-16T19:25:05.896+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 60, "gotMB": 324, "totalMB": 539}
+2026-11-16T19:25:10.903+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 62, "gotMB": 334, "totalMB": 539}
+2026-11-16T19:25:15.912+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 64, "gotMB": 345, "totalMB": 539}
+2026-11-16T19:25:20.917+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 66, "gotMB": 356, "totalMB": 539}
+2026-11-16T19:25:25.920+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 67, "gotMB": 366, "totalMB": 539}
+2026-11-16T19:25:30.927+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 69, "gotMB": 376, "totalMB": 539}
+2026-11-16T19:25:35.931+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 71, "gotMB": 387, "totalMB": 539}
+2026-11-16T19:25:40.932+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 73, "gotMB": 398, "totalMB": 539}
+2026-11-16T19:25:45.987+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 75, "gotMB": 407, "totalMB": 539}
+2026-11-16T19:25:51.003+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 77, "gotMB": 417, "totalMB": 539}
+2026-11-16T19:25:56.003+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 79, "gotMB": 427, "totalMB": 539}
+2026-11-16T19:26:01.008+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 81, "gotMB": 436, "totalMB": 539}
+2026-11-16T19:26:06.018+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 82, "gotMB": 447, "totalMB": 539}
+2026-11-16T19:26:11.032+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 84, "gotMB": 456, "totalMB": 539}
+2026-11-16T19:26:16.041+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 86, "gotMB": 466, "totalMB": 539}
+2026-11-16T19:26:21.046+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 88, "gotMB": 476, "totalMB": 539}
+2026-11-16T19:26:26.047+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 90, "gotMB": 486, "totalMB": 539}
+2026-11-16T19:26:31.049+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 91, "gotMB": 496, "totalMB": 539}
+2026-11-16T19:26:36.070+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 93, "gotMB": 506, "totalMB": 539}
+2026-11-16T19:26:41.078+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 95, "gotMB": 515, "totalMB": 539}
+2026-11-16T19:26:46.095+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 97, "gotMB": 524, "totalMB": 539}
+2026-11-16T19:26:51.135+0100	[34mINFO[0m	indexer	local embedder: downloading model	{"percent": 99, "gotMB": 534, "totalMB": 539}
+2026-11-16T19:26:53.610+0100	[34mINFO[0m	indexer	local embedder: model downloaded	{"dest": "/private/tmp/ane-fullapp-20261116/run-b7d2c5ee/data/models/embeddinggemma-2-858f354d.mlpackage/Data/com.apple.CoreML/weights/weight.bin"}
+2026-11-16T19:26:55.983+0100	[34mINFO[0m	indexer.embedder	local embedder neural engine	{"status": "starting"}
+2026-11-16T19:26:58.648+0100	[34mINFO[0m	indexer.embedder	local embedder neural engine	{"status": "package compiled in 2.372s"}
+2026-11-16T19:27:52.752+0100	[34mINFO[0m	indexer.embedder	local embedder neural engine	{"status": "s128 ready (plan 31.933s, load 22.171s, 6195 operations on the neural engine, 14 on the cpu)"}
+2026-11-16T19:28:51.198+0100	[34mINFO[0m	indexer.embedder	local embedder neural engine	{"status": "s256 ready (plan 33.504s, load 24.941s, 6196 operations on the neural engine, 13 on the cpu)"}
+2026-11-16T19:29:56.349+0100	[34mINFO[0m	indexer.embedder	local embedder neural engine	{"status": "s512 ready (plan 36.622s, load 28.529s, 6196 operations on the neural engine, 13 on the cpu)"}
+2026-11-16T19:31:12.814+0100	[34mINFO[0m	indexer.embedder	local embedder neural engine	{"status": "s1024 ready (plan 42.343s, load 34.122s, 6196 operations on the neural engine, 13 on the cpu)"}
+2026-11-16T19:33:02.814+0100	[34mINFO[0m	indexer.embedder	local embedder neural engine	{"status": "s2048 ready (plan 59.222s, load 50.778s, 6196 operations on the neural engine, 13 on the cpu)"}
+2026-11-16T19:34:06.110+0100	[34mINFO[0m	indexer.embedder	local embedder neural engine	{"status": "s256 released after 1m0s unused"}
+2026-11-16T19:34:06.167+0100	[34mINFO[0m	indexer.embedder	local embedder neural engine	{"status": "s512 released after 1m0s unused"}
+2026-11-16T19:34:06.171+0100	[34mINFO[0m	indexer.embedder	local embedder neural engine	{"status": "s1024 released after 1m0s unused"}
+2026-11-16T19:34:06.229+0100	[34mINFO[0m	indexer.embedder	local embedder neural engine	{"status": "s2048 released after 1m0s unused"}
+2026-11-16T19:38:06.517+0100	[34mINFO[0m	indexer.embedder	local embedder child retired while idle	{"idle": "5m0s"}

@@ -1,0 +1,37 @@
+{
+  "dataset": "synthetic mixed-length pages/queries sharing a topic; flow validation, not retrieval-quality evaluation",
+  "phase": "complete",
+  "sourceCommit": "b7d2c5ee9002713d2e4dc9f6d0a8d8fbd9be095a",
+  "smoke": false,
+  "target": "16GiB M2 Air; no8GiB claim",
+  "inputs": [
+    {
+      "bucket": 128,
+      "promptedTokens": 80
+    },
+    {
+      "bucket": 256,
+      "promptedTokens": 190
+    },
+    {
+      "bucket": 512,
+      "promptedTokens": 390
+    },
+    {
+      "bucket": 1024,
+      "promptedTokens": 750
+    },
+    {
+      "bucket": 2048,
+      "promptedTokens": 1500
+    }
+  ],
+  "downloadVerified": true,
+  "oneMinuteRelease": true,
+  "fiveMinuteChildExit": true,
+  "activeChild": 33462,
+  "appExitCode": 0,
+  "remainingOwnedChildren": [],
+  "ownedChildrenAfterCleanup": [],
+  "temporaryCredentialsRemoved": true
+}

@@ -1,0 +1,433 @@
+{"utc": "2026-11-16T18:19:42.135306+00:00", "monotonic": 1.149135958, "phase": "listening", "pid": 33393, "address": "http://127.0.0.1:58081", "networkId": "[STAGING_VALUE]"}
+{"utc": "2026-11-16T18:19:42.210993+00:00", "monotonic": 1.224648083, "phase": "fresh-account-created", "created": true}
+{"utc": "2026-11-16T18:19:42.234491+00:00", "monotonic": 1.248145083, "phase": "documents-created", "count": 5}
+{"utc": "2026-11-16T18:19:43.251206+00:00", "monotonic": 2.264897333, "phase": "fts-ready", "documents": 5}
+{"utc": "2026-11-16T18:20:01.370203+00:00", "monotonic": 20.383927541, "phase": "waiting-public-download", "modelDirectories": 0}
+{"utc": "2026-11-16T18:20:21.461453+00:00", "monotonic": 40.47519275, "phase": "waiting-public-download", "modelDirectories": 0}
+{"utc": "2026-11-16T18:20:41.567810+00:00", "monotonic": 60.581610583, "phase": "waiting-public-download", "modelDirectories": 0}
+{"utc": "2026-11-16T18:21:01.656000+00:00", "monotonic": 80.669928625, "phase": "waiting-public-download", "modelDirectories": 0}
+{"utc": "2026-11-16T18:21:21.762943+00:00", "monotonic": 100.776926583, "phase": "waiting-public-download", "modelDirectories": 0}
+{"utc": "2026-11-16T18:21:41.864914+00:00", "monotonic": 120.878935166, "phase": "waiting-public-download", "modelDirectories": 0}
+{"utc": "2026-11-16T18:22:01.975366+00:00", "monotonic": 140.989424583, "phase": "waiting-public-download", "modelDirectories": 0}
+{"utc": "2026-11-16T18:22:22.089304+00:00", "monotonic": 161.103373541, "phase": "waiting-public-download", "modelDirectories": 1}
+{"utc": "2026-11-16T18:22:42.192144+00:00", "monotonic": 181.206245083, "phase": "waiting-public-download", "modelDirectories": 1}
+{"utc": "2026-11-16T18:23:02.285373+00:00", "monotonic": 201.299501875, "phase": "waiting-public-download", "modelDirectories": 1}
+{"utc": "2026-11-16T18:23:22.382398+00:00", "monotonic": 221.396565166, "phase": "waiting-public-download", "modelDirectories": 1}
+{"utc": "2026-11-16T18:23:42.495269+00:00", "monotonic": 241.509453666, "phase": "waiting-public-download", "modelDirectories": 1}
+{"utc": "2026-11-16T18:24:02.582823+00:00", "monotonic": 261.597048833, "phase": "waiting-public-download", "modelDirectories": 1}
+{"utc": "2026-11-16T18:24:22.678407+00:00", "monotonic": 281.692661708, "phase": "waiting-public-download", "modelDirectories": 1}
+{"utc": "2026-11-16T18:24:42.781372+00:00", "monotonic": 301.7956605, "phase": "waiting-public-download", "modelDirectories": 1}
+{"utc": "2026-11-16T18:25:02.885148+00:00", "monotonic": 321.899470583, "phase": "waiting-public-download", "modelDirectories": 1}
+{"utc": "2026-11-16T18:25:22.985471+00:00", "monotonic": 341.999877291, "phase": "waiting-public-download", "modelDirectories": 1}
+{"utc": "2026-11-16T18:25:43.088276+00:00", "monotonic": 362.102679958, "phase": "waiting-public-download", "modelDirectories": 1}
+{"utc": "2026-11-16T18:26:03.205017+00:00", "monotonic": 382.218670416, "phase": "waiting-public-download", "modelDirectories": 1}
+{"utc": "2026-11-16T18:26:23.314254+00:00", "monotonic": 402.325291833, "phase": "waiting-public-download", "modelDirectories": 1}
+{"utc": "2026-11-16T18:26:43.433771+00:00", "monotonic": 422.444108666, "phase": "waiting-public-download", "modelDirectories": 1}
+{"utc": "2026-11-16T18:26:55.982043+00:00", "monotonic": 434.992204416, "phase": "public-package-verified", "bytes": 574431459}
+{"utc": "2026-11-16T18:26:56.113684+00:00", "monotonic": 435.123844708, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.13154537500003016, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:26:56.154082+00:00", "monotonic": 435.1642445, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.04021091599997817, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:26:56.245072+00:00", "monotonic": 435.255232125, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09079149999996616, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:26:56.437991+00:00", "monotonic": 435.448147833, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19272833299999093, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:26:56.912186+00:00", "monotonic": 435.92234025, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4732723340000007, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:26:56.912775+00:00", "monotonic": 435.922924416, "phase": "warming-functions", "ready": []}
+{"utc": "2026-11-16T18:27:01.965289+00:00", "monotonic": 440.975414625, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.04235129099998858, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:02.005192+00:00", "monotonic": 441.015317833, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.03971666699999332, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:02.095670+00:00", "monotonic": 441.105792291, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09034312500000397, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:02.287915+00:00", "monotonic": 441.298037625, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19213300000001254, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:02.758312+00:00", "monotonic": 441.768432666, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4702777090000154, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:02.758719+00:00", "monotonic": 441.768836958, "phase": "warming-functions", "ready": []}
+{"utc": "2026-11-16T18:27:07.802577+00:00", "monotonic": 446.812680416, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.03370333300000539, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:07.842254+00:00", "monotonic": 446.852356208, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.03951358300002994, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:07.932617+00:00", "monotonic": 446.942717458, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09025966699999799, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:08.124632+00:00", "monotonic": 447.134731791, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19191770899999483, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:08.595413+00:00", "monotonic": 447.605514541, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4706834169999752, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:08.595830+00:00", "monotonic": 447.605926916, "phase": "warming-functions", "ready": []}
+{"utc": "2026-11-16T18:27:13.648736+00:00", "monotonic": 452.65882675, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.04274633299996822, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:13.688784+00:00", "monotonic": 452.698873375, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.03987183300000652, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:13.780384+00:00", "monotonic": 452.790473625, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09144562500000575, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:13.973951+00:00", "monotonic": 452.984039875, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19339862499998617, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:14.452123+00:00", "monotonic": 453.462212041, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4780043330000012, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:14.452621+00:00", "monotonic": 453.462705666, "phase": "warming-functions", "ready": []}
+{"utc": "2026-11-16T18:27:19.499536+00:00", "monotonic": 458.509617375, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.04204349999997703, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:19.539355+00:00", "monotonic": 458.549433291, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.039660665999974754, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:19.629965+00:00", "monotonic": 458.640044416, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09050679199998513, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:19.822276+00:00", "monotonic": 458.832355375, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19214079100004255, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:20.293516+00:00", "monotonic": 459.303597291, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47110945899999024, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:20.294033+00:00", "monotonic": 459.304109291, "phase": "warming-functions", "ready": []}
+{"utc": "2026-11-16T18:27:25.348058+00:00", "monotonic": 464.358134625, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.04386833299997761, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:25.388305+00:00", "monotonic": 464.398381875, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.04004895799999986, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:25.481036+00:00", "monotonic": 464.491112625, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09255904200000487, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:25.674139+00:00", "monotonic": 464.684215291, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19292049999995697, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:26.146212+00:00", "monotonic": 465.15628775, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47189458400004014, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:26.146682+00:00", "monotonic": 465.156754583, "phase": "warming-functions", "ready": []}
+{"utc": "2026-11-16T18:27:31.199347+00:00", "monotonic": 470.209422083, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.042497416999992765, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:31.239778+00:00", "monotonic": 470.249853166, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.04023504200000616, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:31.331645+00:00", "monotonic": 470.341719458, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09168829200001483, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:31.525328+00:00", "monotonic": 470.535402, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.1934968749999939, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:32.000613+00:00", "monotonic": 471.010687333, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4751152080000338, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:32.001080+00:00", "monotonic": 471.011149416, "phase": "warming-functions", "ready": []}
+{"utc": "2026-11-16T18:27:37.050437+00:00", "monotonic": 476.060511083, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.03918945899999926, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:37.090546+00:00", "monotonic": 476.100621625, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.039921208000009756, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:37.182269+00:00", "monotonic": 476.192344125, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09155366699997103, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:37.377152+00:00", "monotonic": 476.387226708, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19470324999997501, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:37.851119+00:00", "monotonic": 476.861193291, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47352904199999557, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:37.851571+00:00", "monotonic": 476.8616415, "phase": "warming-functions", "ready": []}
+{"utc": "2026-11-16T18:27:42.932602+00:00", "monotonic": 481.942679041, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.07088545800002066, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:42.972984+00:00", "monotonic": 481.983058375, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.04014129199998706, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:43.064068+00:00", "monotonic": 482.074142625, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09090274999999792, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:43.257112+00:00", "monotonic": 482.267187208, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.1926820829999656, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:43.729193+00:00", "monotonic": 482.739267416, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47190191700002515, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:43.729682+00:00", "monotonic": 482.739753208, "phase": "warming-functions", "ready": []}
+{"utc": "2026-11-16T18:27:48.769058+00:00", "monotonic": 487.77913525, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.03412025000000085, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:48.808873+00:00", "monotonic": 487.818948208, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.039630790999979126, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:48.899648+00:00", "monotonic": 487.90972475, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09061874999997599, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:49.092254+00:00", "monotonic": 488.102331208, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.1924060000000054, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:49.563380+00:00", "monotonic": 488.573456041, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47093133300001, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:49.563848+00:00", "monotonic": 488.573920833, "phase": "warming-functions", "ready": []}
+{"utc": "2026-11-16T18:27:54.588320+00:00", "monotonic": 493.598400416, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.014307665999979235, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:54.647725+00:00", "monotonic": 493.6578065, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.05916854200000898, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:54.739255+00:00", "monotonic": 493.749334833, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09128487499998528, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:54.933040+00:00", "monotonic": 493.943119083, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19361041700000214, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:55.403639+00:00", "monotonic": 494.413717375, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4704060830000003, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:27:55.404109+00:00", "monotonic": 494.414184458, "phase": "warming-functions", "ready": [128]}
+{"utc": "2026-11-16T18:28:00.433341+00:00", "monotonic": 499.4434235, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.025620625000044583, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:00.494760+00:00", "monotonic": 499.504841583, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.061233083999979954, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:00.585423+00:00", "monotonic": 499.595502125, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09051675000000614, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:00.777580+00:00", "monotonic": 499.787658583, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19203870799998413, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:01.248320+00:00", "monotonic": 500.258398166, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47063045800001646, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:01.248722+00:00", "monotonic": 500.258799375, "phase": "warming-functions", "ready": [128]}
+{"utc": "2026-11-16T18:28:06.267512+00:00", "monotonic": 505.277597708, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008600084000022434, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:06.317682+00:00", "monotonic": 505.327769041, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.04998374999996713, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:06.409071+00:00", "monotonic": 505.41915625, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09119737499997882, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:06.602334+00:00", "monotonic": 505.612419208, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.1930880419999994, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:07.077992+00:00", "monotonic": 506.088078125, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47548304200000757, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:07.078499+00:00", "monotonic": 506.088579708, "phase": "warming-functions", "ready": [128]}
+{"utc": "2026-11-16T18:28:12.110025+00:00", "monotonic": 511.120113958, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.025745791000019835, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:12.165566+00:00", "monotonic": 511.175654125, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.05533445800000436, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:12.256302+00:00", "monotonic": 511.266388458, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09058945800001084, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:12.448550+00:00", "monotonic": 511.458635208, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.1921258340000236, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:12.919169+00:00", "monotonic": 511.929256125, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.470502415999988, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:12.919656+00:00", "monotonic": 511.929740375, "phase": "warming-functions", "ready": [128]}
+{"utc": "2026-11-16T18:28:17.955269+00:00", "monotonic": 516.965360958, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.025464790999990328, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:18.013359+00:00", "monotonic": 517.023450541, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.05789412500007529, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:18.104471+00:00", "monotonic": 517.1145615, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09094704200003889, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:18.297486+00:00", "monotonic": 517.307577875, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19283962500003327, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:18.769519+00:00", "monotonic": 517.779611208, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47184279099997184, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:18.769997+00:00", "monotonic": 517.780083833, "phase": "warming-functions", "ready": [128]}
+{"utc": "2026-11-16T18:28:23.788936+00:00", "monotonic": 522.7990315, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008790542000042478, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:23.846592+00:00", "monotonic": 522.856686166, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.05747616700000435, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:23.937386+00:00", "monotonic": 522.947479916, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09064179200004219, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:24.130583+00:00", "monotonic": 523.14068025, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.1930387919999248, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:24.603364+00:00", "monotonic": 523.61345825, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.471777917000054, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:24.603891+00:00", "monotonic": 523.613981666, "phase": "warming-functions", "ready": [128]}
+{"utc": "2026-11-16T18:28:29.621586+00:00", "monotonic": 528.63168425, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008641208000085498, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:29.679953+00:00", "monotonic": 528.690050666, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.058177165999950375, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:29.770621+00:00", "monotonic": 528.780716916, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09052304199997252, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:29.962906+00:00", "monotonic": 528.973000833, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19214912500001446, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:30.433247+00:00", "monotonic": 529.443345166, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4702202910000324, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:30.433709+00:00", "monotonic": 529.443802583, "phase": "warming-functions", "ready": [128]}
+{"utc": "2026-11-16T18:28:35.469468+00:00", "monotonic": 534.479569541, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.02561366600002657, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:35.529284+00:00", "monotonic": 534.539385041, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.05961487499996565, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:35.620197+00:00", "monotonic": 534.6302965, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09074358300006224, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:35.812851+00:00", "monotonic": 534.822952791, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19251170799998363, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:36.284357+00:00", "monotonic": 535.294459041, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47134095900003103, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:36.284878+00:00", "monotonic": 535.294976208, "phase": "warming-functions", "ready": [128]}
+{"utc": "2026-11-16T18:28:41.320548+00:00", "monotonic": 540.330652833, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.02550941699996656, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:41.379270+00:00", "monotonic": 540.389373291, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.058541375000004336, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:41.470197+00:00", "monotonic": 540.480302916, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.09079074999999648, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:41.663063+00:00", "monotonic": 540.673167416, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19268250000004628, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:42.134808+00:00", "monotonic": 541.144912375, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4715702500000134, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:42.135296+00:00", "monotonic": 541.145396916, "phase": "warming-functions", "ready": [128]}
+{"utc": "2026-11-16T18:28:47.148183+00:00", "monotonic": 546.15829425, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008718083999951887, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:47.199691+00:00", "monotonic": 546.209798333, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.05127062500002921, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:47.290657+00:00", "monotonic": 546.300766458, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.0908217500000319, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:47.483841+00:00", "monotonic": 546.493949416, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.1929330000000391, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:47.955914+00:00", "monotonic": 546.966022875, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47189099999991413, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:47.956427+00:00", "monotonic": 546.966531958, "phase": "warming-functions", "ready": [128]}
+{"utc": "2026-11-16T18:28:52.975364+00:00", "monotonic": 551.985476791, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008771166999963498, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:52.993774+00:00", "monotonic": 552.003884916, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.018216584000015246, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:53.111571+00:00", "monotonic": 552.121684958, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.11765058399998907, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:53.305269+00:00", "monotonic": 552.315380791, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19346245799999906, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:53.776365+00:00", "monotonic": 552.786476291, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4709309579999399, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:53.776851+00:00", "monotonic": 552.7869595, "phase": "warming-functions", "ready": [128, 256]}
+{"utc": "2026-11-16T18:28:58.815533+00:00", "monotonic": 557.825648833, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.028527792000090813, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:58.831134+00:00", "monotonic": 557.841247791, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.015416500000014821, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:58.932961+00:00", "monotonic": 557.943074, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.10171320899996772, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:59.125243+00:00", "monotonic": 558.135355791, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19216491699990002, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:59.596538+00:00", "monotonic": 558.606653291, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4711857909999253, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:28:59.597014+00:00", "monotonic": 558.607125916, "phase": "warming-functions", "ready": [128, 256]}
+{"utc": "2026-11-16T18:29:04.615670+00:00", "monotonic": 563.625790125, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008498832999976003, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:04.630565+00:00", "monotonic": 563.640682375, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.014702665999948294, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:04.744252+00:00", "monotonic": 563.754371916, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.11355695899999318, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:04.938443+00:00", "monotonic": 563.948563541, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.1940039579999393, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:05.414430+00:00", "monotonic": 564.424549958, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4757965000000013, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:05.414987+00:00", "monotonic": 564.425103166, "phase": "warming-functions", "ready": [128, 256]}
+{"utc": "2026-11-16T18:29:10.445289+00:00", "monotonic": 569.455412833, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.02520399999991696, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:10.461340+00:00", "monotonic": 569.4714615, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.01582787500001359, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:10.578539+00:00", "monotonic": 569.588659791, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.11701204099995266, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:10.770872+00:00", "monotonic": 569.780993125, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19219795799995154, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:11.242534+00:00", "monotonic": 570.252657791, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4715176250000468, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:11.243100+00:00", "monotonic": 570.253218833, "phase": "warming-functions", "ready": [128, 256]}
+{"utc": "2026-11-16T18:29:16.261769+00:00", "monotonic": 575.271895791, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008489499999996042, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:16.276891+00:00", "monotonic": 575.287015458, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.014933165999991616, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:16.393392+00:00", "monotonic": 575.403517708, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.11637258300004305, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:16.586278+00:00", "monotonic": 575.596403583, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19270433300005152, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:17.058052+00:00", "monotonic": 576.068178, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47159787500004313, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:17.058567+00:00", "monotonic": 576.068689375, "phase": "warming-functions", "ready": [128, 256]}
+{"utc": "2026-11-16T18:29:22.077875+00:00", "monotonic": 581.088007916, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.009127083000066705, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:22.093029+00:00", "monotonic": 581.103157916, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.014924583000038183, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:22.198433+00:00", "monotonic": 581.208562833, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.10525433399993744, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:22.391838+00:00", "monotonic": 581.401967625, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.1932163330000094, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:22.862752+00:00", "monotonic": 581.872881041, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47073904199999106, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:22.863252+00:00", "monotonic": 581.873377708, "phase": "warming-functions", "ready": [128, 256]}
+{"utc": "2026-11-16T18:29:27.881997+00:00", "monotonic": 586.892131333, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.00856999999996333, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:27.897016+00:00", "monotonic": 586.907148166, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.014816249999967113, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:28.000053+00:00", "monotonic": 587.010186625, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.10289720799994484, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:28.193382+00:00", "monotonic": 587.203517041, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19314349999990554, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:28.668785+00:00", "monotonic": 587.678919333, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4752160000000458, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:28.669320+00:00", "monotonic": 587.679449083, "phase": "warming-functions", "ready": [128, 256]}
+{"utc": "2026-11-16T18:29:33.685012+00:00", "monotonic": 592.695148541, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008567166999910114, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:33.699987+00:00", "monotonic": 592.710123625, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.014779000000089582, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:33.801142+00:00", "monotonic": 592.81127925, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.10101758400003291, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:33.994535+00:00", "monotonic": 593.004673916, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.1932196660000045, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:34.476065+00:00", "monotonic": 593.486204541, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4813371249999818, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:34.476618+00:00", "monotonic": 593.486752583, "phase": "warming-functions", "ready": [128, 256]}
+{"utc": "2026-11-16T18:29:39.511046+00:00", "monotonic": 598.521187125, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.024235666999970817, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:39.526850+00:00", "monotonic": 598.536989541, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.015601958000047489, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:39.633413+00:00", "monotonic": 598.64356, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.10639229200000955, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:39.827720+00:00", "monotonic": 598.837859583, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19410429100003057, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:40.306332+00:00", "monotonic": 599.316472875, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4784689169999865, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:40.306899+00:00", "monotonic": 599.317036375, "phase": "warming-functions", "ready": [128, 256]}
+{"utc": "2026-11-16T18:29:45.333597+00:00", "monotonic": 604.343740333, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.024193707999984326, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:45.349179+00:00", "monotonic": 604.35932275, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.015421416999970461, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:45.462100+00:00", "monotonic": 604.472243375, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.11276787500003138, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:45.656406+00:00", "monotonic": 604.666548791, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19413329099995735, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:46.134774+00:00", "monotonic": 605.144917708, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4781982089999701, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:46.135284+00:00", "monotonic": 605.145423458, "phase": "warming-functions", "ready": [128, 256]}
+{"utc": "2026-11-16T18:29:51.150373+00:00", "monotonic": 610.1605225, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008570958999939648, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:51.165308+00:00", "monotonic": 610.175454375, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.014718042000026799, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:51.279079+00:00", "monotonic": 610.289227375, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.11363087500001257, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:51.473800+00:00", "monotonic": 610.483947166, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.19451345799996034, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:51.951842+00:00", "monotonic": 610.961991541, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47780741700000817, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:51.952388+00:00", "monotonic": 610.962532416, "phase": "warming-functions", "ready": [128, 256]}
+{"utc": "2026-11-16T18:29:56.971729+00:00", "monotonic": 615.981881833, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.009160124999993968, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:56.986580+00:00", "monotonic": 615.996729958, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.014646708999976, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:57.025696+00:00", "monotonic": 616.035848708, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.038985249999996086, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:57.246402+00:00", "monotonic": 616.256553958, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.22051683300003333, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:57.729525+00:00", "monotonic": 616.739678166, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4829472920000626, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:29:57.730102+00:00", "monotonic": 616.74025, "phase": "warming-functions", "ready": [128, 256, 512]}
+{"utc": "2026-11-16T18:30:02.745410+00:00", "monotonic": 621.755564583, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008557209000059629, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:02.760349+00:00", "monotonic": 621.770501916, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.014785167000013644, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:02.800827+00:00", "monotonic": 621.810984416, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.04036041599999862, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:03.012904+00:00", "monotonic": 622.023059333, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.2118657500000154, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:03.484483+00:00", "monotonic": 622.494638375, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47142533300007017, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:03.484982+00:00", "monotonic": 622.495133291, "phase": "warming-functions", "ready": [128, 256, 512]}
+{"utc": "2026-11-16T18:30:08.514449+00:00", "monotonic": 627.52460675, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.025652540999999474, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:08.530233+00:00", "monotonic": 627.54038875, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.015613750000056825, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:08.566473+00:00", "monotonic": 627.57662775, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03613595800004532, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:08.769027+00:00", "monotonic": 627.779185125, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.20246562500005894, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:09.246382+00:00", "monotonic": 628.25654225, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4772163750000118, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:09.246955+00:00", "monotonic": 628.257109625, "phase": "warming-functions", "ready": [128, 256, 512]}
+{"utc": "2026-11-16T18:30:14.258444+00:00", "monotonic": 633.26860625, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008708458000000974, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:14.273364+00:00", "monotonic": 633.283524541, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.01474150000001373, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:14.308619+00:00", "monotonic": 633.318779333, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03512054199995873, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:14.527503+00:00", "monotonic": 633.53766575, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.21848324999996294, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:14.998578+00:00", "monotonic": 634.008741791, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4708747500000072, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:14.999152+00:00", "monotonic": 634.00931025, "phase": "warming-functions", "ready": [128, 256, 512]}
+{"utc": "2026-11-16T18:30:20.028000+00:00", "monotonic": 639.0381655, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.025501209000026392, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:20.044022+00:00", "monotonic": 639.054185, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.01582250000001295, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:20.079934+00:00", "monotonic": 639.090099666, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03579195800000434, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:20.294968+00:00", "monotonic": 639.305134875, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.21487295899999026, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:20.767078+00:00", "monotonic": 639.777245208, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47193379200007257, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:20.767687+00:00", "monotonic": 639.77784975, "phase": "warming-functions", "ready": [128, 256, 512]}
+{"utc": "2026-11-16T18:30:25.786550+00:00", "monotonic": 644.796719, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008664749999979904, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:25.801504+00:00", "monotonic": 644.811670833, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.014753499999983433, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:25.836652+00:00", "monotonic": 644.846819333, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03501187500000924, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:26.046773+00:00", "monotonic": 645.056943041, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.20997699999998076, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:26.520021+00:00", "monotonic": 645.5301905, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.472935624999991, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:26.520546+00:00", "monotonic": 645.530710916, "phase": "warming-functions", "ready": [128, 256, 512]}
+{"utc": "2026-11-16T18:30:31.556136+00:00", "monotonic": 650.566307875, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.025417332999950304, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:31.572325+00:00", "monotonic": 650.582498333, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.016013791999966998, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:31.608213+00:00", "monotonic": 650.618383375, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.035677040999985365, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:31.814914+00:00", "monotonic": 650.82508375, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.20654966699999022, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:32.286194+00:00", "monotonic": 651.296363625, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4711626250000336, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:32.286678+00:00", "monotonic": 651.296846125, "phase": "warming-functions", "ready": [128, 256, 512]}
+{"utc": "2026-11-16T18:30:37.305602+00:00", "monotonic": 656.315776333, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.00875670799996442, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:37.320472+00:00", "monotonic": 656.330646625, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.014650541000037265, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:37.355476+00:00", "monotonic": 656.365649333, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03486466599997584, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:37.565826+00:00", "monotonic": 656.576003541, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.2102184999999963, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:38.040988+00:00", "monotonic": 657.051164916, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47476579199997104, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:38.041532+00:00", "monotonic": 657.051703208, "phase": "warming-functions", "ready": [128, 256, 512]}
+{"utc": "2026-11-16T18:30:43.052398+00:00", "monotonic": 662.062576583, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008737541999948917, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:43.067577+00:00", "monotonic": 662.077755416, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.01500787500003753, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:43.102550+00:00", "monotonic": 662.11272675, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03483429099992463, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:43.313495+00:00", "monotonic": 662.323672, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.21082995900007973, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:43.784940+00:00", "monotonic": 662.795116166, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4713251250000212, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:43.785417+00:00", "monotonic": 662.795591625, "phase": "warming-functions", "ready": [128, 256, 512]}
+{"utc": "2026-11-16T18:30:48.818405+00:00", "monotonic": 667.828587541, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.022810749999962354, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:48.833868+00:00", "monotonic": 667.84404875, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.015273374999992484, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:48.869295+00:00", "monotonic": 667.879475375, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03530266699999629, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:49.080001+00:00", "monotonic": 668.090185083, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.21056691700005103, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:49.554756+00:00", "monotonic": 668.564940208, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47456133399998635, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:49.555354+00:00", "monotonic": 668.565533291, "phase": "warming-functions", "ready": [128, 256, 512]}
+{"utc": "2026-11-16T18:30:54.574149+00:00", "monotonic": 673.584335875, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008595374999913474, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:54.589405+00:00", "monotonic": 673.599590041, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.015049124999904961, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:54.624657+00:00", "monotonic": 673.634840375, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.035102458000096703, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:54.842296+00:00", "monotonic": 673.852482916, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.21751887499999611, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:55.315435+00:00", "monotonic": 674.325622208, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4729480839999951, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:30:55.316021+00:00", "monotonic": 674.326203666, "phase": "warming-functions", "ready": [128, 256, 512]}
+{"utc": "2026-11-16T18:31:00.342272+00:00", "monotonic": 679.352462, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.025732374999961394, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:00.357983+00:00", "monotonic": 679.368170708, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.015530083000044215, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:00.393823+00:00", "monotonic": 679.404012208, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.035719583000059174, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:00.609579+00:00", "monotonic": 679.619768666, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.21559358399997564, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:01.081314+00:00", "monotonic": 680.09150525, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47155799999995907, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:01.081857+00:00", "monotonic": 680.092042583, "phase": "warming-functions", "ready": [128, 256, 512]}
+{"utc": "2026-11-16T18:31:06.092922+00:00", "monotonic": 685.103115791, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008681667000018933, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:06.107839+00:00", "monotonic": 685.118029958, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.014727583000080813, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:06.143363+00:00", "monotonic": 685.153553333, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.0354122080000252, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:06.359618+00:00", "monotonic": 685.369808666, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.21616116600000623, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:06.830452+00:00", "monotonic": 685.840641875, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47072079200006556, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:06.830918+00:00", "monotonic": 685.841106708, "phase": "warming-functions", "ready": [128, 256, 512]}
+{"utc": "2026-11-16T18:31:11.857191+00:00", "monotonic": 690.867388708, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.0255587919999698, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:11.872934+00:00", "monotonic": 690.883128833, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.015541582999958337, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:11.908610+00:00", "monotonic": 690.918803833, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03556283400007487, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:12.127094+00:00", "monotonic": 691.13728975, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.21837154199999986, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:12.605171+00:00", "monotonic": 691.615372458, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.47794616699991366, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:12.606042+00:00", "monotonic": 691.616236666, "phase": "warming-functions", "ready": [128, 256, 512]}
+{"utc": "2026-11-16T18:31:17.618262+00:00", "monotonic": 696.628460916, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008573791999992864, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:17.633081+00:00", "monotonic": 696.643280416, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.01466674999994666, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:17.668146+00:00", "monotonic": 696.678342625, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.0349400830000377, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:17.764935+00:00", "monotonic": 696.775132541, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.09669266599996718, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:18.251398+00:00", "monotonic": 697.261596333, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4863007080000443, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:18.251928+00:00", "monotonic": 697.262124, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:31:23.290502+00:00", "monotonic": 702.300705958, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.02839458400001149, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:23.306024+00:00", "monotonic": 702.316226083, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.015360749999899781, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:23.341754+00:00", "monotonic": 702.351954625, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.035608375000037995, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:23.435242+00:00", "monotonic": 702.445442, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.09338316700006999, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:23.918315+00:00", "monotonic": 702.92851925, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.48296525000000656, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:23.918852+00:00", "monotonic": 702.929051833, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:31:28.938080+00:00", "monotonic": 707.948287541, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.00904450000007273, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:28.953222+00:00", "monotonic": 707.963426416, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.014988540999979705, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:28.988610+00:00", "monotonic": 707.998814125, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.035290334000023904, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:29.081694+00:00", "monotonic": 708.091899625, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.0929833330000065, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:29.606838+00:00", "monotonic": 708.617046208, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.5250285839999833, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:29.607387+00:00", "monotonic": 708.617590875, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:31:34.626422+00:00", "monotonic": 713.636633, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.00885112499997831, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:34.641241+00:00", "monotonic": 713.651451166, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.01463379199992687, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:34.676395+00:00", "monotonic": 713.686604916, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03499883300003148, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:34.769310+00:00", "monotonic": 713.77952325, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.09274754099999427, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:35.253593+00:00", "monotonic": 714.263803666, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.48404774999994515, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:35.254129+00:00", "monotonic": 714.264335958, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:31:40.272984+00:00", "monotonic": 719.283197333, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008671875000004547, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:40.288412+00:00", "monotonic": 719.298625541, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.015269124999917949, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:40.323554+00:00", "monotonic": 719.333765625, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03494912500002556, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:40.416946+00:00", "monotonic": 719.427156375, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.09328245899996546, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:40.901408+00:00", "monotonic": 719.911619875, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.48435937499994, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:40.901956+00:00", "monotonic": 719.91216525, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:31:45.937862+00:00", "monotonic": 724.948080583, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.025722749999999905, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:45.953801+00:00", "monotonic": 724.964017083, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.015757749999920634, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:45.989608+00:00", "monotonic": 724.999824708, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.035672916000066834, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:46.083406+00:00", "monotonic": 725.093623916, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.09362212499991074, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:46.569763+00:00", "monotonic": 725.579979458, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.48613670899999306, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:46.570303+00:00", "monotonic": 725.580516541, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:31:51.589300+00:00", "monotonic": 730.599521166, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008802290999938123, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:51.604230+00:00", "monotonic": 730.61444925, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.014723000000003594, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:51.639460+00:00", "monotonic": 730.649681208, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03508024999996451, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:51.732441+00:00", "monotonic": 730.742662333, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.09279275000005782, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:52.218423+00:00", "monotonic": 731.228644875, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.48579658300002393, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:52.218985+00:00", "monotonic": 731.229201708, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:31:57.237781+00:00", "monotonic": 736.248004666, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.00860379199991712, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:57.252771+00:00", "monotonic": 736.262993166, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.014815333000001374, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:57.288112+00:00", "monotonic": 736.298334041, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.035225208000042585, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:57.381817+00:00", "monotonic": 736.39203775, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.09357933299997967, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:57.868610+00:00", "monotonic": 736.878833041, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.48669166700005917, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:31:57.869141+00:00", "monotonic": 736.879360833, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:32:02.888043+00:00", "monotonic": 741.898270708, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008706624999945234, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:02.903407+00:00", "monotonic": 741.913632916, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.015153000000054817, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:02.938187+00:00", "monotonic": 741.948412625, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03465933400002541, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:03.031639+00:00", "monotonic": 742.041862958, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.09331362500006435, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:03.529311+00:00", "monotonic": 742.539537041, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.497568957999988, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:03.529815+00:00", "monotonic": 742.540038083, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:32:08.548643+00:00", "monotonic": 747.558876583, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008636541999976544, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:08.563761+00:00", "monotonic": 747.573990916, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.014883791999977802, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:08.598738+00:00", "monotonic": 747.608971375, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03482508299998699, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:08.691670+00:00", "monotonic": 747.701900958, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.09271445800004585, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:09.181601+00:00", "monotonic": 748.191834458, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.48974558400004753, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:09.182191+00:00", "monotonic": 748.192418833, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:32:14.199498+00:00", "monotonic": 753.2097315, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008593750000045475, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:14.214380+00:00", "monotonic": 753.224613833, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.014709666000044308, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:14.249663+00:00", "monotonic": 753.259895541, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.035121749999916574, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:14.342579+00:00", "monotonic": 753.352811083, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.09279924999998457, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:14.832660+00:00", "monotonic": 753.842894208, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4899504589999424, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:14.833199+00:00", "monotonic": 753.843429916, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:32:19.846704+00:00", "monotonic": 758.856943291, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008741792000023452, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:19.861603+00:00", "monotonic": 758.871840083, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.014723417000027439, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:19.897700+00:00", "monotonic": 758.907940958, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03595970900005341, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:19.997148+00:00", "monotonic": 759.007388375, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.09922149999999874, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:20.491445+00:00", "monotonic": 759.501683833, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4941269170000169, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:20.492348+00:00", "monotonic": 759.502583958, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:32:25.504247+00:00", "monotonic": 764.514489541, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.009322999999994863, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:25.521117+00:00", "monotonic": 764.531358708, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.016678124999998545, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:25.557078+00:00", "monotonic": 764.567319958, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03580970800010164, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:25.650535+00:00", "monotonic": 764.660778, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.093264750000003, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:26.146230+00:00", "monotonic": 765.156472375, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4954931669999496, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:26.146815+00:00", "monotonic": 765.157052708, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:32:31.165977+00:00", "monotonic": 770.176223541, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008959666000009747, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:31.181214+00:00", "monotonic": 770.191458625, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.015046500000039487, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:31.216280+00:00", "monotonic": 770.226523125, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03490416699992238, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:31.308613+00:00", "monotonic": 770.318858416, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.09218887500003348, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:31.798382+00:00", "monotonic": 770.808627875, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4896062080000547, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:31.798953+00:00", "monotonic": 770.8091935, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:32:36.817782+00:00", "monotonic": 775.828031625, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008632666000039535, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:36.833002+00:00", "monotonic": 775.843249, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.01502795800001877, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:36.868625+00:00", "monotonic": 775.878872583, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.035484499999938635, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:36.961707+00:00", "monotonic": 775.971957, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.09292420799999945, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:37.450551+00:00", "monotonic": 776.460801125, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.4886555830000816, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:37.451131+00:00", "monotonic": 776.461376166, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:32:42.470117+00:00", "monotonic": 781.480370333, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008774334000008821, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:42.485058+00:00", "monotonic": 781.495307875, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.014734665999981189, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:42.520094+00:00", "monotonic": 781.530344166, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03491258300005029, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:42.613083+00:00", "monotonic": 781.623335916, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.09281145900001775, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:43.099888+00:00", "monotonic": 782.110141291, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.48659695799995006, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:43.100433+00:00", "monotonic": 782.110680833, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:32:48.136135+00:00", "monotonic": 787.146390541, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.025506708000079925, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:48.152353+00:00", "monotonic": 787.162605916, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.01605804200005423, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:48.188496+00:00", "monotonic": 787.198749875, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03603633299997, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:48.282929+00:00", "monotonic": 787.293180791, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.0942981249999093, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:48.779610+00:00", "monotonic": 787.789866125, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.49657875000002605, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:48.780203+00:00", "monotonic": 787.790454625, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:32:53.799303+00:00", "monotonic": 792.80956175, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008893542000009802, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:53.814551+00:00", "monotonic": 792.824808333, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.015095167000026777, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:53.850014+00:00", "monotonic": 792.86027, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03533916700007467, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:53.943711+00:00", "monotonic": 792.953967041, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.09360016699997686, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:54.444516+00:00", "monotonic": 793.454773916, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.5007144579999476, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:54.445047+00:00", "monotonic": 793.455302416, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:32:59.463862+00:00", "monotonic": 798.4741255, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008608375000108026, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:59.479162+00:00", "monotonic": 798.489423666, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.015080249999982698, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:59.514564+00:00", "monotonic": 798.524828375, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03523733299994092, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:32:59.608271+00:00", "monotonic": 798.618535, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.09349358299994037, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:33:00.099370+00:00", "monotonic": 799.109634083, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.49087195800007066, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:33:00.099978+00:00", "monotonic": 799.110236375, "phase": "warming-functions", "ready": [128, 256, 512, 1024]}
+{"utc": "2026-11-16T18:33:05.133903+00:00", "monotonic": 804.14421225, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.023633041999914894, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:33:05.161097+00:00", "monotonic": 804.171401208, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.026205374999904052, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:33:05.204572+00:00", "monotonic": 804.214885125, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.04259679100005087, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:33:05.304704+00:00", "monotonic": 804.314980708, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.09918595800002095, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:33:05.625369+00:00", "monotonic": 804.635634333, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.32028924999997344, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:33:05.625943+00:00", "monotonic": 804.636204416, "phase": "warming-functions", "ready": [128, 256, 512, 1024, 2048]}
+{"utc": "2026-11-16T18:33:05.636027+00:00", "monotonic": 804.646289458, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008425832999932936, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:33:05.650088+00:00", "monotonic": 804.660351166, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.013930916999925103, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:33:05.682659+00:00", "monotonic": 804.692921375, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03246050000007017, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:33:05.772690+00:00", "monotonic": 804.782951083, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.08994754099990132, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:33:06.071070+00:00", "monotonic": 805.08133125, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.2982883749999701, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:33:06.079380+00:00", "monotonic": 805.089641416, "phase": "vector-query", "bucket": 128, "tokens": 80, "seconds": 0.008203458000025421, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:33:06.092994+00:00", "monotonic": 805.103255875, "phase": "vector-query", "bucket": 256, "tokens": 190, "seconds": 0.013535541000010198, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:33:06.126682+00:00", "monotonic": 805.136943416, "phase": "vector-query", "bucket": 512, "tokens": 390, "seconds": 0.03361604199994872, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:33:06.217027+00:00", "monotonic": 805.227287875, "phase": "vector-query", "bucket": 1024, "tokens": 750, "seconds": 0.09027270800004317, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:33:06.515165+00:00", "monotonic": 805.52542625, "phase": "vector-query", "bucket": 2048, "tokens": 1500, "seconds": 0.29805099999998674, "vectorStatus": "used", "hits": 9}
+{"utc": "2026-11-16T18:33:06.620395+00:00", "monotonic": 805.630662833, "phase": "snapshot", "tag": "active", "children": [33462]}
+{"utc": "2026-11-16T18:33:06.620495+00:00", "monotonic": 805.630757833, "phase": "idle-start", "child": 33462}
+{"utc": "2026-11-16T18:34:11.762017+00:00", "monotonic": 870.772323875, "phase": "snapshot", "tag": "idle-65s", "children": [33462]}
+{"utc": "2026-11-16T18:34:11.762409+00:00", "monotonic": 870.772711125, "phase": "one-minute-release-passed", "released": [256, 512, 1024, 2048]}
+{"utc": "2026-11-16T18:38:21.724474+00:00", "monotonic": 1120.734934583, "phase": "snapshot", "tag": "idle-315s", "children": []}
+{"utc": "2026-11-16T18:38:21.724760+00:00", "monotonic": 1120.73521625, "phase": "five-minute-child-exit-passed"}
+{"utc": "2026-11-16T18:38:21.831311+00:00", "monotonic": 1120.841772208, "phase": "finished", "result": "complete", "appExitCode": 0}

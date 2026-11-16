@@ -1,0 +1,15 @@
+{
+  "acknowledgedAt": "2026-11-16 19:21 Europe/Berlin",
+  "testedCommit": "b7d2c5ee9002713d2e4dc9f6d0a8d8fbd9be095a",
+  "evidenceCommit": "26e85c066452a17079e01fbb639b4ad69aafbd85",
+  "accepted": true,
+  "runtimePullRequest": "https://github.com/anyproto/any/pull/347",
+  "peerReportedLaterHead": "48f500c8",
+  "laterHeadRerunRequested": false,
+  "fullAppTargetRemains": "b7d2c5ee",
+  "remainingMeasurements": [
+    "Full-app lifecycle on 16 GiB Air is running",
+    "Full-app 8 GiB safety is unmeasured",
+    "Exact specialization cache invalidation factors are unmeasured"
+  ]
+}

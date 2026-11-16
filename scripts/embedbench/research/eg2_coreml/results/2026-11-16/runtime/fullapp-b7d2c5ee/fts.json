@@ -1,0 +1,96 @@
+{
+  "hits": [
+    {
+      "scope": "basic",
+      "objectId": "bafyreifcmzgqnr3cv6denbn2pfhsm7p4hppajvie6g7u2x2ywmkdxoolse",
+      "dataset": "editor_blocks",
+      "recordId": "win_4CAyoztK1QL",
+      "data": "Lifecycle verification carbon finance forests solar markets.",
+      "dataTotal": 60,
+      "score": 2.4603221999030054
+    },
+    {
+      "scope": "basic",
+      "objectId": "bafyreihlghvw2q37yibz3aaoqkqmdcmbdltmjp2ahjtpd5zn4nwt3wjwfy",
+      "dataset": "editor_blocks",
+      "recordId": "win_hHBFLji2rCY",
+      "data": "Lifecycle verification carbon finance forests solar markets.",
+      "dataTotal": 60,
+      "score": 2.4603221999030054
+    },
+    {
+      "scope": "basic",
+      "objectId": "bafyreihpmd5ga3wbraokdr3v56wp5nq7aki3i37jlynwindh2ytwokbxze",
+      "dataset": "editor_blocks",
+      "recordId": "win_THPdSq5RYrS",
+      "data": "Lifecycle verification carbon finance forests solar markets.\nCarbon finance forests solar markets x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x\n\u6771\u4eac\u306e\u68ee\u6797\u3001\u91d1\u878d\u5e02\u5834\u3068\u518d\u751f\u53ef\u80fd\u30a8\u30cd\u30eb\u30ae\u30fc\u3002",
+      "dataTotal": 251,
+      "score": 1.8963351717342123
+    },
+    {
+      "scope": "basic",
+      "objectId": "bafyreighyyusnycvxrpgymostbepauqimlbdcqzjfz542xtlfnx4esdnvu",
+      "dataset": "editor_blocks",
+      "recordId": "win_girRUcSsVER",
+      "data": "Lifecycle verification carbon finance forests solar markets.\nCarbon finance forests solar markets x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x\n\u6771\u4eac\u306e\u68ee\u6797\u3001\u91d1\u878d\u5e02\u5834\u3068\u518d\u751f\u53ef\u80fd\u30a8\u30cd\u30eb\u30ae\u30fc\u3002",
+      "dataTotal": 471,
+      "score": 1.4739793067135438
+    },
+    {
+      "scope": "basic",
+      "objectId": "bafyreif4rl3hk6vkseen2r2ek5wa3en7g265nqfi4u22cxzsby2lpftfnm",
+      "dataset": "editor_blocks",
+      "recordId": "win_YEkT65EjMvx",
+      "data": "Lifecycle verification carbon finance forests solar markets.\nCarbon finance forests solar markets x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x",
+      "dataTotal": 871,
+      "score": 1.0491333896463897
+    },
+    {
+      "scope": "basic",
+      "objectId": "bafyreif4rl3hk6vkseen2r2ek5wa3en7g265nqfi4u22cxzsby2lpftfnm",
+      "dataset": "prop",
+      "recordId": "name",
+      "data": "Lifecycle fixture 512",
+      "dataTotal": 21,
+      "score": 0.705496477478392
+    },
+    {
+      "scope": "basic",
+      "objectId": "bafyreifcmzgqnr3cv6denbn2pfhsm7p4hppajvie6g7u2x2ywmkdxoolse",
+      "dataset": "prop",
+      "recordId": "name",
+      "data": "Lifecycle fixture 2048",
+      "dataTotal": 22,
+      "score": 0.705496477478392
+    },
+    {
+      "scope": "basic",
+      "objectId": "bafyreighyyusnycvxrpgymostbepauqimlbdcqzjfz542xtlfnx4esdnvu",
+      "dataset": "prop",
+      "recordId": "name",
+      "data": "Lifecycle fixture 256",
+      "dataTotal": 21,
+      "score": 0.705496477478392
+    },
+    {
+      "scope": "basic",
+      "objectId": "bafyreihlghvw2q37yibz3aaoqkqmdcmbdltmjp2ahjtpd5zn4nwt3wjwfy",
+      "dataset": "prop",
+      "recordId": "name",
+      "data": "Lifecycle fixture 1024",
+      "dataTotal": 22,
+      "score": 0.705496477478392
+    },
+    {
+      "scope": "basic",
+      "objectId": "bafyreihpmd5ga3wbraokdr3v56wp5nq7aki3i37jlynwindh2ytwokbxze",
+      "dataset": "prop",
+      "recordId": "name",
+      "data": "Lifecycle fixture 128",
+      "dataTotal": 21,
+      "score": 0.705496477478392
+    }
+  ],
+  "mode": "fts",
+  "vectorStatus": "skipped"
+}

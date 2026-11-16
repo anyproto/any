@@ -1,0 +1,18 @@
+{
+  "processes": [
+    {
+      "identity": "A7qWkLKRJXMfN5mT6sUY1Ssiv3CTGWD8XyD7goaHkhj7pXnC",
+      "self": true,
+      "id": "index.model_download",
+      "kind": "index.model_download",
+      "title": "Downloading embedding model",
+      "scope": "device",
+      "target": "embeddinggemma-2-858f354d.weight.bin",
+      "state": "done",
+      "done": 565387008,
+      "total": 565387008,
+      "startedAt": 1794853339,
+      "updatedAt": 1794853613
+    }
+  ]
+}

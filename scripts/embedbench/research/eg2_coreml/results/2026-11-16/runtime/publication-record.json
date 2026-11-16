@@ -58,5 +58,197 @@
     "originalSHA256": "f82bcda495e473dc63791d79406c14150bf29d06e80db485c0e1c047dd24f9eb",
     "publishedSHA256": "f82bcda495e473dc63791d79406c14150bf29d06e80db485c0e1c047dd24f9eb",
     "normalization": "Trailing whitespace and terminal newline only"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/README.txt",
+    "originalSHA256": "29f304f0cd6236b40fe2965ff9354686c5e7d85fde2e612b2fff68ab9b9e79e9",
+    "publishedSHA256": "29f304f0cd6236b40fe2965ff9354686c5e7d85fde2e612b2fff68ab9b9e79e9",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/REPORT.txt",
+    "originalSHA256": "449ef92b9493aa0a00bb865b07b8b6c6c2cd2d162fbbe042b4a468f85fede770",
+    "publishedSHA256": "449ef92b9493aa0a00bb865b07b8b6c6c2cd2d162fbbe042b4a468f85fede770",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/SUMMARY.json",
+    "originalSHA256": "6930a519ebcadbd43fb9f629de9ee33921f9db0611a3bdc9855098f0201e5605",
+    "publishedSHA256": "6930a519ebcadbd43fb9f629de9ee33921f9db0611a3bdc9855098f0201e5605",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/air-environment.txt",
+    "originalSHA256": "346703cb5ab7418ea66220fd7d6359c6c8b77c6a04cc264e45d916d618a6dcd3",
+    "publishedSHA256": "346703cb5ab7418ea66220fd7d6359c6c8b77c6a04cc264e45d916d618a6dcd3",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/app.log",
+    "originalSHA256": "339b3263c8179d0c69c5c32d7f142fc8f2d5f36962eec9c2a5939bde7b8130a6",
+    "publishedSHA256": "339b3263c8179d0c69c5c32d7f142fc8f2d5f36962eec9c2a5939bde7b8130a6",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/binary-build.txt",
+    "originalSHA256": "3856e0998dd9ec13222f14db3d06db60823110640f22fad68d94241312f21e5e",
+    "publishedSHA256": "3dbd63ecb373d610ed86243a9a71d251e2f5ad8d47eab4387ca3c576c4c6e6b2",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/collect_shareable.py",
+    "originalSHA256": "01a134713e17d47e02b2695632b54f13fe13df5013c2aec361da1fc376ae2e00",
+    "publishedSHA256": "01a134713e17d47e02b2695632b54f13fe13df5013c2aec361da1fc376ae2e00",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/configuration-summary.json",
+    "originalSHA256": "e333a1944a90d42c5b7e67047f957d6dcde3f0e83d0d0ee91c6713e12975dcda",
+    "publishedSHA256": "e333a1944a90d42c5b7e67047f957d6dcde3f0e83d0d0ee91c6713e12975dcda",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/downloaded-gguf.json",
+    "originalSHA256": "8c40b8aafb18aabf3c0f9220247f62da962c09a309c5c05be963f05c69343124",
+    "publishedSHA256": "8c40b8aafb18aabf3c0f9220247f62da962c09a309c5c05be963f05c69343124",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/downloaded-package.json",
+    "originalSHA256": "8ed369496c348a88abfaae55903d812076fb6ed3be661fd6c64ef20910387ece",
+    "publishedSHA256": "8ed369496c348a88abfaae55903d812076fb6ed3be661fd6c64ef20910387ece",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/events.jsonl",
+    "originalSHA256": "5521043fea24726773c5398fb15007921606aef443ff2801a56dd0ee9bafeee9",
+    "publishedSHA256": "5521043fea24726773c5398fb15007921606aef443ff2801a56dd0ee9bafeee9",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/executed-artifacts.json",
+    "originalSHA256": "7052bfc7d0da8497b862d08315952c138319c8df0c1503cb9084690fb40e6f42",
+    "publishedSHA256": "7052bfc7d0da8497b862d08315952c138319c8df0c1503cb9084690fb40e6f42",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/footprint-active-33393.txt",
+    "originalSHA256": "b5201411bc06522227d4a360f994cf5c033216b62c1d8936cb47b5aba50295f2",
+    "publishedSHA256": "c261c8ada6b0f72572f6d8d7dce95355dcc6e369eeb6da1eb0f055be386275b3",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/footprint-active-33462.txt",
+    "originalSHA256": "cedbd0f13b6c68641c9da4f61de5fefd187adaadf3ae457fa671a0f6d2415219",
+    "publishedSHA256": "92411af316cbf757924c60ada0a9f4ea6a04a7f197d75be74e27272ea43c61e6",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/footprint-idle-315s-33393.txt",
+    "originalSHA256": "ba881f0a05780a17b98dd8fc7f9444a7f1b8ef7a0028884dc72b273200cf20ad",
+    "publishedSHA256": "a1cda11c54d3264c85c1bc36c147d3269c1283aa4a14ecda8e1ac9057ea335a7",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/footprint-idle-65s-33393.txt",
+    "originalSHA256": "d352972cbbc6df7573309ed417528e641e20418869618b17e40b06050352e115",
+    "publishedSHA256": "86409e9bb959cc76f0a389387554786e0f9573dd47239012b4f5ed5f5e93c2f2",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/footprint-idle-65s-33462.txt",
+    "originalSHA256": "bbc07753e4c3781b6f3a57f018c398cd525389309f6a6a6b540f184b5f8b5f54",
+    "publishedSHA256": "92b6d7ec473ebff5df7a5e95311ba3bdbd057023127f83dd5724f2a89c3fc202",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/fts.json",
+    "originalSHA256": "2c08ee5498ffa3809b1d500a7d3e6ebe5edfdf67bfaa8e33a98089b127ed1b26",
+    "publishedSHA256": "2c08ee5498ffa3809b1d500a7d3e6ebe5edfdf67bfaa8e33a98089b127ed1b26",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/harness.py",
+    "originalSHA256": "a143c58aeefc5d18914806c396e00ef9962e088ae17fbaadaed9a1703d322e19",
+    "publishedSHA256": "a143c58aeefc5d18914806c396e00ef9962e088ae17fbaadaed9a1703d322e19",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/http-vector-timing.json",
+    "originalSHA256": "ac6e144315239c1e0e1eec512704a92ade2dddca94a6f8b7824e8f28c6c58e3b",
+    "publishedSHA256": "ac6e144315239c1e0e1eec512704a92ade2dddca94a6f8b7824e8f28c6c58e3b",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/initial-health.json",
+    "originalSHA256": "be91a37da15db77c222a88b8e16ba1b37b9427c988ef9917464298654afed2f6",
+    "publishedSHA256": "be91a37da15db77c222a88b8e16ba1b37b9427c988ef9917464298654afed2f6",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/inputs.json",
+    "originalSHA256": "3cbf8da0792bebcec6dbec56bf39de92500cf06fe44bf3a07459122e62dc32a4",
+    "publishedSHA256": "3cbf8da0792bebcec6dbec56bf39de92500cf06fe44bf3a07459122e62dc32a4",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/model-package.json",
+    "originalSHA256": "5b14a38c6b3578c38be7f39fa9451a2615f1df1dcfe4e9d40ca6f8a5a1df118b",
+    "publishedSHA256": "5b14a38c6b3578c38be7f39fa9451a2615f1df1dcfe4e9d40ca6f8a5a1df118b",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/object-ids.json",
+    "originalSHA256": "8cec160964b0c036e758cd5d751c4257edb063334030b9849e8506f913f07826",
+    "publishedSHA256": "8cec160964b0c036e758cd5d751c4257edb063334030b9849e8506f913f07826",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/processes-download-latest.json",
+    "originalSHA256": "0ff86ab957db218427389f3243cb5f373a3438116dd41d754f854aa3013bb1fb",
+    "publishedSHA256": "0ff86ab957db218427389f3243cb5f373a3438116dd41d754f854aa3013bb1fb",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/processes-download.jsonl",
+    "originalSHA256": "69595c60de286f4ac2fc6993597138138126c426c476ace8d0c9a95db5aa0e19",
+    "publishedSHA256": "69595c60de286f4ac2fc6993597138138126c426c476ace8d0c9a95db5aa0e19",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/result.json",
+    "originalSHA256": "2a9b5159ad492faae2ac73067dde082812e588d272c9263f9b063dbca735ff68",
+    "publishedSHA256": "2a9b5159ad492faae2ac73067dde082812e588d272c9263f9b063dbca735ff68",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/snapshot-active.json",
+    "originalSHA256": "af6aab169b767f576f64938b7748e3b4c0b6b28e72574d4263396284674fd7cf",
+    "publishedSHA256": "af6aab169b767f576f64938b7748e3b4c0b6b28e72574d4263396284674fd7cf",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/snapshot-idle-315s.json",
+    "originalSHA256": "53b52d8526d069ab1f8bc7d07a91a5b8e7bba6b4af9be3a0c59ea839fb768c93",
+    "publishedSHA256": "53b52d8526d069ab1f8bc7d07a91a5b8e7bba6b4af9be3a0c59ea839fb768c93",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/snapshot-idle-65s.json",
+    "originalSHA256": "25c8f19b6be4fb421d9ff5703a92d7254a65f190bdf003c4a8a2e35ae18dd343",
+    "publishedSHA256": "25c8f19b6be4fb421d9ff5703a92d7254a65f190bdf003c4a8a2e35ae18dd343",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/space.json",
+    "originalSHA256": "244a3f0d3c718e856f12b6fc983fd6998b8c09e18ea65ec69fca1e731186eda7",
+    "publishedSHA256": "244a3f0d3c718e856f12b6fc983fd6998b8c09e18ea65ec69fca1e731186eda7",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
+  },
+  {
+    "file": "fullapp-b7d2c5ee/summarize_fullapp.py",
+    "originalSHA256": "99713f6f40e3a9c34ce4b7a09ba727ea9f0e39228129b7b7cc8c1b9658c525e1",
+    "publishedSHA256": "99713f6f40e3a9c34ce4b7a09ba727ea9f0e39228129b7b7cc8c1b9658c525e1",
+    "normalization": "Trailing whitespace and terminal blank lines only; one final newline"
   }
 ]

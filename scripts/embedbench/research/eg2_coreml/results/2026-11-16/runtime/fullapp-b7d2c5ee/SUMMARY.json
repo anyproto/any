@@ -1,0 +1,192 @@
+{
+  "result": "PASS",
+  "sourceCommit": "b7d2c5ee9002713d2e4dc9f6d0a8d8fbd9be095a",
+  "scope": "Synthetic mixed-length pages/queries sharing a topic: application-flow and lifetime validation, not retrieval-quality evaluation. 16 GiB M2 Air only; no 8 GiB claim.",
+  "documents": 5,
+  "queriesPromptedTokens": [
+    80,
+    190,
+    390,
+    750,
+    1500
+  ],
+  "downloadedPackage": {
+    "path": "/private/tmp/ane-fullapp-20261116/run-b7d2c5ee/data/models/embeddinggemma-2-858f354d.mlpackage",
+    "files": {
+      "Data/com.apple.CoreML/model.mlmodel": {
+        "sha256": "715c377bda514242cabc6497843ca831d1eec1d84b5e48c6f93a13663e6ce104",
+        "bytes": 9043834
+      },
+      "Data/com.apple.CoreML/weights/weight.bin": {
+        "sha256": "86bf461bce224075ea9ff6fc6a2c2abe50cd701eee58f1d3f5d8e6988d234657",
+        "bytes": 565387008
+      },
+      "Manifest.json": {
+        "sha256": "8f494dc20af594dd81ca1082c50d0db80eae392a84621955de1d1c5c0e99aed2",
+        "bytes": 617
+      }
+    },
+    "hfRevision": "c27f9012633055fea5bb47fe782ab7d548d77909"
+  },
+  "downloadedGGUF": {
+    "path": "/private/tmp/ane-fullapp-20261116/run-b7d2c5ee/data/models/embeddinggemma-2-Q8_0.gguf",
+    "bytes": 309855456,
+    "sha256": "2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135"
+  },
+  "downloadCompletionOrder": [
+    {
+      "utc": "2026-11-16T19:22:13.730000+01:00",
+      "file": "embeddinggemma-2-Q8_0.gguf"
+    },
+    {
+      "utc": "2026-11-16T19:22:14.091000+01:00",
+      "file": "Manifest.json"
+    },
+    {
+      "utc": "2026-11-16T19:22:19.815000+01:00",
+      "file": "model.mlmodel"
+    },
+    {
+      "utc": "2026-11-16T19:26:53.610000+01:00",
+      "file": "weight.bin"
+    }
+  ],
+  "observedProcessTargets": [
+    "embeddinggemma-2-Q8_0.gguf",
+    "embeddinggemma-2-858f354d.Manifest.json",
+    "embeddinggemma-2-858f354d.model.mlmodel",
+    "embeddinggemma-2-858f354d.weight.bin"
+  ],
+  "maxConcurrentDownloadProcessesObserved": 1,
+  "processHistorySnapshots": 89,
+  "tinyFilePollingCaveat": "Small files can finish between polls; full completion order comes from app download logs and final hashes.",
+  "functionReadyEvents": [
+    {
+      "bucket": 128,
+      "utc": "2026-11-16T19:27:52.752000+01:00",
+      "planSeconds": 31.933,
+      "loadSeconds": 22.171,
+      "neuralEngineOperations": 6195,
+      "cpuOperations": 14
+    },
+    {
+      "bucket": 256,
+      "utc": "2026-11-16T19:28:51.198000+01:00",
+      "planSeconds": 33.504,
+      "loadSeconds": 24.941,
+      "neuralEngineOperations": 6196,
+      "cpuOperations": 13
+    },
+    {
+      "bucket": 512,
+      "utc": "2026-11-16T19:29:56.349000+01:00",
+      "planSeconds": 36.622,
+      "loadSeconds": 28.529,
+      "neuralEngineOperations": 6196,
+      "cpuOperations": 13
+    },
+    {
+      "bucket": 1024,
+      "utc": "2026-11-16T19:31:12.814000+01:00",
+      "planSeconds": 42.343,
+      "loadSeconds": 34.122,
+      "neuralEngineOperations": 6196,
+      "cpuOperations": 13
+    },
+    {
+      "bucket": 2048,
+      "utc": "2026-11-16T19:33:02.814000+01:00",
+      "planSeconds": 59.222,
+      "loadSeconds": 50.778,
+      "neuralEngineOperations": 6196,
+      "cpuOperations": 13
+    }
+  ],
+  "queryMillisecondsByBucket": {
+    "128": [
+      8.425832999932936,
+      8.203458000025421
+    ],
+    "256": [
+      13.930916999925103,
+      13.535541000010198
+    ],
+    "512": [
+      32.46050000007017,
+      33.61604199994872
+    ],
+    "1024": [
+      89.94754099990132,
+      90.27270800004317
+    ],
+    "2048": [
+      298.2883749999701,
+      298.05099999998674
+    ]
+  },
+  "activeChildPID": 33462,
+  "idleStartUTC": "2026-11-16T18:33:06.620495+00:00",
+  "releaseEventsAfterIdleStart": {
+    "256": {
+      "utc": "2026-11-16T19:34:06.110000+01:00",
+      "secondsAfterIdleStart": 59.489505
+    },
+    "512": {
+      "utc": "2026-11-16T19:34:06.167000+01:00",
+      "secondsAfterIdleStart": 59.546505
+    },
+    "1024": {
+      "utc": "2026-11-16T19:34:06.171000+01:00",
+      "secondsAfterIdleStart": 59.550505
+    },
+    "2048": {
+      "utc": "2026-11-16T19:34:06.229000+01:00",
+      "secondsAfterIdleStart": 59.608505
+    }
+  },
+  "childRetirementAfterIdleStart": [
+    {
+      "utc": "2026-11-16T19:38:06.517000+01:00",
+      "secondsAfterIdleStart": 299.896505
+    }
+  ],
+  "memory": {
+    "footprint-active-33393.txt": {
+      "physicalFootprint": "127 MB",
+      "neuralLedgerRow": null
+    },
+    "footprint-active-33462.txt": {
+      "physicalFootprint": "778 MB",
+      "neuralLedgerRow": "0 B    2031 MB      1047 MB    2031 MB         20    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "neuralApproxMiB": {
+        "dirty": 0.0,
+        "clean": 2031.0,
+        "reclaimable": 1047.0,
+        "wired": 2031.0
+      }
+    },
+    "footprint-idle-315s-33393.txt": {
+      "physicalFootprint": "112 MB",
+      "neuralLedgerRow": null
+    },
+    "footprint-idle-65s-33393.txt": {
+      "physicalFootprint": "127 MB",
+      "neuralLedgerRow": null
+    },
+    "footprint-idle-65s-33462.txt": {
+      "physicalFootprint": "635 MB",
+      "neuralLedgerRow": "0 B      64 KB      2991 MB        0 B         12    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "neuralApproxMiB": {
+        "dirty": 0.0,
+        "clean": 0.0625,
+        "reclaimable": 2991.0,
+        "wired": 0.0
+      }
+    }
+  },
+  "temporaryCredentialsRemoved": true,
+  "appExitCode": 0,
+  "ownedChildrenRemaining": [],
+  "datasetInputsSHA256": "3cbf8da0792bebcec6dbec56bf39de92500cf06fe44bf3a07459122e62dc32a4",
+  "harnessSHA256": "a143c58aeefc5d18914806c396e00ef9962e088ae17fbaadaed9a1703d322e19"
+}

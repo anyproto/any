@@ -1,0 +1,26 @@
+{
+  "sourceCommit": "b7d2c5ee9002713d2e4dc9f6d0a8d8fbd9be095a",
+  "files": {
+    "harness.py": {
+      "sha256": "a143c58aeefc5d18914806c396e00ef9962e088ae17fbaadaed9a1703d322e19",
+      "bytes": 13525,
+      "mode": "0o644"
+    },
+    "any": {
+      "sha256": "eba491105a4c1028838083186185bf9f0a921323e1b37eec3512960f1d90a488",
+      "bytes": 48680418,
+      "mode": "0o755"
+    },
+    "inputs.json": {
+      "sha256": "3cbf8da0792bebcec6dbec56bf39de92500cf06fe44bf3a07459122e62dc32a4",
+      "bytes": 13062,
+      "mode": "0o644"
+    },
+    "model-package.json": {
+      "sha256": "5b14a38c6b3578c38be7f39fa9451a2615f1df1dcfe4e9d40ca6f8a5a1df118b",
+      "bytes": 1076,
+      "mode": "0o644"
+    }
+  },
+  "note": "Executed binary and input contract hashes; private staging configuration excluded."
+}

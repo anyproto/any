@@ -1,0 +1,13 @@
+{
+  "tag": "active",
+  "parent": 33393,
+  "children": [
+    33462
+  ],
+  "33393": {
+    "footprintExit": 0
+  },
+  "33462": {
+    "footprintExit": 0
+  }
+}

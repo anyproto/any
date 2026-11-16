@@ -1,0 +1,36 @@
+================================================================================
+any [33393]: 64-bit    Footprint: 127 MB (16384 bytes per page)
+================================================================================
+
+  Dirty      Clean  Reclaimable    (Wired)    Regions    Category
+    ---        ---          ---        ---        ---    ---
+ 119 MB        0 B          0 B     352 KB        125    Untagged
+4160 KB     208 KB          0 B        0 B        330    __DATA_CONST
+ 976 KB        0 B          0 B        0 B          6    Malloc Small
+ 938 KB      16 KB          0 B        0 B        302    __DATA
+ 625 KB        0 B          0 B     625 KB          1    page table
+ 416 KB        0 B          0 B        0 B          9    Malloc Metadata
+ 400 KB        0 B          0 B        0 B        337    __DATA_DIRTY
+ 336 KB        0 B          0 B        0 B         30    Stack
+ 128 KB        0 B          0 B        0 B          1    Malloc Tiny
+  96 KB        0 B          0 B        0 B       1130    unused dyld shared cache area
+  48 KB        0 B          0 B        0 B          4    __TPRO_CONST
+  36 KB        0 B          0 B        0 B          1    __OBJC_RW
+  32 KB        0 B          0 B        0 B          1    Malloc Nano
+  18 KB        0 B          0 B        0 B        138    __AUTH
+  16 KB        0 B          0 B        0 B          1    Deferred Reclaim
+  16 KB        0 B          0 B        0 B          1    OS Alloc Once
+  16 KB        0 B          0 B        0 B          1    Activity Tracing
+    0 B      11 MB          0 B        0 B        396    __TEXT
+    0 B     368 KB          0 B        0 B          8    mapped file
+    0 B        0 B          0 B        0 B          1    __CTF
+    0 B        0 B          0 B        0 B        331    __AUTH_CONST
+    0 B        0 B          0 B        0 B          1    __FONT_DATA
+    0 B        0 B          0 B        0 B          1    __OBJC_RO
+    0 B        0 B          0 B        0 B          3    __LINKEDIT
+    ---        ---          ---        ---        ---    ---
+ 127 MB      12 MB          0 B     977 KB       3161    TOTAL
+
+Auxiliary data:
+    phys_footprint: 127 MB
+    phys_footprint_peak: 127 MB
