@@ -1420,8 +1420,8 @@ required when the body declares nothing (`400 request.missing_field`;
 every object has a type, `page` for a plain document), must name a
 type the space has (`400 type.not_found`), and every
 `rootCollections` entry a collection it has
-(`400 collection.not_found`); a deleted type or collection is
-`410 object.deleted` — the create path would otherwise
+(`400 collection.not_found`; either one deleted is `410 object.deleted`)
+— the create path would otherwise
 drop an unknown id and report success — and property values must fit
 their descriptor slug (`400 property.format_violation`); both are
 checked BEFORE the root is created, so a rejected request never leaves
@@ -3870,8 +3870,8 @@ on `POST /v1/spaces/:spaceId/objects` when the object is new.
 
 Both POSTs pre-flight their ids — `404 object.not_found` for an unknown
 object, `404 type.not_found` / `404 collection.not_found` for an id the
-space does not have, `410 object.deleted` for a deleted one, and `400 type.not_a_type` / `400
-collection.not_a_collection` when the id names the other surface —
+space does not have, `410 object.deleted` for a deleted one, and
+`400 type.not_a_type` / `400 collection.not_a_collection` when the id names the other surface —
 because `any.type` and `any.collections` are synced DAG writes with no
 validation behind them, so a typo would replicate permanently. Neither
 DELETE checks anything: they are the repair path for a row that already
