@@ -4,6 +4,7 @@ from pathlib import Path
 
 import coremltools as ct
 from coremltools.proto.FeatureTypes_pb2 import ArrayFeatureType
+from buckets import LENGTHS
 
 
 def sha(p):
@@ -13,7 +14,10 @@ def sha(p):
     return h.hexdigest()
 
 
+import argparse
+p=argparse.ArgumentParser();p.add_argument('--sources',type=Path);args=p.parse_args()
 root=Path('models');merged=root/'EmbeddingGemma2Owned.mlpackage'
+source_map=json.loads(args.sources.read_text()) if args.sources else {f's{x}':str(root/f's{x}.mlpackage') for x in LENGTHS}
 spec=ct.utils.load_spec(str(merged))
 blobs={}
 matrix_ops={}
@@ -30,7 +34,7 @@ for name,fn in spec.mlProgram.functions.items():
                     seen.add((val.blobFileValue.fileName,val.blobFileValue.offset))
     blobs[name]=seen
     matrix_ops[name]=matrix_count
-assert set(blobs)=={'s128','s256','s512','s1024'}
+assert set(blobs)=={f's{x}' for x in LENGTHS}
 contracts={}
 for function in spec.description.functions:
     length=int(function.name[1:])
@@ -40,11 +44,12 @@ for function in spec.description.functions:
     assert outputs=={'embedding':([1,768],ArrayFeatureType.FLOAT32)}
     contracts[function.name]={'inputs':inputs,'outputs':outputs}
 packages={}
-for p in sorted(root.glob('*.mlpackage')):
+for p in [merged]+[Path(source_map[f's{x}']) for x in LENGTHS]:
     files={str(f.relative_to(p)):{'bytes':f.stat().st_size,'sha256':sha(f)} for f in sorted(p.rglob('*')) if f.is_file()}
     packages[p.name]={'bytes':sum(v['bytes'] for v in files.values()),'files':files}
 out={'source':json.loads(Path('source-manifest.json').read_text()),
-     'conversionProvenance':json.loads((root/'s128.provenance.json').read_text()),
+     'conversionProvenanceByFunction':{name:{'sourcePackage':path,'provenance':json.loads(Path(path).with_suffix('.provenance.json').read_text()),'precision':json.loads(Path(path).with_suffix('.precision.json').read_text())} for name,path in source_map.items()},
+     'precision':'FP16 encoder weights/matrix compute; FP32 final L2; float32 output',
      'packages':packages,'functions':sorted(blobs),'contracts':contracts,'verifiedFP16MatrixOperations':matrix_ops,'externalTensorReferences':{k:len(v) for k,v in blobs.items()},
      'sharedExternalTensorOffsetsAcrossAllFunctions':len(set.intersection(*blobs.values())),
      'allDistinctExternalTensorOffsets':len(set.union(*blobs.values())),
@@ -52,4 +57,4 @@ out={'source':json.loads(Path('source-manifest.json').read_text()),
      'mergedBytes':packages[merged.name]['bytes']}
 assert out['mergedBytes']<out['standaloneTotalBytes']*.4
 Path('evidence/asset-manifest.json').write_text(json.dumps(out,indent=2)+'\n')
-print(json.dumps({k:v for k,v in out.items() if k not in ['packages','source','conversionProvenance']},indent=2))
+print(json.dumps({k:v for k,v in out.items() if k not in ['packages','source','conversionProvenanceByFunction']},indent=2))

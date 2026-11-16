@@ -1,0 +1,22 @@
+{
+  "files": {
+    "eg2.py": "773b5fd8a36388fd484d3113ac09d258c6136f1577141a29bc84c028c7bd8410",
+    "parity.py": "2c680ea416ddde788df7b68ef08d53a7565264a7224f6b04ba592fdbaa61b27c",
+    "buckets.py": "ff2261663941716c9b6884bb11a9cbaa75d660d6c41061d03c9ce0a0c473656a",
+    "tokens.json": "ff7f41a9586d566abf33f14aa9033f40e6d701698baa1d552b2f12f8f742a13a",
+    "fetch_stock.py": "cfb7629e2b6e0f3d847b2accf3b9ff56394d73740c5c31258e67ffca93f7b65b",
+    "source-manifest.json": "1cb8409645fbb2187f61781193a7fd89c53af34b0c2cd9d7d081715b674ce071",
+    "provenance.py": "ab05275c8da35cd35847e14fac38c31aa3142adb2cfa0f351f3fbbebfd693330",
+    "convert.py": "432a26fb6bea8e7f943a783592c3f6c8bdecf56bce4d78c465d3f203c05ea5ca"
+  },
+  "versions": {
+    "torch": "2.7.0",
+    "transformers": "5.19.0",
+    "coremltools": "9.0",
+    "numpy": "2.2.6",
+    "safetensors": "0.8.0",
+    "tokenizers": "0.23.3"
+  },
+  "python": "3.12.9",
+  "fingerprint": "b2707f2f48091d50d70fb4d52181924aedf0e5ea23521d123914d0775db69e33"
+}

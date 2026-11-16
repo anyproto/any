@@ -1,0 +1,133 @@
+EG2 five-function Core ML — measured November 16 extension
+
+RESULT: PASS. Exact shared s128/s256/s512/s1024/s2048 artifact validated on M2 Air, 16 GiB,Version 27.2.1 (Build 26B131).
+This validates the model artifact; production runtime activation and 8 GiB lifecycle policy are separate decisions.
+Local/Air task root: /tmp/eg2-owned-2048-20261116. Delivered package: models/EmbeddingGemma2Owned.mlpackage.
+Exact source package: /tmp/eg2-bucket-size-comparison-20261116/EmbeddingGemma2-5buckets.mlpackage.
+No community converted weights used. FP16 encoder; FP32 final L2; float32 normalized raw 768-output. No application head projection.
+
+PROVENANCE
+Stock google/embeddinggemma-2 @ 914f7f89142e33e77833254d9c9b90c3cef7303b
+Source weights SHA256 197a32965d4b1105faf060417baa899e193fb73cd401f42ec9295234d5553d79
+Tokenizer SHA256 4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4
+Python 3.12.9; torch 2.7.0, transformers 5.19.0, coremltools 9.0, numpy 2.2.6, safetensors 0.8.0, tokenizers 0.23.3
+Exact merged package retains four Nov 12 exports and the new Nov 16 s2048 export. Architecture eg2.py, stock source and dependency versions match; export fingerprints differ.
+Per-function provenance, file hashes, contracts and matrix precision assertions are in evidence/asset-manifest.json.
+Nov 12 target was macOS 27.0.1; every requested function is revalidated here on macOS 27.2.1.
+
+NUMERICAL GATES
+Stock HF FP32 vs rewritten forward: {"cases": 16, "minimumCosine": 0.9999999999969833, "maximumAbsoluteError": 2.8219074010849e-07}
+Fresh stock HF FP32 vs native CoreML: {"cases": 16, "minimumCosine": 0.9999267183471062, "maximumAbsoluteError": 0.0022130757570266724, "maximumNormError": 8.305185117407632e-08}
+Native >1024-token fixtures: {"cases": 3, "minimumCosine": 0.9999267183471062, "maximumAbsoluteError": 0.0022130757570266724, "maximumNormError": 6.090509219180973e-08}
+Includes exact 2048 tokens including BOS/EOS,1151-token FiQA,1630-token multilingual text, short 18-token text padded 2048, and retained doc 52 normalization regression.
+All 1499 fitting FiQA documents passed finite/dimension768/unit-norm gates. Only doc 178 (2212 tokens) excluded, with no truncation/fallback.
+Corpus norm range: [0.9999998931240269, 1.0000000965439224]
+Historical BF16 corpus file is unavailable; no new BF16 corpus comparison is claimed. Fresh stock-HF FP32 parity is separately recorded for 16 native fixtures, including 1151/1630/2048-token text.
+Retained native reference comparisons: [{"path": "/tmp/eg2-owned-20261112/evidence/cold-vectors.json", "sha256": "a396a1d6bfa828d92ffc37ea57cc062fc827e14aafcf4e3c97e984ca8949b0ff", "scope": "Retained native normalized raw embeddings on overlapping documents only; not a new stock BF16 reference.", "count": 1491, "meanCosine": 1.0, "minCosine": 0.9999999999999996, "p01Cosine": 0.9999999999999997, "maxAbs": 0.0, "rawMaxAbs": 0.0}, {"path": "/tmp/ane-validation-20261112-local/coreml-cold-vectors.json", "sha256": "b2cbb58c669b1678adafcdf4195a498ef402963591050a9515e76382e26dc792", "scope": "Retained native normalized raw embeddings on overlapping documents only; not a new stock BF16 reference.", "count": 1491, "meanCosine": 0.9999971319467266, "minCosine": 0.9999853002739557, "p01Cosine": 0.9999937475228808, "maxAbs": 0.0009376662310690009, "rawMaxAbs": 0.0009419750422239304}]
+Eight newly covered documents: [344, 360, 376, 679, 720, 741, 1030, 1425]
+Raw-output parity remains separate from downstream head projection.
+
+PREFERRED PLACEMENT (not a runtime operator trace)
+length ANE_ops CPU_ops ANE_estimated_cost CPU_operators
+128 6195 14 0.533715 ios18.greater_equal,ios18.add,select,ios18.gather,ios18.transpose,ios18.cast,ios18.abs,ios16.reduce_max,ios18.maximum,ios18.real_div,ios18.mul,ios16.reduce_sum,ios18.sqrt,ios18.real_div
+256 6196 13 0.701960 ios18.greater_equal,ios18.add,select,ios18.gather,ios18.cast,ios18.abs,ios16.reduce_max,ios18.maximum,ios18.real_div,ios18.mul,ios16.reduce_sum,ios18.sqrt,ios18.real_div
+512 6196 13 0.833093 ios18.greater_equal,ios18.add,select,ios18.gather,ios18.cast,ios18.abs,ios16.reduce_max,ios18.maximum,ios18.real_div,ios18.mul,ios16.reduce_sum,ios18.sqrt,ios18.real_div
+1024 6196 13 0.916038 ios18.greater_equal,ios18.add,select,ios18.gather,ios18.cast,ios18.abs,ios16.reduce_max,ios18.maximum,ios18.real_div,ios18.mul,ios16.reduce_sum,ios18.sqrt,ios18.real_div
+2048 6196 13 0.962493 ios18.greater_equal,ios18.add,select,ios18.gather,ios18.cast,ios18.abs,ios16.reduce_max,ios18.maximum,ios18.real_div,ios18.mul,ios16.reduce_sum,ios18.sqrt,ios18.real_div
+Every requested function produced a compute plan; CPU convolution/matmul/linear/softmax core was rejected. CPU lookup/final FP32 normalization is allowed.
+cpuAndNeuralEngine allows CPU. Estimated costs are not measured walltime; no ANE-only claim.
+
+LOAD / CORPUS TIMING
+Cold load seconds: {"128": 24.694247007369995, "256": 25.176416993141174, "512": 27.837659001350403, "1024": 35.13489806652069, "2048": 52.084400057792664}
+Same executable/path cached load seconds: {"128": 0.8247920274734497, "256": 0.7763159275054932, "512": 0.785383939743042, "1024": 0.8055109977722168, "2048": 0.7582509517669678}
+Package compile seconds (separate): {"128": 2.376755952835083, "256": 4.0531158447265625e-06, "512": 5.0067901611328125e-06, "1024": 3.933906555175781e-06, "2048": 5.0067901611328125e-06}
+First predict seconds: {"128": 0.020428061485290527, "256": 0.026198983192443848, "512": 0.04401803016662598, "1024": 0.10017800331115723, "2048": 0.312391996383667}
+Corpus: {"docsPerSecond": 56.64224832419978, "p50Ms": 7.34400749206543, "p95Ms": 35.72690486907959, "byBucket": {"128": {"count": 763, "p50Ms": 6.98399543762207, "p95Ms": 7.252836227416992, "meanMs": 7.010898771323507}, "256": {"count": 444, "p50Ms": 12.937426567077637, "p95Ms": 13.127493858337402, "meanMs": 12.95819556390917}, "512": {"count": 227, "p50Ms": 33.18309783935547, "p95Ms": 35.46813726425171, "meanMs": 33.33738354334222}, "1024": {"count": 57, "p50Ms": 91.97795391082764, "p95Ms": 97.51024246215819, "meanMs": 92.61037592302289}, "2048": {"count": 8, "p50Ms": 313.24899196624756, "p95Ms": 323.17500710487366, "meanMs": 314.40161168575287}}}
+Corpus timing includes input fill/prediction/output copy and excludes tokenization.
+
+MATCHED WARM LONG-INPUT LATENCY
+Direct-runtime comparison (not exact production wrappers): Core ML FP16 encoder + FP32 L2 versus stock Q8_0 GGUF. Different precisions and Swift/Go host APIs; not a precision-controlled backend study.
+Same complete pretokenized inputs, batch 1, normalized copied 768-vector. Input construction, synchronous inference and output copying/normalization included; tokenizer/model load excluded. Backend-specific state cleanup included. No downstream head projection.
+Two warmup rounds, five measured rounds of identical 11 complete inputs,1025–2048 tokens. One inference owner at a time.
+ANE: {"count": 55, "meanMs": 300.240766690909, "p50Ms": 299.747666, "p95Ms": 303.1063661, "totalMs": 16513.242167999997}
+Metal: {"count": 55, "meanMs": 435.0976386363638, "p50Ms": 423.657709, "p95Ms": 724.4996626, "totalMs": 23930.37012500001}
+Aggregate Metal-time / ANE-time: 1.4491624286460965
+All 25/25 layers offloaded to MTL0 per retained native llama.cpp load log.
+Metal API: llama_encode (encoder-only EG2); encoder memory present: False. Metadata-only clear requested when present.
+Near the lower boundary, compare {"id": "exact-1025", "tokens": 1025, "aneMedianMs": 299.528, "metalMedianMs": 299.215167, "aneSpeedupVsMetal": 0.9989555801127106, "cosine": 0.9997222304440985, "maxAbs": 0.003932026635818486, "aneNorm": 1.000000003055998, "metalNorm": 0.9999999885061803}; exact 2048 {"id": "hf-15", "tokens": 2048, "aneMedianMs": 299.552334, "metalMedianMs": 726.668292, "aneSpeedupVsMetal": 2.425847538213473, "cosine": 0.9997104092532022, "maxAbs": 0.0048206714515304505, "aneNorm": 1.0000000207067223, "metalNorm": 1.0000000500238178}. Aggregate speedup is not universal across lengths.
+Per-input medians, normalized vectors, Q8/FP16 cosine and every sample are retained in evidence/.
+
+MEMORY — footprint --wired
+Neural nofootprint allocations are separate from ordinary physical footprint; retain Clean/Reclaimable/Wired distinction.
+Each memory mode uses a separate process: s2048 alone; s128+s2048. Explicit release 2048, immediate and 30s snapshots, then release all.
+ane-warm-active: ordinary 74 MB
+  0 B     649 MB       544 KB     649 MB          3    Owned physical footprint (unmapped) (neural) (nofootprint)
+ane-warm-baseline: ordinary 3441 KB
+  None
+ane-warm-released-all-immediate: ordinary 74 MB
+  0 B        0 B       592 MB        0 B          1    Owned physical footprint (unmapped) (neural) (nofootprint)
+cold-after-corpus: ordinary 468 MB
+  0 B    2031 MB      2576 KB    2031 MB         15    Owned physical footprint (unmapped) (neural) (nofootprint)
+cold-all-active: ordinary 479 MB
+  0 B    2031 MB      2576 KB    2031 MB         15    Owned physical footprint (unmapped) (neural) (nofootprint)
+cold-s1024: ordinary 460 MB
+  0 B     444 MB       936 MB     444 MB         12    Owned physical footprint (unmapped) (neural) (nofootprint)
+cold-s128: ordinary 345 MB
+  0 B     283 MB       400 KB     283 MB          3    Owned physical footprint (unmapped) (neural) (nofootprint)
+cold-s2048: ordinary 479 MB
+  0 B     650 MB      1354 MB     649 MB         15    Owned physical footprint (unmapped) (neural) (nofootprint)
+cold-s256: ordinary 286 MB
+  0 B     305 MB       284 MB     305 MB          6    Owned physical footprint (unmapped) (neural) (nofootprint)
+cold-s512: ordinary 335 MB
+  0 B     350 MB       589 MB     350 MB          9    Owned physical footprint (unmapped) (neural) (nofootprint)
+cold-start: ordinary 3633 KB
+  None
+memory-alone-active: ordinary 138 MB
+  0 B     649 MB       544 KB     649 MB          3    Owned physical footprint (unmapped) (neural) (nofootprint)
+memory-alone-baseline: ordinary 3409 KB
+  None
+memory-alone-released-all-30s: ordinary 136 MB
+  0 B        0 B       592 MB        0 B          1    Owned physical footprint (unmapped) (neural) (nofootprint)
+memory-alone-released-all-immediate: ordinary 136 MB
+  0 B        0 B       592 MB        0 B          1    Owned physical footprint (unmapped) (neural) (nofootprint)
+memory-alone-released2048-30s: ordinary 136 MB
+  0 B        0 B       592 MB        0 B          1    Owned physical footprint (unmapped) (neural) (nofootprint)
+memory-alone-released2048-immediate: ordinary 138 MB
+  0 B        0 B       592 MB        0 B          1    Owned physical footprint (unmapped) (neural) (nofootprint)
+memory-pair-active: ordinary 106 MB
+  0 B     932 MB       944 KB     932 MB          6    Owned physical footprint (unmapped) (neural) (nofootprint)
+memory-pair-baseline: ordinary 3409 KB
+  None
+memory-pair-released-all-30s: ordinary 103 MB
+  0 B        0 B       874 MB        0 B          2    Owned physical footprint (unmapped) (neural) (nofootprint)
+memory-pair-released-all-immediate: ordinary 103 MB
+  0 B        0 B       874 MB        0 B          2    Owned physical footprint (unmapped) (neural) (nofootprint)
+memory-pair-released2048-30s: ordinary 103 MB
+  0 B      64 KB       875 MB        0 B          4    Owned physical footprint (unmapped) (neural) (nofootprint)
+memory-pair-released2048-immediate: ordinary 105 MB
+  0 B     283 MB       592 MB     283 MB          4    Owned physical footprint (unmapped) (neural) (nofootprint)
+memory-pair-short-active-after2048release: ordinary 103 MB
+  0 B     283 MB       592 MB     283 MB          4    Owned physical footprint (unmapped) (neural) (nofootprint)
+warm-all-active: ordinary 70 MB
+  0 B    2031 MB      2576 KB    2031 MB         15    Owned physical footprint (unmapped) (neural) (nofootprint)
+warm-s1024: ordinary 64 MB
+  0 B    1381 MB      2032 KB    1381 MB         12    Owned physical footprint (unmapped) (neural) (nofootprint)
+warm-s128: ordinary 138 MB
+  0 B     283 MB       400 KB     283 MB          3    Owned physical footprint (unmapped) (neural) (nofootprint)
+warm-s2048: ordinary 70 MB
+  0 B    2031 MB      2576 KB    2031 MB         15    Owned physical footprint (unmapped) (neural) (nofootprint)
+warm-s256: ordinary 33 MB
+  0 B     588 MB       944 KB     588 MB          6    Owned physical footprint (unmapped) (neural) (nofootprint)
+warm-s512: ordinary 63 MB
+  0 B     937 MB      1488 KB     937 MB          9    Owned physical footprint (unmapped) (neural) (nofootprint)
+warm-start: ordinary 3649 KB
+  None
+No forced pressure, cache flush, service restart, or 8 GiB safety claim.
+
+DISK / REPRODUCIBILITY
+Exact package 574431459 bytes;394 external offsets shared across 5 functions,419 distinct offsets. +16489148bytes over the equivalent four-function package.
+Disk sharing does not imply shared per-function neural allocations.
+Clean s2048 rebuild: identical learned-weight blob and parsed protobuf; canonical SHA256 3d5b91b20e93f776e19f77072224a7277a4591dd593d325ea4c889e7ed8c3db6
+Raw protobuf map order/package UUIDs may differ; not byte-identical whole-package packaging.
+README reproduction rebuilds all 5 from pinned stock in a fresh directory. Fresh deployment prevents reuse of stale adjacent compiled model.
+All owned test processes exited; see evidence/process-exit-check.txt. Source bundle includes scripts, fixtures, locks/licenses and SHA256SUMS; no large model/venv binaries.

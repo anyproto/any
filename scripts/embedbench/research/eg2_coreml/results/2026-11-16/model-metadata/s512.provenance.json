@@ -1,0 +1,20 @@
+{
+  "files": {
+    "eg2.py": "773b5fd8a36388fd484d3113ac09d258c6136f1577141a29bc84c028c7bd8410",
+    "parity.py": "05d6e507a3644e7752a8a9799342a6ec08d6d4b6a5b268ea5f2ba4d049f822ff",
+    "fetch_stock.py": "cfb7629e2b6e0f3d847b2accf3b9ff56394d73740c5c31258e67ffca93f7b65b",
+    "source-manifest.json": "1cb8409645fbb2187f61781193a7fd89c53af34b0c2cd9d7d081715b674ce071",
+    "provenance.py": "006b3138302d9458d52104656a275383da68eec8927972d2e820612dda879ba4",
+    "convert.py": "c6a64923e8f856359ca69f76c7a5355c841cb86517d822db59dc28ca988cc072"
+  },
+  "versions": {
+    "torch": "2.7.0",
+    "transformers": "5.19.0",
+    "coremltools": "9.0",
+    "numpy": "2.2.6",
+    "safetensors": "0.8.0",
+    "tokenizers": "0.23.3"
+  },
+  "python": "3.12.9",
+  "fingerprint": "011b9bf29297ac837ed483c9ec03242416ffb77cd30064558d158ab6343adbda"
+}

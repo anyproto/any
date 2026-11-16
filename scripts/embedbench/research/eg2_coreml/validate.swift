@@ -5,7 +5,7 @@ struct TokenRow: Decodable { let text: String; let tokens: [Int32] }
 struct ReferenceRow: Decodable { let `case`: Int; let text: String; let tokens: [Int32]; let length: Int; let vector: [Double] }
 
 func write(_ value: Any, _ path: String) throws {
-    try JSONSerialization.data(withJSONObject:value,options:[.prettyPrinted,.sortedKeys]).write(to:URL(fileURLWithPath:path))
+    try JSONSerialization.data(withJSONObject:value,options:[.prettyPrinted,.sortedKeys]).write(to:URL(fileURLWithPath:path),options:.atomic)
 }
 func footprint(_ root:String, _ tag:String) throws {
     let p=Process();p.executableURL=URL(fileURLWithPath:"/usr/bin/footprint")
@@ -36,8 +36,12 @@ func cosine(_ a:[Double],_ b:[Double]) -> Double {
         let args=CommandLine.arguments
         let root=args[1], mode=args[2], multi=args[3]=="multi"
         let lengths=args[4].split(separator:",").map{Int($0)!}
+        precondition(!lengths.isEmpty && lengths==Array(Set(lengths)).sorted())
+        precondition(Set(lengths).isSubset(of:[128,256,512,1024,2048]))
+        if multi {precondition(lengths==[128,256,512,1024,2048],"Validate every delivered function")}
+        let maxLength=lengths.last!
         let fm=FileManager.default
-        var result:[String:Any]=["mode":mode,"computeUnits":"cpuAndNeuralEngine","pid":ProcessInfo.processInfo.processIdentifier,"host":ProcessInfo.processInfo.hostName,"os":ProcessInfo.processInfo.operatingSystemVersionString]
+        var result:[String:Any]=["mode":mode,"sequenceLengths":lengths,"maxSequenceLength":maxLength,"computeUnits":"cpuAndNeuralEngine","pid":ProcessInfo.processInfo.processIdentifier,"host":ProcessInfo.processInfo.hostName,"os":ProcessInfo.processInfo.operatingSystemVersionString]
         var models:[Int:MLModel]=[:], urls:[Int:URL]=[:], loads:[String:Double]=[:], compiles:[String:Double]=[:], first:[String:Double]=[:]
         try footprint(root,mode+"-start")
         for length in lengths {
@@ -56,6 +60,8 @@ func cosine(_ a:[Double],_ b:[Double]) -> Double {
             let pred=Date();_ = try await model.prediction(from:provider([2,9259,1],length));first[String(length)]=Date().timeIntervalSince(pred)
             try footprint(root,mode+"-s\(length)")
             print("s\(length) load \(loads[String(length)]!) first \(first[String(length)]!)");fflush(stdout)
+            result["compileSeconds"]=compiles;result["loadSeconds"]=loads;result["firstPredictSeconds"]=first;result["phase"]="loaded-s\(length)"
+            try write(result,root+"/evidence/"+mode+"-progress.json")
         }
         result["compileSeconds"]=compiles;result["loadSeconds"]=loads;result["firstPredictSeconds"]=first
         for length in lengths {_ = try await models[length]!.prediction(from:provider([2,9259,1],length))}
@@ -68,6 +74,7 @@ func cosine(_ a:[Double],_ b:[Double]) -> Double {
         var parity:[[String:Any]]=[]
         for row in refs where lengths.contains(row.length) {
             let value=vector(try await models[row.length]!.prediction(from:provider(row.tokens,row.length)))
+            guard value.count==768 && row.vector.count==768 else {throw NSError(domain:"Embedding dimension mismatch",code:7)}
             let finite=value.allSatisfy{$0.isFinite}, norm=sqrt(value.map{$0*$0}.reduce(0,+))
             let c=cosine(value,row.vector)
             let maxAbs=zip(value,row.vector).map{abs($0-$1)}.max()!
@@ -75,18 +82,21 @@ func cosine(_ a:[Double],_ b:[Double]) -> Double {
             parity.append(["case":row.case,"length":row.length,"tokens":row.tokens.count,"cosine":c,"norm":norm,"finite":finite,"maxAbs":maxAbs,"vector":value])
         }
         result["hfFP32Parity"]=parity
+        result["phase"]="fixture-parity-complete"
+        try write(result,root+"/evidence/"+mode+"-progress.json")
         print("HF FP32 parity passed for \(parity.count) cases");fflush(stdout)
         if mode=="regression" {
             try write(result,root+"/evidence/"+mode+".json")
             return
         }
-        if lengths.count==4 {
+        if multi {
             let rows=try JSONDecoder().decode([TokenRow].self,from:Data(contentsOf:URL(fileURLWithPath:root+"/tokens.json")))
             var vectors:[[Double]]=[],indices:[Int]=[],latency:[Double]=[],byBucket:[String:[Double]]=[:]
             var minNorm=Double.infinity,maxNorm=0.0
+            var excluded:[[String:Int]]=[]
             for i in 0..<1500 {
                 let ids=rows[i*2].tokens
-                guard let length=lengths.first(where:{$0>=ids.count}) else {continue}
+                guard let length=lengths.first(where:{$0>=ids.count}) else {excluded.append(["documentIndex":i,"tokens":ids.count]);continue}
                 let t=Date();let value=vector(try await models[length]!.prediction(from:provider(ids,length)))
                 let ms=Date().timeIntervalSince(t)*1000
                 let norm=sqrt(value.map{$0*$0}.reduce(0,+));minNorm=min(minNorm,norm);maxNorm=max(maxNorm,norm)
@@ -94,12 +104,12 @@ func cosine(_ a:[Double],_ b:[Double]) -> Double {
                 vectors.append(value);indices.append(i);latency.append(ms);byBucket[String(length),default:[]].append(ms)
             }
             let sorted=latency.sorted()
-            result["documents"]=indices.count;result["excludedOver1024"]=1500-indices.count
+            result["documents"]=indices.count;result["excludedOverMaxLength"]=excluded
             result["corpusNormRange"]=[minNorm,maxNorm]
             result["p50Ms"]=sorted[sorted.count/2];result["p95Ms"]=sorted[Int(Double(sorted.count)*0.95)]
             result["docsPerSecond"]=Double(latency.count)*1000/latency.reduce(0,+)
             result["latenciesByBucketMs"]=byBucket
-            try write(["indices":indices,"vectors":vectors],root+"/evidence/"+mode+"-vectors.json")
+            try write(["indices":indices,"vectors":vectors,"sequenceLengths":lengths,"maxSequenceLength":maxLength],root+"/evidence/"+mode+"-vectors.json")
             try footprint(root,mode+"-after-corpus")
         }
         result["phase"]="corpus-complete"

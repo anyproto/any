@@ -1,0 +1,151 @@
+{
+  "inputsSHA256": "6791a1ecc30ed384bc2271e097fe5f4d592beac0494d7d706fe49eb090e9ce91",
+  "warmupRounds": 2,
+  "measuredRounds": 5,
+  "rows": [
+    {
+      "id": "exact-1025",
+      "tokens": 1025,
+      "aneMedianMs": 299.528,
+      "metalMedianMs": 299.215167,
+      "aneSpeedupVsMetal": 0.9989555801127106,
+      "cosine": 0.9997222304440985,
+      "maxAbs": 0.003932026635818486,
+      "aneNorm": 1.000000003055998,
+      "metalNorm": 0.9999999885061803
+    },
+    {
+      "id": "fiqa-344",
+      "tokens": 1151,
+      "aneMedianMs": 299.914916,
+      "metalMedianMs": 334.61125,
+      "aneSpeedupVsMetal": 1.1156872571152812,
+      "cosine": 0.9999063110479675,
+      "maxAbs": 0.0019580531076867583,
+      "aneNorm": 1.0000000392625088,
+      "metalNorm": 0.9999999959859227
+    },
+    {
+      "id": "fiqa-360",
+      "tokens": 1553,
+      "aneMedianMs": 299.825833,
+      "metalMedianMs": 512.745208,
+      "aneSpeedupVsMetal": 1.710143528559796,
+      "cosine": 0.9998774482771922,
+      "maxAbs": 0.0019794874829740516,
+      "aneNorm": 0.999999987293663,
+      "metalNorm": 1.0000000352455116
+    },
+    {
+      "id": "fiqa-376",
+      "tokens": 1352,
+      "aneMedianMs": 301.696292,
+      "metalMedianMs": 423.657709,
+      "aneSpeedupVsMetal": 1.4042522902469081,
+      "cosine": 0.9998754680874423,
+      "maxAbs": 0.0021161346659774784,
+      "aneNorm": 1.000000005969565,
+      "metalNorm": 1.0000000398673679
+    },
+    {
+      "id": "fiqa-679",
+      "tokens": 1077,
+      "aneMedianMs": 299.427416,
+      "metalMedianMs": 310.459375,
+      "aneSpeedupVsMetal": 1.0368435166938756,
+      "cosine": 0.9998991934714746,
+      "maxAbs": 0.001771586213188181,
+      "aneNorm": 1.000000036623459,
+      "metalNorm": 1.000000009986988
+    },
+    {
+      "id": "fiqa-720",
+      "tokens": 1485,
+      "aneMedianMs": 299.913792,
+      "metalMedianMs": 478.360375,
+      "aneSpeedupVsMetal": 1.594992920498968,
+      "cosine": 0.9998759033714655,
+      "maxAbs": 0.0022669131773107526,
+      "aneNorm": 1.0000000638506092,
+      "metalNorm": 0.9999999653032601
+    },
+    {
+      "id": "fiqa-741",
+      "tokens": 1368,
+      "aneMedianMs": 300.264417,
+      "metalMedianMs": 426.019833,
+      "aneSpeedupVsMetal": 1.4188155801358242,
+      "cosine": 0.9998988807432334,
+      "maxAbs": 0.0017298850281324378,
+      "aneNorm": 1.0000000389440666,
+      "metalNorm": 0.9999999713697575
+    },
+    {
+      "id": "fiqa-1030",
+      "tokens": 1263,
+      "aneMedianMs": 298.35975,
+      "metalMedianMs": 379.391583,
+      "aneSpeedupVsMetal": 1.2715910339782763,
+      "cosine": 0.9998770173010044,
+      "maxAbs": 0.0018990824993782018,
+      "aneNorm": 1.0000000475489057,
+      "metalNorm": 0.9999999920672044
+    },
+    {
+      "id": "fiqa-1425",
+      "tokens": 1210,
+      "aneMedianMs": 299.819209,
+      "metalMedianMs": 357.795125,
+      "aneSpeedupVsMetal": 1.1933695849354335,
+      "cosine": 0.9998702064754619,
+      "maxAbs": 0.001825121052665718,
+      "aneNorm": 1.0000000360970194,
+      "metalNorm": 0.9999999713040844
+    },
+    {
+      "id": "hf-14",
+      "tokens": 1630,
+      "aneMedianMs": 299.545042,
+      "metalMedianMs": 541.490625,
+      "aneSpeedupVsMetal": 1.8077101907098165,
+      "cosine": 0.9998733185750059,
+      "maxAbs": 0.0019542371358230114,
+      "aneNorm": 0.9999999390949084,
+      "metalNorm": 0.9999999850770979
+    },
+    {
+      "id": "hf-15",
+      "tokens": 2048,
+      "aneMedianMs": 299.552334,
+      "metalMedianMs": 726.668292,
+      "aneSpeedupVsMetal": 2.425847538213473,
+      "cosine": 0.9997104092532022,
+      "maxAbs": 0.0048206714515304505,
+      "aneNorm": 1.0000000207067223,
+      "metalNorm": 1.0000000500238178
+    }
+  ],
+  "metalPlacement": "All25/25 layers offloaded to MTL0 per retained native llama.cpp load log.",
+  "metalAPI": "llama_encode (encoder-only EG2)",
+  "metalMemoryPresent": false,
+  "metalMemoryClearData": false,
+  "precisionCaveat": "Direct-runtime comparison (not exact production wrappers): Core ML FP16 encoder + FP32 L2 versus stock Q8_0 GGUF. Different precisions and Swift/Go host APIs; not a precision-controlled backend study.",
+  "timingBoundary": "Same complete pretokenized inputs, batch1, normalized copied768-vector. Input construction, synchronous inference and output copying/normalization included; tokenizer/model load excluded. Backend-specific state cleanup included. No downstream head projection.",
+  "aneTimingBoundary": "pretokenized IDs to copied normalized 768-vector; includes per-call MLMultiArray allocation/fill, synchronous prediction, output copy and autorelease; excludes model load/tokenization and validation checks",
+  "metalTimingBoundary": "pretokenized IDs to copied normalized 768-vector; includes per-call input allocation/fill, state clear, inference synchronization, output copy/L2 and batch free; excludes model load/tokenization",
+  "ane": {
+    "count": 55,
+    "meanMs": 300.240766690909,
+    "p50Ms": 299.747666,
+    "p95Ms": 303.1063661,
+    "totalMs": 16513.242167999997
+  },
+  "metal": {
+    "count": 55,
+    "meanMs": 435.0976386363638,
+    "p50Ms": 423.657709,
+    "p95Ms": 724.4996626,
+    "totalMs": 23930.37012500001
+  },
+  "aggregateSpeedupVsMetal": 1.4491624286460965
+}

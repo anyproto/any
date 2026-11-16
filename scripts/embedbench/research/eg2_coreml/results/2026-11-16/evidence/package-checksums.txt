@@ -1,0 +1,3 @@
+715c377bda514242cabc6497843ca831d1eec1d84b5e48c6f93a13663e6ce104  Data/com.apple.CoreML/model.mlmodel
+86bf461bce224075ea9ff6fc6a2c2abe50cd701eee58f1d3f5d8e6988d234657  Data/com.apple.CoreML/weights/weight.bin
+8f494dc20af594dd81ca1082c50d0db80eae392a84621955de1d1c5c0e99aed2  Manifest.json

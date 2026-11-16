@@ -13,6 +13,7 @@ from transformers.models.embedding_gemma2.modeling_embedding_gemma2 import Embed
 from eg2 import EG2, stock_state
 from fetch_stock import verify
 from provenance import fingerprint
+from buckets import LENGTHS, MAX_LENGTH
 
 
 def stats(a, b):
@@ -41,7 +42,7 @@ def main():
         ids = tok.encode(text).ids
         if ids[0] != 2: ids.insert(0, 2)
         if ids[-1] != 1: ids.append(1)
-        length = next(x for x in [128, 256, 512, 1024] if x >= len(ids))
+        length = next(x for x in LENGTHS if x >= len(ids))
         cases.append({"text": text, "tokens": ids, "length": length})
     # Same short input in every bucket, plus exact-length stress and realistic long rows.
     cases += [dict(cases[1], length=x) for x in [256, 512, 1024]]
@@ -52,8 +53,31 @@ def main():
     for lower, length in [(128,256),(256,512),(512,1024)]:
         row = next(r for r in rows[:3000:2] if lower < len(r["tokens"]) <= length)
         cases.append(dict(row, length=length))
+    # Extended-context gates: actual long text, fully occupied 2048 input,
+    # and a short input whose far padding rows have no unmasked local keys.
+    cases.append(dict(cases[1],length=MAX_LENGTH,kind="short-padded-2048"))
+    long_row=next(r for r in rows[:3000:2] if 1024<len(r["tokens"])<=MAX_LENGTH)
+    cases.append(dict(long_row,length=MAX_LENGTH,kind="long-fiqa"))
+    def encode(text):
+        ids=tok.encode(text).ids
+        if ids[0]!=2:ids.insert(0,2)
+        if ids[-1]!=1:ids.append(1)
+        return ids
+    multilingual="task: search result | query: "+"雪が降っています。 金融市場。 "*180
+    multilingual_ids=encode(multilingual)
+    assert 1024<len(multilingual_ids)<MAX_LENGTH
+    cases.append(dict(text=multilingual,tokens=multilingual_ids,length=MAX_LENGTH,kind="long-multilingual"))
+    prefix="title: Exact boundary | text:"
+    repetitions=MAX_LENGTH-len(encode(prefix))
+    for _ in range(8):
+        boundary=prefix+" x"*repetitions
+        boundary_ids=encode(boundary)
+        if len(boundary_ids)==MAX_LENGTH:break
+        repetitions+=MAX_LENGTH-len(boundary_ids)
+    assert len(boundary_ids)==MAX_LENGTH and boundary_ids[0]==2 and boundary_ids[-1]==1
+    cases.append(dict(text=boundary,tokens=boundary_ids,length=MAX_LENGTH,kind="exact-2048-text"))
     report, reference = [], []
-    for length in [128,256,512,1024]:
+    for length in LENGTHS:
         own = EG2(a.stock, length).eval()
         for n, case in enumerate(cases):
             if case["length"] != length: continue
@@ -64,13 +88,16 @@ def main():
                 h = hf(input_ids=ids, attention_mask=mask).last_hidden_state
                 expected = F.normalize((h*mask[:,:,None]).sum(1)/mask.sum(1,keepdim=True), dim=-1)[0].numpy()
                 actual = own(ids.to(torch.int32),mask)[0].numpy()
-            s = dict(case=n,length=length,tokens=len(case["tokens"]),**stats(expected,actual))
+            s = dict(case=n,length=length,tokens=len(case["tokens"]),kind=case.get("kind","existing-fixture"),**stats(expected,actual))
             print(json.dumps(s),flush=True);report.append(s)
             reference.append(dict(case=n,**case,vector=expected.tolist()))
         del own
     out=Path("evidence");out.mkdir(exist_ok=True)
     passed=all(r["finite"] and r["cosine"]>0.9999999 and r["max_abs"]<2e-5 for r in report)
     assert any(r["length"]==1024 and r["tokens"]>513 for r in report)
+    assert any(r["length"]==MAX_LENGTH and r["tokens"]==MAX_LENGTH for r in report)
+    assert any(r["length"]==MAX_LENGTH and r["tokens"]<128 for r in report)
+    assert sum(r["length"]==MAX_LENGTH and r["tokens"]>1024 for r in report)>=3
     (out/"torch-parity.json").write_text(json.dumps({"passed":passed,"provenance":fingerprint(),"reference":"Transformers 5.19.0 stock weights, FP32 eager, raw masked mean then L2", "cases":report},indent=2)+"\n")
     (out/"hf-reference.json").write_text(json.dumps(reference)+"\n")
     assert passed, "Stock forward parity failed"

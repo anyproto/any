@@ -1,0 +1,34 @@
+{
+  "path": "/private/tmp/eg2-bucket-size-comparison-20261116/EmbeddingGemma2-5buckets.mlpackage",
+  "functions": [
+    "s128",
+    "s256",
+    "s512",
+    "s1024",
+    "s2048"
+  ],
+  "files": {
+    "Data/com.apple.CoreML/model.mlmodel": {
+      "bytes": 9043834,
+      "sha256": "715c377bda514242cabc6497843ca831d1eec1d84b5e48c6f93a13663e6ce104"
+    },
+    "Data/com.apple.CoreML/weights/weight.bin": {
+      "bytes": 565387008,
+      "sha256": "86bf461bce224075ea9ff6fc6a2c2abe50cd701eee58f1d3f5d8e6988d234657"
+    },
+    "Manifest.json": {
+      "bytes": 617,
+      "sha256": "8f494dc20af594dd81ca1082c50d0db80eae392a84621955de1d1c5c0e99aed2"
+    }
+  },
+  "total_bytes": 574431459,
+  "shared_external_offsets_across_all_functions": 394,
+  "distinct_external_offsets": 419,
+  "source_packages": [
+    "/tmp/eg2-owned-20261112/models/s128.mlpackage",
+    "/tmp/eg2-owned-20261112/models/s256.mlpackage",
+    "/tmp/eg2-owned-20261112/models/s512.mlpackage",
+    "/tmp/eg2-owned-20261112/models/s1024.mlpackage",
+    "/tmp/eg2-owned-2048-20261116/models/s2048.mlpackage"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "computeUnits" : "cpuAndNeuralEngine",
+  "loadSeconds" : {
+    "128" : 22.087383985519409,
+    "2048" : 0.69863903522491455
+  },
+  "mode" : "memory-pair",
+  "modelsExplicitlyReleased" : true,
+  "os" : "Version 27.2.1 (Build 26B131)",
+  "phase" : "complete",
+  "pid" : 30854
+}

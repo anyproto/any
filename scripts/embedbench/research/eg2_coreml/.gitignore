@@ -7,3 +7,6 @@ reproducibility-rebuild/
 tokens.json
 validate
 /*.log
+runtime-bench
+metalbench-run
+benchassets/

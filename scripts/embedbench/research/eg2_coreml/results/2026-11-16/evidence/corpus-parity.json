@@ -1,0 +1,50 @@
+{
+  "documents": 1499,
+  "finite": true,
+  "zeroVectors": 0,
+  "normRange": [
+    0.9999998931240269,
+    1.0000000965439224
+  ],
+  "excludedOverMaxLength": [
+    {
+      "documentIndex": 178,
+      "tokens": 2212
+    }
+  ],
+  "new2048DocumentIndices": [
+    344,
+    360,
+    376,
+    679,
+    720,
+    741,
+    1030,
+    1425
+  ],
+  "referenceComparisons": [
+    {
+      "path": "/tmp/eg2-owned-20261112/evidence/cold-vectors.json",
+      "sha256": "a396a1d6bfa828d92ffc37ea57cc062fc827e14aafcf4e3c97e984ca8949b0ff",
+      "scope": "Retained native normalized raw embeddings on overlapping documents only; not a new stock BF16 reference.",
+      "count": 1491,
+      "meanCosine": 1.0,
+      "minCosine": 0.9999999999999996,
+      "p01Cosine": 0.9999999999999997,
+      "maxAbs": 0.0,
+      "rawMaxAbs": 0.0
+    },
+    {
+      "path": "/tmp/ane-validation-20261112-local/coreml-cold-vectors.json",
+      "sha256": "b2cbb58c669b1678adafcdf4195a498ef402963591050a9515e76382e26dc792",
+      "scope": "Retained native normalized raw embeddings on overlapping documents only; not a new stock BF16 reference.",
+      "count": 1491,
+      "meanCosine": 0.9999971319467266,
+      "minCosine": 0.9999853002739557,
+      "p01Cosine": 0.9999937475228808,
+      "maxAbs": 0.0009376662310690009,
+      "rawMaxAbs": 0.0009419750422239304
+    }
+  ],
+  "bf16ReferenceLimitation": "Historical BF16 corpus file is unavailable; no new BF16 corpus comparison is claimed. Fresh stock-HF FP32 parity is separately recorded for16 native fixtures, including1151/1630/2048-token text."
+}

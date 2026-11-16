@@ -1,0 +1,17 @@
+metalbench-run: go1.27.1
+	path	eg2metalbench
+	mod	eg2metalbench	(devel)
+	dep	github.com/ebitengine/purego	v0.10.2	h1:W809HbnvzAxgdm+aOvlSekrM16wGCdT/e76+9tS7gzE=
+	dep	github.com/hybridgroup/yzma	v1.30.0	h1:0scfcu0imRZhqIS/JTXEgGHXm4WMGMMaKta6q8JPGd0=
+	dep	github.com/jupiterrider/ffi	v0.8.0	h1:IH6lto8OZaRIulQYObtZibII4tq71hXT6Z+KLBcxCcQ=
+	dep	golang.org/x/sys	v0.42.0	h1:omrd2nAlyT5ESRdCLYdm3+fMfNFE/+Rf4bDIQImRJeo=
+	build	-buildmode=exe
+	build	-compiler=gc
+	build	CGO_ENABLED=1
+	build	CGO_CFLAGS=
+	build	CGO_CPPFLAGS=
+	build	CGO_CXXFLAGS=
+	build	CGO_LDFLAGS=
+	build	GOARCH=arm64
+	build	GOOS=darwin
+	build	GOARM64=v8.0

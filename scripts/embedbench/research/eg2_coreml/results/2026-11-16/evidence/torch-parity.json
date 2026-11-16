@@ -1,0 +1,171 @@
+{
+  "passed": true,
+  "provenance": {
+    "files": {
+      "eg2.py": "773b5fd8a36388fd484d3113ac09d258c6136f1577141a29bc84c028c7bd8410",
+      "parity.py": "2c680ea416ddde788df7b68ef08d53a7565264a7224f6b04ba592fdbaa61b27c",
+      "buckets.py": "ff2261663941716c9b6884bb11a9cbaa75d660d6c41061d03c9ce0a0c473656a",
+      "tokens.json": "ff7f41a9586d566abf33f14aa9033f40e6d701698baa1d552b2f12f8f742a13a",
+      "fetch_stock.py": "cfb7629e2b6e0f3d847b2accf3b9ff56394d73740c5c31258e67ffca93f7b65b",
+      "source-manifest.json": "1cb8409645fbb2187f61781193a7fd89c53af34b0c2cd9d7d081715b674ce071",
+      "provenance.py": "ab05275c8da35cd35847e14fac38c31aa3142adb2cfa0f351f3fbbebfd693330"
+    },
+    "versions": {
+      "torch": "2.7.0",
+      "transformers": "5.19.0",
+      "coremltools": "9.0",
+      "numpy": "2.2.6",
+      "safetensors": "0.8.0",
+      "tokenizers": "0.23.3"
+    },
+    "python": "3.12.9",
+    "fingerprint": "9371094da36a90fa5174c00f56343927152b05aa4759c182c61aec25267d89f3"
+  },
+  "reference": "Transformers 5.19.0 stock weights, FP32 eager, raw masked mean then L2",
+  "cases": [
+    {
+      "case": 0,
+      "length": 128,
+      "tokens": 9,
+      "kind": "existing-fixture",
+      "cosine": 0.999999999999162,
+      "max_abs": 1.986045390367508e-07,
+      "finite": true
+    },
+    {
+      "case": 1,
+      "length": 128,
+      "tokens": 18,
+      "kind": "existing-fixture",
+      "cosine": 0.9999999999997167,
+      "max_abs": 1.043081283569336e-07,
+      "finite": true
+    },
+    {
+      "case": 2,
+      "length": 128,
+      "tokens": 29,
+      "kind": "existing-fixture",
+      "cosine": 0.9999999999969833,
+      "max_abs": 2.8219074010849e-07,
+      "finite": true
+    },
+    {
+      "case": 5,
+      "length": 256,
+      "tokens": 18,
+      "kind": "existing-fixture",
+      "cosine": 0.9999999999997167,
+      "max_abs": 1.043081283569336e-07,
+      "finite": true
+    },
+    {
+      "case": 9,
+      "length": 256,
+      "tokens": 210,
+      "kind": "existing-fixture",
+      "cosine": 0.9999999999995237,
+      "max_abs": 1.4901161193847656e-07,
+      "finite": true
+    },
+    {
+      "case": 4,
+      "length": 512,
+      "tokens": 505,
+      "kind": "existing-fixture",
+      "cosine": 0.9999999999993194,
+      "max_abs": 1.3737007975578308e-07,
+      "finite": true
+    },
+    {
+      "case": 6,
+      "length": 512,
+      "tokens": 18,
+      "kind": "existing-fixture",
+      "cosine": 0.9999999999997167,
+      "max_abs": 1.043081283569336e-07,
+      "finite": true
+    },
+    {
+      "case": 8,
+      "length": 512,
+      "tokens": 413,
+      "kind": "existing-fixture",
+      "cosine": 0.9999999999995562,
+      "max_abs": 1.1920928955078125e-07,
+      "finite": true
+    },
+    {
+      "case": 10,
+      "length": 512,
+      "tokens": 280,
+      "kind": "existing-fixture",
+      "cosine": 0.9999999999995377,
+      "max_abs": 1.1920928955078125e-07,
+      "finite": true
+    },
+    {
+      "case": 3,
+      "length": 1024,
+      "tokens": 622,
+      "kind": "existing-fixture",
+      "cosine": 0.9999999999985083,
+      "max_abs": 2.2351741790771484e-07,
+      "finite": true
+    },
+    {
+      "case": 7,
+      "length": 1024,
+      "tokens": 18,
+      "kind": "existing-fixture",
+      "cosine": 0.9999999999997167,
+      "max_abs": 1.043081283569336e-07,
+      "finite": true
+    },
+    {
+      "case": 11,
+      "length": 1024,
+      "tokens": 593,
+      "kind": "existing-fixture",
+      "cosine": 0.9999999999997058,
+      "max_abs": 9.685754776000977e-08,
+      "finite": true
+    },
+    {
+      "case": 12,
+      "length": 2048,
+      "tokens": 18,
+      "kind": "short-padded-2048",
+      "cosine": 0.9999999999997167,
+      "max_abs": 1.043081283569336e-07,
+      "finite": true
+    },
+    {
+      "case": 13,
+      "length": 2048,
+      "tokens": 1151,
+      "kind": "long-fiqa",
+      "cosine": 0.9999999999996982,
+      "max_abs": 1.1920928955078125e-07,
+      "finite": true
+    },
+    {
+      "case": 14,
+      "length": 2048,
+      "tokens": 1630,
+      "kind": "long-multilingual",
+      "cosine": 0.9999999999996885,
+      "max_abs": 1.180451363325119e-07,
+      "finite": true
+    },
+    {
+      "case": 15,
+      "length": 2048,
+      "tokens": 2048,
+      "kind": "exact-2048-text",
+      "cosine": 0.9999999999992429,
+      "max_abs": 1.695007085800171e-07,
+      "finite": true
+    }
+  ]
+}

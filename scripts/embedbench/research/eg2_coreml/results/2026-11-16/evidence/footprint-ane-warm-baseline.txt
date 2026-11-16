@@ -1,0 +1,36 @@
+================================================================================
+runtime-bench [30261]: 64-bit    Footprint: 3441 KB (16384 bytes per page)
+================================================================================
+
+  Dirty      Clean  Reclaimable    (Wired)    Regions    Category
+    ---        ---          ---        ---        ---    ---
+1552 KB        0 B          0 B        0 B          6    Malloc Small
+ 432 KB        0 B          0 B        0 B          9    Malloc Metadata
+ 395 KB        0 B          0 B        0 B        351    __DATA_DIRTY
+ 369 KB        0 B          0 B     369 KB          1    page table
+ 128 KB        0 B          0 B        0 B        317    __DATA
+ 112 KB        0 B          0 B        0 B          1    Malloc Tiny
+ 112 KB        0 B          0 B        0 B          6    Stack
+  80 KB        0 B          0 B        0 B          6    Untagged
+  80 KB        0 B          0 B        0 B       1166    unused dyld shared cache area
+  48 KB        0 B          0 B        0 B          4    __TPRO_CONST
+  36 KB        0 B          0 B        0 B          1    __OBJC_RW
+  34 KB        0 B          0 B        0 B        145    __AUTH
+  16 KB        0 B          0 B        0 B          1    Deferred Reclaim
+  16 KB        0 B          0 B        0 B          1    Malloc Nano
+  16 KB        0 B          0 B        0 B          1    OS Alloc Once
+  16 KB        0 B          0 B        0 B          1    Activity Tracing
+    0 B     336 KB          0 B        0 B          4    mapped file
+    0 B      32 KB          0 B        0 B        414    __TEXT
+    0 B      16 KB          0 B        0 B        347    __DATA_CONST
+    0 B      16 KB          0 B        0 B          2    __LINKEDIT
+    0 B        0 B          0 B        0 B          1    __CTF
+    0 B        0 B          0 B        0 B        348    __AUTH_CONST
+    0 B        0 B          0 B        0 B          1    __FONT_DATA
+    0 B        0 B          0 B        0 B          1    __OBJC_RO
+    ---        ---          ---        ---        ---    ---
+3441 KB     400 KB          0 B     369 KB       3137    TOTAL
+
+Auxiliary data:
+    phys_footprint: 3441 KB
+    phys_footprint_peak: 3441 KB

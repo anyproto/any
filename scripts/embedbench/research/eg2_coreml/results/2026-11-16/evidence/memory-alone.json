@@ -1,0 +1,11 @@
+{
+  "computeUnits" : "cpuAndNeuralEngine",
+  "loadSeconds" : {
+    "2048" : 0.75684499740600586
+  },
+  "mode" : "memory-alone",
+  "modelsExplicitlyReleased" : true,
+  "os" : "Version 27.2.1 (Build 26B131)",
+  "phase" : "complete",
+  "pid" : 31079
+}

@@ -1,0 +1,64 @@
+{
+  "llama": {
+    "release": "b11600",
+    "upstream": "https://github.com/ggml-org/llama.cpp/releases/tag/b11600",
+    "version": "b11600-macos-arm64",
+    "files": {
+      "libllama-common.0.6.0.dylib": {
+        "bytes": 7764392,
+        "sha256": "f0479e626360c1d17d1cc9f27520266397126605aabc8b256204cd528153bf94"
+      },
+      "libllama.0.6.0.dylib": {
+        "bytes": 3400416,
+        "sha256": "9c2b730b4e96796e7dcf775a66eb92ee23879e67aa96f1ff4fceae7a7c485727"
+      },
+      "LICENSE": {
+        "bytes": 1078,
+        "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
+      },
+      "libggml-blas.0.26.0.dylib": {
+        "bytes": 58776,
+        "sha256": "6526259e8f70a5b3a394df3ba082050c290d7653846efbdc84b3710b22fb4eac"
+      },
+      "libggml-rpc.0.26.0.dylib": {
+        "bytes": 242000,
+        "sha256": "4ca97a6099e861ffb4c174b01d68d65e782a2c0373495fb894eb2008fa8a00e6"
+      },
+      "libggml-metal.0.26.0.dylib": {
+        "bytes": 5554552,
+        "sha256": "6367decaede0a8dff536cdaaae0f93a7219bd9e407d95530033af240d3ec4717"
+      },
+      "libggml-cpu.0.26.0.dylib": {
+        "bytes": 957408,
+        "sha256": "937073375f79a187d8fda2e3900a9095e979593b691d6bbb146956743ceddd82"
+      },
+      "libggml.0.26.0.dylib": {
+        "bytes": 60016,
+        "sha256": "8f9eb83318b871bf83697a40b4594c65f5f70b1cf9e77b10885ab8d3de4725c9"
+      },
+      "VERSION": {
+        "bytes": 19,
+        "sha256": "c1e4111f5a35c0593f9b07bbb9edc8d2e4c6bb1d3df750a7120e6d1fdab74927"
+      },
+      "libggml-base.0.26.0.dylib": {
+        "bytes": 751240,
+        "sha256": "5e8d88e72c2237d510ce76059c889f6a64890d5fbaf29eee45fa98d3e21bc80d"
+      }
+    }
+  },
+  "gguf": {
+    "repo": "ggml-org/embeddinggemma-2-GGUF",
+    "revision": "bfcd298762cc34d0357ece5ebdd31791a3a374d8",
+    "filename": "embeddinggemma-2-Q8_0.gguf",
+    "sha256": "2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135"
+  },
+  "goVersion": "go1.27.1 darwin/arm64",
+  "goModSHA256": "401cc7b16ee7cf25b965178b2bd4e57f6c2234b42ad14c7b87ad0e2837a354e4",
+  "goSumSHA256": "def69ee023265783b661ef7ca40d51f4d07a4f1b7552554fda1305d2f1737e8f",
+  "inputsSHA256": "6791a1ecc30ed384bc2271e097fe5f4d592beac0494d7d706fe49eb090e9ce91",
+  "yzma": "v1.30.0",
+  "metalRunnerSHA256": "332e1983b911fe8fb26fbe31cc5d7e2d929cf323bb25d0ca4963fc4662bdf94c",
+  "abiEvidence": "upstream/yzma-abi-notes.txt",
+  "metalAPI": "llama_encode",
+  "memoryClearData": false
+}

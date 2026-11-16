@@ -14,7 +14,7 @@ commit 2ed826df0c0eefc7135e9c3acc45aaa277f9b6ff, MIT license.
 The source file, recipe, requirements and full copyright/license text are
 preserved in upstream/qvac/.
 
-Modifications: text-only weights; fixed 128/256/512/1024 sequence lengths;
+Modifications: text-only weights; fixed 128/256/512/1024/2048 sequence lengths;
 int32 token input plus float32 right-padding mask; fixed FP32-generated RoPE;
 channel-first activations and 1x1 convolutions; explicit attention heads;
 inclusive bidirectional sliding-window radius 512; finite -10000 mask;

@@ -13,15 +13,17 @@ from coremltools.converters.mil.mil.scope import ScopeSource
 from eg2 import EG2
 from fetch_stock import verify
 from provenance import fingerprint
+from buckets import LENGTHS
 
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--stock", type=Path, default=Path("stock"))
     p.add_argument("--output", type=Path, default=Path("models"))
-    p.add_argument("--lengths", type=int, nargs="+", default=[128, 256, 512, 1024])
+    p.add_argument("--lengths", type=int, nargs="+", default=list(LENGTHS))
     p.add_argument("--merge", action="store_true")
     a = p.parse_args()
+    assert a.lengths==sorted(set(a.lengths)) and set(a.lengths)<=set(LENGTHS), "Use sorted supported lengths without duplicates"
     verify(a.stock)
     gate = json.loads(Path("evidence/torch-parity.json").read_text())
     assert gate["passed"], "Stock HF parity must pass before conversion"

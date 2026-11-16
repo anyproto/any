@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def fingerprint(conversion=False):
-    names=["eg2.py","parity.py","fetch_stock.py","source-manifest.json","provenance.py"]
+    names=["eg2.py","parity.py","buckets.py","tokens.json","fetch_stock.py","source-manifest.json","provenance.py"]
     if conversion:names.append("convert.py")
     data={"files":{n:hashlib.sha256(Path(n).read_bytes()).hexdigest() for n in names},
           "versions":{n:importlib.metadata.version(n) for n in ["torch","transformers","coremltools","numpy","safetensors","tokenizers"]},

@@ -1,0 +1,1267 @@
+{
+  "date": "2026-11-16",
+  "source": {
+    "repo": "google/embeddinggemma-2",
+    "revision": "914f7f89142e33e77833254d9c9b90c3cef7303b",
+    "files": {
+      "config.json": {
+        "sha256": "b8f1e9931b57fbc054acdb445c41765d55b0074c58d145fa82839941ad1b5bb3",
+        "bytes": 4455
+      },
+      "model.safetensors": {
+        "sha256": "197a32965d4b1105faf060417baa899e193fb73cd401f42ec9295234d5553d79",
+        "bytes": 1488915288
+      },
+      "tokenizer.json": {
+        "sha256": "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4",
+        "bytes": 32170510
+      },
+      "tokenizer_config.json": {
+        "sha256": "17bd5d6e9364ca49a534e1502076593317c298d4a663623091ed45388f004874",
+        "bytes": 1599
+      }
+    }
+  },
+  "environment": {
+    "python": "3.12.9 (main, Feb  4 2025, 14:38:38) [Clang 16.0.0 (clang-1600.0.26.6)]",
+    "platform": "macOS-26.7.1-arm64-arm-64bit",
+    "dependencies": {
+      "torch": "2.7.0",
+      "transformers": "5.19.0",
+      "coremltools": "9.0",
+      "numpy": "2.2.6",
+      "safetensors": "0.8.0",
+      "tokenizers": "0.23.3"
+    },
+    "modelSource": {
+      "repo": "google/embeddinggemma-2",
+      "revision": "914f7f89142e33e77833254d9c9b90c3cef7303b",
+      "files": {
+        "config.json": {
+          "sha256": "b8f1e9931b57fbc054acdb445c41765d55b0074c58d145fa82839941ad1b5bb3",
+          "bytes": 4455
+        },
+        "model.safetensors": {
+          "sha256": "197a32965d4b1105faf060417baa899e193fb73cd401f42ec9295234d5553d79",
+          "bytes": 1488915288
+        },
+        "tokenizer.json": {
+          "sha256": "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4",
+          "bytes": 32170510
+        },
+        "tokenizer_config.json": {
+          "sha256": "17bd5d6e9364ca49a534e1502076593317c298d4a663623091ed45388f004874",
+          "bytes": 1599
+        }
+      }
+    },
+    "baseSourceCommit": "9eb1ee5d",
+    "architectureUnchangedFromFourBucket": true,
+    "eg2SHA256": "773b5fd8a36388fd484d3113ac09d258c6136f1577141a29bc84c028c7bd8410"
+  },
+  "target": {
+    "os": "Version 27.2.1 (Build 26B131)",
+    "host": "romas-macbook-air.local",
+    "chip": "Apple M2",
+    "ramGiB": 16
+  },
+  "freshHFCoreMLParity": {
+    "cases": 16,
+    "minimumCosine": 0.9999267183471062,
+    "maximumAbsoluteError": 0.0022130757570266724,
+    "maximumNormError": 8.305185117407632e-08
+  },
+  "longHFCoreMLParity": {
+    "cases": 3,
+    "minimumCosine": 0.9999267183471062,
+    "maximumAbsoluteError": 0.0022130757570266724,
+    "maximumNormError": 6.090509219180973e-08
+  },
+  "fp32RewriteParity": {
+    "cases": 16,
+    "minimumCosine": 0.9999999999969833,
+    "maximumAbsoluteError": 2.8219074010849e-07
+  },
+  "corpus": {
+    "documents": 1499,
+    "finite": true,
+    "zeroVectors": 0,
+    "normRange": [
+      0.9999998931240269,
+      1.0000000965439224
+    ],
+    "excludedOverMaxLength": [
+      {
+        "documentIndex": 178,
+        "tokens": 2212
+      }
+    ],
+    "new2048DocumentIndices": [
+      344,
+      360,
+      376,
+      679,
+      720,
+      741,
+      1030,
+      1425
+    ],
+    "referenceComparisons": [
+      {
+        "path": "/tmp/eg2-owned-20261112/evidence/cold-vectors.json",
+        "sha256": "a396a1d6bfa828d92ffc37ea57cc062fc827e14aafcf4e3c97e984ca8949b0ff",
+        "scope": "Retained native normalized raw embeddings on overlapping documents only; not a new stock BF16 reference.",
+        "count": 1491,
+        "meanCosine": 1.0,
+        "minCosine": 0.9999999999999996,
+        "p01Cosine": 0.9999999999999997,
+        "maxAbs": 0.0,
+        "rawMaxAbs": 0.0
+      },
+      {
+        "path": "/tmp/ane-validation-20261112-local/coreml-cold-vectors.json",
+        "sha256": "b2cbb58c669b1678adafcdf4195a498ef402963591050a9515e76382e26dc792",
+        "scope": "Retained native normalized raw embeddings on overlapping documents only; not a new stock BF16 reference.",
+        "count": 1491,
+        "meanCosine": 0.9999971319467266,
+        "minCosine": 0.9999853002739557,
+        "p01Cosine": 0.9999937475228808,
+        "maxAbs": 0.0009376662310690009,
+        "rawMaxAbs": 0.0009419750422239304
+      }
+    ],
+    "bf16ReferenceLimitation": "Historical BF16 corpus file is unavailable; no new BF16 corpus comparison is claimed. Fresh stock-HF FP32 parity is separately recorded for16 native fixtures, including1151/1630/2048-token text."
+  },
+  "plans": {
+    "128": {
+      "cpuOperators": [
+        {
+          "operator": "ios18.greater_equal"
+        },
+        {
+          "operator": "ios18.add"
+        },
+        {
+          "operator": "select"
+        },
+        {
+          "operator": "ios18.gather"
+        },
+        {
+          "operator": "ios18.transpose"
+        },
+        {
+          "operator": "ios18.cast"
+        },
+        {
+          "operator": "ios18.abs"
+        },
+        {
+          "operator": "ios16.reduce_max"
+        },
+        {
+          "operator": "ios18.maximum"
+        },
+        {
+          "operator": "ios18.real_div"
+        },
+        {
+          "operator": "ios18.mul"
+        },
+        {
+          "operator": "ios16.reduce_sum"
+        },
+        {
+          "operator": "ios18.sqrt"
+        },
+        {
+          "operator": "ios18.real_div"
+        }
+      ],
+      "estimatedCost": {
+        "ane": 0.5337151622901617,
+        "cpu": 0.4662848377098712,
+        "none": 0
+      },
+      "ops": {
+        "ane": 6195,
+        "cpu": 14,
+        "none": 5896
+      }
+    },
+    "256": {
+      "cpuOperators": [
+        {
+          "operator": "ios18.greater_equal"
+        },
+        {
+          "operator": "ios18.add"
+        },
+        {
+          "operator": "select"
+        },
+        {
+          "operator": "ios18.gather"
+        },
+        {
+          "operator": "ios18.cast"
+        },
+        {
+          "operator": "ios18.abs"
+        },
+        {
+          "operator": "ios16.reduce_max"
+        },
+        {
+          "operator": "ios18.maximum"
+        },
+        {
+          "operator": "ios18.real_div"
+        },
+        {
+          "operator": "ios18.mul"
+        },
+        {
+          "operator": "ios16.reduce_sum"
+        },
+        {
+          "operator": "ios18.sqrt"
+        },
+        {
+          "operator": "ios18.real_div"
+        }
+      ],
+      "estimatedCost": {
+        "ane": 0.7019599141218992,
+        "cpu": 0.298040085878119,
+        "none": 0
+      },
+      "ops": {
+        "ane": 6196,
+        "cpu": 13,
+        "none": 5896
+      }
+    },
+    "512": {
+      "cpuOperators": [
+        {
+          "operator": "ios18.greater_equal"
+        },
+        {
+          "operator": "ios18.add"
+        },
+        {
+          "operator": "select"
+        },
+        {
+          "operator": "ios18.gather"
+        },
+        {
+          "operator": "ios18.cast"
+        },
+        {
+          "operator": "ios18.abs"
+        },
+        {
+          "operator": "ios16.reduce_max"
+        },
+        {
+          "operator": "ios18.maximum"
+        },
+        {
+          "operator": "ios18.real_div"
+        },
+        {
+          "operator": "ios18.mul"
+        },
+        {
+          "operator": "ios16.reduce_sum"
+        },
+        {
+          "operator": "ios18.sqrt"
+        },
+        {
+          "operator": "ios18.real_div"
+        }
+      ],
+      "estimatedCost": {
+        "ane": 0.8330929807877405,
+        "cpu": 0.16690701921233314,
+        "none": 0
+      },
+      "ops": {
+        "ane": 6196,
+        "cpu": 13,
+        "none": 5896
+      }
+    },
+    "1024": {
+      "cpuOperators": [
+        {
+          "operator": "ios18.greater_equal"
+        },
+        {
+          "operator": "ios18.add"
+        },
+        {
+          "operator": "select"
+        },
+        {
+          "operator": "ios18.gather"
+        },
+        {
+          "operator": "ios18.cast"
+        },
+        {
+          "operator": "ios18.abs"
+        },
+        {
+          "operator": "ios16.reduce_max"
+        },
+        {
+          "operator": "ios18.maximum"
+        },
+        {
+          "operator": "ios18.real_div"
+        },
+        {
+          "operator": "ios18.mul"
+        },
+        {
+          "operator": "ios16.reduce_sum"
+        },
+        {
+          "operator": "ios18.sqrt"
+        },
+        {
+          "operator": "ios18.real_div"
+        }
+      ],
+      "estimatedCost": {
+        "ane": 0.9160382612508952,
+        "cpu": 0.0839617387491409,
+        "none": 0
+      },
+      "ops": {
+        "ane": 6196,
+        "cpu": 13,
+        "none": 5896
+      }
+    },
+    "2048": {
+      "cpuOperators": [
+        {
+          "operator": "ios18.greater_equal"
+        },
+        {
+          "operator": "ios18.add"
+        },
+        {
+          "operator": "select"
+        },
+        {
+          "operator": "ios18.gather"
+        },
+        {
+          "operator": "ios18.cast"
+        },
+        {
+          "operator": "ios18.abs"
+        },
+        {
+          "operator": "ios16.reduce_max"
+        },
+        {
+          "operator": "ios18.maximum"
+        },
+        {
+          "operator": "ios18.real_div"
+        },
+        {
+          "operator": "ios18.mul"
+        },
+        {
+          "operator": "ios16.reduce_sum"
+        },
+        {
+          "operator": "ios18.sqrt"
+        },
+        {
+          "operator": "ios18.real_div"
+        }
+      ],
+      "estimatedCost": {
+        "ane": 0.9624933047667772,
+        "cpu": 0.037506695233266524,
+        "none": 0
+      },
+      "ops": {
+        "ane": 6196,
+        "cpu": 13,
+        "none": 5896
+      }
+    }
+  },
+  "compileSeconds": {
+    "128": 2.376755952835083,
+    "256": 4.0531158447265625e-06,
+    "512": 5.0067901611328125e-06,
+    "1024": 3.933906555175781e-06,
+    "2048": 5.0067901611328125e-06
+  },
+  "coldLoadSeconds": {
+    "128": 24.694247007369995,
+    "256": 25.176416993141174,
+    "512": 27.837659001350403,
+    "1024": 35.13489806652069,
+    "2048": 52.084400057792664
+  },
+  "cachedLoadSeconds": {
+    "128": 0.8247920274734497,
+    "256": 0.7763159275054932,
+    "512": 0.785383939743042,
+    "1024": 0.8055109977722168,
+    "2048": 0.7582509517669678
+  },
+  "firstPredictionSeconds": {
+    "128": 0.020428061485290527,
+    "256": 0.026198983192443848,
+    "512": 0.04401803016662598,
+    "1024": 0.10017800331115723,
+    "2048": 0.312391996383667
+  },
+  "corpusTiming": {
+    "docsPerSecond": 56.64224832419978,
+    "p50Ms": 7.34400749206543,
+    "p95Ms": 35.72690486907959,
+    "byBucket": {
+      "128": {
+        "count": 763,
+        "p50Ms": 6.98399543762207,
+        "p95Ms": 7.252836227416992,
+        "meanMs": 7.010898771323507
+      },
+      "256": {
+        "count": 444,
+        "p50Ms": 12.937426567077637,
+        "p95Ms": 13.127493858337402,
+        "meanMs": 12.95819556390917
+      },
+      "512": {
+        "count": 227,
+        "p50Ms": 33.18309783935547,
+        "p95Ms": 35.46813726425171,
+        "meanMs": 33.33738354334222
+      },
+      "1024": {
+        "count": 57,
+        "p50Ms": 91.97795391082764,
+        "p95Ms": 97.51024246215819,
+        "meanMs": 92.61037592302289
+      },
+      "2048": {
+        "count": 8,
+        "p50Ms": 313.24899196624756,
+        "p95Ms": 323.17500710487366,
+        "meanMs": 314.40161168575287
+      }
+    }
+  },
+  "matchedLatency": {
+    "inputsSHA256": "6791a1ecc30ed384bc2271e097fe5f4d592beac0494d7d706fe49eb090e9ce91",
+    "warmupRounds": 2,
+    "measuredRounds": 5,
+    "rows": [
+      {
+        "id": "exact-1025",
+        "tokens": 1025,
+        "aneMedianMs": 299.528,
+        "metalMedianMs": 299.215167,
+        "aneSpeedupVsMetal": 0.9989555801127106,
+        "cosine": 0.9997222304440985,
+        "maxAbs": 0.003932026635818486,
+        "aneNorm": 1.000000003055998,
+        "metalNorm": 0.9999999885061803
+      },
+      {
+        "id": "fiqa-344",
+        "tokens": 1151,
+        "aneMedianMs": 299.914916,
+        "metalMedianMs": 334.61125,
+        "aneSpeedupVsMetal": 1.1156872571152812,
+        "cosine": 0.9999063110479675,
+        "maxAbs": 0.0019580531076867583,
+        "aneNorm": 1.0000000392625088,
+        "metalNorm": 0.9999999959859227
+      },
+      {
+        "id": "fiqa-360",
+        "tokens": 1553,
+        "aneMedianMs": 299.825833,
+        "metalMedianMs": 512.745208,
+        "aneSpeedupVsMetal": 1.710143528559796,
+        "cosine": 0.9998774482771922,
+        "maxAbs": 0.0019794874829740516,
+        "aneNorm": 0.999999987293663,
+        "metalNorm": 1.0000000352455116
+      },
+      {
+        "id": "fiqa-376",
+        "tokens": 1352,
+        "aneMedianMs": 301.696292,
+        "metalMedianMs": 423.657709,
+        "aneSpeedupVsMetal": 1.4042522902469081,
+        "cosine": 0.9998754680874423,
+        "maxAbs": 0.0021161346659774784,
+        "aneNorm": 1.000000005969565,
+        "metalNorm": 1.0000000398673679
+      },
+      {
+        "id": "fiqa-679",
+        "tokens": 1077,
+        "aneMedianMs": 299.427416,
+        "metalMedianMs": 310.459375,
+        "aneSpeedupVsMetal": 1.0368435166938756,
+        "cosine": 0.9998991934714746,
+        "maxAbs": 0.001771586213188181,
+        "aneNorm": 1.000000036623459,
+        "metalNorm": 1.000000009986988
+      },
+      {
+        "id": "fiqa-720",
+        "tokens": 1485,
+        "aneMedianMs": 299.913792,
+        "metalMedianMs": 478.360375,
+        "aneSpeedupVsMetal": 1.594992920498968,
+        "cosine": 0.9998759033714655,
+        "maxAbs": 0.0022669131773107526,
+        "aneNorm": 1.0000000638506092,
+        "metalNorm": 0.9999999653032601
+      },
+      {
+        "id": "fiqa-741",
+        "tokens": 1368,
+        "aneMedianMs": 300.264417,
+        "metalMedianMs": 426.019833,
+        "aneSpeedupVsMetal": 1.4188155801358242,
+        "cosine": 0.9998988807432334,
+        "maxAbs": 0.0017298850281324378,
+        "aneNorm": 1.0000000389440666,
+        "metalNorm": 0.9999999713697575
+      },
+      {
+        "id": "fiqa-1030",
+        "tokens": 1263,
+        "aneMedianMs": 298.35975,
+        "metalMedianMs": 379.391583,
+        "aneSpeedupVsMetal": 1.2715910339782763,
+        "cosine": 0.9998770173010044,
+        "maxAbs": 0.0018990824993782018,
+        "aneNorm": 1.0000000475489057,
+        "metalNorm": 0.9999999920672044
+      },
+      {
+        "id": "fiqa-1425",
+        "tokens": 1210,
+        "aneMedianMs": 299.819209,
+        "metalMedianMs": 357.795125,
+        "aneSpeedupVsMetal": 1.1933695849354335,
+        "cosine": 0.9998702064754619,
+        "maxAbs": 0.001825121052665718,
+        "aneNorm": 1.0000000360970194,
+        "metalNorm": 0.9999999713040844
+      },
+      {
+        "id": "hf-14",
+        "tokens": 1630,
+        "aneMedianMs": 299.545042,
+        "metalMedianMs": 541.490625,
+        "aneSpeedupVsMetal": 1.8077101907098165,
+        "cosine": 0.9998733185750059,
+        "maxAbs": 0.0019542371358230114,
+        "aneNorm": 0.9999999390949084,
+        "metalNorm": 0.9999999850770979
+      },
+      {
+        "id": "hf-15",
+        "tokens": 2048,
+        "aneMedianMs": 299.552334,
+        "metalMedianMs": 726.668292,
+        "aneSpeedupVsMetal": 2.425847538213473,
+        "cosine": 0.9997104092532022,
+        "maxAbs": 0.0048206714515304505,
+        "aneNorm": 1.0000000207067223,
+        "metalNorm": 1.0000000500238178
+      }
+    ],
+    "metalPlacement": "All25/25 layers offloaded to MTL0 per retained native llama.cpp load log.",
+    "metalAPI": "llama_encode (encoder-only EG2)",
+    "metalMemoryPresent": false,
+    "metalMemoryClearData": false,
+    "precisionCaveat": "Direct-runtime comparison (not exact production wrappers): Core ML FP16 encoder + FP32 L2 versus stock Q8_0 GGUF. Different precisions and Swift/Go host APIs; not a precision-controlled backend study.",
+    "timingBoundary": "Same complete pretokenized inputs, batch1, normalized copied768-vector. Input construction, synchronous inference and output copying/normalization included; tokenizer/model load excluded. Backend-specific state cleanup included. No downstream head projection.",
+    "aneTimingBoundary": "pretokenized IDs to copied normalized 768-vector; includes per-call MLMultiArray allocation/fill, synchronous prediction, output copy and autorelease; excludes model load/tokenization and validation checks",
+    "metalTimingBoundary": "pretokenized IDs to copied normalized 768-vector; includes per-call input allocation/fill, state clear, inference synchronization, output copy/L2 and batch free; excludes model load/tokenization",
+    "ane": {
+      "count": 55,
+      "meanMs": 300.240766690909,
+      "p50Ms": 299.747666,
+      "p95Ms": 303.1063661,
+      "totalMs": 16513.242167999997
+    },
+    "metal": {
+      "count": 55,
+      "meanMs": 435.0976386363638,
+      "p50Ms": 423.657709,
+      "p95Ms": 724.4996626,
+      "totalMs": 23930.37012500001
+    },
+    "aggregateSpeedupVsMetal": 1.4491624286460965
+  },
+  "memory": {
+    "ane-warm-active": {
+      "neuralLedgerRow": "0 B     649 MB       544 KB     649 MB          3    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "74 MB"
+    },
+    "ane-warm-baseline": {
+      "neuralLedgerRow": null,
+      "physFootprint": "3441 KB"
+    },
+    "ane-warm-released-all-immediate": {
+      "neuralLedgerRow": "0 B        0 B       592 MB        0 B          1    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "74 MB"
+    },
+    "cold-after-corpus": {
+      "neuralLedgerRow": "0 B    2031 MB      2576 KB    2031 MB         15    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "468 MB"
+    },
+    "cold-all-active": {
+      "neuralLedgerRow": "0 B    2031 MB      2576 KB    2031 MB         15    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "479 MB"
+    },
+    "cold-s1024": {
+      "neuralLedgerRow": "0 B     444 MB       936 MB     444 MB         12    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "460 MB"
+    },
+    "cold-s128": {
+      "neuralLedgerRow": "0 B     283 MB       400 KB     283 MB          3    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "345 MB"
+    },
+    "cold-s2048": {
+      "neuralLedgerRow": "0 B     650 MB      1354 MB     649 MB         15    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "479 MB"
+    },
+    "cold-s256": {
+      "neuralLedgerRow": "0 B     305 MB       284 MB     305 MB          6    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "286 MB"
+    },
+    "cold-s512": {
+      "neuralLedgerRow": "0 B     350 MB       589 MB     350 MB          9    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "335 MB"
+    },
+    "cold-start": {
+      "neuralLedgerRow": null,
+      "physFootprint": "3633 KB"
+    },
+    "memory-alone-active": {
+      "neuralLedgerRow": "0 B     649 MB       544 KB     649 MB          3    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "138 MB"
+    },
+    "memory-alone-baseline": {
+      "neuralLedgerRow": null,
+      "physFootprint": "3409 KB"
+    },
+    "memory-alone-released-all-30s": {
+      "neuralLedgerRow": "0 B        0 B       592 MB        0 B          1    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "136 MB"
+    },
+    "memory-alone-released-all-immediate": {
+      "neuralLedgerRow": "0 B        0 B       592 MB        0 B          1    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "136 MB"
+    },
+    "memory-alone-released2048-30s": {
+      "neuralLedgerRow": "0 B        0 B       592 MB        0 B          1    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "136 MB"
+    },
+    "memory-alone-released2048-immediate": {
+      "neuralLedgerRow": "0 B        0 B       592 MB        0 B          1    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "138 MB"
+    },
+    "memory-pair-active": {
+      "neuralLedgerRow": "0 B     932 MB       944 KB     932 MB          6    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "106 MB"
+    },
+    "memory-pair-baseline": {
+      "neuralLedgerRow": null,
+      "physFootprint": "3409 KB"
+    },
+    "memory-pair-released-all-30s": {
+      "neuralLedgerRow": "0 B        0 B       874 MB        0 B          2    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "103 MB"
+    },
+    "memory-pair-released-all-immediate": {
+      "neuralLedgerRow": "0 B        0 B       874 MB        0 B          2    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "103 MB"
+    },
+    "memory-pair-released2048-30s": {
+      "neuralLedgerRow": "0 B      64 KB       875 MB        0 B          4    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "103 MB"
+    },
+    "memory-pair-released2048-immediate": {
+      "neuralLedgerRow": "0 B     283 MB       592 MB     283 MB          4    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "105 MB"
+    },
+    "memory-pair-short-active-after2048release": {
+      "neuralLedgerRow": "0 B     283 MB       592 MB     283 MB          4    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "103 MB"
+    },
+    "warm-all-active": {
+      "neuralLedgerRow": "0 B    2031 MB      2576 KB    2031 MB         15    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "70 MB"
+    },
+    "warm-s1024": {
+      "neuralLedgerRow": "0 B    1381 MB      2032 KB    1381 MB         12    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "64 MB"
+    },
+    "warm-s128": {
+      "neuralLedgerRow": "0 B     283 MB       400 KB     283 MB          3    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "138 MB"
+    },
+    "warm-s2048": {
+      "neuralLedgerRow": "0 B    2031 MB      2576 KB    2031 MB         15    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "70 MB"
+    },
+    "warm-s256": {
+      "neuralLedgerRow": "0 B     588 MB       944 KB     588 MB          6    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "33 MB"
+    },
+    "warm-s512": {
+      "neuralLedgerRow": "0 B     937 MB      1488 KB     937 MB          9    Owned physical footprint (unmapped) (neural) (nofootprint)",
+      "physFootprint": "63 MB"
+    },
+    "warm-start": {
+      "neuralLedgerRow": null,
+      "physFootprint": "3649 KB"
+    }
+  },
+  "reproducibility": {
+    "length": 2048,
+    "freshOutputDirectory": "reproducibility-rebuild/s2048.mlpackage",
+    "files": {
+      "Manifest.json": {
+        "initialSHA256": "058b4bc50f550f70218e4d91497bfe0567ac53150f280d4611d08d14dec7891b",
+        "rebuiltSHA256": "cd0a997bad988a614736c3a07b005826e245ba67aa4280d097f060ce1c70badc",
+        "equal": false
+      },
+      "Data/com.apple.CoreML/model.mlmodel": {
+        "initialSHA256": "fb5272d6f1e1eac2da7bdb65852f3bc304023f9f4113bc155808cb912597e6b8",
+        "rebuiltSHA256": "35d9339f67bf7963c4250dc7224ab9afc5ddc3641229cf4cc3343966c5f94259",
+        "equal": false
+      },
+      "Data/com.apple.CoreML/weights/weight.bin": {
+        "initialSHA256": "85d501d1644f831ba2576300e8fd9e40b63c44ecd256393dbbcf5973ce2c43b7",
+        "rebuiltSHA256": "85d501d1644f831ba2576300e8fd9e40b63c44ecd256393dbbcf5973ce2c43b7",
+        "equal": true
+      }
+    },
+    "weightBlobIdentical": true,
+    "modelProtoIdentical": false,
+    "wholePackageFilesIdentical": false,
+    "modelProtoSemanticallyIdentical": true,
+    "deterministicProtoSHA256": {
+      "initial": "3d5b91b20e93f776e19f77072224a7277a4591dd593d325ea4c889e7ed8c3db6",
+      "rebuilt": "3d5b91b20e93f776e19f77072224a7277a4591dd593d325ea4c889e7ed8c3db6"
+    },
+    "interpretation": "Same weight bytes and identical parsed protobuf; raw protobuf map serialization order and package UUIDs differ. Not a byte-identical whole package."
+  },
+  "packageBytes": 574431459,
+  "provenanceByFunction": {
+    "s128": {
+      "sourcePackage": "/tmp/eg2-owned-20261112/models/s128.mlpackage",
+      "provenance": {
+        "files": {
+          "eg2.py": "773b5fd8a36388fd484d3113ac09d258c6136f1577141a29bc84c028c7bd8410",
+          "parity.py": "05d6e507a3644e7752a8a9799342a6ec08d6d4b6a5b268ea5f2ba4d049f822ff",
+          "fetch_stock.py": "cfb7629e2b6e0f3d847b2accf3b9ff56394d73740c5c31258e67ffca93f7b65b",
+          "source-manifest.json": "1cb8409645fbb2187f61781193a7fd89c53af34b0c2cd9d7d081715b674ce071",
+          "provenance.py": "006b3138302d9458d52104656a275383da68eec8927972d2e820612dda879ba4",
+          "convert.py": "c6a64923e8f856359ca69f76c7a5355c841cb86517d822db59dc28ca988cc072"
+        },
+        "versions": {
+          "torch": "2.7.0",
+          "transformers": "5.19.0",
+          "coremltools": "9.0",
+          "numpy": "2.2.6",
+          "safetensors": "0.8.0",
+          "tokenizers": "0.23.3"
+        },
+        "python": "3.12.9",
+        "fingerprint": "011b9bf29297ac837ed483c9ec03242416ffb77cd30064558d158ab6343adbda"
+      },
+      "precision": {
+        "encoder": "FP16",
+        "finalNormalization": "FP32",
+        "excludedFromFP16": [
+          {
+            "name": "24778",
+            "type": "const"
+          },
+          {
+            "name": "24779",
+            "type": "const"
+          },
+          {
+            "name": "24781",
+            "type": "abs"
+          },
+          {
+            "name": "24783_axes_0",
+            "type": "const"
+          },
+          {
+            "name": "24783",
+            "type": "reduce_max"
+          },
+          {
+            "name": "24784",
+            "type": "maximum"
+          },
+          {
+            "name": "cast_1320_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "cast_1321_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "x",
+            "type": "real_div"
+          },
+          {
+            "name": "24786",
+            "type": "mul"
+          },
+          {
+            "name": "24788_axes_0",
+            "type": "const"
+          },
+          {
+            "name": "24788_keep_dims_0",
+            "type": "const"
+          },
+          {
+            "name": "24788",
+            "type": "reduce_sum"
+          },
+          {
+            "name": "24789",
+            "type": "sqrt"
+          },
+          {
+            "name": "cast_1322_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "cast_1323_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "24790",
+            "type": "real_div"
+          }
+        ]
+      }
+    },
+    "s256": {
+      "sourcePackage": "/tmp/eg2-owned-20261112/models/s256.mlpackage",
+      "provenance": {
+        "files": {
+          "eg2.py": "773b5fd8a36388fd484d3113ac09d258c6136f1577141a29bc84c028c7bd8410",
+          "parity.py": "05d6e507a3644e7752a8a9799342a6ec08d6d4b6a5b268ea5f2ba4d049f822ff",
+          "fetch_stock.py": "cfb7629e2b6e0f3d847b2accf3b9ff56394d73740c5c31258e67ffca93f7b65b",
+          "source-manifest.json": "1cb8409645fbb2187f61781193a7fd89c53af34b0c2cd9d7d081715b674ce071",
+          "provenance.py": "006b3138302d9458d52104656a275383da68eec8927972d2e820612dda879ba4",
+          "convert.py": "c6a64923e8f856359ca69f76c7a5355c841cb86517d822db59dc28ca988cc072"
+        },
+        "versions": {
+          "torch": "2.7.0",
+          "transformers": "5.19.0",
+          "coremltools": "9.0",
+          "numpy": "2.2.6",
+          "safetensors": "0.8.0",
+          "tokenizers": "0.23.3"
+        },
+        "python": "3.12.9",
+        "fingerprint": "011b9bf29297ac837ed483c9ec03242416ffb77cd30064558d158ab6343adbda"
+      },
+      "precision": {
+        "encoder": "FP16",
+        "finalNormalization": "FP32",
+        "excludedFromFP16": [
+          {
+            "name": "24778",
+            "type": "const"
+          },
+          {
+            "name": "24779",
+            "type": "const"
+          },
+          {
+            "name": "24781",
+            "type": "abs"
+          },
+          {
+            "name": "24783_axes_0",
+            "type": "const"
+          },
+          {
+            "name": "24783",
+            "type": "reduce_max"
+          },
+          {
+            "name": "24784",
+            "type": "maximum"
+          },
+          {
+            "name": "cast_1320_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "cast_1321_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "x",
+            "type": "real_div"
+          },
+          {
+            "name": "24786",
+            "type": "mul"
+          },
+          {
+            "name": "24788_axes_0",
+            "type": "const"
+          },
+          {
+            "name": "24788_keep_dims_0",
+            "type": "const"
+          },
+          {
+            "name": "24788",
+            "type": "reduce_sum"
+          },
+          {
+            "name": "24789",
+            "type": "sqrt"
+          },
+          {
+            "name": "cast_1322_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "cast_1323_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "24790",
+            "type": "real_div"
+          }
+        ]
+      }
+    },
+    "s512": {
+      "sourcePackage": "/tmp/eg2-owned-20261112/models/s512.mlpackage",
+      "provenance": {
+        "files": {
+          "eg2.py": "773b5fd8a36388fd484d3113ac09d258c6136f1577141a29bc84c028c7bd8410",
+          "parity.py": "05d6e507a3644e7752a8a9799342a6ec08d6d4b6a5b268ea5f2ba4d049f822ff",
+          "fetch_stock.py": "cfb7629e2b6e0f3d847b2accf3b9ff56394d73740c5c31258e67ffca93f7b65b",
+          "source-manifest.json": "1cb8409645fbb2187f61781193a7fd89c53af34b0c2cd9d7d081715b674ce071",
+          "provenance.py": "006b3138302d9458d52104656a275383da68eec8927972d2e820612dda879ba4",
+          "convert.py": "c6a64923e8f856359ca69f76c7a5355c841cb86517d822db59dc28ca988cc072"
+        },
+        "versions": {
+          "torch": "2.7.0",
+          "transformers": "5.19.0",
+          "coremltools": "9.0",
+          "numpy": "2.2.6",
+          "safetensors": "0.8.0",
+          "tokenizers": "0.23.3"
+        },
+        "python": "3.12.9",
+        "fingerprint": "011b9bf29297ac837ed483c9ec03242416ffb77cd30064558d158ab6343adbda"
+      },
+      "precision": {
+        "encoder": "FP16",
+        "finalNormalization": "FP32",
+        "excludedFromFP16": [
+          {
+            "name": "24778",
+            "type": "const"
+          },
+          {
+            "name": "24779",
+            "type": "const"
+          },
+          {
+            "name": "24781",
+            "type": "abs"
+          },
+          {
+            "name": "24783_axes_0",
+            "type": "const"
+          },
+          {
+            "name": "24783",
+            "type": "reduce_max"
+          },
+          {
+            "name": "24784",
+            "type": "maximum"
+          },
+          {
+            "name": "cast_1320_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "cast_1321_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "x",
+            "type": "real_div"
+          },
+          {
+            "name": "24786",
+            "type": "mul"
+          },
+          {
+            "name": "24788_axes_0",
+            "type": "const"
+          },
+          {
+            "name": "24788_keep_dims_0",
+            "type": "const"
+          },
+          {
+            "name": "24788",
+            "type": "reduce_sum"
+          },
+          {
+            "name": "24789",
+            "type": "sqrt"
+          },
+          {
+            "name": "cast_1322_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "cast_1323_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "24790",
+            "type": "real_div"
+          }
+        ]
+      }
+    },
+    "s1024": {
+      "sourcePackage": "/tmp/eg2-owned-20261112/models/s1024.mlpackage",
+      "provenance": {
+        "files": {
+          "eg2.py": "773b5fd8a36388fd484d3113ac09d258c6136f1577141a29bc84c028c7bd8410",
+          "parity.py": "05d6e507a3644e7752a8a9799342a6ec08d6d4b6a5b268ea5f2ba4d049f822ff",
+          "fetch_stock.py": "cfb7629e2b6e0f3d847b2accf3b9ff56394d73740c5c31258e67ffca93f7b65b",
+          "source-manifest.json": "1cb8409645fbb2187f61781193a7fd89c53af34b0c2cd9d7d081715b674ce071",
+          "provenance.py": "006b3138302d9458d52104656a275383da68eec8927972d2e820612dda879ba4",
+          "convert.py": "c6a64923e8f856359ca69f76c7a5355c841cb86517d822db59dc28ca988cc072"
+        },
+        "versions": {
+          "torch": "2.7.0",
+          "transformers": "5.19.0",
+          "coremltools": "9.0",
+          "numpy": "2.2.6",
+          "safetensors": "0.8.0",
+          "tokenizers": "0.23.3"
+        },
+        "python": "3.12.9",
+        "fingerprint": "011b9bf29297ac837ed483c9ec03242416ffb77cd30064558d158ab6343adbda"
+      },
+      "precision": {
+        "encoder": "FP16",
+        "finalNormalization": "FP32",
+        "excludedFromFP16": [
+          {
+            "name": "24778",
+            "type": "const"
+          },
+          {
+            "name": "24779",
+            "type": "const"
+          },
+          {
+            "name": "24781",
+            "type": "abs"
+          },
+          {
+            "name": "24783_axes_0",
+            "type": "const"
+          },
+          {
+            "name": "24783",
+            "type": "reduce_max"
+          },
+          {
+            "name": "24784",
+            "type": "maximum"
+          },
+          {
+            "name": "cast_1320_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "cast_1321_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "x",
+            "type": "real_div"
+          },
+          {
+            "name": "24786",
+            "type": "mul"
+          },
+          {
+            "name": "24788_axes_0",
+            "type": "const"
+          },
+          {
+            "name": "24788_keep_dims_0",
+            "type": "const"
+          },
+          {
+            "name": "24788",
+            "type": "reduce_sum"
+          },
+          {
+            "name": "24789",
+            "type": "sqrt"
+          },
+          {
+            "name": "cast_1322_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "cast_1323_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "24790",
+            "type": "real_div"
+          }
+        ]
+      }
+    },
+    "s2048": {
+      "sourcePackage": "/tmp/eg2-owned-2048-20261116/models/s2048.mlpackage",
+      "provenance": {
+        "files": {
+          "eg2.py": "773b5fd8a36388fd484d3113ac09d258c6136f1577141a29bc84c028c7bd8410",
+          "parity.py": "2c680ea416ddde788df7b68ef08d53a7565264a7224f6b04ba592fdbaa61b27c",
+          "buckets.py": "ff2261663941716c9b6884bb11a9cbaa75d660d6c41061d03c9ce0a0c473656a",
+          "tokens.json": "ff7f41a9586d566abf33f14aa9033f40e6d701698baa1d552b2f12f8f742a13a",
+          "fetch_stock.py": "cfb7629e2b6e0f3d847b2accf3b9ff56394d73740c5c31258e67ffca93f7b65b",
+          "source-manifest.json": "1cb8409645fbb2187f61781193a7fd89c53af34b0c2cd9d7d081715b674ce071",
+          "provenance.py": "ab05275c8da35cd35847e14fac38c31aa3142adb2cfa0f351f3fbbebfd693330",
+          "convert.py": "432a26fb6bea8e7f943a783592c3f6c8bdecf56bce4d78c465d3f203c05ea5ca"
+        },
+        "versions": {
+          "torch": "2.7.0",
+          "transformers": "5.19.0",
+          "coremltools": "9.0",
+          "numpy": "2.2.6",
+          "safetensors": "0.8.0",
+          "tokenizers": "0.23.3"
+        },
+        "python": "3.12.9",
+        "fingerprint": "b2707f2f48091d50d70fb4d52181924aedf0e5ea23521d123914d0775db69e33"
+      },
+      "precision": {
+        "encoder": "FP16",
+        "finalNormalization": "FP32",
+        "excludedFromFP16": [
+          {
+            "name": "24778",
+            "type": "const"
+          },
+          {
+            "name": "24779",
+            "type": "const"
+          },
+          {
+            "name": "24781",
+            "type": "abs"
+          },
+          {
+            "name": "24783_axes_0",
+            "type": "const"
+          },
+          {
+            "name": "24783",
+            "type": "reduce_max"
+          },
+          {
+            "name": "24784",
+            "type": "maximum"
+          },
+          {
+            "name": "cast_1320_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "cast_1321_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "x",
+            "type": "real_div"
+          },
+          {
+            "name": "24786",
+            "type": "mul"
+          },
+          {
+            "name": "24788_axes_0",
+            "type": "const"
+          },
+          {
+            "name": "24788_keep_dims_0",
+            "type": "const"
+          },
+          {
+            "name": "24788",
+            "type": "reduce_sum"
+          },
+          {
+            "name": "24789",
+            "type": "sqrt"
+          },
+          {
+            "name": "cast_1322_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "cast_1323_dtype_0",
+            "type": "const"
+          },
+          {
+            "name": "24790",
+            "type": "real_div"
+          }
+        ]
+      }
+    }
+  }
+}

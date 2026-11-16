@@ -3,6 +3,8 @@ import hashlib
 import json
 from pathlib import Path
 import coremltools as ct
+import argparse
+from buckets import LENGTHS, MAX_LENGTH
 
 
 def sha(p):
@@ -12,14 +14,15 @@ def sha(p):
     return h.hexdigest()
 
 
-initial=Path('models/s128.mlpackage');rebuilt=Path('reproducibility-rebuild/s128.mlpackage')
+p=argparse.ArgumentParser();p.add_argument('--length',type=int,choices=LENGTHS,default=MAX_LENGTH);args=p.parse_args()
+initial=Path(f'models/s{args.length}.mlpackage');rebuilt=Path(f'reproducibility-rebuild/s{args.length}.mlpackage')
 files={}
 for p in initial.rglob('*'):
     if p.is_file():
         relative=p.relative_to(initial);q=rebuilt/relative
         a,b=sha(p),sha(q)
         files[str(relative)]={'initialSHA256':a,'rebuiltSHA256':b,'equal':a==b}
-out={'freshOutputDirectory':str(rebuilt),'files':files,
+out={'length':args.length,'freshOutputDirectory':str(rebuilt),'files':files,
      'weightBlobIdentical':files['Data/com.apple.CoreML/weights/weight.bin']['equal'],
      'modelProtoIdentical':files['Data/com.apple.CoreML/model.mlmodel']['equal'],
      'wholePackageFilesIdentical':all(x['equal'] for x in files.values())}

@@ -1,0 +1,74 @@
+{
+  "encoder": "FP16",
+  "finalNormalization": "FP32",
+  "excludedFromFP16": [
+    {
+      "name": "24778",
+      "type": "const"
+    },
+    {
+      "name": "24779",
+      "type": "const"
+    },
+    {
+      "name": "24781",
+      "type": "abs"
+    },
+    {
+      "name": "24783_axes_0",
+      "type": "const"
+    },
+    {
+      "name": "24783",
+      "type": "reduce_max"
+    },
+    {
+      "name": "24784",
+      "type": "maximum"
+    },
+    {
+      "name": "cast_1320_dtype_0",
+      "type": "const"
+    },
+    {
+      "name": "cast_1321_dtype_0",
+      "type": "const"
+    },
+    {
+      "name": "x",
+      "type": "real_div"
+    },
+    {
+      "name": "24786",
+      "type": "mul"
+    },
+    {
+      "name": "24788_axes_0",
+      "type": "const"
+    },
+    {
+      "name": "24788_keep_dims_0",
+      "type": "const"
+    },
+    {
+      "name": "24788",
+      "type": "reduce_sum"
+    },
+    {
+      "name": "24789",
+      "type": "sqrt"
+    },
+    {
+      "name": "cast_1322_dtype_0",
+      "type": "const"
+    },
+    {
+      "name": "cast_1323_dtype_0",
+      "type": "const"
+    },
+    {
+      "name": "24790",
+      "type": "real_div"
+    }
+  ]
+}
