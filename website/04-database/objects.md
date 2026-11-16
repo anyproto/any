@@ -93,7 +93,7 @@ An illustrative row for a page filed under the wiki collection:
 
 ### Short ids
 
-A request that names an object also takes a short id: 5 to 52 characters of `[a-z2-7]`, read as the part of the id after `bafyrei`, with or without that prefix. The server finds the object in the space's `objects` rows and proceeds with the full id; replies always carry full ids.
+A request that names an object also takes a short id, the head of the id: an optional `bafyrei`, then 5 to 52 of the characters that follow it (`[a-z2-7]`). The server finds the object in the space's `objects` rows and proceeds with the full id; replies always carry full ids.
 
 ```bash
 curl http://127.0.0.1:2046/v1/spaces/$SPACE/objects/${OBJ:7:6}

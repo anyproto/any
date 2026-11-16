@@ -150,8 +150,9 @@ top-level body `objectId`, `?objectId=` on the file list — the value is
 a full id or a short id:
 
 - A full id is 59 characters and is used as is.
-- A short id is 5 to 52 characters of `[a-z2-7]`, read as the part of
-  the id after `bafyrei`. It may keep that prefix: a full id cut short.
+- A short id is the head of the id: an optional `bafyrei`, then 5 to 52
+  of the characters that follow it (`[a-z2-7]`). A value that starts
+  with `bafyrei` is read as carrying the prefix.
 
 Anything else is `400 request.invalid_field`; a serialized nil is
 `400 object.id_required`.

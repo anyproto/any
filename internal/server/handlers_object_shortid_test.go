@@ -113,7 +113,7 @@ func doJSONDeadline(t *testing.T, e http.Handler, method, path, body string) *ht
 }
 
 // shortIdRoute is one object-addressing request, built for a given id.
-// names, when set, checks that the 200 reply is the object's own.
+// names, when set, checks that the 200 reply names the object.
 type shortIdRoute struct {
 	name   string
 	method string
@@ -154,8 +154,7 @@ func TestShortObjectIds(t *testing.T) {
 	bodyWith := func(rest string) func(string) string {
 		return func(id string) string { return `{"objectId":"` + id + `","dataset":"` + dataset + `"` + rest + `}` }
 	}
-	// These routes answer 200 for an id of no object too, so the reply
-	// has to name the object.
+	// A reply that carries the object's id has to carry the full one.
 	echoesId := func(t *testing.T, reply []byte) {
 		var got struct {
 			ObjectId string `json:"objectId"`
@@ -166,10 +165,12 @@ func TestShortObjectIds(t *testing.T) {
 	}
 	hasRecord := func(t *testing.T, reply []byte) {
 		var got struct {
-			Record json.RawMessage `json:"record"`
+			Record struct {
+				Id string `json:"id"`
+			} `json:"record"`
 		}
-		if err := json.Unmarshal(reply, &got); err != nil || len(got.Record) == 0 || string(got.Record) == "null" {
-			t.Errorf("no record in %s", reply)
+		if err := json.Unmarshal(reply, &got); err != nil || got.Record.Id != objectId {
+			t.Errorf("record of %q, want %q (%s)", got.Record.Id, objectId, reply)
 		}
 	}
 	routes := []shortIdRoute{
@@ -304,16 +305,56 @@ func TestShortObjectIds(t *testing.T) {
 			}
 		}
 		cut := objectId[:15]
-		rec := doJSON(t, e, http.MethodPost, base+"/query",
-			`{"objectId":"`+cut+`","dataset":"`+dataset+`","filter":{"id":"n2"}}`)
+		rec := doJSON(t, e, http.MethodPost, base+"/upsert",
+			`{"objectId":"`+cut+`","dataset":"`+dataset+`","records":[{"id":"n3","fields":{"title":"cut"}}]}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("body: %d %s", rec.Code, rec.Body.String())
+		}
+		rec = doJSON(t, e, http.MethodPost, base+"/query",
+			`{"objectId":"`+objectId+`","dataset":"`+dataset+`","filter":{"id":"n3"}}`)
 		var rows api.QueryResponse
 		if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil || len(rows.Records) != 1 {
-			t.Errorf("body: %d %s", rec.Code, rec.Body.String())
+			t.Errorf("body write did not land: %d %s", rec.Code, rec.Body.String())
+		}
+		rec = doRaw(t, e, http.MethodPost, base+"/objects/"+cut+"/files?name=b.txt", "text/plain", []byte("cut"))
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("attach: %d %s", rec.Code, rec.Body.String())
+		}
+		var attached api.FileInfo
+		if err := json.Unmarshal(rec.Body.Bytes(), &attached); err != nil || attached.ObjectId != objectId {
+			t.Fatalf("attached to %q, want %q", attached.ObjectId, objectId)
 		}
 		var list api.FileListResponse
 		decodeGet(t, e, base+"/files?objectId="+cut, &list)
-		if len(list.Files) != 1 {
-			t.Errorf("query string: files = %+v, want one", list.Files)
+		found := false
+		for _, f := range list.Files {
+			found = found || f.FileId == attached.FileId
+		}
+		if !found {
+			t.Errorf("query string: %s not in %+v", attached.FileId, list.Files)
+		}
+		// The prefix on an unset id is still an unset id.
+		rec = doJSON(t, e, http.MethodGet, base+"/objects/"+objectIdPrefix+"undefined", "")
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("prefixed nil: %d %s", rec.Code, rec.Body.String())
+		}
+		assertErrorCode(t, rec, "object.id_required")
+	})
+
+	t.Run("query/subscribe refuses before the stream", func(t *testing.T) {
+		for id, want := range map[string]struct {
+			status int
+			code   string
+		}{
+			"abcd":   {http.StatusBadRequest, "request.invalid_field"},
+			"zzzzzz": {http.StatusNotFound, "object.not_found"},
+		} {
+			rec := doJSONDeadline(t, e, http.MethodPost, base+"/query/subscribe",
+				`{"objectId":"`+id+`","dataset":"`+dataset+`"}`)
+			if rec.Code != want.status {
+				t.Errorf("%s: %d %s", id, rec.Code, rec.Body.String())
+			}
+			assertErrorCode(t, rec, want.code)
 		}
 	})
 

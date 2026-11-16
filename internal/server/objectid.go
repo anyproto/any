@@ -38,16 +38,16 @@ func resolveObjectId(c echo.Context, sp space.Space, id string) (fullId string, 
 	if len(id) == objectIdLen {
 		return id, nil, false
 	}
-	// First: "undefined" has the shape of a short id.
-	if isSerializedNil(id) {
-		return "", serializedNilIdError(c, "objectId", id), true
-	}
 	// A full id cut short keeps the prefix.
 	shortId := strings.TrimPrefix(id, objectIdPrefix)
+	// Before the shape check: "undefined" has the shape of a short id.
+	if isSerializedNil(shortId) {
+		return "", serializedNilIdError(c, "objectId", id), true
+	}
 	if !isShortId(shortId) {
 		return "", writeError(c, http.StatusBadRequest, "request.invalid_field",
-			fmt.Sprintf("objectId must be a full object id (%d characters) or a short id: %d to %d characters of [a-z2-7], the part of the id after %q, with or without that prefix",
-				objectIdLen, shortIdMinLen, shortIdMaxLen, objectIdPrefix),
+			fmt.Sprintf("objectId must be a full object id (%d characters) or a short id, the head of the id: an optional %q, then %d to %d of the characters that follow it ([a-z2-7])",
+				objectIdLen, objectIdPrefix, shortIdMinLen, shortIdMaxLen),
 			map[string]any{"field": "objectId", "got": id}), true
 	}
 	matches, err := shortIdMatches(c.Request().Context(), sp, shortId)
