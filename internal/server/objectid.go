@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -31,38 +32,59 @@ var shortIdMinLen = 5
 
 var objectIdPath = []string{"id"}
 
+// objectIdError is a refusal of the object id a request names. It
+// carries the reply objectIdRefused writes.
+type objectIdError struct {
+	status  int
+	code    string
+	message string
+	details map[string]any
+}
+
+func (e *objectIdError) Error() string { return e.message }
+
 // resolveObjectId returns the full id of the object a request names; a
-// short id is looked up in the space's objects rows. Call it before any
-// check that compares the id. On done the reply is written: return errResp.
-func resolveObjectId(c echo.Context, sp space.Space, id string) (fullId string, errResp error, done bool) {
+// short id is looked up in the space's objects rows. A refusal is an
+// *objectIdError. Call it before any check that compares the id.
+func resolveObjectId(ctx context.Context, sp space.Space, id string) (string, error) {
 	if len(id) == objectIdLen {
-		return id, nil, false
+		return id, nil
 	}
 	// A full id cut short keeps the prefix.
 	shortId := strings.TrimPrefix(id, objectIdPrefix)
 	// Before the shape check: "undefined" has the shape of a short id.
 	if isSerializedNil(shortId) {
-		return "", serializedNilIdError(c, "objectId", id), true
+		return "", &objectIdError{http.StatusBadRequest, "object.id_required",
+			serializedNilIdMessage("objectId", id), map[string]any{"field": "objectId", "got": id}}
 	}
 	if !isShortId(shortId) {
-		return "", writeError(c, http.StatusBadRequest, "request.invalid_field",
+		return "", &objectIdError{http.StatusBadRequest, "request.invalid_field",
 			fmt.Sprintf("objectId must be a full object id (%d characters) or a short id, the head of the id: an optional %q, then %d to %d of the characters that follow it ([a-z2-7])",
 				objectIdLen, objectIdPrefix, shortIdMinLen, shortIdMaxLen),
-			map[string]any{"field": "objectId", "got": id}), true
+			map[string]any{"field": "objectId", "got": id}}
 	}
-	matches, err := shortIdMatches(c.Request().Context(), sp, shortId)
+	matches, err := shortIdMatches(ctx, sp, shortId)
 	if err != nil {
-		return "", sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": id}), true
+		return "", err
 	}
 	switch len(matches) {
 	case 0:
-		return "", writeError(c, http.StatusNotFound, "object.not_found",
+		return "", &objectIdError{http.StatusNotFound, "object.not_found",
 			"no object in this space has this short id (unknown or deleted)",
-			map[string]any{"spaceId": sp.Id(), "objectId": id}), true
+			map[string]any{"spaceId": sp.Id(), "objectId": id}}
 	case 1:
-		return matches[0].Id, nil, false
+		return matches[0].Id, nil
 	}
-	return "", ambiguousIdError(c, id, matches), true
+	return "", ambiguousIdError(id, matches)
+}
+
+// objectIdRefused writes the reply for an error of resolveObjectId.
+func objectIdRefused(c echo.Context, sp space.Space, id string, err error) error {
+	var refusal *objectIdError
+	if errors.As(err, &refusal) {
+		return writeError(c, refusal.status, refusal.code, refusal.message, refusal.details)
+	}
+	return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": id})
 }
 
 // shortIdMatches lists the objects whose id carries the short id, at
@@ -110,15 +132,15 @@ func isShortId(id string) bool {
 	return true
 }
 
-// ambiguousIdError answers a short id that matches several objects.
+// ambiguousIdError refuses a short id that matches several objects.
 // matches holds one more than the cap when more exist.
-func ambiguousIdError(c echo.Context, shortId string, matches []api.ObjectCandidate) error {
+func ambiguousIdError(shortId string, matches []api.ObjectCandidate) *objectIdError {
 	count := strconv.Itoa(len(matches))
 	if len(matches) > shortIdCandidatesMax {
 		matches = matches[:shortIdCandidatesMax]
 		count = "more than " + strconv.Itoa(shortIdCandidatesMax)
 	}
-	return writeError(c, http.StatusConflict, api.ErrObjectAmbiguousId,
+	return &objectIdError{http.StatusConflict, api.ErrObjectAmbiguousId,
 		fmt.Sprintf("short id %q matches %s objects in this space; retry with a longer unambiguous id", shortId, count),
-		map[string]any{"shortId": shortId, "candidates": matches})
+		map[string]any{"shortId": shortId, "candidates": matches}}
 }

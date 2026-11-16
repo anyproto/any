@@ -645,9 +645,9 @@ func (d *deps) spaceUpsert(c echo.Context) error {
 	if len(req.Records) == 0 {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "records required", nil)
 	}
-	objectId, errResp, done := resolveObjectId(c, sp, req.ObjectId)
-	if done {
-		return errResp
+	objectId, err := resolveObjectId(c.Request().Context(), sp, req.ObjectId)
+	if err != nil {
+		return objectIdRefused(c, sp, req.ObjectId, err)
 	}
 
 	batch := space.UpsertBatch{

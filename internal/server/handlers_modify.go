@@ -44,9 +44,11 @@ func (d *deps) spaceModify(c echo.Context) error {
 	if err != nil {
 		return writeError(c, http.StatusBadRequest, "request.schema", err.Error(), nil)
 	}
-	if batch.ObjectId, errResp, done = resolveObjectId(c, sp, batch.ObjectId); done {
-		return errResp
+	fullId, err := resolveObjectId(c.Request().Context(), sp, batch.ObjectId)
+	if err != nil {
+		return objectIdRefused(c, sp, batch.ObjectId, err)
 	}
+	batch.ObjectId = fullId
 
 	res, err := sp.Modify(c.Request().Context(), batch)
 	if err != nil {
@@ -89,9 +91,9 @@ func (d *deps) spaceDeleteRecords(c echo.Context) error {
 	if len(req.RecordIds) == 0 {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "recordIds required", nil)
 	}
-	objectId, errResp, done := resolveObjectId(c, sp, req.ObjectId)
-	if done {
-		return errResp
+	objectId, err := resolveObjectId(c.Request().Context(), sp, req.ObjectId)
+	if err != nil {
+		return objectIdRefused(c, sp, req.ObjectId, err)
 	}
 
 	res, err := sp.Delete(c.Request().Context(), space.DeleteBatch{

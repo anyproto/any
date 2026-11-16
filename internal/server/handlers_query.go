@@ -276,9 +276,11 @@ func buildPerObjectQuery(c echo.Context, sp space.Space, vet perObjectVet) (perO
 		return none, errResp, true
 	}
 	// Before the vet: it compares the id.
-	if objectId, errResp, done = resolveObjectId(c, sp, objectId); done {
-		return none, errResp, true
+	fullId, err := resolveObjectId(c.Request().Context(), sp, objectId)
+	if err != nil {
+		return none, objectIdRefused(c, sp, objectId, err), true
 	}
+	objectId = fullId
 	var strip []string
 	if vet != nil {
 		var errResp error

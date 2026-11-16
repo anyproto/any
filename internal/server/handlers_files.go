@@ -110,9 +110,11 @@ func (d *deps) fileList(c echo.Context) error {
 	}
 	objectId := c.QueryParam("objectId")
 	if objectId != "" {
-		if objectId, errResp, done = resolveObjectId(c, sp, objectId); done {
-			return errResp
+		fullId, err := resolveObjectId(c.Request().Context(), sp, objectId)
+		if err != nil {
+			return objectIdRefused(c, sp, objectId, err)
 		}
+		objectId = fullId
 	}
 	infos, err := sp.Files().List(c.Request().Context(), space.FileListOpts{
 		ObjectId: objectId,

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -35,6 +36,29 @@ func TestIsShortId(t *testing.T) {
 	}
 }
 
+// An id is classified before any store read: no space is needed to
+// pass a full id through or to refuse a malformed one.
+func TestResolveObjectId_NoLookup(t *testing.T) {
+	full := objectIdPrefix + strings.Repeat("a", shortIdMaxLen)
+	if got, err := resolveObjectId(context.Background(), nil, full); err != nil || got != full {
+		t.Errorf("full id: %q, %v", got, err)
+	}
+	for id, code := range map[string]string{
+		"abcd":             "request.invalid_field",
+		"ab-xqd":           "request.invalid_field",
+		"bafyreiabcd":      "request.invalid_field",
+		full + "a":         "request.invalid_field",
+		"undefined":        "object.id_required",
+		"bafyreiundefined": "object.id_required",
+	} {
+		_, err := resolveObjectId(context.Background(), nil, id)
+		var refusal *objectIdError
+		if !errors.As(err, &refusal) || refusal.code != code || refusal.status != http.StatusBadRequest {
+			t.Errorf("%q: %v, want 400 %s", id, err, code)
+		}
+	}
+}
+
 // An ambiguous short id lists at most shortIdCandidatesMax matches.
 func TestAmbiguousIdError_Cap(t *testing.T) {
 	matches := make([]api.ObjectCandidate, 0, shortIdCandidatesMax+1)
@@ -45,7 +69,7 @@ func TestAmbiguousIdError_Cap(t *testing.T) {
 	}
 	rec := httptest.NewRecorder()
 	c := echo.New().NewContext(httptest.NewRequest(http.MethodGet, "/", nil), rec)
-	if err := ambiguousIdError(c, "ab3xqd", matches); err != nil {
+	if err := objectIdRefused(c, nil, "ab3xqd", ambiguousIdError("ab3xqd", matches)); err != nil {
 		t.Fatal(err)
 	}
 	env := decodeAmbiguous(t, rec)

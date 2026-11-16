@@ -112,9 +112,11 @@ func buildPerObjectAgg(c echo.Context, sp space.Space) (space.Agg, bool, string,
 	if done {
 		return nil, false, "", "", errResp, true
 	}
-	if objectId, errResp, done = resolveObjectId(c, sp, objectId); done {
-		return nil, false, "", "", errResp, true
+	fullId, err := resolveObjectId(c.Request().Context(), sp, objectId)
+	if err != nil {
+		return nil, false, "", "", objectIdRefused(c, sp, objectId, err), true
 	}
+	objectId = fullId
 	agg, explain := applyAggParams(root, sp.Aggregate(objectId, dataset, pipeline))
 	return agg, explain, objectId, dataset, nil, false
 }
