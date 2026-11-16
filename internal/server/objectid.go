@@ -31,10 +31,10 @@ var shortIdMinLen = 5
 
 var objectIdPath = []string{"id"}
 
-// resolveObjectId returns the full id of the object a request names: a
-// full id as is, a short id looked up in the space's objects rows. Call
-// it before any check that compares the id.
-func resolveObjectId(c echo.Context, sp space.Space, id string) (string, error, bool) {
+// resolveObjectId returns the full id of the object a request names; a
+// short id is looked up in the space's objects rows. Call it before any
+// check that compares the id. On done the reply is written: return errResp.
+func resolveObjectId(c echo.Context, sp space.Space, id string) (fullId string, errResp error, done bool) {
 	if len(id) == objectIdLen {
 		return id, nil, false
 	}
