@@ -93,7 +93,7 @@ func startPackageDownload(pkg *coreMLPackage, modelsDir string, after *modelDown
 			}
 			// The .part and .lock stay out of the package directory,
 			// under the name the process row carries.
-			name := pkg.name + "." + path.Base(f.path)
+			name := pkg.id() + "." + path.Base(f.path)
 			d := startModelDownloadAt(name, pkg.url+"/"+f.path, dest, filepath.Join(modelsDir, name), f.sha256, client, onProcess)
 			select {
 			case <-d.finished:

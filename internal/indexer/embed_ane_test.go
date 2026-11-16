@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -424,9 +425,6 @@ func TestNeuralEngine_ReleaseTimer(t *testing.T) {
 	})
 	n.start()
 	loadFor(n, 200)
-	if _, ok := n.embed(tokensOf(200)); !ok {
-		t.Fatal("256 not loaded")
-	}
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		if _, _, closed, _ := f.snapshot(); len(closed) > 0 {
@@ -444,21 +442,79 @@ func TestNeuralEngine_ReleaseTimer(t *testing.T) {
 		t.Fatal("the smallest function was released")
 	}
 
-	// Shutdown with a function waiting for its release: closed once, by
-	// the shutdown, and the timer does nothing afterwards.
+	// Shutdown with a function waiting for its release, far enough off
+	// that only the shutdown can close it: the timer is stopped and a
+	// late tick does nothing.
+	n.mu.Lock()
+	n.idle = time.Hour
+	n.mu.Unlock()
 	loadFor(n, 200)
 	n.close()
-	_, _, closedAtShutdown, _ := f.snapshot()
-	time.Sleep(4 * n.idle)
-	if _, _, closed, _ := f.snapshot(); !reflect.DeepEqual(closed, closedAtShutdown) {
-		t.Fatalf("closed %v after shutdown, was %v at shutdown", closed, closedAtShutdown)
+	n.mu.Lock()
+	armed := n.release.Stop()
+	n.mu.Unlock()
+	if armed {
+		t.Fatal("shutdown left the release timer armed")
 	}
-	seen := map[int]int{}
-	for _, l := range closedAtShutdown {
-		seen[l]++
+	n.releaseTick()
+	_, _, closed, _ := f.snapshot()
+	if !reflect.DeepEqual(closed, []int{256, 128, 256}) && !reflect.DeepEqual(closed, []int{256, 256, 128}) {
+		t.Fatalf("closed %v, want 256 by the timer, then 128 and 256 by the shutdown", closed)
 	}
-	if seen[128] != 1 || seen[256] != 2 {
-		t.Fatalf("closes per function %v, want 128 once and 256 twice (idle, shutdown)", seen)
+}
+
+// A failure count belongs to the loaded instance: a function released
+// and loaded again starts from zero.
+func TestNeuralEngine_FailureCountEndsWithInstance(t *testing.T) {
+	f := &fakeANE{}
+	n, clock := newTestANE(t, f)
+	n.start()
+	loadFor(n, 200)
+	f.failOn(256, errors.New("predict failed"))
+	for range aneMaxFailures - 1 {
+		n.embed(tokensOf(200))
+	}
+	f.failOn(256, nil)
+	clock.add(aneIdleRelease + time.Second)
+	n.releaseTick()
+	loadFor(n, 200)
+	f.failOn(256, errors.New("once more"))
+	n.embed(tokensOf(200))
+	f.failOn(256, nil)
+	if _, ok := n.embed(tokensOf(200)); !ok {
+		t.Fatal("a fresh instance was retired on failures counted before it loaded")
+	}
+}
+
+// With every function refused there is nothing left to try.
+func TestNeuralEngine_OffWhenNoFunctionLeft(t *testing.T) {
+	refused := errors.New("planned on the cpu")
+	f := &fakeANE{loadErr: map[int]error{128: refused, 256: refused, 512: refused}}
+	var mu sync.Mutex
+	var lines []string
+	n := newNeuralEngine(f, []int{128, 256, 512}, 4, func(format string, args ...any) {
+		mu.Lock()
+		defer mu.Unlock()
+		lines = append(lines, fmt.Sprintf(format, args...))
+	})
+	t.Cleanup(func() {
+		n.close()
+		n.loads.Wait()
+	})
+	n.start()
+	for _, tokens := range []int{10, 200, 400} {
+		loadFor(n, tokens)
+	}
+	n.mu.Lock()
+	off := n.off
+	n.mu.Unlock()
+	if !off {
+		t.Fatal("still on with every function refused")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if last := lines[len(lines)-1]; !strings.HasPrefix(last, aneOffStatus) {
+		t.Fatalf("last line %q, want the off status the server reads", last)
 	}
 }
 
@@ -615,8 +671,14 @@ func TestCoreMLBackend_PrepareWaitsForFiles(t *testing.T) {
 	models := t.TempDir()
 	dir := pkg.dir(models)
 	b := newCoreMLBackend(pkg, dir, 4, t.Logf)
-	if want := filepath.Join(models, "m.mlmodelc"); b.compiled != want {
+	if want := filepath.Join(models, pkg.id()+".mlmodelc"); b.compiled != want {
 		t.Fatalf("compiled model at %s, want %s", b.compiled, want)
+	}
+	// Another pin is another directory, with a compiled model of its own.
+	repinned := *pkg
+	repinned.files = []coreMLFile{{"Manifest.json", "00"}, {"Data/weights/weight.bin", ""}}
+	if repinned.dir(models) == dir {
+		t.Fatal("a changed checksum kept the package directory")
 	}
 	if err := b.prepare(); !errors.Is(err, errANENotReady) {
 		t.Fatalf("prepare with no package = %v, want errANENotReady", err)

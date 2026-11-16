@@ -867,10 +867,11 @@ custom llama.cpp build to use them.
 
 On an Apple Silicon Mac the embedder child runs EmbeddingGemma 2 on the
 Neural Engine through Core ML, next to llama.cpp. The model's Core ML
-package holds one function per fixed length: 128, 256, 512 and 1,024
-tokens. A text runs on the smallest loaded function that holds it.
-llama.cpp tokenizes for both runtimes and embeds every other text: one
-longer than 1,024 tokens, and one that no loaded function holds.
+package holds one function per fixed length: 128, 256, 512, 1,024 and
+2,048 tokens. A text runs on the smallest loaded function that holds
+it. llama.cpp tokenizes for both runtimes and embeds every other text:
+one that no loaded function holds, and one longer than 2,048 tokens,
+which only a larger `index.local.contextSize` lets through.
 
 Both runtimes write one index. A function returns the model's own unit
 vector (cosine 0.9999 to the full-precision weights), and the projection
@@ -900,8 +901,9 @@ into `<name>.mlmodelc` beside it. Until the package is complete
 llama.cpp embeds everything, and the child looks for it again when a
 text arrives, at most every 30 s.
 
-**Function lifetime.** The smallest function loads first, as soon as
-the package is ready, and stays for queries. Any other loads in the
+**Function lifetime.** The smallest function loads first and stays for
+queries: when the child starts if the package is ready, else with the
+first text after it is. Any other loads in the
 background on the first text that needs it, and a timer releases it one
 minute after its last use; idle retirement of the child releases all of
 them. The first load of a function specializes it for the Neural Engine
@@ -911,7 +913,9 @@ loads, a larger loaded one serves its texts, else llama.cpp.
 **Placement.** A machine that lists no Neural Engine never loads the
 package. Before a function loads, the child reads Core ML's compute plan
 for it and refuses a function whose convolution, matmul, linear or
-softmax operations are planned on the CPU.
+softmax operations are planned on the CPU. The package's directory is
+named after its pinned checksums, so another pin is another directory
+with a compiled model of its own.
 
 **Failure.** A prediction that fails, or returns a vector that is not
 unit length, leaves that text to llama.cpp. Three in a row on one
@@ -1343,8 +1347,9 @@ run).
   chunk target keeps prose inside it; a chunk of dense CJK or code can
   exceed the clamp and embed head-only — FTS covers its full text.
 - **Loaded Neural Engine functions are not capped.** A bulk index of
-  mixed lengths uses every function inside each minute, so all four stay
-  loaded next to llama.cpp: about 1.4 GB of wired memory on top of it.
+  mixed lengths uses every function inside each minute, so all five stay
+  loaded next to llama.cpp: about 2.0 GB of wired memory on top of it,
+  1.4 GB when no text passes 1,024 tokens.
 - **`require` / `exclude` bind the hit, i.e. the chunk**: a term that
   appears only in another chunk of the same record does not satisfy a
   `require` for this one, and a passage is always a chunk that satisfied

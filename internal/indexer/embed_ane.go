@@ -39,9 +39,11 @@ const (
 	// another process removes it as abandoned.
 	aneStageMaxAge = time.Hour
 	// aneLogPrefix marks the child's stderr lines about this path. The
-	// server logs them at info level and takes the first one as the
-	// sign that Core ML is in use (embed_worker.go).
+	// server logs them at info level and reads from them whether Core
+	// ML is in use in the child: any line says it is, one that starts
+	// with aneOffStatus that it no longer is (embed_worker.go).
 	aneLogPrefix = "neural engine: "
+	aneOffStatus = "off, "
 )
 
 // errANENotReady is a package that is not on disk yet: a wait, not a
@@ -166,6 +168,7 @@ func (n *neuralEngine) embed(tokens []int32) (vec []float32, ok bool) {
 			delete(n.fns, use)
 			n.failed[use] = true
 			n.logf("s%d not used any more: %d failures in a row", use, aneMaxFailures)
+			n.offIfUselessLocked()
 		}
 		return nil, false
 	}
@@ -253,11 +256,13 @@ func (n *neuralEngine) loader() {
 		case err != nil:
 			n.failed[length] = true
 			n.logf("s%d not used: %v", length, err)
+			n.offIfUselessLocked()
 		case n.off || n.fns[length] != nil:
 			fn.close()
 		default:
 			n.fns[length] = fn
 			n.used[length] = n.now()
+			delete(n.failures, length) // counted on an earlier instance
 			n.logf("s%d ready (%s)", length, info)
 			n.armReleaseLocked()
 		}
@@ -302,9 +307,20 @@ func (n *neuralEngine) releaseTick() {
 		}
 		fn.close()
 		delete(n.fns, l)
+		delete(n.failures, l)
 		n.logf("s%d released after %s unused", l, n.idle)
 	}
 	n.armReleaseLocked()
+}
+
+// offIfUselessLocked turns the path off once every function has failed.
+func (n *neuralEngine) offIfUselessLocked() {
+	for _, l := range n.lengths {
+		if !n.failed[l] {
+			return
+		}
+	}
+	n.turnOffLocked("no function can be used")
 }
 
 func (n *neuralEngine) turnOffLocked(reason string) {
@@ -321,7 +337,7 @@ func (n *neuralEngine) turnOffLocked(reason string) {
 		delete(n.fns, l)
 	}
 	if reason != "" {
-		n.logf("off, llama.cpp embeds everything: %s", reason)
+		n.logf(aneOffStatus+"llama.cpp embeds everything: %s", reason)
 	}
 }
 
@@ -337,7 +353,7 @@ func (n *neuralEngine) close() {
 // "s<length>" per fixed token length, each taking token ids and
 // returning the model's unit vector.
 type coreMLPackage struct {
-	name    string // package directory in the models dir, less ".mlpackage"
+	name    string // what its files on disk are named after
 	url     string // directory the files download from; "" = no source
 	files   []coreMLFile
 	lengths []int // ascending
@@ -348,8 +364,19 @@ type coreMLFile struct {
 	sha256 string // "" = not checked
 }
 
+// id names the package on disk: its name and a digest of the pinned
+// files. A changed pin is then another directory with a compiled model
+// of its own.
+func (p *coreMLPackage) id() string {
+	h := sha256.New()
+	for _, f := range p.files {
+		_, _ = io.WriteString(h, f.path+"\x00"+f.sha256+"\x00")
+	}
+	return p.name + "-" + hex.EncodeToString(h.Sum(nil))[:8]
+}
+
 func (p *coreMLPackage) dir(modelsDir string) string {
-	return filepath.Join(modelsDir, p.name+".mlpackage")
+	return filepath.Join(modelsDir, p.id()+".mlpackage")
 }
 
 // complete reports whether every file of the package is in dir.
@@ -419,10 +446,10 @@ func (b *coreMLBackend) prepare() error {
 	if !ok {
 		return errors.New("this machine has no neural engine")
 	}
+	removeStaleStages(b.compiled)
 	if _, err := os.Stat(b.compiled); err == nil {
 		return nil
 	}
-	removeStaleStages(b.compiled)
 	// The compiled model outlives this process, so it is built from the
 	// pinned bytes only. A package still being copied in fails here.
 	if err := b.pkg.verify(b.dir); err != nil {

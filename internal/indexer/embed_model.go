@@ -63,13 +63,14 @@ var localModels = []localModel{
 		docPrefix:   "title: " + titlePlaceholder + " | text: ",
 		project:     decodeFloat32s(eg2HeadRaw),
 		coreml: &coreMLPackage{
-			name: "embeddinggemma-2-e3ddcdd7",
+			name: "embeddinggemma-2",
+			url:  "https://huggingface.co/anylab/embeddinggemma-2-coreml/resolve/c27f9012633055fea5bb47fe782ab7d548d77909/EmbeddingGemma2Owned.mlpackage",
 			files: []coreMLFile{
-				{"Manifest.json", "44b94c7cccfe6c93fc227444ca3a0c6f1841c175724c14b2a112f6d415bcb928"},
-				{"Data/com.apple.CoreML/model.mlmodel", "8763b7383a097ac3f8c8115eaff8974f932ee7f0ef909710ddcb84e07d166d88"},
-				{"Data/com.apple.CoreML/weights/weight.bin", "e3ddcdd72119e5a6ea1646a5fff1653dadcf29cfb0ad64be6bc909e258097ec0"},
+				{"Manifest.json", "8f494dc20af594dd81ca1082c50d0db80eae392a84621955de1d1c5c0e99aed2"},
+				{"Data/com.apple.CoreML/model.mlmodel", "715c377bda514242cabc6497843ca831d1eec1d84b5e48c6f93a13663e6ce104"},
+				{"Data/com.apple.CoreML/weights/weight.bin", "86bf461bce224075ea9ff6fc6a2c2abe50cd701eee58f1d3f5d8e6988d234657"},
 			},
-			lengths: []int{128, 256, 512, 1024},
+			lengths: []int{128, 256, 512, 1024, 2048},
 		},
 	},
 }

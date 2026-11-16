@@ -25,6 +25,10 @@ import (
 	"github.com/anyproto/any/internal/config"
 )
 
+// No test reaches for the real package: the host is no Mac unless a test
+// says so.
+func init() { aneHost = func() bool { return false } }
+
 func stubANEHost(t *testing.T, capable bool) {
 	t.Helper()
 	prev := aneHost
@@ -251,7 +255,7 @@ func TestPackageDownload(t *testing.T) {
 	for _, u := range frames.all() {
 		names[u.Name] = true
 	}
-	if !names["model-1.weight.bin"] || !names["model-1.model.mlmodel"] || len(names) != 2 {
+	if !names[pkg.id()+".weight.bin"] || !names[pkg.id()+".model.mlmodel"] || len(names) != 2 {
 		t.Fatalf("process rows %v, want one per fetched file", names)
 	}
 	for name := range names {
@@ -420,10 +424,17 @@ func TestEmbedderCmdArgs_CoreML(t *testing.T) {
 	}
 }
 
-// A child that never touched Core ML dies of something else: the Neural
-// Engine path stays and the GPU is demoted, as without a package.
-func TestWorkerEmbedder_CrashBeforeCoreMLKeepsNeuralEngine(t *testing.T) {
-	h := &helperSpawner{modes: []string{"crash", "ok"}}
+// A child that never touched Core ML, or whose Core ML gave up, dies of
+// something else: the Neural Engine path stays and the GPU is demoted,
+// as without a package.
+func TestWorkerEmbedder_CrashWithoutCoreMLKeepsNeuralEngine(t *testing.T) {
+	for _, env := range [][]string{nil, {"ANY_EMBED_WORKER_ANE=off"}} {
+		crashWithoutCoreML(t, env)
+	}
+}
+
+func crashWithoutCoreML(t *testing.T, env []string) {
+	h := &helperSpawner{modes: []string{"crash", "ok"}, env: env}
 	w := newTestWorker(t, h, -1)
 	w.mu.Lock()
 	w.spec.coremlDir = "/models/eg2.mlpackage"
@@ -507,4 +518,70 @@ func TestLocal_EmbedANEFinishesVector(t *testing.T) {
 	if _, ok := (&Local{}).embedANE([]llama.Token{2, 7, 1}); ok {
 		t.Fatal("served with no neural engine")
 	}
+}
+
+// The pinned package: an immutable source, a checksum per file, lengths
+// the embedder's own truncation never exceeds.
+func TestEmbeddingGemma2Package(t *testing.T) {
+	eg2, err := lookupLocalModel(config.LocalModelEmbeddingGemma2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg := eg2.coreml
+	if pkg == nil {
+		t.Fatal("EmbeddingGemma 2 has no Core ML package")
+	}
+	if !regexp.MustCompile(`^https://huggingface\.co/[^/]+/[^/]+/resolve/[0-9a-f]{40}/[^/]+\.mlpackage$`).MatchString(pkg.url) {
+		t.Errorf("source %q is not pinned to a revision", pkg.url)
+	}
+	if len(pkg.files) != 3 {
+		t.Fatalf("%d files, want the manifest, the model and the weights", len(pkg.files))
+	}
+	for _, f := range pkg.files {
+		if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(f.sha256) {
+			t.Errorf("%s has no sha256", f.path)
+		}
+	}
+	if !sort.IntsAreSorted(pkg.lengths) || len(pkg.lengths) == 0 {
+		t.Fatalf("lengths %v are not ascending", pkg.lengths)
+	}
+	if longest := pkg.lengths[len(pkg.lengths)-1]; longest != localDefaultCtx {
+		t.Errorf("longest function holds %d tokens, the default context %d", longest, localDefaultCtx)
+	}
+	if got, want := filepath.Base(pkg.dir("models")), "embeddinggemma-2-858f354d.mlpackage"; got != want {
+		t.Errorf("package directory %s, want %s: a changed pin needs this test changed with it", got, want)
+	}
+}
+
+// TestEmbeddingGemma2Package_Download fetches the pinned package from its
+// source. ANY_TEST_COREML_DOWNLOAD names an empty directory to fetch it
+// into (about 575 MB).
+func TestEmbeddingGemma2Package_Download(t *testing.T) {
+	models := os.Getenv("ANY_TEST_COREML_DOWNLOAD")
+	if models == "" {
+		t.Skip("set ANY_TEST_COREML_DOWNLOAD to a directory to download the package into")
+	}
+	eg2, err := lookupLocalModel(config.LocalModelEmbeddingGemma2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg := eg2.coreml
+	var frames frameLog
+	start := time.Now()
+	p := startPackageDownload(pkg, models, nil, nil, frames.report)
+	select {
+	case <-p.done:
+	case <-time.After(30 * time.Minute):
+		p.Close()
+		t.Fatal("the package did not arrive in 30 minutes")
+	}
+	p.Close()
+	dir := pkg.dir(models)
+	if !pkg.complete(dir) {
+		t.Fatalf("package incomplete; last frame %+v", frames.last())
+	}
+	if err := pkg.verify(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("downloaded and verified in %s at %s", time.Since(start).Round(time.Second), dir)
 }

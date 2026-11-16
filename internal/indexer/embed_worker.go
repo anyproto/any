@@ -800,8 +800,8 @@ type embedChild struct {
 	errDone chan struct{}
 	spec    localSpec // what it was spawned with; a drifted spec retires it
 	dim     int
-	// coreml: the child reported on its Neural Engine path, so Core ML
-	// is in use in it.
+	// coreml: by the child's last report on its Neural Engine path,
+	// Core ML is in use in it.
 	coreml atomic.Bool
 }
 
@@ -840,7 +840,7 @@ func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 			}
 			c.stderr.add(line)
 			if status, ok := strings.CutPrefix(line, aneLogPrefix); ok {
-				c.coreml.Store(true)
+				c.coreml.Store(!strings.HasPrefix(status, aneOffStatus))
 				lg.Info("local embedder neural engine", zap.String("status", status))
 			} else {
 				lg.Debug("embedder child", zap.String("stderr", line))

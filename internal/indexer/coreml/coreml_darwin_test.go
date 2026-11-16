@@ -27,7 +27,7 @@ func testLengths(t *testing.T) []int {
 	t.Helper()
 	spec := os.Getenv("ANY_TEST_COREML_LENGTHS")
 	if spec == "" {
-		spec = "128,256,512,1024"
+		spec = "128,256,512,1024,2048"
 	}
 	var out []int
 	for _, s := range strings.Split(spec, ",") {
@@ -62,7 +62,7 @@ func vectorNorm(v []float32) float64 {
 // TestPackage runs a real model package on this Mac.
 // ANY_TEST_COREML_PACKAGE is the .mlpackage; the compiled model is kept
 // next to it. ANY_TEST_COREML_LENGTHS lists the function lengths
-// (default 128,256,512,1024). ANY_TEST_COREML_REFERENCE, when set, is a
+// (default 128,256,512,1024,2048). ANY_TEST_COREML_REFERENCE, when set, is a
 // JSON list of {case, tokens, length, vector} rows the functions must
 // reproduce.
 func TestPackage(t *testing.T) {
@@ -90,9 +90,16 @@ func TestPackage(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := os.Rename(tmp, compiled); err != nil {
-			// Core ML's temporary directory can sit on another volume.
-			if err := os.CopyFS(compiled, os.DirFS(tmp)); err != nil {
+			// Core ML's temporary directory can sit on another volume:
+			// copy beside the destination, then move into place whole.
+			stage := compiled + ".copying"
+			_ = os.RemoveAll(stage)
+			if err := os.CopyFS(stage, os.DirFS(tmp)); err != nil {
+				_ = os.RemoveAll(stage)
 				t.Fatalf("copy the compiled model from %s: %v", tmp, err)
+			}
+			if err := os.Rename(stage, compiled); err != nil {
+				t.Fatal(err)
 			}
 			_ = os.RemoveAll(tmp)
 		}

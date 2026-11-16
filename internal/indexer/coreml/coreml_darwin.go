@@ -3,8 +3,10 @@
 package coreml
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -118,7 +120,7 @@ func loadRuntime() error {
 		{&clsMutableDictionary, "NSMutableDictionary", []string{"dictionary"}, []string{"setObject:forKey:", "objectForKey:"}},
 		{&clsMutableArray, "NSMutableArray", []string{"array"}, []string{"addObject:", "count", "objectAtIndex:", "lastObject"}},
 		{&clsNumber, "NSNumber", []string{"numberWithInteger:"}, []string{"integerValue", "floatValue"}},
-		{&clsModel, "MLModel", []string{"modelWithContentsOfURL:configuration:error:", "compileModelAtURL:error:"}, []string{"predictionFromFeatures:error:"}},
+		{&clsModel, "MLModel", []string{"modelWithContentsOfURL:configuration:error:"}, []string{"predictionFromFeatures:error:"}},
 		{&clsConfiguration, "MLModelConfiguration", nil, []string{"setComputeUnits:", "setFunctionName:"}},
 		{&clsMultiArray, "MLMultiArray", nil, []string{"initWithShape:dataType:error:", "dataPointer", "dataType", "count", "shape", "strides", "objectAtIndexedSubscript:"}},
 		{&clsProvider, "MLDictionaryFeatureProvider", nil, []string{"initWithDictionary:error:"}},
@@ -147,12 +149,12 @@ func loadRuntime() error {
 	return nil
 }
 
-// checkPath refuses a path Foundation cannot hold as a string: a nil
-// NSString argument raises, and an Objective-C exception ends the
-// process.
-func checkPath(path string) error {
-	if path == "" || !utf8.ValidString(path) {
-		return fmt.Errorf("coreml: unusable path %q", path)
+// checkString refuses a path or name Foundation cannot hold whole: a nil
+// NSString argument raises, an Objective-C exception ends the process,
+// and a NUL cuts the C string short.
+func checkString(s string) error {
+	if s == "" || !utf8.ValidString(s) || strings.ContainsRune(s, 0) {
+		return fmt.Errorf("coreml: unusable path or name %q", s)
 	}
 	return nil
 }
@@ -235,8 +237,12 @@ func Compile(pkg string) (string, error) {
 	if err := load(); err != nil {
 		return "", err
 	}
-	if err := checkPath(pkg); err != nil {
+	if err := checkString(pkg); err != nil {
 		return "", err
+	}
+	// Checked here, not at load: a compiled model needs no compile.
+	if !objc.Send[bool](objc.ID(clsModel), sel("respondsToSelector:"), sel("compileModelAtURL:error:")) {
+		return "", fmt.Errorf("%w: no +[MLModel compileModelAtURL:error:]", ErrUnsupported)
 	}
 	var out string
 	err := scope(func() error {
@@ -270,7 +276,7 @@ func Open(compiled, function string, length, dim int) (*Function, error) {
 	if err := load(); err != nil {
 		return nil, err
 	}
-	if err := checkPath(compiled); err != nil {
+	if err := errors.Join(checkString(compiled), checkString(function)); err != nil {
 		return nil, err
 	}
 	f := &Function{compiled: compiled, name: function, length: length, dim: dim}
@@ -382,9 +388,9 @@ func (f *Function) Embed(tokens []int32, out []float32) error {
 	})
 }
 
-// readVector copies a [1, …, n] output array into out. Contiguous
-// float32 storage is copied directly; any other storage reads through
-// NSNumber at each element's offset.
+// readVector copies a [1, …, n] output array into out. Float32 storage
+// is read in place at its stride; any other type reads through
+// NSNumber, contiguous storage only.
 func readVector(arr objc.ID, out []float32) error {
 	if n := objc.Send[int](arr, sel("count")); n != len(out) {
 		return fmt.Errorf("coreml: output has %d values, want %d", n, len(out))
@@ -398,14 +404,20 @@ func readVector(arr objc.ID, out []float32) error {
 	if stride < 1 {
 		return fmt.Errorf("coreml: output has stride %d", stride)
 	}
-	if stride == 1 && objc.Send[int](arr, sel("dataType")) == dataTypeFloat32 {
+	if objc.Send[int](arr, sel("dataType")) == dataTypeFloat32 {
 		if ptr := objc.Send[unsafe.Pointer](arr, sel("dataPointer")); ptr != nil {
-			copy(out, unsafe.Slice((*float32)(ptr), len(out)))
+			// Strides count elements of the storage.
+			for i := range out {
+				out[i] = *(*float32)(unsafe.Add(ptr, i*stride*4))
+			}
 			return nil
 		}
 	}
+	if stride != 1 {
+		return fmt.Errorf("coreml: output of type %d with stride %d is not read", objc.Send[int](arr, sel("dataType")), stride)
+	}
 	for i := range out {
-		out[i] = objc.Send[float32](send(arr, "objectAtIndexedSubscript:", i*stride), sel("floatValue"))
+		out[i] = objc.Send[float32](send(arr, "objectAtIndexedSubscript:", i), sel("floatValue"))
 	}
 	return nil
 }
@@ -418,7 +430,7 @@ func Plan(compiled, function string) (Placement, error) {
 	if err := load(); err != nil {
 		return p, err
 	}
-	if err := checkPath(compiled); err != nil {
+	if err := errors.Join(checkString(compiled), checkString(function)); err != nil {
 		return p, err
 	}
 	err := scope(func() error {
