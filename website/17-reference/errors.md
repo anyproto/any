@@ -124,7 +124,7 @@ Panics are converted to `500 internal` with a generic message.
 | Code | Status | Meaning |
 |---|---|---|
 | `object.not_found` | 404 | object unknown or deleted in this space |
-| `object.deleted` | 410 | `GET …/objects/:objectId`, a file attach, or `from` on `POST …/objects`, on a deleted object — distinct from never-existed |
+| `object.deleted` | 410 | an id naming a deleted object, type or collection — distinct from never-existed: `GET` or `DELETE …/objects/:objectId`, the `…/types/:typeId` and `…/collections/:collectionId` routes, the membership `POST`s, `from` / `type` / `collections` on `POST …/objects`, a bundle's root or child, a file attach |
 | `object.derived_undeletable` | 409 | `DELETE` on a derived object (a bundle root installed with `derived: true`, such as the general chat), or `DELETE …/bundles/:bundleId` on a derived install |
 | `object.id_required` | 400 | the object id is a serialized nil (`"None"`, `"null"`, `"undefined"`) |
 | `record.deleted` | 410 | a write addressed a tombstoned record; the id is burned for good |
@@ -163,13 +163,13 @@ Panics are converted to `500 internal` with a generic message.
 
 | Code | Status | Meaning |
 |---|---|---|
-| `type.not_found` | 404 | unknown typeId, or on `DELETE …/types/:typeId` one already deleted (400 inside a bundle ensure) |
+| `type.not_found` | 404 | unknown typeId (400 inside a bundle ensure) |
 | `type.not_a_type` | 400 | a `…/types` route, or `POST …/properties/:objectId/type/:typeId`, names a user **collection** (`details.collectionId`) — use the `…/collections` routes. A registered collection id (`miniapp`, `bin`, `template`) answers `404 type.not_found` |
 | `type.xkey_required` | 400 | a type or a collection created without an `xKey` |
 | `type.xkey_conflict` | 409 | `xKey` collides with an existing type's or collection's xKey or id (`details.xKey`, `details.existingTypeId` or `details.existingCollectionId`) — the two surfaces share one handle namespace; on type and collection create, a bundle install or adopt and an `xkey` change also a handle the usecase catalog declares (`details.catalogBundleId`, `details.usecase`); also raised by a bundle or catalog install whose handle a type or collection holds |
 | `type.registered` | 400 | add/patch/remove a property, part or dataset, or PATCH or DELETE the type, on a built-in or registered type; also a column write on a registered built-in collection |
 | `type.reserved_carrier` | 400 | object create, `POST …/type/:typeId` or an `any.type` op names a type only its own root may carry — one declaring a reserved module (`details.typeId`) |
-| `collection.not_found` | 404 | unknown collectionId, or on `DELETE …/collections/:collectionId` one already deleted (400 inside a bundle ensure) |
+| `collection.not_found` | 404 | unknown collectionId (400 inside a bundle ensure) |
 | `collection.not_a_collection` | 400 | a `…/collections` route, or `POST …/properties/:objectId/collections/:collectionId`, names a user **type** (`details.typeId`). A registered type id (`page`, `dataview`) answers `404 collection.not_found` |
 | `collection.registered` | 400 | PATCH the metadata of a registered built-in collection (`miniapp`, `bin`, `template`), or DELETE it or the meta row `collection` |
 | `template.type_mismatch` | 400 | `POST …/objects` with `from` and a `type` that is not the source's (`details.from`, `details.type`) — a copy keeps the source's type; omit `type` |

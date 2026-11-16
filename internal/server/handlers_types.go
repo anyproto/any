@@ -245,6 +245,7 @@ func (d *deps) typeList(c echo.Context) error {
 //	@Param		typeId	path		string	true	"Type ID"
 //	@Success	200		{object}	api.TypeInfo
 //	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	410		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId} [get]
 func (d *deps) typeGet(c echo.Context) error {

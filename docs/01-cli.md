@@ -588,7 +588,7 @@ values stay in place as orphan data, read-tolerant. `object type
 unset` clears it. `object collection attach` / `detach` are
 idempotent, and detaching is not a delete either. `set` and `attach`
 pre-flight the id (`404 type.not_found` / `404 collection.not_found`,
-`400 type.not_a_type` / `400 collection.not_a_collection` when it names
+`410 object.deleted` for a deleted one, `400 type.not_a_type` / `400 collection.not_a_collection` when it names
 the other surface); `unset` and `detach` deliberately pre-flight
 nothing — they are the repair path for a bogus id already on the row.
 

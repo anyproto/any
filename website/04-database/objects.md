@@ -178,7 +178,7 @@ An edge is `{"source": {spaceId, objectId, dataset, recordId, typeId?}, "kind": 
 curl -X DELETE http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ   # → 204
 ```
 
-An unknown or already-deleted id is `404 sdk.not_found`, a reader or guest gets `403 space.read_only`, and a derived object — a bundle root installed with `derived: true`, such as the general chat — is permanent: `409 object.derived_undeletable`. To move an object out of sight without destroying it, file it under the built-in `bin` collection instead ([Collections](collections.html)).
+An unknown id is `404 sdk.not_found`, an already-deleted one `410 object.deleted`, a reader or guest gets `403 space.read_only`, and a derived object — a bundle root installed with `derived: true`, such as the general chat — is permanent: `409 object.derived_undeletable`. To move an object out of sight without destroying it, file it under the built-in `bin` collection instead ([Collections](collections.html)).
 
 The row receives a record-level tombstone, disappears from every `objects/query`, and a `removed` entry reaches subscribers of the cross-object stream. Per-object reads of a deleted id (`/query` with `objectId`, editor, history routes) answer `404 object.not_found`; the cross-object query has no such failure — a filter on a dead id returns zero rows.
 

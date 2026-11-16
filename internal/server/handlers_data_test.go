@@ -220,18 +220,11 @@ func TestServer_TypesAndPropertiesFlow(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("DELETE .../objects/:id: status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	// A second delete should map to 404 sdk.not_found.
+	// A second delete reports the deletion; an unknown id stays 404.
 	rec = doJSON(t, e, http.MethodDelete, "/v1/spaces/"+sp.Id+"/objects/"+objectId, "")
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("second DELETE: status=%d, want 404; body=%s", rec.Code, rec.Body.String())
-	}
-	var env api.ErrorEnvelope
-	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-		t.Fatalf("decode 404 envelope: %v", err)
-	}
-	if env.Error.Code != "sdk.not_found" {
-		t.Errorf("second DELETE code = %q, want sdk.not_found", env.Error.Code)
-	}
+	assertStatusCode(t, rec, http.StatusGone, "object.deleted")
+	rec = doJSON(t, e, http.MethodDelete, "/v1/spaces/"+sp.Id+"/objects/bafyreinosuchobject", "")
+	assertStatusCode(t, rec, http.StatusNotFound, "sdk.not_found")
 }
 
 // TestServer_CrossObjectQueryFlow exercises the per-space objects/query

@@ -61,6 +61,7 @@ func (d *deps) collectionList(c echo.Context) error {
 //	@Success	200				{object}	api.CollectionInfo
 //	@Failure	400				{object}	api.ErrorEnvelope
 //	@Failure	404				{object}	api.ErrorEnvelope
+//	@Failure	410				{object}	api.ErrorEnvelope
 //	@Failure	500				{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/collections/{collectionId} [get]
 func (d *deps) collectionGet(c echo.Context) error {
@@ -230,6 +231,7 @@ func (d *deps) collectionPatch(c echo.Context) error {
 //	@Failure	403	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
 //	@Failure	409	{object}	api.ErrorEnvelope
+//	@Failure	410	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/collections/{collectionId} [delete]
 func (d *deps) collectionDelete(c echo.Context) error {

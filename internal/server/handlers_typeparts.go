@@ -430,6 +430,7 @@ func (d *deps) typePatch(c echo.Context) error {
 //	@Failure	403	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
 //	@Failure	409	{object}	api.ErrorEnvelope
+//	@Failure	410	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId} [delete]
 func (d *deps) typeDelete(c echo.Context) error {

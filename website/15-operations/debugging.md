@@ -114,6 +114,7 @@ Every non-2xx response has one shape:
 | 400 | `filter.unknown_operator` / `filter.invalid` | the query filter did not parse; `details.path` points at it |
 | 401 | `auth.required` | unauthorized server |
 | 404 | `space.not_found` / `object.not_found` / `type.not_found` | the target id is unknown or deleted |
+| 410 | `object.deleted` | the object, type or collection was deleted; the id never comes back |
 | 405 | `space.unsupported` | the route does not apply to the tech space |
 | 409 | `index.disabled` / `push.disabled` / `local.disabled` / `access.disabled` | the feature is off on this server |
 | 500 | `internal` | unexpected failure — the server log has the stack |

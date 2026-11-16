@@ -2229,8 +2229,8 @@ members keep the id (§ Collections).
 A **derived** object is permanent — any bundle root installed with
 `derived: true`, so the general chat (§ Bundles → Derived roots) —
 and answers `409 object.derived_undeletable`; the row stays readable.
-An unknown or already-deleted id is `404 sdk.not_found`, a reader or
-guest `403 space.read_only`, and a non-root id on the tech space
+An unknown id is `404 sdk.not_found`, an already-deleted one
+`410 object.deleted`, a reader or guest `403 space.read_only`, and a non-root id on the tech space
 `405 space.unsupported`.
 
 #### Links and backlinks
@@ -2945,8 +2945,9 @@ Its parts go with it, so, as after a retype, its datasets' records stay
 but take no more writes (`400 dataset.not_declared`). A bundle root is
 uninstalled with `DELETE …/bundles/:bundleId` (§ Bundles). A
 built-in or registered type is `400 type.registered`, a user collection
-id `400 type.not_a_type`, any other id — unknown, already deleted, or a
-registered collection's — `404 type.not_found`; a reader or guest is
+id `400 type.not_a_type`, an already-deleted id `410 object.deleted`,
+any other id — unknown or a registered collection's —
+`404 type.not_found`; a reader or guest is
 `403 space.read_only` and a derived root `409 object.derived_undeletable`,
 as on object deletion (§ Object deletion).
 
@@ -3728,8 +3729,8 @@ unfiling the matching DELETE (§ Properties).
 **Deleting a collection** is `DELETE …/collections/:collectionId` →
 `204`; the meta row `collection` or a registered collection is `400
 collection.registered`, a user type id `400 collection.not_a_collection`,
-any other id — unknown, already deleted, or a built-in or registered
-type's — `404 collection.not_found`; a reader or guest is `403
+an already-deleted id `410 object.deleted`, any other id — unknown or a
+built-in or registered type's — `404 collection.not_found`; a reader or guest is `403
 space.read_only` and a derived root `409 object.derived_undeletable`, as
 on object deletion (§ Object deletion). Its members are not touched: each
 keeps the collection id in

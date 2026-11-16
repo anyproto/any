@@ -9495,6 +9495,16 @@ const docTemplate = `{
                         },
                         "description": "Conflict"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -9562,6 +9572,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -12114,6 +12134,16 @@ const docTemplate = `{
                         },
                         "description": "Conflict"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -14571,6 +14601,16 @@ const docTemplate = `{
                         },
                         "description": "Not Found"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -14748,6 +14788,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -15531,6 +15581,16 @@ const docTemplate = `{
                         },
                         "description": "Conflict"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -15588,6 +15648,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
