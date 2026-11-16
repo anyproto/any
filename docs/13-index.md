@@ -911,9 +911,10 @@ and takes tens of seconds, a later one under a second. While a function
 loads, a larger loaded one serves its texts, else llama.cpp.
 
 **Placement.** A machine that lists no Neural Engine never loads the
-package. Before a function loads, the child reads Core ML's compute plan
-for it and refuses a function whose convolution, matmul, linear or
-softmax operations are planned on the CPU. The digest in the package's
+package. Before a function first loads, the child reads Core ML's
+compute plan for it, once per child, and refuses a function whose
+convolution, matmul, linear or softmax operations are planned on the
+CPU. The digest in the package's
 directory name is of its pinned checksums, so another pin is another
 directory with a compiled model of its own.
 

@@ -14,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/anyproto/any/internal/indexer/coreml"
 )
 
 // fakeANE stands in for Core ML: functions return a unit vector and
@@ -691,5 +693,39 @@ func TestCoreMLBackend_PrepareWaitsForFiles(t *testing.T) {
 	}
 	if err := b.prepare(); !errors.Is(err, errANENotReady) {
 		t.Fatalf("prepare with half a package = %v, want errANENotReady", err)
+	}
+}
+
+// A function is planned once per process: a reload after an idle
+// release opens it again without another plan, and a refused plan opens
+// nothing.
+func TestCoreMLBackend_PlansOnce(t *testing.T) {
+	b := newCoreMLBackend(&coreMLPackage{name: "m"}, filepath.Join(t.TempDir(), "m.mlpackage"), 4, t.Logf)
+	var planned, opened []string
+	onEngine := coreml.Placement{NeuralEngine: 6000, CPU: 14}
+	b.plan = func(compiled, function string) (coreml.Placement, error) {
+		planned = append(planned, function)
+		if function == "s512" {
+			return coreml.Placement{CPU: 6014, CPUCore: []string{"ios18.matmul"}}, nil
+		}
+		return onEngine, nil
+	}
+	b.open = func(compiled, function string, length, dim int) (aneFunction, error) {
+		opened = append(opened, function)
+		return &fakeFn{parent: &fakeANE{}, length: length}, nil
+	}
+	for range 3 {
+		if _, _, err := b.load(128); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := b.load(512); err == nil {
+		t.Fatal("loaded a function planned on the cpu")
+	}
+	if !reflect.DeepEqual(planned, []string{"s128", "s512"}) {
+		t.Fatalf("planned %v, want each function once", planned)
+	}
+	if !reflect.DeepEqual(opened, []string{"s128", "s128", "s128"}) {
+		t.Fatalf("opened %v, want s128 per load and s512 never", opened)
 	}
 }

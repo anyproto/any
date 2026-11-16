@@ -420,6 +420,12 @@ type coreMLBackend struct {
 	compiled string // the .mlmodelc
 	dim      int
 	logf     func(format string, args ...any)
+	// plans holds the placement of every function that passed its
+	// check: a reload after an idle release does not plan again. Used
+	// by one loader at a time.
+	plans map[int]coreml.Placement
+	plan  func(compiled, function string) (coreml.Placement, error)
+	open  func(compiled, function string, length, dim int) (aneFunction, error)
 }
 
 func newCoreMLBackend(pkg *coreMLPackage, dir string, dim int, logf func(string, ...any)) *coreMLBackend {
@@ -429,6 +435,15 @@ func newCoreMLBackend(pkg *coreMLPackage, dir string, dim int, logf func(string,
 		compiled: strings.TrimSuffix(dir, ".mlpackage") + ".mlmodelc",
 		dim:      dim,
 		logf:     logf,
+		plans:    map[int]coreml.Placement{},
+		plan:     coreml.Plan,
+		open: func(compiled, function string, length, dim int) (aneFunction, error) {
+			fn, err := coreml.Open(compiled, function, length, dim)
+			if err != nil {
+				return nil, err
+			}
+			return coreMLFunction{fn}, nil
+		},
 	}
 }
 
@@ -508,22 +523,26 @@ func installDir(src, dst string) error {
 func (b *coreMLBackend) load(length int) (aneFunction, string, error) {
 	name := "s" + strconv.Itoa(length)
 	start := time.Now()
-	plan, err := coreml.Plan(b.compiled, name)
-	if err != nil {
-		return nil, "", err
-	}
-	if !plan.OnNeuralEngine() {
-		return nil, "", fmt.Errorf("core ml plans it off the neural engine: %d operations there, %d on the gpu, %d on the cpu, cpu core %v",
-			plan.NeuralEngine, plan.GPU, plan.CPU, plan.CPUCore)
+	plan, known := b.plans[length]
+	if !known {
+		var err error
+		if plan, err = b.plan(b.compiled, name); err != nil {
+			return nil, "", err
+		}
+		if !plan.OnNeuralEngine() {
+			return nil, "", fmt.Errorf("core ml plans it off the neural engine: %d operations there, %d on the gpu, %d on the cpu, cpu core %v",
+				plan.NeuralEngine, plan.GPU, plan.CPU, plan.CPUCore)
+		}
+		b.plans[length] = plan
 	}
 	planned := time.Since(start)
-	fn, err := coreml.Open(b.compiled, name, length, b.dim)
+	fn, err := b.open(b.compiled, name, length, b.dim)
 	if err != nil {
 		return nil, "", err
 	}
 	info := fmt.Sprintf("plan %s, load %s, %d operations on the neural engine, %d on the cpu",
 		planned.Round(time.Millisecond), (time.Since(start) - planned).Round(time.Millisecond), plan.NeuralEngine, plan.CPU)
-	return coreMLFunction{fn}, info, nil
+	return fn, info, nil
 }
 
 type coreMLFunction struct{ fn *coreml.Function }
