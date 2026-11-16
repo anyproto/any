@@ -163,11 +163,11 @@ A short id is resolved within the space, against the rows of the
 - No match: `404 object.not_found`, on every route — also where an
   unknown full id answers 2xx.
 - Several: `409 object.ambiguous_id` listing the matches (at most 10),
-  and nothing is executed. Retry with the full id.
+  and nothing is executed. Retry with a longer id.
 
 ```json
 { "error": { "code": "object.ambiguous_id",
-    "message": "short id \"ab3xqd\" matches 2 objects in this space; retry with the full id",
+    "message": "short id \"ab3xqd\" matches 2 objects in this space; retry with a longer unambiguous id",
     "details": { "shortId": "ab3xqd",
       "candidates": [ { "id": "bafyreiab3xqd…", "name": "Release checklist" },
                       { "id": "bafyreiab3xqd…", "name": "Q3 planning" } ] } } }

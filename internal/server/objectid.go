@@ -119,6 +119,6 @@ func ambiguousIdError(c echo.Context, shortId string, matches []api.ObjectCandid
 		count = "more than " + strconv.Itoa(shortIdCandidatesMax)
 	}
 	return writeError(c, http.StatusConflict, api.ErrObjectAmbiguousId,
-		fmt.Sprintf("short id %q matches %s objects in this space; retry with the full id", shortId, count),
+		fmt.Sprintf("short id %q matches %s objects in this space; retry with a longer unambiguous id", shortId, count),
 		map[string]any{"shortId": shortId, "candidates": matches})
 }

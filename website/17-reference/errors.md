@@ -127,7 +127,7 @@ Panics are converted to `500 internal` with a generic message.
 | `object.deleted` | 410 | `GET …/objects/:objectId`, a file attach, or `from` on `POST …/objects`, on a deleted object — distinct from never-existed |
 | `object.derived_undeletable` | 409 | `DELETE` on a derived object (a bundle root installed with `derived: true`, such as the general chat), or `DELETE …/bundles/:bundleId` on a derived install |
 | `object.id_required` | 400 | the object id is a serialized nil (`"None"`, `"null"`, `"undefined"`) |
-| `object.ambiguous_id` | 409 | a short object id matches several objects in the space (`details.shortId`, `details.candidates`: at most 10 `{id, name}`); nothing is executed, retry with the full id |
+| `object.ambiguous_id` | 409 | a short object id matches several objects in the space (`details.shortId`, `details.candidates`: at most 10 `{id, name}`); nothing is executed, retry with a longer id |
 | `record.deleted` | 410 | a write addressed a tombstoned record; the id is burned for good |
 | `record.wrong_object` | 400 | a `modify` or `delete-records` on a shared dataset names a record of another object — a record id is the plain id or the `<objectId>/<recordId>` of the request's own `objectId`, and a plain id never holds `/` (`details.objectId`, `details.dataset`) |
 | `bundle.not_found` | 404 | no live install for the bundle id in this space; on uninstall, a bundle never registered |

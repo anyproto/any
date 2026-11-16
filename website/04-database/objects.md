@@ -100,11 +100,11 @@ curl http://127.0.0.1:2046/v1/spaces/$SPACE/objects/${OBJ:7:6}
 # → {"objectId": "bafyrei…", "record": {…}}
 ```
 
-A short id no object carries is `404 object.not_found`. One that several objects share is `409 object.ambiguous_id`: nothing is executed, and the reply lists the matches so the caller retries with a full id.
+A short id no object carries is `404 object.not_found`. One that several objects share is `409 object.ambiguous_id`: nothing is executed, and the reply lists the matches so the caller retries with a longer id.
 
 ```json
 { "error": { "code": "object.ambiguous_id",
-    "message": "short id \"ab3xqd\" matches 2 objects in this space; retry with the full id",
+    "message": "short id \"ab3xqd\" matches 2 objects in this space; retry with a longer unambiguous id",
     "details": { "shortId": "ab3xqd",
       "candidates": [ { "id": "bafyreiab3xqd…", "name": "Release checklist" },
                       { "id": "bafyreiab3xqd…", "name": "Q3 planning" } ] } } }
