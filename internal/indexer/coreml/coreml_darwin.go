@@ -23,8 +23,10 @@ const (
 	dataTypeInt32                  = 0x20000 | 32
 )
 
-// planTimeout bounds the wait for a function's compute plan.
-const planTimeout = 2 * time.Minute
+// planTimeout bounds the wait for a function's compute plan. The first
+// plan of a function specializes it: about a minute for the longest one
+// on a quiet M2, so the bound leaves room for a slower, busier machine.
+const planTimeout = 10 * time.Minute
 
 // Input and output feature names of the embedding functions.
 const (
