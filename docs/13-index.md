@@ -870,7 +870,7 @@ Neural Engine through Core ML, next to llama.cpp. The model's Core ML
 package holds one function per fixed length: 128, 256, 512 and 1,024
 tokens. A text runs on the smallest loaded function that holds it.
 llama.cpp tokenizes for both runtimes and embeds every other text: one
-longer than 1,024 tokens, and any text whose function is not loaded.
+longer than 1,024 tokens, and one that no loaded function holds.
 
 Both runtimes write one index. A function returns the model's own unit
 vector (cosine 0.9999 to the full-precision weights), and the projection
@@ -879,27 +879,34 @@ the model, not the runtime.
 
 `index.local.neuralEngine`:
 
-- `auto` (default) uses it where it can run: an arm64 Mac on macOS 15
-  or later, the `embeddinggemma-2` model with its own pooling, and the
-  package on disk or downloadable. Anywhere else llama.cpp embeds alone.
-- `on` is `auto` that refuses to boot where it cannot run.
+- `auto` (default) uses it when the server finds nothing against it: an
+  arm64 Mac that is not a virtual machine, macOS 15 or later, the
+  `embeddinggemma-2` model with its own pooling, and the package on disk
+  or downloadable. Anywhere else llama.cpp embeds alone.
+- `on` is `auto` that refuses to boot when one of those conditions
+  fails. What only the child can see leaves llama.cpp embedding alone
+  under `on` too: no Neural Engine listed, a function planned on the
+  CPU, a failed compile.
 - `off` is llama.cpp alone.
 
 **The package.** Its three files are downloaded, each sha256-pinned,
-into `<root>/models/<name>.mlpackage/`, with the rules of the GGUF
-download and one `index.model_download` process per file. With
-`index.local.modelPath` nothing is downloaded and a package already in
-the models dir is used. The child compiles the package once into
-`<name>.mlmodelc` beside it. Until the package is complete the child
-looks for it every 30 s and llama.cpp embeds everything.
+into `<root>/models/<name>.mlpackage/` by the rules of the GGUF
+download and after it: every model download reports as
+`index.model_download`, one file at a time. `index.local.modelUrl` does
+not apply to the package. With `index.local.modelPath` nothing is
+downloaded and a package already in the models dir is used. The child
+checks the files against their checksums and compiles the package once
+into `<name>.mlmodelc` beside it. Until the package is complete
+llama.cpp embeds everything, and the child looks for it again when a
+text arrives, at most every 30 s.
 
-**Function lifetime.** The smallest function loads when the child
-starts and stays for queries. Any other loads in the background on the
-first text that needs it and is released one minute after its last use;
-idle retirement of the child releases all of them. The first load of a
-function specializes it for the Neural Engine and takes tens of seconds,
-a later one under a second. While a function loads, a larger loaded one
-serves its texts, else llama.cpp.
+**Function lifetime.** The smallest function loads first, as soon as
+the package is ready, and stays for queries. Any other loads in the
+background on the first text that needs it, and a timer releases it one
+minute after its last use; idle retirement of the child releases all of
+them. The first load of a function specializes it for the Neural Engine
+and takes tens of seconds, a later one under a second. While a function
+loads, a larger loaded one serves its texts, else llama.cpp.
 
 **Placement.** A machine that lists no Neural Engine never loads the
 package. Before a function loads, the child reads Core ML's compute plan
@@ -907,11 +914,13 @@ for it and refuses a function whose convolution, matmul, linear or
 softmax operations are planned on the CPU.
 
 **Failure.** A prediction that fails, or returns a vector that is not
-unit length, leaves that text to llama.cpp; three in a row turn the
-Neural Engine off for the life of the child. A child that dies with the
-Neural Engine on is respawned without it for the rest of the process.
-That demotion comes before the GPU one (§ GPU offload), one runtime per
-death, because the death does not say which runtime caused it.
+unit length, leaves that text to llama.cpp. Three in a row on one
+function retire that function for the life of the child; a larger
+loaded one or llama.cpp takes its texts. A child that dies after it
+began using Core ML is respawned without the Neural Engine for the rest
+of the process. That demotion comes before the GPU one (§ GPU offload),
+one runtime per death, because the death does not say which runtime
+caused it.
 
 Core ML is called through the Objective-C runtime, so the binary stays
 CGO-free and cross-compiled (`internal/indexer/coreml`).

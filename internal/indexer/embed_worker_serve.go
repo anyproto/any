@@ -82,9 +82,6 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 	if err != nil {
 		return err
 	}
-	// The handshake does not wait for it: the functions load in the
-	// background while llama.cpp serves.
-	l.startNeuralEngine(cfg.CoreMLDir)
 
 	r := bufio.NewReaderSize(in, 64<<10)
 	w := bufio.NewWriter(out)
@@ -92,6 +89,10 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 	if err := writeFrame(w, workerResp{Op: workerOpReady, Dim: dim, Hardware: &hw}, nil); err != nil {
 		return err
 	}
+	// After the handshake, so a Core ML crash is a death of a started
+	// child, which the server demotes. The functions load in the
+	// background while llama.cpp serves.
+	l.startNeuralEngine(cfg.CoreMLDir)
 
 	// Reading runs on its own goroutine so the end of the stream — the
 	// parent closing stdin, or dying — is noticed even mid-decode. A

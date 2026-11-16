@@ -224,7 +224,7 @@ func TestLocal_NeuralEnginePackage(t *testing.T) {
 	ref, llamaTook := embedAll()
 	t.Logf("llama.cpp: %d docs in %s", len(docs), llamaTook.Round(time.Millisecond))
 
-	backend := &countingBackend{aneBackend: newCoreMLBackend(l.coreml, dir, int(l.nEmbd)), served: map[int]int{}}
+	backend := &countingBackend{aneBackend: newCoreMLBackend(l.coreml, dir, int(l.nEmbd), t.Logf), served: map[int]int{}}
 	n := newNeuralEngine(backend, lengths, int(l.nEmbd), t.Logf)
 	l.mu.Lock()
 	l.ane = n

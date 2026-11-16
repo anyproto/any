@@ -161,7 +161,7 @@ var downloadMinWhole int64 = 1 << 20
 
 // errDownloadStopped ends the retries until the next start: the source
 // twice served a whole file that failed the checksum.
-var errDownloadStopped = errors.New("model download stopped: the source serves a file that is not the expected model; correct index.local.modelUrl or modelSha256 and restart")
+var errDownloadStopped = errors.New("model download stopped: the source serves a file that fails its pinned checksum; restart to try again (for the GGUF, correct index.local.modelUrl or modelSha256 first)")
 
 // errDownloadStalled is a transfer the stall watchdog cut.
 var errDownloadStalled = errors.New("model download stalled")

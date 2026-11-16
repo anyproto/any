@@ -258,7 +258,7 @@ func (l *Local) startNeuralEngine(dir string) {
 		return
 	}
 	dim := int(l.nEmbd)
-	l.ane = newNeuralEngine(newCoreMLBackend(l.coreml, dir, dim), l.coreml.lengths, dim, aneStderrLog)
+	l.ane = newNeuralEngine(newCoreMLBackend(l.coreml, dir, dim, aneStderrLog), l.coreml.lengths, dim, aneStderrLog)
 	l.ane.start()
 }
 

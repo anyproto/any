@@ -38,7 +38,7 @@ func planNeuralEngine(cfg config.IndexLocal, modelsDir string) (*coreMLPackage, 
 		return nil, nil
 	}
 	if !aneHost() {
-		return without("it needs an Apple Silicon Mac on macOS 15 or later")
+		return without("it needs an Apple Silicon Mac, not a virtual machine, on macOS 15 or later")
 	}
 	model, err := lookupLocalModel(cfg.Model)
 	if err != nil {
@@ -67,21 +67,34 @@ type packageDownload struct {
 	done   chan struct{}
 }
 
-func startPackageDownload(pkg *coreMLPackage, modelsDir string, client *http.Client, onProcess func(ProcessUpdate)) *packageDownload {
+// startPackageDownload spawns the download. It begins once after, the
+// model's own download, has installed its file (nil = nothing to wait
+// for): one process row serves every model download, one at a time.
+func startPackageDownload(pkg *coreMLPackage, modelsDir string, after *modelDownload, client *http.Client, onProcess func(ProcessUpdate)) *packageDownload {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &packageDownload{cancel: cancel, done: make(chan struct{})}
 	dir := pkg.dir(modelsDir)
 	go func() {
 		defer close(p.done)
+		if after != nil {
+			select {
+			case <-after.finished:
+			case <-ctx.Done():
+				return
+			}
+			if after.Status() != nil {
+				return // no model, nothing for the package to run next to
+			}
+		}
 		for _, f := range pkg.files {
 			dest := filepath.Join(dir, filepath.FromSlash(f.path))
 			if _, err := os.Stat(dest); err == nil {
 				continue
 			}
-			base := path.Base(f.path)
-			// The .part and .lock stay out of the package directory.
-			side := filepath.Join(modelsDir, pkg.name+"."+base)
-			d := startModelDownloadAt(pkg.name+" "+base, pkg.url+"/"+f.path, dest, side, f.sha256, client, onProcess)
+			// The .part and .lock stay out of the package directory,
+			// under the name the process row carries.
+			name := pkg.name + "." + path.Base(f.path)
+			d := startModelDownloadAt(name, pkg.url+"/"+f.path, dest, filepath.Join(modelsDir, name), f.sha256, client, onProcess)
 			select {
 			case <-d.finished:
 			case <-ctx.Done():

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -208,7 +209,7 @@ func TestPackageDownload(t *testing.T) {
 		t.Fatal(err)
 	}
 	var frames frameLog
-	p := startPackageDownload(pkg, models, srv.Client(), frames.report)
+	p := startPackageDownload(pkg, models, nil, srv.Client(), frames.report)
 	waitPackage(t, p)
 	p.Close()
 
@@ -242,12 +243,52 @@ func TestPackageDownload(t *testing.T) {
 	if want := []string{"Data/com.apple.CoreML/model.mlmodel", "Data/com.apple.CoreML/weights/weight.bin"}; !reflect.DeepEqual(asked, want) {
 		t.Fatalf("fetched %v, want %v", asked, want)
 	}
+	// One process row per fetched file, named so the process view takes
+	// the name as a target, with the side files under the same name
+	// outside the package.
+	target := regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
 	names := map[string]bool{}
 	for _, u := range frames.all() {
 		names[u.Name] = true
 	}
-	if !names["model-1 weight.bin"] || !names["model-1 model.mlmodel"] || len(names) != 2 {
+	if !names["model-1.weight.bin"] || !names["model-1.model.mlmodel"] || len(names) != 2 {
 		t.Fatalf("process rows %v, want one per fetched file", names)
+	}
+	for name := range names {
+		if !target.MatchString(name) {
+			t.Errorf("process row name %q is not a valid event target", name)
+		}
+		if _, err := os.Stat(filepath.Join(models, name+".lock")); err != nil {
+			t.Errorf("no download lock beside the package for %s: %v", name, err)
+		}
+	}
+}
+
+// The package waits for the model's own download: one process row
+// serves both, one at a time. With no model there is no package either.
+func TestPackageDownload_WaitsForModel(t *testing.T) {
+	for _, installed := range []bool{true, false} {
+		srv, pkg := newPackageServer(t, map[string]string{"Manifest.json": "{}"})
+		models := t.TempDir()
+		model := &modelDownload{finished: make(chan struct{})}
+		p := startPackageDownload(pkg, models, model, srv.Client(), nil)
+		time.Sleep(50 * time.Millisecond)
+		if asked := srv.asked(); len(asked) != 0 {
+			t.Fatalf("fetched %v while the model was still downloading", asked)
+		}
+		model.mu.Lock()
+		model.done = installed
+		model.err = nil
+		if !installed {
+			model.err = errDownloadStopped
+		}
+		model.mu.Unlock()
+		close(model.finished)
+		waitPackage(t, p)
+		p.Close()
+		if got := pkg.complete(pkg.dir(models)); got != installed {
+			t.Fatalf("model installed %v: package complete = %v", installed, got)
+		}
 	}
 }
 
@@ -258,7 +299,7 @@ func TestPackageDownload_StopsOnChecksum(t *testing.T) {
 	bodies := map[string]string{"a.bin": "first", "b.bin": "second", "c.bin": "third"}
 	srv, pkg := newPackageServer(t, bodies, "b.bin")
 	models := t.TempDir()
-	p := startPackageDownload(pkg, models, srv.Client(), nil)
+	p := startPackageDownload(pkg, models, nil, srv.Client(), nil)
 	waitPackage(t, p)
 	p.Close()
 	if pkg.complete(pkg.dir(models)) {
@@ -282,7 +323,7 @@ func TestPackageDownload_Close(t *testing.T) {
 	defer srv.Close()
 	defer close(release)
 	pkg := &coreMLPackage{name: "m", url: srv.URL, files: []coreMLFile{{"a.bin", ""}}, lengths: []int{128}}
-	p := startPackageDownload(pkg, t.TempDir(), srv.Client(), nil)
+	p := startPackageDownload(pkg, t.TempDir(), nil, srv.Client(), nil)
 	closed := make(chan struct{})
 	go func() {
 		p.Close()
@@ -379,10 +420,34 @@ func TestEmbedderCmdArgs_CoreML(t *testing.T) {
 	}
 }
 
-// A death does not say which runtime caused it: the Neural Engine path
-// goes first, GPU offload on the next one.
+// A child that never touched Core ML dies of something else: the Neural
+// Engine path stays and the GPU is demoted, as without a package.
+func TestWorkerEmbedder_CrashBeforeCoreMLKeepsNeuralEngine(t *testing.T) {
+	h := &helperSpawner{modes: []string{"crash", "ok"}}
+	w := newTestWorker(t, h, -1)
+	w.mu.Lock()
+	w.spec.coremlDir = "/models/eg2.mlpackage"
+	w.mu.Unlock()
+	if _, err := w.EmbedDocs(context.Background(), []string{"boom"}); err == nil {
+		t.Fatal("want error")
+	}
+	if !gpuDisabled(w) {
+		t.Fatal("a death before Core ML was in use did not demote the GPU")
+	}
+	clearBackoff(w)
+	if _, err := w.EmbedDocs(context.Background(), []string{"again"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.spec(1); got.coremlDir == "" || got.gpuLayers != 0 {
+		t.Fatalf("respawn coremlDir %q gpuLayers %d, want the package kept and CPU only", got.coremlDir, got.gpuLayers)
+	}
+}
+
+// A death of a child that used Core ML does not say which runtime
+// caused it: the Neural Engine path goes first, GPU offload on the next
+// one.
 func TestWorkerEmbedder_CrashDemotesNeuralEngineFirst(t *testing.T) {
-	h := &helperSpawner{modes: []string{"crash", "crash", "ok"}}
+	h := &helperSpawner{modes: []string{"crash", "crash", "ok"}, env: []string{"ANY_EMBED_WORKER_ANE=1"}}
 	w := newTestWorker(t, h, -1)
 	w.mu.Lock()
 	w.spec.coremlDir = "/models/eg2.mlpackage"

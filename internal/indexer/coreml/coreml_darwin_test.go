@@ -90,7 +90,11 @@ func TestPackage(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := os.Rename(tmp, compiled); err != nil {
-			t.Fatalf("move the compiled model from %s: %v", tmp, err)
+			// Core ML's temporary directory can sit on another volume.
+			if err := os.CopyFS(compiled, os.DirFS(tmp)); err != nil {
+				t.Fatalf("copy the compiled model from %s: %v", tmp, err)
+			}
+			_ = os.RemoveAll(tmp)
 		}
 		t.Logf("compiled in %s", time.Since(start).Round(time.Millisecond))
 	} else {
@@ -149,6 +153,9 @@ func TestPackage(t *testing.T) {
 			if fn == nil {
 				continue
 			}
+			if len(row.Vector) != dim {
+				t.Fatalf("case %d: reference vector has %d values, want %d", row.Case, len(row.Vector), dim)
+			}
 			out := make([]float32, dim)
 			if err := fn.Embed(row.Tokens, out); err != nil {
 				t.Fatalf("case %d: %v", row.Case, err)
@@ -171,6 +178,51 @@ func TestPackage(t *testing.T) {
 		}
 	})
 
+	// Padding is masked out, so one text gives one vector on every
+	// function; two different texts do not, or the inputs never reach
+	// the model.
+	t.Run("same text on every function", func(t *testing.T) {
+		words := func(n, step int) []int32 {
+			out := filler(n)
+			for i := 1; i < n-1; i++ {
+				out[i] = int32(1000 + i*step)
+			}
+			return out
+		}
+		cosine := func(a, b []float32) float64 {
+			var dot float64
+			for i := range a {
+				dot += float64(a[i]) * float64(b[i])
+			}
+			return dot / (vectorNorm(a) * vectorNorm(b))
+		}
+		text := words(lengths[0]/2, 7)
+		first := make([]float32, dim)
+		if err := fns[lengths[0]].Embed(text, first); err != nil {
+			t.Fatal(err)
+		}
+		for _, l := range lengths[1:] {
+			out := make([]float32, dim)
+			if err := fns[l].Embed(text, out); err != nil {
+				t.Fatalf("s%d: %v", l, err)
+			}
+			c := cosine(first, out)
+			t.Logf("s%d against s%d: cosine %.8f", l, lengths[0], c)
+			if c < 0.999 {
+				t.Errorf("s%d: cosine %v to the same text on s%d", l, c, lengths[0])
+			}
+		}
+		other := make([]float32, dim)
+		if err := fns[lengths[0]].Embed(words(lengths[0]/2, 131), other); err != nil {
+			t.Fatal(err)
+		}
+		c := cosine(first, other)
+		t.Logf("two different texts on s%d: cosine %.6f", lengths[0], c)
+		if c > 0.999 {
+			t.Errorf("two different texts give one vector (cosine %v)", c)
+		}
+	})
+
 	t.Run("speed", func(t *testing.T) {
 		for _, l := range lengths {
 			fn := fns[l]
@@ -188,7 +240,8 @@ func TestPackage(t *testing.T) {
 		}
 	})
 
-	// The embed child predicts on one function while another loads.
+	// The embed child predicts on one function while another is
+	// planned and loaded.
 	t.Run("load while predicting", func(t *testing.T) {
 		small, large := lengths[0], lengths[len(lengths)-1]
 		stop := make(chan struct{})
@@ -213,13 +266,20 @@ func TestPackage(t *testing.T) {
 			}
 		}()
 		start := time.Now()
+		plan, planErr := Plan(compiled, "s"+strconv.Itoa(large))
 		second, err := Open(compiled, "s"+strconv.Itoa(large), large, dim)
 		close(stop)
 		wg.Wait()
+		if planErr != nil {
+			t.Fatal(planErr)
+		}
+		if !plan.OnNeuralEngine() {
+			t.Errorf("s%d: core planned off the neural engine next to predictions", large)
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Logf("second s%d loaded in %s next to %d predictions on s%d", large, time.Since(start).Round(time.Millisecond), predictions, small)
+		t.Logf("second s%d planned and loaded in %s next to %d predictions on s%d", large, time.Since(start).Round(time.Millisecond), predictions, small)
 		if predictErr != nil {
 			t.Fatal(predictErr)
 		}

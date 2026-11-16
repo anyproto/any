@@ -84,6 +84,9 @@ func runEmbedHelper(mode string) int {
 	if err := writeFrame(out, workerResp{Op: workerOpReady, Dim: helperDim, Hardware: hw}, nil); err != nil {
 		return 1
 	}
+	if os.Getenv("ANY_EMBED_WORKER_ANE") != "" { // a child that began using Core ML
+		aneStderrLog("starting")
+	}
 	served := 0
 	for {
 		var req workerReq

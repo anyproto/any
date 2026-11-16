@@ -98,7 +98,7 @@ type workerEmbedder struct {
 	// lastFrame is when the last frame ended, in real time like the timer.
 	lastFrame time.Time
 
-	mu sync.Mutex // guards spec, gpuDisabled, hw — nothing else
+	mu sync.Mutex // guards spec, gpuDisabled, coremlDisabled, hw — nothing else
 	// spec holds the parameters every spawn is rendered from. Two
 	// writers: the GPU demotion below, and SetThreads. A child whose
 	// spec no longer matches is retired on its next use.
@@ -107,8 +107,8 @@ type workerEmbedder struct {
 	// was active. In-memory by design: every `any run` starts on the GPU
 	// again, so a driver or hardware fix recovers on its own.
 	gpuDisabled bool
-	// coremlDisabled is set when a child dies abnormally while the
-	// Neural Engine path was on. It goes before the GPU does.
+	// coremlDisabled is set when a child dies abnormally after it
+	// began using Core ML. It goes before the GPU does.
 	coremlDisabled bool
 	// hw is what the last started child reported about this machine —
 	// kept for logging now, for hardware/error/speed statistics later.
@@ -143,7 +143,7 @@ func newWorkerEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string,
 	w := newWorkerEmbedderFromSpec(spec, reqTimeout)
 	w.dl = dl
 	if pkg != nil && !pkg.complete(spec.coremlDir) {
-		w.pkgDl = startPackageDownload(pkg, modelsDir, nil, onProcess)
+		w.pkgDl = startPackageDownload(pkg, modelsDir, dl, nil, onProcess)
 	}
 	return w, nil
 }
@@ -337,11 +337,12 @@ func (w *workerEmbedder) Close() error {
 		w.stopChild(true)
 		w.idleTimer.Stop()
 		w.slot.release(false)
-		if w.dl != nil {
-			w.dl.Close()
-		}
+		// The package first: it starts when the model download ends.
 		if w.pkgDl != nil {
 			w.pkgDl.Close()
+		}
+		if w.dl != nil {
+			w.dl.Close()
 		}
 	})
 	return nil
@@ -603,10 +604,10 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 // fault — at the price of demoting a merely slow frame. That costs one
 // run at CPU speed (~4x slower embedding, FTS untouched) against
 // repeated multi-minute stalls, and a restart starts on the GPU again.
-// On a GPU-less machine the demotion is a no-op. A child that had the
-// Neural Engine path on loses that first and keeps the GPU. A stream
-// that broke because Close killed the child is not a fault: retired
-// silently.
+// On a GPU-less machine the demotion is a no-op. A child that had begun
+// using Core ML loses the Neural Engine path first and keeps the GPU. A
+// stream that broke because Close killed the child is not a fault:
+// retired silently.
 // Caller holds the slot.
 func (w *workerEmbedder) failChild(cause error) {
 	if w.closing.Load() {
@@ -630,9 +631,10 @@ func (w *workerEmbedder) failChild(cause error) {
 		fields = append(fields, zap.String("childExit", waitErr.Error()))
 	}
 	w.mu.Lock()
-	// One runtime per death, the Neural Engine path first: the death
-	// does not say which of the two caused it.
-	demoteCoreML := c.spec.coremlDir != "" && !w.coremlDisabled
+	// One runtime per death, the Neural Engine path first once the
+	// child used Core ML: the death does not say which of the two
+	// caused it. Read after stop, which joined the stderr pump.
+	demoteCoreML := c.spec.coremlDir != "" && c.coreml.Load() && !w.coremlDisabled
 	demote := !demoteCoreML && gpu && !w.gpuDisabled
 	if demoteCoreML {
 		w.coremlDisabled = true
@@ -798,6 +800,9 @@ type embedChild struct {
 	errDone chan struct{}
 	spec    localSpec // what it was spawned with; a drifted spec retires it
 	dim     int
+	// coreml: the child reported on its Neural Engine path, so Core ML
+	// is in use in it.
+	coreml atomic.Bool
 }
 
 type workerFrame struct {
@@ -835,6 +840,7 @@ func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 			}
 			c.stderr.add(line)
 			if status, ok := strings.CutPrefix(line, aneLogPrefix); ok {
+				c.coreml.Store(true)
 				lg.Info("local embedder neural engine", zap.String("status", status))
 			} else {
 				lg.Debug("embedder child", zap.String("stderr", line))

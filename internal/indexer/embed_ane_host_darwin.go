@@ -13,9 +13,14 @@ import (
 // function of a multi-function model.
 const neuralEngineMinMacOS = 15
 
-// neuralEngineHost: an Apple Silicon Mac on a new enough macOS. Whether
-// it has a usable Neural Engine is the embed child's check.
+// neuralEngineHost: an Apple Silicon Mac, not a virtual one, on a new
+// enough macOS. Whether its Neural Engine is usable is the embed
+// child's check.
 func neuralEngineHost() bool {
+	// A virtual machine has no Neural Engine to pass through.
+	if vm, err := unix.SysctlUint32("kern.hv_vmm_present"); err == nil && vm != 0 {
+		return false
+	}
 	v, err := unix.Sysctl("kern.osproductversion")
 	if err != nil {
 		return false

@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sync"
 	"time"
+	"unicode/utf8"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -43,9 +44,6 @@ var (
 	clsModel, clsConfiguration, clsMultiArray, clsProvider, clsFeatureValue objc.Class
 	clsPlan, clsNeuralEngine, clsCPU, clsGPU                                objc.Class
 
-	// compileSync: MLModel still has the synchronous compile call.
-	compileSync bool
-
 	selectors sync.Map // name → objc.SEL
 )
 
@@ -75,6 +73,9 @@ func load() error {
 }
 
 func loadRuntime() error {
+	// The class checks below run class initializers: one thread, one pool.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	const flags = purego.RTLD_LAZY | purego.RTLD_GLOBAL
 	libobjc, err := purego.Dlopen("/usr/lib/libobjc.A.dylib", flags)
 	if err != nil {
@@ -103,6 +104,8 @@ func loadRuntime() error {
 		}
 		purego.RegisterFunc(fn.dst, addr)
 	}
+	pool := poolPush()
+	defer poolPop(pool)
 
 	for _, c := range []struct {
 		dst      *objc.Class
@@ -115,9 +118,9 @@ func loadRuntime() error {
 		{&clsMutableDictionary, "NSMutableDictionary", []string{"dictionary"}, []string{"setObject:forKey:", "objectForKey:"}},
 		{&clsMutableArray, "NSMutableArray", []string{"array"}, []string{"addObject:", "count", "objectAtIndex:", "lastObject"}},
 		{&clsNumber, "NSNumber", []string{"numberWithInteger:"}, []string{"integerValue", "floatValue"}},
-		{&clsModel, "MLModel", []string{"modelWithContentsOfURL:configuration:error:"}, []string{"predictionFromFeatures:error:"}},
+		{&clsModel, "MLModel", []string{"modelWithContentsOfURL:configuration:error:", "compileModelAtURL:error:"}, []string{"predictionFromFeatures:error:"}},
 		{&clsConfiguration, "MLModelConfiguration", nil, []string{"setComputeUnits:", "setFunctionName:"}},
-		{&clsMultiArray, "MLMultiArray", nil, []string{"initWithShape:dataType:error:", "dataPointer", "dataType", "count", "strides", "objectAtIndexedSubscript:"}},
+		{&clsMultiArray, "MLMultiArray", nil, []string{"initWithShape:dataType:error:", "dataPointer", "dataType", "count", "shape", "strides", "objectAtIndexedSubscript:"}},
 		{&clsProvider, "MLDictionaryFeatureProvider", nil, []string{"initWithDictionary:error:"}},
 		{&clsFeatureValue, "MLFeatureValue", []string{"featureValueWithMultiArray:"}, []string{"multiArrayValue"}},
 		{&clsPlan, "MLComputePlan", []string{"loadContentsOfURL:configuration:completionHandler:"}, []string{"modelStructure", "computeDeviceUsageForMLProgramOperation:"}},
@@ -141,9 +144,15 @@ func loadRuntime() error {
 		}
 		*c.dst = cls
 	}
-	compileSync = objc.Send[bool](objc.ID(clsModel), sel("respondsToSelector:"), sel("compileModelAtURL:error:"))
-	if !compileSync && !objc.Send[bool](objc.ID(clsModel), sel("respondsToSelector:"), sel("compileModelAtURL:completionHandler:")) {
-		return fmt.Errorf("%w: MLModel cannot compile a model", ErrUnsupported)
+	return nil
+}
+
+// checkPath refuses a path Foundation cannot hold as a string: a nil
+// NSString argument raises, and an Objective-C exception ends the
+// process.
+func checkPath(path string) error {
+	if path == "" || !utf8.ValidString(path) {
+		return fmt.Errorf("coreml: unusable path %q", path)
 	}
 	return nil
 }
@@ -226,33 +235,17 @@ func Compile(pkg string) (string, error) {
 	if err := load(); err != nil {
 		return "", err
 	}
+	if err := checkPath(pkg); err != nil {
+		return "", err
+	}
 	var out string
 	err := scope(func() error {
-		if compileSync {
-			var nserr objc.ID
-			url := classSend(clsModel, "compileModelAtURL:error:", fileURL(pkg), unsafe.Pointer(&nserr))
-			if url == 0 {
-				return fmt.Errorf("coreml: compile: %s", describe(nserr))
-			}
-			out = goString(send(url, "path"))
-			return nil
+		var nserr objc.ID
+		url := classSend(clsModel, "compileModelAtURL:error:", fileURL(pkg), unsafe.Pointer(&nserr))
+		if url == 0 {
+			return fmt.Errorf("coreml: compile: %s", describe(nserr))
 		}
-		type compiled struct{ path, err string }
-		done := make(chan compiled, 1)
-		handler := objc.NewBlock(func(_ objc.Block, url, nserr objc.ID) {
-			if url == 0 {
-				done <- compiled{err: describe(nserr)}
-				return
-			}
-			done <- compiled{path: goString(send(url, "path"))}
-		})
-		defer handler.Release()
-		classSend(clsModel, "compileModelAtURL:completionHandler:", fileURL(pkg), handler)
-		r := <-done
-		if r.err != "" {
-			return fmt.Errorf("coreml: compile: %s", r.err)
-		}
-		out = r.path
+		out = goString(send(url, "path"))
 		return nil
 	})
 	if err == nil && out == "" {
@@ -275,6 +268,9 @@ type Function struct {
 // function's fixed token count and dim its output width.
 func Open(compiled, function string, length, dim int) (*Function, error) {
 	if err := load(); err != nil {
+		return nil, err
+	}
+	if err := checkPath(compiled); err != nil {
 		return nil, err
 	}
 	f := &Function{compiled: compiled, name: function, length: length, dim: dim}
@@ -386,21 +382,30 @@ func (f *Function) Embed(tokens []int32, out []float32) error {
 	})
 }
 
-// readVector copies an output array into out. Contiguous float32 storage
-// is copied directly; any other layout reads through NSNumber.
+// readVector copies a [1, …, n] output array into out. Contiguous
+// float32 storage is copied directly; any other storage reads through
+// NSNumber at each element's offset.
 func readVector(arr objc.ID, out []float32) error {
 	if n := objc.Send[int](arr, sel("count")); n != len(out) {
 		return fmt.Errorf("coreml: output has %d values, want %d", n, len(out))
 	}
-	if objc.Send[int](arr, sel("dataType")) == dataTypeFloat32 {
-		stride := objc.Send[int](send(send(arr, "strides"), "lastObject"), sel("integerValue"))
-		if ptr := objc.Send[unsafe.Pointer](arr, sel("dataPointer")); ptr != nil && stride == 1 {
+	// With the count checked, a last dimension of that size leaves every
+	// other dimension at 1.
+	if last := objc.Send[int](send(send(arr, "shape"), "lastObject"), sel("integerValue")); last != len(out) {
+		return fmt.Errorf("coreml: output is not one row of %d values", len(out))
+	}
+	stride := objc.Send[int](send(send(arr, "strides"), "lastObject"), sel("integerValue"))
+	if stride < 1 {
+		return fmt.Errorf("coreml: output has stride %d", stride)
+	}
+	if stride == 1 && objc.Send[int](arr, sel("dataType")) == dataTypeFloat32 {
+		if ptr := objc.Send[unsafe.Pointer](arr, sel("dataPointer")); ptr != nil {
 			copy(out, unsafe.Slice((*float32)(ptr), len(out)))
 			return nil
 		}
 	}
 	for i := range out {
-		out[i] = objc.Send[float32](send(arr, "objectAtIndexedSubscript:", i), sel("floatValue"))
+		out[i] = objc.Send[float32](send(arr, "objectAtIndexedSubscript:", i*stride), sel("floatValue"))
 	}
 	return nil
 }
@@ -411,6 +416,9 @@ func readVector(arr objc.ID, out []float32) error {
 func Plan(compiled, function string) (Placement, error) {
 	var p Placement
 	if err := load(); err != nil {
+		return p, err
+	}
+	if err := checkPath(compiled); err != nil {
 		return p, err
 	}
 	err := scope(func() error {
@@ -439,6 +447,15 @@ func Plan(compiled, function string) (Placement, error) {
 			}
 			plan = r.plan
 		case <-time.After(planTimeout):
+			// A plan that still arrives is released, not kept.
+			go func() {
+				if r := <-done; r.plan != 0 {
+					_ = scope(func() error {
+						send(r.plan, "release")
+						return nil
+					})
+				}
+			}()
 			return fmt.Errorf("coreml: compute plan for %s: no answer in %s", function, planTimeout)
 		}
 		defer send(plan, "release")
