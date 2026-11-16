@@ -59,7 +59,7 @@ any object collection detach $SPACE $OBJ $COLL
 
 `POST …/type/:typeId` **sets** the one type, replacing any previous one. There is no unset — every object has a type, and clearing `any.type` through a raw write is `400 membership.type_required`. The meta ids `any`, `type`, `collection` and `spaceIndex` are never an object's type: setting one is `400 membership.meta_type`. Retyping is not a delete: the old type's values and its datasets' records stay on the row as orphan data, read-tolerant.
 
-The two POSTs pre-flight their ids: `404 object.not_found`, `404 type.not_found` / `404 collection.not_found`, and the slot check — a user collection's id in the type route is `400 type.not_a_type`, a user type's id in the collections route is `400 collection.not_a_collection`. A registered built-in in the wrong slot has no row there at all: `miniapp` or `bin` as a type is `404 type.not_found`, `page` or `dataview` as a collection is `404 collection.not_found`. The DELETE pre-flights nothing, on purpose: it is the repair path for a bogus id already on the row.
+The two POSTs pre-flight their ids: `404 object.not_found`, `404 type.not_found` / `404 collection.not_found`, `410 object.deleted` for a deleted type or collection, and the slot check — a user collection's id in the type route is `400 type.not_a_type`, a user type's id in the collections route is `400 collection.not_a_collection`. A registered built-in in the wrong slot has no row there at all: `miniapp` or `bin` as a type is `404 type.not_found`, `page` or `dataview` as a collection is `404 collection.not_found`. The DELETE pre-flights nothing, on purpose: it is the repair path for a bogus id already on the row.
 
 A storage collection — chat messages, editor blocks, a runtime dataset — lives on an object only while its **type** declares the part that owns it ([modules](../types/index.html)); a write without it is `400 dataset.not_declared`, and no write sets a type for you. A type whose part declares a module reserved to the server is carried only by its own root; naming it as `type` is `400 type.reserved_carrier` (no shipped module is reserved).
 
@@ -178,7 +178,7 @@ An edge is `{"source": {spaceId, objectId, dataset, recordId, typeId?}, "kind": 
 curl -X DELETE http://127.0.0.1:2046/v1/spaces/$SPACE/objects/$OBJ   # → 204
 ```
 
-An unknown or already-deleted id is `404 sdk.not_found`, a reader or guest gets `403 space.read_only`, and a derived object — a bundle root installed with `derived: true`, such as the general chat — is permanent: `409 object.derived_undeletable`. To move an object out of sight without destroying it, file it under the built-in `bin` collection instead ([Collections](collections.html)).
+An unknown id is `404 sdk.not_found`, an already-deleted one `410 object.deleted`, a reader or guest gets `403 space.read_only`, and a derived object — a bundle root installed with `derived: true`, such as the general chat — is permanent: `409 object.derived_undeletable`. To move an object out of sight without destroying it, file it under the built-in `bin` collection instead ([Collections](collections.html)).
 
 The row receives a record-level tombstone, disappears from every `objects/query`, and a `removed` entry reaches subscribers of the cross-object stream. Per-object reads of a deleted id (`/query` with `objectId`, editor, history routes) answer `404 object.not_found`; the cross-object query has no such failure — a filter on a dead id returns zero rows.
 

@@ -68,6 +68,7 @@ func (d *deps) propertiesGet(c echo.Context) error {
 //	@Success	200			{object}	api.ModifyResult
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	409			{object}	api.ErrorEnvelope
+//	@Failure	410			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/properties/{objectId}/set/{typeId} [post]
 func (d *deps) propertiesSet(c echo.Context) error {
@@ -119,7 +120,7 @@ func (d *deps) propertiesSet(c echo.Context) error {
 	// slug here — the SDK stores descriptors opaquely and enforces only
 	// kind; this server is the semantics boundary (see descriptor.go).
 	defs, err := ownerProperties(c.Request().Context(), sp, typeId)
-	if err != nil && !errors.Is(err, space.ErrNotFound) {
+	if err != nil && !errors.Is(err, space.ErrNotFound) && !errors.Is(err, space.ErrObjectDeleted) {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
 	}
 	if v := validateDescriptorValues(defs, patch); v != nil {
@@ -163,6 +164,7 @@ func (d *deps) propertiesSet(c echo.Context) error {
 //	@Success	200			{object}	api.ModifyResult
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	404			{object}	api.ErrorEnvelope
+//	@Failure	410			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/properties/{objectId}/type/{typeId} [post]
 func (d *deps) propertiesSetType(c echo.Context) error {
@@ -186,6 +188,10 @@ func (d *deps) propertiesSetType(c echo.Context) error {
 			return writeError(c, http.StatusBadRequest, "type.not_a_type",
 				"the id names a collection — add it through …/collections/:collectionId",
 				map[string]any{"collectionId": typeId, "spaceId": sp.Id()})
+		}
+		if errors.Is(err, space.ErrObjectDeleted) {
+			return writeError(c, http.StatusGone, codeObjectDeleted, "the id names a deleted object",
+				map[string]any{"typeId": typeId, "spaceId": sp.Id()})
 		}
 		return writeError(c, http.StatusNotFound, "type.not_found",
 			"this space has no such type",
@@ -218,6 +224,7 @@ func (d *deps) propertiesSetType(c echo.Context) error {
 //	@Success	200				{object}	api.ModifyResult
 //	@Failure	400				{object}	api.ErrorEnvelope
 //	@Failure	404				{object}	api.ErrorEnvelope
+//	@Failure	410				{object}	api.ErrorEnvelope
 //	@Failure	500				{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/properties/{objectId}/collections/{collectionId} [post]
 func (d *deps) propertiesAttachCollection(c echo.Context) error {
@@ -274,6 +281,10 @@ func (d *deps) propertiesCollectionBinding(c echo.Context, attach bool) error {
 				return writeError(c, http.StatusBadRequest, "collection.not_a_collection",
 					"the id names a type — set it through …/type/:typeId",
 					map[string]any{"typeId": collectionId, "spaceId": sp.Id()})
+			}
+			if errors.Is(err, space.ErrObjectDeleted) {
+				return writeError(c, http.StatusGone, codeObjectDeleted, "the id names a deleted object",
+					map[string]any{"collectionId": collectionId, "spaceId": sp.Id()})
 			}
 			return writeError(c, http.StatusNotFound, "collection.not_found",
 				"this space has no such collection",

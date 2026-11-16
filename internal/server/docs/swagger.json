@@ -8933,6 +8933,16 @@
                         },
                         "description": "Conflict"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -9183,6 +9193,16 @@
                             }
                         },
                         "description": "Conflict"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -9488,6 +9508,16 @@
                         },
                         "description": "Conflict"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -9555,6 +9585,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -9637,6 +9677,16 @@
                         },
                         "description": "Not Found"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -9696,6 +9746,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -9785,6 +9845,16 @@
                         },
                         "description": "Not Found"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -9856,6 +9926,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -9946,6 +10026,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -12106,6 +12196,16 @@
                             }
                         },
                         "description": "Conflict"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -14564,6 +14664,16 @@
                         },
                         "description": "Not Found"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -14663,6 +14773,16 @@
                         },
                         "description": "Conflict"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -14741,6 +14861,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -15524,6 +15654,16 @@
                         },
                         "description": "Conflict"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -15581,6 +15721,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -15663,6 +15813,16 @@
                         },
                         "description": "Not Found"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -15722,6 +15882,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -15784,6 +15954,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -15874,6 +16054,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -15974,6 +16164,16 @@
                         },
                         "description": "Not Found"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -16044,6 +16244,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -16143,6 +16353,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -16253,6 +16473,16 @@
                         },
                         "description": "Conflict"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -16334,6 +16564,16 @@
                         },
                         "description": "Not Found"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -16393,6 +16633,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -16492,6 +16742,16 @@
                         },
                         "description": "Conflict"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -16553,6 +16813,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -16643,6 +16913,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -16753,6 +17033,16 @@
                         },
                         "description": "Conflict"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -16812,6 +17102,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -16901,6 +17201,16 @@
                         },
                         "description": "Not Found"
                     },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -16962,6 +17272,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {
@@ -17052,6 +17372,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
                     },
                     "500": {
                         "content": {

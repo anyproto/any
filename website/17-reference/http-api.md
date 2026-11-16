@@ -116,7 +116,7 @@ Pending rows are discovered through `GET /v1/spaces?status=one_to_one_pending` /
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| POST | `/v1/spaces/:spaceId/bundles` | `{id, name?, rootType?, rootCollections?, rootProperties?, derived?, parts?, properties?, xKey?, collection?, layout?, hidden?}` | `{bundle, installed}` | adopt-or-install; a bundle may declare a definition on its root — a type (`parts`, `properties`, `xKey`, `layout`, `hidden`) or, with `collection: true`, a collection (`properties`, `xKey`, `hidden`; `parts` / `layout` refused). A declaring root hosts its own values and records; `rootType` is required when the body declares nothing and refused next to a declaration. `409 bundle.not_ready`, `400 request.missing_field`, `400 type.not_found`, `400 collection.not_found`, `400 property.format_violation`, `409 type.xkey_conflict`, `400 dataset.module_reserved`, `409 bundle.reserved` for a `system:` id |
+| POST | `/v1/spaces/:spaceId/bundles` | `{id, name?, rootType?, rootCollections?, rootProperties?, derived?, parts?, properties?, xKey?, collection?, layout?, hidden?}` | `{bundle, installed}` | adopt-or-install; a bundle may declare a definition on its root — a type (`parts`, `properties`, `xKey`, `layout`, `hidden`) or, with `collection: true`, a collection (`properties`, `xKey`, `hidden`; `parts` / `layout` refused). A declaring root hosts its own values and records; `rootType` is required when the body declares nothing and refused next to a declaration. `409 bundle.not_ready`, `400 request.missing_field`, `400 type.not_found`, `400 collection.not_found`, `410 object.deleted`, `400 property.format_violation`, `409 type.xkey_conflict`, `400 dataset.module_reserved`, `409 bundle.reserved` for a `system:` id |
 | GET | `/v1/spaces/:spaceId/bundles` | — | `{bundles: [Bundle], synced}` | answers after the registry convergence wait; `synced: true` means an absent bundle is definitively not installed |
 | GET | `/v1/spaces/:spaceId/bundles/:bundleId` | — | `{bundle, synced}` | `404 bundle.not_found` |
 | POST | `/v1/spaces/:spaceId/bundles/:bundleId/resolve` | `{loserRootId}` | 204 | `409 bundle.loser_not_ready`, `409 bundle.not_loser` |
@@ -149,7 +149,7 @@ Full semantics in [Bundles](../collaboration/bundles.html).
 | POST | `/v1/spaces/:spaceId/objects/query/subscribe` | snapshot body | SSE | |
 | POST | `/v1/spaces/:spaceId/objects/aggregate` | `{pipeline, groupLimit?, accumArrayLimit?, memoryLimitBytes?, explain?}` | `{records}` \| `{plan}` | `400 aggregate.bad_pipeline`, `400 aggregate.limit_exceeded` |
 | GET | `/v1/spaces/:spaceId/objects/:objectId` | — | `{objectId, record}` | the raw `objects` row; `404 object.not_found`, `410 object.deleted` |
-| DELETE | `/v1/spaces/:spaceId/objects/:objectId` | — | 204 | tombstones the row, then tears down the tree; `404 sdk.not_found`, `409 object.derived_undeletable`, `403 space.read_only` |
+| DELETE | `/v1/spaces/:spaceId/objects/:objectId` | — | 204 | tombstones the row, then tears down the tree; `404 sdk.not_found`, `410 object.deleted`, `409 object.derived_undeletable`, `403 space.read_only` |
 
 ```bash
 curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects \
@@ -238,13 +238,13 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 |---|---|---|---|---|
 | GET | `/v1/spaces/:spaceId/types` | `includeHidden?` | `{types}` | built-ins `any`, `spaceIndex`, `type`, `collection` first, then the registered hidden `page` / `dataview`, then user types; hidden types (the hidden built-ins, and any type created, patched or installed with `hidden: true`) only with `includeHidden=true` |
 | POST | `/v1/spaces/:spaceId/types` | `{name?, description?, iconCid?, xKey, layout?, hidden?, meta?}` | 201 `{typeId}` | `400 type.xkey_required`, `409 type.xkey_conflict` (one handle namespace with collections); properties and parts are added through their own routes |
-| GET | `/v1/spaces/:spaceId/types/:typeId` | — | `TypeInfo` | `404 type.not_found`; `400 type.not_a_type` for a user collection id |
-| DELETE | `/v1/spaces/:spaceId/types/:typeId` | — | 204 | objects of the type keep its id; `400 type.registered` (built-in or registered), `400 type.not_a_type` (a user collection), `404 type.not_found`; `403 space.read_only`, `409 object.derived_undeletable` |
-| GET | `…/types/:typeId/properties` | — | `{properties: [PropertyDef]}` | `404 type.not_found`; `200 []` means "no properties yet" |
+| GET | `/v1/spaces/:spaceId/types/:typeId` | — | `TypeInfo` | `404 type.not_found`, `410 object.deleted`; `400 type.not_a_type` for a user collection id |
+| DELETE | `/v1/spaces/:spaceId/types/:typeId` | — | 204 | objects of the type keep its id; `400 type.registered` (built-in or registered), `400 type.not_a_type` (a user collection), `404 type.not_found`, `410 object.deleted`; `403 space.read_only`, `409 object.derived_undeletable` |
+| GET | `…/types/:typeId/properties` | — | `{properties: [PropertyDef]}` | `404 type.not_found`, `410 object.deleted`; `200 []` means "no properties yet" |
 | POST | `…/types/:typeId/properties` | `{name?, description?, kind, xKey?, xFormat?, meta?, scope?}` | 201 `{propId}` | `kind` required and pinned (`string`, `number`, `boolean`, `array`, `object`, `datetime`); `xFormat` is the descriptor ([Types and properties](../database/types-and-properties.html)); `meta` takes only `index`; `400 property.format_invalid`, `409 property.xkey_conflict`, `400 type.registered` |
 | PATCH | `…/types/:typeId/properties/:propId` | `{set, unset}` | 204 | `name`, `description`, `xKey`, `meta.index`, `xFormat.*` leaves; `400 property.immutable`, `400 property.format_invalid`, `409 property.xkey_conflict`, `404 sdk.not_found` |
 | DELETE | `…/types/:typeId/properties/:propId` | — | 204 | tombstone; values not cleaned up |
-| PATCH | `…/types/:typeId` | `{name?, description?, iconCid?, layout?, hidden?, meta?}` | 204 | rendering slice, the hidden flag and the per-key meta bag (`null` unsets a key); `400 type.registered`, `404 type.not_found` |
+| PATCH | `…/types/:typeId` | `{name?, description?, iconCid?, layout?, hidden?, meta?}` | 204 | rendering slice, the hidden flag and the per-key meta bag (`null` unsets a key); `400 type.registered`, `404 type.not_found`, `410 object.deleted` |
 | GET | `…/types/:typeId/parts` | — | `{parts: [{id, key, name?, icon?, pos?, hidden?, ui?, uses?, datasets: [DatasetDef]}]}` | |
 | POST | `…/types/:typeId/parts` | `{key, name?, icon?, pos?, hidden?, ui?, uses?, datasets?: [dataset draft]}` | 201 `{partId}` | one change; `409 dataset.key_conflict`, `400 dataset.decl_invalid`, `400 dataset.module_unknown`, `400 dataset.module_reserved`, `409 dataset.module_owned` |
 | PATCH | `…/types/:typeId/parts/:partId` | `{set, unset}` | 204 | `name`, `icon`, `pos`, `hidden`, `ui`, `uses`; `400 dataset.immutable` |
@@ -260,14 +260,14 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 | DELETE | `…/types/:typeId/datasets/:defId/indexes/:indexId` | — | 204 | `404 sdk.not_found` |
 | GET | `/v1/spaces/:spaceId/collections` | `includeHidden?` | `{collections}` | the meta row `collection` first, then the registered hidden `template`, `miniapp` and `bin`, then user collections |
 | POST | `/v1/spaces/:spaceId/collections` | `{name?, description?, iconCid?, xKey, hidden?, meta?}` | 201 `{collectionId}` | the type body minus `layout`; `400 type.xkey_required`, `409 type.xkey_conflict` |
-| GET | `/v1/spaces/:spaceId/collections/:collectionId` | — | `CollectionInfo` | `404 collection.not_found`; `400 collection.not_a_collection` for a user type id |
-| PATCH | `…/collections/:collectionId` | `{name?, description?, iconCid?, hidden?, meta?}` | 204 | `400 collection.registered` on a built-in, `404 collection.not_found` |
-| DELETE | `…/collections/:collectionId` | — | 204 | members keep its id; `400 collection.registered` (the meta row or a registered one), `400 collection.not_a_collection` (a user type), `404 collection.not_found`; `403 space.read_only`, `409 object.derived_undeletable` |
+| GET | `/v1/spaces/:spaceId/collections/:collectionId` | — | `CollectionInfo` | `404 collection.not_found`, `410 object.deleted`; `400 collection.not_a_collection` for a user type id |
+| PATCH | `…/collections/:collectionId` | `{name?, description?, iconCid?, hidden?, meta?}` | 204 | `400 collection.registered` on a built-in, `404 collection.not_found`, `410 object.deleted` |
+| DELETE | `…/collections/:collectionId` | — | 204 | members keep its id; `400 collection.registered` (the meta row or a registered one), `400 collection.not_a_collection` (a user type), `404 collection.not_found`, `410 object.deleted`; `403 space.read_only`, `409 object.derived_undeletable` |
 | GET/POST/PATCH/DELETE | `…/collections/:collectionId/properties[/:propId]` | as the `…/types` twins | as the `…/types` twins | one property surface: same bodies, same codes; a column write on a built-in is `400 type.registered` |
 | GET | `/v1/spaces/:spaceId/properties/:objectId` | — | `{record}` | raw `objects` row |
 | POST | `/v1/spaces/:spaceId/properties/:objectId/set/:ownerId` | `{patch: {propId: value}}` | write result | `ownerId` is the object's type, one of its collections, or a module namespace its type grants (`chat` for `chat.notifyMode`); routes by the props' declared scope; `400 property.format_violation`, `property.kind_mismatch`, `property.not_found`; `400 dataset.not_declared` for an owner the object does not have |
-| POST | `…/properties/:objectId/type/:typeId` | — | write result | `$set any.type`, replacing the previous one (no unset; a raw `$unset` is `400 membership.type_required`); checks both ids (`404 object.not_found`, `404 type.not_found`, `400 type.not_a_type`); `400 type.reserved_carrier`; `400 membership.meta_type` for a meta id |
-| POST | `…/properties/:objectId/collections/:collectionId` | — | write result | idempotent `$addToSet any.collections`; checks both ids (`404 object.not_found`, `404 collection.not_found`, `400 collection.not_a_collection`); `collections/bin` also stamps `bin.movedAt` / `bin.movedBy` |
+| POST | `…/properties/:objectId/type/:typeId` | — | write result | `$set any.type`, replacing the previous one (no unset; a raw `$unset` is `400 membership.type_required`); checks both ids (`404 object.not_found`, `404 type.not_found` / `410 object.deleted` for the type, `400 type.not_a_type`); `400 type.reserved_carrier`; `400 membership.meta_type` for a meta id |
+| POST | `…/properties/:objectId/collections/:collectionId` | — | write result | idempotent `$addToSet any.collections`; checks both ids (`404 object.not_found`, `404 collection.not_found` / `410 object.deleted` for the collection, `400 collection.not_a_collection`); `collections/bin` also stamps `bin.movedAt` / `bin.movedBy` |
 | DELETE | `…/properties/:objectId/collections/:collectionId` | — | write result | idempotent `$pull`; checks neither id (the repair path); values and records stay as orphan data; `collections/bin` clears the stamps |
 
 ```bash
