@@ -124,7 +124,7 @@ Panics are converted to `500 internal` with a generic message.
 | Code | Status | Meaning |
 |---|---|---|
 | `object.not_found` | 404 | object unknown or deleted in this space |
-| `object.deleted` | 410 | an id naming a deleted object, type or collection — distinct from never-existed: `GET` or `DELETE …/objects/:objectId`, the `…/types/:typeId` and `…/collections/:collectionId` routes, the membership `POST`s, `from` / `type` / `collections` on `POST …/objects`, a bundle's root or child, a file attach |
+| `object.deleted` | 410 | an id naming a deleted object, type or collection — distinct from never-existed: `GET` or `DELETE …/objects/:objectId`, the `…/types/:typeId` and `…/collections/:collectionId` routes, a type or collection id on the membership `POST`s, `from` / `type` / `collections` on `POST …/objects`, a bundle's root or child, a file attach |
 | `object.derived_undeletable` | 409 | `DELETE` on a derived object (a bundle root installed with `derived: true`, such as the general chat), or `DELETE …/bundles/:bundleId` on a derived install |
 | `object.id_required` | 400 | the object id is a serialized nil (`"None"`, `"null"`, `"undefined"`) |
 | `record.deleted` | 410 | a write addressed a tombstoned record; the id is burned for good |
@@ -263,7 +263,7 @@ Panics are converted to `500 internal` with a generic message.
 | Code | Status | Meaning |
 |---|---|---|
 | `sdk.not_implemented` | 501 | placeholder route (sync-status peers) |
-| `sdk.not_found` | 404 | the engine reports the target gone (deleted object, unknown property or definition) |
+| `sdk.not_found` | 404 | the engine reports no such target (unknown object, property or definition) |
 | `sdk.crdt_version_newer` | 409 | the account's data was written by a newer release (`details.stored` > `details.supported`): booting it refuses, a running server turns read-only until upgraded (`GET /v1/health` → `crdtVersion`) |
 | `sdk.store_corrupt` | 500 | the account's SDK store `sdk.db` has a broken header or a page that fails its checksum while opening (in the quick check on a dirty open or a later read); booting it refuses and it is never repaired in place — remove `sdk.db` and the files named after it from the account's `sdk/` dir and boot again: the SDK replays the synced trees into a fresh one; what lived only in `sdk.db` is lost: the local store, local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone) |
 | `storage.no_space` | 507 | the device has no disk space left — `POST /v1/auth` could not create the account dir, write the device key or open a store; free space and retry |

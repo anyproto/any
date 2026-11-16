@@ -96,6 +96,7 @@ func (d *deps) typeCreate(c echo.Context) error {
 //	@Success	201		{object}	api.AddPropertyResponse
 //	@Failure	400		{object}	api.ErrorEnvelope
 //	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	410		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/properties [post]
 func (d *deps) typeAddProperty(c echo.Context) error {
@@ -276,6 +277,7 @@ func (d *deps) typeGet(c echo.Context) error {
 //	@Param		typeId	path		string	true	"Type ID"
 //	@Success	200		{object}	api.PropertiesListResponse
 //	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	410		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/properties [get]
 func (d *deps) typeProperties(c echo.Context) error {
@@ -351,6 +353,7 @@ func (d *deps) propertiesOf(c echo.Context, sp space.Space, ownerId string) erro
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	410	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/properties/{propId} [patch]
 func (d *deps) typePatchProperty(c echo.Context) error {
@@ -480,6 +483,7 @@ func (d *deps) propertyWriteError(c echo.Context, err error, typeId, propId stri
 //	@Param		propId	path	string	true	"Property ID"
 //	@Success	204
 //	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	410	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/properties/{propId} [delete]
 func (d *deps) typeRemoveProperty(c echo.Context) error {

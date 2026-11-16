@@ -1420,7 +1420,7 @@ required when the body declares nothing (`400 request.missing_field`;
 every object has a type, `page` for a plain document), must name a
 type the space has (`400 type.not_found`), and every
 `rootCollections` entry a collection it has
-(`400 collection.not_found`) — the create path would otherwise
+(`400 collection.not_found`; a deleted one is `410 object.deleted`) — the create path would otherwise
 drop an unknown id and report success — and property values must fit
 their descriptor slug (`400 property.format_violation`); both are
 checked BEFORE the root is created, so a rejected request never leaves
@@ -2929,8 +2929,9 @@ other. Consumers read the keys they own; the server interprets none
 of them.
 
 `GET …/types/:typeId` and `GET …/types/:typeId/properties` answer `404
-type.not_found` for an unknown typeId (deleted, never existed, or an id
-that resolves to a non-definition object), and `400 type.not_a_type`
+type.not_found` for an unknown typeId (never existed, or an id that
+resolves to a non-definition object), `410 object.deleted` for a deleted
+one, and `400 type.not_a_type`
 when the id names a user collection (§ Collections; a registered
 collection has no type row either, so `miniapp` / `bin` / `template`
 answer `404`),
@@ -3745,7 +3746,7 @@ So a client showing an object's collections ignores an id that is not a
 known collection. Lists are not affected: no client lists the members
 of a collection that no longer exists. To clean up, unfile the object
 from the dead id — the unfile route does not check that the collection
-exists. Filing under the dead id again is `404 collection.not_found`.
+exists. Filing under the dead id again is `410 object.deleted`.
 
 #### Built-in collections: `miniapp`, `bin`, `template`
 

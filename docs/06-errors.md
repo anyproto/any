@@ -118,7 +118,7 @@ bundle.reserved                  # 409 — a client ensure with an id under the 
 catalog.not_found                # 404 — GET /v1/catalog/:usecaseId or POST …/setup naming no usecase of the embedded catalog (details.usecaseId)
 
 object.not_found                 # 404 — objectId unknown or deleted in this space (per-object query, editor, markdown, history …)
-object.deleted                   # 410 — an id naming a deleted object, type or collection (distinct from never-existed): GET or DELETE …/objects/:objectId, the …/types/:typeId and …/collections/:collectionId routes, the membership POSTs, `from` / `type` / `collections` on POST …/objects, a bundle's root or child type and collections, a file attach (POST …/objects/:objectId/files)
+object.deleted                   # 410 — an id naming a deleted object, type or collection (distinct from never-existed): GET or DELETE …/objects/:objectId, the …/types/:typeId and …/collections/:collectionId routes, a type or collection id on the membership POSTs, `from` / `type` / `collections` on POST …/objects, a bundle's root or child type and collections, a file attach (POST …/objects/:objectId/files)
 record.deleted                   # 410 — a write addressed a tombstoned record (a block, a message, a runtime record): the id is burned for good, never reused
 record.wrong_object              # 400 — a write to a shared dataset (modify, delete-records) names a record of another object: a record id is the plain id or `<objectId>/<recordId>` of the request's own objectId, and a plain id never holds `/` (details.objectId, details.dataset)
 object.derived_undeletable       # 409 — DELETE on a derived object (a bundle root installed with derived:true, e.g. the general chat), or DELETE …/bundles/:bundleId on a derived install; derived objects are permanent
@@ -244,7 +244,7 @@ search.bad_mode                  # 400 — mode not hybrid | fts | vector | titl
 search.bad_scope                 # 400 — scope not a valid slug ([a-z0-9_-], max 64; scopes are an open set)
 
 sdk.not_implemented              # 501 — GET …/sync-status/peers
-sdk.not_found                    # 404 — the SDK reports the target is gone (object, type, property, part or dataset definition)
+sdk.not_found                    # 404 — the SDK reports no such target (object, type, property, part or dataset definition)
 sdk.crdt_version_newer           # 409 — the account's data was written by a newer release (details.stored > details.supported): POST /v1/auth refuses to boot it; a running server whose account is raised by another device turns read-only — every synced write answers this until the server is upgraded (GET /v1/health.crdtVersion)
 sdk.store_corrupt                # 500 — the account's SDK store (sdk.db) has a broken header or a page that fails its checksum while opening (in the quick check on a dirty open or a later read): POST /v1/auth refuses to boot it; never repaired in place — remove sdk.db and the files named after it from the account's sdk dir and boot again: the SDK replays the synced trees into a fresh one; what lived only in sdk.db is lost: the local store, local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone)
 

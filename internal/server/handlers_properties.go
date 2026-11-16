@@ -189,7 +189,7 @@ func (d *deps) propertiesSetType(c echo.Context) error {
 				map[string]any{"collectionId": typeId, "spaceId": sp.Id()})
 		}
 		if errors.Is(err, space.ErrObjectDeleted) {
-			return writeError(c, http.StatusGone, codeObjectDeleted, "the type is deleted",
+			return writeError(c, http.StatusGone, codeObjectDeleted, "the id names a deleted object",
 				map[string]any{"typeId": typeId, "spaceId": sp.Id()})
 		}
 		return writeError(c, http.StatusNotFound, "type.not_found",
@@ -282,7 +282,7 @@ func (d *deps) propertiesCollectionBinding(c echo.Context, attach bool) error {
 					map[string]any{"typeId": collectionId, "spaceId": sp.Id()})
 			}
 			if errors.Is(err, space.ErrObjectDeleted) {
-				return writeError(c, http.StatusGone, codeObjectDeleted, "the collection is deleted",
+				return writeError(c, http.StatusGone, codeObjectDeleted, "the id names a deleted object",
 					map[string]any{"collectionId": collectionId, "spaceId": sp.Id()})
 			}
 			return writeError(c, http.StatusNotFound, "collection.not_found",

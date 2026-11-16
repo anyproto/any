@@ -37,6 +37,7 @@ const (
 //	@Param		typeId	path		string	true	"Type ID"
 //	@Success	200		{object}	api.TypePartsListResponse
 //	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	410		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/parts [get]
 func (d *deps) typeParts(c echo.Context) error {
@@ -75,6 +76,7 @@ func (d *deps) typeParts(c echo.Context) error {
 //	@Success	201		{object}	api.AddPartResponse
 //	@Failure	400		{object}	api.ErrorEnvelope
 //	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	410		{object}	api.ErrorEnvelope
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/parts [post]
@@ -129,6 +131,7 @@ const partMutableHint = "path is pinned; mutable paths: name, icon, pos, hidden,
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	410	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/parts/{partId} [patch]
 func (d *deps) typePatchPart(c echo.Context) error {
@@ -257,6 +260,7 @@ func partUIFromWire(raw json.RawMessage) (map[string]any, string, string) {
 //	@Param		partId	path	string	true	"Part ID"
 //	@Success	204
 //	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	410	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/parts/{partId} [delete]
 func (d *deps) typeRemovePart(c echo.Context) error {
@@ -359,6 +363,7 @@ func partDefToAPI(p space.PartDef) api.PartDefResponse {
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	410	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId} [patch]
 func (d *deps) typePatch(c echo.Context) error {
