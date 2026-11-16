@@ -173,7 +173,7 @@ any type property patch $SPACE $CRED $SECRET --set '{"name": "Password"}'
 any type property option set $SPACE $CRED $CATEGORY finance --name Finance --color amber --pos a2
 ```
 
-A choice value stores the option **key** (`work`), never its label, so renaming an option is one definition write and zero object writes. What you cannot change is `kind`: it is the one thing every peer has already relied on when validating writes (`400 property.immutable`). Details in [Property lifecycle](../database/property-lifecycle.html).
+A choice value stores the option **key** (`work`), never its label, so renaming an option is one definition write and zero object writes. What you cannot change is `kind`: it is the one thing every peer has already relied on when validating writes (`400 property.immutable`). To get another kind, define a new property and move the values — see [Change a kind](../database/property-lifecycle.html#6-change-a-kind). Other details in [Property lifecycle](../database/property-lifecycle.html).
 
 ## Where this level ends
 
