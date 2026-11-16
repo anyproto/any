@@ -445,7 +445,15 @@ func TestServer_BundleEnsurePreflight(t *testing.T) {
 	}
 
 	// A deleted definition answers 410, before any root is minted.
-	deadType := plainType(t, e, sp.Id)
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Dead","xKey":"dead"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
+	}
+	var createdType api.TypesCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &createdType); err != nil {
+		t.Fatal(err)
+	}
+	deadType := createdType.TypeId
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/collections", `{"name":"Gone","xKey":"gone"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create collection: %d %s", rec.Code, rec.Body.String())

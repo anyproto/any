@@ -68,6 +68,7 @@ func (d *deps) propertiesGet(c echo.Context) error {
 //	@Success	200			{object}	api.ModifyResult
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	409			{object}	api.ErrorEnvelope
+//	@Failure	410			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/properties/{objectId}/set/{typeId} [post]
 func (d *deps) propertiesSet(c echo.Context) error {

@@ -1420,7 +1420,8 @@ required when the body declares nothing (`400 request.missing_field`;
 every object has a type, `page` for a plain document), must name a
 type the space has (`400 type.not_found`), and every
 `rootCollections` entry a collection it has
-(`400 collection.not_found`; a deleted one is `410 object.deleted`) — the create path would otherwise
+(`400 collection.not_found`); a deleted type or collection is
+`410 object.deleted` — the create path would otherwise
 drop an unknown id and report success — and property values must fit
 their descriptor slug (`400 property.format_violation`); both are
 checked BEFORE the root is created, so a rejected request never leaves
@@ -2908,7 +2909,8 @@ checks only the shape: `type` a non-empty slug, `config` an object
 `{name?, description?, iconCid?, layout?, hidden?, meta?}`,
 at least one (`400 request.missing_field`): absent keeps, an empty
 string clears a text field, `"layout": null` clears the layout; `204`,
-`400 type.registered` on a built-in, `404 type.not_found`.
+`400 type.registered` on a built-in, `404 type.not_found`,
+`410 object.deleted`.
 
 `hidden` (bool, `type.hidden`) keeps the type out of `GET …/types` —
 the picker view — unless the request carries `?includeHidden=true`;
@@ -3705,7 +3707,7 @@ registered ones with `xKey` equal to their id.
 iconCid?, hidden?, meta?}`, at least one (`400 request.missing_field`):
 absent keeps, an empty string clears a text field, `meta` patches per
 key. `204`; `400 collection.registered` on a built-in; `404
-collection.not_found`.
+collection.not_found`; `410 object.deleted`.
 
 An id that names a user type answers `400 collection.not_a_collection`
 on every route here — set it with
@@ -3868,7 +3870,7 @@ on `POST /v1/spaces/:spaceId/objects` when the object is new.
 
 Both POSTs pre-flight their ids — `404 object.not_found` for an unknown
 object, `404 type.not_found` / `404 collection.not_found` for an id the
-space does not have, and `400 type.not_a_type` / `400
+space does not have, `410 object.deleted` for a deleted one, and `400 type.not_a_type` / `400
 collection.not_a_collection` when the id names the other surface —
 because `any.type` and `any.collections` are synced DAG writes with no
 validation behind them, so a typo would replicate permanently. Neither
