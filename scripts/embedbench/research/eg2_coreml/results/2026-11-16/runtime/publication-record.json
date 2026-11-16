@@ -34,5 +34,29 @@
     "originalSHA256": "7a7b6b9af4eca0d3780c3f8c08ccf040cb8928fe92524f562d7884611b3d2069",
     "publishedSHA256": "7a7b6b9af4eca0d3780c3f8c08ccf040cb8928fe92524f562d7884611b3d2069",
     "normalization": "Trailing whitespace and terminal newline only"
+  },
+  {
+    "file": "b7d2c5ee/binding.log",
+    "originalSHA256": "ccd1043ad1ddf64940f5e8a652cdc714516b52c8009946290b4495a0a80e630d",
+    "publishedSHA256": "ccd1043ad1ddf64940f5e8a652cdc714516b52c8009946290b4495a0a80e630d",
+    "normalization": "Trailing whitespace and terminal newline only"
+  },
+  {
+    "file": "b7d2c5ee/sysctl.txt",
+    "originalSHA256": "8a09d16efa3abe0dae1ff64494ce25f82d03d22c94fe3a86756370406a2043c9",
+    "publishedSHA256": "8a09d16efa3abe0dae1ff64494ce25f82d03d22c94fe3a86756370406a2043c9",
+    "normalization": "Trailing whitespace and terminal newline only"
+  },
+  {
+    "file": "b7d2c5ee/integration.log",
+    "originalSHA256": "90f1518e376c18d6d6a3187850e2d02f8adfcb65a9947eceb9054e0e96e54d9f",
+    "publishedSHA256": "90f1518e376c18d6d6a3187850e2d02f8adfcb65a9947eceb9054e0e96e54d9f",
+    "normalization": "Trailing whitespace and terminal newline only"
+  },
+  {
+    "file": "b7d2c5ee/status.json",
+    "originalSHA256": "f82bcda495e473dc63791d79406c14150bf29d06e80db485c0e1c047dd24f9eb",
+    "publishedSHA256": "f82bcda495e473dc63791d79406c14150bf29d06e80db485c0e1c047dd24f9eb",
+    "normalization": "Trailing whitespace and terminal newline only"
   }
 ]

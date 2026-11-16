@@ -1,0 +1,29 @@
+=== RUN   TestLocal_NeuralEnginePackage
+    embed_ane_local_test.go:208: doc lengths in tokens: [11 30 93 129 303 597 1269 184 410 1210]; functions: [128 256 512 1024 2048]
+    embed_ane_local_test.go:225: llama.cpp: 10 docs in 1.173s
+    embed_ane.go:441: starting
+    embed_ane.go:266: s128 ready (plan 31.109s, load 22.085s, 6195 operations on the neural engine, 14 on the cpu)
+    embed_ane.go:266: s256 ready (plan 33.275s, load 24.909s, 6196 operations on the neural engine, 13 on the cpu)
+    embed_ane.go:266: s512 ready (plan 35.85s, load 27.479s, 6196 operations on the neural engine, 13 on the cpu)
+    embed_ane.go:266: s1024 ready (plan 42.852s, load 34.417s, 6196 operations on the neural engine, 13 on the cpu)
+    embed_ane.go:266: s2048 ready (plan 59.58s, load 50.704s, 6196 operations on the neural engine, 13 on the cpu)
+    embed_ane_local_test.go:269: every function ready after 6m5s
+    embed_ane_local_test.go:275: s128 served 4 texts
+    embed_ane_local_test.go:275: s256 served 2 texts
+    embed_ane_local_test.go:275: s512 served 2 texts
+    embed_ane_local_test.go:275: s1024 served 1 texts
+    embed_ane_local_test.go:275: s2048 served 2 texts
+    embed_ane_local_test.go:277: neural engine: 10 docs in 795ms (llama.cpp alone: 1.173s)
+    embed_ane_local_test.go:284: text 0 (11 tokens): cosine 0.999812 to llama.cpp
+    embed_ane_local_test.go:284: text 1 (30 tokens): cosine 0.999747 to llama.cpp
+    embed_ane_local_test.go:284: text 2 (93 tokens): cosine 0.999728 to llama.cpp
+    embed_ane_local_test.go:284: text 3 (129 tokens): cosine 0.999772 to llama.cpp
+    embed_ane_local_test.go:284: text 4 (303 tokens): cosine 0.999733 to llama.cpp
+    embed_ane_local_test.go:284: text 5 (597 tokens): cosine 0.999700 to llama.cpp
+    embed_ane_local_test.go:284: text 6 (1269 tokens): cosine 0.999636 to llama.cpp
+    embed_ane_local_test.go:284: text 7 (184 tokens): cosine 0.999654 to llama.cpp
+    embed_ane_local_test.go:284: text 8 (410 tokens): cosine 0.999768 to llama.cpp
+    embed_ane_local_test.go:284: text 9 (1210 tokens): cosine 0.999753 to llama.cpp
+    embed_ane_local_test.go:284: text 10 (query): cosine 0.999879 to llama.cpp
+--- PASS: TestLocal_NeuralEnginePackage (369.42s)
+PASS

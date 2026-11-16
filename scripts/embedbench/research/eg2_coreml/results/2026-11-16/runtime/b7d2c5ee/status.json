@@ -1,0 +1,18 @@
+{
+  "commit": "b7d2c5ee9002713d2e4dc9f6d0a8d8fbd9be095a",
+  "defaultLengths": true,
+  "steps": [
+    {
+      "name": "binding",
+      "exitCode": 0,
+      "seconds": 386.5923020839691
+    },
+    {
+      "name": "integration",
+      "exitCode": 0,
+      "seconds": 370.2836706638336
+    }
+  ],
+  "phase": "complete",
+  "testsPassed": true
+}

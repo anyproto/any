@@ -1,0 +1,15 @@
+{
+  "commit": "b7d2c5ee9002713d2e4dc9f6d0a8d8fbd9be095a",
+  "go": "go version go1.27.1 darwin/arm64",
+  "CGO_ENABLED": "0",
+  "binaries": {
+    "coreml-b7d2c5ee.test": {
+      "bytes": 5801250,
+      "sha256": "41798cd9eb750628d7b5abb479b0472398b187efe7d995626db8030306d18729"
+    },
+    "indexer-b7d2c5ee.test": {
+      "bytes": 37983906,
+      "sha256": "59716cb5d07840fc74c49cc0d8b06c3a873c1344bc5c5268868b416ec1f775bf"
+    }
+  }
+}

@@ -1,0 +1,53 @@
+=== RUN   TestPackage
+    coreml_darwin_test.go:80: neural engine among the compute devices: true
+    coreml_darwin_test.go:108: using the compiled model at /tmp/eg2-owned-2048-20261116/models/EmbeddingGemma2Owned.mlmodelc
+    coreml_darwin_test.go:119: s128 plan in 31.361s: 6195 neural engine, 0 gpu, 14 cpu operations, cpu core []
+    coreml_darwin_test.go:136: s128 load 21.908s, first predict 18.324ms, norm 1.00000007
+    coreml_darwin_test.go:119: s256 plan in 32.933s: 6196 neural engine, 0 gpu, 13 cpu operations, cpu core []
+    coreml_darwin_test.go:136: s256 load 24.524s, first predict 21.236ms, norm 1.00000007
+    coreml_darwin_test.go:119: s512 plan in 35.477s: 6196 neural engine, 0 gpu, 13 cpu operations, cpu core []
+    coreml_darwin_test.go:136: s512 load 27.217s, first predict 37.46ms, norm 1.00000007
+    coreml_darwin_test.go:119: s1024 plan in 42.469s: 6196 neural engine, 0 gpu, 13 cpu operations, cpu core []
+    coreml_darwin_test.go:136: s1024 load 33.966s, first predict 95.972ms, norm 1.00000007
+    coreml_darwin_test.go:119: s2048 plan in 58.416s: 6196 neural engine, 0 gpu, 13 cpu operations, cpu core []
+    coreml_darwin_test.go:136: s2048 load 49.994s, first predict 306.604ms, norm 1.00000007
+=== RUN   TestPackage/reference
+    coreml_darwin_test.go:177: case 0: s128, 9 tokens, cosine 0.99995254, max abs 0.001001
+    coreml_darwin_test.go:177: case 1: s128, 18 tokens, cosine 0.99997980, max abs 0.000943
+    coreml_darwin_test.go:177: case 2: s128, 29 tokens, cosine 0.99996786, max abs 0.001344
+    coreml_darwin_test.go:177: case 5: s256, 18 tokens, cosine 0.99997980, max abs 0.000943
+    coreml_darwin_test.go:177: case 9: s256, 210 tokens, cosine 0.99997178, max abs 0.001022
+    coreml_darwin_test.go:177: case 4: s512, 505 tokens, cosine 0.99998191, max abs 0.000762
+    coreml_darwin_test.go:177: case 6: s512, 18 tokens, cosine 0.99997939, max abs 0.001026
+    coreml_darwin_test.go:177: case 8: s512, 413 tokens, cosine 0.99997802, max abs 0.000982
+    coreml_darwin_test.go:177: case 10: s512, 280 tokens, cosine 0.99997088, max abs 0.001569
+    coreml_darwin_test.go:177: case 3: s1024, 622 tokens, cosine 0.99997398, max abs 0.001000
+    coreml_darwin_test.go:177: case 7: s1024, 18 tokens, cosine 0.99997939, max abs 0.001026
+    coreml_darwin_test.go:177: case 11: s1024, 593 tokens, cosine 0.99998073, max abs 0.001264
+    coreml_darwin_test.go:177: case 12: s2048, 18 tokens, cosine 0.99997929, max abs 0.000895
+    coreml_darwin_test.go:177: case 13: s2048, 1151 tokens, cosine 0.99998376, max abs 0.001268
+    coreml_darwin_test.go:177: case 14: s2048, 1630 tokens, cosine 0.99998634, max abs 0.000678
+    coreml_darwin_test.go:177: case 15: s2048, 2048 tokens, cosine 0.99992672, max abs 0.002213
+=== RUN   TestPackage/same_text_on_every_function
+    coreml_darwin_test.go:217: s256 against s128: cosine 0.99999704
+    coreml_darwin_test.go:217: s512 against s128: cosine 0.99999705
+    coreml_darwin_test.go:217: s1024 against s128: cosine 0.99999705
+    coreml_darwin_test.go:217: s2048 against s128: cosine 0.99999664
+    coreml_darwin_test.go:227: two different texts on s128: cosine 0.777985
+=== RUN   TestPackage/speed
+    coreml_darwin_test.go:246: s128: 6.663ms per text of 96 tokens (150.1 texts/s)
+    coreml_darwin_test.go:246: s256: 12.617ms per text of 192 tokens (79.3 texts/s)
+    coreml_darwin_test.go:246: s512: 32.384ms per text of 384 tokens (30.9 texts/s)
+    coreml_darwin_test.go:246: s1024: 88.377ms per text of 768 tokens (11.3 texts/s)
+    coreml_darwin_test.go:246: s2048: 295.971ms per text of 1536 tokens (3.4 texts/s)
+=== RUN   TestPackage/load_while_predicting
+    coreml_darwin_test.go:289: second s2048 planned and loaded in 2.525s next to 367 predictions on s128
+=== RUN   TestPackage/refusals
+    coreml_darwin_test.go:318: unknown function: coreml: load no-such-function: `MLModelConfiguration`'s `.functionName` property must be `nil` unless the model type is ML Program.
+--- PASS: TestPackage (386.04s)
+    --- PASS: TestPackage/reference (1.80s)
+    --- PASS: TestPackage/same_text_on_every_function (0.44s)
+    --- PASS: TestPackage/speed (21.80s)
+    --- PASS: TestPackage/load_while_predicting (2.82s)
+    --- PASS: TestPackage/refusals (0.40s)
+PASS

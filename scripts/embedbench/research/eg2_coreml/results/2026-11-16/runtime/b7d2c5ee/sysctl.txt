@@ -1,0 +1,2 @@
+kern.hv_vmm_present: 0
+kern.osproductversion: 27.2.1
