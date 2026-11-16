@@ -27,6 +27,9 @@ type localModel struct {
 	// project is a unit direction removed from every vector
 	// (v − u(u·v), renormalized); nil for none.
 	project []float32
+	// coreml is the model as a Core ML package for the Neural Engine
+	// (embed_ane.go); nil for none.
+	coreml *coreMLPackage
 }
 
 // eg2Head is EmbeddingGemma 2's mean pooled-output direction, 768
@@ -59,6 +62,15 @@ var localModels = []localModel{
 		queryPrefix: "task: search result | query: ",
 		docPrefix:   "title: " + titlePlaceholder + " | text: ",
 		project:     decodeFloat32s(eg2HeadRaw),
+		coreml: &coreMLPackage{
+			name: "embeddinggemma-2-e3ddcdd7",
+			files: []coreMLFile{
+				{"Manifest.json", "44b94c7cccfe6c93fc227444ca3a0c6f1841c175724c14b2a112f6d415bcb928"},
+				{"Data/com.apple.CoreML/model.mlmodel", "8763b7383a097ac3f8c8115eaff8974f932ee7f0ef909710ddcb84e07d166d88"},
+				{"Data/com.apple.CoreML/weights/weight.bin", "e3ddcdd72119e5a6ea1646a5fff1653dadcf29cfb0ad64be6bc909e258097ec0"},
+			},
+			lengths: []int{128, 256, 512, 1024},
+		},
 	},
 }
 

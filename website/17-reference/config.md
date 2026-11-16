@@ -87,6 +87,7 @@ The passkey is the one secret the server may need at boot: it comes from the env
 | `index.local.requestTimeout` | `ANY_INDEX_LOCAL_REQUEST_TIMEOUT` | `3m` | bound on one frame to the embedder child; unwedges a hung GPU |
 | `index.local.gpuLayers` | `ANY_INDEX_LOCAL_GPU_LAYERS` | absent | absent = offload all when a GPU backend is usable; `0` forces CPU |
 | `index.local.batchDocs` | `ANY_INDEX_LOCAL_BATCH_DOCS` | `1` | docs packed per decode; N caps each text at `contextSize`/N tokens |
+| `index.local.neuralEngine` | `ANY_INDEX_LOCAL_NEURAL_ENGINE` | `auto` | `auto` \| `on` \| `off`; EmbeddingGemma 2 through Core ML on an Apple Silicon Mac; `on` refuses to boot where it cannot run |
 | `index.vector.dim` | `ANY_INDEX_VECTOR_DIM` | `0` | 0 = learned from the first embedding, then pinned |
 | `index.vector.mode` | `ANY_INDEX_VECTOR_MODE` | `ivfsq` | `ivfsq` \| `btree` \| `hnsw` \| `hybrid` \| `bruteforce` |
 | `index.search.stopWords` | `ANY_INDEX_SEARCH_STOP_WORDS` | `true` | strip stop words from the FTS leg |

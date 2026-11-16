@@ -40,8 +40,11 @@ import (
 // .part is guarded across processes by an OS lock on <dest>.lock: one
 // process downloads, the others poll for the installed file.
 type modelDownload struct {
-	url    string
-	dest   string
+	url  string
+	dest string
+	// side is the path the .part and .lock names derive from: dest, or
+	// a path outside a directory that must hold nothing but its files.
+	side   string
 	sha    string // expected hex sha256; "" = skip verification (logged once)
 	lg     logger.CtxLogger
 	cancel context.CancelFunc
@@ -70,17 +73,24 @@ type modelDownload struct {
 // startModelDownload spawns the download goroutine. Pass client=nil for
 // the default HTTP client (tests inject their own).
 func startModelDownload(url, dest, sha string, client *http.Client, onProcess func(ProcessUpdate)) *modelDownload {
+	return startModelDownloadAt(filepath.Base(dest), url, dest, dest, sha, client, onProcess)
+}
+
+// startModelDownloadAt is startModelDownload with the process row's name
+// and the side-file path given.
+func startModelDownloadAt(name, url, dest, side, sha string, client *http.Client, onProcess func(ProcessUpdate)) *modelDownload {
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &modelDownload{
 		url:      url,
 		dest:     dest,
+		side:     side,
 		sha:      sha,
 		lg:       logger.NewNamed("indexer"),
 		cancel:   cancel,
 		finished: make(chan struct{}),
 		rep: newProcReporter(onProcess,
-			ProcessUpdate{Kind: ProcessKindModelDownload, Name: filepath.Base(dest)}, -1),
-		lock: flock.New(dest + ".lock"),
+			ProcessUpdate{Kind: ProcessKindModelDownload, Name: name}, -1),
+		lock: flock.New(side + ".lock"),
 	}
 	if client == nil {
 		client = &http.Client{} // no timeout: a 640MB body on slow links is legitimate
@@ -294,7 +304,7 @@ func (d *modelDownload) attempt(ctx context.Context, client *http.Client) (fetch
 // fetch streams the model into the .part and installs it. Caller holds
 // the download lock.
 func (d *modelDownload) fetch(ctx context.Context, client *http.Client) error {
-	part := d.dest + ".part"
+	part := d.side + ".part"
 
 	// Resume: re-hash whatever is already on disk so the streaming
 	// checksum stays valid, then ask for the remainder.

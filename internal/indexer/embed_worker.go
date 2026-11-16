@@ -66,6 +66,7 @@ const (
 // decode in flight — never for a batch.
 type workerEmbedder struct {
 	dl           *modelDownload
+	pkgDl        *packageDownload // the Core ML package; nil = none wanted or already on disk
 	lg           logger.CtxLogger
 	reqTimeout   time.Duration
 	startTimeout time.Duration
@@ -106,6 +107,9 @@ type workerEmbedder struct {
 	// was active. In-memory by design: every `any run` starts on the GPU
 	// again, so a driver or hardware fix recovers on its own.
 	gpuDisabled bool
+	// coremlDisabled is set when a child dies abnormally while the
+	// Neural Engine path was on. It goes before the GPU does.
+	coremlDisabled bool
 	// hw is what the last started child reported about this machine —
 	// kept for logging now, for hardware/error/speed statistics later.
 	hw Hardware
@@ -125,12 +129,22 @@ func newWorkerEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string,
 		}
 		reqTimeout = d
 	}
+	pkg, err := planNeuralEngine(cfg, modelsDir)
+	if err != nil {
+		return nil, err
+	}
 	spec, dl, err := resolveLocalSpec(cfg, modelsDir, legacyModelsDir, onProcess)
 	if err != nil {
 		return nil, err
 	}
+	if pkg != nil {
+		spec.coremlDir = pkg.dir(modelsDir)
+	}
 	w := newWorkerEmbedderFromSpec(spec, reqTimeout)
 	w.dl = dl
+	if pkg != nil && !pkg.complete(spec.coremlDir) {
+		w.pkgDl = startPackageDownload(pkg, modelsDir, nil, onProcess)
+	}
 	return w, nil
 }
 
@@ -206,6 +220,9 @@ func embedderCmd(s localSpec) (*exec.Cmd, error) {
 	}
 	if s.niceness > 0 {
 		args = append(args, "--niceness", strconv.Itoa(s.niceness))
+	}
+	if s.coremlDir != "" {
+		args = append(args, "--coreml", s.coremlDir)
 	}
 	cmd := exec.Command(exe, args...)
 	applyLowPriority(cmd, s.niceness) // Windows sets it here; Unix nices in the child
@@ -323,18 +340,25 @@ func (w *workerEmbedder) Close() error {
 		if w.dl != nil {
 			w.dl.Close()
 		}
+		if w.pkgDl != nil {
+			w.pkgDl.Close()
+		}
 	})
 	return nil
 }
 
 // childSpec is what a child spawned now would run with: the configured
-// spec, on CPU once GPU offload has been demoted.
+// spec, less the Neural Engine path and GPU offload once each has been
+// demoted.
 func (w *workerEmbedder) childSpec() localSpec {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	s := w.spec
 	if w.gpuDisabled {
 		s.gpuLayers = 0
+	}
+	if w.coremlDisabled {
+		s.coremlDir = ""
 	}
 	return s
 }
@@ -579,8 +603,10 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 // fault — at the price of demoting a merely slow frame. That costs one
 // run at CPU speed (~4x slower embedding, FTS untouched) against
 // repeated multi-minute stalls, and a restart starts on the GPU again.
-// On a GPU-less machine the demotion is a no-op. A stream that broke
-// because Close killed the child is not a fault: retired silently.
+// On a GPU-less machine the demotion is a no-op. A child that had the
+// Neural Engine path on loses that first and keeps the GPU. A stream
+// that broke because Close killed the child is not a fault: retired
+// silently.
 // Caller holds the slot.
 func (w *workerEmbedder) failChild(cause error) {
 	if w.closing.Load() {
@@ -604,11 +630,21 @@ func (w *workerEmbedder) failChild(cause error) {
 		fields = append(fields, zap.String("childExit", waitErr.Error()))
 	}
 	w.mu.Lock()
-	demote := gpu && !w.gpuDisabled
+	// One runtime per death, the Neural Engine path first: the death
+	// does not say which of the two caused it.
+	demoteCoreML := c.spec.coremlDir != "" && !w.coremlDisabled
+	demote := !demoteCoreML && gpu && !w.gpuDisabled
+	if demoteCoreML {
+		w.coremlDisabled = true
+	}
 	if demote {
 		w.gpuDisabled = true
 	}
 	w.mu.Unlock()
+	if demoteCoreML {
+		w.lg.Warn("local embedder child died with the neural engine on; embedding on llama.cpp alone for the rest of this run", fields...)
+		return
+	}
 	if demote {
 		w.lg.Warn("local embedder child died with GPU offload active; embedding on CPU for the rest of this run", fields...)
 		return
@@ -798,7 +834,11 @@ func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 				line = line[:4<<10] + "…"
 			}
 			c.stderr.add(line)
-			lg.Debug("embedder child", zap.String("stderr", line))
+			if status, ok := strings.CutPrefix(line, aneLogPrefix); ok {
+				lg.Info("local embedder neural engine", zap.String("status", status))
+			} else {
+				lg.Debug("embedder child", zap.String("stderr", line))
+			}
 		}
 		if err != nil {
 			return

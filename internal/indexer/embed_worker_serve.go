@@ -34,6 +34,9 @@ type EmbedWorkerConfig struct {
 	GpuLayers int
 	// Niceness lowers this process's scheduling priority; 0 = leave it.
 	Niceness int
+	// CoreMLDir is the model's Core ML package to run on the Neural
+	// Engine; "" = llama.cpp alone.
+	CoreMLDir string
 }
 
 // RunEmbedWorker serves embed requests over the frame protocol until in
@@ -79,6 +82,9 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 	if err != nil {
 		return err
 	}
+	// The handshake does not wait for it: the functions load in the
+	// background while llama.cpp serves.
+	l.startNeuralEngine(cfg.CoreMLDir)
 
 	r := bufio.NewReaderSize(in, 64<<10)
 	w := bufio.NewWriter(out)

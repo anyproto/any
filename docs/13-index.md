@@ -797,7 +797,9 @@ child they kill only the child: the round fails, its docs stay
 **The child only embeds.** It gets a model path and decode parameters
 and answers with vectors. It never opens the index db, the data dir or
 any-store; the cursor, `pending` marking, `SetVectors`, the vector index,
-model discovery and the download all stay in the server.
+model discovery and the downloads all stay in the server. The one thing
+it writes is the compiled Core ML model in the model cache (§ Neural
+Engine).
 
 **Failure handling.** A dead child, a desynchronized stream, or a frame
 that outlives `index.local.requestTimeout` (default 3 min) kills the
@@ -860,6 +862,59 @@ set `index.local.gpuLayers: 0`.
 
 CUDA and ROCm builds are not bundled; point `index.local.libDir` at a
 custom llama.cpp build to use them.
+
+### Neural Engine (local embedder)
+
+On an Apple Silicon Mac the embedder child runs EmbeddingGemma 2 on the
+Neural Engine through Core ML, next to llama.cpp. The model's Core ML
+package holds one function per fixed length: 128, 256, 512 and 1,024
+tokens. A text runs on the smallest loaded function that holds it.
+llama.cpp tokenizes for both runtimes and embeds every other text: one
+longer than 1,024 tokens, and any text whose function is not loaded.
+
+Both runtimes write one index. A function returns the model's own unit
+vector (cosine 0.9999 to the full-precision weights), and the projection
+and `index.local.dim` apply after either runtime. The index stamp names
+the model, not the runtime.
+
+`index.local.neuralEngine`:
+
+- `auto` (default) uses it where it can run: an arm64 Mac on macOS 15
+  or later, the `embeddinggemma-2` model with its own pooling, and the
+  package on disk or downloadable. Anywhere else llama.cpp embeds alone.
+- `on` is `auto` that refuses to boot where it cannot run.
+- `off` is llama.cpp alone.
+
+**The package.** Its three files are downloaded, each sha256-pinned,
+into `<root>/models/<name>.mlpackage/`, with the rules of the GGUF
+download and one `index.model_download` process per file. With
+`index.local.modelPath` nothing is downloaded and a package already in
+the models dir is used. The child compiles the package once into
+`<name>.mlmodelc` beside it. Until the package is complete the child
+looks for it every 30 s and llama.cpp embeds everything.
+
+**Function lifetime.** The smallest function loads when the child
+starts and stays for queries. Any other loads in the background on the
+first text that needs it and is released one minute after its last use;
+idle retirement of the child releases all of them. The first load of a
+function specializes it for the Neural Engine and takes tens of seconds,
+a later one under a second. While a function loads, a larger loaded one
+serves its texts, else llama.cpp.
+
+**Placement.** A machine that lists no Neural Engine never loads the
+package. Before a function loads, the child reads Core ML's compute plan
+for it and refuses a function whose convolution, matmul, linear or
+softmax operations are planned on the CPU.
+
+**Failure.** A prediction that fails, or returns a vector that is not
+unit length, leaves that text to llama.cpp; three in a row turn the
+Neural Engine off for the life of the child. A child that dies with the
+Neural Engine on is respawned without it for the rest of the process.
+That demotion comes before the GPU one (§ GPU offload), one runtime per
+death, because the death does not say which runtime caused it.
+
+Core ML is called through the Objective-C runtime, so the binary stays
+CGO-free and cross-compiled (`internal/indexer/coreml`).
 
 ### Builds and the local embedder
 
@@ -1278,6 +1333,9 @@ run).
   2048 / 1 = 2048, EOS preserved for last-token pooling). The 2000-rune
   chunk target keeps prose inside it; a chunk of dense CJK or code can
   exceed the clamp and embed head-only — FTS covers its full text.
+- **Loaded Neural Engine functions are not capped.** A bulk index of
+  mixed lengths uses every function inside each minute, so all four stay
+  loaded next to llama.cpp: about 1.4 GB of wired memory on top of it.
 - **`require` / `exclude` bind the hit, i.e. the chunk**: a term that
   appears only in another chunk of the same record does not satisfy a
   `require` for this one, and a passage is always a chunk that satisfied

@@ -419,6 +419,12 @@ type IndexLocal struct {
 	// nothing on a realistic record mix (docs/13-index.md). 0 = default
 	// 1 (one doc per decode, the whole ContextSize available to it).
 	BatchDocs int `yaml:"batchDocs"`
+	// NeuralEngine runs a pinned model's Core ML package on the Apple
+	// Neural Engine: NeuralEngineAuto (default) uses it wherever it can
+	// run, NeuralEngineOn refuses to boot where it cannot, and
+	// NeuralEngineOff embeds on llama.cpp alone (docs/13-index.md
+	// § Neural Engine).
+	NeuralEngine string `yaml:"neuralEngine"`
 }
 
 type IndexVector struct {
@@ -438,6 +444,13 @@ type IndexVector struct {
 const (
 	LocalModelQwen3           = "qwen3-embedding-0.6b"
 	LocalModelEmbeddingGemma2 = "embeddinggemma-2"
+)
+
+// IndexLocal.NeuralEngine values.
+const (
+	NeuralEngineAuto = "auto"
+	NeuralEngineOn   = "on"
+	NeuralEngineOff  = "off"
 )
 
 // defaultEmbedModel is the online primary's model under "auto": the same

@@ -209,6 +209,9 @@ index:
                                       # op_offload) (docs/13-index.md § GPU offload)
     batchDocs: 1                      # docs per llama_decode; N caps each text at contextSize/N tokens;
                                       # 1 = sequential
+    neuralEngine: auto                # auto | on | off — EmbeddingGemma 2 through Core ML on an
+                                      # Apple Silicon Mac; on refuses to boot where it cannot
+                                      # run (docs/13-index.md § Neural Engine)
   vector:
     dim: 0                            # 0 = learned from the first successful embedding
     mode: ivfsq                       # ANN index: ivfsq (default — cheap ingest, churn-
@@ -366,6 +369,7 @@ ANY_INDEX_LOCAL_GPU_LAYERS=0          # 0 = force CPU-only decoding
 ANY_INDEX_LOCAL_REQUEST_TIMEOUT=3m    # bound on one frame to the child (one decode group of batchDocs texts)
 ANY_INDEX_LOCAL_NICENESS=10           # child scheduling priority; 0 = same as the server
 ANY_INDEX_LOCAL_BATCH_DOCS=1          # index.local.batchDocs
+ANY_INDEX_LOCAL_NEURAL_ENGINE=auto    # index.local.neuralEngine: auto | on | off
 ```
 
 A numeric or boolean value that does not parse is ignored (the file or

@@ -254,6 +254,9 @@ func applyEnv(cfg *Config) error {
 			cfg.Index.Local.BatchDocs = n
 		}
 	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_NEURAL_ENGINE"); v != "" {
+		cfg.Index.Local.NeuralEngine = v
+	}
 	if v := os.Getenv("ANY_INDEX_VECTOR_DIM"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			cfg.Index.Vector.Dim = n
