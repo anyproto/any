@@ -258,8 +258,20 @@ func (l *Local) startNeuralEngine(dir string) {
 		return
 	}
 	dim := int(l.nEmbd)
-	l.ane = newNeuralEngine(newCoreMLBackend(l.coreml, dir, dim, aneStderrLog), l.coreml.lengths, dim, aneStderrLog)
+	lengths := usableLengths(l.coreml.lengths, l.maxDocTokens())
+	l.ane = newNeuralEngine(newCoreMLBackend(l.coreml, dir, dim, aneStderrLog), lengths, dim, aneStderrLog)
 	l.ane.start()
+}
+
+// usableLengths drops the functions no text can need: those past the
+// first one that holds the longest text the embedder sends.
+func usableLengths(lengths []int, maxTokens int) []int {
+	for i, l := range lengths {
+		if l >= maxTokens {
+			return lengths[:i+1]
+		}
+	}
+	return lengths
 }
 
 // llamaRuntime guards the process-global llama.cpp state (Load + Init

@@ -891,13 +891,13 @@ the model, not the runtime.
 - `off` is llama.cpp alone.
 
 **The package.** Its three files are downloaded, each sha256-pinned,
-into `<root>/models/<name>.mlpackage/` by the rules of the GGUF
+into `<root>/models/<name>-<digest>.mlpackage/` by the rules of the GGUF
 download and after it: every model download reports as
 `index.model_download`, one file at a time. `index.local.modelUrl` does
 not apply to the package. With `index.local.modelPath` nothing is
 downloaded and a package already in the models dir is used. The child
 checks the files against their checksums and compiles the package once
-into `<name>.mlmodelc` beside it. Until the package is complete
+into `<name>-<digest>.mlmodelc` beside it. Until the package is complete
 llama.cpp embeds everything, and the child looks for it again when a
 text arrives, at most every 30 s.
 
@@ -913,9 +913,9 @@ loads, a larger loaded one serves its texts, else llama.cpp.
 **Placement.** A machine that lists no Neural Engine never loads the
 package. Before a function loads, the child reads Core ML's compute plan
 for it and refuses a function whose convolution, matmul, linear or
-softmax operations are planned on the CPU. The package's directory is
-named after its pinned checksums, so another pin is another directory
-with a compiled model of its own.
+softmax operations are planned on the CPU. The digest in the package's
+directory name is of its pinned checksums, so another pin is another
+directory with a compiled model of its own.
 
 **Failure.** A prediction that fails, or returns a vector that is not
 unit length, leaves that text to llama.cpp. Three in a row on one

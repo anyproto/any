@@ -585,3 +585,24 @@ func TestEmbeddingGemma2Package_Download(t *testing.T) {
 	}
 	t.Logf("downloaded and verified in %s at %s", time.Since(start).Round(time.Second), dir)
 }
+
+// A function longer than any text the embedder sends is never asked
+// for, so it is not listed.
+func TestUsableLengths(t *testing.T) {
+	all := []int{128, 256, 512, 1024, 2048}
+	for _, c := range []struct {
+		maxTokens int
+		want      []int
+	}{
+		{2048, all},
+		{4096, all},
+		{1024, []int{128, 256, 512, 1024}},
+		{1025, all},
+		{300, []int{128, 256, 512}},
+		{64, []int{128}},
+	} {
+		if got := usableLengths(all, c.maxTokens); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("texts of up to %d tokens: lengths %v, want %v", c.maxTokens, got, c.want)
+		}
+	}
+}
