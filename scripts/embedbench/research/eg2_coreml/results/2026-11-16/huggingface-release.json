@@ -1,0 +1,32 @@
+{
+  "repository": "anylab/embeddinggemma-2-coreml",
+  "revision": "c27f9012633055fea5bb47fe782ab7d548d77909",
+  "public": true,
+  "packagePath": "EmbeddingGemma2Owned.mlpackage",
+  "functions": [
+    "s128",
+    "s256",
+    "s512",
+    "s1024",
+    "s2048"
+  ],
+  "packageBytes": 574431459,
+  "files": {
+    "Data/com.apple.CoreML/model.mlmodel": {
+      "bytes": 9043834,
+      "sha256": "715c377bda514242cabc6497843ca831d1eec1d84b5e48c6f93a13663e6ce104"
+    },
+    "Data/com.apple.CoreML/weights/weight.bin": {
+      "bytes": 565387008,
+      "sha256": "86bf461bce224075ea9ff6fc6a2c2abe50cd701eee58f1d3f5d8e6988d234657"
+    },
+    "Manifest.json": {
+      "bytes": 617,
+      "sha256": "8f494dc20af594dd81ca1082c50d0db80eae392a84621955de1d1c5c0e99aed2"
+    }
+  },
+  "converterCommit": "6424fab8cb6bd2874ce08e85d9081e24ff96902f",
+  "releaseManifestSHA256": "6f8e38ca673b3c2303882cbfd1bfa5f4759297cabcb002f72474a04e5e0342af",
+  "allPublishedFileHashesVerified": true,
+  "anonymousManifestDownloadVerified": true
+}
