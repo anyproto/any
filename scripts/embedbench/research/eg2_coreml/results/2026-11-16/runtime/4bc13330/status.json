@@ -1,0 +1,27 @@
+{
+  "commit": "4bc1333030adde26bd52d4f26031c76d3f794a7d",
+  "steps": [
+    {
+      "name": "binding-cold",
+      "exitCode": 0,
+      "seconds": 388.03671407699585
+    },
+    {
+      "name": "binding-warm",
+      "exitCode": 0,
+      "seconds": 39.34925389289856
+    },
+    {
+      "name": "integration",
+      "exitCode": 0,
+      "seconds": 376.98020792007446
+    },
+    {
+      "name": "binding-leaks",
+      "exitCode": 1,
+      "seconds": 170.37020993232727
+    }
+  ],
+  "phase": "complete",
+  "testsPassed": true
+}

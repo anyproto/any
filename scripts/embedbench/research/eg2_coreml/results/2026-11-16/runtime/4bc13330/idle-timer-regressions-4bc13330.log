@@ -1,0 +1,12 @@
+=== RUN   TestNeuralEngine_ReleaseTimer
+    embed_ane.go:261: s128 ready (fake)
+    embed_ane.go:261: s256 ready (fake)
+    embed_ane.go:305: s256 released after 100ms unused
+    embed_ane.go:261: s256 ready (fake)
+--- PASS: TestNeuralEngine_ReleaseTimer (0.50s)
+=== RUN   TestNeuralEngine_ReleaseSkipsFunctionInUse
+    embed_ane.go:261: s128 ready (fake)
+    embed_ane.go:261: s256 ready (fake)
+    embed_ane.go:305: s256 released after 1m0s unused
+--- PASS: TestNeuralEngine_ReleaseSkipsFunctionInUse (0.00s)
+PASS

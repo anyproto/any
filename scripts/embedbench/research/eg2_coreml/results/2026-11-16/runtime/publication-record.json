@@ -1,0 +1,38 @@
+[
+  {
+    "file": "4bc13330/binding-cold.log",
+    "originalSHA256": "95b9e33b3a48a1b3293fd21c155c0e595952e3217ef99901d5466d2d30acc51b",
+    "publishedSHA256": "95b9e33b3a48a1b3293fd21c155c0e595952e3217ef99901d5466d2d30acc51b",
+    "normalization": "Trailing whitespace and terminal newline only"
+  },
+  {
+    "file": "4bc13330/binding-warm.log",
+    "originalSHA256": "8d9d1d43f7eceffcee8d526365c69e6253af16ee98f1c4b0b58b43ac0846503b",
+    "publishedSHA256": "8d9d1d43f7eceffcee8d526365c69e6253af16ee98f1c4b0b58b43ac0846503b",
+    "normalization": "Trailing whitespace and terminal newline only"
+  },
+  {
+    "file": "4bc13330/integration.log",
+    "originalSHA256": "15292e6d614ae9a60c2a2cf5a23a8abbb8e970cc4b7ea6ffda3336aaf0f5b48b",
+    "publishedSHA256": "15292e6d614ae9a60c2a2cf5a23a8abbb8e970cc4b7ea6ffda3336aaf0f5b48b",
+    "normalization": "Trailing whitespace and terminal newline only"
+  },
+  {
+    "file": "4bc13330/binding-leaks.log",
+    "originalSHA256": "75f67a0b37a8929ab939806a8314ba3166cb83530e2ea4a5886f708b87a4954e",
+    "publishedSHA256": "e80da89db7603840e7f1af90e41b405a162acb1a5f1af90d691369df87ab5de6",
+    "normalization": "Trailing whitespace and terminal newline only"
+  },
+  {
+    "file": "4bc13330/idle-timer-regressions-4bc13330.log",
+    "originalSHA256": "0aed535b1a234dfdf0fd5f2466af7c3f73b6b18410739b1601bf34dcbf5da000",
+    "publishedSHA256": "0aed535b1a234dfdf0fd5f2466af7c3f73b6b18410739b1601bf34dcbf5da000",
+    "normalization": "Trailing whitespace and terminal newline only"
+  },
+  {
+    "file": "4bc13330/build-manifest-4bc13330.json",
+    "originalSHA256": "7a7b6b9af4eca0d3780c3f8c08ccf040cb8928fe92524f562d7884611b3d2069",
+    "publishedSHA256": "7a7b6b9af4eca0d3780c3f8c08ccf040cb8928fe92524f562d7884611b3d2069",
+    "normalization": "Trailing whitespace and terminal newline only"
+  }
+]

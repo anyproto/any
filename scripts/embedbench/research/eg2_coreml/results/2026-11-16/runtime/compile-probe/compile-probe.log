@@ -1,0 +1,11 @@
+{
+  "availableAfter": 348498878464,
+  "availableBefore": 348507807744,
+  "availableDecreaseBytes": 8929280,
+  "compileSeconds": 2.4141445409999998,
+  "compiled": "/tmp/any-ane-runtime-validation-20261116/CompileProbe.mlmodelc",
+  "logicalBytes": 574261484,
+  "note": "Statfs delta is an observation on a live filesystem, not proof of APFS extent sharing; no inference or specialization was run by this probe.",
+  "package": "/tmp/eg2-owned-2048-20261116/models/EmbeddingGemma2Owned.mlpackage",
+  "reportedAllocatedBytes": 574271488
+}

@@ -1,0 +1,6 @@
+{
+  "bytes": 4341746,
+  "sha256": "39070ca47a863519b2a31edccbebc3273f59590292fd56003c9234cef0f4899b",
+  "source": "artifacts/compileprobe/main.go",
+  "scope": "Direct Compile API and filesystem-size/free-space observation; no model inference."
+}
