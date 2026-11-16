@@ -874,9 +874,10 @@ one that no loaded function holds, and one longer than 2,048 tokens,
 which only a larger `index.local.contextSize` lets through.
 
 Both runtimes write one index. A function returns the model's own unit
-vector (cosine 0.9999 to the full-precision weights), and the projection
-and `index.local.dim` apply after either runtime. The index stamp names
-the model, not the runtime.
+vector (cosine 0.9999 to the full-precision weights, 0.9996 to
+llama.cpp's Q8 vector of the same text), and the projection and
+`index.local.dim` apply after either runtime. The index stamp names the
+model, not the runtime.
 
 `index.local.neuralEngine`:
 
@@ -906,9 +907,11 @@ queries: when the child starts if the package is ready, else with the
 first text after it is. Any other loads in the
 background on the first text that needs it, and a timer releases it one
 minute after its last use; idle retirement of the child releases all of
-them. The first load of a function specializes it for the Neural Engine
-and takes tens of seconds, a later one under a second. While a function
-loads, a larger loaded one serves its texts, else llama.cpp.
+them. The first load of a function on a machine specializes it for the
+Neural Engine: about a minute per function on an M2, six for all five.
+After that a child's first load of a function takes two to three
+seconds and a reload under one. While a function loads, a larger loaded
+one serves its texts, else llama.cpp.
 
 **Placement.** A machine that lists no Neural Engine never loads the
 package. Before a function first loads, the child reads Core ML's
