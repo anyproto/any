@@ -51,7 +51,8 @@ const (
 	// (upgradeFTS), so nothing re-embeds. Any other mismatch =
 	// ErrIndexRebuildRequired, which the boot answers by removing and
 	// rebuilding the db; the docs themselves are never migrated — the
-	// index is derived state (re-indexes on the next change).
+	// index is derived state (re-indexes on the next change). The stamp
+	// is read only in a db that passed indexDBFormat.
 	indexSchemaVersion = 8
 
 	// indexDBFormat is the oldest any-store on-disk format an index db is

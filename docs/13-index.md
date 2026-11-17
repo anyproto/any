@@ -573,8 +573,9 @@ space's rewrite never appear (`Options.OnProcess`, bridged in
   `name` field) is applied per collection on its first open, and the
   stamp moves, so an older build then sees a schema it cannot read
   instead of failing every space on an index definition it cannot
-  apply. Any other
-  mismatch is `ErrIndexRebuildRequired`: at open the boot removes the db
+  apply. The stamp is read only in a db whose on-disk format is at least
+  `indexDBFormat`: an older one is rebuilt whatever it is stamped. Any
+  other mismatch is `ErrIndexRebuildRequired`: at open the boot removes the db
   and rebuilds it (§ Builds and the local embedder); for the dimension
   an embedder first answers with mid-run, the embed round fails and its
   docs stay pending. The docs themselves are never migrated: the index
