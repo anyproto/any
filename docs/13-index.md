@@ -900,7 +900,10 @@ downloaded and a package already in the models dir is used. The child
 checks the files against their checksums and compiles the package once
 into `<name>-<digest>.mlmodelc` beside it. Until the package is complete
 llama.cpp embeds everything, and the child looks for it again when a
-text arrives, at most every 30 s.
+text arrives, at most every 30 s. The package's licence texts
+(`LICENSE`, `NOTICE` and the licence the notice refers to) follow it
+into `<name>-<digest>.licenses/`, pinned the same way; one that cannot
+be fetched is tried again at the next start and holds nothing back.
 
 **Function lifetime.** The smallest function loads first and stays for
 queries: when the child starts if the package is ready, else with the

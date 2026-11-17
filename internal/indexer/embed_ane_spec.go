@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
 
 	"github.com/anyproto/any/internal/config"
 )
@@ -60,12 +61,18 @@ func planNeuralEngine(cfg config.IndexLocal, modelsDir string) (*coreMLPackage, 
 }
 
 // packageDownload fetches the missing files of a Core ML package into
-// the models dir, one after another. The package is ready when every
-// file is in place; the embed child looks for that itself.
+// the models dir, one after another, then its licence texts. The package
+// is ready when every file of it is in place; the embed child looks for
+// that itself.
 type packageDownload struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 }
+
+// noticeFetchTimeout is how long one licence text may take. They are
+// small: past it the fetch is left for the next start (a var so tests
+// can shorten it).
+var noticeFetchTimeout = 2 * time.Minute
 
 // startPackageDownload spawns the download. It begins once after, the
 // model's own download, has installed its file (nil = nothing to wait
@@ -73,7 +80,20 @@ type packageDownload struct {
 func startPackageDownload(pkg *coreMLPackage, modelsDir string, after *modelDownload, client *http.Client, onProcess func(ProcessUpdate)) *packageDownload {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &packageDownload{cancel: cancel, done: make(chan struct{})}
-	dir := pkg.dir(modelsDir)
+	// fetch installs one file and reports whether it is in place. The
+	// .part and .lock stay out of the directory the file goes into,
+	// under the name the process row carries.
+	fetch := func(ctx context.Context, f coreMLFile, url, dir string) bool {
+		name := pkg.id() + "." + path.Base(f.path)
+		dest := filepath.Join(dir, filepath.FromSlash(f.path))
+		d := startModelDownloadAt(name, url+"/"+f.path, dest, filepath.Join(modelsDir, name), f.sha256, client, onProcess)
+		select {
+		case <-d.finished:
+		case <-ctx.Done():
+			d.Close()
+		}
+		return d.Status() == nil
+	}
 	go func() {
 		defer close(p.done)
 		if after != nil {
@@ -86,24 +106,29 @@ func startPackageDownload(pkg *coreMLPackage, modelsDir string, after *modelDown
 				return // no model, nothing for the package to run next to
 			}
 		}
+		dir := pkg.dir(modelsDir)
 		for _, f := range pkg.files {
-			dest := filepath.Join(dir, filepath.FromSlash(f.path))
-			if _, err := os.Stat(dest); err == nil {
+			if (coreMLFile{path: f.path}).verify(dir) == nil {
 				continue
 			}
-			// The .part and .lock stay out of the package directory,
-			// under the name the process row carries.
-			name := pkg.id() + "." + path.Base(f.path)
-			d := startModelDownloadAt(name, pkg.url+"/"+f.path, dest, filepath.Join(modelsDir, name), f.sha256, client, onProcess)
-			select {
-			case <-d.finished:
-			case <-ctx.Done():
-				d.Close()
+			if !fetch(ctx, f, pkg.url, dir) {
+				return // cancelled, or stopped on its checksum: the rest cannot complete the package
+			}
+		}
+		// The licence texts follow the package and never hold it back.
+		notices := pkg.noticesDir(modelsDir)
+		for _, f := range pkg.notices {
+			if ctx.Err() != nil {
 				return
 			}
-			if d.Status() != nil {
-				return // stopped on its checksum; the rest cannot complete the package
+			if f.verify(notices) == nil {
+				continue
 			}
+			// A text of another revision is replaced.
+			_ = os.Remove(filepath.Join(notices, filepath.FromSlash(f.path)))
+			one, stop := context.WithTimeout(ctx, noticeFetchTimeout)
+			fetch(one, f, pkg.noticesURL, notices)
+			stop()
 		}
 	}()
 	return p

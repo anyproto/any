@@ -230,8 +230,9 @@ late heartbeat can resurrect a finished row. Work stopped mid-pass
   only while `index.enabled`.
 - **Embedding-model download** — id `index.model_download`, kind
   `index.model_download`, target the model file name, or
-  `<package>.<file>` for a file of the model's Core ML package (the
-  files follow the model one at a time on the same id). Always
+  `<package>.<file>` for a file of the model's Core ML package or one
+  of its licence texts (they follow the model one at a time on the same
+  id). Always
   announces, at download start — even fully offline (a download is
   long by definition and its absence is the state worth showing).
   `done`/`total` are **bytes** (total from Content-Length, unknown

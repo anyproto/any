@@ -142,7 +142,9 @@ func newWorkerEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string,
 	}
 	w := newWorkerEmbedderFromSpec(spec, reqTimeout)
 	w.dl = dl
-	if pkg != nil && !pkg.complete(spec.coremlDir) {
+	// With a model path nothing is downloaded, the package's licence
+	// texts included.
+	if pkg != nil && cfg.ModelPath == "" && (!pkg.complete(spec.coremlDir) || !pkg.noticesComplete(modelsDir)) {
 		w.pkgDl = startPackageDownload(pkg, modelsDir, dl, nil, onProcess)
 	}
 	return w, nil

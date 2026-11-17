@@ -374,7 +374,10 @@ func TestNewWorkerEmbedder_NeuralEngine(t *testing.T) {
 	t.Run("a missing package downloads", func(t *testing.T) {
 		stubANEHost(t, true)
 		srv, served := newPackageServer(t, map[string]string{"Manifest.json": "{}"})
-		pkg := editEG2Package(t, func(p *coreMLPackage) { p.url, p.files = served.url, served.files })
+		pkg := editEG2Package(t, func(p *coreMLPackage) {
+			p.url, p.files = served.url, served.files
+			p.noticesURL, p.notices = "", nil
+		})
 		w, err := newWorkerEmbedder(cfg, models, "", nil)
 		if err != nil {
 			t.Fatal(err)
@@ -393,7 +396,7 @@ func TestNewWorkerEmbedder_NeuralEngine(t *testing.T) {
 	})
 	t.Run("a package on disk downloads nothing", func(t *testing.T) {
 		stubANEHost(t, true)
-		pkg := editEG2Package(t, func(p *coreMLPackage) { p.name = "on-disk" })
+		pkg := editEG2Package(t, func(p *coreMLPackage) { p.name, p.notices = "on-disk", nil })
 		writePackage(t, pkg, pkg.dir(models))
 		w, err := newWorkerEmbedder(cfg, models, "", nil)
 		if err != nil {
@@ -551,6 +554,21 @@ func TestEmbeddingGemma2Package(t *testing.T) {
 	if got, want := filepath.Base(pkg.dir("models")), "embeddinggemma-2-858f354d.mlpackage"; got != want {
 		t.Errorf("package directory %s, want %s: a changed pin needs this test changed with it", got, want)
 	}
+	// Its licence texts: the licence, the notice and the one licence the
+	// notice refers to, from a pinned revision.
+	if !regexp.MustCompile(`^https://huggingface\.co/[^/]+/[^/]+/resolve/[0-9a-f]{40}$`).MatchString(pkg.noticesURL) {
+		t.Errorf("licence texts' source %q is not pinned to a revision", pkg.noticesURL)
+	}
+	var texts []string
+	for _, f := range pkg.notices {
+		texts = append(texts, f.path)
+		if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(f.sha256) {
+			t.Errorf("%s has no sha256", f.path)
+		}
+	}
+	if want := []string{"LICENSE", "NOTICE", "licenses/QVAC-MIT.txt"}; !reflect.DeepEqual(texts, want) {
+		t.Errorf("licence texts %v, want %v", texts, want)
+	}
 }
 
 // TestEmbeddingGemma2Package_Download fetches the pinned package from its
@@ -583,6 +601,9 @@ func TestEmbeddingGemma2Package_Download(t *testing.T) {
 	if err := pkg.verify(dir); err != nil {
 		t.Fatal(err)
 	}
+	if !pkg.noticesComplete(models) {
+		t.Fatalf("licence texts missing from %s", pkg.noticesDir(models))
+	}
 	t.Logf("downloaded and verified in %s at %s", time.Since(start).Round(time.Second), dir)
 }
 
@@ -604,5 +625,157 @@ func TestUsableLengths(t *testing.T) {
 		if got := usableLengths(all, c.maxTokens); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("texts of up to %d tokens: lengths %v, want %v", c.maxTokens, got, c.want)
 		}
+	}
+}
+
+// textServer serves bodies by URL path and records the paths asked for.
+func textServer(t *testing.T, bodies map[string]string) *packageServer {
+	t.Helper()
+	s := &packageServer{}
+	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := strings.TrimPrefix(r.URL.Path, "/")
+		s.mu.Lock()
+		s.paths = append(s.paths, p)
+		s.mu.Unlock()
+		body, ok := bodies[p]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(s.Close)
+	return s
+}
+
+func pinOf(body string) string {
+	sum := sha256.Sum256([]byte(body))
+	return hex.EncodeToString(sum[:])
+}
+
+// The package's licence texts land beside it, after it, in a directory
+// of their own; a text of another revision is replaced; one that cannot
+// be had does not hold the package back.
+func TestPackageDownload_Notices(t *testing.T) {
+	prev := noticeFetchTimeout
+	noticeFetchTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { noticeFetchTimeout = prev })
+	shortDownload(t)
+
+	bodies := map[string]string{
+		"pkg/Manifest.json":           "{}",
+		"texts/LICENSE":               "the licence",
+		"texts/NOTICE":                "the notice",
+		"texts/licenses/QVAC-MIT.txt": "the mit text",
+		"texts/licenses/UNPINNED.txt": "another file",
+	}
+	srv := textServer(t, bodies)
+	pkg := &coreMLPackage{
+		name:       "model-1",
+		url:        srv.URL + "/pkg",
+		files:      []coreMLFile{{"Manifest.json", pinOf("{}")}},
+		lengths:    []int{128},
+		noticesURL: srv.URL + "/texts",
+		notices: []coreMLFile{
+			{"LICENSE", pinOf("the licence")},
+			{"NOTICE", pinOf("the notice")},
+			{"licenses/UNPINNED.txt", pinOf("not what the source serves")},
+			{"licenses/QVAC-MIT.txt", pinOf("the mit text")},
+		},
+	}
+	models := t.TempDir()
+	texts := pkg.noticesDir(models)
+	// The licence is already there; the notice is an older revision's.
+	if err := os.MkdirAll(texts, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{"LICENSE": "the licence", "NOTICE": "an older notice"} {
+		if err := os.WriteFile(filepath.Join(texts, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if pkg.noticesComplete(models) {
+		t.Fatal("complete with a stale notice and a missing text")
+	}
+
+	p := startPackageDownload(pkg, models, nil, srv.Client(), nil)
+	waitPackage(t, p)
+	p.Close()
+
+	if !pkg.complete(pkg.dir(models)) {
+		t.Fatal("package incomplete")
+	}
+	for name, want := range map[string]string{"LICENSE": "the licence", "NOTICE": "the notice", "licenses/QVAC-MIT.txt": "the mit text"} {
+		got, err := os.ReadFile(filepath.Join(texts, filepath.FromSlash(name)))
+		if err != nil || string(got) != want {
+			t.Errorf("%s: %q, %v; want %q", name, got, err, want)
+		}
+	}
+	// The text whose pin the source does not match is given up on, and
+	// the one after it still arrives.
+	if _, err := os.Stat(filepath.Join(texts, "licenses", "UNPINNED.txt")); err == nil {
+		t.Error("installed a text that fails its checksum")
+	}
+	if pkg.noticesComplete(models) {
+		t.Error("complete with a text that fails its checksum")
+	}
+	asked := srv.asked()
+	if len(asked) == 0 || asked[0] != "pkg/Manifest.json" {
+		t.Fatalf("fetched %v, want the package first", asked)
+	}
+	for _, path := range asked {
+		if path == "texts/LICENSE" {
+			t.Error("fetched a licence text that was already in place")
+		}
+	}
+	// Nothing but the package's files in the package directory.
+	entries, err := os.ReadDir(pkg.dir(models))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("package directory holds %d entries, %v; want its one file", len(entries), err)
+	}
+}
+
+// A package already on disk still gets its licence texts; with a model
+// path nothing is fetched.
+func TestNewWorkerEmbedder_NeuralEngineNotices(t *testing.T) {
+	stubANEHost(t, true)
+	srv := textServer(t, map[string]string{"texts/LICENSE": "the licence"})
+	models := t.TempDir()
+	eg2, err := lookupLocalModel(config.LocalModelEmbeddingGemma2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gguf := filepath.Join(models, eg2.file)
+	if err := os.WriteFile(gguf, []byte("gguf"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pkg := editEG2Package(t, func(p *coreMLPackage) {
+		p.name = "with-texts"
+		p.noticesURL = srv.URL + "/texts"
+		p.notices = []coreMLFile{{"LICENSE", pinOf("the licence")}}
+	})
+	writePackage(t, pkg, pkg.dir(models))
+
+	cfg := config.IndexLocal{Model: config.LocalModelEmbeddingGemma2, ModelPath: gguf}
+	w, err := newWorkerEmbedder(cfg, models, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.pkgDl != nil {
+		t.Fatal("a download was started with a model path set")
+	}
+	_ = w.Close()
+
+	cfg.ModelPath = ""
+	if w, err = newWorkerEmbedder(cfg, models, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if w.pkgDl == nil {
+		t.Fatal("no download for the missing licence texts")
+	}
+	waitPackage(t, w.pkgDl)
+	if !pkg.noticesComplete(models) {
+		t.Fatalf("licence texts incomplete; server saw %v", srv.asked())
 	}
 }

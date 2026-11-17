@@ -357,6 +357,10 @@ type coreMLPackage struct {
 	url     string // directory the files download from; "" = no source
 	files   []coreMLFile
 	lengths []int // ascending
+	// notices are the licence texts that go with the package. They are
+	// fetched beside it, from a revision of their own.
+	noticesURL string
+	notices    []coreMLFile
 }
 
 type coreMLFile struct {
@@ -392,22 +396,47 @@ func (p *coreMLPackage) complete(dir string) bool {
 // verify checks the package files in dir against their pinned checksums.
 func (p *coreMLPackage) verify(dir string) error {
 	for _, f := range p.files {
-		if f.sha256 == "" {
-			continue
-		}
-		file, err := os.Open(filepath.Join(dir, filepath.FromSlash(f.path)))
-		if err != nil {
+		if err := f.verify(dir); err != nil {
 			return err
 		}
-		h := sha256.New()
-		_, err = io.Copy(h, file)
-		_ = file.Close()
-		if err != nil {
-			return err
+	}
+	return nil
+}
+
+// noticesDir is where the package's licence texts sit, beside it.
+func (p *coreMLPackage) noticesDir(modelsDir string) string {
+	return filepath.Join(modelsDir, p.id()+".licenses")
+}
+
+// noticesComplete reports whether every licence text is in place with
+// its pinned checksum.
+func (p *coreMLPackage) noticesComplete(modelsDir string) bool {
+	dir := p.noticesDir(modelsDir)
+	for _, f := range p.notices {
+		if f.verify(dir) != nil {
+			return false
 		}
-		if got := hex.EncodeToString(h.Sum(nil)); got != f.sha256 {
-			return fmt.Errorf("%s is not the pinned file: sha256 %s, want %s", f.path, got, f.sha256)
-		}
+	}
+	return true
+}
+
+// verify checks the file in dir against its pinned checksum; with none
+// pinned the file only has to be there.
+func (f coreMLFile) verify(dir string) error {
+	file, err := os.Open(filepath.Join(dir, filepath.FromSlash(f.path)))
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	if f.sha256 == "" {
+		return nil
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, file); err != nil {
+		return err
+	}
+	if got := hex.EncodeToString(h.Sum(nil)); got != f.sha256 {
+		return fmt.Errorf("%s is not the pinned file: sha256 %s, want %s", f.path, got, f.sha256)
 	}
 	return nil
 }
