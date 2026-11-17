@@ -1571,8 +1571,9 @@ func TestFilterModesBenchReal(t *testing.T) {
 // 100), the lexical leg covers 2·limit records, the ANN leg covers
 // limit. Search-time options are the server's defaults for a config
 // that sets none of them (the bench server's): stop-word stripping ON
-// (except when the query carries a quote), OR-combined terms, RRF
-// weights 1/1, no adaptive weighting, similarity floor 0.
+// (except when the query carries a quote), OR-combined terms,
+// similarity floor 0. Fusion is plain RRF 1/1, not Search's per-query
+// form.
 //
 // Strategies:
 //
@@ -1799,7 +1800,7 @@ func fbE2ESearch(ctx context.Context, f *fbFixture, q fbQuery, filter query.Filt
 	var fused []Hit
 	switch mode {
 	case "hybrid":
-		fused = fuseRRF([][]Hit{ftsHits, vecHits}, nil, 0) // weights 1/1 (server default)
+		fused = fuseRRF([][]Hit{ftsHits, vecHits}, nil, 0) // plain RRF 1/1
 	case "fts":
 		fused = ftsHits
 	case "vector":

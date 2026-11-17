@@ -343,8 +343,8 @@ func openIndexerStore(ctx context.Context, cfg config.Index, dbPath string, emb 
 	st.SetVectorMode(cfg.Vector.Mode) // ANN strategy; "" = IVF-SQ default
 	st.SetFTSParams(cfg.Search.Bm25B, cfg.Search.Bm25K1, cfg.Search.TitleWeight)
 	// Stop-word stripping defaults on (a precision win on the bag-of-words
-	// FTS engine); config may disable it. Weights/floor default to
-	// pre-tuning behavior via Options.withDefaults.
+	// FTS engine); config may disable it. Unset weights leave the
+	// fusion form to each query.
 	stopWords := true
 	if cfg.Search.StopWords != nil {
 		stopWords = *cfg.Search.StopWords

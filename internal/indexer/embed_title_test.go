@@ -177,20 +177,37 @@ func TestStore_SetTitledVectors(t *testing.T) {
 		t.Fatal(err)
 	}
 	vec := []float32{1, 0, 0, 0}
-	if err := s.SetTitledVectors(ctx, sp, ids, titles, [][]float32{vec, vec, vec}); err != nil {
-		t.Fatal(err)
+	texts := []string{body, body, body}
+	// The skipped doc is not among the landed.
+	if n, err := s.SetTitledVectors(ctx, sp, ids, texts, titles, [][]float32{vec, vec, vec}); err != nil || n != 2 {
+		t.Fatalf("landed %d, %v; want the 2 docs whose name stands", n, err)
 	}
 	got, _, err := s.Pending(ctx, sp, 10)
 	if err != nil || !slices.Equal(got, ids[:1]) {
 		t.Fatalf("pending = %v, %v; want only the renamed object's doc", got, err)
 	}
-	if err := s.SetTitledVectors(ctx, sp, ids[:1], []string{"New name"}, [][]float32{vec}); err != nil {
-		t.Fatal(err)
+	if n, err := s.SetTitledVectors(ctx, sp, ids[:1], texts[:1], []string{"New name"}, [][]float32{vec}); err != nil || n != 1 {
+		t.Fatalf("landed %d, %v under the current name; want 1", n, err)
 	}
 	if got, _, _ := s.Pending(ctx, sp, 10); len(got) != 0 {
 		t.Fatalf("pending after landing under the current name: %v", got)
 	}
-	if err := s.SetTitledVectors(ctx, sp, ids, []string{"x"}, [][]float32{vec, vec}); err == nil {
-		t.Fatal("mismatched titles must be refused")
+	// Texts, titles and vectors are one per id.
+	vecs := [][]float32{vec, vec, vec}
+	for _, c := range []struct {
+		what          string
+		texts, titles []string
+		vecs          [][]float32
+	}{
+		{"fewer texts", texts[:2], titles, vecs},
+		{"more texts", append(texts, body), titles, vecs},
+		{"fewer titles", texts, titles[:2], vecs},
+		{"more titles", texts, append(titles, "x"), vecs},
+		{"fewer vectors", texts, titles, vecs[:2]},
+		{"more vectors", texts, titles, append(vecs, vec)},
+	} {
+		if _, err := s.SetTitledVectors(ctx, sp, ids, c.texts, c.titles, c.vecs); err == nil {
+			t.Errorf("%s than ids must be refused", c.what)
+		}
 	}
 }

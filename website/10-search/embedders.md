@@ -53,8 +53,21 @@ The child exists so a llama.cpp fault costs a round of embedding, not the server
 | `local.batchDocs` | 1 | documents packed per decode; each then gets `contextSize / batchDocs` tokens, so a wider batch embeds less of each text |
 | `local.requestTimeout` | `3m` | bound on one request to the child before it is killed and respawned |
 | `local.niceness` | 10 | the child's scheduling priority below the server; 0 = same as the server |
+| `local.neuralEngine` | `auto` | `auto` runs EmbeddingGemma 2 on the Apple Neural Engine where it can; `on` refuses to boot where it cannot; `off` embeds on llama.cpp alone |
 
 **GPU offload** is automatic: the bundles carry Metal (macOS arm64) and Vulkan (Linux, Windows — NVIDIA/AMD/Intel) backends alongside the CPU variants, and a backend whose driver is missing simply does not register. Full offload of the default model takes ~2 GB of VRAM; set `gpuLayers: 0` if the embedder should not have it. CUDA/ROCm builds are not bundled — point `libDir` at your own llama.cpp build to use them.
+
+**The Neural Engine** takes over on an Apple Silicon Mac (macOS 15 or later) when the model is `embeddinggemma-2`. The embedder child then also runs the model's Core ML package, whose functions take 128, 256, 512, 1,024 or 2,048 tokens: a text runs on the smallest loaded function that holds it, and llama.cpp embeds the rest: a text no loaded function holds, and one longer than 2,048 tokens. Both runtimes write the same index. The package is a second sha256-pinned download into the model cache, compiled once on the machine; its licence texts are fetched beside it. The smallest function stays loaded for queries; a larger one loads on the first text that needs it and is released a minute after its last use. The first load of a function on a machine takes about a minute, later ones a few seconds. A virtual machine has no Neural Engine, so `auto` leaves it on llama.cpp.
+
+```yaml
+index:
+  embedder: local
+  local:
+    model: embeddinggemma-2
+    neuralEngine: "off"   # llama.cpp alone
+```
+
+Core ML's plan for each function is checked before it loads: a function whose transformer core would run on the CPU is refused, and a larger loaded function or llama.cpp takes its texts. A bulk index of mixed lengths keeps all five functions loaded at once, about 2.0 GB of wired memory next to llama.cpp (1.4 GB when no text passes 1,024 tokens).
 
 Platform notes: only builds with `-tags llamacpp` carry the local embedder; without it `local` fails at boot ([Builds and CI](../operations/builds-and-ci.html)). Linux needs a loadable system `libffi.so.8` (on NixOS use the repo's `nix develop` shell); macOS bundles it. Mobile builds have full-text search and force vector search off; they never construct an embedder, even when the configuration names one.
 

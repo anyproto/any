@@ -636,14 +636,25 @@ one updated to deleted, stops it and drops its index. A failed
 
 ### Embed loop (vector path) — parallel, batched
 
-A second per-space goroutine drains `pending` docs: `EmbedDocs` in
-batches of `index.embedBatch` (default 64), `index.embedConcurrency`
-batches in parallel (default 1; 4 for `openai`, and for `auto` with a key) → `SetVectors`
-(one write transaction, update-only — docs deleted meanwhile are
-skipped) → `EnsureVectorIndex`. Advance nudges it after each page with
-new text; a 1-minute ticker retries after embedder failures. A rewritten
-record goes back to `pending`. `index.embedder: none` ⇒ the loop doesn't
-run and the index is FTS-only.
+A second per-space goroutine drains `pending` docs: `Store.Pending`
+reads their ids and texts → `EmbedDocs` in batches of
+`index.embedBatch` (default 64), `index.embedConcurrency` batches in
+parallel (default 1; 4 for `openai`, and for `auto` with a key) →
+`SetTitledVectors` (one write transaction per batch, update-only) →
+`EnsureVectorIndex`. Advance nudges it after each page with new text; a
+1-minute ticker retries after embedder failures. A rewritten record goes
+back to `pending`. `index.embedder: none` ⇒ the loop doesn't run and the
+index is FTS-only.
+
+A vector lands only on the input it was embedded from. The advance loop
+writes while a batch embeds, so the landing checks each doc inside its
+write transaction: one deleted meanwhile is skipped, not resurrected;
+one whose stored text differs from the text the batch read is skipped;
+and so is an editor window whose object's name differs from the name it
+was embedded under (the `{title}` document prompt, below). A skipped doc
+that still embeds keeps its `pending` mark and is embedded from its
+current text in a later round, and `index.embed.<spaceId>` counts only
+the docs that took a vector.
 
 Enabling an embedder on an index built without one is not a rebuild.
 The cursor row's `embed` field is the cursor up to which every doc the
@@ -818,7 +829,9 @@ child they kill only the child: the round fails, its docs stay
 **The child only embeds.** It gets a model path and decode parameters
 and answers with vectors. It never opens the index db, the data dir or
 any-store; the cursor, `pending` marking, `SetVectors`, the vector index,
-model discovery and the download all stay in the server.
+model discovery and the downloads all stay in the server. The one thing
+it writes is the compiled Core ML model in the model cache (§ Neural
+Engine).
 
 **Failure handling.** A dead child, a desynchronized stream, or a frame
 that outlives `index.local.requestTimeout` (default 3 min) kills the
@@ -881,6 +894,79 @@ set `index.local.gpuLayers: 0`.
 
 CUDA and ROCm builds are not bundled; point `index.local.libDir` at a
 custom llama.cpp build to use them.
+
+### Neural Engine (local embedder)
+
+On an Apple Silicon Mac the embedder child runs EmbeddingGemma 2 on the
+Neural Engine through Core ML, next to llama.cpp. The model's Core ML
+package holds one function per fixed length: 128, 256, 512, 1,024 and
+2,048 tokens. A text runs on the smallest loaded function that holds
+it. llama.cpp tokenizes for both runtimes and embeds every other text:
+one that no loaded function holds, and one longer than 2,048 tokens,
+which only a larger `index.local.contextSize` lets through.
+
+Both runtimes write one index. A function returns the model's own unit
+vector (cosine 0.9999 to the full-precision weights, 0.9996 to
+llama.cpp's Q8 vector of the same text), and the projection and
+`index.local.dim` apply after either runtime. The index stamp names the
+model, not the runtime.
+
+`index.local.neuralEngine`:
+
+- `auto` (default) uses it when the server finds nothing against it: an
+  arm64 Mac that is not a virtual machine, macOS 15 or later, the
+  `embeddinggemma-2` model with its own pooling, and the package on disk
+  or downloadable. Anywhere else llama.cpp embeds alone.
+- `on` is `auto` that refuses to boot when one of those conditions
+  fails. What only the child can see leaves llama.cpp embedding alone
+  under `on` too: no Neural Engine listed, a function planned on the
+  CPU, a failed compile.
+- `off` is llama.cpp alone.
+
+**The package.** Its three files are downloaded, each sha256-pinned,
+into `<root>/models/<name>-<digest>.mlpackage/` by the rules of the GGUF
+download and after it: every model download reports as
+`index.model_download`, one file at a time. `index.local.modelUrl` does
+not apply to the package. With `index.local.modelPath` nothing is
+downloaded and a package already in the models dir is used. The child
+checks the files against their checksums and compiles the package once
+into `<name>-<digest>.mlmodelc` beside it. Until the package is complete
+llama.cpp embeds everything, and the child looks for it again when a
+text arrives, at most every 30 s. The package's licence texts
+(`LICENSE`, `NOTICE` and the licence the notice refers to) follow it
+into `<name>-<digest>.licenses/`, pinned the same way; one that cannot
+be fetched is tried again at the next start and holds nothing back.
+
+**Function lifetime.** The smallest function loads first and stays for
+queries: when the child starts if the package is ready, else with the
+first text after it is. Any other loads in the
+background on the first text that needs it, and a timer releases it one
+minute after its last use; idle retirement of the child releases all of
+them. The first load of a function on a machine specializes it for the
+Neural Engine: about a minute per function on an M2, six for all five.
+After that a child's first load of a function takes two to three
+seconds and a reload under one. While a function loads, a larger loaded
+one serves its texts, else llama.cpp.
+
+**Placement.** A machine that lists no Neural Engine never loads the
+package. Before a function first loads, the child reads Core ML's
+compute plan for it, once per child, and refuses a function whose
+convolution, matmul, linear or softmax operations are planned on the
+CPU. The digest in the package's
+directory name is of its pinned checksums, so another pin is another
+directory with a compiled model of its own.
+
+**Failure.** A prediction that fails, or returns a vector that is not
+unit length, leaves that text to llama.cpp. Three in a row on one
+function retire that function for the life of the child; a larger
+loaded one or llama.cpp takes its texts. A child that dies after it
+began using Core ML is respawned without the Neural Engine for the rest
+of the process. That demotion comes before the GPU one (§ GPU offload),
+one runtime per death, because the death does not say which runtime
+caused it.
+
+Core ML is called through the Objective-C runtime, so the binary stays
+CGO-free and cross-compiled (`internal/indexer/coreml`).
 
 ### Builds and the local embedder
 
@@ -947,11 +1033,13 @@ page the open does not read fails later, on the read that meets it.
 `POST /v1/spaces/:spaceId/search` `{query, scopes?, limit?, mode?,
 require?, exclude?, maxData?, passages?, filter?}` →
 `{hits: [{scope, objectId, dataset, recordId, chunk?, data, dataOffset?,
-dataTotal, score, match?, passages?}], mode, vectorStatus, truncated?}`.
+dataTotal, score, match?, passages?}], mode, vectorStatus, truncated?,
+scoreScale?}`. `scoreScale: "unit"` marks a hybrid reply, whose content
+scores read 0–1.
 
 Modes: `fts` (BM25), `vector` (cosine ANN; requires an embedder; hits
 with similarity ≤ 0 — or ≤ `minVectorSim` — are dropped), `hybrid`
-(default — both legs fused by reciprocal rank, k = 60; degrades to `fts`
+(default — both legs fused by reciprocal rank, § Ranking knobs; degrades to `fts`
 when no embedder is configured or the query embedding fails or exceeds
 its budget — `mode` in the reply is the mode that ran), `title` (the
 title pass alone, below). The query
@@ -962,8 +1050,9 @@ leaves the embedder's queue at once. The first query after the local
 child's idle retirement (§ The embedder child process) spawns it again,
 about a second warm; a spawn that outlasts the budget degrades a
 `hybrid` search to `fts` and answers a `vector` search `503
-index.embedder_unavailable`. Scores are comparable only within
-one response. `limit` defaults to 10 and is clamped to 100. CLI:
+index.embedder_unavailable`. BM25 and cosine scores are
+comparable only within one response; a hybrid content score is 0–1 and
+comparable across responses (§ Ranking knobs). `limit` defaults to 10 and is clamped to 100. CLI:
 `any search <spaceId> <query> [--scopes a,b] [--limit N] [--mode …]
 [--require T …] [--exclude T …] [--max-data N] [--passages N]`.
 
@@ -1091,9 +1180,26 @@ survive intact.
   stop list (`stopwords.go`) is removed from the FTS-leg query only; the
   vector leg gets the full query. An all-stop-words query is left
   unchanged.
-- **Weighted RRF** (`ftsWeight` / `vectorWeight`, default 1 / 1) — scales
-  each leg's fusion contribution.
-- **Adaptive leg weighting** (`adaptiveWeights`, default **off**) —
+- **Fusion form** — by default each query picks its RRF form
+  (`fusion.go`). The share of its words found in the best of the top
+  three FTS chunks, then how peaked the stronger leg is (cosine top-1 −
+  top-5, or BM25's relative top-1 − top-2 gap), choose vector-heavy RRF
+  (1 / 2 at k 20), the vector leg alone, lexical-heavy RRF (1 / 0.5 at
+  k 20) or the FTS leg alone. A single leg fuses at k 0, so its score is
+  1 / rank (ranks from 1) and a gate above 0.5 admits its first hit
+  only; the hits only the other leg holds follow, scored as the next
+  ranks, so the page is never shorter for it. A hit missing from a fused
+  leg can't reach 1, an empty leg included. A `word*` in the query is
+  covered by any word it starts, and a word in a script without spaces
+  by a chunk that contains it. One fixed weight can't serve both kinds of
+  query: above ~1.2 every vector-only hit outranks every FTS-only one,
+  FTS #1 included, which costs word, name and id lookups. Setting
+  `ftsWeight` / `vectorWeight` fixes weighted RRF at k 60 instead (an
+  unset one is 1). Every form's score is divided by its maximum,
+  `Σ weight / (k + 1)`, so a hybrid score reads 0–1 and clients can gate
+  on it.
+- **Adaptive leg weighting** (`adaptiveWeights`, default **off**; turns
+  fixed weights on, 1 / 1 unless set) —
   down-weights the FTS leg per query by its score concentration, so a
   flat BM25 distribution (paraphrastic queries) can't drag hybrid below
   the dense leg. FTS only — cosine is uncalibrated. Wins on weak-lexical
@@ -1299,6 +1405,10 @@ run).
   2048 / 1 = 2048, EOS preserved for last-token pooling). The 2000-rune
   chunk target keeps prose inside it; a chunk of dense CJK or code can
   exceed the clamp and embed head-only — FTS covers its full text.
+- **Loaded Neural Engine functions are not capped.** A bulk index of
+  mixed lengths uses every function inside each minute, so all five stay
+  loaded next to llama.cpp: about 2.0 GB of wired memory on top of it,
+  1.4 GB when no text passes 1,024 tokens.
 - **`require` / `exclude` bind the hit, i.e. the chunk**: a term that
   appears only in another chunk of the same record does not satisfy a
   `require` for this one, and a passage is always a chunk that satisfied

@@ -23,3 +23,11 @@ for the host).
 - **EmbeddingGemma 2** (default model) and **Qwen3-Embedding-0.6B**
   (selectable), downloaded at runtime into `<data-dir>/models/` —
   Apache-2.0.
+- **EmbeddingGemma 2 as a Core ML package** (downloaded at runtime into
+  the model cache on Apple Silicon Macs) — Apache-2.0, like the model.
+  It is a conversion of the stock weights, published at
+  [anylab/embeddinggemma-2-coreml](https://huggingface.co/anylab/embeddinggemma-2-coreml).
+  The converted forward adapts Transformers (Apache-2.0) and uses
+  normalization formulas from QVAC (MIT). Its `LICENSE`, its `NOTICE`
+  and the QVAC licence are downloaded beside the package, into
+  `<package>.licenses/`.

@@ -213,6 +213,9 @@ index:
                                       # op_offload) (docs/13-index.md § GPU offload)
     batchDocs: 1                      # docs per llama_decode; N caps each text at contextSize/N tokens;
                                       # 1 = sequential
+    neuralEngine: auto                # auto | on | off — EmbeddingGemma 2 through Core ML on an
+                                      # Apple Silicon Mac; on refuses to boot where it cannot
+                                      # run (docs/13-index.md § Neural Engine)
   vector:
     dim: 0                            # 0 = learned from the first successful embedding; a
                                       # value other than the width the pinned local model
@@ -223,11 +226,12 @@ index:
                                       # (HNSW + RAM cache) | bruteforce/exact
   search:                             # hybrid-ranking knobs (docs/13-index.md § Search)
     stopWords: true                   # strip stop words from the FTS-leg query (default on)
-    ftsWeight: 1                      # RRF weight for the lexical leg (default 1)
-    vectorWeight: 1                   # RRF weight for the dense leg (default 1)
-    adaptiveWeights: false            # auto-down-weight FTS per query when its scores are
-                                      # flat/weak; helps paraphrastic corpora, small cost on
-                                      # lexical-friendly ones — off by default
+    ftsWeight: 0                      # fixed RRF weights at k 60 (an unset one is 1); both 0
+    vectorWeight: 0                   # (default): each query picks its RRF form (13-index.md)
+    adaptiveWeights: false            # turns fixed weights on: auto-down-weight FTS per query
+                                      # when its scores are flat/weak; helps paraphrastic
+                                      # corpora, small cost on lexical-friendly ones — off
+                                      # by default
     defaultOperator: or               # how bare FTS terms combine: or (default) | and. AND
                                       # requires ALL terms — precise, but tanks recall on
                                       # natural-language queries; use only for keyword input
@@ -372,6 +376,7 @@ ANY_INDEX_LOCAL_GPU_LAYERS=0          # 0 = force CPU-only decoding
 ANY_INDEX_LOCAL_REQUEST_TIMEOUT=3m    # bound on one frame to the child (one decode group of batchDocs texts)
 ANY_INDEX_LOCAL_NICENESS=10           # child scheduling priority; 0 = same as the server
 ANY_INDEX_LOCAL_BATCH_DOCS=1          # index.local.batchDocs
+ANY_INDEX_LOCAL_NEURAL_ENGINE=auto    # index.local.neuralEngine: auto | on | off
 ```
 
 A numeric or boolean value that does not parse is ignored (the file or

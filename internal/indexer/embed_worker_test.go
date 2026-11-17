@@ -84,6 +84,14 @@ func runEmbedHelper(mode string) int {
 	if err := writeFrame(out, workerResp{Op: workerOpReady, Dim: helperDim, Hardware: hw}, nil); err != nil {
 		return 1
 	}
+	switch os.Getenv("ANY_EMBED_WORKER_ANE") {
+	case "":
+	case "off": // Core ML started, then gave up
+		aneStderrLog("starting")
+		aneStderrLog(aneOffStatus + "llama.cpp embeds everything: no neural engine")
+	default: // a child that began using Core ML
+		aneStderrLog("starting")
+	}
 	served := 0
 	for {
 		var req workerReq
