@@ -5197,9 +5197,9 @@ loopback-only listen stays the trust boundary.
 
 ## Pagination
 
-A GET list takes a `limit` and no `offset`. Version history and
-`…/read-state/unread` page with an opaque `cursor`; query reads follow
-`08-clients.md` § 3.
+A list GET returns the whole list, unless its section gives it a
+`limit`. Version history and `…/read-state/unread` page with an opaque
+`cursor`; query reads follow `08-clients.md` § 3.
 
 ## Idempotency
 

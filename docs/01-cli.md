@@ -271,7 +271,7 @@ instead of results). Stage set, examples, and MongoDB divergences in
 
 ```bash
 any aggregate $SPID $OBJID --dataset chat_messages \
-  --pipeline '[{"$group":{"_id":"$creator","n":{"$count":{}}}},{"$sort":{"n":-1}}]'
+  --pipeline '[{"$group":{"_id":"$creator","n":{"$count":{}}}},{"$sort":{"n":-1,"id":-1}}]'
 ```
 
 ### Editor
