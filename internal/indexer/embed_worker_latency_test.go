@@ -80,7 +80,7 @@ func TestWorkerEmbedder_RealChild_QueryLatency(t *testing.T) {
 				default:
 				}
 				start := time.Now()
-				if _, err := w.embed(ctx, workerRoleDoc, doc); err != nil {
+				if _, err := w.embed(ctx, workerRoleDoc, nil, doc); err != nil {
 					t.Error(err)
 					return
 				}

@@ -26,8 +26,8 @@ this for *why* and *how well*.
     (`index.vector.mode: btree`) is opt-in.
   - **Hybrid vs single-leg is corpus-dependent**: hybrid wins on
     lexical-friendly SciFact; vector alone wins on paraphrastic FiQA
-    (weak BM25). Equal RRF weights are a safe default, not a universal
-    optimum — the weight knobs are the lever.
+    (weak BM25). Equal RRF weights are a safe fixed setting, not a
+    universal optimum — the weight knobs are the lever.
   - **A static vector-similarity floor doesn't work for this model**
     (gibberish scores as high as on-topic queries) → `minVectorSim` is 0.
   - FTS matches reference BM25; the model matches its card once the index
@@ -38,7 +38,7 @@ this for *why* and *how well*.
 | Area | Mechanism | Reference |
 |---|---|---|
 | Titles | the object's name in its own FTS field, first in the index; the title pass runs any-store's search-as-you-type tiers over it (`^"…"*`, `"…"*`, bag) ahead of the content legs | `internal/indexer/titles.go`, `store.go` |
-| Editor | coalesced windows (break before each heading, ~1.5 KB budget), `recordId = win_<anchor>` | `internal/editor/window.go`, `chunker.go` |
+| Editor | coalesced windows (break before each heading, a heading run leading the text below it; ~1.5 KB budget), `recordId = win_<anchor>` | `internal/editor/window.go`, `chunker.go` |
 | Runtime datasets | records indexed by their `x-search` mapping under the declared scope; a dataset without `x-search` is not text-indexed | `internal/index/schema.go` |
 | Long records | split into ~2000-rune chunk docs; `limit` counts records, other matching chunks ride as `passages` | `internal/indexer/chunk.go`, `rrf.go` |
 | Incremental embed | per-doc content hash → reconcile diff (editor) + per-record skip (streaming chunkers) | `internal/indexer/{worker,store}.go` |
@@ -245,7 +245,7 @@ the new window.
 
 ### BEIR SciFact — 5183 docs / 300 queries, Qwen3-Embedding-0.6B
 
-Production knobs (stop-words on, RRF 1/1, floor 0):
+Knobs: stop-words on, fixed RRF 1/1, floor 0:
 
 | mode | nDCG@10 | recall@10 | MRR |
 |---|---|---|---|
@@ -442,7 +442,7 @@ the vector index inserts thousands per second. Two mechanisms address this
 | editor chunk unit | coalesced ~1.5 KB windows | distribution + recall (above) |
 | long-record chunk target | 2000 runes | fits the local embedder's 2048-token clamp; a hit's data is the passage |
 | `vector.mode` | IVF-SQ | cheap near-flat incremental ingest + physical deletes; HNSW's ≈-exact recall (+3–4 recall@10) isn't worth its ~15–47× serial ingest and tombstone rebuilds for a continuously written local index. `btree` opt-in |
-| `ftsWeight` / `vectorWeight` | 1 / 1 | safe corpus-agnostic default (optimal on SciFact); dense-favorable corpora like FiQA want vector-heavier |
+| `ftsWeight` / `vectorWeight` | unset: each query picks its RRF form (`fusion.go`) | on a real account against 1 / 1: blind real-query nDCG@3 +0.013 (assistant lookups +0.065*), known-item +0.04 to +0.07*, topical +0.02 (* = the 95% interval excludes 0); a fixed weight above ~1.2 ranks every vector-only hit above every FTS-only one, which costs one-word lookups |
 | `stopWords` | on | helps conversational queries, neutral on BEIR |
 | `minVectorSim` | 0 | a static floor can't separate signal from noise for the local model |
 | `adaptiveWeights` | off | wins on paraphrastic corpora (FiQA +3 recall@10), small cost on lexical-friendly ones; opt-in |
@@ -453,9 +453,9 @@ the vector index inserts thousands per second. Two mechanisms address this
 
 ## Not measured
 
-- The benchmarks are out-of-domain (scientific claims, financial Q&A);
-  there is no labeled set over notes, chat or agent memory, so domain
-  effects of `adaptiveWeights`, `titleWeight` and `bm25B` are unmeasured.
+- The public benchmarks are out-of-domain (scientific claims, financial
+  Q&A); the effects of `adaptiveWeights`, `titleWeight` and `bm25B` on
+  notes, chat or agent memory are unmeasured.
 - There is no per-object summary doc (name + description + lead paragraph)
   and no reranker; scores are uncalibrated, so the index cannot say
   "nothing relevant".

@@ -229,15 +229,20 @@ late heartbeat can resurrect a finished row. Work stopped mid-pass
   or server start. Reported by the search indexer's space workers, so
   only while `index.enabled`.
 - **Embedding-model download** — id `index.model_download`, kind
-  `index.model_download`, target the model file name. Always
+  `index.model_download`, target the model file name, or
+  `<package>.<file>` for a file of the model's Core ML package (the
+  files follow the model one at a time on the same id; its licence
+  texts report nothing). Always
   announces, at download start — even fully offline (a download is
   long by definition and its absence is the state worth showing).
   `done`/`total` are **bytes** (total from Content-Length, unknown
   until the first response), frames every ~5s of streaming. A failed
-  attempt is NOT terminal — the download retries forever, so the row
+  attempt is NOT terminal — the download retries, so the row
   stays `running` with a generic status message and heartbeats
-  through the backoff; the only terminals are `done` and (on
-  shutdown) `cancelled`. A `.part` interrupted between the last byte
+  through the backoff. The terminals are `done`, `cancelled` (on
+  shutdown) and `failed`: a source that twice serves a whole file
+  failing its checksum is not fetched again until the next
+  start. A `.part` interrupted between the last byte
   and the rename installs on the next boot with no network
   round-trip. While another server under the same data-dir root holds
   the download, the row stays `running` with the message `waiting for

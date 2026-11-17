@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/anyproto/any-sync/app/logger"
@@ -18,23 +19,15 @@ import (
 	"github.com/anyproto/any/internal/config"
 )
 
-// Pinned zero-config defaults: `index.embedder: local` alone downloads
-// this model into <data-dir>/index/models and embeds with it.
+// Zero-config defaults: `index.embedder: local` alone downloads the
+// default model (embed_model.go) into the models dir and embeds with it.
 const (
-	localModelName   = "Qwen3-Embedding-0.6B-Q8_0.gguf"
-	localModelURL    = "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/" + localModelName
-	localModelSHA256 = "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
-	localDefaultDim  = 1024
-	// Truncation bound, not the model maximum (Qwen3 goes to 32k): for
+	// Truncation bound, not the model maximum: for
 	// embeddings NBatch must cover the whole input, so context size is
 	// also the compute/memory bound per text. The bound is per SEQUENCE
 	// (maxDocTokens) — batchDocs > 1 divides it. docs/13-index.md
 	// § Known limits records the truncation decision.
 	localDefaultCtx = 2048
-	// Qwen3-Embedding retrieval instruction. Documents embed bare;
-	// queries carry the task instruction (skipping it costs a few
-	// points of retrieval quality per the model card).
-	localQueryPrefix = "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:"
 	// Docs packed per llama_decode as parallel sequences. The unified KV
 	// cache PARTITIONS the context across NSeqMax, so packing N docs cuts
 	// the per-doc token bound to nCtx/N — a wider batch buys throughput
@@ -59,15 +52,20 @@ const (
 // outage semantics turn into "vectors stay pending, retry on tick" —
 // no special wiring for "model still downloading".
 type Local struct {
-	modelPath    string
-	libDir       string
-	nCtx         int
-	threads      int // 0 = runtime.NumCPU()-1
-	outDim       int // 0 = model dim; >0 = Matryoshka truncate + renormalize
-	queryPrefix  string
-	gpuLayers    int  // -1 = llama.cpp default (offload all when a GPU is present)
-	batchDocs    int  // max docs packed per llama_decode (≥1)
-	defaultModel bool // pinned Qwen3 (possibly via mirror URL), not a custom GGUF
+	modelPath   string
+	libDir      string
+	nCtx        int
+	threads     int // 0 = runtime.NumCPU()-1
+	outDim      int // 0 = model dim; >0 = Matryoshka truncate + renormalize
+	queryPrefix string
+	docPrefix   string
+	pooling     llama.PoolingType
+	project     []float32 // unit direction removed from every vector; nil = none
+	gpuLayers   int       // -1 = llama.cpp default (offload all when a GPU is present)
+	batchDocs   int       // max docs packed per llama_decode (≥1)
+	modelDim    int       // output width known without loading; 0 = load to learn it
+	// coreml is the model's Core ML package; nil = it has none.
+	coreml *coreMLPackage
 
 	dl *modelDownload // nil when modelPath overridden or file already present
 
@@ -81,6 +79,9 @@ type Local struct {
 	lctx   llama.Context
 	vocab  llama.Vocab
 	nEmbd  int32
+	// ane embeds the texts that fit a loaded Core ML function; nil =
+	// llama.cpp embeds everything.
+	ane *neuralEngine
 }
 
 // NewLocal resolves paths and kicks off the background model download
@@ -101,33 +102,48 @@ func NewLocal(cfg config.IndexLocal, modelsDir, legacyModelsDir string, onProces
 // child runs) and the parent-side supervisor, which renders it into the
 // child's flags — so both sides derive their parameters from one place.
 type localSpec struct {
-	modelPath    string
-	libDir       string
-	queryPrefix  string
-	nCtx         int
-	threads      int // 0 = runtime.NumCPU()-1
-	outDim       int
-	batchDocs    int
-	gpuLayers    int // -1 = llama.cpp default (offload all when a GPU is present)
-	niceness     int // child scheduling priority; 0 = same as the server
-	defaultModel bool
+	modelPath   string
+	libDir      string
+	profile     string // pinned model id; "" = an unnamed GGUF
+	queryPrefix string
+	docPrefix   string
+	pooling     string // poolingType name
+	nCtx        int
+	threads     int // 0 = runtime.NumCPU()-1
+	outDim      int
+	batchDocs   int
+	gpuLayers   int // -1 = llama.cpp default (offload all when a GPU is present)
+	niceness    int // child scheduling priority; 0 = same as the server
+	modelDim    int // pinned model at its default path: width known without loading
+	// coremlDir is the model's Core ML package the child runs on the
+	// Neural Engine; "" = llama.cpp alone.
+	coremlDir string
 }
 
-// resolveLocalSpec turns config into a runnable spec: model path (incl.
-// the legacy per-data-dir location), lib dir, query prefix and decode
-// bounds. A missing default model starts the background download, whose
+// resolveLocalSpec turns config into a runnable spec: the model and its
+// path (incl. the legacy per-data-dir location), lib dir, prompts,
+// pooling and decode bounds. A ModelPath with no
+// index.local.model is an unnamed GGUF: it takes no pinned model's
+// prompts or pooling, only what the config sets. A missing default model starts the background download, whose
 // handle it returns — readiness is the destination file, so callers keep
 // treating "still downloading" as an ordinary embedder outage.
 func resolveLocalSpec(cfg config.IndexLocal, modelsDir, legacyModelsDir string, onProcess func(ProcessUpdate)) (localSpec, *modelDownload, error) {
 	s := localSpec{
-		nCtx:         cfg.ContextSize,
-		threads:      cfg.Threads,
-		outDim:       cfg.Dim,
-		queryPrefix:  cfg.QueryPrefix,
-		gpuLayers:    -1,
-		niceness:     localDefaultNiceness,
-		batchDocs:    cfg.BatchDocs,
-		defaultModel: cfg.ModelPath == "",
+		nCtx:        cfg.ContextSize,
+		threads:     cfg.Threads,
+		outDim:      cfg.Dim,
+		queryPrefix: cfg.QueryPrefix,
+		docPrefix:   cfg.DocPrefix,
+		pooling:     cfg.Pooling,
+		gpuLayers:   -1,
+		niceness:    localDefaultNiceness,
+		batchDocs:   cfg.BatchDocs,
+	}
+	// A ModelUrl alone is another source for the default model.
+	named := cfg.Model != "" || cfg.ModelPath == ""
+	model, err := lookupLocalModel(cfg.Model)
+	if err != nil {
+		return localSpec{}, nil, err
 	}
 	if cfg.Niceness != nil {
 		s.niceness = max(*cfg.Niceness, 0)
@@ -158,45 +174,104 @@ func resolveLocalSpec(cfg config.IndexLocal, modelsDir, legacyModelsDir string, 
 		s.libDir = filepath.Join(filepath.Dir(exe), "llamacpp")
 	}
 
+	if named {
+		s.profile = model.id
+		if s.queryPrefix == "" {
+			s.queryPrefix = model.queryPrefix
+		}
+		if s.docPrefix == "" {
+			s.docPrefix = model.docPrefix
+		}
+		if s.pooling == "" {
+			s.pooling = model.pooling
+		}
+	}
+	// Every config check precedes the download: a refused spec must not
+	// leave one running.
+	if _, err := poolingType(s.pooling); err != nil {
+		return localSpec{}, nil, err
+	}
+
 	var dl *modelDownload
 	if cfg.ModelPath != "" {
 		// Air-gapped: the file is the user's responsibility, no download.
 		s.modelPath = cfg.ModelPath
 	} else {
-		s.modelPath = filepath.Join(modelsDir, localModelName)
-		if legacy := filepath.Join(legacyModelsDir, localModelName); legacyModelsDir != "" {
+		s.modelPath = filepath.Join(modelsDir, model.file)
+		if legacy := filepath.Join(legacyModelsDir, model.file); legacyModelsDir != "" {
 			if _, err := os.Stat(legacy); err == nil {
 				s.modelPath = legacy
 			}
 		}
+		if named {
+			s.modelDim = model.dim
+		}
 		if _, err := os.Stat(s.modelPath); err != nil {
-			url, sha := localModelURL, localModelSHA256
+			url, sha := model.url, model.sha256
+			// A mirror serves the pinned file, so the pinned checksum holds.
 			if cfg.ModelUrl != "" {
-				url, sha = cfg.ModelUrl, cfg.ModelSha256
-				s.defaultModel = false
+				url = cfg.ModelUrl
+			}
+			if cfg.ModelSha256 != "" {
+				sha = strings.ToLower(cfg.ModelSha256)
 			}
 			dl = startModelDownload(url, s.modelPath, sha, nil, onProcess)
 		}
-	}
-	if s.queryPrefix == "" && s.defaultModel {
-		s.queryPrefix = localQueryPrefix
 	}
 	return s, dl, nil
 }
 
 func newLocalFromSpec(s localSpec, dl *modelDownload) *Local {
-	return &Local{
-		modelPath:    s.modelPath,
-		libDir:       s.libDir,
-		nCtx:         s.nCtx,
-		threads:      s.threads,
-		outDim:       s.outDim,
-		queryPrefix:  s.queryPrefix,
-		gpuLayers:    s.gpuLayers,
-		batchDocs:    s.batchDocs,
-		defaultModel: s.defaultModel,
-		dl:           dl,
+	pooling, _ := poolingType(s.pooling) // validated by resolveLocalSpec
+	var project []float32
+	var pkg *coreMLPackage
+	if s.profile != "" {
+		if m, err := lookupLocalModel(s.profile); err == nil {
+			project, pkg = m.project, m.coreml
+		}
 	}
+	return &Local{
+		modelPath:   s.modelPath,
+		libDir:      s.libDir,
+		nCtx:        s.nCtx,
+		threads:     s.threads,
+		outDim:      s.outDim,
+		queryPrefix: s.queryPrefix,
+		docPrefix:   s.docPrefix,
+		pooling:     pooling,
+		project:     project,
+		gpuLayers:   s.gpuLayers,
+		batchDocs:   s.batchDocs,
+		modelDim:    s.modelDim,
+		coreml:      pkg,
+		dl:          dl,
+	}
+}
+
+// startNeuralEngine turns on the Neural Engine path over the model's
+// Core ML package at dir. The model must be loaded: llama.cpp tokenizes
+// for both runtimes and embeds whatever the package cannot.
+func (l *Local) startNeuralEngine(dir string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if dir == "" || l.coreml == nil || !l.loaded || l.ane != nil {
+		return
+	}
+	dim := int(l.nEmbd)
+	lengths := usableLengths(l.coreml.lengths, l.maxDocTokens())
+	l.ane = newNeuralEngine(newCoreMLBackend(l.coreml, dir, dim, aneStderrLog), lengths, dim, aneStderrLog)
+	l.ane.start()
+}
+
+// usableLengths drops the functions no text can need: those past the
+// first one that holds the longest text the embedder sends.
+func usableLengths(lengths []int, maxTokens int) []int {
+	for i, l := range lengths {
+		if l >= maxTokens {
+			return lengths[:i+1]
+		}
+	}
+	return lengths
 }
 
 // llamaRuntime guards the process-global llama.cpp state (Load + Init
@@ -273,7 +348,7 @@ func (l *Local) ensureLoaded() error {
 	cp.NSeqMax = uint32(l.batchDocs)
 	cp.NThreads = threads
 	cp.NThreadsBatch = threads
-	cp.PoolingType = llama.PoolingTypeLast // Qwen3-Embedding pools the trailing EOS
+	cp.PoolingType = l.pooling
 	cp.Embeddings = 1
 	cp.OpOffload = opOffload(l.gpuLayers)
 	lctx, err := llama.InitFromModel(model, cp)
@@ -284,7 +359,9 @@ func (l *Local) ensureLoaded() error {
 
 	l.model, l.lctx = model, lctx
 	l.vocab = llama.ModelGetVocab(model)
-	l.nEmbd = llama.ModelNEmbd(model)
+	// The pooled vector has the output width, which a model with an
+	// output projection has wider than its hidden width.
+	l.nEmbd = llama.ModelNEmbdOut(model)
 	l.loaded = true
 	return nil
 }
@@ -362,11 +439,46 @@ func l2Normalize(vec []float32) {
 // embedOne runs one text through the context. Caller holds l.mu and has
 // run ensureLoaded.
 func (l *Local) embedOne(text string) ([]float32, error) {
-	vecs, err := l.embedGroup([][]llama.Token{l.tokenize(text)})
+	tokens := l.tokenize(text)
+	if vec, ok := l.embedANE(tokens); ok {
+		return vec, nil
+	}
+	vecs, err := l.embedGroup([][]llama.Token{tokens})
 	if err != nil {
 		return nil, err
 	}
 	return vecs[0], nil
+}
+
+// embedANE embeds one tokenized text on the Neural Engine. ok is false
+// when llama.cpp has to embed it. Caller holds l.mu.
+func (l *Local) embedANE(tokens []llama.Token) ([]float32, bool) {
+	if l.ane == nil {
+		return nil, false
+	}
+	ids := make([]int32, len(tokens))
+	for i, t := range tokens {
+		ids[i] = int32(t)
+	}
+	vec, ok := l.ane.embed(ids)
+	if !ok {
+		return nil, false
+	}
+	return l.finish(vec), true
+}
+
+// finish turns a runtime's pooled vector into the stored one: the
+// model's projection, then the configured width.
+func (l *Local) finish(vec []float32) []float32 {
+	if l.project != nil {
+		projectOut(vec, l.project) // at full width, before any truncation
+	}
+	l2Normalize(vec)
+	if l.outDim > 0 && l.outDim < len(vec) {
+		vec = vec[:l.outDim] // Matryoshka truncation
+		l2Normalize(vec)
+	}
+	return vec
 }
 
 // tokenize prepares one text for decoding: never empty, truncated to
@@ -411,8 +523,9 @@ func (l *Local) embedGroup(tokenized [][]llama.Token) ([][]float32, error) {
 	}
 
 	// Sequences are reused across decodes — drop the previous KV state.
+	// Metadata only: zeroing the buffers memsets the whole cache per call.
 	if mem, err := llama.GetMemory(l.lctx); err == nil {
-		_ = llama.MemoryClear(mem, true)
+		_ = llama.MemoryClear(mem, false)
 	}
 	ret, err := llama.Decode(l.lctx, batch)
 	if err != nil {
@@ -434,17 +547,21 @@ func (l *Local) embedGroup(tokenized [][]llama.Token) ([][]float32, error) {
 		// raw views llama-owned memory — copy before the next decode.
 		vec := make([]float32, len(raw))
 		copy(vec, raw)
-		l2Normalize(vec)
-		if l.outDim > 0 && l.outDim < len(vec) {
-			vec = vec[:l.outDim] // Matryoshka truncation
-			l2Normalize(vec)
-		}
-		out[seq] = vec
+		out[seq] = l.finish(vec)
 	}
 	return out, nil
 }
 
 func (l *Local) EmbedDocs(ctx context.Context, texts []string) ([][]float32, error) {
+	return l.EmbedTitledDocs(ctx, nil, texts)
+}
+
+// EmbedsTitles: the document prompt has a title slot.
+func (l *Local) EmbedsTitles() bool {
+	return strings.Contains(l.docPrefix, titlePlaceholder)
+}
+
+func (l *Local) EmbedTitledDocs(ctx context.Context, titles, texts []string) ([][]float32, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if err := l.ensureLoaded(); err != nil {
@@ -453,13 +570,22 @@ func (l *Local) EmbedDocs(ctx context.Context, texts []string) ([][]float32, err
 	tokenized := make([][]llama.Token, len(texts))
 	lens := make([]int, len(texts))
 	for i, t := range texts {
-		tokenized[i] = l.tokenize(t)
+		title := ""
+		if i < len(titles) {
+			title = titles[i]
+		}
+		tokenized[i] = l.tokenize(docPrompt(l.docPrefix, title) + t)
 		lens[i] = len(tokenized[i])
 	}
 	out := make([][]float32, 0, len(texts))
 	for start := 0; start < len(texts); {
 		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+		if vec, ok := l.embedANE(tokenized[start]); ok {
+			out = append(out, vec)
+			start++
+			continue
 		}
 		end := groupEnd(lens, start, l.nCtx, l.batchDocs)
 		vecs, err := l.embedGroup(tokenized[start:end])
@@ -484,12 +610,12 @@ func (l *Local) EmbedQuery(ctx context.Context, text string) ([]float32, error) 
 	return l.embedOne(l.queryPrefix + text)
 }
 
-// Dim avoids loading the model for the pinned default (the store learns
-// the dimension from the first embedded batch anyway); a custom model
-// must be loaded to know.
+// Dim avoids loading a pinned model at its default path (the store
+// learns the dimension from the first embedded batch anyway); any other
+// file must be loaded to know.
 func (l *Local) Dim(ctx context.Context) (int, error) {
-	if l.defaultModel {
-		return min(orDefault(l.outDim, localDefaultDim), localDefaultDim), nil
+	if l.modelDim > 0 {
+		return min(orDefault(l.outDim, l.modelDim), l.modelDim), nil
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -513,6 +639,9 @@ func (l *Local) Close() error {
 	defer l.mu.Unlock()
 	if l.dl != nil {
 		l.dl.Close()
+	}
+	if l.ane != nil {
+		l.ane.close()
 	}
 	if l.loaded {
 		_ = llama.Free(l.lctx)

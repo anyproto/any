@@ -821,7 +821,8 @@ func (w *spaceWorker) drainPending(ctx context.Context) error {
 // EnsureVectorIndex stay serial. The vector index is created lazily after
 // the first batch lands. progress is called with (0, remaining) when a
 // round found work (before embedding; remaining = pending count, -1
-// when the count read failed) and with (landed, -1) after each batch.
+// when the count read failed) and with (landed, -1) after each batch
+// that landed vectors.
 func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, remaining int)) error {
 	spaceId := w.sp.Id()
 	batch := w.ix.opts.EmbedBatch
@@ -834,6 +835,10 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 		if len(ids) == 0 {
 			return nil
 		}
+		titles, err := w.ix.store.DocTitles(ctx, spaceId, ids)
+		if err != nil {
+			return err
+		}
 		remaining, cerr := w.ix.store.PendingCount(ctx, spaceId)
 		if cerr != nil {
 			remaining = -1 // progress keeps the last known total
@@ -842,15 +847,20 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 
 		// Split the page into batch-sized chunks, embed concurrently.
 		type chunk struct {
-			ids   []string
-			texts []string
-			vecs  [][]float32
-			err   error
+			ids    []string
+			texts  []string
+			titles []string // nil unless documents embed under their names
+			vecs   [][]float32
+			err    error
 		}
 		var chunks []*chunk
 		for off := 0; off < len(ids); off += batch {
 			end := min(off+batch, len(ids))
-			chunks = append(chunks, &chunk{ids: ids[off:end], texts: texts[off:end]})
+			c := &chunk{ids: ids[off:end], texts: texts[off:end]}
+			if titles != nil {
+				c.titles = titles[off:end]
+			}
+			chunks = append(chunks, c)
 		}
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, conc)
@@ -860,7 +870,11 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 			go func(c *chunk) {
 				defer wg.Done()
 				defer func() { <-sem }()
-				c.vecs, c.err = w.ix.opts.Embedder.EmbedDocs(ctx, c.texts)
+				if te, ok := w.ix.opts.Embedder.(TitleEmbedder); ok && c.titles != nil {
+					c.vecs, c.err = te.EmbedTitledDocs(ctx, c.titles, c.texts)
+				} else {
+					c.vecs, c.err = w.ix.opts.Embedder.EmbedDocs(ctx, c.texts)
+				}
 			}(c)
 		}
 		wg.Wait()
@@ -882,11 +896,20 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 		landed := false
 		for _, c := range chunks {
 			if n := len(c.vecs); n > 0 {
-				if err := w.ix.store.SetVectors(ctx, spaceId, c.ids[:n], c.vecs); err != nil {
+				var titles []string
+				if c.titles != nil {
+					titles = c.titles[:n]
+				}
+				// A doc rewritten, renamed or deleted while it embedded
+				// takes no vector and is not counted.
+				took, err := w.ix.store.SetTitledVectors(ctx, spaceId, c.ids[:n], c.texts[:n], titles, c.vecs)
+				if err != nil {
 					return err
 				}
-				landed = true
-				progress(n, -1)
+				if took > 0 {
+					landed = true
+					progress(took, -1)
+				}
 			}
 			if c.err != nil && firstErr == nil {
 				firstErr = c.err

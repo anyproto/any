@@ -73,23 +73,27 @@ The passkey is the one secret the server may need at boot: it comes from the env
 | `index.openai.model` | `ANY_INDEX_OPENAI_MODEL` | `Qwen/Qwen3-Embedding-0.6B` | the local model's name; override with the provider's spelling of the **same** model — a different model makes the index incompatible with the local fallback |
 | `index.openai.apiKey` | `ANY_INDEX_OPENAI_API_KEY` | empty | turns the `auto` primary on; sent as Bearer; never logged |
 | `index.local.modelPath` | `ANY_INDEX_LOCAL_MODEL_PATH` | `""` | existing GGUF; set ⇒ no download (air-gapped) |
-| `index.local.modelUrl` | `ANY_INDEX_LOCAL_MODEL_URL` | `""` | download-source override |
+| `index.local.modelUrl` | `ANY_INDEX_LOCAL_MODEL_URL` | `""` | another download source for the model `index.local.model` names |
 | `index.local.modelSha256` | `ANY_INDEX_LOCAL_MODEL_SHA256` | `""` | checksum override |
 | `index.local.libDir` | `ANY_INDEX_LOCAL_LIB_DIR` | `<exe-dir>/llamacpp` | llama.cpp shared libs |
 | `index.local.contextSize` | `ANY_INDEX_LOCAL_CONTEXT_SIZE` | `2048` | truncation bound in tokens |
-| `index.local.queryPrefix` | `ANY_INDEX_LOCAL_QUERY_PREFIX` | `""` | empty = the Qwen retrieval instruction |
-| `index.local.dim` | `ANY_INDEX_LOCAL_DIM` | `0` | Matryoshka truncation; 0 = model dim (1024) |
+| `index.local.model` | `ANY_INDEX_LOCAL_MODEL` | `""` | pinned model: `qwen3-embedding-0.6b` (default) or `embeddinggemma-2` |
+| `index.local.queryPrefix` | `ANY_INDEX_LOCAL_QUERY_PREFIX` | `""` | empty = the pinned model's query prompt |
+| `index.local.docPrefix` | `ANY_INDEX_LOCAL_DOC_PREFIX` | `""` | empty = the pinned model's document prompt |
+| `index.local.pooling` | `ANY_INDEX_LOCAL_POOLING` | `""` | `last`, `mean`, `cls`; empty = the pinned model's |
+| `index.local.dim` | `ANY_INDEX_LOCAL_DIM` | `0` | Matryoshka truncation; 0 = model dim |
 | `index.local.threads` | `ANY_INDEX_LOCAL_THREADS` | `0` | CPU budget of the embedder child; 0 = `NumCPU()-1` |
 | `index.local.niceness` | `ANY_INDEX_LOCAL_NICENESS` | `10` | scheduling priority of the embedder child (0–19); 0 = the server's own priority |
 | `index.local.requestTimeout` | `ANY_INDEX_LOCAL_REQUEST_TIMEOUT` | `3m` | bound on one frame to the embedder child; unwedges a hung GPU |
 | `index.local.gpuLayers` | `ANY_INDEX_LOCAL_GPU_LAYERS` | absent | absent = offload all when a GPU backend is usable; `0` forces CPU |
 | `index.local.batchDocs` | `ANY_INDEX_LOCAL_BATCH_DOCS` | `1` | docs packed per decode; N caps each text at `contextSize`/N tokens |
+| `index.local.neuralEngine` | `ANY_INDEX_LOCAL_NEURAL_ENGINE` | `auto` | `auto` \| `on` \| `off`; EmbeddingGemma 2 through Core ML on an Apple Silicon Mac; `on` refuses to boot where it cannot run |
 | `index.vector.dim` | `ANY_INDEX_VECTOR_DIM` | `0` | 0 = learned from the first embedding, then pinned |
 | `index.vector.mode` | `ANY_INDEX_VECTOR_MODE` | `ivfsq` | `ivfsq` \| `btree` \| `hnsw` \| `hybrid` \| `bruteforce` |
 | `index.search.stopWords` | `ANY_INDEX_SEARCH_STOP_WORDS` | `true` | strip stop words from the FTS leg |
-| `index.search.ftsWeight` | `ANY_INDEX_SEARCH_FTS_WEIGHT` | `1` | RRF weight, lexical leg |
-| `index.search.vectorWeight` | `ANY_INDEX_SEARCH_VECTOR_WEIGHT` | `1` | RRF weight, dense leg |
-| `index.search.adaptiveWeights` | `ANY_INDEX_SEARCH_ADAPTIVE_WEIGHTS` | `false` | auto-down-weight flat FTS scores |
+| `index.search.ftsWeight` | `ANY_INDEX_SEARCH_FTS_WEIGHT` | unset | fixed RRF weight, lexical leg; both unset and `adaptiveWeights` off: per-query form |
+| `index.search.vectorWeight` | `ANY_INDEX_SEARCH_VECTOR_WEIGHT` | unset | fixed RRF weight, dense leg |
+| `index.search.adaptiveWeights` | `ANY_INDEX_SEARCH_ADAPTIVE_WEIGHTS` | `false` | turns fixed weights on (1 / 1 at k 60 unless set) and down-weights flat FTS scores |
 | `index.search.defaultOperator` | `ANY_INDEX_SEARCH_DEFAULT_OPERATOR` | `or` | `or` \| `and` for bare FTS terms |
 | `index.search.minVectorSim` | `ANY_INDEX_SEARCH_MIN_VECTOR_SIM` | `0` | cosine floor; 0 = `> 0` |
 | `index.search.bm25B` / `bm25K1` | `ANY_INDEX_SEARCH_BM25_B` / `_K1` | `0` | 0 = engine defaults 0.75 / 1.2 |

@@ -633,7 +633,7 @@ func (d *deps) holdProcessInterest(eng *engine) {
 // own copy, other devices don't care. Kinds: index.fts.<spaceId>
 // (chunk/advance backlog), index.embed.<spaceId> (vector drain, total
 // from the pending count), index.model_download (embedding-model
-// fetch, done/total bytes, target = model file name),
+// fetch, done/total bytes, target = the file's name),
 // index.links_backfill.<spaceId> (the link index rebuilt from the
 // records), index.fts_upgrade.<spaceId> (the full-text index rewritten
 // in place, no counters), dataset.index.<spaceId> (the SDK building a
@@ -703,6 +703,10 @@ func (d *deps) indexerProcessFor(eng *engine) func(indexer.ProcessUpdate) {
 				// The SDK builds it again at the next definition
 				// change or space open, not on a timer.
 				msg = "failed — see server log"
+			case indexer.ProcessKindModelDownload:
+				// The only failed download is one that stopped: its
+				// source serves another file. The next start tries again.
+				msg = "stopped: the download source serves a file that fails its checksum — restart to try again; for the model's GGUF, correct index.local.modelUrl or modelSha256 first"
 			case indexer.ProcessKindFTSUpgrade:
 				// The next open of the space after a backoff tries
 				// again; searches answer not-ready meanwhile.

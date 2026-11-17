@@ -4,6 +4,9 @@ package indexer
 
 import "github.com/anyproto/any/internal/config"
 
+// localEmbedderBuilt: this build has no local embedder.
+const localEmbedderBuilt = false
+
 // newLocalEmbedder is unavailable without the `llamacpp` tag and on every
 // mobile target: the llama.cpp bindings load libffi at process start, so
 // linking them would crash any process on a machine without it.

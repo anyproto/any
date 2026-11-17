@@ -31,15 +31,20 @@ import (
 // The body streams to <dest>.part with the sha256 computed on the way;
 // on success the file is atomically renamed into place. Interrupted
 // downloads resume via a Range request (re-hashing the existing .part
-// prefix first). Failures retry forever with capped backoff — the
-// destination file is the readiness signal, not this object.
+// prefix first). Failures retry with capped backoff — the destination
+// file is the readiness signal, not this object — until the source
+// twice serves a whole file that fails the checksum: it is another
+// file, and fetching it again cannot help.
 //
 // The models dir is shared by every account under one root, so the
 // .part is guarded across processes by an OS lock on <dest>.lock: one
 // process downloads, the others poll for the installed file.
 type modelDownload struct {
-	url    string
-	dest   string
+	url  string
+	dest string
+	// side is the path the .part and .lock names derive from: dest, or
+	// a path outside a directory that must hold nothing but its files.
+	side   string
 	sha    string // expected hex sha256; "" = skip verification (logged once)
 	lg     logger.CtxLogger
 	cancel context.CancelFunc
@@ -68,17 +73,24 @@ type modelDownload struct {
 // startModelDownload spawns the download goroutine. Pass client=nil for
 // the default HTTP client (tests inject their own).
 func startModelDownload(url, dest, sha string, client *http.Client, onProcess func(ProcessUpdate)) *modelDownload {
+	return startModelDownloadAt(filepath.Base(dest), url, dest, dest, sha, client, onProcess)
+}
+
+// startModelDownloadAt is startModelDownload with the process row's name
+// and the side-file path given.
+func startModelDownloadAt(name, url, dest, side, sha string, client *http.Client, onProcess func(ProcessUpdate)) *modelDownload {
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &modelDownload{
 		url:      url,
 		dest:     dest,
+		side:     side,
 		sha:      sha,
 		lg:       logger.NewNamed("indexer"),
 		cancel:   cancel,
 		finished: make(chan struct{}),
 		rep: newProcReporter(onProcess,
-			ProcessUpdate{Kind: ProcessKindModelDownload, Name: filepath.Base(dest)}, -1),
-		lock: flock.New(dest + ".lock"),
+			ProcessUpdate{Kind: ProcessKindModelDownload, Name: name}, -1),
+		lock: flock.New(side + ".lock"),
 	}
 	if client == nil {
 		client = &http.Client{} // no timeout: a 640MB body on slow links is legitimate
@@ -98,7 +110,7 @@ func (d *modelDownload) Status() error {
 	if d.done {
 		return nil
 	}
-	if errors.Is(d.err, errDownloadElsewhere) {
+	if errors.Is(d.err, errDownloadElsewhere) || errors.Is(d.err, errDownloadStopped) {
 		return d.err
 	}
 	if d.err != nil {
@@ -130,6 +142,27 @@ var downloadPollInterval = 5 * time.Second
 // doubles up to 5 minutes (a var so tests can shorten it).
 var downloadRetryBackoff = 5 * time.Second
 
+// checksumMismatch is a fetched file that is not the expected one.
+// whole marks the source's own file: a complete body of declared
+// length, fetched from its first byte and too large for an error page.
+// A resumed, undeclared or tiny body can be a damaged transfer.
+type checksumMismatch struct {
+	got, want string
+	whole     bool
+}
+
+func (e *checksumMismatch) Error() string {
+	return "sha256 mismatch: got " + e.got + " want " + e.want
+}
+
+// downloadMinWhole is the smallest body taken for a model file rather
+// than an error page (a var so tests can shorten it).
+var downloadMinWhole int64 = 1 << 20
+
+// errDownloadStopped ends the retries until the next start: the source
+// twice served a whole file that failed the checksum.
+var errDownloadStopped = errors.New("model download stopped: the source serves a file that fails its pinned checksum; restart to try again (for the GGUF, correct index.local.modelUrl or modelSha256 first)")
+
 // errDownloadStalled is a transfer the stall watchdog cut.
 var errDownloadStalled = errors.New("model download stalled")
 
@@ -143,6 +176,7 @@ func (d *modelDownload) run(ctx context.Context, client *http.Client) {
 	d.rep.begin() // announce up front — "still fetching the model" must be visible even offline
 	backoff := downloadRetryBackoff
 	waiting := false
+	mismatches := 0
 	for {
 		fetched, err := d.attempt(ctx, client)
 		if errors.Is(err, errDownloadElsewhere) {
@@ -192,12 +226,25 @@ func (d *modelDownload) run(ctx context.Context, client *http.Client) {
 			d.rep.finish(ctx, err) // terminal cancelled; the .part resumes next boot
 			return
 		}
+		// Two whole files that fail the checksum are the source's own
+		// file, not a damaged transfer.
+		if mm := (*checksumMismatch)(nil); errors.As(err, &mm) && mm.whole {
+			if mismatches++; mismatches >= 2 {
+				d.mu.Lock()
+				d.err = fmt.Errorf("%w (%v)", errDownloadStopped, err)
+				d.mu.Unlock()
+				d.lg.Error("local embedder: model download stopped, the source fails the checksum",
+					zap.String("url", d.url), zap.String("dest", d.dest), zap.Error(err))
+				d.rep.finish(ctx, errDownloadStopped)
+				return
+			}
+		}
 		d.mu.Lock()
 		d.err = err
 		d.mu.Unlock()
 		d.lg.Warn("local embedder: model download failed, will retry",
 			zap.Duration("backoff", backoff), zap.Error(err))
-		// Not terminal — the download retries forever; the row stays
+		// Not terminal — the download retries; the row stays
 		// running with a generic status (real error carries paths/
 		// response bodies and stays in the log above).
 		d.rep.progress(-1, -1, "download failed; retrying — see server log")
@@ -257,7 +304,7 @@ func (d *modelDownload) attempt(ctx context.Context, client *http.Client) (fetch
 // fetch streams the model into the .part and installs it. Caller holds
 // the download lock.
 func (d *modelDownload) fetch(ctx context.Context, client *http.Client) error {
-	part := d.dest + ".part"
+	part := d.side + ".part"
 
 	// Resume: re-hash whatever is already on disk so the streaming
 	// checksum stays valid, then ask for the remainder.
@@ -329,6 +376,7 @@ func (d *modelDownload) fetch(ctx context.Context, client *http.Client) error {
 	if resp.ContentLength < 0 {
 		total = 0
 	}
+	whole := offset == 0 && resp.ContentLength >= downloadMinWhole
 	d.mu.Lock()
 	d.got, d.total, d.err = offset, total, nil
 	d.mu.Unlock()
@@ -355,7 +403,7 @@ func (d *modelDownload) fetch(ctx context.Context, client *http.Client) error {
 	if d.sha != "" {
 		if got := hex.EncodeToString(h.Sum(nil)); got != d.sha {
 			_ = os.Remove(part)
-			return fmt.Errorf("sha256 mismatch: got %s want %s", got, d.sha)
+			return &checksumMismatch{got: got, want: d.sha, whole: whole}
 		}
 	}
 	return os.Rename(part, d.dest)

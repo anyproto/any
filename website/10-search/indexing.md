@@ -23,7 +23,7 @@ That shape is what makes removal cheap: deleting an object is a prefix delete on
 | Source | Dataset in hits | Gate | Scope | Document |
 |---|---|---|---|---|
 | chat | `chat_messages` | the object's type owns the storage collection | `chat` | one message, `text` only (no author, reactions, attachments) |
-| editor | each editor storage collection — `editor_blocks` or `<typeId>_<key>` | per storage collection: the object's type owns it | `basic` | a **window** of consecutive blocks (~1.5 KB, broken before each heading), `recordId = win_<firstBlockId>` |
+| editor | each editor storage collection — `editor_blocks` or `<typeId>_<key>` | per storage collection: the object's type owns it | `basic` | a **window** of consecutive blocks (~1.5 KB, broken before each heading; a run of headings leads the text below it), `recordId = win_<firstBlockId>` |
 | object name / description | `prop` | — | `basic` | raw value; `recordId` = `name` / `description` |
 | user property values | `prop` | — | `props` (default) | `"<prop name>: <value>"`; `recordId` = the propId |
 | runtime datasets | the dataset's storage collection | per dataset: the object's type declares it | `basic` (default) | title line + text fields from the declared `x-search` mapping |

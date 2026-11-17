@@ -177,14 +177,21 @@ index:
     apiKey: ...                       # sent as Bearer; never logged
   local:                              # llama.cpp in a child process — all fields optional;
                                       # the default embedder needs no config at all
-    modelPath: ""                     # existing GGUF; set ⇒ no download (air-gapped)
-    modelUrl: ""                      # download-source override for the default path
-    modelSha256: ""                   # checksum override; "" with modelUrl ⇒ skip verify
+    model: ""                         # pinned model: qwen3-embedding-0.6b (default) or
+                                      # embeddinggemma-2; sets download, prompts, pooling, dim
+    modelPath: ""                     # existing GGUF; set ⇒ no download (air-gapped). Without
+                                      # `model` it is an unnamed GGUF: no pinned prompts or pooling
+    modelUrl: ""                      # another download source for the model `model` names
+    modelSha256: ""                   # checksum override; "" ⇒ the model's pinned checksum
     libDir: ""                        # llama.cpp shared libs; default $YZMA_LIB, else
                                       # <exe-dir>/llamacpp
     contextSize: 2048                 # truncation bound in tokens (docs/13-index.md)
-    queryPrefix: ""                   # "" = Qwen retrieval instruction for the default model
-    dim: 0                            # Matryoshka output truncation; 0 = model dim (1024)
+    queryPrefix: ""                   # "" = the pinned model's query prompt
+    docPrefix: ""                     # "" = the pinned model's document prompt; {title} in it
+                                      # is the object's name for its editor windows
+    pooling: ""                       # last | mean | cls; "" = the pinned model's,
+                                      # last for an unnamed GGUF
+    dim: 0                            # Matryoshka output truncation; 0 = model dim
     threads: 0                        # CPU budget of the embedder child process; 0 = runtime.NumCPU()-1
                                       # (leave one free). Lower it to keep background indexing off the
                                       # user's cores. Read at boot — it has no HTTP or CLI setter
@@ -202,6 +209,9 @@ index:
                                       # op_offload) (docs/13-index.md § GPU offload)
     batchDocs: 1                      # docs per llama_decode; N caps each text at contextSize/N tokens;
                                       # 1 = sequential
+    neuralEngine: auto                # auto | on | off — EmbeddingGemma 2 through Core ML on an
+                                      # Apple Silicon Mac; on refuses to boot where it cannot
+                                      # run (docs/13-index.md § Neural Engine)
   vector:
     dim: 0                            # 0 = learned from the first successful embedding
     mode: ivfsq                       # ANN index: ivfsq (default — cheap ingest, churn-
@@ -210,11 +220,12 @@ index:
                                       # (HNSW + RAM cache) | bruteforce/exact
   search:                             # hybrid-ranking knobs (docs/13-index.md § Search)
     stopWords: true                   # strip stop words from the FTS-leg query (default on)
-    ftsWeight: 1                      # RRF weight for the lexical leg (default 1)
-    vectorWeight: 1                   # RRF weight for the dense leg (default 1)
-    adaptiveWeights: false            # auto-down-weight FTS per query when its scores are
-                                      # flat/weak; helps paraphrastic corpora, small cost on
-                                      # lexical-friendly ones — off by default
+    ftsWeight: 0                      # fixed RRF weights at k 60 (an unset one is 1); both 0
+    vectorWeight: 0                   # (default): each query picks its RRF form (13-index.md)
+    adaptiveWeights: false            # turns fixed weights on: auto-down-weight FTS per query
+                                      # when its scores are flat/weak; helps paraphrastic
+                                      # corpora, small cost on lexical-friendly ones — off
+                                      # by default
     defaultOperator: or               # how bare FTS terms combine: or (default) | and. AND
                                       # requires ALL terms — precise, but tanks recall on
                                       # natural-language queries; use only for keyword input
@@ -349,13 +360,17 @@ ANY_INDEX_LOCAL_MODEL_URL=https://...
 ANY_INDEX_LOCAL_MODEL_SHA256=06507c...
 ANY_INDEX_LOCAL_LIB_DIR=/opt/llamacpp
 ANY_INDEX_LOCAL_CONTEXT_SIZE=2048
+ANY_INDEX_LOCAL_MODEL=embeddinggemma-2
 ANY_INDEX_LOCAL_QUERY_PREFIX="Instruct: ...\nQuery:"
+ANY_INDEX_LOCAL_DOC_PREFIX="passage: "
+ANY_INDEX_LOCAL_POOLING=mean
 ANY_INDEX_LOCAL_DIM=512
 ANY_INDEX_LOCAL_THREADS=8             # 0/unset = runtime.NumCPU()-1
 ANY_INDEX_LOCAL_GPU_LAYERS=0          # 0 = force CPU-only decoding
 ANY_INDEX_LOCAL_REQUEST_TIMEOUT=3m    # bound on one frame to the child (one decode group of batchDocs texts)
 ANY_INDEX_LOCAL_NICENESS=10           # child scheduling priority; 0 = same as the server
 ANY_INDEX_LOCAL_BATCH_DOCS=1          # index.local.batchDocs
+ANY_INDEX_LOCAL_NEURAL_ENGINE=auto    # index.local.neuralEngine: auto | on | off
 ```
 
 A numeric or boolean value that does not parse is ignored (the file or

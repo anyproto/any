@@ -30,12 +30,16 @@ func embedderCmds() []*cobra.Command {
 	f := c.Flags()
 	f.StringVar(&cfg.ModelPath, "model", "", "GGUF model file (required)")
 	f.StringVar(&cfg.LibDir, "lib-dir", "", "directory holding the llama.cpp shared libraries")
+	f.StringVar(&cfg.Profile, "profile", "", "pinned model the file is (empty = an unnamed GGUF)")
 	f.StringVar(&cfg.QueryPrefix, "query-prefix", "", "instruction prepended to query texts")
+	f.StringVar(&cfg.DocPrefix, "doc-prefix", "", "prompt prepended to document texts")
+	f.StringVar(&cfg.Pooling, "pooling", "", "token pooling: last, mean or cls (empty = last)")
 	f.IntVar(&cfg.ContextSize, "ctx", 0, "context size in tokens (0 = default)")
 	f.IntVar(&cfg.Threads, "threads", 0, "compute threads (0 = NumCPU-1)")
 	f.IntVar(&cfg.Dim, "dim", 0, "truncate output vectors to this dimension (0 = model dim)")
 	f.IntVar(&cfg.BatchDocs, "batch-docs", 0, "documents packed into one decode (0 = default)")
 	f.IntVar(&cfg.GpuLayers, "gpu-layers", -1, "n_gpu_layers override (-1 = llama.cpp default, 0 = CPU only)")
 	f.IntVar(&cfg.Niceness, "niceness", 0, "lower this process's scheduling priority (0 = leave it)")
+	f.StringVar(&cfg.CoreMLDir, "coreml", "", "Core ML package of the model, run on the Neural Engine (empty = llama.cpp alone)")
 	return []*cobra.Command{c}
 }

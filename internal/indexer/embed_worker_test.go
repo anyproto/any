@@ -84,6 +84,14 @@ func runEmbedHelper(mode string) int {
 	if err := writeFrame(out, workerResp{Op: workerOpReady, Dim: helperDim, Hardware: hw}, nil); err != nil {
 		return 1
 	}
+	switch os.Getenv("ANY_EMBED_WORKER_ANE") {
+	case "":
+	case "off": // Core ML started, then gave up
+		aneStderrLog("starting")
+		aneStderrLog(aneOffStatus + "llama.cpp embeds everything: no neural engine")
+	default: // a child that began using Core ML
+		aneStderrLog("starting")
+	}
 	served := 0
 	for {
 		var req workerReq
@@ -1135,8 +1143,8 @@ func TestWorkerEmbedder_DimFromHandshake(t *testing.T) {
 	}
 	// The pinned default model answers without spawning at all.
 	w2 := newTestWorker(t, &helperSpawner{modes: []string{"exit"}}, 0)
-	w2.spec.defaultModel = true
-	if dim, err := w2.Dim(context.Background()); err != nil || dim != localDefaultDim {
+	w2.spec.modelDim = 1024
+	if dim, err := w2.Dim(context.Background()); err != nil || dim != 1024 {
 		t.Fatalf("default-model dim = %d, %v", dim, err)
 	}
 }

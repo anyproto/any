@@ -21,7 +21,10 @@ import (
 type EmbedWorkerConfig struct {
 	ModelPath   string
 	LibDir      string
+	Profile     string // pinned model id; "" = an unnamed GGUF
 	QueryPrefix string
+	DocPrefix   string
+	Pooling     string
 	ContextSize int
 	Threads     int
 	Dim         int
@@ -31,6 +34,9 @@ type EmbedWorkerConfig struct {
 	GpuLayers int
 	// Niceness lowers this process's scheduling priority; 0 = leave it.
 	Niceness int
+	// CoreMLDir is the model's Core ML package to run on the Neural
+	// Engine; "" = llama.cpp alone.
+	CoreMLDir string
 }
 
 // RunEmbedWorker serves embed requests over the frame protocol until in
@@ -52,7 +58,10 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 	local := config.IndexLocal{
 		ModelPath:   cfg.ModelPath,
 		LibDir:      cfg.LibDir,
+		Model:       cfg.Profile,
 		QueryPrefix: cfg.QueryPrefix,
+		DocPrefix:   cfg.DocPrefix,
+		Pooling:     cfg.Pooling,
 		ContextSize: cfg.ContextSize,
 		Threads:     cfg.Threads,
 		Dim:         cfg.Dim,
@@ -80,6 +89,10 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 	if err := writeFrame(w, workerResp{Op: workerOpReady, Dim: dim, Hardware: &hw}, nil); err != nil {
 		return err
 	}
+	// After the handshake, so a Core ML crash is a death of a started
+	// child, which the server demotes. The functions load in the
+	// background while llama.cpp serves.
+	l.startNeuralEngine(cfg.CoreMLDir)
 
 	// Reading runs on its own goroutine so the end of the stream — the
 	// parent closing stdin, or dying — is noticed even mid-decode. A
@@ -154,7 +167,7 @@ func serveEmbed(ctx context.Context, l *Local, w *bufio.Writer, req workerReq) e
 			vecs = [][]float32{v}
 		}
 	default:
-		vecs, err = l.EmbedDocs(ctx, req.Texts)
+		vecs, err = l.EmbedTitledDocs(ctx, req.Titles, req.Texts)
 	}
 	if err != nil {
 		return writeFrame(w, workerResp{Op: workerOpError, Error: err.Error()}, nil)
