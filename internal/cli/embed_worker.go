@@ -40,5 +40,6 @@ func embedderCmds() []*cobra.Command {
 	f.IntVar(&cfg.BatchDocs, "batch-docs", 0, "documents packed into one decode (0 = default)")
 	f.IntVar(&cfg.GpuLayers, "gpu-layers", -1, "n_gpu_layers override (-1 = llama.cpp default, 0 = CPU only)")
 	f.IntVar(&cfg.Niceness, "niceness", 0, "lower this process's scheduling priority (0 = leave it)")
+	f.StringVar(&cfg.CoreMLDir, "coreml", "", "Core ML package of the model, run on the Neural Engine (empty = llama.cpp alone)")
 	return []*cobra.Command{c}
 }

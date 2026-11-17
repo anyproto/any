@@ -64,6 +64,8 @@ type Local struct {
 	gpuLayers   int       // -1 = llama.cpp default (offload all when a GPU is present)
 	batchDocs   int       // max docs packed per llama_decode (≥1)
 	modelDim    int       // output width known without loading; 0 = load to learn it
+	// coreml is the model's Core ML package; nil = it has none.
+	coreml *coreMLPackage
 
 	dl *modelDownload // nil when modelPath overridden or file already present
 
@@ -77,6 +79,9 @@ type Local struct {
 	lctx   llama.Context
 	vocab  llama.Vocab
 	nEmbd  int32
+	// ane embeds the texts that fit a loaded Core ML function; nil =
+	// llama.cpp embeds everything.
+	ane *neuralEngine
 }
 
 // NewLocal resolves paths and kicks off the background model download
@@ -110,6 +115,9 @@ type localSpec struct {
 	gpuLayers   int // -1 = llama.cpp default (offload all when a GPU is present)
 	niceness    int // child scheduling priority; 0 = same as the server
 	modelDim    int // pinned model at its default path: width known without loading
+	// coremlDir is the model's Core ML package the child runs on the
+	// Neural Engine; "" = llama.cpp alone.
+	coremlDir string
 }
 
 // resolveLocalSpec turns config into a runnable spec: the model and its
@@ -216,9 +224,10 @@ func resolveLocalSpec(cfg config.IndexLocal, modelsDir, legacyModelsDir string, 
 func newLocalFromSpec(s localSpec, dl *modelDownload) *Local {
 	pooling, _ := poolingType(s.pooling) // validated by resolveLocalSpec
 	var project []float32
+	var pkg *coreMLPackage
 	if s.profile != "" {
 		if m, err := lookupLocalModel(s.profile); err == nil {
-			project = m.project
+			project, pkg = m.project, m.coreml
 		}
 	}
 	return &Local{
@@ -234,8 +243,35 @@ func newLocalFromSpec(s localSpec, dl *modelDownload) *Local {
 		gpuLayers:   s.gpuLayers,
 		batchDocs:   s.batchDocs,
 		modelDim:    s.modelDim,
+		coreml:      pkg,
 		dl:          dl,
 	}
+}
+
+// startNeuralEngine turns on the Neural Engine path over the model's
+// Core ML package at dir. The model must be loaded: llama.cpp tokenizes
+// for both runtimes and embeds whatever the package cannot.
+func (l *Local) startNeuralEngine(dir string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if dir == "" || l.coreml == nil || !l.loaded || l.ane != nil {
+		return
+	}
+	dim := int(l.nEmbd)
+	lengths := usableLengths(l.coreml.lengths, l.maxDocTokens())
+	l.ane = newNeuralEngine(newCoreMLBackend(l.coreml, dir, dim, aneStderrLog), lengths, dim, aneStderrLog)
+	l.ane.start()
+}
+
+// usableLengths drops the functions no text can need: those past the
+// first one that holds the longest text the embedder sends.
+func usableLengths(lengths []int, maxTokens int) []int {
+	for i, l := range lengths {
+		if l >= maxTokens {
+			return lengths[:i+1]
+		}
+	}
+	return lengths
 }
 
 // llamaRuntime guards the process-global llama.cpp state (Load + Init
@@ -403,11 +439,46 @@ func l2Normalize(vec []float32) {
 // embedOne runs one text through the context. Caller holds l.mu and has
 // run ensureLoaded.
 func (l *Local) embedOne(text string) ([]float32, error) {
-	vecs, err := l.embedGroup([][]llama.Token{l.tokenize(text)})
+	tokens := l.tokenize(text)
+	if vec, ok := l.embedANE(tokens); ok {
+		return vec, nil
+	}
+	vecs, err := l.embedGroup([][]llama.Token{tokens})
 	if err != nil {
 		return nil, err
 	}
 	return vecs[0], nil
+}
+
+// embedANE embeds one tokenized text on the Neural Engine. ok is false
+// when llama.cpp has to embed it. Caller holds l.mu.
+func (l *Local) embedANE(tokens []llama.Token) ([]float32, bool) {
+	if l.ane == nil {
+		return nil, false
+	}
+	ids := make([]int32, len(tokens))
+	for i, t := range tokens {
+		ids[i] = int32(t)
+	}
+	vec, ok := l.ane.embed(ids)
+	if !ok {
+		return nil, false
+	}
+	return l.finish(vec), true
+}
+
+// finish turns a runtime's pooled vector into the stored one: the
+// model's projection, then the configured width.
+func (l *Local) finish(vec []float32) []float32 {
+	if l.project != nil {
+		projectOut(vec, l.project) // at full width, before any truncation
+	}
+	l2Normalize(vec)
+	if l.outDim > 0 && l.outDim < len(vec) {
+		vec = vec[:l.outDim] // Matryoshka truncation
+		l2Normalize(vec)
+	}
+	return vec
 }
 
 // tokenize prepares one text for decoding: never empty, truncated to
@@ -476,15 +547,7 @@ func (l *Local) embedGroup(tokenized [][]llama.Token) ([][]float32, error) {
 		// raw views llama-owned memory — copy before the next decode.
 		vec := make([]float32, len(raw))
 		copy(vec, raw)
-		if l.project != nil {
-			projectOut(vec, l.project) // at full width, before any truncation
-		}
-		l2Normalize(vec)
-		if l.outDim > 0 && l.outDim < len(vec) {
-			vec = vec[:l.outDim] // Matryoshka truncation
-			l2Normalize(vec)
-		}
-		out[seq] = vec
+		out[seq] = l.finish(vec)
 	}
 	return out, nil
 }
@@ -518,6 +581,11 @@ func (l *Local) EmbedTitledDocs(ctx context.Context, titles, texts []string) ([]
 	for start := 0; start < len(texts); {
 		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+		if vec, ok := l.embedANE(tokenized[start]); ok {
+			out = append(out, vec)
+			start++
+			continue
 		}
 		end := groupEnd(lens, start, l.nCtx, l.batchDocs)
 		vecs, err := l.embedGroup(tokenized[start:end])
@@ -571,6 +639,9 @@ func (l *Local) Close() error {
 	defer l.mu.Unlock()
 	if l.dl != nil {
 		l.dl.Close()
+	}
+	if l.ane != nil {
+		l.ane.close()
 	}
 	if l.loaded {
 		_ = llama.Free(l.lctx)

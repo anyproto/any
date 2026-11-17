@@ -27,6 +27,9 @@ type localModel struct {
 	// project is a unit direction removed from every vector
 	// (v − u(u·v), renormalized); nil for none.
 	project []float32
+	// coreml is the model as a Core ML package for the Neural Engine
+	// (embed_ane.go); nil for none.
+	coreml *coreMLPackage
 }
 
 // eg2Head is EmbeddingGemma 2's mean pooled-output direction, 768
@@ -59,6 +62,22 @@ var localModels = []localModel{
 		queryPrefix: "task: search result | query: ",
 		docPrefix:   "title: " + titlePlaceholder + " | text: ",
 		project:     decodeFloat32s(eg2HeadRaw),
+		coreml: &coreMLPackage{
+			name: "embeddinggemma-2",
+			url:  "https://huggingface.co/anylab/embeddinggemma-2-coreml/resolve/c27f9012633055fea5bb47fe782ab7d548d77909/EmbeddingGemma2Owned.mlpackage",
+			files: []coreMLFile{
+				{"Manifest.json", "8f494dc20af594dd81ca1082c50d0db80eae392a84621955de1d1c5c0e99aed2"},
+				{"Data/com.apple.CoreML/model.mlmodel", "715c377bda514242cabc6497843ca831d1eec1d84b5e48c6f93a13663e6ce104"},
+				{"Data/com.apple.CoreML/weights/weight.bin", "86bf461bce224075ea9ff6fc6a2c2abe50cd701eee58f1d3f5d8e6988d234657"},
+			},
+			lengths:    []int{128, 256, 512, 1024, 2048},
+			noticesURL: "https://huggingface.co/anylab/embeddinggemma-2-coreml/resolve/b5b7f1d324c2e8a12a99049508f67d6588f19d59",
+			notices: []coreMLFile{
+				{"LICENSE", "77fd4710def9ec3c0f6225800e0235f15a425abd4a8b03559127fcd782612049"},
+				{"NOTICE", "5edf3113d61829e8508b3b6e135dfb7266b843c6d5900d62576c9a6cf8792128"},
+				{"licenses/QVAC-MIT.txt", "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"},
+			},
+		},
 	},
 }
 

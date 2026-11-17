@@ -808,7 +808,9 @@ child they kill only the child: the round fails, its docs stay
 **The child only embeds.** It gets a model path and decode parameters
 and answers with vectors. It never opens the index db, the data dir or
 any-store; the cursor, `pending` marking, `SetVectors`, the vector index,
-model discovery and the download all stay in the server.
+model discovery and the downloads all stay in the server. The one thing
+it writes is the compiled Core ML model in the model cache (§ Neural
+Engine).
 
 **Failure handling.** A dead child, a desynchronized stream, or a frame
 that outlives `index.local.requestTimeout` (default 3 min) kills the
@@ -871,6 +873,79 @@ set `index.local.gpuLayers: 0`.
 
 CUDA and ROCm builds are not bundled; point `index.local.libDir` at a
 custom llama.cpp build to use them.
+
+### Neural Engine (local embedder)
+
+On an Apple Silicon Mac the embedder child runs EmbeddingGemma 2 on the
+Neural Engine through Core ML, next to llama.cpp. The model's Core ML
+package holds one function per fixed length: 128, 256, 512, 1,024 and
+2,048 tokens. A text runs on the smallest loaded function that holds
+it. llama.cpp tokenizes for both runtimes and embeds every other text:
+one that no loaded function holds, and one longer than 2,048 tokens,
+which only a larger `index.local.contextSize` lets through.
+
+Both runtimes write one index. A function returns the model's own unit
+vector (cosine 0.9999 to the full-precision weights, 0.9996 to
+llama.cpp's Q8 vector of the same text), and the projection and
+`index.local.dim` apply after either runtime. The index stamp names the
+model, not the runtime.
+
+`index.local.neuralEngine`:
+
+- `auto` (default) uses it when the server finds nothing against it: an
+  arm64 Mac that is not a virtual machine, macOS 15 or later, the
+  `embeddinggemma-2` model with its own pooling, and the package on disk
+  or downloadable. Anywhere else llama.cpp embeds alone.
+- `on` is `auto` that refuses to boot when one of those conditions
+  fails. What only the child can see leaves llama.cpp embedding alone
+  under `on` too: no Neural Engine listed, a function planned on the
+  CPU, a failed compile.
+- `off` is llama.cpp alone.
+
+**The package.** Its three files are downloaded, each sha256-pinned,
+into `<root>/models/<name>-<digest>.mlpackage/` by the rules of the GGUF
+download and after it: every model download reports as
+`index.model_download`, one file at a time. `index.local.modelUrl` does
+not apply to the package. With `index.local.modelPath` nothing is
+downloaded and a package already in the models dir is used. The child
+checks the files against their checksums and compiles the package once
+into `<name>-<digest>.mlmodelc` beside it. Until the package is complete
+llama.cpp embeds everything, and the child looks for it again when a
+text arrives, at most every 30 s. The package's licence texts
+(`LICENSE`, `NOTICE` and the licence the notice refers to) follow it
+into `<name>-<digest>.licenses/`, pinned the same way; one that cannot
+be fetched is tried again at the next start and holds nothing back.
+
+**Function lifetime.** The smallest function loads first and stays for
+queries: when the child starts if the package is ready, else with the
+first text after it is. Any other loads in the
+background on the first text that needs it, and a timer releases it one
+minute after its last use; idle retirement of the child releases all of
+them. The first load of a function on a machine specializes it for the
+Neural Engine: about a minute per function on an M2, six for all five.
+After that a child's first load of a function takes two to three
+seconds and a reload under one. While a function loads, a larger loaded
+one serves its texts, else llama.cpp.
+
+**Placement.** A machine that lists no Neural Engine never loads the
+package. Before a function first loads, the child reads Core ML's
+compute plan for it, once per child, and refuses a function whose
+convolution, matmul, linear or softmax operations are planned on the
+CPU. The digest in the package's
+directory name is of its pinned checksums, so another pin is another
+directory with a compiled model of its own.
+
+**Failure.** A prediction that fails, or returns a vector that is not
+unit length, leaves that text to llama.cpp. Three in a row on one
+function retire that function for the life of the child; a larger
+loaded one or llama.cpp takes its texts. A child that dies after it
+began using Core ML is respawned without the Neural Engine for the rest
+of the process. That demotion comes before the GPU one (§ GPU offload),
+one runtime per death, because the death does not say which runtime
+caused it.
+
+Core ML is called through the Objective-C runtime, so the binary stays
+CGO-free and cross-compiled (`internal/indexer/coreml`).
 
 ### Builds and the local embedder
 
@@ -1289,6 +1364,10 @@ run).
   2048 / 1 = 2048, EOS preserved for last-token pooling). The 2000-rune
   chunk target keeps prose inside it; a chunk of dense CJK or code can
   exceed the clamp and embed head-only — FTS covers its full text.
+- **Loaded Neural Engine functions are not capped.** A bulk index of
+  mixed lengths uses every function inside each minute, so all five stay
+  loaded next to llama.cpp: about 2.0 GB of wired memory on top of it,
+  1.4 GB when no text passes 1,024 tokens.
 - **`require` / `exclude` bind the hit, i.e. the chunk**: a term that
   appears only in another chunk of the same record does not satisfy a
   `require` for this one, and a passage is always a chunk that satisfied
