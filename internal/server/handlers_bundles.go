@@ -86,6 +86,7 @@ func registerBundleRoutes(g *echo.Group, d *deps) {
 //	@Success	200		{object}	api.BundleEnsureResponse
 //	@Failure	400		{object}	api.ErrorEnvelope
 //	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	410		{object}	api.ErrorEnvelope
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/bundles [post]
@@ -666,6 +667,7 @@ func (d *deps) bundleUninstall(c echo.Context) error {
 //	@Success	200			{object}	api.BundleChildResponse
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	404			{object}	api.ErrorEnvelope
+//	@Failure	410			{object}	api.ErrorEnvelope
 //	@Failure	409			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/bundles/{bundleId}/children [post]
