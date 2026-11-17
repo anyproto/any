@@ -54,9 +54,9 @@ const (
 	// index is derived state (re-indexes on the next change).
 	indexSchemaVersion = 8
 
-	// indexDBFormat is the any-store on-disk format the index db is kept
-	// in: a db in an older one is rebuilt, never copied. Raised by hand,
-	// not with the library: a rebuild re-embeds every space.
+	// indexDBFormat is the oldest any-store on-disk format an index db is
+	// read in: a db in an older one is rebuilt, never copied. Raised by
+	// hand, not with the library: a rebuild re-embeds every space.
 	indexDBFormat = 6
 )
 

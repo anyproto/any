@@ -89,7 +89,7 @@ An account's data only makes sense on the any-sync network that wrote it. The fi
 
 ## Storage upgrades are one-way
 
-On boot a server moves both databases off an older on-disk format. An `sdk.db` in one is replaced by a copy in the current format before anything reads it. The copy needs room for a second `sdk.db`, and a tool that has `sdk.db` open across that boot stays on the replaced file; when the copy cannot be made or put in place (no room, a local-store index that does not build again) the old file stays and the next boot tries again. An `index.db` in an older format is removed and rebuilt. A build pinned to an older storage engine reads a database in the newer format as damaged, though the file is intact — the old code just does not recognize the format. Keep a copy of the data dir if you need the option to downgrade.
+On boot, an `sdk.db` in an on-disk format older than the one the server's storage engine writes is replaced by a copy in that format before anything reads it. The copy needs room for a second `sdk.db`, and nothing else may open `sdk.db` during that boot: a tool that has it open stays on the replaced file. When the copy cannot be made or put in place (no room, a local-store index that does not build again) the old file stays and the next boot tries again. An `index.db` in a format older than the indexer reads is removed and rebuilt. A build pinned to an older storage engine refuses a database in the newer format, older ones as damaged; the file is intact, the old code just does not recognize the format. Keep a copy of the data dir if you need the option to downgrade.
 
 ## Mobile
 
