@@ -52,7 +52,15 @@ const (
 	// rebuilding the db; the docs themselves are never migrated — the
 	// index is derived state (re-indexes on the next change).
 	indexSchemaVersion = 8
+
+	// indexDBFormat is the any-store on-disk format the index db is kept
+	// in: a db in an older one is rebuilt, never copied. Raised by hand,
+	// not with the library: a rebuild re-embeds every space.
+	indexDBFormat = 6
 )
+
+// A fresh index db has to satisfy indexDBFormat, or every boot rebuilds.
+const _ = uint(anystore.LatestSchemaFormat - indexDBFormat)
 
 // Store is the indexer-owned any-store database: one collection per
 // space, each carrying a BM25 full-text index on `name` + `data` (+
@@ -192,16 +200,14 @@ func OpenStore(ctx context.Context, path string, dim int, embedderConfigured boo
 	if err != nil {
 		return nil, fmt.Errorf("indexer: open index db: %w", err)
 	}
-	// A db in an older on-disk format is rebuilt in the current one, never
-	// copied: the index is derived state.
 	format, err := anystore.SchemaFormat(db)
 	if err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("indexer: open index db: %w", err)
 	}
-	if format < anystore.LatestSchemaFormat {
+	if format < indexDBFormat {
 		_ = db.Close()
-		return nil, fmt.Errorf("%w: index db is in on-disk format %d, this build writes format %d", ErrIndexRebuildRequired, format, anystore.LatestSchemaFormat)
+		return nil, fmt.Errorf("%w: index db is in on-disk format %d, this build needs format %d", ErrIndexRebuildRequired, format, indexDBFormat)
 	}
 	s := newStore(db, path, dim, embedderConfigured)
 	if err := s.checkMeta(ctx); err != nil {

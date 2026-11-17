@@ -290,16 +290,17 @@ instance) takes no lock.
     └── index/                   # local search index (index.db, dirty sentinel index.db.lock) — owned by the indexer
 ```
 
-**Upgrading is one-way.** The boot keeps both stores in the on-disk
-format the pinned any-store writes. An `sdk/sdk.db` in an older format
-is replaced by a copy in the current one before anything reads it; the
-copy needs room for a second `sdk.db`, and one that fails leaves the
-file as it is for the next boot to try again. An `index/index.db` in an
+**Upgrading is one-way.** The boot moves both stores off an older
+on-disk format. An `sdk/sdk.db` in one is replaced by a copy in the
+current format before anything reads it; the copy needs room for a
+second `sdk.db`, and a tool that has `sdk.db` open across that boot
+stays on the replaced file. When the copy cannot be made or put in
+place (no room, a local-store index that does not build again) the old
+file stays and the next boot tries again. An `index/index.db` in an
 older format is removed and rebuilt (`13-index.md`). A build pinned to
-an any-store that does not know the format refuses the data dir
-(`any-store: incompatible version` or `btree: database is corrupt` —
-the data is intact). Keep a copy of the data dir to keep the option to
-downgrade.
+an any-store that does not know the newer format reads a store in it as
+damaged, though the file is intact. Keep a copy of the data dir to keep
+the option to downgrade.
 
 The SDK's `config.Storage.DataDir` points at `<account-dir>/sdk/`; the
 SDK derives `<account-dir>/files/` next to it for file bytes. A durable

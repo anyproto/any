@@ -73,8 +73,8 @@ func TestOpenStore_DimMismatchIsRebuildRequired(t *testing.T) {
 }
 
 // TestOpenStore_OldFormatIsRebuildRequired: a db in an on-disk format
-// older than the one this build writes is refused for a rebuild, not
-// copied and not served. testdata/format5.db.gz is a file any-store
+// older than indexDBFormat is refused for a rebuild, not copied and not
+// served. testdata/format5.db.gz is a file any-store
 // v2.4.3 wrote.
 func TestOpenStore_OldFormatIsRebuildRequired(t *testing.T) {
 	ctx := context.Background()

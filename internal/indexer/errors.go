@@ -6,7 +6,7 @@ import "errors"
 // whose ONLY remedy is deleting the index db and letting it rebuild from
 // the CRDT — a schema version this build can't read, a vector dimension
 // or chunk target that contradicts the one the db was built with, an
-// on-disk format older than the one this build writes, or damage met
+// on-disk format older than indexDBFormat, or damage met
 // while opening it (anystore.ErrCorrupt: a broken header, a failed quick
 // check, a page checksum).
 // Nothing in the db is salvageable and no migration exists: the index is
