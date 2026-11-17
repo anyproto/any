@@ -1461,7 +1461,8 @@ required when the body declares nothing (`400 request.missing_field`;
 every object has a type, `page` for a plain document), must name a
 type the space has (`400 type.not_found`), and every
 `rootCollections` entry a collection it has
-(`400 collection.not_found`) — the create path would otherwise
+(`400 collection.not_found`; either one deleted is `410 object.deleted`)
+— the create path would otherwise
 drop an unknown id and report success — and property values must fit
 their descriptor slug (`400 property.format_violation`); both are
 checked BEFORE the root is created, so a rejected request never leaves
@@ -2270,8 +2271,8 @@ members keep the id (§ Collections).
 A **derived** object is permanent — any bundle root installed with
 `derived: true`, so the general chat (§ Bundles → Derived roots) —
 and answers `409 object.derived_undeletable`; the row stays readable.
-An unknown or already-deleted id is `404 sdk.not_found`, a reader or
-guest `403 space.read_only`, and a non-root id on the tech space
+An unknown id is `404 sdk.not_found`, an already-deleted one
+`410 object.deleted`, a reader or guest `403 space.read_only`, and a non-root id on the tech space
 `405 space.unsupported`.
 
 #### Links and backlinks
@@ -2950,7 +2951,8 @@ checks only the shape: `type` a non-empty slug, `config` an object
 `{name?, description?, iconCid?, layout?, hidden?, meta?}`,
 at least one (`400 request.missing_field`): absent keeps, an empty
 string clears a text field, `"layout": null` clears the layout; `204`,
-`400 type.registered` on a built-in, `404 type.not_found`.
+`400 type.registered` on a built-in, `404 type.not_found`,
+`410 object.deleted`.
 
 `hidden` (bool, `type.hidden`) keeps the type out of `GET …/types` —
 the picker view — unless the request carries `?includeHidden=true`;
@@ -2971,8 +2973,9 @@ other. Consumers read the keys they own; the server interprets none
 of them.
 
 `GET …/types/:typeId` and `GET …/types/:typeId/properties` answer `404
-type.not_found` for an unknown typeId (deleted, never existed, or an id
-that resolves to a non-definition object), and `400 type.not_a_type`
+type.not_found` for an unknown typeId (never existed, or an id that
+resolves to a non-definition object), `410 object.deleted` for a deleted
+one, and `400 type.not_a_type`
 when the id names a user collection (§ Collections; a registered
 collection has no type row either, so `miniapp` / `bin` / `template`
 answer `404`),
@@ -2987,8 +2990,9 @@ Its parts go with it, so, as after a retype, its datasets' records stay
 but take no more writes (`400 dataset.not_declared`). A bundle root is
 uninstalled with `DELETE …/bundles/:bundleId` (§ Bundles). A
 built-in or registered type is `400 type.registered`, a user collection
-id `400 type.not_a_type`, any other id — unknown, already deleted, or a
-registered collection's — `404 type.not_found`; a reader or guest is
+id `400 type.not_a_type`, an already-deleted id `410 object.deleted`,
+any other id — unknown or a registered collection's —
+`404 type.not_found`; a reader or guest is
 `403 space.read_only` and a derived root `409 object.derived_undeletable`,
 as on object deletion (§ Object deletion).
 
@@ -3745,7 +3749,7 @@ registered ones with `xKey` equal to their id.
 iconCid?, hidden?, meta?}`, at least one (`400 request.missing_field`):
 absent keeps, an empty string clears a text field, `meta` patches per
 key. `204`; `400 collection.registered` on a built-in; `404
-collection.not_found`.
+collection.not_found`; `410 object.deleted`.
 
 An id that names a user type answers `400 collection.not_a_collection`
 on every route here — set it with
@@ -3770,8 +3774,8 @@ unfiling the matching DELETE (§ Properties).
 **Deleting a collection** is `DELETE …/collections/:collectionId` →
 `204`; the meta row `collection` or a registered collection is `400
 collection.registered`, a user type id `400 collection.not_a_collection`,
-any other id — unknown, already deleted, or a built-in or registered
-type's — `404 collection.not_found`; a reader or guest is `403
+an already-deleted id `410 object.deleted`, any other id — unknown or a
+built-in or registered type's — `404 collection.not_found`; a reader or guest is `403
 space.read_only` and a derived root `409 object.derived_undeletable`, as
 on object deletion (§ Object deletion). Its members are not touched: each
 keeps the collection id in
@@ -3786,7 +3790,7 @@ So a client showing an object's collections ignores an id that is not a
 known collection. Lists are not affected: no client lists the members
 of a collection that no longer exists. To clean up, unfile the object
 from the dead id — the unfile route does not check that the collection
-exists. Filing under the dead id again is `404 collection.not_found`.
+exists. Filing under the dead id again is `410 object.deleted`.
 
 #### Built-in collections: `miniapp`, `bin`, `template`
 
@@ -3908,8 +3912,8 @@ on `POST /v1/spaces/:spaceId/objects` when the object is new.
 
 Both POSTs pre-flight their ids — `404 object.not_found` for an unknown
 object, `404 type.not_found` / `404 collection.not_found` for an id the
-space does not have, and `400 type.not_a_type` / `400
-collection.not_a_collection` when the id names the other surface —
+space does not have, `410 object.deleted` for a deleted one, and
+`400 type.not_a_type` / `400 collection.not_a_collection` when the id names the other surface —
 because `any.type` and `any.collections` are synced DAG writes with no
 validation behind them, so a typo would replicate permanently. Neither
 DELETE checks anything: they are the repair path for a row that already

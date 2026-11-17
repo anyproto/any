@@ -186,7 +186,7 @@ the UI.
 
 Every object has a type — `POST …/objects` refuses a body without one
 and the type is never cleared — so there is a layout to render unless
-the type was deleted: the id then names no type (`404 type.not_found`).
+the type was deleted: the id then names no type (`410 object.deleted`).
 `page` is the plain document.
 
 `layout` is opaque to the server — `{"type": "<slug>", "config": {…}}` in
@@ -211,7 +211,8 @@ All four answer `ModifyResult`. The two POSTs pre-flight the id and refuse
 the wrong slot: a collection id in the type route is
 `400 type.not_a_type`, a type id in the collection route is
 `400 collection.not_a_collection`, an unknown definition is
-`404 type.not_found` / `404 collection.not_found`, and an unknown object
+`404 type.not_found` / `404 collection.not_found`, a deleted one
+`410 object.deleted`, and an unknown object
 is `404 object.not_found`. Filing is idempotent. Neither `DELETE`
 pre-flights anything, deliberately: it is the repair path for a bogus id
 already on the row.

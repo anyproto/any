@@ -34,6 +34,7 @@ import (
 //	@Param		typeId	path		string	true	"Type ID"
 //	@Success	200		{object}	api.TypeDatasetsListResponse
 //	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	410		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/datasets [get]
 func (d *deps) typeDatasets(c echo.Context) error {
@@ -72,6 +73,7 @@ func (d *deps) typeDatasets(c echo.Context) error {
 //	@Success	201		{object}	api.AddDatasetResponse
 //	@Failure	400		{object}	api.ErrorEnvelope
 //	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	410		{object}	api.ErrorEnvelope
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/parts/{partId}/datasets [post]
@@ -145,6 +147,7 @@ func findDatasetDefById(ctx context.Context, sp space.Space, typeId, defId strin
 //	@Success	201		{object}	api.AddDatasetFieldResponse
 //	@Failure	400		{object}	api.ErrorEnvelope
 //	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	410		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/datasets/{defId}/fields [post]
 func (d *deps) typeAddDatasetField(c echo.Context) error {
@@ -192,6 +195,7 @@ func (d *deps) typeAddDatasetField(c echo.Context) error {
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	410	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/datasets/{defId}/fields/{fieldId} [patch]
 func (d *deps) typePatchDatasetField(c echo.Context) error {
@@ -312,6 +316,7 @@ const datasetDefMutableHint = "path is pinned; mutable paths: description, displ
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	410	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/datasets/{defId} [patch]
 func (d *deps) typePatchDataset(c echo.Context) error {
@@ -430,6 +435,7 @@ func parseSearchTextLeaf(raw json.RawMessage) (val any, code, reason string) {
 //	@Param		defId	path	string	true	"Dataset definition ID"
 //	@Success	204
 //	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	410	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/datasets/{defId} [delete]
 func (d *deps) typeRemoveDataset(c echo.Context) error {
@@ -467,6 +473,7 @@ func (d *deps) typeRemoveDataset(c echo.Context) error {
 //	@Param		fieldId	path	string	true	"Field definition ID"
 //	@Success	204
 //	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	410	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/datasets/{defId}/fields/{fieldId} [delete]
 func (d *deps) typeRemoveDatasetField(c echo.Context) error {
@@ -501,6 +508,7 @@ func (d *deps) typeRemoveDatasetField(c echo.Context) error {
 //	@Success	201		{object}	api.AddDatasetIndexResponse
 //	@Failure	400		{object}	api.ErrorEnvelope
 //	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	410		{object}	api.ErrorEnvelope
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/datasets/{defId}/indexes [post]
@@ -539,6 +547,7 @@ func (d *deps) typeAddDatasetIndex(c echo.Context) error {
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	410	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/datasets/{defId}/indexes/{indexId} [delete]
 func (d *deps) typeRemoveDatasetIndex(c echo.Context) error {

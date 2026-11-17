@@ -233,9 +233,14 @@ func TestServer_TechSpace(t *testing.T) {
 	// DELETE is routed (uninstall of created bundle roots), but a
 	// DERIVED root refuses at the object layer — never a 204.
 	rec = doJSON(t, e, http.MethodDelete, base+"/objects/"+root, "")
-	if rec.Code == http.StatusNoContent || rec.Code == http.StatusMethodNotAllowed {
-		t.Fatalf("derived root delete: %d %s", rec.Code, rec.Body.String())
+	assertStatusCode(t, rec, http.StatusConflict, "object.derived_undeletable")
+	// A created root deletes once; a second delete reports the deletion.
+	created := ensureBundle(t, e, tech, `{"id":"drafts/v1","name":"Drafts","parts":`+scratchParts+`}`)
+	if !created.Installed || created.Bundle.Derived {
+		t.Fatalf("created ensure: %+v", created)
 	}
+	doJSONExpect(t, e, http.MethodDelete, base+"/objects/"+created.Bundle.RootId, http.StatusNoContent)
+	assertStatusCode(t, doJSON(t, e, http.MethodDelete, base+"/objects/"+created.Bundle.RootId, ""), http.StatusGone, "object.deleted")
 
 	// Sync-status and debug work.
 	rec = doJSON(t, e, http.MethodGet, base+"/sync-status", "")
