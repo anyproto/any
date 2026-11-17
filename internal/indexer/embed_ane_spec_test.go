@@ -709,7 +709,11 @@ func TestPackageDownload_Notices(t *testing.T) {
 		t.Fatal("package incomplete")
 	}
 	// Only the package reports a process; the texts are too small for one.
-	for _, u := range frames.all() {
+	reported := frames.all()
+	if len(reported) == 0 {
+		t.Fatal("the package file reported no process")
+	}
+	for _, u := range reported {
 		if u.Name != pkg.id()+".Manifest.json" {
 			t.Errorf("process row %q for a licence text", u.Name)
 		}
