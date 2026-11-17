@@ -114,8 +114,11 @@ account is standalone-only — a managed login with its phrase lands in
    and the indexer — before the listener binds, so boot failures
    surface immediately. A search index this build refuses is removed
    and rebuilt by the boot itself (`13-index.md`); other index open
-   failures fail the boot. Outside the `--wallet` path `run` never
-   generates a wallet; create accounts with `any init` or over HTTP.
+   failures fail the boot. An `sdk.db` in an older on-disk format is
+   copied onto the current one in this step (§ Data dir layout), so
+   that boot takes as long as the copy. Outside the `--wallet` path
+   `run` never generates a wallet; create accounts with `any init` or
+   over HTTP.
    SDK `Open` returns after local wiring only: eager space loading and
    offline catch-up replay run on one SDK-owned serial background pass,
    so the server serves as soon as the listener binds. Until a space's
@@ -287,10 +290,16 @@ instance) takes no lock.
     └── index/                   # local search index (index.db, dirty sentinel index.db.lock) — owned by the indexer
 ```
 
-**Upgrading is one-way.** A data dir opened by this build is refused by
-builds pinned to an any-store older than v2.0.0 (`btree: database is
-corrupt` — the data is intact; the older code does not recognize the
-header). Keep a copy of the data dir to keep the option to downgrade.
+**Upgrading is one-way.** The boot keeps both stores in the on-disk
+format the pinned any-store writes. An `sdk/sdk.db` in an older format
+is replaced by a copy in the current one before anything reads it; the
+copy needs room for a second `sdk.db`, and one that fails leaves the
+file as it is for the next boot to try again. An `index/index.db` in an
+older format is removed and rebuilt (`13-index.md`). A build pinned to
+an any-store that does not know the format refuses the data dir
+(`any-store: incompatible version` or `btree: database is corrupt` —
+the data is intact). Keep a copy of the data dir to keep the option to
+downgrade.
 
 The SDK's `config.Storage.DataDir` points at `<account-dir>/sdk/`; the
 SDK derives `<account-dir>/files/` next to it for file bytes. A durable
@@ -309,8 +318,9 @@ The search index (`docs/13-index.md`) is derived state: removing
 boot re-indexes from the change feed's start and re-embeds. The boot
 does this itself for an `index.db` it cannot open (schema or
 chunk-target mismatch, a configured `index.vector.dim` that contradicts
-it, or damage met while opening it: a broken header, a failed integrity
-check after a crash, or a page that fails its checksum),
+it, an older on-disk format, or damage met while opening it: a broken
+header, a failed integrity check after a crash, or a page that fails
+its checksum),
 leaving `models/` beside it. The
 embedder model cache is shared at `<root>/models/` — one ~600MB
 download per root, not per account (a model already sitting in

@@ -167,7 +167,7 @@ type DocUpsert struct {
 // first successful embedding" (EnsureDim). embedderConfigured turns on
 // pending-marking even before the dimension is known. A dim change
 // against an existing DB is a hard error — the index must be rebuilt, as
-// for a damaged db (RefuseDamaged).
+// for a damaged db (RefuseDamaged) and for one in an older on-disk format.
 func OpenStore(ctx context.Context, path string, dim int, embedderConfigured bool) (_ *Store, err error) {
 	defer func() { err = RefuseDamaged(err) }()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -191,6 +191,17 @@ func OpenStore(ctx context.Context, path string, dim int, embedderConfigured boo
 	})
 	if err != nil {
 		return nil, fmt.Errorf("indexer: open index db: %w", err)
+	}
+	// A db in an older on-disk format is rebuilt in the current one, never
+	// copied: the index is derived state.
+	format, err := anystore.SchemaFormat(db)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("indexer: open index db: %w", err)
+	}
+	if format < anystore.LatestSchemaFormat {
+		_ = db.Close()
+		return nil, fmt.Errorf("%w: index db is in on-disk format %d, this build writes format %d", ErrIndexRebuildRequired, format, anystore.LatestSchemaFormat)
 	}
 	s := newStore(db, path, dim, embedderConfigured)
 	if err := s.checkMeta(ctx); err != nil {

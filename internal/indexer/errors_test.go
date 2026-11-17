@@ -7,8 +7,11 @@ package indexer
 // broken for the builds that need it most.
 
 import (
+	"compress/gzip"
 	"context"
 	"errors"
+	"io"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -66,6 +69,49 @@ func TestOpenStore_DimMismatchIsRebuildRequired(t *testing.T) {
 	}
 	if !errors.Is(err, ErrIndexRebuildRequired) {
 		t.Fatalf("OpenStore err = %v, want it to wrap ErrIndexRebuildRequired", err)
+	}
+}
+
+// TestOpenStore_OldFormatIsRebuildRequired: a db in an on-disk format
+// older than the one this build writes is refused for a rebuild, not
+// copied and not served. testdata/format5.db.gz is a file any-store
+// v2.4.3 wrote.
+func TestOpenStore_OldFormatIsRebuildRequired(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "index.db")
+	writeOldFormatDB(t, path)
+
+	st, err := OpenStore(ctx, path, 0, false)
+	if err == nil {
+		st.Close()
+		t.Fatal("OpenStore on an old-format db succeeded, want ErrIndexRebuildRequired")
+	}
+	if !errors.Is(err, ErrIndexRebuildRequired) {
+		t.Fatalf("OpenStore err = %v, want it to wrap ErrIndexRebuildRequired", err)
+	}
+}
+
+// writeOldFormatDB puts a database in on-disk format 5 at path.
+func writeOldFormatDB(t *testing.T, path string) {
+	t.Helper()
+	src, err := os.Open(filepath.Join("testdata", "format5.db.gz"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	zr, err := gzip.NewReader(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(dst, zr); err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
