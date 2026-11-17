@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -97,6 +98,7 @@ func TestResolveLocalSpec_Model(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	def, _ := lookupLocalModel("")
 	touch(eg2.file)
 	touch(qwen3(t).file)
 	custom := touch("custom.gguf")
@@ -113,7 +115,7 @@ func TestResolveLocalSpec_Model(t *testing.T) {
 		{"unnamed GGUF takes only the config", config.IndexLocal{ModelPath: custom, Pooling: "cls", DocPrefix: "passage: "},
 			localSpec{modelPath: custom, pooling: "cls", docPrefix: "passage: "}},
 		{"a ModelUrl alone is another source for the default model", config.IndexLocal{ModelUrl: "https://example.invalid/m.gguf"},
-			localSpec{profile: qwen3(t).id, modelPath: filepath.Join(dir, qwen3(t).file), modelDim: 1024, pooling: "last", queryPrefix: qwen3(t).queryPrefix}},
+			localSpec{profile: def.id, modelPath: filepath.Join(dir, def.file), modelDim: def.dim, pooling: def.pooling, queryPrefix: def.queryPrefix, docPrefix: def.docPrefix}},
 		{"config overrides the model's prompts and pooling", config.IndexLocal{Model: config.LocalModelEmbeddingGemma2, QueryPrefix: "q: ", DocPrefix: "d: ", Pooling: "last"},
 			localSpec{profile: eg2.id, modelPath: filepath.Join(dir, eg2.file), modelDim: 768, pooling: "last", queryPrefix: "q: ", docPrefix: "d: "}},
 	} {
@@ -231,6 +233,17 @@ func TestLocal_EmbeddingGemma2(t *testing.T) {
 			t.Errorf("doc %d: a title left the vector unchanged (cosine %v)", i, c)
 		}
 	}
+	// A file that is not the model it stands for is refused at load.
+	if qwenPath := os.Getenv("ANY_INDEX_LOCAL_MODEL_PATH"); qwenPath != "" {
+		wrong, err := NewLocal(config.IndexLocal{Model: config.LocalModelEmbeddingGemma2, ModelPath: qwenPath, LibDir: libDir}, t.TempDir(), "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer wrong.Close()
+		if _, err := wrong.EmbedDocs(ctx, docs[:1]); err == nil || !strings.Contains(err.Error(), "not the configured model") {
+			t.Errorf("another model's file under this model's name: %v", err)
+		}
+	}
 	if cosine(vecs[3], vecs[0]) <= cosine(vecs[3], vecs[1]) {
 		t.Error("the query should sit closer to the on-topic doc")
 	}
@@ -255,6 +268,46 @@ func cosine(a, b []float32) float64 {
 		nb += float64(b[i]) * float64(b[i])
 	}
 	return dot / math.Sqrt(na*nb)
+}
+
+// The stamp tells models, revisions and prompt overrides apart; an
+// unnamed GGUF is unknown.
+func TestLocalSpecStamp(t *testing.T) {
+	dir := t.TempDir()
+	custom := filepath.Join(dir, "custom.gguf")
+	if err := os.WriteFile(custom, []byte("stub"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stamp := func(cfg config.IndexLocal) (string, bool) {
+		t.Helper()
+		cfg.ModelPath = custom
+		s, _, err := resolveLocalSpec(cfg, dir, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.stamp()
+	}
+	eg2, eg2Legacy := stamp(config.IndexLocal{Model: config.LocalModelEmbeddingGemma2})
+	qwen, qwenLegacy := stamp(config.IndexLocal{Model: config.LocalModelQwen3})
+	if eg2 == "" || qwen == "" || eg2 == qwen {
+		t.Fatalf("stamps: %q, %q", eg2, qwen)
+	}
+	if eg2Legacy || !qwenLegacy {
+		t.Errorf("legacy: EmbeddingGemma 2 %v, Qwen3 %v — only Qwen3 predates the stamp", eg2Legacy, qwenLegacy)
+	}
+	if again, _ := stamp(config.IndexLocal{Model: config.LocalModelEmbeddingGemma2}); again != eg2 {
+		t.Errorf("the stamp is not stable: %q then %q", eg2, again)
+	}
+	if other, _ := stamp(config.IndexLocal{Model: config.LocalModelEmbeddingGemma2, DocPrefix: "passage: "}); other == eg2 {
+		t.Error("a document prompt override must change the stamp")
+	}
+	// Settings that move no stored vector leave it alone.
+	if same, _ := stamp(config.IndexLocal{Model: config.LocalModelEmbeddingGemma2, QueryPrefix: "q: ", Threads: 2, ContextSize: 1024, BatchDocs: 1}); same != eg2 {
+		t.Errorf("a query prompt or decode setting changed the stamp: %q vs %q", same, eg2)
+	}
+	if id, legacy := stamp(config.IndexLocal{}); id != "" || !legacy {
+		t.Errorf("an unnamed GGUF: stamp %q, legacy %v", id, legacy)
+	}
 }
 
 // A refused spec starts no download, and a mirror keeps the pinned checksum.
@@ -287,5 +340,59 @@ func TestResolveLocalSpec_Download(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	if _, err := os.Stat(spec.modelPath); err == nil {
 		t.Error("a file that fails the pinned checksum was installed")
+	}
+}
+
+// A configured index dimension the pinned local model cannot fill is
+// refused before anything is built.
+func TestCheckVectorDim(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		want   int
+		local  config.IndexLocal
+		refuse bool
+	}{
+		{"learned", 0, config.IndexLocal{}, false},
+		{"the default model's width", 768, config.IndexLocal{}, false},
+		{"another width than the default model's", 1024, config.IndexLocal{}, true},
+		{"Qwen3's width", 1024, config.IndexLocal{Model: config.LocalModelQwen3}, false},
+		{"another width than Qwen3's", 768, config.IndexLocal{Model: config.LocalModelQwen3}, true},
+		{"a truncated width", 512, config.IndexLocal{Dim: 512}, false},
+		{"another width than the truncated one", 768, config.IndexLocal{Dim: 512}, true},
+		{"an unnamed GGUF is only known once loaded", 1024, config.IndexLocal{ModelPath: "custom.gguf"}, false},
+	} {
+		err := checkVectorDim(c.want, c.local)
+		if (err != nil) != c.refuse {
+			t.Errorf("%s: err = %v, refuse = %v", c.name, err, c.refuse)
+		}
+		if err != nil && !(strings.Contains(err.Error(), "index.vector.dim") && strings.Contains(err.Error(), "index.local.dim")) {
+			t.Errorf("%s: the refusal must name both keys: %v", c.name, err)
+		}
+	}
+
+	// The factory refuses in every mode that runs the local model, and
+	// fetches nothing first: the model's source is a server that counts.
+	var gets atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gets.Add(1)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	for _, cfg := range []config.Index{
+		{Embedder: "local", Vector: config.IndexVector{Dim: 1024}},
+		{Embedder: "auto", Vector: config.IndexVector{Dim: 1024}},
+		// With a key the local model is Qwen3, 1024 wide.
+		{Embedder: "auto", Vector: config.IndexVector{Dim: 768},
+			OpenAI: config.IndexOpenAI{BaseUrl: "http://127.0.0.1:1", Model: "Qwen/Qwen3-Embedding-0.6B", ApiKey: "k"}},
+	} {
+		cfg.Local.ModelUrl = srv.URL
+		emb, err := NewEmbedder(cfg, t.TempDir(), "", nil)
+		if err == nil || emb != nil || !strings.Contains(err.Error(), "index.vector.dim") {
+			t.Errorf("%s with index.vector.dim %d: %v, %v", cfg.Embedder, cfg.Vector.Dim, emb, err)
+		}
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := gets.Load(); n != 0 {
+		t.Errorf("refused configs fetched the model %d times", n)
 	}
 }

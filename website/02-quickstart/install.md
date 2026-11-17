@@ -27,7 +27,7 @@ LICENSE          # Any's MIT license and copyright notice
 manifest.json    # { version, os, arch, llamacpp_version, sha256: {path: hash} }
 ```
 
-Extract it somewhere on your `PATH`, keeping `llamacpp/` next to the binary — the local embedder looks for it at `<dir-of-any>/llamacpp` by default. The embedding model itself (~600 MB) is not bundled; it downloads on first boot into `<data-dir>/models/` without blocking the server.
+Extract it somewhere on your `PATH`, keeping `llamacpp/` next to the binary — the local embedder looks for it at `<dir-of-any>/llamacpp` by default. The embedding model itself (~310 MB) is not bundled; it downloads on first boot into `<data-dir>/models/` without blocking the server.
 
 ```bash
 mkdir -p "$HOME/.local/opt/any" "$HOME/.local/bin"
@@ -80,7 +80,7 @@ export ANY_DATA_DIR="$HOME/.any-demo"
 export ANY_INDEX_EMBEDDER=local
 ```
 
-Environment variables override the config file and flags override both ([Configuration](../operations/configuration.html)). `local` runs llama.cpp on this device; the ~600 MB model downloads into `$ANY_DATA_DIR/models/` on first boot and the object API serves while it does. `none` keeps full-text search and skips the model. An agent's LLM provider is a separate setting on the `anyrt` side ([Embedders](../search/embedders.html)).
+Environment variables override the config file and flags override both ([Configuration](../operations/configuration.html)). `local` runs llama.cpp on this device; the ~310 MB model downloads into `$ANY_DATA_DIR/models/` on first boot and the object API serves while it does. `none` keeps full-text search and skips the model. An agent's LLM provider is a separate setting on the `anyrt` side ([Embedders](../search/embedders.html)).
 
 > **Note.** With nothing configured the server syncs against the **production** any-sync network under the account you are about to create. For a throwaway environment set `ANY_NETWORK_NODECONF_PATH` before `any init`, and keep one data root per network — see [Networks](networks.html).
 

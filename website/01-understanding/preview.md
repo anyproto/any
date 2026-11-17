@@ -13,7 +13,7 @@ order: 5
 
 The companion runtime [anyrt](https://github.com/anyproto/anybao/blob/main/LICENSE) and the SDKs ([any-sync](https://github.com/anyproto/any-sync/blob/main/LICENSE.md), [any-store](https://github.com/anyproto/any-store/blob/main/LICENSE.md), [any-sync-sdk](https://github.com/anyproto/any-sync-sdk/blob/main/LICENSE.md)) are also MIT licensed.
 
-Third-party dependencies and models retain their respective licenses. For example, the yzma bindings and the default Qwen3 embedding model use Apache-2.0; see the [local embedder's license notes](https://github.com/anyproto/any/blob/main/third_party/llamacpp/README.md#licenses).
+Third-party dependencies and models retain their respective licenses. For example, the yzma bindings and the default EmbeddingGemma 2 embedding model use Apache-2.0; see the [local embedder's license notes](https://github.com/anyproto/any/blob/main/third_party/llamacpp/README.md#licenses).
 
 ## What runs on your device
 

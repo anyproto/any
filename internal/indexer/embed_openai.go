@@ -105,3 +105,7 @@ func (c *OpenAI) Dim(ctx context.Context) (int, error) {
 	}
 	return len(v), nil
 }
+
+// Stamp names the endpoint's model. The stamp is younger than this
+// embedder, so an unstamped index may be its own.
+func (c *OpenAI) Stamp() (string, bool) { return "openai:" + c.Model, true }

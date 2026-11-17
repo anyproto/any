@@ -103,10 +103,11 @@ func TestOpOffloadFollowsGpuLayers(t *testing.T) {
 }
 
 func TestLocal_DefaultsAndDim(t *testing.T) {
+	def, _ := lookupLocalModel("")
 	dir := t.TempDir()
 	// Pre-create the model in the shared dir so NewLocal skips the download.
 	modelsDir := filepath.Join(dir, "models")
-	modelPath := filepath.Join(modelsDir, qwen3(t).file)
+	modelPath := filepath.Join(modelsDir, def.file)
 	if err := os.MkdirAll(modelsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -128,12 +129,12 @@ func TestLocal_DefaultsAndDim(t *testing.T) {
 	if l.nCtx != localDefaultCtx {
 		t.Errorf("nCtx default: want %d got %d", localDefaultCtx, l.nCtx)
 	}
-	if l.queryPrefix != qwen3(t).queryPrefix {
-		t.Errorf("default model should use the Qwen retrieval prefix, got %q", l.queryPrefix)
+	if l.queryPrefix != def.queryPrefix {
+		t.Errorf("default model should use its own query prompt, got %q", l.queryPrefix)
 	}
 	// Default model reports its dimension without loading anything.
-	if d, err := l.Dim(context.Background()); err != nil || d != 1024 {
-		t.Errorf("Dim: want 1024,nil got %d,%v", d, err)
+	if d, err := l.Dim(context.Background()); err != nil || d != def.dim {
+		t.Errorf("Dim: want %d,nil got %d,%v", def.dim, d, err)
 	}
 
 	// Matryoshka dim caps the reported dimension.
@@ -148,10 +149,11 @@ func TestLocal_DefaultsAndDim(t *testing.T) {
 }
 
 func TestLocal_LegacyModelDirFallback(t *testing.T) {
+	def, _ := lookupLocalModel("")
 	dir := t.TempDir()
 	// Model exists only at the pre-per-account location — keep using it.
 	legacyDir := filepath.Join(dir, "index", "models")
-	legacyPath := filepath.Join(legacyDir, qwen3(t).file)
+	legacyPath := filepath.Join(legacyDir, def.file)
 	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -320,11 +320,11 @@ The search index (`docs/13-index.md`) is derived state: removing
 boot re-indexes from the change feed's start and re-embeds. The boot
 does this itself for an `index.db` it cannot open (schema or
 chunk-target mismatch, a configured `index.vector.dim` that contradicts
-it, an older on-disk format, or damage met while opening it: a broken
-header, a failed integrity check after a crash, or a page that fails
-its checksum),
+it, another embedder than the one that built it, an older on-disk
+format, or damage met while opening it: a broken header, a failed
+integrity check after a crash, or a page that fails its checksum),
 leaving `models/` beside it. The
-embedder model cache is shared at `<root>/models/` — one ~600MB
+embedder model cache is shared at `<root>/models/` — one ~310MB
 download per root, not per account (a model already sitting in
 `<account-dir>/index/models/` keeps being used from there).
 

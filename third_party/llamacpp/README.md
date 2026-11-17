@@ -20,8 +20,9 @@ for the host).
 - **llama.cpp** — MIT. The upstream `LICENSE` file is copied next to
   the extracted libraries (`bin/llamacpp/LICENSE`).
 - **yzma** (Go bindings) — Apache-2.0, vendored as a Go module.
-- **Qwen3-Embedding-0.6B** (default model, downloaded at runtime into
-  `<data-dir>/index/models/`) — Apache-2.0.
+- **EmbeddingGemma 2** (default model) and **Qwen3-Embedding-0.6B**
+  (selectable), downloaded at runtime into `<data-dir>/models/` —
+  Apache-2.0.
 - **EmbeddingGemma 2 as a Core ML package** (downloaded at runtime into
   the model cache on Apple Silicon Macs) — Apache-2.0, like the model.
   It is a conversion of the stock weights, published at

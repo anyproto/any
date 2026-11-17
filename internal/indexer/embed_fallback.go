@@ -123,6 +123,20 @@ func (f *fallbackEmbedder) Dim(ctx context.Context) (int, error) {
 	return f.fallback.Dim(ctx)
 }
 
+// Stamp is the fallback's: the primary serves the same model.
+func (f *fallbackEmbedder) Stamp() (string, bool) {
+	return EmbedderStamp(f.fallback)
+}
+
+// StampTwins is the primary's stamp: it serves the same model, so an
+// index it built alone is this pair's.
+func (f *fallbackEmbedder) StampTwins() []string {
+	if id, _ := EmbedderStamp(f.primary); id != "" {
+		return []string{id}
+	}
+	return nil
+}
+
 // SetThreads forwards the CPU budget to the fallback — the local model
 // is the only leg that decodes on this machine.
 func (f *fallbackEmbedder) SetThreads(n int) {

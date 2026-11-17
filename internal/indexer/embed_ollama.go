@@ -115,3 +115,7 @@ func withPrompt(prompt string, texts []string) []string {
 	}
 	return out
 }
+
+// Stamp names the served model. The stamp is younger than this
+// embedder, so an unstamped index may be its own.
+func (c *Ollama) Stamp() (string, bool) { return "ollama:" + c.Model, true }
