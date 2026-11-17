@@ -657,8 +657,10 @@ func pinOf(body string) string {
 // of their own; a text of another revision is replaced; one that cannot
 // be had does not hold the package back.
 func TestPackageDownload_Notices(t *testing.T) {
+	// The text that fails its checksum stops on its second try, long
+	// before this bound.
 	prev := noticeFetchTimeout
-	noticeFetchTimeout = 300 * time.Millisecond
+	noticeFetchTimeout = 10 * time.Second
 	t.Cleanup(func() { noticeFetchTimeout = prev })
 	shortDownload(t)
 
@@ -698,12 +700,19 @@ func TestPackageDownload_Notices(t *testing.T) {
 		t.Fatal("complete with a stale notice and a missing text")
 	}
 
-	p := startPackageDownload(pkg, models, nil, srv.Client(), nil)
+	var frames frameLog
+	p := startPackageDownload(pkg, models, nil, srv.Client(), frames.report)
 	waitPackage(t, p)
 	p.Close()
 
 	if !pkg.complete(pkg.dir(models)) {
 		t.Fatal("package incomplete")
+	}
+	// Only the package reports a process; the texts are too small for one.
+	for _, u := range frames.all() {
+		if u.Name != pkg.id()+".Manifest.json" {
+			t.Errorf("process row %q for a licence text", u.Name)
+		}
 	}
 	for name, want := range map[string]string{"LICENSE": "the licence", "NOTICE": "the notice", "licenses/QVAC-MIT.txt": "the mit text"} {
 		got, err := os.ReadFile(filepath.Join(texts, filepath.FromSlash(name)))

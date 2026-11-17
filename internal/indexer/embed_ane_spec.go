@@ -4,7 +4,9 @@ package indexer
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"path"
@@ -71,8 +73,8 @@ type packageDownload struct {
 
 // noticeFetchTimeout is how long one licence text may take. They are
 // small: past it the fetch is left for the next start (a var so tests
-// can shorten it).
-var noticeFetchTimeout = 2 * time.Minute
+// can change it).
+var noticeFetchTimeout = 30 * time.Second
 
 // startPackageDownload spawns the download. It begins once after, the
 // model's own download, has installed its file (nil = nothing to wait
@@ -83,7 +85,7 @@ func startPackageDownload(pkg *coreMLPackage, modelsDir string, after *modelDown
 	// fetch installs one file and reports whether it is in place. The
 	// .part and .lock stay out of the directory the file goes into,
 	// under the name the process row carries.
-	fetch := func(ctx context.Context, f coreMLFile, url, dir string) bool {
+	fetch := func(ctx context.Context, f coreMLFile, url, dir string, onProcess func(ProcessUpdate)) bool {
 		name := pkg.id() + "." + path.Base(f.path)
 		dest := filepath.Join(dir, filepath.FromSlash(f.path))
 		d := startModelDownloadAt(name, url+"/"+f.path, dest, filepath.Join(modelsDir, name), f.sha256, client, onProcess)
@@ -111,23 +113,31 @@ func startPackageDownload(pkg *coreMLPackage, modelsDir string, after *modelDown
 			if (coreMLFile{path: f.path}).verify(dir) == nil {
 				continue
 			}
-			if !fetch(ctx, f, pkg.url, dir) {
+			if !fetch(ctx, f, pkg.url, dir, onProcess) {
 				return // cancelled, or stopped on its checksum: the rest cannot complete the package
 			}
 		}
 		// The licence texts follow the package and never hold it back.
+		// They are a few kilobytes and report no process.
+		if pkg.noticesURL == "" {
+			return
+		}
 		notices := pkg.noticesDir(modelsDir)
 		for _, f := range pkg.notices {
 			if ctx.Err() != nil {
 				return
 			}
-			if f.verify(notices) == nil {
+			err := f.verify(notices)
+			if err == nil {
 				continue
 			}
-			// A text of another revision is replaced.
-			_ = os.Remove(filepath.Join(notices, filepath.FromSlash(f.path)))
+			// A text of another revision is replaced; a missing one may
+			// be another process's install in flight and is left alone.
+			if !errors.Is(err, fs.ErrNotExist) {
+				_ = os.Remove(filepath.Join(notices, filepath.FromSlash(f.path)))
+			}
 			one, stop := context.WithTimeout(ctx, noticeFetchTimeout)
-			fetch(one, f, pkg.noticesURL, notices)
+			fetch(one, f, pkg.noticesURL, notices, nil)
 			stop()
 		}
 	}()
