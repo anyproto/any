@@ -61,7 +61,7 @@ any sync-status object SPACE OBJ
 { "objectId": "obj_…", "state": "synced", "lastSyncAt": "2026-05-15T12:00:00Z" }
 ```
 
-An object with no sync activity in this run reads `synced` when its tree is stored on this device and a sync round with a peer found nothing to exchange, and `{"state": "unknown"}` otherwise. An id nobody has seen is `unknown` rather than a 404 — use the object catalog when you need an existence check.
+An object with no sync activity in this run reads `synced` when its tree is stored on this device and a sync round with a peer found nothing to exchange, and `{"state": "unknown"}` otherwise. A full id nobody has seen is `unknown` rather than a 404 — use the object catalog when you need an existence check.
 
 > **Why it matters.** Writes never wait on the network, so a UI needs a separate, honest signal about whether a change has left the device. `synced` is that signal: it comes from the same engine that holds the data, not from a round-trip to a server that may be unreachable — and a space can converge over the LAN with no sync node in sight.
 

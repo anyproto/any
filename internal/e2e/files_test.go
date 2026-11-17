@@ -16,6 +16,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -225,7 +226,8 @@ func TestE2E_FilesBinary(t *testing.T) {
 	}
 
 	// --- attach to a missing object → 404 file.not_found ---------------
-	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+sp.Id+"/objects/nope/files",
+	absent := "bafyrei" + strings.Repeat("z", 52)
+	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+sp.Id+"/objects/"+absent+"/files",
 		"x", http.StatusNotFound, &env)
 	errObj, _ = env["error"].(map[string]any)
 	if errObj["code"] != api.ErrFileNotFound {

@@ -53,7 +53,7 @@ func TestServer_SyncStatusReads(t *testing.T) {
 
 	t.Run("object unknown id returns state=unknown", func(t *testing.T) {
 		rec := doJSON(t, e, http.MethodGet,
-			"/v1/spaces/"+sp.Id+"/sync-status/objects/never-existed", "")
+			"/v1/spaces/"+sp.Id+"/sync-status/objects/"+absentObjectId, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 		}
@@ -61,8 +61,8 @@ func TestServer_SyncStatusReads(t *testing.T) {
 		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 			t.Fatalf("decode: %v", err)
 		}
-		if got.ObjectId != "never-existed" {
-			t.Errorf("objectId echoed = %q, want never-existed", got.ObjectId)
+		if got.ObjectId != absentObjectId {
+			t.Errorf("objectId echoed = %q, want %s", got.ObjectId, absentObjectId)
 		}
 		if got.State != "unknown" {
 			t.Errorf("state = %q, want unknown", got.State)

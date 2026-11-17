@@ -146,7 +146,7 @@ A type's or collection's `xKey` is a client-side label, never a server path.
 
 **`offset` / `limit`** is fine for a frozen snapshot. It floats on a live storage collection: row 50 becomes row 51 the moment something lands ahead of it, so paging across writes skips and repeats rows.
 
-**A growing window** is how a live list loads more: resubscribe at `offset: 0` with a larger `limit`.
+**A growing window** loads more by reading again at `offset: 0` with a larger `limit`.
 
 **Cursor paging** does not float under inserts: filter past the last row on the indexed sort field (`$lt` on a descending sort, `$gt` on an ascending one) and keep the same sort. A row whose sort key changes mid-pass moves relative to the cursor, so the pass can miss it or return it twice — an edited object jumps past a `modifiedAt` cursor. A field that can tie carries an `id` tiebreak in both `sort` and the filter, in the last key's direction: `-x` pairs with `-id` and `$lt`, an ascending field with `id` and `$gt`. A mismatched direction, or a sort without `id`, skips and repeats rows at a page boundary inside a tie. Ids compare as byte strings: a fixed order for the tiebreak, never a time order. The cursor values are the last row's values exactly as it returned them.
 

@@ -148,9 +148,9 @@ lifecycle is in `04-events.md`.
   manage, and can't close on overflow. Only open a `subscribe` stream when
   the client actually renders changes in realtime.
 
-- **Always set `limit`, sized to what the view shows.** A live list
-  loads more by growing its window: it resubscribes at `offset: 0` with
-  a larger `limit`. A one-shot read pages on a cursor. An unbounded read
+- **Always set `limit`, sized to what the view shows.** A list loads
+  more by growing its window: the same read again at `offset: 0` with a
+  larger `limit`. A one-shot read can page on a cursor. An unbounded read
   can produce a huge snapshot response or overflow a subscribe mailbox;
   treat it as a bug. Only a whole-object read has no `limit`: one
   document's `editor_blocks`, a history view at a version.
