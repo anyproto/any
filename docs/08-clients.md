@@ -150,10 +150,11 @@ lifecycle is in `04-events.md`.
 
 - **Always set `limit`, sized to what the view shows.** A live list
   loads more by growing its window: it resubscribes at `offset: 0` with
-  a larger `limit`. A one-shot read pages on a cursor. An unbounded read
-  can produce a huge snapshot response or overflow a subscribe mailbox;
-  treat it as a bug. Only a whole-object read has no `limit`: one
-  document's `editor_blocks`, a history view at a version.
+  a larger `limit`. A one-shot read pages on a cursor, or grows the same
+  way by running the query again. An unbounded read can produce a huge
+  snapshot response or overflow a subscribe mailbox; treat it as a bug. Only a whole read has no `limit`: one document's
+  `editor_blocks` and its markdown render, a history view at a version,
+  and a list GET (`03-api.md` § Pagination).
 
 - **Page a one-shot read on an absolute cursor, not `offset`, for
   anything that mutates under you.** `offset` floats — row 50 becomes
