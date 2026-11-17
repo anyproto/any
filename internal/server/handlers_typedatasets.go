@@ -654,9 +654,13 @@ func (d *deps) spaceUpsert(c echo.Context) error {
 	if len(req.Records) == 0 {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "records required", nil)
 	}
+	objectId, err := resolveObjectId(c.Request().Context(), sp, req.ObjectId)
+	if err != nil {
+		return objectIdRefused(c, sp, req.ObjectId, err)
+	}
 
 	batch := space.UpsertBatch{
-		ObjectId: req.ObjectId,
+		ObjectId: objectId,
 		Dataset:  req.Dataset,
 		PageSize: req.PageSize,
 		TraceIds: req.TraceIds,
@@ -668,7 +672,7 @@ func (d *deps) spaceUpsert(c echo.Context) error {
 
 	res, err := sp.Upsert(c.Request().Context(), batch)
 	if err != nil {
-		details := map[string]any{"spaceId": sp.Id(), "objectId": req.ObjectId, "dataset": req.Dataset}
+		details := map[string]any{"spaceId": sp.Id(), "objectId": objectId, "dataset": req.Dataset}
 		if errors.Is(err, space.ErrUpsertRequiresUserIds) {
 			return writeError(c, http.StatusBadRequest, "upsert.requires_user_ids",
 				"upsert serves only datasets declared with id rule \"user\" — the record id is the idempotency key",

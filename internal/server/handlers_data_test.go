@@ -223,7 +223,7 @@ func TestServer_TypesAndPropertiesFlow(t *testing.T) {
 	// A second delete reports the deletion; an unknown id stays 404.
 	rec = doJSON(t, e, http.MethodDelete, "/v1/spaces/"+sp.Id+"/objects/"+objectId, "")
 	assertStatusCode(t, rec, http.StatusGone, "object.deleted")
-	rec = doJSON(t, e, http.MethodDelete, "/v1/spaces/"+sp.Id+"/objects/bafyreinosuchobject", "")
+	rec = doJSON(t, e, http.MethodDelete, "/v1/spaces/"+sp.Id+"/objects/"+absentObjectId, "")
 	assertStatusCode(t, rec, http.StatusNotFound, "sdk.not_found")
 }
 

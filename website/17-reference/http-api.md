@@ -12,6 +12,7 @@ The `any` server listens on `127.0.0.1:2046` and exposes one JSON API under `/v1
 - **Base path** `/v1/`. Media type `application/json; charset=utf-8` for every request with a body and every response, except the raw routes: file attach and content carry file bytes, the avatar upload takes the image, local-store export returns `application/gzip` and import takes that file as its body, and every `…/subscribe` answers `text/event-stream`. A `POST`, `PUT`, `PATCH` or `DELETE` body with a missing or different `Content-Type` answers `415 request.unsupported_media_type`; a request without a body needs no header.
 - **Status codes**: `200` reads, `201` creates, `204` side-effect-only endpoints. Errors always use the envelope in [Errors](errors.html).
 - **Ids in paths** are URL-safe strings; segments are URL-encoded (a bundle id like `favorites/v1` becomes `favorites%2Fv1`).
+- **Object ids**: wherever a request names an object (the `:objectId` path param, the top-level body `objectId`, `?objectId=` on the file list) the value is the full id (59 characters, used as is) or a short id, the head of the id: an optional `bafyrei`, then 5 to 52 of the characters that follow it (`[a-z2-7]`). Anything else is `400 request.invalid_field`; a serialized nil is `400 object.id_required`. A short id no object carries is `404 object.not_found` on every route; one that several share is `409 object.ambiguous_id`. Every other id is a full id. See [Short ids](../database/objects.html#short-ids).
 - **Body limit** 1 MB on every route except file attach, the avatar upload and local-store import, whose raw bodies stream past it.
 - **Strict bodies**: endpoints whose OpenAPI schema carries `additionalProperties: false` answer `400 request.unknown_field` for any unknown top-level key. `GET /v1/openapi.json` is the authoritative list.
 - **Unauthorized server**: until an account is booted, every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth` answers `401 auth.required`.
@@ -166,7 +167,7 @@ Reads over the link index the search indexer maintains — not SDK methods. All 
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| GET | `…/objects/:objectId/backlinks` | `?record&dataset` \| `?prop`, `?kind` (repeatable), `?limit` | `{object: [Link], parts: [Link], truncated?}` | edges pointing at the object itself vs one of its records or property values; `limit` default and max 500; unknown ids answer empty lists |
+| GET | `…/objects/:objectId/backlinks` | `?record&dataset` \| `?prop`, `?kind` (repeatable), `?limit` | `{object: [Link], parts: [Link], truncated?}` | edges pointing at the object itself vs one of its records or property values; `limit` default and max 500; unknown full ids answer empty lists |
 | GET | `…/objects/:objectId/links` | same narrowing, `?dataset` alone | `{links: [Link], truncated?}` | edges whose source is the object |
 | GET | `/v1/backlinks` | `?target=<global any:// uri>`, `?kind`, `?limit` | `{spaces: [{spaceId, object, parts, truncated?}]}` | across every indexed space; a bare in-space URI is `400 request.invalid_field` |
 
@@ -363,7 +364,7 @@ Permissions: `none`, `reader`, `guest`, `writer`, `admin`, `owner`. Member statu
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
 | GET | `/v1/spaces/:spaceId/sync-status` | — | `{spaceId, state, synced, total, networkPeers, localPeers, globalPeers, p2p, lastSyncedAt}` | `state`: `unknown\|offline\|syncing\|synced\|error` |
-| GET | `…/sync-status/objects/:objectId` | — | `{objectId, state, lastSyncAt}` | unknown ids answer `state: "unknown"` |
+| GET | `…/sync-status/objects/:objectId` | — | `{objectId, state, lastSyncAt}` | unknown full ids answer `state: "unknown"` |
 | GET | `…/sync-status/objects/:objectId/subscribe` | — | SSE `status` frames | |
 | GET | `/v1/sync-status/subscribe` | — | SSE, every space | account-scoped |
 | GET | `…/sync-status/peers` | — | — | `501 sdk.not_implemented` |

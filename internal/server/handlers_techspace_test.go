@@ -226,7 +226,7 @@ func TestServer_TechSpace(t *testing.T) {
 	}
 
 	// Unknown object: 404; lifecycle refused.
-	rec = doJSON(t, e, http.MethodGet, base+"/objects/bafy-no-such", "")
+	rec = doJSON(t, e, http.MethodGet, base+"/objects/"+absentObjectId, "")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown object: %d %s", rec.Code, rec.Body.String())
 	}
@@ -266,7 +266,7 @@ func TestServer_ObjectGet(t *testing.T) {
 	if obj.ObjectId != objectId || len(obj.Record) == 0 {
 		t.Fatalf("object get: %+v", obj)
 	}
-	rec := doJSON(t, e, http.MethodGet, "/v1/spaces/"+spaceId+"/objects/bafy-no-such", "")
+	rec := doJSON(t, e, http.MethodGet, "/v1/spaces/"+spaceId+"/objects/"+absentObjectId, "")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown: %d %s", rec.Code, rec.Body.String())
 	}

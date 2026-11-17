@@ -4,6 +4,7 @@
 
 - [Conventions](#conventions)
   - [Write responses](#write-responses)
+  - [Object ids](#object-ids)
 - [Endpoint catalog](#endpoint-catalog)
   - [Meta](#meta)
   - [Auth](#auth)
@@ -89,7 +90,8 @@
   `text/event-stream`, and file content downloads are the raw bytes
   (§ Files).
 - **IDs in the path**: `{spaceId}`, `{objectId}`, `{typeId}`, `{propId}`
-  are URL-safe strings (base58). Path segments are URL-encoded.
+  are URL-safe strings. Path segments are URL-encoded. An `{objectId}`
+  may be a short id (§ Object ids).
 - **Success**: `200 OK` for reads, `201 Created` for creates,
   `204 No Content` for side-effect-only endpoints (e.g.
   `PUT /v1/account/metadata`, `PATCH /v1/spaces/:spaceId`,
@@ -140,6 +142,45 @@ delete) handlers — returns the same shape, `api.ModifyResult`:
 
 Writes never return the record body — read it back through `/query` (or
 live via `/query/subscribe`). One write shape across the whole API.
+
+### Object ids
+
+Wherever a request names an object — the `:objectId` path param, the
+top-level body `objectId`, `?objectId=` on the file list — the value is
+a full id or a short id:
+
+- A full id is 59 characters and is used as is.
+- A short id is the head of the id: an optional `bafyrei`, then 5 to 52
+  of the characters that follow it (`[a-z2-7]`). A value that starts
+  with `bafyrei` is read as carrying the prefix.
+
+Anything else is `400 request.invalid_field`; a serialized nil is
+`400 object.id_required`.
+
+A short id is resolved within the space, against the rows of the
+`objects` collection:
+
+- One match: the request proceeds with the full id.
+- No match: `404 object.not_found`, on every route — also where an
+  unknown full id answers 2xx.
+- Several: `409 object.ambiguous_id` listing the matches (at most 10),
+  and nothing is executed. Retry with a longer id.
+
+```json
+{ "error": { "code": "object.ambiguous_id",
+    "message": "short id \"ab3xqd\" matches 2 objects in this space; retry with a longer unambiguous id",
+    "details": { "shortId": "ab3xqd",
+      "candidates": [ { "id": "bafyreiab3xqd…", "name": "Release checklist" },
+                      { "id": "bafyreiab3xqd…", "name": "Q3 planning" } ] } } }
+```
+
+A short id names whichever object carries it now. A deleted object has
+no row, so its own short id answers 404, or runs the request on another
+object that shares those characters.
+
+Every other id is a full id: `:typeId`, `:collectionId`, `from`, a chat
+message's `context.objectId`, relation values, links and filter
+operands. Responses always carry full ids.
 
 ## Endpoint catalog
 
@@ -2283,7 +2324,8 @@ value, an identity, a file.
   those kinds; `?limit=` caps the reply (default and max 500; a larger
   value clamps) — the cap applies to the read before the split, and
   `"truncated": true` says it was hit; there is no continuation. No
-  existence check: an unknown or unreferenced id answers empty lists.
+  existence check on a full id: an unknown or unreferenced one answers
+  empty lists.
 - `GET /v1/spaces/:spaceId/objects/:objectId/links` — `{"links":
   [edge…], "truncated"?}`, the edges whose source is the object; the
   same narrowing selects one record's or one value's edges, and
@@ -4703,9 +4745,10 @@ The two GETs are cheap; safe to call on a render tick. A space's
 
 An object id with no sync activity in this run reads `synced` when its
 tree is stored locally and a sync round with a peer found nothing to
-exchange, and `{state: "unknown"}` otherwise — never 404; existence
-checks go through `GET …/objects/:objectId`. A space can therefore
-read `synced` while an untouched object still reads `unknown`.
+exchange, and `{state: "unknown"}` otherwise — never 404 for a full
+id; existence checks go through `GET …/objects/:objectId`. A space can
+therefore read `synced` while an untouched object still reads
+`unknown`.
 
 `syncing` covers this device's own writes and an object it has just
 fetched. Other members' changes to an object it already holds never

@@ -108,8 +108,16 @@ func (d *deps) fileList(c echo.Context) error {
 	if done {
 		return errResp
 	}
+	objectId := c.QueryParam("objectId")
+	if objectId != "" {
+		fullId, err := resolveObjectId(c.Request().Context(), sp, objectId)
+		if err != nil {
+			return objectIdRefused(c, sp, objectId, err)
+		}
+		objectId = fullId
+	}
 	infos, err := sp.Files().List(c.Request().Context(), space.FileListOpts{
-		ObjectId: c.QueryParam("objectId"),
+		ObjectId: objectId,
 		Limit:    limit,
 	})
 	if err != nil {
@@ -417,13 +425,13 @@ func (d *deps) fileAction(c echo.Context, op func(space.Files, context.Context, 
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/files/query [post]
 func (d *deps) filesQuery(c echo.Context) error {
-	sp, q, opts, shaper, errResp, done := d.buildFilesQuery(c)
+	q, opts, shaper, details, errResp, done := d.buildFilesQuery(c)
 	if done {
 		return errResp
 	}
 	res, err := q.Snapshot(c.Request().Context(), opts)
 	if err != nil {
-		return fileError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": c.Param("objectId")})
+		return fileError(c, err, details)
 	}
 	return writeQueryResponse(c, res, opts.IncludeTotal, shaper)
 }
@@ -447,34 +455,36 @@ func (d *deps) filesQuery(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/files/query/subscribe [post]
 func (d *deps) filesQuerySubscribe(c echo.Context) error {
-	sp, q, opts, shaper, errResp, done := d.buildFilesQuery(c)
+	q, opts, shaper, details, errResp, done := d.buildFilesQuery(c)
 	if done {
 		return errResp
 	}
-	return d.serveFilesQuerySubscribe(c, q, opts, shaper, map[string]any{"spaceId": sp.Id(), "objectId": c.Param("objectId")})
+	return d.serveFilesQuerySubscribe(c, q, opts, shaper, details)
 }
 
 // buildFilesQuery resolves the space + the object's files Query and
 // applies the shared body params. objectId comes from the path (unlike
 // the generic /query, which carries it in the body); the body itself
-// is optional. Mirrors buildSharedQuery's (…, errResp, done) contract.
-func (d *deps) buildFilesQuery(c echo.Context) (space.Space, space.Query, space.QueryOpts, recordShaper, error, bool) {
+// is optional. details names the space and the object for error
+// responses. Mirrors buildSharedQuery's (…, errResp, done) contract.
+func (d *deps) buildFilesQuery(c echo.Context) (space.Query, space.QueryOpts, recordShaper, map[string]any, error, bool) {
 	var none recordShaper
 	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
-		return nil, nil, space.QueryOpts{}, none, errResp, true
+		return nil, space.QueryOpts{}, none, nil, errResp, true
 	}
+	details := map[string]any{"spaceId": sp.Id(), "objectId": objectId}
 	fq, err := sp.Files().Query(objectId)
 	if err != nil {
-		return nil, nil, space.QueryOpts{}, none, fileError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId}), true
+		return nil, space.QueryOpts{}, none, nil, fileError(c, err, details), true
 	}
 	q, opts, shaper, errResp, done := buildBodyQuery(c, queryBodyFields, func(*fastjson.Value) (space.Query, error, bool) {
 		return fq, nil, false
 	})
 	if done {
-		return nil, nil, space.QueryOpts{}, none, errResp, true
+		return nil, space.QueryOpts{}, none, nil, errResp, true
 	}
-	return sp, q, opts, shaper, nil, false
+	return q, opts, shaper, details, nil, false
 }
 
 // fileCacheGet handles GET /v1/files/cache — account-scoped.

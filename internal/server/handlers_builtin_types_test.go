@@ -456,7 +456,7 @@ func TestServer_BinMoveRestore(t *testing.T) {
 	}
 
 	// Unknown object: the generic 404, no partial write.
-	rec = doJSON(t, e, http.MethodPost, fmt.Sprintf("%s/properties/%s/collections/%s", base, "not-an-object", bin.Id), "")
+	rec = doJSON(t, e, http.MethodPost, fmt.Sprintf("%s/properties/%s/collections/%s", base, absentObjectId, bin.Id), "")
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("move a bogus id: %d %s, want 404", rec.Code, rec.Body.String())
 	}
