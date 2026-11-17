@@ -196,3 +196,14 @@ They do not force memory pressure. Disk deduplication is measured separately.
 `report.py` renders the dated November 16 experiment from its complete evidence set;
 its hardware/date fields describe that recorded run. For a new machine, use the
 validator JSON and record the actual machine and environment separately.
+
+## Licences
+
+The model and original converter code are Apache-2.0. Transformers and QVAC
+attribution and upstream licences are preserved in [NOTICE](NOTICE) and
+`upstream/`. The FiQA test fixture and covered reference texts have separate
+CC-BY-SA-4.0 terms: retain the [dataset attribution](licenses/FIQA-NOTICE.txt)
+and [licence](licenses/CC-BY-SA-4.0.txt) when redistributing them. The
+[fixture source map](fixtures/source-map.json) identifies the source documents
+and reference records. These notice additions do not alter converter code,
+fixture bytes, historical fingerprints or validation results.

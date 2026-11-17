@@ -28,3 +28,8 @@ quantization is applied.
 Nemosine and CoreAI cards were consulted as research only. No weights or
 converter code from those packages are included in this conversion.
 This work is not endorsed by Google, Hugging Face, Apple or Tether.
+
+Original converter code is distributed under Apache-2.0 (LICENSE), subject to
+the preserved notices above. The FiQA evaluation data has separate terms:
+CC-BY-SA-4.0. See licenses/FIQA-NOTICE.txt and fixtures/README.md. The data
+licence does not change the model or converter licence.

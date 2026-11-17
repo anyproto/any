@@ -1,0 +1,48 @@
+FiQA evaluation data — Attribution and licence
+
+The FiQA corpus texts in fixtures/tokens.json.gz and the FiQA-derived
+text records in results/2026-11-12/hf-reference.json and
+results/2026-11-16/evidence/hf-reference.json
+are redistributed under Creative Commons Attribution-ShareAlike 4.0
+International (CC BY-SA 4.0), as declared by the BEIR dataset provider:
+https://huggingface.co/datasets/BeIR/fiqa/blob/979c07a7cb5ccc6ca009792241fa1250b98055dd/README.md
+
+Credit: FiQA-2018 contributors and the BEIR dataset maintainers. BEIR's requested
+citation credits Nandan Thakur, Nils Reimers, Andreas Rücklé, Abhishek Srivastava
+and Iryna Gurevych, “BEIR: A Heterogeneous Benchmark for Zero-shot Evaluation of
+Information Retrieval Models,” NeurIPS Datasets and Benchmarks, 2021:
+https://openreview.net/forum?id=wCu6T5xFjeJ
+Original FiQA task: https://sites.google.com/view/fiqa/
+
+Source archive:
+https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/fiqa.zip
+MD5: 17918ed23cd04fb15047f73e6c3bd9d9
+SHA-256: 32c7df99ed21252fdfb2cf3f5673502a8d245ee0c44c4a133570d92ce2b3ad02
+corpus.jsonl SHA-256:
+ff593e4df9933955dc3af83be0c3fa28ac7465f627e08c2e53593e734d506517
+
+AnyLab's modifications: selected the first 1,500 non-empty corpus documents in
+archive order; added document and search-query prompts; generated token IDs
+with the pinned Google tokenizer; packaged the 3,000 resulting rows with 12
+synthetic edge-case rows as deterministic compressed JSON. Selected document rows
+were also included in the reference JSON files. Original corpus text is unchanged.
+The original corpus supplies document IDs, title and text, but no per-post
+author field. We preserve the supplied text and links. Source document IDs and
+reference-row mappings are in fixtures/source-map.json.
+
+AnyLab's copyrightable contributions to these fixture adaptations are also
+licensed under CC BY-SA 4.0. The fixture archive as a collection, including its
+synthetic test rows, may be reused under CC BY-SA 4.0. Attribution and ShareAlike
+apply to redistribution of covered data and adaptations. No additional
+restrictions or endorsement by FiQA, BEIR or the source authors is implied.
+
+Licence: https://creativecommons.org/licenses/by-sa/4.0/
+Full legal text: CC-BY-SA-4.0.txt in this directory.
+The material is offered as-is and as-available, without warranties, as provided
+in Section 5 of that licence.
+
+Scope: these texts are evaluation inputs only, not additional training data.
+This data licence does not relicense the separately distributed model,
+tokenizer or converter. The model and tokenizer remain Apache-2.0. Independent
+numeric validation measurements and embeddings are not original FiQA text;
+retain this notice if redistributing files that also contain the covered text.
