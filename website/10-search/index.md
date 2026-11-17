@@ -47,10 +47,11 @@ any search $SPACE "zeppelin disaster" --limit 5
   "hits": [
     { "scope": "chat", "objectId": "…", "dataset": "chat_messages",
       "recordId": "…", "data": "the zeppelin disaster of 1937",
-      "dataTotal": 29, "score": 0.0328 }
+      "dataTotal": 29, "score": 0.92 }
   ],
   "mode": "hybrid",
-  "vectorStatus": "used"
+  "vectorStatus": "used",
+  "scoreScale": "unit"
 }
 ```
 

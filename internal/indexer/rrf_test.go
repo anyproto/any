@@ -208,3 +208,23 @@ func TestVectorStop(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeRRF_ZeroToOneWhateverTheWeights(t *testing.T) {
+	both, ftsOnly, vecOnly := h("ds", "both"), h("ds", "fts"), h("ds", "vec")
+	for _, w := range [][]float64{nil, {1, 2}, {0.5, 3}} {
+		weights := w
+		fused := fuseRRF([][]Hit{{both, ftsOnly}, {both, vecOnly}}, weights, 0)
+		normalizeRRF(fused, weights, 2, rrfK)
+		wf, wv := legWeight(weights, 0), legWeight(weights, 1)
+		want := map[string]float64{
+			"both": 1,
+			"fts":  wf / float64(rrfK+2) / ((wf + wv) / float64(rrfK+1)),
+			"vec":  wv / float64(rrfK+2) / ((wf + wv) / float64(rrfK+1)),
+		}
+		for _, f := range fused {
+			if d := f.Score - want[f.RecordId]; d > 1e-12 || d < -1e-12 {
+				t.Errorf("weights %v: %s score = %v, want %v", weights, f.RecordId, f.Score, want[f.RecordId])
+			}
+		}
+	}
+}

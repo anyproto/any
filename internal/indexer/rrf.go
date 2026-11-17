@@ -57,16 +57,18 @@ func legConfidence(hits []Hit) float64 {
 // weights slice defaults missing entries to 1, so fuseRRF(lists, nil,
 // limit) is plain unweighted RRF. limit 0 keeps every fused hit.
 func fuseRRF(lists [][]Hit, weights []float64, limit int) []Hit {
+	return fuseRRFK(lists, weights, rrfK, limit)
+}
+
+// fuseRRFK is fuseRRF with damping constant k.
+func fuseRRFK(lists [][]Hit, weights []float64, k, limit int) []Hit {
 	type acc struct {
 		hit   Hit
 		score float64
 	}
 	byKey := map[string]*acc{}
 	for li, list := range lists {
-		w := 1.0
-		if li < len(weights) && weights[li] > 0 {
-			w = weights[li]
-		}
+		w := legWeight(weights, li)
 		for rank, h := range list {
 			key := hitDocId(h)
 			a, ok := byKey[key]
@@ -74,7 +76,7 @@ func fuseRRF(lists [][]Hit, weights []float64, limit int) []Hit {
 				a = &acc{hit: h}
 				byKey[key] = a
 			}
-			a.score += w / float64(rrfK+rank+1)
+			a.score += w / float64(k+rank+1)
 		}
 	}
 	out := make([]Hit, 0, len(byKey))
@@ -92,6 +94,27 @@ func fuseRRF(lists [][]Hit, weights []float64, limit int) []Hit {
 		out = out[:limit]
 	}
 	return out
+}
+
+// legWeight is list li's fusion weight: a missing or non-positive entry is 1.
+func legWeight(weights []float64, li int) float64 {
+	if li < len(weights) && weights[li] > 0 {
+		return weights[li]
+	}
+	return 1
+}
+
+// normalizeRRF divides scores fused at damping k over legs lists by the
+// best a doc can score — rank 1 on every leg — so a hybrid score reads
+// 0–1 whatever the weights and k, and a client can gate on it.
+func normalizeRRF(hits []Hit, weights []float64, legs, k int) {
+	var top float64
+	for li := 0; li < legs; li++ {
+		top += legWeight(weights, li) / float64(k+1)
+	}
+	for i := range hits {
+		hits[i].Score /= top
+	}
 }
 
 // Group is one record in a reply: its best-ranked chunk plus, when

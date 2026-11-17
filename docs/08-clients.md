@@ -467,9 +467,12 @@ Call patterns:
   unknown-but-valid scope returns no hits; a malformed one is `400
   search.bad_scope`. A content-only search passes `scopes` without
   `props`.
-- **Scores compare only within one block of one response** (BM25 vs
-  cosine vs RRF are different scales across modes, and the title block
-  scores by BM25 whatever the mode). Rank, don't threshold.
+- **Threshold only a hybrid content score.** A reply with
+  `scoreScale: "unit"` scores its content hits 0–1, comparable across
+  responses: 1 is first on every fused leg. BM25 (fts, and the title
+  block whatever the mode) and cosine compare only within one block of
+  one response — rank those, don't threshold. A hybrid search that
+  degraded to fts carries no `scoreScale`.
 - **Freshness model**: new writes are FTS-searchable within ~the
   debounce (250ms); the vector leg lags by one embed round. The index
   is local: a new or rebuilt index backfills every record the server
