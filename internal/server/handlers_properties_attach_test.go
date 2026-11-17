@@ -304,7 +304,7 @@ func TestServer_PropertiesSetTypeUnknownObject(t *testing.T) {
 	sp := createSpaceInfo(t, e, "AttachErr")
 
 	rec := doJSON(t, e, http.MethodPost,
-		fmt.Sprintf("/v1/spaces/%s/properties/%s/type/%s", sp.Id, "not-an-object", dataview.TypeId), "")
+		fmt.Sprintf("/v1/spaces/%s/properties/%s/type/%s", sp.Id, absentObjectId, dataview.TypeId), "")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("set type on a bogus object id: %d %s, want 404", rec.Code, rec.Body.String())
 	}

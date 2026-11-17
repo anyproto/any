@@ -160,5 +160,5 @@ func TestServer_DerivedObjectUndeletable(t *testing.T) {
 	doJSONExpect(t, e, http.MethodDelete, base+"/objects/"+obj.ObjectId, http.StatusNoContent)
 
 	rec = doJSON(t, e, http.MethodDelete, base+"/objects/"+obj.ObjectId, "")
-	assertStatusCode(t, rec, http.StatusNotFound, "sdk.not_found")
+	assertStatusCode(t, rec, http.StatusGone, "object.deleted")
 }
