@@ -91,7 +91,39 @@ Removal tombstones the definition record. Stored values are **not** cleaned up �
 
 There is deliberately no "rename or delete a value across N objects" operation: values store option keys, not labels, so a rename is one definition write and zero object writes, and a delete leaves keys dangling by design.
 
-## 6. Observe
+## 6. Change a kind
+
+`kind` cannot change. Every peer validates each value against it when the value applies, so a live property id must validate the same way on every device. The server drops an op that tries to change `kind` (`400 property.immutable` on a local PATCH). To get another kind, define a new property and move the values to it.
+
+First check whether you need a new property. The slug (`xFormat.type`) moves within one kind, so this needs no migration:
+
+```bash
+any type property patch $SPACE $MOVIE $PROP --set '{"xFormat.type": "url"}'
+```
+
+| `kind` | The slug moves between |
+|---|---|
+| `string` | `text`, `longtext`, `markdown`, `url`, `email`, `phone` |
+| `number` | `number`, `currency`, `percent`, `rating`, `duration` |
+| `datetime` | `date`, `datetime` |
+| `object` | `period`, `money`, `geo` |
+| `array` | `choice`, `relation`, `member` (legal but lossy: clients should not offer it) |
+
+If the kind must change, for example `string` to `number`, do these steps:
+
+1. **Free the `xKey`.** An `xKey` is unique inside its type (`409 property.xkey_conflict`). PATCH the old property to a temporary `xKey`.
+2. **Add the new property.** POST it with the new `kind` and the original `xKey`. The server mints a new property id.
+3. **Copy the values.** Query the objects, convert each old value, and write it under the new property id.
+4. **Update the references.** Saved views, filters and client code that name the old property id must name the new one.
+5. **Remove the old property.** DELETE it. The old values stay in the rows as orphan data, and clients ignore them.
+
+Keep these points in mind:
+
+- There is no operation that converts values across many objects. You write the loop.
+- The steps are not atomic. A device that writes the old property while you copy it adds values that you do not copy. Run the copy while nobody else edits the type.
+- Definitions on registered built-in types and collections are frozen (`400 type.registered`). This path is for user types and collections.
+
+## 7. Observe
 
 Definitions are synced records, so a schema change is visible live to every member the same way data is — subscribe to the definition object's `properties` dataset, or re-read `GET …/types/:typeId/properties` (`…/collections/:collectionId/properties` for a collection's columns). Search indexing of values follows `meta.index` (`props` by default, a named scope, or `none`) — [Indexing](../search/indexing.html).
 

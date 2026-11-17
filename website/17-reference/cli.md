@@ -192,7 +192,7 @@ any object collection detach <spaceId> <objectId> <collectionId>
 
 `--type` is required unless `--from` names an object to copy (`page` is the plain document) and `object type set` replaces the previous one — there is no unset. `--collection` repeats; attach and detach are idempotent, and detaching is not a delete: that owner's values stay on the row as orphan data. `--properties` seeds values keyed owner → propId → value, the owner being the type or one of the collections.
 
-`set` and `attach` pre-flight the id (`404 type.not_found` / `404 collection.not_found`, `400 type.not_a_type` / `400 collection.not_a_collection` when it names the other surface); `detach` pre-flights nothing, so it can repair a row that already carries a bogus id.
+`set` and `attach` pre-flight the id (`404 type.not_found` / `404 collection.not_found`, `410 object.deleted` for a deleted one, `400 type.not_a_type` / `400 collection.not_a_collection` when it names the other surface); `detach` pre-flights nothing, so it can repair a row that already carries a bogus id.
 
 ```bash
 any object create $SP --type page --collection $WIKI
