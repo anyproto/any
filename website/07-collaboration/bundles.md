@@ -58,7 +58,7 @@ A bundle may declare a definition on its root — `parts`, `properties` or an `x
 
 **A declaring root hosts itself.** It holds its own `<rootId>.<propId>` values and the records of its own datasets with no flag and no self-membership — the marker sits in `any.type`, so the root never matches `{"any.type": "<rootId>"}` or `{"any.collections": "<rootId>"}` and member queries need no exclusion. One object is the definition, its own first user, and — filed under `miniapp` through `rootCollections` — the sidebar entry.
 
-With a winner already registered, Ensure **adopts** it and `installed` is `false`. For a reader or guest that is a pure read, so they resolve an install they could not create; a writer's adopt also fills in declarations the root lacks (a property handle), never patching what it has. Otherwise the server creates the root with the requested type, collections and properties, registers it, and replies `installed: true`. That path is a write, so a member without write permission gets `403`; use `GET …/bundles/:bundleId` instead. Definition existence and property formats are checked *before* the root is created, so a rejected request (`400 type.not_found`, `400 collection.not_found`, `400 property.format_violation`) never leaves an orphan.
+With a winner already registered, Ensure **adopts** it and `installed` is `false`. For a reader or guest that is a pure read, so they resolve an install they could not create; a writer's adopt also fills in declarations the root lacks (a property handle), never patching what it has. Otherwise the server creates the root with the requested type, collections and properties, registers it, and replies `installed: true`. That path is a write, so a member without write permission gets `403`; use `GET …/bundles/:bundleId` instead. Definition existence and property formats are checked *before* the root is created, so a rejected request (`400 type.not_found`, `400 collection.not_found`, `410 object.deleted`, `400 property.format_violation`) never leaves an orphan.
 
 ### The convergence gate
 
@@ -181,6 +181,7 @@ The server never merges; it enforces timing. A losing root arrives change by cha
 | 400 | `collection.not_found` | a `rootCollections` entry or a `rootProperties` owner does not exist in the space |
 | 400 | `collection.not_a_collection` | a `rootCollections` entry names a type, or a `rootProperties` owner is a type other than `rootType` |
 | 400 | `property.format_violation` | a `rootProperties` value does not fit its property's descriptor |
+| 410 | `object.deleted` | `rootType`, a `rootCollections` entry or a `rootProperties` owner was deleted |
 
 Resolving an already-resolved root returns 204 — the call is idempotent.
 

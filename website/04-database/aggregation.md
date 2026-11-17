@@ -44,12 +44,12 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/aggregate -H 'Content-Type: 
   "objectId": "'$OBJ'", "dataset": "chat_messages",
   "pipeline": [
     {"$group": {"_id": "$creator", "n": {"$count": {}}}},
-    {"$sort":  {"n": -1}}
+    {"$sort":  {"n": -1, "id": -1}}
   ]}'
 # → {"records": [{"id": "A6Wd…", "n": 42}, {"id": "A9kQ…", "n": 17}]}
 
 any aggregate $SPACE $OBJ --dataset chat_messages \
-  --pipeline '[{"$group":{"_id":"$creator","n":{"$count":{}}}},{"$sort":{"n":-1}}]'
+  --pipeline '[{"$group":{"_id":"$creator","n":{"$count":{}}}},{"$sort":{"n":-1,"id":-1}}]'
 ```
 
 Movie count per year over objects (property values live at `<ownerId>.<propId>` — the owner being the object's type or one of its collections, see [Reading data](reading-data.html)):
@@ -70,7 +70,7 @@ any aggregate $SPACE --properties --pipeline '[
   {"$unwind": "$'$TYPE'.'$TAGS'"},
   {"$group": {"_id": "$'$TYPE'.'$TAGS'", "n": {"$count": {}},
               "titles": {"$addToSet": "$'$TYPE'.'$TITLE'"}}},
-  {"$sort": {"n": -1}}, {"$limit": 10}
+  {"$sort": {"n": -1, "id": -1}}, {"$limit": 10}
 ]'
 ```
 

@@ -61,6 +61,7 @@ func (d *deps) collectionList(c echo.Context) error {
 //	@Success	200				{object}	api.CollectionInfo
 //	@Failure	400				{object}	api.ErrorEnvelope
 //	@Failure	404				{object}	api.ErrorEnvelope
+//	@Failure	410				{object}	api.ErrorEnvelope
 //	@Failure	500				{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/collections/{collectionId} [get]
 func (d *deps) collectionGet(c echo.Context) error {
@@ -162,6 +163,7 @@ func (d *deps) collectionCreate(c echo.Context) error {
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	410	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/collections/{collectionId} [patch]
 func (d *deps) collectionPatch(c echo.Context) error {
@@ -230,6 +232,7 @@ func (d *deps) collectionPatch(c echo.Context) error {
 //	@Failure	403	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
 //	@Failure	409	{object}	api.ErrorEnvelope
+//	@Failure	410	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/collections/{collectionId} [delete]
 func (d *deps) collectionDelete(c echo.Context) error {
@@ -247,6 +250,7 @@ func (d *deps) collectionDelete(c echo.Context) error {
 //	@Param		collectionId	path		string	true	"Collection ID"
 //	@Success	200				{object}	api.PropertiesListResponse
 //	@Failure	404				{object}	api.ErrorEnvelope
+//	@Failure	410				{object}	api.ErrorEnvelope
 //	@Failure	500				{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/collections/{collectionId}/properties [get]
 func (d *deps) collectionProperties(c echo.Context) error {
@@ -281,6 +285,7 @@ func (d *deps) collectionProperties(c echo.Context) error {
 //	@Success	201				{object}	api.AddPropertyResponse
 //	@Failure	400				{object}	api.ErrorEnvelope
 //	@Failure	404				{object}	api.ErrorEnvelope
+//	@Failure	410				{object}	api.ErrorEnvelope
 //	@Failure	500				{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/collections/{collectionId}/properties [post]
 func (d *deps) collectionAddProperty(c echo.Context) error {
@@ -297,6 +302,7 @@ func (d *deps) collectionAddProperty(c echo.Context) error {
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	410	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/collections/{collectionId}/properties/{propId} [delete]
 func (d *deps) collectionRemoveProperty(c echo.Context) error {
@@ -315,6 +321,7 @@ func (d *deps) collectionRemoveProperty(c echo.Context) error {
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	410	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/collections/{collectionId}/properties/{propId} [patch]
 func (d *deps) collectionPatchProperty(c echo.Context) error {
