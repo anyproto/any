@@ -444,6 +444,36 @@ func TestServer_BundleEnsurePreflight(t *testing.T) {
 		})
 	}
 
+	// A deleted definition answers 410, before any root is minted.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Dead","xKey":"dead"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
+	}
+	var createdType api.TypesCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &createdType); err != nil {
+		t.Fatal(err)
+	}
+	deadType := createdType.TypeId
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/collections", `{"name":"Gone","xKey":"gone"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create collection: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	deadColl := created.CollectionId
+	doJSONExpect(t, e, http.MethodDelete, "/v1/spaces/"+sp.Id+"/types/"+deadType, http.StatusNoContent)
+	doJSONExpect(t, e, http.MethodDelete, "/v1/spaces/"+sp.Id+"/collections/"+deadColl, http.StatusNoContent)
+	for name, body := range map[string]string{
+		"deleted rootType":             `{"id":"a/v1","rootType":"` + deadType + `"}`,
+		"deleted rootCollections":      `{"id":"a/v1","rootType":"page","rootCollections":["` + deadColl + `"]}`,
+		"deleted rootProperties owner": `{"id":"a/v1","rootType":"page","rootProperties":{"` + deadColl + `":{"x":1}}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			assertStatusCode(t, doJSON(t, e, http.MethodPost, path, body), http.StatusGone, "object.deleted")
+		})
+	}
+
 	// Nothing was installed, and no orphan root was left behind.
 	var list api.BundleListResponse
 	decodeGet(t, e, path, &list)

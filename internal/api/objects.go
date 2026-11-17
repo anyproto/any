@@ -17,3 +17,14 @@ type ObjectGetResponse struct {
 type ObjectsCreateResponse struct {
 	ObjectId string `json:"objectId"`
 }
+
+// ErrObjectAmbiguousId is the 409 a short object id answers when it
+// matches several objects of the space. Details carry `shortId` and
+// `candidates`, a list of ObjectCandidate.
+const ErrObjectAmbiguousId = "object.ambiguous_id"
+
+// ObjectCandidate is one object an ambiguous short id matches.
+type ObjectCandidate struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+}

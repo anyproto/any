@@ -241,7 +241,8 @@ func (d *deps) resolveSpace(c echo.Context) (space.Space, error, bool) {
 // every object has a row in, holding `any.*` and every type namespace.
 const objectsDataset = "objects"
 
-// resolveSpaceObject is resolveSpace plus the :objectId param check.
+// resolveSpaceObject is resolveSpace plus the :objectId param, which may
+// be a short id: the returned id is always the full one.
 func (d *deps) resolveSpaceObject(c echo.Context) (space.Space, string, error, bool) {
 	objectId := c.Param("objectId")
 	if objectId == "" {
@@ -254,7 +255,11 @@ func (d *deps) resolveSpaceObject(c echo.Context) (space.Space, string, error, b
 	if done {
 		return nil, "", errResp, true
 	}
-	return sp, objectId, nil, false
+	fullId, err := resolveObjectId(c.Request().Context(), sp, objectId)
+	if err != nil {
+		return nil, "", objectIdRefused(c, sp, objectId, err), true
+	}
+	return sp, fullId, nil, false
 }
 
 // resolveSpaceObjectMsg is resolveSpaceObject plus the :msgId param
@@ -264,10 +269,7 @@ func (d *deps) resolveSpaceObjectMsg(c echo.Context) (space.Space, string, strin
 	if objectId == "" || msgId == "" {
 		return nil, "", "", writeError(c, http.StatusBadRequest, "request.missing_field", "objectId and msgId required", nil), true
 	}
-	if isSerializedNil(objectId) {
-		return nil, "", "", serializedNilIdError(c, "objectId", objectId), true
-	}
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return nil, "", "", errResp, true
 	}
@@ -292,9 +294,12 @@ func isSerializedNil(id string) bool {
 // names the actual fault — the caller's variable, not the store.
 func serializedNilIdError(c echo.Context, field, got string) error {
 	return writeError(c, http.StatusBadRequest, "object.id_required",
-		fmt.Sprintf("%s is %q — a serialized nil, not an id; the caller's %s variable was unset."+
-			" Pass the id returned by create or query.", field, got, field),
-		map[string]any{"field": field, "got": got})
+		serializedNilIdMessage(field, got), map[string]any{"field": field, "got": got})
+}
+
+func serializedNilIdMessage(field, got string) string {
+	return fmt.Sprintf("%s is %q — a serialized nil, not an id; the caller's %s variable was unset."+
+		" Pass the id returned by create or query.", field, got, field)
 }
 
 // modifyResultToAPI normalises space.ModifyResult onto the wire shape.
