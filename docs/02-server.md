@@ -114,8 +114,11 @@ account is standalone-only — a managed login with its phrase lands in
    and the indexer — before the listener binds, so boot failures
    surface immediately. A search index this build refuses is removed
    and rebuilt by the boot itself (`13-index.md`); other index open
-   failures fail the boot. Outside the `--wallet` path `run` never
-   generates a wallet; create accounts with `any init` or over HTTP.
+   failures fail the boot. An `sdk.db` in an older on-disk format is
+   copied onto the current one in this step (§ Data dir layout), so
+   that boot takes as long as the copy. Outside the `--wallet` path
+   `run` never generates a wallet; create accounts with `any init` or
+   over HTTP.
    SDK `Open` returns after local wiring only: eager space loading and
    offline catch-up replay run on one SDK-owned serial background pass,
    so the server serves as soon as the listener binds. Until a space's
@@ -287,10 +290,18 @@ instance) takes no lock.
     └── index/                   # local search index (index.db, dirty sentinel index.db.lock) — owned by the indexer
 ```
 
-**Upgrading is one-way.** A data dir opened by this build is refused by
-builds pinned to an any-store older than v2.0.0 (`btree: database is
-corrupt` — the data is intact; the older code does not recognize the
-header). Keep a copy of the data dir to keep the option to downgrade.
+**Upgrading is one-way.** An `sdk/sdk.db` in an on-disk format older
+than the one the pinned any-store writes is replaced by a copy in that
+format before anything reads it. The copy needs room for a second
+`sdk.db`, and nothing else may open `sdk.db` during that boot: a tool
+that has it open stays on the replaced file. When the copy cannot be
+made or put in place (no room, a local-store index that does not build
+again) the old file stays and the next boot tries again. An
+`index/index.db` in a format older than the indexer reads is removed
+and rebuilt (`13-index.md`). A build pinned to an any-store that does
+not know the newer format refuses a store in it, older ones as damaged;
+the file is intact. Keep a copy of the data dir to keep the option to
+downgrade.
 
 The SDK's `config.Storage.DataDir` points at `<account-dir>/sdk/`; the
 SDK derives `<account-dir>/files/` next to it for file bytes. A durable
@@ -309,8 +320,9 @@ The search index (`docs/13-index.md`) is derived state: removing
 boot re-indexes from the change feed's start and re-embeds. The boot
 does this itself for an `index.db` it cannot open (schema or
 chunk-target mismatch, a configured `index.vector.dim` that contradicts
-it, another embedder than the one that built it, or damage met while opening it: a broken header, a failed integrity
-check after a crash, or a page that fails its checksum),
+it, another embedder than the one that built it, an older on-disk
+format, or damage met while opening it: a broken header, a failed
+integrity check after a crash, or a page that fails its checksum),
 leaving `models/` beside it. The
 embedder model cache is shared at `<root>/models/` — one ~310MB
 download per root, not per account (a model already sitting in

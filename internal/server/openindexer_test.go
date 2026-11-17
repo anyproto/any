@@ -1,8 +1,10 @@
 package server
 
 import (
+	"compress/gzip"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,9 +15,9 @@ import (
 )
 
 // An index db this build cannot open — pinned to another chunk target,
-// built on another vector dimension, with a broken header, or failing
-// its integrity check on a dirty open — is removed and rebuilt by
-// OpenIndexer instead of failing the boot. Everything named after the db goes with it; the
+// built on another vector dimension, in an older on-disk format, with a
+// broken header, or failing its integrity check on a dirty open — is
+// removed and rebuilt by OpenIndexer instead of failing the boot. Everything named after the db goes with it; the
 // model cache beside it stays.
 func TestOpenIndexer_RebuildsRefusedIndex(t *testing.T) {
 	ctx := context.Background()
@@ -37,6 +39,7 @@ func TestOpenIndexer_RebuildsRefusedIndex(t *testing.T) {
 			},
 			dim: 1024,
 		},
+		"on-disk format": {refuse: writeOldFormatIndexDB},
 		"integrity check": {
 			refuse: func(t *testing.T, dbPath string) {
 				st, err := indexer.OpenStore(ctx, dbPath, 0, false)
@@ -124,6 +127,34 @@ func TestOpenIndexer_RebuildsRefusedIndex(t *testing.T) {
 				t.Fatalf("rebuilt db dim = %d, want %d", st.Dim(), tc.dim)
 			}
 		})
+	}
+}
+
+// writeOldFormatIndexDB puts a database in on-disk format 5, a file
+// any-store v2.4.3 wrote, at dbPath.
+func writeOldFormatIndexDB(t *testing.T, dbPath string) {
+	t.Helper()
+	src, err := os.Open(filepath.Join("..", "indexer", "testdata", "format5.db.gz"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	zr, err := gzip.NewReader(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dst, err := os.Create(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(dst, zr); err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
