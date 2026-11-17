@@ -160,7 +160,7 @@ func serveEmbed(ctx context.Context, l *Local, w *bufio.Writer, req workerReq) e
 			vecs = [][]float32{v}
 		}
 	default:
-		vecs, err = l.EmbedDocs(ctx, req.Texts)
+		vecs, err = l.EmbedTitledDocs(ctx, req.Titles, req.Texts)
 	}
 	if err != nil {
 		return writeFrame(w, workerResp{Op: workerOpError, Error: err.Error()}, nil)
