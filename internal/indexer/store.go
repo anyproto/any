@@ -51,9 +51,18 @@ const (
 	// (upgradeFTS), so nothing re-embeds. Any other mismatch =
 	// ErrIndexRebuildRequired, which the boot answers by removing and
 	// rebuilding the db; the docs themselves are never migrated — the
-	// index is derived state (re-indexes on the next change).
+	// index is derived state (re-indexes on the next change). The stamp
+	// is read only in a db that passed indexDBFormat.
 	indexSchemaVersion = 8
+
+	// indexDBFormat is the oldest any-store on-disk format an index db is
+	// read in: a db in an older one is rebuilt, never copied. Raised by
+	// hand, not with the library: a rebuild re-embeds every space.
+	indexDBFormat = 6
 )
+
+// A fresh index db has to satisfy indexDBFormat, or every boot rebuilds.
+const _ = uint(anystore.LatestSchemaFormat - indexDBFormat)
 
 // Store is the indexer-owned any-store database: one collection per
 // space, each carrying a BM25 full-text index on `name` + `data` (+
@@ -175,7 +184,7 @@ type DocUpsert struct {
 // first successful embedding" (EnsureDim). embedderConfigured turns on
 // pending-marking even before the dimension is known. A dim change
 // against an existing DB is a hard error — the index must be rebuilt, as
-// for a damaged db (RefuseDamaged).
+// for a damaged db (RefuseDamaged) and for one in an older on-disk format.
 func OpenStore(ctx context.Context, path string, dim int, embedderConfigured bool) (_ *Store, err error) {
 	defer func() { err = RefuseDamaged(err) }()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -199,6 +208,15 @@ func OpenStore(ctx context.Context, path string, dim int, embedderConfigured boo
 	})
 	if err != nil {
 		return nil, fmt.Errorf("indexer: open index db: %w", err)
+	}
+	format, err := anystore.SchemaFormat(db)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("indexer: open index db: %w", err)
+	}
+	if format < indexDBFormat {
+		_ = db.Close()
+		return nil, fmt.Errorf("%w: index db is in on-disk format %d, this build needs format %d", ErrIndexRebuildRequired, format, indexDBFormat)
 	}
 	s := newStore(db, path, dim, embedderConfigured)
 	if err := s.checkMeta(ctx); err != nil {

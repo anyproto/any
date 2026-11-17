@@ -51,7 +51,7 @@ A `wallet.key` directly at the root is the legacy flat layout: it acts as the de
 
 | Delete | Effect |
 |---|---|
-| `index/` | safe; on the next start every space re-indexes from the beginning — full text first, then the embed drain, which can take a while on a large account. The boot does this itself for an `index.db` it cannot open (schema-version or chunk-target mismatch, a configured `index.vector.dim` that contradicts it, or damage met while opening it: a broken header, an integrity-check failure after a crash, or a page that fails its checksum). |
+| `index/` | safe; on the next start every space re-indexes from the beginning — full text first, then the embed drain, which can take a while on a large account. The boot does this itself for an `index.db` it cannot open (schema-version or chunk-target mismatch, a configured `index.vector.dim` that contradicts it, an older on-disk format, or damage met while opening it: a broken header, an integrity-check failure after a crash, or a page that fails its checksum). |
 | `models/` | safe when no server under this root is running; the model downloads again on next boot (a model already in a legacy `<account-dir>/index/models/` keeps being used from there) |
 | `server.lock` | safe when no server is running; the lock lives in the kernel, not in the file, so a leftover file blocks nothing |
 | `server.pid`, `server.addr` | safe any time; they only label the current holder |
@@ -89,7 +89,7 @@ An account's data only makes sense on the any-sync network that wrote it. The fi
 
 ## Storage upgrades are one-way
 
-The storage engine marks a database with its header magic on open. A newer server still reads databases written by earlier builds, but once it has opened a data dir, a build pinned to an older storage engine refuses the file outright (`btree: database is corrupt` — the data is intact, the old code just does not recognize the header). Keep a copy of the data dir if you need the option to downgrade.
+On boot, an `sdk.db` in an on-disk format older than the one the server's storage engine writes is replaced by a copy in that format before anything reads it. The copy needs room for a second `sdk.db`, and nothing else may open `sdk.db` during that boot: a tool that has it open stays on the replaced file. When the copy cannot be made or put in place (no room, a local-store index that does not build again) the old file stays and the next boot tries again. An `index.db` in a format older than the indexer reads is removed and rebuilt. A build pinned to an older storage engine refuses a database in the newer format, older ones as damaged; the file is intact, the old code just does not recognize the format. Keep a copy of the data dir if you need the option to downgrade.
 
 ## Mobile
 
