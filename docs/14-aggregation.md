@@ -108,12 +108,12 @@ curl -s localhost:2046/v1/spaces/$S/aggregate -H 'Content-Type: application/json
   "objectId": "'$OBJ'", "dataset": "chat_messages",
   "pipeline": [
     {"$group": {"_id": "$creator", "n": {"$count": {}}}},
-    {"$sort":  {"n": -1}}
+    {"$sort":  {"n": -1, "id": -1}}
   ]}'
 # → {"records": [{"id": "A6Wd…", "n": 42}, {"id": "A9kQ…", "n": 17}]}
 
 any aggregate $S $OBJ --dataset chat_messages \
-  --pipeline '[{"$group":{"_id":"$creator","n":{"$count":{}}}},{"$sort":{"n":-1}}]'
+  --pipeline '[{"$group":{"_id":"$creator","n":{"$count":{}}}},{"$sort":{"n":-1,"id":-1}}]'
 ```
 
 Movie count per year (cross-object, property values at
@@ -137,7 +137,7 @@ any aggregate $S --properties --pipeline '[
   {"$group": {"_id": "$'$TYPE'.'$TAGS'",
               "n": {"$count": {}},
               "titles": {"$addToSet": "$'$TYPE'.'$TITLE'"}}},
-  {"$sort": {"n": -1}}, {"$limit": 10}
+  {"$sort": {"n": -1, "id": -1}}, {"$limit": 10}
 ]'
 ```
 
@@ -155,7 +155,7 @@ Several rollups over one scan with `$facet`:
   {"$match": {"any.type": "<typeId>"}},
   {"$facet": {
     "total":  [{"$count": "n"}],
-    "recent": [{"$sort": {"modifiedAt": -1}}, {"$limit": 5}]
+    "recent": [{"$sort": {"modifiedAt": -1, "id": -1}}, {"$limit": 5}]
   }}
 ]
 ```
@@ -216,7 +216,7 @@ unless listed here. The two most common surprises first:
 | `$group` key equality | type-aware, field-order-insensitive documents | **byte equality** of the canonical encoding — object keys are field-order-sensitive |
 | `$min` / `$max`, expression comparisons | BSON cross-type order | anyenc value order (`null < number < string < false < true < array < object < … < dateTime`); `$min` / `$max` ignore null / missing |
 | `$sort` stability | not guaranteed | stable |
-| `$group` output order | unspecified | first-seen scan order — still add `$sort` |
+| `$group` output order | unspecified | first-seen scan order — still add `$sort`, ending in `id` |
 | Dotted output names (`{"a.b": …}`) | allowed | rejected |
 | `$text` | anywhere | unavailable — no space storage collection has a full-text index |
 | Memory | spills to disk with `allowDiskUse` | hard budget, `aggregate.limit_exceeded` — no spill |

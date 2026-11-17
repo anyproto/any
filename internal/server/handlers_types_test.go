@@ -667,25 +667,33 @@ func TestServer_CollectionsRoutes(t *testing.T) {
 	}
 
 	// A member of the deleted type and collection keeps both ids; the
-	// deleted definitions then 404, on a second delete too.
+	// deleted definitions then answer 410, on a second delete too.
 	member := mustCreateObject(t, e, sp.Id, `{"type":"`+task.TypeId+`","collections":["`+stash+`"]}`)
-	for _, tc := range []struct{ path, code string }{
-		{base + "/collections/" + stash, "collection.not_found"},
-		{base + "/types/" + task.TypeId, "type.not_found"},
+	for _, path := range []string{base + "/collections/" + stash, base + "/types/" + task.TypeId} {
+		if rec = doJSON(t, e, http.MethodDelete, path, ""); rec.Code != http.StatusNoContent {
+			t.Fatalf("delete %s: %d %s, want 204", path, rec.Code, rec.Body.String())
+		}
+		assertStatusCode(t, doJSON(t, e, http.MethodGet, path, ""), http.StatusGone, "object.deleted")
+		assertStatusCode(t, doJSON(t, e, http.MethodDelete, path, ""), http.StatusGone, "object.deleted")
+	}
+
+	// Every lookup of a deleted definition id reports the deletion:
+	// either surface, its properties, the membership pre-flights and
+	// object create.
+	for name, tc := range map[string]struct{ method, path, body string }{
+		"deleted type on the collections route": {http.MethodGet, base + "/collections/" + task.TypeId, ""},
+		"deleted type's properties":             {http.MethodGet, base + "/types/" + task.TypeId + "/properties", ""},
+		"set a deleted type":                    {http.MethodPost, base + "/properties/" + member + "/type/" + task.TypeId, ""},
+		"file under a deleted collection":       {http.MethodPost, base + "/properties/" + member + "/collections/" + stash, ""},
+		"create with a deleted type":            {http.MethodPost, base + "/objects", `{"type":"` + task.TypeId + `"}`},
+		"create in a deleted collection":        {http.MethodPost, base + "/objects", `{"type":"page","collections":["` + stash + `"]}`},
 	} {
-		if rec = doJSON(t, e, http.MethodDelete, tc.path, ""); rec.Code != http.StatusNoContent {
-			t.Fatalf("delete %s: %d %s, want 204", tc.path, rec.Code, rec.Body.String())
+		rec = doJSON(t, e, tc.method, tc.path, tc.body)
+		if rec.Code != http.StatusGone {
+			t.Errorf("%s: %d %s, want 410", name, rec.Code, rec.Body.String())
+			continue
 		}
-		if rec = doJSON(t, e, http.MethodGet, tc.path, ""); rec.Code != http.StatusNotFound {
-			t.Errorf("get %s after delete: %d %s, want 404", tc.path, rec.Code, rec.Body.String())
-		} else {
-			assertErrorCode(t, rec, tc.code)
-		}
-		if rec = doJSON(t, e, http.MethodDelete, tc.path, ""); rec.Code != http.StatusNotFound {
-			t.Errorf("second delete %s: %d %s, want 404", tc.path, rec.Code, rec.Body.String())
-		} else {
-			assertErrorCode(t, rec, tc.code)
-		}
+		assertErrorCode(t, rec, "object.deleted")
 	}
 	var row struct {
 		Record struct {

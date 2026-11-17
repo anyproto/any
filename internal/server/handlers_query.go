@@ -275,6 +275,12 @@ func buildPerObjectQuery(c echo.Context, sp space.Space, vet perObjectVet) (perO
 	if errResp, done := checkSubscribeWindow(c, root); done {
 		return none, errResp, true
 	}
+	// Before the vet: it compares the id.
+	fullId, err := resolveObjectId(c.Request().Context(), sp, objectId)
+	if err != nil {
+		return none, objectIdRefused(c, sp, objectId, err), true
+	}
+	objectId = fullId
 	var strip []string
 	if vet != nil {
 		var errResp error
