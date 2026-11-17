@@ -106,7 +106,7 @@ func TestLocal_DefaultsAndDim(t *testing.T) {
 	dir := t.TempDir()
 	// Pre-create the model in the shared dir so NewLocal skips the download.
 	modelsDir := filepath.Join(dir, "models")
-	modelPath := filepath.Join(modelsDir, localModelName)
+	modelPath := filepath.Join(modelsDir, qwen3(t).file)
 	if err := os.MkdirAll(modelsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -128,12 +128,12 @@ func TestLocal_DefaultsAndDim(t *testing.T) {
 	if l.nCtx != localDefaultCtx {
 		t.Errorf("nCtx default: want %d got %d", localDefaultCtx, l.nCtx)
 	}
-	if l.queryPrefix != localQueryPrefix {
+	if l.queryPrefix != qwen3(t).queryPrefix {
 		t.Errorf("default model should use the Qwen retrieval prefix, got %q", l.queryPrefix)
 	}
 	// Default model reports its dimension without loading anything.
-	if d, err := l.Dim(context.Background()); err != nil || d != localDefaultDim {
-		t.Errorf("Dim: want %d,nil got %d,%v", localDefaultDim, d, err)
+	if d, err := l.Dim(context.Background()); err != nil || d != 1024 {
+		t.Errorf("Dim: want 1024,nil got %d,%v", d, err)
 	}
 
 	// Matryoshka dim caps the reported dimension.
@@ -151,7 +151,7 @@ func TestLocal_LegacyModelDirFallback(t *testing.T) {
 	dir := t.TempDir()
 	// Model exists only at the pre-per-account location — keep using it.
 	legacyDir := filepath.Join(dir, "index", "models")
-	legacyPath := filepath.Join(legacyDir, localModelName)
+	legacyPath := filepath.Join(legacyDir, qwen3(t).file)
 	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -253,9 +253,8 @@ func TestLocal_Integration(t *testing.T) {
 		// repo-root bin/llamacpp relative to this package dir
 		cfg.LibDir = filepath.Join("..", "..", "bin", "llamacpp")
 	}
-	// A ModelPath override disables the implicit Qwen prefix; this test
-	// runs the pinned model, so restore it.
-	cfg.QueryPrefix = localQueryPrefix
+	// A bare ModelPath is an unnamed GGUF; this test runs the pinned model.
+	cfg.Model = config.LocalModelQwen3
 	l, err := NewLocal(cfg, t.TempDir(), "", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -275,8 +274,8 @@ func TestLocal_Integration(t *testing.T) {
 		t.Fatalf("want 2 vectors, got %d", len(vecs))
 	}
 	for i, v := range vecs {
-		if len(v) != localDefaultDim {
-			t.Errorf("doc %d: want dim %d, got %d", i, localDefaultDim, len(v))
+		if len(v) != 1024 {
+			t.Errorf("doc %d: want dim 1024, got %d", i, len(v))
 		}
 		if n := norm(v); math.Abs(n-1) > 1e-3 {
 			t.Errorf("doc %d: want unit norm, got %f", i, n)

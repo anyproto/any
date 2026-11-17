@@ -234,10 +234,12 @@ late heartbeat can resurrect a finished row. Work stopped mid-pass
   long by definition and its absence is the state worth showing).
   `done`/`total` are **bytes** (total from Content-Length, unknown
   until the first response), frames every ~5s of streaming. A failed
-  attempt is NOT terminal — the download retries forever, so the row
+  attempt is NOT terminal — the download retries, so the row
   stays `running` with a generic status message and heartbeats
-  through the backoff; the only terminals are `done` and (on
-  shutdown) `cancelled`. A `.part` interrupted between the last byte
+  through the backoff. The terminals are `done`, `cancelled` (on
+  shutdown) and `failed`: a source that twice serves a whole file
+  failing the model's checksum is not fetched again until the next
+  start. A `.part` interrupted between the last byte
   and the rename installs on the next boot with no network
   round-trip. While another server under the same data-dir root holds
   the download, the row stays `running` with the message `waiting for

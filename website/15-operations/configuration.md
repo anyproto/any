@@ -85,7 +85,7 @@ The passkey is the one secret the server may need at boot. It arrives from the e
 | `index.embedConcurrency` | `ANY_INDEX_EMBED_CONCURRENCY` | 0 = 1 local, 4 online |
 | `index.ollama.{url,model}` | `ANY_INDEX_OLLAMA_*` | `http://localhost:11434`, `embeddinggemma` |
 | `index.openai.{baseUrl,model,apiKey}` | `ANY_INDEX_OPENAI_*` | no host, no key; `model` = the local model's name. `baseUrl` + `apiKey` turn the `auto` primary on (any OpenAI-compatible host, same model) |
-| `index.local.{modelPath,modelUrl,modelSha256,libDir,contextSize,queryPrefix,dim,threads,niceness,requestTimeout,gpuLayers,batchDocs}` | `ANY_INDEX_LOCAL_*` | see [Embedders](../search/embedders.html) |
+| `index.local.{model,modelPath,modelUrl,modelSha256,libDir,contextSize,queryPrefix,docPrefix,pooling,dim,threads,niceness,requestTimeout,gpuLayers,batchDocs}` | `ANY_INDEX_LOCAL_*` | see [Embedders](../search/embedders.html) |
 | `index.vector.dim` | `ANY_INDEX_VECTOR_DIM` | 0 = learned from the first embedding |
 | `index.vector.mode` | `ANY_INDEX_VECTOR_MODE` | `ivfsq` (`btree` \| `hnsw` \| `hybrid` \| `bruteforce`) |
 | `index.search.{stopWords,ftsWeight,vectorWeight,adaptiveWeights,defaultOperator,minVectorSim,bm25B,bm25K1,titleWeight,queryEmbedTimeout}` | `ANY_INDEX_SEARCH_*` | true, 1, 1, false, `or`, 0, 0, 0, 0, `5s` — see [Hybrid ranking](../search/hybrid.html) |

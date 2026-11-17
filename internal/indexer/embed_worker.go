@@ -134,6 +134,9 @@ func newWorkerEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string,
 	return w, nil
 }
 
+// localEmbedderBuilt: this build has the local embedder.
+const localEmbedderBuilt = true
+
 // newLocalEmbedder backs index.embedder "local" and the "auto" fallback
 // (embed_local_off.go is the build without it).
 func newLocalEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string, onProcess func(ProcessUpdate)) (Embedder, error) {
@@ -180,8 +183,17 @@ func embedderCmd(s localSpec) (*exec.Cmd, error) {
 	if s.libDir != "" {
 		args = append(args, "--lib-dir", s.libDir)
 	}
+	if s.profile != "" {
+		args = append(args, "--profile", s.profile)
+	}
 	if s.queryPrefix != "" {
 		args = append(args, "--query-prefix", s.queryPrefix)
+	}
+	if s.docPrefix != "" {
+		args = append(args, "--doc-prefix", s.docPrefix)
+	}
+	if s.pooling != "" {
+		args = append(args, "--pooling", s.pooling)
 	}
 	if s.threads > 0 {
 		args = append(args, "--threads", strconv.Itoa(s.threads))
@@ -233,13 +245,13 @@ func (w *workerEmbedder) EmbedQuery(ctx context.Context, text string) ([]float32
 	return vecs[0], nil
 }
 
-// Dim answers without a child for the pinned default model (same
-// shortcut the in-process embedder takes); a custom model is only known
-// once loaded, so it comes from the child's handshake.
+// Dim answers without a child for a pinned model at its default path
+// (same shortcut the in-process embedder takes); any other file is only
+// known once loaded, so it comes from the child's handshake.
 func (w *workerEmbedder) Dim(ctx context.Context) (int, error) {
 	spec := w.childSpec()
-	if spec.defaultModel {
-		return min(orDefault(spec.outDim, localDefaultDim), localDefaultDim), nil
+	if spec.modelDim > 0 {
+		return min(orDefault(spec.outDim, spec.modelDim), spec.modelDim), nil
 	}
 	r := w.run(ctx, workerReq{Op: workerOpDim})
 	return r.dim, r.err

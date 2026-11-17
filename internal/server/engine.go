@@ -703,6 +703,10 @@ func (d *deps) indexerProcessFor(eng *engine) func(indexer.ProcessUpdate) {
 				// The SDK builds it again at the next definition
 				// change or space open, not on a timer.
 				msg = "failed — see server log"
+			case indexer.ProcessKindModelDownload:
+				// The only failed download is one that stopped: its
+				// source serves another file. The next start tries again.
+				msg = "stopped: the download source serves a file that fails the model's checksum — correct index.local.modelUrl or modelSha256 and restart"
 			case indexer.ProcessKindFTSUpgrade:
 				// The next open of the space after a backoff tries
 				// again; searches answer not-ready meanwhile.
