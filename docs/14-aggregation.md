@@ -216,7 +216,7 @@ unless listed here. The two most common surprises first:
 | `$group` key equality | type-aware, field-order-insensitive documents | **byte equality** of the canonical encoding — object keys are field-order-sensitive |
 | `$min` / `$max`, expression comparisons | BSON cross-type order | anyenc value order (`null < number < string < false < true < array < object < … < dateTime`); `$min` / `$max` ignore null / missing |
 | `$sort` stability | not guaranteed | stable |
-| `$group` output order | unspecified | first-seen scan order, which can differ between devices — add a `$sort` that ends in `id` |
+| `$group` output order | unspecified | first-seen scan order — still add `$sort`, ending in `id` |
 | Dotted output names (`{"a.b": …}`) | allowed | rejected |
 | `$text` | anywhere | unavailable — no space storage collection has a full-text index |
 | Memory | spills to disk with `allowDiskUse` | hard budget, `aggregate.limit_exceeded` — no spill |

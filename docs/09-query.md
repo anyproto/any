@@ -346,8 +346,7 @@ keying a filter by xKey matches nothing.
 - **offset / limit** is simple but floats: row 50 becomes row 51 the moment
   a record lands ahead of it. Fine for one-shot reads of stable data.
 - **A growing window** loads more by reading again at `offset: 0` with a
-  larger `limit`: a live list resubscribes, a one-shot read runs the
-  query again (`08-clients.md` § 3).
+  larger `limit` (`08-clients.md` § 3).
 - **cursor** paging doesn't float under inserts: filter past the last row
   on the indexed sort field. A row whose sort key changes mid-pass moves
   relative to the cursor. A field that can tie carries the `id`
