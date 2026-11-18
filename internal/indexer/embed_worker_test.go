@@ -49,6 +49,9 @@ func runEmbedHelper(mode string) int {
 	case "exit": // dies before the handshake, e.g. libs missing
 		fmt.Fprintln(os.Stderr, "helper: cannot load model")
 		return 3
+	case "settleexit": // reports on the Neural Engine, then dies before the handshake
+		aneStderrLog(aneOffStatus + "llama.cpp embeds everything: no neural engine")
+		return 3
 	case "garbage": // a C library printing on stdout
 		fmt.Fprint(os.Stdout, strings.Repeat("X", 32))
 		exitWithParent()

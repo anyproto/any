@@ -101,6 +101,17 @@ func aclOpError(c echo.Context, err error, details map[string]any) error {
 	return sdkOpError(c, err, details)
 }
 
+// aclIdentityOpError is aclOpError for an op that takes account
+// identities in field: a malformed one is the caller's 400. The message
+// is static: the SDK error quotes the raw input.
+func aclIdentityOpError(c echo.Context, err error, field string, details map[string]any) error {
+	if errors.Is(err, space.ErrBadIdentity) {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"invalid account identity", map[string]any{"field": field})
+	}
+	return aclOpError(c, err, details)
+}
+
 // derivedUnshareable refuses to share a derived space. Such a space
 // belongs to one account for good: the network admits no second
 // member, and words that refusal as a plan limit.
