@@ -20,7 +20,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anyproto/any-sync/app/logger"
 	"github.com/hybridgroup/yzma/pkg/llama"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/anyproto/any/internal/config"
 )
@@ -458,12 +461,13 @@ func crashWithoutCoreML(t *testing.T, env []string) {
 	}
 }
 
-// A death of a child that used Core ML does not say which runtime
-// caused it: the Neural Engine path goes first, GPU offload on the next
-// one.
+// One runtime per death, the Neural Engine first. A death that repeats
+// without it clears it: it comes back on as the GPU is demoted.
 func TestWorkerEmbedder_CrashDemotesNeuralEngineFirst(t *testing.T) {
+	core, logs := observer.New(zap.WarnLevel)
 	h := &helperSpawner{modes: []string{"crash", "crash", "ok"}, env: []string{"ANY_EMBED_WORKER_ANE=1"}}
 	w := newTestWorker(t, h, -1)
+	w.lg = logger.CtxLogger{Logger: zap.New(core)}
 	w.mu.Lock()
 	w.spec.coremlDir = "/models/eg2.mlpackage"
 	w.mu.Unlock()
@@ -489,11 +493,85 @@ func TestWorkerEmbedder_CrashDemotesNeuralEngineFirst(t *testing.T) {
 	if len(specs) != 3 {
 		t.Fatalf("spawned %d children, want 3", len(specs))
 	}
-	if specs[0].coremlDir == "" || specs[1].coremlDir != "" || specs[2].coremlDir != "" {
-		t.Fatalf("coremlDir per spawn: %q %q %q", specs[0].coremlDir, specs[1].coremlDir, specs[2].coremlDir)
+	if specs[0].coremlDir == "" || specs[1].coremlDir != "" || specs[2].coremlDir == "" {
+		t.Fatalf("coremlDir per spawn: %q %q %q, want it on, off, on again", specs[0].coremlDir, specs[1].coremlDir, specs[2].coremlDir)
 	}
-	if specs[1].gpuLayers != -1 || specs[2].gpuLayers != 0 {
+	if specs[0].gpuLayers != -1 || specs[1].gpuLayers != -1 || specs[2].gpuLayers != 0 {
 		t.Fatalf("gpuLayers per spawn: %d %d %d, want -1 -1 0", specs[0].gpuLayers, specs[1].gpuLayers, specs[2].gpuLayers)
+	}
+	// The warnings say what the next child runs, not more.
+	warns := logs.All()
+	if len(warns) != 2 {
+		t.Fatalf("logged %d warnings, want one per death", len(warns))
+	}
+	if msg := warns[0].Message; !strings.Contains(msg, "the next child runs llama.cpp alone") {
+		t.Errorf("first death: %q", msg)
+	}
+	if msg := warns[1].Message; !strings.Contains(msg, "llama.cpp stays on CPU") || !strings.Contains(msg, "the neural engine is back on") {
+		t.Errorf("second death: %q", msg)
+	}
+}
+
+// With the GPU off by configuration there is no GPU to demote: the
+// second death still clears the Neural Engine.
+func TestWorkerEmbedder_NeuralEngineRestoredWithGPUOff(t *testing.T) {
+	h := &helperSpawner{modes: []string{"crash", "crash", "ok"}, env: []string{"ANY_EMBED_WORKER_ANE=1"}}
+	w := newTestWorker(t, h, 0)
+	w.mu.Lock()
+	w.spec.coremlDir = "/models/eg2.mlpackage"
+	w.mu.Unlock()
+	for i := 0; i < 2; i++ {
+		if _, err := w.EmbedDocs(context.Background(), []string{"boom"}); err == nil {
+			t.Fatal("want error")
+		}
+		clearBackoff(w)
+	}
+	if _, err := w.EmbedDocs(context.Background(), []string{"again"}); err != nil {
+		t.Fatal(err)
+	}
+	specs := h.specsCopy()
+	if len(specs) != 3 {
+		t.Fatalf("spawned %d children, want 3", len(specs))
+	}
+	if specs[0].coremlDir == "" || specs[1].coremlDir != "" || specs[2].coremlDir == "" {
+		t.Fatalf("coremlDir per spawn: %q %q %q, want it on, off, on again", specs[0].coremlDir, specs[1].coremlDir, specs[2].coremlDir)
+	}
+	if gpuDisabled(w) {
+		t.Fatal("demoted a GPU that was off")
+	}
+}
+
+// The Neural Engine comes back once. A child that dies with it on again
+// loses it for the rest of the process.
+func TestWorkerEmbedder_NeuralEngineRestoredOnce(t *testing.T) {
+	h := &helperSpawner{modes: []string{"crash", "crash", "crash", "crash", "ok"}, env: []string{"ANY_EMBED_WORKER_ANE=1"}}
+	w := newTestWorker(t, h, -1)
+	w.mu.Lock()
+	w.spec.coremlDir = "/models/eg2.mlpackage"
+	w.mu.Unlock()
+
+	for i := 0; i < 4; i++ {
+		if _, err := w.EmbedDocs(context.Background(), []string{"boom"}); err == nil {
+			t.Fatal("want error")
+		}
+		clearBackoff(w)
+	}
+	if _, err := w.EmbedDocs(context.Background(), []string{"again"}); err != nil {
+		t.Fatal(err)
+	}
+	specs := h.specsCopy()
+	if len(specs) != 5 {
+		t.Fatalf("spawned %d children, want 5", len(specs))
+	}
+	for i, wantOn := range []bool{true, false, true, false, false} {
+		if on := specs[i].coremlDir != ""; on != wantOn {
+			t.Errorf("spawn %d: neural engine on = %v, want %v", i, on, wantOn)
+		}
+	}
+	for i, want := range []int{-1, -1, 0, 0, 0} {
+		if specs[i].gpuLayers != want {
+			t.Errorf("spawn %d: gpuLayers = %d, want %d", i, specs[i].gpuLayers, want)
+		}
 	}
 }
 

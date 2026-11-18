@@ -13,8 +13,8 @@ order: 10
 
 | Artifact | Platform |
 |----------|----------|
-| `any-<version>-darwin-arm64.tar.gz` | macOS Apple Silicon |
-| `any-<version>-darwin-x86_64.tar.gz` | macOS Intel |
+| `any-<version>-darwin-arm64.tar.gz` | macOS 13 or later, Apple Silicon |
+| `any-<version>-darwin-x86_64.tar.gz` | macOS 13 or later, Intel |
 | `any-<version>-linux-x86_64.tar.gz` | Linux |
 | `any-<version>-windows-x86_64.tar.gz` | Windows |
 
@@ -41,7 +41,7 @@ On macOS substitute your tarball's name; on Windows add the extracted directory 
 
 ## From source
 
-Requires Git, Go 1.26.2 or newer, and `make`.
+Requires Git, Go 1.27.1 or newer, and `make`.
 
 ```bash
 git clone https://github.com/anyproto/any

@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/anyproto/any-sync/app/logger"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/anyproto/any/internal/config"
 )
@@ -110,6 +112,24 @@ func runEmbedHelper(mode string) int {
 		case "crash": // what a llama.cpp abort looks like from outside
 			fmt.Fprintln(os.Stderr, "terminate called after throwing an instance of 'vk::DeviceLostError'")
 			return 134
+		case "abort": // a ggml abort: its message, a native backtrace, then the Go runtime's dump
+			for i := 0; i < 2*workerStderrTail; i++ {
+				fmt.Fprintf(os.Stderr, "earlier line %d\n", i)
+			}
+			fmt.Fprintln(os.Stderr, llamaLogPrefix+"ggml_metal_library_compile_pipeline: kernel not found in any metal library: base = 'kernel_mul_mm_bf16_f32'")
+			fmt.Fprintln(os.Stderr, "ggml-metal-device.m:868: ggml_metal_encoder_set_pipeline: nil Metal pipeline (missing kernel; see compile_pipeline log above)")
+			for i := 0; i < 16; i++ {
+				fmt.Fprintf(os.Stderr, "%-3d libggml-base.dylib                  0x0000000104a1c2a0 ggml_print_backtrace + %d\n", i, 276+i)
+			}
+			fmt.Fprintln(os.Stderr, "SIGABRT: abort")
+			fmt.Fprintln(os.Stderr, "PC=0x18b0d5388 m=5 sigcode=0")
+			for i := 0; i < 300; i++ {
+				fmt.Fprintf(os.Stderr, "goroutine %d [syscall]:\n", i)
+			}
+			for i := 0; i < 30; i++ {
+				fmt.Fprintf(os.Stderr, "r%d      0x0\n", i)
+			}
+			return 2
 		case "hang": // a wedged GPU: never answers
 			exitWithParent()
 		case "errframe": // healthy child, failed call
@@ -179,6 +199,10 @@ func (h *helperSpawner) cmd(s localSpec) (*exec.Cmd, error) {
 	h.specs = append(h.specs, s)
 	c := exec.Command(os.Args[0], "-test.run=TestEmbedWorkerHelper")
 	c.Env = append(append(os.Environ(), h.env...), "ANY_EMBED_WORKER_HELPER="+mode)
+	if s.coremlDir == "" {
+		// A child without the Core ML package says nothing about it.
+		c.Env = append(c.Env, "ANY_EMBED_WORKER_ANE=")
+	}
 	h.cmds = append(h.cmds, c)
 	return c, nil
 }
@@ -587,6 +611,87 @@ func TestWorkerEmbedder_CrashWithGPUOffKeepsSpec(t *testing.T) {
 	}
 	if h.spec(1).gpuLayers != 0 {
 		t.Fatalf("respawn gpuLayers = %d, want 0", h.spec(1).gpuLayers)
+	}
+}
+
+// An abort inside llama.cpp prints its message and a native backtrace,
+// and the Go runtime adds a dump that ends in registers. The death report
+// quotes the message and what was printed above it.
+func TestWorkerEmbedder_DeathReportKeepsTheCause(t *testing.T) {
+	core, logs := observer.New(zap.WarnLevel)
+	h := &helperSpawner{modes: []string{"abort"}}
+	w := newTestWorker(t, h, -1)
+	w.lg = logger.CtxLogger{Logger: zap.New(core)}
+	if _, err := w.EmbedDocs(context.Background(), []string{"boom"}); !errors.Is(err, ErrEmbedderUnavailable) {
+		t.Fatalf("err = %v, want ErrEmbedderUnavailable", err)
+	}
+	entries := logs.All()
+	if len(entries) != 1 {
+		t.Fatalf("logged %d warnings, want 1", len(entries))
+	}
+	quoted, _ := entries[0].ContextMap()["childStderr"].(string)
+	for _, want := range []string{
+		"kernel not found in any metal library", "nil Metal pipeline", "SIGABRT: abort", "goroutine 0 [syscall]:",
+		fmt.Sprintf("earlier line %d", 2*workerStderrTail-1),
+	} {
+		if !strings.Contains(quoted, want) {
+			t.Errorf("death report lacks %q: %s", want, quoted)
+		}
+	}
+	for _, not := range []string{"r29 ", "earlier line 0 "} {
+		if strings.Contains(quoted+" ", not) {
+			t.Errorf("death report quotes %q: %s", not, quoted)
+		}
+	}
+}
+
+func TestLineTail(t *testing.T) {
+	tail := &lineTail{max: 3}
+	for _, l := range []string{"a", "b", "c", "d"} {
+		tail.add(l)
+	}
+	if got := tail.String(); got != "b | c | d" {
+		t.Fatalf("tail = %q, want the last three lines", got)
+	}
+	tail.add("panic: boom")
+	for i := 0; i < 2*workerCrashHead; i++ {
+		tail.add(fmt.Sprintf("frame %d", i))
+	}
+	want := "b | c | d | panic: boom"
+	for i := 0; i < workerCrashHead-1; i++ {
+		want += fmt.Sprintf(" | frame %d", i)
+	}
+	if got := tail.String(); got != want {
+		t.Fatalf("tail = %q, want %q", got, want)
+	}
+}
+
+func TestCrashStart(t *testing.T) {
+	for line, want := range map[string]bool{
+		"SIGABRT: abort":                                                                true,
+		"SIGSEGV: segmentation violation":                                               true,
+		"fatal error: unexpected signal during runtime execution":                       true,
+		"panic: runtime error: index out of range [3] with length 3":                    true,
+		"ggml-metal-device.m:868: ggml_metal_encoder_set_pipeline: nil":                 true,
+		"/src/ggml/src/ggml-cuda/ggml-cuda.cu:88: CUDA error":                           true,
+		"Exception 0xc0000005 0x0 0x18 0x7ffd1234":                                      true,
+		"*** Terminating app due to uncaught exception 'NSRangeException', reason: 'x'": true,
+		llamaLogPrefix + "fatal error: too many errors emitted, stopping now":           false,
+		"Exception in a log line":                                                       false,
+		"/src/ggml/src/ggml.c:1532: GGML_ASSERT(false) failed":                          true,
+		`C:\a\llama.cpp\ggml\src\ggml-cpu\ops.cpp:77: GGML_ASSERT(x) failed`:            true,
+		"ggml_metal_library_compile_pipeline: kernel not found":                         false,
+		"embed.go:12: a log line":                                                       false,
+		"ggml.c: no line number":                                                        false,
+		"SIG: nothing":                                                                  false,
+		"SIGabrt: abort":                                                                false,
+		"SIGABRT":                                                                       false,
+		"neural engine: starting":                                                       false,
+		"":                                                                              false,
+	} {
+		if got := crashStart(line); got != want {
+			t.Errorf("crashStart(%q) = %v, want %v", line, got, want)
+		}
 	}
 }
 

@@ -840,7 +840,13 @@ child and fails the round; the next round respawns behind an exponential
 backoff (1 s → 1 min). The timeout exists because a wedged GPU stops
 answering rather than failing; it counts as a fault and demotes the GPU
 (below). An error *frame* is not a fault — the child stays. The child's
-stderr is logged, and its tail is quoted when it dies. A caller that
+stderr is logged, llama.cpp's error lines included (under `llama.cpp: `),
+and its tail is quoted when it dies: the last 12 lines, or, once a crash
+report began, the 12 lines before it and its first 32. A crash report
+begins at a ggml abort line, an uncaught Objective-C exception or the
+Go runtime's dump. A signal dump runs to hundreds of lines and ends in
+registers; what killed the child is at the report's start or just above
+it. A caller that
 goes away is not a fault either: a request already on the wire is read
 to completion so the stream stays usable, the child is kept, and the
 next caller finds it ready.
@@ -961,10 +967,12 @@ directory with a compiled model of its own.
 unit length, leaves that text to llama.cpp. Three in a row on one
 function retire that function for the life of the child; a larger
 loaded one or llama.cpp takes its texts. A child that dies after it
-began using Core ML is respawned without the Neural Engine for the rest
-of the process. That demotion comes before the GPU one (§ GPU offload),
-one runtime per death, because the death does not say which runtime
-caused it.
+began using Core ML is respawned without the Neural Engine. That
+demotion comes before the GPU one (§ GPU offload), one runtime per
+death, because the death does not say which runtime caused it. A death
+that repeats in a child started without the Neural Engine clears it: it
+comes back on, once per process. A child that dies with it on after
+that stays without it for the rest of the process.
 
 Core ML is called through the Objective-C runtime, so the binary stays
 CGO-free and cross-compiled (`internal/indexer/coreml`).

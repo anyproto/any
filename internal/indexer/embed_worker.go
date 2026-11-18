@@ -38,8 +38,12 @@ const (
 	workerMinBackoff = time.Second
 	workerMaxBackoff = time.Minute
 	// workerStderrTail is how many of the child's last stderr lines are
-	// quoted when it dies — enough for llama.cpp's abort message.
+	// quoted when it dies, or of those printed before a crash report.
 	workerStderrTail = 12
+	// workerCrashHead is how many lines of a crash report are quoted after
+	// them: a ggml abort line and its native backtrace, then the signal
+	// and the top frames of the Go runtime's dump.
+	workerCrashHead = 32
 	// workerIdleTimeout retires a child that has served no frame for this
 	// long, returning the memory its decode buffers keep
 	// (docs/13-index.md § The embedder child process).
@@ -98,7 +102,7 @@ type workerEmbedder struct {
 	// lastFrame is when the last frame ended, in real time like the timer.
 	lastFrame time.Time
 
-	mu sync.Mutex // guards spec, gpuDisabled, coremlDisabled, hw — nothing else
+	mu sync.Mutex // guards spec, gpuDisabled, coremlDisabled, coremlRestored, hw — nothing else
 	// spec holds the parameters every spawn is rendered from. Two
 	// writers: the GPU demotion below, and SetThreads. A child whose
 	// spec no longer matches is retired on its next use.
@@ -108,8 +112,10 @@ type workerEmbedder struct {
 	// again, so a driver or hardware fix recovers on its own.
 	gpuDisabled bool
 	// coremlDisabled is set when a child dies abnormally after it
-	// began using Core ML. It goes before the GPU does.
+	// began using Core ML. It goes before the GPU does, and comes back
+	// once (coremlRestored) when a child started without it dies too.
 	coremlDisabled bool
+	coremlRestored bool
 	// hw is what the last started child reported about this machine —
 	// kept for logging now, for hardware/error/speed statistics later.
 	hw Hardware
@@ -637,25 +643,35 @@ func (w *workerEmbedder) failChild(cause error) {
 	w.mu.Lock()
 	// One runtime per death, the Neural Engine path first once the
 	// child used Core ML: the death does not say which of the two
-	// caused it. Read after stop, which joined the stderr pump.
+	// caused it. A death that repeats in a child started without Core ML
+	// clears the Neural Engine, which comes back on, once. Read after
+	// stop, which joined the stderr pump.
 	demoteCoreML := c.spec.coremlDir != "" && c.coreml.Load() && !w.coremlDisabled
 	demote := !demoteCoreML && gpu && !w.gpuDisabled
+	restoreCoreML := c.spec.coremlDir == "" && w.coremlDisabled && !w.coremlRestored
 	if demoteCoreML {
 		w.coremlDisabled = true
 	}
 	if demote {
 		w.gpuDisabled = true
 	}
+	if restoreCoreML {
+		w.coremlDisabled = false
+		w.coremlRestored = true
+	}
 	w.mu.Unlock()
-	if demoteCoreML {
-		w.lg.Warn("local embedder child died with the neural engine on; embedding on llama.cpp alone for the rest of this run", fields...)
-		return
+	switch {
+	case demoteCoreML:
+		w.lg.Warn("local embedder child died with the neural engine on; the next child runs llama.cpp alone", fields...)
+	case demote && restoreCoreML:
+		w.lg.Warn("local embedder child died again, with llama.cpp GPU offload active; llama.cpp stays on CPU for the rest of this run and the neural engine is back on", fields...)
+	case demote:
+		w.lg.Warn("local embedder child died with llama.cpp GPU offload active; llama.cpp stays on CPU for the rest of this run", fields...)
+	case restoreCoreML:
+		w.lg.Warn("local embedder child died again without the neural engine; the neural engine is back on", fields...)
+	default:
+		w.lg.Warn("local embedder child died; restarting on the next round", fields...)
 	}
-	if demote {
-		w.lg.Warn("local embedder child died with GPU offload active; embedding on CPU for the rest of this run", fields...)
-		return
-	}
-	w.lg.Warn("local embedder child died; restarting on the next round", fields...)
 }
 
 // stopChild retires the current child gracefully (stdin EOF, then kill).
@@ -899,20 +915,85 @@ func (c *embedChild) drain(timeout time.Duration) bool {
 }
 
 // lineTail keeps the last N lines of the child's stderr — written by
-// the stderr pump, read when the child dies.
+// the stderr pump, read when the child dies. A crash report runs to
+// hundreds of lines and ends in registers, so the tail stops at the
+// report's head: what killed the child is printed there and just above.
 type lineTail struct {
 	mu    sync.Mutex
 	max   int
 	lines []string
+	crash int // crash report lines kept; 0 = no report yet
 }
 
 func (t *lineTail) add(line string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.lines = append(t.lines, line)
-	if len(t.lines) > t.max {
-		t.lines = t.lines[len(t.lines)-t.max:]
+	switch {
+	case t.crash >= workerCrashHead:
+		return
+	case t.crash > 0 || crashStart(line):
+		t.crash++
+	case len(t.lines) >= t.max:
+		t.lines = t.lines[len(t.lines)-t.max+1:]
 	}
+	t.lines = append(t.lines, line)
+}
+
+// crashPrefixes open a crash report whatever follows them.
+var crashPrefixes = []string{
+	"fatal error: ", "panic: ", // the Go runtime
+	"Exception 0x", // the Go runtime's dump on Windows
+	"*** Terminating app due to uncaught exception", // Objective-C; its call stack follows
+}
+
+// crashStart reports whether line opens a crash report: a ggml abort
+// ("ggml-metal-device.m:868: …", a native backtrace follows), an
+// uncaught Objective-C exception, or a Go runtime dump ("SIGABRT: abort",
+// "Exception 0xc0000005 …", "fatal error: …", "panic: …").
+func crashStart(line string) bool {
+	for _, p := range crashPrefixes {
+		if strings.HasPrefix(line, p) {
+			return true
+		}
+	}
+	head, _, ok := strings.Cut(line, ": ")
+	return ok && (signalName(head) || sourceLine(head))
+}
+
+// signalName: "SIGABRT", "SIGSEGV", ….
+func signalName(s string) bool {
+	if len(s) < 4 || !strings.HasPrefix(s, "SIG") {
+		return false
+	}
+	for _, r := range s[3:] {
+		if r < 'A' || r > 'Z' {
+			return false
+		}
+	}
+	return true
+}
+
+// sourceLine: "<file>:<line>" of a C-family source file, the prefix of
+// a ggml abort.
+func sourceLine(s string) bool {
+	i := strings.LastIndexByte(s, ':')
+	if i < 0 || i == len(s)-1 {
+		return false
+	}
+	for _, r := range s[i+1:] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	dot := strings.LastIndexByte(s[:i], '.')
+	if dot < 0 {
+		return false
+	}
+	switch s[dot:i] {
+	case ".c", ".cc", ".cpp", ".h", ".hpp", ".m", ".mm", ".cu", ".cuh":
+		return true
+	}
+	return false
 }
 
 func (t *lineTail) String() string {

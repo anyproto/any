@@ -1,6 +1,10 @@
 module github.com/anyproto/any
 
-go 1.26.2
+go 1.27.1
+
+// Go 1.27 lets SSL_CERT_FILE and SSL_CERT_DIR replace the system roots on
+// macOS and Windows. The system roots stay.
+godebug x509sslcertoverrideplatform=0
 
 require (
 	github.com/anyproto/any-store v1.0.3
