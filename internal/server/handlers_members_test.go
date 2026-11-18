@@ -281,7 +281,7 @@ func TestServer_MemberGet_BadIdentity(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("decode envelope: %v", err)
 	}
-	if env.Error.Code != "request.invalid_identity" {
-		t.Errorf("code = %q, want request.invalid_identity", env.Error.Code)
+	if env.Error.Code != "request.invalid_field" || env.Error.Details["field"] != "identity" {
+		t.Errorf("error = %+v, want request.invalid_field on field identity", env.Error)
 	}
 }

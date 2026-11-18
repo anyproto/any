@@ -62,7 +62,6 @@ request.schema                   # 400 — JSON shape doesn't match endpoint sch
 request.missing_field            # 400 — required field absent
 request.invalid_field            # 400 — a field is present but out of range / malformed, or does not apply to the request's mode (details.field names it)
 request.unknown_field            # 400 — a body key outside the endpoint's accepted set, at the top level or inside a nested draft (details.fields; details.accepted lists the top-level set); message enumerates the accepted fields and, where one exists, the right home for the value (e.g. object properties → initialProperties, type properties → POST …/types/:typeId/properties). The strict endpoints are the ones whose request schemas carry additionalProperties: false in /v1/openapi.json.
-request.invalid_identity         # 400 — an identity (path or body) is not a valid account address (member lookup, ownership transfer, direct add); the message is static
 request.bad                      # 400 — rejected by the HTTP layer before a handler ran
 request.not_found                # 404 — no such route
 request.method_not_allowed       # 405 — the route exists, not with this method

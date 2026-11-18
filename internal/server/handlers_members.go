@@ -124,7 +124,7 @@ func (d *deps) memberGet(c echo.Context) error {
 	ensureMembersWatcher(sp)
 	m, err := sp.Members().Get(c.Request().Context(), identity)
 	if err != nil {
-		return aclOpError(c, err, map[string]any{"spaceId": sp.Id(), "identity": identity})
+		return aclIdentityOpError(c, err, "identity", map[string]any{"spaceId": sp.Id(), "identity": identity})
 	}
 	return c.JSON(http.StatusOK, memberToAPI(m))
 }

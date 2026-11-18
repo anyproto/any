@@ -83,12 +83,6 @@ func aclOpError(c echo.Context, err error, details map[string]any) error {
 	if errors.Is(err, space.ErrNotFound) {
 		return writeError(c, http.StatusNotFound, "members.not_found", err.Error(), details)
 	}
-	// A malformed identity is the caller's mistake, not a server fault.
-	// The message is static: the SDK error quotes the raw input.
-	if errors.Is(err, space.ErrBadIdentity) {
-		return writeError(c, http.StatusBadRequest, "request.invalid_identity",
-			"identity is not a valid account address", details)
-	}
 	// The coordinator's own refusal: make-shareable, the precondition
 	// of invite create and direct add, is owner-only.
 	if errors.Is(err, space.ErrCoordinatorForbidden) {
@@ -105,6 +99,17 @@ func aclOpError(c echo.Context, err error, details map[string]any) error {
 		return writeError(c, http.StatusNotFound, "acl.record_not_found", msg, details)
 	}
 	return sdkOpError(c, err, details)
+}
+
+// aclIdentityOpError is aclOpError for an op that takes account
+// identities in field: a malformed one is the caller's 400. The message
+// is static: the SDK error quotes the raw input.
+func aclIdentityOpError(c echo.Context, err error, field string, details map[string]any) error {
+	if errors.Is(err, space.ErrBadIdentity) {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"invalid account identity", map[string]any{"field": field})
+	}
+	return aclOpError(c, err, details)
 }
 
 // derivedUnshareable refuses to share a derived space. Such a space

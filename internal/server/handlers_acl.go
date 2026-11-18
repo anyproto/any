@@ -70,7 +70,7 @@ func (d *deps) aclDecline(c echo.Context) error {
 		return errResp
 	}
 	if err := sp.ACL().DeclineRequest(c.Request().Context(), req.Identity); err != nil {
-		return aclOpError(c, err, map[string]any{"spaceId": sp.Id(), "identity": req.Identity})
+		return aclIdentityOpError(c, err, "identity", map[string]any{"spaceId": sp.Id(), "identity": req.Identity})
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -113,7 +113,7 @@ func (d *deps) aclChangePermissions(c echo.Context) error {
 		return errResp
 	}
 	if err := sp.ACL().ChangePermissions(c.Request().Context(), out); err != nil {
-		return aclOpError(c, err, map[string]any{"spaceId": sp.Id()})
+		return aclIdentityOpError(c, err, "changes", map[string]any{"spaceId": sp.Id()})
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -142,7 +142,7 @@ func (d *deps) aclRemove(c echo.Context) error {
 		return errResp
 	}
 	if err := sp.ACL().RemoveAccounts(c.Request().Context(), req.Identities); err != nil {
-		return aclOpError(c, err, map[string]any{"spaceId": sp.Id()})
+		return aclIdentityOpError(c, err, "identities", map[string]any{"spaceId": sp.Id()})
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -196,7 +196,7 @@ func (d *deps) aclAdd(c echo.Context) error {
 		return resp
 	}
 	if err := sp.ACL().AddAccounts(c.Request().Context(), out); err != nil {
-		return aclOpError(c, err, map[string]any{"spaceId": sp.Id()})
+		return aclIdentityOpError(c, err, "accounts", map[string]any{"spaceId": sp.Id()})
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -230,7 +230,7 @@ func (d *deps) aclOwnership(c echo.Context) error {
 		return errResp
 	}
 	if err := sp.ACL().OwnershipChange(c.Request().Context(), req.NewOwner, perm); err != nil {
-		return aclOpError(c, err, map[string]any{"spaceId": sp.Id(), "newOwner": req.NewOwner})
+		return aclIdentityOpError(c, err, "newOwner", map[string]any{"spaceId": sp.Id(), "newOwner": req.NewOwner})
 	}
 	return c.NoContent(http.StatusNoContent)
 }
