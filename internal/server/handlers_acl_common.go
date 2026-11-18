@@ -83,6 +83,12 @@ func aclOpError(c echo.Context, err error, details map[string]any) error {
 	if errors.Is(err, space.ErrNotFound) {
 		return writeError(c, http.StatusNotFound, "members.not_found", err.Error(), details)
 	}
+	// A malformed identity is the caller's mistake, not a server fault.
+	// The message is static: the SDK error quotes the raw input.
+	if errors.Is(err, space.ErrBadIdentity) {
+		return writeError(c, http.StatusBadRequest, "request.invalid_identity",
+			"identity is not a valid account address", details)
+	}
 	// The coordinator's own refusal: make-shareable, the precondition
 	// of invite create and direct add, is owner-only.
 	if errors.Is(err, space.ErrCoordinatorForbidden) {
