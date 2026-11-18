@@ -810,9 +810,8 @@ var _ BulkPreparer = (*workerEmbedder)(nil)
 // its package is not on disk. The slot is free meanwhile: searches are
 // served.
 //
-// waiting, when set, is called once if the call is going to wait: before
-// it starts a child, whose model load is part of the wait, or before it
-// blocks on a running one.
+// waiting, when set, is called once if the call is going to wait, before
+// it starts a child: the child's model load is part of the wait.
 func (w *workerEmbedder) PrepareBulk(ctx context.Context, waiting func()) {
 	spec := w.childSpec()
 	if spec.coremlDir == "" || w.closing.Load() || w.bulkWaited.Load() {
@@ -826,15 +825,10 @@ func (w *workerEmbedder) PrepareBulk(ctx context.Context, waiting func()) {
 	if w.pkgOnDisk != nil && !w.pkgOnDisk() {
 		return
 	}
-	said := false
-	say := func() {
-		if waiting != nil && !said {
-			said = true
-			waiting()
-		}
-	}
-	if w.live.Load() == nil {
-		say()
+	// From here on the call waits: for a child to start, or for the
+	// running one's path to settle.
+	if waiting != nil {
+		waiting()
 	}
 	// Before the spawn: its idle timer must not fire under the wait.
 	w.preparing.Add(1)
@@ -862,13 +856,11 @@ func (w *workerEmbedder) PrepareBulk(ctx context.Context, waiting func()) {
 
 	select {
 	case <-c.settled:
-	case <-c.errDone: // the child exited
 	default:
-		say()
 		select {
 		case <-c.settled:
 		case <-w.gaveUp: // another caller's deadline
-		case <-c.errDone:
+		case <-c.errDone: // the child exited
 		case <-ctx.Done():
 		case <-timer.C:
 			w.giveUpBulk()

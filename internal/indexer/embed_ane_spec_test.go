@@ -668,7 +668,7 @@ func TestWorkerEmbedder_PrepareBulkIgnoresARetiringChild(t *testing.T) {
 	w.spec.coremlDir = "/models/eg2.mlpackage"
 	w.mu.Unlock()
 	w.bulkWait = 30 * time.Second
-	w.PrepareBulk(context.Background())
+	w.PrepareBulk(context.Background(), nil)
 	if h.spawns() != 1 || w.bulkWaited.Load() {
 		t.Fatalf("first child: spawned %d, deadline hit %v", h.spawns(), w.bulkWaited.Load())
 	}
@@ -695,7 +695,7 @@ func TestWorkerEmbedder_PrepareBulkIgnoresARetiringChild(t *testing.T) {
 	asked := make(chan struct{})
 	go func() {
 		defer close(asked)
-		w.PrepareBulk(context.Background())
+		w.PrepareBulk(context.Background(), nil)
 	}()
 	select {
 	case <-asked:
