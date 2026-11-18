@@ -112,8 +112,10 @@ type workerEmbedder struct {
 	// again, so a driver or hardware fix recovers on its own.
 	gpuDisabled bool
 	// coremlDisabled is set when a child dies abnormally after it
-	// began using Core ML. It goes before the GPU does.
+	// began using Core ML. It goes before the GPU does, and comes back
+	// once (coremlRestored) when a child started without it dies too.
 	coremlDisabled bool
+	coremlRestored bool
 	// hw is what the last started child reported about this machine —
 	// kept for logging now, for hardware/error/speed statistics later.
 	hw Hardware
@@ -641,25 +643,34 @@ func (w *workerEmbedder) failChild(cause error) {
 	w.mu.Lock()
 	// One runtime per death, the Neural Engine path first once the
 	// child used Core ML: the death does not say which of the two
-	// caused it. Read after stop, which joined the stderr pump.
+	// caused it. A death that repeats in a child started without Core ML
+	// clears the Neural Engine, which comes back on, once. Read after
+	// stop, which joined the stderr pump.
 	demoteCoreML := c.spec.coremlDir != "" && c.coreml.Load() && !w.coremlDisabled
 	demote := !demoteCoreML && gpu && !w.gpuDisabled
+	restoreCoreML := c.spec.coremlDir == "" && w.coremlDisabled && !w.coremlRestored
 	if demoteCoreML {
 		w.coremlDisabled = true
 	}
 	if demote {
 		w.gpuDisabled = true
 	}
+	if restoreCoreML {
+		w.coremlDisabled = false
+		w.coremlRestored = true
+	}
 	w.mu.Unlock()
-	if demoteCoreML {
+	switch {
+	case demoteCoreML:
 		w.lg.Warn("local embedder child died with the neural engine on; embedding on llama.cpp alone for the rest of this run", fields...)
-		return
-	}
-	if demote {
+	case demote:
 		w.lg.Warn("local embedder child died with GPU offload active; embedding on CPU for the rest of this run", fields...)
-		return
+	default:
+		w.lg.Warn("local embedder child died; restarting on the next round", fields...)
 	}
-	w.lg.Warn("local embedder child died; restarting on the next round", fields...)
+	if restoreCoreML {
+		w.lg.Info("local embedder: the death repeated without the neural engine; the neural engine is back on")
+	}
 }
 
 // stopChild retires the current child gracefully (stdin EOF, then kill).

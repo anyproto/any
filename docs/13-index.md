@@ -965,10 +965,12 @@ directory with a compiled model of its own.
 unit length, leaves that text to llama.cpp. Three in a row on one
 function retire that function for the life of the child; a larger
 loaded one or llama.cpp takes its texts. A child that dies after it
-began using Core ML is respawned without the Neural Engine for the rest
-of the process. That demotion comes before the GPU one (§ GPU offload),
-one runtime per death, because the death does not say which runtime
-caused it.
+began using Core ML is respawned without the Neural Engine. That
+demotion comes before the GPU one (§ GPU offload), one runtime per
+death, because the death does not say which runtime caused it. A death
+that repeats in a child started without the Neural Engine clears it: it
+comes back on, once per process. A child that dies with it on after
+that stays without it for the rest of the process.
 
 Core ML is called through the Objective-C runtime, so the binary stays
 CGO-free and cross-compiled (`internal/indexer/coreml`).
