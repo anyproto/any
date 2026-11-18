@@ -575,6 +575,383 @@ func TestWorkerEmbedder_NeuralEngineRestoredOnce(t *testing.T) {
 	}
 }
 
+// aneWorker is a test worker with a Neural Engine path planned and a
+// helper child that reports on it as env says.
+func aneWorker(t *testing.T, env ...string) (*workerEmbedder, *helperSpawner) {
+	t.Helper()
+	h := &helperSpawner{modes: []string{"ok"}, env: env}
+	w := newTestWorker(t, h, 0)
+	w.mu.Lock()
+	w.spec.coremlDir = "/models/eg2.mlpackage"
+	w.mu.Unlock()
+	w.bulkWait = 30 * time.Second
+	return w, h
+}
+
+// waitAttached blocks until a PrepareBulk call waits with the slot free.
+func waitAttached(t *testing.T, w *workerEmbedder) {
+	t.Helper()
+	waitLive(t, w)
+	waitReady(t, w)
+	for deadline := time.Now().Add(10 * time.Second); w.preparing.Load() == 0 || !w.slot.tryAcquire(); {
+		if time.Now().After(deadline) {
+			t.Fatal("the wait never freed the slot")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	w.slot.release(false)
+}
+
+// Bulk work waits for the first function, on the child it then embeds
+// on, and the wait ends on the report, not on the deadline. A child that
+// has settled answers at once, without the slot.
+func TestWorkerEmbedder_PrepareBulkWaitsForTheFirstFunction(t *testing.T) {
+	const delay = 300 * time.Millisecond
+	w, h := aneWorker(t, append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=ready")...)
+	start := time.Now()
+	w.PrepareBulk(context.Background())
+	if waited := time.Since(start); waited < delay-50*time.Millisecond || waited > w.bulkWait/2 {
+		t.Fatalf("returned after %s, want the first function's %s", waited, delay)
+	}
+	if w.bulkWaited.Load() {
+		t.Fatal("the wait ended on the deadline")
+	}
+	// Settled: nothing to wait for, and nothing to take the slot for.
+	if err := w.slot.acquire(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	asked := make(chan struct{})
+	go func() {
+		defer close(asked)
+		w.PrepareBulk(context.Background())
+	}()
+	select {
+	case <-asked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a settled child was asked through the slot")
+	}
+	w.slot.release(false)
+	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children, want 1", h.spawns())
+	}
+}
+
+// A child that replaced a settled one is waited on like the first: its
+// Neural Engine path starts over.
+func TestWorkerEmbedder_PrepareBulkWaitsOnAReplacement(t *testing.T) {
+	const delay = 300 * time.Millisecond
+	w, h := aneWorker(t, append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=ready")...)
+	w.PrepareBulk(context.Background())
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children, want 1", h.spawns())
+	}
+	w.SetThreads(3) // the running child is stale: the next frame replaces it
+	start := time.Now()
+	w.PrepareBulk(context.Background())
+	if waited := time.Since(start); waited < delay-50*time.Millisecond || h.spawns() != 2 || w.bulkWaited.Load() {
+		t.Fatalf("after a replacement: waited %s on %d children, deadline hit %v; want the new child's first function", waited, h.spawns(), w.bulkWaited.Load())
+	}
+}
+
+// A settled child that is being retired is still the live process until
+// it is reaped. It does not answer for its replacement: the first text
+// after an idle retirement waits for the new child's own first function.
+func TestWorkerEmbedder_PrepareBulkIgnoresARetiringChild(t *testing.T) {
+	const delay = 300 * time.Millisecond
+	h := &helperSpawner{modes: []string{"linger", "ok"}, env: append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=ready")}
+	w := newTestWorker(t, h, 0)
+	w.mu.Lock()
+	w.spec.coremlDir = "/models/eg2.mlpackage"
+	w.mu.Unlock()
+	w.bulkWait = 30 * time.Second
+	w.PrepareBulk(context.Background())
+	if h.spawns() != 1 || w.bulkWaited.Load() {
+		t.Fatalf("first child: spawned %d, deadline hit %v", h.spawns(), w.bulkWaited.Load())
+	}
+	// Retire it the way the idle timer does. It ignores the closed stdin,
+	// so it stays live under the slot until the grace ends.
+	if err := w.slot.acquire(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	retired := make(chan struct{})
+	go func() {
+		defer close(retired)
+		w.stopChild(true)
+		w.slot.release(false)
+	}()
+	for deadline := time.Now().Add(5 * time.Second); !hasChildDetached(w); {
+		if time.Now().After(deadline) {
+			t.Fatal("the child was never detached")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if w.live.Load() == nil {
+		t.Fatal("the retiring child is not live any more: the window this test needs is gone")
+	}
+	asked := make(chan struct{})
+	go func() {
+		defer close(asked)
+		w.PrepareBulk(context.Background())
+	}()
+	select {
+	case <-asked:
+		t.Fatal("the retiring child answered for its replacement")
+	case <-time.After(delay):
+	}
+	_ = h.cmdAt(0).Process.Kill() // end the grace
+	<-retired
+	select {
+	case <-asked:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the replacement's first function was never reported")
+	}
+	if h.spawns() != 2 || w.bulkWaited.Load() {
+		t.Fatalf("replacement: spawned %d, deadline hit %v", h.spawns(), w.bulkWaited.Load())
+	}
+	if c := w.settledChild.Load(); c == nil || c.detached.Load() || c.cmd != h.cmdAt(1) {
+		t.Fatal("the wait did not end on the replacement's own report")
+	}
+}
+
+// A child that reported on its Neural Engine path and then failed to
+// start was never the worker's: it does not answer for the next one.
+func TestWorkerEmbedder_PrepareBulkIgnoresAChildThatNeverStarted(t *testing.T) {
+	const delay = 300 * time.Millisecond
+	h := &helperSpawner{modes: []string{"settleexit", "ok"}, env: append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=ready")}
+	w := newTestWorker(t, h, 0)
+	w.mu.Lock()
+	w.spec.coremlDir = "/models/eg2.mlpackage"
+	w.mu.Unlock()
+	w.bulkWait = 30 * time.Second
+	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err == nil {
+		t.Fatal("want the start failure")
+	}
+	clearBackoff(w)
+	start := time.Now()
+	w.PrepareBulk(context.Background())
+	if waited := time.Since(start); waited < delay-50*time.Millisecond || h.spawns() != 2 || w.bulkWaited.Load() {
+		t.Fatalf("waited %s on %d children, deadline hit %v; want the second child's first function", waited, h.spawns(), w.bulkWaited.Load())
+	}
+}
+
+// hasChildDetached reports whether the last settled child was let go.
+func hasChildDetached(w *workerEmbedder) bool {
+	c := w.settledChild.Load()
+	return c != nil && c.detached.Load()
+}
+
+// Without a Neural Engine path, or with its package not on disk, there
+// is nothing to wait for and no child is started for it; a package that
+// lands is waited for at the next call.
+func TestWorkerEmbedder_PrepareBulkWithoutNeuralEngine(t *testing.T) {
+	h := &helperSpawner{modes: []string{"ok"}}
+	w := newTestWorker(t, h, 0)
+	w.PrepareBulk(context.Background())
+	if h.spawns() != 0 {
+		t.Fatalf("no path: spawned %d children, want none", h.spawns())
+	}
+
+	const delay = 300 * time.Millisecond
+	w, h = aneWorker(t, append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=ready")...)
+	onDisk := false
+	w.pkgOnDisk = func() bool { return onDisk }
+	start := time.Now()
+	w.PrepareBulk(context.Background())
+	if waited := time.Since(start); waited > delay/2 || h.spawns() != 0 || w.bulkWaited.Load() {
+		t.Fatalf("package not on disk: waited %s, spawned %d, deadline hit %v", waited, h.spawns(), w.bulkWaited.Load())
+	}
+	onDisk = true
+	start = time.Now()
+	w.PrepareBulk(context.Background())
+	if waited := time.Since(start); waited < delay-50*time.Millisecond || h.spawns() != 1 {
+		t.Fatalf("package landed: waited %s on %d children, want the first function of one", waited, h.spawns())
+	}
+}
+
+// A path that turned itself off, or whose first function failed to
+// load, is not waited for.
+func TestWorkerEmbedder_PrepareBulkEndsOnAFailedPath(t *testing.T) {
+	for _, report := range []string{"off", "failed"} {
+		w, _ := aneWorker(t, "ANY_EMBED_WORKER_ANE="+report)
+		start := time.Now()
+		w.PrepareBulk(context.Background())
+		if waited := time.Since(start); waited > w.bulkWait/2 || w.bulkWaited.Load() {
+			t.Fatalf("%s: waited %s, deadline hit %v", report, waited, w.bulkWaited.Load())
+		}
+	}
+}
+
+// A load that neither finishes nor fails holds bulk work until the
+// deadline, once.
+func TestWorkerEmbedder_PrepareBulkTimesOutOnce(t *testing.T) {
+	w, h := aneWorker(t, "ANY_EMBED_WORKER_ANE=1")
+	w.bulkWait = 200 * time.Millisecond
+	start := time.Now()
+	w.PrepareBulk(context.Background())
+	if waited := time.Since(start); waited < w.bulkWait || !w.bulkWaited.Load() {
+		t.Fatalf("returned after %s, deadline hit %v", waited, w.bulkWaited.Load())
+	}
+	start = time.Now()
+	w.PrepareBulk(context.Background())
+	if waited := time.Since(start); waited > w.bulkWait/2 {
+		t.Fatalf("waited %s a second time", waited)
+	}
+	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children, want 1", h.spawns())
+	}
+}
+
+// The deadline belongs to the child: a caller that joins late leaves
+// with the first one.
+func TestWorkerEmbedder_PrepareBulkSharesOneDeadline(t *testing.T) {
+	w, _ := aneWorker(t, "ANY_EMBED_WORKER_ANE=1")
+	w.bulkWait = 600 * time.Millisecond
+	first := make(chan time.Duration, 1)
+	start := time.Now()
+	go func() {
+		w.PrepareBulk(context.Background())
+		first <- time.Since(start)
+	}()
+	waitAttached(t, w)
+	time.Sleep(w.bulkWait / 2)
+	joined := time.Now()
+	w.PrepareBulk(context.Background())
+	late := time.Since(joined)
+	if late >= w.bulkWait {
+		t.Fatalf("the late caller waited %s, a deadline of its own", late)
+	}
+	select {
+	case d := <-first:
+		if d < w.bulkWait {
+			t.Fatalf("the first caller left after %s, before the deadline", d)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the first caller is still waiting")
+	}
+}
+
+// A child that exits ends the wait, and is not the deadline.
+func TestWorkerEmbedder_PrepareBulkEndsWithTheChild(t *testing.T) {
+	w, h := aneWorker(t, "ANY_EMBED_WORKER_ANE=1")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w.PrepareBulk(context.Background())
+	}()
+	waitAttached(t, w)
+	_ = h.cmdAt(0).Process.Kill()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("still waiting on a dead child")
+	}
+	if w.bulkWaited.Load() {
+		t.Fatal("a dead child counted as the deadline")
+	}
+}
+
+// A deadline that one caller ran into ends the wait of every other one,
+// and no later caller waits.
+func TestWorkerEmbedder_GivingUpWakesEveryWaiter(t *testing.T) {
+	w, _ := aneWorker(t, "ANY_EMBED_WORKER_ANE=1")
+	w.bulkWait = time.Minute
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w.PrepareBulk(context.Background())
+	}()
+	waitAttached(t, w)
+	w.giveUpBulk()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("a waiter outlived the give-up")
+	}
+	start := time.Now()
+	w.PrepareBulk(context.Background())
+	if waited := time.Since(start); waited > 5*time.Second {
+		t.Fatalf("a later caller waited %s after the give-up", waited)
+	}
+}
+
+// A caller whose ctx ends leaves at once, also while another caller's
+// frame holds the slot; a search is served during the wait.
+func TestWorkerEmbedder_PrepareBulkLeavesWithItsContext(t *testing.T) {
+	const frame = 2 * time.Second
+	h := &helperSpawner{modes: []string{"slow"}, env: append(delayEnv(frame), "ANY_EMBED_WORKER_ANE=1")}
+	w := newTestWorker(t, h, 0)
+	w.mu.Lock()
+	w.spec.coremlDir = "/models/eg2.mlpackage"
+	w.mu.Unlock()
+	w.bulkWait = time.Minute
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w.PrepareBulk(ctx)
+	}()
+	waitAttached(t, w)
+
+	// A search is served while bulk work waits; its frame holds the slot.
+	served := make(chan error, 1)
+	go func() {
+		_, err := w.EmbedQuery(context.Background(), "q")
+		served <- err
+	}()
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(frame / 2):
+		t.Fatal("the cancelled caller waited behind another frame")
+	}
+	if err := <-served; err != nil {
+		t.Fatalf("search during the wait: %v", err)
+	}
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children, want 1", h.spawns())
+	}
+}
+
+// The child is not retired as idle while bulk work waits on it.
+func TestWorkerEmbedder_PrepareBulkHoldsOffIdleRetirement(t *testing.T) {
+	const delay = 400 * time.Millisecond
+	w, h := aneWorker(t, append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=ready")...)
+	w.idleTimeout = 50 * time.Millisecond
+	start := time.Now()
+	w.PrepareBulk(context.Background())
+	if waited := time.Since(start); waited < delay-50*time.Millisecond || w.bulkWaited.Load() {
+		t.Fatalf("returned after %s, deadline hit %v: the child was retired under the wait", waited, w.bulkWaited.Load())
+	}
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children, want 1", h.spawns())
+	}
+}
+
+func TestANESettles(t *testing.T) {
+	for status, want := range map[string]bool{
+		"s128 ready (plan 3.4s, load 1.3s, 812 operations on the neural engine, 4 on the cpu)": true,
+		"s2048 not used: core ml plans it off the neural engine":                               true,
+		aneOffStatus + "llama.cpp embeds everything: no function can be used":                  true,
+		"starting":                                    false,
+		"package compiled in 6.909s":                  false,
+		"s512 released after 5m0s unused":             false,
+		"s128 failed: prediction":                     false,
+		"s128 not used any more: 3 failures in a row": true,
+	} {
+		if got := aneSettles(status); got != want {
+			t.Errorf("aneSettles(%q) = %v, want %v", status, got, want)
+		}
+	}
+}
+
 // A Neural Engine vector gets the same projection and width as a
 // llama.cpp one.
 func TestLocal_EmbedANEFinishesVector(t *testing.T) {

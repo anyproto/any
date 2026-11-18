@@ -76,6 +76,8 @@ type workerEmbedder struct {
 	startTimeout time.Duration
 	// idleTimeout is workerIdleTimeout; 0 never retires an idle child.
 	idleTimeout time.Duration
+	// bulkWait is aneBulkWait.
+	bulkWait time.Duration
 	// newCmd builds the child command from a spec; injectable so tests
 	// can drive a helper process instead of a real model.
 	newCmd func(localSpec) (*exec.Cmd, error)
@@ -87,6 +89,18 @@ type workerEmbedder struct {
 	live      atomic.Pointer[os.Process]
 	closing   atomic.Bool
 	closeOnce sync.Once
+	// preparing counts the PrepareBulk calls in flight: the child is not
+	// retired as idle under them. bulkWaited: one of them ran into the
+	// deadline, and no later call waits.
+	preparing  atomic.Int32
+	bulkWaited atomic.Bool
+	gaveUp     chan struct{} // closed with bulkWaited
+	// settledChild is the last child whose Neural Engine path settled.
+	// It answers PrepareBulk until the worker lets go of it (detached).
+	settledChild atomic.Pointer[embedChild]
+	// pkgOnDisk reports whether the Core ML package is complete on disk;
+	// nil = not asked.
+	pkgOnDisk func() bool
 
 	// idleTimer runs retireIdle. Created stopped and never reassigned,
 	// so its callback uses it without the slot.
@@ -148,6 +162,10 @@ func newWorkerEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string,
 	}
 	w := newWorkerEmbedderFromSpec(spec, reqTimeout)
 	w.dl = dl
+	if pkg != nil {
+		dir := spec.coremlDir
+		w.pkgOnDisk = func() bool { return pkg.complete(dir) }
+	}
 	// With a model path nothing is downloaded, the package's licence
 	// texts included.
 	if pkg != nil && cfg.ModelPath == "" && (!pkg.complete(spec.coremlDir) || !pkg.noticesComplete(modelsDir)) {
@@ -178,6 +196,8 @@ func newWorkerEmbedderFromSpec(spec localSpec, reqTimeout time.Duration) *worker
 		reqTimeout:   reqTimeout,
 		startTimeout: workerStartTimeout,
 		idleTimeout:  workerIdleTimeout,
+		bulkWait:     aneBulkWait,
+		gaveUp:       make(chan struct{}),
 		newCmd:       embedderCmd,
 		now:          time.Now,
 		slot:         newChildSlot(),
@@ -571,8 +591,10 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 		resp:    make(chan workerFrame, 1),
 		stderr:  &lineTail{max: workerStderrTail},
 		errDone: make(chan struct{}),
+		settled: make(chan struct{}),
 		spec:    spec,
 	}
+	c.onSettle = func() { w.settledChild.Store(c) }
 	go c.readLoop(bufio.NewReaderSize(stdout, 64<<10))
 	go c.pumpStderr(stderr, w.lg)
 
@@ -581,6 +603,8 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 	select {
 	case m, ok := <-c.resp:
 		if !ok || m.err != nil || m.hdr.Op != workerOpReady {
+			// Never attached: whatever it reported, it answers for no one.
+			c.detached.Store(true)
 			// stop() joins the stderr pump, so the tail is complete.
 			waitErr := c.stop(false)
 			w.live.Store(nil)
@@ -594,6 +618,7 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 			w.mu.Unlock()
 		}
 	case <-timer.C:
+		c.detached.Store(true)
 		waitErr := c.stop(false)
 		w.live.Store(nil)
 		return nil, fmt.Errorf("embedder child did not become ready in %s: %s", w.startTimeout,
@@ -630,6 +655,7 @@ func (w *workerEmbedder) failChild(cause error) {
 		return
 	}
 	w.child = nil
+	c.detached.Store(true)
 	w.live.Store(nil)
 	gpu := c.spec.gpuLayers != 0
 	// stop() joins the stderr pump before returning, so the tail read
@@ -674,6 +700,88 @@ func (w *workerEmbedder) failChild(cause error) {
 	}
 }
 
+var _ BulkPreparer = (*workerEmbedder)(nil)
+
+// PrepareBulk holds bulk work back until the Neural Engine path of the
+// running child has its first function, so a backlog does not run on
+// llama.cpp while Core ML prepares. A drain calls it before every round
+// that has work: a child whose path has settled answers at once, without
+// the slot, and one that replaced it is waited on like the first.
+//
+// It starts the child and returns when the child reports a function
+// loaded, a failed load or the path off, when the child exits, when ctx
+// ends, or at the child's deadline: bulkWait after its first waiter, the
+// same for all of them. A wait that ran into a deadline is the last one,
+// for every caller. Nothing waits without a Neural Engine path, or while
+// its package is not on disk. The slot is free meanwhile: searches are
+// served.
+func (w *workerEmbedder) PrepareBulk(ctx context.Context) {
+	spec := w.childSpec()
+	if spec.coremlDir == "" || w.closing.Load() || w.bulkWaited.Load() {
+		return
+	}
+	// Only a child the worker still holds answers: one being retired
+	// stays live until it is reaped, and its replacement settles on its
+	// own.
+	if c := w.settledChild.Load(); c != nil && !c.detached.Load() && c.spec == spec {
+		return
+	}
+	if w.pkgOnDisk != nil && !w.pkgOnDisk() {
+		return
+	}
+	// Before the spawn: its idle timer must not fire under the wait.
+	w.preparing.Add(1)
+	defer w.preparing.Add(-1)
+	if r := w.run(ctx, workerReq{Op: workerOpDim}); r.err != nil {
+		return
+	}
+	if err := w.slot.acquire(ctx, false); err != nil {
+		return
+	}
+	c := w.child
+	// Under the slot, on the child that was selected: the Neural Engine
+	// can have been demoted and the wait given up since the checks
+	// above, and a child without Core ML never reports on it.
+	if c == nil || c.spec.coremlDir == "" || w.bulkWaited.Load() {
+		w.slot.release(false)
+		return
+	}
+	if c.waitUntil.IsZero() {
+		c.waitUntil = time.Now().Add(w.bulkWait)
+	}
+	timer := time.NewTimer(time.Until(c.waitUntil))
+	defer timer.Stop()
+	w.slot.release(false)
+
+	select {
+	case <-c.settled:
+	default:
+		select {
+		case <-c.settled:
+		case <-w.gaveUp: // another caller's deadline
+		case <-c.errDone: // the child exited
+		case <-ctx.Done():
+		case <-timer.C:
+			w.giveUpBulk()
+		}
+	}
+	// The idle countdown restarts here, not at the spawn. A busy slot
+	// means a frame is in flight, and its end restarts it.
+	if w.slot.tryAcquire() {
+		w.armIdle()
+		w.slot.release(false)
+	}
+}
+
+// giveUpBulk ends every wait for a first function, now and later.
+func (w *workerEmbedder) giveUpBulk() {
+	if w.bulkWaited.CompareAndSwap(false, true) {
+		close(w.gaveUp)
+		w.lg.Warn("local embedder: no neural engine function ready in time; bulk embedding starts on llama.cpp",
+			zap.Duration("waited", w.bulkWait))
+	}
+}
+
 // stopChild retires the current child gracefully (stdin EOF, then kill).
 // live stays set until it is reaped, so a Close meanwhile can kill it.
 // Caller holds the slot.
@@ -683,6 +791,7 @@ func (w *workerEmbedder) stopChild(graceful bool) {
 	}
 	c := w.child
 	w.child = nil
+	c.detached.Store(true)
 	_ = c.stop(graceful)
 	w.live.Store(nil)
 }
@@ -712,6 +821,10 @@ func (w *workerEmbedder) retireIdle() {
 	}
 	defer w.slot.release(false)
 	if w.child == nil || w.closing.Load() {
+		return
+	}
+	if w.preparing.Load() > 0 {
+		w.idleTimer.Reset(w.idleTimeout)
 		return
 	}
 	if rest := w.idleTimeout - time.Since(w.lastFrame); rest > 0 {
@@ -823,6 +936,17 @@ type embedChild struct {
 	// coreml: by the child's last report on its Neural Engine path,
 	// Core ML is in use in it.
 	coreml atomic.Bool
+	// settled is closed once the Neural Engine path has its first
+	// function, failed to load one, or is off (aneSettles).
+	settled    chan struct{}
+	settleOnce sync.Once
+	onSettle   func() // run once, before settled closes
+	// detached: the worker has let go of this child (retired, failed,
+	// never started). Set under the slot, read without it.
+	detached atomic.Bool
+	// waitUntil is when PrepareBulk stops waiting on this child; zero
+	// until its first waiter. Slot-guarded.
+	waitUntil time.Time
 }
 
 type workerFrame struct {
@@ -861,6 +985,14 @@ func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 			c.stderr.add(line)
 			if status, ok := strings.CutPrefix(line, aneLogPrefix); ok {
 				c.coreml.Store(!strings.HasPrefix(status, aneOffStatus))
+				if aneSettles(status) {
+					c.settleOnce.Do(func() {
+						if c.onSettle != nil {
+							c.onSettle()
+						}
+						close(c.settled)
+					})
+				}
 				lg.Info("local embedder neural engine", zap.String("status", status))
 			} else {
 				lg.Debug("embedder child", zap.String("stderr", line))

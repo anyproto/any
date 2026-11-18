@@ -49,6 +49,11 @@ type Options struct {
 	// PendingEvery is the embed loop's catch-up/retry tick (the nudge
 	// channel covers the normal path). Default 1m.
 	PendingEvery time.Duration
+	// EmbedStartDelay holds the embed loops back for this long after
+	// Start, so a boot's sync, full-text pass and client startup do not
+	// compete with a backlog. Searches embed their query at once. 0 = no
+	// delay.
+	EmbedStartDelay time.Duration
 	// OnProcess, when set, receives indexing lifecycle updates — per
 	// ProcessKind*, one started/progress*/terminal sequence per unit
 	// of work (embed drain, advance pass, model download). The server
@@ -229,6 +234,9 @@ type Indexer struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+	// embedFrom is when the embed loops may start draining
+	// (Options.EmbedStartDelay after Start).
+	embedFrom time.Time
 	// bootstrapped closes once the initial space list has been handed
 	// to spawnLocked (or bootstrap gave up on a cancelled ctx).
 	bootstrapped chan struct{}
@@ -382,6 +390,7 @@ func (ix *Indexer) Start(ctx context.Context) {
 // retried after (doubling, capped at spawnRetryMax).
 func (ix *Indexer) start(ctx context.Context, listBackoff time.Duration) {
 	ix.ctx, ix.cancel = context.WithCancel(ctx)
+	ix.embedFrom = time.Now().Add(ix.opts.EmbedStartDelay)
 	ix.bootstrapped = make(chan struct{})
 	ix.wg.Add(1)
 	go ix.bootstrap(listBackoff)

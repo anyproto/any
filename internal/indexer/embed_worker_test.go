@@ -49,6 +49,9 @@ func runEmbedHelper(mode string) int {
 	case "exit": // dies before the handshake, e.g. libs missing
 		fmt.Fprintln(os.Stderr, "helper: cannot load model")
 		return 3
+	case "settleexit": // reports on the Neural Engine, then dies before the handshake
+		aneStderrLog(aneOffStatus + "llama.cpp embeds everything: no neural engine")
+		return 3
 	case "garbage": // a C library printing on stdout
 		fmt.Fprint(os.Stdout, strings.Repeat("X", 32))
 		exitWithParent()
@@ -91,6 +94,15 @@ func runEmbedHelper(mode string) int {
 	case "off": // Core ML started, then gave up
 		aneStderrLog("starting")
 		aneStderrLog(aneOffStatus + "llama.cpp embeds everything: no neural engine")
+	case "ready": // the first function loads after the delay
+		aneStderrLog("starting")
+		go func() {
+			time.Sleep(delay)
+			aneStderrLog("s128 ready (plan 1ms, load 1ms, 10 operations on the neural engine, 0 on the cpu)")
+		}()
+	case "failed": // the first function does not load
+		aneStderrLog("starting")
+		aneStderrLog("s128 not used: core ml plans it off the neural engine")
 	default: // a child that began using Core ML
 		aneStderrLog("starting")
 	}

@@ -281,9 +281,24 @@ func (w *spaceWorker) runAdvance() {
 }
 
 // embedLoop drains pending docs on nudges from advance and on the
-// periodic tick (which also retries after embedder failures).
+// periodic tick (which also retries after embedder failures). It starts
+// Options.EmbedStartDelay after the indexer did.
 func (w *spaceWorker) embedLoop() {
 	defer w.ix.wg.Done()
+	drain := func() {
+		if err := w.drainPending(w.ctx); err != nil && w.ctx.Err() == nil {
+			w.ix.lg.Warn("embed pending failed, will retry on tick", zap.String("spaceId", w.sp.Id()), zap.Error(err))
+		}
+	}
+	if wait := time.Until(w.ix.embedFrom); wait > 0 {
+		select {
+		case <-w.ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+	}
+	// Nothing nudges the loop for what was pending before it started.
+	drain()
 	ticker := time.NewTicker(w.ix.opts.PendingEvery)
 	defer ticker.Stop()
 	for {
@@ -293,9 +308,7 @@ func (w *spaceWorker) embedLoop() {
 		case <-w.embedCh:
 		case <-ticker.C:
 		}
-		if err := w.drainPending(w.ctx); err != nil && w.ctx.Err() == nil {
-			w.ix.lg.Warn("embed pending failed, will retry on tick", zap.String("spaceId", w.sp.Id()), zap.Error(err))
-		}
+		drain()
 	}
 }
 
@@ -827,7 +840,27 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 	spaceId := w.sp.Id()
 	batch := w.ix.opts.EmbedBatch
 	conc := w.ix.opts.EmbedConcurrency
+	// An embedder that readies a faster runtime in the background gets
+	// to finish that before every round that has work (BulkPreparer).
+	preparer, prepares := w.ix.opts.Embedder.(BulkPreparer)
+	first := true
 	for {
+		if first && prepares {
+			// The first wait can be long: the backlog is announced before
+			// it and read after it.
+			n, err := w.ix.store.PendingCount(ctx, spaceId)
+			if err != nil {
+				return err
+			}
+			if n == 0 {
+				return nil
+			}
+			progress(0, n)
+			preparer.PrepareBulk(ctx)
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
 		ids, texts, err := w.ix.store.Pending(ctx, spaceId, batch*conc)
 		if err != nil {
 			return err
@@ -835,6 +868,13 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 		if len(ids) == 0 {
 			return nil
 		}
+		if !first && prepares {
+			preparer.PrepareBulk(ctx)
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		first = false
 		titles, err := w.ix.store.DocTitles(ctx, spaceId, ids)
 		if err != nil {
 			return err

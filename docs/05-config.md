@@ -161,6 +161,8 @@ index:
   embedBatch: 64                      # docs per embed request (0 = default 64)
   embedConcurrency: 0                 # batches embedded in parallel; 0 = 1 for local,
                                       # 4 for online openai/auto (parallel = the API win)
+  embedStartDelay: 2m                 # local embedder: documents start embedding this long
+                                      # after boot (0 = at once); searches are not delayed
   ollama:
     url: http://localhost:11434       # default
     model: embeddinggemma             # default
@@ -344,6 +346,7 @@ ANY_INDEX_ENABLED=false               # index.enabled
 ANY_INDEX_EMBEDDER=ollama             # index.embedder (auto|local|ollama|openai|none)
 ANY_INDEX_EMBED_BATCH=64              # index.embedBatch
 ANY_INDEX_EMBED_CONCURRENCY=8         # index.embedConcurrency (parallel batches; online)
+ANY_INDEX_EMBED_START_DELAY=0         # index.embedStartDelay
 ANY_INDEX_OLLAMA_URL=http://localhost:11434
 ANY_INDEX_OLLAMA_MODEL=embeddinggemma
 ANY_INDEX_OPENAI_BASE_URL=https://api.openai.com/v1

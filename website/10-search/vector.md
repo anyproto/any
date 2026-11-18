@@ -23,7 +23,7 @@ any search $SPACE "what did we decide about the reranker?" --mode vector
 
 ## How documents get vectors
 
-Indexing and embedding are decoupled. The advance loop writes text into the index immediately, marked `pending`; a second per-space loop drains `pending` docs in batches (`index.embedBatch`, default 64), calls the embedder, writes the vectors back in one transaction, and ensures the vector index exists. So a fresh write is full-text-searchable at once and gains vector recall one embed round later.
+Indexing and embedding are decoupled. The advance loop writes text into the index immediately, marked `pending`; a second per-space loop drains `pending` docs in batches (`index.embedBatch`, default 64), calls the embedder, writes the vectors back in one transaction, and ensures the vector index exists. So a fresh write is full-text-searchable at once and gains vector recall one embed round later. With the local embedder the embed loops start two minutes after boot (`index.embedStartDelay`), which leaves the first minutes to sync and full-text indexing; a search is not delayed.
 
 ```
 write ──▶ advance (FTS, 250ms) ──▶ pending ──▶ embed batch ──▶ vector index

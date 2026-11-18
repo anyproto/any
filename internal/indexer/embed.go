@@ -35,6 +35,13 @@ type Embedder interface {
 	Dim(ctx context.Context) (int, error)
 }
 
+// BulkPreparer is an Embedder that readies a faster runtime in the
+// background. A drain calls PrepareBulk before every round that has
+// work; it returns once there is nothing to wait for.
+type BulkPreparer interface {
+	PrepareBulk(ctx context.Context)
+}
+
 // StampedEmbedder names the vector space it embeds into, so an index
 // built by another one is rebuilt instead of mixing vectors.
 type StampedEmbedder interface {

@@ -30,8 +30,13 @@ const (
 	// still downloading.
 	aneRetryInterval = 30 * time.Second
 	// aneIdleRelease frees a function unused this long. The smallest one
-	// stays: it serves queries.
-	aneIdleRelease = time.Minute
+	// stays: it serves queries. Long enough that a backlog with few long
+	// texts does not reload the large functions over and over.
+	aneIdleRelease = 5 * time.Minute
+	// aneBulkWait bounds how long bulk work waits for the path's first
+	// function (workerEmbedder.PrepareBulk). A first load on a machine
+	// takes minutes.
+	aneBulkWait = 10 * time.Minute
 	// aneMaxFailures consecutive failed predictions retire a function
 	// for the rest of the process.
 	aneMaxFailures = 3
@@ -45,6 +50,17 @@ const (
 	aneLogPrefix = "neural engine: "
 	aneOffStatus = "off, "
 )
+
+// aneSettles reports whether a status line ends the wait for the path's
+// first function: one is loaded ("s128 ready (…)"), one failed to load
+// ("s128 not used: …"), or the path is off.
+func aneSettles(status string) bool {
+	if strings.HasPrefix(status, aneOffStatus) {
+		return true
+	}
+	name, rest, ok := strings.Cut(status, " ")
+	return ok && strings.HasPrefix(name, "s") && (strings.HasPrefix(rest, "ready") || strings.HasPrefix(rest, "not used"))
+}
 
 // errANENotReady is a package that is not on disk yet: a wait, not a
 // failure.
@@ -66,15 +82,17 @@ type aneFunction interface {
 	close()
 }
 
-// neuralEngine routes tokenized texts to loaded functions. start, embed
-// and close are called by one goroutine at a time (Local.mu). Functions
-// load on a goroutine of their own and idle ones are released from a
-// timer; neither touches a function that is predicting.
+// neuralEngine routes tokenized texts to loaded functions. embed and
+// close are called by one goroutine at a time (Local.mu); start also
+// runs from the retry timer. Functions load on a goroutine of their own
+// and idle ones are released from a timer; neither touches a function
+// that is predicting.
 type neuralEngine struct {
 	lengths []int // ascending
 	dim     int
 	backend aneBackend
 	idle    time.Duration // aneIdleRelease
+	retryIn time.Duration // aneRetryInterval
 	now     func() time.Time
 	logf    func(format string, args ...any)
 
@@ -91,6 +109,7 @@ type neuralEngine struct {
 	inUse    int          // length predicting now; 0 = none
 	loading  bool
 	release  *time.Timer // runs releaseTick; nil until a function can go idle
+	retry    *time.Timer // runs start again after a package that was not on disk
 	loads    sync.WaitGroup
 }
 
@@ -100,6 +119,7 @@ func newNeuralEngine(backend aneBackend, lengths []int, dim int, logf func(strin
 		dim:      dim,
 		backend:  backend,
 		idle:     aneIdleRelease,
+		retryIn:  aneRetryInterval,
 		now:      time.Now,
 		logf:     logf,
 		fns:      map[int]aneFunction{},
@@ -223,8 +243,16 @@ func (n *neuralEngine) loader() {
 			n.mu.Lock()
 			switch {
 			case errors.Is(err, errANENotReady):
-				n.nextTry = n.now().Add(aneRetryInterval)
+				n.nextTry = n.now().Add(n.retryIn)
 				n.queue = nil
+				// Again without a text asking: bulk work sends none
+				// until the first function is ready.
+				if n.retry != nil {
+					n.retry.Stop()
+				}
+				if !n.off {
+					n.retry = time.AfterFunc(n.retryIn, n.start)
+				}
 				return
 			case err != nil:
 				n.turnOffLocked(err.Error())
@@ -331,6 +359,9 @@ func (n *neuralEngine) turnOffLocked(reason string) {
 	n.queue = nil
 	if n.release != nil {
 		n.release.Stop()
+	}
+	if n.retry != nil {
+		n.retry.Stop()
 	}
 	for l, fn := range n.fns {
 		fn.close()

@@ -647,6 +647,13 @@ parallel (default 1; 4 for `openai`, and for `auto` with a key) →
 back to `pending`. `index.embedder: none` ⇒ the loop doesn't run and the
 index is FTS-only.
 
+With the local embedder (`local`, and `auto` without a key) the loops
+start `index.embedStartDelay` after the account boots, 2 min by default:
+the first minutes are left to sync, the full-text pass and the client's
+startup. `0` starts them at once, as an HTTP embedder always does. A
+loop drains once when it starts, for what was pending before it. A
+search embeds its query regardless.
+
 A vector lands only on the input it was embedded from. The advance loop
 writes while a batch embeds, so the landing checks each doc inside its
 write transaction: one deleted meanwhile is skipped, not resurrected;
@@ -795,7 +802,7 @@ The `local` embedder does not decode in the server process. It re-execs
 this binary as the hidden `any run embedder` and talks to it over
 stdin/stdout with a magic-prefixed, length-delimited frame protocol
 (JSON header + binary block; vectors as little-endian float32). One
-child, spawned on the first embed call and shared by every space worker.
+child, spawned when a text or a query first needs it and shared by every space worker.
 The stream carries one request at a time, shared through a one-slot
 semaphore with two classes: `EmbedDocs` sends one decode group per frame
 and re-takes the slot for every frame, and a search query takes the
@@ -938,22 +945,37 @@ not apply to the package. With `index.local.modelPath` nothing is
 downloaded and a package already in the models dir is used. The child
 checks the files against their checksums and compiles the package once
 into `<name>-<digest>.mlmodelc` beside it. Until the package is complete
-llama.cpp embeds everything, and the child looks for it again when a
-text arrives, at most every 30 s. The package's licence texts
+llama.cpp embeds everything, and the child looks for it again every
+30 s. The package's licence texts
 (`LICENSE`, `NOTICE` and the licence the notice refers to) follow it
 into `<name>-<digest>.licenses/`, pinned the same way; one that cannot
 be fetched is tried again at the next start and holds nothing back.
 
 **Function lifetime.** The smallest function loads first and stays for
-queries: when the child starts if the package is ready, else with the
-first text after it is. Any other loads in the
-background on the first text that needs it, and a timer releases it one
-minute after its last use; idle retirement of the child releases all of
+queries: when the child starts if the package is ready, else within
+30 s of it being there. Any other loads in the
+background on the first text that needs it, and a timer releases it five
+minutes after its last use; idle retirement of the child releases all of
 them. The first load of a function on a machine specializes it for the
 Neural Engine: about a minute per function on an M2, six for all five.
 After that a child's first load of a function takes two to three
 seconds and a reload under one. While a function loads, a larger loaded
 one serves its texts, else llama.cpp.
+
+**Bulk work waits for the first function.** Before a drain's first
+batch the server starts the child and waits for the path's first
+function, so a backlog does not run on llama.cpp while Core ML
+prepares. The drain's process row is announced before the wait. The
+wait ends when the child reports a function loaded, a failed load or
+the path off, when the child exits, or 10 min after the child's first
+waiter, for every waiter at once; a wait that ran into that bound ends
+every other one and is the last until the next boot. Nothing waits
+while the package is not on disk. A drain asks before every round that
+has work, and a child whose path has settled answers at once: a package
+that lands during a drain, or a child that replaces the one waited on,
+is waited for then. The child is not retired as idle meanwhile.
+Searches are not held: a query embeds on llama.cpp until the function
+is there.
 
 **Placement.** A machine that lists no Neural Engine never loads the
 package. Before a function first loads, the child reads Core ML's
