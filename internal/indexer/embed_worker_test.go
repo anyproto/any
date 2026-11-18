@@ -83,8 +83,21 @@ func runEmbedHelper(mode string) int {
 		Backends: []string{"CPU from libggml-cpu-test.so"},
 		Devices:  []string{"Test Device"},
 	}
+	// ANY_EMBED_WORKER_OFFLOADED is the layer count the model load
+	// reported on a GPU; unset = it said nothing.
+	if n, err := strconv.Atoi(os.Getenv("ANY_EMBED_WORKER_OFFLOADED")); err == nil {
+		hw.Offloaded = &n
+	}
 	if err := writeFrame(out, workerResp{Op: workerOpReady, Dim: helperDim, Hardware: hw}, nil); err != nil {
 		return 1
+	}
+	// ANY_EMBED_WORKER_ROUTES="<ane>,<llama>,<miss>" rides every document
+	// frame, as the real child's count of its texts per runtime.
+	var routes *workerRoutes
+	if parts := strings.Split(os.Getenv("ANY_EMBED_WORKER_ROUTES"), ","); len(parts) == 3 {
+		ane, _ := strconv.Atoi(parts[0])
+		llm, _ := strconv.Atoi(parts[1])
+		routes = &workerRoutes{ANE: ane, Llama: llm, Miss: parts[2]}
 	}
 	switch os.Getenv("ANY_EMBED_WORKER_ANE") {
 	case "":
@@ -165,7 +178,11 @@ func runEmbedHelper(mode string) int {
 		if err != nil {
 			return 1
 		}
-		if err := writeFrame(out, workerResp{Op: workerOpVectors, N: len(vecs), Dim: dim}, bin); err != nil {
+		resp := workerResp{Op: workerOpVectors, N: len(vecs), Dim: dim}
+		if req.Role != workerRoleQuery {
+			resp.Routes = routes
+		}
+		if err := writeFrame(out, resp, bin); err != nil {
 			return 1
 		}
 	}

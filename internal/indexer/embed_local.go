@@ -85,6 +85,9 @@ type Local struct {
 	// ane embeds the texts that fit a loaded Core ML function; nil =
 	// llama.cpp embeds everything.
 	ane *neuralEngine
+	// routes counts which runtime embedded the texts of the last
+	// EmbedTitledDocs call. Guarded by mu.
+	routes workerRoutes
 }
 
 // NewLocal resolves paths and kicks off the background model download
@@ -479,6 +482,7 @@ func (l *Local) embedANE(tokens []llama.Token) ([]float32, bool) {
 	}
 	vec, ok := l.ane.embed(ids)
 	if !ok {
+		l.routes.Miss = l.ane.lastMiss()
 		return nil, false
 	}
 	return l.finish(vec), true
@@ -596,6 +600,7 @@ func (l *Local) EmbedTitledDocs(ctx context.Context, titles, texts []string) ([]
 		tokenized[i] = l.tokenize(docPrompt(l.docPrefix, title) + t)
 		lens[i] = len(tokenized[i])
 	}
+	l.routes = workerRoutes{}
 	out := make([][]float32, 0, len(texts))
 	for start := 0; start < len(texts); {
 		if err := ctx.Err(); err != nil {
@@ -603,6 +608,7 @@ func (l *Local) EmbedTitledDocs(ctx context.Context, titles, texts []string) ([]
 		}
 		if vec, ok := l.embedANE(tokenized[start]); ok {
 			out = append(out, vec)
+			l.routes.ANE++
 			start++
 			continue
 		}
@@ -612,9 +618,18 @@ func (l *Local) EmbedTitledDocs(ctx context.Context, titles, texts []string) ([]
 			return nil, err
 		}
 		out = append(out, vecs...)
+		l.routes.Llama += end - start
 		start = end
 	}
 	return out, nil
+}
+
+// lastRoutes is which runtime embedded the texts of the last
+// EmbedTitledDocs call.
+func (l *Local) lastRoutes() workerRoutes {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.routes
 }
 
 func (l *Local) EmbedQuery(ctx context.Context, text string) ([]float32, error) {

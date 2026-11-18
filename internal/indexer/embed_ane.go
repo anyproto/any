@@ -108,6 +108,7 @@ type neuralEngine struct {
 	inflight int          // length the loader is loading; 0 = none
 	inUse    int          // length predicting now; 0 = none
 	loading  bool
+	miss     string      // why embed last left a text to llama.cpp (EmbedReason*)
 	release  *time.Timer // runs releaseTick; nil until a function can go idle
 	retry    *time.Timer // runs start again after a package that was not on disk
 	loads    sync.WaitGroup
@@ -148,6 +149,10 @@ func (n *neuralEngine) embed(tokens []int32) (vec []float32, ok bool) {
 		}
 	}
 	if n.off || len(tokens) == 0 || want == 0 {
+		n.miss = EmbedReasonTooLong
+		if n.off {
+			n.miss = EmbedReasonANEOff
+		}
 		n.mu.Unlock()
 		return nil, false
 	}
@@ -163,6 +168,10 @@ func (n *neuralEngine) embed(tokens []int32) (vec []float32, ok bool) {
 		n.requestLocked(want)
 	}
 	if fn == nil {
+		n.miss = EmbedReasonFunctionLoading
+		if n.failed[want] {
+			n.miss = EmbedReasonANEFailed
+		}
 		n.mu.Unlock()
 		return nil, false
 	}
@@ -190,10 +199,18 @@ func (n *neuralEngine) embed(tokens []int32) (vec []float32, ok bool) {
 			n.logf("s%d not used any more: %d failures in a row", use, aneMaxFailures)
 			n.offIfUselessLocked()
 		}
+		n.miss = EmbedReasonANEFailed
 		return nil, false
 	}
 	n.failures[use] = 0
 	return out, true
+}
+
+// lastMiss is why embed last answered ok = false.
+func (n *neuralEngine) lastMiss() string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.miss
 }
 
 // unitVector reports whether vec is finite with length 1, which every

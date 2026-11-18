@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -594,7 +595,7 @@ func TestWorkerEmbedder_PrepareBulkWaitsForTheFirstFunction(t *testing.T) {
 	const delay = 300 * time.Millisecond
 	w, h := aneWorker(t, append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=ready")...)
 	start := time.Now()
-	w.PrepareBulk(context.Background())
+	w.PrepareBulk(context.Background(), nil)
 	if waited := time.Since(start); waited < delay-50*time.Millisecond || waited > w.bulkWait/2 {
 		t.Fatalf("returned after %s, want the first function's %s", waited, delay)
 	}
@@ -603,7 +604,7 @@ func TestWorkerEmbedder_PrepareBulkWaitsForTheFirstFunction(t *testing.T) {
 	}
 	// Settled: nothing left to wait for.
 	start = time.Now()
-	w.PrepareBulk(context.Background())
+	w.PrepareBulk(context.Background(), nil)
 	if waited := time.Since(start); waited > delay/2 {
 		t.Fatalf("a settled child held bulk work for %s", waited)
 	}
@@ -620,7 +621,7 @@ func TestWorkerEmbedder_PrepareBulkWaitsForTheFirstFunction(t *testing.T) {
 func TestWorkerEmbedder_PrepareBulkWithoutNeuralEngine(t *testing.T) {
 	h := &helperSpawner{modes: []string{"ok"}}
 	w := newTestWorker(t, h, 0)
-	w.PrepareBulk(context.Background())
+	w.PrepareBulk(context.Background(), nil)
 	if h.spawns() != 0 {
 		t.Fatalf("no path: spawned %d children, want none", h.spawns())
 	}
@@ -628,7 +629,7 @@ func TestWorkerEmbedder_PrepareBulkWithoutNeuralEngine(t *testing.T) {
 	w, h = aneWorker(t, "ANY_EMBED_WORKER_ANE=1")
 	w.pkgOnDisk = func() bool { return false }
 	start := time.Now()
-	w.PrepareBulk(context.Background())
+	w.PrepareBulk(context.Background(), nil)
 	if waited := time.Since(start); waited > time.Second || h.spawns() != 0 || w.bulkWaited.Load() {
 		t.Fatalf("package not on disk: waited %s, spawned %d, deadline hit %v", waited, h.spawns(), w.bulkWaited.Load())
 	}
@@ -640,7 +641,7 @@ func TestWorkerEmbedder_PrepareBulkEndsOnAFailedPath(t *testing.T) {
 	for _, report := range []string{"off", "failed"} {
 		w, _ := aneWorker(t, "ANY_EMBED_WORKER_ANE="+report)
 		start := time.Now()
-		w.PrepareBulk(context.Background())
+		w.PrepareBulk(context.Background(), nil)
 		if waited := time.Since(start); waited > w.bulkWait/2 || w.bulkWaited.Load() {
 			t.Fatalf("%s: waited %s, deadline hit %v", report, waited, w.bulkWaited.Load())
 		}
@@ -653,12 +654,12 @@ func TestWorkerEmbedder_PrepareBulkTimesOutOnce(t *testing.T) {
 	w, h := aneWorker(t, "ANY_EMBED_WORKER_ANE=1")
 	w.bulkWait = 200 * time.Millisecond
 	start := time.Now()
-	w.PrepareBulk(context.Background())
+	w.PrepareBulk(context.Background(), nil)
 	if waited := time.Since(start); waited < w.bulkWait || !w.bulkWaited.Load() {
 		t.Fatalf("returned after %s, deadline hit %v", waited, w.bulkWaited.Load())
 	}
 	start = time.Now()
-	w.PrepareBulk(context.Background())
+	w.PrepareBulk(context.Background(), nil)
 	if waited := time.Since(start); waited > w.bulkWait/2 {
 		t.Fatalf("waited %s a second time", waited)
 	}
@@ -678,14 +679,14 @@ func TestWorkerEmbedder_PrepareBulkSharesOneDeadline(t *testing.T) {
 	first := make(chan time.Duration, 1)
 	start := time.Now()
 	go func() {
-		w.PrepareBulk(context.Background())
+		w.PrepareBulk(context.Background(), nil)
 		first <- time.Since(start)
 	}()
 	waitLive(t, w)
 	waitReady(t, w)
 	time.Sleep(w.bulkWait / 2)
 	joined := time.Now()
-	w.PrepareBulk(context.Background())
+	w.PrepareBulk(context.Background(), nil)
 	late := time.Since(joined)
 	if late >= w.bulkWait {
 		t.Fatalf("the late caller waited %s, a deadline of its own", late)
@@ -706,7 +707,7 @@ func TestWorkerEmbedder_PrepareBulkEndsWithTheChild(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		w.PrepareBulk(context.Background())
+		w.PrepareBulk(context.Background(), nil)
 	}()
 	waitLive(t, w)
 	waitReady(t, w)
@@ -736,7 +737,7 @@ func TestWorkerEmbedder_PrepareBulkLeavesWithItsContext(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		w.PrepareBulk(ctx)
+		w.PrepareBulk(ctx, nil)
 	}()
 	waitLive(t, w)
 	waitReady(t, w)
@@ -775,12 +776,100 @@ func TestWorkerEmbedder_PrepareBulkHoldsOffIdleRetirement(t *testing.T) {
 	w, h := aneWorker(t, append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=ready")...)
 	w.idleTimeout = 50 * time.Millisecond
 	start := time.Now()
-	w.PrepareBulk(context.Background())
+	w.PrepareBulk(context.Background(), nil)
 	if waited := time.Since(start); waited < delay-50*time.Millisecond || w.bulkWaited.Load() {
 		t.Fatalf("returned after %s, deadline hit %v: the child was retired under the wait", waited, w.bulkWaited.Load())
 	}
 	if h.spawns() != 1 {
 		t.Fatalf("spawned %d children, want 1", h.spawns())
+	}
+}
+
+// A batch's route comes from what the child counted in its frames, and
+// from the runtime llama.cpp has in that child.
+func TestWorkerEmbedder_EmbedDocsRouted(t *testing.T) {
+	ctx := context.Background()
+	embed := func(w *workerEmbedder) EmbedRoute {
+		t.Helper()
+		vecs, rt, err := w.EmbedDocsRouted(ctx, nil, []string{"a", "b", "c"})
+		if err != nil || len(vecs) != 3 {
+			t.Fatalf("EmbedDocsRouted: %d vectors, %v", len(vecs), err)
+		}
+		return rt
+	}
+	is := func(rt EmbedRoute, reason string, backends ...string) bool {
+		return rt.Reason == reason && slices.Equal(rt.Backends, backends)
+	}
+
+	// Every text on the Neural Engine: no llama.cpp runtime, no reason.
+	w, _ := aneWorker(t, "ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_ROUTES=1,0,")
+	if rt := embed(w); !is(rt, "", EmbedBackendANE) {
+		t.Errorf("all on the neural engine: %+v", rt)
+	}
+
+	// A mixed batch on a child that reported offloaded layers. A search
+	// in between changes nothing.
+	h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_ROUTES=1,2," + EmbedReasonFunctionLoading, "ANY_EMBED_WORKER_OFFLOADED=25"}}
+	w = newTestWorker(t, h, -1)
+	w.mu.Lock()
+	w.spec.coremlDir = "/models/eg2.mlpackage"
+	w.mu.Unlock()
+	if _, err := w.EmbedQuery(ctx, "q"); err != nil {
+		t.Fatal(err)
+	}
+	if rt := embed(w); !is(rt, EmbedReasonFunctionLoading, EmbedBackendANE, EmbedBackendGPU) {
+		t.Errorf("mixed batch: %+v", rt)
+	}
+	// Once bulk work gave up waiting, a function still loading is that.
+	w.bulkWaited.Store(true)
+	if rt := embed(w); !is(rt, EmbedReasonReadinessTimeout, EmbedBackendANE, EmbedBackendGPU) {
+		t.Errorf("after the readiness timeout: %+v", rt)
+	}
+
+	// Offload asked for, and the model load said nothing about it.
+	h = &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ROUTES=0,1,"}}
+	w = newTestWorker(t, h, -1)
+	if rt := embed(w); !is(rt, "", EmbedBackendLlama) {
+		t.Errorf("offload not established: %+v", rt)
+	}
+
+	// Offload asked for, none reported: the CPU, and no reason to give.
+	h = &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ROUTES=0,1,", "ANY_EMBED_WORKER_OFFLOADED=0"}}
+	w = newTestWorker(t, h, -1)
+	if rt := embed(w); !is(rt, "", EmbedBackendCPU) {
+		t.Errorf("nothing offloaded: %+v", rt)
+	}
+
+	// The GPU off by configuration.
+	h = &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ROUTES=0,1,"}}
+	w = newTestWorker(t, h, 0)
+	if rt := embed(w); !is(rt, EmbedReasonGPUDisabled, EmbedBackendCPU) {
+		t.Errorf("gpu off by configuration: %+v", rt)
+	}
+
+	// The GPU demoted after a death.
+	h = &helperSpawner{modes: []string{"crash", "ok"}, env: []string{"ANY_EMBED_WORKER_ROUTES=0,1,", "ANY_EMBED_WORKER_OFFLOADED=25"}}
+	w = newTestWorker(t, h, -1)
+	if _, err := w.EmbedDocs(ctx, []string{"boom"}); err == nil {
+		t.Fatal("want error")
+	}
+	clearBackoff(w)
+	if rt := embed(w); !is(rt, EmbedReasonGPUFailed, EmbedBackendCPU) {
+		t.Errorf("gpu demoted: %+v", rt)
+	}
+
+	// The Neural Engine demoted after a death: llama.cpp alone, and why.
+	h = &helperSpawner{modes: []string{"crash", "ok"}, env: []string{"ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_ROUTES=0,1,", "ANY_EMBED_WORKER_OFFLOADED=25"}}
+	w = newTestWorker(t, h, -1)
+	w.mu.Lock()
+	w.spec.coremlDir = "/models/eg2.mlpackage"
+	w.mu.Unlock()
+	if _, err := w.EmbedDocs(ctx, []string{"boom"}); err == nil {
+		t.Fatal("want error")
+	}
+	clearBackoff(w)
+	if rt := embed(w); !is(rt, EmbedReasonANEOff, EmbedBackendGPU) {
+		t.Errorf("neural engine demoted: %+v", rt)
 	}
 }
 

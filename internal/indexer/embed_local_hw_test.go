@@ -28,3 +28,21 @@ func TestForwardLlamaError(t *testing.T) {
 		}
 	}
 }
+
+func TestOffloadedLayers(t *testing.T) {
+	for line, want := range map[string]int{
+		"load_tensors: offloaded 25/25 layers to GPU":         25,
+		"load_tensors: offloaded 0/25 layers to GPU":          0,
+		"load_tensors: offloading 24 repeating layers to GPU": -1,
+		"load_tensors: offloading output layer to GPU":        -1,
+		"ggml_metal_init: found device: Apple M2":             -1,
+	} {
+		n, ok := offloadedLayers(line)
+		if !ok {
+			n = -1
+		}
+		if n != want {
+			t.Errorf("offloadedLayers(%q) = %d, want %d", line, n, want)
+		}
+	}
+}

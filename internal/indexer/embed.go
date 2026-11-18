@@ -35,6 +35,60 @@ type Embedder interface {
 	Dim(ctx context.Context) (int, error)
 }
 
+// EmbedStatus is what an embed drain reports beside its counters
+// (docs/22-processes.md § Internal producers).
+type EmbedStatus struct {
+	Phase string // EmbedPhase*
+	// Backends are the runtimes that embedded the last batch the
+	// embedder returned (EmbedBackend*); nil before the first one, and
+	// when the embedder does not say.
+	Backends []string
+	// Reason is one cause for texts of that batch running off the
+	// fastest runtime (EmbedReason*); "" when none did.
+	Reason string
+}
+
+const (
+	EmbedPhaseWaiting   = "waiting"   // the start delay runs
+	EmbedPhasePreparing = "preparing" // the embedder readies a runtime
+	EmbedPhaseEmbedding = "embedding"
+
+	EmbedBackendANE    = "ane"    // Core ML on the Neural Engine
+	EmbedBackendGPU    = "gpu"    // llama.cpp that reported layers offloaded to a GPU
+	EmbedBackendCPU    = "cpu"    // llama.cpp without offload
+	EmbedBackendLlama  = "llama"  // llama.cpp, offload asked for and not established
+	EmbedBackendRemote = "remote" // an HTTP embedder
+
+	EmbedReasonFunctionLoading  = "function_loading"  // the Neural Engine function for the text's length was not loaded
+	EmbedReasonTooLong          = "too_long"          // longer than every function
+	EmbedReasonANEFailed        = "ane_failed"        // a function failed to load or to predict
+	EmbedReasonANEOff           = "ane_off"           // the Neural Engine path is off for this run
+	EmbedReasonReadinessTimeout = "readiness_timeout" // bulk work stopped waiting for the first function
+	EmbedReasonGPUFailed        = "gpu_failed"        // GPU offload was demoted after a child died
+	EmbedReasonGPUDisabled      = "gpu_disabled"      // index.local.gpuLayers is 0
+)
+
+// EmbedRoute is which runtimes embedded one batch, and why not the
+// fastest one.
+type EmbedRoute struct {
+	Backends []string
+	Reason   string
+}
+
+// RoutedEmbedder is an Embedder that knows which runtimes embedded a
+// batch. titles is nil when documents embed without their names.
+type RoutedEmbedder interface {
+	EmbedDocsRouted(ctx context.Context, titles, texts []string) ([][]float32, EmbedRoute, error)
+}
+
+// embedBackends is the runtime of an embedder that has only one.
+func embedBackends(e Embedder) []string {
+	if b, ok := e.(interface{ EmbedBackend() string }); ok {
+		return []string{b.EmbedBackend()}
+	}
+	return nil
+}
+
 // StampedEmbedder names the vector space it embeds into, so an index
 // built by another one is rebuilt instead of mixing vectors.
 type StampedEmbedder interface {
@@ -109,11 +163,14 @@ func docPrompt(prefix, title string) string {
 // the server in the `ready` frame, which logs it and keeps it — the
 // input for correlating speed and crashes with hardware later.
 type Hardware struct {
-	OS         string   `json:"os"`
-	Arch       string   `json:"arch"`
-	CPUs       int      `json:"cpus"`
-	Threads    int      `json:"threads"`
-	GpuLayers  int      `json:"gpuLayers"`
+	OS        string `json:"os"`
+	Arch      string `json:"arch"`
+	CPUs      int    `json:"cpus"`
+	Threads   int    `json:"threads"`
+	GpuLayers int    `json:"gpuLayers"`
+	// Offloaded is how many layers llama.cpp reported on a GPU when it
+	// loaded the model; nil = it did not say.
+	Offloaded  *int     `json:"offloaded,omitempty"`
 	LibDir     string   `json:"libDir,omitempty"`
 	LibVersion string   `json:"libVersion,omitempty"` // llama.cpp release + platform, from the libs' VERSION stamp
 	Backends   []string `json:"backends,omitempty"`   // "Vulkan from libggml-vulkan.so"

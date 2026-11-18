@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -111,6 +112,48 @@ func TestProcessRegistry_SanitizesData(t *testing.T) {
 	}
 	if len(p.Title) > processTitleMaxLen || !utf8.ValidString(p.Title) || p.Title == "" {
 		t.Errorf("title not clipped rune-safely: %d bytes, valid=%v", len(p.Title), utf8.ValidString(p.Title))
+	}
+}
+
+// The embedder's state on an index.embed row: each frame's object
+// replaces the row's, so backends a later frame leaves out are gone; a
+// frame without the object keeps it; the row's end drops it; and what is
+// outside the vocabulary never enters the view.
+func TestProcessRegistry_Embedding(t *testing.T) {
+	r, _ := testRegistry()
+	frame := func(typ string, emb *api.ProcessEmbedding) {
+		r.apply(procEvent(typ, "a", "index.embed.sp", false,
+			processEventData{Kind: "index.embed", Title: "t", Done: 1, Embedding: emb}))
+	}
+	row := func() *api.ProcessEmbedding { return r.list()[0].Embedding }
+
+	frame(api.EventProcessStarted, &api.ProcessEmbedding{Phase: "waiting"})
+	if e := row(); e == nil || e.Phase != "waiting" || e.Backends != nil {
+		t.Fatalf("started: %+v", e)
+	}
+	frame(api.EventProcessProgress, &api.ProcessEmbedding{Phase: "embedding", Backends: []string{"cpu", "ane", "cpu"}, Reason: "function_loading"})
+	if e := row(); e == nil || e.Phase != "embedding" || !slices.Equal(e.Backends, []string{"ane", "cpu"}) || e.Reason != "function_loading" {
+		t.Fatalf("a mixed batch: %+v", e)
+	}
+	frame(api.EventProcessProgress, nil) // a partial frame keeps the state
+	if e := row(); e == nil || len(e.Backends) != 2 {
+		t.Fatalf("a frame without the object: %+v", e)
+	}
+	frame(api.EventProcessProgress, &api.ProcessEmbedding{Phase: "preparing"})
+	if e := row(); e == nil || e.Phase != "preparing" || e.Backends != nil || e.Reason != "" {
+		t.Fatalf("a later frame without backends kept them: %+v", e)
+	}
+	frame(api.EventProcessProgress, &api.ProcessEmbedding{Phase: "embedding", Backends: []string{"quantum", "gpu"}, Reason: "<script>"})
+	if e := row(); e == nil || !slices.Equal(e.Backends, []string{"gpu"}) || e.Reason != "" {
+		t.Fatalf("values outside the vocabulary: %+v", e)
+	}
+	frame(api.EventProcessProgress, &api.ProcessEmbedding{Phase: "dreaming", Backends: []string{"gpu"}})
+	if e := row(); e == nil || e.Phase != "embedding" {
+		t.Fatalf("an unknown phase replaced the state: %+v", e)
+	}
+	frame(api.EventProcessDone, &api.ProcessEmbedding{Phase: "embedding", Backends: []string{"gpu"}})
+	if e := row(); e != nil {
+		t.Fatalf("a finished row kept it: %+v", e)
 	}
 }
 

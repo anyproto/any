@@ -271,24 +271,107 @@ func (w *workerEmbedder) EmbedsTitles() bool {
 }
 
 func (w *workerEmbedder) EmbedTitledDocs(ctx context.Context, titles, texts []string) ([][]float32, error) {
+	vecs, _, err := w.EmbedDocsRouted(ctx, titles, texts)
+	return vecs, err
+}
+
+// EmbedDocsRouted is EmbedTitledDocs that also says which runtimes
+// embedded the batch: the child counts its texts per runtime in every
+// frame.
+func (w *workerEmbedder) EmbedDocsRouted(ctx context.Context, titles, texts []string) ([][]float32, EmbedRoute, error) {
 	if len(texts) == 0 {
-		return nil, nil
+		return nil, EmbedRoute{}, nil
 	}
 	group := max(w.childSpec().batchDocs, 1)
 	out := make([][]float32, 0, len(texts))
+	var tally routeTally
 	for start := 0; start < len(texts); start += group {
 		end := min(start+group, len(texts))
 		var frameTitles []string
 		if len(titles) == len(texts) {
 			frameTitles = titles[start:end]
 		}
-		vecs, err := w.embed(ctx, workerRoleDoc, frameTitles, texts[start:end])
-		out = append(out, vecs...)
-		if err != nil {
-			return out, err
+		r := w.run(ctx, workerReq{Op: workerOpEmbed, Role: workerRoleDoc, Texts: texts[start:end], Titles: frameTitles})
+		out = append(out, r.vecs...)
+		tally.add(r)
+		if r.err != nil {
+			return out, w.route(tally), r.err
 		}
 	}
-	return out, nil
+	return out, w.route(tally), nil
+}
+
+// routeTally sums what the child said about the frames of one batch.
+type routeTally struct {
+	ane   int
+	llama map[string]int // per EmbedBackend* of the child that served the frame
+	miss  string
+}
+
+func (t *routeTally) add(r frameResult) {
+	rt := r.routes
+	if rt == nil {
+		return
+	}
+	t.ane += rt.ANE
+	if rt.Llama > 0 {
+		if t.llama == nil {
+			t.llama = map[string]int{}
+		}
+		t.llama[r.llama] += rt.Llama
+	}
+	if rt.Miss != "" {
+		t.miss = rt.Miss
+	}
+}
+
+// llamaBackend names the runtime llama.cpp embeds on in a child: the
+// GPU only when the model load reported layers there.
+func llamaBackend(spec localSpec, hw *Hardware) string {
+	switch {
+	case spec.gpuLayers == 0:
+		return EmbedBackendCPU
+	case hw == nil || hw.Offloaded == nil:
+		return EmbedBackendLlama
+	case *hw.Offloaded > 0:
+		return EmbedBackendGPU
+	}
+	return EmbedBackendCPU
+}
+
+// route names the runtimes behind a batch's tally, and one reason for
+// texts off the fastest of them: the Neural Engine's when that path is
+// planned (the last text that missed it), else the GPU's.
+func (w *workerEmbedder) route(t routeTally) EmbedRoute {
+	var rt EmbedRoute
+	if t.ane > 0 {
+		rt.Backends = append(rt.Backends, EmbedBackendANE)
+	}
+	for _, b := range []string{EmbedBackendGPU, EmbedBackendCPU, EmbedBackendLlama} {
+		if t.llama[b] > 0 {
+			rt.Backends = append(rt.Backends, b)
+		}
+	}
+	if len(t.llama) == 0 {
+		return rt
+	}
+	w.mu.Lock()
+	planned, aneOff := w.spec.coremlDir != "", w.coremlDisabled
+	gpuFailed, gpuDisabled := w.gpuDisabled, w.spec.gpuLayers == 0
+	w.mu.Unlock()
+	switch {
+	case planned && aneOff:
+		rt.Reason = EmbedReasonANEOff
+	case planned && t.miss == EmbedReasonFunctionLoading && w.bulkWaited.Load():
+		rt.Reason = EmbedReasonReadinessTimeout
+	case planned && t.miss != "":
+		rt.Reason = t.miss
+	case gpuFailed:
+		rt.Reason = EmbedReasonGPUFailed
+	case gpuDisabled:
+		rt.Reason = EmbedReasonGPUDisabled
+	}
+	return rt
 }
 
 func (w *workerEmbedder) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
@@ -401,6 +484,10 @@ type frameResult struct {
 	vecs [][]float32
 	dim  int
 	err  error
+	// routes is what the child said about a document frame; llama, the
+	// runtime llama.cpp embeds on in that child (EmbedBackend*).
+	routes *workerRoutes
+	llama  string
 }
 
 // run performs one frame on the child, taking the slot for the
@@ -469,7 +556,7 @@ func (w *workerEmbedder) serve(ctx context.Context, req workerReq) frameResult {
 		return frameResult{err: fmt.Errorf("%w: %v", ErrEmbedderUnavailable, err)}
 	}
 	w.backoff = 0
-	return frameResult{vecs: vecs}
+	return frameResult{vecs: vecs, routes: hdr.Routes, llama: w.child.llama}
 }
 
 // roundTrip writes one request and waits for its response. Every
@@ -604,6 +691,7 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 				errText(m.err), handshakeText(ok, m.hdr), c.stderr.String(), errText(waitErr), "no output"))
 		}
 		c.dim = m.hdr.Dim
+		c.llama = llamaBackend(spec, m.hdr.Hardware)
 		if m.hdr.Hardware != nil {
 			w.mu.Lock()
 			w.hw = *m.hdr.Hardware
@@ -692,14 +780,15 @@ func (w *workerEmbedder) failChild(cause error) {
 
 // PrepareBulk holds bulk work back until the Neural Engine path has its
 // first function, so a backlog does not run on llama.cpp while Core ML
-// prepares. It starts the child and returns when the child reports a
+// prepares; waiting, when set, is called once it does wait. It starts
+// the child and returns when the child reports a
 // function loaded, a failed load or the path off, when the child exits,
 // when ctx ends, or at the child's deadline: bulkWait after its first
 // waiter, the same for all of them. A wait that ran into the deadline
 // is the last one. Nothing waits without a Neural Engine path, or while
 // its package is not on disk. The slot is free meanwhile: searches are
 // served.
-func (w *workerEmbedder) PrepareBulk(ctx context.Context) {
+func (w *workerEmbedder) PrepareBulk(ctx context.Context, waiting func()) {
 	if w.childSpec().coremlDir == "" || w.closing.Load() || w.bulkWaited.Load() {
 		return
 	}
@@ -732,6 +821,9 @@ func (w *workerEmbedder) PrepareBulk(ctx context.Context) {
 	select {
 	case <-c.settled:
 	default:
+		if waiting != nil {
+			waiting()
+		}
 		select {
 		case <-c.settled:
 		case <-c.errDone: // the child exited
@@ -901,6 +993,7 @@ type embedChild struct {
 	errDone chan struct{}
 	spec    localSpec // what it was spawned with; a drifted spec retires it
 	dim     int
+	llama   string // the runtime llama.cpp embeds on in it (EmbedBackend*)
 	// coreml: by the child's last report on its Neural Engine path,
 	// Core ML is in use in it.
 	coreml atomic.Bool

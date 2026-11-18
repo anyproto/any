@@ -109,11 +109,21 @@ The server reports its own long work through the same view, all at device scope:
 
 | Process id | `kind` | Counters |
 |---|---|---|
-| `index.embed.<spaceId>` | `index.embed` | `done` / `total` in documents; the total is re-read every round so late arrivals extend the bar |
+| `index.embed.<spaceId>` | `index.embed` | `done` / `total` in documents; the total is re-read every round so late arrivals extend the bar. While it runs the row has `embedding` (below) |
 | `index.fts.<spaceId>` | `index.fts` | `done` in processed changes; `total` unknown |
 | `index.fts_upgrade.<spaceId>` | `index.fts_upgrade` | none — the space's full-text index rewritten in place on its first open after a layout change, announced past 3 s; index writes wait while it runs and a search on that space answers `503 index.not_ready` |
 | `index.model_download` | `index.model_download` | `done` / `total` in bytes; announces at download start, even offline |
 | `dataset.index.<spaceId>` | `dataset.index` | none — announced when the build starts, one terminal; `target` is the dataset's storage collection |
+
+A running `index.embed` row and its `process.started` / `process.progress` frames carry `embedding`:
+
+| Field | Values |
+|---|---|
+| `phase` | `waiting` while `index.embedStartDelay` runs with texts pending; `preparing` while the drain waits for the Neural Engine's first function; `embedding` |
+| `backends` | where the model ran for the last batch the embedder returned: `ane` (Neural Engine), `gpu` (llama.cpp that reported layers offloaded), `cpu` (llama.cpp without offload), `llama` (llama.cpp, offload asked for and not established), `remote` (`openai`, `ollama`). Several entries are a mixed batch. Absent before the first batch |
+| `reason` | one cause for texts of that batch running off the fastest runtime: `function_loading`, `too_long`, `ane_failed`, `ane_off`, `readiness_timeout`, `gpu_failed`, `gpu_disabled`. Absent when none did |
+
+Each frame replaces the object, and the row's end drops it. Reading the view starts no worker.
 
 A failed download attempt is not terminal — it retries, keeping the row `running` with a generic message. The terminals are `done`, `cancelled` on shutdown, and `failed` when the source twice serves a whole file that fails its checksum: that download is not tried again until the next start. The files of a model's Core ML package follow the model on the same process, one at a time. While another server under the same data dir downloads the model, the row stays `running` with the message `waiting for another process's download` and no byte counters; its `done` frame carries the installed file's size in both counters, though this server transferred nothing. A worker stopped mid-drain finishes as `cancelled` rather than leaving a ghost. Failure messages are generic on the wire (details go to the server log), and the `index.*` producers ignore cancel requests. This is how a client answers "why is semantic search empty right now" — see [Indexing](../search/indexing.html).
 

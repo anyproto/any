@@ -23,21 +23,41 @@ package api
 // StartedAt/UpdatedAt are unix seconds of local observation — this
 // device's clock, not the owner's. Display/expiry quality only.
 type Process struct {
-	Identity  string        `json:"identity"`
-	Self      bool          `json:"self"`
-	Id        string        `json:"id"`
-	Kind      string        `json:"kind"`
-	Title     string        `json:"title"`
-	Scope     string        `json:"scope"`
-	SpaceId   string        `json:"spaceId,omitempty"`
-	Target    string        `json:"target,omitempty"`
-	State     string        `json:"state"`
-	Done      int64         `json:"done"`
-	Total     int64         `json:"total,omitempty"`
-	Message   string        `json:"message,omitempty"`
-	Error     *ProcessError `json:"error,omitempty"`
-	StartedAt int64         `json:"startedAt"`
-	UpdatedAt int64         `json:"updatedAt"`
+	Identity string        `json:"identity"`
+	Self     bool          `json:"self"`
+	Id       string        `json:"id"`
+	Kind     string        `json:"kind"`
+	Title    string        `json:"title"`
+	Scope    string        `json:"scope"`
+	SpaceId  string        `json:"spaceId,omitempty"`
+	Target   string        `json:"target,omitempty"`
+	State    string        `json:"state"`
+	Done     int64         `json:"done"`
+	Total    int64         `json:"total,omitempty"`
+	Message  string        `json:"message,omitempty"`
+	Error    *ProcessError `json:"error,omitempty"`
+	// Embedding is set on a running `index.embed` process.
+	Embedding *ProcessEmbedding `json:"embedding,omitempty"`
+	StartedAt int64             `json:"startedAt"`
+	UpdatedAt int64             `json:"updatedAt"`
+}
+
+// ProcessEmbedding is the embedder's state on an `index.embed` process:
+// what the drain is doing, and which runtimes embedded its last batch.
+type ProcessEmbedding struct {
+	// Phase is `waiting` (the start delay runs), `preparing` (the
+	// embedder readies a runtime) or `embedding`.
+	Phase string `json:"phase"`
+	// Backends embedded the texts of the last batch the embedder
+	// returned: `ane`, `gpu`, `cpu`, `llama`, `remote`. More than one
+	// is a mixed batch. Absent before the first batch, and when the
+	// embedder does not say.
+	Backends []string `json:"backends,omitempty"`
+	// Reason is one cause for texts of that batch running off the
+	// fastest runtime: `function_loading`, `too_long`, `ane_failed`,
+	// `ane_off`, `readiness_timeout`, `gpu_failed`, `gpu_disabled`.
+	// Absent when none did.
+	Reason string `json:"reason,omitempty"`
 }
 
 // ProcessError is the terminal failure payload of a process — carried

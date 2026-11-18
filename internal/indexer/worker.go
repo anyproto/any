@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -281,8 +282,8 @@ func (w *spaceWorker) runAdvance() {
 }
 
 // embedLoop drains pending docs on nudges from advance and on the
-// periodic tick (which also retries after embedder failures). It starts
-// Options.EmbedStartDelay after the indexer did.
+// periodic tick (which also retries after embedder failures). A drain
+// that finds work before Options.EmbedStartDelay has passed waits for it.
 func (w *spaceWorker) embedLoop() {
 	defer w.ix.wg.Done()
 	drain := func() {
@@ -290,13 +291,9 @@ func (w *spaceWorker) embedLoop() {
 			w.ix.lg.Warn("embed pending failed, will retry on tick", zap.String("spaceId", w.sp.Id()), zap.Error(err))
 		}
 	}
-	if wait := time.Until(w.ix.embedFrom); wait > 0 {
-		select {
-		case <-w.ctx.Done():
-			return
-		case <-time.After(wait):
-		}
-		// Nothing nudges the loop for what the previous run left pending.
+	// Nothing nudges the loop for what the previous run left pending. A
+	// drain waits out the start delay itself.
+	if time.Until(w.ix.embedFrom) > 0 {
 		drain()
 	}
 	ticker := time.NewTicker(w.ix.opts.PendingEvery)
@@ -821,7 +818,7 @@ func (w *spaceWorker) drainPending(ctx context.Context) error {
 			rep.progress(embedded, embedded+int64(remaining), "")
 		}
 		rep.begin()
-	})
+	}, rep.embedding)
 	rep.finish(ctx, err)
 	return err
 }
@@ -836,16 +833,24 @@ func (w *spaceWorker) drainPending(ctx context.Context) error {
 // round found work (before embedding; remaining = pending count, -1
 // when the count read failed) and with (landed, -1) after each batch
 // that landed vectors.
-func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, remaining int)) error {
+func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, remaining int), status func(EmbedStatus)) error {
 	spaceId := w.sp.Id()
 	batch := w.ix.opts.EmbedBatch
 	conc := w.ix.opts.EmbedConcurrency
-	prepared := false
+	emb := w.ix.opts.Embedder
+	// report tells the process row what the drain does, on change.
+	var last *EmbedStatus
+	report := func(st EmbedStatus) {
+		if status == nil || (last != nil && last.Phase == st.Phase && last.Reason == st.Reason && slices.Equal(last.Backends, st.Backends)) {
+			return
+		}
+		last = &st
+		status(st)
+	}
+	started, counted := false, false
 	for {
-		if p, ok := w.ix.opts.Embedder.(interface{ PrepareBulk(context.Context) }); ok && !prepared {
-			// An embedder that readies a faster runtime in the background
-			// gets to finish that first (workerEmbedder.PrepareBulk). The
-			// backlog is announced before the wait and read after it.
+		if !started {
+			// The backlog is announced before any wait and read after it.
 			n, err := w.ix.store.PendingCount(ctx, spaceId)
 			if err != nil {
 				return err
@@ -853,12 +858,33 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 			if n == 0 {
 				return nil
 			}
-			progress(0, n)
-			p.PrepareBulk(ctx)
-			prepared = true
-			if err := ctx.Err(); err != nil {
-				return err
+			embedding := EmbedStatus{Phase: EmbedPhaseEmbedding}
+			wait := time.Until(w.ix.embedFrom)
+			if wait > 0 {
+				report(EmbedStatus{Phase: EmbedPhaseWaiting})
+			} else {
+				report(embedding)
 			}
+			progress(0, n) // the started frame carries the phase
+			if wait > 0 {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(wait):
+				}
+			}
+			// An embedder that readies a faster runtime in the background
+			// gets to finish that first (workerEmbedder.PrepareBulk).
+			if p, ok := emb.(interface {
+				PrepareBulk(ctx context.Context, waiting func())
+			}); ok {
+				p.PrepareBulk(ctx, func() { report(EmbedStatus{Phase: EmbedPhasePreparing}) })
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+			}
+			report(embedding)
+			started, counted = true, true
 		}
 		ids, texts, err := w.ix.store.Pending(ctx, spaceId, batch*conc)
 		if err != nil {
@@ -871,11 +897,15 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 		if err != nil {
 			return err
 		}
-		remaining, cerr := w.ix.store.PendingCount(ctx, spaceId)
-		if cerr != nil {
-			remaining = -1 // progress keeps the last known total
+		// The first round's count is the one the drain started with.
+		if !counted {
+			remaining, cerr := w.ix.store.PendingCount(ctx, spaceId)
+			if cerr != nil {
+				remaining = -1 // progress keeps the last known total
+			}
+			progress(0, remaining)
 		}
-		progress(0, remaining)
+		counted = false
 
 		// Split the page into batch-sized chunks, embed concurrently.
 		type chunk struct {
@@ -883,6 +913,7 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 			texts  []string
 			titles []string // nil unless documents embed under their names
 			vecs   [][]float32
+			route  EmbedRoute
 			err    error
 		}
 		var chunks []*chunk
@@ -902,10 +933,15 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 			go func(c *chunk) {
 				defer wg.Done()
 				defer func() { <-sem }()
-				if te, ok := w.ix.opts.Embedder.(TitleEmbedder); ok && c.titles != nil {
-					c.vecs, c.err = te.EmbedTitledDocs(ctx, c.titles, c.texts)
+				if re, ok := emb.(RoutedEmbedder); ok {
+					c.vecs, c.route, c.err = re.EmbedDocsRouted(ctx, c.titles, c.texts)
 				} else {
-					c.vecs, c.err = w.ix.opts.Embedder.EmbedDocs(ctx, c.texts)
+					if te, ok := emb.(TitleEmbedder); ok && c.titles != nil {
+						c.vecs, c.err = te.EmbedTitledDocs(ctx, c.titles, c.texts)
+					} else {
+						c.vecs, c.err = emb.EmbedDocs(ctx, c.texts)
+					}
+					c.route.Backends = embedBackends(emb)
 				}
 			}(c)
 		}
@@ -928,6 +964,8 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 		landed := false
 		for _, c := range chunks {
 			if n := len(c.vecs); n > 0 {
+				// What the embedder computed, whether or not it lands.
+				report(EmbedStatus{Phase: EmbedPhaseEmbedding, Backends: c.route.Backends, Reason: c.route.Reason})
 				var titles []string
 				if c.titles != nil {
 					titles = c.titles[:n]

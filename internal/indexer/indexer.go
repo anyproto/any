@@ -186,6 +186,9 @@ type ProcessUpdate struct {
 	Done    int64
 	Total   int64 // 0 = unknown
 	Message string
+	// Embedding is the embed drain's status on its started and progress
+	// frames; nil on every other frame.
+	Embedding *EmbedStatus
 }
 
 func (o Options) withDefaults() Options {

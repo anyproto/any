@@ -84,6 +84,9 @@ func (c *Ollama) embed(ctx context.Context, inputs []string) ([][]float32, error
 	return out.Embeddings, nil
 }
 
+// EmbedBackend: the texts embed on the server behind the URL.
+func (c *Ollama) EmbedBackend() string { return EmbedBackendRemote }
+
 func (c *Ollama) EmbedDocs(ctx context.Context, texts []string) ([][]float32, error) {
 	return c.embed(ctx, withPrompt(c.DocPrompt, texts))
 }

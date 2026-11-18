@@ -31,6 +31,7 @@ type procReporter struct {
 	done      int64
 	total     int64
 	message   string
+	embed     *EmbedStatus // the embed drain's status; nil elsewhere
 
 	stopTick chan struct{}
 	tickDone chan struct{}
@@ -82,6 +83,27 @@ func (r *procReporter) progress(done, total int64, msg string) {
 		r.total = total
 	}
 	r.message = msg
+	wasAnnounced := r.announced
+	if !r.tryAnnounceLocked() || !wasAnnounced {
+		return
+	}
+	r.lastFrame = time.Now()
+	r.emit(r.frameLocked(ProcessProgress, r.message))
+}
+
+// embedding records the embed drain's status and emits a progress frame
+// with it once announced; every later started or progress frame carries
+// it too.
+func (r *procReporter) embedding(st EmbedStatus) {
+	if r == nil || r.emit == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.finished {
+		return
+	}
+	r.embed = &st
 	wasAnnounced := r.announced
 	if !r.tryAnnounceLocked() || !wasAnnounced {
 		return
@@ -172,5 +194,9 @@ func (r *procReporter) frameLocked(phase, msg string) ProcessUpdate {
 	u.Phase = phase
 	u.Done, u.Total = r.done, r.total
 	u.Message = msg
+	if r.embed != nil && (phase == ProcessStarted || phase == ProcessProgress) {
+		st := *r.embed
+		u.Embedding = &st
+	}
 	return u
 }

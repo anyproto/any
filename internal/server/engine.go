@@ -679,6 +679,9 @@ func (d *deps) indexerProcessFor(eng *engine) func(indexer.ProcessUpdate) {
 			return
 		}
 		data.Done, data.Total = u.Done, u.Total
+		if st := u.Embedding; st != nil {
+			data.Embedding = &api.ProcessEmbedding{Phase: st.Phase, Backends: st.Backends, Reason: st.Reason}
+		}
 		// Non-failed messages are producer-authored status lines (e.g. the
 		// download's generic "retrying" note) and safe to relay; a failed
 		// frame's message is the raw error — paths and response bodies —

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"unsafe"
@@ -23,6 +24,24 @@ import (
 var llamaLog struct {
 	sync.Mutex
 	lines []string
+	// offloaded is the layer count of the model load's "offloaded N/M
+	// layers to GPU" line; nil until one was logged.
+	offloaded *int
+}
+
+// offloadedLayers reads N from llama.cpp's "…: offloaded N/M layers to
+// GPU".
+func offloadedLayers(line string) (int, bool) {
+	_, rest, ok := strings.Cut(line, ": offloaded ")
+	if !ok || !strings.HasSuffix(rest, " layers to GPU") {
+		return 0, false
+	}
+	n, _, ok := strings.Cut(rest, "/")
+	if !ok {
+		return 0, false
+	}
+	v, err := strconv.Atoi(n)
+	return v, err == nil
 }
 
 // hardwareLinePrefixes are the log lines worth keeping: which backend
@@ -68,6 +87,12 @@ func llamaLogCapture() uintptr {
 			return 0
 		}
 		forwardLlamaError(os.Stderr, level, line)
+		if n, ok := offloadedLayers(line); ok {
+			llamaLog.Lock()
+			llamaLog.offloaded = &n
+			llamaLog.Unlock()
+			return 0
+		}
 		if !hardwareLine(line) {
 			return 0
 		}
@@ -111,6 +136,12 @@ func (l *Local) Hardware() Hardware {
 		LibVersion: libVersionStamp(l.libDir),
 		SystemInfo: strings.TrimSpace(llama.PrintSystemInfo()),
 	}
+	llamaLog.Lock()
+	if n := llamaLog.offloaded; n != nil {
+		v := *n
+		h.Offloaded = &v
+	}
+	llamaLog.Unlock()
 	for _, line := range capturedHardwareLines() {
 		switch {
 		case strings.HasPrefix(line, "load_backend:"):
