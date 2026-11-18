@@ -28,7 +28,8 @@ import (
 //   - HTML block (line starting with `<`): consecutive non-blank lines.
 //   - Table (line starting with `|`): consecutive non-blank lines.
 //   - Paragraph: anything else, until a blank line or a different
-//     block opens.
+//     block opens. A later line that opens with `<u>` is its text, not
+//     an HTML block.
 //   - Empty paragraph: a blank line not acting as a block separator,
 //     returned as an empty entry.
 //
@@ -476,6 +477,14 @@ func isHTMLBlockLine(l string) bool {
 	return c == '/' || c == '!' || c == '?' || isASCIILetter(c)
 }
 
+// opensWithUnderline: `<u>` after up to 3 spaces. Clients write
+// underline as this inline tag, so on a later line of a paragraph it is
+// that paragraph's text, not an HTML block.
+func opensWithUnderline(l string) bool {
+	t := trimLeadingSpaces(l, 3)
+	return len(t) >= 3 && strings.EqualFold(t[:3], "<u>")
+}
+
 // isTableLine: starts with `|`, after up to 3 spaces.
 func isTableLine(l string) bool {
 	t := trimLeadingSpaces(l, 3)
@@ -501,7 +510,7 @@ func consumeParagraph(lines []string, start int) (string, int) {
 			break
 		}
 		if isATXHeading(l) || isFenceOpen(l) || isBlockquoteLine(l) ||
-			isListItemLine(l) || isHTMLBlockLine(l) || isTableLine(l) {
+			isListItemLine(l) || (isHTMLBlockLine(l) && !opensWithUnderline(l)) || isTableLine(l) {
 			break
 		}
 		end++
