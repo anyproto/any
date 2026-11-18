@@ -116,7 +116,7 @@ func runEmbedHelper(mode string) int {
 			for i := 0; i < 2*workerStderrTail; i++ {
 				fmt.Fprintf(os.Stderr, "earlier line %d\n", i)
 			}
-			fmt.Fprintln(os.Stderr, "ggml_metal_library_compile_pipeline: kernel not found in any metal library: base = 'kernel_mul_mm_bf16_f32'")
+			fmt.Fprintln(os.Stderr, llamaLogPrefix+"ggml_metal_library_compile_pipeline: kernel not found in any metal library: base = 'kernel_mul_mm_bf16_f32'")
 			fmt.Fprintln(os.Stderr, "ggml-metal-device.m:868: ggml_metal_encoder_set_pipeline: nil Metal pipeline (missing kernel; see compile_pipeline log above)")
 			for i := 0; i < 16; i++ {
 				fmt.Fprintf(os.Stderr, "%-3d libggml-base.dylib                  0x0000000104a1c2a0 ggml_print_backtrace + %d\n", i, 276+i)
@@ -199,6 +199,10 @@ func (h *helperSpawner) cmd(s localSpec) (*exec.Cmd, error) {
 	h.specs = append(h.specs, s)
 	c := exec.Command(os.Args[0], "-test.run=TestEmbedWorkerHelper")
 	c.Env = append(append(os.Environ(), h.env...), "ANY_EMBED_WORKER_HELPER="+mode)
+	if s.coremlDir == "" {
+		// A child without the Core ML package says nothing about it.
+		c.Env = append(c.Env, "ANY_EMBED_WORKER_ANE=")
+	}
 	h.cmds = append(h.cmds, c)
 	return c, nil
 }
@@ -664,21 +668,26 @@ func TestLineTail(t *testing.T) {
 
 func TestCrashStart(t *testing.T) {
 	for line, want := range map[string]bool{
-		"SIGABRT: abort":                                                     true,
-		"SIGSEGV: segmentation violation":                                    true,
-		"fatal error: unexpected signal during runtime execution":            true,
-		"panic: runtime error: index out of range [3] with length 3":         true,
-		"ggml-metal-device.m:868: ggml_metal_encoder_set_pipeline: nil":      true,
-		"/src/ggml/src/ggml.c:1532: GGML_ASSERT(false) failed":               true,
-		`C:\a\llama.cpp\ggml\src\ggml-cpu\ops.cpp:77: GGML_ASSERT(x) failed`: true,
-		"ggml_metal_library_compile_pipeline: kernel not found":              false,
-		"embed.go:12: a log line":                                            false,
-		"ggml.c: no line number":                                             false,
-		"SIG: nothing":                                                       false,
-		"SIGabrt: abort":                                                     false,
-		"SIGABRT":                                                            false,
-		"neural engine: starting":                                            false,
-		"":                                                                   false,
+		"SIGABRT: abort":                                                                true,
+		"SIGSEGV: segmentation violation":                                               true,
+		"fatal error: unexpected signal during runtime execution":                       true,
+		"panic: runtime error: index out of range [3] with length 3":                    true,
+		"ggml-metal-device.m:868: ggml_metal_encoder_set_pipeline: nil":                 true,
+		"/src/ggml/src/ggml-cuda/ggml-cuda.cu:88: CUDA error":                           true,
+		"Exception 0xc0000005 0x0 0x18 0x7ffd1234":                                      true,
+		"*** Terminating app due to uncaught exception 'NSRangeException', reason: 'x'": true,
+		llamaLogPrefix + "fatal error: too many errors emitted, stopping now":           false,
+		"Exception in a log line":                                                       false,
+		"/src/ggml/src/ggml.c:1532: GGML_ASSERT(false) failed":                          true,
+		`C:\a\llama.cpp\ggml\src\ggml-cpu\ops.cpp:77: GGML_ASSERT(x) failed`:            true,
+		"ggml_metal_library_compile_pipeline: kernel not found":                         false,
+		"embed.go:12: a log line":                                                       false,
+		"ggml.c: no line number":                                                        false,
+		"SIG: nothing":                                                                  false,
+		"SIGabrt: abort":                                                                false,
+		"SIGABRT":                                                                       false,
+		"neural engine: starting":                                                       false,
+		"":                                                                              false,
 	} {
 		if got := crashStart(line); got != want {
 			t.Errorf("crashStart(%q) = %v, want %v", line, got, want)

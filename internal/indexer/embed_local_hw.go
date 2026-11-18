@@ -3,6 +3,7 @@
 package indexer
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -36,6 +37,23 @@ var hardwareLinePrefixes = []string{
 	"ggml_opencl",
 }
 
+// llamaLogPrefix marks the llama.cpp error lines on stderr, so that none
+// of them reads as the start of a crash report (crashStart).
+const llamaLogPrefix = "llama.cpp: "
+
+// forwardLlamaError writes an error-level llama.cpp log text to w, each
+// line under llamaLogPrefix.
+func forwardLlamaError(w io.Writer, level int32, text string) {
+	if llama.LogLevel(level) != llama.LogLevelError {
+		return
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			_, _ = io.WriteString(w, llamaLogPrefix+line+"\n")
+		}
+	}
+}
+
 // llamaLogCapture is the llama_log_set callback: it keeps recognized
 // hardware lines, writes error lines to stderr — in the child that is
 // the tail the server quotes when it dies — and discards the rest.
@@ -49,9 +67,7 @@ func llamaLogCapture() uintptr {
 		if line == "" {
 			return 0
 		}
-		if llama.LogLevel(level) == llama.LogLevelError {
-			_, _ = os.Stderr.WriteString(line + "\n")
-		}
+		forwardLlamaError(os.Stderr, level, line)
 		if !hardwareLine(line) {
 			return 0
 		}
