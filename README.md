@@ -107,7 +107,7 @@ context across runs.
 This example builds Any from source, creates a notebook, and subscribes to
 changes. It uses a dedicated data directory and local embeddings.
 
-You need Git, Go 1.26.2 or newer, `make`, `curl`, and `jq`. For release
+You need Git, Go 1.27.1 or newer, `make`, `curl`, and `jq`. For release
 packages and platform-specific prerequisites, see
 [Installation](https://docs.any.org/quickstart/install.html).
 

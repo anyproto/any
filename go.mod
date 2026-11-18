@@ -1,6 +1,6 @@
 module github.com/anyproto/any
 
-go 1.26.2
+go 1.27.1
 
 require (
 	github.com/anyproto/any-store v1.0.3
