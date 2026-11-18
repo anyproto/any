@@ -168,9 +168,13 @@ func (n *neuralEngine) embed(tokens []int32) (vec []float32, ok bool) {
 		n.requestLocked(want)
 	}
 	if fn == nil {
-		n.miss = EmbedReasonFunctionLoading
-		if n.failed[want] {
+		switch {
+		case n.failed[want]:
 			n.miss = EmbedReasonANEFailed
+		case !n.prepared:
+			n.miss = EmbedReasonPackageNotReady
+		default:
+			n.miss = EmbedReasonFunctionLoading
 		}
 		n.mu.Unlock()
 		return nil, false

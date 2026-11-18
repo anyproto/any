@@ -119,11 +119,11 @@ A running `index.embed` row and its `process.started` / `process.progress` frame
 
 | Field | Values |
 |---|---|
-| `phase` | `waiting` while `index.embedStartDelay` runs with texts pending; `preparing` while the drain waits for the Neural Engine's first function; `embedding` |
-| `backends` | where the model ran for the last batch the embedder returned: `ane` (Neural Engine), `gpu` (llama.cpp that reported layers offloaded), `cpu` (llama.cpp without offload), `llama` (llama.cpp, offload asked for and not established), `remote` (`openai`, `ollama`). Several entries are a mixed batch. Absent before the first batch |
-| `reason` | one cause for texts of that batch running off the fastest runtime: `function_loading`, `too_long`, `ane_failed`, `ane_off`, `readiness_timeout`, `gpu_failed`, `gpu_disabled`. Absent when none did |
+| `phase` | `waiting` while `index.embedStartDelay` runs with texts pending; `preparing` while the drain waits for the Neural Engine's first function, the worker's start included; `embedding` |
+| `backends` | where the model ran for the last batch the embedder returned: `ane` (Neural Engine), `gpu` (llama.cpp with the model loaded on a GPU device), `cpu` (llama.cpp without offload, or with no device to offload to), `llama` (llama.cpp in a worker that did not report its hardware), `remote` (`openai`, `ollama`). Several entries are a mixed batch. Absent while `waiting` and `preparing`, before the first batch, and for `auto` with an API key |
+| `reason` | one cause for texts of that batch running off the fastest runtime: `package_not_ready`, `function_loading`, `too_long`, `ane_failed`, `ane_off`, `readiness_timeout`, `gpu_failed`, `gpu_disabled`. Absent when none did; it does not describe every text of the batch |
 
-Each frame replaces the object, and the row's end drops it. Reading the view starts no worker.
+Each frame that has the object replaces it, a frame without it keeps it, and the row's end drops it. Rows of other kinds never have it. Besides the frame per stored batch, a frame goes out when the object changes. Reading the view starts no worker.
 
 A failed download attempt is not terminal — it retries, keeping the row `running` with a generic message. The terminals are `done`, `cancelled` on shutdown, and `failed` when the source twice serves a whole file that fails its checksum: that download is not tried again until the next start. The files of a model's Core ML package follow the model on the same process, one at a time. While another server under the same data dir downloads the model, the row stays `running` with the message `waiting for another process's download` and no byte counters; its `done` frame carries the installed file's size in both counters, though this server transferred nothing. A worker stopped mid-drain finishes as `cancelled` rather than leaving a ghost. Failure messages are generic on the wire (details go to the server log), and the `index.*` producers ignore cancel requests. This is how a client answers "why is semantic search empty right now" — see [Indexing](../search/indexing.html).
 

@@ -50,13 +50,13 @@ type ProcessEmbedding struct {
 	Phase string `json:"phase"`
 	// Backends embedded the texts of the last batch the embedder
 	// returned: `ane`, `gpu`, `cpu`, `llama`, `remote`. More than one
-	// is a mixed batch. Absent before the first batch, and when the
-	// embedder does not say.
+	// is a mixed batch. Absent while waiting and preparing, before the
+	// first batch, and when the embedder does not say.
 	Backends []string `json:"backends,omitempty"`
 	// Reason is one cause for texts of that batch running off the
-	// fastest runtime: `function_loading`, `too_long`, `ane_failed`,
-	// `ane_off`, `readiness_timeout`, `gpu_failed`, `gpu_disabled`.
-	// Absent when none did.
+	// fastest runtime: `package_not_ready`, `function_loading`,
+	// `too_long`, `ane_failed`, `ane_off`, `readiness_timeout`,
+	// `gpu_failed`, `gpu_disabled`. Absent when none did.
 	Reason string `json:"reason,omitempty"`
 }
 

@@ -3221,7 +3221,7 @@ const docTemplate = `{
                 "description": "Embedding is set on a running ` + "`" + `index.embed` + "`" + ` process.",
                 "properties": {
                     "backends": {
-                        "description": "Backends embedded the texts of the last batch the embedder\nreturned: ` + "`" + `ane` + "`" + `, ` + "`" + `gpu` + "`" + `, ` + "`" + `cpu` + "`" + `, ` + "`" + `llama` + "`" + `, ` + "`" + `remote` + "`" + `. More than one\nis a mixed batch. Absent before the first batch, and when the\nembedder does not say.",
+                        "description": "Backends embedded the texts of the last batch the embedder\nreturned: ` + "`" + `ane` + "`" + `, ` + "`" + `gpu` + "`" + `, ` + "`" + `cpu` + "`" + `, ` + "`" + `llama` + "`" + `, ` + "`" + `remote` + "`" + `. More than one\nis a mixed batch. Absent while waiting and preparing, before the\nfirst batch, and when the embedder does not say.",
                         "items": {
                             "type": "string"
                         },
@@ -3233,7 +3233,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "reason": {
-                        "description": "Reason is one cause for texts of that batch running off the\nfastest runtime: ` + "`" + `function_loading` + "`" + `, ` + "`" + `too_long` + "`" + `, ` + "`" + `ane_failed` + "`" + `,\n` + "`" + `ane_off` + "`" + `, ` + "`" + `readiness_timeout` + "`" + `, ` + "`" + `gpu_failed` + "`" + `, ` + "`" + `gpu_disabled` + "`" + `.\nAbsent when none did.",
+                        "description": "Reason is one cause for texts of that batch running off the\nfastest runtime: ` + "`" + `package_not_ready` + "`" + `, ` + "`" + `function_loading` + "`" + `,\n` + "`" + `too_long` + "`" + `, ` + "`" + `ane_failed` + "`" + `, ` + "`" + `ane_off` + "`" + `, ` + "`" + `readiness_timeout` + "`" + `,\n` + "`" + `gpu_failed` + "`" + `, ` + "`" + `gpu_disabled` + "`" + `. Absent when none did.",
                         "type": "string"
                     }
                 },

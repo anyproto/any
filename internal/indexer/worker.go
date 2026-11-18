@@ -802,18 +802,28 @@ func typeSet(row *anyenc.Value) map[string]bool { return index.Members(row) }
 // round start, so late-arriving docs extend the bar instead of
 // overflowing it; the round-start counters land before begin, so the
 // started frame already carries them.
+// drainPending is the embed loop's drain: it waits out the start delay.
 func (w *spaceWorker) drainPending(ctx context.Context) error {
+	return w.drain(ctx, true)
+}
+
+// drain is one drain with its process row. delay: wait out the start
+// delay before the first batch.
+func (w *spaceWorker) drain(ctx context.Context, delay bool) error {
 	rep := newProcReporter(w.ix.opts.OnProcess,
 		ProcessUpdate{Kind: ProcessKindEmbed, SpaceId: w.sp.Id()}, w.ix.opts.AnnounceAfter)
 	var embedded int64
-	err := w.drainRounds(ctx, func(landed, remaining int) {
+	total := int64(-1)
+	err := w.drainRounds(ctx, delay, func(landed, remaining int) {
 		if landed > 0 {
 			embedded += int64(landed)
 			rep.progress(embedded, -1, "")
 			return
 		}
-		if remaining >= 0 {
-			rep.progress(embedded, embedded+int64(remaining), "")
+		// A round that found work: a frame only when the total moved.
+		if t := embedded + int64(remaining); remaining >= 0 && t != total {
+			total = t
+			rep.progress(embedded, t, "")
 		}
 		rep.begin()
 	}, rep.embedding)
@@ -831,7 +841,7 @@ func (w *spaceWorker) drainPending(ctx context.Context) error {
 // round found work (before embedding; remaining = pending count, -1
 // when the count read failed) and with (landed, -1) after each batch
 // that landed vectors.
-func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, remaining int), status func(EmbedStatus)) error {
+func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func(landed, remaining int), status func(EmbedStatus)) error {
 	spaceId := w.sp.Id()
 	batch := w.ix.opts.EmbedBatch
 	conc := w.ix.opts.EmbedConcurrency
@@ -845,10 +855,19 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 		last = &st
 		status(st)
 	}
-	started, counted, prepared := false, false, false
+	// An embedder that readies a faster runtime in the background gets
+	// to finish that before every round that has work (BulkPreparer).
+	prepare := func() error {
+		if p, ok := emb.(BulkPreparer); ok {
+			p.PrepareBulk(ctx, func() { report(EmbedStatus{Phase: EmbedPhasePreparing}) })
+		}
+		return ctx.Err()
+	}
+	first := true
 	for {
-		if !started {
-			// The backlog is announced before any wait and read after it.
+		if first {
+			// The waits can be long: the backlog is announced before them
+			// and read after them.
 			n, err := w.ix.store.PendingCount(ctx, spaceId)
 			if err != nil {
 				return err
@@ -856,7 +875,10 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 			if n == 0 {
 				return nil
 			}
-			wait := time.Until(w.ix.embedFrom)
+			var wait time.Duration
+			if delay {
+				wait = time.Until(w.ix.embedFrom)
+			}
 			if wait > 0 {
 				report(EmbedStatus{Phase: EmbedPhaseWaiting})
 			} else {
@@ -870,24 +892,9 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 				case <-time.After(wait):
 				}
 			}
-			started, counted = true, true
-		}
-		if !prepared {
-			// An embedder that readies a faster runtime in the background
-			// gets to finish that first (workerEmbedder.PrepareBulk), and
-			// is asked again each round until it has nothing left to wait
-			// for.
-			p, ok := emb.(interface {
-				PrepareBulk(ctx context.Context, waiting func()) bool
-			})
-			prepared = !ok || p.PrepareBulk(ctx, func() { report(EmbedStatus{Phase: EmbedPhasePreparing}) })
-			if err := ctx.Err(); err != nil {
+			if err := prepare(); err != nil {
 				return err
 			}
-		}
-		// After a wait; a round that follows a batch keeps its runtimes.
-		if last == nil || last.Phase != EmbedPhaseEmbedding {
-			report(EmbedStatus{Phase: EmbedPhaseEmbedding})
 		}
 		ids, texts, err := w.ix.store.Pending(ctx, spaceId, batch*conc)
 		if err != nil {
@@ -896,19 +903,26 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 		if len(ids) == 0 {
 			return nil
 		}
+		if !first {
+			if err := prepare(); err != nil {
+				return err
+			}
+		}
+		first = false
+		// After a wait; a round that follows a batch keeps its runtimes.
+		if last == nil || last.Phase != EmbedPhaseEmbedding {
+			report(EmbedStatus{Phase: EmbedPhaseEmbedding})
+		}
 		titles, err := w.ix.store.DocTitles(ctx, spaceId, ids)
 		if err != nil {
 			return err
 		}
-		// The first round's count is the one the drain started with.
-		if !counted {
-			remaining, cerr := w.ix.store.PendingCount(ctx, spaceId)
-			if cerr != nil {
-				remaining = -1 // progress keeps the last known total
-			}
-			progress(0, remaining)
+		// Counted after the waits: what arrived meanwhile is in the total.
+		remaining, cerr := w.ix.store.PendingCount(ctx, spaceId)
+		if cerr != nil {
+			remaining = -1 // progress keeps the last known total
 		}
-		counted = false
+		progress(0, remaining)
 
 		// Split the page into batch-sized chunks, embed concurrently.
 		type chunk struct {

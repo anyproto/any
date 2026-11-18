@@ -15,19 +15,21 @@ import (
 // it before the first batch.
 type prepEmbedder struct {
 	axisEmbedder
-	mu       sync.Mutex
-	events   []string
-	prepares int
-	at       time.Time // the first EmbedDocs
+	mu     sync.Mutex
+	events []string
+	during func()    // runs inside the next PrepareBulk
+	at     time.Time // the first EmbedDocs
 }
 
-// PrepareBulk has nothing left to wait for from its second call on.
-func (e *prepEmbedder) PrepareBulk(context.Context, func()) bool {
+func (e *prepEmbedder) PrepareBulk(context.Context, func()) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	e.events = append(e.events, "prepare")
-	e.prepares++
-	return e.prepares > 1
+	during := e.during
+	e.during = nil
+	e.mu.Unlock()
+	if during != nil {
+		during()
+	}
 }
 
 func (e *prepEmbedder) EmbedDocs(ctx context.Context, texts []string) ([][]float32, error) {
@@ -99,8 +101,9 @@ func TestSpaceWorker_EmbedLoopStartsAfterTheDelay(t *testing.T) {
 }
 
 // With no delay the loop still drains what was pending before it
-// started, and an embedder that has more to wait for is asked again
-// before each round until it has not.
+// started. The embedder is prepared before every round that has work,
+// never for an empty one, and what arrives during the first wait is in
+// the total.
 func TestSpaceWorker_EmbedLoopDrainsAtStartAndAsksAgain(t *testing.T) {
 	const sp = "sp"
 	ctx, cancel := context.WithCancel(context.Background())
@@ -112,7 +115,16 @@ func TestSpaceWorker_EmbedLoopDrainsAtStartAndAsksAgain(t *testing.T) {
 		}
 	}
 	emb := &prepEmbedder{axisEmbedder: axisEmbedder{dim: 4}}
-	ix := New(nil, nil, st, Options{Embedder: emb, EmbedBatch: 1, PendingEvery: time.Minute, AnnounceAfter: -1})
+	emb.during = func() { // a text arrives while the drain waits
+		doc := DocUpsert{Entry: index.IndexEntry{Scope: index.ScopeBasic, ObjectId: "O", Dataset: "editor_blocks", RecordId: "r4", Data: "a text that arrived late", ApplySeq: 4}}
+		if _, err := st.ApplyPage(ctx, sp, []DocUpsert{doc}, nil, nil, nil, &LinkOps{}); err != nil {
+			t.Error(err)
+		}
+	}
+	var mu sync.Mutex
+	var updates []ProcessUpdate
+	ix := New(nil, nil, st, Options{Embedder: emb, EmbedBatch: 1, PendingEvery: time.Minute, AnnounceAfter: -1,
+		OnProcess: func(u ProcessUpdate) { mu.Lock(); updates = append(updates, u); mu.Unlock() }})
 	ix.ctx = ctx
 	w := newSpaceWorker(ix, idSpace{id: sp})
 	w.ctx = ctx
@@ -132,8 +144,28 @@ func TestSpaceWorker_EmbedLoopDrainsAtStartAndAsksAgain(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	// Wait for the drain's terminal frame.
+	for {
+		mu.Lock()
+		n := len(updates)
+		var lastU ProcessUpdate
+		if n > 0 {
+			lastU = updates[n-1]
+		}
+		mu.Unlock()
+		if n > 0 && lastU.Phase == ProcessDone {
+			if lastU.Done != 4 || lastU.Total != 4 {
+				t.Fatalf("done frame = %d of %d, want 4 of 4: the late text is in the total", lastU.Done, lastU.Total)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the drain never reported done")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	events, _ := emb.snapshot()
-	want := []string{"prepare", "embed", "prepare", "embed", "embed"}
+	want := []string{"prepare", "embed", "prepare", "embed", "prepare", "embed", "prepare", "embed"}
 	if len(events) != len(want) {
 		t.Fatalf("calls = %v, want %v", events, want)
 	}
@@ -174,12 +206,12 @@ func (e *routedEmbedder) EmbedDocsRouted(ctx context.Context, _, texts []string)
 	return vecs, e.route, err
 }
 
-func (e *routedEmbedder) PrepareBulk(_ context.Context, waiting func()) bool {
+func (e *routedEmbedder) PrepareBulk(_ context.Context, waiting func()) {
 	if e.prepare > 0 {
 		waiting()
 		time.Sleep(e.prepare)
+		e.prepare = 0 // settled: later rounds do not wait
 	}
-	return true
 }
 
 // The frames of a drain carry what the embedder is doing: the phase from

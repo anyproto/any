@@ -54,11 +54,12 @@ const (
 	EmbedPhaseEmbedding = "embedding"
 
 	EmbedBackendANE    = "ane"    // Core ML on the Neural Engine
-	EmbedBackendGPU    = "gpu"    // llama.cpp that reported layers offloaded to a GPU
-	EmbedBackendCPU    = "cpu"    // llama.cpp without offload
-	EmbedBackendLlama  = "llama"  // llama.cpp, offload asked for and not established
+	EmbedBackendGPU    = "gpu"    // llama.cpp with the model loaded on a GPU device
+	EmbedBackendCPU    = "cpu"    // llama.cpp without offload, or with no device to offload to
+	EmbedBackendLlama  = "llama"  // llama.cpp in a child that did not report its hardware
 	EmbedBackendRemote = "remote" // an HTTP embedder
 
+	EmbedReasonPackageNotReady  = "package_not_ready" // the Core ML package is not on disk or not compiled yet
 	EmbedReasonFunctionLoading  = "function_loading"  // the Neural Engine function for the text's length was not loaded
 	EmbedReasonTooLong          = "too_long"          // longer than every function
 	EmbedReasonANEFailed        = "ane_failed"        // a function failed to load or to predict
@@ -87,6 +88,14 @@ func embedBackends(e Embedder) []string {
 		return []string{b.EmbedBackend()}
 	}
 	return nil
+}
+
+// BulkPreparer is an Embedder that readies a faster runtime in the
+// background. A drain calls PrepareBulk before every round that has
+// work; it returns once there is nothing to wait for. waiting, when set,
+// is called once if the call is going to wait.
+type BulkPreparer interface {
+	PrepareBulk(ctx context.Context, waiting func())
 }
 
 // StampedEmbedder names the vector space it embeds into, so an index
@@ -168,14 +177,14 @@ type Hardware struct {
 	CPUs      int    `json:"cpus"`
 	Threads   int    `json:"threads"`
 	GpuLayers int    `json:"gpuLayers"`
-	// Offloaded is how many layers llama.cpp reported on a GPU when it
-	// loaded the model; nil = it did not say.
-	Offloaded  *int     `json:"offloaded,omitempty"`
-	LibDir     string   `json:"libDir,omitempty"`
-	LibVersion string   `json:"libVersion,omitempty"` // llama.cpp release + platform, from the libs' VERSION stamp
-	Backends   []string `json:"backends,omitempty"`   // "Vulkan from libggml-vulkan.so"
-	Devices    []string `json:"devices,omitempty"`    // "AMD ... (RADV RAPHAEL_MENDOCINO) (radv) | uma: 1 | ..."
-	SystemInfo string   `json:"systemInfo,omitempty"` // llama_print_system_info()
+	// ModelDevices are the devices llama.cpp loaded the model on ("using
+	// device …"); none on a machine with nothing to offload to.
+	ModelDevices []string `json:"modelDevices,omitempty"`
+	LibDir       string   `json:"libDir,omitempty"`
+	LibVersion   string   `json:"libVersion,omitempty"` // llama.cpp release + platform, from the libs' VERSION stamp
+	Backends     []string `json:"backends,omitempty"`   // "Vulkan from libggml-vulkan.so"
+	Devices      []string `json:"devices,omitempty"`    // "AMD ... (RADV RAPHAEL_MENDOCINO) (radv) | uma: 1 | ..."
+	SystemInfo   string   `json:"systemInfo,omitempty"` // llama_print_system_info()
 }
 
 // String renders the one-line form used in logs.

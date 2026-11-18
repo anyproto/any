@@ -66,6 +66,10 @@ type processEventDataIn struct {
 	Embedding *api.ProcessEmbedding `json:"embedding"`
 }
 
+// processKindEmbed is the kind of the indexer's embed drain, the one
+// process whose rows carry api.ProcessEmbedding.
+const processKindEmbed = "index.embed"
+
 // The closed vocabulary of api.ProcessEmbedding. A frame from the bus
 // is not trusted: anything else is dropped before it enters the view.
 var (
@@ -75,14 +79,16 @@ var (
 		indexer.EmbedBackendLlama, indexer.EmbedBackendRemote,
 	}
 	processEmbedReasons = []string{
+		indexer.EmbedReasonPackageNotReady,
 		indexer.EmbedReasonFunctionLoading, indexer.EmbedReasonTooLong, indexer.EmbedReasonANEFailed,
 		indexer.EmbedReasonANEOff, indexer.EmbedReasonReadinessTimeout,
 		indexer.EmbedReasonGPUFailed, indexer.EmbedReasonGPUDisabled,
 	}
 )
 
-// sanitizeProcessEmbedding keeps what is in the vocabulary: an unknown
-// phase drops the object, unknown backends and reasons drop themselves.
+// sanitizeProcessEmbedding keeps what is in the vocabulary: an object
+// with an unknown phase counts as absent, unknown backends and reasons
+// drop themselves.
 func sanitizeProcessEmbedding(in *api.ProcessEmbedding) *api.ProcessEmbedding {
 	if in == nil || !slices.Contains(processEmbedPhases, in.Phase) {
 		return nil
@@ -232,10 +238,10 @@ func (r *processRegistry) apply(ev *api.Event) {
 	} else {
 		p.Error = nil
 	}
-	// The embedder's state belongs to a running row: absent keeps it,
-	// and the row's end drops it.
+	// The embedder's state belongs to a running embed drain: absent
+	// keeps it, the row's end drops it, and no other kind has it.
 	switch {
-	case state != api.ProcessStateRunning:
+	case state != api.ProcessStateRunning || p.Kind != processKindEmbed:
 		p.Embedding = nil
 	case data.Embedding != nil:
 		p.Embedding = data.Embedding

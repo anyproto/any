@@ -151,9 +151,30 @@ func TestProcessRegistry_Embedding(t *testing.T) {
 	if e := row(); e == nil || e.Phase != "embedding" {
 		t.Fatalf("an unknown phase replaced the state: %+v", e)
 	}
-	frame(api.EventProcessDone, &api.ProcessEmbedding{Phase: "embedding", Backends: []string{"gpu"}})
-	if e := row(); e != nil {
-		t.Fatalf("a finished row kept it: %+v", e)
+	// Every end of the row drops it, and a late heartbeat does not bring
+	// it back.
+	for _, end := range []string{api.EventProcessDone, api.EventProcessFailed, api.EventProcessCancelled} {
+		frame(api.EventProcessProgress, &api.ProcessEmbedding{Phase: "embedding", Backends: []string{"gpu"}})
+		if e := row(); e == nil {
+			t.Fatalf("before %s: no state on a running row", end)
+		}
+		frame(end, &api.ProcessEmbedding{Phase: "embedding", Backends: []string{"gpu"}})
+		if e := row(); e != nil {
+			t.Fatalf("%s kept it: %+v", end, e)
+		}
+		frame(api.EventProcessProgress, nil)
+		if e := row(); e != nil {
+			t.Fatalf("a heartbeat after %s brought it back: %+v", end, e)
+		}
+	}
+
+	// It is the embed drain's: a row of another kind never has it.
+	r.apply(procEvent(api.EventProcessProgress, "a", "upload.1", false,
+		processEventData{Kind: "file.upload", Title: "t", Embedding: &api.ProcessEmbedding{Phase: "embedding", Backends: []string{"gpu"}}}))
+	for _, p := range r.list() {
+		if p.Id == "upload.1" && p.Embedding != nil {
+			t.Fatalf("a %s row took the embedder's state: %+v", p.Kind, p.Embedding)
+		}
 	}
 }
 

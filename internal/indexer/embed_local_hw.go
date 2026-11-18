@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"unsafe"
@@ -24,24 +23,24 @@ import (
 var llamaLog struct {
 	sync.Mutex
 	lines []string
-	// offloaded is the layer count of the model load's "offloaded N/M
-	// layers to GPU" line; nil until one was logged.
-	offloaded *int
+	// modelDevices are the devices of the model load's "using device"
+	// lines: where llama.cpp put the model.
+	modelDevices []string
 }
 
-// offloadedLayers reads N from llama.cpp's "…: offloaded N/M layers to
-// GPU".
-func offloadedLayers(line string) (int, bool) {
-	_, rest, ok := strings.Cut(line, ": offloaded ")
-	if !ok || !strings.HasSuffix(rest, " layers to GPU") {
-		return 0, false
-	}
-	n, _, ok := strings.Cut(rest, "/")
+// modelDevice reads the device from llama.cpp's "…: using device Vulkan0
+// (AMD …) (0000:c5:00.0) - 12288 MiB free". That line is logged per
+// device the model is loaded on; "offloaded N/M layers" only repeats the
+// request.
+func modelDevice(line string) (string, bool) {
+	_, dev, ok := strings.Cut(line, ": using device ")
 	if !ok {
-		return 0, false
+		return "", false
 	}
-	v, err := strconv.Atoi(n)
-	return v, err == nil
+	if i := strings.LastIndex(dev, " - "); i > 0 {
+		dev = dev[:i]
+	}
+	return strings.TrimSpace(dev), dev != ""
 }
 
 // hardwareLinePrefixes are the log lines worth keeping: which backend
@@ -87,9 +86,11 @@ func llamaLogCapture() uintptr {
 			return 0
 		}
 		forwardLlamaError(os.Stderr, level, line)
-		if n, ok := offloadedLayers(line); ok {
+		if dev, ok := modelDevice(line); ok {
 			llamaLog.Lock()
-			llamaLog.offloaded = &n
+			if len(llamaLog.modelDevices) < 16 {
+				llamaLog.modelDevices = append(llamaLog.modelDevices, dev)
+			}
 			llamaLog.Unlock()
 			return 0
 		}
@@ -137,10 +138,7 @@ func (l *Local) Hardware() Hardware {
 		SystemInfo: strings.TrimSpace(llama.PrintSystemInfo()),
 	}
 	llamaLog.Lock()
-	if n := llamaLog.offloaded; n != nil {
-		v := *n
-		h.Offloaded = &v
-	}
+	h.ModelDevices = append([]string(nil), llamaLog.modelDevices...)
 	llamaLog.Unlock()
 	for _, line := range capturedHardwareLines() {
 		switch {

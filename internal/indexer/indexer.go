@@ -713,7 +713,7 @@ func (ix *Indexer) Sync(ctx context.Context) error {
 			return err
 		}
 		if ix.HasEmbedder() {
-			if err := w.drainPending(ctx); err != nil {
+			if err := w.drain(ctx, false); err != nil {
 				return err
 			}
 		}
@@ -730,7 +730,7 @@ func (ix *Indexer) SyncSpace(ctx context.Context, sp space.Space) error {
 		return err
 	}
 	if ix.HasEmbedder() {
-		return w.drainPending(ctx)
+		return w.drain(ctx, false)
 	}
 	return nil
 }

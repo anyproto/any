@@ -29,20 +29,17 @@ func TestForwardLlamaError(t *testing.T) {
 	}
 }
 
-func TestOffloadedLayers(t *testing.T) {
-	for line, want := range map[string]int{
-		"load_tensors: offloaded 25/25 layers to GPU":         25,
-		"load_tensors: offloaded 0/25 layers to GPU":          0,
-		"load_tensors: offloading 24 repeating layers to GPU": -1,
-		"load_tensors: offloading output layer to GPU":        -1,
-		"ggml_metal_init: found device: Apple M2":             -1,
+func TestModelDevice(t *testing.T) {
+	for line, want := range map[string]string{
+		"llama_model_load_from_file_impl: using device Vulkan0 (AMD Radeon (RADV)) (0000:0b:00.0) - 12288 MiB free": "Vulkan0 (AMD Radeon (RADV)) (0000:0b:00.0)",
+		"llama_model_load_from_file_impl: using device MTL0 (Apple M2) (unknown id) - 10922 MiB free":               "MTL0 (Apple M2) (unknown id)",
+		// What llama.cpp was asked for, not what it did.
+		"load_tensors: offloaded 25/25 layers to GPU":         "",
+		"load_tensors: offloading 24 repeating layers to GPU": "",
+		"ggml_metal_init: found device: Apple M2":             "",
 	} {
-		n, ok := offloadedLayers(line)
-		if !ok {
-			n = -1
-		}
-		if n != want {
-			t.Errorf("offloadedLayers(%q) = %d, want %d", line, n, want)
+		if got, _ := modelDevice(line); got != want {
+			t.Errorf("modelDevice(%q) = %q, want %q", line, got, want)
 		}
 	}
 }

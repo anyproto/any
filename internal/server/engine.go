@@ -659,8 +659,8 @@ func (d *deps) indexerProcessFor(eng *engine) func(indexer.ProcessUpdate) {
 			id = "index.fts." + u.SpaceId
 			data = processEventData{Kind: "index.fts", Title: "Indexing for search", Target: u.SpaceId}
 		case indexer.ProcessKindEmbed:
-			id = "index.embed." + u.SpaceId
-			data = processEventData{Kind: "index.embed", Title: "Embedding search index", Target: u.SpaceId}
+			id = processKindEmbed + "." + u.SpaceId
+			data = processEventData{Kind: processKindEmbed, Title: "Embedding search index", Target: u.SpaceId}
 		case indexer.ProcessKindModelDownload:
 			id = "index.model_download"
 			data = processEventData{Kind: "index.model_download", Title: "Downloading embedding model", Target: u.Name}

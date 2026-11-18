@@ -589,25 +589,49 @@ func aneWorker(t *testing.T, env ...string) (*workerEmbedder, *helperSpawner) {
 	return w, h
 }
 
+// waitAttached blocks until a PrepareBulk call waits with the slot free.
+func waitAttached(t *testing.T, w *workerEmbedder) {
+	t.Helper()
+	waitLive(t, w)
+	waitReady(t, w)
+	for deadline := time.Now().Add(10 * time.Second); w.preparing.Load() == 0 || !w.slot.tryAcquire(); {
+		if time.Now().After(deadline) {
+			t.Fatal("the wait never freed the slot")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	w.slot.release(false)
+}
+
 // Bulk work waits for the first function, on the child it then embeds
-// on, and the wait ends on the report, not on the deadline.
+// on, and the wait ends on the report, not on the deadline. A child that
+// has settled answers at once, without the slot.
 func TestWorkerEmbedder_PrepareBulkWaitsForTheFirstFunction(t *testing.T) {
 	const delay = 300 * time.Millisecond
 	w, h := aneWorker(t, append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=ready")...)
 	start := time.Now()
-	done := w.PrepareBulk(context.Background(), nil)
+	w.PrepareBulk(context.Background(), nil)
 	if waited := time.Since(start); waited < delay-50*time.Millisecond || waited > w.bulkWait/2 {
 		t.Fatalf("returned after %s, want the first function's %s", waited, delay)
 	}
-	if w.bulkWaited.Load() || !done {
-		t.Fatalf("the wait ended on the deadline (%v) or left something to ask for (done %v)", w.bulkWaited.Load(), done)
+	if w.bulkWaited.Load() {
+		t.Fatal("the wait ended on the deadline")
 	}
-	// Settled: nothing left to wait for.
-	start = time.Now()
-	w.PrepareBulk(context.Background(), nil)
-	if waited := time.Since(start); waited > delay/2 {
-		t.Fatalf("a settled child held bulk work for %s", waited)
+	// Settled: nothing to wait for, and nothing to take the slot for.
+	if err := w.slot.acquire(context.Background(), false); err != nil {
+		t.Fatal(err)
 	}
+	asked := make(chan struct{})
+	go func() {
+		defer close(asked)
+		w.PrepareBulk(context.Background(), nil)
+	}()
+	select {
+	case <-asked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a settled child was asked through the slot")
+	}
+	w.slot.release(false)
 	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
 		t.Fatal(err)
 	}
@@ -616,27 +640,48 @@ func TestWorkerEmbedder_PrepareBulkWaitsForTheFirstFunction(t *testing.T) {
 	}
 }
 
+// A child that replaced a settled one is waited on like the first: its
+// Neural Engine path starts over.
+func TestWorkerEmbedder_PrepareBulkWaitsOnAReplacement(t *testing.T) {
+	const delay = 300 * time.Millisecond
+	w, h := aneWorker(t, append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=ready")...)
+	w.PrepareBulk(context.Background(), nil)
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children, want 1", h.spawns())
+	}
+	w.SetThreads(3) // the running child is stale: the next frame replaces it
+	start := time.Now()
+	w.PrepareBulk(context.Background(), nil)
+	if waited := time.Since(start); waited < delay-50*time.Millisecond || h.spawns() != 2 || w.bulkWaited.Load() {
+		t.Fatalf("after a replacement: waited %s on %d children, deadline hit %v; want the new child's first function", waited, h.spawns(), w.bulkWaited.Load())
+	}
+}
+
 // Without a Neural Engine path, or with its package not on disk, there
-// is nothing to wait for and no child is started for it.
+// is nothing to wait for and no child is started for it; a package that
+// lands is waited for at the next call.
 func TestWorkerEmbedder_PrepareBulkWithoutNeuralEngine(t *testing.T) {
 	h := &helperSpawner{modes: []string{"ok"}}
 	w := newTestWorker(t, h, 0)
-	if done := w.PrepareBulk(context.Background(), nil); !done || h.spawns() != 0 {
-		t.Fatalf("no path: done %v, spawned %d children; want nothing to ask for and no child", done, h.spawns())
+	w.PrepareBulk(context.Background(), nil)
+	if h.spawns() != 0 {
+		t.Fatalf("no path: spawned %d children, want none", h.spawns())
 	}
 
-	// The package can land during the drain: ask again.
-	w, h = aneWorker(t, "ANY_EMBED_WORKER_ANE=ready")
+	const delay = 300 * time.Millisecond
+	w, h = aneWorker(t, append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=ready")...)
 	onDisk := false
 	w.pkgOnDisk = func() bool { return onDisk }
 	start := time.Now()
-	done := w.PrepareBulk(context.Background(), nil)
-	if waited := time.Since(start); done || waited > time.Second || h.spawns() != 0 || w.bulkWaited.Load() {
-		t.Fatalf("package not on disk: done %v, waited %s, spawned %d, deadline hit %v", done, waited, h.spawns(), w.bulkWaited.Load())
+	w.PrepareBulk(context.Background(), nil)
+	if waited := time.Since(start); waited > delay/2 || h.spawns() != 0 || w.bulkWaited.Load() {
+		t.Fatalf("package not on disk: waited %s, spawned %d, deadline hit %v", waited, h.spawns(), w.bulkWaited.Load())
 	}
 	onDisk = true
-	if done := w.PrepareBulk(context.Background(), nil); !done || h.spawns() != 1 {
-		t.Fatalf("package landed: done %v, spawned %d; want the wait on one child", done, h.spawns())
+	start = time.Now()
+	w.PrepareBulk(context.Background(), nil)
+	if waited := time.Since(start); waited < delay-50*time.Millisecond || h.spawns() != 1 {
+		t.Fatalf("package landed: waited %s on %d children, want the first function of one", waited, h.spawns())
 	}
 }
 
@@ -646,9 +691,9 @@ func TestWorkerEmbedder_PrepareBulkEndsOnAFailedPath(t *testing.T) {
 	for _, report := range []string{"off", "failed"} {
 		w, _ := aneWorker(t, "ANY_EMBED_WORKER_ANE="+report)
 		start := time.Now()
-		done := w.PrepareBulk(context.Background(), nil)
-		if waited := time.Since(start); !done || waited > w.bulkWait/2 || w.bulkWaited.Load() {
-			t.Fatalf("%s: done %v, waited %s, deadline hit %v", report, done, waited, w.bulkWaited.Load())
+		w.PrepareBulk(context.Background(), nil)
+		if waited := time.Since(start); waited > w.bulkWait/2 || w.bulkWaited.Load() {
+			t.Fatalf("%s: waited %s, deadline hit %v", report, waited, w.bulkWaited.Load())
 		}
 	}
 }
@@ -659,14 +704,14 @@ func TestWorkerEmbedder_PrepareBulkTimesOutOnce(t *testing.T) {
 	w, h := aneWorker(t, "ANY_EMBED_WORKER_ANE=1")
 	w.bulkWait = 200 * time.Millisecond
 	start := time.Now()
-	done := w.PrepareBulk(context.Background(), nil)
-	if waited := time.Since(start); !done || waited < w.bulkWait || !w.bulkWaited.Load() {
-		t.Fatalf("done %v after %s, deadline hit %v", done, waited, w.bulkWaited.Load())
+	w.PrepareBulk(context.Background(), nil)
+	if waited := time.Since(start); waited < w.bulkWait || !w.bulkWaited.Load() {
+		t.Fatalf("returned after %s, deadline hit %v", waited, w.bulkWaited.Load())
 	}
 	start = time.Now()
-	done = w.PrepareBulk(context.Background(), nil)
-	if waited := time.Since(start); !done || waited > w.bulkWait/2 {
-		t.Fatalf("done %v, waited %s a second time", done, waited)
+	w.PrepareBulk(context.Background(), nil)
+	if waited := time.Since(start); waited > w.bulkWait/2 {
+		t.Fatalf("waited %s a second time", waited)
 	}
 	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
 		t.Fatal(err)
@@ -687,8 +732,7 @@ func TestWorkerEmbedder_PrepareBulkSharesOneDeadline(t *testing.T) {
 		w.PrepareBulk(context.Background(), nil)
 		first <- time.Since(start)
 	}()
-	waitLive(t, w)
-	waitReady(t, w)
+	waitAttached(t, w)
 	time.Sleep(w.bulkWait / 2)
 	joined := time.Now()
 	w.PrepareBulk(context.Background(), nil)
@@ -706,20 +750,18 @@ func TestWorkerEmbedder_PrepareBulkSharesOneDeadline(t *testing.T) {
 	}
 }
 
-// A child that exits ends the wait.
+// A child that exits ends the wait, and is not the deadline.
 func TestWorkerEmbedder_PrepareBulkEndsWithTheChild(t *testing.T) {
 	w, h := aneWorker(t, "ANY_EMBED_WORKER_ANE=1")
-	done := make(chan bool, 1)
-	go func() { done <- w.PrepareBulk(context.Background(), nil) }()
-	waitLive(t, w)
-	waitReady(t, w)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w.PrepareBulk(context.Background(), nil)
+	}()
+	waitAttached(t, w)
 	_ = h.cmdAt(0).Process.Kill()
 	select {
-	case settled := <-done:
-		// The next child has a first function of its own to wait for.
-		if settled {
-			t.Fatal("a dead child left nothing to ask for")
-		}
+	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("still waiting on a dead child")
 	}
@@ -729,32 +771,26 @@ func TestWorkerEmbedder_PrepareBulkEndsWithTheChild(t *testing.T) {
 }
 
 // A deadline that one caller ran into ends the wait of every other one,
-// whichever child they wait on.
+// and no later caller waits.
 func TestWorkerEmbedder_GivingUpWakesEveryWaiter(t *testing.T) {
 	w, _ := aneWorker(t, "ANY_EMBED_WORKER_ANE=1")
 	w.bulkWait = time.Minute
-	done := make(chan bool, 1)
-	go func() { done <- w.PrepareBulk(context.Background(), nil) }()
-	waitLive(t, w)
-	waitReady(t, w)
-	for deadline := time.Now().Add(10 * time.Second); w.preparing.Load() == 0 || !w.slot.tryAcquire(); {
-		if time.Now().After(deadline) {
-			t.Fatal("the wait never freed the slot")
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	w.slot.release(false)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w.PrepareBulk(context.Background(), nil)
+	}()
+	waitAttached(t, w)
 	w.giveUpBulk()
 	select {
-	case settled := <-done:
-		if !settled {
-			t.Fatal("a wait that was given up asks again")
-		}
+	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("a waiter outlived the give-up")
 	}
-	if done := w.PrepareBulk(context.Background(), nil); !done {
-		t.Fatal("a later caller waits after the give-up")
+	start := time.Now()
+	w.PrepareBulk(context.Background(), nil)
+	if waited := time.Since(start); waited > 5*time.Second {
+		t.Fatalf("a later caller waited %s after the give-up", waited)
 	}
 }
 
@@ -775,15 +811,7 @@ func TestWorkerEmbedder_PrepareBulkLeavesWithItsContext(t *testing.T) {
 		defer close(done)
 		w.PrepareBulk(ctx, nil)
 	}()
-	waitLive(t, w)
-	waitReady(t, w)
-	for deadline := time.Now().Add(10 * time.Second); w.preparing.Load() == 0 || !w.slot.tryAcquire(); {
-		if time.Now().After(deadline) {
-			t.Fatal("the wait never freed the slot")
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	w.slot.release(false)
+	waitAttached(t, w)
 
 	// A search is served while bulk work waits; its frame holds the slot.
 	served := make(chan error, 1)
@@ -821,8 +849,9 @@ func TestWorkerEmbedder_PrepareBulkHoldsOffIdleRetirement(t *testing.T) {
 	}
 }
 
-// A batch's route comes from what the child counted in its frames, and
-// from the runtime llama.cpp has in that child.
+// A batch's route comes from what the child counted in its frames, from
+// the runtime llama.cpp has in that child, and from the worker's state
+// when each frame was served.
 func TestWorkerEmbedder_EmbedDocsRouted(t *testing.T) {
 	ctx := context.Background()
 	embed := func(w *workerEmbedder) EmbedRoute {
@@ -836,6 +865,13 @@ func TestWorkerEmbedder_EmbedDocsRouted(t *testing.T) {
 	is := func(rt EmbedRoute, reason string, backends ...string) bool {
 		return rt.Reason == reason && slices.Equal(rt.Backends, backends)
 	}
+	const device = "ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"
+	planned := func(w *workerEmbedder) *workerEmbedder {
+		w.mu.Lock()
+		w.spec.coremlDir = "/models/eg2.mlpackage"
+		w.mu.Unlock()
+		return w
+	}
 
 	// Every text on the Neural Engine: no llama.cpp runtime, no reason.
 	w, _ := aneWorker(t, "ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_ROUTES=1,0,")
@@ -843,69 +879,100 @@ func TestWorkerEmbedder_EmbedDocsRouted(t *testing.T) {
 		t.Errorf("all on the neural engine: %+v", rt)
 	}
 
-	// A mixed batch on a child that reported offloaded layers. A search
-	// in between changes nothing.
-	h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_ROUTES=1,2," + EmbedReasonFunctionLoading, "ANY_EMBED_WORKER_OFFLOADED=25"}}
-	w = newTestWorker(t, h, -1)
-	w.mu.Lock()
-	w.spec.coremlDir = "/models/eg2.mlpackage"
-	w.mu.Unlock()
-	if _, err := w.EmbedQuery(ctx, "q"); err != nil {
-		t.Fatal(err)
-	}
+	// A mixed batch on a child that loaded the model on a device.
+	h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_ROUTES=1,2," + EmbedReasonFunctionLoading, device}}
+	w = planned(newTestWorker(t, h, -1))
 	if rt := embed(w); !is(rt, EmbedReasonFunctionLoading, EmbedBackendANE, EmbedBackendGPU) {
 		t.Errorf("mixed batch: %+v", rt)
 	}
 	// Once bulk work gave up waiting, a function still loading is that.
-	w.bulkWaited.Store(true)
+	w.giveUpBulk()
 	if rt := embed(w); !is(rt, EmbedReasonReadinessTimeout, EmbedBackendANE, EmbedBackendGPU) {
 		t.Errorf("after the readiness timeout: %+v", rt)
 	}
 
-	// Offload asked for, and the model load said nothing about it.
+	// Offload asked for, and the model loaded on no device: the CPU, with
+	// no reason to give. That llama.cpp can offload proves nothing.
 	h = &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ROUTES=0,1,"}}
-	w = newTestWorker(t, h, -1)
-	if rt := embed(w); !is(rt, "", EmbedBackendLlama) {
-		t.Errorf("offload not established: %+v", rt)
-	}
-
-	// Offload asked for, none reported: the CPU, and no reason to give.
-	h = &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ROUTES=0,1,", "ANY_EMBED_WORKER_OFFLOADED=0"}}
 	w = newTestWorker(t, h, -1)
 	if rt := embed(w); !is(rt, "", EmbedBackendCPU) {
-		t.Errorf("nothing offloaded: %+v", rt)
+		t.Errorf("no device: %+v", rt)
 	}
 
-	// The GPU off by configuration.
-	h = &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ROUTES=0,1,"}}
+	// The GPU off by configuration, whatever devices there are.
+	h = &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ROUTES=0,1,", device}}
 	w = newTestWorker(t, h, 0)
 	if rt := embed(w); !is(rt, EmbedReasonGPUDisabled, EmbedBackendCPU) {
 		t.Errorf("gpu off by configuration: %+v", rt)
 	}
 
-	// The GPU demoted after a death.
-	h = &helperSpawner{modes: []string{"crash", "ok"}, env: []string{"ANY_EMBED_WORKER_ROUTES=0,1,", "ANY_EMBED_WORKER_OFFLOADED=25"}}
+	// A frame served on the GPU keeps its route when the next one kills
+	// the child and demotes the GPU; the batch after it is the CPU's.
+	h = &helperSpawner{modes: []string{"ok", "ok"}, env: []string{"ANY_EMBED_WORKER_ROUTES=0,1,", device, "ANY_EMBED_WORKER_CRASH_AFTER=1"}}
 	w = newTestWorker(t, h, -1)
-	if _, err := w.EmbedDocs(ctx, []string{"boom"}); err == nil {
-		t.Fatal("want error")
+	vecs, rt, err := w.EmbedDocsRouted(ctx, nil, []string{"a", "b"})
+	if err == nil || len(vecs) != 1 {
+		t.Fatalf("a batch whose second frame dies: %d vectors, %v", len(vecs), err)
+	}
+	if !is(rt, "", EmbedBackendGPU) {
+		t.Errorf("the frame served before the death: %+v", rt)
 	}
 	clearBackoff(w)
-	if rt := embed(w); !is(rt, EmbedReasonGPUFailed, EmbedBackendCPU) {
-		t.Errorf("gpu demoted: %+v", rt)
+	if vecs, rt, err = w.EmbedDocsRouted(ctx, nil, []string{"c"}); err != nil || len(vecs) != 1 || !is(rt, EmbedReasonGPUFailed, EmbedBackendCPU) {
+		t.Errorf("after the gpu was demoted: %d vectors, %v, %+v", len(vecs), err, rt)
 	}
 
 	// The Neural Engine demoted after a death: llama.cpp alone, and why.
-	h = &helperSpawner{modes: []string{"crash", "ok"}, env: []string{"ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_ROUTES=0,1,", "ANY_EMBED_WORKER_OFFLOADED=25"}}
-	w = newTestWorker(t, h, -1)
-	w.mu.Lock()
-	w.spec.coremlDir = "/models/eg2.mlpackage"
-	w.mu.Unlock()
+	h = &helperSpawner{modes: []string{"crash", "ok"}, env: []string{"ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_ROUTES=0,1,", device}}
+	w = planned(newTestWorker(t, h, -1))
 	if _, err := w.EmbedDocs(ctx, []string{"boom"}); err == nil {
 		t.Fatal("want error")
 	}
 	clearBackoff(w)
 	if rt := embed(w); !is(rt, EmbedReasonANEOff, EmbedBackendGPU) {
 		t.Errorf("neural engine demoted: %+v", rt)
+	}
+
+	// The package not ready: the child says so, and it is passed on.
+	h = &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ROUTES=0,1," + EmbedReasonPackageNotReady, device}}
+	w = planned(newTestWorker(t, h, -1))
+	if rt := embed(w); !is(rt, EmbedReasonPackageNotReady, EmbedBackendGPU) {
+		t.Errorf("package not ready: %+v", rt)
+	}
+}
+
+func TestLlamaBackend(t *testing.T) {
+	onDevice := &Hardware{ModelDevices: []string{"Vulkan0 (Test GPU)"}}
+	for _, c := range []struct {
+		gpuLayers int
+		hw        *Hardware
+		want      string
+	}{
+		{-1, onDevice, EmbedBackendGPU},
+		{-1, &Hardware{Devices: []string{"enumerated, model not on it"}}, EmbedBackendCPU},
+		{0, onDevice, EmbedBackendCPU},
+		{-1, nil, EmbedBackendLlama},
+	} {
+		if got := llamaBackend(localSpec{gpuLayers: c.gpuLayers}, c.hw); got != c.want {
+			t.Errorf("gpuLayers %d, hardware %+v: %q, want %q", c.gpuLayers, c.hw, got, c.want)
+		}
+	}
+}
+
+// The wait says when it starts: before a child is spawned for it, once.
+// A settled child is not waited on, and nothing is said.
+func TestWorkerEmbedder_PrepareBulkSaysWhenItWaits(t *testing.T) {
+	const delay = 200 * time.Millisecond
+	w, _ := aneWorker(t, append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=ready")...)
+	var said []time.Duration
+	start := time.Now()
+	w.PrepareBulk(context.Background(), func() { said = append(said, time.Since(start)) })
+	if len(said) != 1 || said[0] > delay/2 {
+		t.Fatalf("waiting was called at %v, want once, before the child was up", said)
+	}
+	w.PrepareBulk(context.Background(), func() { said = append(said, time.Since(start)) })
+	if len(said) != 1 {
+		t.Fatalf("a settled child was announced as a wait: %v", said)
 	}
 }
 
