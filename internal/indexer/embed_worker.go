@@ -38,7 +38,7 @@ const (
 	workerMinBackoff = time.Second
 	workerMaxBackoff = time.Minute
 	// workerStderrTail is how many of the child's last stderr lines are
-	// quoted when it dies — enough for llama.cpp's abort message.
+	// quoted when it dies, or of those printed before a crash report.
 	workerStderrTail = 12
 	// workerCrashHead is how many lines of a crash report are quoted after
 	// them: a ggml abort line and its native backtrace, then the signal
@@ -109,7 +109,7 @@ type workerEmbedder struct {
 	// lastFrame is when the last frame ended, in real time like the timer.
 	lastFrame time.Time
 
-	mu sync.Mutex // guards spec, gpuDisabled, coremlDisabled, hw — nothing else
+	mu sync.Mutex // guards spec, gpuDisabled, coremlDisabled, coremlRestored, hw — nothing else
 	// spec holds the parameters every spawn is rendered from. Two
 	// writers: the GPU demotion below, and SetThreads. A child whose
 	// spec no longer matches is retired on its next use.
@@ -671,14 +671,15 @@ func (w *workerEmbedder) failChild(cause error) {
 	w.mu.Unlock()
 	switch {
 	case demoteCoreML:
-		w.lg.Warn("local embedder child died with the neural engine on; embedding on llama.cpp alone for the rest of this run", fields...)
+		w.lg.Warn("local embedder child died with the neural engine on; the next child runs llama.cpp alone", fields...)
+	case demote && restoreCoreML:
+		w.lg.Warn("local embedder child died again, with llama.cpp GPU offload active; llama.cpp stays on CPU for the rest of this run and the neural engine is back on", fields...)
 	case demote:
-		w.lg.Warn("local embedder child died with GPU offload active; embedding on CPU for the rest of this run", fields...)
+		w.lg.Warn("local embedder child died with llama.cpp GPU offload active; llama.cpp stays on CPU for the rest of this run", fields...)
+	case restoreCoreML:
+		w.lg.Warn("local embedder child died again without the neural engine; the neural engine is back on", fields...)
 	default:
 		w.lg.Warn("local embedder child died; restarting on the next round", fields...)
-	}
-	if restoreCoreML {
-		w.lg.Info("local embedder: the death repeated without the neural engine; the neural engine is back on")
 	}
 }
 
@@ -1008,12 +1009,22 @@ func (t *lineTail) add(line string) {
 	t.lines = append(t.lines, line)
 }
 
+// crashPrefixes open a crash report whatever follows them.
+var crashPrefixes = []string{
+	"fatal error: ", "panic: ", // the Go runtime
+	"Exception 0x", // the Go runtime's dump on Windows
+	"*** Terminating app due to uncaught exception", // Objective-C; its call stack follows
+}
+
 // crashStart reports whether line opens a crash report: a ggml abort
-// ("ggml-metal-device.m:868: …", a native backtrace follows) or a Go
-// runtime dump ("SIGABRT: abort", "fatal error: …", "panic: …").
+// ("ggml-metal-device.m:868: …", a native backtrace follows), an
+// uncaught Objective-C exception, or a Go runtime dump ("SIGABRT: abort",
+// "Exception 0xc0000005 …", "fatal error: …", "panic: …").
 func crashStart(line string) bool {
-	if strings.HasPrefix(line, "fatal error: ") || strings.HasPrefix(line, "panic: ") {
-		return true
+	for _, p := range crashPrefixes {
+		if strings.HasPrefix(line, p) {
+			return true
+		}
 	}
 	head, _, ok := strings.Cut(line, ": ")
 	return ok && (signalName(head) || sourceLine(head))
@@ -1049,7 +1060,7 @@ func sourceLine(s string) bool {
 		return false
 	}
 	switch s[dot:i] {
-	case ".c", ".cc", ".cpp", ".h", ".hpp", ".m", ".mm":
+	case ".c", ".cc", ".cpp", ".h", ".hpp", ".m", ".mm", ".cu", ".cuh":
 		return true
 	}
 	return false

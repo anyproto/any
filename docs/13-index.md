@@ -840,11 +840,13 @@ child and fails the round; the next round respawns behind an exponential
 backoff (1 s → 1 min). The timeout exists because a wedged GPU stops
 answering rather than failing; it counts as a fault and demotes the GPU
 (below). An error *frame* is not a fault — the child stays. The child's
-stderr is logged, llama.cpp's error lines included, and its tail is
-quoted when it dies. A crash report — a ggml abort line with its native
-backtrace, the Go runtime's dump — is quoted from its first line, after
-the lines printed above it: the report ends in registers, and what
-killed the child is at its start. A caller that
+stderr is logged, llama.cpp's error lines included (under `llama.cpp: `),
+and its tail is quoted when it dies: the last 12 lines, or, once a crash
+report began, the 12 lines before it and its first 32. A crash report
+begins at a ggml abort line, an uncaught Objective-C exception or the
+Go runtime's dump. A signal dump runs to hundreds of lines and ends in
+registers; what killed the child is at the report's start or just above
+it. A caller that
 goes away is not a fault either: a request already on the wire is read
 to completion so the stream stays usable, the child is kept, and the
 next caller finds it ready.
