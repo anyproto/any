@@ -112,8 +112,15 @@ func runEmbedHelper(mode string) int {
 		case "crash": // what a llama.cpp abort looks like from outside
 			fmt.Fprintln(os.Stderr, "terminate called after throwing an instance of 'vk::DeviceLostError'")
 			return 134
-		case "abort": // an abort the Go runtime reports: every goroutine, then the registers
-			fmt.Fprintln(os.Stderr, "GGML_ASSERT(false) failed")
+		case "abort": // a ggml abort: its message, a native backtrace, then the Go runtime's dump
+			for i := 0; i < 2*workerStderrTail; i++ {
+				fmt.Fprintf(os.Stderr, "earlier line %d\n", i)
+			}
+			fmt.Fprintln(os.Stderr, "ggml_metal_library_compile_pipeline: kernel not found in any metal library: base = 'kernel_mul_mm_bf16_f32'")
+			fmt.Fprintln(os.Stderr, "ggml-metal-device.m:868: ggml_metal_encoder_set_pipeline: nil Metal pipeline (missing kernel; see compile_pipeline log above)")
+			for i := 0; i < 16; i++ {
+				fmt.Fprintf(os.Stderr, "%-3d libggml-base.dylib                  0x0000000104a1c2a0 ggml_print_backtrace + %d\n", i, 276+i)
+			}
 			fmt.Fprintln(os.Stderr, "SIGABRT: abort")
 			fmt.Fprintln(os.Stderr, "PC=0x18b0d5388 m=5 sigcode=0")
 			for i := 0; i < 300; i++ {
@@ -603,8 +610,9 @@ func TestWorkerEmbedder_CrashWithGPUOffKeepsSpec(t *testing.T) {
 	}
 }
 
-// The Go runtime answers an abort inside llama.cpp with a dump that ends
-// in registers. The death report quotes what was printed above the dump.
+// An abort inside llama.cpp prints its message and a native backtrace,
+// and the Go runtime adds a dump that ends in registers. The death report
+// quotes the message and what was printed above it.
 func TestWorkerEmbedder_DeathReportKeepsTheCause(t *testing.T) {
 	core, logs := observer.New(zap.WarnLevel)
 	h := &helperSpawner{modes: []string{"abort"}}
@@ -618,13 +626,18 @@ func TestWorkerEmbedder_DeathReportKeepsTheCause(t *testing.T) {
 		t.Fatalf("logged %d warnings, want 1", len(entries))
 	}
 	quoted, _ := entries[0].ContextMap()["childStderr"].(string)
-	for _, want := range []string{"GGML_ASSERT(false) failed", "SIGABRT: abort", "goroutine 0 [syscall]:"} {
+	for _, want := range []string{
+		"kernel not found in any metal library", "nil Metal pipeline", "SIGABRT: abort", "goroutine 0 [syscall]:",
+		fmt.Sprintf("earlier line %d", 2*workerStderrTail-1),
+	} {
 		if !strings.Contains(quoted, want) {
 			t.Errorf("death report lacks %q: %s", want, quoted)
 		}
 	}
-	if strings.Contains(quoted, "r29 ") {
-		t.Errorf("death report quotes the end of the dump: %s", quoted)
+	for _, not := range []string{"r29 ", "earlier line 0 "} {
+		if strings.Contains(quoted+" ", not) {
+			t.Errorf("death report quotes %q: %s", not, quoted)
+		}
 	}
 }
 
@@ -649,21 +662,26 @@ func TestLineTail(t *testing.T) {
 	}
 }
 
-func TestCrashDumpStart(t *testing.T) {
+func TestCrashStart(t *testing.T) {
 	for line, want := range map[string]bool{
-		"SIGABRT: abort":                                             true,
-		"SIGSEGV: segmentation violation":                            true,
-		"fatal error: unexpected signal during runtime execution":    true,
-		"panic: runtime error: index out of range [3] with length 3": true,
-		"SIG: nothing":              false,
-		"SIGabrt: abort":            false,
-		"SIGABRT":                   false,
-		"GGML_ASSERT(false) failed": false,
-		"neural engine: starting":   false,
-		"":                          false,
+		"SIGABRT: abort":                                                     true,
+		"SIGSEGV: segmentation violation":                                    true,
+		"fatal error: unexpected signal during runtime execution":            true,
+		"panic: runtime error: index out of range [3] with length 3":         true,
+		"ggml-metal-device.m:868: ggml_metal_encoder_set_pipeline: nil":      true,
+		"/src/ggml/src/ggml.c:1532: GGML_ASSERT(false) failed":               true,
+		`C:\a\llama.cpp\ggml\src\ggml-cpu\ops.cpp:77: GGML_ASSERT(x) failed`: true,
+		"ggml_metal_library_compile_pipeline: kernel not found":              false,
+		"embed.go:12: a log line":                                            false,
+		"ggml.c: no line number":                                             false,
+		"SIG: nothing":                                                       false,
+		"SIGabrt: abort":                                                     false,
+		"SIGABRT":                                                            false,
+		"neural engine: starting":                                            false,
+		"":                                                                   false,
 	} {
-		if got := crashDumpStart(line); got != want {
-			t.Errorf("crashDumpStart(%q) = %v, want %v", line, got, want)
+		if got := crashStart(line); got != want {
+			t.Errorf("crashStart(%q) = %v, want %v", line, got, want)
 		}
 	}
 }

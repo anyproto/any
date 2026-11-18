@@ -40,10 +40,10 @@ const (
 	// workerStderrTail is how many of the child's last stderr lines are
 	// quoted when it dies — enough for llama.cpp's abort message.
 	workerStderrTail = 12
-	// workerCrashHead is how many lines of a Go runtime crash dump are
-	// quoted after them: the signal and the top frames of the goroutine
-	// it arrived on.
-	workerCrashHead = 20
+	// workerCrashHead is how many lines of a crash report are quoted after
+	// them: a ggml abort line and its native backtrace, then the signal
+	// and the top frames of the Go runtime's dump.
+	workerCrashHead = 32
 	// workerIdleTimeout retires a child that has served no frame for this
 	// long, returning the memory its decode buffers keep
 	// (docs/13-index.md § The embedder child process).
@@ -903,46 +903,75 @@ func (c *embedChild) drain(timeout time.Duration) bool {
 }
 
 // lineTail keeps the last N lines of the child's stderr — written by
-// the stderr pump, read when the child dies. A Go runtime crash dump
-// runs to hundreds of lines and ends in registers, so the tail stops at
-// the dump's head: what killed the child was printed above it.
+// the stderr pump, read when the child dies. A crash report runs to
+// hundreds of lines and ends in registers, so the tail stops at the
+// report's head: what killed the child is printed there and just above.
 type lineTail struct {
 	mu    sync.Mutex
 	max   int
 	lines []string
-	dump  int // crash dump lines kept; 0 = no dump yet
+	crash int // crash report lines kept; 0 = no report yet
 }
 
 func (t *lineTail) add(line string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	switch {
-	case t.dump >= workerCrashHead:
+	case t.crash >= workerCrashHead:
 		return
-	case t.dump > 0 || crashDumpStart(line):
-		t.dump++
+	case t.crash > 0 || crashStart(line):
+		t.crash++
 	case len(t.lines) >= t.max:
 		t.lines = t.lines[len(t.lines)-t.max+1:]
 	}
 	t.lines = append(t.lines, line)
 }
 
-// crashDumpStart reports whether line opens a Go runtime crash dump:
-// "SIGABRT: abort", "fatal error: …", "panic: …".
-func crashDumpStart(line string) bool {
+// crashStart reports whether line opens a crash report: a ggml abort
+// ("ggml-metal-device.m:868: …", a native backtrace follows) or a Go
+// runtime dump ("SIGABRT: abort", "fatal error: …", "panic: …").
+func crashStart(line string) bool {
 	if strings.HasPrefix(line, "fatal error: ") || strings.HasPrefix(line, "panic: ") {
 		return true
 	}
-	name, _, ok := strings.Cut(line, ": ")
-	if !ok || len(name) < 4 || !strings.HasPrefix(name, "SIG") {
+	head, _, ok := strings.Cut(line, ": ")
+	return ok && (signalName(head) || sourceLine(head))
+}
+
+// signalName: "SIGABRT", "SIGSEGV", ….
+func signalName(s string) bool {
+	if len(s) < 4 || !strings.HasPrefix(s, "SIG") {
 		return false
 	}
-	for _, r := range name[3:] {
+	for _, r := range s[3:] {
 		if r < 'A' || r > 'Z' {
 			return false
 		}
 	}
 	return true
+}
+
+// sourceLine: "<file>:<line>" of a C-family source file, the prefix of
+// a ggml abort.
+func sourceLine(s string) bool {
+	i := strings.LastIndexByte(s, ':')
+	if i < 0 || i == len(s)-1 {
+		return false
+	}
+	for _, r := range s[i+1:] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	dot := strings.LastIndexByte(s[:i], '.')
+	if dot < 0 {
+		return false
+	}
+	switch s[dot:i] {
+	case ".c", ".cc", ".cpp", ".h", ".hpp", ".m", ".mm":
+		return true
+	}
+	return false
 }
 
 func (t *lineTail) String() string {
