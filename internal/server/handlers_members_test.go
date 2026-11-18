@@ -181,7 +181,7 @@ func TestServer_MembersInvites_BadInputs(t *testing.T) {
 
 	cases := []struct {
 		name, method, path, body, wantCode string
-		wantStatus                          int
+		wantStatus                         int
 	}{
 		{
 			name:       "join missing token",
@@ -254,5 +254,34 @@ func TestServer_MembersInvites_BadInputs(t *testing.T) {
 				t.Errorf("code = %q, want prefix %q", env.Error.Code, tc.wantCode)
 			}
 		})
+	}
+}
+
+// TestServer_MemberGet_BadIdentity: a malformed identity in the path
+// is the caller's mistake — 400, not a 500 from the SDK's ErrBadIdentity.
+func TestServer_MemberGet_BadIdentity(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", `{"name":"bad-identity"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create space: %d %s", rec.Code, rec.Body.String())
+	}
+	var sp api.SpaceInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &sp); err != nil {
+		t.Fatalf("decode space: %v", err)
+	}
+
+	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/members/not-an-identity", "")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	var env api.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("decode envelope: %v", err)
+	}
+	if env.Error.Code != "request.invalid_field" || env.Error.Details["field"] != "identity" {
+		t.Errorf("error = %+v, want request.invalid_field on field identity", env.Error)
 	}
 }
