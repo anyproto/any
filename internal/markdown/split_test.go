@@ -353,3 +353,21 @@ func residueShape(existing []existingBlock) bool {
 	_, ok := frontMatterEnd(splitLines(Join(rendered)))
 	return ok
 }
+
+func TestSplit_UnderlineTagStaysInItsParagraph(t *testing.T) {
+	// `<u>` is inline: a paragraph's later line may open with it, after
+	// a soft break or either hard break.
+	for _, in := range []string{
+		"plain\n<u>second</u>",
+		"plain\\\n<u>second</u>",
+		"plain  \n<u>second</u>",
+		"plain\n   <U>second</U>",
+	} {
+		assert.Equal(t, []string{in}, Split(in))
+	}
+	// Any other tag still ends the paragraph above it.
+	assert.Equal(t, []string{"plain", "<div>x</div>"}, Split("plain\n<div>x</div>"))
+	assert.Equal(t, []string{"plain", "</u>x"}, Split("plain\n</u>x"))
+	// At the start of a block the tag still opens an HTML block.
+	assert.Equal(t, []string{"<u>lead</u> rest\nmore"}, Split("<u>lead</u> rest\nmore"))
+}
