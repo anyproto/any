@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/anyproto/any-sync/app/logger"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/anyproto/any/internal/config"
 )
@@ -110,6 +112,17 @@ func runEmbedHelper(mode string) int {
 		case "crash": // what a llama.cpp abort looks like from outside
 			fmt.Fprintln(os.Stderr, "terminate called after throwing an instance of 'vk::DeviceLostError'")
 			return 134
+		case "abort": // an abort the Go runtime reports: every goroutine, then the registers
+			fmt.Fprintln(os.Stderr, "GGML_ASSERT(false) failed")
+			fmt.Fprintln(os.Stderr, "SIGABRT: abort")
+			fmt.Fprintln(os.Stderr, "PC=0x18b0d5388 m=5 sigcode=0")
+			for i := 0; i < 300; i++ {
+				fmt.Fprintf(os.Stderr, "goroutine %d [syscall]:\n", i)
+			}
+			for i := 0; i < 30; i++ {
+				fmt.Fprintf(os.Stderr, "r%d      0x0\n", i)
+			}
+			return 2
 		case "hang": // a wedged GPU: never answers
 			exitWithParent()
 		case "errframe": // healthy child, failed call
@@ -587,6 +600,71 @@ func TestWorkerEmbedder_CrashWithGPUOffKeepsSpec(t *testing.T) {
 	}
 	if h.spec(1).gpuLayers != 0 {
 		t.Fatalf("respawn gpuLayers = %d, want 0", h.spec(1).gpuLayers)
+	}
+}
+
+// The Go runtime answers an abort inside llama.cpp with a dump that ends
+// in registers. The death report quotes what was printed above the dump.
+func TestWorkerEmbedder_DeathReportKeepsTheCause(t *testing.T) {
+	core, logs := observer.New(zap.WarnLevel)
+	h := &helperSpawner{modes: []string{"abort"}}
+	w := newTestWorker(t, h, -1)
+	w.lg = logger.CtxLogger{Logger: zap.New(core)}
+	if _, err := w.EmbedDocs(context.Background(), []string{"boom"}); !errors.Is(err, ErrEmbedderUnavailable) {
+		t.Fatalf("err = %v, want ErrEmbedderUnavailable", err)
+	}
+	entries := logs.All()
+	if len(entries) != 1 {
+		t.Fatalf("logged %d warnings, want 1", len(entries))
+	}
+	quoted, _ := entries[0].ContextMap()["childStderr"].(string)
+	for _, want := range []string{"GGML_ASSERT(false) failed", "SIGABRT: abort", "goroutine 0 [syscall]:"} {
+		if !strings.Contains(quoted, want) {
+			t.Errorf("death report lacks %q: %s", want, quoted)
+		}
+	}
+	if strings.Contains(quoted, "r29 ") {
+		t.Errorf("death report quotes the end of the dump: %s", quoted)
+	}
+}
+
+func TestLineTail(t *testing.T) {
+	tail := &lineTail{max: 3}
+	for _, l := range []string{"a", "b", "c", "d"} {
+		tail.add(l)
+	}
+	if got := tail.String(); got != "b | c | d" {
+		t.Fatalf("tail = %q, want the last three lines", got)
+	}
+	tail.add("panic: boom")
+	for i := 0; i < 2*workerCrashHead; i++ {
+		tail.add(fmt.Sprintf("frame %d", i))
+	}
+	want := "b | c | d | panic: boom"
+	for i := 0; i < workerCrashHead-1; i++ {
+		want += fmt.Sprintf(" | frame %d", i)
+	}
+	if got := tail.String(); got != want {
+		t.Fatalf("tail = %q, want %q", got, want)
+	}
+}
+
+func TestCrashDumpStart(t *testing.T) {
+	for line, want := range map[string]bool{
+		"SIGABRT: abort":                                             true,
+		"SIGSEGV: segmentation violation":                            true,
+		"fatal error: unexpected signal during runtime execution":    true,
+		"panic: runtime error: index out of range [3] with length 3": true,
+		"SIG: nothing":              false,
+		"SIGabrt: abort":            false,
+		"SIGABRT":                   false,
+		"GGML_ASSERT(false) failed": false,
+		"neural engine: starting":   false,
+		"":                          false,
+	} {
+		if got := crashDumpStart(line); got != want {
+			t.Errorf("crashDumpStart(%q) = %v, want %v", line, got, want)
+		}
 	}
 }
 

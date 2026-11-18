@@ -40,6 +40,10 @@ const (
 	// workerStderrTail is how many of the child's last stderr lines are
 	// quoted when it dies — enough for llama.cpp's abort message.
 	workerStderrTail = 12
+	// workerCrashHead is how many lines of a Go runtime crash dump are
+	// quoted after them: the signal and the top frames of the goroutine
+	// it arrived on.
+	workerCrashHead = 20
 	// workerIdleTimeout retires a child that has served no frame for this
 	// long, returning the memory its decode buffers keep
 	// (docs/13-index.md § The embedder child process).
@@ -899,20 +903,46 @@ func (c *embedChild) drain(timeout time.Duration) bool {
 }
 
 // lineTail keeps the last N lines of the child's stderr — written by
-// the stderr pump, read when the child dies.
+// the stderr pump, read when the child dies. A Go runtime crash dump
+// runs to hundreds of lines and ends in registers, so the tail stops at
+// the dump's head: what killed the child was printed above it.
 type lineTail struct {
 	mu    sync.Mutex
 	max   int
 	lines []string
+	dump  int // crash dump lines kept; 0 = no dump yet
 }
 
 func (t *lineTail) add(line string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.lines = append(t.lines, line)
-	if len(t.lines) > t.max {
-		t.lines = t.lines[len(t.lines)-t.max:]
+	switch {
+	case t.dump >= workerCrashHead:
+		return
+	case t.dump > 0 || crashDumpStart(line):
+		t.dump++
+	case len(t.lines) >= t.max:
+		t.lines = t.lines[len(t.lines)-t.max+1:]
 	}
+	t.lines = append(t.lines, line)
+}
+
+// crashDumpStart reports whether line opens a Go runtime crash dump:
+// "SIGABRT: abort", "fatal error: …", "panic: …".
+func crashDumpStart(line string) bool {
+	if strings.HasPrefix(line, "fatal error: ") || strings.HasPrefix(line, "panic: ") {
+		return true
+	}
+	name, _, ok := strings.Cut(line, ": ")
+	if !ok || len(name) < 4 || !strings.HasPrefix(name, "SIG") {
+		return false
+	}
+	for _, r := range name[3:] {
+		if r < 'A' || r > 'Z' {
+			return false
+		}
+	}
+	return true
 }
 
 func (t *lineTail) String() string {

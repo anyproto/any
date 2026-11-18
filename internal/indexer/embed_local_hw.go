@@ -16,9 +16,9 @@ import (
 )
 
 // llamaLog keeps the hardware lines llama.cpp emits while backends
-// register and the model loads. Everything else is dropped — the log
-// callback stays effectively silent, which is what the server wants on
-// its own stderr.
+// register and the model loads. Error lines go to stderr; everything
+// else is dropped — the log callback stays effectively silent, which is
+// what the server wants on its own stderr.
 var llamaLog struct {
 	sync.Mutex
 	lines []string
@@ -37,14 +37,22 @@ var hardwareLinePrefixes = []string{
 }
 
 // llamaLogCapture is the llama_log_set callback: it keeps recognized
-// hardware lines and discards the rest. Called from llama.cpp threads.
+// hardware lines, writes error lines to stderr — in the child that is
+// the tail the server quotes when it dies — and discards the rest.
+// Called from llama.cpp threads.
 func llamaLogCapture() uintptr {
 	return purego.NewCallback(func(level int32, text unsafe.Pointer, data uintptr) uintptr {
 		if text == nil {
 			return 0
 		}
 		line := strings.TrimSpace(utils.BytePtrToString((*byte)(text)))
-		if line == "" || !hardwareLine(line) {
+		if line == "" {
+			return 0
+		}
+		if llama.LogLevel(level) == llama.LogLevelError {
+			_, _ = os.Stderr.WriteString(line + "\n")
+		}
+		if !hardwareLine(line) {
 			return 0
 		}
 		llamaLog.Lock()

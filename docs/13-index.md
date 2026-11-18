@@ -840,7 +840,10 @@ child and fails the round; the next round respawns behind an exponential
 backoff (1 s → 1 min). The timeout exists because a wedged GPU stops
 answering rather than failing; it counts as a fault and demotes the GPU
 (below). An error *frame* is not a fault — the child stays. The child's
-stderr is logged, and its tail is quoted when it dies. A caller that
+stderr is logged, llama.cpp's error lines included, and its tail is
+quoted when it dies. A Go runtime crash dump is quoted by its first
+lines, after the lines printed above it: the dump ends in registers,
+and what killed the child was printed before it. A caller that
 goes away is not a fault either: a request already on the wire is read
 to completion so the stream stays usable, the child is kept, and the
 next caller finds it ready.
