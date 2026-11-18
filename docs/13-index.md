@@ -648,10 +648,11 @@ back to `pending`. `index.embedder: none` ⇒ the loop doesn't run and the
 index is FTS-only.
 
 With the local embedder (`local`, and `auto` without a key) the loops
-start `index.embedStartDelay` after the account boots, 2 min by default,
-and drain once at that moment: the first minutes are left to sync, the
-full-text pass and the client's startup. `0` starts them at once, as an
-HTTP embedder always does. A search embeds its query regardless.
+start `index.embedStartDelay` after the account boots, 2 min by default:
+the first minutes are left to sync, the full-text pass and the client's
+startup. `0` starts them at once, as an HTTP embedder always does. A
+loop drains once when it starts, for what was pending before it. A
+search embeds its query regardless.
 
 A vector lands only on the input it was embedded from. The advance loop
 writes while a batch embeds, so the landing checks each doc inside its
@@ -967,10 +968,13 @@ function, so a backlog does not run on llama.cpp while Core ML
 prepares. The drain's process row is announced before the wait. The
 wait ends when the child reports a function loaded, a failed load or
 the path off, when the child exits, or 10 min after the child's first
-waiter, for every waiter at once; a wait that ran into that bound is the
-last one until the next boot. Nothing waits while the package is not on
-disk. The child is not retired as idle meanwhile. Searches are not held:
-a query embeds on llama.cpp until the function is there.
+waiter, for every waiter at once; a wait that ran into that bound ends
+every other one and is the last until the next boot. Nothing waits
+while the package is not on disk, and a drain asks again before each
+round until the wait is settled: a package that lands, or a child that
+replaces the one waited on, is waited for then. The child is not
+retired as idle meanwhile. Searches are not held: a query embeds on
+llama.cpp until the function is there.
 
 **Placement.** A machine that lists no Neural Engine never loads the
 package. Before a function first loads, the child reads Core ML's

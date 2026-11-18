@@ -291,11 +291,9 @@ func (w *spaceWorker) embedLoop() {
 			w.ix.lg.Warn("embed pending failed, will retry on tick", zap.String("spaceId", w.sp.Id()), zap.Error(err))
 		}
 	}
-	// Nothing nudges the loop for what the previous run left pending. A
+	// Nothing nudges the loop for what was pending before it started. A
 	// drain waits out the start delay itself.
-	if time.Until(w.ix.embedFrom) > 0 {
-		drain()
-	}
+	drain()
 	ticker := time.NewTicker(w.ix.opts.PendingEvery)
 	defer ticker.Stop()
 	for {
@@ -847,7 +845,7 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 		last = &st
 		status(st)
 	}
-	started, counted := false, false
+	started, counted, prepared := false, false, false
 	for {
 		if !started {
 			// The backlog is announced before any wait and read after it.
@@ -858,12 +856,11 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 			if n == 0 {
 				return nil
 			}
-			embedding := EmbedStatus{Phase: EmbedPhaseEmbedding}
 			wait := time.Until(w.ix.embedFrom)
 			if wait > 0 {
 				report(EmbedStatus{Phase: EmbedPhaseWaiting})
 			} else {
-				report(embedding)
+				report(EmbedStatus{Phase: EmbedPhaseEmbedding})
 			}
 			progress(0, n) // the started frame carries the phase
 			if wait > 0 {
@@ -873,18 +870,24 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 				case <-time.After(wait):
 				}
 			}
-			// An embedder that readies a faster runtime in the background
-			// gets to finish that first (workerEmbedder.PrepareBulk).
-			if p, ok := emb.(interface {
-				PrepareBulk(ctx context.Context, waiting func())
-			}); ok {
-				p.PrepareBulk(ctx, func() { report(EmbedStatus{Phase: EmbedPhasePreparing}) })
-				if err := ctx.Err(); err != nil {
-					return err
-				}
-			}
-			report(embedding)
 			started, counted = true, true
+		}
+		if !prepared {
+			// An embedder that readies a faster runtime in the background
+			// gets to finish that first (workerEmbedder.PrepareBulk), and
+			// is asked again each round until it has nothing left to wait
+			// for.
+			p, ok := emb.(interface {
+				PrepareBulk(ctx context.Context, waiting func()) bool
+			})
+			prepared = !ok || p.PrepareBulk(ctx, func() { report(EmbedStatus{Phase: EmbedPhasePreparing}) })
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		// After a wait; a round that follows a batch keeps its runtimes.
+		if last == nil || last.Phase != EmbedPhaseEmbedding {
+			report(EmbedStatus{Phase: EmbedPhaseEmbedding})
 		}
 		ids, texts, err := w.ix.store.Pending(ctx, spaceId, batch*conc)
 		if err != nil {
