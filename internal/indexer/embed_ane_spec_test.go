@@ -682,7 +682,7 @@ func TestWorkerEmbedder_PrepareBulkIgnoresARetiringChild(t *testing.T) {
 		w.stopChild(true)
 		w.slot.release(false)
 	}()
-	for deadline := time.Now().Add(5 * time.Second); hasChildDetached(w) == false; {
+	for deadline := time.Now().Add(5 * time.Second); !hasChildDetached(w); {
 		if time.Now().After(deadline) {
 			t.Fatal("the child was never detached")
 		}
@@ -713,6 +713,27 @@ func TestWorkerEmbedder_PrepareBulkIgnoresARetiringChild(t *testing.T) {
 	}
 	if c := w.settledChild.Load(); c == nil || c.detached.Load() || c.cmd != h.cmdAt(1) {
 		t.Fatal("the wait did not end on the replacement's own report")
+	}
+}
+
+// A child that reported on its Neural Engine path and then failed to
+// start was never the worker's: it does not answer for the next one.
+func TestWorkerEmbedder_PrepareBulkIgnoresAChildThatNeverStarted(t *testing.T) {
+	const delay = 300 * time.Millisecond
+	h := &helperSpawner{modes: []string{"settleexit", "ok"}, env: append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=ready")}
+	w := newTestWorker(t, h, 0)
+	w.mu.Lock()
+	w.spec.coremlDir = "/models/eg2.mlpackage"
+	w.mu.Unlock()
+	w.bulkWait = 30 * time.Second
+	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err == nil {
+		t.Fatal("want the start failure")
+	}
+	clearBackoff(w)
+	start := time.Now()
+	w.PrepareBulk(context.Background())
+	if waited := time.Since(start); waited < delay-50*time.Millisecond || h.spawns() != 2 || w.bulkWaited.Load() {
+		t.Fatalf("waited %s on %d children, deadline hit %v; want the second child's first function", waited, h.spawns(), w.bulkWaited.Load())
 	}
 }
 

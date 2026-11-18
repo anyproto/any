@@ -96,7 +96,7 @@ type workerEmbedder struct {
 	bulkWaited atomic.Bool
 	gaveUp     chan struct{} // closed with bulkWaited
 	// settledChild is the last child whose Neural Engine path settled.
-	// It answers PrepareBulk only while it is attached.
+	// It answers PrepareBulk until the worker lets go of it (detached).
 	settledChild atomic.Pointer[embedChild]
 	// pkgOnDisk reports whether the Core ML package is complete on disk;
 	// nil = not asked.
@@ -603,6 +603,8 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 	select {
 	case m, ok := <-c.resp:
 		if !ok || m.err != nil || m.hdr.Op != workerOpReady {
+			// Never attached: whatever it reported, it answers for no one.
+			c.detached.Store(true)
 			// stop() joins the stderr pump, so the tail is complete.
 			waitErr := c.stop(false)
 			w.live.Store(nil)
@@ -616,6 +618,7 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 			w.mu.Unlock()
 		}
 	case <-timer.C:
+		c.detached.Store(true)
 		waitErr := c.stop(false)
 		w.live.Store(nil)
 		return nil, fmt.Errorf("embedder child did not become ready in %s: %s", w.startTimeout,
@@ -717,8 +720,9 @@ func (w *workerEmbedder) PrepareBulk(ctx context.Context) {
 	if spec.coremlDir == "" || w.closing.Load() || w.bulkWaited.Load() {
 		return
 	}
-	// Not the live process: a child being retired stays live until it is
-	// reaped, and its replacement has a path of its own to settle.
+	// Only a child the worker still holds answers: one being retired
+	// stays live until it is reaped, and its replacement settles on its
+	// own.
 	if c := w.settledChild.Load(); c != nil && !c.detached.Load() && c.spec == spec {
 		return
 	}
@@ -937,8 +941,8 @@ type embedChild struct {
 	settled    chan struct{}
 	settleOnce sync.Once
 	onSettle   func() // run once, before settled closes
-	// detached: the worker has let go of this child (retired, failed).
-	// Set under the slot, read without it.
+	// detached: the worker has let go of this child (retired, failed,
+	// never started). Set under the slot, read without it.
 	detached atomic.Bool
 	// waitUntil is when PrepareBulk stops waiting on this child; zero
 	// until its first waiter. Slot-guarded.
