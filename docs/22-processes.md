@@ -34,8 +34,8 @@ process id** (the id therefore follows the event-target grammar
 
 | type | data |
 |---|---|
-| `process.started` | `{kind, title, target?}` |
-| `process.progress` | `{kind, title, target?, done, total?, message?}` |
+| `process.started` | `{kind, title, target?, embedding?}` |
+| `process.progress` | `{kind, title, target?, done, total?, message?, embedding?}` |
 | `process.done` / `process.cancelled` | `{kind, title, target?}` |
 | `process.failed` | `{kind, title, target?, error: {code?, message}}` |
 | `process.cancel` | `{identity}` — a directive at the owner, **not** a state change |
@@ -57,6 +57,13 @@ process id** (the id therefore follows the event-target grammar
   on started and the final count on done), with absent-means-keep
   semantics: a partial frame never regresses a value. Frames this
   server emits always carry the full `done`/`total`/`message` set.
+- `process.started` and `process.progress` of an `index.embed` process
+  also carry `embedding: {phase, backends?, reason?}` (§ Internal
+  producers). The object is replaced whole by each frame that has it,
+  kept by one that has not, and dropped when the row ends. Rows of any
+  other kind never have it. Values outside its vocabulary are dropped
+  before they enter the view, and an object whose `phase` is outside it
+  counts as absent.
 
 The helper endpoints below emit these for you; a non-`any` publisher
 in the same space can emit them by hand through the bus and shows up
@@ -146,7 +153,7 @@ Emits `process.cancel` on the process's own scope.
 `{"processes": [...]}`, expired rows swept, ordered by first-seen
 time. Row shape (`api.Process`): `{identity, self, id, kind, title,
 scope, spaceId?, target?, state, done, total?, message?, error?,
-startedAt, updatedAt}` — `state` is `running` / `done` / `failed` /
+embedding?, startedAt, updatedAt}` — `state` is `running` / `done` / `failed` /
 `cancelled`; `startedAt`/`updatedAt` are unix seconds of **local
 observation** (this device's clock). There is no
 `/processes/subscribe` — watch the raw frames instead:
@@ -199,9 +206,41 @@ late heartbeat can resurrect a finished row. Work stopped mid-pass
 
 - **Embedding (vector) drain** — id `index.embed.<spaceId>`, kind
   `index.embed`, target the spaceId. Once announced: progress per
-  landed batch → done/failed/cancelled. `done`/`total` count docs:
-  the total comes from the pending count, re-read every round, so
+  landed batch and on each change of `embedding` →
+  done/failed/cancelled. `done`/`total` count docs: the total comes
+  from the pending count, re-read every round and after each wait, so
   late-arriving docs extend the bar instead of overflowing it.
+  While it runs the row has `embedding`:
+  - `phase`: `waiting` while `index.embedStartDelay` runs with texts
+    pending; `preparing` while the drain waits for the Neural Engine's
+    first function, the worker's start and model load included;
+    `embedding` otherwise.
+  - `backends`: the runtimes that embedded the last batch the embedder
+    returned, whether or not all of it landed. `ane` is Core ML on the
+    Neural Engine; `gpu` is llama.cpp in a child that loaded the model
+    on a GPU device; `cpu` is llama.cpp with
+    `index.local.gpuLayers: 0` or with no device to load the model on;
+    `llama` is llama.cpp in a child that did not report its hardware;
+    `remote` is `openai` or `ollama`. Several entries are a mixed batch.
+    Absent in `waiting` and `preparing`, before the first batch, and
+    for `auto` with a key. Tokenizing on the CPU does not make a batch
+    mixed: these name where the model ran. With batches embedded in
+    parallel (`index.embedConcurrency`), the row follows the order they
+    are stored in.
+  - `reason`: one cause for texts of that batch running off the fastest
+    runtime, absent when none did. It is the reason of the batch's last
+    frame that had one, as things stood when that frame was served.
+    With a Neural Engine path it is the cause of the frame's last text
+    that missed it: `package_not_ready` (the Core ML package is not on
+    disk or not compiled yet), `function_loading`, `too_long`,
+    `ane_failed`, `ane_off` (the path is off for this run), or
+    `readiness_timeout` (a function still loading after bulk work gave
+    up waiting). Otherwise it is the GPU's: `gpu_failed` (offload
+    demoted after a child died) or `gpu_disabled`
+    (`index.local.gpuLayers: 0`). It does not describe every text of
+    the batch.
+  A search's query is not counted, and reading the view starts no
+  worker.
 - **FTS / chunking pass** — id `index.fts.<spaceId>`, kind
   `index.fts`, target the spaceId. `done` counts processed changes;
   `total` unknown (the change feed has no backlog count).

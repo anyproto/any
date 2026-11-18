@@ -86,8 +86,21 @@ func runEmbedHelper(mode string) int {
 		Backends: []string{"CPU from libggml-cpu-test.so"},
 		Devices:  []string{"Test Device"},
 	}
+	// ANY_EMBED_WORKER_MODEL_DEVICE is the device the model load used;
+	// unset = none, as on a machine with nothing to offload to.
+	if dev := os.Getenv("ANY_EMBED_WORKER_MODEL_DEVICE"); dev != "" {
+		hw.ModelDevices = []string{dev}
+	}
 	if err := writeFrame(out, workerResp{Op: workerOpReady, Dim: helperDim, Hardware: hw}, nil); err != nil {
 		return 1
+	}
+	// ANY_EMBED_WORKER_ROUTES="<ane>,<llama>,<miss>" rides every document
+	// frame, as the real child's count of its texts per runtime.
+	var routes *workerRoutes
+	if parts := strings.Split(os.Getenv("ANY_EMBED_WORKER_ROUTES"), ","); len(parts) == 3 {
+		ane, _ := strconv.Atoi(parts[0])
+		llm, _ := strconv.Atoi(parts[1])
+		routes = &workerRoutes{ANE: ane, Llama: llm, Miss: parts[2]}
 	}
 	switch os.Getenv("ANY_EMBED_WORKER_ANE") {
 	case "":
@@ -168,7 +181,11 @@ func runEmbedHelper(mode string) int {
 		if err != nil {
 			return 1
 		}
-		if err := writeFrame(out, workerResp{Op: workerOpVectors, N: len(vecs), Dim: dim}, bin); err != nil {
+		resp := workerResp{Op: workerOpVectors, N: len(vecs), Dim: dim}
+		if req.Role != workerRoleQuery {
+			resp.Routes = routes
+		}
+		if err := writeFrame(out, resp, bin); err != nil {
 			return 1
 		}
 	}
@@ -1398,15 +1415,23 @@ func TestWorkerEmbedder_RealChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The child's own count of its texts per runtime.
+	if rt := local.lastRoutes(); rt.ANE != 0 || rt.Llama != len(texts) || rt.Miss != "" {
+		t.Fatalf("in-process routes = %+v, want every text on llama.cpp", rt)
+	}
 
 	h := &helperSpawner{modes: []string{"real"}}
 	w := newTestWorker(t, h, 0)
 	w.spec.modelPath = modelPath
 	w.spec.libDir = libDir
 	w.startTimeout = 5 * time.Minute
-	got, err := w.EmbedDocs(ctx, texts)
+	got, route, err := w.EmbedDocsRouted(ctx, nil, texts)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// Through the frame protocol, on a child with offload off.
+	if len(route.Backends) != 1 || route.Backends[0] != EmbedBackendCPU || route.Reason != EmbedReasonGPUDisabled {
+		t.Fatalf("route = %+v, want the CPU with gpu_disabled", route)
 	}
 	for i := range want {
 		for j := range want[i] {

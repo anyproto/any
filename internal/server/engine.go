@@ -659,8 +659,8 @@ func (d *deps) indexerProcessFor(eng *engine) func(indexer.ProcessUpdate) {
 			id = "index.fts." + u.SpaceId
 			data = processEventData{Kind: "index.fts", Title: "Indexing for search", Target: u.SpaceId}
 		case indexer.ProcessKindEmbed:
-			id = "index.embed." + u.SpaceId
-			data = processEventData{Kind: "index.embed", Title: "Embedding search index", Target: u.SpaceId}
+			id = processKindEmbed + "." + u.SpaceId
+			data = processEventData{Kind: processKindEmbed, Title: "Embedding search index", Target: u.SpaceId}
 		case indexer.ProcessKindModelDownload:
 			id = "index.model_download"
 			data = processEventData{Kind: "index.model_download", Title: "Downloading embedding model", Target: u.Name}
@@ -679,6 +679,9 @@ func (d *deps) indexerProcessFor(eng *engine) func(indexer.ProcessUpdate) {
 			return
 		}
 		data.Done, data.Total = u.Done, u.Total
+		if st := u.Embedding; st != nil {
+			data.Embedding = &api.ProcessEmbedding{Phase: st.Phase, Backends: st.Backends, Reason: st.Reason}
+		}
 		// Non-failed messages are producer-authored status lines (e.g. the
 		// download's generic "retrying" note) and safe to relay; a failed
 		// frame's message is the raw error — paths and response bodies —

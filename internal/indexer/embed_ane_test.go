@@ -300,6 +300,47 @@ func TestNeuralEngine_RetriesWithoutAText(t *testing.T) {
 	}
 }
 
+// A text the Neural Engine does not serve comes with the reason.
+func TestNeuralEngine_SaysWhyItMissed(t *testing.T) {
+	f := &fakeANE{prepErrs: []error{errANENotReady, nil}}
+	n, clock := newTestANE(t, f)
+	miss := func(tokens int) string {
+		t.Helper()
+		if _, ok := n.embed(tokensOf(tokens)); ok {
+			t.Fatalf("%d tokens were served", tokens)
+		}
+		return n.lastMiss()
+	}
+	n.start()
+	n.loads.Wait()
+	if got := miss(10); got != EmbedReasonPackageNotReady {
+		t.Errorf("package not on disk: %q", got)
+	}
+	n.loads.Wait()
+	clock.add(aneRetryInterval)
+	if got := miss(10); got != EmbedReasonPackageNotReady && got != EmbedReasonFunctionLoading {
+		t.Errorf("package just landed: %q", got)
+	}
+	n.loads.Wait() // s128 is loaded now
+	if got := miss(200); got != EmbedReasonFunctionLoading {
+		t.Errorf("a function not loaded yet: %q", got)
+	}
+	n.loads.Wait()
+	if got := miss(100000); got != EmbedReasonTooLong {
+		t.Errorf("longer than every function: %q", got)
+	}
+	f.failOn(512, errors.New("refused"))
+	_ = miss(400) // asks for s512, which fails to load
+	n.loads.Wait()
+	if got := miss(400); got != EmbedReasonANEFailed {
+		t.Errorf("a function that failed to load: %q", got)
+	}
+	n.close()
+	if got := miss(10); got != EmbedReasonANEOff {
+		t.Errorf("path off: %q", got)
+	}
+}
+
 func TestNeuralEngine_PrepareFailureTurnsOff(t *testing.T) {
 	f := &fakeANE{prepErrs: []error{errors.New("no neural engine")}}
 	n, clock := newTestANE(t, f)

@@ -86,6 +86,9 @@ func (c *OpenAI) embed(ctx context.Context, inputs []string) ([][]float32, error
 	return vecs, nil
 }
 
+// EmbedBackend: the texts embed on the server behind the URL.
+func (c *OpenAI) EmbedBackend() string { return EmbedBackendRemote }
+
 func (c *OpenAI) EmbedDocs(ctx context.Context, texts []string) ([][]float32, error) {
 	return c.embed(ctx, texts)
 }

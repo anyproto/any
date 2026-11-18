@@ -276,24 +276,114 @@ func (w *workerEmbedder) EmbedsTitles() bool {
 }
 
 func (w *workerEmbedder) EmbedTitledDocs(ctx context.Context, titles, texts []string) ([][]float32, error) {
+	vecs, _, err := w.EmbedDocsRouted(ctx, titles, texts)
+	return vecs, err
+}
+
+// EmbedDocsRouted is EmbedTitledDocs that also says which runtimes
+// embedded the batch: the child counts its texts per runtime in every
+// frame.
+func (w *workerEmbedder) EmbedDocsRouted(ctx context.Context, titles, texts []string) ([][]float32, EmbedRoute, error) {
 	if len(texts) == 0 {
-		return nil, nil
+		return nil, EmbedRoute{}, nil
 	}
 	group := max(w.childSpec().batchDocs, 1)
 	out := make([][]float32, 0, len(texts))
+	var tally routeTally
 	for start := 0; start < len(texts); start += group {
 		end := min(start+group, len(texts))
 		var frameTitles []string
 		if len(titles) == len(texts) {
 			frameTitles = titles[start:end]
 		}
-		vecs, err := w.embed(ctx, workerRoleDoc, frameTitles, texts[start:end])
-		out = append(out, vecs...)
-		if err != nil {
-			return out, err
+		r := w.run(ctx, workerReq{Op: workerOpEmbed, Role: workerRoleDoc, Texts: texts[start:end], Titles: frameTitles})
+		out = append(out, r.vecs...)
+		tally.add(r)
+		if r.err != nil {
+			return out, tally.route(), r.err
 		}
 	}
-	return out, nil
+	return out, tally.route(), nil
+}
+
+// routeTally sums what the frames of one batch said: the child's counts,
+// and the reason each frame had when it was served.
+type routeTally struct {
+	ane    int
+	llama  map[string]int // per EmbedBackend* of the child that served the frame
+	reason string         // of the last frame that had one
+}
+
+func (t *routeTally) add(r frameResult) {
+	rt := r.routes
+	if rt == nil {
+		return
+	}
+	t.ane += rt.ANE
+	if rt.Llama > 0 {
+		if t.llama == nil {
+			t.llama = map[string]int{}
+		}
+		t.llama[r.llama] += rt.Llama
+	}
+	if r.reason != "" {
+		t.reason = r.reason
+	}
+}
+
+// route names the runtimes behind a batch's tally.
+func (t routeTally) route() EmbedRoute {
+	rt := EmbedRoute{Reason: t.reason}
+	if t.ane > 0 {
+		rt.Backends = append(rt.Backends, EmbedBackendANE)
+	}
+	for _, b := range []string{EmbedBackendGPU, EmbedBackendCPU, EmbedBackendLlama} {
+		if t.llama[b] > 0 {
+			rt.Backends = append(rt.Backends, b)
+		}
+	}
+	return rt
+}
+
+// llamaBackend names the runtime llama.cpp embeds on in a child: the
+// GPU only when it loaded the model on a device.
+func llamaBackend(spec localSpec, hw *Hardware) string {
+	switch {
+	case spec.gpuLayers == 0:
+		return EmbedBackendCPU
+	case hw == nil:
+		return EmbedBackendLlama
+	case len(hw.ModelDevices) > 0:
+		return EmbedBackendGPU
+	}
+	return EmbedBackendCPU
+}
+
+// frameReason is one reason for texts of a frame running off the fastest
+// runtime, as things stand when the frame is served: the Neural Engine's
+// when that path is planned (the frame's last text that missed it), else
+// the GPU's. Caller holds the slot.
+func (w *workerEmbedder) frameReason(rt *workerRoutes) string {
+	if rt == nil || rt.Llama == 0 {
+		return ""
+	}
+	w.mu.Lock()
+	planned, aneOff := w.spec.coremlDir != "", w.coremlDisabled
+	gpuFailed, gpuDisabled := w.gpuDisabled, w.spec.gpuLayers == 0
+	w.mu.Unlock()
+	switch {
+	case planned && aneOff:
+		return EmbedReasonANEOff
+	case planned && rt.Miss == EmbedReasonFunctionLoading && w.bulkWaited.Load():
+		return EmbedReasonReadinessTimeout
+	case planned && rt.Miss != "":
+		return rt.Miss
+	case gpuFailed:
+		return EmbedReasonGPUFailed
+	case gpuDisabled:
+		return EmbedReasonGPUDisabled
+	}
+	return ""
 }
 
 func (w *workerEmbedder) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
@@ -406,6 +496,12 @@ type frameResult struct {
 	vecs [][]float32
 	dim  int
 	err  error
+	// routes is what the child said about a document frame; llama, the
+	// runtime llama.cpp embeds on in that child (EmbedBackend*); reason,
+	// why texts of the frame ran off the fastest runtime (EmbedReason*).
+	routes *workerRoutes
+	llama  string
+	reason string
 }
 
 // run performs one frame on the child, taking the slot for the
@@ -474,7 +570,7 @@ func (w *workerEmbedder) serve(ctx context.Context, req workerReq) frameResult {
 		return frameResult{err: fmt.Errorf("%w: %v", ErrEmbedderUnavailable, err)}
 	}
 	w.backoff = 0
-	return frameResult{vecs: vecs}
+	return frameResult{vecs: vecs, routes: hdr.Routes, llama: w.child.llama, reason: w.frameReason(hdr.Routes)}
 }
 
 // roundTrip writes one request and waits for its response. Every
@@ -612,6 +708,7 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 				errText(m.err), handshakeText(ok, m.hdr), c.stderr.String(), errText(waitErr), "no output"))
 		}
 		c.dim = m.hdr.Dim
+		c.llama = llamaBackend(spec, m.hdr.Hardware)
 		if m.hdr.Hardware != nil {
 			w.mu.Lock()
 			w.hw = *m.hdr.Hardware
@@ -715,7 +812,10 @@ var _ BulkPreparer = (*workerEmbedder)(nil)
 // for every caller. Nothing waits without a Neural Engine path, or while
 // its package is not on disk. The slot is free meanwhile: searches are
 // served.
-func (w *workerEmbedder) PrepareBulk(ctx context.Context) {
+//
+// waiting, when set, is called once if the call is going to wait, before
+// it starts a child: the child's model load is part of the wait.
+func (w *workerEmbedder) PrepareBulk(ctx context.Context, waiting func()) {
 	spec := w.childSpec()
 	if spec.coremlDir == "" || w.closing.Load() || w.bulkWaited.Load() {
 		return
@@ -728,6 +828,11 @@ func (w *workerEmbedder) PrepareBulk(ctx context.Context) {
 	}
 	if w.pkgOnDisk != nil && !w.pkgOnDisk() {
 		return
+	}
+	// From here on the call waits: for a child to start, or for the
+	// running one's path to settle.
+	if waiting != nil {
+		waiting()
 	}
 	// Before the spawn: its idle timer must not fire under the wait.
 	w.preparing.Add(1)
@@ -933,6 +1038,7 @@ type embedChild struct {
 	errDone chan struct{}
 	spec    localSpec // what it was spawned with; a drifted spec retires it
 	dim     int
+	llama   string // the runtime llama.cpp embeds on in it (EmbedBackend*)
 	// coreml: by the child's last report on its Neural Engine path,
 	// Core ML is in use in it.
 	coreml atomic.Bool

@@ -23,6 +23,24 @@ import (
 var llamaLog struct {
 	sync.Mutex
 	lines []string
+	// modelDevices are the devices of the model load's "using device"
+	// lines: where llama.cpp put the model.
+	modelDevices []string
+}
+
+// modelDevice reads the device from llama.cpp's "…: using device Vulkan0
+// (AMD …) (0000:c5:00.0) - 12288 MiB free". That line is logged per
+// device the model is loaded on; "offloaded N/M layers" only repeats the
+// request.
+func modelDevice(line string) (string, bool) {
+	_, dev, ok := strings.Cut(line, ": using device ")
+	if !ok {
+		return "", false
+	}
+	if i := strings.LastIndex(dev, " - "); i > 0 {
+		dev = dev[:i]
+	}
+	return strings.TrimSpace(dev), dev != ""
 }
 
 // hardwareLinePrefixes are the log lines worth keeping: which backend
@@ -68,6 +86,14 @@ func llamaLogCapture() uintptr {
 			return 0
 		}
 		forwardLlamaError(os.Stderr, level, line)
+		if dev, ok := modelDevice(line); ok {
+			llamaLog.Lock()
+			if len(llamaLog.modelDevices) < 16 {
+				llamaLog.modelDevices = append(llamaLog.modelDevices, dev)
+			}
+			llamaLog.Unlock()
+			return 0
+		}
 		if !hardwareLine(line) {
 			return 0
 		}
@@ -111,6 +137,9 @@ func (l *Local) Hardware() Hardware {
 		LibVersion: libVersionStamp(l.libDir),
 		SystemInfo: strings.TrimSpace(llama.PrintSystemInfo()),
 	}
+	llamaLog.Lock()
+	h.ModelDevices = append([]string(nil), llamaLog.modelDevices...)
+	llamaLog.Unlock()
 	for _, line := range capturedHardwareLines() {
 		switch {
 		case strings.HasPrefix(line, "load_backend:"):

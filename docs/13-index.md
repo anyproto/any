@@ -647,12 +647,13 @@ parallel (default 1; 4 for `openai`, and for `auto` with a key) →
 back to `pending`. `index.embedder: none` ⇒ the loop doesn't run and the
 index is FTS-only.
 
-With the local embedder (`local`, and `auto` without a key) the loops
-start `index.embedStartDelay` after the account boots, 2 min by default:
-the first minutes are left to sync, the full-text pass and the client's
-startup. `0` starts them at once, as an HTTP embedder always does. A
-loop drains once when it starts, for what was pending before it. A
-search embeds its query regardless.
+With the local embedder (`local`, and `auto` without a key) a drain
+that finds texts pending waits until `index.embedStartDelay` after the
+account boots, 2 min by default: the first minutes are left to sync,
+the full-text pass and the client's startup. Its process row says
+`waiting` meanwhile (`22-processes.md` § Internal producers). `0` is no
+wait, as for an HTTP embedder. A loop drains once when it starts, for
+what was pending before it. A search embeds its query regardless.
 
 A vector lands only on the input it was embedded from. The advance loop
 writes while a batch embeds, so the landing checks each doc inside its

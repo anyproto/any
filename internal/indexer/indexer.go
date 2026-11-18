@@ -186,6 +186,9 @@ type ProcessUpdate struct {
 	Done    int64
 	Total   int64 // 0 = unknown
 	Message string
+	// Embedding is the embed drain's status on its started and progress
+	// frames; nil on every other frame.
+	Embedding *EmbedStatus
 }
 
 func (o Options) withDefaults() Options {
@@ -710,7 +713,7 @@ func (ix *Indexer) Sync(ctx context.Context) error {
 			return err
 		}
 		if ix.HasEmbedder() {
-			if err := w.drainPending(ctx); err != nil {
+			if err := w.drain(ctx, false); err != nil {
 				return err
 			}
 		}
@@ -727,7 +730,7 @@ func (ix *Indexer) SyncSpace(ctx context.Context, sp space.Space) error {
 		return err
 	}
 	if ix.HasEmbedder() {
-		return w.drainPending(ctx)
+		return w.drain(ctx, false)
 	}
 	return nil
 }

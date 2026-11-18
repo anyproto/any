@@ -54,11 +54,21 @@ type workerReq struct {
 	Titles []string `json:"titles,omitempty"`
 }
 
+// workerRoutes rides a `vectors` frame of documents: how many of its
+// texts each runtime embedded, and why the last text that missed the
+// Neural Engine did (EmbedReason*).
+type workerRoutes struct {
+	ANE   int    `json:"ane,omitempty"`
+	Llama int    `json:"llama,omitempty"`
+	Miss  string `json:"miss,omitempty"`
+}
+
 type workerResp struct {
-	Op    string `json:"op"`
-	Dim   int    `json:"dim,omitempty"`
-	N     int    `json:"n,omitempty"`
-	Error string `json:"error,omitempty"`
+	Op     string        `json:"op"`
+	Dim    int           `json:"dim,omitempty"`
+	N      int           `json:"n,omitempty"`
+	Error  string        `json:"error,omitempty"`
+	Routes *workerRoutes `json:"routes,omitempty"`
 	// Hardware rides the `ready` frame: what llama.cpp reports about the
 	// machine it just initialized on.
 	Hardware *Hardware `json:"hardware,omitempty"`

@@ -153,8 +153,9 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 // parent keeps it (only a dead or desynchronized child is respawned).
 func serveEmbed(ctx context.Context, l *Local, w *bufio.Writer, req workerReq) error {
 	var (
-		vecs [][]float32
-		err  error
+		vecs   [][]float32
+		routes *workerRoutes
+		err    error
 	)
 	switch req.Role {
 	case workerRoleQuery:
@@ -167,7 +168,10 @@ func serveEmbed(ctx context.Context, l *Local, w *bufio.Writer, req workerReq) e
 			vecs = [][]float32{v}
 		}
 	default:
-		vecs, err = l.EmbedTitledDocs(ctx, req.Titles, req.Texts)
+		if vecs, err = l.EmbedTitledDocs(ctx, req.Titles, req.Texts); err == nil {
+			r := l.lastRoutes()
+			routes = &r
+		}
 	}
 	if err != nil {
 		return writeFrame(w, workerResp{Op: workerOpError, Error: err.Error()}, nil)
@@ -176,5 +180,5 @@ func serveEmbed(ctx context.Context, l *Local, w *bufio.Writer, req workerReq) e
 	if err != nil {
 		return writeFrame(w, workerResp{Op: workerOpError, Error: err.Error()}, nil)
 	}
-	return writeFrame(w, workerResp{Op: workerOpVectors, N: len(vecs), Dim: dim}, bin)
+	return writeFrame(w, workerResp{Op: workerOpVectors, N: len(vecs), Dim: dim, Routes: routes}, bin)
 }

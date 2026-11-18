@@ -235,7 +235,7 @@ func TestEmbedDrain_SkipsDocChangedMidRound(t *testing.T) {
 	}
 	drain := func() (landed int) {
 		t.Helper()
-		if err := w.drainRounds(ctx, func(n, _ int) { landed += n }); err != nil {
+		if err := w.drainRounds(ctx, false, func(n, _ int) { landed += n }, nil); err != nil {
 			t.Fatal(err)
 		}
 		return landed

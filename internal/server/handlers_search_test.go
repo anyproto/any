@@ -663,6 +663,40 @@ func TestSearch_FTSUpgradeProcessBridge(t *testing.T) {
 	}
 }
 
+// An embed drain's state reaches the process view through the bridge and
+// leaves with the row's end.
+func TestSearch_EmbedStateProcessBridge(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	emit := d.indexerProcessFor(d.eng)
+	const sp = "space-embedding"
+	row := func() api.Process {
+		t.Helper()
+		var list api.ProcessListResponse
+		decodeGet(t, e, "/v1/processes", &list)
+		i := slices.IndexFunc(list.Processes, func(p api.Process) bool { return p.Id == "index.embed."+sp })
+		if i < 0 {
+			t.Fatalf("the embed drain is not on the process view: %+v", list.Processes)
+		}
+		return list.Processes[i]
+	}
+	emit(indexer.ProcessUpdate{Kind: indexer.ProcessKindEmbed, SpaceId: sp, Phase: indexer.ProcessStarted, Total: 9,
+		Embedding: &indexer.EmbedStatus{Phase: indexer.EmbedPhasePreparing}})
+	if p := row(); p.Embedding == nil || p.Embedding.Phase != "preparing" || p.Embedding.Backends != nil {
+		t.Fatalf("started: %+v", p.Embedding)
+	}
+	emit(indexer.ProcessUpdate{Kind: indexer.ProcessKindEmbed, SpaceId: sp, Phase: indexer.ProcessProgress, Done: 4, Total: 9,
+		Embedding: &indexer.EmbedStatus{Phase: indexer.EmbedPhaseEmbedding, Backends: []string{indexer.EmbedBackendANE, indexer.EmbedBackendCPU}, Reason: indexer.EmbedReasonTooLong}})
+	if p := row(); p.Embedding == nil || p.Embedding.Phase != "embedding" || !slices.Equal(p.Embedding.Backends, []string{"ane", "cpu"}) || p.Embedding.Reason != "too_long" || p.Done != 4 {
+		t.Fatalf("progress: %+v", p)
+	}
+	emit(indexer.ProcessUpdate{Kind: indexer.ProcessKindEmbed, SpaceId: sp, Phase: indexer.ProcessDone, Done: 9, Total: 9})
+	if p := row(); p.Embedding != nil || p.State != api.ProcessStateDone {
+		t.Fatalf("done: state %s, embedding %+v", p.State, p.Embedding)
+	}
+}
+
 // A failed model download is one that stopped: its row says so, where
 // every other failure promises a retry.
 func TestSearch_ModelDownloadStoppedProcessBridge(t *testing.T) {

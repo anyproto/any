@@ -3161,6 +3161,9 @@ const docTemplate = `{
                     "done": {
                         "type": "integer"
                     },
+                    "embedding": {
+                        "$ref": "#/components/schemas/api.ProcessEmbedding"
+                    },
                     "error": {
                         "$ref": "#/components/schemas/api.ProcessError"
                     },
@@ -3209,6 +3212,28 @@ const docTemplate = `{
             "api.ProcessCancelRequest": {
                 "properties": {
                     "identity": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.ProcessEmbedding": {
+                "description": "Embedding is set on a running ` + "`" + `index.embed` + "`" + ` process.",
+                "properties": {
+                    "backends": {
+                        "description": "Backends embedded the texts of the last batch the embedder\nreturned: ` + "`" + `ane` + "`" + `, ` + "`" + `gpu` + "`" + `, ` + "`" + `cpu` + "`" + `, ` + "`" + `llama` + "`" + `, ` + "`" + `remote` + "`" + `. More than one\nis a mixed batch. Absent while waiting and preparing, before the\nfirst batch, and when the embedder does not say.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "phase": {
+                        "description": "Phase is ` + "`" + `waiting` + "`" + ` (the start delay runs), ` + "`" + `preparing` + "`" + ` (the\nembedder readies a runtime) or ` + "`" + `embedding` + "`" + `.",
+                        "type": "string"
+                    },
+                    "reason": {
+                        "description": "Reason is one cause for texts of that batch running off the\nfastest runtime: ` + "`" + `package_not_ready` + "`" + `, ` + "`" + `function_loading` + "`" + `,\n` + "`" + `too_long` + "`" + `, ` + "`" + `ane_failed` + "`" + `, ` + "`" + `ane_off` + "`" + `, ` + "`" + `readiness_timeout` + "`" + `,\n` + "`" + `gpu_failed` + "`" + `, ` + "`" + `gpu_disabled` + "`" + `. Absent when none did.",
                         "type": "string"
                     }
                 },

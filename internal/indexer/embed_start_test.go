@@ -2,6 +2,8 @@ package indexer
 
 import (
 	"context"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,7 +21,7 @@ type prepEmbedder struct {
 	at     time.Time // the first EmbedDocs
 }
 
-func (e *prepEmbedder) PrepareBulk(context.Context) {
+func (e *prepEmbedder) PrepareBulk(context.Context, func()) {
 	e.mu.Lock()
 	e.events = append(e.events, "prepare")
 	during := e.during
@@ -188,5 +190,86 @@ func TestIndexer_StartSetsTheEmbedDelay(t *testing.T) {
 	defer func() { _ = ix.Close() }()
 	if ix.embedFrom.Before(before.Add(delay)) || ix.embedFrom.After(after.Add(delay)) {
 		t.Fatalf("embedFrom = %s after Start, want %s", ix.embedFrom.Sub(before), delay)
+	}
+}
+
+// routedEmbedder says which runtimes embedded each batch, and waits in
+// PrepareBulk when told to.
+type routedEmbedder struct {
+	axisEmbedder
+	route   EmbedRoute
+	prepare time.Duration
+}
+
+func (e *routedEmbedder) EmbedDocsRouted(ctx context.Context, _, texts []string) ([][]float32, EmbedRoute, error) {
+	vecs, err := e.axisEmbedder.EmbedDocs(ctx, texts)
+	return vecs, e.route, err
+}
+
+func (e *routedEmbedder) PrepareBulk(_ context.Context, waiting func()) {
+	if e.prepare > 0 {
+		waiting()
+		time.Sleep(e.prepare)
+		e.prepare = 0 // settled: later rounds do not wait
+	}
+}
+
+// The frames of a drain carry what the embedder is doing: the phase from
+// the started frame on, the runtimes of the last batch once one was
+// embedded, and nothing on the terminal frame.
+func TestEmbedDrainReportsTheEmbedderState(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 4)
+	var updates []ProcessUpdate
+	emb := &routedEmbedder{axisEmbedder: axisEmbedder{dim: 4},
+		route: EmbedRoute{Backends: []string{EmbedBackendANE, EmbedBackendCPU}, Reason: EmbedReasonFunctionLoading}}
+	ix := &Indexer{store: st, opts: Options{
+		Embedder:      emb,
+		AnnounceAfter: -1,
+		OnProcess:     func(u ProcessUpdate) { updates = append(updates, u) },
+	}.withDefaults()}
+	w := &spaceWorker{ix: ix, sp: staticIdSpace{}}
+	land := func(id string, seq uint64) {
+		t.Helper()
+		if err := st.Apply(ctx, "sp1", []DocUpsert{{Entry: entry("chat", "o1", "chat_messages", id, "a text "+id, seq)}}, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	phases := func() (out []string) {
+		for _, u := range updates {
+			st := "-"
+			if u.Embedding != nil {
+				st = u.Embedding.Phase
+				if len(u.Embedding.Backends) > 0 {
+					st += "[" + strings.Join(u.Embedding.Backends, ",") + "]" + u.Embedding.Reason
+				}
+			}
+			out = append(out, u.Phase+":"+st)
+		}
+		return out
+	}
+
+	// No delay, no wait: embedding from the started frame on.
+	land("m1", 1)
+	if err := w.drainPending(ctx); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"started:embedding", "progress:embedding[ane,cpu]function_loading", "progress:embedding[ane,cpu]function_loading", "done:-"}
+	if got := phases(); !slices.Equal(got, want) {
+		t.Fatalf("frames = %v, want %v", got, want)
+	}
+
+	// The start delay, then the embedder's own preparation, then batches.
+	updates = nil
+	emb.prepare = 50 * time.Millisecond
+	emb.route = EmbedRoute{Backends: []string{EmbedBackendANE}}
+	ix.embedFrom = time.Now().Add(150 * time.Millisecond)
+	land("m2", 2)
+	if err := w.drainPending(ctx); err != nil {
+		t.Fatal(err)
+	}
+	want = []string{"started:waiting", "progress:preparing", "progress:embedding", "progress:embedding[ane]", "progress:embedding[ane]", "done:-"}
+	if got := phases(); !slices.Equal(got, want) {
+		t.Fatalf("frames = %v, want %v", got, want)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/indexer"
 )
 
 // Process-view staleness (docs/22-processes.md § Heartbeat and
@@ -45,6 +46,8 @@ type processEventData struct {
 	Total   int64             `json:"total"`
 	Message string            `json:"message"`
 	Error   *api.ProcessError `json:"error,omitempty"`
+	// Embedding rides the started and progress frames of index.embed.
+	Embedding *api.ProcessEmbedding `json:"embedding,omitempty"`
 }
 
 // processEventDataIn is the decode-side twin: pointers make absent
@@ -53,13 +56,53 @@ type processEventData struct {
 // semantics the progress endpoint gives its own callers) instead of
 // zeroing them.
 type processEventDataIn struct {
-	Kind    string            `json:"kind"`
-	Title   string            `json:"title"`
-	Target  string            `json:"target"`
-	Done    *int64            `json:"done"`
-	Total   *int64            `json:"total"`
-	Message *string           `json:"message"`
-	Error   *api.ProcessError `json:"error"`
+	Kind      string                `json:"kind"`
+	Title     string                `json:"title"`
+	Target    string                `json:"target"`
+	Done      *int64                `json:"done"`
+	Total     *int64                `json:"total"`
+	Message   *string               `json:"message"`
+	Error     *api.ProcessError     `json:"error"`
+	Embedding *api.ProcessEmbedding `json:"embedding"`
+}
+
+// processKindEmbed is the kind of the indexer's embed drain, the one
+// process whose rows carry api.ProcessEmbedding.
+const processKindEmbed = "index.embed"
+
+// The closed vocabulary of api.ProcessEmbedding. A frame from the bus
+// is not trusted: anything else is dropped before it enters the view.
+var (
+	processEmbedPhases   = []string{indexer.EmbedPhaseWaiting, indexer.EmbedPhasePreparing, indexer.EmbedPhaseEmbedding}
+	processEmbedBackends = []string{
+		indexer.EmbedBackendANE, indexer.EmbedBackendGPU, indexer.EmbedBackendCPU,
+		indexer.EmbedBackendLlama, indexer.EmbedBackendRemote,
+	}
+	processEmbedReasons = []string{
+		indexer.EmbedReasonPackageNotReady,
+		indexer.EmbedReasonFunctionLoading, indexer.EmbedReasonTooLong, indexer.EmbedReasonANEFailed,
+		indexer.EmbedReasonANEOff, indexer.EmbedReasonReadinessTimeout,
+		indexer.EmbedReasonGPUFailed, indexer.EmbedReasonGPUDisabled,
+	}
+)
+
+// sanitizeProcessEmbedding keeps what is in the vocabulary: an object
+// with an unknown phase counts as absent, unknown backends and reasons
+// drop themselves.
+func sanitizeProcessEmbedding(in *api.ProcessEmbedding) *api.ProcessEmbedding {
+	if in == nil || !slices.Contains(processEmbedPhases, in.Phase) {
+		return nil
+	}
+	out := &api.ProcessEmbedding{Phase: in.Phase}
+	for _, b := range processEmbedBackends { // in the vocabulary's order, each once
+		if slices.Contains(in.Backends, b) {
+			out.Backends = append(out.Backends, b)
+		}
+	}
+	if slices.Contains(processEmbedReasons, in.Reason) {
+		out.Reason = in.Reason
+	}
+	return out
 }
 
 // processCancelData is the data payload of process.cancel: the
@@ -141,6 +184,7 @@ func (r *processRegistry) apply(ev *api.Event) {
 	if data.Error != nil {
 		data.Error.Message = clipUTF8(data.Error.Message, processMessageMaxLen)
 	}
+	data.Embedding = sanitizeProcessEmbedding(data.Embedding)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -193,6 +237,14 @@ func (r *processRegistry) apply(ev *api.Event) {
 		p.Error = data.Error
 	} else {
 		p.Error = nil
+	}
+	// The embedder's state belongs to a running embed drain: absent
+	// keeps it, the row's end drops it, and no other kind has it.
+	switch {
+	case state != api.ProcessStateRunning || p.Kind != processKindEmbed:
+		p.Embedding = nil
+	case data.Embedding != nil:
+		p.Embedding = data.Embedding
 	}
 	p.UpdatedAt = now.Unix()
 	e.seen = now
