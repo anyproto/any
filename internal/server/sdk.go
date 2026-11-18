@@ -357,10 +357,16 @@ func openIndexerStore(ctx context.Context, cfg config.Index, dbPath string, emb 
 	if embedConc == 0 && onlinePrimary {
 		embedConc = 4
 	}
+	embedStartDelay, err := cfg.EmbedStartDelayDuration()
+	if err != nil {
+		_ = st.Close()
+		return nil, err
+	}
 	ix := indexer.New(sdk, chunkers, st, indexer.Options{
 		Embedder:          emb,
 		EmbedBatch:        cfg.EmbedBatch,
 		EmbedConcurrency:  embedConc,
+		EmbedStartDelay:   embedStartDelay,
 		QueryEmbedTimeout: queryEmbedTimeout,
 		FtsWeight:         cfg.Search.FtsWeight,
 		VectorWeight:      cfg.Search.VectorWeight,

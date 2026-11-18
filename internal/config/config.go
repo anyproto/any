@@ -1,6 +1,9 @@
 package config
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/anyproto/any-sync/app/logger"
 
 	"github.com/anyproto/any/internal/api"
@@ -275,13 +278,18 @@ type Index struct {
 	// online openai/auto — parallel requests are the online throughput
 	// win; the local child serves one frame at a time so concurrency is
 	// safe but pointless). See docs/13-index.md.
-	EmbedBatch       int         `yaml:"embedBatch"`
-	EmbedConcurrency int         `yaml:"embedConcurrency"`
-	Ollama           IndexOllama `yaml:"ollama"`
-	OpenAI           IndexOpenAI `yaml:"openai"`
-	Local            IndexLocal  `yaml:"local"`
-	Vector           IndexVector `yaml:"vector"`
-	Search           IndexSearch `yaml:"search"`
+	EmbedBatch       int `yaml:"embedBatch"`
+	EmbedConcurrency int `yaml:"embedConcurrency"`
+	// EmbedStartDelay is how long after boot the embed loops start
+	// draining: a boot's sync, full-text pass and client startup come
+	// first. A duration; "0" starts at once. Searches embed their query
+	// regardless. Default 2m.
+	EmbedStartDelay string      `yaml:"embedStartDelay"`
+	Ollama          IndexOllama `yaml:"ollama"`
+	OpenAI          IndexOpenAI `yaml:"openai"`
+	Local           IndexLocal  `yaml:"local"`
+	Vector          IndexVector `yaml:"vector"`
+	Search          IndexSearch `yaml:"search"`
 }
 
 // IndexSearch tunes hybrid search ranking (chunker-hybrid-search-report
@@ -465,6 +473,22 @@ const defaultEmbedModel = "Qwen/Qwen3-Embedding-0.6B"
 
 // Defaults returns a Config populated with v1 defaults. Paths here are
 // unexpanded — Load resolves them against the process environment.
+// DefaultEmbedStartDelay is index.embedStartDelay when unset.
+const DefaultEmbedStartDelay = 2 * time.Minute
+
+// EmbedStartDelayDuration parses index.embedStartDelay; empty is the
+// default.
+func (i Index) EmbedStartDelayDuration() (time.Duration, error) {
+	if i.EmbedStartDelay == "" {
+		return DefaultEmbedStartDelay, nil
+	}
+	d, err := time.ParseDuration(i.EmbedStartDelay)
+	if err != nil || d < 0 {
+		return 0, fmt.Errorf("index.embedStartDelay: want a duration of zero or more, got %q", i.EmbedStartDelay)
+	}
+	return d, nil
+}
+
 func Defaults() Config {
 	return Config{
 		DataDir: "~/.any",
@@ -475,9 +499,10 @@ func Defaults() Config {
 		WebUI:   WebUI{Enabled: true},
 		Local:   Local{Enabled: true},
 		Index: Index{
-			Enabled:  true,
-			Embedder: "auto", // online primary + local fallback (same model)
-			OpenAI:   IndexOpenAI{Model: defaultEmbedModel},
+			Enabled:         true,
+			Embedder:        "auto", // online primary + local fallback (same model)
+			EmbedStartDelay: DefaultEmbedStartDelay.String(),
+			OpenAI:          IndexOpenAI{Model: defaultEmbedModel},
 		},
 		Log: logger.Config{
 			DefaultLevel: "info",

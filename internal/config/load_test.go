@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestLoad_DefaultsOnly(t *testing.T) {
@@ -205,6 +206,34 @@ func TestLoad_IndexDefaults(t *testing.T) {
 	}
 }
 
+func TestLoad_IndexEmbedStartDelay(t *testing.T) {
+	isolateEnv(t)
+	cfg, err := Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, err := cfg.Index.EmbedStartDelayDuration(); err != nil || d != DefaultEmbedStartDelay {
+		t.Errorf("default = %s, %v; want %s", d, err, DefaultEmbedStartDelay)
+	}
+	t.Setenv("ANY_INDEX_EMBED_START_DELAY", "0")
+	if cfg, err = Load(Flags{}); err != nil {
+		t.Fatal(err)
+	}
+	if d, err := cfg.Index.EmbedStartDelayDuration(); err != nil || d != 0 {
+		t.Errorf("env 0 = %s, %v; want no delay", d, err)
+	}
+	for in, want := range map[string]time.Duration{"": DefaultEmbedStartDelay, "0s": 0, "45s": 45 * time.Second, "3m": 3 * time.Minute} {
+		if d, err := (Index{EmbedStartDelay: in}).EmbedStartDelayDuration(); err != nil || d != want {
+			t.Errorf("%q = %s, %v; want %s", in, d, err, want)
+		}
+	}
+	for _, bad := range []string{"-1s", "soon", "12"} {
+		if _, err := (Index{EmbedStartDelay: bad}).EmbedStartDelayDuration(); err == nil {
+			t.Errorf("%q: want an error", bad)
+		}
+	}
+}
+
 func TestLoad_IndexFileAndEnv(t *testing.T) {
 	isolateEnv(t)
 	dir := t.TempDir()
@@ -393,7 +422,7 @@ func isolateEnv(t *testing.T) {
 		"ANY_WALLET_PASSKEY", "XDG_CONFIG_HOME", "ANY_NETWORK_NODECONF_PATH",
 		"ANY_PUSH_ENABLED", "ANY_PUSH_PEER_ID", "ANY_PUSH_ADDRS",
 		"ANY_ACCESS_REDEEM_URL", "ANY_P2P_GLOBAL_ENABLED",
-		"ANY_INDEX_ENABLED", "ANY_INDEX_EMBEDDER",
+		"ANY_INDEX_ENABLED", "ANY_INDEX_EMBEDDER", "ANY_INDEX_EMBED_START_DELAY",
 		"ANY_INDEX_OLLAMA_URL", "ANY_INDEX_OLLAMA_MODEL",
 		"ANY_INDEX_OPENAI_BASE_URL", "ANY_INDEX_OPENAI_MODEL",
 		"ANY_INDEX_OPENAI_API_KEY", "ANY_INDEX_VECTOR_DIM",

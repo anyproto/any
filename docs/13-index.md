@@ -936,8 +936,8 @@ not apply to the package. With `index.local.modelPath` nothing is
 downloaded and a package already in the models dir is used. The child
 checks the files against their checksums and compiles the package once
 into `<name>-<digest>.mlmodelc` beside it. Until the package is complete
-llama.cpp embeds everything, and the child looks for it again when a
-text arrives, at most every 30 s. The package's licence texts
+llama.cpp embeds everything, and the child looks for it again every
+30 s. The package's licence texts
 (`LICENSE`, `NOTICE` and the licence the notice refers to) follow it
 into `<name>-<digest>.licenses/`, pinned the same way; one that cannot
 be fetched is tried again at the next start and holds nothing back.
@@ -945,13 +945,22 @@ be fetched is tried again at the next start and holds nothing back.
 **Function lifetime.** The smallest function loads first and stays for
 queries: when the child starts if the package is ready, else with the
 first text after it is. Any other loads in the
-background on the first text that needs it, and a timer releases it one
-minute after its last use; idle retirement of the child releases all of
+background on the first text that needs it, and a timer releases it five
+minutes after its last use; idle retirement of the child releases all of
 them. The first load of a function on a machine specializes it for the
 Neural Engine: about a minute per function on an M2, six for all five.
 After that a child's first load of a function takes two to three
 seconds and a reload under one. While a function loads, a larger loaded
 one serves its texts, else llama.cpp.
+
+**Bulk work waits for the first function.** Before a drain's first
+batch the server starts the child and waits for the path's first
+function, so a backlog does not run on llama.cpp while Core ML
+prepares. The wait ends when the child reports a function loaded, a
+failed load or the path off, when the child exits, or after 10 min; a
+wait that ran into that bound is the last one of the process. The child
+is not retired as idle meanwhile. Searches are not held: a query embeds
+on llama.cpp until the function is there.
 
 **Placement.** A machine that lists no Neural Engine never loads the
 package. Before a function first loads, the child reads Core ML's
@@ -1344,6 +1353,7 @@ Defaults in `indexer.Options`, picked from file-backed benchmarks:
 | `EmbedBatch` (texts per EmbedDocs call) | 64 | Ollama embeddinggemma: 54 / 72 / 76.5 / 78.6 texts/s at 8 / 32 / 64 / 128 — ≥97% of max at 64, half the per-call latency of 128. The embedder is the bottleneck by ~3 orders of magnitude (vs ~30k vecs/s IVF-SQ insert), which is why embedding lives off the advance path. |
 | `Debounce` (dirty → advance) | 250 ms | A no-op advance is sub-ms; the dial only coalesces write bursts into one page. |
 | `RetryBackoff` / `PendingEvery` | 5 s / 1 min | Failure paths: advance retry, embed catch-up tick. |
+| `EmbedStartDelay` (`index.embedStartDelay`) | 2 min | The embed loops start this long after boot: sync, the full-text pass and the client's startup come first. A search embeds its query at once. |
 
 Search at 10k docs (dim 768): FTS ≈ 1.9 ms, vector ≈ 1.0 ms per query.
 

@@ -281,9 +281,17 @@ func (w *spaceWorker) runAdvance() {
 }
 
 // embedLoop drains pending docs on nudges from advance and on the
-// periodic tick (which also retries after embedder failures).
+// periodic tick (which also retries after embedder failures). It starts
+// Options.EmbedStartDelay after the indexer did.
 func (w *spaceWorker) embedLoop() {
 	defer w.ix.wg.Done()
+	if wait := time.Until(w.ix.embedFrom); wait > 0 {
+		select {
+		case <-w.ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+	}
 	ticker := time.NewTicker(w.ix.opts.PendingEvery)
 	defer ticker.Stop()
 	for {
@@ -827,6 +835,7 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 	spaceId := w.sp.Id()
 	batch := w.ix.opts.EmbedBatch
 	conc := w.ix.opts.EmbedConcurrency
+	prepared := false
 	for {
 		ids, texts, err := w.ix.store.Pending(ctx, spaceId, batch*conc)
 		if err != nil {
@@ -834,6 +843,12 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 		}
 		if len(ids) == 0 {
 			return nil
+		}
+		// An embedder that readies a faster runtime in the background
+		// gets to finish that first (workerEmbedder.PrepareBulk).
+		if p, ok := w.ix.opts.Embedder.(interface{ PrepareBulk(context.Context) }); ok && !prepared {
+			p.PrepareBulk(ctx)
+			prepared = true
 		}
 		titles, err := w.ix.store.DocTitles(ctx, spaceId, ids)
 		if err != nil {

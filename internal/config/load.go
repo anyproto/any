@@ -182,6 +182,9 @@ func applyEnv(cfg *Config) error {
 			cfg.Index.EmbedConcurrency = n
 		}
 	}
+	if v := os.Getenv("ANY_INDEX_EMBED_START_DELAY"); v != "" {
+		cfg.Index.EmbedStartDelay = v
+	}
 	if v := os.Getenv("ANY_INDEX_OLLAMA_URL"); v != "" {
 		cfg.Index.Ollama.Url = v
 	}

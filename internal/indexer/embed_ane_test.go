@@ -279,6 +279,27 @@ func TestNeuralEngine_WaitsForPackage(t *testing.T) {
 	}
 }
 
+// A package that lands later is picked up without a text asking: bulk
+// work sends none until the first function is ready.
+func TestNeuralEngine_RetriesWithoutAText(t *testing.T) {
+	f := &fakeANE{prepErrs: []error{errANENotReady, nil}}
+	n, clock := newTestANE(t, f)
+	n.retryIn = 200 * time.Millisecond
+	n.start()
+	n.loads.Wait()
+	clock.add(time.Hour)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if loaded, _, _, _ := f.snapshot(); reflect.DeepEqual(loaded, []int{128}) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the smallest function never loaded")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestNeuralEngine_PrepareFailureTurnsOff(t *testing.T) {
 	f := &fakeANE{prepErrs: []error{errors.New("no neural engine")}}
 	n, clock := newTestANE(t, f)
