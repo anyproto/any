@@ -96,7 +96,8 @@ type workerEmbedder struct {
 	bulkWaited atomic.Bool
 	gaveUp     chan struct{} // closed with bulkWaited
 	// settledChild is the last child whose Neural Engine path settled.
-	settledChild atomic.Pointer[settledChild]
+	// It answers PrepareBulk only while it is attached.
+	settledChild atomic.Pointer[embedChild]
 	// pkgOnDisk reports whether the Core ML package is complete on disk;
 	// nil = not asked.
 	pkgOnDisk func() bool
@@ -689,7 +690,7 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 		settled: make(chan struct{}),
 		spec:    spec,
 	}
-	c.onSettle = func() { w.settledChild.Store(&settledChild{proc: cmd.Process, spec: spec}) }
+	c.onSettle = func() { w.settledChild.Store(c) }
 	go c.readLoop(bufio.NewReaderSize(stdout, 64<<10))
 	go c.pumpStderr(stderr, w.lg)
 
@@ -748,6 +749,7 @@ func (w *workerEmbedder) failChild(cause error) {
 		return
 	}
 	w.child = nil
+	c.detached.Store(true)
 	w.live.Store(nil)
 	gpu := c.spec.gpuLayers != 0
 	// stop() joins the stderr pump before returning, so the tail read
@@ -816,7 +818,9 @@ func (w *workerEmbedder) PrepareBulk(ctx context.Context, waiting func()) {
 	if spec.coremlDir == "" || w.closing.Load() || w.bulkWaited.Load() {
 		return
 	}
-	if s := w.settledChild.Load(); s != nil && s.proc == w.live.Load() && s.spec == spec {
+	// Not the live process: a child being retired stays live until it is
+	// reaped, and its replacement has a path of its own to settle.
+	if c := w.settledChild.Load(); c != nil && !c.detached.Load() && c.spec == spec {
 		return
 	}
 	if w.pkgOnDisk != nil && !w.pkgOnDisk() {
@@ -896,6 +900,7 @@ func (w *workerEmbedder) stopChild(graceful bool) {
 	}
 	c := w.child
 	w.child = nil
+	c.detached.Store(true)
 	_ = c.stop(graceful)
 	w.live.Store(nil)
 }
@@ -1025,13 +1030,6 @@ func (s *childSlot) release(urgent bool) {
 	}
 }
 
-// settledChild names a child whose Neural Engine path has settled: its
-// process and what it was spawned with.
-type settledChild struct {
-	proc *os.Process
-	spec localSpec
-}
-
 // embedChild is one live child process plus the goroutines draining its
 // pipes. The reader owns stdout and turns it into frames; stderr is
 // logged and tailed so a death can be explained.
@@ -1053,6 +1051,9 @@ type embedChild struct {
 	settled    chan struct{}
 	settleOnce sync.Once
 	onSettle   func() // run once, before settled closes
+	// detached: the worker has let go of this child (retired, failed).
+	// Set under the slot, read without it.
+	detached atomic.Bool
 	// waitUntil is when PrepareBulk stops waiting on this child; zero
 	// until its first waiter. Slot-guarded.
 	waitUntil time.Time

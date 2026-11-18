@@ -657,6 +657,72 @@ func TestWorkerEmbedder_PrepareBulkWaitsOnAReplacement(t *testing.T) {
 	}
 }
 
+// A settled child that is being retired is still the live process until
+// it is reaped. It does not answer for its replacement: the first text
+// after an idle retirement waits for the new child's own first function.
+func TestWorkerEmbedder_PrepareBulkIgnoresARetiringChild(t *testing.T) {
+	const delay = 300 * time.Millisecond
+	h := &helperSpawner{modes: []string{"linger", "ok"}, env: append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=ready")}
+	w := newTestWorker(t, h, 0)
+	w.mu.Lock()
+	w.spec.coremlDir = "/models/eg2.mlpackage"
+	w.mu.Unlock()
+	w.bulkWait = 30 * time.Second
+	w.PrepareBulk(context.Background())
+	if h.spawns() != 1 || w.bulkWaited.Load() {
+		t.Fatalf("first child: spawned %d, deadline hit %v", h.spawns(), w.bulkWaited.Load())
+	}
+	// Retire it the way the idle timer does. It ignores the closed stdin,
+	// so it stays live under the slot until the grace ends.
+	if err := w.slot.acquire(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	retired := make(chan struct{})
+	go func() {
+		defer close(retired)
+		w.stopChild(true)
+		w.slot.release(false)
+	}()
+	for deadline := time.Now().Add(5 * time.Second); hasChildDetached(w) == false; {
+		if time.Now().After(deadline) {
+			t.Fatal("the child was never detached")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if w.live.Load() == nil {
+		t.Fatal("the retiring child is not live any more: the window this test needs is gone")
+	}
+	asked := make(chan struct{})
+	go func() {
+		defer close(asked)
+		w.PrepareBulk(context.Background())
+	}()
+	select {
+	case <-asked:
+		t.Fatal("the retiring child answered for its replacement")
+	case <-time.After(delay):
+	}
+	_ = h.cmdAt(0).Process.Kill() // end the grace
+	<-retired
+	select {
+	case <-asked:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the replacement's first function was never reported")
+	}
+	if h.spawns() != 2 || w.bulkWaited.Load() {
+		t.Fatalf("replacement: spawned %d, deadline hit %v", h.spawns(), w.bulkWaited.Load())
+	}
+	if c := w.settledChild.Load(); c == nil || c.detached.Load() || c.cmd != h.cmdAt(1) {
+		t.Fatal("the wait did not end on the replacement's own report")
+	}
+}
+
+// hasChildDetached reports whether the last settled child was let go.
+func hasChildDetached(w *workerEmbedder) bool {
+	c := w.settledChild.Load()
+	return c != nil && c.detached.Load()
+}
+
 // Without a Neural Engine path, or with its package not on disk, there
 // is nothing to wait for and no child is started for it; a package that
 // lands is waited for at the next call.
