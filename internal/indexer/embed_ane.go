@@ -82,10 +82,11 @@ type aneFunction interface {
 	close()
 }
 
-// neuralEngine routes tokenized texts to loaded functions. start, embed
-// and close are called by one goroutine at a time (Local.mu). Functions
-// load on a goroutine of their own and idle ones are released from a
-// timer; neither touches a function that is predicting.
+// neuralEngine routes tokenized texts to loaded functions. embed and
+// close are called by one goroutine at a time (Local.mu); start also
+// runs from the retry timer. Functions load on a goroutine of their own
+// and idle ones are released from a timer; neither touches a function
+// that is predicting.
 type neuralEngine struct {
 	lengths []int // ascending
 	dim     int
@@ -249,7 +250,9 @@ func (n *neuralEngine) loader() {
 				if n.retry != nil {
 					n.retry.Stop()
 				}
-				n.retry = time.AfterFunc(n.retryIn, n.start)
+				if !n.off {
+					n.retry = time.AfterFunc(n.retryIn, n.start)
+				}
 				return
 			case err != nil:
 				n.turnOffLocked(err.Error())

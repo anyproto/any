@@ -285,12 +285,19 @@ func (w *spaceWorker) runAdvance() {
 // Options.EmbedStartDelay after the indexer did.
 func (w *spaceWorker) embedLoop() {
 	defer w.ix.wg.Done()
+	drain := func() {
+		if err := w.drainPending(w.ctx); err != nil && w.ctx.Err() == nil {
+			w.ix.lg.Warn("embed pending failed, will retry on tick", zap.String("spaceId", w.sp.Id()), zap.Error(err))
+		}
+	}
 	if wait := time.Until(w.ix.embedFrom); wait > 0 {
 		select {
 		case <-w.ctx.Done():
 			return
 		case <-time.After(wait):
 		}
+		// Nothing nudges the loop for what the previous run left pending.
+		drain()
 	}
 	ticker := time.NewTicker(w.ix.opts.PendingEvery)
 	defer ticker.Stop()
@@ -301,9 +308,7 @@ func (w *spaceWorker) embedLoop() {
 		case <-w.embedCh:
 		case <-ticker.C:
 		}
-		if err := w.drainPending(w.ctx); err != nil && w.ctx.Err() == nil {
-			w.ix.lg.Warn("embed pending failed, will retry on tick", zap.String("spaceId", w.sp.Id()), zap.Error(err))
-		}
+		drain()
 	}
 }
 
@@ -837,18 +842,30 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 	conc := w.ix.opts.EmbedConcurrency
 	prepared := false
 	for {
+		if p, ok := w.ix.opts.Embedder.(interface{ PrepareBulk(context.Context) }); ok && !prepared {
+			// An embedder that readies a faster runtime in the background
+			// gets to finish that first (workerEmbedder.PrepareBulk). The
+			// backlog is announced before the wait and read after it.
+			n, err := w.ix.store.PendingCount(ctx, spaceId)
+			if err != nil {
+				return err
+			}
+			if n == 0 {
+				return nil
+			}
+			progress(0, n)
+			p.PrepareBulk(ctx)
+			prepared = true
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
 		ids, texts, err := w.ix.store.Pending(ctx, spaceId, batch*conc)
 		if err != nil {
 			return err
 		}
 		if len(ids) == 0 {
 			return nil
-		}
-		// An embedder that readies a faster runtime in the background
-		// gets to finish that first (workerEmbedder.PrepareBulk).
-		if p, ok := w.ix.opts.Embedder.(interface{ PrepareBulk(context.Context) }); ok && !prepared {
-			p.PrepareBulk(ctx)
-			prepared = true
 		}
 		titles, err := w.ix.store.DocTitles(ctx, spaceId, ids)
 		if err != nil {

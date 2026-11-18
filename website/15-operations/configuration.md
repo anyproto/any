@@ -83,6 +83,7 @@ The passkey is the one secret the server may need at boot. It arrives from the e
 | `index.embedder` | `ANY_INDEX_EMBEDDER` | `auto` (`local` \| `ollama` \| `openai` \| `none`) |
 | `index.embedBatch` | `ANY_INDEX_EMBED_BATCH` | 64 |
 | `index.embedConcurrency` | `ANY_INDEX_EMBED_CONCURRENCY` | 0 = 1 local, 4 online |
+| `index.embedStartDelay` | `ANY_INDEX_EMBED_START_DELAY` | `2m` — local embedder: documents start embedding this long after boot; `0` = at once |
 | `index.ollama.{url,model}` | `ANY_INDEX_OLLAMA_*` | `http://localhost:11434`, `embeddinggemma` |
 | `index.openai.{baseUrl,model,apiKey}` | `ANY_INDEX_OPENAI_*` | no host, no key; `model` = the local model's name. `baseUrl` + `apiKey` turn the `auto` primary on (any OpenAI-compatible host, same model) |
 | `index.local.{model,modelPath,modelUrl,modelSha256,libDir,contextSize,queryPrefix,docPrefix,pooling,dim,threads,niceness,requestTimeout,gpuLayers,batchDocs,neuralEngine}` | `ANY_INDEX_LOCAL_*` | see [Embedders](../search/embedders.html) |

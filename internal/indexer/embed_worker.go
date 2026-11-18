@@ -89,6 +89,14 @@ type workerEmbedder struct {
 	live      atomic.Pointer[os.Process]
 	closing   atomic.Bool
 	closeOnce sync.Once
+	// preparing counts the PrepareBulk calls in flight: the child is not
+	// retired as idle under them. bulkWaited: one of them ran into the
+	// deadline, and no later call waits.
+	preparing  atomic.Int32
+	bulkWaited atomic.Bool
+	// pkgOnDisk reports whether the Core ML package is complete on disk;
+	// nil = not asked.
+	pkgOnDisk func() bool
 
 	// idleTimer runs retireIdle. Created stopped and never reassigned,
 	// so its callback uses it without the slot.
@@ -98,14 +106,9 @@ type workerEmbedder struct {
 	// child, backoff, nextTry and lastFrame.
 	slot *childSlot
 	// Slot-guarded.
-	child *embedChild
-	// preparing counts PrepareBulk calls waiting on the child, which is
-	// not retired as idle meanwhile. bulkWaited: one of them ran into
-	// bulkWait, and no later call waits.
-	preparing  int
-	bulkWaited bool
-	backoff    time.Duration
-	nextTry    time.Time
+	child   *embedChild
+	backoff time.Duration
+	nextTry time.Time
 	// lastFrame is when the last frame ended, in real time like the timer.
 	lastFrame time.Time
 
@@ -155,6 +158,10 @@ func newWorkerEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string,
 	}
 	w := newWorkerEmbedderFromSpec(spec, reqTimeout)
 	w.dl = dl
+	if pkg != nil {
+		dir := spec.coremlDir
+		w.pkgOnDisk = func() bool { return pkg.complete(dir) }
+	}
 	// With a model path nothing is downloaded, the package's licence
 	// texts included.
 	if pkg != nil && cfg.ModelPath == "" && (!pkg.complete(spec.coremlDir) || !pkg.noticesComplete(modelsDir)) {
@@ -687,50 +694,61 @@ func (w *workerEmbedder) failChild(cause error) {
 // first function, so a backlog does not run on llama.cpp while Core ML
 // prepares. It starts the child and returns when the child reports a
 // function loaded, a failed load or the path off, when the child exits,
-// or after bulkWait; at once when no Neural Engine path is planned. The
-// slot is free meanwhile: searches are served.
+// when ctx ends, or at the child's deadline: bulkWait after its first
+// waiter, the same for all of them. A wait that ran into the deadline
+// is the last one. Nothing waits without a Neural Engine path, or while
+// its package is not on disk. The slot is free meanwhile: searches are
+// served.
 func (w *workerEmbedder) PrepareBulk(ctx context.Context) {
-	if w.childSpec().coremlDir == "" || w.closing.Load() {
+	if w.childSpec().coremlDir == "" || w.closing.Load() || w.bulkWaited.Load() {
+		return
+	}
+	if w.pkgOnDisk != nil && !w.pkgOnDisk() {
+		return
+	}
+	// Before the spawn: its idle timer must not fire under the wait.
+	w.preparing.Add(1)
+	defer w.preparing.Add(-1)
+	if r := w.run(ctx, workerReq{Op: workerOpDim}); r.err != nil {
 		return
 	}
 	if err := w.slot.acquire(ctx, false); err != nil {
 		return
 	}
-	if w.bulkWaited || w.ensureChild(true) != nil {
+	c := w.child
+	// The child's own spec: the Neural Engine can have been demoted
+	// since the check above, and such a child never reports on it.
+	if c == nil || c.spec.coremlDir == "" {
 		w.slot.release(false)
 		return
 	}
-	c := w.child
+	if c.waitUntil.IsZero() {
+		c.waitUntil = time.Now().Add(w.bulkWait)
+	}
+	timer := time.NewTimer(time.Until(c.waitUntil))
+	defer timer.Stop()
+	w.slot.release(false)
+
 	select {
 	case <-c.settled:
+	default:
+		select {
+		case <-c.settled:
+		case <-c.errDone: // the child exited
+		case <-ctx.Done():
+		case <-timer.C:
+			if w.bulkWaited.CompareAndSwap(false, true) {
+				w.lg.Warn("local embedder: no neural engine function ready in time; bulk embedding starts on llama.cpp",
+					zap.Duration("waited", w.bulkWait))
+			}
+		}
+	}
+	// The idle countdown restarts here, not at the spawn. A busy slot
+	// means a frame is in flight, and its end restarts it.
+	if w.slot.tryAcquire() {
 		w.armIdle()
 		w.slot.release(false)
-		return
-	default:
 	}
-	w.preparing++
-	w.slot.release(false)
-
-	timer := time.NewTimer(w.bulkWait)
-	defer timer.Stop()
-	expired := false
-	select {
-	case <-c.settled:
-	case <-c.errDone: // the child exited
-	case <-timer.C:
-		expired = true
-	case <-ctx.Done():
-	}
-
-	_ = w.slot.acquire(context.Background(), false) // the count has to come down
-	w.preparing--
-	if expired {
-		w.bulkWaited = true
-		w.lg.Warn("local embedder: no neural engine function ready in time; bulk embedding starts on llama.cpp",
-			zap.Duration("waited", w.bulkWait))
-	}
-	w.armIdle()
-	w.slot.release(false)
 }
 
 // stopChild retires the current child gracefully (stdin EOF, then kill).
@@ -773,7 +791,7 @@ func (w *workerEmbedder) retireIdle() {
 	if w.child == nil || w.closing.Load() {
 		return
 	}
-	if w.preparing > 0 {
+	if w.preparing.Load() > 0 {
 		w.idleTimer.Reset(w.idleTimeout)
 		return
 	}
@@ -890,6 +908,9 @@ type embedChild struct {
 	// function, failed to load one, or is off (aneSettles).
 	settled    chan struct{}
 	settleOnce sync.Once
+	// waitUntil is when PrepareBulk stops waiting on this child; zero
+	// until its first waiter. Slot-guarded.
+	waitUntil time.Time
 }
 
 type workerFrame struct {

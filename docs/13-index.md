@@ -647,6 +647,12 @@ parallel (default 1; 4 for `openai`, and for `auto` with a key) →
 back to `pending`. `index.embedder: none` ⇒ the loop doesn't run and the
 index is FTS-only.
 
+With the local embedder (`local`, and `auto` without a key) the loops
+start `index.embedStartDelay` after the account boots, 2 min by default,
+and drain once at that moment: the first minutes are left to sync, the
+full-text pass and the client's startup. `0` starts them at once, as an
+HTTP embedder always does. A search embeds its query regardless.
+
 A vector lands only on the input it was embedded from. The advance loop
 writes while a batch embeds, so the landing checks each doc inside its
 write transaction: one deleted meanwhile is skipped, not resurrected;
@@ -795,7 +801,7 @@ The `local` embedder does not decode in the server process. It re-execs
 this binary as the hidden `any run embedder` and talks to it over
 stdin/stdout with a magic-prefixed, length-delimited frame protocol
 (JSON header + binary block; vectors as little-endian float32). One
-child, spawned on the first embed call and shared by every space worker.
+child, spawned when a text or a query first needs it and shared by every space worker.
 The stream carries one request at a time, shared through a one-slot
 semaphore with two classes: `EmbedDocs` sends one decode group per frame
 and re-takes the slot for every frame, and a search query takes the
@@ -945,8 +951,8 @@ into `<name>-<digest>.licenses/`, pinned the same way; one that cannot
 be fetched is tried again at the next start and holds nothing back.
 
 **Function lifetime.** The smallest function loads first and stays for
-queries: when the child starts if the package is ready, else with the
-first text after it is. Any other loads in the
+queries: when the child starts if the package is ready, else within
+30 s of it being there. Any other loads in the
 background on the first text that needs it, and a timer releases it five
 minutes after its last use; idle retirement of the child releases all of
 them. The first load of a function on a machine specializes it for the
@@ -958,11 +964,13 @@ one serves its texts, else llama.cpp.
 **Bulk work waits for the first function.** Before a drain's first
 batch the server starts the child and waits for the path's first
 function, so a backlog does not run on llama.cpp while Core ML
-prepares. The wait ends when the child reports a function loaded, a
-failed load or the path off, when the child exits, or after 10 min; a
-wait that ran into that bound is the last one of the process. The child
-is not retired as idle meanwhile. Searches are not held: a query embeds
-on llama.cpp until the function is there.
+prepares. The drain's process row is announced before the wait. The
+wait ends when the child reports a function loaded, a failed load or
+the path off, when the child exits, or 10 min after the child's first
+waiter, for every waiter at once; a wait that ran into that bound is the
+last one until the next boot. Nothing waits while the package is not on
+disk. The child is not retired as idle meanwhile. Searches are not held:
+a query embeds on llama.cpp until the function is there.
 
 **Placement.** A machine that lists no Neural Engine never loads the
 package. Before a function first loads, the child reads Core ML's
@@ -1355,7 +1363,6 @@ Defaults in `indexer.Options`, picked from file-backed benchmarks:
 | `EmbedBatch` (texts per EmbedDocs call) | 64 | Ollama embeddinggemma: 54 / 72 / 76.5 / 78.6 texts/s at 8 / 32 / 64 / 128 — ≥97% of max at 64, half the per-call latency of 128. The embedder is the bottleneck by ~3 orders of magnitude (vs ~30k vecs/s IVF-SQ insert), which is why embedding lives off the advance path. |
 | `Debounce` (dirty → advance) | 250 ms | A no-op advance is sub-ms; the dial only coalesces write bursts into one page. |
 | `RetryBackoff` / `PendingEvery` | 5 s / 1 min | Failure paths: advance retry, embed catch-up tick. |
-| `EmbedStartDelay` (`index.embedStartDelay`) | 2 min | The embed loops start this long after boot: sync, the full-text pass and the client's startup come first. A search embeds its query at once. |
 
 Search at 10k docs (dim 768): FTS ≈ 1.9 ms, vector ≈ 1.0 ms per query.
 

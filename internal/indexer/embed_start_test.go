@@ -41,8 +41,9 @@ func (e *prepEmbedder) snapshot() ([]string, time.Time) {
 }
 
 // The embed loop leaves the start of a run to the boot: nothing embeds
-// before EmbedStartDelay has passed, and the embedder is prepared before
-// its first batch.
+// before EmbedStartDelay has passed, a backlog from the previous run is
+// drained right after it, and the embedder is prepared before its first
+// batch.
 func TestSpaceWorker_EmbedLoopStartsAfterTheDelay(t *testing.T) {
 	const sp = "sp"
 	const delay = 400 * time.Millisecond
@@ -57,13 +58,14 @@ func TestSpaceWorker_EmbedLoopStartsAfterTheDelay(t *testing.T) {
 	}
 
 	emb := &prepEmbedder{axisEmbedder: axisEmbedder{dim: 4}}
-	ix := New(nil, nil, st, Options{Embedder: emb, EmbedStartDelay: delay, AnnounceAfter: -1})
+	// The doc was pending before this run: nothing nudges the loop for
+	// it, and the tick is far away.
+	ix := New(nil, nil, st, Options{Embedder: emb, EmbedStartDelay: delay, PendingEvery: time.Minute, AnnounceAfter: -1})
 	ix.ctx = ctx
 	started := time.Now()
 	ix.embedFrom = started.Add(ix.opts.EmbedStartDelay)
 	w := newSpaceWorker(ix, idSpace{id: sp})
 	w.ctx = ctx
-	w.embedCh <- struct{}{} // an advance landed the doc before the delay ended
 	ix.wg.Add(1)
 	go w.embedLoop()
 	defer func() {
@@ -87,5 +89,22 @@ func TestSpaceWorker_EmbedLoopStartsAfterTheDelay(t *testing.T) {
 	}
 	if waited := at.Sub(started); waited < delay {
 		t.Fatalf("embedded %s after the start, before the %s delay ended", waited, delay)
+	}
+}
+
+// Start sets the moment the embed loops may begin.
+func TestIndexer_StartSetsTheEmbedDelay(t *testing.T) {
+	const delay = 90 * time.Second
+	st := mustStore(t, 0)
+	ix := New(nil, index.NewRegistry(), st, Options{EmbedStartDelay: delay})
+	ix.spacesAPI = &fakeSpaces{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	before := time.Now()
+	ix.Start(ctx)
+	after := time.Now()
+	defer func() { _ = ix.Close() }()
+	if ix.embedFrom.Before(before.Add(delay)) || ix.embedFrom.After(after.Add(delay)) {
+		t.Fatalf("embedFrom = %s after Start, want %s", ix.embedFrom.Sub(before), delay)
 	}
 }

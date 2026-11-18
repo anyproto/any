@@ -280,10 +280,11 @@ type Index struct {
 	// safe but pointless). See docs/13-index.md.
 	EmbedBatch       int `yaml:"embedBatch"`
 	EmbedConcurrency int `yaml:"embedConcurrency"`
-	// EmbedStartDelay is how long after boot the embed loops start
-	// draining: a boot's sync, full-text pass and client startup come
-	// first. A duration; "0" starts at once. Searches embed their query
-	// regardless. Default 2m.
+	// EmbedStartDelay is how long after boot the local embedder's embed
+	// loops start draining, leaving the first minutes to sync, the
+	// full-text pass and the client's startup. A duration; "0" starts at
+	// once. Searches embed their query regardless, and an HTTP embedder
+	// (openai, ollama, auto with a key) is not delayed. Default 2m.
 	EmbedStartDelay string      `yaml:"embedStartDelay"`
 	Ollama          IndexOllama `yaml:"ollama"`
 	OpenAI          IndexOpenAI `yaml:"openai"`
@@ -471,8 +472,6 @@ const (
 // the local model alone.
 const defaultEmbedModel = "Qwen/Qwen3-Embedding-0.6B"
 
-// Defaults returns a Config populated with v1 defaults. Paths here are
-// unexpanded — Load resolves them against the process environment.
 // DefaultEmbedStartDelay is index.embedStartDelay when unset.
 const DefaultEmbedStartDelay = 2 * time.Minute
 
@@ -489,6 +488,8 @@ func (i Index) EmbedStartDelayDuration() (time.Duration, error) {
 	return d, nil
 }
 
+// Defaults returns a Config populated with v1 defaults. Paths here are
+// unexpanded — Load resolves them against the process environment.
 func Defaults() Config {
 	return Config{
 		DataDir: "~/.any",

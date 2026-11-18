@@ -283,11 +283,11 @@ func TestNeuralEngine_WaitsForPackage(t *testing.T) {
 // work sends none until the first function is ready.
 func TestNeuralEngine_RetriesWithoutAText(t *testing.T) {
 	f := &fakeANE{prepErrs: []error{errANENotReady, nil}}
-	n, clock := newTestANE(t, f)
-	n.retryIn = 200 * time.Millisecond
+	n, _ := newTestANE(t, f)
+	n.now = time.Now // the timer's own clock
+	n.retryIn = 50 * time.Millisecond
 	n.start()
-	n.loads.Wait()
-	clock.add(time.Hour)
+	// No loads.Wait here: the timer starts a loader of its own.
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		if loaded, _, _, _ := f.snapshot(); reflect.DeepEqual(loaded, []int{128}) {

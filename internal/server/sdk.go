@@ -294,6 +294,10 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 		}
 		queryEmbedTimeout = d
 	}
+	// Before anything is opened: a bad value must not cost a rebuild.
+	if _, err := cfg.EmbedStartDelayDuration(); err != nil {
+		return nil, err
+	}
 	emb, err := indexer.NewEmbedder(cfg, modelsDir, filepath.Join(dataDir, "index", "models"), onProcess)
 	if err != nil {
 		return nil, err
@@ -357,10 +361,13 @@ func openIndexerStore(ctx context.Context, cfg config.Index, dbPath string, emb 
 	if embedConc == 0 && onlinePrimary {
 		embedConc = 4
 	}
-	embedStartDelay, err := cfg.EmbedStartDelayDuration()
-	if err != nil {
-		_ = st.Close()
-		return nil, err
+	// The delay is for the embedder that computes on this machine.
+	var embedStartDelay time.Duration
+	if cfg.Embedder == "local" || (cfg.Embedder == "auto" && cfg.OpenAI.ApiKey == "") {
+		if embedStartDelay, err = cfg.EmbedStartDelayDuration(); err != nil {
+			_ = st.Close()
+			return nil, err
+		}
 	}
 	ix := indexer.New(sdk, chunkers, st, indexer.Options{
 		Embedder:          emb,
