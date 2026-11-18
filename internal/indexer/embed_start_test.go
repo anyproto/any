@@ -13,15 +13,19 @@ import (
 // it before the first batch.
 type prepEmbedder struct {
 	axisEmbedder
-	mu     sync.Mutex
-	events []string
-	at     time.Time // the first EmbedDocs
+	mu       sync.Mutex
+	events   []string
+	prepares int
+	at       time.Time // the first EmbedDocs
 }
 
-func (e *prepEmbedder) PrepareBulk(context.Context) {
+// PrepareBulk has nothing left to wait for from its second call on.
+func (e *prepEmbedder) PrepareBulk(context.Context) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.events = append(e.events, "prepare")
+	e.prepares++
+	return e.prepares > 1
 }
 
 func (e *prepEmbedder) EmbedDocs(ctx context.Context, texts []string) ([][]float32, error) {
@@ -89,6 +93,52 @@ func TestSpaceWorker_EmbedLoopStartsAfterTheDelay(t *testing.T) {
 	}
 	if waited := at.Sub(started); waited < delay {
 		t.Fatalf("embedded %s after the start, before the %s delay ended", waited, delay)
+	}
+}
+
+// With no delay the loop still drains what was pending before it
+// started, and an embedder that has more to wait for is asked again
+// before each round until it has not.
+func TestSpaceWorker_EmbedLoopDrainsAtStartAndAsksAgain(t *testing.T) {
+	const sp = "sp"
+	ctx, cancel := context.WithCancel(context.Background())
+	st := mustStore(t, 4)
+	for i, id := range []string{"r1", "r2", "r3"} {
+		doc := DocUpsert{Entry: index.IndexEntry{Scope: index.ScopeBasic, ObjectId: "O", Dataset: "editor_blocks", RecordId: id, Data: "a text to embed " + id, ApplySeq: uint64(i + 1)}}
+		if _, err := st.ApplyPage(ctx, sp, []DocUpsert{doc}, nil, nil, nil, &LinkOps{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	emb := &prepEmbedder{axisEmbedder: axisEmbedder{dim: 4}}
+	ix := New(nil, nil, st, Options{Embedder: emb, EmbedBatch: 1, PendingEvery: time.Minute, AnnounceAfter: -1})
+	ix.ctx = ctx
+	w := newSpaceWorker(ix, idSpace{id: sp})
+	w.ctx = ctx
+	ix.wg.Add(1)
+	go w.embedLoop()
+	defer func() {
+		cancel()
+		ix.wg.Wait()
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if n, err := st.PendingCount(ctx, sp); err == nil && n == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the backlog was never embedded: no nudge, and the tick is a minute away")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	events, _ := emb.snapshot()
+	want := []string{"prepare", "embed", "prepare", "embed", "embed"}
+	if len(events) != len(want) {
+		t.Fatalf("calls = %v, want %v", events, want)
+	}
+	for i := range want {
+		if events[i] != want[i] {
+			t.Fatalf("calls = %v, want %v", events, want)
+		}
 	}
 }
 

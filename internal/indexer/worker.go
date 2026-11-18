@@ -296,9 +296,9 @@ func (w *spaceWorker) embedLoop() {
 			return
 		case <-time.After(wait):
 		}
-		// Nothing nudges the loop for what the previous run left pending.
-		drain()
 	}
+	// Nothing nudges the loop for what was pending before it started.
+	drain()
 	ticker := time.NewTicker(w.ix.opts.PendingEvery)
 	defer ticker.Stop()
 	for {
@@ -842,10 +842,11 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 	conc := w.ix.opts.EmbedConcurrency
 	prepared := false
 	for {
-		if p, ok := w.ix.opts.Embedder.(interface{ PrepareBulk(context.Context) }); ok && !prepared {
+		if p, ok := w.ix.opts.Embedder.(interface{ PrepareBulk(context.Context) bool }); ok && !prepared {
 			// An embedder that readies a faster runtime in the background
-			// gets to finish that first (workerEmbedder.PrepareBulk). The
-			// backlog is announced before the wait and read after it.
+			// gets to finish that first (workerEmbedder.PrepareBulk), and
+			// is asked again each round until it has nothing left to wait
+			// for. The backlog is announced before the wait and read after.
 			n, err := w.ix.store.PendingCount(ctx, spaceId)
 			if err != nil {
 				return err
@@ -854,8 +855,7 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 				return nil
 			}
 			progress(0, n)
-			p.PrepareBulk(ctx)
-			prepared = true
+			prepared = p.PrepareBulk(ctx)
 			if err := ctx.Err(); err != nil {
 				return err
 			}
