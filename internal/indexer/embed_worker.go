@@ -95,6 +95,8 @@ type workerEmbedder struct {
 	preparing  atomic.Int32
 	bulkWaited atomic.Bool
 	gaveUp     chan struct{} // closed with bulkWaited
+	// settledChild is the last child whose Neural Engine path settled.
+	settledChild atomic.Pointer[settledChild]
 	// pkgOnDisk reports whether the Core ML package is complete on disk;
 	// nil = not asked.
 	pkgOnDisk func() bool
@@ -591,6 +593,7 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 		settled: make(chan struct{}),
 		spec:    spec,
 	}
+	c.onSettle = func() { w.settledChild.Store(&settledChild{proc: cmd.Process, spec: spec}) }
 	go c.readLoop(bufio.NewReaderSize(stdout, 64<<10))
 	go c.pumpStderr(stderr, w.lg)
 
@@ -692,33 +695,40 @@ func (w *workerEmbedder) failChild(cause error) {
 	}
 }
 
-// PrepareBulk holds bulk work back until the Neural Engine path has its
-// first function, so a backlog does not run on llama.cpp while Core ML
-// prepares. It starts the child and returns when the child reports a
-// function loaded, a failed load or the path off, when the child exits,
-// when ctx ends, or at the child's deadline: bulkWait after its first
-// waiter, the same for all of them. A wait that ran into a deadline is
-// the last one, for every caller. The slot is free meanwhile: searches
-// are served.
+var _ BulkPreparer = (*workerEmbedder)(nil)
+
+// PrepareBulk holds bulk work back until the Neural Engine path of the
+// running child has its first function, so a backlog does not run on
+// llama.cpp while Core ML prepares. A drain calls it before every round
+// that has work: a child whose path has settled answers at once, without
+// the slot, and one that replaced it is waited on like the first.
 //
-// It reports whether the drain has nothing left to ask for. False means
-// ask again before the next round: the package was not on disk yet, or
-// the child went away under the wait.
-func (w *workerEmbedder) PrepareBulk(ctx context.Context) bool {
-	if w.childSpec().coremlDir == "" || w.closing.Load() || w.bulkWaited.Load() {
-		return true
+// It starts the child and returns when the child reports a function
+// loaded, a failed load or the path off, when the child exits, when ctx
+// ends, or at the child's deadline: bulkWait after its first waiter, the
+// same for all of them. A wait that ran into a deadline is the last one,
+// for every caller. Nothing waits without a Neural Engine path, or while
+// its package is not on disk. The slot is free meanwhile: searches are
+// served.
+func (w *workerEmbedder) PrepareBulk(ctx context.Context) {
+	spec := w.childSpec()
+	if spec.coremlDir == "" || w.closing.Load() || w.bulkWaited.Load() {
+		return
+	}
+	if s := w.settledChild.Load(); s != nil && s.proc == w.live.Load() && s.spec == spec {
+		return
 	}
 	if w.pkgOnDisk != nil && !w.pkgOnDisk() {
-		return false
+		return
 	}
 	// Before the spawn: its idle timer must not fire under the wait.
 	w.preparing.Add(1)
 	defer w.preparing.Add(-1)
 	if r := w.run(ctx, workerReq{Op: workerOpDim}); r.err != nil {
-		return false
+		return
 	}
 	if err := w.slot.acquire(ctx, false); err != nil {
-		return false
+		return
 	}
 	c := w.child
 	// Under the slot, on the child that was selected: the Neural Engine
@@ -726,7 +736,7 @@ func (w *workerEmbedder) PrepareBulk(ctx context.Context) bool {
 	// above, and a child without Core ML never reports on it.
 	if c == nil || c.spec.coremlDir == "" || w.bulkWaited.Load() {
 		w.slot.release(false)
-		return c != nil
+		return
 	}
 	if c.waitUntil.IsZero() {
 		c.waitUntil = time.Now().Add(w.bulkWait)
@@ -735,7 +745,6 @@ func (w *workerEmbedder) PrepareBulk(ctx context.Context) bool {
 	defer timer.Stop()
 	w.slot.release(false)
 
-	done := true
 	select {
 	case <-c.settled:
 	default:
@@ -743,9 +752,7 @@ func (w *workerEmbedder) PrepareBulk(ctx context.Context) bool {
 		case <-c.settled:
 		case <-w.gaveUp: // another caller's deadline
 		case <-c.errDone: // the child exited
-			done = false
 		case <-ctx.Done():
-			done = false
 		case <-timer.C:
 			w.giveUpBulk()
 		}
@@ -756,7 +763,6 @@ func (w *workerEmbedder) PrepareBulk(ctx context.Context) bool {
 		w.armIdle()
 		w.slot.release(false)
 	}
-	return done
 }
 
 // giveUpBulk ends every wait for a first function, now and later.
@@ -906,6 +912,13 @@ func (s *childSlot) release(urgent bool) {
 	}
 }
 
+// settledChild names a child whose Neural Engine path has settled: its
+// process and what it was spawned with.
+type settledChild struct {
+	proc *os.Process
+	spec localSpec
+}
+
 // embedChild is one live child process plus the goroutines draining its
 // pipes. The reader owns stdout and turns it into frames; stderr is
 // logged and tailed so a death can be explained.
@@ -925,6 +938,7 @@ type embedChild struct {
 	// function, failed to load one, or is off (aneSettles).
 	settled    chan struct{}
 	settleOnce sync.Once
+	onSettle   func() // run once, before settled closes
 	// waitUntil is when PrepareBulk stops waiting on this child; zero
 	// until its first waiter. Slot-guarded.
 	waitUntil time.Time
@@ -967,7 +981,12 @@ func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 			if status, ok := strings.CutPrefix(line, aneLogPrefix); ok {
 				c.coreml.Store(!strings.HasPrefix(status, aneOffStatus))
 				if aneSettles(status) {
-					c.settleOnce.Do(func() { close(c.settled) })
+					c.settleOnce.Do(func() {
+						if c.onSettle != nil {
+							c.onSettle()
+						}
+						close(c.settled)
+					})
 				}
 				lg.Info("local embedder neural engine", zap.String("status", status))
 			} else {

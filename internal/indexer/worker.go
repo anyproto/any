@@ -840,13 +840,14 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 	spaceId := w.sp.Id()
 	batch := w.ix.opts.EmbedBatch
 	conc := w.ix.opts.EmbedConcurrency
-	prepared := false
+	// An embedder that readies a faster runtime in the background gets
+	// to finish that before every round that has work (BulkPreparer).
+	preparer, prepares := w.ix.opts.Embedder.(BulkPreparer)
+	first := true
 	for {
-		if p, ok := w.ix.opts.Embedder.(interface{ PrepareBulk(context.Context) bool }); ok && !prepared {
-			// An embedder that readies a faster runtime in the background
-			// gets to finish that first (workerEmbedder.PrepareBulk), and
-			// is asked again each round until it has nothing left to wait
-			// for. The backlog is announced before the wait and read after.
+		if first && prepares {
+			// The first wait can be long: the backlog is announced before
+			// it and read after it.
 			n, err := w.ix.store.PendingCount(ctx, spaceId)
 			if err != nil {
 				return err
@@ -855,7 +856,7 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 				return nil
 			}
 			progress(0, n)
-			prepared = p.PrepareBulk(ctx)
+			preparer.PrepareBulk(ctx)
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -867,6 +868,13 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 		if len(ids) == 0 {
 			return nil
 		}
+		if !first && prepares {
+			preparer.PrepareBulk(ctx)
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		first = false
 		titles, err := w.ix.store.DocTitles(ctx, spaceId, ids)
 		if err != nil {
 			return err

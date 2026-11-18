@@ -970,11 +970,12 @@ wait ends when the child reports a function loaded, a failed load or
 the path off, when the child exits, or 10 min after the child's first
 waiter, for every waiter at once; a wait that ran into that bound ends
 every other one and is the last until the next boot. Nothing waits
-while the package is not on disk, and a drain asks again before each
-round until the wait is settled: a package that lands, or a child that
-replaces the one waited on, is waited for then. The child is not
-retired as idle meanwhile. Searches are not held: a query embeds on
-llama.cpp until the function is there.
+while the package is not on disk. A drain asks before every round that
+has work, and a child whose path has settled answers at once: a package
+that lands during a drain, or a child that replaces the one waited on,
+is waited for then. The child is not retired as idle meanwhile.
+Searches are not held: a query embeds on llama.cpp until the function
+is there.
 
 **Placement.** A machine that lists no Neural Engine never loads the
 package. Before a function first loads, the child reads Core ML's
