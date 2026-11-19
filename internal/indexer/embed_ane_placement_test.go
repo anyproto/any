@@ -19,12 +19,15 @@ import (
 )
 
 // planFn is a function whose vector depends on its text, as a model's
-// does: the first axis for a text under six tokens, else the second.
+// does: an axis per first word for a text under six tokens, another for
+// a longer one.
 type planFn struct {
-	err      error
-	constant bool
-	calls    int
-	closed   bool
+	err       error
+	failFirst int  // predictions that fail before the rest succeed
+	constant  bool // one vector whatever the text
+	blind     bool // the vector depends on the text's length alone
+	calls     int
+	closed    bool
 }
 
 func (f *planFn) embed(tokens []int32, out []float32) error {
@@ -32,10 +35,18 @@ func (f *planFn) embed(tokens []int32, out []float32) error {
 	if f.err != nil {
 		return f.err
 	}
+	if f.calls <= f.failFirst {
+		return errors.New("a passing failure")
+	}
 	clear(out)
-	if len(tokens) < 6 || f.constant {
+	switch {
+	case f.constant:
 		out[0] = 1
-	} else {
+	case len(tokens) >= 6:
+		out[2] = 1
+	case f.blind || tokens[1] == 1001:
+		out[0] = 1
+	default:
 		out[1] = 1
 	}
 	return nil
@@ -97,8 +108,8 @@ func TestCoreMLBackend_LoadsWithoutAPlan(t *testing.T) {
 	if len(b.planned) != 0 {
 		t.Fatalf("planned %v on a load", b.planned)
 	}
-	if got := fn.(*planFn).calls; got != 2 {
-		t.Fatalf("%d predictions on a load, want 2", got)
+	if got := fn.(*planFn).calls; got != 3 {
+		t.Fatalf("%d predictions on a load, want 3", got)
 	}
 	if !strings.Contains(info, "open ") || !strings.Contains(info, "validate ") || !strings.Contains(info, "placement not verified yet") {
 		t.Fatalf("load info %q, want the open and validate times and an unverified placement", info)
@@ -227,8 +238,10 @@ func TestCoreMLBackend_AuditErrorIsNoVerdict(t *testing.T) {
 // loaded, and is closed.
 func TestCoreMLBackend_LoadValidates(t *testing.T) {
 	for name, broken := range map[string]*planFn{
-		"a failed prediction": {err: errors.New("predict failed")},
-		"one vector for all":  {constant: true},
+		"a failed prediction":        {err: errors.New("predict failed")},
+		"one vector for all":         {constant: true},
+		"a vector by length alone":   {blind: true},
+		"too many failures in a row": {failFirst: 3 * aneMaxFailures},
 	} {
 		b := newTestBackend(t, t.TempDir(), "Chip, macOS build 1A1")
 		b.open = func(string, string, int, int) (aneFunction, error) { return broken, nil }
@@ -241,6 +254,167 @@ func TestCoreMLBackend_LoadValidates(t *testing.T) {
 	}
 	if err := validateFunction(&fakeFn{parent: &fakeANE{notUnit: true}, length: 128}, 128, 4); err == nil {
 		t.Error("a vector that is not unit length passed")
+	}
+	// One failed prediction is not the end of the function, as in serving.
+	b := newTestBackend(t, t.TempDir(), "Chip, macOS build 1A1")
+	flaky := &planFn{failFirst: 1}
+	b.open = func(string, string, int, int) (aneFunction, error) { return flaky, nil }
+	if _, _, err := b.load(128); err != nil || flaky.closed {
+		t.Errorf("a function whose first prediction failed: %v, closed %v", err, flaky.closed)
+	}
+}
+
+// The last function refused while it predicts: the path goes off, and
+// the function is closed only when its prediction has returned.
+func TestNeuralEngine_LastRefusalUnderAPrediction(t *testing.T) {
+	refused := errors.Join(errOffNeuralEngine, errors.New("6014 operations on the cpu"))
+	f := &fakeANE{auditErr: map[int]error{128: refused}, auditGate: make(chan struct{}),
+		predicting: make(chan int), resume: make(chan struct{})}
+	n, _ := newTestANE(t, f)
+	n.lengths = []int{128}
+	n.start()
+	waitOrder(t, f, "load 128", "audit 128")
+	served := make(chan bool)
+	go func() {
+		_, ok := n.embed(tokensOf(10))
+		served <- ok
+	}()
+	<-f.predicting
+	close(f.auditGate)
+	n.loads.Wait()
+	n.mu.Lock()
+	off := n.off
+	n.mu.Unlock()
+	if !off {
+		t.Fatal("the path is on with its only function refused")
+	}
+	if _, _, closed, _ := f.snapshot(); len(closed) != 0 {
+		t.Fatalf("closed %v under a prediction", closed)
+	}
+	f.resume <- struct{}{}
+	if !<-served {
+		t.Fatal("the prediction in flight was lost")
+	}
+	if _, _, closed, _ := f.snapshot(); !reflect.DeepEqual(closed, []int{128}) {
+		t.Fatalf("closed %v, want s128 once its prediction returned", closed)
+	}
+}
+
+// A function on record as refused is known from the start: a document
+// that needs it goes to llama.cpp while the loader is busy elsewhere,
+// and a refused first function still settles the path's first wait.
+func TestNeuralEngine_RecordedRefusalIsNotWaitedFor(t *testing.T) {
+	refused := errors.Join(errOffNeuralEngine, errors.New("on record"))
+	f := &fakeANE{refusals: map[int]error{512: refused}}
+	n, _ := newTestANE(t, f)
+	loadFor(n, 10)
+	f.mu.Lock()
+	f.gate, f.started = make(chan struct{}), make(chan int, 1)
+	f.mu.Unlock()
+	if _, ok, deferred := n.embedBulk(tokensOf(200)); ok || !deferred {
+		t.Fatalf("a document for the loading s256: served %v, deferred %v", ok, deferred)
+	}
+	<-f.started // the loader is inside s256
+	if _, ok, deferred := n.embedBulk(tokensOf(400)); ok || deferred || n.lastMiss() != EmbedReasonANEFailed {
+		t.Fatalf("a document for the refused s512: served %v, deferred %v, miss %q", ok, deferred, n.lastMiss())
+	}
+	close(f.gate)
+	n.loads.Wait()
+	waitOrder(t, f, "load 128", "audit 128", "load 256", "audit 256")
+
+	f = &fakeANE{refusals: map[int]error{128: refused}}
+	log := newLogLines()
+	n, _ = newTestANE(t, f)
+	n.logf = log.logf
+	n.start()
+	n.loads.Wait()
+	if !log.has("s128 not used: ") {
+		t.Fatalf("no line about the refused first function: %v", log.lines)
+	}
+	if loaded, _, _, _ := f.snapshot(); len(loaded) != 0 {
+		t.Fatalf("loaded %v, want nothing", loaded)
+	}
+}
+
+// A function asked for while the loader audits another starts its wait
+// when the audit ends: the audit's time is not its own.
+func TestNeuralEngine_AuditTimeIsNotTheNextFunctionsWait(t *testing.T) {
+	f := &fakeANE{auditGate: make(chan struct{})}
+	n, clock := newTestANE(t, f)
+	n.start()
+	waitOrder(t, f, "load 128", "audit 128")
+	f.mu.Lock()
+	f.gate, f.started = make(chan struct{}), make(chan int, 1)
+	f.mu.Unlock()
+	if _, _, deferred := n.embedBulk(tokensOf(200)); !deferred {
+		t.Fatal("a document for a queued function was not deferred")
+	}
+	clock.add(n.wait + time.Second) // the audit takes that long
+	close(f.auditGate)
+	<-f.started
+	if _, ok, deferred := n.embedBulk(tokensOf(200)); ok || !deferred {
+		t.Fatalf("after the audit: served %v, deferred %v, miss %q; want the wait to start with the load", ok, deferred, n.lastMiss())
+	}
+	close(f.gate)
+	n.loads.Wait()
+}
+
+func TestANEAuditing(t *testing.T) {
+	for status, want := range map[string][2]string{
+		"s256 placement audit started":                {"s256", ""},
+		"s256 placement verified (plan 1s)":           {"", "s256"},
+		"s256 placement not verified: no answer":      {"", "s256"},
+		"s256 not used: core ml plans it off":         {"", "s256"},
+		"off, llama.cpp embeds everything: no engine": {"", "*"},
+		"s128 ready (open 1s)":                        {"", ""},
+		"s512 released after 5m0s unused":             {"", ""},
+		"starting":                                    {"", ""},
+	} {
+		if started, ended := aneAuditing(status); started != want[0] || ended != want[1] {
+			t.Errorf("aneAuditing(%q) = %q, %q; want %q, %q", status, started, ended, want[0], want[1])
+		}
+	}
+}
+
+// With several documents to a decode, llama.cpp takes only the ones the
+// Neural Engine path leaves to it: a text behind a miss is routed on its
+// own, and each miss is counted under its own reason.
+func TestLocal_LlamaGroupClassifiesEachText(t *testing.T) {
+	f := &fakeANE{loadErr: map[int]error{256: errors.New("refused")}}
+	n, _ := newTestANE(t, f)
+	loadFor(n, 10)
+	loadFor(n, 200) // s256 fails to load
+	f.mu.Lock()
+	f.gate, f.started = make(chan struct{}), make(chan int, 1)
+	f.mu.Unlock()
+	l := &Local{ane: n, nCtx: 2048, batchDocs: 4}
+	toks := func(n int) []llama.Token { return make([]llama.Token, n) }
+
+	// s256 failed, s512 is loading: the 400-token text waits.
+	tokenized := [][]llama.Token{toks(200), toks(400)}
+	lens := []int{200, 400}
+	if _, ok, _ := l.embedANE(tokenized[0], true); ok {
+		t.Fatal("served by a failed function")
+	}
+	end, misses := l.llamaGroup(tokenized, lens, 0, true)
+	if end != 1 || !reflect.DeepEqual(misses, []string{EmbedReasonANEFailed}) {
+		t.Fatalf("group ends at %d with %v, want the failed text alone", end, misses)
+	}
+	<-f.started
+	// Texts that all fall back share the decode, each with its reason; a
+	// text a loaded function serves ends the group.
+	tokenized = [][]llama.Token{toks(200), toks(100000), toks(10), toks(200)}
+	lens = []int{200, 600, 10, 200}
+	_, _, _ = l.embedANE(tokenized[0], true)
+	end, misses = l.llamaGroup(tokenized, lens, 0, true)
+	if end != 2 || !reflect.DeepEqual(misses, []string{EmbedReasonANEFailed, EmbedReasonTooLong}) {
+		t.Fatalf("group ends at %d with %v, want the two fallback texts", end, misses)
+	}
+	close(f.gate)
+	n.loads.Wait()
+	// With no Neural Engine path the group is llama.cpp's own.
+	if end, misses = (&Local{nCtx: 2048, batchDocs: 4}).llamaGroup(tokenized, lens, 0, true); end != 4 || misses != nil {
+		t.Fatalf("without the path: group ends at %d with %v", end, misses)
 	}
 }
 

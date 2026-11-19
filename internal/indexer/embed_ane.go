@@ -54,7 +54,28 @@ const (
 	// with aneOffStatus that it no longer is (embed_worker.go).
 	aneLogPrefix = "neural engine: "
 	aneOffStatus = "off, "
+	// aneAuditStarted follows "s<length> " when a placement audit begins.
+	// The next line about that function's placement, or that it is not
+	// used, ends it (aneAuditing).
+	aneAuditStarted = "placement audit started"
 )
+
+// aneAuditing reads a status line for the audit the child runs: started
+// is the function it began on, ended one whose audit this line closes.
+func aneAuditing(status string) (started, ended string) {
+	name, rest, ok := strings.Cut(status, " ")
+	switch {
+	case strings.HasPrefix(status, aneOffStatus):
+		return "", "*"
+	case !ok || !strings.HasPrefix(name, "s"):
+		return "", ""
+	case rest == aneAuditStarted:
+		return name, ""
+	case strings.HasPrefix(rest, "placement ") || strings.HasPrefix(rest, "not used"):
+		return "", name
+	}
+	return "", ""
+}
 
 // aneSettles reports whether a status line ends the wait for the path's
 // first function: one is loaded ("s128 ready (…)"), one failed to load
@@ -85,8 +106,10 @@ type aneBackend interface {
 	// planned off the Neural Engine (errOffNeuralEngine).
 	load(length int) (aneFunction, string, error)
 	// placed reports whether the function's placement on the Neural
-	// Engine is on record.
+	// Engine is on record; refused, after prepare, the error of one on
+	// record as planned off it.
 	placed(length int) bool
+	refused(length int) error
 	// audit reads where Core ML plans the function, records it and
 	// describes it for the log; errOffNeuralEngine is a function planned
 	// off the Neural Engine. It needs no loaded function.
@@ -185,8 +208,63 @@ func (n *neuralEngine) embedBulk(tokens []int32) (vec []float32, ok, deferred bo
 	return n.embedFor(tokens, true)
 }
 
+// fallsBack reports whether embed would leave the text to llama.cpp
+// right now, and why (EmbedReason*), without embedding it.
+func (n *neuralEngine) fallsBack(tokens []int32, bulk bool) (miss string, falls bool) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	fn, _, deferred := n.routeLocked(tokens, bulk)
+	return n.miss, fn == nil && !deferred
+}
+
 func (n *neuralEngine) embedFor(tokens []int32, bulk bool) (vec []float32, ok, deferred bool) {
 	n.mu.Lock()
+	fn, use, deferred := n.routeLocked(tokens, bulk)
+	if fn == nil {
+		n.mu.Unlock()
+		return nil, false, deferred
+	}
+	n.used[use] = n.now()
+	n.inUse = use
+	n.placed = n.verified[use]
+	n.armReleaseLocked()
+	n.mu.Unlock()
+
+	out := make([]float32, n.dim)
+	err := fn.embed(tokens, out)
+	if err == nil && !unitVector(out) {
+		err = errors.New("output is not a unit vector")
+	}
+
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.inUse = 0
+	// Refused by an audit, or the path went off, while it predicted.
+	if (n.off || n.failed[use]) && n.fns[use] == fn {
+		fn.close()
+		delete(n.fns, use)
+	}
+	if err != nil {
+		n.failures[use]++
+		n.logf("s%d failed: %v", use, err)
+		if n.failures[use] >= aneMaxFailures && n.fns[use] == fn {
+			fn.close()
+			delete(n.fns, use)
+			n.failed[use] = true
+			n.logf("s%d not used any more: %d failures in a row", use, aneMaxFailures)
+			n.offIfUselessLocked()
+		}
+		n.miss = EmbedReasonANEFailed
+		return nil, false, false
+	}
+	n.failures[use] = 0
+	return out, true, false
+}
+
+// routeLocked picks the function for a text and asks for the one it
+// belongs on. A nil fn is a miss, with n.miss the reason, unless
+// deferred.
+func (n *neuralEngine) routeLocked(tokens []int32, bulk bool) (fn aneFunction, use int, deferred bool) {
 	want := 0
 	for _, l := range n.lengths {
 		if len(tokens) <= l {
@@ -199,11 +277,8 @@ func (n *neuralEngine) embedFor(tokens []int32, bulk bool) (vec []float32, ok, d
 		if n.off {
 			n.miss = EmbedReasonANEOff
 		}
-		n.mu.Unlock()
-		return nil, false, false
+		return nil, 0, false
 	}
-	var fn aneFunction
-	use := 0
 	for _, l := range n.lengths {
 		if l >= want && n.fns[l] != nil {
 			fn, use = n.fns[l], l
@@ -225,49 +300,13 @@ func (n *neuralEngine) embedFor(tokens []int32, bulk bool) (vec []float32, ok, d
 		case bulk && n.now().Sub(n.wanted[want]) >= n.wait:
 			n.miss = EmbedReasonReadinessTimeout
 		case bulk:
-			n.mu.Unlock()
-			return nil, false, true
+			return nil, 0, true
 		default:
 			n.miss = EmbedReasonFunctionLoading
 		}
-		n.mu.Unlock()
-		return nil, false, false
+		return nil, 0, false
 	}
-	n.used[use] = n.now()
-	n.inUse = use
-	n.placed = n.verified[use]
-	n.armReleaseLocked()
-	n.mu.Unlock()
-
-	out := make([]float32, n.dim)
-	err := fn.embed(tokens, out)
-	if err == nil && !unitVector(out) {
-		err = errors.New("output is not a unit vector")
-	}
-
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	n.inUse = 0
-	// An audit refused the function while it predicted.
-	if n.failed[use] && n.fns[use] == fn {
-		fn.close()
-		delete(n.fns, use)
-	}
-	if err != nil {
-		n.failures[use]++
-		n.logf("s%d failed: %v", use, err)
-		if n.failures[use] >= aneMaxFailures && n.fns[use] == fn {
-			fn.close()
-			delete(n.fns, use)
-			n.failed[use] = true
-			n.logf("s%d not used any more: %d failures in a row", use, aneMaxFailures)
-			n.offIfUselessLocked()
-		}
-		n.miss = EmbedReasonANEFailed
-		return nil, false, false
-	}
-	n.failures[use] = 0
-	return out, true, false
+	return fn, use, false
 }
 
 // lastMiss is why embed last answered ok = false.
@@ -358,6 +397,15 @@ func (n *neuralEngine) loader() {
 				return
 			}
 			n.prepared = true
+			// A function on record as refused is not waited for. The
+			// line about the smallest one settles the path's first wait.
+			for _, l := range n.lengths {
+				if err := n.backend.refused(l); err != nil && !n.failed[l] {
+					n.failed[l] = true
+					n.logf("s%d not used: %v", l, err)
+				}
+			}
+			n.offIfUselessLocked()
 			// The smallest function serves queries: it loads first,
 			// whichever text got here first.
 			queue := []int{n.lengths[0]}
@@ -415,9 +463,18 @@ func (n *neuralEngine) auditLocked() {
 	if n.failed[length] || n.verified[length] {
 		return
 	}
+	n.logf("s%d %s", length, aneAuditStarted)
 	n.mu.Unlock()
 	info, err := n.backend.audit(length)
 	n.mu.Lock()
+	// The loader could load nothing meanwhile: a function asked for under
+	// the audit starts its wait now.
+	for _, l := range n.queue {
+		if t := n.late[l]; t != nil {
+			n.wanted[l] = n.now()
+			t.Reset(n.wait)
+		}
+	}
 	switch {
 	case n.off:
 	case errors.Is(err, errOffNeuralEngine):
@@ -534,7 +591,11 @@ func (n *neuralEngine) turnOffLocked(reason string) {
 	if n.retry != nil {
 		n.retry.Stop()
 	}
+	// The one that is predicting is closed when it returns (embedFor).
 	for l, fn := range n.fns {
+		if l == n.inUse {
+			continue
+		}
 		fn.close()
 		delete(n.fns, l)
 	}
@@ -794,8 +855,8 @@ func installDir(src, dst string) error {
 func (b *coreMLBackend) load(length int) (aneFunction, string, error) {
 	name := "s" + strconv.Itoa(length)
 	known, audited := b.placements[length]
-	if audited && !known.On {
-		return nil, "", fmt.Errorf("%w (on record)", known.refusal())
+	if err := b.refused(length); err != nil {
+		return nil, "", err
 	}
 	start := time.Now()
 	fn, err := b.open(b.compiled, name, length, b.dim)
@@ -803,9 +864,15 @@ func (b *coreMLBackend) load(length int) (aneFunction, string, error) {
 		return nil, "", err
 	}
 	opened := time.Since(start)
-	if err := validateFunction(fn, length, b.dim); err != nil {
-		fn.close()
-		return nil, "", fmt.Errorf("it does not predict: %w", err)
+	// As in serving, one failed prediction does not retire the function.
+	for try := 1; ; try++ {
+		if err = validateFunction(fn, length, b.dim); err == nil {
+			break
+		}
+		if try == aneMaxFailures {
+			fn.close()
+			return nil, "", fmt.Errorf("it does not predict: %w", err)
+		}
 	}
 	how := "placement not verified yet"
 	switch {
@@ -820,6 +887,13 @@ func (b *coreMLBackend) load(length int) (aneFunction, string, error) {
 }
 
 func (b *coreMLBackend) placed(length int) bool { return b.placements[length].On }
+
+func (b *coreMLBackend) refused(length int) error {
+	if p, audited := b.placements[length]; audited && !p.On {
+		return fmt.Errorf("%w (on record)", p.refusal())
+	}
+	return nil
+}
 
 // audit reads the function's compute plan and records the verdict, so no
 // later process on this machine setup plans it again.
@@ -898,35 +972,43 @@ func (b *coreMLBackend) writePlacements() error {
 	return nil
 }
 
-// validateFunction has a freshly opened function predict twice, on a
-// short text and on one of its full length: each output is the model's
-// unit vector, and the two differ.
+// validateFunction has a freshly opened function predict three texts: two
+// short ones of one length with different tokens, and one of its full
+// length. Each output is the model's unit vector, and no two are alike.
 func validateFunction(fn aneFunction, length, dim int) error {
-	short := []int32{2, 1001, 1002, 1003, 1}
 	full := make([]int32, length)
 	for i := range full {
 		full[i] = int32(1000 + i%512)
 	}
 	full[0], full[length-1] = 2, 1
-	a, b := make([]float32, dim), make([]float32, dim)
-	for _, run := range []struct {
-		tokens []int32
-		out    []float32
-	}{{short, a}, {full, b}} {
-		if err := fn.embed(run.tokens, run.out); err != nil {
+	probes := [][]int32{{2, 1001, 1002, 1003, 1}, {2, 5001, 7002, 9003, 1}, full}
+	outs := make([][]float32, len(probes))
+	for i, tokens := range probes {
+		outs[i] = make([]float32, dim)
+		if err := fn.embed(tokens, outs[i]); err != nil {
 			return err
 		}
-		if !unitVector(run.out) {
+		if !unitVector(outs[i]) {
 			return errors.New("output is not a unit vector")
 		}
 	}
-	for i := range a {
-		if math.Abs(float64(a[i]-b[i])) > 1e-4 {
-			return nil
+	for i := range outs {
+		for j := i + 1; j < len(outs); j++ {
+			var dot float64
+			for k := range outs[i] {
+				dot += float64(outs[i][k]) * float64(outs[j][k])
+			}
+			if dot > validateMaxCosine {
+				return errors.New("different texts got one vector")
+			}
 		}
 	}
-	return errors.New("two different texts got one vector")
+	return nil
 }
+
+// validateMaxCosine is how alike the vectors of two unrelated texts may
+// be. The same text twice differs by far less than this leaves room for.
+const validateMaxCosine = 0.999
 
 type coreMLFunction struct{ fn *coreml.Function }
 

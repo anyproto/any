@@ -478,10 +478,7 @@ func (l *Local) embedANE(tokens []llama.Token, bulk bool) (vec []float32, ok, de
 	if l.ane == nil {
 		return nil, false, false
 	}
-	ids := make([]int32, len(tokens))
-	for i, t := range tokens {
-		ids[i] = int32(t)
-	}
+	ids := tokenIds(tokens)
 	if bulk {
 		vec, ok, deferred = l.ane.embedBulk(ids)
 	} else {
@@ -495,6 +492,34 @@ func (l *Local) embedANE(tokens []llama.Token, bulk bool) (vec []float32, ok, de
 		return nil, false, false
 	}
 	return l.finish(vec), true, false
+}
+
+func tokenIds(tokens []llama.Token) []int32 {
+	ids := make([]int32, len(tokens))
+	for i, t := range tokens {
+		ids[i] = int32(t)
+	}
+	return ids
+}
+
+// llamaGroup is the decode group llama.cpp gets from start on, whose
+// text the Neural Engine path just missed: the texts after it join only
+// while that path leaves each of them to llama.cpp too. misses is why,
+// per text; nil with no such path. Caller holds l.mu.
+func (l *Local) llamaGroup(tokenized [][]llama.Token, lens []int, start int, bulk bool) (end int, misses []string) {
+	end = groupEnd(lens, start, l.nCtx, l.batchDocs)
+	if l.ane == nil {
+		return end, nil
+	}
+	misses = []string{l.routes.Miss}
+	for i := start + 1; i < end; i++ {
+		miss, falls := l.ane.fallsBack(tokenIds(tokenized[i]), bulk)
+		if !falls {
+			return i, misses
+		}
+		misses = append(misses, miss)
+	}
+	return end, misses
 }
 
 // finish turns a runtime's pooled vector into the stored one: the
@@ -645,19 +670,19 @@ func (l *Local) embedTokenized(ctx context.Context, tokenized [][]llama.Token, l
 			start++
 			continue
 		}
-		end := groupEnd(lens, start, l.nCtx, l.batchDocs)
+		end, misses := l.llamaGroup(tokenized, lens, start, bulk)
 		vecs, err := l.embedGroup(tokenized[start:end])
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, vecs...)
 		l.routes.Llama += end - start
-		// The group is counted under the miss of the text that opened it.
-		if l.ane != nil && l.routes.Miss != "" {
+		for _, miss := range misses {
 			if l.routes.Misses == nil {
 				l.routes.Misses = map[string]int{}
 			}
-			l.routes.Misses[l.routes.Miss] += end - start
+			l.routes.Misses[miss]++
+			l.routes.Miss = miss
 		}
 		start = end
 	}

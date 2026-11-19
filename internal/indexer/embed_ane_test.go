@@ -43,6 +43,15 @@ type fakeANE struct {
 	auditErr  map[int]error
 	auditGate chan struct{}
 	order     []string // "load <length>" and "audit <length>", as they began
+	// refusals are the functions on record as planned off the Neural
+	// Engine.
+	refusals map[int]error
+}
+
+func (f *fakeANE) refused(length int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.refusals[length]
 }
 
 func (f *fakeANE) placed(int) bool {
