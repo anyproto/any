@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -105,6 +106,8 @@ type workerEmbedder struct {
 	// vector are worth sending again (DeferredWake).
 	wakeMu sync.Mutex
 	wake   chan struct{}
+	// routed counts where bulk texts went, for the log.
+	routed bulkRouting
 
 	// idleTimer runs retireIdle. Created stopped and never reassigned,
 	// so its callback uses it without the slot.
@@ -307,6 +310,8 @@ func (w *workerEmbedder) DeferredWake() <-chan struct{} {
 }
 
 func (w *workerEmbedder) wakeDeferred() {
+	// What was deferred until now is counted before it is sent again.
+	w.logBulk(true)
 	w.wakeMu.Lock()
 	defer w.wakeMu.Unlock()
 	close(w.wake)
@@ -331,10 +336,120 @@ func (w *workerEmbedder) embedDocs(ctx context.Context, titles, texts []string, 
 		out = append(out, r.vecs...)
 		tally.add(r)
 		if r.err != nil {
+			w.noteBulk(bulk, tally)
 			return out, tally.route(), r.err
 		}
 	}
+	w.noteBulk(bulk, tally)
 	return out, tally.route(), nil
+}
+
+// bulkLogEvery spaces the log lines about bulk texts that ran on
+// llama.cpp or were left pending.
+const bulkLogEvery = 30 * time.Second
+
+// bulkRouting counts where the texts of bulk frames went since the last
+// log line about them. The deferred count and its start run on until a
+// report from the child, which is when deferred texts are sent again.
+type bulkRouting struct {
+	mu            sync.Mutex
+	from          time.Time // the first batch counted
+	ane, coreml   int
+	llama         map[string]int // by EmbedReason*; "" = none to give
+	deferred      int
+	deferredFrom  time.Time
+	deferredSaid  int // deferred at the last line
+	llamaBackends map[string]bool
+}
+
+// noteBulk counts one batch of bulk work, and logs the counts when the
+// last line is bulkLogEvery old.
+func (w *workerEmbedder) noteBulk(bulk bool, t routeTally) {
+	if !bulk {
+		return
+	}
+	r := &w.routed
+	r.mu.Lock()
+	now := time.Now()
+	if r.from.IsZero() {
+		r.from = now
+	}
+	r.ane += t.ane
+	r.coreml += t.coreml
+	for reason, n := range t.reasons {
+		if r.llama == nil {
+			r.llama = map[string]int{}
+		}
+		r.llama[reason] += n
+	}
+	for b, n := range t.llama {
+		if n > 0 {
+			if r.llamaBackends == nil {
+				r.llamaBackends = map[string]bool{}
+			}
+			r.llamaBackends[b] = true
+		}
+	}
+	if t.deferred > 0 {
+		if r.deferred == 0 {
+			r.deferredFrom = now
+		}
+		r.deferred += t.deferred
+	}
+	due := now.Sub(r.from) >= bulkLogEvery
+	r.mu.Unlock()
+	if due {
+		w.logBulk(false)
+	}
+}
+
+// logBulk writes the line about the batches counted since the last one,
+// if any of their texts ran on llama.cpp or was left pending. settled:
+// the child reported, or went; the deferred count starts over.
+func (w *workerEmbedder) logBulk(settled bool) {
+	r := &w.routed
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	llama := 0
+	var reasons, backends []string
+	for reason, n := range r.llama {
+		llama += n
+		reasons = append(reasons, orDefaultString(reason, "none")+"="+strconv.Itoa(n))
+	}
+	for b := range r.llamaBackends {
+		backends = append(backends, b)
+	}
+	slices.Sort(reasons)
+	slices.Sort(backends)
+	if llama > 0 || r.deferred != r.deferredSaid || (settled && r.deferred > 0) {
+		fields := []zap.Field{
+			zap.Duration("window", time.Since(r.from).Round(time.Millisecond)),
+			zap.Int("ane", r.ane), zap.Int("coreml", r.coreml), zap.Int("llama", llama),
+		}
+		if llama > 0 {
+			fields = append(fields, zap.String("llamaBackends", strings.Join(backends, ",")),
+				zap.String("llamaReasons", strings.Join(reasons, " ")))
+		}
+		if r.deferred > 0 {
+			fields = append(fields, zap.Int("deferred", r.deferred),
+				zap.Duration("deferredFor", time.Since(r.deferredFrom).Round(time.Millisecond)),
+				zap.Bool("deferredSentAgain", settled))
+		}
+		w.lg.Info("local embedder bulk routing", fields...)
+	}
+	r.from = time.Time{}
+	r.ane, r.coreml, r.llama, r.llamaBackends = 0, 0, nil, nil
+	r.deferredSaid = r.deferred
+	if settled {
+		r.deferred, r.deferredSaid, r.deferredFrom = 0, 0, time.Time{}
+	}
+}
+
+func orDefaultString(v, def string) string {
+	if v != "" {
+		return v
+	}
+	return def
 }
 
 // routeTally sums what the frames of one batch said: the child's counts,
@@ -343,6 +458,7 @@ type routeTally struct {
 	ane      int
 	coreml   int
 	llama    map[string]int // per EmbedBackend* of the child that served the frame
+	reasons  map[string]int // llama.cpp texts per EmbedReason*; "" = none to give
 	deferred int
 	reason   string // of the last frame that had one
 }
@@ -360,6 +476,12 @@ func (t *routeTally) add(r frameResult) {
 			t.llama = map[string]int{}
 		}
 		t.llama[r.llama] += rt.Llama
+	}
+	for reason, n := range r.reasons {
+		if t.reasons == nil {
+			t.reasons = map[string]int{}
+		}
+		t.reasons[reason] += n
 	}
 	if r.reason != "" {
 		t.reason = r.reason
@@ -405,6 +527,30 @@ func (w *workerEmbedder) frameReason(rt *workerRoutes) string {
 	if rt == nil || rt.Llama == 0 {
 		return ""
 	}
+	return w.missReason(rt.Miss)
+}
+
+// frameReasons counts the llama.cpp texts of a frame by their reason,
+// read like frameReason's; "" counts those with none to give.
+func (w *workerEmbedder) frameReasons(rt *workerRoutes) map[string]int {
+	if rt == nil || rt.Llama == 0 {
+		return nil
+	}
+	out := map[string]int{}
+	rest := rt.Llama
+	for miss, n := range rt.Misses {
+		out[w.missReason(miss)] += n
+		rest -= n
+	}
+	if rest > 0 {
+		out[w.missReason("")] += rest
+	}
+	return out
+}
+
+// missReason is the reason for a text that ran on llama.cpp, given why
+// the child's Neural Engine path missed it ("" = it did not say).
+func (w *workerEmbedder) missReason(miss string) string {
 	w.mu.Lock()
 	planned, aneOff := w.spec.coremlDir != "", w.coremlDisabled
 	gpuFailed, gpuDisabled := w.gpuDisabled, w.spec.gpuLayers == 0
@@ -412,10 +558,10 @@ func (w *workerEmbedder) frameReason(rt *workerRoutes) string {
 	switch {
 	case planned && aneOff:
 		return EmbedReasonANEOff
-	case planned && rt.Miss == EmbedReasonFunctionLoading && w.bulkWaited.Load():
+	case planned && miss == EmbedReasonFunctionLoading && w.bulkWaited.Load():
 		return EmbedReasonReadinessTimeout
-	case planned && rt.Miss != "":
-		return rt.Miss
+	case planned && miss != "":
+		return miss
 	case gpuFailed:
 		return EmbedReasonGPUFailed
 	case gpuDisabled:
@@ -536,10 +682,12 @@ type frameResult struct {
 	err  error
 	// routes is what the child said about a document frame; llama, the
 	// runtime llama.cpp embeds on in that child (EmbedBackend*); reason,
-	// why texts of the frame ran off the fastest runtime (EmbedReason*).
-	routes *workerRoutes
-	llama  string
-	reason string
+	// why texts of the frame ran off the fastest runtime (EmbedReason*),
+	// and reasons, how many for each.
+	routes  *workerRoutes
+	llama   string
+	reason  string
+	reasons map[string]int
 }
 
 // run performs one frame on the child, taking the slot for the
@@ -613,7 +761,8 @@ func (w *workerEmbedder) serve(ctx context.Context, req workerReq) frameResult {
 		return frameResult{err: fmt.Errorf("%w: %v", ErrEmbedderUnavailable, err)}
 	}
 	w.backoff = 0
-	return frameResult{vecs: vecs, routes: hdr.Routes, llama: w.child.llama, reason: w.frameReason(hdr.Routes)}
+	return frameResult{vecs: vecs, routes: hdr.Routes, llama: w.child.llama,
+		reason: w.frameReason(hdr.Routes), reasons: w.frameReasons(hdr.Routes)}
 }
 
 // roundTrip writes one request and waits for its response. Every
@@ -1150,10 +1299,10 @@ func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 						close(c.settled)
 					})
 				}
+				lg.Info("local embedder neural engine", zap.String("status", status))
 				if c.onStatus != nil {
 					c.onStatus()
 				}
-				lg.Info("local embedder neural engine", zap.String("status", status))
 			} else {
 				lg.Debug("embedder child", zap.String("stderr", line))
 			}

@@ -380,6 +380,7 @@ func (n *neuralEngine) loader() {
 		fn, info, err := n.backend.load(length)
 		n.mu.Lock()
 		n.inflight = 0
+		asked := n.now().Sub(n.wanted[length]).Round(time.Millisecond)
 		n.settleWantedLocked(length)
 		switch {
 		case err != nil:
@@ -399,7 +400,7 @@ func (n *neuralEngine) loader() {
 				n.audited[length] = true
 				n.audits = append(n.audits, length)
 			}
-			n.logf("s%d ready (%s)", length, info)
+			n.logf("s%d ready (%s; asked for %s ago)", length, info, asked)
 			n.armReleaseLocked()
 		}
 	}

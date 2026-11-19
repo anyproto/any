@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anyproto/any-sync/app/logger"
 	"go.uber.org/zap"
 
 	"github.com/anyproto/any-store/v2/anyenc"
@@ -863,9 +864,15 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 	}
 	// An embedder that readies a faster runtime in the background gets
 	// to finish that before every round that has work (BulkPreparer).
+	preparer, _ := emb.(BulkPreparer)
+	prepared := false // the last prepare had to wait
 	prepare := func() error {
-		if p, ok := emb.(BulkPreparer); ok {
-			p.PrepareBulk(ctx, func() { report(EmbedStatus{Phase: EmbedPhasePreparing}) })
+		prepared = false
+		if preparer != nil {
+			preparer.PrepareBulk(ctx, func() {
+				prepared = true
+				report(EmbedStatus{Phase: EmbedPhasePreparing})
+			})
 		}
 		return ctx.Err()
 	}
@@ -924,16 +931,16 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 			if wait > 0 {
 				// The embedder readies its runtime under the delay; the
 				// prepare below then waits only for what is left.
-				if p, ok := emb.(BulkPreparer); ok {
+				if preparer != nil {
 					early, stop := context.WithCancel(ctx)
-					prepared := make(chan struct{})
+					done := make(chan struct{})
 					go func() {
-						defer close(prepared)
-						p.PrepareBulk(early, nil)
+						defer close(done)
+						preparer.PrepareBulk(early, nil)
 					}()
 					defer func() {
 						stop()
-						<-prepared
+						<-done
 					}()
 				}
 				select {
@@ -942,8 +949,12 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 				case <-time.After(wait):
 				}
 			}
+			asked := time.Now()
 			if err := prepare(); err != nil {
 				return err
+			}
+			if wait > 0 || preparer != nil {
+				w.ix.logBulkOpened(wait > 0, prepared, time.Since(asked))
 			}
 		}
 		ids, texts, err := w.ix.store.PendingFrom(ctx, spaceId, skip, batch*conc)
@@ -1077,6 +1088,34 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 			}
 		}
 	}
+}
+
+// logBulkOpened says, once per run, when bulk embedding got past its
+// waits and which of them it ended on: the start delay, or the embedder,
+// when its preparation outlasted the delay.
+func (ix *Indexer) logBulkOpened(delayed, prepared bool, preparedFor time.Duration) {
+	ix.bulkOpened.Do(func() {
+		fields := []zap.Field{zap.String("openedBy", bulkOpenedBy(delayed, prepared)), zap.Duration("startDelay", ix.opts.EmbedStartDelay)}
+		if prepared {
+			fields = append(fields, zap.Duration("embedderWaitPastDelay", preparedFor.Round(time.Millisecond)))
+		}
+		if !ix.embedFrom.IsZero() {
+			fields = append(fields, zap.Duration("sinceStart",
+				time.Since(ix.embedFrom.Add(-ix.opts.EmbedStartDelay)).Round(time.Millisecond)))
+		}
+		// Not ix.lg: an Indexer built without New has none.
+		logger.NewNamed("indexer").Info("bulk embedding opened", fields...)
+	})
+}
+
+func bulkOpenedBy(delayed, prepared bool) string {
+	switch {
+	case prepared:
+		return "embedder_ready"
+	case delayed:
+		return "start_delay"
+	}
+	return "no_wait"
 }
 
 // embeddedDocs drops the docs of a batch whose vector is nil: the texts

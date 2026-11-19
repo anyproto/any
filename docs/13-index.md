@@ -1038,6 +1038,27 @@ that repeats in a child started without the Neural Engine clears it: it
 comes back on, once per process. A child that dies with it on after
 that stays without it for the rest of the process.
 
+**In the log.** The child's reports on the path are logged as
+`local embedder neural engine` with a `status`: `starting`;
+`s<N> ready (open …, validate …, <placement>; asked for … ago)`, where
+the placement is `placement on record, plan skipped`, `placement
+verified` (by this child, earlier) or `placement not verified yet`;
+`s<N> placement verified (plan …, … operations on the neural engine, …
+on the cpu)` and `s<N> placement not verified: …` from the audit;
+`s<N> not used: …`; `s<N> still loading after …`; `s<N> released after
+…`; and `off, …`. `bulk embedding opened` is logged once per run, when
+the first drain got past its waits: `openedBy` is `start_delay`,
+`embedder_ready` (the first function outlasted the delay, by
+`embedderWaitPastDelay`) or `no_wait`, with `sinceStart`. `local
+embedder bulk routing` counts the bulk texts since the previous such
+line (`ane`, `coreml`, `llama`), at most every 30 s and only when some
+ran on llama.cpp or were left pending: `llamaReasons` has the count per
+reason (`none` = no reason to give), `deferred` the texts left pending
+since the child's last report and `deferredFor` the time since the
+first of them. The line with `deferredSentAgain: true` closes that
+count when the child reports or stops; a text deferred again after it
+is counted again. None of these lines carries a text or an id.
+
 Core ML is called through the Objective-C runtime, so the binary stays
 CGO-free and cross-compiled (`internal/indexer/coreml`).
 

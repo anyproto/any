@@ -59,17 +59,18 @@ type workerReq struct {
 
 // workerRoutes rides a `vectors` frame of documents: how many of its
 // texts each runtime embedded, and why the last text that missed the
-// Neural Engine did (EmbedReason*). ANE counts the texts of Core ML
-// functions whose placement on the Neural Engine is verified, CoreML
-// those of the others. Deferred lists, ascending, the texts of the
-// request the frame has no vector for; its vectors are the other texts',
-// in order.
+// Neural Engine did (EmbedReason*); Misses counts the llama.cpp texts by
+// that reason. ANE counts the texts of Core ML functions whose placement
+// on the Neural Engine is verified, CoreML those of the others. Deferred
+// lists, ascending, the texts of the request the frame has no vector
+// for; its vectors are the other texts', in order.
 type workerRoutes struct {
-	ANE      int    `json:"ane,omitempty"`
-	CoreML   int    `json:"coreml,omitempty"`
-	Llama    int    `json:"llama,omitempty"`
-	Miss     string `json:"miss,omitempty"`
-	Deferred []int  `json:"deferred,omitempty"`
+	ANE      int            `json:"ane,omitempty"`
+	CoreML   int            `json:"coreml,omitempty"`
+	Llama    int            `json:"llama,omitempty"`
+	Miss     string         `json:"miss,omitempty"`
+	Misses   map[string]int `json:"misses,omitempty"`
+	Deferred []int          `json:"deferred,omitempty"`
 }
 
 // packVectors drops the nil vectors of a document frame: the texts

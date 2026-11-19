@@ -240,6 +240,8 @@ type Indexer struct {
 	// embedFrom is when the embed loops may start draining
 	// (Options.EmbedStartDelay after Start).
 	embedFrom time.Time
+	// bulkOpened logs the first drain that got past its waits.
+	bulkOpened sync.Once
 	// bootstrapped closes once the initial space list has been handed
 	// to spawnLocked (or bootstrap gave up on a cancelled ctx).
 	bootstrapped chan struct{}

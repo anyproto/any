@@ -652,6 +652,13 @@ func (l *Local) embedTokenized(ctx context.Context, tokenized [][]llama.Token, l
 		}
 		out = append(out, vecs...)
 		l.routes.Llama += end - start
+		// The group is counted under the miss of the text that opened it.
+		if l.ane != nil && l.routes.Miss != "" {
+			if l.routes.Misses == nil {
+				l.routes.Misses = map[string]int{}
+			}
+			l.routes.Misses[l.routes.Miss] += end - start
+		}
 		start = end
 	}
 	return out, nil
