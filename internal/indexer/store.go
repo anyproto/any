@@ -917,6 +917,22 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 // search mapping but keeps link fields). Returns the target keys whose
 // edge set changed (the liveness signal).
 func (s *Store) ApplyPage(ctx context.Context, spaceId string, ups []DocUpsert, dels []string, prefixDels, textPrefixDels []string, links *LinkOps) ([]string, error) {
+	return s.applyPage(ctx, spaceId, ups, dels, prefixDels, textPrefixDels, links, nil)
+}
+
+// ApplyPageMarked is ApplyPage that also reports whether the page left a
+// doc newly pending: one of its own, or the windows of a renamed object.
+func (s *Store) ApplyPageMarked(ctx context.Context, spaceId string, ups []DocUpsert, dels []string, prefixDels, textPrefixDels []string, links *LinkOps) (touched []string, marked bool, err error) {
+	touched, err = s.applyPage(ctx, spaceId, ups, dels, prefixDels, textPrefixDels, links, &marked)
+	return touched, marked && err == nil, err
+}
+
+func (s *Store) applyPage(ctx context.Context, spaceId string, ups []DocUpsert, dels []string, prefixDels, textPrefixDels []string, links *LinkOps, marked *bool) ([]string, error) {
+	mark := func() {
+		if marked != nil {
+			*marked = true
+		}
+	}
 	if len(ups) == 0 && len(dels) == 0 && len(prefixDels) == 0 && len(textPrefixDels) == 0 && links.empty() {
 		return nil, nil
 	}
@@ -1027,6 +1043,7 @@ func (s *Store) ApplyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 			// vector pipeline without losing work. Empty-text docs have
 			// nothing to embed and stay vector-less.
 			doc.Set("pending", arena.NewNumberInt(1))
+			mark()
 		}
 		if err := coll.UpsertOne(tx.Context(), doc); err != nil {
 			return nil, err
@@ -1041,8 +1058,12 @@ func (s *Store) ApplyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 				query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGte, p)},
 				query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, prefixUpper(p))},
 			}
-			if _, err := coll.Find(idRange).Update(tx.Context(), remarkPending); err != nil {
+			res, err := coll.Find(idRange).Update(tx.Context(), remarkPending)
+			if err != nil {
 				return nil, err
+			}
+			if res.Modified > 0 {
+				mark()
 			}
 		}
 	}
@@ -1634,17 +1655,21 @@ func docText(v *anyenc.Value) string {
 // Pending returns up to limit docs awaiting embedding (only docs with
 // non-empty text ever carry the pending mark — see Apply).
 func (s *Store) Pending(ctx context.Context, spaceId string, limit int) (ids []string, texts []string, err error) {
-	return s.PendingFrom(ctx, spaceId, 0, limit)
+	return s.PendingAfter(ctx, spaceId, "", limit)
 }
 
-// PendingFrom is Pending past the first skip docs of the queue: the ones
-// a drain is leaving for later.
-func (s *Store) PendingFrom(ctx context.Context, spaceId string, skip, limit int) (ids []string, texts []string, err error) {
+// PendingAfter is Pending past the doc id after, in id order: a drain
+// that leaves docs behind pages on from the last one it read.
+func (s *Store) PendingAfter(ctx context.Context, spaceId, after string, limit int) (ids []string, texts []string, err error) {
 	coll, err := s.spaceColl(ctx, spaceId)
 	if err != nil {
 		return nil, nil, err
 	}
-	iter, err := coll.Find(pendingEqOne).Offset(uint(skip)).Limit(uint(limit)).Iter(ctx)
+	var cond query.Filter = pendingEqOne
+	if after != "" {
+		cond = query.And{pendingEqOne, query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGt, after)}}
+	}
+	iter, err := coll.Find(cond).Sort("id").Limit(uint(limit)).Iter(ctx)
 	if err != nil {
 		return nil, nil, err
 	}

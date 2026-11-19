@@ -251,25 +251,33 @@ func TestEmbedDrainLeavesTheDeferredWait(t *testing.T) {
 	}
 }
 
-func TestStore_PendingFrom(t *testing.T) {
+func TestStore_PendingAfter(t *testing.T) {
 	ctx := context.Background()
 	st := mustStore(t, 4)
-	for i := range 5 {
+	for _, i := range []int{3, 0, 4, 1, 2} { // written out of order
 		up := DocUpsert{Entry: entry("chat", "o1", "chat_messages", fmt.Sprintf("m%d", i), fmt.Sprintf("text %d", i), uint64(i+1))}
 		if err := st.Apply(ctx, "sp1", []DocUpsert{up}, nil, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
 	all, _, err := st.Pending(ctx, "sp1", 10)
-	if err != nil || len(all) != 5 {
-		t.Fatalf("Pending: %v, %v", all, err)
+	if err != nil || len(all) != 5 || !slices.IsSorted(all) {
+		t.Fatalf("Pending: %v, %v; want the five docs in id order", all, err)
 	}
-	ids, texts, err := st.PendingFrom(ctx, "sp1", 2, 2)
+	ids, texts, err := st.PendingAfter(ctx, "sp1", all[1], 2)
 	if err != nil || !slices.Equal(ids, all[2:4]) || len(texts) != 2 {
-		t.Fatalf("PendingFrom(2, 2) = %v, %v, %v; want %v", ids, texts, err, all[2:4])
+		t.Fatalf("PendingAfter(%q, 2) = %v, %v, %v; want %v", all[1], ids, texts, err, all[2:4])
 	}
-	if ids, _, err = st.PendingFrom(ctx, "sp1", 5, 2); err != nil || len(ids) != 0 {
-		t.Fatalf("PendingFrom past the queue = %v, %v", ids, err)
+	// A doc written ahead of the cursor, or deleted behind it, moves nothing.
+	up := DocUpsert{Entry: entry("chat", "o1", "chat_messages", "a-first", "new", 9)}
+	if err := st.Apply(ctx, "sp1", []DocUpsert{up}, []string{all[0]}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if ids, _, err = st.PendingAfter(ctx, "sp1", all[1], 2); err != nil || !slices.Equal(ids, all[2:4]) {
+		t.Fatalf("PendingAfter after writes around the cursor = %v, %v; want %v", ids, err, all[2:4])
+	}
+	if ids, _, err = st.PendingAfter(ctx, "sp1", all[4], 2); err != nil || len(ids) != 0 {
+		t.Fatalf("PendingAfter past the queue = %v, %v", ids, err)
 	}
 }
 
@@ -508,26 +516,83 @@ func TestEmbedDrainTakesTheNudgeBetweenPages(t *testing.T) {
 	}
 }
 
-// Only a page that can have marked a doc pending nudges the embed loop.
-func TestHasIndexableText(t *testing.T) {
-	text := entry("chat", "o1", "chat_messages", "m1", "a message", 1)
-	props := text
-	props.Scope = index.ScopeProps
-	short := entry("basic", "o1", index.DatasetProp, "p1", "short", 1)
-	name := entry("basic", "o1", index.DatasetProp, index.NamePropRecordId, "A name", 1)
-	for what, tc := range map[string]struct {
-		ups  []DocUpsert
-		want bool
-	}{
-		"a text that embeds":                  {[]DocUpsert{{Entry: text}}, true},
-		"a props value, full-text only":       {[]DocUpsert{{Entry: props}}, false},
-		"a short property":                    {[]DocUpsert{{Entry: short}}, false},
-		"a name: its editor windows re-embed": {[]DocUpsert{{Entry: name}}, true},
-		"a text that came with its vector":    {[]DocUpsert{{Entry: text, Vector: []float32{1}}}, false},
-		"nothing":                             {nil, false},
-	} {
-		if got := hasIndexableText(tc.ups); got != tc.want {
-			t.Errorf("%s: hasIndexableText = %v, want %v", what, got, tc.want)
+// With texts left behind and new ready texts written ahead of them
+// before every read, the drain still moves on: the rows behind the ones
+// it left land, and so do the new ones, with the function still loading.
+func TestEmbedDrainMovesOnUnderWritesAheadOfDeferredRows(t *testing.T) {
+	ctx := context.Background()
+	texts := []string{"long 1", "long 2", "c", "d", "e", "f"}
+	emb := wakingEmbedder{&deferEmbedder{axisEmbedder: axisEmbedder{dim: 4}, wake: make(chan struct{})}}
+	w, st, _ := deferDrain(t, emb, time.Hour, texts)
+	inserted := 0
+	emb.onCall = func(call int) {
+		if call > 6 {
+			return
 		}
+		for range 2 { // two ready rows ahead of everything, and their nudge
+			inserted++
+			up := DocUpsert{Entry: entry("chat", "o1", "chat_messages", fmt.Sprintf("a%03d", 900-inserted), "new", uint64(100+inserted))}
+			if err := st.Apply(ctx, "sp1", []DocUpsert{up}, nil, nil); err != nil {
+				t.Error(err)
+			}
+		}
+		select {
+		case w.embedCh <- struct{}{}:
+		default:
+		}
+	}
+	done := make(chan error, 1)
+	go func() { done <- w.drainPending(ctx) }()
+	waitPending(t, st, 2) // everything but the two deferred texts
+	if calls, _ := emb.counts(); calls > 40 {
+		t.Fatalf("%d calls to get there", calls)
+	}
+	emb.release()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The store says whether a page left a doc newly pending: a text that
+// embeds, or the windows of an object whose name it changed or removed.
+func TestStore_ApplyPageMarked(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 4)
+	st.SetEmbedTitles(true)
+	body := "a paragraph long enough to be embedded as a document of this object"
+	vec := []float32{1, 0, 0, 0}
+	apply := func(ups []DocUpsert, dels []string) bool {
+		t.Helper()
+		_, marked, err := st.ApplyPageMarked(ctx, "sp1", ups, dels, nil, nil, &LinkOps{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return marked
+	}
+	name := entry("basic", "obj1", index.DatasetProp, index.NamePropRecordId, "Consoles", 1)
+	window := entry("basic", "obj1", "editor_blocks", "win_a", body, 2)
+	props := entry("basic", "obj1", "chat_messages", "m1", body, 3)
+	props.Scope = index.ScopeProps
+	short := entry("basic", "obj1", index.DatasetProp, "p1", "short", 4)
+
+	if !apply([]DocUpsert{{Entry: name}, {Entry: window}}, nil) {
+		t.Fatal("a text that embeds marked nothing")
+	}
+	ids, _, _ := st.Pending(ctx, "sp1", 10)
+	if err := st.SetVectors(ctx, "sp1", ids, slices.Repeat([][]float32{vec}, len(ids))); err != nil {
+		t.Fatal(err)
+	}
+	if apply([]DocUpsert{{Entry: props}, {Entry: short}}, nil) {
+		t.Fatal("full-text-only writes marked a doc pending")
+	}
+	if apply([]DocUpsert{{Entry: name}}, nil) {
+		t.Fatal("the same name again marked a doc pending")
+	}
+	// The name removed, beside a write that embeds nothing.
+	if !apply([]DocUpsert{{Entry: short}}, []string{docId("obj1", index.DatasetProp, index.NamePropRecordId)}) {
+		t.Fatal("removing the name marked nothing, with the object's window to re-embed")
+	}
+	if n, _ := st.PendingCount(ctx, "sp1"); n != 1 {
+		t.Fatalf("%d docs pending after the name went, want the window", n)
 	}
 }

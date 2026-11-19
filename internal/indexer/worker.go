@@ -381,7 +381,7 @@ func (w *spaceWorker) advancePages(ctx context.Context, onWork func(), progress 
 			}
 		}
 
-		touched, err := w.ix.store.ApplyPage(ctx, spaceId, page.ups, page.dels, page.prefixDels, page.textPrefixDels, &page.links)
+		touched, marked, err := w.ix.store.ApplyPageMarked(ctx, spaceId, page.ups, page.dels, page.prefixDels, page.textPrefixDels, &page.links)
 		if err != nil {
 			return err
 		}
@@ -401,7 +401,7 @@ func (w *spaceWorker) advancePages(ctx context.Context, onWork func(), progress 
 			w.linksStamped = true
 		}
 		progress(len(changes))
-		if w.ix.HasEmbedder() && hasIndexableText(page.ups) {
+		if w.ix.HasEmbedder() && marked {
 			select {
 			case w.embedCh <- struct{}{}:
 			default:
@@ -411,18 +411,6 @@ func (w *spaceWorker) advancePages(ctx context.Context, onWork func(), progress 
 			return nil
 		}
 	}
-}
-
-// hasIndexableText reports whether landing the page can have marked a
-// doc pending: one of its own that embeds, or, by a new name, the
-// object's editor windows (Store.ApplyPage).
-func hasIndexableText(ups []DocUpsert) bool {
-	for _, up := range ups {
-		if up.Vector == nil && (shouldEmbed(up.Entry) || isNameDoc(up.Entry)) {
-			return true
-		}
-	}
-	return false
 }
 
 // pageOps accumulates one advance page: upserts, record-level deletes
@@ -868,17 +856,17 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 		}
 		return ctx.Err()
 	}
-	// skip is how many docs at the head of the queue this pass leaves for
-	// later, and wake the embedder's word that they may embed now, taken
-	// before the first of them was sent.
-	skip := 0
+	// left counts the docs this pass leaves for later; after is the last
+	// doc it read, which it then pages on from: no write moves an id.
+	// wake is the embedder's word that the docs left may embed now.
+	left, after := 0, ""
 	var wake <-chan struct{}
 	deferrer, _ := emb.(BulkDeferrer)
 	// landed counts the vectors this pass landed; nudged: new texts were
 	// announced during it and it has not started over for them yet.
 	landed, nudged := 0, false
 	startPass := func() {
-		skip, landed, nudged = 0, 0, false
+		left, after, landed, nudged = 0, "", 0, false
 		if deferrer != nil {
 			wake = deferrer.DeferredWake()
 		}
@@ -888,7 +876,7 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 	// queue is drained. Otherwise it has waited for the texts left behind
 	// and the next pass may start.
 	endPass := func() (done bool, err error) {
-		if skip == 0 {
+		if left == 0 {
 			return true, nil
 		}
 		if nudged { // new texts came during the pass: they do not wait
@@ -965,8 +953,8 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 		}
 		// With texts left behind, the embedder's word starts the pass
 		// over: full pages would keep them there. So do new texts, which
-		// can sort ahead of the offset, once it landed what that resends.
-		if skip > 0 {
+		// can sort ahead of the cursor, once it landed what that resends.
+		if left > 0 {
 			select {
 			case <-w.embedCh:
 				nudged = true
@@ -976,12 +964,17 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 			case <-wake:
 				startPass()
 			default:
-				if nudged && landed >= skip {
+				if nudged && landed >= left {
 					startPass()
 				}
 			}
 		}
-		ids, texts, err := w.ix.store.PendingFrom(ctx, spaceId, skip, batch*conc)
+		// With nothing left behind every page is the head of the queue.
+		from := ""
+		if left > 0 {
+			from = after
+		}
+		ids, texts, err := w.ix.store.PendingAfter(ctx, spaceId, from, batch*conc)
 		if err != nil {
 			return err
 		}
@@ -991,6 +984,7 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 			}
 			continue
 		}
+		after = ids[len(ids)-1]
 		if !first {
 			if err := prepare(); err != nil {
 				return err
@@ -1062,7 +1056,7 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 		// What the embedder left without a vector stays pending.
 		for _, c := range chunks {
 			c.ids, c.texts, c.titles, c.vecs = embeddedDocs(c.ids, c.texts, c.titles, c.vecs)
-			skip += c.route.Deferred
+			left += c.route.Deferred
 		}
 		// First embedded vector teaches the store its dimension (no
 		// boot-time probe — an embedder down at boot just starts here).
