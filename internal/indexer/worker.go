@@ -842,6 +842,11 @@ func (w *spaceWorker) drain(ctx context.Context, delay bool) error {
 // round found work (before embedding; remaining = pending count, -1
 // when the count read failed) and with (landed, -1) after each batch
 // that landed vectors.
+//
+// A text the embedder left without a vector (RoutedEmbedder) stays
+// pending and the rounds go on past it. Once nothing else is pending the
+// drain waits for the embedder's word (BulkDeferrer), or PendingEvery,
+// and starts over from the head of the queue.
 func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func(landed, remaining int), status func(EmbedStatus)) error {
 	spaceId := w.sp.Id()
 	batch := w.ix.opts.EmbedBatch
@@ -863,6 +868,36 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 			p.PrepareBulk(ctx, func() { report(EmbedStatus{Phase: EmbedPhasePreparing}) })
 		}
 		return ctx.Err()
+	}
+	// skip is how many docs at the head of the queue this pass leaves for
+	// later, and wake the embedder's word that they may embed now, taken
+	// before the first of them was sent.
+	skip := 0
+	var wake <-chan struct{}
+	deferrer, _ := emb.(BulkDeferrer)
+	startPass := func() {
+		skip = 0
+		if deferrer != nil {
+			wake = deferrer.DeferredWake()
+		}
+	}
+	startPass()
+	// endPass runs when a pass reached the end of the queue. done: the
+	// queue is drained. Otherwise it has waited for the texts left behind
+	// and the next pass may start.
+	endPass := func() (done bool, err error) {
+		if skip == 0 {
+			return true, nil
+		}
+		report(EmbedStatus{Phase: EmbedPhasePreparing})
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-wake:
+		case <-time.After(w.ix.opts.PendingEvery):
+		}
+		startPass()
+		return false, nil
 	}
 	first := true
 	for {
@@ -911,12 +946,15 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 				return err
 			}
 		}
-		ids, texts, err := w.ix.store.Pending(ctx, spaceId, batch*conc)
+		ids, texts, err := w.ix.store.PendingFrom(ctx, spaceId, skip, batch*conc)
 		if err != nil {
 			return err
 		}
 		if len(ids) == 0 {
-			return nil
+			if done, err := endPass(); done || err != nil {
+				return err
+			}
+			continue
 		}
 		if !first {
 			if err := prepare(); err != nil {
@@ -979,6 +1017,12 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 		}
 		wg.Wait()
 
+		// What the embedder left without a vector stays pending.
+		for _, c := range chunks {
+			n := len(c.vecs)
+			c.ids, c.texts, c.titles, c.vecs = embeddedDocs(c.ids, c.texts, c.titles, c.vecs)
+			skip += n - len(c.vecs)
+		}
 		// First embedded vector teaches the store its dimension (no
 		// boot-time probe — an embedder down at boot just starts here).
 		for _, c := range chunks {
@@ -1027,10 +1071,47 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 			// stay pending), FTS unaffected; the ticker retries.
 			return firstErr
 		}
-		if len(ids) < batch*conc {
-			return nil // last page
+		if len(ids) < batch*conc { // last page
+			if done, err := endPass(); done || err != nil {
+				return err
+			}
 		}
 	}
+}
+
+// embeddedDocs drops the docs of a batch whose vector is nil: the texts
+// the embedder deferred. vecs may be a prefix of the batch (a failed
+// one); the result's vectors pair with the head of its ids.
+func embeddedDocs(ids, texts, titles []string, vecs [][]float32) ([]string, []string, []string, [][]float32) {
+	deferred := false
+	for _, v := range vecs {
+		if v == nil {
+			deferred = true
+			break
+		}
+	}
+	if !deferred {
+		return ids, texts, titles, vecs
+	}
+	var (
+		outIds, outTexts, outTitles []string
+		outVecs                     [][]float32
+	)
+	for i, v := range vecs {
+		if v == nil {
+			continue
+		}
+		outIds = append(outIds, ids[i])
+		outTexts = append(outTexts, texts[i])
+		if titles != nil {
+			outTitles = append(outTitles, titles[i])
+		}
+		outVecs = append(outVecs, v)
+	}
+	if titles != nil && outTitles == nil {
+		outTitles = []string{}
+	}
+	return outIds, outTexts, outTitles, outVecs
 }
 
 // openIndex opens the space's collection, ensuring its indexes and

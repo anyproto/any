@@ -50,7 +50,7 @@ type EmbedStatus struct {
 
 const (
 	EmbedPhaseWaiting   = "waiting"   // the start delay runs
-	EmbedPhasePreparing = "preparing" // the embedder readies a runtime
+	EmbedPhasePreparing = "preparing" // the embedder readies a runtime the pending texts wait for
 	EmbedPhaseEmbedding = "embedding"
 
 	EmbedBackendANE    = "ane"    // Core ML on the Neural Engine
@@ -64,7 +64,7 @@ const (
 	EmbedReasonTooLong          = "too_long"          // longer than every function
 	EmbedReasonANEFailed        = "ane_failed"        // a function failed to load or to predict
 	EmbedReasonANEOff           = "ane_off"           // the Neural Engine path is off for this run
-	EmbedReasonReadinessTimeout = "readiness_timeout" // bulk work stopped waiting for the first function
+	EmbedReasonReadinessTimeout = "readiness_timeout" // bulk work stopped waiting for a function that was loading
 	EmbedReasonGPUFailed        = "gpu_failed"        // GPU offload was demoted after a child died
 	EmbedReasonGPUDisabled      = "gpu_disabled"      // index.local.gpuLayers is 0
 )
@@ -74,12 +74,26 @@ const (
 type EmbedRoute struct {
 	Backends []string
 	Reason   string
+	// Deferred counts the texts the batch has a nil vector for.
+	Deferred int
 }
 
 // RoutedEmbedder is an Embedder that knows which runtimes embedded a
-// batch. titles is nil when documents embed without their names.
+// batch of bulk work. titles is nil when documents embed without their
+// names. A nil vector is a text the embedder left for a later round,
+// because the runtime it belongs on is not ready: it stays pending and
+// the caller sends it again.
 type RoutedEmbedder interface {
 	EmbedDocsRouted(ctx context.Context, titles, texts []string) ([][]float32, EmbedRoute, error)
+}
+
+// BulkDeferrer is a RoutedEmbedder that says when the texts it left
+// without a vector are worth sending again.
+type BulkDeferrer interface {
+	// DeferredWake returns a channel that closes at the next such
+	// moment. Taken before a batch, it covers every text that batch
+	// defers.
+	DeferredWake() <-chan struct{}
 }
 
 // embedBackends is the runtime of an embedder that has only one.

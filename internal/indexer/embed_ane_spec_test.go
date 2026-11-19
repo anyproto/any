@@ -1088,7 +1088,7 @@ func TestLocal_EmbedANEFinishesVector(t *testing.T) {
 	n.start()
 	n.loads.Wait()
 	l := &Local{ane: n, project: []float32{0.6, 0.8, 0, 0}, outDim: 2}
-	vec, ok := l.embedANE([]llama.Token{2, 7, 1})
+	vec, ok, _ := l.embedANE([]llama.Token{2, 7, 1}, false)
 	if !ok {
 		t.Fatal("not served")
 	}
@@ -1102,7 +1102,7 @@ func TestLocal_EmbedANEFinishesVector(t *testing.T) {
 			t.Fatalf("vec %v, want %v", vec, want)
 		}
 	}
-	if _, ok := (&Local{}).embedANE([]llama.Token{2, 7, 1}); ok {
+	if _, ok, _ := (&Local{}).embedANE([]llama.Token{2, 7, 1}, false); ok {
 		t.Fatal("served with no neural engine")
 	}
 }

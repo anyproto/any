@@ -168,9 +168,10 @@ func serveEmbed(ctx context.Context, l *Local, w *bufio.Writer, req workerReq) e
 			vecs = [][]float32{v}
 		}
 	default:
-		if vecs, err = l.EmbedTitledDocs(ctx, req.Titles, req.Texts); err == nil {
+		if vecs, err = l.embedDocs(ctx, req.Titles, req.Texts, req.Bulk); err == nil {
 			r := l.lastRoutes()
 			routes = &r
+			vecs = packVectors(vecs)
 		}
 	}
 	if err != nil {

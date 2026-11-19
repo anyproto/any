@@ -22,8 +22,10 @@ import (
 // The Neural Engine path of the local embedder. A pinned model's Core ML
 // package holds fixed-length functions; a text runs on the smallest
 // loaded one that fits it. llama.cpp embeds everything else: a text
-// longer than every function, and any text until its function is loaded.
-// Both runtimes write one index (docs/13-index.md § Neural Engine).
+// longer than every function, and a query until its function is loaded.
+// A document whose function is loading is left for a later round
+// instead. Both runtimes write one index (docs/13-index.md § Neural
+// Engine).
 
 const (
 	// aneRetryInterval spaces the attempts to start on a package that is
@@ -33,9 +35,11 @@ const (
 	// stays: it serves queries. Long enough that a backlog with few long
 	// texts does not reload the large functions over and over.
 	aneIdleRelease = 5 * time.Minute
-	// aneBulkWait bounds how long bulk work waits for the path's first
-	// function (workerEmbedder.PrepareBulk). A first load on a machine
-	// takes minutes.
+	// aneBulkWait bounds how long bulk work waits for a function: for
+	// the path's first one before any text (workerEmbedder.PrepareBulk),
+	// and for the one a document needs, counted from when it was first
+	// asked for (neuralEngine.embedBulk). A first load on a machine takes
+	// minutes.
 	aneBulkWait = 10 * time.Minute
 	// aneMaxFailures consecutive failed predictions retire a function
 	// for the rest of the process.
@@ -93,6 +97,7 @@ type neuralEngine struct {
 	backend aneBackend
 	idle    time.Duration // aneIdleRelease
 	retryIn time.Duration // aneRetryInterval
+	wait    time.Duration // aneBulkWait
 	now     func() time.Time
 	logf    func(format string, args ...any)
 
@@ -104,9 +109,13 @@ type neuralEngine struct {
 	used     map[int]time.Time
 	failed   map[int]bool // lengths that failed to load or kept failing
 	failures map[int]int  // consecutive failed predictions
-	queue    []int        // lengths waiting for the loader
-	inflight int          // length the loader is loading; 0 = none
-	inUse    int          // length predicting now; 0 = none
+	// wanted is when each function now queued or loading was asked for;
+	// late holds the timers that run lateTick, wait after that.
+	wanted   map[int]time.Time
+	late     map[int]*time.Timer
+	queue    []int // lengths waiting for the loader
+	inflight int   // length the loader is loading; 0 = none
+	inUse    int   // length predicting now; 0 = none
 	loading  bool
 	miss     string      // why embed last left a text to llama.cpp (EmbedReason*)
 	release  *time.Timer // runs releaseTick; nil until a function can go idle
@@ -121,6 +130,9 @@ func newNeuralEngine(backend aneBackend, lengths []int, dim int, logf func(strin
 		backend:  backend,
 		idle:     aneIdleRelease,
 		retryIn:  aneRetryInterval,
+		wait:     aneBulkWait,
+		wanted:   map[int]time.Time{},
+		late:     map[int]*time.Timer{},
 		now:      time.Now,
 		logf:     logf,
 		fns:      map[int]aneFunction{},
@@ -140,6 +152,19 @@ func (n *neuralEngine) start() {
 // embed returns the model's vector for tokens. ok is false when
 // llama.cpp has to embed the text.
 func (n *neuralEngine) embed(tokens []int32) (vec []float32, ok bool) {
+	vec, ok, _ = n.embedFor(tokens, false)
+	return vec, ok
+}
+
+// embedBulk is embed for a document of bulk work. deferred: no vector,
+// and llama.cpp is not to embed the text either, because the function
+// it needs is loading and was asked for less than the bulk wait ago.
+// The caller sends the text again later.
+func (n *neuralEngine) embedBulk(tokens []int32) (vec []float32, ok, deferred bool) {
+	return n.embedFor(tokens, true)
+}
+
+func (n *neuralEngine) embedFor(tokens []int32, bulk bool) (vec []float32, ok, deferred bool) {
 	n.mu.Lock()
 	want := 0
 	for _, l := range n.lengths {
@@ -154,7 +179,7 @@ func (n *neuralEngine) embed(tokens []int32) (vec []float32, ok bool) {
 			n.miss = EmbedReasonANEOff
 		}
 		n.mu.Unlock()
-		return nil, false
+		return nil, false, false
 	}
 	var fn aneFunction
 	use := 0
@@ -173,11 +198,19 @@ func (n *neuralEngine) embed(tokens []int32) (vec []float32, ok bool) {
 			n.miss = EmbedReasonANEFailed
 		case !n.prepared:
 			n.miss = EmbedReasonPackageNotReady
+		case bulk && n.wanted[want].IsZero():
+			// Nothing is loading it: not a wait.
+			n.miss = EmbedReasonFunctionLoading
+		case bulk && n.now().Sub(n.wanted[want]) >= n.wait:
+			n.miss = EmbedReasonReadinessTimeout
+		case bulk:
+			n.mu.Unlock()
+			return nil, false, true
 		default:
 			n.miss = EmbedReasonFunctionLoading
 		}
 		n.mu.Unlock()
-		return nil, false
+		return nil, false, false
 	}
 	n.used[use] = n.now()
 	n.inUse = use
@@ -204,10 +237,10 @@ func (n *neuralEngine) embed(tokens []int32) (vec []float32, ok bool) {
 			n.offIfUselessLocked()
 		}
 		n.miss = EmbedReasonANEFailed
-		return nil, false
+		return nil, false, false
 	}
 	n.failures[use] = 0
-	return out, true
+	return out, true, false
 }
 
 // lastMiss is why embed last answered ok = false.
@@ -242,6 +275,10 @@ func (n *neuralEngine) requestLocked(length int) {
 		}
 	}
 	n.queue = append(n.queue, length)
+	if n.wanted[length].IsZero() {
+		n.wanted[length] = n.now()
+		n.late[length] = time.AfterFunc(n.wait, func() { n.lateTick(length) })
+	}
 	if !n.loading {
 		n.loading = true
 		n.loads.Add(1)
@@ -266,6 +303,7 @@ func (n *neuralEngine) loader() {
 			case errors.Is(err, errANENotReady):
 				n.nextTry = n.now().Add(n.retryIn)
 				n.queue = nil
+				n.settleWantedLocked()
 				// Again without a text asking: bulk work sends none
 				// until the first function is ready.
 				if n.retry != nil {
@@ -294,6 +332,7 @@ func (n *neuralEngine) loader() {
 		length := n.queue[0]
 		n.queue = n.queue[1:]
 		if n.fns[length] != nil || n.failed[length] {
+			n.settleWantedLocked(length)
 			continue
 		}
 		n.inflight = length
@@ -301,6 +340,7 @@ func (n *neuralEngine) loader() {
 		fn, info, err := n.backend.load(length)
 		n.mu.Lock()
 		n.inflight = 0
+		n.settleWantedLocked(length)
 		switch {
 		case err != nil:
 			n.failed[length] = true
@@ -316,6 +356,35 @@ func (n *neuralEngine) loader() {
 			n.armReleaseLocked()
 		}
 	}
+}
+
+// settleWantedLocked ends the wait for the given functions, or for all
+// of them: loaded, failed, or no longer being loaded.
+func (n *neuralEngine) settleWantedLocked(lengths ...int) {
+	if len(lengths) == 0 {
+		for l := range n.wanted {
+			lengths = append(lengths, l)
+		}
+	}
+	for _, l := range lengths {
+		delete(n.wanted, l)
+		if t := n.late[l]; t != nil {
+			t.Stop()
+			delete(n.late, l)
+		}
+	}
+}
+
+// lateTick reports a function still not loaded the bulk wait after it
+// was asked for: from here llama.cpp embeds the documents that need it.
+// The line also has the server send the texts it held back.
+func (n *neuralEngine) lateTick(length int) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.off || n.wanted[length].IsZero() {
+		return
+	}
+	n.logf("s%d still loading after %s: llama.cpp embeds its texts until it is ready", length, n.wait)
 }
 
 // armReleaseLocked schedules releaseTick for the moment the next loaded
@@ -378,6 +447,7 @@ func (n *neuralEngine) turnOffLocked(reason string) {
 	}
 	n.off = true
 	n.queue = nil
+	n.settleWantedLocked()
 	if n.release != nil {
 		n.release.Stop()
 	}

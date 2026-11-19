@@ -101,6 +101,10 @@ type workerEmbedder struct {
 	// pkgOnDisk reports whether the Core ML package is complete on disk;
 	// nil = not asked.
 	pkgOnDisk func() bool
+	// wake closes, and is replaced, when texts a bulk frame left without a
+	// vector are worth sending again (DeferredWake).
+	wakeMu sync.Mutex
+	wake   chan struct{}
 
 	// idleTimer runs retireIdle. Created stopped and never reassigned,
 	// so its callback uses it without the slot.
@@ -198,6 +202,7 @@ func newWorkerEmbedderFromSpec(spec localSpec, reqTimeout time.Duration) *worker
 		idleTimeout:  workerIdleTimeout,
 		bulkWait:     aneBulkWait,
 		gaveUp:       make(chan struct{}),
+		wake:         make(chan struct{}),
 		newCmd:       embedderCmd,
 		now:          time.Now,
 		slot:         newChildSlot(),
@@ -276,14 +281,39 @@ func (w *workerEmbedder) EmbedsTitles() bool {
 }
 
 func (w *workerEmbedder) EmbedTitledDocs(ctx context.Context, titles, texts []string) ([][]float32, error) {
-	vecs, _, err := w.EmbedDocsRouted(ctx, titles, texts)
+	vecs, _, err := w.embedDocs(ctx, titles, texts, false)
 	return vecs, err
 }
 
-// EmbedDocsRouted is EmbedTitledDocs that also says which runtimes
-// embedded the batch: the child counts its texts per runtime in every
-// frame.
+var _ BulkDeferrer = (*workerEmbedder)(nil)
+
+// EmbedDocsRouted is EmbedTitledDocs for bulk work. It also says which
+// runtimes embedded the batch: the child counts its texts per runtime in
+// every frame. A text whose Neural Engine function is loading comes back
+// with a nil vector instead of a llama.cpp one, until bulk work gave up
+// waiting (giveUpBulk) or the function was asked for aneBulkWait ago;
+// DeferredWake says when to send it again.
 func (w *workerEmbedder) EmbedDocsRouted(ctx context.Context, titles, texts []string) ([][]float32, EmbedRoute, error) {
+	return w.embedDocs(ctx, titles, texts, true)
+}
+
+// DeferredWake returns a channel that closes when the functions of the
+// Neural Engine path changed, or the child did: texts EmbedDocsRouted
+// left without a vector since the call may embed now.
+func (w *workerEmbedder) DeferredWake() <-chan struct{} {
+	w.wakeMu.Lock()
+	defer w.wakeMu.Unlock()
+	return w.wake
+}
+
+func (w *workerEmbedder) wakeDeferred() {
+	w.wakeMu.Lock()
+	defer w.wakeMu.Unlock()
+	close(w.wake)
+	w.wake = make(chan struct{})
+}
+
+func (w *workerEmbedder) embedDocs(ctx context.Context, titles, texts []string, bulk bool) ([][]float32, EmbedRoute, error) {
 	if len(texts) == 0 {
 		return nil, EmbedRoute{}, nil
 	}
@@ -296,7 +326,8 @@ func (w *workerEmbedder) EmbedDocsRouted(ctx context.Context, titles, texts []st
 		if len(titles) == len(texts) {
 			frameTitles = titles[start:end]
 		}
-		r := w.run(ctx, workerReq{Op: workerOpEmbed, Role: workerRoleDoc, Texts: texts[start:end], Titles: frameTitles})
+		r := w.run(ctx, workerReq{Op: workerOpEmbed, Role: workerRoleDoc, Texts: texts[start:end], Titles: frameTitles,
+			Bulk: bulk && !w.bulkWaited.Load()})
 		out = append(out, r.vecs...)
 		tally.add(r)
 		if r.err != nil {
@@ -309,9 +340,10 @@ func (w *workerEmbedder) EmbedDocsRouted(ctx context.Context, titles, texts []st
 // routeTally sums what the frames of one batch said: the child's counts,
 // and the reason each frame had when it was served.
 type routeTally struct {
-	ane    int
-	llama  map[string]int // per EmbedBackend* of the child that served the frame
-	reason string         // of the last frame that had one
+	ane      int
+	llama    map[string]int // per EmbedBackend* of the child that served the frame
+	deferred int
+	reason   string // of the last frame that had one
 }
 
 func (t *routeTally) add(r frameResult) {
@@ -320,6 +352,7 @@ func (t *routeTally) add(r frameResult) {
 		return
 	}
 	t.ane += rt.ANE
+	t.deferred += len(rt.Deferred)
 	if rt.Llama > 0 {
 		if t.llama == nil {
 			t.llama = map[string]int{}
@@ -333,7 +366,7 @@ func (t *routeTally) add(r frameResult) {
 
 // route names the runtimes behind a batch's tally.
 func (t routeTally) route() EmbedRoute {
-	rt := EmbedRoute{Reason: t.reason}
+	rt := EmbedRoute{Reason: t.reason, Deferred: t.deferred}
 	if t.ane > 0 {
 		rt.Backends = append(rt.Backends, EmbedBackendANE)
 	}
@@ -562,8 +595,13 @@ func (w *workerEmbedder) serve(ctx context.Context, req workerReq) frameResult {
 		return frameResult{err: fmt.Errorf("indexer: local embedder: %s", hdr.Error)}
 	}
 	vecs, err := decodeVectors(bin, hdr.N, hdr.Dim)
-	if err == nil && len(vecs) != len(req.Texts) {
-		err = fmt.Errorf("indexer: embed worker: got %d vectors for %d texts", len(vecs), len(req.Texts))
+	if err == nil {
+		// Only a bulk frame may come back short of vectors.
+		var deferred []int
+		if hdr.Routes != nil && req.Bulk {
+			deferred = hdr.Routes.Deferred
+		}
+		vecs, err = unpackVectors(vecs, deferred, len(req.Texts))
 	}
 	if err != nil {
 		w.failChild(err)
@@ -691,6 +729,7 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 		spec:    spec,
 	}
 	c.onSettle = func() { w.settledChild.Store(c) }
+	c.onStatus = w.wakeDeferred
 	go c.readLoop(bufio.NewReaderSize(stdout, 64<<10))
 	go c.pumpStderr(stderr, w.lg)
 
@@ -754,6 +793,7 @@ func (w *workerEmbedder) failChild(cause error) {
 	w.child = nil
 	c.detached.Store(true)
 	w.live.Store(nil)
+	w.wakeDeferred()
 	gpu := c.spec.gpuLayers != 0
 	// stop() joins the stderr pump before returning, so the tail read
 	// after it is complete — that is where llama.cpp's abort message is.
@@ -884,6 +924,7 @@ func (w *workerEmbedder) PrepareBulk(ctx context.Context, waiting func()) {
 func (w *workerEmbedder) giveUpBulk() {
 	if w.bulkWaited.CompareAndSwap(false, true) {
 		close(w.gaveUp)
+		w.wakeDeferred()
 		w.lg.Warn("local embedder: no neural engine function ready in time; bulk embedding starts on llama.cpp",
 			zap.Duration("waited", w.bulkWait))
 	}
@@ -901,6 +942,7 @@ func (w *workerEmbedder) stopChild(graceful bool) {
 	c.detached.Store(true)
 	_ = c.stop(graceful)
 	w.live.Store(nil)
+	w.wakeDeferred()
 }
 
 // armIdle restarts the idle countdown after a frame. Caller holds the
@@ -1049,6 +1091,8 @@ type embedChild struct {
 	settled    chan struct{}
 	settleOnce sync.Once
 	onSettle   func() // run once, before settled closes
+	// onStatus runs on every report about the Neural Engine path.
+	onStatus func()
 	// detached: the worker has let go of this child (retired, failed,
 	// never started). Set under the slot, read without it.
 	detached atomic.Bool
@@ -1100,6 +1144,9 @@ func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 						}
 						close(c.settled)
 					})
+				}
+				if c.onStatus != nil {
+					c.onStatus()
 				}
 				lg.Info("local embedder neural engine", zap.String("status", status))
 			} else {

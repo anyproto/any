@@ -168,14 +168,22 @@ func runEmbedHelper(mode string) int {
 		// Deterministic vectors: v[j] = len(text)*10 + j, except the last
 		// component, which carries the frame's text count so a test can
 		// see how the parent split a batch.
-		vecs := make([][]float32, len(req.Texts))
+		// ANY_EMBED_WORKER_DEFER=<prefix>: a bulk frame has no vector for
+		// a text that starts with it, like a text whose function loads.
+		deferPrefix := os.Getenv("ANY_EMBED_WORKER_DEFER")
+		var deferred []int
+		vecs := make([][]float32, 0, len(req.Texts))
 		for i, txt := range req.Texts {
+			if req.Bulk && deferPrefix != "" && strings.HasPrefix(txt, deferPrefix) {
+				deferred = append(deferred, i)
+				continue
+			}
 			v := make([]float32, helperDim)
 			for j := range v {
 				v[j] = float32(len(txt)*10 + j)
 			}
 			v[helperDim-1] = float32(len(req.Texts))
-			vecs[i] = v
+			vecs = append(vecs, v)
 		}
 		bin, dim, err := encodeVectors(vecs)
 		if err != nil {
@@ -184,6 +192,14 @@ func runEmbedHelper(mode string) int {
 		resp := workerResp{Op: workerOpVectors, N: len(vecs), Dim: dim}
 		if req.Role != workerRoleQuery {
 			resp.Routes = routes
+			if len(deferred) > 0 {
+				rt := workerRoutes{}
+				if routes != nil {
+					rt = *routes
+				}
+				rt.Deferred = deferred
+				resp.Routes = &rt
+			}
 		}
 		if err := writeFrame(out, resp, bin); err != nil {
 			return 1

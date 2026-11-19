@@ -1634,11 +1634,17 @@ func docText(v *anyenc.Value) string {
 // Pending returns up to limit docs awaiting embedding (only docs with
 // non-empty text ever carry the pending mark — see Apply).
 func (s *Store) Pending(ctx context.Context, spaceId string, limit int) (ids []string, texts []string, err error) {
+	return s.PendingFrom(ctx, spaceId, 0, limit)
+}
+
+// PendingFrom is Pending past the first skip docs of the queue: the ones
+// a drain is leaving for later.
+func (s *Store) PendingFrom(ctx context.Context, spaceId string, skip, limit int) (ids []string, texts []string, err error) {
 	coll, err := s.spaceColl(ctx, spaceId)
 	if err != nil {
 		return nil, nil, err
 	}
-	iter, err := coll.Find(pendingEqOne).Limit(uint(limit)).Iter(ctx)
+	iter, err := coll.Find(pendingEqOne).Offset(uint(skip)).Limit(uint(limit)).Iter(ctx)
 	if err != nil {
 		return nil, nil, err
 	}

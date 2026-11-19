@@ -86,7 +86,7 @@ type Local struct {
 	// llama.cpp embeds everything.
 	ane *neuralEngine
 	// routes counts which runtime embedded the texts of the last
-	// EmbedTitledDocs call. Guarded by mu.
+	// document call. Guarded by mu.
 	routes workerRoutes
 }
 
@@ -460,7 +460,7 @@ func l2Normalize(vec []float32) {
 // run ensureLoaded.
 func (l *Local) embedOne(text string) ([]float32, error) {
 	tokens := l.tokenize(text)
-	if vec, ok := l.embedANE(tokens); ok {
+	if vec, ok, _ := l.embedANE(tokens, false); ok {
 		return vec, nil
 	}
 	vecs, err := l.embedGroup([][]llama.Token{tokens})
@@ -471,21 +471,26 @@ func (l *Local) embedOne(text string) ([]float32, error) {
 }
 
 // embedANE embeds one tokenized text on the Neural Engine. ok is false
-// when llama.cpp has to embed it. Caller holds l.mu.
-func (l *Local) embedANE(tokens []llama.Token) ([]float32, bool) {
+// when it did not: llama.cpp has to embed the text, or, for a document
+// of bulk work whose function is loading, nobody does yet (deferred).
+// Caller holds l.mu.
+func (l *Local) embedANE(tokens []llama.Token, bulk bool) (vec []float32, ok, deferred bool) {
 	if l.ane == nil {
-		return nil, false
+		return nil, false, false
 	}
 	ids := make([]int32, len(tokens))
 	for i, t := range tokens {
 		ids[i] = int32(t)
 	}
-	vec, ok := l.ane.embed(ids)
-	if !ok {
+	vec, ok, deferred = l.ane.embedFor(ids, bulk)
+	switch {
+	case deferred:
+		return nil, false, true
+	case !ok:
 		l.routes.Miss = l.ane.lastMiss()
-		return nil, false
+		return nil, false, false
 	}
-	return l.finish(vec), true
+	return l.finish(vec), true, false
 }
 
 // finish turns a runtime's pooled vector into the stored one: the
@@ -585,6 +590,13 @@ func (l *Local) EmbedsTitles() bool {
 }
 
 func (l *Local) EmbedTitledDocs(ctx context.Context, titles, texts []string) ([][]float32, error) {
+	return l.embedDocs(ctx, titles, texts, false)
+}
+
+// embedDocs is EmbedTitledDocs. With bulk, a text whose Neural Engine
+// function is loading gets a nil vector in place of a llama.cpp one
+// (neuralEngine.embedBulk); lastRoutes lists those texts.
+func (l *Local) embedDocs(ctx context.Context, titles, texts []string, bulk bool) ([][]float32, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if err := l.ensureLoaded(); err != nil {
@@ -600,15 +612,28 @@ func (l *Local) EmbedTitledDocs(ctx context.Context, titles, texts []string) ([]
 		tokenized[i] = l.tokenize(docPrompt(l.docPrefix, title) + t)
 		lens[i] = len(tokenized[i])
 	}
+	return l.embedTokenized(ctx, tokenized, lens, bulk)
+}
+
+// embedTokenized routes tokenized documents to the runtimes. Caller
+// holds l.mu.
+func (l *Local) embedTokenized(ctx context.Context, tokenized [][]llama.Token, lens []int, bulk bool) ([][]float32, error) {
 	l.routes = workerRoutes{}
-	out := make([][]float32, 0, len(texts))
-	for start := 0; start < len(texts); {
+	out := make([][]float32, 0, len(tokenized))
+	for start := 0; start < len(tokenized); {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if vec, ok := l.embedANE(tokenized[start]); ok {
+		vec, ok, deferred := l.embedANE(tokenized[start], bulk)
+		if ok {
 			out = append(out, vec)
 			l.routes.ANE++
+			start++
+			continue
+		}
+		if deferred {
+			out = append(out, nil)
+			l.routes.Deferred = append(l.routes.Deferred, start)
 			start++
 			continue
 		}
@@ -624,8 +649,8 @@ func (l *Local) EmbedTitledDocs(ctx context.Context, titles, texts []string) ([]
 	return out, nil
 }
 
-// lastRoutes is which runtime embedded the texts of the last
-// EmbedTitledDocs call.
+// lastRoutes is which runtime embedded the texts of the last document
+// call.
 func (l *Local) lastRoutes() workerRoutes {
 	l.mu.Lock()
 	defer l.mu.Unlock()

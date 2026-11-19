@@ -919,9 +919,12 @@ On an Apple Silicon Mac the embedder child runs EmbeddingGemma 2 on the
 Neural Engine through Core ML, next to llama.cpp. The model's Core ML
 package holds one function per fixed length: 128, 256, 512, 1,024 and
 2,048 tokens. A text runs on the smallest loaded function that holds
-it. llama.cpp tokenizes for both runtimes and embeds every other text:
-one that no loaded function holds, and one longer than 2,048 tokens,
-which only a larger `index.local.contextSize` lets through.
+it. llama.cpp tokenizes for both runtimes and embeds what the functions
+do not: a text longer than 2,048 tokens, which only a larger
+`index.local.contextSize` lets through, a query that no loaded function
+holds, and any text when the path is off, its package is missing or the
+text's function failed. A document whose function is loading waits for
+it (below).
 
 Both runtimes write one index. A function returns the model's own unit
 vector (cosine 0.9999 to the full-precision weights, 0.9996 to
@@ -964,7 +967,8 @@ them. The first load of a function on a machine specializes it for the
 Neural Engine: about a minute per function on an M2, six for all five.
 After that a child's first load of a function takes two to three
 seconds and a reload under one. While a function loads, a larger loaded
-one serves its texts, else llama.cpp.
+one serves its texts; with none, a query goes to llama.cpp and a
+document waits.
 
 **Bulk work waits for the first function.** A drain that finds texts
 pending starts the child at once, under the start delay, and before its
@@ -982,6 +986,23 @@ that lands during a drain, or a child that replaces the one waited on,
 is waited for then. The child is not retired as idle meanwhile.
 Searches are not held: a query embeds on llama.cpp until the function
 is there.
+
+**A document waits for its function.** Past the first function, the
+child answers a frame of bulk work without a vector for a text whose
+function is queued or loading, instead of embedding it on llama.cpp.
+The text stays `pending`, and the drain goes on with the texts behind
+it: it reads the queue past the docs it left (`Store.PendingFrom`), so
+texts that fit a loaded function keep landing. When nothing else is
+pending the drain waits, its row in `preparing`, until the child
+reports on a function (loaded, failed, released, the path off), the
+child stops, or the 1-minute tick; then it starts over from the head of
+the queue. A text written meanwhile is embedded on that next pass. The
+wait for one function is bounded at 10 min from when it was first asked
+for: past that the child says so, and llama.cpp embeds the function's
+documents until it is loaded (`readiness_timeout`). A drain that gave
+up waiting for the first function does not hold documents back either.
+A function that failed to load, the path off, a missing package and a
+text over 2,048 tokens go to llama.cpp at once, as does every query.
 
 **Placement.** A machine that lists no Neural Engine never loads the
 package. Before a function first loads, the child reads Core ML's

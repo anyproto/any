@@ -52,15 +52,57 @@ type workerReq struct {
 	// Titles, when set, pairs with Texts in the doc role: the name each
 	// text embeds under.
 	Titles []string `json:"titles,omitempty"`
+	// Bulk, in the doc role, lets the child answer without a vector for a
+	// text whose Neural Engine function is loading (workerRoutes.Deferred).
+	Bulk bool `json:"bulk,omitempty"`
 }
 
 // workerRoutes rides a `vectors` frame of documents: how many of its
 // texts each runtime embedded, and why the last text that missed the
-// Neural Engine did (EmbedReason*).
+// Neural Engine did (EmbedReason*). Deferred lists, ascending, the texts
+// of the request the frame has no vector for; its vectors are the other
+// texts', in order.
 type workerRoutes struct {
-	ANE   int    `json:"ane,omitempty"`
-	Llama int    `json:"llama,omitempty"`
-	Miss  string `json:"miss,omitempty"`
+	ANE      int    `json:"ane,omitempty"`
+	Llama    int    `json:"llama,omitempty"`
+	Miss     string `json:"miss,omitempty"`
+	Deferred []int  `json:"deferred,omitempty"`
+}
+
+// packVectors drops the nil vectors of a document frame: the texts
+// routes lists as deferred.
+func packVectors(vecs [][]float32) [][]float32 {
+	out := vecs[:0:0]
+	for _, v := range vecs {
+		if v != nil {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// unpackVectors puts a nil vector back at each deferred position of a
+// frame that answers n texts.
+func unpackVectors(vecs [][]float32, deferred []int, n int) ([][]float32, error) {
+	if len(vecs)+len(deferred) != n {
+		return nil, fmt.Errorf("indexer: embed worker: got %d vectors and %d deferred for %d texts", len(vecs), len(deferred), n)
+	}
+	if len(deferred) == 0 {
+		return vecs, nil
+	}
+	out := make([][]float32, 0, n)
+	next := 0
+	for _, at := range deferred {
+		if at < len(out) || at >= n || at-len(out) > len(vecs)-next {
+			return nil, fmt.Errorf("indexer: embed worker: deferred text %d of %d is out of order", at, n)
+		}
+		for len(out) < at {
+			out = append(out, vecs[next])
+			next++
+		}
+		out = append(out, nil)
+	}
+	return append(out, vecs[next:]...), nil
 }
 
 type workerResp struct {
