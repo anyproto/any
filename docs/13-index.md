@@ -967,8 +967,8 @@ not apply to the package. With `index.local.modelPath` nothing is
 downloaded and a package already in the models dir is used. The child
 checks the files against their checksums and compiles the package once
 into `<name>-<digest>.mlmodelc` beside it. Until the package is complete
-llama.cpp embeds everything, and the child looks for it again every
-30 s. The package's licence texts
+llama.cpp embeds queries, the child looks for the package again every
+30 s, and bulk work waits for its download (below). The package's licence texts
 (`LICENSE`, `NOTICE` and the licence the notice refers to) follow it
 into `<name>-<digest>.licenses/`, pinned the same way; one that cannot
 be fetched is tried again at the next start and holds nothing back.
@@ -1000,8 +1000,18 @@ wait ends when the child reports its first function loaded or not
 used, or the path off (a report on another function, such as a refusal
 on record, does not end it), when the child exits, or 10 min after the
 child's first waiter, for every waiter at once; a wait that ran into that bound ends
-every other one and is the last until the next boot. Nothing waits
-while the package is not on disk. A drain asks before every round that
+every other one and is the last until the next boot. While the package
+is still downloading, queued behind the GGUF or transferring, the wait
+is for the download first, the drain's row in `preparing` (the
+`index.model_download` row has the bytes): the server reads its own
+download's state, and bulk work does not open on llama.cpp meanwhile.
+That wait ends when the package is whole on disk, and the wait for the
+first function follows; it ends without the package when the download
+ends failed (`download_failed`) or 30 min after its first waiter
+(`download_timeout`), for every waiter and every later call, and
+llama.cpp then embeds until the package is there. With no download for
+a package that is not on disk (`index.local.modelPath`), nothing waits.
+A drain asks before every round that
 has work, and a child whose path has settled answers at once: a package
 that lands during a drain, or a child that replaces the one waited on,
 is waited for then. The child is not retired as idle meanwhile.
@@ -1114,7 +1124,8 @@ the first drain got past its waits: `openedBy` is `start_delay`,
 `embedder` (its preparation outlasted the delay, by
 `embedderWaitPastDelay`) or `no_wait`, with `sinceStart`, and
 `embedder` says how that preparation went: `ready`, `failed` or `off`
-for the first function, `timeout`, `no_child`, `no_package`, `no_wait`
+for the first function, `timeout`, `no_child`, `download_failed`,
+`download_timeout`, `no_package` (not on disk, not downloaded), `no_wait`
 (no Neural Engine path) or `cancelled`. With a Neural Engine path,
 `local embedder bulk routing` counts the bulk texts since the previous
 such line (`ane`, `coreml`, `llama`) over `window`, at most every 30 s,

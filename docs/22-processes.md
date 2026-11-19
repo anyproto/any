@@ -213,6 +213,7 @@ late heartbeat can resurrect a finished row. Work stopped mid-pass
   While it runs the row has `embedding`:
   - `phase`: `waiting` while `index.embedStartDelay` runs with texts
     pending; `preparing` while the drain waits for the Neural Engine's
+    package to download and for its
     first function, the worker's start and model load included, and
     while every text still pending waits for a function that is
     loading; `embedding` otherwise.

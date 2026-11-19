@@ -119,7 +119,7 @@ A running `index.embed` row and its `process.started` / `process.progress` frame
 
 | Field | Values |
 |---|---|
-| `phase` | `waiting` while `index.embedStartDelay` runs with texts pending; `preparing` while the drain waits for the Neural Engine's first function, the worker's start included, and while every text still pending waits for a function that is loading; `embedding` |
+| `phase` | `waiting` while `index.embedStartDelay` runs with texts pending; `preparing` while the drain waits for the Neural Engine's package to download and for its first function, the worker's start included, and while every text still pending waits for a function that is loading; `embedding` |
 | `backends` | where the model ran for the last batch the embedder returned: `ane` (Core ML, placement on the Neural Engine verified), `coreml` (Core ML, placement not verified yet), `gpu` (llama.cpp with the model loaded on a GPU device), `cpu` (llama.cpp without offload, or with no device to offload to), `llama` (llama.cpp in a worker that did not report its hardware), `remote` (`openai`, `ollama`). Several entries are a mixed batch. Absent while `waiting` and `preparing`, before the first batch, and for `auto` with an API key |
 | `reason` | one cause for texts of that batch running off the fastest runtime: `package_not_ready`, `function_loading`, `too_long`, `ane_failed`, `ane_off`, `readiness_timeout`, `gpu_failed`, `gpu_disabled`. Absent when none did; it does not describe every text of the batch |
 
