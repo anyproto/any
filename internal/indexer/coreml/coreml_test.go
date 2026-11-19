@@ -35,6 +35,8 @@ func TestPlacement_Conclusive(t *testing.T) {
 		{"no device for any operation", Placement{Unknown: 6209}, false},
 		{"too few on the neural engine, enough unknown to change that", Placement{NeuralEngine: 60, CPU: 10, Unknown: 80}, false},
 		{"no operation", Placement{}, false},
+		{"a core operator unknown, but too few could be on the neural engine", Placement{NeuralEngine: 10, CPU: 6000, Unknown: 1, UnknownCore: []string{"ios18.matmul"}}, true},
+		{"unknown ones reach the threshold exactly, which is not past it", Placement{NeuralEngine: 90, CPU: 5000, Unknown: 10, UnknownCore: []string{"ios18.matmul"}}, true},
 	}
 	for _, c := range cases {
 		if got := c.p.Conclusive(); got != c.want {

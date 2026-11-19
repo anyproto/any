@@ -37,12 +37,12 @@ func (p Placement) Conclusive() bool {
 	switch {
 	case p.NeuralEngine+p.GPU+p.CPU+p.Unknown == 0:
 		return false
-	case len(p.CPUCore) > 0:
-		return true
+	case len(p.CPUCore) > 0, p.NeuralEngine+p.Unknown <= minNeuralEngineOps:
+		return true // off the Neural Engine whatever the unknown ones do
 	case len(p.UnknownCore) > 0:
 		return false
 	}
-	return p.NeuralEngine > minNeuralEngineOps || p.NeuralEngine+p.Unknown <= minNeuralEngineOps
+	return p.NeuralEngine > minNeuralEngineOps
 }
 
 // OnNeuralEngine reports whether the function's core is planned on the
