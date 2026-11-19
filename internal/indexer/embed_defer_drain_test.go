@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/anyproto/any/internal/index"
 )
 
 // deferEmbedder leaves texts that start with "long" without a vector
@@ -24,6 +26,7 @@ type deferEmbedder struct {
 	releaseAt int
 	held      int // HoldBulk calls not released
 	maxHeld   int
+	onCall    func(call int) // runs at the start of each call, unlocked
 }
 
 func (e *deferEmbedder) HoldBulk() func() {
@@ -39,6 +42,12 @@ func (e *deferEmbedder) HoldBulk() func() {
 }
 
 func (e *deferEmbedder) EmbedDocsRouted(_ context.Context, _, texts []string) ([][]float32, EmbedRoute, error) {
+	e.mu.Lock()
+	call, onCall := e.calls+1, e.onCall
+	e.mu.Unlock()
+	if onCall != nil {
+		onCall(call)
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.calls++
@@ -432,6 +441,8 @@ func TestDeclaredVectors(t *testing.T) {
 		{[][]float32{a, nil, a}, 0, 1, false},
 		{[][]float32{nil, a, nil}, 1, 0, false},
 		{[][]float32{a, {}}, 0, 1, false},
+		{[][]float32{a, a}, 1, 2, false}, // a deferral declared, none missing
+		{[][]float32{a, nil}, 2, 1, false},
 		{nil, 0, 0, true},
 	} {
 		got, err := declaredVectors(tc.vecs, tc.deferred)
@@ -460,6 +471,63 @@ func TestBulkOpenedFields(t *testing.T) {
 		}
 		if got["openedBy"] != tc.by || got["embedder"] != tc.embedder {
 			t.Errorf("bulkOpenedFields(%v, %v, %q) = %v; want openedBy %q, embedder %q", tc.delayed, tc.prepared, tc.how, got, tc.by, tc.embedder)
+		}
+	}
+}
+
+// New texts announced in the middle of a pass that left texts behind
+// start it over once it landed as much as that resends: a row that sorts
+// ahead of the offset does not wait for the end of the queue.
+func TestEmbedDrainTakesTheNudgeBetweenPages(t *testing.T) {
+	ctx := context.Background()
+	texts := []string{"long 1", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"}
+	emb := wakingEmbedder{&deferEmbedder{axisEmbedder: axisEmbedder{dim: 4}, wake: make(chan struct{})}}
+	w, st, _ := deferDrain(t, emb, time.Hour, texts)
+	// On the second batch a text lands ahead of everything, with its nudge.
+	emb.onCall = func(call int) {
+		if call != 2 {
+			return
+		}
+		up := DocUpsert{Entry: entry("chat", "o1", "chat_messages", "a-first", "new", 90)}
+		if err := st.Apply(ctx, "sp1", []DocUpsert{up}, nil, nil); err != nil {
+			t.Error(err)
+		}
+		w.embedCh <- struct{}{}
+	}
+	done := make(chan error, 1)
+	go func() { done <- w.drainPending(ctx) }()
+	waitPending(t, st, 1) // everything but the deferred text
+	_, sent := emb.counts()
+	at := func(text string) int { return slices.Index(sent, text) }
+	if at("new") < 0 || at("k") < 0 || at("new") > at("k") {
+		t.Fatalf("sent %v, want the new text before the end of the queue", sent)
+	}
+	emb.release()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Only a page that can have marked a doc pending nudges the embed loop.
+func TestHasIndexableText(t *testing.T) {
+	text := entry("chat", "o1", "chat_messages", "m1", "a message", 1)
+	props := text
+	props.Scope = index.ScopeProps
+	short := entry("basic", "o1", index.DatasetProp, "p1", "short", 1)
+	name := entry("basic", "o1", index.DatasetProp, index.NamePropRecordId, "A name", 1)
+	for what, tc := range map[string]struct {
+		ups  []DocUpsert
+		want bool
+	}{
+		"a text that embeds":                  {[]DocUpsert{{Entry: text}}, true},
+		"a props value, full-text only":       {[]DocUpsert{{Entry: props}}, false},
+		"a short property":                    {[]DocUpsert{{Entry: short}}, false},
+		"a name: its editor windows re-embed": {[]DocUpsert{{Entry: name}}, true},
+		"a text that came with its vector":    {[]DocUpsert{{Entry: text, Vector: []float32{1}}}, false},
+		"nothing":                             {nil, false},
+	} {
+		if got := hasIndexableText(tc.ups); got != tc.want {
+			t.Errorf("%s: hasIndexableText = %v, want %v", what, got, tc.want)
 		}
 	}
 }

@@ -413,9 +413,12 @@ func (w *spaceWorker) advancePages(ctx context.Context, onWork func(), progress 
 	}
 }
 
+// hasIndexableText reports whether landing the page can have marked a
+// doc pending: one of its own that embeds, or, by a new name, the
+// object's editor windows (Store.ApplyPage).
 func hasIndexableText(ups []DocUpsert) bool {
 	for _, up := range ups {
-		if up.Vector == nil && up.Entry.Data != "" {
+		if up.Vector == nil && (shouldEmbed(up.Entry) || isNameDoc(up.Entry)) {
 			return true
 		}
 	}
@@ -834,20 +837,9 @@ func (w *spaceWorker) drain(ctx context.Context, delay bool) error {
 	return err
 }
 
-// drainRounds embeds and lands pending docs until the queue is empty.
-// Each round pulls up to EmbedConcurrency batches and embeds them
-// concurrently: an online embedder parallelizes across HTTP requests
-// (the throughput win), while the local child serves one frame at a
-// time — so concurrency is safe regardless of backend. SetVectors /
-// EnsureVectorIndex stay serial. The vector index is created lazily after
-// the first batch lands. progress is called with (0, remaining) when a
-// round found work (before embedding; remaining = pending count, -1
-// when the count read failed) and with (landed, -1) after each batch
-// that landed vectors.
-//
-// A text the embedder deferred (RoutedEmbedder) stays pending and the
-// rounds go on past it; the drain starts over from the head on the
-// embedder's word (BulkDeferrer), a nudge or PendingEvery.
+// drainRounds embeds and lands pending docs until the queue is empty,
+// past the texts the embedder defers (docs/13-index.md § Embed loop).
+// progress gets (0, pending or -1) per round, (landed, -1) per batch.
 func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func(landed, remaining int), status func(EmbedStatus)) error {
 	spaceId := w.sp.Id()
 	batch := w.ix.opts.EmbedBatch
@@ -882,8 +874,11 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 	skip := 0
 	var wake <-chan struct{}
 	deferrer, _ := emb.(BulkDeferrer)
+	// landed counts the vectors this pass landed; nudged: new texts were
+	// announced during it and it has not started over for them yet.
+	landed, nudged := 0, false
 	startPass := func() {
-		skip = 0
+		skip, landed, nudged = 0, 0, false
 		if deferrer != nil {
 			wake = deferrer.DeferredWake()
 		}
@@ -895,6 +890,10 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 	endPass := func() (done bool, err error) {
 		if skip == 0 {
 			return true, nil
+		}
+		if nudged { // new texts came during the pass: they do not wait
+			startPass()
+			return false, nil
 		}
 		report(EmbedStatus{Phase: EmbedPhasePreparing})
 		select {
@@ -964,13 +963,22 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 			}
 			startPass() // what the embedder said while it prepared is old
 		}
-		// The embedder's word in the middle of a pass: the texts left
-		// behind go first, or pages that stay full would keep them there.
+		// With texts left behind, the embedder's word starts the pass
+		// over: full pages would keep them there. So do new texts, which
+		// can sort ahead of the offset, once it landed what that resends.
 		if skip > 0 {
+			select {
+			case <-w.embedCh:
+				nudged = true
+			default:
+			}
 			select {
 			case <-wake:
 				startPass()
 			default:
+				if nudged && landed >= skip {
+					startPass()
+				}
 			}
 		}
 		ids, texts, err := w.ix.store.PendingFrom(ctx, spaceId, skip, batch*conc)
@@ -1070,7 +1078,7 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 		// prefix (Embedder.EmbedDocs); the rest of its docs stay pending
 		// (the ticker retries) and we surface the error after.
 		var firstErr error
-		landed := false
+		took := 0
 		for _, c := range chunks {
 			if n := len(c.vecs); n > 0 {
 				// What the embedder computed, whether or not it lands.
@@ -1081,13 +1089,13 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 				}
 				// A doc rewritten, renamed or deleted while it embedded
 				// takes no vector and is not counted.
-				took, err := w.ix.store.SetTitledVectors(ctx, spaceId, c.ids[:n], c.texts[:n], titles, c.vecs)
+				got, err := w.ix.store.SetTitledVectors(ctx, spaceId, c.ids[:n], c.texts[:n], titles, c.vecs)
 				if err != nil {
 					return err
 				}
-				if took > 0 {
-					landed = true
-					progress(took, -1)
+				if got > 0 {
+					took += got
+					progress(got, -1)
 				}
 			} else if c.err == nil && c.route.Deferred > 0 {
 				// A batch left pending whole: no runtime embedded it.
@@ -1097,7 +1105,8 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 				firstErr = c.err
 			}
 		}
-		if landed {
+		landed += took
+		if took > 0 {
 			if _, err := w.ix.store.EnsureVectorIndex(ctx, spaceId); err != nil {
 				return err
 			}
@@ -1153,18 +1162,18 @@ func bulkOpenedFields(delayed, prepared bool, how string, preparedFor time.Durat
 // deferred texts its route declares. Otherwise it returns the vectors
 // ahead of the first missing one, and the error.
 func declaredVectors(vecs [][]float32, deferred int) ([][]float32, error) {
-	missing, first := 0, -1
+	missing, first := 0, len(vecs)
 	for i, v := range vecs {
 		if len(v) == 0 {
-			if missing++; first < 0 {
+			if missing++; first == len(vecs) {
 				first = i
 			}
 		}
 	}
-	if missing == deferred || first < 0 {
+	if missing == deferred {
 		return vecs, nil
 	}
-	return vecs[:first], fmt.Errorf("indexer: the embedder returned no vector for text %d of %d", first+1, len(vecs))
+	return vecs[:first], fmt.Errorf("indexer: the embedder declared %d of %d texts deferred and returned no vector for %d", deferred, len(vecs), missing)
 }
 
 // embeddedDocs drops the docs of a batch whose vector is nil: the texts
