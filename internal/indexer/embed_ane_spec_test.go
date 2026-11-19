@@ -1076,18 +1076,29 @@ func TestWorkerEmbedder_PrepareBulkSaysWhenItWaits(t *testing.T) {
 
 func TestANESettles(t *testing.T) {
 	for status, want := range map[string]bool{
-		"s128 ready (plan 3.4s, load 1.3s, 812 operations on the neural engine, 4 on the cpu)": true,
-		"s2048 not used: core ml plans it off the neural engine":                               true,
-		aneOffStatus + "llama.cpp embeds everything: no function can be used":                  true,
-		"starting":                                    false,
-		"package compiled in 6.909s":                  false,
-		"s512 released after 5m0s unused":             false,
-		"s128 failed: prediction":                     false,
-		"s128 not used any more: 3 failures in a row": true,
+		"s128 ready (open 3.4s, validate 1.3s, placement on record, plan skipped; asked for 5s ago)": true,
+		"s128 not used: core ml plans it off the neural engine":                                      true,
+		"s128 not used any more: 3 failures in a row":                                                true,
+		aneOffStatus + "llama.cpp embeds everything: no function can be used":                        true,
+		// Another function's report is not the first one's.
+		"s2048 not used: core ml plans it off the neural engine (on record)": false,
+		"s256 ready (open 1s, validate 1s, placement not verified yet)":      false,
+		"starting":                        false,
+		"package compiled in 6.909s":      false,
+		"s512 released after 5m0s unused": false,
+		"s128 failed: prediction":         false,
+		"s128 placement audit finished":   false,
 	} {
-		if got := aneSettles(status); got != want {
+		if got := aneSettles(status, "s128"); got != want {
 			t.Errorf("aneSettles(%q) = %v, want %v", status, got, want)
 		}
+	}
+	// With no first function named, any function's report settles.
+	if !aneSettles("s2048 not used: refused", "") || aneSettles("starting", "") {
+		t.Error("aneSettles without a first function")
+	}
+	if got := firstFunction(localSpec{profile: config.LocalModelEmbeddingGemma2}); got != "s128" {
+		t.Errorf("firstFunction = %q, want s128", got)
 	}
 }
 

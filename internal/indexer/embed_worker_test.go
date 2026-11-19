@@ -121,10 +121,32 @@ func runEmbedHelper(mode string) int {
 		aneStderrLog("starting")
 		aneStderrLog("s128 ready (open 1ms, validate 1ms, placement not verified yet; asked for 2ms ago)")
 		aneStderrLog("s128 " + aneAuditStarted)
+		// Predictions fail under the audit: that is not its end.
+		aneStderrLog("s128 not used any more: 3 failures in a row")
 		go func() {
 			time.Sleep(delay)
 			aneStderrLog("s128 placement verified (plan 1ms, 10 operations on the neural engine, 0 on the cpu)")
+			aneStderrLog("s128 " + aneAuditFinished)
 		}()
+	case "auditexit": // dies inside a placement audit
+		aneStderrLog("starting")
+		aneStderrLog("s128 ready (open 1ms, validate 1ms, placement not verified yet; asked for 2ms ago)")
+		aneStderrLog("s128 " + aneAuditStarted)
+		go func() {
+			time.Sleep(delay)
+			os.Exit(3)
+		}()
+	case "refusedlarger": // a larger function is on record as refused; the first one loads after the delay
+		aneStderrLog("starting")
+		aneStderrLog("s512 not used: core ml plans it off the neural engine (on record)")
+		go func() {
+			time.Sleep(delay)
+			aneStderrLog("s128 ready (open 1ms, validate 1ms, placement on record, plan skipped; asked for 2ms ago)")
+		}()
+	case "offthenfail": // the path goes off, then a prediction in flight fails
+		aneStderrLog("starting")
+		aneStderrLog(aneOffStatus + "llama.cpp embeds everything: no function can be used")
+		aneStderrLog("s128 failed: late")
 	case "failed": // the first function does not load
 		aneStderrLog("starting")
 		aneStderrLog("s128 not used: core ml plans it off the neural engine")

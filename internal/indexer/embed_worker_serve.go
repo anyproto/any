@@ -148,10 +148,17 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 	}
 }
 
+// frameEmbedder is what serveEmbed needs of the Local.
+type frameEmbedder interface {
+	EmbedQuery(ctx context.Context, text string) ([]float32, error)
+	embedDocs(ctx context.Context, titles, texts []string, bulk bool) ([][]float32, error)
+	lastRoutes() workerRoutes
+}
+
 // serveEmbed answers one embed request. An embedding failure is an
 // error FRAME, not a transport error: the child stays usable and the
 // parent keeps it (only a dead or desynchronized child is respawned).
-func serveEmbed(ctx context.Context, l *Local, w *bufio.Writer, req workerReq) error {
+func serveEmbed(ctx context.Context, l frameEmbedder, w *bufio.Writer, req workerReq) error {
 	var (
 		vecs   [][]float32
 		routes *workerRoutes

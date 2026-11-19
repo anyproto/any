@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -23,9 +24,10 @@ import (
 // a longer one.
 type planFn struct {
 	err       error
-	failFirst int  // predictions that fail before the rest succeed
-	constant  bool // one vector whatever the text
-	blind     bool // the vector depends on the text's length alone
+	failFirst int     // predictions that fail before the rest succeed
+	constant  bool    // one vector whatever the text
+	scale     float32 // the vectors' length; 0 = 1
+	blind     bool    // the vector depends on the text's length alone
 	calls     int
 	closed    bool
 }
@@ -39,15 +41,19 @@ func (f *planFn) embed(tokens []int32, out []float32) error {
 		return errors.New("a passing failure")
 	}
 	clear(out)
+	one := f.scale
+	if one == 0 {
+		one = 1
+	}
 	switch {
 	case f.constant:
-		out[0] = 1
+		out[0] = one
 	case len(tokens) >= 6:
-		out[2] = 1
+		out[2] = one
 	case f.blind || tokens[1] == 1001:
-		out[0] = 1
+		out[0] = one
 	default:
-		out[1] = 1
+		out[1] = one
 	}
 	return nil
 }
@@ -64,6 +70,8 @@ type testBackend struct {
 	fns             []*planFn
 }
 
+var testPackage = &coreMLPackage{name: "m", lengths: []int{128, 256, 512, 1024, 2048}}
+
 var (
 	onEngine  = coreml.Placement{NeuralEngine: 6000, CPU: 14}
 	offEngine = coreml.Placement{CPU: 6014, CPUCore: []string{"ios18.matmul"}}
@@ -72,7 +80,7 @@ var (
 func newTestBackend(t *testing.T, dir, host string) *testBackend {
 	t.Helper()
 	tb := &testBackend{plans: map[string]coreml.Placement{}}
-	b := newCoreMLBackend(&coreMLPackage{name: "m"}, filepath.Join(dir, "m.mlpackage"), 4, t.Logf)
+	b := newCoreMLBackend(testPackage, filepath.Join(dir, "m.mlpackage"), 4, t.Logf)
 	b.host = host
 	b.plan = func(compiled, function string) (coreml.Placement, error) {
 		tb.planned = append(tb.planned, function)
@@ -192,7 +200,7 @@ func TestCoreMLBackend_RecordIsPerHostSetup(t *testing.T) {
 	if _, err := updated.audit(128); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile(updated.record)
+	raw, err := os.ReadFile(updated.recordPath(128))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,10 +208,10 @@ func TestCoreMLBackend_RecordIsPerHostSetup(t *testing.T) {
 	if err := json.Unmarshal(raw, &rec); err != nil {
 		t.Fatal(err)
 	}
-	if rec.Version != placementVersion || rec.Host != "Chip, macOS build 1B2" || !rec.Functions["s128"].On {
+	if *rec.Version != placementVersion || *rec.Host != "Chip, macOS build 1B2" || *rec.Function != "s128" || !*rec.On {
 		t.Fatalf("record %s", raw)
 	}
-	if stages, _ := filepath.Glob(updated.record + ".*"); len(stages) != 0 {
+	if stages, _ := filepath.Glob(updated.recordPath(128) + ".*"); len(stages) != 0 {
 		t.Fatalf("staging files left: %v", stages)
 	}
 
@@ -211,7 +219,7 @@ func TestCoreMLBackend_RecordIsPerHostSetup(t *testing.T) {
 	if _, err := nameless.audit(128); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(nameless.record); !os.IsNotExist(err) {
+	if _, err := os.Stat(nameless.recordPath(128)); !os.IsNotExist(err) {
 		t.Fatalf("a record without a host setup: %v", err)
 	}
 	if !nameless.placed(128) {
@@ -229,7 +237,7 @@ func TestCoreMLBackend_AuditErrorIsNoVerdict(t *testing.T) {
 	if b.placed(128) {
 		t.Fatal("placed without a plan")
 	}
-	if _, err := os.Stat(b.record); !os.IsNotExist(err) {
+	if _, err := os.Stat(b.recordPath(128)); !os.IsNotExist(err) {
 		t.Fatalf("a record without a verdict: %v", err)
 	}
 }
@@ -238,10 +246,11 @@ func TestCoreMLBackend_AuditErrorIsNoVerdict(t *testing.T) {
 // loaded, and is closed.
 func TestCoreMLBackend_LoadValidates(t *testing.T) {
 	for name, broken := range map[string]*planFn{
-		"a failed prediction":        {err: errors.New("predict failed")},
-		"one vector for all":         {constant: true},
-		"a vector by length alone":   {blind: true},
-		"too many failures in a row": {failFirst: 3 * aneMaxFailures},
+		"a failed prediction":                      {err: errors.New("predict failed")},
+		"one vector for all":                       {constant: true},
+		"one vector for all, short of unit length": {constant: true, scale: 0.995},
+		"a vector by length alone":                 {blind: true},
+		"too many failures in a row":               {failFirst: 3 * aneMaxFailures},
 	} {
 		b := newTestBackend(t, t.TempDir(), "Chip, macOS build 1A1")
 		b.open = func(string, string, int, int) (aneFunction, error) { return broken, nil }
@@ -336,42 +345,47 @@ func TestNeuralEngine_RecordedRefusalIsNotWaitedFor(t *testing.T) {
 	}
 }
 
-// A function asked for while the loader audits another starts its wait
-// when the audit ends: the audit's time is not its own.
-func TestNeuralEngine_AuditTimeIsNotTheNextFunctionsWait(t *testing.T) {
+// An audit does not hold the loader: a function asked for under it loads
+// beside it, and its documents wait only for that load.
+func TestNeuralEngine_LoadsBesideAnAudit(t *testing.T) {
 	f := &fakeANE{auditGate: make(chan struct{})}
 	n, clock := newTestANE(t, f)
 	n.start()
 	waitOrder(t, f, "load 128", "audit 128")
-	f.mu.Lock()
-	f.gate, f.started = make(chan struct{}), make(chan int, 1)
-	f.mu.Unlock()
 	if _, _, deferred := n.embedBulk(tokensOf(200)); !deferred {
-		t.Fatal("a document for a queued function was not deferred")
+		t.Fatal("a document for a function not loaded yet was not deferred")
 	}
-	clock.add(n.wait + time.Second) // the audit takes that long
+	// The audit is still running: the load lands anyway.
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(2 * time.Millisecond) {
+		if loaded, _, _, _ := f.snapshot(); len(loaded) == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("s256 did not load while s128 was audited")
+		}
+	}
+	clock.add(n.wait - time.Second)
+	if _, ok, deferred := n.embedBulk(tokensOf(200)); !ok || deferred {
+		t.Fatalf("under the audit: served %v, deferred %v, miss %q", ok, deferred, n.lastMiss())
+	}
 	close(f.auditGate)
-	<-f.started
-	if _, ok, deferred := n.embedBulk(tokensOf(200)); ok || !deferred {
-		t.Fatalf("after the audit: served %v, deferred %v, miss %q; want the wait to start with the load", ok, deferred, n.lastMiss())
-	}
-	close(f.gate)
 	n.loads.Wait()
+	waitOrder(t, f, "load 128", "audit 128", "load 256", "audit 256")
 }
 
 func TestANEAuditing(t *testing.T) {
 	for status, want := range map[string][2]string{
 		"s256 placement audit started":                {"s256", ""},
-		"s256 placement verified (plan 1s)":           {"", "s256"},
-		"s256 placement not verified: no answer":      {"", "s256"},
-		"s256 not used: core ml plans it off":         {"", "s256"},
-		"off, llama.cpp embeds everything: no engine": {"", "*"},
+		"s256 placement audit finished":               {"", "s256"},
+		"s256 placement verified (plan 1s)":           {"", ""},
+		"s256 not used: core ml plans it off":         {"", ""},
+		"s256 not used any more: 3 failures in a row": {"", ""},
+		"off, llama.cpp embeds everything: no engine": {"", ""},
 		"s128 ready (open 1s)":                        {"", ""},
-		"s512 released after 5m0s unused":             {"", ""},
 		"starting":                                    {"", ""},
 	} {
-		if started, ended := aneAuditing(status); started != want[0] || ended != want[1] {
-			t.Errorf("aneAuditing(%q) = %q, %q; want %q, %q", status, started, ended, want[0], want[1])
+		if started, finished := aneAuditing(status); started != want[0] || finished != want[1] {
+			t.Errorf("aneAuditing(%q) = %q, %q; want %q, %q", status, started, finished, want[0], want[1])
 		}
 	}
 }
@@ -419,32 +433,50 @@ func TestLocal_LlamaGroupClassifiesEachText(t *testing.T) {
 }
 
 // A function serves as soon as it is loaded, as Core ML; it is the
-// Neural Engine's once its audit passed. Audits run after every queued
-// load, one per function.
+// Neural Engine's once its audit passed. An audit starts when the loader
+// has nothing to load, one per function, and says when it is over.
 func TestNeuralEngine_AuditsAfterLoads(t *testing.T) {
-	f := &fakeANE{auditGate: make(chan struct{})}
+	f := &fakeANE{gate: make(chan struct{}), started: make(chan int, 8)}
+	log := newLogLines()
 	n, _ := newTestANE(t, f)
+	n.logf = log.logf
 	n.start()
-	waitOrder(t, f, "load 128", "audit 128")
+	n.mu.Lock()
+	n.requestLocked(256)
+	n.mu.Unlock()
+	<-f.started
+	f.gate <- struct{}{} // s128 lands; s256 is queued behind it
+	<-f.started
 	if _, ok := n.embed(tokensOf(10)); !ok || n.lastPlaced() {
-		t.Fatalf("under the audit: served %v, placed %v; want served and not placed", ok, n.lastPlaced())
+		t.Fatalf("before its audit: served %v, placed %v; want served and not placed", ok, n.lastPlaced())
 	}
-	// Asked for while the audit runs: both load before the next audit.
-	n.embed(tokensOf(200))
-	n.embed(tokensOf(400))
-	close(f.auditGate)
+	f.mu.Lock()
+	audits := len(f.audits)
+	f.mu.Unlock()
+	if audits != 0 {
+		t.Fatal("an audit started with a load still queued")
+	}
+	f.gate <- struct{}{}
 	n.loads.Wait()
-	waitOrder(t, f, "load 128", "audit 128", "load 256", "load 512", "audit 256", "audit 512")
+	waitOrder(t, f, "load 128", "load 256", "audit 128", "audit 256")
 	if _, ok := n.embed(tokensOf(10)); !ok || !n.lastPlaced() {
 		t.Fatalf("after the audit: served %v, placed %v", ok, n.lastPlaced())
 	}
+	for _, line := range []string{"s128 placement audit started", "s128 placement audit finished", "s256 placement audit finished"} {
+		if !log.has(line) {
+			t.Fatalf("no %q among %v", line, log.lines)
+		}
+	}
 	// A reload after an idle release is not audited again.
+	f.mu.Lock()
+	f.gate, f.started = nil, nil
+	f.mu.Unlock()
 	n.mu.Lock()
 	n.fns[256].close()
 	delete(n.fns, 256)
 	n.mu.Unlock()
 	loadFor(n, 200)
-	waitOrder(t, f, "load 128", "audit 128", "load 256", "load 512", "audit 256", "audit 512", "load 256")
+	waitOrder(t, f, "load 128", "load 256", "audit 128", "audit 256", "load 256")
 }
 
 func waitOrder(t *testing.T, f *fakeANE, want ...string) {
@@ -578,7 +610,7 @@ func TestCoreMLBackend_IncompletePlanIsNoVerdict(t *testing.T) {
 		if b.placed(128) || b.refused(128) != nil {
 			t.Errorf("%s: placed %v, refused %v", name, b.placed(128), b.refused(128))
 		}
-		if _, err := os.Stat(b.record); !os.IsNotExist(err) {
+		if _, err := os.Stat(b.recordPath(128)); !os.IsNotExist(err) {
 			t.Errorf("%s: a record was written: %v", name, err)
 		}
 	}
@@ -590,80 +622,137 @@ func TestCoreMLBackend_IncompletePlanIsNoVerdict(t *testing.T) {
 	}
 }
 
-// Only an entry the placement rule would give for its own counts, in a
-// record of this model, is a verdict. Anything else is unaudited.
-func TestCoreMLBackend_RecordEntriesAreChecked(t *testing.T) {
+// Only a record with every field, for this model, setup and function,
+// whose verdict the placement rule gives for its own counts, is a
+// verdict. Anything else is unaudited.
+func TestCoreMLBackend_RecordsAreChecked(t *testing.T) {
 	const host = "Chip, macOS build 1A1"
-	write := func(dir, model, functions string) {
-		t.Helper()
-		raw := `{"version":1,"model":"` + model + `","host":"` + host + `","functions":` + functions + `}`
-		if err := os.WriteFile(filepath.Join(dir, "m.placement.json"), []byte(raw), 0o644); err != nil {
+	model := testPackage.id()
+	head := `{"version":1,"model":"` + model + `","host":"` + host + `","function":"s128"`
+	const refusal = `,"on":false,"neuralEngine":0,"gpu":0,"cpu":6014,"cpuCore":["ios18.matmul"]}`
+	for name, raw := range map[string]string{
+		"no verdict fields":                head + `}`,
+		"one count alone":                  head + `,"cpu":14}`,
+		"counts without the verdict":       head + `,"neuralEngine":0,"gpu":0,"cpu":14}`,
+		"a count missing":                  head + `,"on":false,"gpu":0,"cpu":14}`,
+		"a verdict its counts do not give": head + `,"on":true,"neuralEngine":0,"gpu":0,"cpu":14}`,
+		"a count of the wrong type":        head + `,"on":false,"neuralEngine":0,"gpu":0,"cpu":"14"}`,
+		"another function's record":        strings.Replace(head, "s128", "s256", 1) + refusal,
+		"another model's record":           strings.Replace(head, model, "other-12345678", 1) + refusal,
+		"another setup's record":           strings.Replace(head, host, "Chip, macOS build 9Z9", 1) + refusal,
+		"no version":                       strings.Replace(head, `"version":1,`, "", 1) + refusal,
+		"not json":                         `{"version":1,`,
+	} {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "m.placement.s128.json"), []byte(raw), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		b := newTestBackend(t, dir, host)
+		if b.placed(128) || b.refused(128) != nil {
+			t.Errorf("%s: placed %v, refused %v; want unaudited", name, b.placed(128), b.refused(128))
+		}
+		if _, _, err := b.load(128); err != nil {
+			t.Errorf("%s: the function was refused: %v", name, err)
+		}
+	}
+	// The sound refusal is read, and a file under a name that is not the
+	// function's own is nobody's.
+	dir := t.TempDir()
+	for _, file := range []string{"m.placement.s128.json", "m.placement.s0256.json", "m.placement.512.json"} {
+		if err := os.WriteFile(filepath.Join(dir, file), []byte(head+refusal), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	model := (&coreMLPackage{name: "m"}).id()
-	dir := t.TempDir()
-	write(dir, model, `{
-		"s128": {},
-		"s256": {"on": true},
-		"s512": {"on": true, "neuralEngine": 6000, "cpu": 14, "cpuCore": ["ios18.matmul"]},
-		"s1024": {"on": false, "neuralEngine": 6000, "cpu": 14},
-		"s2048": {"on": true, "neuralEngine": 6000, "cpu": 14}}`)
 	b := newTestBackend(t, dir, host)
-	for _, length := range []int{128, 256, 512, 1024} {
-		if b.placed(length) || b.refused(length) != nil {
-			t.Errorf("s%d: placed %v, refused %v; want unaudited", length, b.placed(length), b.refused(length))
-		}
-	}
-	if !b.placed(2048) {
-		t.Error("the one sound entry was not read")
-	}
-	if _, _, err := b.load(128); err != nil {
-		t.Errorf("an empty entry refused the function: %v", err)
-	}
-
-	// The same file under another model's name.
-	dir = t.TempDir()
-	write(dir, "other-12345678", `{"s128": {"on": false, "cpu": 6014, "cpuCore": ["ios18.matmul"]}}`)
-	if b = newTestBackend(t, dir, host); b.refused(128) != nil {
-		t.Error("another model's record refused a function")
-	}
-	dir = t.TempDir()
-	write(dir, model, `{"s128": {"on": false, "cpu": 6014, "cpuCore": ["ios18.matmul"]}}`)
-	if b = newTestBackend(t, dir, host); b.refused(128) == nil {
-		t.Error("this model's refusal was not read")
+	if b.refused(128) == nil || b.refused(256) != nil || b.refused(512) != nil {
+		t.Errorf("refused: s128 %v, s256 %v, s512 %v; want s128 alone", b.refused(128), b.refused(256), b.refused(512))
 	}
 }
 
-// Two children that read the same record and audit different functions
-// both end up in it.
-func TestCoreMLBackend_TwoChildrenShareTheRecord(t *testing.T) {
+// Two children that read the records before either audits, then audit
+// different functions, both leave their verdict: a function's record is
+// a file of its own.
+func TestCoreMLBackend_TwoChildrenKeepBothVerdicts(t *testing.T) {
 	dir := t.TempDir()
 	a := newTestBackend(t, dir, "Chip, macOS build 1A1")
 	b := newTestBackend(t, dir, "Chip, macOS build 1A1")
-	b.plans["s256"] = offEngine
-	if _, err := a.audit(128); err != nil {
+	a.plans["s256"] = offEngine
+	// Each holds what it read at the start; neither reads again.
+	if _, err := a.audit(256); !errors.Is(err, errOffNeuralEngine) {
 		t.Fatal(err)
 	}
-	if _, err := b.audit(256); !errors.Is(err, errOffNeuralEngine) {
+	stale := b.placements
+	if _, err := b.audit(512); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.audit(512); err != nil {
-		t.Fatal(err)
+	if _, known := stale[256]; known {
+		t.Fatal("the second child read the first one's verdict: the test proves nothing")
 	}
 	next := newTestBackend(t, dir, "Chip, macOS build 1A1")
-	if !next.placed(128) || next.refused(256) == nil || !next.placed(512) {
-		t.Fatalf("record: s128 placed %v, s256 refused %v, s512 placed %v", next.placed(128), next.refused(256), next.placed(512))
+	if next.refused(256) == nil || !next.placed(512) {
+		t.Fatalf("records: s256 refused %v, s512 placed %v; want both verdicts", next.refused(256), next.placed(512))
 	}
 }
 
-func TestPathless(t *testing.T) {
-	_, err := os.ReadFile(filepath.Join(t.TempDir(), "secret-dir", "file"))
-	if got := pathless(err).Error(); strings.Contains(got, "secret-dir") || !strings.Contains(got, "open") {
-		t.Fatalf("pathless = %q", got)
+// A record that is there and cannot be read is left as it is.
+func TestCoreMLBackend_UnreadableRecordIsNotReplaced(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root reads every file")
 	}
-	err = os.Rename(filepath.Join(t.TempDir(), "secret-a"), filepath.Join(t.TempDir(), "secret-b"))
-	if got := pathless(err).Error(); strings.Contains(got, "secret-") {
-		t.Fatalf("pathless = %q", got)
+	b := newTestBackend(t, t.TempDir(), "Chip, macOS build 1A1")
+	path := b.recordPath(128)
+	if err := os.WriteFile(path, []byte("kept"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.audit(128); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(path); string(raw) != "kept" {
+		t.Fatalf("the unreadable record was replaced with %s", raw)
+	}
+}
+
+// What a backend's errors say names no path under the models directory,
+// and neither does a status line made of any os error.
+func TestStatusLinesNameNoPath(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "secret-root")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	b := newTestBackend(t, root, "Chip, macOS build 1A1")
+	b.open = func(compiled, _ string, _, _ int) (aneFunction, error) {
+		return nil, errors.New("coreml: load s128: could not read " + compiled + "/model.mil")
+	}
+	_, _, err := b.load(128)
+	if err == nil || strings.Contains(err.Error(), "secret-root") {
+		t.Fatalf("load error %q names the models directory", err)
+	}
+	b.plan = func(compiled, _ string) (coreml.Placement, error) {
+		_, err := os.ReadFile(filepath.Join(compiled, "missing"))
+		return coreml.Placement{}, err
+	}
+	if _, err = b.audit(128); err == nil || strings.Contains(err.Error(), "secret-root") {
+		t.Fatalf("audit error %q names the models directory", err)
+	}
+
+	// The engine's own lines, whatever backend the error comes from.
+	_, pathErr := os.ReadFile(filepath.Join(root, "model.bin"))
+	linkErr := os.Rename(filepath.Join(root, "a"), filepath.Join(root, "b"))
+	for name, f := range map[string]*fakeANE{
+		"preparation fails": {prepErrs: []error{fmt.Errorf("install the compiled model: %w", linkErr)}},
+		"a load fails":      {loadErr: map[int]error{128: pathErr}},
+		"an audit fails":    {auditErr: map[int]error{128: pathErr}},
+	} {
+		log := newLogLines()
+		n, _ := newTestANE(t, f)
+		n.logf = log.logf
+		n.start()
+		n.loads.Wait()
+		if log.has("secret-root") || len(log.lines) == 0 {
+			t.Errorf("%s: lines %v name the path", name, log.lines)
+		}
 	}
 }

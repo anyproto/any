@@ -3,15 +3,20 @@
 package indexer
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hybridgroup/yzma/pkg/llama"
+
+	"github.com/anyproto/any/internal/config"
 )
 
 // logLines collects a neural engine's status lines.
@@ -123,9 +128,9 @@ func TestNeuralEngine_BulkUsesLargerLoadedFunction(t *testing.T) {
 	n.loads.Wait()
 }
 
-// The wait for a function is bounded from when it was asked for: past
-// it llama.cpp embeds the document, with the timeout as the reason, and
-// the engine says so once.
+// The wait for a function is bounded from the first document deferred
+// for it: past it llama.cpp embeds the document, with the timeout as the
+// reason, and the engine says so once.
 func TestNeuralEngine_BulkWaitIsBounded(t *testing.T) {
 	f := &fakeANE{}
 	log := newLogLines()
@@ -161,8 +166,104 @@ func TestNeuralEngine_BulkWaitIsBounded(t *testing.T) {
 	if _, ok, _ := n.embedBulk(tokensOf(200)); !ok {
 		t.Fatal("not served after the load")
 	}
-	if len(n.wanted) != 0 || len(n.late) != 0 {
-		t.Fatalf("waits left after every load: %v, %d timers", n.wanted, len(n.late))
+	if len(n.owed) != 0 || len(n.late) != 0 {
+		t.Fatalf("waits left after a document got its function: %v, %d timers", n.owed, len(n.late))
+	}
+}
+
+// A package that is on disk and still being prepared is waited for like
+// a function that loads; one that is not there is llama.cpp's at once.
+func TestNeuralEngine_BulkWaitsForAPackageBeingPrepared(t *testing.T) {
+	f := &fakeANE{prepGate: make(chan struct{})}
+	n, clock := newTestANE(t, f)
+	n.start()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(2 * time.Millisecond) {
+		if _, _, _, prepares := f.snapshot(); prepares == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("preparation never began")
+		}
+	}
+	if _, ok, deferred := n.embedBulk(tokensOf(200)); ok || !deferred {
+		t.Fatalf("under preparation: served %v, deferred %v, miss %q; want a wait", ok, deferred, n.lastMiss())
+	}
+	if _, ok := n.embed(tokensOf(200)); ok || n.lastMiss() != EmbedReasonPackageNotReady {
+		t.Fatalf("a query under preparation: served %v, miss %q", ok, n.lastMiss())
+	}
+	// The wait is the function's own, and bounded like any.
+	clock.add(n.wait)
+	if _, ok, deferred := n.embedBulk(tokensOf(200)); ok || deferred || n.lastMiss() != EmbedReasonReadinessTimeout {
+		t.Fatalf("past the bound: served %v, deferred %v, miss %q", ok, deferred, n.lastMiss())
+	}
+	close(f.prepGate)
+	n.loads.Wait()
+
+	f = &fakeANE{absent: true, prepErrs: []error{errANENotReady}}
+	n, _ = newTestANE(t, f)
+	n.start()
+	n.loads.Wait()
+	if _, ok, deferred := n.embedBulk(tokensOf(200)); ok || deferred || n.lastMiss() != EmbedReasonPackageNotReady {
+		t.Fatalf("no package: served %v, deferred %v, miss %q", ok, deferred, n.lastMiss())
+	}
+}
+
+// A function loaded for a deferred document is not released as idle
+// before the document came back for it, for as long as its wait runs;
+// the document's deadline is the one of its first deferral.
+func TestNeuralEngine_DeferredFunctionIsKeptForItsDocument(t *testing.T) {
+	f := &fakeANE{}
+	n, clock := newTestANE(t, f)
+	n.wait = time.Hour
+	loadFor(n, 10)
+	if _, _, deferred := n.embedBulk(tokensOf(200)); !deferred {
+		t.Fatal("not deferred")
+	}
+	n.loads.Wait() // s256 is loaded; the drain is busy elsewhere
+	clock.add(n.idle + time.Second)
+	n.releaseTick()
+	if _, _, closed, _ := f.snapshot(); len(closed) != 0 {
+		t.Fatalf("released %v with a document waiting for it", closed)
+	}
+	n.mu.Lock()
+	owed := n.owed[256]
+	n.mu.Unlock()
+	if owed.IsZero() {
+		t.Fatal("the load ended the document's wait before the document came back")
+	}
+	// The document comes back: served, and the function is ordinary again.
+	if _, ok, _ := n.embedBulk(tokensOf(200)); !ok {
+		t.Fatal("not served by the function loaded for it")
+	}
+	clock.add(n.idle + time.Second)
+	n.releaseTick()
+	if _, _, closed, _ := f.snapshot(); len(closed) != 1 || closed[0] != 256 {
+		t.Fatalf("released %v, want s256 once its document was embedded", closed)
+	}
+
+	// A document that never comes back holds the function only until its
+	// wait is over.
+	f = &fakeANE{}
+	n, clock = newTestANE(t, f)
+	n.wait = 100 * time.Millisecond
+	loadFor(n, 10)
+	n.embedBulk(tokensOf(200))
+	n.loads.Wait()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		n.mu.Lock()
+		left := len(n.owed)
+		n.mu.Unlock()
+		if left == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the wait never ended")
+		}
+	}
+	clock.add(n.idle + time.Second)
+	n.releaseTick()
+	if _, _, closed, _ := f.snapshot(); len(closed) != 1 {
+		t.Fatalf("released %v, want s256 after the wait", closed)
 	}
 }
 
@@ -288,12 +389,11 @@ func TestWorkerEmbedder_DeferredWake(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("a function report did not wake")
 	}
+	// The child dies by itself: nothing in the worker has noticed yet.
 	wake = w.DeferredWake()
-	if err := w.slot.acquire(ctx, false); err != nil {
+	if err := w.live.Load().Kill(); err != nil {
 		t.Fatal(err)
 	}
-	w.stopChild(true)
-	w.slot.release(false)
 	select {
 	case <-wake:
 	case <-time.After(10 * time.Second):
@@ -328,6 +428,20 @@ func TestWorkerEmbedder_HoldBulk(t *testing.T) {
 	if h.spawns() != 1 {
 		t.Fatalf("spawned %d children, want 1", h.spawns())
 	}
+
+	// A child with no Core ML path has nothing a drain waits for: a hold
+	// does not keep it.
+	plain := newTestWorker(t, &helperSpawner{modes: []string{"ok"}}, 0)
+	plain.idleTimeout = idle
+	defer plain.HoldBulk()()
+	if _, err := plain.EmbedDocs(ctx, []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); hasChild(plain); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("a llama.cpp-only child was held past its idle time")
+		}
+	}
 }
 
 // Deferred texts hold no child by themselves: after a batch whose first
@@ -339,7 +453,7 @@ func TestWorkerEmbedder_DeferredTextsDoNotOutliveTheirChild(t *testing.T) {
 	h := &helperSpawner{modes: []string{"ok", "ok"}, env: []string{"ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_DEFER=long", "ANY_EMBED_WORKER_CRASH_AFTER=1"}}
 	w := newTestWorker(t, h, 0)
 	w.mu.Lock()
-	w.spec.coremlDir = "/models/eg2.mlpackage"
+	w.spec.coremlDir = filepath.Join(t.TempDir(), "eg2.mlpackage")
 	w.mu.Unlock()
 	vecs, rt, err := w.EmbedDocsRouted(ctx, nil, []string{"long one", "b"})
 	if err == nil || len(vecs) != 1 || vecs[0] != nil || rt.Deferred != 1 {
@@ -384,6 +498,62 @@ func TestWorkerEmbedder_AuditHoldsOffIdleRetirement(t *testing.T) {
 	}
 }
 
+// A child that dies inside a placement audit is not held for it: it is
+// reaped, as a failed one.
+func TestWorkerEmbedder_AuditDoesNotHoldADeadChild(t *testing.T) {
+	const idle, dies = 50 * time.Millisecond, 300 * time.Millisecond
+	w, _ := aneWorker(t, append(delayEnv(dies), "ANY_EMBED_WORKER_ANE=auditexit")...)
+	w.idleTimeout = idle
+	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); hasChild(w); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the dead child was never reaped")
+		}
+	}
+	w.mu.Lock()
+	demoted := w.coremlDisabled
+	w.mu.Unlock()
+	if !demoted {
+		t.Fatal("a death under an audit did not count against Core ML")
+	}
+}
+
+// A report on another function does not settle the wait for the first:
+// a refusal on record for a larger one comes before the first loads.
+func TestWorkerEmbedder_LargerRefusalDoesNotSettle(t *testing.T) {
+	const delay = 400 * time.Millisecond
+	w, _ := aneWorker(t, append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=refusedlarger")...)
+	w.mu.Lock()
+	w.spec.profile = config.LocalModelEmbeddingGemma2
+	w.mu.Unlock()
+	start := time.Now()
+	if got := w.PrepareBulk(context.Background(), nil); got != BulkReady {
+		t.Fatalf("PrepareBulk = %q, want the first function's own %q", got, BulkReady)
+	}
+	if waited := time.Since(start); waited < delay-50*time.Millisecond {
+		t.Fatalf("returned after %s, before the first function's %s", waited, delay)
+	}
+}
+
+// Off is final for a child's Core ML flag: a line that comes after it
+// does not say Core ML is in use again.
+func TestWorkerEmbedder_OffIsFinalForTheChild(t *testing.T) {
+	w, _ := aneWorker(t, "ANY_EMBED_WORKER_ANE=offthenfail")
+	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond) // the three lines are in
+	if err := w.slot.acquire(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	defer w.slot.release(false)
+	if w.child.coreml.Load() {
+		t.Fatal("a line after off put the child's Core ML flag back")
+	}
+}
+
 // PrepareBulk says how its wait went.
 func TestWorkerEmbedder_PrepareBulkOutcome(t *testing.T) {
 	ctx := context.Background()
@@ -419,5 +589,66 @@ func TestWorkerEmbedder_PrepareBulkOutcome(t *testing.T) {
 	w.newCmd = (&helperSpawner{modes: []string{"exit"}}).cmd
 	if got := w.PrepareBulk(ctx, nil); got != BulkNoChild {
 		t.Errorf("a child that does not start: PrepareBulk = %q", got)
+	}
+}
+
+// frameDocs stands in for the Local behind serveEmbed: it defers its
+// second text when asked for bulk work, and records what it was asked.
+type frameDocs struct{ bulk []bool }
+
+func (f *frameDocs) EmbedQuery(context.Context, string) ([]float32, error) {
+	return []float32{1, 0}, nil
+}
+
+func (f *frameDocs) embedDocs(_ context.Context, _, texts []string, bulk bool) ([][]float32, error) {
+	f.bulk = append(f.bulk, bulk)
+	out := make([][]float32, len(texts))
+	for i := range out {
+		if !bulk || i != 1 {
+			out[i] = []float32{1, 0}
+		}
+	}
+	return out, nil
+}
+
+func (f *frameDocs) lastRoutes() workerRoutes {
+	if f.bulk[len(f.bulk)-1] {
+		return workerRoutes{ANE: 2, Deferred: []int{1}}
+	}
+	return workerRoutes{ANE: 3}
+}
+
+// The child passes a frame's bulk flag on to its embedder, and answers a
+// bulk frame with the vectors it has and the positions it has none for;
+// an ordinary frame gets every vector.
+func TestServeEmbed_BulkAndOrdinaryFrames(t *testing.T) {
+	docs := &frameDocs{}
+	var buf bytes.Buffer
+	w := bufio.NewWriter(&buf)
+	texts := []string{"a", "b", "c"}
+	for _, bulk := range []bool{true, false} {
+		if err := serveEmbed(context.Background(), docs, w, workerReq{Op: workerOpEmbed, Role: workerRoleDoc, Texts: texts, Bulk: bulk}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !reflect.DeepEqual(docs.bulk, []bool{true, false}) {
+		t.Fatalf("the embedder was asked bulk = %v, want true then false", docs.bulk)
+	}
+	r := bufio.NewReader(&buf)
+	var hdr workerResp
+	bin, err := readFrame(r, &hdr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vecs, err := decodeVectors(bin, hdr.N, hdr.Dim)
+	if err != nil || hdr.N != 2 || hdr.Routes == nil || !reflect.DeepEqual(hdr.Routes.Deferred, []int{1}) {
+		t.Fatalf("bulk frame: %d vectors, routes %+v, %v", hdr.N, hdr.Routes, err)
+	}
+	if sparse, err := unpackVectors(vecs, hdr.Routes.Deferred, len(texts)); err != nil || sparse[1] != nil || sparse[0] == nil || sparse[2] == nil {
+		t.Fatalf("bulk frame unpacked: %v, %v", sparse, err)
+	}
+	hdr = workerResp{}
+	if _, err = readFrame(r, &hdr); err != nil || hdr.N != 3 || len(hdr.Routes.Deferred) != 0 {
+		t.Fatalf("ordinary frame: %d vectors, routes %+v, %v", hdr.N, hdr.Routes, err)
 	}
 }

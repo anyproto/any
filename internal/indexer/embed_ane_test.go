@@ -20,7 +20,9 @@ import (
 // record which length served each text.
 type fakeANE struct {
 	mu       sync.Mutex
-	prepErrs []error // one per prepare call, the last repeating
+	prepErrs []error       // one per prepare call, the last repeating
+	absent   bool          // the package is not on disk
+	prepGate chan struct{} // set: prepare waits for it
 	prepares int
 	loadErr  map[int]error
 	loaded   []int
@@ -72,14 +74,28 @@ func (f *fakeANE) audit(length int) (string, error) {
 	return "fake plan", err
 }
 
+// present: the package is on disk unless absent says otherwise.
+func (f *fakeANE) present() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return !f.absent
+}
+
 func (f *fakeANE) prepare() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.prepares++
-	if len(f.prepErrs) == 0 {
-		return nil
+	gate := f.prepGate
+	var err error
+	if len(f.prepErrs) > 0 {
+		err = f.prepErrs[min(f.prepares, len(f.prepErrs))-1]
 	}
-	return f.prepErrs[min(f.prepares, len(f.prepErrs))-1]
+	if gate != nil {
+		f.mu.Unlock()
+		<-gate
+		f.mu.Lock()
+	}
+	return err
 }
 
 func (f *fakeANE) load(length int) (aneFunction, string, error) {

@@ -3,6 +3,7 @@
 package indexer
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -67,22 +68,23 @@ func TestWorkerEmbedder_FrameReasons(t *testing.T) {
 	}
 }
 
-// Bulk batches whose texts ran on llama.cpp or were left pending are
-// logged with their counts, per reason, at most once per period; a
-// child that goes says what is still counted.
+// Bulk frames whose texts ran on llama.cpp or were left pending are
+// logged with their counts, per reason, at most once per period; work
+// with nothing to say stays counted for the next line, and a child that
+// goes says what is still counted.
 func TestWorkerEmbedder_LogsBulkRouting(t *testing.T) {
 	w, _ := aneWorker(t)
 	logs := observed(w)
 	w.routed.every = time.Hour
 
-	// All on the Neural Engine: nothing to say.
+	// All on the Neural Engine: nothing to say, even with the child gone.
 	w.noteBulk(routeTally{ane: 64})
 	w.logBulk(true)
 	if lines := routingLines(logs); len(lines) != 0 {
 		t.Fatalf("logged %v for a batch all on the neural engine", lines)
 	}
 
-	// The first batch off it is said at once.
+	// The first batch off it is said at once, with the work before it.
 	w.noteBulk(routeTally{ane: 60, coreml: 1, deferred: 2,
 		llama:   map[string]int{EmbedBackendGPU: 3},
 		reasons: map[string]int{EmbedReasonTooLong: 2, EmbedReasonANEFailed: 1}})
@@ -91,7 +93,7 @@ func TestWorkerEmbedder_LogsBulkRouting(t *testing.T) {
 		t.Fatalf("%d lines, want 1: %v", len(lines), lines)
 	}
 	l := lines[0]
-	if l["ane"] != int64(60) || l["coreml"] != int64(1) || l["llama"] != int64(3) || l["deferred"] != int64(2) ||
+	if l["ane"] != int64(124) || l["coreml"] != int64(1) || l["llama"] != int64(3) || l["deferred"] != int64(2) ||
 		l["llamaReasons"] != "ane_failed=1 too_long=2" || l["llamaBackends"] != "gpu" {
 		t.Fatalf("line %v", l)
 	}
@@ -144,13 +146,25 @@ func TestWorkerEmbedder_LogsBulkRouting(t *testing.T) {
 	}
 }
 
-// A batch through the child ends up in the same counts, and only where
-// there is a Neural Engine path to miss.
+// quietRouting holds the routing line back until something forces it.
+func quietRouting(w *workerEmbedder) {
+	w.routed.mu.Lock()
+	w.routed.every, w.routed.last = time.Hour, time.Now()
+	w.routed.mu.Unlock()
+}
+
+// The frames of a batch through the child end up in the same counts,
+// and only where a Neural Engine path is configured.
 func TestWorkerEmbedder_BulkRoutingFromTheChild(t *testing.T) {
 	env := []string{"ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_DEFER=long", "ANY_EMBED_WORKER_MISS=" + EmbedReasonTooLong}
 	w, _ := aneWorker(t, env...)
 	logs := observed(w)
+	quietRouting(w)
 	if _, _, err := w.EmbedDocsRouted(t.Context(), nil, []string{"a", "long one", "b"}); err != nil {
+		t.Fatal(err)
+	}
+	// An ordinary document call is not bulk work.
+	if _, err := w.EmbedDocs(t.Context(), []string{"c"}); err != nil {
 		t.Fatal(err)
 	}
 	w.logBulk(true)
@@ -167,6 +181,36 @@ func TestWorkerEmbedder_BulkRoutingFromTheChild(t *testing.T) {
 	plain.logBulk(true)
 	if lines := routingLines(logs); len(lines) != 0 {
 		t.Fatalf("logged %v with no neural engine path", lines)
+	}
+}
+
+// A frame answered before the child died is in the line the death
+// writes, and the batches of the replacement, which runs llama.cpp alone
+// after the demotion, are still counted, as ane_off.
+func TestWorkerEmbedder_BulkRoutingAcrossACrash(t *testing.T) {
+	h := &helperSpawner{modes: []string{"ok", "ok"}, env: []string{"ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_DEFER=long",
+		"ANY_EMBED_WORKER_MISS=" + EmbedReasonTooLong, "ANY_EMBED_WORKER_CRASH_AFTER=1"}}
+	w := newTestWorker(t, h, 0)
+	w.mu.Lock()
+	w.spec.coremlDir = filepath.Join(t.TempDir(), "eg2.mlpackage")
+	w.mu.Unlock()
+	logs := observed(w)
+	quietRouting(w)
+	if _, _, err := w.EmbedDocsRouted(t.Context(), nil, []string{"long one", "b"}); err == nil {
+		t.Fatal("want the child's death")
+	}
+	lines := routingLines(logs)
+	if len(lines) != 1 || lines[0]["deferred"] != int64(1) {
+		t.Fatalf("lines after the death: %v, want the deferred text of the frame before it", lines)
+	}
+	clearBackoff(w)
+	quietRouting(w)
+	if _, _, err := w.EmbedDocsRouted(t.Context(), nil, []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	w.logBulk(true)
+	if lines = routingLines(logs); len(lines) != 2 || lines[1]["llama"] != int64(1) || lines[1]["llamaReasons"] != "ane_off=1" {
+		t.Fatalf("lines after the demotion: %v, want the replacement's text as ane_off", lines)
 	}
 }
 
