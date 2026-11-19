@@ -275,6 +275,14 @@ func (l *Local) startNeuralEngine(dir string) {
 	l.ane.start()
 }
 
+// quiesce reports whether the process may be stopped as idle now; once
+// it has said so the Neural Engine path starts nothing it would lose.
+func (l *Local) quiesce() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.ane == nil || l.ane.quiesce()
+}
+
 // usableLengths drops the functions no text can need: those past the
 // first one that holds the longest text the embedder sends.
 func usableLengths(lengths []int, maxTokens int) []int {

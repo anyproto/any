@@ -127,6 +127,10 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 			if err := writeFrame(w, workerResp{Op: workerOpDim, Dim: dim}, nil); err != nil {
 				return err
 			}
+		case workerOpIdle:
+			if err := writeFrame(w, workerResp{Op: workerOpIdle, Busy: !l.quiesce()}, nil); err != nil {
+				return err
+			}
 		case workerOpEmbed:
 			decoding.Store(true)
 			err := serveEmbed(ctx, l, w, req)

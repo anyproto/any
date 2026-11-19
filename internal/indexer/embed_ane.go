@@ -167,15 +167,20 @@ type neuralEngine struct {
 	verified map[int]bool
 	audited  map[int]bool
 	audits   []int
-	auditing bool        // the auditor runs
-	inflight int         // length the loader is loading; 0 = none
-	inUse    int         // length predicting now; 0 = none
-	loading  bool        // the loader runs
-	miss     string      // why embed last left a text to llama.cpp (EmbedReason*)
-	placed   bool        // the function embed last used is a verified one
-	release  *time.Timer // runs releaseTick; nil until a function can go idle
-	retry    *time.Timer // runs start again after a package that was not on disk
-	loads    sync.WaitGroup
+	auditing bool // the auditor runs
+	auditOf  int  // length inside backend.audit now; 0 = none
+	quiet    bool // quiesce was accepted: no audit starts any more
+	// offReason is the off line still to write: it waits for the Core ML
+	// calls in flight, so a child that dies in one died with Core ML on.
+	offReason string
+	inflight  int         // length the loader is loading; 0 = none
+	inUse     int         // length predicting now; 0 = none
+	loading   bool        // the loader runs
+	miss      string      // why embed last left a text to llama.cpp (EmbedReason*)
+	placed    bool        // the function embed last used is a verified one
+	release   *time.Timer // runs releaseTick; nil until a function can go idle
+	retry     *time.Timer // runs start again after a package that was not on disk
+	loads     sync.WaitGroup
 }
 
 func newNeuralEngine(backend aneBackend, lengths []int, dim int, logf func(string, ...any)) *neuralEngine {
@@ -232,7 +237,7 @@ func (n *neuralEngine) fallsBack(tokens []int32, bulk bool) (miss string, falls 
 
 func (n *neuralEngine) embedFor(tokens []int32, bulk bool) (vec []float32, ok, deferred bool) {
 	n.mu.Lock()
-	fn, use, want, deferred := n.routeLocked(tokens, bulk)
+	fn, use, _, deferred := n.routeLocked(tokens, bulk)
 	if fn == nil {
 		n.mu.Unlock()
 		return nil, false, deferred
@@ -257,6 +262,7 @@ func (n *neuralEngine) embedFor(tokens []int32, bulk bool) (vec []float32, ok, d
 		fn.close()
 		delete(n.fns, use)
 	}
+	defer n.sayOffLocked()
 	if err != nil {
 		n.failures[use]++
 		n.logf("s%d failed: %v", use, statusErr(err))
@@ -272,9 +278,9 @@ func (n *neuralEngine) embedFor(tokens []int32, bulk bool) (vec []float32, ok, d
 		return nil, false, false
 	}
 	n.failures[use] = 0
-	// A bulk document got its function: the wait for it is over.
+	// A bulk document embedded on this function: the wait for it is over.
 	if bulk {
-		n.settleOwedLocked(want)
+		n.settleOwedLocked(use)
 		n.armReleaseLocked()
 	}
 	return out, true, false
@@ -447,6 +453,7 @@ func (n *neuralEngine) loader() {
 		fn, info, err := n.backend.load(length)
 		n.mu.Lock()
 		n.inflight = 0
+		n.sayOffLocked()
 		var asked time.Duration
 		if t := n.asked[length]; !t.IsZero() {
 			asked = n.now().Sub(t).Round(time.Millisecond)
@@ -458,11 +465,16 @@ func (n *neuralEngine) loader() {
 			n.settleOwedLocked(length)
 			n.logf("s%d not used: %v", length, statusErr(err))
 			n.offIfUselessLocked()
-		case n.off || n.fns[length] != nil:
+		case n.off || n.failed[length] || n.fns[length] != nil:
+			// Refused by its audit while it loaded again, among others.
 			fn.close()
 		default:
 			n.fns[length] = fn
 			n.used[length] = n.now()
+			// Nobody is left waiting for a function that loaded late.
+			if t := n.owed[length]; !t.IsZero() && !n.now().Before(t) {
+				n.settleOwedLocked(length)
+			}
 			delete(n.failures, length) // counted on an earlier instance
 			switch {
 			case n.backend.placed(length):
@@ -496,16 +508,18 @@ func (n *neuralEngine) auditor() {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	defer func() { n.auditing = false }()
-	for !n.off && !n.loading && len(n.audits) > 0 {
+	for !n.off && !n.loading && !n.quiet && len(n.audits) > 0 {
 		length := n.audits[0]
 		n.audits = n.audits[1:]
 		if n.failed[length] || n.verified[length] {
 			continue
 		}
 		n.logf("s%d %s", length, aneAuditStarted)
+		n.auditOf = length
 		n.mu.Unlock()
 		info, err := n.backend.audit(length)
 		n.mu.Lock()
+		n.auditOf = 0
 		switch {
 		case n.off:
 		case errors.Is(err, errOffNeuralEngine):
@@ -524,9 +538,24 @@ func (n *neuralEngine) auditor() {
 			n.verified[length] = true
 			n.logf("s%d placement verified (%s)", length, info)
 		}
-		// Whatever the outcome: the server holds the child until this line.
+		// Whatever the outcome: an audit the server saw start and not
+		// finish is Core ML work a child died in.
 		n.logf("s%d %s", length, aneAuditFinished)
+		n.sayOffLocked()
 	}
+}
+
+// quiesce is the server asking to stop an idle child. It is refused
+// while an audit runs, whose verdict would be lost; once accepted, no
+// audit starts any more.
+func (n *neuralEngine) quiesce() bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.auditOf != 0 {
+		return false
+	}
+	n.quiet = true
+	return true
 }
 
 // settleOwedLocked ends the bulk wait for the given functions, or for
@@ -642,9 +671,17 @@ func (n *neuralEngine) turnOffLocked(reason string) {
 		fn.close()
 		delete(n.fns, l)
 	}
-	if reason != "" {
-		n.logf(aneOffStatus+"llama.cpp embeds everything: %s", reason)
+	n.offReason = reason
+	n.sayOffLocked()
+}
+
+// sayOffLocked writes the off line once no Core ML call is in flight.
+func (n *neuralEngine) sayOffLocked() {
+	if n.offReason == "" || n.inUse != 0 || n.inflight != 0 || n.auditOf != 0 {
+		return
 	}
+	n.logf(aneOffStatus+"llama.cpp embeds everything: %s", n.offReason)
+	n.offReason = ""
 }
 
 // close releases every function. A load in flight is not waited for; its
@@ -800,25 +837,30 @@ type placement struct {
 	NeuralEngine int
 	GPU          int
 	CPU          int
+	Unknown      int // operations the plan named no device for
 	CPUCore      []string
 	recorded     bool
 }
 
-// plan is the placement as the compute plan gave it.
+// plan is the placement as the compute plan gave it, less the names of
+// its core operators of unknown placement: a verdict does not hang on
+// them (coreml.Placement.Conclusive).
 func (p placement) plan() coreml.Placement {
-	return coreml.Placement{NeuralEngine: p.NeuralEngine, GPU: p.GPU, CPU: p.CPU, CPUCore: p.CPUCore}
+	return coreml.Placement{NeuralEngine: p.NeuralEngine, GPU: p.GPU, CPU: p.CPU, Unknown: p.Unknown, CPUCore: p.CPUCore}
 }
 
 // valid reports whether a recorded placement is a verdict the placement
 // rule gives for its own counts. An entry cut short or edited is not.
 func (p placement) valid() bool {
-	return p.NeuralEngine >= 0 && p.GPU >= 0 && p.CPU >= 0 && p.NeuralEngine+p.GPU+p.CPU > 0 &&
-		p.On == p.plan().OnNeuralEngine()
+	if p.NeuralEngine < 0 || p.GPU < 0 || p.CPU < 0 || p.Unknown < 0 || len(p.CPUCore) > p.CPU {
+		return false
+	}
+	return p.plan().Conclusive() && p.On == p.plan().OnNeuralEngine()
 }
 
 func (p placement) refusal() error {
-	return fmt.Errorf("%w: %d operations there, %d on the gpu, %d on the cpu, cpu core %v",
-		errOffNeuralEngine, p.NeuralEngine, p.GPU, p.CPU, p.CPUCore)
+	return fmt.Errorf("%w: %d operations there, %d on the gpu, %d on the cpu, %d unknown, cpu core %v",
+		errOffNeuralEngine, p.NeuralEngine, p.GPU, p.CPU, p.Unknown, p.CPUCore)
 }
 
 // placementRecord is one function's file: its placement for one model on
@@ -832,6 +874,7 @@ type placementRecord struct {
 	NeuralEngine *int     `json:"neuralEngine"`
 	GPU          *int     `json:"gpu"`
 	CPU          *int     `json:"cpu"`
+	Unknown      *int     `json:"unknown"`
 	CPUCore      []string `json:"cpuCore,omitempty"`
 }
 
@@ -970,7 +1013,7 @@ func (b *coreMLBackend) load(length int) (_ aneFunction, _ string, err error) {
 	}
 	info := fmt.Sprintf("open %s, validate %s, %s",
 		opened.Round(time.Millisecond), (time.Since(start) - opened).Round(time.Millisecond), how)
-	return fn, info, nil
+	return scrubbedFunction{fn, b}, info, nil
 }
 
 func (b *coreMLBackend) placed(length int) bool {
@@ -1001,7 +1044,8 @@ func (b *coreMLBackend) audit(length int) (_ string, err error) {
 	if !plan.Conclusive() {
 		return "", fmt.Errorf("the compute plan names no device for %d operations, core %v", plan.Unknown, plan.UnknownCore)
 	}
-	p := placement{On: plan.OnNeuralEngine(), NeuralEngine: plan.NeuralEngine, GPU: plan.GPU, CPU: plan.CPU, CPUCore: plan.CPUCore}
+	p := placement{On: plan.OnNeuralEngine(), NeuralEngine: plan.NeuralEngine, GPU: plan.GPU, CPU: plan.CPU,
+		Unknown: plan.Unknown, CPUCore: plan.CPUCore}
 	b.mu.Lock()
 	b.placements[length] = p
 	b.mu.Unlock()
@@ -1029,16 +1073,32 @@ func (b *coreMLBackend) scrub(err error) error {
 	if err == nil {
 		return nil
 	}
-	msg := strings.ReplaceAll(statusErr(err), filepath.Dir(b.dir), "the models directory")
+	msg := statusErr(err)
+	for _, part := range [][2]string{{b.compiled, "the compiled model"}, {b.dir, "the package"}, {filepath.Dir(b.dir), "the models directory"}} {
+		msg = strings.ReplaceAll(msg, part[0], part[1])
+	}
 	if msg == err.Error() {
 		return err
 	}
 	return scrubbed{msg: msg, err: err}
 }
 
-// recordPath is the placement file of one function.
+// scrubbedFunction is a function whose prediction errors are scrubbed
+// like the backend's own.
+type scrubbedFunction struct {
+	aneFunction
+	b *coreMLBackend
+}
+
+func (f scrubbedFunction) embed(tokens []int32, out []float32) error {
+	return f.b.scrub(f.aneFunction.embed(tokens, out))
+}
+
+// recordPath is the placement file of one function on this machine
+// setup, which its name carries: another setup's verdicts stay.
 func (b *coreMLBackend) recordPath(length int) string {
-	return b.record + ".s" + strconv.Itoa(length) + ".json"
+	setup := sha256.Sum256([]byte(b.host))
+	return b.record + "." + hex.EncodeToString(setup[:4]) + ".s" + strconv.Itoa(length) + ".json"
 }
 
 // readPlacements takes over the records of the package's functions for
@@ -1061,12 +1121,13 @@ func (b *coreMLBackend) readPlacements() {
 		var r placementRecord
 		if json.Unmarshal(raw, &r) != nil ||
 			r.Version == nil || r.Model == nil || r.Host == nil || r.Function == nil ||
-			r.On == nil || r.NeuralEngine == nil || r.GPU == nil || r.CPU == nil ||
+			r.On == nil || r.NeuralEngine == nil || r.GPU == nil || r.CPU == nil || r.Unknown == nil ||
 			*r.Version != placementVersion || *r.Model != b.pkg.id() || *r.Host != b.host ||
 			*r.Function != "s"+strconv.Itoa(length) {
 			continue
 		}
-		p := placement{On: *r.On, NeuralEngine: *r.NeuralEngine, GPU: *r.GPU, CPU: *r.CPU, CPUCore: r.CPUCore, recorded: true}
+		p := placement{On: *r.On, NeuralEngine: *r.NeuralEngine, GPU: *r.GPU, CPU: *r.CPU, Unknown: *r.Unknown,
+			CPUCore: r.CPUCore, recorded: true}
 		if p.valid() {
 			b.placements[length] = p
 		}
@@ -1086,7 +1147,7 @@ func (b *coreMLBackend) writePlacement(length int, p placement) error {
 	}
 	version, model, name := placementVersion, b.pkg.id(), "s"+strconv.Itoa(length)
 	raw, err := json.Marshal(placementRecord{Version: &version, Model: &model, Host: &b.host, Function: &name,
-		On: &p.On, NeuralEngine: &p.NeuralEngine, GPU: &p.GPU, CPU: &p.CPU, CPUCore: p.CPUCore})
+		On: &p.On, NeuralEngine: &p.NeuralEngine, GPU: &p.GPU, CPU: &p.CPU, Unknown: &p.Unknown, CPUCore: p.CPUCore})
 	if err != nil {
 		return err
 	}
@@ -1101,16 +1162,21 @@ func (b *coreMLBackend) writePlacement(length int, p placement) error {
 	return nil
 }
 
-// validateFunction has a freshly opened function predict three texts: two
-// short ones of one length with different tokens, and one of its full
-// length. Each output is the model's unit vector, and no two are alike.
+// validateFunction has a freshly opened function predict four texts: two
+// short ones and two of its full length, each pair alike but for its
+// tokens. Each output is the model's unit vector, and no two are alike.
 func validateFunction(fn aneFunction, length, dim int) error {
-	full := make([]int32, length)
+	full, other := make([]int32, length), make([]int32, length)
 	for i := range full {
 		full[i] = int32(1000 + i%512)
+		other[i] = full[i]
+		if i >= length/2 { // the same start, another text after it
+			other[i] = int32(20000 + i%512)
+		}
 	}
 	full[0], full[length-1] = 2, 1
-	probes := [][]int32{{2, 1001, 1002, 1003, 1}, {2, 5001, 7002, 9003, 1}, full}
+	other[0], other[length-1] = 2, 1
+	probes := [][]int32{{2, 1001, 1002, 1003, 1}, {2, 5001, 7002, 9003, 1}, full, other}
 	outs := make([][]float32, len(probes))
 	for i, tokens := range probes {
 		outs[i] = make([]float32, dim)

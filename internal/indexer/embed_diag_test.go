@@ -68,10 +68,9 @@ func TestWorkerEmbedder_FrameReasons(t *testing.T) {
 	}
 }
 
-// Bulk frames whose texts ran on llama.cpp or were left pending are
-// logged with their counts, per reason, at most once per period; work
-// with nothing to say stays counted for the next line, and a child that
-// goes says what is still counted.
+// Bulk frames off the Neural Engine are logged with their counts, per
+// reason, at most once per period; work with nothing to say stays
+// counted, and a child that goes says what is still counted.
 func TestWorkerEmbedder_LogsBulkRouting(t *testing.T) {
 	w, _ := aneWorker(t)
 	logs := observed(w)

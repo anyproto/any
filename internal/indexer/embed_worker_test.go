@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -106,6 +107,8 @@ func runEmbedHelper(mode string) int {
 			routes.CoreML, _ = strconv.Atoi(parts[3])
 		}
 	}
+	// auditing: the child refuses to be stopped as idle, as under an audit.
+	var auditing atomic.Bool
 	switch os.Getenv("ANY_EMBED_WORKER_ANE") {
 	case "":
 	case "off": // Core ML started, then gave up
@@ -123,15 +126,34 @@ func runEmbedHelper(mode string) int {
 		aneStderrLog("s128 " + aneAuditStarted)
 		// Predictions fail under the audit: that is not its end.
 		aneStderrLog("s128 not used any more: 3 failures in a row")
+		auditing.Store(true)
 		go func() {
 			time.Sleep(delay)
 			aneStderrLog("s128 placement verified (plan 1ms, 10 operations on the neural engine, 0 on the cpu)")
 			aneStderrLog("s128 " + aneAuditFinished)
+			auditing.Store(false)
+		}()
+	case "silentaudit": // audits for the delay; its report has not reached the server
+		aneStderrLog("starting")
+		auditing.Store(true)
+		go func() {
+			time.Sleep(delay)
+			auditing.Store(false)
+		}()
+	case "offauditexit": // the path is off; the audit still running then kills the child
+		aneStderrLog("starting")
+		aneStderrLog("s128 " + aneAuditStarted)
+		aneStderrLog(aneOffStatus + "llama.cpp embeds everything: no function can be used")
+		auditing.Store(true)
+		go func() {
+			time.Sleep(delay)
+			os.Exit(3)
 		}()
 	case "auditexit": // dies inside a placement audit
 		aneStderrLog("starting")
 		aneStderrLog("s128 ready (open 1ms, validate 1ms, placement not verified yet; asked for 2ms ago)")
 		aneStderrLog("s128 " + aneAuditStarted)
+		auditing.Store(true)
 		go func() {
 			time.Sleep(delay)
 			os.Exit(3)
@@ -161,6 +183,12 @@ func runEmbedHelper(mode string) int {
 				exitWhenOrphaned()
 			}
 			return 0 // parent closed stdin: clean exit, like the real child
+		}
+		if req.Op == workerOpIdle {
+			if err := writeFrame(out, workerResp{Op: workerOpIdle, Busy: auditing.Load()}, nil); err != nil {
+				return 1
+			}
+			continue
 		}
 		if crashAfter > 0 && served >= crashAfter {
 			fmt.Fprintln(os.Stderr, "GGML_ASSERT(false) failed")

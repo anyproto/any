@@ -172,6 +172,76 @@ func TestNeuralEngine_BulkWaitIsBounded(t *testing.T) {
 	}
 }
 
+// A document that embeds on a larger function does not end the wait for
+// the one it was meant for: that one is still loading.
+func TestNeuralEngine_BulkOnALargerFunctionKeepsTheSmallerOnesWait(t *testing.T) {
+	f := &fakeANE{}
+	n, _ := newTestANE(t, f)
+	loadFor(n, 10)
+	f.mu.Lock()
+	f.gate, f.started = make(chan struct{}), make(chan int, 2)
+	f.mu.Unlock()
+	release := sync.OnceFunc(func() { close(f.gate) })
+	defer release()
+	n.mu.Lock()
+	n.requestLocked(512) // ahead of s256 in the loader
+	n.mu.Unlock()
+	<-f.started
+	if _, _, deferred := n.embedBulk(tokensOf(200)); !deferred {
+		t.Fatal("not deferred")
+	}
+	f.gate <- struct{}{} // s512 lands; s256 is next, and held
+	<-f.started
+	if _, ok, _ := n.embedBulk(tokensOf(200)); !ok {
+		t.Fatal("not served by the larger function")
+	}
+	n.mu.Lock()
+	owed := n.owed[256]
+	n.mu.Unlock()
+	if owed.IsZero() {
+		t.Fatal("embedding on s512 ended the wait for s256, which is still loading")
+	}
+}
+
+// A function that finishes loading after its documents' wait ran out is
+// owed to nobody: it is released as idle like any other.
+func TestNeuralEngine_LateLoadIsNotKeptForever(t *testing.T) {
+	f := &fakeANE{}
+	log := newLogLines()
+	n, clock := newTestANE(t, f)
+	n.logf = log.logf
+	n.wait = 50 * time.Millisecond
+	loadFor(n, 10)
+	f.mu.Lock()
+	f.gate, f.started = make(chan struct{}), make(chan int, 1)
+	f.mu.Unlock()
+	release := sync.OnceFunc(func() { close(f.gate) })
+	defer release()
+	if _, _, deferred := n.embedBulk(tokensOf(200)); !deferred {
+		t.Fatal("not deferred")
+	}
+	<-f.started
+	for deadline := time.Now().Add(10 * time.Second); !log.has("s256 still loading after"); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the wait never ran out")
+		}
+	}
+	clock.add(n.wait) // its documents went to llama.cpp; then the load lands
+	release()
+	n.loads.Wait()
+	n.mu.Lock()
+	owed := len(n.owed)
+	n.mu.Unlock()
+	if owed != 0 {
+		t.Fatal("a function that loaded late is still owed to a document")
+	}
+	clock.add(n.idle + time.Second)
+	n.releaseTick()
+	if _, _, closed, _ := f.snapshot(); len(closed) != 1 || closed[0] != 256 {
+		t.Fatalf("released %v, want the late s256", closed)
+	}
+}
+
 // A package that is on disk and still being prepared is waited for like
 // a function that loads; one that is not there is llama.cpp's at once.
 func TestNeuralEngine_BulkWaitsForAPackageBeingPrepared(t *testing.T) {
@@ -520,6 +590,78 @@ func TestWorkerEmbedder_AuditDoesNotHoldADeadChild(t *testing.T) {
 	w.mu.Unlock()
 	if !demoted {
 		t.Fatal("a death under an audit did not count against Core ML")
+	}
+}
+
+// The child itself says whether it may be stopped as idle: an audit the
+// server has read no report of yet is not cut short.
+func TestWorkerEmbedder_ChildRefusesIdleStopUnderAnAudit(t *testing.T) {
+	const idle, audit = 50 * time.Millisecond, 600 * time.Millisecond
+	w, h := aneWorker(t, append(delayEnv(audit), "ANY_EMBED_WORKER_ANE=silentaudit")...)
+	w.idleTimeout = idle
+	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(audit / 2)
+	if !hasChild(w) {
+		t.Fatal("the child was stopped under an audit it had not reported yet")
+	}
+	for deadline := time.Now().Add(10 * time.Second); hasChild(w); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the child was never retired after its audit")
+		}
+	}
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children, want 1", h.spawns())
+	}
+}
+
+// A child that dies in an audit died in Core ML, whatever its path said
+// before: Core ML is what the next child goes without, not the GPU.
+func TestWorkerEmbedder_DeathUnderAnAuditIsCoreMLs(t *testing.T) {
+	const idle, dies = 50 * time.Millisecond, 300 * time.Millisecond
+	h := &helperSpawner{modes: []string{"ok"}, env: append(delayEnv(dies), "ANY_EMBED_WORKER_ANE=offauditexit",
+		"ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)")}
+	w := newTestWorker(t, h, -1)
+	w.mu.Lock()
+	w.spec.coremlDir = filepath.Join(t.TempDir(), "eg2.mlpackage")
+	w.mu.Unlock()
+	w.idleTimeout = idle
+	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); hasChild(w); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the dead child was never reaped")
+		}
+	}
+	w.mu.Lock()
+	coreml, gpu := w.coremlDisabled, w.gpuDisabled
+	w.mu.Unlock()
+	if !coreml || gpu {
+		t.Fatalf("after a death under an audit: core ml off %v, gpu off %v; want core ml alone", coreml, gpu)
+	}
+}
+
+// A child without a Core ML path that died while idle is reaped as an
+// idle one: its death does not count against the GPU.
+func TestWorkerEmbedder_IdleDeathWithoutCoreMLKeepsTheGPU(t *testing.T) {
+	h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"}}
+	w := newTestWorker(t, h, -1)
+	w.idleTimeout = 100 * time.Millisecond
+	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.live.Load().Kill(); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); hasChild(w); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the dead child was never reaped")
+		}
+	}
+	if gpuDisabled(w) {
+		t.Fatal("an idle child's death turned GPU offload off")
 	}
 }
 

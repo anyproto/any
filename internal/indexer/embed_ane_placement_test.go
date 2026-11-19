@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,6 +29,7 @@ type planFn struct {
 	constant  bool    // one vector whatever the text
 	scale     float32 // the vectors' length; 0 = 1
 	blind     bool    // the vector depends on the text's length alone
+	collapse  bool    // one vector for every long text
 	calls     int
 	closed    bool
 }
@@ -48,8 +50,10 @@ func (f *planFn) embed(tokens []int32, out []float32) error {
 	switch {
 	case f.constant:
 		out[0] = one
-	case len(tokens) >= 6:
+	case len(tokens) >= 6 && (f.collapse || tokens[len(tokens)-2] < 20000):
 		out[2] = one
+	case len(tokens) >= 6:
+		out[3] = one
 	case f.blind || tokens[1] == 1001:
 		out[0] = one
 	default:
@@ -116,8 +120,8 @@ func TestCoreMLBackend_LoadsWithoutAPlan(t *testing.T) {
 	if len(b.planned) != 0 {
 		t.Fatalf("planned %v on a load", b.planned)
 	}
-	if got := fn.(*planFn).calls; got != 3 {
-		t.Fatalf("%d predictions on a load, want 3", got)
+	if got := b.fns[0].calls; got != 4 || fn == nil {
+		t.Fatalf("%d predictions on a load, want 4", got)
 	}
 	if !strings.Contains(info, "open ") || !strings.Contains(info, "validate ") || !strings.Contains(info, "placement not verified yet") {
 		t.Fatalf("load info %q, want the open and validate times and an unverified placement", info)
@@ -183,9 +187,9 @@ func TestCoreMLBackend_RecordsARefusal(t *testing.T) {
 	}
 }
 
-// The record holds for one chip and OS build: another setup audits
-// again and its record replaces the old one. With no setup to name,
-// nothing is written.
+// A record holds for one chip and OS build, and carries it in its name:
+// another setup audits for itself, and coming back to the first finds
+// its verdict. With no setup to name, nothing is written.
 func TestCoreMLBackend_RecordIsPerHostSetup(t *testing.T) {
 	dir := t.TempDir()
 	old := newTestBackend(t, dir, "Chip, macOS build 1A1")
@@ -214,13 +218,16 @@ func TestCoreMLBackend_RecordIsPerHostSetup(t *testing.T) {
 	if stages, _ := filepath.Glob(updated.recordPath(128) + ".*"); len(stages) != 0 {
 		t.Fatalf("staging files left: %v", stages)
 	}
+	if back := newTestBackend(t, dir, "Chip, macOS build 1A1"); back.refused(128) == nil {
+		t.Fatal("the first setup's refusal did not survive the second setup's audit")
+	}
 
 	nameless := newTestBackend(t, t.TempDir(), "")
 	if _, err := nameless.audit(128); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(nameless.recordPath(128)); !os.IsNotExist(err) {
-		t.Fatalf("a record without a host setup: %v", err)
+	if files, _ := filepath.Glob(nameless.record + "*"); len(files) != 0 {
+		t.Fatalf("records without a host setup: %v", files)
 	}
 	if !nameless.placed(128) {
 		t.Fatal("the audit does not hold for the process")
@@ -250,6 +257,7 @@ func TestCoreMLBackend_LoadValidates(t *testing.T) {
 		"one vector for all":                       {constant: true},
 		"one vector for all, short of unit length": {constant: true, scale: 0.995},
 		"a vector by length alone":                 {blind: true},
+		"one vector for every long text":           {collapse: true},
 		"too many failures in a row":               {failFirst: 3 * aneMaxFailures},
 	} {
 		b := newTestBackend(t, t.TempDir(), "Chip, macOS build 1A1")
@@ -279,7 +287,9 @@ func TestNeuralEngine_LastRefusalUnderAPrediction(t *testing.T) {
 	refused := errors.Join(errOffNeuralEngine, errors.New("6014 operations on the cpu"))
 	f := &fakeANE{auditErr: map[int]error{128: refused}, auditGate: make(chan struct{}),
 		predicting: make(chan int), resume: make(chan struct{})}
+	log := newLogLines()
 	n, _ := newTestANE(t, f)
+	n.logf = log.logf
 	n.lengths = []int{128}
 	n.start()
 	waitOrder(t, f, "load 128", "audit 128")
@@ -300,12 +310,19 @@ func TestNeuralEngine_LastRefusalUnderAPrediction(t *testing.T) {
 	if _, _, closed, _ := f.snapshot(); len(closed) != 0 {
 		t.Fatalf("closed %v under a prediction", closed)
 	}
+	// The server is told only when no Core ML call is left in flight.
+	if log.has(aneOffStatus) {
+		t.Fatal("the off line was written under a prediction")
+	}
 	f.resume <- struct{}{}
 	if !<-served {
 		t.Fatal("the prediction in flight was lost")
 	}
 	if _, _, closed, _ := f.snapshot(); !reflect.DeepEqual(closed, []int{128}) {
 		t.Fatalf("closed %v, want s128 once its prediction returned", closed)
+	}
+	if !log.has(aneOffStatus) {
+		t.Fatalf("no off line after the prediction: %v", log.lines)
 	}
 }
 
@@ -350,14 +367,19 @@ func TestNeuralEngine_RecordedRefusalIsNotWaitedFor(t *testing.T) {
 func TestNeuralEngine_LoadsBesideAnAudit(t *testing.T) {
 	f := &fakeANE{auditGate: make(chan struct{})}
 	n, clock := newTestANE(t, f)
+	release := sync.OnceFunc(func() { close(f.auditGate) })
+	defer release() // before the engine's cleanup, which waits for the auditor
 	n.start()
 	waitOrder(t, f, "load 128", "audit 128")
 	if _, _, deferred := n.embedBulk(tokensOf(200)); !deferred {
 		t.Fatal("a document for a function not loaded yet was not deferred")
 	}
-	// The audit is still running: the load lands anyway.
+	// The audit is still running: the load is published anyway.
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(2 * time.Millisecond) {
-		if loaded, _, _, _ := f.snapshot(); len(loaded) == 2 {
+		n.mu.Lock()
+		published := n.fns[256] != nil
+		n.mu.Unlock()
+		if published {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -368,9 +390,77 @@ func TestNeuralEngine_LoadsBesideAnAudit(t *testing.T) {
 	if _, ok, deferred := n.embedBulk(tokensOf(200)); !ok || deferred {
 		t.Fatalf("under the audit: served %v, deferred %v, miss %q", ok, deferred, n.lastMiss())
 	}
-	close(f.auditGate)
+	release()
 	n.loads.Wait()
 	waitOrder(t, f, "load 128", "audit 128", "load 256", "audit 256")
+}
+
+// A function refused by its audit while it loads again, after an idle
+// release, is not published by that load.
+func TestNeuralEngine_ReloadDoesNotRepublishARefusedFunction(t *testing.T) {
+	refused := errors.Join(errOffNeuralEngine, errors.New("6014 operations on the cpu"))
+	f := &fakeANE{auditErr: map[int]error{128: refused}, auditGate: make(chan struct{})}
+	log := newLogLines()
+	n, _ := newTestANE(t, f)
+	n.logf = log.logf
+	releaseAudit := sync.OnceFunc(func() { close(f.auditGate) })
+	defer releaseAudit()
+	n.start()
+	waitOrder(t, f, "load 128", "audit 128")
+	// Released as idle under its audit, then asked for again.
+	f.mu.Lock()
+	f.gate, f.started = make(chan struct{}), make(chan int, 1)
+	f.mu.Unlock()
+	releaseLoad := sync.OnceFunc(func() { close(f.gate) })
+	defer releaseLoad()
+	n.mu.Lock()
+	n.fns[128].close()
+	delete(n.fns, 128)
+	n.requestLocked(128)
+	n.mu.Unlock()
+	<-f.started // the reload is inside the backend
+	releaseAudit()
+	for deadline := time.Now().Add(10 * time.Second); !log.has("s128 not used: "); time.Sleep(2 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the audit never refused the function")
+		}
+	}
+	releaseLoad()
+	n.loads.Wait()
+	n.mu.Lock()
+	published := n.fns[128] != nil
+	n.mu.Unlock()
+	if published {
+		t.Fatal("the reload published a function its audit refused")
+	}
+	if _, _, closed, _ := f.snapshot(); len(closed) != 2 {
+		t.Fatalf("closed %v, want the released handle and the reloaded one", closed)
+	}
+	if _, ok := n.embed(tokensOf(10)); ok {
+		t.Fatal("a text ran on the refused function")
+	}
+}
+
+// The path's off line waits for the Core ML call in flight, and the
+// server may stop an idle child only between audits.
+func TestNeuralEngine_QuiesceAndTheOffLine(t *testing.T) {
+	f := &fakeANE{auditGate: make(chan struct{})}
+	n, _ := newTestANE(t, f)
+	release := sync.OnceFunc(func() { close(f.auditGate) })
+	defer release()
+	n.start()
+	waitOrder(t, f, "load 128", "audit 128")
+	if n.quiesce() {
+		t.Fatal("quiesced under an audit")
+	}
+	release()
+	n.loads.Wait()
+	if !n.quiesce() {
+		t.Fatal("not quiesced with nothing running")
+	}
+	// Once it agreed to stop, no audit starts.
+	loadFor(n, 200)
+	waitOrder(t, f, "load 128", "audit 128", "load 256")
 }
 
 func TestANEAuditing(t *testing.T) {
@@ -629,22 +719,26 @@ func TestCoreMLBackend_RecordsAreChecked(t *testing.T) {
 	const host = "Chip, macOS build 1A1"
 	model := testPackage.id()
 	head := `{"version":1,"model":"` + model + `","host":"` + host + `","function":"s128"`
-	const refusal = `,"on":false,"neuralEngine":0,"gpu":0,"cpu":6014,"cpuCore":["ios18.matmul"]}`
+	const refusal = `,"on":false,"neuralEngine":0,"gpu":0,"cpu":6014,"unknown":0,"cpuCore":["ios18.matmul"]}`
+	path := func(dir string, length int) string { return newTestBackend(t, dir, host).recordPath(length) }
 	for name, raw := range map[string]string{
-		"no verdict fields":                head + `}`,
-		"one count alone":                  head + `,"cpu":14}`,
-		"counts without the verdict":       head + `,"neuralEngine":0,"gpu":0,"cpu":14}`,
-		"a count missing":                  head + `,"on":false,"gpu":0,"cpu":14}`,
-		"a verdict its counts do not give": head + `,"on":true,"neuralEngine":0,"gpu":0,"cpu":14}`,
-		"a count of the wrong type":        head + `,"on":false,"neuralEngine":0,"gpu":0,"cpu":"14"}`,
-		"another function's record":        strings.Replace(head, "s128", "s256", 1) + refusal,
-		"another model's record":           strings.Replace(head, model, "other-12345678", 1) + refusal,
-		"another setup's record":           strings.Replace(head, host, "Chip, macOS build 9Z9", 1) + refusal,
-		"no version":                       strings.Replace(head, `"version":1,`, "", 1) + refusal,
-		"not json":                         `{"version":1,`,
+		"no verdict fields":                                    head + `}`,
+		"one count alone":                                      head + `,"cpu":14}`,
+		"counts without the verdict":                           head + `,"neuralEngine":0,"gpu":0,"cpu":14,"unknown":0}`,
+		"a count missing":                                      head + `,"on":false,"gpu":0,"cpu":14,"unknown":0}`,
+		"the unknown count missing":                            head + `,"on":false,"neuralEngine":0,"gpu":0,"cpu":14}`,
+		"a verdict its counts do not give":                     head + `,"on":true,"neuralEngine":0,"gpu":0,"cpu":14,"unknown":0}`,
+		"a count of the wrong type":                            head + `,"on":false,"neuralEngine":0,"gpu":0,"cpu":"14","unknown":0}`,
+		"more core operators on the cpu than operations there": head + `,"on":false,"neuralEngine":6000,"gpu":0,"cpu":0,"unknown":0,"cpuCore":["ios18.matmul"]}`,
+		"counts that settle nothing":                           head + `,"on":false,"neuralEngine":60,"gpu":0,"cpu":10,"unknown":80}`,
+		"another function's record":                            strings.Replace(head, "s128", "s256", 1) + refusal,
+		"another model's record":                               strings.Replace(head, model, "other-12345678", 1) + refusal,
+		"another setup's record":                               strings.Replace(head, host, "Chip, macOS build 9Z9", 1) + refusal,
+		"no version":                                           strings.Replace(head, `"version":1,`, "", 1) + refusal,
+		"not json":                                             `{"version":1,`,
 	} {
 		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "m.placement.s128.json"), []byte(raw), 0o644); err != nil {
+		if err := os.WriteFile(path(dir, 128), []byte(raw), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		b := newTestBackend(t, dir, host)
@@ -658,14 +752,29 @@ func TestCoreMLBackend_RecordsAreChecked(t *testing.T) {
 	// The sound refusal is read, and a file under a name that is not the
 	// function's own is nobody's.
 	dir := t.TempDir()
-	for _, file := range []string{"m.placement.s128.json", "m.placement.s0256.json", "m.placement.512.json"} {
-		if err := os.WriteFile(filepath.Join(dir, file), []byte(head+refusal), 0o644); err != nil {
+	own := path(dir, 128)
+	for _, file := range []string{own, strings.Replace(own, ".s128.", ".s0256.", 1), strings.Replace(own, ".s128.", ".512.", 1)} {
+		if err := os.WriteFile(file, []byte(head+refusal), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	b := newTestBackend(t, dir, host)
 	if b.refused(128) == nil || b.refused(256) != nil || b.refused(512) != nil {
 		t.Errorf("refused: s128 %v, s256 %v, s512 %v; want s128 alone", b.refused(128), b.refused(256), b.refused(512))
+	}
+}
+
+// A refusal the plan gives by its unknown operations alone, too few to
+// reach the threshold wherever they run, is on record for the next child.
+func TestCoreMLBackend_RecordsARefusalMadeOfUnknowns(t *testing.T) {
+	dir := t.TempDir()
+	b := newTestBackend(t, dir, "Chip, macOS build 1A1")
+	b.plans["s128"] = coreml.Placement{Unknown: 80}
+	if _, err := b.audit(128); !errors.Is(err, errOffNeuralEngine) {
+		t.Fatalf("audit = %v, want a refusal", err)
+	}
+	if next := newTestBackend(t, dir, "Chip, macOS build 1A1"); next.refused(128) == nil {
+		t.Fatal("the refusal was not read back")
 	}
 }
 
@@ -722,34 +831,54 @@ func TestStatusLinesNameNoPath(t *testing.T) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	clean := func(what string, err error) {
+		t.Helper()
+		if err == nil {
+			t.Fatalf("%s: no error", what)
+		}
+		for _, part := range []string{"secret-root", "m.mlmodelc", "m.mlpackage"} {
+			if strings.Contains(err.Error(), part) {
+				t.Errorf("%s: %q names %s", what, err, part)
+			}
+		}
+	}
 	b := newTestBackend(t, root, "Chip, macOS build 1A1")
 	b.open = func(compiled, _ string, _, _ int) (aneFunction, error) {
 		return nil, errors.New("coreml: load s128: could not read " + compiled + "/model.mil")
 	}
 	_, _, err := b.load(128)
-	if err == nil || strings.Contains(err.Error(), "secret-root") {
-		t.Fatalf("load error %q names the models directory", err)
-	}
+	clean("a load error", err)
 	b.plan = func(compiled, _ string) (coreml.Placement, error) {
 		_, err := os.ReadFile(filepath.Join(compiled, "missing"))
 		return coreml.Placement{}, err
 	}
-	if _, err = b.audit(128); err == nil || strings.Contains(err.Error(), "secret-root") {
-		t.Fatalf("audit error %q names the models directory", err)
+	_, err = b.audit(128)
+	clean("an audit error", err)
+	// A prediction of a function that loaded fine.
+	failing := &planFn{}
+	b.open = func(string, string, int, int) (aneFunction, error) { return failing, nil }
+	fn, _, err := b.load(128)
+	if err != nil {
+		t.Fatal(err)
 	}
+	failing.err = errors.New("coreml: s128 predict: file://" + b.compiled + "/weights/weight.bin is gone, and so is " + b.dir)
+	clean("a serving error", fn.embed(tokensOf(10), make([]float32, 4)))
 
 	// The engine's own lines, whatever backend the error comes from.
 	_, pathErr := os.ReadFile(filepath.Join(root, "model.bin"))
 	linkErr := os.Rename(filepath.Join(root, "a"), filepath.Join(root, "b"))
 	for name, f := range map[string]*fakeANE{
-		"preparation fails": {prepErrs: []error{fmt.Errorf("install the compiled model: %w", linkErr)}},
-		"a load fails":      {loadErr: map[int]error{128: pathErr}},
-		"an audit fails":    {auditErr: map[int]error{128: pathErr}},
+		"preparation fails":  {prepErrs: []error{fmt.Errorf("install the compiled model: %w", linkErr)}},
+		"a load fails":       {loadErr: map[int]error{128: pathErr}},
+		"an audit fails":     {auditErr: map[int]error{128: pathErr}},
+		"a prediction fails": {embedErr: map[int]error{0: pathErr}},
 	} {
 		log := newLogLines()
 		n, _ := newTestANE(t, f)
 		n.logf = log.logf
 		n.start()
+		n.loads.Wait()
+		n.embed(tokensOf(10))
 		n.loads.Wait()
 		if log.has("secret-root") || len(log.lines) == 0 {
 			t.Errorf("%s: lines %v name the path", name, log.lines)

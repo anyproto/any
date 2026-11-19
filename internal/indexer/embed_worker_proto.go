@@ -34,8 +34,11 @@ const (
 // Frame ops. Requests: embed / dim / close. Responses: ready (the
 // handshake, carrying the model dimension) / vectors / dim / error.
 const (
-	workerOpEmbed   = "embed"
-	workerOpDim     = "dim"
+	workerOpEmbed = "embed"
+	workerOpDim   = "dim"
+	// workerOpIdle asks a child whether it may be stopped as idle; it
+	// answers with the same op, Busy when stopping would lose work.
+	workerOpIdle    = "idle"
 	workerOpClose   = "close"
 	workerOpReady   = "ready"
 	workerOpVectors = "vectors"
@@ -113,6 +116,7 @@ type workerResp struct {
 	Dim    int           `json:"dim,omitempty"`
 	N      int           `json:"n,omitempty"`
 	Error  string        `json:"error,omitempty"`
+	Busy   bool          `json:"busy,omitempty"`
 	Routes *workerRoutes `json:"routes,omitempty"`
 	// Hardware rides the `ready` frame: what llama.cpp reports about the
 	// machine it just initialized on.

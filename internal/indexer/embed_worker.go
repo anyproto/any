@@ -998,7 +998,10 @@ func (w *workerEmbedder) failChild(cause error) {
 	// caused it. A death that repeats in a child started without Core ML
 	// clears the Neural Engine, which comes back on, once. Read after
 	// stop, which joined the stderr pump.
-	demoteCoreML := c.spec.coremlDir != "" && c.coreml.Load() && !w.coremlDisabled
+	// An audit that started and did not finish is Core ML work too, even
+	// with the path off.
+	usedCoreML := c.coreml.Load() || c.audit.Load() != nil
+	demoteCoreML := c.spec.coremlDir != "" && usedCoreML && !w.coremlDisabled
 	demote := !demoteCoreML && gpu && !w.gpuDisabled
 	restoreCoreML := c.spec.coremlDir == "" && w.coremlDisabled && !w.coremlRestored
 	if demoteCoreML {
@@ -1167,24 +1170,31 @@ func (w *workerEmbedder) retireIdle() {
 	if w.child == nil || w.closing.Load() {
 		return
 	}
-	// A child that exited by itself is reaped as one that failed.
-	select {
-	case <-w.child.errDone:
-		w.failChild(errors.New("embedder child exited"))
-		return
-	default:
-	}
 	// Not under a wait for the first function, nor, with a Core ML path,
-	// under a drain, which may be waiting for a function, or under a
-	// placement audit, whose verdict a retired child would never write.
-	held := w.child.spec.coremlDir != "" && (w.holds.Load() > 0 || w.child.audit.Load() != nil)
-	if w.preparing.Load() > 0 || held {
+	// under a drain, which may be waiting for a function.
+	coreML := w.child.spec.coremlDir != ""
+	if w.preparing.Load() > 0 || (coreML && w.holds.Load() > 0) {
 		w.idleTimer.Reset(w.idleTimeout)
 		return
 	}
 	if rest := w.idleTimeout - time.Since(w.lastFrame); rest > 0 {
 		w.idleTimer.Reset(rest)
 		return
+	}
+	// A child with a Core ML path is asked: it refuses under a placement
+	// audit, whose verdict it would never write, and one that cannot
+	// answer has failed. A child of another build does not know the
+	// question and is stopped.
+	if coreML {
+		hdr, _, err := w.roundTrip(workerReq{Op: workerOpIdle})
+		switch {
+		case err != nil:
+			w.failChild(err)
+			return
+		case hdr.Op == workerOpIdle && hdr.Busy:
+			w.idleTimer.Reset(w.idleTimeout)
+			return
+		}
 	}
 	w.lg.Info("local embedder child retired while idle", zap.Duration("idle", w.idleTimeout))
 	w.stopChild(true)
@@ -1304,7 +1314,8 @@ type embedChild struct {
 	// when the child's stderr ends (exited).
 	onStatus func(exited bool)
 	// audit names the function whose placement audit the child reported
-	// started and not finished; nil = none.
+	// started and not finished; nil = none. Left set by a child that died
+	// in one: failChild reads it.
 	audit atomic.Pointer[string]
 	// first names the path's first function ("s128"), the one whose
 	// report settles it; "" = any function's does.
@@ -1345,10 +1356,8 @@ func (c *embedChild) readLoop(r *bufio.Reader) {
 // mid-decode. Over-long lines are truncated, not fatal.
 func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 	defer close(c.errDone)
-	// A child that exits has nothing loading: no text waits for it, and
-	// no audit of its holds it.
+	// A child that exits has nothing loading: no text waits for it.
 	defer func() {
-		c.audit.Store(nil)
 		if c.onStatus != nil {
 			c.onStatus(true)
 		}
