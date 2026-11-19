@@ -502,10 +502,9 @@ func tokenIds(tokens []llama.Token) []int32 {
 	return ids
 }
 
-// llamaGroup is the decode group llama.cpp gets from start on, whose
-// text the Neural Engine path just missed: the texts after it join only
-// while that path leaves each of them to llama.cpp too. misses is why,
-// per text; nil with no such path. Caller holds l.mu.
+// llamaGroup is llama.cpp's decode group from start, a text the Neural
+// Engine path just missed: later texts join only while that path leaves
+// them to llama.cpp too. misses is why, per text. Caller holds l.mu.
 func (l *Local) llamaGroup(tokenized [][]llama.Token, lens []int, start int, bulk bool) (end int, misses []string) {
 	end = groupEnd(lens, start, l.nCtx, l.batchDocs)
 	if l.ane == nil {

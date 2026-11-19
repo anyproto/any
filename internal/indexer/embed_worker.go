@@ -90,10 +90,9 @@ type workerEmbedder struct {
 	live      atomic.Pointer[os.Process]
 	closing   atomic.Bool
 	closeOnce sync.Once
-	// preparing counts the PrepareBulk calls in flight and holds the
-	// HoldBulk ones not released: the child is not retired as idle under
-	// either. bulkWaited: a PrepareBulk ran into the deadline, and no later
-	// call waits.
+	// preparing counts the PrepareBulk calls in flight, holds the HoldBulk
+	// ones not released: no child is retired as idle under either.
+	// bulkWaited: a PrepareBulk ran into the deadline; no later call waits.
 	preparing  atomic.Int32
 	holds      atomic.Int32
 	bulkWaited atomic.Bool
@@ -412,9 +411,8 @@ func (w *workerEmbedder) noteBulk(t routeTally) {
 }
 
 // logBulk writes the line about the batches counted since the last one,
-// if any of their texts ran on llama.cpp or was left pending, and if the
-// last line is bulkLogEvery old or now is set: the child is going, and
-// nothing later would say what is counted.
+// if a text of theirs ran on llama.cpp or was left pending, once that
+// line is bulkLogEvery old. now: the child is going; do not wait.
 func (w *workerEmbedder) logBulk(now bool) {
 	r := &w.routed
 	r.mu.Lock()
@@ -1015,9 +1013,8 @@ var _ BulkPreparer = (*workerEmbedder)(nil)
 // llama.cpp while Core ML prepares. A drain calls it before every round
 // that has work: a child whose path has settled answers at once, without
 // the slot, and one that replaced it is waited on like the first. A
-// drain also calls it at the start of its start delay, so the child and
-// the first function load under the delay. It returns how the wait went
-// (Bulk*).
+// drain also calls it at the start of its start delay. It returns how
+// the wait went (Bulk*).
 //
 // It starts the child and returns when the child reports a function
 // loaded, a failed load or the path off, when the child exits, when ctx

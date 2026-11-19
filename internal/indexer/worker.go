@@ -845,10 +845,9 @@ func (w *spaceWorker) drain(ctx context.Context, delay bool) error {
 // when the count read failed) and with (landed, -1) after each batch
 // that landed vectors.
 //
-// A text the embedder left without a vector (RoutedEmbedder) stays
-// pending and the rounds go on past it. Once nothing else is pending the
-// drain waits for the embedder's word (BulkDeferrer), or PendingEvery,
-// and starts over from the head of the queue.
+// A text the embedder deferred (RoutedEmbedder) stays pending and the
+// rounds go on past it; the drain starts over from the head on the
+// embedder's word (BulkDeferrer), a nudge or PendingEvery.
 func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func(landed, remaining int), status func(EmbedStatus)) error {
 	spaceId := w.sp.Id()
 	batch := w.ix.opts.EmbedBatch
@@ -1117,9 +1116,8 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 }
 
 // logBulkOpened says, once per run, when bulk embedding got past its
-// waits, which of them it ended on (the start delay, or the embedder,
-// when its preparation outlasted the delay), and how the embedder's
-// preparation went (Bulk*; "" = it has none).
+// waits, whether the start delay or the embedder was the later one, and
+// how the embedder's preparation went (Bulk*; "" = it has none).
 func (ix *Indexer) logBulkOpened(delayed, prepared bool, how string, preparedFor time.Duration) {
 	ix.bulkOpened.Do(func() {
 		fields := bulkOpenedFields(delayed, prepared, how, preparedFor)

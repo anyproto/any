@@ -161,9 +161,11 @@ index:
   embedBatch: 64                      # docs per embed request (0 = default 64)
   embedConcurrency: 0                 # batches embedded in parallel; 0 = 1 for local,
                                       # 4 for online openai/auto (parallel = the API win)
-  embedStartDelay: 2m                 # local embedder: documents start embedding this long
-                                      # after boot (0 = at once); searches are not delayed,
-                                      # and the embedder loads under it when texts wait
+  embedStartDelay: 2m                 # local embedder: no document embeds sooner after boot
+                                      # (0 = no delay); searches are not delayed. With the
+                                      # Neural Engine path and texts waiting, the embedder
+                                      # loads under the delay, and documents wait for its
+                                      # first function even past it
   ollama:
     url: http://localhost:11434       # default
     model: embeddinggemma             # default

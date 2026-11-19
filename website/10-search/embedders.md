@@ -67,7 +67,7 @@ index:
     neuralEngine: "off"   # llama.cpp alone
 ```
 
-Core ML's plan for each function is checked before it loads: a function whose transformer core would run on the CPU is refused, and a larger loaded function or llama.cpp takes its texts. A bulk index of mixed lengths keeps all five functions loaded at once, about 2.0 GB of wired memory next to llama.cpp (1.4 GB when no text passes 1,024 tokens).
+Core ML's plan for each function is checked after it has loaded and begun to serve, once per chip and OS build: a function whose transformer core would run on the CPU is then dropped, and a larger loaded function or llama.cpp takes its texts. A bulk index of mixed lengths keeps all five functions loaded at once, about 2.0 GB of wired memory next to llama.cpp (1.4 GB when no text passes 1,024 tokens).
 
 Platform notes: only builds with `-tags llamacpp` carry the local embedder; without it `local` fails at boot ([Builds and CI](../operations/builds-and-ci.html)). Linux needs a loadable system `libffi.so.8` (on NixOS use the repo's `nix develop` shell); macOS bundles it. Mobile builds have full-text search and force vector search off; they never construct an embedder, even when the configuration names one.
 

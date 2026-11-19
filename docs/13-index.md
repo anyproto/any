@@ -652,11 +652,14 @@ that finds texts pending waits until `index.embedStartDelay` after the
 account boots, 2 min by default: the first minutes are left to sync,
 the full-text pass and the client's startup. Its process row says
 `waiting` meanwhile (`22-processes.md` § Internal producers). Nothing
-embeds under the delay, but the embedder child starts and readies the
-Neural Engine's first function under it (§ Neural Engine), so the
-backlog opens at the later of the two. `0` is no
-wait, as for an HTTP embedder. A loop drains once when it starts, for
-what was pending before it. A search embeds its query regardless.
+embeds under the delay. Where the Neural Engine path is planned and its
+package is on disk, the embedder child starts under the delay and
+readies the path's first function (§ Neural Engine), and the backlog
+opens at the later of the two; anywhere else the child starts with the
+first batch. `0` is no delay, as for an HTTP embedder: the wait for
+that first function is then the only one. A loop drains once when it
+starts, for what was pending before it. A search embeds its query
+regardless.
 
 A vector lands only on the input it was embedded from. The advance loop
 writes while a batch embeds, so the landing checks each doc inside its
@@ -963,9 +966,11 @@ queries: when the child starts if the package is ready, else within
 30 s of it being there. Any other loads in the
 background on the first text that needs it, and a timer releases it five
 minutes after its last use; idle retirement of the child releases all of
-them. A load opens the function and has it predict twice, on a short
-text and on one of its full length: each output must be a unit vector
-and the two must differ, or the function is not used. The first load of
+them. A load opens the function and has it predict three texts: two
+short ones of one length with different tokens, and one of its full
+length. Each output must be a unit vector and no two may be alike
+(cosine above 0.999), or, after three tries, the function is not used.
+The first load of
 a function specializes it for the Neural Engine, which takes minutes
 for the longest ones; Core ML keeps the result, and a later load takes
 seconds. While a function loads, a larger loaded
@@ -998,15 +1003,21 @@ texts that fit a loaded function keep landing. When nothing else is
 pending the drain waits, its row in `preparing`, until the child
 reports on a function (loaded, failed, released, the path off), the
 child stops or exits, or the 1-minute tick; then it starts over from the head of
-the queue. A text written meanwhile is embedded on that next pass. A
-child with documents waiting on it is not retired as idle before its
-next report. The
+the queue. The same report heard in the middle of a pass restarts it
+from the head at the next page, and the nudge for newly written texts
+ends the wait too, so neither a busy queue nor a loading function holds
+up a text that can embed. A drain holds the child against idle
+retirement from its start delay until it returns. The
 wait for one function is bounded at 10 min from when it was first asked
-for: past that the child says so, and llama.cpp embeds the function's
-documents until it is loaded (`readiness_timeout`). A drain that gave
-up waiting for the first function does not hold documents back either.
-A function that failed to load, the path off, a missing package and a
-text over 2,048 tokens go to llama.cpp at once, as does every query.
+for, or from the end of a placement audit that kept the loader from it:
+past that the child says so, and llama.cpp embeds the function's
+documents until it is loaded (`readiness_timeout`). The bound of the
+wait for the first function is separate and ends only that wait.
+A function that failed to load or is on record as refused, the path
+off, a missing package and a text over 2,048 tokens go to llama.cpp at
+once. A query never waits: it runs on a loaded function that holds it,
+else on llama.cpp. With several documents to a decode
+(`index.local.batchDocs`), each is routed on its own.
 
 **Placement.** A machine that lists no Neural Engine never loads the
 package. Core ML's compute plan says where it prefers to run each
@@ -1016,13 +1027,22 @@ serves at once, and when the child has nothing left to load it audits
 the functions it has no verdict for, one at a time: the plan must put
 more than 100 operations on the Neural Engine and no convolution,
 matmul, linear or softmax operation on the CPU. The verdict is written
-to `<name>-<digest>.placement.json` beside the compiled model, for the
-chip and the OS build it was read on, and every later child on that
-setup takes it from there without a plan. A function whose verdict is
-against it is closed and not loaded again, in that child or a later
+to `<name>-<digest>.placement.json` beside the compiled model, with the
+model's name and digest, the chip and the OS build it was read on, and
+every later child on that setup takes it from there without a plan: a
+function on record against is failed as soon as the child has prepared.
+An entry is read only if its verdict is the one the rule gives for its
+own counts; anything else, another model's or setup's record included,
+is as if not audited. Children of several servers share the file
+without a lock: each adds its audits to the file as it is at that
+moment, and an audit lost to another's write is run again. A function whose verdict is
+against it is closed, once any prediction in flight has returned, and
+not loaded again, in that child or a later
 one, and llama.cpp takes its texts; another chip or OS build, or a
-removed file, is audited afresh. A plan that cannot be read is no
-verdict: the function keeps serving and the next child audits it. Until
+removed file, is audited afresh. A plan that cannot be read, or that
+names no device for operations the verdict depends on, is no
+verdict: the function keeps serving and the next child audits it. A
+child is not retired as idle while it audits. Until
 a function has its verdict the texts it embeds are reported as
 `coreml`, after it as `ane` (`22-processes.md` § Internal producers).
 The digest in the package's directory name is of its pinned checksums,
@@ -1046,20 +1066,24 @@ that stays without it for the rest of the process.
 the placement is `placement on record, plan skipped`, `placement
 verified` (by this child, earlier) or `placement not verified yet`;
 `s<N> placement verified (plan …, … operations on the neural engine, …
-on the cpu)` and `s<N> placement not verified: …` from the audit;
+on the cpu)` and `s<N> placement not verified: …` from the audit,
+after `s<N> placement audit started`;
 `s<N> not used: …`; `s<N> still loading after …`; `s<N> released after
 …`; and `off, …`. `bulk embedding opened` is logged once per run, when
 the first drain got past its waits: `openedBy` is `start_delay`,
-`embedder_ready` (the first function outlasted the delay, by
-`embedderWaitPastDelay`) or `no_wait`, with `sinceStart`. `local
-embedder bulk routing` counts the bulk texts since the previous such
-line (`ane`, `coreml`, `llama`), at most every 30 s and only when some
-ran on llama.cpp or were left pending: `llamaReasons` has the count per
-reason (`none` = no reason to give), `deferred` the texts left pending
-since the child's last report and `deferredFor` the time since the
-first of them. The line with `deferredSentAgain: true` closes that
-count when the child reports or stops; a text deferred again after it
-is counted again. None of these lines carries a text or an id.
+`embedder` (its preparation outlasted the delay, by
+`embedderWaitPastDelay`) or `no_wait`, with `sinceStart`, and
+`embedder` says how that preparation went: `ready`, `failed` or `off`
+for the first function, `timeout`, `no_child`, `no_package`, `no_wait`
+(no Neural Engine path) or `cancelled`. With a Neural Engine path,
+`local embedder bulk routing` counts the bulk texts since the previous
+such line (`ane`, `coreml`, `llama`) over `window`, at most every 30 s,
+when the child stops, and only when some ran on llama.cpp or were left
+pending: `llamaReasons` has the count per reason (`none` = no reason to
+give), `deferred` how many times a text was left pending and
+`deferredFor` the time since the first of them; a text left pending in
+two passes counts twice. None of these lines carries a text, an id or a
+path.
 
 Core ML is called through the Objective-C runtime, so the binary stays
 CGO-free and cross-compiled (`internal/indexer/coreml`).

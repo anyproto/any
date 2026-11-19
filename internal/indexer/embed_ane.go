@@ -24,10 +24,9 @@ import (
 // The Neural Engine path of the local embedder. A pinned model's Core ML
 // package holds fixed-length functions; a text runs on the smallest
 // loaded one that fits it. llama.cpp embeds everything else: a text
-// longer than every function, and a query until its function is loaded.
-// A document whose function is loading is left for a later round
-// instead. Both runtimes write one index (docs/13-index.md § Neural
-// Engine).
+// longer than every function, and a query until its function is loaded;
+// a document waits for it. Both runtimes write one index
+// (docs/13-index.md § Neural Engine).
 
 const (
 	// aneRetryInterval spaces the attempts to start on a package that is
@@ -37,11 +36,9 @@ const (
 	// stays: it serves queries. Long enough that a backlog with few long
 	// texts does not reload the large functions over and over.
 	aneIdleRelease = 5 * time.Minute
-	// aneBulkWait bounds how long bulk work waits for a function: for
-	// the path's first one before any text (workerEmbedder.PrepareBulk),
-	// and for the one a document needs, counted from when it was first
-	// asked for (neuralEngine.embedBulk). A first load on a machine takes
-	// minutes.
+	// aneBulkWait bounds how long bulk work waits for a function: for the
+	// path's first one (workerEmbedder.PrepareBulk), and for the one a
+	// document needs, from when it was asked for (neuralEngine.embedBulk).
 	aneBulkWait = 10 * time.Minute
 	// aneMaxFailures consecutive failed predictions retire a function
 	// for the rest of the process.
@@ -214,9 +211,8 @@ func (n *neuralEngine) embed(tokens []int32) (vec []float32, ok bool) {
 }
 
 // embedBulk is embed for a document of bulk work. deferred: no vector,
-// and llama.cpp is not to embed the text either, because the function
-// it needs is loading and was asked for less than the bulk wait ago.
-// The caller sends the text again later.
+// and none from llama.cpp either: the function is loading and was asked
+// for less than the bulk wait ago. The caller sends the text again.
 func (n *neuralEngine) embedBulk(tokens []int32) (vec []float32, ok, deferred bool) {
 	return n.embedFor(tokens, true)
 }
@@ -992,9 +988,8 @@ func pathless(err error) error {
 }
 
 // writePlacements adds this process's audits to the record as it is on
-// disk now, read right before the write. The file appears whole or not
-// at all. Nothing locks it between processes: an audit lost to another's
-// write is run again.
+// disk now; the file appears whole or not at all. Nothing locks it
+// between processes: an audit lost to another's write is run again.
 func (b *coreMLBackend) writePlacements() error {
 	if b.host == "" {
 		return nil
