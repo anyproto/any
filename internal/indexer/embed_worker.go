@@ -803,7 +803,9 @@ var _ BulkPreparer = (*workerEmbedder)(nil)
 // running child has its first function, so a backlog does not run on
 // llama.cpp while Core ML prepares. A drain calls it before every round
 // that has work: a child whose path has settled answers at once, without
-// the slot, and one that replaced it is waited on like the first.
+// the slot, and one that replaced it is waited on like the first. A
+// drain also calls it at the start of its start delay, so the child and
+// the first function load under the delay.
 //
 // It starts the child and returns when the child reports a function
 // loaded, a failed load or the path off, when the child exits, when ctx

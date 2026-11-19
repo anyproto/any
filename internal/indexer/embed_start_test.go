@@ -19,10 +19,14 @@ type prepEmbedder struct {
 	events []string
 	during func()    // runs inside the next PrepareBulk
 	at     time.Time // the first EmbedDocs
+	prepAt time.Time // the first PrepareBulk
 }
 
 func (e *prepEmbedder) PrepareBulk(context.Context, func()) {
 	e.mu.Lock()
+	if e.prepAt.IsZero() {
+		e.prepAt = time.Now()
+	}
 	e.events = append(e.events, "prepare")
 	during := e.during
 	e.during = nil
@@ -50,8 +54,8 @@ func (e *prepEmbedder) snapshot() ([]string, time.Time) {
 
 // The embed loop leaves the start of a run to the boot: nothing embeds
 // before EmbedStartDelay has passed, a backlog from the previous run is
-// drained right after it, and the embedder is prepared before its first
-// batch.
+// drained right after it, and the embedder is prepared under the delay
+// and asked again before its first batch.
 func TestSpaceWorker_EmbedLoopStartsAfterTheDelay(t *testing.T) {
 	const sp = "sp"
 	const delay = 400 * time.Millisecond
@@ -92,11 +96,17 @@ func TestSpaceWorker_EmbedLoopStartsAfterTheDelay(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	events, at := emb.snapshot()
-	if len(events) < 2 || events[0] != "prepare" || events[1] != "embed" {
-		t.Fatalf("calls = %v, want prepare before the first embed", events)
+	if len(events) < 3 || events[0] != "prepare" || events[1] != "prepare" || events[2] != "embed" {
+		t.Fatalf("calls = %v, want prepare under the delay, prepare after it, then the first embed", events)
 	}
 	if waited := at.Sub(started); waited < delay {
 		t.Fatalf("embedded %s after the start, before the %s delay ended", waited, delay)
+	}
+	emb.mu.Lock()
+	prepAt := emb.prepAt
+	emb.mu.Unlock()
+	if early := prepAt.Sub(started); early > delay/2 {
+		t.Fatalf("prepared %s after the start, want it at the start of the %s delay", early, delay)
 	}
 }
 
@@ -198,7 +208,8 @@ func TestIndexer_StartSetsTheEmbedDelay(t *testing.T) {
 type routedEmbedder struct {
 	axisEmbedder
 	route   EmbedRoute
-	prepare time.Duration
+	mu      sync.Mutex
+	prepare time.Duration // guarded by mu
 }
 
 func (e *routedEmbedder) EmbedDocsRouted(ctx context.Context, _, texts []string) ([][]float32, EmbedRoute, error) {
@@ -206,12 +217,24 @@ func (e *routedEmbedder) EmbedDocsRouted(ctx context.Context, _, texts []string)
 	return vecs, e.route, err
 }
 
-func (e *routedEmbedder) PrepareBulk(_ context.Context, waiting func()) {
-	if e.prepare > 0 {
-		waiting()
-		time.Sleep(e.prepare)
-		e.prepare = 0 // settled: later rounds do not wait
+func (e *routedEmbedder) PrepareBulk(ctx context.Context, waiting func()) {
+	e.mu.Lock()
+	d := e.prepare
+	e.mu.Unlock()
+	if d <= 0 {
+		return
 	}
+	if waiting != nil {
+		waiting()
+	}
+	select {
+	case <-time.After(d):
+	case <-ctx.Done():
+		return
+	}
+	e.mu.Lock()
+	e.prepare = 0 // settled: later rounds do not wait
+	e.mu.Unlock()
 }
 
 // The frames of a drain carry what the embedder is doing: the phase from
@@ -259,9 +282,10 @@ func TestEmbedDrainReportsTheEmbedderState(t *testing.T) {
 		t.Fatalf("frames = %v, want %v", got, want)
 	}
 
-	// The start delay, then the embedder's own preparation, then batches.
+	// The start delay, then what is left of the embedder's own
+	// preparation, which began under it, then batches.
 	updates = nil
-	emb.prepare = 50 * time.Millisecond
+	emb.prepare = 400 * time.Millisecond
 	emb.route = EmbedRoute{Backends: []string{EmbedBackendANE}}
 	ix.embedFrom = time.Now().Add(150 * time.Millisecond)
 	land("m2", 2)
@@ -269,6 +293,24 @@ func TestEmbedDrainReportsTheEmbedderState(t *testing.T) {
 		t.Fatal(err)
 	}
 	want = []string{"started:waiting", "progress:preparing", "progress:embedding", "progress:embedding[ane]", "progress:embedding[ane]", "done:-"}
+	if got := phases(); !slices.Equal(got, want) {
+		t.Fatalf("frames = %v, want %v", got, want)
+	}
+
+	// A preparation that ends under the delay is not a phase of its own:
+	// bulk work opens when the delay does.
+	updates = nil
+	emb.prepare = 30 * time.Millisecond
+	ix.embedFrom = time.Now().Add(200 * time.Millisecond)
+	land("m3", 3)
+	started := time.Now()
+	if err := w.drainPending(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(started); took < 200*time.Millisecond || took > 2*time.Second {
+		t.Fatalf("the drain took %s, want the 200ms delay and no wait after it", took)
+	}
+	want = []string{"started:waiting", "progress:embedding", "progress:embedding[ane]", "progress:embedding[ane]", "done:-"}
 	if got := phases(); !slices.Equal(got, want) {
 		t.Fatalf("frames = %v, want %v", got, want)
 	}

@@ -162,7 +162,8 @@ index:
   embedConcurrency: 0                 # batches embedded in parallel; 0 = 1 for local,
                                       # 4 for online openai/auto (parallel = the API win)
   embedStartDelay: 2m                 # local embedder: documents start embedding this long
-                                      # after boot (0 = at once); searches are not delayed
+                                      # after boot (0 = at once); searches are not delayed,
+                                      # and the embedder loads under it when texts wait
   ollama:
     url: http://localhost:11434       # default
     model: embeddinggemma             # default

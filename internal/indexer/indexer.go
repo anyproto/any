@@ -51,8 +51,8 @@ type Options struct {
 	PendingEvery time.Duration
 	// EmbedStartDelay holds the embed loops back for this long after
 	// Start, so a boot's sync, full-text pass and client startup do not
-	// compete with a backlog. Searches embed their query at once. 0 = no
-	// delay.
+	// compete with a backlog. Searches embed their query at once, and a
+	// BulkPreparer prepares under the delay. 0 = no delay.
 	EmbedStartDelay time.Duration
 	// OnProcess, when set, receives indexing lifecycle updates — per
 	// ProcessKind*, one started/progress*/terminal sequence per unit

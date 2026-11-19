@@ -651,7 +651,10 @@ With the local embedder (`local`, and `auto` without a key) a drain
 that finds texts pending waits until `index.embedStartDelay` after the
 account boots, 2 min by default: the first minutes are left to sync,
 the full-text pass and the client's startup. Its process row says
-`waiting` meanwhile (`22-processes.md` § Internal producers). `0` is no
+`waiting` meanwhile (`22-processes.md` § Internal producers). Nothing
+embeds under the delay, but the embedder child starts and readies the
+Neural Engine's first function under it (§ Neural Engine), so the
+backlog opens at the later of the two. `0` is no
 wait, as for an HTTP embedder. A loop drains once when it starts, for
 what was pending before it. A search embeds its query regardless.
 
@@ -963,10 +966,12 @@ After that a child's first load of a function takes two to three
 seconds and a reload under one. While a function loads, a larger loaded
 one serves its texts, else llama.cpp.
 
-**Bulk work waits for the first function.** Before a drain's first
-batch the server starts the child and waits for the path's first
-function, so a backlog does not run on llama.cpp while Core ML
-prepares. The drain's process row is announced before the wait. The
+**Bulk work waits for the first function.** A drain that finds texts
+pending starts the child at once, under the start delay, and before its
+first batch waits for the path's first function, so a backlog does not
+run on llama.cpp while Core ML prepares. Bulk work opens at the later
+of the start delay and that function. The drain's process row is
+announced before the wait. The
 wait ends when the child reports a function loaded, a failed load or
 the path off, when the child exits, or 10 min after the child's first
 waiter, for every waiter at once; a wait that ran into that bound ends

@@ -92,8 +92,9 @@ func embedBackends(e Embedder) []string {
 
 // BulkPreparer is an Embedder that readies a faster runtime in the
 // background. A drain calls PrepareBulk before every round that has
-// work; it returns once there is nothing to wait for. waiting, when set,
-// is called once if the call is going to wait.
+// work, and once more under the start delay, when it runs beside the
+// call that follows the delay; it returns once there is nothing to wait
+// for. waiting, when set, is called once if the call is going to wait.
 type BulkPreparer interface {
 	PrepareBulk(ctx context.Context, waiting func())
 }

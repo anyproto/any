@@ -283,7 +283,8 @@ func (w *spaceWorker) runAdvance() {
 
 // embedLoop drains pending docs on nudges from advance and on the
 // periodic tick (which also retries after embedder failures). A drain
-// that finds work before Options.EmbedStartDelay has passed waits for it.
+// that finds work before Options.EmbedStartDelay has passed waits for
+// it, and has the embedder prepare meanwhile.
 func (w *spaceWorker) embedLoop() {
 	defer w.ix.wg.Done()
 	drain := func() {
@@ -886,6 +887,20 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 			}
 			progress(0, n) // the started frame carries the phase
 			if wait > 0 {
+				// The embedder readies its runtime under the delay; the
+				// prepare below then waits only for what is left.
+				if p, ok := emb.(BulkPreparer); ok {
+					early, stop := context.WithCancel(ctx)
+					prepared := make(chan struct{})
+					go func() {
+						defer close(prepared)
+						p.PrepareBulk(early, nil)
+					}()
+					defer func() {
+						stop()
+						<-prepared
+					}()
+				}
 				select {
 				case <-ctx.Done():
 					return ctx.Err()

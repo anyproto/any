@@ -284,7 +284,8 @@ type Index struct {
 	// loops start draining, leaving the first minutes to sync, the
 	// full-text pass and the client's startup. A duration; "0" starts at
 	// once. Searches embed their query regardless, and an HTTP embedder
-	// (openai, ollama, auto with a key) is not delayed. Default 2m.
+	// (openai, ollama, auto with a key) is not delayed. The embedder
+	// readies its runtime under the delay. Default 2m.
 	EmbedStartDelay string      `yaml:"embedStartDelay"`
 	Ollama          IndexOllama `yaml:"ollama"`
 	OpenAI          IndexOpenAI `yaml:"openai"`
