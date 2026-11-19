@@ -185,19 +185,3 @@ func TestNeuralEngine_ReadyLineSaysHowLongItWasAskedFor(t *testing.T) {
 		t.Fatalf("lines %v", log.lines)
 	}
 }
-
-func TestBulkOpenedBy(t *testing.T) {
-	for _, tc := range []struct {
-		delayed, prepared bool
-		want              string
-	}{
-		{false, false, "no_wait"},
-		{true, false, "start_delay"},
-		{true, true, "embedder_ready"},
-		{false, true, "embedder_ready"},
-	} {
-		if got := bulkOpenedBy(tc.delayed, tc.prepared); got != tc.want {
-			t.Errorf("bulkOpenedBy(%v, %v) = %q, want %q", tc.delayed, tc.prepared, got, tc.want)
-		}
-	}
-}

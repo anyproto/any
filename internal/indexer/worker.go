@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -865,11 +866,11 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 	// An embedder that readies a faster runtime in the background gets
 	// to finish that before every round that has work (BulkPreparer).
 	preparer, _ := emb.(BulkPreparer)
-	prepared := false // the last prepare had to wait
+	prepared, how := false, "" // the last prepare had to wait; how it went
 	prepare := func() error {
-		prepared = false
+		prepared, how = false, ""
 		if preparer != nil {
-			preparer.PrepareBulk(ctx, func() {
+			how = preparer.PrepareBulk(ctx, func() {
 				prepared = true
 				report(EmbedStatus{Phase: EmbedPhasePreparing})
 			})
@@ -901,6 +902,7 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 		case <-ctx.Done():
 			return false, ctx.Err()
 		case <-wake:
+		case <-w.embedCh: // new texts: they do not wait for these
 		case <-time.After(w.ix.opts.PendingEvery):
 		}
 		startPass()
@@ -928,6 +930,11 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 				report(EmbedStatus{Phase: EmbedPhaseEmbedding})
 			}
 			progress(0, n) // the started frame carries the phase
+			// The drain sends nothing under its waits: the embedder keeps
+			// what it loaded for it until the drain returns.
+			if h, ok := emb.(BulkHolder); ok {
+				defer h.HoldBulk()()
+			}
 			if wait > 0 {
 				// The embedder readies its runtime under the delay; the
 				// prepare below then waits only for what is left.
@@ -954,7 +961,17 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 				return err
 			}
 			if wait > 0 || preparer != nil {
-				w.ix.logBulkOpened(wait > 0, prepared, time.Since(asked))
+				w.ix.logBulkOpened(wait > 0, prepared, how, time.Since(asked))
+			}
+			startPass() // what the embedder said while it prepared is old
+		}
+		// The embedder's word in the middle of a pass: the texts left
+		// behind go first, or pages that stay full would keep them there.
+		if skip > 0 {
+			select {
+			case <-wake:
+				startPass()
+			default:
 			}
 		}
 		ids, texts, err := w.ix.store.PendingFrom(ctx, spaceId, skip, batch*conc)
@@ -1024,15 +1041,21 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 					}
 					c.route.Backends = embedBackends(emb)
 				}
+				// Only the texts a route declares deferred may lack a vector.
+				if vecs, err := declaredVectors(c.vecs, c.route.Deferred); err != nil {
+					c.vecs, c.route.Deferred = vecs, 0
+					if c.err == nil {
+						c.err = err
+					}
+				}
 			}(c)
 		}
 		wg.Wait()
 
 		// What the embedder left without a vector stays pending.
 		for _, c := range chunks {
-			n := len(c.vecs)
 			c.ids, c.texts, c.titles, c.vecs = embeddedDocs(c.ids, c.texts, c.titles, c.vecs)
-			skip += n - len(c.vecs)
+			skip += c.route.Deferred
 		}
 		// First embedded vector teaches the store its dimension (no
 		// boot-time probe — an embedder down at boot just starts here).
@@ -1067,6 +1090,9 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 					landed = true
 					progress(took, -1)
 				}
+			} else if c.err == nil && c.route.Deferred > 0 {
+				// A batch left pending whole: no runtime embedded it.
+				report(EmbedStatus{Phase: EmbedPhaseEmbedding})
 			}
 			if c.err != nil && firstErr == nil {
 				firstErr = c.err
@@ -1091,14 +1117,13 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 }
 
 // logBulkOpened says, once per run, when bulk embedding got past its
-// waits and which of them it ended on: the start delay, or the embedder,
-// when its preparation outlasted the delay.
-func (ix *Indexer) logBulkOpened(delayed, prepared bool, preparedFor time.Duration) {
+// waits, which of them it ended on (the start delay, or the embedder,
+// when its preparation outlasted the delay), and how the embedder's
+// preparation went (Bulk*; "" = it has none).
+func (ix *Indexer) logBulkOpened(delayed, prepared bool, how string, preparedFor time.Duration) {
 	ix.bulkOpened.Do(func() {
-		fields := []zap.Field{zap.String("openedBy", bulkOpenedBy(delayed, prepared)), zap.Duration("startDelay", ix.opts.EmbedStartDelay)}
-		if prepared {
-			fields = append(fields, zap.Duration("embedderWaitPastDelay", preparedFor.Round(time.Millisecond)))
-		}
+		fields := bulkOpenedFields(delayed, prepared, how, preparedFor)
+		fields = append(fields, zap.Duration("startDelay", ix.opts.EmbedStartDelay))
 		if !ix.embedFrom.IsZero() {
 			fields = append(fields, zap.Duration("sinceStart",
 				time.Since(ix.embedFrom.Add(-ix.opts.EmbedStartDelay)).Round(time.Millisecond)))
@@ -1108,14 +1133,40 @@ func (ix *Indexer) logBulkOpened(delayed, prepared bool, preparedFor time.Durati
 	})
 }
 
-func bulkOpenedBy(delayed, prepared bool) string {
+func bulkOpenedFields(delayed, prepared bool, how string, preparedFor time.Duration) []zap.Field {
+	by := "no_wait"
 	switch {
 	case prepared:
-		return "embedder_ready"
+		by = "embedder"
 	case delayed:
-		return "start_delay"
+		by = "start_delay"
 	}
-	return "no_wait"
+	fields := []zap.Field{zap.String("openedBy", by)}
+	if how != "" {
+		fields = append(fields, zap.String("embedder", how))
+	}
+	if prepared {
+		fields = append(fields, zap.Duration("embedderWaitPastDelay", preparedFor.Round(time.Millisecond)))
+	}
+	return fields
+}
+
+// declaredVectors checks that a batch lacks a vector for exactly the
+// deferred texts its route declares. Otherwise it returns the vectors
+// ahead of the first missing one, and the error.
+func declaredVectors(vecs [][]float32, deferred int) ([][]float32, error) {
+	missing, first := 0, -1
+	for i, v := range vecs {
+		if len(v) == 0 {
+			if missing++; first < 0 {
+				first = i
+			}
+		}
+	}
+	if missing == deferred || first < 0 {
+		return vecs, nil
+	}
+	return vecs[:first], fmt.Errorf("indexer: the embedder returned no vector for text %d of %d", first+1, len(vecs))
 }
 
 // embeddedDocs drops the docs of a batch whose vector is nil: the texts
@@ -1124,7 +1175,7 @@ func bulkOpenedBy(delayed, prepared bool) string {
 func embeddedDocs(ids, texts, titles []string, vecs [][]float32) ([]string, []string, []string, [][]float32) {
 	deferred := false
 	for _, v := range vecs {
-		if v == nil {
+		if len(v) == 0 {
 			deferred = true
 			break
 		}
@@ -1137,7 +1188,7 @@ func embeddedDocs(ids, texts, titles []string, vecs [][]float32) ([]string, []st
 		outVecs                     [][]float32
 	)
 	for i, v := range vecs {
-		if v == nil {
+		if len(v) == 0 {
 			continue
 		}
 		outIds = append(outIds, ids[i])

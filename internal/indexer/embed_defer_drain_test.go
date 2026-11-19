@@ -19,6 +19,23 @@ type deferEmbedder struct {
 	wake  chan struct{}
 	calls int
 	sent  []string
+	// releaseAt, when set, is the call that releases the texts as it
+	// returns, in the middle of a pass.
+	releaseAt int
+	held      int // HoldBulk calls not released
+	maxHeld   int
+}
+
+func (e *deferEmbedder) HoldBulk() func() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.held++
+	e.maxHeld = max(e.maxHeld, e.held)
+	return func() {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		e.held--
+	}
 }
 
 func (e *deferEmbedder) EmbedDocsRouted(_ context.Context, _, texts []string) ([][]float32, EmbedRoute, error) {
@@ -37,12 +54,22 @@ func (e *deferEmbedder) EmbedDocsRouted(_ context.Context, _, texts []string) ([
 		v[0] = 1
 		out[i] = v
 	}
+	if rt.Deferred == len(texts) {
+		rt.Backends = nil
+	}
+	if e.releaseAt > 0 && e.calls == e.releaseAt {
+		e.releaseLocked()
+	}
 	return out, rt, nil
 }
 
 func (e *deferEmbedder) release() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.releaseLocked()
+}
+
+func (e *deferEmbedder) releaseLocked() {
 	e.ready = true
 	if e.wake != nil {
 		close(e.wake)
@@ -65,12 +92,17 @@ func (e wakingEmbedder) DeferredWake() <-chan struct{} {
 	return e.wake
 }
 
+// rows are the distinct phase[backends] states of the last deferDrain's
+// process row, in order. Read after its drain returned.
+var rows []string
+
 func deferDrain(t *testing.T, emb Embedder, every time.Duration, texts []string) (*spaceWorker, *Store, func() []string) {
 	t.Helper()
 	ctx := context.Background()
 	st := mustStore(t, 4)
 	var mu sync.Mutex
 	var phases []string
+	rows = nil
 	ix := &Indexer{store: st, opts: Options{
 		Embedder:      emb,
 		EmbedBatch:    2,
@@ -82,6 +114,12 @@ func deferDrain(t *testing.T, emb Embedder, every time.Duration, texts []string)
 			if u.Embedding != nil && (len(phases) == 0 || phases[len(phases)-1] != u.Embedding.Phase) {
 				phases = append(phases, u.Embedding.Phase)
 			}
+			if u.Embedding != nil {
+				row := u.Embedding.Phase + "[" + strings.Join(u.Embedding.Backends, ",") + "]"
+				if len(rows) == 0 || rows[len(rows)-1] != row {
+					rows = append(rows, row)
+				}
+			}
 		},
 	}.withDefaults()}
 	for i, text := range texts {
@@ -90,7 +128,7 @@ func deferDrain(t *testing.T, emb Embedder, every time.Duration, texts []string)
 			t.Fatal(err)
 		}
 	}
-	return &spaceWorker{ix: ix, sp: staticIdSpace{}}, st, func() []string {
+	return &spaceWorker{ix: ix, sp: staticIdSpace{}, embedCh: make(chan struct{}, 1)}, st, func() []string {
 		mu.Lock()
 		defer mu.Unlock()
 		return append([]string(nil), phases...)
@@ -223,5 +261,205 @@ func TestStore_PendingFrom(t *testing.T) {
 	}
 	if ids, _, err = st.PendingFrom(ctx, "sp1", 5, 2); err != nil || len(ids) != 0 {
 		t.Fatalf("PendingFrom past the queue = %v, %v", ids, err)
+	}
+}
+
+// The embedder's word in the middle of a pass is heard between pages: a
+// text left behind is sent again then, not after everything behind it.
+func TestEmbedDrainHearsTheWakeBetweenPages(t *testing.T) {
+	texts := []string{"long 1", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j"}
+	emb := wakingEmbedder{&deferEmbedder{axisEmbedder: axisEmbedder{dim: 4}, wake: make(chan struct{}), releaseAt: 2}}
+	w, st, _ := deferDrain(t, emb, time.Hour, texts)
+	if err := w.drainPending(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitPending(t, st, 0)
+	_, sent := emb.counts()
+	again, last := -1, -1
+	for i, text := range sent {
+		if text == "long 1" && i > 0 {
+			again = i
+		}
+		if text == "j" {
+			last = i
+		}
+	}
+	if again < 0 || last < 0 || again > last {
+		t.Fatalf("sent %v, want the deferred text again before the end of the queue", sent)
+	}
+}
+
+// A drain waiting for deferred texts takes the nudge for new ones: they
+// do not wait for a function that is not theirs.
+func TestEmbedDrainTakesTheNudgeWhileWaiting(t *testing.T) {
+	ctx := context.Background()
+	emb := wakingEmbedder{&deferEmbedder{axisEmbedder: axisEmbedder{dim: 4}, wake: make(chan struct{})}}
+	w, st, _ := deferDrain(t, emb, time.Hour, []string{"long 1", "a"})
+	done := make(chan error, 1)
+	go func() { done <- w.drainPending(ctx) }()
+	waitPending(t, st, 1)
+	time.Sleep(50 * time.Millisecond) // the drain is waiting now
+	up := DocUpsert{Entry: entry("chat", "o1", "chat_messages", "m90", "a new short text", 90)}
+	if err := st.Apply(ctx, "sp1", []DocUpsert{up}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitPending(t, st, 2)
+	w.embedCh <- struct{}{}
+	waitPending(t, st, 1) // the new text landed; the long one still waits
+	emb.release()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	waitPending(t, st, 0)
+}
+
+// A batch left pending whole clears the runtimes of the batch before it
+// from the row, and the drain holds the embedder until it returns.
+func TestEmbedDrainRowAndHoldUnderDeferral(t *testing.T) {
+	emb := wakingEmbedder{&deferEmbedder{axisEmbedder: axisEmbedder{dim: 4}, wake: make(chan struct{})}}
+	w, st, _ := deferDrain(t, emb, time.Hour, []string{"a", "b", "long 1", "long 2"})
+	done := make(chan error, 1)
+	go func() { done <- w.drainPending(context.Background()) }()
+	waitPending(t, st, 2)
+	time.Sleep(50 * time.Millisecond)
+	emb.mu.Lock()
+	held := emb.held
+	emb.mu.Unlock()
+	if held != 1 {
+		t.Fatalf("%d holds on the embedder while the drain waits, want 1", held)
+	}
+	emb.release()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"embedding[]", "embedding[ane]", "embedding[]", "preparing[]", "embedding[]", "embedding[ane]"}
+	if !slices.Equal(rows, want) {
+		t.Fatalf("row states %v, want %v", rows, want)
+	}
+	emb.mu.Lock()
+	held = emb.held
+	emb.mu.Unlock()
+	if held != 0 {
+		t.Fatalf("%d holds left after the drain", held)
+	}
+}
+
+// The hold starts with the start delay and ends with a cancelled drain.
+func TestEmbedDrainHoldsTheEmbedderUnderTheDelay(t *testing.T) {
+	emb := wakingEmbedder{&deferEmbedder{axisEmbedder: axisEmbedder{dim: 4}, wake: make(chan struct{})}}
+	w, _, _ := deferDrain(t, emb, time.Hour, []string{"a"})
+	w.ix.embedFrom = time.Now().Add(time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- w.drainPending(ctx) }()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		emb.mu.Lock()
+		held := emb.held
+		emb.mu.Unlock()
+		if held == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the drain never held the embedder under its start delay")
+		}
+	}
+	cancel()
+	<-done
+	emb.mu.Lock()
+	defer emb.mu.Unlock()
+	if emb.held != 0 {
+		t.Fatalf("%d holds left after the drain was cancelled", emb.held)
+	}
+}
+
+// nullEmbedder answers with no vector for its second text and declares
+// nothing, as an HTTP embedder whose response has a null in it.
+type nullEmbedder struct {
+	axisEmbedder
+	routed bool
+}
+
+func (e nullEmbedder) EmbedDocs(ctx context.Context, texts []string) ([][]float32, error) {
+	vecs, err := e.axisEmbedder.EmbedDocs(ctx, texts)
+	if len(vecs) > 1 {
+		vecs[1] = nil
+	}
+	return vecs, err
+}
+
+type nullRoutedEmbedder struct{ nullEmbedder }
+
+func (e nullRoutedEmbedder) EmbedDocsRouted(ctx context.Context, _, texts []string) ([][]float32, EmbedRoute, error) {
+	vecs, err := e.EmbedDocs(ctx, texts)
+	return vecs, EmbedRoute{Backends: []string{EmbedBackendRemote}}, err
+}
+
+// A missing vector the embedder did not declare deferred is an error:
+// the drain lands what came before it and fails, it does not wait.
+func TestEmbedDrainRefusesAnUndeclaredMissingVector(t *testing.T) {
+	for name, emb := range map[string]Embedder{
+		"an embedder without routes": nullEmbedder{axisEmbedder: axisEmbedder{dim: 4}},
+		"a routed embedder":          nullRoutedEmbedder{nullEmbedder{axisEmbedder: axisEmbedder{dim: 4}}},
+	} {
+		w, st, phases := deferDrain(t, emb, time.Hour, []string{"a", "b"})
+		done := make(chan error, 1)
+		go func() { done <- w.drainPending(context.Background()) }()
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Errorf("%s: the drain ended without an error", name)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s: the drain waits on a vector that is not coming", name)
+		}
+		waitPending(t, st, 1)
+		if got := phases(); slices.Contains(got, EmbedPhasePreparing) {
+			t.Errorf("%s: phases %v, want no preparing", name, got)
+		}
+	}
+}
+
+func TestDeclaredVectors(t *testing.T) {
+	a := []float32{1}
+	for _, tc := range []struct {
+		vecs     [][]float32
+		deferred int
+		keep     int
+		ok       bool
+	}{
+		{[][]float32{a, a}, 0, 2, true},
+		{[][]float32{a, nil, a}, 1, 3, true},
+		{[][]float32{a, nil, a}, 0, 1, false},
+		{[][]float32{nil, a, nil}, 1, 0, false},
+		{[][]float32{a, {}}, 0, 1, false},
+		{nil, 0, 0, true},
+	} {
+		got, err := declaredVectors(tc.vecs, tc.deferred)
+		if len(got) != tc.keep || (err == nil) != tc.ok {
+			t.Errorf("declaredVectors(%v, %d) = %d vectors, %v; want %d, ok %v", tc.vecs, tc.deferred, len(got), err, tc.keep, tc.ok)
+		}
+	}
+}
+
+func TestBulkOpenedFields(t *testing.T) {
+	for _, tc := range []struct {
+		delayed, prepared bool
+		how               string
+		by, embedder      string
+	}{
+		{false, false, "", "no_wait", ""},
+		{true, false, BulkReady, "start_delay", BulkReady},
+		{true, true, BulkReady, "embedder", BulkReady},
+		{true, true, BulkTimeout, "embedder", BulkTimeout},
+		{false, true, BulkNoChild, "embedder", BulkNoChild},
+		{true, false, BulkNoPackage, "start_delay", BulkNoPackage},
+	} {
+		got := map[string]string{}
+		for _, f := range bulkOpenedFields(tc.delayed, tc.prepared, tc.how, time.Second) {
+			got[f.Key] = f.String
+		}
+		if got["openedBy"] != tc.by || got["embedder"] != tc.embedder {
+			t.Errorf("bulkOpenedFields(%v, %v, %q) = %v; want openedBy %q, embedder %q", tc.delayed, tc.prepared, tc.how, got, tc.by, tc.embedder)
+		}
 	}
 }
