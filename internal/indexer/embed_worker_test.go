@@ -117,6 +117,14 @@ func runEmbedHelper(mode string) int {
 			time.Sleep(delay)
 			aneStderrLog("s128 ready (plan 1ms, load 1ms, 10 operations on the neural engine, 0 on the cpu)")
 		}()
+	case "audit": // the first function serves while its placement is audited
+		aneStderrLog("starting")
+		aneStderrLog("s128 ready (open 1ms, validate 1ms, placement not verified yet; asked for 2ms ago)")
+		aneStderrLog("s128 " + aneAuditStarted)
+		go func() {
+			time.Sleep(delay)
+			aneStderrLog("s128 placement verified (plan 1ms, 10 operations on the neural engine, 0 on the cpu)")
+		}()
 	case "failed": // the first function does not load
 		aneStderrLog("starting")
 		aneStderrLog("s128 not used: core ml plans it off the neural engine")
@@ -194,6 +202,13 @@ func runEmbedHelper(mode string) int {
 			return 1
 		}
 		resp := workerResp{Op: workerOpVectors, N: len(vecs), Dim: dim}
+		// ANY_EMBED_WORKER_MISS=<reason>: llama.cpp embedded every vector
+		// of a document frame, for that reason.
+		if miss := os.Getenv("ANY_EMBED_WORKER_MISS"); miss != "" && len(vecs) > 0 {
+			routes = &workerRoutes{Llama: len(vecs), Miss: miss, Misses: map[string]int{miss: len(vecs)}}
+		} else if miss != "" {
+			routes = nil
+		}
 		if req.Role != workerRoleQuery {
 			resp.Routes = routes
 			if len(deferred) > 0 {

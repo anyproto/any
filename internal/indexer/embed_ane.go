@@ -89,6 +89,18 @@ func aneSettles(status string) bool {
 	return ok && strings.HasPrefix(name, "s") && (strings.HasPrefix(rest, "ready") || strings.HasPrefix(rest, "not used"))
 }
 
+// aneSettledAs names how a status line that settles the path did it.
+func aneSettledAs(status string) string {
+	_, rest, _ := strings.Cut(status, " ")
+	switch {
+	case strings.HasPrefix(status, aneOffStatus):
+		return BulkOff
+	case strings.HasPrefix(rest, "ready"):
+		return BulkReady
+	}
+	return BulkFailed
+}
+
 // errANENotReady is a package that is not on disk yet: a wait, not a
 // failure.
 var errANENotReady = errors.New("core ml package not on disk yet")

@@ -22,7 +22,7 @@ type prepEmbedder struct {
 	prepAt time.Time // the first PrepareBulk
 }
 
-func (e *prepEmbedder) PrepareBulk(context.Context, func()) {
+func (e *prepEmbedder) PrepareBulk(context.Context, func()) string {
 	e.mu.Lock()
 	if e.prepAt.IsZero() {
 		e.prepAt = time.Now()
@@ -34,6 +34,7 @@ func (e *prepEmbedder) PrepareBulk(context.Context, func()) {
 	if during != nil {
 		during()
 	}
+	return BulkReady
 }
 
 func (e *prepEmbedder) EmbedDocs(ctx context.Context, texts []string) ([][]float32, error) {
@@ -217,12 +218,12 @@ func (e *routedEmbedder) EmbedDocsRouted(ctx context.Context, _, texts []string)
 	return vecs, e.route, err
 }
 
-func (e *routedEmbedder) PrepareBulk(ctx context.Context, waiting func()) {
+func (e *routedEmbedder) PrepareBulk(ctx context.Context, waiting func()) string {
 	e.mu.Lock()
 	d := e.prepare
 	e.mu.Unlock()
 	if d <= 0 {
-		return
+		return BulkReady
 	}
 	if waiting != nil {
 		waiting()
@@ -230,11 +231,12 @@ func (e *routedEmbedder) PrepareBulk(ctx context.Context, waiting func()) {
 	select {
 	case <-time.After(d):
 	case <-ctx.Done():
-		return
+		return BulkCancelled
 	}
 	e.mu.Lock()
 	e.prepare = 0 // settled: later rounds do not wait
 	e.mu.Unlock()
+	return BulkReady
 }
 
 // The frames of a drain carry what the embedder is doing: the phase from

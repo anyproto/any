@@ -240,8 +240,7 @@ func TestPackVectors(t *testing.T) {
 }
 
 // Bulk work gets no vector for a text the child deferred, and the count
-// of them; an ordinary document call, and bulk work that gave up
-// waiting, get every vector.
+// of them; an ordinary document call gets every vector.
 func TestWorkerEmbedder_BulkDefers(t *testing.T) {
 	ctx := context.Background()
 	w, _ := aneWorker(t, "ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_DEFER=long")
@@ -259,9 +258,11 @@ func TestWorkerEmbedder_BulkDefers(t *testing.T) {
 	if vecs, err = w.EmbedDocs(ctx, texts); err != nil || len(vecs) != 4 || vecs[1] == nil || vecs[3] == nil {
 		t.Fatalf("EmbedDocs: %v, %v; want every vector", vecs, err)
 	}
+	// The wait for the first function ran out: that ends the startup
+	// wait, not a later function's own.
 	w.giveUpBulk()
-	if vecs, rt, err = w.EmbedDocsRouted(ctx, nil, texts); err != nil || vecs[1] == nil || vecs[3] == nil || rt.Deferred != 0 {
-		t.Fatalf("after giving up: %v, %+v, %v; want every vector", vecs, rt, err)
+	if vecs, rt, err = w.EmbedDocsRouted(ctx, nil, texts); err != nil || vecs[1] != nil || vecs[3] != nil || rt.Deferred != 2 {
+		t.Fatalf("after the startup wait ran out: %v, %+v, %v; want the two texts deferred still", vecs, rt, err)
 	}
 }
 
@@ -300,38 +301,123 @@ func TestWorkerEmbedder_DeferredWake(t *testing.T) {
 	}
 }
 
-// A child is not retired as idle while documents wait for a function it
-// is loading; once it has reported, the countdown runs again.
-func TestWorkerEmbedder_DeferredTextsHoldOffIdleRetirement(t *testing.T) {
+// A drain's hold keeps the child from being retired as idle until it is
+// released, once.
+func TestWorkerEmbedder_HoldBulk(t *testing.T) {
 	const idle = 50 * time.Millisecond
 	ctx := context.Background()
-	w, h := aneWorker(t, "ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_DEFER=long")
-	w.idleTimeout = 0
+	w, h := aneWorker(t)
+	w.idleTimeout = idle
+	release := w.HoldBulk()
+	other := w.HoldBulk()
 	if _, err := w.EmbedDocs(ctx, []string{"a"}); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(100 * time.Millisecond) // the child's "starting" is in
-	if err := w.slot.acquire(ctx, false); err != nil {
-		t.Fatal(err)
-	}
-	w.idleTimeout = idle
-	w.slot.release(false)
-
-	vecs, rt, err := w.EmbedDocsRouted(ctx, nil, []string{"long one"})
-	if err != nil || vecs[0] != nil || rt.Deferred != 1 {
-		t.Fatalf("EmbedDocsRouted: %v, %+v, %v; want the text deferred", vecs, rt, err)
-	}
+	other()
+	other() // a second release is not another hold's
 	time.Sleep(6 * idle)
 	if !hasChild(w) {
-		t.Fatal("the child was retired with a document waiting for its function")
+		t.Fatal("the child was retired under a hold")
 	}
-	w.wakeDeferred() // as on the child's report
+	release()
 	for deadline := time.Now().Add(10 * time.Second); hasChild(w); time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
-			t.Fatal("the child was never retired after its report")
+			t.Fatal("the child was never retired after the release")
 		}
 	}
 	if h.spawns() != 1 {
 		t.Fatalf("spawned %d children, want 1", h.spawns())
+	}
+}
+
+// Deferred texts hold no child by themselves: after a batch whose first
+// frame deferred a text and whose second lost the child, the replacement
+// is retired as idle like any other.
+func TestWorkerEmbedder_DeferredTextsDoNotOutliveTheirChild(t *testing.T) {
+	ctx := context.Background()
+	// The handshake is not a request: the child dies on its second frame.
+	h := &helperSpawner{modes: []string{"ok", "ok"}, env: []string{"ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_DEFER=long", "ANY_EMBED_WORKER_CRASH_AFTER=1"}}
+	w := newTestWorker(t, h, 0)
+	w.mu.Lock()
+	w.spec.coremlDir = "/models/eg2.mlpackage"
+	w.mu.Unlock()
+	vecs, rt, err := w.EmbedDocsRouted(ctx, nil, []string{"long one", "b"})
+	if err == nil || len(vecs) != 1 || vecs[0] != nil || rt.Deferred != 1 {
+		t.Fatalf("EmbedDocsRouted: %v, %+v, %v; want one deferred text, then the child's death", vecs, rt, err)
+	}
+	clearBackoff(w)
+	if err := w.slot.acquire(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	w.idleTimeout = 50 * time.Millisecond
+	w.slot.release(false)
+	if _, err := w.EmbedDocs(ctx, []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); hasChild(w); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the replacement was never retired as idle")
+		}
+	}
+}
+
+// A child is not retired as idle while it audits a placement: the
+// verdict would never be written.
+func TestWorkerEmbedder_AuditHoldsOffIdleRetirement(t *testing.T) {
+	const idle, audit = 50 * time.Millisecond, 600 * time.Millisecond
+	w, h := aneWorker(t, append(delayEnv(audit), "ANY_EMBED_WORKER_ANE=audit")...)
+	w.idleTimeout = idle
+	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(audit / 2)
+	if !hasChild(w) {
+		t.Fatal("the child was retired under its audit")
+	}
+	for deadline := time.Now().Add(10 * time.Second); hasChild(w); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the child was never retired after its audit")
+		}
+	}
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children, want 1", h.spawns())
+	}
+}
+
+// PrepareBulk says how its wait went.
+func TestWorkerEmbedder_PrepareBulkOutcome(t *testing.T) {
+	ctx := context.Background()
+	for mode, want := range map[string]string{"ready": BulkReady, "failed": BulkFailed, "off": BulkOff} {
+		w, _ := aneWorker(t, append(delayEnv(50*time.Millisecond), "ANY_EMBED_WORKER_ANE="+mode)...)
+		if got := w.PrepareBulk(ctx, nil); got != want {
+			t.Errorf("first function %s: PrepareBulk = %q, want %q", mode, got, want)
+		}
+		// A settled child answers the same at once.
+		if got := w.PrepareBulk(ctx, nil); got != want {
+			t.Errorf("first function %s, settled: PrepareBulk = %q, want %q", mode, got, want)
+		}
+	}
+	w := newTestWorker(t, &helperSpawner{modes: []string{"ok"}}, 0)
+	if got := w.PrepareBulk(ctx, nil); got != BulkNoWait {
+		t.Errorf("no neural engine path: PrepareBulk = %q", got)
+	}
+	w, _ = aneWorker(t, "ANY_EMBED_WORKER_ANE=1") // never settles
+	w.bulkWait = 100 * time.Millisecond
+	if got := w.PrepareBulk(ctx, nil); got != BulkTimeout {
+		t.Errorf("the wait ran out: PrepareBulk = %q", got)
+	}
+	if got := w.PrepareBulk(ctx, nil); got != BulkTimeout {
+		t.Errorf("after the wait ran out: PrepareBulk = %q", got)
+	}
+	w, _ = aneWorker(t, "ANY_EMBED_WORKER_ANE=1")
+	cctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer cancel()
+	if got := w.PrepareBulk(cctx, nil); got != BulkCancelled {
+		t.Errorf("cancelled: PrepareBulk = %q", got)
+	}
+	w, _ = aneWorker(t)
+	w.newCmd = (&helperSpawner{modes: []string{"exit"}}).cmd
+	if got := w.PrepareBulk(ctx, nil); got != BulkNoChild {
+		t.Errorf("a child that does not start: PrepareBulk = %q", got)
 	}
 }

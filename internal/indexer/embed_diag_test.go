@@ -3,7 +3,6 @@
 package indexer
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -59,76 +58,115 @@ func TestWorkerEmbedder_FrameReasons(t *testing.T) {
 	if got = w.frameReasons(&workerRoutes{ANE: 3}); got != nil {
 		t.Fatalf("a frame with no llama.cpp text: %v", got)
 	}
+	// A frame that names its last miss and counts none.
+	w.mu.Lock()
+	w.coremlDisabled = false
+	w.mu.Unlock()
+	if got = w.frameReasons(&workerRoutes{Llama: 2, Miss: EmbedReasonTooLong}); got[EmbedReasonTooLong] != 1 || got[EmbedReasonGPUDisabled] != 1 {
+		t.Fatalf("a frame with only its last miss: %v", got)
+	}
 }
 
 // Bulk batches whose texts ran on llama.cpp or were left pending are
-// logged with their counts: per reason, and for the deferred ones how
-// many and for how long, closed off when the child reports.
+// logged with their counts, per reason, at most once per period; a
+// child that goes says what is still counted.
 func TestWorkerEmbedder_LogsBulkRouting(t *testing.T) {
 	w, _ := aneWorker(t)
 	logs := observed(w)
+	w.routed.every = time.Hour
 
 	// All on the Neural Engine: nothing to say.
-	w.noteBulk(true, routeTally{ane: 64})
-	w.logBulk(false)
+	w.noteBulk(routeTally{ane: 64})
+	w.logBulk(true)
 	if lines := routingLines(logs); len(lines) != 0 {
 		t.Fatalf("logged %v for a batch all on the neural engine", lines)
 	}
-	// Calls that are not bulk work are not counted.
-	w.noteBulk(false, routeTally{llama: map[string]int{EmbedBackendGPU: 5}, reasons: map[string]int{"": 5}})
-	w.logBulk(false)
-	if lines := routingLines(logs); len(lines) != 0 {
-		t.Fatalf("logged %v for a call outside bulk work", lines)
-	}
 
-	w.noteBulk(true, routeTally{ane: 60, coreml: 1, deferred: 2,
+	// The first batch off it is said at once.
+	w.noteBulk(routeTally{ane: 60, coreml: 1, deferred: 2,
 		llama:   map[string]int{EmbedBackendGPU: 3},
 		reasons: map[string]int{EmbedReasonTooLong: 2, EmbedReasonANEFailed: 1}})
-	w.noteBulk(true, routeTally{ane: 10, deferred: 1, llama: map[string]int{EmbedBackendGPU: 1}, reasons: map[string]int{EmbedReasonTooLong: 1}})
-	time.Sleep(20 * time.Millisecond)
-	w.logBulk(false)
 	lines := routingLines(logs)
 	if len(lines) != 1 {
 		t.Fatalf("%d lines, want 1: %v", len(lines), lines)
 	}
 	l := lines[0]
-	if l["ane"] != int64(70) || l["coreml"] != int64(1) || l["llama"] != int64(4) || l["deferred"] != int64(3) ||
-		l["llamaReasons"] != "ane_failed=1 too_long=3" || l["llamaBackends"] != "gpu" || l["deferredSentAgain"] != false {
+	if l["ane"] != int64(60) || l["coreml"] != int64(1) || l["llama"] != int64(3) || l["deferred"] != int64(2) ||
+		l["llamaReasons"] != "ane_failed=1 too_long=2" || l["llamaBackends"] != "gpu" {
 		t.Fatalf("line %v", l)
 	}
-	if d, _ := l["deferredFor"].(time.Duration); d < 20*time.Millisecond {
-		t.Fatalf("deferredFor %v, want the time since the first deferred text", l["deferredFor"])
-	}
 
-	// Nothing new: no line. The child reports: the deferred texts are
-	// summed up once more, as sent again, and the count starts over.
+	// Within the period nothing more is logged, neither for a batch nor
+	// for a report from the child; the counts run on.
+	w.noteBulk(routeTally{ane: 10, deferred: 1, llama: map[string]int{EmbedBackendGPU: 1}, reasons: map[string]int{EmbedReasonTooLong: 1}})
 	w.logBulk(false)
+	w.noteBulk(routeTally{deferred: 4})
 	if n := len(routingLines(logs)); n != 1 {
-		t.Fatalf("%d lines with nothing new, want 1", n)
+		t.Fatalf("%d lines within the period, want 1", n)
 	}
-	w.wakeDeferred()
+	// The period over: one line for all of it, with a window that is the
+	// time since the first batch counted.
+	time.Sleep(20 * time.Millisecond)
+	w.routed.mu.Lock()
+	w.routed.every = 0
+	w.routed.mu.Unlock()
+	w.logBulk(false)
 	lines = routingLines(logs)
-	if len(lines) != 2 || lines[1]["deferred"] != int64(3) || lines[1]["deferredSentAgain"] != true || lines[1]["llama"] != int64(0) {
-		t.Fatalf("lines after the child's report: %v", lines)
+	if len(lines) != 2 {
+		t.Fatalf("%d lines after the period, want 2: %v", len(lines), lines)
 	}
-	w.wakeDeferred()
+	l = lines[1]
+	if l["ane"] != int64(10) || l["llama"] != int64(1) || l["deferred"] != int64(5) || l["llamaReasons"] != "too_long=1" {
+		t.Fatalf("line %v", l)
+	}
+	for _, field := range []string{"window", "deferredFor"} {
+		if d, _ := l[field].(time.Duration); d < 20*time.Millisecond || d > time.Minute {
+			t.Fatalf("%s = %v, want the time since the first batch", field, l[field])
+		}
+	}
+	// Nothing counted since: a report, or the child going, logs nothing.
+	w.logBulk(false)
+	w.logBulk(true)
 	if n := len(routingLines(logs)); n != 2 {
-		t.Fatalf("%d lines after a second report with nothing deferred, want 2", n)
+		t.Fatalf("%d lines with nothing counted, want 2", n)
+	}
+	// A child that goes says what was counted, whatever the period.
+	w.routed.mu.Lock()
+	w.routed.every = time.Hour
+	w.routed.mu.Unlock()
+	w.noteBulk(routeTally{deferred: 1})
+	if n := len(routingLines(logs)); n != 2 {
+		t.Fatalf("%d lines within the period, want 2", n)
+	}
+	w.logBulk(true)
+	if lines = routingLines(logs); len(lines) != 3 || lines[2]["deferred"] != int64(1) {
+		t.Fatalf("lines after the child went: %v", lines)
 	}
 }
 
-// A batch through the child ends up in the same counts.
+// A batch through the child ends up in the same counts, and only where
+// there is a Neural Engine path to miss.
 func TestWorkerEmbedder_BulkRoutingFromTheChild(t *testing.T) {
-	w, _ := aneWorker(t, "ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_DEFER=long", "ANY_EMBED_WORKER_ROUTES=0,1,"+EmbedReasonTooLong)
+	env := []string{"ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_DEFER=long", "ANY_EMBED_WORKER_MISS=" + EmbedReasonTooLong}
+	w, _ := aneWorker(t, env...)
 	logs := observed(w)
 	if _, _, err := w.EmbedDocsRouted(t.Context(), nil, []string{"a", "long one", "b"}); err != nil {
 		t.Fatal(err)
 	}
-	w.logBulk(false)
+	w.logBulk(true)
 	lines := routingLines(logs)
-	if len(lines) != 1 || lines[0]["deferred"] != int64(1) || lines[0]["llama"] != int64(3) ||
-		!strings.Contains(lines[0]["llamaReasons"].(string), "=3") {
-		t.Fatalf("lines %v, want one with 1 deferred text and the frames' llama.cpp texts", lines)
+	if len(lines) != 1 || lines[0]["deferred"] != int64(1) || lines[0]["llama"] != int64(2) || lines[0]["llamaReasons"] != "too_long=2" {
+		t.Fatalf("lines %v, want one with 1 deferred text and 2 too long for llama.cpp", lines)
+	}
+
+	plain := newTestWorker(t, &helperSpawner{modes: []string{"ok"}, env: env}, 0)
+	logs = observed(plain)
+	if _, _, err := plain.EmbedDocsRouted(t.Context(), nil, []string{"a", "b"}); err != nil {
+		t.Fatal(err)
+	}
+	plain.logBulk(true)
+	if lines := routingLines(logs); len(lines) != 0 {
+		t.Fatalf("logged %v with no neural engine path", lines)
 	}
 }
 

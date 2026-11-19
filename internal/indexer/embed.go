@@ -80,10 +80,8 @@ type EmbedRoute struct {
 }
 
 // RoutedEmbedder is an Embedder that knows which runtimes embedded a
-// batch of bulk work. titles is nil when documents embed without their
-// names. A nil vector is a text the embedder left for a later round,
-// because the runtime it belongs on is not ready: it stays pending and
-// the caller sends it again.
+// batch of bulk work; titles is nil when documents embed without names.
+// EmbedRoute.Deferred of its vectors are nil: texts to send again later.
 type RoutedEmbedder interface {
 	EmbedDocsRouted(ctx context.Context, titles, texts []string) ([][]float32, EmbedRoute, error)
 }
@@ -106,12 +104,28 @@ func embedBackends(e Embedder) []string {
 }
 
 // BulkPreparer is an Embedder that readies a faster runtime in the
-// background. A drain calls PrepareBulk before every round that has
-// work, and once more under the start delay, when it runs beside the
-// call that follows the delay; it returns once there is nothing to wait
-// for. waiting, when set, is called once if the call is going to wait.
+// background. PrepareBulk returns once there is nothing to wait for and
+// says how that went (Bulk*); waiting runs first if it is going to wait.
 type BulkPreparer interface {
-	PrepareBulk(ctx context.Context, waiting func())
+	PrepareBulk(ctx context.Context, waiting func()) string
+}
+
+// How a PrepareBulk call ended.
+const (
+	BulkNoWait    = "no_wait"    // no runtime to wait for
+	BulkNoPackage = "no_package" // the runtime's files are not on disk
+	BulkReady     = "ready"      // its first function is loaded
+	BulkFailed    = "failed"     // its first function is not used
+	BulkOff       = "off"        // the runtime is off for this child
+	BulkTimeout   = "timeout"    // the wait ran into its bound, now or earlier
+	BulkNoChild   = "no_child"   // the child did not start, or exited
+	BulkCancelled = "cancelled"
+)
+
+// BulkHolder is an Embedder that keeps its runtime loaded while a drain
+// holds it, although the drain sends it nothing.
+type BulkHolder interface {
+	HoldBulk() (release func())
 }
 
 // StampedEmbedder names the vector space it embeds into, so an index
