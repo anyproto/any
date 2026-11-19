@@ -21,6 +21,28 @@ func TestPlacement_OnNeuralEngine(t *testing.T) {
 	}
 }
 
+func TestPlacement_Conclusive(t *testing.T) {
+	cases := []struct {
+		name string
+		p    Placement
+		want bool
+	}{
+		{"every device known", Placement{NeuralEngine: 6195, CPU: 14}, true},
+		{"constants without a device", Placement{NeuralEngine: 6195, CPU: 14, Unknown: 900}, true},
+		{"a core operator on the cpu, others unknown", Placement{CPU: 1, CPUCore: []string{"ios18.matmul"}, Unknown: 6000, UnknownCore: []string{"ios18.linear"}}, true},
+		{"cpu only, a few unknown", Placement{CPU: 6000, Unknown: 50}, true},
+		{"a core operator of unknown placement", Placement{NeuralEngine: 6000, Unknown: 1, UnknownCore: []string{"ios18.matmul"}}, false},
+		{"no device for any operation", Placement{Unknown: 6209}, false},
+		{"too few on the neural engine, enough unknown to change that", Placement{NeuralEngine: 60, CPU: 10, Unknown: 80}, false},
+		{"no operation", Placement{}, false},
+	}
+	for _, c := range cases {
+		if got := c.p.Conclusive(); got != c.want {
+			t.Errorf("%s: Conclusive = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestCoreOperator(t *testing.T) {
 	for name, want := range map[string]bool{
 		"ios18.conv":          true,

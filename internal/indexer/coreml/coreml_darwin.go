@@ -493,7 +493,7 @@ func Plan(compiled, function string) (Placement, error) {
 
 // walkBlock counts the operations of one program block and of the blocks
 // nested in them. An operation with nested blocks and no device of its
-// own is a container and is not counted.
+// own is a container and is not counted; one with neither is unknown.
 func walkBlock(plan, block objc.ID, p *Placement) error {
 	if !responds(block, "operations") {
 		return fmt.Errorf("coreml: compute plan: unreadable block")
@@ -511,6 +511,8 @@ func walkBlock(plan, block objc.ID, p *Placement) error {
 			}
 			device = send(usage, "preferredComputeDevice")
 		}
+		nested := send(op, "blocks")
+		blocks := objc.Send[int](nested, sel("count"))
 		switch {
 		case isKind(device, clsNeuralEngine):
 			p.NeuralEngine++
@@ -521,9 +523,13 @@ func walkBlock(plan, block objc.ID, p *Placement) error {
 			if name := goString(send(op, "operatorName")); coreOperator(name) {
 				p.CPUCore = append(p.CPUCore, name)
 			}
+		case blocks == 0:
+			p.Unknown++
+			if name := goString(send(op, "operatorName")); coreOperator(name) {
+				p.UnknownCore = append(p.UnknownCore, name)
+			}
 		}
-		nested := send(op, "blocks")
-		for j, m := 0, objc.Send[int](nested, sel("count")); j < m; j++ {
+		for j, m := 0, blocks; j < m; j++ {
 			if err := walkBlock(plan, send(nested, "objectAtIndex:", j), p); err != nil {
 				return err
 			}

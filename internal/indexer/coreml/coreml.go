@@ -25,6 +25,24 @@ type Placement struct {
 	// CPUCore names the core operators (convolution, matmul, linear,
 	// softmax) planned on the CPU.
 	CPUCore []string
+	// Unknown counts the operations the plan names no device for, and
+	// UnknownCore names the core operators among them.
+	Unknown     int
+	UnknownCore []string
+}
+
+// Conclusive reports whether OnNeuralEngine would hold wherever the
+// operations of unknown placement run. A plan with no operation is not.
+func (p Placement) Conclusive() bool {
+	switch {
+	case p.NeuralEngine+p.GPU+p.CPU+p.Unknown == 0:
+		return false
+	case len(p.CPUCore) > 0:
+		return true
+	case len(p.UnknownCore) > 0:
+		return false
+	}
+	return p.NeuralEngine > minNeuralEngineOps || p.NeuralEngine+p.Unknown <= minNeuralEngineOps
 }
 
 // OnNeuralEngine reports whether the function's core is planned on the

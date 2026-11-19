@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -740,16 +741,29 @@ type placement struct {
 	recorded     bool
 }
 
+// plan is the placement as the compute plan gave it.
+func (p placement) plan() coreml.Placement {
+	return coreml.Placement{NeuralEngine: p.NeuralEngine, GPU: p.GPU, CPU: p.CPU, CPUCore: p.CPUCore}
+}
+
+// valid reports whether a recorded placement is a verdict the placement
+// rule gives for its own counts. An entry cut short or edited is not.
+func (p placement) valid() bool {
+	return p.NeuralEngine >= 0 && p.GPU >= 0 && p.CPU >= 0 && p.NeuralEngine+p.GPU+p.CPU > 0 &&
+		p.On == p.plan().OnNeuralEngine()
+}
+
 func (p placement) refusal() error {
 	return fmt.Errorf("%w: %d operations there, %d on the gpu, %d on the cpu, cpu core %v",
 		errOffNeuralEngine, p.NeuralEngine, p.GPU, p.CPU, p.CPUCore)
 }
 
-// placementRecord is the file: the placements of a compiled model's
-// functions on one machine setup. Another setup's record is not read,
+// placementRecord is the file: the placements of one model's functions
+// on one machine setup. A record of another model or setup is not read,
 // and is replaced by the first audit here.
 type placementRecord struct {
 	Version   int                  `json:"version"`
+	Model     string               `json:"model"` // coreMLPackage.id
 	Host      string               `json:"host"`
 	Functions map[string]placement `json:"functions"`
 }
@@ -903,10 +917,14 @@ func (b *coreMLBackend) audit(length int) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// No verdict from a plan that leaves it open.
+	if !plan.Conclusive() {
+		return "", fmt.Errorf("the compute plan names no device for %d operations, core %v", plan.Unknown, plan.UnknownCore)
+	}
 	p := placement{On: plan.OnNeuralEngine(), NeuralEngine: plan.NeuralEngine, GPU: plan.GPU, CPU: plan.CPU, CPUCore: plan.CPUCore}
 	b.placements[length] = p
 	if err := b.writePlacements(); err != nil {
-		b.logf("placement record not written: %v", err)
+		b.logf("placement record not written: %v", pathless(err))
 	}
 	if !p.On {
 		return "", p.refusal()
@@ -937,25 +955,46 @@ func (b *coreMLBackend) recorded() map[string]placement {
 		return nil
 	}
 	var rec placementRecord
-	if json.Unmarshal(raw, &rec) != nil || rec.Version != placementVersion || rec.Host != b.host {
+	if json.Unmarshal(raw, &rec) != nil || rec.Version != placementVersion || rec.Model != b.pkg.id() || rec.Host != b.host {
 		return nil
+	}
+	for name, p := range rec.Functions {
+		if !p.valid() {
+			delete(rec.Functions, name)
+		}
 	}
 	return rec.Functions
 }
 
-// writePlacements replaces the record with what it holds for this setup
-// plus this process's audits. The file appears whole or not at all; of
-// two processes writing at once one audit can be lost, and is run again.
+// pathless is err without the file names the os package puts in it.
+func pathless(err error) error {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return fmt.Errorf("%s: %w", pe.Op, pe.Err)
+	}
+	var le *os.LinkError
+	if errors.As(err, &le) {
+		return fmt.Errorf("%s: %w", le.Op, le.Err)
+	}
+	return err
+}
+
+// writePlacements adds this process's audits to the record as it is on
+// disk now, read right before the write. The file appears whole or not
+// at all. Nothing locks it between processes: an audit lost to another's
+// write is run again.
 func (b *coreMLBackend) writePlacements() error {
 	if b.host == "" {
 		return nil
 	}
-	rec := placementRecord{Version: placementVersion, Host: b.host, Functions: b.recorded()}
+	rec := placementRecord{Version: placementVersion, Model: b.pkg.id(), Host: b.host, Functions: b.recorded()}
 	if rec.Functions == nil {
 		rec.Functions = map[string]placement{}
 	}
 	for length, p := range b.placements {
-		rec.Functions["s"+strconv.Itoa(length)] = p
+		if !p.recorded {
+			rec.Functions["s"+strconv.Itoa(length)] = p
+		}
 	}
 	raw, err := json.Marshal(rec)
 	if err != nil {

@@ -561,3 +561,109 @@ func TestLocal_RoutesNameUnverifiedFunctions(t *testing.T) {
 		t.Fatalf("routes after the audit: %+v, want 2 on the neural engine", rt)
 	}
 }
+
+// A plan that names no device for operations the verdict hangs on is no
+// verdict: nothing is recorded and the function is neither placed nor
+// refused.
+func TestCoreMLBackend_IncompletePlanIsNoVerdict(t *testing.T) {
+	for name, plan := range map[string]coreml.Placement{
+		"no device for any operation":      {Unknown: 6209},
+		"a core operator without a device": {NeuralEngine: 6000, CPU: 14, Unknown: 1, UnknownCore: []string{"ios18.matmul"}},
+	} {
+		b := newTestBackend(t, t.TempDir(), "Chip, macOS build 1A1")
+		b.plans["s128"] = plan
+		if _, err := b.audit(128); err == nil || errors.Is(err, errOffNeuralEngine) {
+			t.Errorf("%s: audit = %v, want an error that is not a refusal", name, err)
+		}
+		if b.placed(128) || b.refused(128) != nil {
+			t.Errorf("%s: placed %v, refused %v", name, b.placed(128), b.refused(128))
+		}
+		if _, err := os.Stat(b.record); !os.IsNotExist(err) {
+			t.Errorf("%s: a record was written: %v", name, err)
+		}
+	}
+	// Constants without a device do not hold a verdict back.
+	b := newTestBackend(t, t.TempDir(), "Chip, macOS build 1A1")
+	b.plans["s128"] = coreml.Placement{NeuralEngine: 6000, CPU: 14, Unknown: 900}
+	if _, err := b.audit(128); err != nil || !b.placed(128) {
+		t.Fatalf("audit = %v, placed %v", err, b.placed(128))
+	}
+}
+
+// Only an entry the placement rule would give for its own counts, in a
+// record of this model, is a verdict. Anything else is unaudited.
+func TestCoreMLBackend_RecordEntriesAreChecked(t *testing.T) {
+	const host = "Chip, macOS build 1A1"
+	write := func(dir, model, functions string) {
+		t.Helper()
+		raw := `{"version":1,"model":"` + model + `","host":"` + host + `","functions":` + functions + `}`
+		if err := os.WriteFile(filepath.Join(dir, "m.placement.json"), []byte(raw), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	model := (&coreMLPackage{name: "m"}).id()
+	dir := t.TempDir()
+	write(dir, model, `{
+		"s128": {},
+		"s256": {"on": true},
+		"s512": {"on": true, "neuralEngine": 6000, "cpu": 14, "cpuCore": ["ios18.matmul"]},
+		"s1024": {"on": false, "neuralEngine": 6000, "cpu": 14},
+		"s2048": {"on": true, "neuralEngine": 6000, "cpu": 14}}`)
+	b := newTestBackend(t, dir, host)
+	for _, length := range []int{128, 256, 512, 1024} {
+		if b.placed(length) || b.refused(length) != nil {
+			t.Errorf("s%d: placed %v, refused %v; want unaudited", length, b.placed(length), b.refused(length))
+		}
+	}
+	if !b.placed(2048) {
+		t.Error("the one sound entry was not read")
+	}
+	if _, _, err := b.load(128); err != nil {
+		t.Errorf("an empty entry refused the function: %v", err)
+	}
+
+	// The same file under another model's name.
+	dir = t.TempDir()
+	write(dir, "other-12345678", `{"s128": {"on": false, "cpu": 6014, "cpuCore": ["ios18.matmul"]}}`)
+	if b = newTestBackend(t, dir, host); b.refused(128) != nil {
+		t.Error("another model's record refused a function")
+	}
+	dir = t.TempDir()
+	write(dir, model, `{"s128": {"on": false, "cpu": 6014, "cpuCore": ["ios18.matmul"]}}`)
+	if b = newTestBackend(t, dir, host); b.refused(128) == nil {
+		t.Error("this model's refusal was not read")
+	}
+}
+
+// Two children that read the same record and audit different functions
+// both end up in it.
+func TestCoreMLBackend_TwoChildrenShareTheRecord(t *testing.T) {
+	dir := t.TempDir()
+	a := newTestBackend(t, dir, "Chip, macOS build 1A1")
+	b := newTestBackend(t, dir, "Chip, macOS build 1A1")
+	b.plans["s256"] = offEngine
+	if _, err := a.audit(128); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.audit(256); !errors.Is(err, errOffNeuralEngine) {
+		t.Fatal(err)
+	}
+	if _, err := a.audit(512); err != nil {
+		t.Fatal(err)
+	}
+	next := newTestBackend(t, dir, "Chip, macOS build 1A1")
+	if !next.placed(128) || next.refused(256) == nil || !next.placed(512) {
+		t.Fatalf("record: s128 placed %v, s256 refused %v, s512 placed %v", next.placed(128), next.refused(256), next.placed(512))
+	}
+}
+
+func TestPathless(t *testing.T) {
+	_, err := os.ReadFile(filepath.Join(t.TempDir(), "secret-dir", "file"))
+	if got := pathless(err).Error(); strings.Contains(got, "secret-dir") || !strings.Contains(got, "open") {
+		t.Fatalf("pathless = %q", got)
+	}
+	err = os.Rename(filepath.Join(t.TempDir(), "secret-a"), filepath.Join(t.TempDir(), "secret-b"))
+	if got := pathless(err).Error(); strings.Contains(got, "secret-") {
+		t.Fatalf("pathless = %q", got)
+	}
+}
