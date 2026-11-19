@@ -656,8 +656,9 @@ embeds under the delay. Where the Neural Engine path is planned and its
 package is on disk, the embedder child starts under the delay and
 readies the path's first function (§ Neural Engine), and the backlog
 opens at the later of the two; anywhere else the child starts with the
-first batch. `0` is no delay, as for an HTTP embedder: the wait for
-that first function is then the only one. A loop drains once when it
+first batch. `0` is no delay, as for an HTTP embedder: the waits for
+the package's download and for that first function are then the only
+ones. A loop drains once when it
 starts, for what was pending before it. A search embeds its query
 regardless.
 
@@ -1008,9 +1009,12 @@ download's state, and bulk work does not open on llama.cpp meanwhile.
 That wait ends when the package is whole on disk, and the wait for the
 first function follows; it ends without the package when the download
 ends failed (`download_failed`) or 30 min after its first waiter
-(`download_timeout`), for every waiter and every later call, and
-llama.cpp then embeds until the package is there. With no download for
-a package that is not on disk (`index.local.modelPath`), nothing waits.
+(`download_timeout`), for every waiter and every later call. Bulk work
+then goes to llama.cpp until the package is there, which needs the GGUF
+on disk: while that is still downloading too, texts stay `pending`.
+With no download for
+a package that is not on disk (`index.local.modelPath`), nothing waits
+and the outcome is `no_package`.
 A drain asks before every round that
 has work, and a child whose path has settled answers at once: a package
 that lands during a drain, or a child that replaces the one waited on,

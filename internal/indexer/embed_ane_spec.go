@@ -24,28 +24,35 @@ var aneHost = neuralEngineHost
 // ML package; nil is llama.cpp alone. It starts nothing: a refused
 // config must not leave a download running.
 func planNeuralEngine(cfg config.IndexLocal, modelsDir string) (*coreMLPackage, error) {
+	pkg, _, err := planNeuralEnginePackage(cfg, modelsDir)
+	return pkg, err
+}
+
+// planNeuralEnginePackage is planNeuralEngine that also says when the
+// one thing in the way is the package: not on disk and not downloaded.
+func planNeuralEnginePackage(cfg config.IndexLocal, modelsDir string) (_ *coreMLPackage, noPackage bool, _ error) {
 	mode := cfg.NeuralEngine
 	switch mode {
 	case "", config.NeuralEngineAuto, config.NeuralEngineOn:
 	case config.NeuralEngineOff:
-		return nil, nil
+		return nil, false, nil
 	default:
-		return nil, fmt.Errorf("indexer: unknown index.local.neuralEngine %q (%s, %s, %s)",
+		return nil, false, fmt.Errorf("indexer: unknown index.local.neuralEngine %q (%s, %s, %s)",
 			mode, config.NeuralEngineAuto, config.NeuralEngineOn, config.NeuralEngineOff)
 	}
 	// Auto runs without it; on refuses to.
-	without := func(why string) (*coreMLPackage, error) {
+	without := func(why string) (*coreMLPackage, bool, error) {
 		if mode == config.NeuralEngineOn {
-			return nil, fmt.Errorf("indexer: index.local.neuralEngine: on: %s", why)
+			return nil, false, fmt.Errorf("indexer: index.local.neuralEngine: on: %s", why)
 		}
-		return nil, nil
+		return nil, false, nil
 	}
 	if !aneHost() {
 		return without("it needs an Apple Silicon Mac, not a virtual machine, on macOS 15 or later")
 	}
 	model, err := lookupLocalModel(cfg.Model)
 	if err != nil {
-		return nil, nil // resolveLocalSpec reports the unknown model
+		return nil, false, nil // resolveLocalSpec reports the unknown model
 	}
 	named := cfg.Model != "" || cfg.ModelPath == ""
 	if !named || model.coreml == nil {
@@ -57,9 +64,10 @@ func planNeuralEngine(cfg config.IndexLocal, modelsDir string) (*coreMLPackage, 
 	}
 	pkg := model.coreml
 	if !pkg.complete(pkg.dir(modelsDir)) && (cfg.ModelPath != "" || pkg.url == "") {
-		return without("the model's Core ML package is not in the models directory and is not downloaded")
+		_, _, err := without("the model's Core ML package is not in the models directory and is not downloaded")
+		return nil, err == nil, err
 	}
-	return pkg, nil
+	return pkg, false, nil
 }
 
 // packageDownload fetches the missing files of a Core ML package into

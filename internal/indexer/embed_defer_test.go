@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -923,5 +924,44 @@ func TestWorkerEmbedder_PrepareBulkStopsWaitingForTheDownload(t *testing.T) {
 	}
 	if h.spawns() != 0 {
 		t.Fatalf("spawned %d children for a package that never came", h.spawns())
+	}
+}
+
+// A package that lands after the wait's last look and before its bound
+// is found at the bound: bulk work goes on to the first function, it
+// does not open without it.
+func TestWorkerEmbedder_PackageLandingAtTheBoundIsSeen(t *testing.T) {
+	w, _ := aneWorker(t, append(delayEnv(50*time.Millisecond), "ANY_EMBED_WORKER_ANE=ready")...)
+	pkg := withDownloadingPackage(w)
+	w.pkgWait, w.pkgPoll = 200*time.Millisecond, time.Hour // the bound is the only look
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		pkg.onDisk.Store(true)
+	}()
+	if got := w.PrepareBulk(context.Background(), nil); got != BulkReady {
+		t.Fatalf("PrepareBulk = %q, want the first function's %q", got, BulkReady)
+	}
+}
+
+// With a model path and no package in the models directory, an eligible
+// Mac has no Neural Engine path for want of the package, and says so; a
+// machine that would have none anyway has nothing to wait for.
+func TestNewWorkerEmbedder_SaysThePackageIsMissing(t *testing.T) {
+	models := t.TempDir()
+	gguf := filepath.Join(models, "model.gguf")
+	if err := os.WriteFile(gguf, []byte("gguf"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.IndexLocal{Model: config.LocalModelEmbeddingGemma2, ModelPath: gguf}
+	for capable, want := range map[bool]string{true: BulkNoPackage, false: BulkNoWait} {
+		stubANEHost(t, capable)
+		w, err := newWorkerEmbedder(cfg, models, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := w.PrepareBulk(context.Background(), func() { t.Error("waited with no package to come") }); got != want {
+			t.Errorf("neural engine host %v: PrepareBulk = %q, want %q", capable, got, want)
+		}
+		_ = w.Close()
 	}
 }
