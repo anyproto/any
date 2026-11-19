@@ -40,6 +40,9 @@ const (
 	// path's first one (workerEmbedder.PrepareBulk), and for the one a
 	// document needs, from when it was asked for (neuralEngine.embedBulk).
 	aneBulkWait = 10 * time.Minute
+	// anePackageWait bounds how long bulk work waits for the package's
+	// download, from its first waiter.
+	anePackageWait = 30 * time.Minute
 	// aneAuditMax is how long a placement audit may hold an idle child.
 	// The plan's own timeout ends well inside it; reading the plan is not
 	// bounded by that one.

@@ -113,13 +113,16 @@ type BulkPreparer interface {
 // How a PrepareBulk call ended.
 const (
 	BulkNoWait    = "no_wait"    // no runtime to wait for
-	BulkNoPackage = "no_package" // the runtime's files are not on disk
-	BulkReady     = "ready"      // its first function is loaded
-	BulkFailed    = "failed"     // its first function is not used
-	BulkOff       = "off"        // the runtime is off for this child
-	BulkTimeout   = "timeout"    // the wait ran into its bound, now or earlier
-	BulkNoChild   = "no_child"   // the child did not start, or exited
-	BulkCancelled = "cancelled"
+	BulkNoPackage = "no_package" // the runtime's files are not on disk, and nothing downloads them
+	// The download of the runtime's files failed, or outlasted the wait.
+	BulkDownloadFailed  = "download_failed"
+	BulkDownloadTimeout = "download_timeout"
+	BulkReady           = "ready"    // its first function is loaded
+	BulkFailed          = "failed"   // its first function is not used
+	BulkOff             = "off"      // the runtime is off for this child
+	BulkTimeout         = "timeout"  // the wait ran into its bound, now or earlier
+	BulkNoChild         = "no_child" // the child did not start, or exited
+	BulkCancelled       = "cancelled"
 )
 
 // BulkHolder is an Embedder that keeps its runtime loaded while a drain

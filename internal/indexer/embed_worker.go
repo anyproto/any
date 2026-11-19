@@ -77,8 +77,13 @@ type workerEmbedder struct {
 	startTimeout time.Duration
 	// idleTimeout is workerIdleTimeout; 0 never retires an idle child.
 	idleTimeout time.Duration
-	// bulkWait is aneBulkWait.
-	bulkWait time.Duration
+	// bulkWait is aneBulkWait, pkgWait anePackageWait; pkgWaitUntil is when
+	// the wait for the package's download ends (unix nanoseconds; 0 until
+	// its first waiter).
+	bulkWait     time.Duration
+	pkgWait      time.Duration
+	pkgWaitUntil atomic.Int64
+	pkgWaitOver  sync.Once
 	// newCmd builds the child command from a spec; injectable so tests
 	// can drive a helper process instead of a real model.
 	newCmd func(localSpec) (*exec.Cmd, error)
@@ -205,6 +210,7 @@ func newWorkerEmbedderFromSpec(spec localSpec, reqTimeout time.Duration) *worker
 		startTimeout: workerStartTimeout,
 		idleTimeout:  workerIdleTimeout,
 		bulkWait:     aneBulkWait,
+		pkgWait:      anePackageWait,
 		gaveUp:       make(chan struct{}),
 		wake:         make(chan struct{}),
 		routed:       bulkRouting{every: bulkLogEvery},
@@ -1048,14 +1054,19 @@ func (w *workerEmbedder) PrepareBulk(ctx context.Context, waiting func()) string
 	if c := w.settledChild.Load(); c != nil && !c.detached.Load() && c.spec == spec {
 		return c.settledAs
 	}
-	if w.pkgOnDisk != nil && !w.pkgOnDisk() {
-		return BulkNoPackage
+	said := false
+	say := func() {
+		if !said && waiting != nil {
+			said = true
+			waiting()
+		}
+	}
+	if how := w.awaitPackage(ctx, say); how != "" {
+		return how
 	}
 	// From here on the call waits: for a child to start, or for the
 	// running one's path to settle.
-	if waiting != nil {
-		waiting()
-	}
+	say()
 	// Before the spawn: its idle timer must not fire under the wait.
 	w.preparing.Add(1)
 	defer w.preparing.Add(-1)
@@ -1115,6 +1126,60 @@ func (w *workerEmbedder) PrepareBulk(ctx context.Context, waiting func()) string
 		w.slot.release(false)
 	}
 	return how
+}
+
+// awaitPackage waits for the Core ML package while its download runs,
+// queued behind the model's or transferring. "" = it is on disk; else
+// why bulk work goes on without it (Bulk*). waiting runs if it waits.
+func (w *workerEmbedder) awaitPackage(ctx context.Context, waiting func()) string {
+	if w.pkgOnDisk == nil || w.pkgOnDisk() {
+		return ""
+	}
+	if w.pkgDl == nil {
+		return BulkNoPackage
+	}
+	// One bound for every waiter, from the first: past it nobody waits.
+	w.pkgWaitUntil.CompareAndSwap(0, time.Now().Add(w.pkgWait).UnixNano())
+	left := time.Until(time.Unix(0, w.pkgWaitUntil.Load()))
+	failed := func() string {
+		if w.pkgOnDisk() {
+			return ""
+		}
+		return BulkDownloadFailed
+	}
+	select {
+	case <-w.pkgDl.done:
+		return failed()
+	default:
+	}
+	if left <= 0 {
+		return BulkDownloadTimeout
+	}
+	waiting()
+	timer := time.NewTimer(left)
+	defer timer.Stop()
+	// The package is whole before its licence texts are, which is when
+	// the download says it is done.
+	poll := time.NewTicker(min(time.Second, max(w.pkgWait/100, time.Millisecond)))
+	defer poll.Stop()
+	for {
+		select {
+		case <-w.pkgDl.done:
+			return failed()
+		case <-poll.C:
+			if w.pkgOnDisk() {
+				return ""
+			}
+		case <-ctx.Done():
+			return BulkCancelled
+		case <-timer.C:
+			w.pkgWaitOver.Do(func() {
+				w.lg.Warn("local embedder: the wait for the core ml package's download ran out; bulk embedding opens on llama.cpp",
+					zap.Duration("waited", w.pkgWait))
+			})
+			return BulkDownloadTimeout
+		}
+	}
 }
 
 // giveUpBulk ends every wait for a first function, now and later.

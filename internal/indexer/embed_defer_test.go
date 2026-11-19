@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -820,5 +821,107 @@ func TestServeEmbed_BulkAndOrdinaryFrames(t *testing.T) {
 	hdr = workerResp{}
 	if _, err = readFrame(r, &hdr); err != nil || hdr.N != 3 || len(hdr.Routes.Deferred) != 0 {
 		t.Fatalf("ordinary frame: %d vectors, routes %+v, %v", hdr.N, hdr.Routes, err)
+	}
+}
+
+// downloadingPackage gives a worker a Core ML package that is not on
+// disk yet and a download for it the test ends by hand.
+type downloadingPackage struct {
+	onDisk atomic.Bool
+	end    func() // the download ends, with the package on disk or not
+}
+
+func withDownloadingPackage(w *workerEmbedder) *downloadingPackage {
+	done := make(chan struct{})
+	p := &downloadingPackage{end: sync.OnceFunc(func() { close(done) })}
+	w.pkgOnDisk = p.onDisk.Load
+	w.pkgDl = &packageDownload{cancel: p.end, done: done} // Close cancels, then waits for it
+	return p
+}
+
+// While the package's download runs, bulk work waits for it and then for
+// the first function, as for a package being prepared. A search is not
+// held meanwhile.
+func TestWorkerEmbedder_PrepareBulkWaitsForThePackageDownload(t *testing.T) {
+	const lands = 300 * time.Millisecond
+	ctx := context.Background()
+	w, _ := aneWorker(t, append(delayEnv(50*time.Millisecond), "ANY_EMBED_WORKER_ANE=ready")...)
+	pkg := withDownloadingPackage(w)
+	go func() {
+		time.Sleep(lands)
+		pkg.onDisk.Store(true) // whole, before the download is done with its licence texts
+	}()
+	said := 0
+	start := time.Now()
+	done := make(chan string, 1)
+	go func() { done <- w.PrepareBulk(ctx, func() { said++ }) }()
+	if _, err := w.EmbedQuery(ctx, "a search under the download"); err != nil {
+		t.Fatalf("a search under the download: %v", err)
+	}
+	if waited := time.Since(start); waited > lands {
+		t.Fatalf("the search took %s: it was held", waited)
+	}
+	if got := <-done; got != BulkReady {
+		t.Fatalf("PrepareBulk = %q, want %q", got, BulkReady)
+	}
+	if waited := time.Since(start); waited < lands {
+		t.Fatalf("returned after %s, before the package landed at %s", waited, lands)
+	}
+	if said != 1 {
+		t.Fatalf("said it waits %d times, want once", said)
+	}
+}
+
+// The wait for the download ends with it, and at its own bound: bulk
+// work then goes on without the package, and no later call waits.
+func TestWorkerEmbedder_PrepareBulkStopsWaitingForTheDownload(t *testing.T) {
+	ctx := context.Background()
+	w, h := aneWorker(t, "ANY_EMBED_WORKER_ANE=ready")
+	pkg := withDownloadingPackage(w)
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		pkg.end() // without the package
+	}()
+	start := time.Now()
+	if got := w.PrepareBulk(ctx, nil); got != BulkDownloadFailed {
+		t.Fatalf("a failed download: PrepareBulk = %q", got)
+	}
+	if waited := time.Since(start); waited < 100*time.Millisecond || waited > 5*time.Second {
+		t.Fatalf("returned after %s, want the download's end", waited)
+	}
+	if got := w.PrepareBulk(ctx, func() { t.Error("waited again after the download failed") }); got != BulkDownloadFailed {
+		t.Fatalf("after a failed download: PrepareBulk = %q", got)
+	}
+
+	w, _ = aneWorker(t, "ANY_EMBED_WORKER_ANE=ready")
+	withDownloadingPackage(w)
+	w.pkgWait = 150 * time.Millisecond
+	start = time.Now()
+	if got := w.PrepareBulk(ctx, nil); got != BulkDownloadTimeout {
+		t.Fatalf("a download past the bound: PrepareBulk = %q", got)
+	}
+	if waited := time.Since(start); waited < 150*time.Millisecond || waited > 5*time.Second {
+		t.Fatalf("returned after %s, want the %s bound", waited, w.pkgWait)
+	}
+	if got := w.PrepareBulk(ctx, func() { t.Error("waited again past the bound") }); got != BulkDownloadTimeout {
+		t.Fatalf("past the bound: PrepareBulk = %q", got)
+	}
+
+	w, _ = aneWorker(t, "ANY_EMBED_WORKER_ANE=ready")
+	withDownloadingPackage(w)
+	cctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	if got := w.PrepareBulk(cctx, nil); got != BulkCancelled {
+		t.Fatalf("cancelled under the download: PrepareBulk = %q", got)
+	}
+
+	// No download for a package that is not there: nothing to wait for.
+	w, _ = aneWorker(t, "ANY_EMBED_WORKER_ANE=ready")
+	w.pkgOnDisk = func() bool { return false }
+	if got := w.PrepareBulk(ctx, func() { t.Error("waited with no download") }); got != BulkNoPackage {
+		t.Fatalf("no download: PrepareBulk = %q", got)
+	}
+	if h.spawns() != 0 {
+		t.Fatalf("spawned %d children for a package that never came", h.spawns())
 	}
 }
