@@ -661,6 +661,11 @@ that first function is then the only one. A loop drains once when it
 starts, for what was pending before it. A search embeds its query
 regardless.
 
+A batch that comes back without a vector for a text, from an embedder
+that did not say it deferred it, is an error for that text alone: the
+other vectors land, the drain reads on past the text, and ends the pass
+in the error, to try again on the tick.
+
 A vector lands only on the input it was embedded from. The advance loop
 writes while a batch embeds, so the landing checks each doc inside its
 write transaction: one deleted meanwhile is skipped, not resurrected;
@@ -830,7 +835,8 @@ without a frame when it runs out only postpones the check. A child
 with a Core ML path is also kept under a drain, from its start delay
 until it returns, and is asked before it is stopped: it refuses while a
 placement audit runs (§ Neural Engine), and from the moment it agrees
-it starts no audit. One that cannot answer is reaped as a failed child;
+it starts no audit. One that cannot answer, or whose audit has run for
+15 minutes, is reaped as a failed child;
 a child without a Core ML path is not asked, and one found dead is
 reaped without counting against the GPU. The stop
 holds the slot: a request that arrives meanwhile waits for it and spawns
@@ -1015,10 +1021,11 @@ pending the drain waits, its row in `preparing`, until the child
 reports on a function (loaded, failed, released, the path off), the
 child stops or exits, or the 1-minute tick; then it starts over from the head of
 the queue. The same report heard in the middle of a pass restarts it
-from the head at the next page. So does the nudge for newly written
-texts, which can sort ahead of the docs left behind, once the pass has
-landed as many vectors as starting over resends; it ends the wait at
-the end of a pass too. The nudge is sent only for a page that left a
+from the head at the next page. The nudge for newly written texts,
+which can sort ahead of the cursor, gets them one page read from the
+head between two read on from the cursor, so the pass keeps moving
+under any rate of writes, and has the pass start over at its end
+instead of waiting; it ends that wait too. The nudge is sent only for a page that left a
 doc newly pending, a renamed or unnamed object's windows included. A drain holds a child with a Core ML path against
 idle retirement from its start delay until it returns. The
 wait for one function is bounded at 10 min from the first document
@@ -1072,7 +1079,8 @@ wherever its unknown ones run is a verdict against. A
 child is not retired as idle while it audits, and one that dies between
 an audit's started and finished lines died in Core ML: the next child
 runs without it, whatever the path said. For the same reason the `off`
-line is written only when no Core ML call is left in flight. Until
+line is written only when no Core ML call is left in flight, the
+release of a function that is being discarded included. Until
 a function has its verdict the texts it embeds are reported as
 `coreml`, after it as `ane` (`22-processes.md` § Internal producers).
 The digest in the package's directory name is of its pinned checksums,
