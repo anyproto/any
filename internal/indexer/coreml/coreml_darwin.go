@@ -186,15 +186,14 @@ func fileURL(path string) objc.ID {
 	return classSend(clsURL, "fileURLWithPath:", nsString(path))
 }
 
-// describe renders an NSError; call it while the error is alive.
+// describe names an NSError by its domain and code; call it while the
+// error is alive. Not its description: Core ML puts file URLs in those,
+// and what this returns is logged.
 func describe(nserr objc.ID) string {
-	if nserr == 0 {
+	if nserr == 0 || !responds(nserr, "domain") || !responds(nserr, "code") {
 		return "no error reported"
 	}
-	if msg := goString(send(nserr, "localizedDescription")); msg != "" {
-		return msg
-	}
-	return "unknown error"
+	return fmt.Sprintf("%s error %d", goString(send(nserr, "domain")), objc.Send[int](nserr, sel("code")))
 }
 
 func responds(id objc.ID, name string) bool {

@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ebitengine/purego/objc"
 )
 
 // referenceRow is one row of ANY_TEST_COREML_REFERENCE: a token sequence,
@@ -324,4 +326,27 @@ func TestPackage(t *testing.T) {
 			t.Error("opened a model that is not there")
 		}
 	})
+}
+
+// An NSError is named by its domain and code alone: its description can
+// carry a file URL, and the name is logged.
+func TestDescribeNamesNoPath(t *testing.T) {
+	if err := load(); err != nil {
+		t.Skip(err)
+	}
+	const path = "/private/var/secret-root/model.mlmodelc/model.mil"
+	var got string
+	_ = scope(func() error {
+		info := classSend(clsMutableDictionary, "dictionary")
+		send(info, "setObject:forKey:", nsString("could not read "+path), nsString("NSLocalizedDescription"))
+		nserr := classSend(objc.GetClass("NSError"), "errorWithDomain:code:userInfo:", nsString("com.example.test"), 42, info)
+		got = describe(nserr)
+		return nil
+	})
+	if got != "com.example.test error 42" {
+		t.Fatalf("describe = %q", got)
+	}
+	if describe(0) != "no error reported" {
+		t.Fatalf("describe(nil) = %q", describe(0))
+	}
 }
