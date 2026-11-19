@@ -826,7 +826,12 @@ stopped (stdin EOF), which returns all of its memory: llama.cpp keeps
 its decode buffers at their high-water mark for the life of the
 process, over 1 GB after one 2048-token document. The countdown starts
 when a frame ends, so a frame in flight is never cut; a slot held
-without a frame when it runs out only postpones the check. The stop
+without a frame when it runs out only postpones the check. A child
+with a Core ML path is also kept under a drain, from its start delay
+until it returns, and until a placement audit it reported started has
+reported finished (§ Neural Engine); a child without one is not, and
+neither outlives its own exit: a child found dead at the check is
+reaped as a failed one. The stop
 holds the slot: a request that arrives meanwhile waits for it and spawns
 a fresh child (about a second warm; a cold model load takes longer), and
 a shutdown that arrives meanwhile kills the child rather than waiting
@@ -983,9 +988,10 @@ first batch waits for the path's first function, so a backlog does not
 run on llama.cpp while Core ML prepares. Bulk work opens at the later
 of the start delay and that function. The drain's process row is
 announced before the wait. The
-wait ends when the child reports a function loaded, a failed load or
-the path off, when the child exits, or 10 min after the child's first
-waiter, for every waiter at once; a wait that ran into that bound ends
+wait ends when the child reports its first function loaded or not
+used, or the path off (a report on another function, such as a refusal
+on record, does not end it), when the child exits, or 10 min after the
+child's first waiter, for every waiter at once; a wait that ran into that bound ends
 every other one and is the last until the next boot. Nothing waits
 while the package is not on disk. A drain asks before every round that
 has work, and a child whose path has settled answers at once: a package
@@ -996,7 +1002,8 @@ is there.
 
 **A document waits for its function.** Past the first function, the
 child answers a frame of bulk work without a vector for a text whose
-function is queued or loading, instead of embedding it on llama.cpp.
+function is queued or loading, or whose package is on disk and still
+being prepared, instead of embedding it on llama.cpp.
 The text stays `pending`, and the drain goes on with the texts behind
 it: it reads the queue past the docs it left (`Store.PendingFrom`), so
 texts that fit a loaded function keep landing. When nothing else is
@@ -1004,14 +1011,19 @@ pending the drain waits, its row in `preparing`, until the child
 reports on a function (loaded, failed, released, the path off), the
 child stops or exits, or the 1-minute tick; then it starts over from the head of
 the queue. The same report heard in the middle of a pass restarts it
-from the head at the next page, and the nudge for newly written texts
-ends the wait too, so neither a busy queue nor a loading function holds
-up a text that can embed. A drain holds the child against idle
-retirement from its start delay until it returns. The
-wait for one function is bounded at 10 min from when it was first asked
-for, or from the end of a placement audit that kept the loader from it:
-past that the child says so, and llama.cpp embeds the function's
-documents until it is loaded (`readiness_timeout`). The bound of the
+from the head at the next page. So does the nudge for newly written
+texts, which can sort ahead of the docs left behind, once the pass has
+landed as many vectors as starting over resends; it ends the wait at
+the end of a pass too. The nudge is sent only for a page that can have
+marked a doc pending. A drain holds a child with a Core ML path against
+idle retirement from its start delay until it returns. The
+wait for one function is bounded at 10 min from the first document
+deferred for it: past that the child says so, and llama.cpp embeds the
+function's documents until it is loaded (`readiness_timeout`). The
+bound stays that document's until a document embeds on the function, so
+a function that loaded and was not used in time does not start a new
+wait, and a function loaded for a waiting document is not released as
+idle before the bound. The bound of the
 wait for the first function is separate and ends only that wait.
 A function that failed to load or is on record as refused, the path
 off, a missing package and a text over 2,048 tokens go to llama.cpp at
@@ -1024,25 +1036,33 @@ package. Core ML's compute plan says where it prefers to run each
 operation of a function; reading it costs about a load of its own, so
 it is not read on the way to a function's first text. A loaded function
 serves at once, and when the child has nothing left to load it audits
-the functions it has no verdict for, one at a time: the plan must put
+the functions it has no verdict for, one at a time, beside the loader:
+a function asked for under an audit loads without waiting for it. The
+plan must put
 more than 100 operations on the Neural Engine and no convolution,
 matmul, linear or softmax operation on the CPU. The verdict is written
-to `<name>-<digest>.placement.json` beside the compiled model, with the
-model's name and digest, the chip and the OS build it was read on, and
+to `<name>-<digest>.placement.s<N>.json` beside the compiled model, one
+file per function, with the
+model's name and digest, the function, the chip and the OS build it was
+read on, and
 every later child on that setup takes it from there without a plan: a
 function on record against is failed as soon as the child has prepared.
-An entry is read only if its verdict is the one the rule gives for its
-own counts; anything else, another model's or setup's record included,
-is as if not audited. Children of several servers share the file
-without a lock: each adds its audits to the file as it is at that
-moment, and an audit lost to another's write is run again. A function whose verdict is
+A file is a verdict only with every field present, for this model,
+setup and function, and with the verdict the rule gives for its own
+counts; anything else is as if not audited. Children of several servers
+share the files without a lock: an audit replaces its own function's
+file whole, so there is nothing to merge, and a file that is there and
+cannot be read is left alone. A function whose verdict is
 against it is closed, once any prediction in flight has returned, and
 not loaded again, in that child or a later
 one, and llama.cpp takes its texts; another chip or OS build, or a
 removed file, is audited afresh. A plan that cannot be read, or that
 names no device for operations the verdict depends on, is no
 verdict: the function keeps serving and the next child audits it. A
-child is not retired as idle while it audits. Until
+plan that cannot put more than 100 operations on the Neural Engine
+wherever its unknown ones run is a verdict against. A
+child is not retired as idle between an audit's started and finished
+lines. Until
 a function has its verdict the texts it embeds are reported as
 `coreml`, after it as `ane` (`22-processes.md` § Internal producers).
 The digest in the package's directory name is of its pinned checksums,
@@ -1067,7 +1087,8 @@ the placement is `placement on record, plan skipped`, `placement
 verified` (by this child, earlier) or `placement not verified yet`;
 `s<N> placement verified (plan …, … operations on the neural engine, …
 on the cpu)` and `s<N> placement not verified: …` from the audit,
-after `s<N> placement audit started`;
+between `s<N> placement audit started` and `s<N> placement audit
+finished`;
 `s<N> not used: …`; `s<N> still loading after …`; `s<N> released after
 …`; and `off, …`. `bulk embedding opened` is logged once per run, when
 the first drain got past its waits: `openedBy` is `start_delay`,
@@ -1079,7 +1100,8 @@ for the first function, `timeout`, `no_child`, `no_package`, `no_wait`
 `local embedder bulk routing` counts the bulk texts since the previous
 such line (`ane`, `coreml`, `llama`) over `window`, at most every 30 s,
 when the child stops, and only when some ran on llama.cpp or were left
-pending: `llamaReasons` has the count per reason (`none` = no reason to
+pending (work with nothing to say stays counted for the next line; a
+child demoted off Core ML counts as `ane_off`): `llamaReasons` has the count per reason (`none` = no reason to
 give), `deferred` how many times a text was left pending and
 `deferredFor` the time since the first of them; a text left pending in
 two passes counts twice. None of these lines carries a text, an id or a
