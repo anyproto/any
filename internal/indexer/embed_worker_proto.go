@@ -112,12 +112,14 @@ func unpackVectors(vecs [][]float32, deferred []int, n int) ([][]float32, error)
 }
 
 type workerResp struct {
-	Op     string        `json:"op"`
-	Dim    int           `json:"dim,omitempty"`
-	N      int           `json:"n,omitempty"`
-	Error  string        `json:"error,omitempty"`
-	Busy   bool          `json:"busy,omitempty"`
-	Routes *workerRoutes `json:"routes,omitempty"`
+	Op    string `json:"op"`
+	Dim   int    `json:"dim,omitempty"`
+	N     int    `json:"n,omitempty"`
+	Error string `json:"error,omitempty"`
+	Busy  bool   `json:"busy,omitempty"`
+	// Overdue, with Busy: what keeps the child busy has run too long.
+	Overdue bool          `json:"overdue,omitempty"`
+	Routes  *workerRoutes `json:"routes,omitempty"`
 	// Hardware rides the `ready` frame: what llama.cpp reports about the
 	// machine it just initialized on.
 	Hardware *Hardware `json:"hardware,omitempty"`

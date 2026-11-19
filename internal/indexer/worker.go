@@ -862,11 +862,12 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 	left, after := 0, ""
 	var wake <-chan struct{}
 	deferrer, _ := emb.(BulkDeferrer)
-	// landed counts the vectors this pass landed; nudged: new texts were
-	// announced during it and it has not started over for them yet.
-	landed, nudged := 0, false
+	// nudged: new texts wait for a look at the head; moved: the cursor
+	// went on since the last look; again: the pass starts over at its end.
+	nudged, moved, again := false, false, false
+	var passErr error // a vector the embedder neither gave nor deferred
 	startPass := func() {
-		left, after, landed, nudged = 0, "", 0, false
+		left, after, nudged, moved, again, passErr = 0, "", false, false, false, nil
 		if deferrer != nil {
 			wake = deferrer.DeferredWake()
 		}
@@ -876,10 +877,13 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 	// queue is drained. Otherwise it has waited for the texts left behind
 	// and the next pass may start.
 	endPass := func() (done bool, err error) {
+		if passErr != nil {
+			return false, passErr
+		}
 		if left == 0 {
 			return true, nil
 		}
-		if nudged { // new texts came during the pass: they do not wait
+		if nudged || again { // new texts came during the pass: they do not wait
 			startPass()
 			return false, nil
 		}
@@ -952,8 +956,9 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 			startPass() // what the embedder said while it prepared is old
 		}
 		// With texts left behind, the embedder's word starts the pass
-		// over: full pages would keep them there. So do new texts, which
-		// can sort ahead of the cursor, once it landed what that resends.
+		// over. New texts can sort ahead of the cursor: they get one page
+		// from the head between two from the cursor, which keeps moving.
+		peek := false
 		if left > 0 {
 			select {
 			case <-w.embedCh:
@@ -964,14 +969,14 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 			case <-wake:
 				startPass()
 			default:
-				if nudged && landed >= left {
-					startPass()
+				if nudged && moved {
+					peek, nudged, moved, again = true, false, false, true
 				}
 			}
 		}
 		// With nothing left behind every page is the head of the queue.
 		from := ""
-		if left > 0 {
+		if left > 0 && !peek {
 			from = after
 		}
 		ids, texts, err := w.ix.store.PendingAfter(ctx, spaceId, from, batch*conc)
@@ -984,7 +989,9 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 			}
 			continue
 		}
-		after = ids[len(ids)-1]
+		if !peek {
+			after, moved = ids[len(ids)-1], left > 0
+		}
 		if !first {
 			if err := prepare(); err != nil {
 				return err
@@ -1014,6 +1021,8 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 			vecs   [][]float32
 			route  EmbedRoute
 			err    error
+			// missing: vectors the embedder neither gave nor deferred.
+			missing error
 		}
 		var chunks []*chunk
 		for off := 0; off < len(ids); off += batch {
@@ -1042,12 +1051,10 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 					}
 					c.route.Backends = embedBackends(emb)
 				}
-				// Only the texts a route declares deferred may lack a vector.
-				if vecs, err := declaredVectors(c.vecs, c.route.Deferred); err != nil {
-					c.vecs, c.route.Deferred = vecs, 0
-					if c.err == nil {
-						c.err = err
-					}
+				// Only texts a route declares deferred may lack a vector. Others
+				// stay pending too and end the pass in an error; the rest lands.
+				if missing, err := declaredVectors(c.vecs, c.route.Deferred); err != nil {
+					c.route.Deferred, c.missing = missing, err
 				}
 			}(c)
 		}
@@ -1057,6 +1064,9 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 		for _, c := range chunks {
 			c.ids, c.texts, c.titles, c.vecs = embeddedDocs(c.ids, c.texts, c.titles, c.vecs)
 			left += c.route.Deferred
+			if c.missing != nil && passErr == nil {
+				passErr = c.missing
+			}
 		}
 		// First embedded vector teaches the store its dimension (no
 		// boot-time probe — an embedder down at boot just starts here).
@@ -1091,7 +1101,7 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 					took += got
 					progress(got, -1)
 				}
-			} else if c.err == nil && c.route.Deferred > 0 {
+			} else if c.err == nil && c.missing == nil && c.route.Deferred > 0 {
 				// A batch left pending whole: no runtime embedded it.
 				report(EmbedStatus{Phase: EmbedPhaseEmbedding})
 			}
@@ -1099,7 +1109,6 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 				firstErr = c.err
 			}
 		}
-		landed += took
 		if took > 0 {
 			if _, err := w.ix.store.EnsureVectorIndex(ctx, spaceId); err != nil {
 				return err
@@ -1153,21 +1162,17 @@ func bulkOpenedFields(delayed, prepared bool, how string, preparedFor time.Durat
 }
 
 // declaredVectors checks that a batch lacks a vector for exactly the
-// deferred texts its route declares. Otherwise it returns the vectors
-// ahead of the first missing one, and the error.
-func declaredVectors(vecs [][]float32, deferred int) ([][]float32, error) {
-	missing, first := 0, len(vecs)
-	for i, v := range vecs {
+// deferred texts its route declares, and counts the ones it lacks.
+func declaredVectors(vecs [][]float32, deferred int) (missing int, err error) {
+	for _, v := range vecs {
 		if len(v) == 0 {
-			if missing++; first == len(vecs) {
-				first = i
-			}
+			missing++
 		}
 	}
-	if missing == deferred {
-		return vecs, nil
+	if missing != deferred {
+		err = fmt.Errorf("indexer: the embedder declared %d of %d texts deferred and returned no vector for %d", deferred, len(vecs), missing)
 	}
-	return vecs[:first], fmt.Errorf("indexer: the embedder declared %d of %d texts deferred and returned no vector for %d", deferred, len(vecs), missing)
+	return missing, err
 }
 
 // embeddedDocs drops the docs of a batch whose vector is nil: the texts

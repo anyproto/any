@@ -616,6 +616,31 @@ func TestWorkerEmbedder_ChildRefusesIdleStopUnderAnAudit(t *testing.T) {
 	}
 }
 
+// A child whose audit never returns is not held for it for ever: once
+// the child says the audit is overdue it is reaped, as failed in Core ML.
+func TestWorkerEmbedder_StuckAuditDoesNotPinTheChild(t *testing.T) {
+	h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ANE=stuckaudit", "ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"}}
+	w := newTestWorker(t, h, -1)
+	w.mu.Lock()
+	w.spec.coremlDir = filepath.Join(t.TempDir(), "eg2.mlpackage")
+	w.mu.Unlock()
+	w.idleTimeout = 50 * time.Millisecond
+	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); hasChild(w); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the child stuck in an audit was never reaped")
+		}
+	}
+	w.mu.Lock()
+	coreml, gpu := w.coremlDisabled, w.gpuDisabled
+	w.mu.Unlock()
+	if !coreml || gpu {
+		t.Fatalf("after a stuck audit: core ml off %v, gpu off %v; want core ml alone", coreml, gpu)
+	}
+}
+
 // A child that dies in an audit died in Core ML, whatever its path said
 // before: Core ML is what the next child goes without, not the GPU.
 func TestWorkerEmbedder_DeathUnderAnAuditIsCoreMLs(t *testing.T) {

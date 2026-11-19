@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -441,22 +442,76 @@ func TestNeuralEngine_ReloadDoesNotRepublishARefusedFunction(t *testing.T) {
 	}
 }
 
+// A reload discarded because the last function was refused meanwhile is
+// closed before the off line is written: closing it is a Core ML call.
+func TestNeuralEngine_OffLineComesAfterTheDiscardedReloadIsClosed(t *testing.T) {
+	refused := errors.Join(errOffNeuralEngine, errors.New("6014 operations on the cpu"))
+	f := &fakeANE{auditErr: map[int]error{128: refused}, auditGate: make(chan struct{})}
+	log := newLogLines()
+	n, _ := newTestANE(t, f)
+	n.logf = log.logf
+	n.lengths = []int{128}
+	releaseAudit := sync.OnceFunc(func() { close(f.auditGate) })
+	defer releaseAudit()
+	n.start()
+	waitOrder(t, f, "load 128", "audit 128")
+	f.mu.Lock()
+	f.gate, f.started = make(chan struct{}), make(chan int, 1)
+	f.mu.Unlock()
+	releaseLoad := sync.OnceFunc(func() { close(f.gate) })
+	defer releaseLoad()
+	n.mu.Lock()
+	n.fns[128].close()
+	delete(n.fns, 128)
+	n.requestLocked(128)
+	n.mu.Unlock()
+	<-f.started
+	releaseAudit()
+	for deadline := time.Now().Add(10 * time.Second); !log.has("s128 placement audit finished"); time.Sleep(2 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the audit never finished")
+		}
+	}
+	offAtClose := make(chan bool, 1)
+	f.mu.Lock()
+	f.onClose = func(int) { offAtClose <- log.has(aneOffStatus) }
+	f.mu.Unlock()
+	releaseLoad()
+	n.loads.Wait()
+	select {
+	case said := <-offAtClose:
+		if said {
+			t.Fatal("the off line was written before the discarded handle was closed")
+		}
+	default:
+		t.Fatal("the discarded handle was not closed")
+	}
+	if !log.has(aneOffStatus) {
+		t.Fatalf("no off line once the handle was closed: %v", log.lines)
+	}
+}
+
 // The path's off line waits for the Core ML call in flight, and the
 // server may stop an idle child only between audits.
 func TestNeuralEngine_QuiesceAndTheOffLine(t *testing.T) {
 	f := &fakeANE{auditGate: make(chan struct{})}
-	n, _ := newTestANE(t, f)
+	n, clock := newTestANE(t, f)
 	release := sync.OnceFunc(func() { close(f.auditGate) })
 	defer release()
 	n.start()
 	waitOrder(t, f, "load 128", "audit 128")
-	if n.quiesce() {
-		t.Fatal("quiesced under an audit")
+	if ok, overdue := n.quiesce(); ok || overdue {
+		t.Fatalf("under an audit: quiesced %v, overdue %v", ok, overdue)
+	}
+	// An audit that runs longer than any does is said to be overdue.
+	clock.add(n.auditMax)
+	if ok, overdue := n.quiesce(); ok || !overdue {
+		t.Fatalf("under an audit past its bound: quiesced %v, overdue %v", ok, overdue)
 	}
 	release()
 	n.loads.Wait()
-	if !n.quiesce() {
-		t.Fatal("not quiesced with nothing running")
+	if ok, overdue := n.quiesce(); !ok || overdue {
+		t.Fatalf("with nothing running: quiesced %v, overdue %v", ok, overdue)
 	}
 	// Once it agreed to stop, no audit starts.
 	loadFor(n, 200)
@@ -868,9 +923,13 @@ func TestStatusLinesNameNoPath(t *testing.T) {
 	_, pathErr := os.ReadFile(filepath.Join(root, "model.bin"))
 	linkErr := os.Rename(filepath.Join(root, "a"), filepath.Join(root, "b"))
 	for name, f := range map[string]*fakeANE{
-		"preparation fails":  {prepErrs: []error{fmt.Errorf("install the compiled model: %w", linkErr)}},
-		"a load fails":       {loadErr: map[int]error{128: pathErr}},
-		"an audit fails":     {auditErr: map[int]error{128: pathErr}},
+		"preparation fails": {prepErrs: []error{fmt.Errorf("install the compiled model: %w", linkErr)}},
+		"a load fails":      {loadErr: map[int]error{128: pathErr}},
+		"an audit fails":    {auditErr: map[int]error{128: pathErr}},
+		// A copy between volumes: the destination, and inside it the source.
+		"a copy fails": {prepErrs: []error{fmt.Errorf("install the compiled model: %w", &fs.PathError{Op: "CopyFS",
+			Path: filepath.Join(root, "m.mlmodelc.1.tmp"),
+			Err:  &fs.PathError{Op: "open", Path: "/var/folders/secret-tmp/model.mil", Err: fs.ErrPermission}})}},
 		"a prediction fails": {embedErr: map[int]error{0: pathErr}},
 	} {
 		log := newLogLines()
@@ -880,7 +939,7 @@ func TestStatusLinesNameNoPath(t *testing.T) {
 		n.loads.Wait()
 		n.embed(tokensOf(10))
 		n.loads.Wait()
-		if log.has("secret-root") || len(log.lines) == 0 {
+		if log.has("secret-root") || log.has("secret-tmp") || len(log.lines) == 0 {
 			t.Errorf("%s: lines %v name the path", name, log.lines)
 		}
 	}

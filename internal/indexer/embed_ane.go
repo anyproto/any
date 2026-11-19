@@ -40,6 +40,10 @@ const (
 	// path's first one (workerEmbedder.PrepareBulk), and for the one a
 	// document needs, from when it was asked for (neuralEngine.embedBulk).
 	aneBulkWait = 10 * time.Minute
+	// aneAuditMax is how long a placement audit may hold an idle child.
+	// The plan's own timeout ends well inside it; reading the plan is not
+	// bounded by that one.
+	aneAuditMax = 15 * time.Minute
 	// aneMaxFailures consecutive failed predictions retire a function
 	// for the rest of the process.
 	aneMaxFailures = 3
@@ -138,14 +142,15 @@ type aneFunction interface {
 // runs from the retry timer. Loads, placement audits and idle releases
 // run on goroutines of their own and never touch a predicting function.
 type neuralEngine struct {
-	lengths []int // ascending
-	dim     int
-	backend aneBackend
-	idle    time.Duration // aneIdleRelease
-	retryIn time.Duration // aneRetryInterval
-	wait    time.Duration // aneBulkWait
-	now     func() time.Time
-	logf    func(format string, args ...any)
+	lengths  []int // ascending
+	dim      int
+	backend  aneBackend
+	idle     time.Duration // aneIdleRelease
+	retryIn  time.Duration // aneRetryInterval
+	wait     time.Duration // aneBulkWait
+	auditMax time.Duration // aneAuditMax
+	now      func() time.Time
+	logf     func(format string, args ...any)
 
 	mu       sync.Mutex
 	off      bool
@@ -164,12 +169,13 @@ type neuralEngine struct {
 	late map[int]*time.Timer
 	// verified are the lengths whose placement on the Neural Engine is
 	// on record; audits, the loaded ones still to check, each once.
-	verified map[int]bool
-	audited  map[int]bool
-	audits   []int
-	auditing bool // the auditor runs
-	auditOf  int  // length inside backend.audit now; 0 = none
-	quiet    bool // quiesce was accepted: no audit starts any more
+	verified  map[int]bool
+	audited   map[int]bool
+	audits    []int
+	auditing  bool      // the auditor runs
+	auditOf   int       // length inside backend.audit now; 0 = none
+	auditFrom time.Time // when that audit began
+	quiet     bool      // quiesce was accepted: no audit starts any more
 	// offReason is the off line still to write: it waits for the Core ML
 	// calls in flight, so a child that dies in one died with Core ML on.
 	offReason string
@@ -191,6 +197,7 @@ func newNeuralEngine(backend aneBackend, lengths []int, dim int, logf func(strin
 		idle:     aneIdleRelease,
 		retryIn:  aneRetryInterval,
 		wait:     aneBulkWait,
+		auditMax: aneAuditMax,
 		asked:    map[int]time.Time{},
 		owed:     map[int]time.Time{},
 		late:     map[int]*time.Timer{},
@@ -452,8 +459,6 @@ func (n *neuralEngine) loader() {
 		n.mu.Unlock()
 		fn, info, err := n.backend.load(length)
 		n.mu.Lock()
-		n.inflight = 0
-		n.sayOffLocked()
 		var asked time.Duration
 		if t := n.asked[length]; !t.IsZero() {
 			asked = n.now().Sub(t).Round(time.Millisecond)
@@ -486,6 +491,9 @@ func (n *neuralEngine) loader() {
 			n.logf("s%d ready (%s; asked for %s ago)", length, info, asked)
 			n.armReleaseLocked()
 		}
+		// After a discarded handle is closed: that is a Core ML call too.
+		n.inflight = 0
+		n.sayOffLocked()
 	}
 }
 
@@ -515,7 +523,7 @@ func (n *neuralEngine) auditor() {
 			continue
 		}
 		n.logf("s%d %s", length, aneAuditStarted)
-		n.auditOf = length
+		n.auditOf, n.auditFrom = length, n.now()
 		n.mu.Unlock()
 		info, err := n.backend.audit(length)
 		n.mu.Lock()
@@ -546,16 +554,16 @@ func (n *neuralEngine) auditor() {
 }
 
 // quiesce is the server asking to stop an idle child. It is refused
-// while an audit runs, whose verdict would be lost; once accepted, no
-// audit starts any more.
-func (n *neuralEngine) quiesce() bool {
+// while an audit runs, whose verdict would be lost (overdue: for longer
+// than any audit takes); once accepted, no audit starts any more.
+func (n *neuralEngine) quiesce() (ok, overdue bool) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if n.auditOf != 0 {
-		return false
+		return false, n.now().Sub(n.auditFrom) >= n.auditMax
 	}
 	n.quiet = true
-	return true
+	return true, false
 }
 
 // settleOwedLocked ends the bulk wait for the given functions, or for
@@ -696,13 +704,17 @@ func (n *neuralEngine) close() {
 // os package puts in its errors: the line is logged.
 func statusErr(err error) string {
 	msg := err.Error()
-	var pe *fs.PathError
-	if errors.As(err, &pe) && pe.Path != "" {
-		msg = strings.ReplaceAll(msg, pe.Path, "a file")
-	}
-	var le *os.LinkError
-	if errors.As(err, &le) {
-		for _, p := range []string{le.Old, le.New} {
+	// Every one in the chain: a copy's error names its source inside the
+	// error that names its destination.
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		var paths []string
+		switch fe := e.(type) {
+		case *fs.PathError:
+			paths = []string{fe.Path}
+		case *os.LinkError:
+			paths = []string{fe.Old, fe.New}
+		}
+		for _, p := range paths {
 			if p != "" {
 				msg = strings.ReplaceAll(msg, p, "a file")
 			}

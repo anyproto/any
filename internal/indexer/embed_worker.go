@@ -1191,6 +1191,9 @@ func (w *workerEmbedder) retireIdle() {
 		case err != nil:
 			w.failChild(err)
 			return
+		case hdr.Op == workerOpIdle && hdr.Busy && hdr.Overdue:
+			w.failChild(errors.New("embedder child stuck in a placement audit"))
+			return
 		case hdr.Op == workerOpIdle && hdr.Busy:
 			w.idleTimer.Reset(w.idleTimeout)
 			return

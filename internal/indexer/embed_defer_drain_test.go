@@ -389,17 +389,16 @@ func TestEmbedDrainHoldsTheEmbedderUnderTheDelay(t *testing.T) {
 	}
 }
 
-// nullEmbedder answers with no vector for its second text and declares
+// nullEmbedder answers with no vector for the text "null" and declares
 // nothing, as an HTTP embedder whose response has a null in it.
-type nullEmbedder struct {
-	axisEmbedder
-	routed bool
-}
+type nullEmbedder struct{ axisEmbedder }
 
 func (e nullEmbedder) EmbedDocs(ctx context.Context, texts []string) ([][]float32, error) {
 	vecs, err := e.axisEmbedder.EmbedDocs(ctx, texts)
-	if len(vecs) > 1 {
-		vecs[1] = nil
+	for i, text := range texts {
+		if text == "null" {
+			vecs[i] = nil
+		}
 	}
 	return vecs, err
 }
@@ -411,14 +410,16 @@ func (e nullRoutedEmbedder) EmbedDocsRouted(ctx context.Context, _, texts []stri
 	return vecs, EmbedRoute{Backends: []string{EmbedBackendRemote}}, err
 }
 
-// A missing vector the embedder did not declare deferred is an error:
-// the drain lands what came before it and fails, it does not wait.
+// A missing vector the embedder did not declare deferred is an error,
+// and only that text's: the vectors beside it land, the pass goes on
+// past it, and the drain ends in the error instead of waiting.
 func TestEmbedDrainRefusesAnUndeclaredMissingVector(t *testing.T) {
 	for name, emb := range map[string]Embedder{
-		"an embedder without routes": nullEmbedder{axisEmbedder: axisEmbedder{dim: 4}},
-		"a routed embedder":          nullRoutedEmbedder{nullEmbedder{axisEmbedder: axisEmbedder{dim: 4}}},
+		"an embedder without routes": nullEmbedder{axisEmbedder{dim: 4}},
+		"a routed embedder":          nullRoutedEmbedder{nullEmbedder{axisEmbedder{dim: 4}}},
 	} {
-		w, st, phases := deferDrain(t, emb, time.Hour, []string{"a", "b"})
+		// The missing one first in its batch, and more batches behind it.
+		w, st, phases := deferDrain(t, emb, time.Hour, []string{"null", "b", "c", "d", "e"})
 		done := make(chan error, 1)
 		go func() { done <- w.drainPending(context.Background()) }()
 		select {
@@ -429,7 +430,9 @@ func TestEmbedDrainRefusesAnUndeclaredMissingVector(t *testing.T) {
 		case <-time.After(10 * time.Second):
 			t.Fatalf("%s: the drain waits on a vector that is not coming", name)
 		}
-		waitPending(t, st, 1)
+		if n, _ := st.PendingCount(context.Background(), "sp1"); n != 1 {
+			t.Errorf("%s: %d docs pending, want the one without a vector", name, n)
+		}
 		if got := phases(); slices.Contains(got, EmbedPhasePreparing) {
 			t.Errorf("%s: phases %v, want no preparing", name, got)
 		}
@@ -441,22 +444,59 @@ func TestDeclaredVectors(t *testing.T) {
 	for _, tc := range []struct {
 		vecs     [][]float32
 		deferred int
-		keep     int
+		missing  int
 		ok       bool
 	}{
-		{[][]float32{a, a}, 0, 2, true},
-		{[][]float32{a, nil, a}, 1, 3, true},
+		{[][]float32{a, a}, 0, 0, true},
+		{[][]float32{a, nil, a}, 1, 1, true},
 		{[][]float32{a, nil, a}, 0, 1, false},
-		{[][]float32{nil, a, nil}, 1, 0, false},
+		{[][]float32{nil, a, nil}, 1, 2, false},
 		{[][]float32{a, {}}, 0, 1, false},
-		{[][]float32{a, a}, 1, 2, false}, // a deferral declared, none missing
+		{[][]float32{a, a}, 1, 0, false}, // a deferral declared, none missing
 		{[][]float32{a, nil}, 2, 1, false},
 		{nil, 0, 0, true},
 	} {
 		got, err := declaredVectors(tc.vecs, tc.deferred)
-		if len(got) != tc.keep || (err == nil) != tc.ok {
-			t.Errorf("declaredVectors(%v, %d) = %d vectors, %v; want %d, ok %v", tc.vecs, tc.deferred, len(got), err, tc.keep, tc.ok)
+		if got != tc.missing || (err == nil) != tc.ok {
+			t.Errorf("declaredVectors(%v, %d) = %d missing, %v; want %d, ok %v", tc.vecs, tc.deferred, got, err, tc.missing, tc.ok)
 		}
+	}
+}
+
+// With a text left behind at the head and a new ready one written right
+// behind it before every read, the cursor still moves on: the texts at
+// the far end embed while the writes go on.
+func TestEmbedDrainReachesTheEndUnderANudgePerPage(t *testing.T) {
+	ctx := context.Background()
+	texts := []string{"long 1", "z1", "z2", "z3", "z4", "z5", "z6"} // m00 … m06
+	emb := wakingEmbedder{&deferEmbedder{axisEmbedder: axisEmbedder{dim: 4}, wake: make(chan struct{})}}
+	w, st, _ := deferDrain(t, emb, time.Hour, texts)
+	const writes = 30
+	emb.onCall = func(call int) {
+		if call > writes {
+			return
+		}
+		// Sorts after the deferred m00 and before every z.
+		up := DocUpsert{Entry: entry("chat", "o1", "chat_messages", fmt.Sprintf("m00b%03d", call), "new", uint64(100+call))}
+		if err := st.Apply(ctx, "sp1", []DocUpsert{up}, nil, nil); err != nil {
+			t.Error(err)
+		}
+		select {
+		case w.embedCh <- struct{}{}:
+		default:
+		}
+	}
+	done := make(chan error, 1)
+	go func() { done <- w.drainPending(ctx) }()
+	waitPending(t, st, 1)
+	_, sent := emb.counts()
+	// Each call sends two texts: z6 is out well before the writes end.
+	if at := slices.Index(sent, "z6"); at < 0 || at > writes {
+		t.Fatalf("z6 was sent as text %d of %d, want it while the writes went on (%d calls)", at, len(sent), writes)
+	}
+	emb.release()
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
 

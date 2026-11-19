@@ -128,7 +128,8 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 				return err
 			}
 		case workerOpIdle:
-			if err := writeFrame(w, workerResp{Op: workerOpIdle, Busy: !l.quiesce()}, nil); err != nil {
+			ok, overdue := l.quiesce()
+			if err := writeFrame(w, workerResp{Op: workerOpIdle, Busy: !ok, Overdue: overdue}, nil); err != nil {
 				return err
 			}
 		case workerOpEmbed:

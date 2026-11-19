@@ -277,10 +277,13 @@ func (l *Local) startNeuralEngine(dir string) {
 
 // quiesce reports whether the process may be stopped as idle now; once
 // it has said so the Neural Engine path starts nothing it would lose.
-func (l *Local) quiesce() bool {
+func (l *Local) quiesce() (ok, overdue bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.ane == nil || l.ane.quiesce()
+	if l.ane == nil {
+		return true, false
+	}
+	return l.ane.quiesce()
 }
 
 // usableLengths drops the functions no text can need: those past the

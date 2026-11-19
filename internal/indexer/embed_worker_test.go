@@ -108,7 +108,7 @@ func runEmbedHelper(mode string) int {
 		}
 	}
 	// auditing: the child refuses to be stopped as idle, as under an audit.
-	var auditing atomic.Bool
+	var auditing, overdue atomic.Bool
 	switch os.Getenv("ANY_EMBED_WORKER_ANE") {
 	case "":
 	case "off": // Core ML started, then gave up
@@ -140,6 +140,12 @@ func runEmbedHelper(mode string) int {
 			time.Sleep(delay)
 			auditing.Store(false)
 		}()
+	case "stuckaudit": // an audit that never returns, past any bound
+		aneStderrLog("starting")
+		aneStderrLog(aneOffStatus + "llama.cpp embeds everything: no function can be used")
+		aneStderrLog("s128 " + aneAuditStarted)
+		auditing.Store(true)
+		overdue.Store(true)
 	case "offauditexit": // the path is off; the audit still running then kills the child
 		aneStderrLog("starting")
 		aneStderrLog("s128 " + aneAuditStarted)
@@ -185,7 +191,7 @@ func runEmbedHelper(mode string) int {
 			return 0 // parent closed stdin: clean exit, like the real child
 		}
 		if req.Op == workerOpIdle {
-			if err := writeFrame(out, workerResp{Op: workerOpIdle, Busy: auditing.Load()}, nil); err != nil {
+			if err := writeFrame(out, workerResp{Op: workerOpIdle, Busy: auditing.Load(), Overdue: overdue.Load()}, nil); err != nil {
 				return 1
 			}
 			continue

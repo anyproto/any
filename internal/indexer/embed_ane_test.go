@@ -48,6 +48,8 @@ type fakeANE struct {
 	// refusals are the functions on record as planned off the Neural
 	// Engine.
 	refusals map[int]error
+	// onClose, when set, runs at the start of every function's close.
+	onClose func(length int)
 }
 
 func (f *fakeANE) refused(length int) error {
@@ -173,6 +175,12 @@ func (fn *fakeFn) embed(tokens []int32, out []float32) error {
 }
 
 func (fn *fakeFn) close() {
+	fn.parent.mu.Lock()
+	onClose := fn.parent.onClose
+	fn.parent.mu.Unlock()
+	if onClose != nil {
+		onClose(fn.length)
+	}
 	fn.parent.mu.Lock()
 	defer fn.parent.mu.Unlock()
 	fn.closed = true
