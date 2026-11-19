@@ -3221,7 +3221,7 @@ const docTemplate = `{
                 "description": "Embedding is set on a running ` + "`" + `index.embed` + "`" + ` process.",
                 "properties": {
                     "backends": {
-                        "description": "Backends embedded the texts of the last batch the embedder\nreturned: ` + "`" + `ane` + "`" + `, ` + "`" + `gpu` + "`" + `, ` + "`" + `cpu` + "`" + `, ` + "`" + `llama` + "`" + `, ` + "`" + `remote` + "`" + `. More than one\nis a mixed batch. Absent while waiting and preparing, before the\nfirst batch, and when the embedder does not say.",
+                        "description": "Backends embedded the texts of the last batch the embedder\nreturned: ` + "`" + `ane` + "`" + `, ` + "`" + `coreml` + "`" + `, ` + "`" + `gpu` + "`" + `, ` + "`" + `cpu` + "`" + `, ` + "`" + `llama` + "`" + `, ` + "`" + `remote` + "`" + `. More than one\nis a mixed batch. Absent while waiting and preparing, before the\nfirst batch, and when the embedder does not say.",
                         "items": {
                             "type": "string"
                         },

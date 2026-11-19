@@ -841,9 +841,9 @@ child they kill only the child: the round fails, its docs stay
 **The child only embeds.** It gets a model path and decode parameters
 and answers with vectors. It never opens the index db, the data dir or
 any-store; the cursor, `pending` marking, `SetVectors`, the vector index,
-model discovery and the downloads all stay in the server. The one thing
-it writes is the compiled Core ML model in the model cache (§ Neural
-Engine).
+model discovery and the downloads all stay in the server. What it
+writes is in the model cache: the compiled Core ML model and the record
+of where Core ML places its functions (§ Neural Engine).
 
 **Failure handling.** A dead child, a desynchronized stream, or a frame
 that outlives `index.local.requestTimeout` (default 3 min) kills the
@@ -940,8 +940,8 @@ model, not the runtime.
   or downloadable. Anywhere else llama.cpp embeds alone.
 - `on` is `auto` that refuses to boot when one of those conditions
   fails. What only the child can see leaves llama.cpp embedding alone
-  under `on` too: no Neural Engine listed, a function planned on the
-  CPU, a failed compile.
+  under `on` too: no Neural Engine listed, every function planned on
+  the CPU, a failed compile.
 - `off` is llama.cpp alone.
 
 **The package.** Its three files are downloaded, each sha256-pinned,
@@ -963,10 +963,12 @@ queries: when the child starts if the package is ready, else within
 30 s of it being there. Any other loads in the
 background on the first text that needs it, and a timer releases it five
 minutes after its last use; idle retirement of the child releases all of
-them. The first load of a function on a machine specializes it for the
-Neural Engine: about a minute per function on an M2, six for all five.
-After that a child's first load of a function takes two to three
-seconds and a reload under one. While a function loads, a larger loaded
+them. A load opens the function and has it predict twice, on a short
+text and on one of its full length: each output must be a unit vector
+and the two must differ, or the function is not used. The first load of
+a function specializes it for the Neural Engine, which takes minutes
+for the longest ones; Core ML keeps the result, and a later load takes
+seconds. While a function loads, a larger loaded
 one serves its texts; with none, a query goes to llama.cpp and a
 document waits.
 
@@ -1005,12 +1007,25 @@ A function that failed to load, the path off, a missing package and a
 text over 2,048 tokens go to llama.cpp at once, as does every query.
 
 **Placement.** A machine that lists no Neural Engine never loads the
-package. Before a function first loads, the child reads Core ML's
-compute plan for it, once per child, and refuses a function whose
-convolution, matmul, linear or softmax operations are planned on the
-CPU. The digest in the package's
-directory name is of its pinned checksums, so another pin is another
-directory with a compiled model of its own.
+package. Core ML's compute plan says where it prefers to run each
+operation of a function; reading it costs about a load of its own, so
+it is not read on the way to a function's first text. A loaded function
+serves at once, and when the child has nothing left to load it audits
+the functions it has no verdict for, one at a time: the plan must put
+more than 100 operations on the Neural Engine and no convolution,
+matmul, linear or softmax operation on the CPU. The verdict is written
+to `<name>-<digest>.placement.json` beside the compiled model, for the
+chip and the OS build it was read on, and every later child on that
+setup takes it from there without a plan. A function whose verdict is
+against it is closed and not loaded again, in that child or a later
+one, and llama.cpp takes its texts; another chip or OS build, or a
+removed file, is audited afresh. A plan that cannot be read is no
+verdict: the function keeps serving and the next child audits it. Until
+a function has its verdict the texts it embeds are reported as
+`coreml`, after it as `ane` (`22-processes.md` § Internal producers).
+The digest in the package's directory name is of its pinned checksums,
+so another pin is another directory with a compiled model and a record
+of its own.
 
 **Failure.** A prediction that fails, or returns a vector that is not
 unit length, leaves that text to llama.cpp. Three in a row on one

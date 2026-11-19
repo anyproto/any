@@ -49,7 +49,7 @@ type ProcessEmbedding struct {
 	// embedder readies a runtime) or `embedding`.
 	Phase string `json:"phase"`
 	// Backends embedded the texts of the last batch the embedder
-	// returned: `ane`, `gpu`, `cpu`, `llama`, `remote`. More than one
+	// returned: `ane`, `coreml`, `gpu`, `cpu`, `llama`, `remote`. More than one
 	// is a mixed batch. Absent while waiting and preparing, before the
 	// first batch, and when the embedder does not say.
 	Backends []string `json:"backends,omitempty"`

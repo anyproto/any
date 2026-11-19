@@ -94,13 +94,17 @@ func runEmbedHelper(mode string) int {
 	if err := writeFrame(out, workerResp{Op: workerOpReady, Dim: helperDim, Hardware: hw}, nil); err != nil {
 		return 1
 	}
-	// ANY_EMBED_WORKER_ROUTES="<ane>,<llama>,<miss>" rides every document
-	// frame, as the real child's count of its texts per runtime.
+	// ANY_EMBED_WORKER_ROUTES="<ane>,<llama>,<miss>[,<coreml>]" rides
+	// every document frame, as the real child's count of its texts per
+	// runtime.
 	var routes *workerRoutes
-	if parts := strings.Split(os.Getenv("ANY_EMBED_WORKER_ROUTES"), ","); len(parts) == 3 {
+	if parts := strings.Split(os.Getenv("ANY_EMBED_WORKER_ROUTES"), ","); len(parts) >= 3 {
 		ane, _ := strconv.Atoi(parts[0])
 		llm, _ := strconv.Atoi(parts[1])
 		routes = &workerRoutes{ANE: ane, Llama: llm, Miss: parts[2]}
+		if len(parts) > 3 {
+			routes.CoreML, _ = strconv.Atoi(parts[3])
+		}
 	}
 	switch os.Getenv("ANY_EMBED_WORKER_ANE") {
 	case "":

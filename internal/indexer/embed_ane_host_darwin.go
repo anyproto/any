@@ -29,3 +29,17 @@ func neuralEngineHost() bool {
 	n, err := strconv.Atoi(major)
 	return err == nil && n >= neuralEngineMinMacOS
 }
+
+// aneHostSetup names what Core ML's placement of a model depends on
+// besides the model: the chip and the OS build. "" = unknown.
+func aneHostSetup() string {
+	chip, err := unix.Sysctl("machdep.cpu.brand_string")
+	if err != nil || chip == "" {
+		return ""
+	}
+	build, err := unix.Sysctl("kern.osversion")
+	if err != nil || build == "" {
+		return ""
+	}
+	return chip + ", macOS build " + build
+}

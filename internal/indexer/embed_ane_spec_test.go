@@ -966,6 +966,17 @@ func TestWorkerEmbedder_EmbedDocsRouted(t *testing.T) {
 		t.Errorf("all on the neural engine: %+v", rt)
 	}
 
+	// Functions whose placement is not verified yet are Core ML, not the
+	// Neural Engine.
+	w, _ = aneWorker(t, "ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_ROUTES=0,0,,1")
+	if rt := embed(w); !is(rt, "", EmbedBackendCoreML) {
+		t.Errorf("all on unverified functions: %+v", rt)
+	}
+	w, _ = aneWorker(t, "ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_ROUTES=1,0,,1")
+	if rt := embed(w); !is(rt, "", EmbedBackendANE, EmbedBackendCoreML) {
+		t.Errorf("verified and unverified functions: %+v", rt)
+	}
+
 	// A mixed batch on a child that loaded the model on a device.
 	h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_ROUTES=1,2," + EmbedReasonFunctionLoading, device}}
 	w = planned(newTestWorker(t, h, -1))

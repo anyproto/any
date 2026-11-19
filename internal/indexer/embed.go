@@ -53,7 +53,8 @@ const (
 	EmbedPhasePreparing = "preparing" // the embedder readies a runtime the pending texts wait for
 	EmbedPhaseEmbedding = "embedding"
 
-	EmbedBackendANE    = "ane"    // Core ML on the Neural Engine
+	EmbedBackendANE    = "ane"    // Core ML, in a function whose placement on the Neural Engine is verified
+	EmbedBackendCoreML = "coreml" // Core ML, in a function whose placement is not verified yet
 	EmbedBackendGPU    = "gpu"    // llama.cpp with the model loaded on a GPU device
 	EmbedBackendCPU    = "cpu"    // llama.cpp without offload, or with no device to offload to
 	EmbedBackendLlama  = "llama"  // llama.cpp in a child that did not report its hardware

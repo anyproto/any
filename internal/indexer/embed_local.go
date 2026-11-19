@@ -482,7 +482,11 @@ func (l *Local) embedANE(tokens []llama.Token, bulk bool) (vec []float32, ok, de
 	for i, t := range tokens {
 		ids[i] = int32(t)
 	}
-	vec, ok, deferred = l.ane.embedFor(ids, bulk)
+	if bulk {
+		vec, ok, deferred = l.ane.embedBulk(ids)
+	} else {
+		vec, ok = l.ane.embed(ids)
+	}
 	switch {
 	case deferred:
 		return nil, false, true
@@ -627,7 +631,11 @@ func (l *Local) embedTokenized(ctx context.Context, tokenized [][]llama.Token, l
 		vec, ok, deferred := l.embedANE(tokenized[start], bulk)
 		if ok {
 			out = append(out, vec)
-			l.routes.ANE++
+			if l.ane.lastPlaced() {
+				l.routes.ANE++
+			} else {
+				l.routes.CoreML++
+			}
 			start++
 			continue
 		}

@@ -217,8 +217,10 @@ late heartbeat can resurrect a finished row. Work stopped mid-pass
     while every text still pending waits for a function that is
     loading; `embedding` otherwise.
   - `backends`: the runtimes that embedded the last batch the embedder
-    returned, whether or not all of it landed. `ane` is Core ML on the
-    Neural Engine; `gpu` is llama.cpp in a child that loaded the model
+    returned, whether or not all of it landed. `ane` is Core ML in a
+    function whose placement on the Neural Engine is verified, `coreml`
+    Core ML in one not verified yet (`13-index.md` § Neural Engine);
+    `gpu` is llama.cpp in a child that loaded the model
     on a GPU device; `cpu` is llama.cpp with
     `index.local.gpuLayers: 0` or with no device to load the model on;
     `llama` is llama.cpp in a child that did not report its hardware;

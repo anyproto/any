@@ -426,7 +426,7 @@ func readVector(arr objc.ID, out []float32) error {
 
 // Plan loads the compute plan of one function of the compiled model and
 // counts the preferred device of every operation. It needs no loaded
-// function, so a plan off the Neural Engine is refused before a load.
+// function, and costs about what loading one does.
 func Plan(compiled, function string) (Placement, error) {
 	var p Placement
 	if err := load(); err != nil {

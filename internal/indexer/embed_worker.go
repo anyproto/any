@@ -341,6 +341,7 @@ func (w *workerEmbedder) embedDocs(ctx context.Context, titles, texts []string, 
 // and the reason each frame had when it was served.
 type routeTally struct {
 	ane      int
+	coreml   int
 	llama    map[string]int // per EmbedBackend* of the child that served the frame
 	deferred int
 	reason   string // of the last frame that had one
@@ -352,6 +353,7 @@ func (t *routeTally) add(r frameResult) {
 		return
 	}
 	t.ane += rt.ANE
+	t.coreml += rt.CoreML
 	t.deferred += len(rt.Deferred)
 	if rt.Llama > 0 {
 		if t.llama == nil {
@@ -369,6 +371,9 @@ func (t routeTally) route() EmbedRoute {
 	rt := EmbedRoute{Reason: t.reason, Deferred: t.deferred}
 	if t.ane > 0 {
 		rt.Backends = append(rt.Backends, EmbedBackendANE)
+	}
+	if t.coreml > 0 {
+		rt.Backends = append(rt.Backends, EmbedBackendCoreML)
 	}
 	for _, b := range []string{EmbedBackendGPU, EmbedBackendCPU, EmbedBackendLlama} {
 		if t.llama[b] > 0 {
