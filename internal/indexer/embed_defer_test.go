@@ -299,3 +299,39 @@ func TestWorkerEmbedder_DeferredWake(t *testing.T) {
 		t.Fatal("the child's end did not wake")
 	}
 }
+
+// A child is not retired as idle while documents wait for a function it
+// is loading; once it has reported, the countdown runs again.
+func TestWorkerEmbedder_DeferredTextsHoldOffIdleRetirement(t *testing.T) {
+	const idle = 50 * time.Millisecond
+	ctx := context.Background()
+	w, h := aneWorker(t, "ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_DEFER=long")
+	w.idleTimeout = 0
+	if _, err := w.EmbedDocs(ctx, []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond) // the child's "starting" is in
+	if err := w.slot.acquire(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	w.idleTimeout = idle
+	w.slot.release(false)
+
+	vecs, rt, err := w.EmbedDocsRouted(ctx, nil, []string{"long one"})
+	if err != nil || vecs[0] != nil || rt.Deferred != 1 {
+		t.Fatalf("EmbedDocsRouted: %v, %+v, %v; want the text deferred", vecs, rt, err)
+	}
+	time.Sleep(6 * idle)
+	if !hasChild(w) {
+		t.Fatal("the child was retired with a document waiting for its function")
+	}
+	w.wakeDeferred() // as on the child's report
+	for deadline := time.Now().Add(10 * time.Second); hasChild(w); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the child was never retired after its report")
+		}
+	}
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children, want 1", h.spawns())
+	}
+}

@@ -997,8 +997,10 @@ it: it reads the queue past the docs it left (`Store.PendingFrom`), so
 texts that fit a loaded function keep landing. When nothing else is
 pending the drain waits, its row in `preparing`, until the child
 reports on a function (loaded, failed, released, the path off), the
-child stops, or the 1-minute tick; then it starts over from the head of
-the queue. A text written meanwhile is embedded on that next pass. The
+child stops or exits, or the 1-minute tick; then it starts over from the head of
+the queue. A text written meanwhile is embedded on that next pass. A
+child with documents waiting on it is not retired as idle before its
+next report. The
 wait for one function is bounded at 10 min from when it was first asked
 for: past that the child says so, and llama.cpp embeds the function's
 documents until it is loaded (`readiness_timeout`). A drain that gave

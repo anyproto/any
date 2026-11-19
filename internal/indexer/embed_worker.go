@@ -445,6 +445,14 @@ func (w *workerEmbedder) logBulk(settled bool) {
 	}
 }
 
+// deferring reports whether bulk texts were left pending since the
+// child last reported on its functions.
+func (w *workerEmbedder) deferring() bool {
+	w.routed.mu.Lock()
+	defer w.routed.mu.Unlock()
+	return w.routed.deferred > 0
+}
+
 func orDefaultString(v, def string) string {
 	if v != "" {
 		return v
@@ -1126,7 +1134,9 @@ func (w *workerEmbedder) retireIdle() {
 	if w.child == nil || w.closing.Load() {
 		return
 	}
-	if w.preparing.Load() > 0 {
+	// Not under a wait for the first function, nor while documents wait
+	// for one that is loading: a retired child would start the load over.
+	if w.preparing.Load() > 0 || w.deferring() {
 		w.idleTimer.Reset(w.idleTimeout)
 		return
 	}
@@ -1281,6 +1291,12 @@ func (c *embedChild) readLoop(r *bufio.Reader) {
 // mid-decode. Over-long lines are truncated, not fatal.
 func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 	defer close(c.errDone)
+	// A child that exits has nothing loading: no text waits for it.
+	defer func() {
+		if c.onStatus != nil {
+			c.onStatus()
+		}
+	}()
 	br := bufio.NewReaderSize(r, 8<<10)
 	for {
 		line, err := br.ReadString('\n')
