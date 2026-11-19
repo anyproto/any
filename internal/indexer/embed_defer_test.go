@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -176,6 +177,8 @@ func TestNeuralEngine_BulkWaitIsBounded(t *testing.T) {
 func TestNeuralEngine_BulkWaitsForAPackageBeingPrepared(t *testing.T) {
 	f := &fakeANE{prepGate: make(chan struct{})}
 	n, clock := newTestANE(t, f)
+	release := sync.OnceFunc(func() { close(f.prepGate) })
+	defer release() // before the engine's cleanup, which waits for the loader
 	n.start()
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(2 * time.Millisecond) {
 		if _, _, _, prepares := f.snapshot(); prepares == 1 {
@@ -196,7 +199,7 @@ func TestNeuralEngine_BulkWaitsForAPackageBeingPrepared(t *testing.T) {
 	if _, ok, deferred := n.embedBulk(tokensOf(200)); ok || deferred || n.lastMiss() != EmbedReasonReadinessTimeout {
 		t.Fatalf("past the bound: served %v, deferred %v, miss %q", ok, deferred, n.lastMiss())
 	}
-	close(f.prepGate)
+	release()
 	n.loads.Wait()
 
 	f = &fakeANE{absent: true, prepErrs: []error{errANENotReady}}
