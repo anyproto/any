@@ -13,6 +13,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,8 +33,8 @@ const (
 	// aneRetryInterval spaces the attempts to start on a package that is
 	// still downloading.
 	aneRetryInterval = 30 * time.Second
-	// aneIdleRelease frees a function unused this long. The smallest one
-	// stays: it serves queries. Long enough that a backlog with few long
+	// aneIdleRelease frees a function unused this long. The smallest
+	// usable one stays: it serves queries. Long enough that a backlog with few long
 	// texts does not reload the large functions over and over.
 	aneIdleRelease = 5 * time.Minute
 	// aneBulkWait bounds how long bulk work waits for a function: for the
@@ -297,37 +298,48 @@ func (n *neuralEngine) embedFor(tokens []int32, bulk bool) (vec []float32, ok, d
 }
 
 // routeLocked picks the function for a text and asks for the one it
-// belongs on (want). A nil fn is a miss, with n.miss the reason, unless
-// deferred.
+// belongs on (want): the smallest that holds it and has not failed. A nil
+// fn is a miss, with n.miss the reason, unless deferred.
 func (n *neuralEngine) routeLocked(tokens []int32, bulk bool) (fn aneFunction, use, want int, deferred bool) {
+	fits := false
 	for _, l := range n.lengths {
-		if len(tokens) <= l {
+		if len(tokens) > l {
+			continue
+		}
+		fits = true
+		if !n.failed[l] {
 			want = l
 			break
 		}
 	}
-	if n.off || len(tokens) == 0 || want == 0 {
+	switch {
+	case n.off:
+		n.miss = EmbedReasonANEOff
+	case len(tokens) == 0 || !fits:
 		n.miss = EmbedReasonTooLong
-		if n.off {
-			n.miss = EmbedReasonANEOff
-		}
+	case want == 0:
+		n.miss = EmbedReasonANEFailed
+	}
+	if n.off || len(tokens) == 0 || want == 0 {
 		return nil, 0, want, false
 	}
 	for _, l := range n.lengths {
-		if l >= want && n.fns[l] != nil {
+		if l >= want && n.fns[l] != nil && !n.failed[l] {
 			fn, use = n.fns[l], l
 			break
 		}
 	}
 	if use != want {
+		// A package that landed is not left to the retry timer.
+		if !n.prepared && bulk && n.backend.present() {
+			n.nextTry = time.Time{}
+		}
 		n.requestLocked(want)
 	}
 	if fn != nil {
 		return fn, use, want, false
 	}
 	switch {
-	case n.failed[want]:
-		n.miss = EmbedReasonANEFailed
 	case !n.prepared && (!bulk || !n.backend.present()):
 		// A package that is there and being prepared is waited for.
 		n.miss = EmbedReasonPackageNotReady
@@ -371,8 +383,9 @@ func unitVector(vec []float32) bool {
 	return !math.IsNaN(sum) && math.Abs(math.Sqrt(sum)-1) <= 1e-2
 }
 
-// requestLocked queues a function for loading and starts the loader. A
-// length that is loaded, loading, queued or failed is left alone.
+// requestLocked queues a function for loading, the queue ascending, and
+// starts the loader. A length that is loaded, loading, queued or failed
+// is left alone.
 func (n *neuralEngine) requestLocked(length int) {
 	if n.off || n.failed[length] || n.fns[length] != nil || n.inflight == length {
 		return
@@ -386,6 +399,7 @@ func (n *neuralEngine) requestLocked(length int) {
 		}
 	}
 	n.queue = append(n.queue, length)
+	slices.Sort(n.queue)
 	if n.asked[length].IsZero() {
 		n.asked[length] = n.now()
 	}
@@ -397,8 +411,9 @@ func (n *neuralEngine) requestLocked(length int) {
 }
 
 // loader prepares the backend, then loads queued functions one at a
-// time, the smallest first. Requests it drops while the package is not
-// ready come back with the next texts.
+// time, the smallest queued first; a load in flight is not interrupted
+// for a smaller one. Requests it drops while the package is not ready
+// come back with the next texts.
 func (n *neuralEngine) loader() {
 	defer n.loads.Done()
 	n.mu.Lock()
@@ -441,15 +456,11 @@ func (n *neuralEngine) loader() {
 				}
 			}
 			n.offIfUselessLocked()
-			// The smallest function serves queries: it loads first,
-			// whichever text got here first.
-			queue := []int{n.lengths[0]}
-			for _, q := range n.queue {
-				if q != n.lengths[0] {
-					queue = append(queue, q)
-				}
+			// The smallest function serves queries: it loads whichever
+			// text got here first.
+			if n.queue[0] != n.lengths[0] {
+				n.queue = append([]int{n.lengths[0]}, n.queue...)
 			}
-			n.queue = queue
 			continue
 		}
 		length := n.queue[0]
@@ -603,14 +614,26 @@ func (n *neuralEngine) lateTick(length int) {
 	n.logf("s%d still loading after %s: llama.cpp embeds its texts until it is ready", length, n.wait)
 }
 
+// keptLocked is the function that is not released as idle: the smallest
+// that has not failed, which serves queries. 0 = none.
+func (n *neuralEngine) keptLocked() int {
+	for _, l := range n.lengths {
+		if !n.failed[l] {
+			return l
+		}
+	}
+	return 0
+}
+
 // armReleaseLocked schedules releaseTick for the moment the next loaded
-// function, the smallest and those bulk documents wait for aside, has
+// function, the kept one and those bulk documents wait for aside, has
 // gone unused for the idle time.
 func (n *neuralEngine) armReleaseLocked() {
 	now := n.now()
 	wait := time.Duration(-1)
-	for _, l := range n.lengths[1:] {
-		if n.fns[l] == nil || !n.owed[l].IsZero() {
+	kept := n.keptLocked()
+	for _, l := range n.lengths {
+		if l == kept || n.fns[l] == nil || !n.owed[l].IsZero() {
 			continue
 		}
 		if d := n.idle - now.Sub(n.used[l]); wait < 0 || d < wait {
@@ -626,7 +649,7 @@ func (n *neuralEngine) armReleaseLocked() {
 	}
 }
 
-// releaseTick closes every function but the smallest that went unused
+// releaseTick closes every function but the kept one that went unused
 // for the idle time. The next text that needs one reloads it. A function
 // a deferred document waits for stays until that wait is over.
 func (n *neuralEngine) releaseTick() {
@@ -636,9 +659,10 @@ func (n *neuralEngine) releaseTick() {
 		return
 	}
 	now := n.now()
-	for _, l := range n.lengths[1:] {
+	kept := n.keptLocked()
+	for _, l := range n.lengths {
 		fn := n.fns[l]
-		if fn == nil || l == n.inUse || !n.owed[l].IsZero() || now.Sub(n.used[l]) < n.idle {
+		if fn == nil || l == kept || l == n.inUse || !n.owed[l].IsZero() || now.Sub(n.used[l]) < n.idle {
 			continue
 		}
 		fn.close()

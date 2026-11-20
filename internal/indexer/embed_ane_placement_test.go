@@ -539,19 +539,19 @@ func TestANEAuditing(t *testing.T) {
 // Neural Engine path leaves to it: a text behind a miss is routed on its
 // own, and each miss is counted under its own reason.
 func TestLocal_LlamaGroupClassifiesEachText(t *testing.T) {
-	f := &fakeANE{loadErr: map[int]error{256: errors.New("refused")}}
+	f := &fakeANE{loadErr: map[int]error{512: errors.New("refused")}}
 	n, _ := newTestANE(t, f)
 	loadFor(n, 10)
-	loadFor(n, 200) // s256 fails to load
+	loadFor(n, 400) // s512, the last that holds it, fails to load
 	f.mu.Lock()
 	f.gate, f.started = make(chan struct{}), make(chan int, 1)
 	f.mu.Unlock()
 	l := &Local{ane: n, nCtx: 2048, batchDocs: 4}
 	toks := func(n int) []llama.Token { return make([]llama.Token, n) }
 
-	// s256 failed, s512 is loading: the 400-token text waits.
-	tokenized := [][]llama.Token{toks(200), toks(400)}
-	lens := []int{200, 400}
+	// s512 failed, s256 is loading: the 200-token text waits.
+	tokenized := [][]llama.Token{toks(400), toks(200)}
+	lens := []int{400, 200}
 	if _, ok, _ := l.embedANE(tokenized[0], true); ok {
 		t.Fatal("served by a failed function")
 	}
@@ -562,8 +562,8 @@ func TestLocal_LlamaGroupClassifiesEachText(t *testing.T) {
 	<-f.started
 	// Texts that all fall back share the decode, each with its reason; a
 	// text a loaded function serves ends the group.
-	tokenized = [][]llama.Token{toks(200), toks(100000), toks(10), toks(200)}
-	lens = []int{200, 600, 10, 200}
+	tokenized = [][]llama.Token{toks(400), toks(100000), toks(10), toks(400)}
+	lens = []int{400, 600, 10, 400}
 	_, _, _ = l.embedANE(tokenized[0], true)
 	end, misses = l.llamaGroup(tokenized, lens, 0, true)
 	if end != 2 || !reflect.DeepEqual(misses, []string{EmbedReasonANEFailed, EmbedReasonTooLong}) {
@@ -652,8 +652,8 @@ func TestNeuralEngine_RecordedPlacementSkipsTheAudit(t *testing.T) {
 }
 
 // An audit that finds a function off the Neural Engine retires it: it is
-// closed, llama.cpp takes its texts, and the path goes off with the last
-// one. A function that is predicting is closed when it returns.
+// closed, the next function takes its texts, and the path goes off with
+// the last one. A function that is predicting is closed when it returns.
 func TestNeuralEngine_AuditRefusalRetiresTheFunction(t *testing.T) {
 	refused := errors.Join(errOffNeuralEngine, errors.New("6014 operations on the cpu"))
 	f := &fakeANE{auditErr: map[int]error{128: refused}, auditGate: make(chan struct{}),
@@ -679,7 +679,8 @@ func TestNeuralEngine_AuditRefusalRetiresTheFunction(t *testing.T) {
 	if _, _, closed, _ := f.snapshot(); !reflect.DeepEqual(closed, []int{128}) {
 		t.Fatalf("closed %v, want s128 once its prediction returned", closed)
 	}
-	if _, ok := n.embed(tokensOf(10)); ok || n.lastMiss() != EmbedReasonANEFailed {
+	// Its texts go to the next function, which loads for them.
+	if _, ok := n.embed(tokensOf(10)); ok || n.lastMiss() != EmbedReasonFunctionLoading {
 		t.Fatalf("after the refusal: served %v, miss %q", ok, n.lastMiss())
 	}
 	n.loads.Wait()

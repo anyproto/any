@@ -205,6 +205,67 @@ func TestNeuralEngine_BulkOnALargerFunctionKeepsTheSmallerOnesWait(t *testing.T)
 	}
 }
 
+// The loader takes the smallest queued function first, whichever was
+// asked for first.
+func TestNeuralEngine_LoadsTheSmallestQueuedFirst(t *testing.T) {
+	f := &fakeANE{gate: make(chan struct{}), started: make(chan int, 4)}
+	n, _ := newTestANE(t, f)
+	n.start()
+	if got := <-f.started; got != 128 {
+		t.Fatalf("first load is s%d", got)
+	}
+	// Both are queued behind the load in flight, the larger one first.
+	for _, tokens := range []int{400, 200} {
+		if _, _, deferred := n.embedBulk(tokensOf(tokens)); !deferred {
+			t.Fatalf("%d-token document not deferred", tokens)
+		}
+	}
+	f.gate <- struct{}{}
+	got := <-f.started
+	close(f.gate)
+	n.loads.Wait()
+	if got != 256 {
+		t.Fatalf("the loader took s%d ahead of the smaller s256", got)
+	}
+}
+
+// A text whose function failed goes to the next larger one, which is
+// loaded for it and then kept as the smallest in use; llama.cpp gets it
+// only when no function that holds it is left.
+func TestNeuralEngine_FailedFunctionsTextsTakeTheNextOne(t *testing.T) {
+	f := &fakeANE{loadErr: map[int]error{128: errors.New("broken")}}
+	n, clock := newTestANE(t, f)
+	n.idle = time.Minute
+	n.start()
+	n.loads.Wait()
+	if _, ok, deferred := n.embedBulk(tokensOf(10)); ok || !deferred {
+		t.Fatalf("a document of the failed s128: served %v, deferred %v, miss %q", ok, deferred, n.lastMiss())
+	}
+	n.loads.Wait()
+	if _, ok, _ := n.embedBulk(tokensOf(10)); !ok {
+		t.Fatalf("not served after s256 loaded: miss %q", n.lastMiss())
+	}
+	if _, served, _, _ := f.snapshot(); !reflect.DeepEqual(served, []int{256}) {
+		t.Fatalf("served by %v, want s256", served)
+	}
+	clock.add(2 * time.Minute)
+	n.releaseTick()
+	if _, _, closed, _ := f.snapshot(); len(closed) != 0 {
+		t.Fatalf("released %v: s256 is the smallest function left", closed)
+	}
+	// The last function that holds a text failed: llama.cpp embeds it.
+	f.mu.Lock()
+	f.loadErr[512] = errors.New("broken")
+	f.mu.Unlock()
+	if _, ok, deferred := n.embedBulk(tokensOf(400)); ok || !deferred {
+		t.Fatalf("a 400-token document: served %v, deferred %v", ok, deferred)
+	}
+	n.loads.Wait()
+	if _, ok, deferred := n.embedBulk(tokensOf(400)); ok || deferred || n.lastMiss() != EmbedReasonANEFailed {
+		t.Fatalf("after s512 failed: served %v, deferred %v, miss %q", ok, deferred, n.lastMiss())
+	}
+}
+
 // A function that finishes loading after its documents' wait ran out is
 // owed to nobody: it is released as idle like any other.
 func TestNeuralEngine_LateLoadIsNotKeptForever(t *testing.T) {
@@ -241,6 +302,25 @@ func TestNeuralEngine_LateLoadIsNotKeptForever(t *testing.T) {
 	n.releaseTick()
 	if _, _, closed, _ := f.snapshot(); len(closed) != 1 || closed[0] != 256 {
 		t.Fatalf("released %v, want the late s256", closed)
+	}
+}
+
+// A document deferred for a package that landed since the last look has
+// the loader look again at once, not at the retry.
+func TestNeuralEngine_DeferralForALandedPackageStartsTheLoader(t *testing.T) {
+	f := &fakeANE{absent: true, prepErrs: []error{errANENotReady, nil}}
+	n, _ := newTestANE(t, f)
+	n.start()
+	n.loads.Wait()
+	f.mu.Lock()
+	f.absent = false
+	f.mu.Unlock()
+	if _, ok, deferred := n.embedBulk(tokensOf(10)); ok || !deferred {
+		t.Fatalf("served %v, deferred %v, miss %q; want a wait", ok, deferred, n.lastMiss())
+	}
+	n.loads.Wait()
+	if _, ok, _ := n.embedBulk(tokensOf(10)); !ok {
+		t.Fatalf("nothing loaded for the deferred document: miss %q", n.lastMiss())
 	}
 }
 
