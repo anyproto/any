@@ -214,9 +214,10 @@ late heartbeat can resurrect a finished row. Work stopped mid-pass
   - `phase`: `waiting` while `index.embedStartDelay` runs with texts
     pending; `preparing` while the drain waits for the Neural Engine's
     package to download and for its
-    first function, the worker's start and model load included, and
-    while every text still pending waits for a function that is
-    loading; `embedding` otherwise.
+    first function, the worker's start and model load included, while
+    every text still pending waits for a function that is loading, and
+    from there, or from a pass started over on such texts, until a
+    vector comes; `embedding` otherwise.
   - `backends`: the runtimes that embedded the last batch the embedder
     returned, whether or not all of it landed. `ane` is Core ML in a
     function whose placement on the Neural Engine is verified, `coreml`

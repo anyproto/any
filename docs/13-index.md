@@ -850,7 +850,16 @@ child's lines (the preparation from `starting`, a load from `s<N>
 loading`, an audit between its started and finished lines): it died in
 Core ML, and the next child runs without the Neural Engine. The GPU is
 never charged for an idle death. A child without a Core ML path is not
-asked, and one found dead is reaped the same way. A thread-count change
+asked, and one found dead is reaped the same way. So is a child of
+either kind that a request finds already ended, or cannot be written
+to: it ended between frames, the request was never asked of it, and the
+request's child is spawned without a backoff. Steady frames and a
+drain's hold both keep the idle ask from a child, so a child whose
+Core ML call has been open for 15 minutes by its lines is also asked
+after a frame, and from the idle timer ahead of the hold, whether that
+work is overdue (`held`, which changes nothing in a child that is not
+held); one that says so is killed like the idle one, with no runtime
+charged. A thread-count change
 (`SetThreads`) and a spec that moved on stop a child without asking.
 The stop
 holds the slot: a request that arrives meanwhile waits for it and spawns
@@ -1008,7 +1017,10 @@ seconds. While a function loads, a larger loaded
 one serves its texts; with none, a query goes to llama.cpp and a
 document waits. A function that is not used (it failed to load, kept
 failing or was refused by its audit) hands its texts to the next larger
-one that is, which is asked for and waited for like any other.
+one that is, which is asked for and waited for like any other. The path
+keeps every function of the package for that, whatever
+`index.local.contextSize` caps a text at: with texts of at most 128
+tokens a failed 128-token function leaves them to the 256-token one.
 
 **Bulk work waits for the first function.** A drain that finds texts
 pending starts the child at once, under the start delay, and before its
@@ -1051,8 +1063,8 @@ read (`Store.PendingAfter`), which no write ahead of it or delete
 behind it can move, so
 texts that fit a loaded function keep landing. When nothing else is
 pending the drain waits, its row in `preparing`, until the child
-reports a function loaded or not used, llama.cpp taking a function's
-texts past the bound, or the path off, the
+reports a function loaded, not used or refused, llama.cpp taking a
+function's texts past the bound, or the path off, the
 child stops or exits, or a minute after the pass began; then it starts
 over from the head of the queue, which sends the texts it left again.
 The same report heard in the middle of a pass restarts it
@@ -1064,12 +1076,20 @@ a renamed or unnamed object's windows included, and the drain reads
 those by id (`Store.PendingByIds`) and embeds them in a page of their
 own between two read on from the cursor, or at once while it waits, so
 a new text is embedded wherever it sorts and the texts left behind are
-not sent again for it. A doc that changed while it embedded, whose
-vector is therefore not landed, is read again the same way. A nudge
+not sent again for it. Named docs are embedded in the order they were
+named. Once the cursor has reached the end of the queue the pass reads
+named docs alone: the queue is not read from the cursor again until the
+next pass, and a named doc that was itself deferred is sent once, also
+when it sorts ahead of a cursor that is still moving. Docs that keep
+being named do not put off the minute after which the texts left behind
+are sent again. A doc that changed while it embedded, whose
+vector is therefore not landed, is read again with the named docs; with
+nothing left behind, where a short page would end the drain, the head
+of the queue is read once more for it. A nudge
 that names no doc (the sweep's, or more than 1,024 docs between two
 looks) has the pass start over instead, no sooner than a minute after
-it began. A pass over texts left behind keeps the row in `preparing`
-until one of them embeds. A drain holds a child with a Core ML path against
+it began. From the moment a pass starts over on texts left behind, or
+the drain has waited, the row says `preparing` until a vector comes. A drain holds a child with a Core ML path against
 idle retirement from its start delay until it returns. The
 wait for one function is bounded at 10 min from the first document
 deferred for it: past that the child says so, and llama.cpp embeds the
@@ -1098,10 +1118,10 @@ matmul, linear or softmax operation on the CPU.
 
 No audit starts in Low Power Mode or under serious or critical thermal
 pressure (`NSProcessInfo`): it waits, the child looks again every
-minute, and the functions serve as `coreml` meanwhile. The gate is for
-cost, a first audit being minutes of system compiler work, and against
-thermal pressure, whose effect on a plan is not measured; a plan read
-in Low Power Mode has not been seen to differ.
+minute, and the functions serve as `coreml` meanwhile. A first audit is
+minutes of system compiler work, which the gate keeps off a machine
+that is saving power or shedding heat. A `fair` thermal state does not
+hold an audit.
 
 An audit ends in one of three ways, and two of them are written to
 `<name>-<digest>.placement.<setup>.v<version>.s<N>.json` beside the
@@ -1121,7 +1141,7 @@ model's name and digest, the function and the setup:
 - **Refused** (a core operator on the CPU, or a plan that cannot put
   more than 100 operations on the Neural Engine wherever its unknown
   ones run) is never written, and removes a record that stood for the
-  function. The function is closed, once any prediction in flight has
+  function (`s<N> refused: …`). The function is closed, once any prediction in flight has
   returned, and not loaded again in that child (a reload already under
   way is discarded); the next larger function, or llama.cpp when none
   is left, takes its texts. The next child loads it and plans it for
@@ -1136,7 +1156,10 @@ The version is part of the name, so builds with different record
 versions keep files of their own. Children of several servers
 share the files without a lock: an audit replaces its own function's
 file whole, so there is nothing to merge, and a file that is there and
-cannot be read is left alone. A staging file left by a child that died
+cannot be read is not replaced (a refusal still removes it). Within a
+child a verdict and its file change under one lock, so an audit given
+up as overdue just as its plan comes back refused leaves no `none`
+behind the refusal. A staging file left by a child that died
 writing a record is removed, once it is an hour old, by the next child
 that prepares. Another chip or OS build, or a
 removed file, is audited afresh, and coming back to an earlier build
@@ -1146,7 +1169,11 @@ A child is not retired as idle while it audits, and one that dies between
 an audit's started and finished lines died in Core ML: the next child
 runs without it, whatever the path said. A plan that was not answered
 in time keeps its audit in flight until Core ML is back from that call:
-the finished line waits for it, and no other audit starts meanwhile.
+the finished line waits for it, and no other audit starts meanwhile; a
+child held so for 15 minutes is stopped, busy or idle (§ The embedder
+child process), and the next one audits the functions left. A refusal
+ends its audit and no load: a function released under its audit and
+loading again is still in Core ML until the loader's own line.
 For the same reason the `off`
 line is written only when no Core ML call is left in flight, the
 release of a function that is being discarded included, and after the
@@ -1179,7 +1206,7 @@ verified` (by this child, earlier), `audit ended without a verdict,
 plan skipped` or `placement not verified yet`, or `s<N> not used: …`,
 or `s<N> loaded and discarded` for a function refused while it loaded;
 `s<N> placement verified (plan …, … operations on the neural engine, …
-on the cpu)`, `s<N> placement not verified: …` and `s<N> not used: …`
+on the cpu)`, `s<N> placement not verified: …` and `s<N> refused: …`
 from the audit,
 between `s<N> placement audit started` and `s<N> placement audit
 finished`; `s<N> placement not recorded: …` when its file could not be
