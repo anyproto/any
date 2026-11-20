@@ -116,12 +116,14 @@ func runEmbedHelper(mode string) int {
 		aneStderrLog(aneOffStatus + "llama.cpp embeds everything: no neural engine")
 	case "ready": // the first function loads after the delay
 		aneStderrLog("starting")
+		aneStderrLog("s128 loading")
 		go func() {
 			time.Sleep(delay)
 			aneStderrLog("s128 ready (plan 1ms, load 1ms, 10 operations on the neural engine, 0 on the cpu)")
 		}()
 	case "audit": // the first function serves while its placement is audited
 		aneStderrLog("starting")
+		aneStderrLog("s128 loading")
 		aneStderrLog("s128 ready (open 1ms, validate 1ms, placement not verified yet; asked for 2ms ago)")
 		aneStderrLog("s128 " + aneAuditStarted)
 		// Predictions fail under the audit: that is not its end.
@@ -142,10 +144,18 @@ func runEmbedHelper(mode string) int {
 		}()
 	case "stuckaudit": // an audit that never returns, past any bound
 		aneStderrLog("starting")
-		aneStderrLog(aneOffStatus + "llama.cpp embeds everything: no function can be used")
+		aneStderrLog("s128 loading")
+		aneStderrLog("s128 ready (open 1ms, validate 1ms, placement not verified yet; asked for 2ms ago)")
 		aneStderrLog("s128 " + aneAuditStarted)
 		auditing.Store(true)
 		overdue.Store(true)
+	case "loaded": // the first function is loaded and nothing else is under way
+		aneStderrLog("starting")
+		aneStderrLog("s128 loading")
+		aneStderrLog("s128 ready (open 1ms, validate 1ms, placement on record, plan skipped; asked for 2ms ago)")
+	case "loading": // inside the first function's load
+		aneStderrLog("starting")
+		aneStderrLog("s128 loading")
 	case "offauditexit": // the path is off; the audit still running then kills the child
 		aneStderrLog("starting")
 		aneStderrLog("s128 " + aneAuditStarted)
@@ -157,6 +167,7 @@ func runEmbedHelper(mode string) int {
 		}()
 	case "auditexit": // dies inside a placement audit
 		aneStderrLog("starting")
+		aneStderrLog("s128 loading")
 		aneStderrLog("s128 ready (open 1ms, validate 1ms, placement not verified yet; asked for 2ms ago)")
 		aneStderrLog("s128 " + aneAuditStarted)
 		auditing.Store(true)
@@ -164,9 +175,9 @@ func runEmbedHelper(mode string) int {
 			time.Sleep(delay)
 			os.Exit(3)
 		}()
-	case "refusedlarger": // a larger function is on record as refused; the first one loads after the delay
+	case "refusedlarger": // a larger function is not used; the first one loads after the delay
 		aneStderrLog("starting")
-		aneStderrLog("s512 not used: core ml plans it off the neural engine (on record)")
+		aneStderrLog("s512 not used: core ml plans it off the neural engine")
 		go func() {
 			time.Sleep(delay)
 			aneStderrLog("s128 ready (open 1ms, validate 1ms, placement on record, plan skipped; asked for 2ms ago)")
@@ -191,6 +202,9 @@ func runEmbedHelper(mode string) int {
 			return 0 // parent closed stdin: clean exit, like the real child
 		}
 		if req.Op == workerOpIdle {
+			if os.Getenv("ANY_EMBED_WORKER_MUTE") != "" { // wedged: the ask gets no answer
+				exitWithParent()
+			}
 			if err := writeFrame(out, workerResp{Op: workerOpIdle, Busy: auditing.Load(), Overdue: overdue.Load()}, nil); err != nil {
 				return 1
 			}

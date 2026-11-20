@@ -49,6 +49,9 @@ const (
 	// long, returning the memory its decode buffers keep
 	// (docs/13-index.md § The embedder child process).
 	workerIdleTimeout = 5 * time.Minute
+	// workerAskTimeout bounds the idle ask, which holds the slot: a child
+	// answers it without touching a runtime.
+	workerAskTimeout = 10 * time.Second
 )
 
 // workerEmbedder runs the local model in a child process (`any run
@@ -76,7 +79,9 @@ type workerEmbedder struct {
 	reqTimeout   time.Duration
 	startTimeout time.Duration
 	// idleTimeout is workerIdleTimeout; 0 never retires an idle child.
+	// askTimeout is workerAskTimeout.
 	idleTimeout time.Duration
+	askTimeout  time.Duration
 	// bulkWait is aneBulkWait, pkgWait anePackageWait; pkgWaitUntil is when
 	// the wait for the package's download ends, set by its first waiter.
 	bulkWait     time.Duration
@@ -214,6 +219,7 @@ func newWorkerEmbedderFromSpec(spec localSpec, reqTimeout time.Duration) *worker
 		reqTimeout:   reqTimeout,
 		startTimeout: workerStartTimeout,
 		idleTimeout:  workerIdleTimeout,
+		askTimeout:   workerAskTimeout,
 		bulkWait:     aneBulkWait,
 		pkgWait:      anePackageWait,
 		pkgPoll:      time.Second,
@@ -314,9 +320,9 @@ func (w *workerEmbedder) EmbedDocsRouted(ctx context.Context, titles, texts []st
 	return w.embedDocs(ctx, titles, texts, true)
 }
 
-// DeferredWake returns a channel that closes when the functions of the
-// Neural Engine path changed, or the child did: texts EmbedDocsRouted
-// left without a vector since the call may embed now.
+// DeferredWake returns a channel that closes when a function of the
+// Neural Engine path was loaded or given up, or the child changed: texts
+// EmbedDocsRouted left without a vector since the call may embed now.
 func (w *workerEmbedder) DeferredWake() <-chan struct{} {
 	w.wakeMu.Lock()
 	defer w.wakeMu.Unlock()
@@ -812,11 +818,18 @@ func (w *workerEmbedder) serve(ctx context.Context, req workerReq) frameResult {
 // (the wedged-GPU case) or a desynchronized frame — so the caller
 // retires the child rather than reusing it. Caller holds the slot.
 func (w *workerEmbedder) roundTrip(req workerReq) (workerResp, []byte, error) {
+	return w.roundTripWithin(req, w.reqTimeout)
+}
+
+// errChildMute is a child that did not answer in time.
+var errChildMute = errors.New("embedder child did not answer")
+
+func (w *workerEmbedder) roundTripWithin(req workerReq, within time.Duration) (workerResp, []byte, error) {
 	c := w.child
 	if err := writeFrame(c.w, req, nil); err != nil {
 		return workerResp{}, nil, fmt.Errorf("write to embedder child: %w", err)
 	}
-	timer := time.NewTimer(w.reqTimeout)
+	timer := time.NewTimer(within)
 	defer timer.Stop()
 	select {
 	case m, ok := <-c.resp:
@@ -828,7 +841,7 @@ func (w *workerEmbedder) roundTrip(req workerReq) (workerResp, []byte, error) {
 		}
 		return m.hdr, m.bin, nil
 	case <-timer.C:
-		return workerResp{}, nil, fmt.Errorf("embedder child did not answer in %s", w.reqTimeout)
+		return workerResp{}, nil, fmt.Errorf("%w in %s", errChildMute, within)
 	}
 }
 
@@ -926,9 +939,11 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 	}
 	c.first = firstFunction(spec)
 	c.onSettle = func() { w.settledChild.Store(c) }
-	c.onStatus = func(exited bool) {
+	c.onStatus = func(exited, wakes bool) {
 		w.logBulk(exited)
-		w.wakeDeferred()
+		if wakes {
+			w.wakeDeferred()
+		}
 	}
 	go c.readLoop(bufio.NewReaderSize(stdout, 64<<10))
 	go c.pumpStderr(stderr, w.lg)
@@ -968,11 +983,18 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 	return c, nil
 }
 
-// failChild retires a child whose stream broke and classifies the
-// death: any abnormal exit with GPU offload active demotes this process
-// to CPU. The check is deliberately coarse. A wedged GPU stops
-// answering rather than dying, so a request timeout has to count as a
-// fault — at the price of demoting a merely slow frame. That costs one
+// How a child the worker lets go of as failed was found.
+const (
+	diedInFrame = iota // its stream broke under a request
+	diedIdle           // the idle ask found it dead
+	muteIdle           // it did not answer the idle ask in time
+)
+
+// failChild retires a child whose stream broke under a request and
+// classifies the death: any abnormal exit with GPU offload active demotes
+// this process to CPU. The check is deliberately coarse. A wedged GPU
+// stops answering rather than dying, so a request timeout has to count as
+// a fault — at the price of demoting a merely slow frame. That costs one
 // run at CPU speed (~4x slower embedding, FTS untouched) against
 // repeated multi-minute stalls, and a restart starts on the GPU again.
 // On a GPU-less machine the demotion is a no-op. A child that had begun
@@ -980,7 +1002,13 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 // stream that broke because Close killed the child is not a fault:
 // retired silently.
 // Caller holds the slot.
-func (w *workerEmbedder) failChild(cause error) {
+func (w *workerEmbedder) failChild(cause error) { w.reapChild(cause, diedInFrame) }
+
+// reapChild is failChild for a child found in the state how names. One
+// found dead or mute while idle had nothing asked of it: it costs neither
+// runtime, unless it died inside a Core ML call of its own (aneCalls),
+// which costs the Neural Engine path. Caller holds the slot.
+func (w *workerEmbedder) reapChild(cause error, how int) {
 	if w.closing.Load() {
 		w.stopChild(false)
 		return
@@ -999,20 +1027,29 @@ func (w *workerEmbedder) failChild(cause error) {
 	// stop() joins the stderr pump before returning, so the tail read
 	// after it is complete — that is where llama.cpp's abort message is.
 	waitErr := c.stop(false)
-	w.penalize()
 	fields := []zap.Field{zap.Error(cause), zap.String("childStderr", c.stderr.String())}
 	if waitErr != nil {
 		fields = append(fields, zap.String("childExit", waitErr.Error()))
 	}
+	// Read after stop, which joined the stderr pump.
+	inCall := c.calls.Load() > 0
+	switch {
+	case how == muteIdle:
+		w.lg.Warn("local embedder child did not answer while idle; stopped", fields...)
+		return
+	case how == diedIdle && !inCall:
+		w.lg.Warn("local embedder child found dead while idle", fields...)
+		return
+	}
+	w.penalize()
 	w.mu.Lock()
 	// One runtime per death, the Neural Engine path first once the
 	// child used Core ML: the death does not say which of the two
 	// caused it. A death that repeats in a child started without Core ML
-	// clears the Neural Engine, which comes back on, once. Read after
-	// stop, which joined the stderr pump.
-	// An audit that started and did not finish is Core ML work too, even
+	// clears the Neural Engine, which comes back on, once.
+	// A Core ML call that began and did not end is Core ML work too, even
 	// with the path off.
-	usedCoreML := c.coreml.Load() || c.audit.Load() != nil
+	usedCoreML := c.coreml.Load() || inCall
 	demoteCoreML := c.spec.coremlDir != "" && usedCoreML && !w.coremlDisabled
 	demote := !demoteCoreML && gpu && !w.gpuDisabled
 	restoreCoreML := c.spec.coremlDir == "" && w.coremlDisabled && !w.coremlRestored
@@ -1260,17 +1297,22 @@ func (w *workerEmbedder) retireIdle() {
 		return
 	}
 	// A child with a Core ML path is asked: it refuses under a placement
-	// audit, whose verdict it would never write, and one that cannot
-	// answer has failed. A child of another build does not know the
-	// question and is stopped.
+	// audit, whose verdict it would never write, and under a load. One
+	// held past the bound of either is stopped: it gave the audit up, and
+	// nothing was asked of it, so no runtime is charged. A child of
+	// another build does not know the question and is stopped.
 	if coreML {
-		hdr, _, err := w.roundTrip(workerReq{Op: workerOpIdle})
+		hdr, _, err := w.roundTripWithin(workerReq{Op: workerOpIdle}, w.askTimeout)
 		switch {
+		case errors.Is(err, errChildMute):
+			w.reapChild(err, muteIdle)
+			return
 		case err != nil:
-			w.failChild(err)
+			w.reapChild(err, diedIdle)
 			return
 		case hdr.Op == workerOpIdle && hdr.Busy && hdr.Overdue:
-			w.failChild(errors.New("embedder child stuck in a placement audit"))
+			w.lg.Warn("local embedder child held by core ml work past its bound; stopped while idle")
+			w.stopChild(false)
 			return
 		case hdr.Op == workerOpIdle && hdr.Busy:
 			w.idleTimer.Reset(w.idleTimeout)
@@ -1392,12 +1434,13 @@ type embedChild struct {
 	// written before settled closes.
 	settledAs string
 	// onStatus runs on every report about the Neural Engine path, and
-	// when the child's stderr ends (exited).
-	onStatus func(exited bool)
-	// audit names the function whose placement audit the child reported
-	// started and not finished; nil = none. Left set by a child that died
-	// in one: failChild reads it.
-	audit atomic.Pointer[string]
+	// when the child's stderr ends (exited). wakes: texts left without a
+	// vector may embed now (aneWakes).
+	onStatus func(exited, wakes bool)
+	// calls counts the Core ML calls the child reported begun and not
+	// ended (aneCalls). Left set by a child that died in one: reapChild
+	// reads it.
+	calls atomic.Int32
 	// first names the path's first function ("s128"), the one whose
 	// report settles it; "" = any function's does.
 	first string
@@ -1440,10 +1483,11 @@ func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 	// A child that exits has nothing loading: no text waits for it.
 	defer func() {
 		if c.onStatus != nil {
-			c.onStatus(true)
+			c.onStatus(true, true)
 		}
 	}()
 	br := bufio.NewReaderSize(r, 8<<10)
+	open := map[string]bool{}
 	for {
 		line, err := br.ReadString('\n')
 		if line = strings.TrimRight(line, "\r\n"); line != "" {
@@ -1457,11 +1501,8 @@ func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 					c.aneOff = true
 				}
 				c.coreml.Store(!c.aneOff)
-				if started, finished := aneAuditing(status); started != "" {
-					c.audit.Store(&started)
-				} else if cur := c.audit.Load(); cur != nil && finished == *cur {
-					c.audit.Store(nil)
-				}
+				aneCalls(open, status)
+				c.calls.Store(int32(len(open)))
 				if aneSettles(status, c.first) {
 					c.settleOnce.Do(func() {
 						c.settledAs = aneSettledAs(status)
@@ -1473,7 +1514,7 @@ func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 				}
 				lg.Info("local embedder neural engine", zap.String("status", status))
 				if c.onStatus != nil {
-					c.onStatus(false)
+					c.onStatus(false, aneWakes(status))
 				}
 			} else {
 				lg.Debug("embedder child", zap.String("stderr", line))

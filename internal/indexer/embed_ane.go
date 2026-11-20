@@ -44,9 +44,9 @@ const (
 	// anePackageWait bounds how long bulk work waits for the package's
 	// download, from its first waiter.
 	anePackageWait = 30 * time.Minute
-	// aneAuditMax is how long a placement audit may hold an idle child.
-	// The plan's own timeout ends well inside it; reading the plan is not
-	// bounded by that one.
+	// aneAuditMax is how long a placement audit, or the loader's call into
+	// Core ML, may hold an idle child. The plan's own timeout ends well
+	// inside it; reading the plan is not bounded by that one.
 	aneAuditMax = 15 * time.Minute
 	// aneAuditPoll spaces the looks at the power state while audits wait
 	// for it.
@@ -66,20 +66,57 @@ const (
 	// placement audit; the second comes however the audit went.
 	aneAuditStarted  = "placement audit started"
 	aneAuditFinished = "placement audit finished"
+	// aneStarting comes before the path's first Core ML call, aneLoading
+	// after "s<length> " before a function's load; aneLoadDiscarded ends a
+	// load whose function was closed unused.
+	aneStarting      = "starting"
+	aneLoading       = "loading"
+	aneLoadDiscarded = "loaded and discarded"
+	aneCompiled      = "package compiled"
+	anePreparing     = "prepare" // names the call aneStarting opens
 )
 
-// aneAuditing reads a status line for the function whose placement audit
-// it says started, or finished.
-func aneAuditing(status string) (started, finished string) {
-	name, rest, ok := strings.Cut(status, " ")
-	switch {
-	case !ok || !strings.HasPrefix(name, "s"):
-	case rest == aneAuditStarted:
-		return name, ""
-	case rest == aneAuditFinished:
-		return "", name
+// aneCalls keeps, in open, the Core ML calls a child's status lines say
+// are in flight: its preparation, its loads and its audits. A child that
+// dies with one open died in Core ML.
+func aneCalls(open map[string]bool, status string) {
+	if status == aneStarting {
+		open[anePreparing] = true
+		return
 	}
-	return "", ""
+	if strings.HasPrefix(status, aneOffStatus) || strings.HasPrefix(status, aneCompiled) {
+		delete(open, anePreparing)
+		return
+	}
+	name, rest, ok := strings.Cut(status, " ")
+	if !ok || !strings.HasPrefix(name, "s") {
+		return
+	}
+	switch {
+	case rest == aneLoading:
+		delete(open, anePreparing)
+		open[name+" load"] = true
+	case strings.HasPrefix(rest, "ready"), strings.HasPrefix(rest, "not used"), rest == aneLoadDiscarded:
+		delete(open, name+" load")
+	case rest == aneAuditStarted:
+		open[name+" audit"] = true
+	case rest == aneAuditFinished:
+		delete(open, name+" audit")
+	}
+}
+
+// aneWakes reports whether a status line changes what a deferred text
+// can do: its function is loaded or not used, llama.cpp takes its texts
+// past the bound, or the path is off.
+func aneWakes(status string) bool {
+	if strings.HasPrefix(status, aneOffStatus) {
+		return true
+	}
+	name, rest, ok := strings.Cut(status, " ")
+	if !ok || !strings.HasPrefix(name, "s") {
+		return false
+	}
+	return strings.HasPrefix(rest, "ready") || strings.HasPrefix(rest, "not used") || strings.HasPrefix(rest, "still loading")
 }
 
 // aneSettles reports whether a status line ends the wait for the path's
@@ -197,6 +234,7 @@ type neuralEngine struct {
 	inflight  int         // length the loader is loading; 0 = none
 	inUse     int         // length predicting now; 0 = none
 	loading   bool        // the loader runs
+	callFrom  time.Time   // when the loader went into Core ML; zero = it is not there
 	miss      string      // why embed last left a text to llama.cpp (EmbedReason*)
 	placed    bool        // the function embed last used is a verified one
 	release   *time.Timer // runs releaseTick; nil until a function can go idle
@@ -436,9 +474,11 @@ func (n *neuralEngine) loader() {
 	}()
 	for !n.off && len(n.queue) > 0 {
 		if !n.prepared {
+			n.callFrom = n.now()
 			n.mu.Unlock()
 			err := n.backend.prepare()
 			n.mu.Lock()
+			n.callFrom = time.Time{}
 			switch {
 			case errors.Is(err, errANENotReady):
 				n.nextTry = n.now().Add(n.retryIn)
@@ -472,10 +512,12 @@ func (n *neuralEngine) loader() {
 			delete(n.asked, length)
 			continue
 		}
-		n.inflight = length
+		n.inflight, n.callFrom = length, n.now()
+		n.logf("s%d %s", length, aneLoading)
 		n.mu.Unlock()
 		fn, info, err := n.backend.load(length)
 		n.mu.Lock()
+		n.callFrom = time.Time{}
 		var asked time.Duration
 		if t := n.asked[length]; !t.IsZero() {
 			asked = n.now().Sub(t).Round(time.Millisecond)
@@ -490,6 +532,7 @@ func (n *neuralEngine) loader() {
 		case n.off || n.failed[length] || n.fns[length] != nil:
 			// Refused by its audit while it loaded again, among others.
 			fn.close()
+			n.logf("s%d %s", length, aneLoadDiscarded)
 		default:
 			n.fns[length] = fn
 			n.used[length] = n.now()
@@ -604,9 +647,10 @@ func (n *neuralEngine) auditTick() {
 }
 
 // quiesce is the server asking to stop an idle child. It is refused
-// while an audit runs, whose verdict would be lost (overdue: for longer
-// than any audit takes, when it is given up and not run again); once
-// accepted, no audit starts any more.
+// while an audit runs, whose verdict would be lost, and while the loader
+// compiles or loads, whose work would be (overdue: for longer than either
+// takes; an audit is then given up and not run again). Once accepted, no
+// audit starts any more.
 func (n *neuralEngine) quiesce() (ok, overdue bool) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -617,6 +661,9 @@ func (n *neuralEngine) quiesce() (ok, overdue bool) {
 			n.backend.abandon(n.auditOf)
 		}
 		return false, overdue
+	}
+	if n.loading {
+		return false, !n.callFrom.IsZero() && n.now().Sub(n.callFrom) >= n.auditMax
 	}
 	n.quiet = true
 	return true, false
@@ -1007,7 +1054,7 @@ func (b *coreMLBackend) prepare() (err error) {
 	}
 	// Written before the first Core ML call: a crash inside one is then
 	// a death with the Neural Engine in use.
-	b.logf("starting")
+	b.logf(aneStarting)
 	ok, err := coreml.HasNeuralEngine()
 	if err != nil {
 		return err
@@ -1032,7 +1079,7 @@ func (b *coreMLBackend) prepare() (err error) {
 	if err := installDir(tmp, b.compiled); err != nil {
 		return fmt.Errorf("install the compiled model: %w", err)
 	}
-	b.logf("package compiled in %s", time.Since(start).Round(time.Millisecond))
+	b.logf(aneCompiled+" in %s", time.Since(start).Round(time.Millisecond))
 	return nil
 }
 

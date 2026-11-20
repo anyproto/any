@@ -568,6 +568,33 @@ func TestWorkerEmbedder_DeferredWake(t *testing.T) {
 	}
 }
 
+// A line that changes nothing for a deferred text does not wake the
+// drain: an audit's verdict and its finished line are such lines.
+func TestWorkerEmbedder_AuditLinesDoNotWake(t *testing.T) {
+	const delay = 200 * time.Millisecond
+	w, _ := aneWorker(t, append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=audit")...)
+	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(delay / 4) // the lines before the audit's end are in
+	wake := w.DeferredWake()
+	if err := w.slot.acquire(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	c := w.child
+	w.slot.release(false)
+	for deadline := time.Now().Add(10 * time.Second); c.calls.Load() != 0; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the audit's finished line never came")
+		}
+	}
+	select {
+	case <-wake:
+		t.Fatal("an audit's lines woke the drain")
+	default:
+	}
+}
+
 // A drain's hold keeps the child from being retired as idle until it is
 // released, once.
 func TestWorkerEmbedder_HoldBulk(t *testing.T) {
@@ -711,7 +738,8 @@ func TestWorkerEmbedder_ChildRefusesIdleStopUnderAnAudit(t *testing.T) {
 }
 
 // A child whose audit never returns is not held for it for ever: once
-// the child says the audit is overdue it is reaped, as failed in Core ML.
+// the child says the audit is overdue it is stopped. Nothing failed that
+// was asked of it: it costs neither runtime.
 func TestWorkerEmbedder_StuckAuditDoesNotPinTheChild(t *testing.T) {
 	h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ANE=stuckaudit", "ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"}}
 	w := newTestWorker(t, h, -1)
@@ -730,8 +758,89 @@ func TestWorkerEmbedder_StuckAuditDoesNotPinTheChild(t *testing.T) {
 	w.mu.Lock()
 	coreml, gpu := w.coremlDisabled, w.gpuDisabled
 	w.mu.Unlock()
-	if !coreml || gpu {
-		t.Fatalf("after a stuck audit: core ml off %v, gpu off %v; want core ml alone", coreml, gpu)
+	if coreml || gpu {
+		t.Fatalf("after a stuck audit: core ml off %v, gpu off %v; want neither", coreml, gpu)
+	}
+}
+
+// idleDeath runs a child with a Core ML path in the helper's mode, kills
+// it once idle and returns what its death cost: a runtime, a backoff.
+func idleDeath(t *testing.T, mode string) (coremlOff, gpuOff, backoff bool) {
+	t.Helper()
+	h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ANE=" + mode, "ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"}}
+	w := newTestWorker(t, h, -1)
+	w.mu.Lock()
+	w.spec.coremlDir = filepath.Join(t.TempDir(), "eg2.mlpackage")
+	w.mu.Unlock()
+	w.idleTimeout = 200 * time.Millisecond
+	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond) // its lines are in
+	if err := w.live.Load().Kill(); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); hasChild(w); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the dead child was never reaped")
+		}
+	}
+	backoff = nextTry(w).After(time.Now())
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.coremlDisabled, w.gpuDisabled, backoff
+}
+
+// A child with a Core ML path found dead by the idle ask had nothing
+// asked of it: its death costs neither runtime, whether its path was on
+// or off, unless it died inside a Core ML call of its own, which costs
+// the Neural Engine path and never the GPU.
+func TestWorkerEmbedder_IdleDeathCostsNoRuntime(t *testing.T) {
+	for mode, wantCoreMLOff := range map[string]bool{
+		"off":     false, // the path was off
+		"loaded":  false, // the path was on, nothing in flight
+		"loading": true,  // inside a load
+		"1":       true,  // inside the preparation
+	} {
+		coremlOff, gpuOff, backoff := idleDeath(t, mode)
+		if coremlOff != wantCoreMLOff || gpuOff {
+			t.Errorf("%s: core ml off %v, gpu off %v; want core ml off %v and the gpu kept", mode, coremlOff, gpuOff, wantCoreMLOff)
+		}
+		if backoff && !wantCoreMLOff {
+			t.Errorf("%s: a death that cost nothing put off the next child", mode)
+		}
+	}
+}
+
+// A child that does not answer the idle ask is stopped after the ask's
+// own short bound, not the request timeout: a search behind the ask gets
+// a fresh child, and no runtime is charged.
+func TestWorkerEmbedder_IdleAskIsBounded(t *testing.T) {
+	h := &helperSpawner{modes: []string{"ok", "ok"}, env: []string{"ANY_EMBED_WORKER_ANE=loaded", "ANY_EMBED_WORKER_MUTE=1",
+		"ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"}}
+	w := newTestWorker(t, h, -1)
+	w.mu.Lock()
+	w.spec.coremlDir = filepath.Join(t.TempDir(), "eg2.mlpackage")
+	w.mu.Unlock()
+	w.reqTimeout = time.Minute
+	w.askTimeout = 200 * time.Millisecond
+	w.idleTimeout = 100 * time.Millisecond
+	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond) // the ask is on the wire
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := w.EmbedQuery(ctx, "q"); err != nil {
+		t.Fatalf("a search behind an unanswered idle ask: %v", err)
+	}
+	if h.spawns() != 2 {
+		t.Fatalf("spawned %d children, want the mute one and its replacement", h.spawns())
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.coremlDisabled || w.gpuDisabled {
+		t.Fatalf("after an unanswered idle ask: core ml off %v, gpu off %v; want neither", w.coremlDisabled, w.gpuDisabled)
 	}
 }
 

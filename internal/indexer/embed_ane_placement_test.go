@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -579,6 +580,38 @@ func TestNeuralEngine_OffLineComesAfterTheDiscardedReloadIsClosed(t *testing.T) 
 	if !log.has(aneOffStatus) {
 		t.Fatalf("no off line once the handle was closed: %v", log.lines)
 	}
+	// The load the server saw begin is said to be over, before the off line.
+	if at := log.index("s128 " + aneLoadDiscarded); at < 0 || at > log.index(aneOffStatus) {
+		t.Fatalf("the discarded load's line is at %d, the off line at %d: %v", at, log.index(aneOffStatus), log.lines)
+	}
+}
+
+// The child refuses an idle stop while the loader is inside Core ML,
+// whose work the stop would lose, and says when that has run too long.
+func TestNeuralEngine_QuiesceIsRefusedUnderALoad(t *testing.T) {
+	f := &fakeANE{gate: make(chan struct{}), started: make(chan int, 1), recorded: true}
+	log := newLogLines()
+	n, clock := newTestANE(t, f)
+	n.logf = log.logf
+	release := sync.OnceFunc(func() { close(f.gate) })
+	defer release()
+	n.start()
+	<-f.started
+	if !log.has("s128 " + aneLoading) {
+		t.Fatalf("no line for the load that began: %v", log.lines)
+	}
+	if ok, overdue := n.quiesce(); ok || overdue {
+		t.Fatalf("under a load: quiesced %v, overdue %v", ok, overdue)
+	}
+	clock.add(n.auditMax)
+	if ok, overdue := n.quiesce(); ok || !overdue {
+		t.Fatalf("under a load past the bound: quiesced %v, overdue %v", ok, overdue)
+	}
+	release()
+	n.loads.Wait()
+	if ok, overdue := n.quiesce(); !ok || overdue {
+		t.Fatalf("with nothing running: quiesced %v, overdue %v", ok, overdue)
+	}
 }
 
 // The path's off line waits for the Core ML call in flight, and the
@@ -729,19 +762,70 @@ func TestNeuralEngine_OffLineFollowsTheAuditThatCausedIt(t *testing.T) {
 	}
 }
 
-func TestANEAuditing(t *testing.T) {
-	for status, want := range map[string][2]string{
-		"s256 placement audit started":                {"s256", ""},
-		"s256 placement audit finished":               {"", "s256"},
-		"s256 placement verified (plan 1s)":           {"", ""},
-		"s256 not used: core ml plans it off":         {"", ""},
-		"s256 not used any more: 3 failures in a row": {"", ""},
-		"off, llama.cpp embeds everything: no engine": {"", ""},
-		"s128 ready (open 1s)":                        {"", ""},
-		"starting":                                    {"", ""},
+// The server follows a child's Core ML calls by its lines: its
+// preparation, its loads and its audits, each from the line that opens it
+// to the one that ends it.
+func TestANECalls(t *testing.T) {
+	open := map[string]bool{}
+	for _, step := range []struct {
+		status string
+		want   []string
+	}{
+		{"starting", []string{"prepare"}},
+		{"s256 still loading after 10m0s: llama.cpp embeds its texts until it is ready", []string{"prepare"}},
+		{"package compiled in 40s", nil},
+		{"starting", []string{"prepare"}},
+		{"s128 loading", []string{"s128 load"}},
+		{"s128 ready (open 1s)", nil},
+		{"s128 placement audit started", []string{"s128 audit"}},
+		{"s256 loading", []string{"s128 audit", "s256 load"}},
+		{"s128 failed: predict", []string{"s128 audit", "s256 load"}},
+		{"s128 placement not verified: no answer", []string{"s128 audit", "s256 load"}},
+		{"s256 not used: it does not predict", []string{"s128 audit"}},
+		{"s512 loading", []string{"s128 audit", "s512 load"}},
+		{"s512 loaded and discarded", []string{"s128 audit"}},
+		// An audit outlives the path's off line when its plan is late.
+		{"off, llama.cpp embeds everything: no engine", []string{"s128 audit"}},
+		{"s256 placement audit finished", []string{"s128 audit"}},
+		{"s128 placement audit finished", nil},
+		{"starting", []string{"prepare"}},
+		{"off, llama.cpp embeds everything: this machine has no neural engine", nil},
 	} {
-		if started, finished := aneAuditing(status); started != want[0] || finished != want[1] {
-			t.Errorf("aneAuditing(%q) = %q, %q; want %q, %q", status, started, finished, want[0], want[1])
+		aneCalls(open, step.status)
+		var got []string
+		for call := range open {
+			got = append(got, call)
+		}
+		sort.Strings(got)
+		if !reflect.DeepEqual(got, step.want) {
+			t.Fatalf("after %q: open %v, want %v", step.status, got, step.want)
+		}
+	}
+}
+
+// Only a line that changes what a deferred text can do wakes the drain.
+func TestANEWakes(t *testing.T) {
+	for status, want := range map[string]bool{
+		"s256 ready (open 1s)":                                                         true,
+		"s256 not used: core ml plans it off":                                          true,
+		"s256 not used any more: 3 failures in a row":                                  true,
+		"s256 still loading after 10m0s: llama.cpp embeds its texts until it is ready": true,
+		"off, llama.cpp embeds everything: no engine":                                  true,
+		"starting":                               false,
+		"package compiled in 40s":                false,
+		"placement audits wait: low power mode":  false,
+		"s256 loading":                           false,
+		"s256 loaded and discarded":              false,
+		"s256 failed: predict":                   false,
+		"s256 released after 5m0s unused":        false,
+		"s256 placement audit started":           false,
+		"s256 placement audit finished":          false,
+		"s256 placement verified (plan 1s)":      false,
+		"s256 placement not verified: no answer": false,
+		"s256 placement not recorded: denied":    false,
+	} {
+		if got := aneWakes(status); got != want {
+			t.Errorf("aneWakes(%q) = %v, want %v", status, got, want)
 		}
 	}
 }
