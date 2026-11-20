@@ -63,7 +63,7 @@ const (
 	EmbedReasonPackageNotReady  = "package_not_ready" // the Core ML package is not on disk or not compiled yet
 	EmbedReasonFunctionLoading  = "function_loading"  // the Neural Engine function for the text's length was not loaded
 	EmbedReasonTooLong          = "too_long"          // longer than every function
-	EmbedReasonANEFailed        = "ane_failed"        // a function failed to load or to predict
+	EmbedReasonANEFailed        = "ane_failed"        // a prediction failed, or no function that holds the text is used: failed to load or predict, or refused by its audit
 	EmbedReasonANEOff           = "ane_off"           // the Neural Engine path is off for this run
 	EmbedReasonReadinessTimeout = "readiness_timeout" // bulk work stopped waiting for a function that was loading
 	EmbedReasonGPUFailed        = "gpu_failed"        // GPU offload was demoted after a child died

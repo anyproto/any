@@ -237,7 +237,9 @@ late heartbeat can resurrect a finished row. Work stopped mid-pass
     With a Neural Engine path it is the cause of the frame's last text
     that missed it: `package_not_ready` (the Core ML package is not on
     disk or not compiled yet), `function_loading`, `too_long`,
-    `ane_failed`, `ane_off` (the path is off for this run), or
+    `ane_failed` (a prediction failed, or every function that holds the
+    text is not used: it failed to load, kept failing, or its placement
+    audit refused it), `ane_off` (the path is off for this run), or
     `readiness_timeout` (a function still loading after bulk work gave
     up waiting for it). Otherwise it is the GPU's: `gpu_failed` (offload
     demoted after a child died) or `gpu_disabled`
