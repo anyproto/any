@@ -770,6 +770,153 @@ func TestWorkerEmbedder_StuckAuditDoesNotPinTheChild(t *testing.T) {
 	}
 }
 
+// A child stuck in an audit past its bound is replaced though it is never
+// idle: under a frame every few moments, and under a drain's hold with no
+// frame at all. It costs neither runtime.
+func TestWorkerEmbedder_OverdueAuditDoesNotPinABusyChild(t *testing.T) {
+	for _, held := range []bool{false, true} {
+		h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ANE=stuckaudit", "ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"}}
+		w := newTestWorker(t, h, -1)
+		w.mu.Lock()
+		w.spec.coremlDir = filepath.Join(t.TempDir(), "eg2.mlpackage")
+		w.mu.Unlock()
+		w.callMax = 100 * time.Millisecond
+		w.askTimeout = 20 * time.Millisecond
+		w.idleTimeout = time.Hour
+		if held {
+			w.idleTimeout = 50 * time.Millisecond
+			defer w.HoldBulk()()
+		}
+		ctx := context.Background()
+		if _, err := w.EmbedQuery(ctx, "q"); err != nil {
+			t.Fatal(err)
+		}
+		for deadline := time.Now().Add(10 * time.Second); h.spawns() < 2 && hasChild(w); time.Sleep(20 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatalf("hold %v: the child stuck in an audit was never stopped", held)
+			}
+			if !held {
+				if _, err := w.EmbedQuery(ctx, "q"); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		if _, err := w.EmbedQuery(ctx, "q"); err != nil {
+			t.Fatalf("hold %v: the query after the stop: %v", held, err)
+		}
+		if h.spawns() != 2 {
+			t.Fatalf("hold %v: spawned %d children, want the stuck one and its replacement", held, h.spawns())
+		}
+		w.mu.Lock()
+		coreml, gpu := w.coremlDisabled, w.gpuDisabled
+		w.mu.Unlock()
+		if coreml || gpu {
+			t.Fatalf("hold %v: core ml off %v, gpu off %v; want neither", held, coreml, gpu)
+		}
+	}
+}
+
+// A child held by Core ML work that is not overdue is left alone by the
+// ask, and so is one whose calls have not been open for long.
+func TestWorkerEmbedder_HeldChildIsKeptUntilOverdue(t *testing.T) {
+	const audit = 400 * time.Millisecond
+	w, h := aneWorker(t, append(delayEnv(audit), "ANY_EMBED_WORKER_ANE=audit")...)
+	w.callMax = 50 * time.Millisecond
+	w.askTimeout = 10 * time.Millisecond
+	ctx := context.Background()
+	for end := time.Now().Add(audit / 2); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		if _, err := w.EmbedQuery(ctx, "q"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if h.spawns() != 1 || !hasChild(w) {
+		t.Fatalf("spawned %d children; a child whose audit is not overdue was stopped", h.spawns())
+	}
+}
+
+// The calls a child has open keep the time each was first seen; the
+// oldest is what the server measures against the bound.
+func TestOldestCall(t *testing.T) {
+	open, since := map[string]bool{}, map[string]int64{}
+	if got := oldestCall(open, since, 10); got != 0 {
+		t.Fatalf("no call open: %d", got)
+	}
+	open["s128 audit"] = true
+	if got := oldestCall(open, since, 20); got != 20 {
+		t.Fatalf("one call: %d, want 20", got)
+	}
+	open["s256 load"] = true
+	if got := oldestCall(open, since, 30); got != 20 {
+		t.Fatalf("two calls: %d, want the first one's 20", got)
+	}
+	delete(open, "s128 audit")
+	if got := oldestCall(open, since, 40); got != 30 {
+		t.Fatalf("the older call ended: %d, want 30", got)
+	}
+	delete(open, "s256 load")
+	open["s128 audit"] = true
+	if got := oldestCall(open, since, 50); got != 50 {
+		t.Fatalf("a call opened again: %d, want 50", got)
+	}
+}
+
+// A child that ended while idle and is found so by the next request,
+// before the idle ask, is reaped as an idle one: the request does not
+// charge it to the GPU, and no backoff holds the next child.
+func TestWorkerEmbedder_RequestFindsAnIdleChildDead(t *testing.T) {
+	h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ANE=off", "ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"}}
+	w := newTestWorker(t, h, -1)
+	w.mu.Lock()
+	w.spec.coremlDir = filepath.Join(t.TempDir(), "eg2.mlpackage")
+	w.mu.Unlock()
+	w.idleTimeout = time.Hour
+	ctx := context.Background()
+	if _, err := w.EmbedDocs(ctx, []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = w.slot.acquire(ctx, false)
+	c := w.child
+	w.slot.release(false)
+	if err := w.live.Load().Kill(); err != nil {
+		t.Fatal(err)
+	}
+	<-c.errDone // the server has seen it end
+	if _, err := w.EmbedQuery(ctx, "q"); err != nil {
+		t.Fatalf("the query after an idle child's death: %v", err)
+	}
+	if h.spawns() != 2 {
+		t.Fatalf("spawned %d children, want the dead one and its replacement", h.spawns())
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.coremlDisabled || w.gpuDisabled {
+		t.Fatalf("core ml off %v, gpu off %v; want neither", w.coremlDisabled, w.gpuDisabled)
+	}
+}
+
+// A request that could not be written to the child was not asked of it:
+// the child is let go without a runtime charged or a backoff.
+func TestWorkerEmbedder_UnwrittenRequestChargesNoRuntime(t *testing.T) {
+	h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"}}
+	w := newTestWorker(t, h, -1)
+	ctx := context.Background()
+	if _, err := w.EmbedDocs(ctx, []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = w.slot.acquire(ctx, false)
+	_ = w.child.stdin.Close() // its end of the pipe went, the server has not seen it exit
+	w.slot.release(false)
+	if _, err := w.EmbedQuery(ctx, "q"); !errors.Is(err, ErrEmbedderUnavailable) {
+		t.Fatalf("the query on a closed pipe: %v", err)
+	}
+	if gpuDisabled(w) || nextTry(w).After(time.Now()) {
+		t.Fatalf("gpu off %v, next child put off %v; want neither", gpuDisabled(w), nextTry(w).After(time.Now()))
+	}
+	if _, err := w.EmbedQuery(ctx, "q"); err != nil || h.spawns() != 2 {
+		t.Fatalf("the next query: %v, %d children", err, h.spawns())
+	}
+}
+
 // idleDeath runs a child with a Core ML path in the helper's mode, kills
 // it once idle and returns what its death cost: a runtime, a backoff.
 func idleDeath(t *testing.T, mode string) (coremlOff, gpuOff, backoff bool) {

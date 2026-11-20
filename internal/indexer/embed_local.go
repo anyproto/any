@@ -291,6 +291,17 @@ func (l *Local) quiesce() (ok, overdue bool) {
 	return l.ane.quiesce()
 }
 
+// held reports whether Core ML work holds the process, and whether for
+// longer than it takes (neuralEngine.held).
+func (l *Local) held() (held, overdue bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.ane == nil {
+		return false, false
+	}
+	return l.ane.held()
+}
+
 // llamaRuntime guards the process-global llama.cpp state (Load + Init
 // happen once per process, shared by every Local instance). Failures
 // stay retryable: a missing lib dir now may be populated later.

@@ -641,6 +641,31 @@ func TestNeuralEngine_OffLineComesAfterTheDiscardedReloadIsClosed(t *testing.T) 
 	}
 }
 
+// Asking whether Core ML work holds the child changes nothing in one
+// that is not held: its audits still start. An idle stop it accepts ends
+// them.
+func TestNeuralEngine_HeldAskDoesNotQuiesce(t *testing.T) {
+	f := &fakeANE{strained: "low power mode"}
+	n, _ := newTestANE(t, f)
+	n.auditPoll = time.Hour
+	n.start()
+	n.loads.Wait()
+	if held, overdue := n.held(); held || overdue {
+		t.Fatalf("held %v, overdue %v with nothing in flight", held, overdue)
+	}
+	f.mu.Lock()
+	f.strained = ""
+	f.mu.Unlock()
+	n.auditTick()
+	n.loads.Wait()
+	f.mu.Lock()
+	audits := append([]int(nil), f.audits...)
+	f.mu.Unlock()
+	if !reflect.DeepEqual(audits, []int{128}) {
+		t.Fatalf("audits %v after the ask, want s128's", audits)
+	}
+}
+
 // The child refuses an idle stop while the loader is inside Core ML,
 // whose work the stop would lose, and says when that has run too long.
 func TestNeuralEngine_QuiesceIsRefusedUnderALoad(t *testing.T) {

@@ -657,26 +657,40 @@ func (n *neuralEngine) auditTick() {
 }
 
 // quiesce is the server asking to stop an idle child. It is refused
-// while an audit runs, whose verdict would be lost, and while the loader
-// compiles or loads, whose work would be (overdue: for longer than either
-// takes; an audit is then given up and not run again). Once accepted, no
-// audit starts any more.
+// while Core ML work holds the child (held). Once accepted, no audit
+// starts any more.
 func (n *neuralEngine) quiesce() (ok, overdue bool) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	if held, overdue := n.heldLocked(); held {
+		return false, overdue
+	}
+	n.quiet = true
+	return true, false
+}
+
+// held reports whether stopping the child now would lose Core ML work:
+// an audit's verdict, or what the loader compiles or loads. overdue: for
+// longer than either takes; an audit is then given up and not run again.
+func (n *neuralEngine) held() (held, overdue bool) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.heldLocked()
+}
+
+func (n *neuralEngine) heldLocked() (held, overdue bool) {
 	if n.auditOf != 0 {
 		overdue = n.now().Sub(n.auditFrom) >= n.auditMax
 		if overdue && !n.abandoned {
 			n.abandoned = true
 			n.backend.abandon(n.auditOf)
 		}
-		return false, overdue
+		return true, overdue
 	}
 	if n.loading {
-		return false, !n.callFrom.IsZero() && n.now().Sub(n.callFrom) >= n.auditMax
+		return true, !n.callFrom.IsZero() && n.now().Sub(n.callFrom) >= n.auditMax
 	}
-	n.quiet = true
-	return true, false
+	return false, false
 }
 
 // settleOwedLocked ends the bulk wait for the given functions, or for

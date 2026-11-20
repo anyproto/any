@@ -201,11 +201,11 @@ func runEmbedHelper(mode string) int {
 			}
 			return 0 // parent closed stdin: clean exit, like the real child
 		}
-		if req.Op == workerOpIdle {
+		if req.Op == workerOpIdle || req.Op == workerOpHeld {
 			if os.Getenv("ANY_EMBED_WORKER_MUTE") != "" { // wedged: the ask gets no answer
 				exitWithParent()
 			}
-			if err := writeFrame(out, workerResp{Op: workerOpIdle, Busy: auditing.Load(), Overdue: overdue.Load()}, nil); err != nil {
+			if err := writeFrame(out, workerResp{Op: req.Op, Busy: auditing.Load(), Overdue: overdue.Load()}, nil); err != nil {
 				return 1
 			}
 			continue

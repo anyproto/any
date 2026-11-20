@@ -38,7 +38,11 @@ const (
 	workerOpDim   = "dim"
 	// workerOpIdle asks a child whether it may be stopped as idle; it
 	// answers with the same op, Busy when stopping would lose work.
-	workerOpIdle    = "idle"
+	workerOpIdle = "idle"
+	// workerOpHeld asks a child whether Core ML work holds it; it answers
+	// with the same op, Busy and Overdue as for idle, and changes nothing
+	// in a child that is not held.
+	workerOpHeld    = "held"
 	workerOpClose   = "close"
 	workerOpReady   = "ready"
 	workerOpVectors = "vectors"

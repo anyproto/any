@@ -82,6 +82,9 @@ type workerEmbedder struct {
 	// askTimeout is workerAskTimeout.
 	idleTimeout time.Duration
 	askTimeout  time.Duration
+	// callMax is aneAuditMax: a child whose Core ML call has been open
+	// this long is asked whether it is overdue (stopOverdue).
+	callMax time.Duration
 	// bulkWait is aneBulkWait, pkgWait anePackageWait; pkgWaitUntil is when
 	// the wait for the package's download ends, set by its first waiter.
 	bulkWait     time.Duration
@@ -220,6 +223,7 @@ func newWorkerEmbedderFromSpec(spec localSpec, reqTimeout time.Duration) *worker
 		startTimeout: workerStartTimeout,
 		idleTimeout:  workerIdleTimeout,
 		askTimeout:   workerAskTimeout,
+		callMax:      aneAuditMax,
 		bulkWait:     aneBulkWait,
 		pkgWait:      anePackageWait,
 		pkgPoll:      time.Second,
@@ -758,6 +762,7 @@ func (w *workerEmbedder) run(ctx context.Context, req workerReq) frameResult {
 	go func() {
 		r := w.serve(ctx, req)
 		w.noteFrame(req, r)
+		w.stopOverdue()
 		w.armIdle()
 		w.slot.release(urgent) // before the send: a caller that returns finds the slot free
 		res <- r
@@ -787,6 +792,11 @@ func (w *workerEmbedder) serve(ctx context.Context, req workerReq) frameResult {
 		return frameResult{err: err} // caller gone before the write: nothing owed
 	}
 	hdr, bin, err := w.roundTrip(req)
+	if errors.Is(err, errChildGone) {
+		// It never took the request: it ended idle, before this frame.
+		w.reapChild(err, diedIdle)
+		return frameResult{err: fmt.Errorf("%w: %v", ErrEmbedderUnavailable, err)}
+	}
 	if err != nil {
 		w.failChild(err)
 		return frameResult{err: fmt.Errorf("%w: %v", ErrEmbedderUnavailable, err)}
@@ -821,13 +831,17 @@ func (w *workerEmbedder) roundTrip(req workerReq) (workerResp, []byte, error) {
 	return w.roundTripWithin(req, w.reqTimeout)
 }
 
-// errChildMute is a child that did not answer in time.
-var errChildMute = errors.New("embedder child did not answer")
+// errChildMute is a child that did not answer in time; errChildGone, one
+// the request could not be written to.
+var (
+	errChildMute = errors.New("embedder child did not answer")
+	errChildGone = errors.New("embedder child is gone")
+)
 
 func (w *workerEmbedder) roundTripWithin(req workerReq, within time.Duration) (workerResp, []byte, error) {
 	c := w.child
 	if err := writeFrame(c.w, req, nil); err != nil {
-		return workerResp{}, nil, fmt.Errorf("write to embedder child: %w", err)
+		return workerResp{}, nil, fmt.Errorf("%w: write to it: %v", errChildGone, err)
 	}
 	timer := time.NewTimer(within)
 	defer timer.Stop()
@@ -854,6 +868,14 @@ func (w *workerEmbedder) ensureChild(retireStale bool) error {
 		return errWorkerClosed
 	}
 	spec := w.childSpec()
+	if w.child != nil {
+		select {
+		case <-w.child.errDone:
+			// It ended since its last frame, with nothing asked of it.
+			w.reapChild(errors.New("embedder child exited"), diedIdle)
+		default:
+		}
+	}
 	if w.child != nil {
 		if !retireStale || w.child.spec == spec {
 			return nil
@@ -1282,7 +1304,7 @@ func (w *workerEmbedder) retireIdle() {
 		return
 	}
 	defer w.slot.release(false)
-	if w.child == nil || w.closing.Load() {
+	if w.child == nil || w.closing.Load() || w.stopOverdue() {
 		return
 	}
 	// Not under a wait for the first function, nor, with a Core ML path,
@@ -1321,6 +1343,34 @@ func (w *workerEmbedder) retireIdle() {
 	}
 	w.lg.Info("local embedder child retired while idle", zap.Duration("idle", w.idleTimeout))
 	w.stopChild(true)
+}
+
+// stopOverdue stops a child that Core ML work has held past its bound,
+// by its lines and then its own word: steady frames or a drain's hold
+// keep the idle ask from it. No runtime is charged. Caller holds the slot.
+func (w *workerEmbedder) stopOverdue() (stopped bool) {
+	c := w.child
+	if c == nil || w.closing.Load() {
+		return false
+	}
+	from := c.callFrom.Load()
+	if from == 0 || time.Since(time.Unix(0, from)) < w.callMax || time.Since(c.heldAsked) < w.askTimeout {
+		return false
+	}
+	c.heldAsked = time.Now()
+	hdr, _, err := w.roundTripWithin(workerReq{Op: workerOpHeld}, w.askTimeout)
+	switch {
+	case errors.Is(err, errChildMute):
+		w.reapChild(err, muteIdle)
+	case err != nil:
+		w.reapChild(err, diedIdle)
+	case hdr.Op == workerOpHeld && hdr.Busy && hdr.Overdue:
+		w.lg.Warn("local embedder child held by core ml work past its bound; stopped")
+		w.stopChild(false)
+	default:
+		return false
+	}
+	return true
 }
 
 func (w *workerEmbedder) penalize() {
@@ -1441,6 +1491,11 @@ type embedChild struct {
 	// ended (aneCalls). Left set by a child that died in one: reapChild
 	// reads it.
 	calls atomic.Int32
+	// callFrom is when the oldest of those calls was reported begun, in
+	// Unix nanoseconds; 0 = none is open. heldAsked: when the child was
+	// last asked whether it is held (slot-guarded).
+	callFrom  atomic.Int64
+	heldAsked time.Time
 	// first names the path's first function ("s128"), the one whose
 	// report settles it; "" = any function's does.
 	first string
@@ -1487,7 +1542,7 @@ func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 		}
 	}()
 	br := bufio.NewReaderSize(r, 8<<10)
-	open := map[string]bool{}
+	open, since := map[string]bool{}, map[string]int64{}
 	for {
 		line, err := br.ReadString('\n')
 		if line = strings.TrimRight(line, "\r\n"); line != "" {
@@ -1503,6 +1558,7 @@ func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 				c.coreml.Store(!c.aneOff)
 				aneCalls(open, status)
 				c.calls.Store(int32(len(open)))
+				c.callFrom.Store(oldestCall(open, since, time.Now().UnixNano()))
 				if aneSettles(status, c.first) {
 					c.settleOnce.Do(func() {
 						c.settledAs = aneSettledAs(status)
@@ -1524,6 +1580,25 @@ func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 			return
 		}
 	}
+}
+
+// oldestCall keeps in since when each open call was first seen, now for
+// a new one, and returns the earliest; 0 = none is open.
+func oldestCall(open map[string]bool, since map[string]int64, now int64) (oldest int64) {
+	for call := range since {
+		if !open[call] {
+			delete(since, call)
+		}
+	}
+	for call := range open {
+		if since[call] == 0 {
+			since[call] = now
+		}
+		if oldest == 0 || since[call] < oldest {
+			oldest = since[call]
+		}
+	}
+	return oldest
 }
 
 // stop terminates the child and reaps it. Graceful closes stdin (the
