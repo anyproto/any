@@ -917,6 +917,44 @@ func TestWorkerEmbedder_UnwrittenRequestChargesNoRuntime(t *testing.T) {
 	}
 }
 
+// The child that replaces one found dead inside a Core ML call starts
+// without the Neural Engine, also when the restart wait is over by the
+// time it is spawned.
+func TestWorkerEmbedder_ReplacementOfADeathInCoreMLRunsWithoutIt(t *testing.T) {
+	h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ANE=loading", "ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"}}
+	w := newTestWorker(t, h, -1)
+	w.mu.Lock()
+	w.spec.coremlDir = filepath.Join(t.TempDir(), "eg2.mlpackage")
+	w.mu.Unlock()
+	w.idleTimeout = time.Hour
+	// Every look at the clock is a minute on: past any restart wait.
+	clock := time.Now()
+	w.now = func() time.Time { clock = clock.Add(time.Minute); return clock }
+	ctx := context.Background()
+	if _, err := w.EmbedDocs(ctx, []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = w.slot.acquire(ctx, false)
+	c := w.child
+	w.slot.release(false)
+	for deadline := time.Now().Add(10 * time.Second); c.calls.Load() == 0; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the child's load never showed")
+		}
+	}
+	if err := w.live.Load().Kill(); err != nil {
+		t.Fatal(err)
+	}
+	<-c.errDone
+	if _, err := w.EmbedQuery(ctx, "q"); err != nil {
+		t.Fatalf("the query after the death: %v", err)
+	}
+	if specs := h.specsCopy(); len(specs) != 2 || specs[1].coremlDir != "" || specs[1].gpuLayers == 0 {
+		t.Fatalf("spawned %d children, the last with core ml %q and gpu layers %d; want it without core ml, on the gpu",
+			len(specs), specs[len(specs)-1].coremlDir, specs[len(specs)-1].gpuLayers)
+	}
+}
+
 // idleDeath runs a child with a Core ML path in the helper's mode, kills
 // it once idle and returns what its death cost: a runtime, a backoff.
 func idleDeath(t *testing.T, mode string) (coremlOff, gpuOff, backoff bool) {

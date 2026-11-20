@@ -867,7 +867,6 @@ func (w *workerEmbedder) ensureChild(retireStale bool) error {
 	if w.closing.Load() {
 		return errWorkerClosed
 	}
-	spec := w.childSpec()
 	if w.child != nil {
 		select {
 		case <-w.child.errDone:
@@ -876,6 +875,8 @@ func (w *workerEmbedder) ensureChild(retireStale bool) error {
 		default:
 		}
 	}
+	// After the reap, which can take a runtime from the next child.
+	spec := w.childSpec()
 	if w.child != nil {
 		if !retireStale || w.child.spec == spec {
 			return nil
