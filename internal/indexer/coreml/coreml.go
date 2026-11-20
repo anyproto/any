@@ -5,7 +5,9 @@ package coreml
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 )
 
 // ErrUnsupported is returned by every call on a platform without Core ML,
@@ -61,4 +63,42 @@ func coreOperator(name string) bool {
 		}
 	}
 	return false
+}
+
+// LatePlanError is a Plan that stopped waiting for Core ML, which is
+// still loading the plan. Done closes when that call has returned.
+type LatePlanError struct {
+	Function string
+	Waited   time.Duration
+	Done     <-chan struct{}
+}
+
+func (e *LatePlanError) Error() string {
+	return fmt.Sprintf("coreml: compute plan for %s: no answer in %s", e.Function, e.Waited)
+}
+
+// Thermal states of NSProcessInfo, in its order.
+const (
+	ThermalNominal = iota
+	ThermalFair
+	ThermalSerious
+	ThermalCritical
+)
+
+// Power is what the system says about its power and heat.
+type Power struct {
+	LowPower bool // Low Power Mode is on
+	Thermal  int  // Thermal*
+}
+
+// Strain names what makes this a bad moment for minutes of extra work;
+// "" = nothing does.
+func (p Power) Strain() string {
+	switch {
+	case p.LowPower:
+		return "low power mode"
+	case p.Thermal >= ThermalSerious:
+		return "thermal pressure"
+	}
+	return ""
 }

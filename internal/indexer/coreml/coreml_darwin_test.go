@@ -350,3 +350,16 @@ func TestDescribeNamesNoPath(t *testing.T) {
 		t.Fatalf("describe(nil) = %q", describe(0))
 	}
 }
+
+// The power state is read from the running system: whatever it is, the
+// call answers with a thermal state NSProcessInfo has.
+func TestPowerState(t *testing.T) {
+	p, err := PowerState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Thermal < ThermalNominal || p.Thermal > ThermalCritical {
+		t.Fatalf("thermal state %d", p.Thermal)
+	}
+	t.Logf("low power mode %v, thermal state %d, strain %q", p.LowPower, p.Thermal, p.Strain())
+}

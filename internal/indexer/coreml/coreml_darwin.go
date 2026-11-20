@@ -423,9 +423,33 @@ func readVector(arr objc.ID, out []float32) error {
 	return nil
 }
 
+// PowerState reads Low Power Mode and the thermal state from
+// NSProcessInfo. A system that answers neither is ErrUnsupported.
+func PowerState() (Power, error) {
+	var p Power
+	if err := load(); err != nil {
+		return p, err
+	}
+	err := scope(func() error {
+		cls := objc.GetClass("NSProcessInfo")
+		if cls == 0 {
+			return fmt.Errorf("%w: no class NSProcessInfo", ErrUnsupported)
+		}
+		info := classSend(cls, "processInfo")
+		if !responds(info, "isLowPowerModeEnabled") || !responds(info, "thermalState") {
+			return fmt.Errorf("%w: no power state in NSProcessInfo", ErrUnsupported)
+		}
+		p.LowPower = objc.Send[bool](info, sel("isLowPowerModeEnabled"))
+		p.Thermal = objc.Send[int](info, sel("thermalState"))
+		return nil
+	})
+	return p, err
+}
+
 // Plan loads the compute plan of one function of the compiled model and
 // counts the preferred device of every operation. It needs no loaded
 // function, and costs about what loading one does.
+// A plan Core ML does not answer in time is a *LatePlanError.
 func Plan(compiled, function string) (Placement, error) {
 	var p Placement
 	if err := load(); err != nil {
@@ -461,7 +485,9 @@ func Plan(compiled, function string) (Placement, error) {
 			plan = r.plan
 		case <-time.After(planTimeout):
 			// A plan that still arrives is released, not kept.
+			returned := make(chan struct{})
 			go func() {
+				defer close(returned)
 				if r := <-done; r.plan != 0 {
 					_ = scope(func() error {
 						send(r.plan, "release")
@@ -469,7 +495,7 @@ func Plan(compiled, function string) (Placement, error) {
 					})
 				}
 			}()
-			return fmt.Errorf("coreml: compute plan for %s: no answer in %s", function, planTimeout)
+			return &LatePlanError{Function: function, Waited: planTimeout, Done: returned}
 		}
 		defer send(plan, "release")
 
