@@ -959,9 +959,8 @@ func TestEmbedDrainKeepsThePeriodUnderNamedNudges(t *testing.T) {
 }
 
 // A newly written text that is itself deferred is sent once, wherever it
-// sorts: the cursor, at the end of the queue or still before it, does not
-// read it for a second send, and the row does not leave `preparing` for
-// a page that embedded nothing.
+// sorts and whichever read finds it first, and the row does not leave
+// `preparing` for a page that embedded nothing.
 func TestEmbedDrainSendsANewDeferredTextOnce(t *testing.T) {
 	count := func(sent []string, text string) (n int) {
 		for _, s := range sent {
@@ -1026,6 +1025,113 @@ func TestEmbedDrainSendsANewDeferredTextOnce(t *testing.T) {
 		}
 		waitPending(t, st, 0)
 	})
+}
+
+// A new deferred text the cursor reaches before its name's turn is sent
+// once too: the named read that follows does not send the same input.
+func TestEmbedDrainSendsADeferredTextTheCursorReadFirstOnce(t *testing.T) {
+	emb := wakingEmbedder{&deferEmbedder{axisEmbedder: axisEmbedder{dim: 4}, wake: make(chan struct{})}}
+	w, st, _ := deferDrain(t, emb, time.Hour, []string{"long 0", "s1", "s2", "s3"})
+	w.ix.opts.EmbedBatch = 1 // a doc to a page
+	emb.onCall = func(call int) {
+		switch call {
+		case 2: // the cursor's page; the next turn is this name's
+			writeNudged(t, w, st, "a00", "short", 100)
+		case 3: // the named page; the cursor's next row is this one
+			writeNudged(t, w, st, "m01x", "long new", 101)
+		}
+	}
+	done := make(chan error, 1)
+	go func() { done <- w.drainPending(context.Background()) }()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if _, sent := emb.counts(); slices.Contains(sent, "s3") {
+			break
+		}
+		if time.Now().After(deadline) {
+			_, sent := emb.counts()
+			t.Fatalf("sent %v: the cursor never reached the end", sent)
+		}
+	}
+	waitPending(t, st, 2)
+	_, sent := emb.counts()
+	want := []string{"long 0", "s1", "short", "long new", "s2", "s3"}
+	if !slices.Equal(sent, want) {
+		t.Fatalf("sent %v, want %v", sent, want)
+	}
+	emb.release()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// longTitleEmbedder defers a text that starts with "long" and a text
+// under a title that does, and records what it was sent.
+type longTitleEmbedder struct {
+	titledDeferEmbedder
+}
+
+func (e *longTitleEmbedder) EmbedDocsRouted(ctx context.Context, titles, texts []string) ([][]float32, EmbedRoute, error) {
+	held := make([]string, len(texts))
+	for i, text := range texts {
+		held[i] = text
+		if titles != nil && strings.HasPrefix(titles[i], "long") {
+			held[i] = "long " + text
+		}
+	}
+	vecs, rt, err := e.titledDeferEmbedder.EmbedDocsRouted(ctx, titles, held)
+	return vecs, rt, err
+}
+
+// A window deferred by name ahead of the cursor and renamed since, which
+// names nothing, is sent again when the cursor reaches it: under its new
+// title it is another input, which can fit a function that is loaded.
+func TestEmbedDrainSendsADeferredWindowAgainUnderANewTitle(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 4)
+	st.SetEmbedTitles(true)
+	emb := &longTitleEmbedder{titledDeferEmbedder{axisEmbedder: axisEmbedder{dim: 4}}}
+	ix := &Indexer{store: st, opts: Options{Embedder: emb, EmbedBatch: 1, PendingEvery: time.Hour, AnnounceAfter: -1}.withDefaults()}
+	w := &spaceWorker{ix: ix, sp: staticIdSpace{}, embedCh: make(chan struct{}, 1)}
+	apply := func(nudge bool, ups ...DocUpsert) {
+		_, marked, err := st.ApplyPageMarked(ctx, "sp1", ups, nil, nil, nil, &LinkOps{})
+		if err != nil {
+			t.Error(err)
+		}
+		if nudge {
+			w.nudgeEmbed(marked)
+		} else if len(marked) != 0 {
+			t.Errorf("the rename marked %v; want nothing newly pending", marked)
+		}
+	}
+	if err := st.Apply(ctx, "sp1", []DocUpsert{
+		{Entry: entry("chat", "a0", "chat_messages", "m0", "long deferred", 1)},
+		{Entry: entry("chat", "b1", "chat_messages", "m1", "ready", 2)},
+		{Entry: entry("chat", "z9", "chat_messages", "m2", "tail text", 3)},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body := "a paragraph long enough to be embedded as a document of this object"
+	emb.onCall = func(call int) {
+		switch call {
+		case 2: // the cursor is at b1: the window is written past it, and named
+			apply(true,
+				DocUpsert{Entry: entry("basic", "o5", index.DatasetProp, index.NamePropRecordId, "long old name", 10)},
+				DocUpsert{Entry: entry("basic", "o5", "editor_blocks", "win_a", body, 11)})
+		case 3: // the window's own page, by name
+			apply(false, DocUpsert{Entry: entry("basic", "o5", index.DatasetProp, index.NamePropRecordId, "New", 12)})
+		}
+	}
+	dctx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- w.drainPending(dctx) }()
+	waitPending(t, st, 1) // the deferred text alone
+	cancel()
+	<-done
+	emb.mu.Lock()
+	defer emb.mu.Unlock()
+	if !slices.Contains(emb.sent, "long "+body+"@long old name") || !slices.Contains(emb.sent, body+"@New") {
+		t.Fatalf("sent %v, want the window under its old title and again under the new one", emb.sent)
+	}
 }
 
 // The embedder's word in the middle of a pass starts it over on the

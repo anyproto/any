@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -202,11 +203,8 @@ func (e *editingEmbedder) EmbedTitledDocs(ctx context.Context, titles, texts []s
 }
 
 // A doc rewritten or renamed while its batch embeds takes no vector from
-// that batch: the drain reads the queue's head once more and embeds it as
-// it is now, though the page was the last and no nudge named a renamed
-// object's window. The round is three batches of two over three changed
-// and three untouched docs, so one batch holds both kinds whatever the
-// order.
+// it: the drain reads the head once more and embeds it as it is now,
+// though the page was the last and no nudge named a renamed window.
 func TestEmbedDrain_SkipsDocChangedMidRound(t *testing.T) {
 	ctx := context.Background()
 	st := mustStore(t, 4)
@@ -303,6 +301,47 @@ func TestEmbedDrain_RereadsTheHeadOnlyOnce(t *testing.T) {
 	}
 	if n, err := st.PendingCount(ctx, sp); err != nil || n != 1 {
 		t.Fatalf("%d docs pending, %v; want the window", n, err)
+	}
+}
+
+// Nor does it keep the docs behind it from the embedder when it fills a
+// page by itself: after the one more read the drain reads on past it.
+func TestEmbedDrain_ReadsPastAHeadThatKeepsChanging(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 4)
+	st.SetEmbedTitles(true)
+	emb := &renamingEmbedder{axisEmbedder: axisEmbedder{dim: 4}}
+	ix := &Indexer{store: st, lg: logger.NewNamed("indexer.test"), opts: Options{Embedder: emb, EmbedBatch: 1, AnnounceAfter: -1}.withDefaults()}
+	w := &spaceWorker{ix: ix, sp: staticIdSpace{}}
+	const sp = "sp1"
+	name := func(n int) DocUpsert {
+		return DocUpsert{Entry: entry("basic", "o1", index.DatasetProp, index.NamePropRecordId, fmt.Sprintf("Name %d", n), uint64(10+n))}
+	}
+	if err := st.Apply(ctx, sp, []DocUpsert{name(0),
+		{Entry: entry("basic", "o1", "editor_blocks", "win_a", "a window", 2)},
+		{Entry: entry("chat", "o2", "chat_messages", "m1", "a stable message", 3)},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	ids, _, err := st.PendingAfter(ctx, sp, "", 1)
+	if err != nil || len(ids) != 1 || !strings.Contains(ids[0], "win_a") {
+		t.Fatalf("the head of the queue is %v, %v; want the window", ids, err)
+	}
+	emb.rename = func(call int) {
+		if call > 20 { // the window lands, and the drain ends
+			t.Error("the drain never left the head of the queue")
+			return
+		}
+		if err := st.Apply(ctx, sp, []DocUpsert{name(call)}, nil, nil); err != nil {
+			t.Error(err)
+		}
+	}
+	if err := w.drainRounds(ctx, false, func(int, int) {}, nil); err != nil {
+		t.Fatal(err)
+	}
+	ids, _, err = st.PendingAfter(ctx, sp, "", 10)
+	if err != nil || len(ids) != 1 || !strings.Contains(ids[0], "win_a") {
+		t.Fatalf("pending after the drain: %v, %v; want the window alone", ids, err)
 	}
 }
 

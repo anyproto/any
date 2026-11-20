@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/maphash"
 	"slices"
 	"strconv"
 	"strings"
@@ -929,11 +930,12 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 	// pass. peeked: the last page was of newly pending docs. ended: the
 	// cursor reached the end, and only named docs are read until that pass.
 	behind, peeked, ended := false, false, false
-	// ahead are the docs past the cursor that a page of named ones left
-	// deferred: the cursor does not send them again. reread: the head was
-	// read once more for a doc that took no vector.
-	ahead := map[string]struct{}{}
-	reread := false
+	// deferred are the inputs this pass left without a vector, by doc:
+	// none is sent again in it while its text and title stand, whichever
+	// read finds it. stuck counts the pages in a row, with nothing left
+	// behind, of which a doc took no vector.
+	deferred := deferredInputs{seed: maphash.MakeSeed(), by: map[string]uint64{}}
+	stuck := 0
 	var passErr error // a vector the embedder neither gave nor deferred
 	startPass := func() {
 		// Over docs left behind: nothing is embedding until one of them does.
@@ -941,7 +943,7 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 			report(EmbedStatus{Phase: EmbedPhasePreparing})
 		}
 		left, after, behind, peeked, ended, passErr = 0, "", false, false, false, nil
-		clear(ahead)
+		clear(deferred.by)
 		passFrom = time.Now()
 		if deferrer != nil {
 			wake = deferrer.DeferredWake()
@@ -1082,9 +1084,9 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 		if !peek {
 			// With nothing left behind every page is the head of the queue,
 			// and a doc that went pending before this read is in it or
-			// behind it.
+			// behind it. A head that took no vector twice is read past.
 			from := after
-			if left == 0 {
+			if left == 0 && stuck < 2 {
 				from = ""
 				w.fresh.reset()
 			}
@@ -1099,14 +1101,6 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 				continue
 			}
 			after, short = ids[len(ids)-1], len(ids) < batch*conc
-			if ids, texts = withoutDocs(ids, texts, ahead); len(ids) == 0 {
-				if short {
-					if done, err := endPass(); done || err != nil {
-						return err
-					}
-				}
-				continue
-			}
 		}
 		if !first {
 			if err := prepare(); err != nil {
@@ -1114,14 +1108,23 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 			}
 		}
 		first = false
+		// After the wait: the names the texts embed under are current.
+		titles, err := w.ix.store.DocTitles(ctx, spaceId, ids)
+		if err != nil {
+			return err
+		}
+		if ids, texts, titles = deferred.without(ids, texts, titles); len(ids) == 0 {
+			if !peek && short {
+				if done, err := endPass(); done || err != nil {
+					return err
+				}
+			}
+			continue
+		}
 		// After a wait; a round that follows a batch keeps its runtimes. A
 		// pass over texts left behind is embedding once one of them embeds.
 		if !quiet && !peek && (last == nil || last.Phase != EmbedPhaseEmbedding) {
 			report(EmbedStatus{Phase: EmbedPhaseEmbedding})
-		}
-		titles, err := w.ix.store.DocTitles(ctx, spaceId, ids)
-		if err != nil {
-			return err
 		}
 		// Counted after the waits: what arrived meanwhile is in the total.
 		remaining, cerr := w.ix.store.PendingCount(ctx, spaceId)
@@ -1179,11 +1182,7 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 
 		// What the embedder left without a vector stays pending.
 		for _, c := range chunks {
-			for i, v := range c.vecs {
-				if peek && !ended && len(v) == 0 && c.ids[i] > after {
-					ahead[c.ids[i]] = struct{}{}
-				}
-			}
+			deferred.note(c.ids, c.texts, c.titles, c.vecs)
 			c.ids, c.texts, c.titles, c.vecs = embeddedDocs(c.ids, c.texts, c.titles, c.vecs)
 			left += c.route.Deferred
 			if c.missing != nil && passErr == nil {
@@ -1249,32 +1248,84 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 			// stay pending), FTS unaffected; the ticker retries.
 			return firstErr
 		}
+		if !peek {
+			if left == 0 && skipped {
+				stuck++
+			} else {
+				stuck = 0
+			}
+		}
 		if !peek && short { // last page
-			// Its end is not the queue's when a doc of it took no vector.
-			if left == 0 && skipped && !reread {
-				reread = true
+			// Its end is not the queue's when a doc of it took no vector:
+			// the head is read once more.
+			if stuck == 1 {
 				continue
 			}
 			if done, err := endPass(); done || err != nil {
 				return err
 			}
 		}
-		reread = false
 	}
 }
 
-// withoutDocs drops from a page the docs in skip.
-func withoutDocs(ids, texts []string, skip map[string]struct{}) ([]string, []string) {
-	if len(skip) == 0 {
-		return ids, texts
-	}
-	keptIds, keptTexts := ids[:0:0], texts[:0:0]
-	for i, id := range ids {
-		if _, ok := skip[id]; !ok {
-			keptIds, keptTexts = append(keptIds, id), append(keptTexts, texts[i])
+// deferredInputsMax bounds what a pass remembers of the docs it left
+// deferred; past it a doc can be sent twice in one pass.
+const deferredInputsMax = 1 << 16
+
+// deferredInputs are the docs a pass left without a vector, each with a
+// hash of the title and text it was sent with.
+type deferredInputs struct {
+	seed maphash.Seed
+	by   map[string]uint64
+}
+
+func (d *deferredInputs) hash(title, text string) uint64 {
+	var h maphash.Hash
+	h.SetSeed(d.seed)
+	_, _ = h.WriteString(title)
+	_ = h.WriteByte(0)
+	_, _ = h.WriteString(text)
+	return h.Sum64()
+}
+
+// note takes a batch as it came back: a doc without a vector is
+// remembered with its input, one with a vector forgotten. titles may be
+// nil, vecs a prefix of the batch.
+func (d *deferredInputs) note(ids, texts, titles []string, vecs [][]float32) {
+	for i, v := range vecs {
+		title := ""
+		if titles != nil {
+			title = titles[i]
+		}
+		switch {
+		case len(v) > 0:
+			delete(d.by, ids[i])
+		case len(d.by) < deferredInputsMax:
+			d.by[ids[i]] = d.hash(title, texts[i])
 		}
 	}
-	return keptIds, keptTexts
+}
+
+// without drops from a page the docs whose input is the one remembered.
+func (d *deferredInputs) without(ids, texts, titles []string) ([]string, []string, []string) {
+	if len(d.by) == 0 {
+		return ids, texts, titles
+	}
+	keptIds, keptTexts, keptTitles := ids[:0:0], texts[:0:0], titles[:0:0]
+	for i, id := range ids {
+		title := ""
+		if titles != nil {
+			title = titles[i]
+		}
+		if sum, ok := d.by[id]; ok && sum == d.hash(title, texts[i]) {
+			continue
+		}
+		keptIds, keptTexts = append(keptIds, id), append(keptTexts, texts[i])
+		if titles != nil {
+			keptTitles = append(keptTitles, title)
+		}
+	}
+	return keptIds, keptTexts, keptTitles
 }
 
 // logBulkOpened says, once per run, when bulk embedding got past its
