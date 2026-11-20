@@ -896,6 +896,9 @@ func TestANECalls(t *testing.T) {
 		{"s128 placement audit finished", nil},
 		{"starting", []string{"prepare"}},
 		{"off, llama.cpp embeds everything: this machine has no neural engine", nil},
+		// An idle release is a Core ML call between its two lines.
+		{"s256 releasing", []string{"s256 release"}},
+		{"s256 released after 5m0s unused", nil},
 	} {
 		aneCalls(open, step.status)
 		var got []string
@@ -925,6 +928,7 @@ func TestANEWakes(t *testing.T) {
 		"s256 loaded and discarded":              false,
 		"s256 failed: predict":                   false,
 		"s256 released after 5m0s unused":        false,
+		"s256 releasing":                         false,
 		"s256 placement audit started":           false,
 		"s256 placement audit finished":          false,
 		"s256 placement verified (plan 1s)":      false,

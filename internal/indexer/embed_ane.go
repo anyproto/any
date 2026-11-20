@@ -75,15 +75,19 @@ const (
 	// aneNotUsed opens what follows "s<length> " for a function that did
 	// not load; aneRefused, for one its placement audit refused, which can
 	// be loading again then: the line ends no load.
-	aneNotUsed   = "not used: "
-	aneRefused   = "refused: "
-	aneCompiled  = "package compiled"
+	aneNotUsed  = "not used: "
+	aneRefused  = "refused: "
+	aneCompiled = "package compiled"
+	// aneReleasing and aneReleased follow "s<length> " around the close of
+	// a function that went unused.
+	aneReleasing = "releasing"
+	aneReleased  = "released"
 	anePreparing = "prepare" // names the call aneStarting opens
 )
 
 // aneCalls keeps, in open, the Core ML calls a child's status lines say
-// are in flight: its preparation, its loads and its audits. A child that
-// dies with one open died in Core ML.
+// are in flight: its preparation, its loads, its audits and its idle
+// releases. A child that dies with one open died in Core ML.
 func aneCalls(open map[string]bool, status string) {
 	if status == aneStarting {
 		open[anePreparing] = true
@@ -107,6 +111,10 @@ func aneCalls(open map[string]bool, status string) {
 		open[name+" audit"] = true
 	case rest == aneAuditFinished:
 		delete(open, name+" audit")
+	case rest == aneReleasing:
+		open[name+" release"] = true
+	case strings.HasPrefix(rest, aneReleased):
+		delete(open, name+" release")
 	}
 }
 
@@ -778,10 +786,12 @@ func (n *neuralEngine) releaseTick() {
 		if fn == nil || l == kept || l == n.inUse || !n.owed[l].IsZero() || now.Sub(n.used[l]) < n.idle {
 			continue
 		}
+		// A child that dies in the close died in Core ML.
+		n.logf("s%d %s", l, aneReleasing)
 		fn.close()
 		delete(n.fns, l)
 		delete(n.failures, l)
-		n.logf("s%d released after %s unused", l, n.idle)
+		n.logf("s%d %s after %s unused", l, aneReleased, n.idle)
 	}
 	n.armReleaseLocked()
 }

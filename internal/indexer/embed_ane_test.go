@@ -523,7 +523,15 @@ func TestNeuralEngine_FailureCountResets(t *testing.T) {
 
 func TestNeuralEngine_ReleasesIdle(t *testing.T) {
 	f := &fakeANE{}
+	log := newLogLines()
+	// The close is between its two lines: a child that dies in it died in
+	// Core ML.
+	var around [][2]bool
+	f.onClose = func(int) {
+		around = append(around, [2]bool{log.has("s256 " + aneReleasing), log.has("s256 " + aneReleased)})
+	}
 	n, clock := newTestANE(t, f)
+	n.logf = log.logf
 	n.start()
 	loadFor(n, 200)
 	if _, ok := n.embed(tokensOf(200)); !ok {
@@ -539,6 +547,10 @@ func TestNeuralEngine_ReleasesIdle(t *testing.T) {
 	if _, _, closed, _ := f.snapshot(); !reflect.DeepEqual(closed, []int{256}) {
 		t.Fatalf("closed %v, want the idle 256", closed)
 	}
+	if !reflect.DeepEqual(around, [][2]bool{{true, false}}) || !log.has("s256 "+aneReleased) {
+		t.Fatalf("at the close: releasing and released said %v; lines %v", around, log.all())
+	}
+	f.onClose = nil
 	// The smallest stays however long it sat unused.
 	clock.add(time.Hour)
 	n.releaseTick()
