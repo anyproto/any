@@ -4,6 +4,7 @@ package coreml
 
 import (
 	"encoding/json"
+	"errors"
 	"math"
 	"os"
 	"sort"
@@ -355,6 +356,10 @@ func TestDescribeNamesNoPath(t *testing.T) {
 // call answers with a thermal state NSProcessInfo has.
 func TestPowerState(t *testing.T) {
 	p, err := PowerState()
+	// A macOS whose Core ML lacks a call this package binds has no reader.
+	if errors.Is(err, ErrUnsupported) {
+		t.Skip(err)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

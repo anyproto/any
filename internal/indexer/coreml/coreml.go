@@ -77,6 +77,35 @@ func (e *LatePlanError) Error() string {
 	return fmt.Sprintf("coreml: compute plan for %s: no answer in %s", e.Function, e.Waited)
 }
 
+// planned is what a plan's completion handler gave: the plan's handle,
+// or why there is none.
+type planned struct {
+	plan uintptr
+	err  string
+}
+
+// awaitPlan waits for a function's plan until timeout. Past it the wait
+// is a *LatePlanError whose Done closes once the handler has run; a plan
+// that still comes then goes to release.
+func awaitPlan(done <-chan planned, function string, timeout time.Duration, release func(plan uintptr)) (uintptr, error) {
+	select {
+	case r := <-done:
+		if r.plan == 0 {
+			return 0, fmt.Errorf("coreml: compute plan for %s: %s", function, r.err)
+		}
+		return r.plan, nil
+	case <-time.After(timeout):
+	}
+	returned := make(chan struct{})
+	go func() {
+		defer close(returned)
+		if r := <-done; r.plan != 0 {
+			release(r.plan)
+		}
+	}()
+	return 0, &LatePlanError{Function: function, Waited: timeout, Done: returned}
+}
+
 // Thermal states of NSProcessInfo, in its order.
 const (
 	ThermalNominal = iota

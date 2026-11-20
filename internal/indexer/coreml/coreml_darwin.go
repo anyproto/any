@@ -461,42 +461,28 @@ func Plan(compiled, function string) (Placement, error) {
 	err := scope(func() error {
 		cfg := newConfiguration(function)
 		defer send(cfg, "release")
-		type loaded struct {
-			plan objc.ID
-			err  string
-		}
-		done := make(chan loaded, 1)
+		done := make(chan planned, 1)
 		// Runs on a Core ML queue; the plan is retained for the caller.
 		handler := objc.NewBlock(func(_ objc.Block, plan, nserr objc.ID) {
 			if plan == 0 {
-				done <- loaded{err: describe(nserr)}
+				done <- planned{err: describe(nserr)}
 				return
 			}
-			done <- loaded{plan: send(plan, "retain")}
+			done <- planned{plan: uintptr(send(plan, "retain"))}
 		})
 		defer handler.Release()
 		classSend(clsPlan, "loadContentsOfURL:configuration:completionHandler:", fileURL(compiled), cfg, handler)
-		var plan objc.ID
-		select {
-		case r := <-done:
-			if r.plan == 0 {
-				return fmt.Errorf("coreml: compute plan for %s: %s", function, r.err)
-			}
-			plan = r.plan
-		case <-time.After(planTimeout):
-			// A plan that still arrives is released, not kept.
-			returned := make(chan struct{})
-			go func() {
-				defer close(returned)
-				if r := <-done; r.plan != 0 {
-					_ = scope(func() error {
-						send(r.plan, "release")
-						return nil
-					})
-				}
-			}()
-			return &LatePlanError{Function: function, Waited: planTimeout, Done: returned}
+		// A plan that still arrives after the wait is released, not kept.
+		got, err := awaitPlan(done, function, planTimeout, func(late uintptr) {
+			_ = scope(func() error {
+				send(objc.ID(late), "release")
+				return nil
+			})
+		})
+		if err != nil {
+			return err
 		}
+		plan := objc.ID(got)
 		defer send(plan, "release")
 
 		structure := send(plan, "modelStructure")

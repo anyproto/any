@@ -1,6 +1,11 @@
 package coreml
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"testing"
+	"time"
+)
 
 func TestPlacement_OnNeuralEngine(t *testing.T) {
 	cases := []struct {
@@ -77,6 +82,60 @@ func TestPower_Strain(t *testing.T) {
 	for _, c := range cases {
 		if got := c.p.Strain(); got != c.want {
 			t.Errorf("%+v: Strain = %q, want %q", c.p, got, c.want)
+		}
+	}
+}
+
+// A plan that comes in time is the caller's, and a handler's error is the
+// call's.
+func TestAwaitPlan(t *testing.T) {
+	done := make(chan planned, 1)
+	done <- planned{plan: 7}
+	if got, err := awaitPlan(done, "s128", time.Minute, nil); got != 7 || err != nil {
+		t.Fatalf("awaitPlan = %d, %v; want the plan", got, err)
+	}
+	done <- planned{err: "no such function"}
+	if _, err := awaitPlan(done, "s128", time.Minute, nil); err == nil || !strings.Contains(err.Error(), "s128: no such function") {
+		t.Fatalf("awaitPlan = %v, want the handler's error", err)
+	}
+}
+
+// A plan the handler has not given in time is a LatePlanError: its Done
+// stays open while Core ML is inside the call and closes when the handler
+// has run, and the plan that came late is released, not kept.
+func TestAwaitPlan_Late(t *testing.T) {
+	for _, late := range []planned{{plan: 7}, {err: "failed after all"}} {
+		done := make(chan planned, 1)
+		released := make(chan uintptr, 1)
+		start := time.Now()
+		_, err := awaitPlan(done, "s2048", 30*time.Millisecond, func(plan uintptr) { released <- plan })
+		var lateErr *LatePlanError
+		if !errors.As(err, &lateErr) || lateErr.Function != "s2048" || lateErr.Waited != 30*time.Millisecond {
+			t.Fatalf("awaitPlan = %v, want a late plan's error", err)
+		}
+		if waited := time.Since(start); waited < 30*time.Millisecond {
+			t.Fatalf("gave up after %s", waited)
+		}
+		select {
+		case <-lateErr.Done:
+			t.Fatal("Done closed with the handler still to run")
+		case <-time.After(50 * time.Millisecond):
+		}
+		done <- late // Core ML calls the handler at last
+		select {
+		case <-lateErr.Done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("Done did not close after the handler ran")
+		}
+		select {
+		case plan := <-released:
+			if late.plan == 0 || plan != late.plan {
+				t.Fatalf("released %d for a late %+v", plan, late)
+			}
+		default:
+			if late.plan != 0 {
+				t.Fatal("the plan that came late was kept")
+			}
 		}
 	}
 }
