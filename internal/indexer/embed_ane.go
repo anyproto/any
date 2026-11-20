@@ -72,8 +72,13 @@ const (
 	aneStarting      = "starting"
 	aneLoading       = "loading"
 	aneLoadDiscarded = "loaded and discarded"
-	aneCompiled      = "package compiled"
-	anePreparing     = "prepare" // names the call aneStarting opens
+	// aneNotUsed opens what follows "s<length> " for a function that did
+	// not load; aneRefused, for one its placement audit refused, which can
+	// be loading again then: the line ends no load.
+	aneNotUsed   = "not used: "
+	aneRefused   = "refused: "
+	aneCompiled  = "package compiled"
+	anePreparing = "prepare" // names the call aneStarting opens
 )
 
 // aneCalls keeps, in open, the Core ML calls a child's status lines say
@@ -96,7 +101,7 @@ func aneCalls(open map[string]bool, status string) {
 	case rest == aneLoading:
 		delete(open, anePreparing)
 		open[name+" load"] = true
-	case strings.HasPrefix(rest, "ready"), strings.HasPrefix(rest, "not used"), rest == aneLoadDiscarded:
+	case strings.HasPrefix(rest, "ready"), strings.HasPrefix(rest, aneNotUsed), rest == aneLoadDiscarded:
 		delete(open, name+" load")
 	case rest == aneAuditStarted:
 		open[name+" audit"] = true
@@ -106,8 +111,8 @@ func aneCalls(open map[string]bool, status string) {
 }
 
 // aneWakes reports whether a status line changes what a deferred text
-// can do: its function is loaded or not used, llama.cpp takes its texts
-// past the bound, or the path is off.
+// can do: its function is loaded, not used or refused, llama.cpp takes
+// its texts past the bound, or the path is off.
 func aneWakes(status string) bool {
 	if strings.HasPrefix(status, aneOffStatus) {
 		return true
@@ -116,7 +121,8 @@ func aneWakes(status string) bool {
 	if !ok || !strings.HasPrefix(name, "s") {
 		return false
 	}
-	return strings.HasPrefix(rest, "ready") || strings.HasPrefix(rest, "not used") || strings.HasPrefix(rest, "still loading")
+	return strings.HasPrefix(rest, "ready") || strings.HasPrefix(rest, "not used") ||
+		strings.HasPrefix(rest, aneRefused) || strings.HasPrefix(rest, "still loading")
 }
 
 // aneSettles reports whether a status line ends the wait for the path's
@@ -498,6 +504,10 @@ func (n *neuralEngine) loader() {
 				n.turnOffLocked(statusErr(err))
 				return
 			}
+			// Closed while it prepared: the queue went with it.
+			if n.off {
+				return
+			}
 			n.prepared = true
 			// The smallest function serves queries: it loads whichever
 			// text got here first.
@@ -527,7 +537,7 @@ func (n *neuralEngine) loader() {
 		case err != nil:
 			n.failed[length] = true
 			n.settleOwedLocked(length)
-			n.logf("s%d not used: %v", length, statusErr(err))
+			n.logf("s%d %s%v", length, aneNotUsed, statusErr(err))
 			n.offIfUselessLocked()
 		case n.off || n.failed[length] || n.fns[length] != nil:
 			// Refused by its audit while it loaded again, among others.
@@ -623,7 +633,7 @@ func (n *neuralEngine) auditor() {
 				fn.close()
 				delete(n.fns, length)
 			}
-			n.logf("s%d not used: %v", length, statusErr(err))
+			n.logf("s%d %s%v", length, aneRefused, statusErr(err))
 			n.offIfUselessLocked()
 		case err != nil:
 			n.logf("s%d placement not verified: %v", length, statusErr(err))
@@ -949,8 +959,8 @@ type coreMLBackend struct {
 	record string
 	host   string
 	// placements is what is known about each function: read from its
-	// record, or audited by this process. Guarded by mu: a load and an
-	// audit can run side by side.
+	// record, or audited by this process. mu guards it and this process's
+	// writes of the records: a load, an audit and an abandon can overlap.
 	mu         sync.Mutex
 	placements map[int]placement
 	plan       func(compiled, function string) (coreml.Placement, error)
@@ -1099,8 +1109,15 @@ func stagePath(dst string, pid int) string {
 // installs toward dst, or toward a name that starts with it, that a dead
 // process left behind.
 func removeStaleStages(dst string) {
-	stages, _ := filepath.Glob(dst + ".*.tmp")
-	for _, s := range stages {
+	// By name, not a pattern: the directory's own path can hold a bracket.
+	dir, base := filepath.Dir(dst), filepath.Base(dst)
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, base+".") || !strings.HasSuffix(name, ".tmp") || len(name) < len(base)+len("..tmp") {
+			continue
+		}
+		s := filepath.Join(dir, name)
 		if st, err := os.Stat(s); err == nil && time.Since(st.ModTime()) > aneStageMaxAge {
 			_ = os.RemoveAll(s)
 		}
@@ -1206,9 +1223,11 @@ func (b *coreMLBackend) audit(length int) (_ string, err error) {
 	}
 	p := placement{On: plan.OnNeuralEngine(), NeuralEngine: plan.NeuralEngine, GPU: plan.GPU, CPU: plan.CPU,
 		Unknown: plan.Unknown, CPUCore: plan.CPUCore}
+	// With its file, under the lock: an abandon beside it then finds the
+	// verdict, or wrote before it.
 	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.placements[length] = p
-	b.mu.Unlock()
 	if !p.On {
 		// Nothing on record stands for a refused function: the next
 		// process plans it for itself.
@@ -1226,13 +1245,13 @@ func (b *coreMLBackend) audit(length int) (_ string, err error) {
 // unless one is known by now.
 func (b *coreMLBackend) abandon(length int) {
 	b.mu.Lock()
-	_, known := b.placements[length]
-	if !known {
-		b.placements[length] = placement{open: true}
+	defer b.mu.Unlock()
+	if _, known := b.placements[length]; known {
+		return
 	}
-	b.mu.Unlock()
+	b.placements[length] = placement{open: true}
 	// Another process's verdict for it stays.
-	if _, on := b.readPlacement(length); known || on {
+	if _, on := b.readPlacement(length); on {
 		return
 	}
 	b.record1(length, placement{open: true})

@@ -269,10 +269,15 @@ func (l *Local) startNeuralEngine(dir string) {
 	if dir == "" || l.coreml == nil || !l.loaded || l.ane != nil {
 		return
 	}
-	dim := int(l.nEmbd)
-	lengths := usableLengths(l.coreml.lengths, l.maxDocTokens())
-	l.ane = newNeuralEngine(newCoreMLBackend(l.coreml, dir, dim, aneStderrLog), lengths, dim, aneStderrLog)
+	l.ane = l.newNeuralEngine(newCoreMLBackend(l.coreml, dir, int(l.nEmbd), aneStderrLog))
 	l.ane.start()
+}
+
+// newNeuralEngine is the path over every function of the package. A text
+// is capped by tokenize; a function longer than any text is loaded only
+// for the texts of smaller ones that failed.
+func (l *Local) newNeuralEngine(backend aneBackend) *neuralEngine {
+	return newNeuralEngine(backend, l.coreml.lengths, int(l.nEmbd), aneStderrLog)
 }
 
 // quiesce reports whether the process may be stopped as idle now; once
@@ -284,17 +289,6 @@ func (l *Local) quiesce() (ok, overdue bool) {
 		return true, false
 	}
 	return l.ane.quiesce()
-}
-
-// usableLengths drops the functions no text can need: those past the
-// first one that holds the longest text the embedder sends.
-func usableLengths(lengths []int, maxTokens int) []int {
-	for i, l := range lengths {
-		if l >= maxTokens {
-			return lengths[:i+1]
-		}
-	}
-	return lengths
 }
 
 // llamaRuntime guards the process-global llama.cpp state (Load + Init

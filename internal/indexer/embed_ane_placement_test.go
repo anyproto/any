@@ -326,6 +326,42 @@ func TestCoreMLBackend_AuditWithoutAVerdictIsRecorded(t *testing.T) {
 	}
 }
 
+// An audit given up as overdue while its plan comes back with a refusal
+// leaves no record, wherever the one meets the other: a "none" put down
+// after the refusal would have every later process skip the audit.
+func TestCoreMLBackend_RefusalWinsOverAnAbandonBesideIt(t *testing.T) {
+	const host = "Chip, macOS build 1A1"
+	for i := 0; i < 400; i++ {
+		b := newTestBackend(t, t.TempDir(), host)
+		start, done := make(chan struct{}), make(chan struct{})
+		// The plan comes back a little after the abandon began, later
+		// each round.
+		plan := b.plan
+		b.plan = func(compiled, function string) (coreml.Placement, error) {
+			close(start)
+			for until := time.Now().Add(time.Duration(i%40) * 10 * time.Microsecond); time.Now().Before(until); {
+			}
+			_, _ = plan(compiled, function)
+			return offEngine, nil
+		}
+		go func() {
+			defer close(done)
+			<-start
+			b.abandon(256)
+		}()
+		if _, err := b.audit(256); !errors.Is(err, errOffNeuralEngine) {
+			t.Fatalf("audit = %v, want the refusal", err)
+		}
+		<-done
+		if _, err := os.Stat(b.recordPath(256)); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("round %d: a record stands for the refused function (stat: %v)", i, err)
+		}
+		if placed, known := b.audited(256); placed || known {
+			t.Fatalf("round %d: the refused function is placed %v, known %v", i, placed, known)
+		}
+	}
+}
+
 // A record's staging file left by a process that died writing it is
 // removed once it is old, by the next process that prepares.
 func TestCoreMLBackend_StaleRecordStagesAreRemoved(t *testing.T) {
@@ -512,13 +548,32 @@ func TestNeuralEngine_ReloadDoesNotRepublishARefusedFunction(t *testing.T) {
 	n.mu.Unlock()
 	<-f.started // the reload is inside the backend
 	releaseAudit()
-	for deadline := time.Now().Add(10 * time.Second); !log.has("s128 not used: "); time.Sleep(2 * time.Millisecond) {
+	for deadline := time.Now().Add(10 * time.Second); !log.has("s128 " + aneAuditFinished); time.Sleep(2 * time.Millisecond) {
 		if time.Now().After(deadline) {
-			t.Fatal("the audit never refused the function")
+			t.Fatal("the audit never finished")
 		}
+	}
+	if !log.has("s128 " + aneRefused) {
+		t.Fatalf("no refusal line: %v", log.all())
+	}
+	// By the child's lines the reload is still in Core ML: a death now is
+	// a death in it.
+	open := map[string]bool{}
+	for _, line := range log.all() {
+		aneCalls(open, line)
+	}
+	if !reflect.DeepEqual(open, map[string]bool{"s128 load": true}) {
+		t.Fatalf("after the audit's lines the open calls are %v, want the reload alone: %v", open, log.all())
 	}
 	releaseLoad()
 	n.loads.Wait()
+	clear(open)
+	for _, line := range log.all() {
+		aneCalls(open, line)
+	}
+	if len(open) != 0 {
+		t.Fatalf("after the reload was discarded the open calls are %v: %v", open, log.all())
+	}
 	n.mu.Lock()
 	published := n.fns[128] != nil
 	n.mu.Unlock()
@@ -784,6 +839,11 @@ func TestANECalls(t *testing.T) {
 		{"s256 not used: it does not predict", []string{"s128 audit"}},
 		{"s512 loading", []string{"s128 audit", "s512 load"}},
 		{"s512 loaded and discarded", []string{"s128 audit"}},
+		// A refusal ends no load: the function can be loading again.
+		{"s128 loading", []string{"s128 audit", "s128 load"}},
+		{"s128 refused: core ml plans it off the neural engine", []string{"s128 audit", "s128 load"}},
+		{"s128 not used any more: 3 failures in a row", []string{"s128 audit", "s128 load"}},
+		{"s128 loaded and discarded", []string{"s128 audit"}},
 		// An audit outlives the path's off line when its plan is late.
 		{"off, llama.cpp embeds everything: no engine", []string{"s128 audit"}},
 		{"s256 placement audit finished", []string{"s128 audit"}},
@@ -809,6 +869,7 @@ func TestANEWakes(t *testing.T) {
 		"s256 ready (open 1s)":                                                         true,
 		"s256 not used: core ml plans it off":                                          true,
 		"s256 not used any more: 3 failures in a row":                                  true,
+		"s256 refused: core ml plans it off the neural engine":                         true,
 		"s256 still loading after 10m0s: llama.cpp embeds its texts until it is ready": true,
 		"off, llama.cpp embeds everything: no engine":                                  true,
 		"starting":                               false,

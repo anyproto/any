@@ -709,6 +709,55 @@ func TestNeuralEngine_CloseDuringLoad(t *testing.T) {
 	}
 }
 
+// A path closed while the loader prepares the package, as a child being
+// retired is, ends there: the queue went with the close.
+func TestNeuralEngine_CloseDuringPrepare(t *testing.T) {
+	f := &fakeANE{prepGate: make(chan struct{})}
+	n, _ := newTestANE(t, f)
+	n.start()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(time.Millisecond) {
+		if _, _, _, prepares := f.snapshot(); prepares > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the loader never prepared")
+		}
+	}
+	n.close()
+	close(f.prepGate)
+	n.loads.Wait()
+	if loaded, _, _, _ := f.snapshot(); len(loaded) != 0 {
+		t.Fatalf("loaded %v after close", loaded)
+	}
+}
+
+// The path routes over every function of the package, whatever the
+// configured context: with texts capped at the first function's length
+// and that function failed, they run on the next one.
+func TestLocal_ShortContextKeepsTheLargerFunctions(t *testing.T) {
+	l := &Local{coreml: testPackage, nCtx: 128, batchDocs: 1, nEmbd: 4}
+	f := &fakeANE{loadErr: map[int]error{128: errors.New("broken")}}
+	n := l.newNeuralEngine(f)
+	n.logf = t.Logf
+	t.Cleanup(func() {
+		n.close()
+		n.loads.Wait()
+	})
+	n.start()
+	n.loads.Wait()
+	text := tokensOf(l.maxDocTokens())
+	if _, ok, deferred := n.embedBulk(text); ok || !deferred {
+		t.Fatalf("a document of the failed s128: served %v, deferred %v, miss %q", ok, deferred, n.lastMiss())
+	}
+	n.loads.Wait()
+	if _, ok, _ := n.embedBulk(text); !ok {
+		t.Fatalf("not served after s128 failed: miss %q", n.lastMiss())
+	}
+	if loaded, served, _, _ := f.snapshot(); !reflect.DeepEqual(loaded, []int{256}) || !reflect.DeepEqual(served, []int{256}) {
+		t.Fatalf("loaded %v, served by %v; want s256 alone", loaded, served)
+	}
+}
+
 func TestInstallDir(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "compiled")
@@ -752,25 +801,31 @@ func TestInstallDir(t *testing.T) {
 // A staging directory a dead process left is removed once it is old; a
 // fresh one belongs to a compile in flight.
 func TestRemoveStaleStages(t *testing.T) {
-	root := t.TempDir()
+	// A bracket in the path is a name like any other, not a pattern.
+	base := t.TempDir()
+	root := filepath.Join(base, "cache[1]")
 	dst := filepath.Join(root, "model.mlmodelc")
 	old, fresh := stagePath(dst, 111), stagePath(dst, 222)
-	for _, d := range []string{old, fresh, dst} {
+	elsewhere := stagePath(filepath.Join(base, "cache1", "model.mlmodelc"), 111)
+	unrelated := filepath.Join(root, "model.mlmodelc.tmp")
+	for _, d := range []string{old, fresh, dst, elsewhere, unrelated} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	past := time.Now().Add(-2 * aneStageMaxAge)
-	if err := os.Chtimes(old, past, past); err != nil {
-		t.Fatal(err)
+	for _, d := range []string{old, elsewhere, unrelated} {
+		if err := os.Chtimes(d, past, past); err != nil {
+			t.Fatal(err)
+		}
 	}
 	removeStaleStages(dst)
 	if _, err := os.Stat(old); err == nil {
 		t.Error("an abandoned staging directory was kept")
 	}
-	for _, d := range []string{fresh, dst} {
+	for _, d := range []string{fresh, dst, elsewhere, unrelated} {
 		if _, err := os.Stat(d); err != nil {
-			t.Errorf("%s was removed", filepath.Base(d))
+			t.Errorf("%s was removed", d[len(base):])
 		}
 	}
 }

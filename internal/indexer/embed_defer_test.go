@@ -36,6 +36,13 @@ func (l *logLines) logf(format string, args ...any) {
 	<-l.mu
 }
 
+// all is a copy of the lines so far.
+func (l *logLines) all() []string {
+	l.mu <- struct{}{}
+	defer func() { <-l.mu }()
+	return append([]string(nil), l.lines...)
+}
+
 // index is the position of the first line that holds part; -1 = none.
 func (l *logLines) index(part string) int {
 	l.mu <- struct{}{}
