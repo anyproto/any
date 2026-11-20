@@ -144,6 +144,19 @@ func deferDrain(t *testing.T, emb Embedder, every time.Duration, texts []string)
 	}
 }
 
+// writeNudged lands one chat text as an advance does: applied, then
+// named to the embed loop if it went pending.
+func writeNudged(t *testing.T, w *spaceWorker, st *Store, recordId, text string, seq uint64) {
+	up := DocUpsert{Entry: entry("chat", "o1", "chat_messages", recordId, text, seq)}
+	_, marked, err := st.ApplyPageMarked(context.Background(), "sp1", []DocUpsert{up}, nil, nil, nil, &LinkOps{})
+	if err != nil {
+		t.Error(err)
+	}
+	if len(marked) > 0 {
+		w.nudgeEmbed(marked)
+	}
+}
+
 func waitPending(t *testing.T, st *Store, want int) {
 	t.Helper()
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
@@ -316,12 +329,7 @@ func TestEmbedDrainTakesTheNudgeWhileWaiting(t *testing.T) {
 	go func() { done <- w.drainPending(ctx) }()
 	waitPending(t, st, 1)
 	time.Sleep(50 * time.Millisecond) // the drain is waiting now
-	up := DocUpsert{Entry: entry("chat", "o1", "chat_messages", "m90", "a new short text", 90)}
-	if err := st.Apply(ctx, "sp1", []DocUpsert{up}, nil, nil); err != nil {
-		t.Fatal(err)
-	}
-	waitPending(t, st, 2)
-	w.embedCh <- struct{}{}
+	writeNudged(t, w, st, "m90", "a new short text", 90)
 	waitPending(t, st, 1) // the new text landed; the long one still waits
 	emb.release()
 	if err := <-done; err != nil {
@@ -349,7 +357,7 @@ func TestEmbedDrainRowAndHoldUnderDeferral(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"embedding[]", "embedding[ane]", "embedding[]", "preparing[]", "embedding[]", "embedding[ane]"}
+	want := []string{"embedding[]", "embedding[ane]", "embedding[]", "preparing[]", "embedding[ane]"}
 	if !slices.Equal(rows, want) {
 		t.Fatalf("row states %v, want %v", rows, want)
 	}
@@ -477,14 +485,7 @@ func TestEmbedDrainReachesTheEndUnderANudgePerPage(t *testing.T) {
 			return
 		}
 		// Sorts after the deferred m00 and before every z.
-		up := DocUpsert{Entry: entry("chat", "o1", "chat_messages", fmt.Sprintf("m00b%03d", call), "new", uint64(100+call))}
-		if err := st.Apply(ctx, "sp1", []DocUpsert{up}, nil, nil); err != nil {
-			t.Error(err)
-		}
-		select {
-		case w.embedCh <- struct{}{}:
-		default:
-		}
+		writeNudged(t, w, st, fmt.Sprintf("m00b%03d", call), "new", uint64(100+call))
 	}
 	done := make(chan error, 1)
 	go func() { done <- w.drainPending(ctx) }()
@@ -524,8 +525,8 @@ func TestBulkOpenedFields(t *testing.T) {
 }
 
 // New texts announced in the middle of a pass that left texts behind
-// start it over once it landed as much as that resends: a row that sorts
-// ahead of the offset does not wait for the end of the queue.
+// get a page of their own: a row that sorts ahead of the cursor does not
+// wait for the end of the queue.
 func TestEmbedDrainTakesTheNudgeBetweenPages(t *testing.T) {
 	ctx := context.Background()
 	texts := []string{"long 1", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"}
@@ -536,11 +537,7 @@ func TestEmbedDrainTakesTheNudgeBetweenPages(t *testing.T) {
 		if call != 2 {
 			return
 		}
-		up := DocUpsert{Entry: entry("chat", "o1", "chat_messages", "a-first", "new", 90)}
-		if err := st.Apply(ctx, "sp1", []DocUpsert{up}, nil, nil); err != nil {
-			t.Error(err)
-		}
-		w.embedCh <- struct{}{}
+		writeNudged(t, w, st, "a-first", "new", 90)
 	}
 	done := make(chan error, 1)
 	go func() { done <- w.drainPending(ctx) }()
@@ -571,14 +568,7 @@ func TestEmbedDrainMovesOnUnderWritesAheadOfDeferredRows(t *testing.T) {
 		}
 		for range 2 { // two ready rows ahead of everything, and their nudge
 			inserted++
-			up := DocUpsert{Entry: entry("chat", "o1", "chat_messages", fmt.Sprintf("a%03d", 900-inserted), "new", uint64(100+inserted))}
-			if err := st.Apply(ctx, "sp1", []DocUpsert{up}, nil, nil); err != nil {
-				t.Error(err)
-			}
-		}
-		select {
-		case w.embedCh <- struct{}{}:
-		default:
+			writeNudged(t, w, st, fmt.Sprintf("a%03d", 900-inserted), "new", uint64(100+inserted))
 		}
 	}
 	done := make(chan error, 1)
@@ -593,15 +583,15 @@ func TestEmbedDrainMovesOnUnderWritesAheadOfDeferredRows(t *testing.T) {
 	}
 }
 
-// The store says whether a page left a doc newly pending: a text that
-// embeds, or the windows of an object whose name it changed or removed.
+// The store names the docs a page left newly pending: a text that
+// embeds, and the windows of an object whose name it changed or removed.
 func TestStore_ApplyPageMarked(t *testing.T) {
 	ctx := context.Background()
 	st := mustStore(t, 4)
 	st.SetEmbedTitles(true)
 	body := "a paragraph long enough to be embedded as a document of this object"
 	vec := []float32{1, 0, 0, 0}
-	apply := func(ups []DocUpsert, dels []string) bool {
+	apply := func(ups []DocUpsert, dels []string) []string {
 		t.Helper()
 		_, marked, err := st.ApplyPageMarked(ctx, "sp1", ups, dels, nil, nil, &LinkOps{})
 		if err != nil {
@@ -609,30 +599,265 @@ func TestStore_ApplyPageMarked(t *testing.T) {
 		}
 		return marked
 	}
+	windowId := docId("obj1", "editor_blocks", "win_a")
 	name := entry("basic", "obj1", index.DatasetProp, index.NamePropRecordId, "Consoles", 1)
 	window := entry("basic", "obj1", "editor_blocks", "win_a", body, 2)
 	props := entry("basic", "obj1", "chat_messages", "m1", body, 3)
 	props.Scope = index.ScopeProps
 	short := entry("basic", "obj1", index.DatasetProp, "p1", "short", 4)
 
-	if !apply([]DocUpsert{{Entry: name}, {Entry: window}}, nil) {
-		t.Fatal("a text that embeds marked nothing")
+	if got := apply([]DocUpsert{{Entry: name}, {Entry: window}}, nil); !slices.Contains(got, windowId) {
+		t.Fatalf("a text that embeds was not named: %v", got)
 	}
 	ids, _, _ := st.Pending(ctx, "sp1", 10)
 	if err := st.SetVectors(ctx, "sp1", ids, slices.Repeat([][]float32{vec}, len(ids))); err != nil {
 		t.Fatal(err)
 	}
-	if apply([]DocUpsert{{Entry: props}, {Entry: short}}, nil) {
-		t.Fatal("full-text-only writes marked a doc pending")
+	if got := apply([]DocUpsert{{Entry: props}, {Entry: short}}, nil); len(got) != 0 {
+		t.Fatalf("full-text-only writes marked %v pending", got)
 	}
-	if apply([]DocUpsert{{Entry: name}}, nil) {
-		t.Fatal("the same name again marked a doc pending")
+	if got := apply([]DocUpsert{{Entry: name}}, nil); len(got) != 0 {
+		t.Fatalf("the same name again marked %v pending", got)
 	}
 	// The name removed, beside a write that embeds nothing.
-	if !apply([]DocUpsert{{Entry: short}}, []string{docId("obj1", index.DatasetProp, index.NamePropRecordId)}) {
-		t.Fatal("removing the name marked nothing, with the object's window to re-embed")
+	if got := apply([]DocUpsert{{Entry: short}}, []string{docId("obj1", index.DatasetProp, index.NamePropRecordId)}); !slices.Equal(got, []string{windowId}) {
+		t.Fatalf("removing the name marked %v, want the object's window to re-embed", got)
 	}
 	if n, _ := st.PendingCount(ctx, "sp1"); n != 1 {
 		t.Fatalf("%d docs pending after the name went, want the window", n)
+	}
+}
+
+// PendingByIds answers for the docs it is asked about that still await
+// embedding, each once, in the order asked.
+func TestStore_PendingByIds(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 4)
+	for i := range 4 {
+		up := DocUpsert{Entry: entry("chat", "o1", "chat_messages", fmt.Sprintf("m%d", i), fmt.Sprintf("text %d", i), uint64(i+1))}
+		if err := st.Apply(ctx, "sp1", []DocUpsert{up}, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, _, _ := st.Pending(ctx, "sp1", 10)
+	if err := st.SetVectors(ctx, "sp1", all[1:2], [][]float32{{1, 0, 0, 0}}); err != nil {
+		t.Fatal(err)
+	}
+	ids, texts, err := st.PendingByIds(ctx, "sp1", []string{all[3], all[1], "o1:chat_messages:gone", all[0], all[3]})
+	if err != nil || !slices.Equal(ids, []string{all[3], all[0]}) || !slices.Equal(texts, []string{"text 3", "text 0"}) {
+		t.Fatalf("PendingByIds = %v, %v, %v; want m3 and m0 with their texts", ids, texts, err)
+	}
+}
+
+// With a backlog the embedder defers, a newly written text is embedded
+// by itself: the texts left behind are not sent again for it, during the
+// pass or while the drain waits.
+func TestEmbedDrainDoesNotResendDeferredTextsForNewOnes(t *testing.T) {
+	ctx := context.Background()
+	const deferred = 100
+	var texts []string
+	for i := range deferred {
+		texts = append(texts, fmt.Sprintf("long %d", i))
+	}
+	emb := wakingEmbedder{&deferEmbedder{axisEmbedder: axisEmbedder{dim: 4}, wake: make(chan struct{})}}
+	w, st, _ := deferDrain(t, emb, time.Hour, texts)
+	done := make(chan error, 1)
+	go func() { done <- w.drainPending(ctx) }()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if _, sent := emb.counts(); len(sent) >= deferred {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the first pass did not finish")
+		}
+	}
+	const writes = 10
+	for i := range writes {
+		writeNudged(t, w, st, fmt.Sprintf("n%02d", i), "short", uint64(1000+i))
+		waitPending(t, st, deferred)
+	}
+	_, sent := emb.counts()
+	resent, short := 0, 0
+	for _, text := range sent[deferred:] {
+		if text == "short" {
+			short++
+		} else {
+			resent++
+		}
+	}
+	if resent != 0 || short != writes {
+		t.Fatalf("%d new texts were sent %d times and %d deferred texts sent again; want each new one once, alone", writes, short, resent)
+	}
+	emb.release()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Under nudges that name no doc, as a sweep's, the drain starts a pass
+// over no more often than its period: it does not send the deferred
+// backlog back to back.
+func TestEmbedDrainStartsOverOncePerPeriodUnderUnnamedNudges(t *testing.T) {
+	const deferred, every = 40, 400 * time.Millisecond
+	var texts []string
+	for i := range deferred {
+		texts = append(texts, fmt.Sprintf("long %d", i))
+	}
+	emb := wakingEmbedder{&deferEmbedder{axisEmbedder: axisEmbedder{dim: 4}, wake: make(chan struct{})}}
+	w, _, _ := deferDrain(t, emb, every, texts)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() { done <- w.drainPending(ctx) }()
+	for time.Since(start) < 3*every {
+		w.nudgeEmbed(nil)
+		time.Sleep(10 * time.Millisecond)
+	}
+	_, sent := emb.counts()
+	cancel()
+	<-done
+	// A pass at the start and one per period since, with one to spare.
+	if passes := int(time.Since(start)/every) + 2; len(sent) > passes*deferred {
+		t.Fatalf("%d texts sent in %s: more than %d passes over %d deferred texts with a %s period",
+			len(sent), time.Since(start).Round(time.Millisecond), passes, deferred, every)
+	}
+}
+
+// A new text that sorts past a page of deferred texts at the head, and
+// before the cursor, is embedded at once: it does not wait for the end
+// of the pass behind texts the head is full of.
+func TestEmbedDrainEmbedsANewTextPastADeferredHead(t *testing.T) {
+	var texts []string // m00..m03 deferred, m04..m39 ready
+	for i := range 4 {
+		texts = append(texts, fmt.Sprintf("long %d", i))
+	}
+	for i := 4; i < 40; i++ {
+		texts = append(texts, fmt.Sprintf("z%02d", i))
+	}
+	emb := wakingEmbedder{&deferEmbedder{axisEmbedder: axisEmbedder{dim: 4}, wake: make(chan struct{})}}
+	w, st, _ := deferDrain(t, emb, time.Hour, texts)
+	emb.onCall = func(call int) {
+		if call == 4 {
+			// Sorts after the deferred head (m00..m03) and before the cursor.
+			writeNudged(t, w, st, "m03x", "new", 900)
+		}
+	}
+	done := make(chan error, 1)
+	go func() { done <- w.drainPending(context.Background()) }()
+	waitPending(t, st, 4)
+	_, sent := emb.counts()
+	if at, last := slices.Index(sent, "new"), slices.Index(sent, "z39"); at < 0 || at > last {
+		t.Fatalf("the new text was sent as text %d, the last ready one as %d: it waited for the end of the pass", at, last)
+	}
+	emb.release()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// With every pending text deferred and no word from the embedder, the
+// row stays in `preparing` across the period's passes: nothing embeds.
+func TestEmbedDrainRowStaysPreparingWhileEverythingIsDeferred(t *testing.T) {
+	const every = 100 * time.Millisecond
+	emb := wakingEmbedder{&deferEmbedder{axisEmbedder: axisEmbedder{dim: 4}, wake: make(chan struct{})}}
+	w, _, _ := deferDrain(t, emb, every, []string{"long 1", "long 2", "long 3"})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- w.drainPending(ctx) }()
+	time.Sleep(5*every + every/2)
+	cancel()
+	<-done
+	if calls, _ := emb.counts(); calls < 4 {
+		t.Fatalf("%d calls: the period's passes did not run", calls)
+	}
+	if want := []string{"embedding[]", "preparing[]"}; !slices.Equal(rows, want) {
+		t.Fatalf("row states %v, want %v", rows, want)
+	}
+}
+
+// titledDeferEmbedder defers texts starting with "long" and records the
+// title each text was sent under.
+type titledDeferEmbedder struct {
+	axisEmbedder
+	mu     sync.Mutex
+	sent   []string
+	onCall func(call int)
+	calls  int
+}
+
+func (e *titledDeferEmbedder) EmbedsTitles() bool { return true }
+func (e *titledDeferEmbedder) EmbedTitledDocs(ctx context.Context, _, texts []string) ([][]float32, error) {
+	return e.EmbedDocs(ctx, texts)
+}
+func (e *titledDeferEmbedder) EmbedDocsRouted(_ context.Context, titles, texts []string) ([][]float32, EmbedRoute, error) {
+	e.mu.Lock()
+	e.calls++
+	call, onCall := e.calls, e.onCall
+	e.mu.Unlock()
+	if onCall != nil {
+		onCall(call)
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make([][]float32, len(texts))
+	rt := EmbedRoute{Backends: []string{EmbedBackendANE}}
+	for i, text := range texts {
+		title := ""
+		if titles != nil {
+			title = titles[i]
+		}
+		e.sent = append(e.sent, text+"@"+title)
+		if strings.HasPrefix(text, "long") {
+			rt.Deferred++
+			continue
+		}
+		v := make([]float32, e.dim)
+		v[0] = 1
+		out[i] = v
+	}
+	return out, rt, nil
+}
+
+// An object renamed while its pending window embeds sends no nudge: the
+// window was pending already. Its vector is not landed, and with a text
+// left behind the cursor is past it: the drain reads it again at once
+// and embeds it under the new name, not after the period.
+func TestEmbedDrainReembedsAWindowRenamedUnderItsEmbedding(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 4)
+	st.SetEmbedTitles(true)
+	emb := &titledDeferEmbedder{axisEmbedder: axisEmbedder{dim: 4}}
+	ix := &Indexer{store: st, opts: Options{Embedder: emb, EmbedBatch: 1, PendingEvery: time.Hour, AnnounceAfter: -1}.withDefaults()}
+	w := &spaceWorker{ix: ix, sp: staticIdSpace{}, embedCh: make(chan struct{}, 1)}
+	body := "a paragraph long enough to be embedded as a document of this object"
+	ups := []DocUpsert{
+		{Entry: entry("chat", "a0", "chat_messages", "m0", "long deferred", 1)},
+		{Entry: entry("basic", "o5", index.DatasetProp, index.NamePropRecordId, "Old", 2)},
+		{Entry: entry("basic", "o5", "editor_blocks", "win_a", body, 3)},
+		{Entry: entry("chat", "z9", "chat_messages", "m1", "tail text", 4)},
+	}
+	if _, _, err := st.ApplyPageMarked(ctx, "sp1", ups, nil, nil, nil, &LinkOps{}); err != nil {
+		t.Fatal(err)
+	}
+	emb.onCall = func(call int) {
+		if call != 2 { // the window is the second pending doc
+			return
+		}
+		rename := DocUpsert{Entry: entry("basic", "o5", index.DatasetProp, index.NamePropRecordId, "New", 10)}
+		_, marked, err := st.ApplyPageMarked(ctx, "sp1", []DocUpsert{rename}, nil, nil, nil, &LinkOps{})
+		if err != nil || len(marked) != 0 {
+			t.Errorf("the rename marked %v, %v; want nothing newly pending", marked, err)
+		}
+	}
+	dctx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- w.drainPending(dctx) }()
+	waitPending(t, st, 1) // the deferred text alone
+	cancel()
+	<-done
+	emb.mu.Lock()
+	defer emb.mu.Unlock()
+	if !slices.Contains(emb.sent, body+"@New") {
+		t.Fatalf("sent %v, want the window again under its new name", emb.sent)
 	}
 }

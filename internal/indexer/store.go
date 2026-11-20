@@ -920,17 +920,20 @@ func (s *Store) ApplyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 	return s.applyPage(ctx, spaceId, ups, dels, prefixDels, textPrefixDels, links, nil)
 }
 
-// ApplyPageMarked is ApplyPage that also reports whether the page left a
-// doc newly pending: one of its own, or the windows of a renamed object.
-func (s *Store) ApplyPageMarked(ctx context.Context, spaceId string, ups []DocUpsert, dels []string, prefixDels, textPrefixDels []string, links *LinkOps) (touched []string, marked bool, err error) {
+// ApplyPageMarked is ApplyPage that also returns the docs the page left
+// newly pending: its own, and the windows of a renamed object.
+func (s *Store) ApplyPageMarked(ctx context.Context, spaceId string, ups []DocUpsert, dels []string, prefixDels, textPrefixDels []string, links *LinkOps) (touched, marked []string, err error) {
 	touched, err = s.applyPage(ctx, spaceId, ups, dels, prefixDels, textPrefixDels, links, &marked)
-	return touched, marked && err == nil, err
+	if err != nil {
+		return touched, nil, err
+	}
+	return touched, marked, nil
 }
 
-func (s *Store) applyPage(ctx context.Context, spaceId string, ups []DocUpsert, dels []string, prefixDels, textPrefixDels []string, links *LinkOps, marked *bool) ([]string, error) {
-	mark := func() {
+func (s *Store) applyPage(ctx context.Context, spaceId string, ups []DocUpsert, dels []string, prefixDels, textPrefixDels []string, links *LinkOps, marked *[]string) ([]string, error) {
+	mark := func(id string) {
 		if marked != nil {
-			*marked = true
+			*marked = append(*marked, id)
 		}
 	}
 	if len(ups) == 0 && len(dels) == 0 && len(prefixDels) == 0 && len(textPrefixDels) == 0 && links.empty() {
@@ -1043,7 +1046,7 @@ func (s *Store) applyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 			// vector pipeline without losing work. Empty-text docs have
 			// nothing to embed and stay vector-less.
 			doc.Set("pending", arena.NewNumberInt(1))
-			mark()
+			mark(id)
 		}
 		if err := coll.UpsertOne(tx.Context(), doc); err != nil {
 			return nil, err
@@ -1058,12 +1061,8 @@ func (s *Store) applyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 				query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGte, p)},
 				query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, prefixUpper(p))},
 			}
-			res, err := coll.Find(idRange).Update(tx.Context(), remarkPending)
-			if err != nil {
+			if _, err := coll.Find(idRange).Update(tx.Context(), remarkPending(mark)); err != nil {
 				return nil, err
-			}
-			if res.Modified > 0 {
-				mark()
 			}
 		}
 	}
@@ -1079,17 +1078,21 @@ func (s *Store) applyPage(ctx context.Context, spaceId string, ups []DocUpsert, 
 
 // remarkPending puts an embedded doc that embeds under its object's
 // name back in the embed queue, keeping its vector until the new one
-// lands.
-var remarkPending = query.ModifyFunc(func(a *anyenc.Arena, v *anyenc.Value) (*anyenc.Value, bool, error) {
-	if v.Get("vector") == nil || v.Get("pending") != nil {
-		return v, false, nil
-	}
-	if _, titled := titledDoc(string(v.GetStringBytes("id"))); !titled {
-		return v, false, nil
-	}
-	v.Set("pending", a.NewNumberInt(1))
-	return v, true, nil
-})
+// lands, and tells marked its id.
+func remarkPending(marked func(id string)) query.Modifier {
+	return query.ModifyFunc(func(a *anyenc.Arena, v *anyenc.Value) (*anyenc.Value, bool, error) {
+		if v.Get("vector") == nil || v.Get("pending") != nil {
+			return v, false, nil
+		}
+		id := string(v.GetStringBytes("id"))
+		if _, titled := titledDoc(id); !titled {
+			return v, false, nil
+		}
+		v.Set("pending", a.NewNumberInt(1))
+		marked(id)
+		return v, true, nil
+	})
+}
 
 // removals indexes one page's deletions so an upsert can be tested in
 // constant time. A page carries thousands of each on the cold path — the
@@ -1684,6 +1687,34 @@ func (s *Store) PendingAfter(ctx context.Context, spaceId, after string, limit i
 		texts = append(texts, docText(v))
 	}
 	return ids, texts, iter.Err()
+}
+
+// PendingByIds returns, of the docs named, those that await embedding,
+// each once and in the order given, with their texts.
+func (s *Store) PendingByIds(ctx context.Context, spaceId string, want []string) (ids []string, texts []string, err error) {
+	coll, err := s.spaceColl(ctx, spaceId)
+	if err != nil {
+		return nil, nil, err
+	}
+	seen := make(map[string]struct{}, len(want))
+	for _, id := range want {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		doc, err := coll.FindId(ctx, id)
+		if errors.Is(err, anystore.ErrDocNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		if v := doc.Value(); v.GetInt("pending") == 1 {
+			ids = append(ids, id)
+			texts = append(texts, docText(v))
+		}
+	}
+	return ids, texts, nil
 }
 
 // DocTitles returns, for each doc id, the name it embeds under — its
