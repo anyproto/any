@@ -847,13 +847,17 @@ dead is reaped with no demotion and no restart backoff, whether its
 Neural Engine path was on or off. The one exception is a child found
 dead inside a Core ML call of its own, which the server follows by the
 child's lines (the preparation from `starting`, a load from `s<N>
-loading`, an audit between its started and finished lines): it died in
+loading`, an audit between its started and finished lines, an idle
+release between `s<N> releasing` and `s<N> released`): it died in
 Core ML, and the next child runs without the Neural Engine. The GPU is
 never charged for an idle death. A child without a Core ML path is not
 asked, and one found dead is reaped the same way. So is a child of
-either kind that a request finds already ended, or cannot be written
-to: it ended between frames, the request was never asked of it, and the
-request's child is spawned without a backoff. Steady frames and a
+either kind that a request finds already ended: it ended between
+frames, and the request spawns its own child, with the runtimes as that
+reap left them. A request that cannot be written to its child was never
+asked of it either: the child is reaped the same way, that request
+fails as embedder-unavailable, and the next one spawns the child. A
+death that cost no runtime sets no backoff. Steady frames and a
 drain's hold both keep the idle ask from a child, so a child whose
 Core ML call has been open for 15 minutes by its lines is also asked
 after a frame, and from the idle timer ahead of the hold, whether that
@@ -1076,16 +1080,22 @@ a renamed or unnamed object's windows included, and the drain reads
 those by id (`Store.PendingByIds`) and embeds them in a page of their
 own between two read on from the cursor, or at once while it waits, so
 a new text is embedded wherever it sorts and the texts left behind are
-not sent again for it. Named docs are embedded in the order they were
-named. Once the cursor has reached the end of the queue the pass reads
+not sent again for it. The reads by id take named docs in the order
+they were named; the cursor can reach one of them first. Once the
+cursor has reached the end of the queue the pass reads
 named docs alone: the queue is not read from the cursor again until the
-next pass, and a named doc that was itself deferred is sent once, also
-when it sorts ahead of a cursor that is still moving. Docs that keep
+next pass. A doc a pass left deferred is not sent again in that pass
+while its text and title stand, whichever read finds it next, the
+cursor's or one by id; under another text or title it is another input
+and is sent (a pass remembers 65,536 such docs, by a hash of the
+input). Docs that keep
 being named do not put off the minute after which the texts left behind
 are sent again. A doc that changed while it embedded, whose
 vector is therefore not landed, is read again with the named docs; with
 nothing left behind, where a short page would end the drain, the head
-of the queue is read once more for it. A nudge
+of the queue is read once more for it. A doc that takes no vector on
+that read either is read past, also when it fills a page by itself, so
+the docs behind it embed, and it waits for the next read of the head. A nudge
 that names no doc (the sweep's, or more than 1,024 docs between two
 looks) has the pass start over instead, no sooner than a minute after
 it began. From the moment a pass starts over on texts left behind, or
@@ -1213,8 +1223,8 @@ finished`; `s<N> placement not recorded: …` when its file could not be
 written; `placement audits wait: low power mode` or `… thermal
 pressure`, once per wait;
 `s<N> failed: …` for a prediction and `s<N> not used any more: 3
-failures in a row`; `s<N> still loading after …`; `s<N> released after
-…`; and `off, …`. `bulk embedding opened` is logged once per run, when
+failures in a row`; `s<N> still loading after …`; `s<N> releasing`, then
+`s<N> released after …`; and `off, …`. `bulk embedding opened` is logged once per run, when
 the first drain got past its waits: `openedBy` is `start_delay`,
 `embedder` (its preparation outlasted the delay, by
 `embedderWaitPastDelay`) or `no_wait`, with `sinceStart`, and
