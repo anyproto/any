@@ -897,14 +897,16 @@ func TestWorkerEmbedder_RequestFindsAnIdleChildDead(t *testing.T) {
 // A request that could not be written to the child was not asked of it:
 // the child is let go without a runtime charged or a backoff.
 func TestWorkerEmbedder_UnwrittenRequestChargesNoRuntime(t *testing.T) {
-	h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"}}
+	// The first child outlives its stdin: the server cannot see it exit
+	// before the write fails.
+	h := &helperSpawner{modes: []string{"linger", "ok"}, env: []string{"ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"}}
 	w := newTestWorker(t, h, -1)
 	ctx := context.Background()
 	if _, err := w.EmbedDocs(ctx, []string{"a"}); err != nil {
 		t.Fatal(err)
 	}
 	_ = w.slot.acquire(ctx, false)
-	_ = w.child.stdin.Close() // its end of the pipe went, the server has not seen it exit
+	_ = w.child.stdin.Close()
 	w.slot.release(false)
 	if _, err := w.EmbedQuery(ctx, "q"); !errors.Is(err, ErrEmbedderUnavailable) {
 		t.Fatalf("the query on a closed pipe: %v", err)
