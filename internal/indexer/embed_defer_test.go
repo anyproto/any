@@ -36,6 +36,18 @@ func (l *logLines) logf(format string, args ...any) {
 	<-l.mu
 }
 
+// index is the position of the first line that holds part; -1 = none.
+func (l *logLines) index(part string) int {
+	l.mu <- struct{}{}
+	defer func() { <-l.mu }()
+	for i, line := range l.lines {
+		if strings.Contains(line, part) {
+			return i
+		}
+	}
+	return -1
+}
+
 func (l *logLines) has(part string) bool {
 	l.mu <- struct{}{}
 	defer func() { <-l.mu }()

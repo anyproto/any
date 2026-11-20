@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -73,6 +74,19 @@ type testBackend struct {
 	plans           map[string]coreml.Placement
 	planErr         error
 	fns             []*planFn
+	state           coreml.Power
+	stateErr        error
+}
+
+func (tb *testBackend) placed(length int) bool {
+	placed, _ := tb.audited(length)
+	return placed
+}
+
+// unsettled: the function's audit is on record as ended without a verdict.
+func (tb *testBackend) unsettled(length int) bool {
+	placed, known := tb.audited(length)
+	return known && !placed
 }
 
 var testPackage = &coreMLPackage{name: "m", lengths: []int{128, 256, 512, 1024, 2048}}
@@ -103,7 +117,8 @@ func newTestBackend(t *testing.T, dir, host string) *testBackend {
 		tb.fns = append(tb.fns, fn)
 		return fn, nil
 	}
-	b.readPlacements() // what prepare does once the package is there
+	b.power = func() (coreml.Power, error) { return tb.state, tb.stateErr }
+	b.adopt() // what prepare does once the package is there
 	tb.coreMLBackend = b
 	return tb
 }
@@ -166,25 +181,46 @@ func TestCoreMLBackend_LoadsWithoutAPlan(t *testing.T) {
 	}
 }
 
-// A function planned off the Neural Engine is refused by its audit, and
-// by every later load on that machine setup without opening it.
-func TestCoreMLBackend_RecordsARefusal(t *testing.T) {
+// A refusal holds for the process that found it and is never written:
+// the next process loads the function and plans it for itself. A record
+// that stood for the function goes with the refusal.
+func TestCoreMLBackend_RefusalIsNotRecorded(t *testing.T) {
 	dir := t.TempDir()
-	b := newTestBackend(t, dir, "Chip, macOS build 1A1")
-	b.plans["s512"] = offEngine
-	if _, err := b.audit(512); !errors.Is(err, errOffNeuralEngine) {
-		t.Fatalf("audit of a function planned on the cpu: %v", err)
-	}
-	if _, _, err := b.load(512); !errors.Is(err, errOffNeuralEngine) {
-		t.Fatalf("load after the refusal: %v", err)
-	}
-	next := newTestBackend(t, dir, "Chip, macOS build 1A1")
-	_, _, err := next.load(512)
-	if !errors.Is(err, errOffNeuralEngine) || !strings.Contains(err.Error(), "on record") {
-		t.Fatalf("load in the next process: %v", err)
-	}
-	if len(next.opened) != 0 || len(next.planned) != 0 {
-		t.Fatalf("opened %v, planned %v; want a refusal from the record alone", next.opened, next.planned)
+	const host = "Chip, macOS build 1A1"
+	for name, plan := range map[string]coreml.Placement{
+		"core operators on the cpu":            offEngine,
+		"too few operations wherever they run": {Unknown: 80},
+		"after a record that stood for it":     offEngine,
+		"after a record of an audit left open": offEngine,
+	} {
+		b := newTestBackend(t, dir, host)
+		switch name {
+		case "after a record that stood for it":
+			if _, err := b.audit(512); err != nil {
+				t.Fatal(err)
+			}
+		case "after a record of an audit left open":
+			b.abandon(512)
+		}
+		b = newTestBackend(t, dir, host)
+		b.plans["s512"] = plan
+		if _, err := b.audit(512); !errors.Is(err, errOffNeuralEngine) {
+			t.Fatalf("%s: audit = %v, want a refusal", name, err)
+		}
+		if placed, known := b.audited(512); placed || known {
+			t.Fatalf("%s: placed %v, known %v after a refusal", name, placed, known)
+		}
+		if files, _ := filepath.Glob(b.record + "*"); len(files) != 0 {
+			t.Fatalf("%s: on disk after a refusal: %v", name, files)
+		}
+		next := newTestBackend(t, dir, host)
+		next.plans["s512"] = plan
+		if _, _, err := next.load(512); err != nil {
+			t.Fatalf("%s: load in the next process: %v", name, err)
+		}
+		if _, err := next.audit(512); !errors.Is(err, errOffNeuralEngine) || !reflect.DeepEqual(next.planned, []string{"s512"}) {
+			t.Fatalf("%s: the next process's audit = %v, planned %v; want its own plan and refusal", name, err, next.planned)
+		}
 	}
 }
 
@@ -194,14 +230,12 @@ func TestCoreMLBackend_RecordsARefusal(t *testing.T) {
 func TestCoreMLBackend_RecordIsPerHostSetup(t *testing.T) {
 	dir := t.TempDir()
 	old := newTestBackend(t, dir, "Chip, macOS build 1A1")
-	old.plans["s128"] = offEngine
-	_, _ = old.audit(128)
+	old.abandon(128)
 
 	updated := newTestBackend(t, dir, "Chip, macOS build 1B2")
-	if _, _, err := updated.load(128); err != nil {
-		t.Fatalf("load after an OS update: %v", err)
+	if placed, known := updated.audited(128); placed || known {
+		t.Fatalf("after an OS update: placed %v, known %v; want unaudited", placed, known)
 	}
-	updated.plans["s128"] = onEngine
 	if _, err := updated.audit(128); err != nil {
 		t.Fatal(err)
 	}
@@ -213,14 +247,17 @@ func TestCoreMLBackend_RecordIsPerHostSetup(t *testing.T) {
 	if err := json.Unmarshal(raw, &rec); err != nil {
 		t.Fatal(err)
 	}
-	if *rec.Version != placementVersion || *rec.Host != "Chip, macOS build 1B2" || *rec.Function != "s128" || !*rec.On {
+	if *rec.Host != "Chip, macOS build 1B2" || *rec.Function != "s128" || *rec.Verdict != verdictOn || *rec.NeuralEngine != 6000 {
 		t.Fatalf("record %s", raw)
+	}
+	if name := filepath.Base(updated.recordPath(128)); !strings.Contains(name, ".v"+strconv.Itoa(placementVersion)+".s128.") {
+		t.Fatalf("record named %s, want the records' version in it", name)
 	}
 	if stages, _ := filepath.Glob(updated.recordPath(128) + ".*"); len(stages) != 0 {
 		t.Fatalf("staging files left: %v", stages)
 	}
-	if back := newTestBackend(t, dir, "Chip, macOS build 1A1"); back.refused(128) == nil {
-		t.Fatal("the first setup's refusal did not survive the second setup's audit")
+	if back := newTestBackend(t, dir, "Chip, macOS build 1A1"); !back.unsettled(128) {
+		t.Fatal("the first setup's record did not survive the second setup's audit")
 	}
 
 	nameless := newTestBackend(t, t.TempDir(), "")
@@ -235,18 +272,107 @@ func TestCoreMLBackend_RecordIsPerHostSetup(t *testing.T) {
 	}
 }
 
-// A plan that cannot be read is no verdict: nothing is recorded.
+// A plan Core ML fails to give is no verdict and nothing is recorded:
+// the next process reads it again.
 func TestCoreMLBackend_AuditErrorIsNoVerdict(t *testing.T) {
 	b := newTestBackend(t, t.TempDir(), "Chip, macOS build 1A1")
-	b.planErr = errors.New("no answer")
+	b.planErr = errors.New("MLModelErrorDomain error 0")
 	if _, err := b.audit(128); err == nil || errors.Is(err, errOffNeuralEngine) {
 		t.Fatalf("audit: %v, want the plan's own error", err)
 	}
-	if b.placed(128) {
-		t.Fatal("placed without a plan")
+	if placed, known := b.audited(128); placed || known {
+		t.Fatalf("placed %v, known %v without a plan", placed, known)
 	}
 	if _, err := os.Stat(b.recordPath(128)); !os.IsNotExist(err) {
 		t.Fatalf("a record without a verdict: %v", err)
+	}
+}
+
+// A plan Core ML does not answer in time ends the audit without a
+// verdict, which is recorded: no later process waits for that plan again.
+// So does an audit the engine gave up; a verdict that still comes
+// replaces it.
+func TestCoreMLBackend_AuditWithoutAVerdictIsRecorded(t *testing.T) {
+	dir := t.TempDir()
+	const host = "Chip, macOS build 1A1"
+	b := newTestBackend(t, dir, host)
+	done := make(chan struct{})
+	b.planErr = &coreml.LatePlanError{Function: "s128", Waited: time.Minute, Done: done}
+	var late *coreml.LatePlanError
+	if _, err := b.audit(128); !errors.As(err, &late) || late.Done != (<-chan struct{})(done) {
+		t.Fatalf("audit = %v, want the late plan's error", err)
+	}
+	b.abandon(256)
+	next := newTestBackend(t, dir, host)
+	if !next.unsettled(128) || !next.unsettled(256) || next.unsettled(512) {
+		t.Fatalf("records: s128 %v, s256 %v, s512 %v; want the first two without a verdict",
+			next.unsettled(128), next.unsettled(256), next.unsettled(512))
+	}
+	if _, info, err := next.load(128); err != nil || !strings.Contains(info, "audit ended without a verdict, plan skipped") {
+		t.Fatalf("load: %q, %v", info, err)
+	}
+	// The abandoned audit returns after all: its verdict stands, and an
+	// abandon that comes after a verdict changes nothing.
+	b.planErr = nil
+	if _, err := b.audit(256); err != nil {
+		t.Fatal(err)
+	}
+	b.abandon(256)
+	other := newTestBackend(t, dir, host)
+	other.abandon(256) // it read the verdict; and the file is another process's
+	if last := newTestBackend(t, dir, host); !b.placed(256) || !last.placed(256) {
+		t.Fatalf("s256 placed: here %v, on record %v", b.placed(256), last.placed(256))
+	}
+}
+
+// A record's staging file left by a process that died writing it is
+// removed once it is old, by the next process that prepares.
+func TestCoreMLBackend_StaleRecordStagesAreRemoved(t *testing.T) {
+	dir := t.TempDir()
+	b := newTestBackend(t, dir, "Chip, macOS build 1A1")
+	stale, fresh := stagePath(b.recordPath(128), 4242), stagePath(b.recordPath(256), 4243)
+	for _, file := range []string{stale, fresh} {
+		if err := os.WriteFile(file, []byte("{"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	past := time.Now().Add(-2 * aneStageMaxAge)
+	if err := os.Chtimes(stale, past, past); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.audit(512); err != nil {
+		t.Fatal(err)
+	}
+	newTestBackend(t, dir, "Chip, macOS build 1A1")
+	if _, err := os.Stat(stale); err == nil {
+		t.Error("an abandoned staging file of a record was kept")
+	}
+	for _, file := range []string{fresh, b.recordPath(512)} {
+		if _, err := os.Stat(file); err != nil {
+			t.Errorf("%s was removed", filepath.Base(file))
+		}
+	}
+}
+
+// No audit should start in Low Power Mode or under serious thermal
+// pressure; a system that does not say is taken as calm.
+func TestCoreMLBackend_Strain(t *testing.T) {
+	b := newTestBackend(t, t.TempDir(), "Chip, macOS build 1A1")
+	for _, c := range []struct {
+		state coreml.Power
+		err   error
+		want  string
+	}{
+		{coreml.Power{}, nil, ""},
+		{coreml.Power{Thermal: coreml.ThermalFair}, nil, ""},
+		{coreml.Power{LowPower: true}, nil, "low power mode"},
+		{coreml.Power{Thermal: coreml.ThermalSerious}, nil, "thermal pressure"},
+		{coreml.Power{LowPower: true}, coreml.ErrUnsupported, ""},
+	} {
+		b.state, b.stateErr = c.state, c.err
+		if got := b.strain(); got != c.want {
+			t.Errorf("%+v, %v: strain = %q, want %q", c.state, c.err, got, c.want)
+		}
 	}
 }
 
@@ -324,42 +450,6 @@ func TestNeuralEngine_LastRefusalUnderAPrediction(t *testing.T) {
 	}
 	if !log.has(aneOffStatus) {
 		t.Fatalf("no off line after the prediction: %v", log.lines)
-	}
-}
-
-// A function on record as refused is known from the start: a document
-// that needs it goes to llama.cpp while the loader is busy elsewhere,
-// and a refused first function still settles the path's first wait.
-func TestNeuralEngine_RecordedRefusalIsNotWaitedFor(t *testing.T) {
-	refused := errors.Join(errOffNeuralEngine, errors.New("on record"))
-	f := &fakeANE{refusals: map[int]error{512: refused}}
-	n, _ := newTestANE(t, f)
-	loadFor(n, 10)
-	f.mu.Lock()
-	f.gate, f.started = make(chan struct{}), make(chan int, 1)
-	f.mu.Unlock()
-	if _, ok, deferred := n.embedBulk(tokensOf(200)); ok || !deferred {
-		t.Fatalf("a document for the loading s256: served %v, deferred %v", ok, deferred)
-	}
-	<-f.started // the loader is inside s256
-	if _, ok, deferred := n.embedBulk(tokensOf(400)); ok || deferred || n.lastMiss() != EmbedReasonANEFailed {
-		t.Fatalf("a document for the refused s512: served %v, deferred %v, miss %q", ok, deferred, n.lastMiss())
-	}
-	close(f.gate)
-	n.loads.Wait()
-	waitOrder(t, f, "load 128", "audit 128", "load 256", "audit 256")
-
-	f = &fakeANE{refusals: map[int]error{128: refused}}
-	log := newLogLines()
-	n, _ = newTestANE(t, f)
-	n.logf = log.logf
-	n.start()
-	n.loads.Wait()
-	if !log.has("s128 not used: ") {
-		t.Fatalf("no line about the refused first function: %v", log.lines)
-	}
-	if loaded, _, _, _ := f.snapshot(); len(loaded) != 0 {
-		t.Fatalf("loaded %v, want nothing", loaded)
 	}
 }
 
@@ -505,8 +595,17 @@ func TestNeuralEngine_QuiesceAndTheOffLine(t *testing.T) {
 	}
 	// An audit that runs longer than any does is said to be overdue.
 	clock.add(n.auditMax)
-	if ok, overdue := n.quiesce(); ok || !overdue {
-		t.Fatalf("under an audit past its bound: quiesced %v, overdue %v", ok, overdue)
+	for range 2 {
+		if ok, overdue := n.quiesce(); ok || !overdue {
+			t.Fatalf("under an audit past its bound: quiesced %v, overdue %v", ok, overdue)
+		}
+	}
+	// It is given up there, once: no later child audits that function.
+	f.mu.Lock()
+	abandoned := append([]int(nil), f.abandoned...)
+	f.mu.Unlock()
+	if !reflect.DeepEqual(abandoned, []int{128}) {
+		t.Fatalf("abandoned %v, want the overdue s128 once", abandoned)
 	}
 	release()
 	n.loads.Wait()
@@ -516,6 +615,118 @@ func TestNeuralEngine_QuiesceAndTheOffLine(t *testing.T) {
 	// Once it agreed to stop, no audit starts.
 	loadFor(n, 200)
 	waitOrder(t, f, "load 128", "audit 128", "load 256")
+}
+
+// No audit starts while the machine saves power or runs hot: it waits,
+// says so once, and starts when that has passed. The functions serve
+// meanwhile, and the child may be stopped as idle.
+func TestNeuralEngine_AuditsWaitOutLowPowerAndHeat(t *testing.T) {
+	f := &fakeANE{strained: "low power mode"}
+	log := newLogLines()
+	n, _ := newTestANE(t, f)
+	n.logf = log.logf
+	n.auditPoll = time.Hour
+	loadFor(n, 10)
+	loadFor(n, 200)
+	waitOrder(t, f, "load 128", "load 256")
+	if _, ok := n.embed(tokensOf(10)); !ok || n.lastPlaced() {
+		t.Fatalf("served %v, placed %v; want served, not placed", ok, n.lastPlaced())
+	}
+	n.auditTick() // still strained
+	waitOrder(t, f, "load 128", "load 256")
+	log.mu <- struct{}{}
+	said := 0
+	for _, line := range log.lines {
+		if line == "placement audits wait: low power mode" {
+			said++
+		}
+	}
+	<-log.mu
+	if said != 1 {
+		t.Fatalf("the wait was said %d times: %v", said, log.lines)
+	}
+	if ok, _ := n.quiesce(); !ok {
+		t.Fatal("audits that wait kept the child from an idle stop")
+	}
+	n.mu.Lock()
+	n.quiet = false
+	n.mu.Unlock()
+	f.mu.Lock()
+	f.strained = ""
+	f.mu.Unlock()
+	n.auditTick()
+	n.loads.Wait()
+	waitOrder(t, f, "load 128", "load 256", "audit 128", "audit 256")
+	if _, ok := n.embed(tokensOf(10)); !ok || !n.lastPlaced() {
+		t.Fatalf("after the audit: served %v, placed %v", ok, n.lastPlaced())
+	}
+}
+
+// A function whose audit is on record as ended without a verdict is not
+// audited again: it serves as Core ML.
+func TestNeuralEngine_AuditWithoutAVerdictIsNotRunAgain(t *testing.T) {
+	f := &fakeANE{unsettled: map[int]bool{128: true}}
+	n, _ := newTestANE(t, f)
+	loadFor(n, 10)
+	loadFor(n, 200)
+	waitOrder(t, f, "load 128", "load 256", "audit 256")
+	if _, ok := n.embed(tokensOf(10)); !ok || n.lastPlaced() {
+		t.Fatalf("served %v, placed %v; want served as core ml", ok, n.lastPlaced())
+	}
+}
+
+// A plan Core ML did not answer in time leaves its audit in flight until
+// that call is back: the child refuses an idle stop, the audit's finished
+// line and the path's off line wait for it, and no verdict is taken.
+func TestNeuralEngine_LatePlanIsInFlightUntilCoreMLReturns(t *testing.T) {
+	late := make(chan struct{})
+	f := &fakeANE{auditLate: map[int]chan struct{}{128: late}}
+	log := newLogLines()
+	n, _ := newTestANE(t, f)
+	n.logf = log.logf
+	back := sync.OnceFunc(func() { close(late) })
+	defer back()
+	n.start()
+	for deadline := time.Now().Add(10 * time.Second); !log.has("s128 placement not verified: "); time.Sleep(2 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the late plan was not reported: %v", log.lines)
+		}
+	}
+	if ok, _ := n.quiesce(); ok {
+		t.Fatal("quiesced with Core ML inside a plan")
+	}
+	n.mu.Lock()
+	n.turnOffLocked("test")
+	n.mu.Unlock()
+	if log.has("s128 "+aneAuditFinished) || log.has(aneOffStatus) {
+		t.Fatalf("written with Core ML inside a plan: %v", log.lines)
+	}
+	back()
+	n.loads.Wait()
+	finished, off := log.index("s128 "+aneAuditFinished), log.index(aneOffStatus)
+	if finished < 0 || off < finished {
+		t.Fatalf("finished line at %d, off line at %d; want both, in that order: %v", finished, off, log.lines)
+	}
+	if n.verified[128] {
+		t.Fatal("a late plan gave a verdict")
+	}
+}
+
+// An audit that refuses the last function turns the path off: the off
+// line comes after the audit's finished line, not inside its bracket.
+func TestNeuralEngine_OffLineFollowsTheAuditThatCausedIt(t *testing.T) {
+	refused := errors.Join(errOffNeuralEngine, errors.New("6014 operations on the cpu"))
+	f := &fakeANE{auditErr: map[int]error{128: refused}}
+	log := newLogLines()
+	n, _ := newTestANE(t, f)
+	n.logf = log.logf
+	n.lengths = []int{128}
+	n.start()
+	n.loads.Wait()
+	finished, off := log.index("s128 "+aneAuditFinished), log.index(aneOffStatus)
+	if finished < 0 || off < finished {
+		t.Fatalf("finished line at %d, off line at %d; want both, in that order: %v", finished, off, log.lines)
+	}
 }
 
 func TestANEAuditing(t *testing.T) {
@@ -741,23 +952,25 @@ func TestLocal_RoutesNameUnverifiedFunctions(t *testing.T) {
 }
 
 // A plan that names no device for operations the verdict hangs on is no
-// verdict: nothing is recorded and the function is neither placed nor
-// refused.
+// verdict: the function is neither placed nor refused, and that is
+// recorded, so the next process does not read the same plan again.
 func TestCoreMLBackend_IncompletePlanIsNoVerdict(t *testing.T) {
 	for name, plan := range map[string]coreml.Placement{
 		"no device for any operation":      {Unknown: 6209},
 		"a core operator without a device": {NeuralEngine: 6000, CPU: 14, Unknown: 1, UnknownCore: []string{"ios18.matmul"}},
 	} {
-		b := newTestBackend(t, t.TempDir(), "Chip, macOS build 1A1")
+		dir := t.TempDir()
+		b := newTestBackend(t, dir, "Chip, macOS build 1A1")
 		b.plans["s128"] = plan
 		if _, err := b.audit(128); err == nil || errors.Is(err, errOffNeuralEngine) {
 			t.Errorf("%s: audit = %v, want an error that is not a refusal", name, err)
 		}
-		if b.placed(128) || b.refused(128) != nil {
-			t.Errorf("%s: placed %v, refused %v", name, b.placed(128), b.refused(128))
+		if !b.unsettled(128) {
+			t.Errorf("%s: not held as audited without a verdict", name)
 		}
-		if _, err := os.Stat(b.recordPath(128)); !os.IsNotExist(err) {
-			t.Errorf("%s: a record was written: %v", name, err)
+		next := newTestBackend(t, dir, "Chip, macOS build 1A1")
+		if _, _, err := next.load(128); err != nil || !next.unsettled(128) {
+			t.Errorf("%s: the next process: load %v, without a verdict %v", name, err, next.unsettled(128))
 		}
 	}
 	// Constants without a device do not hold a verdict back.
@@ -768,69 +981,62 @@ func TestCoreMLBackend_IncompletePlanIsNoVerdict(t *testing.T) {
 	}
 }
 
-// Only a record with every field, for this model, setup and function,
-// whose verdict the placement rule gives for its own counts, is a
-// verdict. Anything else is unaudited.
+// Only a record with every field, for this model, setup and function, is
+// one: a placement whose counts the placement rule puts on the Neural
+// Engine, or an audit without a verdict. Anything else is unaudited.
 func TestCoreMLBackend_RecordsAreChecked(t *testing.T) {
 	const host = "Chip, macOS build 1A1"
 	model := testPackage.id()
-	head := `{"version":1,"model":"` + model + `","host":"` + host + `","function":"s128"`
-	const refusal = `,"on":false,"neuralEngine":0,"gpu":0,"cpu":6014,"unknown":0,"cpuCore":["ios18.matmul"]}`
+	head := `{"model":"` + model + `","host":"` + host + `","function":"s128"`
+	const on = `,"verdict":"on","neuralEngine":6000,"gpu":0,"cpu":14,"unknown":0}`
 	path := func(dir string, length int) string { return newTestBackend(t, dir, host).recordPath(length) }
 	for name, raw := range map[string]string{
-		"no verdict fields":                                    head + `}`,
-		"one count alone":                                      head + `,"cpu":14}`,
-		"counts without the verdict":                           head + `,"neuralEngine":0,"gpu":0,"cpu":14,"unknown":0}`,
-		"a count missing":                                      head + `,"on":false,"gpu":0,"cpu":14,"unknown":0}`,
-		"the unknown count missing":                            head + `,"on":false,"neuralEngine":0,"gpu":0,"cpu":14}`,
-		"a verdict its counts do not give":                     head + `,"on":true,"neuralEngine":0,"gpu":0,"cpu":14,"unknown":0}`,
-		"a count of the wrong type":                            head + `,"on":false,"neuralEngine":0,"gpu":0,"cpu":"14","unknown":0}`,
-		"more core operators on the cpu than operations there": head + `,"on":false,"neuralEngine":6000,"gpu":0,"cpu":0,"unknown":0,"cpuCore":["ios18.matmul"]}`,
-		"counts that settle nothing":                           head + `,"on":false,"neuralEngine":60,"gpu":0,"cpu":10,"unknown":80}`,
-		"another function's record":                            strings.Replace(head, "s128", "s256", 1) + refusal,
-		"another model's record":                               strings.Replace(head, model, "other-12345678", 1) + refusal,
-		"another setup's record":                               strings.Replace(head, host, "Chip, macOS build 9Z9", 1) + refusal,
-		"no version":                                           strings.Replace(head, `"version":1,`, "", 1) + refusal,
-		"not json":                                             `{"version":1,`,
+		"no verdict":                                           head + `}`,
+		"counts without the verdict":                           head + `,"neuralEngine":6000,"gpu":0,"cpu":14,"unknown":0}`,
+		"a placement without its counts":                       head + `,"verdict":"on"}`,
+		"a count missing":                                      head + `,"verdict":"on","gpu":0,"cpu":14,"unknown":0}`,
+		"the unknown count missing":                            head + `,"verdict":"on","neuralEngine":6000,"gpu":0,"cpu":14}`,
+		"a placement its counts do not give":                   head + `,"verdict":"on","neuralEngine":0,"gpu":0,"cpu":14,"unknown":0}`,
+		"a count of the wrong type":                            head + `,"verdict":"on","neuralEngine":6000,"gpu":0,"cpu":"14","unknown":0}`,
+		"more core operators on the cpu than operations there": head + `,"verdict":"on","neuralEngine":6000,"gpu":0,"cpu":0,"unknown":0,"cpuCore":["ios18.matmul"]}`,
+		"counts that settle nothing":                           head + `,"verdict":"on","neuralEngine":60,"gpu":0,"cpu":10,"unknown":80}`,
+		"a refusal":                                            head + `,"verdict":"off","neuralEngine":0,"gpu":0,"cpu":6014,"unknown":0,"cpuCore":["ios18.matmul"]}`,
+		"a verdict of another kind":                            head + `,"verdict":true}`,
+		"another function's record":                            strings.Replace(head, "s128", "s256", 1) + on,
+		"another model's record":                               strings.Replace(head, model, "other-12345678", 1) + on,
+		"another setup's record":                               strings.Replace(head, host, "Chip, macOS build 9Z9", 1) + on,
+		"not json":                                             `{"model":`,
 	} {
 		dir := t.TempDir()
 		if err := os.WriteFile(path(dir, 128), []byte(raw), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		b := newTestBackend(t, dir, host)
-		if b.placed(128) || b.refused(128) != nil {
-			t.Errorf("%s: placed %v, refused %v; want unaudited", name, b.placed(128), b.refused(128))
-		}
-		if _, _, err := b.load(128); err != nil {
-			t.Errorf("%s: the function was refused: %v", name, err)
+		if placed, known := b.audited(128); placed || known {
+			t.Errorf("%s: placed %v, known %v; want unaudited", name, placed, known)
 		}
 	}
-	// The sound refusal is read, and a file under a name that is not the
-	// function's own is nobody's.
+	// The sound ones are read, a file under a name that is not the
+	// function's own is nobody's, and neither is another version's.
 	dir := t.TempDir()
 	own := path(dir, 128)
-	for _, file := range []string{own, strings.Replace(own, ".s128.", ".s0256.", 1), strings.Replace(own, ".s128.", ".512.", 1)} {
-		if err := os.WriteFile(file, []byte(head+refusal), 0o644); err != nil {
+	version := ".v" + strconv.Itoa(placementVersion) + "."
+	for file, raw := range map[string]string{
+		own: head + on,
+		strings.Replace(own, ".s128.", ".s0256.", 1): head + on,
+		strings.Replace(own, ".s128.", ".512.", 1):   head + on,
+		path(dir, 1024): strings.Replace(head, "s128", "s1024", 1) + `,"verdict":"none"}`,
+		strings.Replace(path(dir, 2048), version, ".v1.", 1): strings.Replace(head, "s128", "s2048", 1) + on,
+		strings.Replace(path(dir, 2048), version, ".", 1):    strings.Replace(head, "s128", "s2048", 1) + on,
+	} {
+		if err := os.WriteFile(file, []byte(raw), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	b := newTestBackend(t, dir, host)
-	if b.refused(128) == nil || b.refused(256) != nil || b.refused(512) != nil {
-		t.Errorf("refused: s128 %v, s256 %v, s512 %v; want s128 alone", b.refused(128), b.refused(256), b.refused(512))
-	}
-}
-
-// A refusal the plan gives by its unknown operations alone, too few to
-// reach the threshold wherever they run, is on record for the next child.
-func TestCoreMLBackend_RecordsARefusalMadeOfUnknowns(t *testing.T) {
-	dir := t.TempDir()
-	b := newTestBackend(t, dir, "Chip, macOS build 1A1")
-	b.plans["s128"] = coreml.Placement{Unknown: 80}
-	if _, err := b.audit(128); !errors.Is(err, errOffNeuralEngine) {
-		t.Fatalf("audit = %v, want a refusal", err)
-	}
-	if next := newTestBackend(t, dir, "Chip, macOS build 1A1"); next.refused(128) == nil {
-		t.Fatal("the refusal was not read back")
+	if !b.placed(128) || b.placed(256) || b.placed(512) || !b.unsettled(1024) || b.placed(2048) {
+		t.Errorf("placed: s128 %v, s256 %v, s512 %v, s2048 %v; s1024 without a verdict %v; want s128 placed and s1024 left open",
+			b.placed(128), b.placed(256), b.placed(512), b.placed(2048), b.unsettled(1024))
 	}
 }
 
@@ -841,9 +1047,8 @@ func TestCoreMLBackend_TwoChildrenKeepBothVerdicts(t *testing.T) {
 	dir := t.TempDir()
 	a := newTestBackend(t, dir, "Chip, macOS build 1A1")
 	b := newTestBackend(t, dir, "Chip, macOS build 1A1")
-	a.plans["s256"] = offEngine
 	// Each holds what it read at the start; neither reads again.
-	if _, err := a.audit(256); !errors.Is(err, errOffNeuralEngine) {
+	if _, err := a.audit(256); err != nil {
 		t.Fatal(err)
 	}
 	stale := b.placements
@@ -854,8 +1059,8 @@ func TestCoreMLBackend_TwoChildrenKeepBothVerdicts(t *testing.T) {
 		t.Fatal("the second child read the first one's verdict: the test proves nothing")
 	}
 	next := newTestBackend(t, dir, "Chip, macOS build 1A1")
-	if next.refused(256) == nil || !next.placed(512) {
-		t.Fatalf("records: s256 refused %v, s512 placed %v; want both verdicts", next.refused(256), next.placed(512))
+	if !next.placed(256) || !next.placed(512) {
+		t.Fatalf("records: s256 placed %v, s512 placed %v; want both verdicts", next.placed(256), next.placed(512))
 	}
 }
 

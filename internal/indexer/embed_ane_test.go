@@ -14,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/anyproto/any/internal/indexer/coreml"
 )
 
 // fakeANE stands in for Core ML: functions return a unit vector and
@@ -45,23 +47,35 @@ type fakeANE struct {
 	auditErr  map[int]error
 	auditGate chan struct{}
 	order     []string // "load <length>" and "audit <length>", as they began
-	// refusals are the functions on record as planned off the Neural
-	// Engine.
-	refusals map[int]error
+	// unsettled are the functions on record as audited without a verdict;
+	// abandoned, those whose audit the engine gave up; strained, what
+	// strain answers.
+	unsettled map[int]bool
+	abandoned []int
+	strained  string
+	// auditLate: the audit's plan is not answered in time; Core ML is
+	// back from it when the channel closes.
+	auditLate map[int]chan struct{}
 	// onClose, when set, runs at the start of every function's close.
 	onClose func(length int)
 }
 
-func (f *fakeANE) refused(length int) error {
+func (f *fakeANE) audited(length int) (placed, known bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.refusals[length]
+	return f.recorded, f.recorded || f.unsettled[length]
 }
 
-func (f *fakeANE) placed(int) bool {
+func (f *fakeANE) abandon(length int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.recorded
+	f.abandoned = append(f.abandoned, length)
+}
+
+func (f *fakeANE) strain() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.strained
 }
 
 func (f *fakeANE) audit(length int) (string, error) {
@@ -72,6 +86,12 @@ func (f *fakeANE) audit(length int) (string, error) {
 	f.mu.Unlock()
 	if gate != nil {
 		<-gate
+	}
+	f.mu.Lock()
+	late := f.auditLate[length]
+	f.mu.Unlock()
+	if late != nil {
+		return "", &coreml.LatePlanError{Function: fmt.Sprintf("s%d", length), Waited: time.Minute, Done: late}
 	}
 	return "fake plan", err
 }
