@@ -731,48 +731,69 @@ func TestNeuralEngine_QuiesceAndTheOffLine(t *testing.T) {
 }
 
 // No audit starts while the machine saves power or runs hot: it waits,
-// says so once, and starts when that has passed. The functions serve
-// meanwhile, and the child may be stopped as idle.
+// says so once, looks again every poll and starts by itself when that has
+// passed. The functions serve meanwhile.
 func TestNeuralEngine_AuditsWaitOutLowPowerAndHeat(t *testing.T) {
+	const poll = 20 * time.Millisecond
 	f := &fakeANE{strained: "low power mode"}
 	log := newLogLines()
 	n, _ := newTestANE(t, f)
 	n.logf = log.logf
-	n.auditPoll = time.Hour
+	n.auditPoll = poll
 	loadFor(n, 10)
 	loadFor(n, 200)
 	waitOrder(t, f, "load 128", "load 256")
 	if _, ok := n.embed(tokensOf(10)); !ok || n.lastPlaced() {
 		t.Fatalf("served %v, placed %v; want served, not placed", ok, n.lastPlaced())
 	}
-	n.auditTick() // still strained
+	time.Sleep(5 * poll) // looked again several times, still strained
 	waitOrder(t, f, "load 128", "load 256")
-	log.mu <- struct{}{}
 	said := 0
-	for _, line := range log.lines {
+	for _, line := range log.all() {
 		if line == "placement audits wait: low power mode" {
 			said++
 		}
 	}
-	<-log.mu
 	if said != 1 {
-		t.Fatalf("the wait was said %d times: %v", said, log.lines)
+		t.Fatalf("the wait was said %d times: %v", said, log.all())
 	}
-	if ok, _ := n.quiesce(); !ok {
-		t.Fatal("audits that wait kept the child from an idle stop")
-	}
-	n.mu.Lock()
-	n.quiet = false
-	n.mu.Unlock()
+	// Nothing asks: the poll alone finds the strain gone.
 	f.mu.Lock()
 	f.strained = ""
 	f.mu.Unlock()
-	n.auditTick()
-	n.loads.Wait()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(2 * time.Millisecond) {
+		n.mu.Lock()
+		verified := n.verified[128] && n.verified[256]
+		n.mu.Unlock()
+		if verified {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the audits never started after the strain passed: %v", log.all())
+		}
+	}
 	waitOrder(t, f, "load 128", "load 256", "audit 128", "audit 256")
 	if _, ok := n.embed(tokensOf(10)); !ok || !n.lastPlaced() {
 		t.Fatalf("after the audit: served %v, placed %v", ok, n.lastPlaced())
 	}
+}
+
+// Audits that wait for the power state do not keep the child from an
+// idle stop, and none starts once it was accepted.
+func TestNeuralEngine_WaitingAuditsDoNotHoldTheChild(t *testing.T) {
+	const poll = 20 * time.Millisecond
+	f := &fakeANE{strained: "low power mode"}
+	n, _ := newTestANE(t, f)
+	n.auditPoll = poll
+	loadFor(n, 10)
+	if ok, _ := n.quiesce(); !ok {
+		t.Fatal("audits that wait kept the child from an idle stop")
+	}
+	f.mu.Lock()
+	f.strained = ""
+	f.mu.Unlock()
+	time.Sleep(5 * poll)
+	waitOrder(t, f, "load 128")
 }
 
 // A function whose audit is on record as ended without a verdict is not
