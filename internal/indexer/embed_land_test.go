@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"testing"
@@ -184,19 +185,28 @@ type editingEmbedder struct {
 	axisEmbedder
 	edit func()
 	once sync.Once
+	mu   sync.Mutex
+	sent []string // "<text>@<title>", as sent
 }
 
 func (e *editingEmbedder) EmbedsTitles() bool { return true }
 
-func (e *editingEmbedder) EmbedTitledDocs(ctx context.Context, _, texts []string) ([][]float32, error) {
+func (e *editingEmbedder) EmbedTitledDocs(ctx context.Context, titles, texts []string) ([][]float32, error) {
 	e.once.Do(e.edit)
+	e.mu.Lock()
+	for i, text := range texts {
+		e.sent = append(e.sent, text+"@"+titles[i])
+	}
+	e.mu.Unlock()
 	return e.EmbedDocs(ctx, texts)
 }
 
-// A doc rewritten or renamed while its batch embeds takes no vector,
-// stays pending and is not reported as landed; the next drain lands it.
-// The round is three batches of two over three changed and three
-// untouched docs, so one batch holds both kinds whatever the order.
+// A doc rewritten or renamed while its batch embeds takes no vector from
+// that batch: the drain reads the queue's head once more and embeds it as
+// it is now, though the page was the last and no nudge named a renamed
+// object's window. The round is three batches of two over three changed
+// and three untouched docs, so one batch holds both kinds whatever the
+// order.
 func TestEmbedDrain_SkipsDocChangedMidRound(t *testing.T) {
 	ctx := context.Background()
 	st := mustStore(t, 4)
@@ -244,24 +254,69 @@ func TestEmbedDrain_SkipsDocChangedMidRound(t *testing.T) {
 	if editErr != nil {
 		t.Fatal(editErr)
 	}
-	if n != 3 {
-		t.Errorf("round reported %d docs landed, want the 3 untouched messages", n)
-	}
-	changed := []string{docId("o1", "editor_blocks", "win_a"), docId("o2", "chat_messages", "m1"), docId("o2", "chat_messages", "m2")}
-	ids, _, err := st.Pending(ctx, sp, 10)
-	slices.Sort(ids)
-	if err != nil || !slices.Equal(ids, changed) {
-		t.Fatalf("pending = %q, %v; want %q", ids, err, changed)
-	}
-	for _, id := range changed {
-		if v := storedDoc(t, st, sp, id); v.Get("vector") != nil {
-			t.Errorf("%q carries a vector embedded before it changed", id)
-		}
-	}
-	if n := drain(); n != 3 {
-		t.Fatalf("next round reported %d docs landed, want 3", n)
+	if n != 6 {
+		t.Errorf("the drain reported %d docs landed, want each of the 6 once", n)
 	}
 	if n, err := st.PendingCount(ctx, sp); err != nil || n != 0 {
 		t.Fatalf("%d docs pending, %v; want none", n, err)
 	}
+	// The changed ones went out twice, the second time as they are now:
+	// what was embedded before the change did not land.
+	slices.Sort(emb.sent)
+	want := []string{
+		"a window@New name", "a window@Old name",
+		"fifth message@", "first message, edited@", "first message@", "fourth message@",
+		"second message, edited@", "second message@", "third message@",
+	}
+	if !slices.Equal(emb.sent, want) {
+		t.Fatalf("sent %q, want %q", emb.sent, want)
+	}
+}
+
+// A doc that takes no vector on every read does not keep the drain at the
+// queue's head: one more read, then the drain ends and the doc waits for
+// the next one.
+func TestEmbedDrain_RereadsTheHeadOnlyOnce(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 4)
+	st.SetEmbedTitles(true)
+	emb := &renamingEmbedder{axisEmbedder: axisEmbedder{dim: 4}}
+	ix := &Indexer{store: st, lg: logger.NewNamed("indexer.test"), opts: Options{Embedder: emb, AnnounceAfter: -1}.withDefaults()}
+	w := &spaceWorker{ix: ix, sp: staticIdSpace{}}
+	const sp = "sp1"
+	name := func(n int) DocUpsert {
+		return DocUpsert{Entry: entry("basic", "o1", index.DatasetProp, index.NamePropRecordId, fmt.Sprintf("Name %d", n), uint64(10+n))}
+	}
+	if err := st.Apply(ctx, sp, []DocUpsert{name(0), {Entry: entry("basic", "o1", "editor_blocks", "win_a", "a window", 2)}}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	emb.rename = func(call int) {
+		if err := st.Apply(ctx, sp, []DocUpsert{name(call)}, nil, nil); err != nil {
+			t.Error(err)
+		}
+	}
+	if err := w.drainRounds(ctx, false, func(int, int) {}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if emb.calls != 2 {
+		t.Fatalf("the window was sent %d times, want the first read and one more", emb.calls)
+	}
+	if n, err := st.PendingCount(ctx, sp); err != nil || n != 1 {
+		t.Fatalf("%d docs pending, %v; want the window", n, err)
+	}
+}
+
+// renamingEmbedder renames an object under every one of its calls.
+type renamingEmbedder struct {
+	axisEmbedder
+	rename func(call int)
+	calls  int
+}
+
+func (e *renamingEmbedder) EmbedsTitles() bool { return true }
+
+func (e *renamingEmbedder) EmbedTitledDocs(ctx context.Context, _, texts []string) ([][]float32, error) {
+	e.calls++
+	e.rename(e.calls)
+	return e.EmbedDocs(ctx, texts)
 }
