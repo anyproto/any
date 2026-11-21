@@ -2,9 +2,16 @@
 // its own members and read key, governed from the parent without being
 // read. Each peer is its own account unless a test says otherwise.
 //
-// Gating: needs a network whose coordinator accepts child spaces and
-// gives a small child-spaces limit, named by ANY_E2E_CHILD_SPACES_NODECONF.
-// Skips when it is unset.
+// Gating: runs against the network named by
+// ANY_E2E_CHILD_SPACES_NODECONF, and skips when it is unset. The network
+// must provide:
+//   - a coordinator that accepts child spaces;
+//   - a child-spaces limit of 2 to 10 for a new account: the story test
+//     creates a second child while the first exists, and the refusals
+//     test fills the limit and accepts 1 to 10;
+//   - a deletion period short enough for a deletion to become final
+//     within three minutes: that is how long the tests wait for a
+//     deleted child to leave its parent's list.
 //
 // Run:
 //
