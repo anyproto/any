@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -36,9 +37,9 @@ func registerChildSpaceRoutes(g *echo.Group, d *deps) {
 //	@Param			spaceId	path		string	true	"Space ID of the parent"
 //	@Success		200		{object}	api.SpaceChildrenResponse
 //	@Failure		400		{object}	api.ErrorEnvelope	"request.invalid_field — spaceId is not a space id"
-//	@Failure		403		{object}	api.ErrorEnvelope	"space.parent_permission_denied — the account is not an admin or the owner of the space"
-//	@Failure		404		{object}	api.ErrorEnvelope	"space.not_found — the coordinator does not know the space"
-//	@Failure		409		{object}	api.ErrorEnvelope	"space.deleted — the coordinator holds the space as deleted or in deletion"
+//	@Failure		403		{object}	api.ErrorEnvelope	"space.parent_permission_denied — the account is not an admin or the owner of the space, or the space is a child the coordinator refused for the role in its parent"
+//	@Failure		404		{object}	api.ErrorEnvelope	"space.not_found — the coordinator does not know the space and the account does not hold it as an active space"
+//	@Failure		409		{object}	api.ErrorEnvelope	"space.deleted — the coordinator holds the space as deleted or in deletion; space.not_pushed — the account's own active space has not reached the network yet and holds no refusal; space.parent_not_available — the parent's ACL has not reached the network yet, or the space is a child refused for it; space.parent_invalid, space.child_limit_reached — the space is a child the coordinator refused"
 //	@Failure		503		{object}	api.ErrorEnvelope	"network.unreachable — the coordinator could not be reached"
 //	@Router			/spaces/{spaceId}/children [get]
 func (d *deps) spaceChildren(c echo.Context) error {
@@ -48,13 +49,66 @@ func (d *deps) spaceChildren(c echo.Context) error {
 		if errors.Is(err, space.ErrBadSpaceId) {
 			return badSpaceIdError(c, "spaceId")
 		}
-		return spaceError(c, err, id)
+		return d.childrenError(c, err, id)
 	}
 	out := make([]api.ChildSpace, 0, len(children))
 	for _, child := range children {
 		out = append(out, api.ChildSpace{Id: child.Id, Status: childStatusString(child.Status)})
 	}
 	return c.JSON(http.StatusOK, api.SpaceChildrenResponse{Children: out})
+}
+
+// childrenError maps the errors of the children list. A space the
+// coordinator does not know and the account holds as active is on no
+// node.
+func (d *deps) childrenError(c echo.Context, err error, spaceId string) error {
+	if errors.Is(err, space.ErrSpaceUnknown) {
+		if info, ok := d.activeSpace(c.Request().Context(), spaceId); ok {
+			return unpushedSpaceError(c, info)
+		}
+	}
+	return spaceError(c, err, spaceId)
+}
+
+// unpushedSpaceError answers for an active space of the account that is
+// on no node: the code of the refusal its row holds, space.not_pushed
+// for a row with none.
+func unpushedSpaceError(c echo.Context, info space.SpaceInfo) error {
+	if refused := signRefusalError(info.Refusal); refused != nil {
+		return spaceError(c, refused, info.Id)
+	}
+	return spaceNotPushedError(c, map[string]any{"spaceId": info.Id})
+}
+
+// signRefusalError is the SDK error of the coordinator's refusal to
+// accept a child space; nil for any other value.
+func signRefusalError(r space.Refusal) error {
+	switch r {
+	case space.RefusalParentNotAvailable:
+		return space.ErrParentSpaceNotAvailable
+	case space.RefusalParentInvalid:
+		return space.ErrParentSpaceInvalid
+	case space.RefusalParentPermissionDenied:
+		return space.ErrParentPermissionDenied
+	case space.RefusalChildLimitReached:
+		return space.ErrChildSpacesLimitReached
+	}
+	return nil
+}
+
+// activeSpace returns the row of spaceId when the account's space list
+// holds it as active.
+func (d *deps) activeSpace(ctx context.Context, spaceId string) (space.SpaceInfo, bool) {
+	infos, err := d.sdk.Spaces().List(ctx)
+	if err != nil {
+		return space.SpaceInfo{}, false
+	}
+	for _, info := range infos {
+		if info.Id == spaceId {
+			return info, info.Status == space.StatusActive
+		}
+	}
+	return space.SpaceInfo{}, false
 }
 
 func childStatusString(s space.ChildStatus) string {
@@ -122,9 +176,9 @@ func childMembersToAPI(members []space.ChildMember, rotationPending bool) api.Ch
 //	@Param			body	body	api.ACLRemoveRequest	true	"Identities to remove"
 //	@Success		204
 //	@Failure		400	{object}	api.ErrorEnvelope	"request.missing_field — identities is empty; request.invalid_field — an identity is listed more than once or is malformed, or childId is not a space id"
-//	@Failure		403	{object}	api.ErrorEnvelope	"space.parent_permission_denied — the account is not an admin or the owner of the parent, or an admin removes an account that is an admin or the owner of the parent; acl.forbidden — the child's owner or the caller is among the identities"
+//	@Failure		403	{object}	api.ErrorEnvelope	"space.parent_permission_denied — the account is not an admin or the owner of the parent, or an admin removes an account that is an admin or the owner of the parent; acl.forbidden — the child's owner or the caller is among the identities, or the space is a top-level space of another account"
 //	@Failure		404	{object}	api.ErrorEnvelope	"members.not_found — an identity is no member of the child; space.not_found — the coordinator does not know the space"
-//	@Failure		409	{object}	api.ErrorEnvelope	"space.not_child — the account's space list shows the space has no parent; space.deleted — the coordinator holds the space as deleted or in deletion"
+//	@Failure		409	{object}	api.ErrorEnvelope	"space.not_child — the account's space list shows the space has no parent; space.deleted — the coordinator holds the space as deleted or in deletion; space.parent_not_available — the coordinator cannot read the ACL of the child's parent"
 //	@Failure		503	{object}	api.ErrorEnvelope	"network.unreachable — the network could not be reached; nothing changed"
 //	@Router			/children/{childId}/acl/remove [post]
 func (d *deps) childRemoveMembers(c echo.Context) error {
@@ -156,9 +210,9 @@ func (d *deps) childRemoveMembers(c echo.Context) error {
 //	@Param			body	body	api.ACLOwnershipRequest	true	"New owner + the role the previous owner keeps: reader, writer or admin"
 //	@Success		204
 //	@Failure		400	{object}	api.ErrorEnvelope	"request.missing_field — newOwner or oldOwnerPerm is missing; request.invalid_field — oldOwnerPerm is none, guest or owner, or childId is not a space id; request.schema — an unknown permission"
-//	@Failure		403	{object}	api.ErrorEnvelope	"space.parent_permission_denied — the account is neither the owner of the parent nor the child's own owner; acl.forbidden — the new owner is the owner already or a guest identity"
+//	@Failure		403	{object}	api.ErrorEnvelope	"space.parent_permission_denied — the account is neither the owner of the parent nor the child's own owner; acl.forbidden — the new owner is the owner already or a guest identity, or the space is a top-level space of another account"
 //	@Failure		404	{object}	api.ErrorEnvelope	"members.not_found — the new owner is no member of the child; space.not_found — the coordinator does not know the space"
-//	@Failure		409	{object}	api.ErrorEnvelope	"space.not_child — the account's space list shows the space has no parent; space.deleted — the coordinator holds the space as deleted or in deletion; acl.not_parent_member — the new owner is no member of the parent"
+//	@Failure		409	{object}	api.ErrorEnvelope	"space.not_child — the account's space list shows the space has no parent; space.deleted — the coordinator holds the space as deleted or in deletion; acl.not_parent_member — the new owner is no member of the parent; space.parent_not_available — the coordinator cannot read the ACL of the child's parent"
 //	@Failure		503	{object}	api.ErrorEnvelope	"network.unreachable — the network could not be reached; nothing changed"
 //	@Router			/children/{childId}/acl/ownership [post]
 func (d *deps) childChangeOwner(c echo.Context) error {
@@ -191,7 +245,7 @@ func (d *deps) childChangeOwner(c echo.Context) error {
 //	@Failure		400	{object}	api.ErrorEnvelope	"request.invalid_field — childId is not a space id"
 //	@Failure		403	{object}	api.ErrorEnvelope	"space.parent_permission_denied — the account is neither the owner of the parent nor the child's own owner"
 //	@Failure		404	{object}	api.ErrorEnvelope	"space.not_found — the coordinator does not know the space"
-//	@Failure		409	{object}	api.ErrorEnvelope	"space.not_child — the account's space list shows the space has no parent"
+//	@Failure		409	{object}	api.ErrorEnvelope	"space.not_child — the account's space list shows the space has no parent, or the coordinator shows an active regular top-level space of another account; space.parent_not_available — the coordinator cannot read the ACL of the child's parent"
 //	@Failure		503	{object}	api.ErrorEnvelope	"network.unreachable — the coordinator could not be reached; nothing changed"
 //	@Router			/children/{childId} [delete]
 func (d *deps) childDelete(c echo.Context) error {
@@ -281,7 +335,7 @@ func childSpaceError(c echo.Context, err error, details map[string]any) (error, 
 			"the space still has child spaces: delete them, then delete the space once its children list is empty", details), true
 	case errors.Is(err, space.ErrNotChildSpace):
 		return writeError(c, http.StatusConflict, "space.not_child",
-			"the account's space list shows the space has no parent", details), true
+			"the space has no parent: the account's space list or the coordinator shows a top-level space", details), true
 	case errors.Is(err, space.ErrSpaceNotStored):
 		return writeError(c, http.StatusConflict, "space.not_stored",
 			"this device holds no copy of the space; a device that holds it pushes it", details), true

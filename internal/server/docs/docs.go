@@ -5449,7 +5449,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "space.not_child — the account's space list shows the space has no parent"
+                        "description": "space.not_child — the account's space list shows the space has no parent, or the coordinator shows an active regular top-level space of another account; space.parent_not_available — the coordinator cannot read the ACL of the child's parent"
                     },
                     "503": {
                         "content": {
@@ -5524,7 +5524,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "space.parent_permission_denied — the account is neither the owner of the parent nor the child's own owner; acl.forbidden — the new owner is the owner already or a guest identity"
+                        "description": "space.parent_permission_denied — the account is neither the owner of the parent nor the child's own owner; acl.forbidden — the new owner is the owner already or a guest identity, or the space is a top-level space of another account"
                     },
                     "404": {
                         "content": {
@@ -5544,7 +5544,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "space.not_child — the account's space list shows the space has no parent; space.deleted — the coordinator holds the space as deleted or in deletion; acl.not_parent_member — the new owner is no member of the parent"
+                        "description": "space.not_child — the account's space list shows the space has no parent; space.deleted — the coordinator holds the space as deleted or in deletion; acl.not_parent_member — the new owner is no member of the parent; space.parent_not_available — the coordinator cannot read the ACL of the child's parent"
                     },
                     "503": {
                         "content": {
@@ -5619,7 +5619,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "space.parent_permission_denied — the account is not an admin or the owner of the parent, or an admin removes an account that is an admin or the owner of the parent; acl.forbidden — the child's owner or the caller is among the identities"
+                        "description": "space.parent_permission_denied — the account is not an admin or the owner of the parent, or an admin removes an account that is an admin or the owner of the parent; acl.forbidden — the child's owner or the caller is among the identities, or the space is a top-level space of another account"
                     },
                     "404": {
                         "content": {
@@ -5639,7 +5639,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "space.not_child — the account's space list shows the space has no parent; space.deleted — the coordinator holds the space as deleted or in deletion"
+                        "description": "space.not_child — the account's space list shows the space has no parent; space.deleted — the coordinator holds the space as deleted or in deletion; space.parent_not_available — the coordinator cannot read the ACL of the child's parent"
                     },
                     "503": {
                         "content": {
@@ -9921,7 +9921,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "space.parent_permission_denied — the account is not an admin or the owner of the space"
+                        "description": "space.parent_permission_denied — the account is not an admin or the owner of the space, or the space is a child the coordinator refused for the role in its parent"
                     },
                     "404": {
                         "content": {
@@ -9931,7 +9931,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "space.not_found — the coordinator does not know the space"
+                        "description": "space.not_found — the coordinator does not know the space and the account does not hold it as an active space"
                     },
                     "409": {
                         "content": {
@@ -9941,7 +9941,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "space.deleted — the coordinator holds the space as deleted or in deletion"
+                        "description": "space.deleted — the coordinator holds the space as deleted or in deletion; space.not_pushed — the account's own active space has not reached the network yet and holds no refusal; space.parent_not_available — the parent's ACL has not reached the network yet, or the space is a child refused for it; space.parent_invalid, space.child_limit_reached — the space is a child the coordinator refused"
                     },
                     "503": {
                         "content": {

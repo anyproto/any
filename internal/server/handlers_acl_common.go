@@ -134,10 +134,19 @@ func aclOpError(c echo.Context, err error, details map[string]any) error {
 		return writeError(c, http.StatusForbidden, "acl.forbidden",
 			"the coordinator refuses this operation for this account", details)
 	}
+	// The device's own check of the account's permissions in the ACL.
+	if errors.Is(err, space.ErrInsufficientPermissions) {
+		return writeError(c, http.StatusForbidden, "acl.forbidden",
+			"the space's ACL does not allow this operation for this account", details)
+	}
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "no permissions") || strings.Contains(msg, "permission denied"):
 		return writeError(c, http.StatusForbidden, "acl.forbidden", msg, details)
+	// STOPGAP: matched on message text until the SDK types the network's
+	// refusal of an ACL record, which arrives as text only: the
+	// documented 403 of the /v1/children ACL routes on a top-level space
+	// of another account.
 	case strings.Contains(msg, "insufficient permissions"):
 		return writeError(c, http.StatusForbidden, "acl.forbidden", msg, details)
 	case strings.Contains(msg, "no record"):

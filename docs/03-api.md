@@ -1043,6 +1043,7 @@ A refused child is shared with nobody: no node holds it. On it
 once with the code of the recorded refusal, the one `retry-push`
 answers: `409 space.parent_not_available`, `409 space.parent_invalid`,
 `403 space.parent_permission_denied` or `409 space.child_limit_reached`.
+`GET …/children` on it answers the same code.
 
 A refused child that is no longer wanted is removed with
 `DELETE /v1/spaces/:spaceId`.
@@ -1068,10 +1069,19 @@ nothing is stored: no row is created for a listed child, and the call
 needs the network (`503 network.unreachable`). Any other caller is
 `403 space.parent_permission_denied`; an id that is not a space id is
 `400 request.invalid_field`. A space the coordinator does not know is
-`404 space.not_found`, the account's own space that has not reached the
-network yet included; one it holds as deleted or in deletion is
+`404 space.not_found`, unless the account holds it as an active space;
+one the coordinator holds as deleted or in deletion is
 `409 space.deleted`. A member below admin finds the children it belongs
 to in the space list, by `parentSpaceId`.
+
+A parent the account has just created is not on the network at once.
+Until it is pushed the list answers `409 space.not_pushed`, and then
+`409 space.parent_not_available` until the ACL of the parent has reached
+the network as well. Both pass by themselves, and neither says the
+parent is gone: it stays in the space list. `409 space.not_pushed` is
+only for a space whose row holds no `refusal`: a refused child stays on
+no node until its refusal clears, and the list answers the code of that
+refusal for it.
 
 **Governing a child from the parent.** The routes under
 `/v1/children/:childId` reach a child from outside it. They take the
@@ -1126,7 +1136,8 @@ is removed.
 | `409 acl.not_parent_member` | The new owner is no member of the parent. |
 | `404 members.not_found` | An identity is no member of the child: one of the removed, or the new owner. |
 | `403 acl.forbidden` | The child's ACL forbids the record: the child's owner or the caller among the removed identities; a new owner who is the owner already or a guest identity. |
-| `409 space.not_child` | The account's list shows the space has no parent. |
+| `409 space.not_child` | The space has no parent. The account's list shows it for a space the account holds, and nothing is sent. `DELETE` also answers it for an active regular top-level space of another account, which the coordinator shows. |
+| `409 space.parent_not_available` | The coordinator cannot read the ACL of the child's parent (`acl/remove`, `acl/ownership`, `DELETE`). |
 | `404 space.not_found` | The coordinator does not know the space. |
 | `409 space.deleted` | The coordinator holds the space as deleted or in deletion. `DELETE` of such a child is done and answers `204`. |
 | `400 request.invalid_field` | `childId` is not a space id (`details.field: "childId"`), an identity is malformed or listed more than once (`details.field: "identities"`), or `oldOwnerPerm` is `none`, `guest` or `owner`. |
@@ -1134,6 +1145,11 @@ is removed.
 
 `acl/remove` and `acl/ownership` fail when the child's ACL changes
 while they run, and are safe to repeat.
+
+On a regular top-level space of another account, `acl/remove` and
+`acl/ownership` see only the ACL of that space: they answer
+`403 acl.forbidden`, or `404 members.not_found` for an identity that is
+no account of it, and not `space.parent_permission_denied`.
 
 **Rotation pending.** `POST /v1/children/:childId/acl/remove` removes
 without the child's read key, so the removed members keep the current

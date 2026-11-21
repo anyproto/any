@@ -1147,7 +1147,11 @@ are no member of included, from the coordinator:
 `GET /v1/spaces/:parentId/children` → `{children: [{id, status}]}`,
 `status` being `active` or `deletion_pending`.
 That call needs the network and stores nothing, so read it when the
-screen opens, not on a timer.
+screen opens, not on a timer. For a parent created a moment ago it
+answers `409 space.not_pushed`, then `409 space.parent_not_available`,
+until the parent is on the network: show no children and read again.
+A refused child has no children, and the list answers the code of its
+refusal for it until the refusal clears.
 
 **A refused child.** The network accepts a child when it is first
 pushed. Until then, and after a refusal, it is a working local space

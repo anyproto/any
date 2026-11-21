@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -498,8 +499,9 @@ func TestChildOpError_Mapping(t *testing.T) {
 // the codes of a space the account's own list lacks or holds deleted.
 // The SDK wraps the coordinator's own error in its sentinel.
 func TestChildSpace_CoordinatorUnknownOrDeleted(t *testing.T) {
+	d, _ := newOfflineServer(t)
 	mappers := map[string]func(echo.Context, error) error{
-		"children list": func(c echo.Context, err error) error { return spaceError(c, err, "s1") },
+		"children list": func(c echo.Context, err error) error { return d.childrenError(c, err, "s1") },
 		"parent side":   func(c echo.Context, err error) error { return childOpError(c, err, "s1", "identities") },
 	}
 	for _, tc := range []struct {
@@ -716,6 +718,123 @@ func TestShareOpError_Mapping(t *testing.T) {
 			if got := env.Error.Details["spaceId"]; got != "s1" {
 				t.Errorf("shareOpError(%v, %q): details %v, want the spaceId", tc.err, field, env.Error.Details)
 			}
+		}
+	}
+}
+
+// An active space of the account that is on no node answers the code of
+// the refusal its row holds, and space.not_pushed with none.
+func TestUnpushedSpaceError(t *testing.T) {
+	for _, tc := range []struct {
+		refusal  space.Refusal
+		wantHTTP int
+		wantCode string
+	}{
+		{space.RefusalNone, http.StatusConflict, "space.not_pushed"},
+		{space.RefusalParentNotAvailable, http.StatusConflict, "space.parent_not_available"},
+		{space.RefusalParentInvalid, http.StatusConflict, "space.parent_invalid"},
+		{space.RefusalParentPermissionDenied, http.StatusForbidden, "space.parent_permission_denied"},
+		{space.RefusalChildLimitReached, http.StatusConflict, "space.child_limit_reached"},
+	} {
+		code, env := mapError(t, func(c echo.Context) error {
+			return unpushedSpaceError(c, space.SpaceInfo{Id: "s1", Status: space.StatusActive, Refusal: tc.refusal})
+		})
+		if code != tc.wantHTTP || env.Error.Code != tc.wantCode {
+			t.Errorf("refusal %q: %d %s, want %d %s", tc.refusal, code, env.Error.Code, tc.wantHTTP, tc.wantCode)
+		}
+		if got := env.Error.Details["spaceId"]; got != "s1" {
+			t.Errorf("refusal %q: details %v, want the spaceId", tc.refusal, env.Error.Details)
+		}
+	}
+}
+
+// A refusal for the account's permissions answers 403 acl.forbidden
+// from the SDK's sentinel, with the mapper's own message, and from the
+// text of the network's refusal, which arrives untyped.
+func TestAclOpError_InsufficientPermissions(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		err   error
+		typed bool
+	}{
+		{"the SDK's sentinel", fmt.Errorf("spaceimpl: RemoveAccounts: %w", space.ErrInsufficientPermissions), true},
+		{"the network's refusal as text", errors.New("spaceimpl: RemoveChildMembers: insufficient permissions"), false},
+	} {
+		code, env := mapError(t, func(c echo.Context) error {
+			return aclOpError(c, tc.err, map[string]any{"spaceId": "s1"})
+		})
+		if code != http.StatusForbidden || env.Error.Code != "acl.forbidden" {
+			t.Errorf("%s: %d %s, want 403 acl.forbidden", tc.name, code, env.Error.Code)
+		}
+		if raw := env.Error.Message == tc.err.Error(); raw == tc.typed {
+			t.Errorf("%s: message %q, want the mapper's own message only for the sentinel", tc.name, env.Error.Message)
+		}
+	}
+}
+
+// The children list of a space the coordinator does not know: a space
+// the account holds as active has not reached the network yet; one it
+// deleted or does not hold is no space of the account.
+func TestSpaceChildren_UnknownToTheCoordinator(t *testing.T) {
+	d, e := newOfflineServer(t)
+	parent := createSpace(t, e, "parent")
+	deleted := createSpace(t, e, "deleted")
+	if rec := doJSON(t, e, http.MethodDelete, "/v1/spaces/"+deleted, ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete a space: %d %s", rec.Code, rec.Body.String())
+	}
+	unknown := fmt.Errorf("spaceimpl: Children: %w: %w", space.ErrSpaceUnknown, coordinatorproto.ErrSpaceNotExists)
+	for _, tc := range []struct {
+		name, id string
+		wantHTTP int
+		wantCode string
+	}{
+		{"a space the account holds as active", parent, http.StatusConflict, "space.not_pushed"},
+		{"a space the account deleted", deleted, http.StatusNotFound, "space.not_found"},
+		{"a space the account does not hold", unknownSpaceId(parent), http.StatusNotFound, "space.not_found"},
+	} {
+		code, env := mapError(t, func(c echo.Context) error { return d.childrenError(c, unknown, tc.id) })
+		if code != tc.wantHTTP || env.Error.Code != tc.wantCode {
+			t.Errorf("%s: %d %s, want %d %s", tc.name, code, env.Error.Code, tc.wantHTTP, tc.wantCode)
+		}
+		if got := env.Error.Details["spaceId"]; got != tc.id {
+			t.Errorf("%s: details %v, want the spaceId", tc.name, env.Error.Details)
+		}
+	}
+}
+
+// What the coordinator answers for a space it knows maps to a code: the
+// children list of a parent whose ACL is not on the network yet, and
+// the delete of an active regular top-level space of another account.
+// On such a space the two ACL routes answer for its ACL. The errors are
+// shaped as the SDK returns them; the network's refusal of a record
+// arrives as text only.
+func TestChildSpace_CoordinatorKnowsTheSpace(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		mapper   func(echo.Context) error
+		wantHTTP int
+		wantCode string
+	}{
+		{"children of a parent whose ACL is not on the network", func(c echo.Context) error {
+			return spaceError(c, fmt.Errorf("spaceimpl: Children: %w", space.ErrParentSpaceNotAvailable), "s1")
+		}, http.StatusConflict, "space.parent_not_available"},
+		{"delete of another account's top-level space", func(c echo.Context) error {
+			err := fmt.Errorf("spaceimpl: DeleteChild: space %q: %w: %w", "s1", space.ErrNotChildSpace, coordinatorproto.ErrSpaceIsCreated)
+			return childOpError(c, err, "s1", "")
+		}, http.StatusConflict, "space.not_child"},
+		{"removal of a member of another account's top-level space, refused by the network", func(c echo.Context) error {
+			return childOpError(c, errors.New("spaceimpl: RemoveChildMembers: insufficient permissions"), "s1", "identities")
+		}, http.StatusForbidden, "acl.forbidden"},
+		{"owner change to an identity that is no account of the space", func(c echo.Context) error {
+			return childOpError(c, fmt.Errorf("spaceimpl: ChangeChildOwner: %w", space.ErrAccountNotFound), "s1", "newOwner")
+		}, http.StatusNotFound, "members.not_found"},
+	} {
+		code, env := mapError(t, tc.mapper)
+		if code != tc.wantHTTP || env.Error.Code != tc.wantCode {
+			t.Errorf("%s: %d %s, want %d %s", tc.name, code, env.Error.Code, tc.wantHTTP, tc.wantCode)
+		}
+		if got := env.Error.Details["spaceId"]; got != "s1" {
+			t.Errorf("%s: details %v, want the spaceId", tc.name, env.Error.Details)
 		}
 	}
 }
