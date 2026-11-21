@@ -329,6 +329,24 @@ func wantError(t *testing.T, p *peer, method, path, body string, status int, cod
 	}
 }
 
+// sharingRefused checks that the three calls that share the refused
+// child spaceId answer status and code on p at once.
+func sharingRefused(t *testing.T, p *peer, spaceId, identity string, status int, code string) {
+	t.Helper()
+	add, _ := json.Marshal(api.ACLAddRequest{Accounts: []api.ACLAddAccount{{Identity: identity, Permission: api.SpacePermissionWriter}}})
+	for _, call := range []struct{ path, body string }{
+		{"/invites", ""},
+		{"/guest-key", ""},
+		{"/acl/add", string(add)},
+	} {
+		start := time.Now()
+		wantError(t, p, http.MethodPost, "/v1/spaces/"+spaceId+call.path, call.body, status, code)
+		if took := time.Since(start); took > 10*time.Second {
+			t.Errorf("%s: POST %s on the refused child took %s, want its answer at once", p.name, call.path, took.Round(time.Second))
+		}
+	}
+}
+
 // wantStatus checks that method path on p answers status.
 func wantStatus(t *testing.T, p *peer, method, path, body string, status int) {
 	t.Helper()

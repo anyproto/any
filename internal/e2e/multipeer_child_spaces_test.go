@@ -223,13 +223,16 @@ func TestE2E_MultipeerChildSpaces_Story(t *testing.T) {
 }
 
 // TestE2E_MultipeerChildSpaces_Refusals: the account limits carry the
-// child-spaces limit. A reader's child is refused for the role, stays a
-// usable local space, and shows the refusal on a second device of the
-// account. A writer and a reader cannot list the
-// children. The children of the owner's parents fill its limit; the
-// next child is refused for the limit and accepted by retry-push once
-// a place frees up. The parent-side routes answer their codes for an
-// unknown child, a top-level space and an id that is not a space id.
+// child-spaces limit. The children list of a parent created a moment
+// ago answers 409 until the parent is on the network, and neither 404
+// nor 5xx. A reader's child is refused for the role, stays a usable
+// local space, answers the refusal's code on the routes that share it
+// and on its children list, and shows the refusal on a second device of
+// the account. A writer and a reader cannot list the children. The
+// children of the owner's parents fill its limit; the next child is
+// refused for the limit and accepted by retry-push once a place frees
+// up. The parent-side routes answer their codes for an unknown child, a
+// top-level space and an id that is not a space id.
 func TestE2E_MultipeerChildSpaces_Refusals(t *testing.T) {
 	nodeconf := childSpacesNodeconf(t)
 	bin := buildBinary(t)
@@ -260,6 +263,37 @@ func TestE2E_MultipeerChildSpaces_Refusals(t *testing.T) {
 		t.Errorf("childSpaces.fetchedAt is zero")
 	}
 
+	// A parent is not on the network at once: until it is pushed the
+	// coordinator does not know it, then its ACL is still on the way.
+	// The account holds it all along, so the list never answers 404.
+	t.Run("ChildrenOfAParentJustCreated", func(t *testing.T) {
+		var fresh api.SpaceInfo
+		mustJSON(t, http.MethodPost, owner.base+"/v1/spaces", `{"name":"Parent created a moment ago"}`, http.StatusCreated, &fresh)
+		var seen []string
+		for deadline := time.Now().Add(2 * time.Minute); ; time.Sleep(50 * time.Millisecond) {
+			resp, raw := doRequest(t, http.MethodGet, owner.base+"/v1/spaces/"+fresh.Id+"/children", "")
+			answer := fmt.Sprint(resp.StatusCode)
+			if resp.StatusCode != http.StatusOK {
+				answer += " " + errorCode(t, raw)
+			}
+			if len(seen) == 0 || seen[len(seen)-1] != answer {
+				seen = append(seen, answer)
+			}
+			switch answer {
+			case "200":
+				t.Logf("the children list of a parent just created answered %v", seen)
+				return
+			case "409 space.not_pushed", "409 space.parent_not_available":
+			default:
+				t.Fatalf("children of a parent just created: %d %s after %v, want 409 space.not_pushed, then 409 space.parent_not_available, then 200",
+					resp.StatusCode, raw, seen)
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("children of a parent just created never answered 200: %v", seen)
+			}
+		}
+	})
+
 	var parent1, parent2 api.SpaceInfo
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces", `{"name":"Parent 1"}`, http.StatusCreated, &parent1)
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces", `{"name":"Parent 2"}`, http.StatusCreated, &parent2)
@@ -284,6 +318,15 @@ func TestE2E_MultipeerChildSpaces_Refusals(t *testing.T) {
 	if row := getSpace(t, reader, readersChild.Id); row.Refusal != api.SpaceRefusalParentPermissionDenied {
 		t.Errorf("refusal after a refused retry = %q, want parent_permission_denied", row.Refusal)
 	}
+
+	// A refused child is on no node: the routes that share it and its
+	// children list answer the code of its refusal at once, with no wait
+	// for a push.
+	t.Run("SharingARefusedChild", func(t *testing.T) {
+		sharingRefused(t, reader, readersChild.Id, writerId, http.StatusForbidden, "space.parent_permission_denied")
+		wantError(t, reader, http.MethodGet, "/v1/spaces/"+readersChild.Id+"/children", "",
+			http.StatusForbidden, "space.parent_permission_denied")
+	})
 
 	t.Run("RefusalOnTheSecondDevice", func(t *testing.T) {
 		var row map[string]any
@@ -362,6 +405,9 @@ func TestE2E_MultipeerChildSpaces_Refusals(t *testing.T) {
 	}
 	wantError(t, owner, http.MethodPost, "/v1/spaces/"+over.Id+"/retry-push", "",
 		http.StatusConflict, "space.child_limit_reached")
+	sharingRefused(t, owner, over.Id, writerId, http.StatusConflict, "space.child_limit_reached")
+	wantError(t, owner, http.MethodGet, "/v1/spaces/"+over.Id+"/children", "",
+		http.StatusConflict, "space.child_limit_reached")
 	if listed, _, _ := children(t, owner, parent2.Id); listed[over.Id] != "" {
 		t.Errorf("the child over the limit is listed as %s", listed[over.Id])
 	}
@@ -411,7 +457,8 @@ func TestE2E_MultipeerChildSpaces_Refusals(t *testing.T) {
 // on a direct add, with nobody of the batch added, and on a join, with
 // no row written; the acceptance of a member who left the parent after
 // asking is refused. A guest key of the child's owner gives the
-// outsider read-only access.
+// outsider read-only access. The parent-side routes change nothing in
+// the parent, a top-level space the outsider does not hold.
 func TestE2E_MultipeerChildSpaces_Membership(t *testing.T) {
 	nodeconf := childSpacesNodeconf(t)
 	bin := buildBinary(t)
@@ -516,6 +563,29 @@ func TestE2E_MultipeerChildSpaces_Membership(t *testing.T) {
 		waitSpace(t, outsider, child.Id, "the guest's row names the parent", time.Minute, func(si api.SpaceInfo) bool {
 			return si.ParentSpaceId == parent.Id
 		})
+	})
+
+	// The parent is a top-level space the outsider does not hold: the
+	// coordinator shows it has no parent, and nothing there changes.
+	t.Run("TopLevelSpaceOfAnotherAccount", func(t *testing.T) {
+		ownerId, writerId := accountId(t, owner.base), accountId(t, writer.base)
+		path := "/v1/children/" + parent.Id
+		wantError(t, outsider, http.MethodDelete, path, "", http.StatusConflict, "space.not_child")
+		for _, member := range []string{ownerId, writerId} {
+			wantError(t, outsider, http.MethodPost, path+"/acl/remove", removeBody(member),
+				http.StatusForbidden, "acl.forbidden")
+		}
+		wantError(t, outsider, http.MethodPost, path+"/acl/ownership", ownershipBody(writerId, api.SpacePermissionWriter),
+			http.StatusForbidden, "acl.forbidden")
+		wantError(t, outsider, http.MethodPost, path+"/acl/ownership", ownershipBody(outsiderId, api.SpacePermissionWriter),
+			http.StatusNotFound, "members.not_found")
+		listed, _, ok := roster(t, owner, parent.Id)
+		if !ok || listed[ownerId].Permission != api.SpacePermissionOwner || !rosterActive(listed, writerId) {
+			t.Errorf("the parent's members after the refused calls: readable %v, owner %+v, writer %+v", ok, listed[ownerId], listed[writerId])
+		}
+		if row := getSpace(t, owner, parent.Id); row.Status != api.SpaceStatusActive {
+			t.Errorf("the parent after the refused calls = %+v", row)
+		}
 	})
 }
 
