@@ -112,7 +112,7 @@ Panics are converted to `500 internal` with a generic message.
 | `space.has_children` | 409 | `DELETE` of a space that still has [child spaces](../collaboration/child-spaces.html); nothing is deleted |
 | `space.parent_not_available` | 409 | the parent of a child space does not exist on the network or is deleted; also the account's own parent while no node holds it yet |
 | `space.parent_invalid` | 409 | the space named as a parent has no children: a child, a derived, a one-to-one or the tech space |
-| `space.parent_permission_denied` | 403 | the network does not accept the operation on the child from this account: its role in the parent is too low, and on an ownership change or a delete it is not the child's own owner either |
+| `space.parent_permission_denied` | 403 | the network does not accept the operation on the child from this account: its role in the parent is too low, and on an ownership change or a delete it is not the child's own owner either; also an admin of the parent removing an account that is an admin or the owner of the parent |
 | `space.child_limit_reached` | 409 | the owner of the parent space is at its child-spaces limit |
 | `space.not_child` | 409 | a child-space operation on a space the account's list shows has no parent |
 | `space.not_stored` | 409 | `POST …/retry-push` on a device that holds no copy of the space |
