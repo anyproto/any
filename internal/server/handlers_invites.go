@@ -15,13 +15,13 @@ import (
 // inviteCreate handles POST /v1/spaces/:spaceId/invites.
 //
 //	@Summary		Create an invite
-//	@Description	Mints the space's request-to-join invite. A space holds one at a time: a mint while it exists is 409 invite.duplicate and replaces nothing; revoke it to mint another.
+//	@Description	Mints the space's request-to-join invite. A space holds one at a time: a mint while this device's copy of the ACL holds it is 409 invite.duplicate and replaces nothing; revoke it to mint another. A mint beside another mint fails and is safe to repeat.
 //	@Tags			invites
 //	@Produce		json
 //	@Param			spaceId	path		string	true	"Space ID"
 //	@Success		201		{object}	api.InviteCreateResponse
 //	@Failure		403		{object}	api.ErrorEnvelope	"acl.forbidden — the account is neither an admin nor the owner of the space"
-//	@Failure		409		{object}	api.ErrorEnvelope	"invite.duplicate — the space's invite exists; acl.limit_reached — the owner's plan is at its shared-spaces limit; space.derived_unshareable — a derived space"
+//	@Failure		409		{object}	api.ErrorEnvelope	"invite.duplicate — this device's copy of the ACL holds the space's invite; acl.limit_reached — the owner's plan is at its shared-spaces limit; space.derived_unshareable — a derived space"
 //	@Failure		500		{object}	api.ErrorEnvelope
 //	@Router			/spaces/{spaceId}/invites [post]
 func (d *deps) inviteCreate(c echo.Context) error {

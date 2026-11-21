@@ -11988,7 +11988,7 @@ const docTemplate = `{
                 ]
             },
             "post": {
-                "description": "Mints the space's request-to-join invite. A space holds one at a time: a mint while it exists is 409 invite.duplicate and replaces nothing; revoke it to mint another.",
+                "description": "Mints the space's request-to-join invite. A space holds one at a time: a mint while this device's copy of the ACL holds it is 409 invite.duplicate and replaces nothing; revoke it to mint another. A mint beside another mint fails and is safe to repeat.",
                 "parameters": [
                     {
                         "description": "Space ID",
@@ -12029,7 +12029,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "invite.duplicate — the space's invite exists; acl.limit_reached — the owner's plan is at its shared-spaces limit; space.derived_unshareable — a derived space"
+                        "description": "invite.duplicate — this device's copy of the ACL holds the space's invite; acl.limit_reached — the owner's plan is at its shared-spaces limit; space.derived_unshareable — a derived space"
                     },
                     "500": {
                         "content": {
