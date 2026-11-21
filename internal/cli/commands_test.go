@@ -101,3 +101,28 @@ func TestNoWeightFlag(t *testing.T) {
 	}
 	walk(newRootCmd())
 }
+
+// TestChildSpaceCommands pins the child-space commands and their flags.
+func TestChildSpaceCommands(t *testing.T) {
+	root := newRootCmd()
+	for path, flags := range map[string][]string{
+		"space create":     {"name", "description", "icon-cid", "parent"},
+		"space retry-push": nil,
+		"space children":   nil,
+		"child members":    nil,
+		"child remove":     nil,
+		"child ownership":  {"new-owner", "old-owner-perm"},
+		"child delete":     {"yes"},
+	} {
+		cmd, rest, err := root.Find(strings.Fields(path))
+		if err != nil || len(rest) > 0 || cmd.RunE == nil {
+			t.Errorf("%s: cmd=%v rest=%v err=%v", path, cmd, rest, err)
+			continue
+		}
+		for _, name := range flags {
+			if cmd.Flags().Lookup(name) == nil {
+				t.Errorf("%s has no --%s", path, name)
+			}
+		}
+	}
+}
