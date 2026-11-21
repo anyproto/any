@@ -4518,7 +4518,7 @@ sync-status streams (`04-events.md` § Members stream).
 
 | Method | Path                                                 | Purpose                            |
 |--------|------------------------------------------------------|------------------------------------|
-| POST   | `/v1/spaces/:spaceId/invites`                        | `ACL.CreateInvite` — replaces any prior invite |
+| POST   | `/v1/spaces/:spaceId/invites`                        | `ACL.CreateInvite` — one invite per space; `409 invite.duplicate` while one exists |
 | GET    | `/v1/spaces/:spaceId/invites`                        | `MembersAPI.Invites`               |
 | GET    | `/v1/spaces/:spaceId/invites/:recordId`              | `MembersAPI.Invites` — one record; `404 invite.not_found` |
 | DELETE | `/v1/spaces/:spaceId/invites`                        | `ACL.RevokeAllInvites`             |
@@ -4538,11 +4538,15 @@ Mint:
 `inviteToken` is a base58-packed `(spaceId, invitePrivKey)` produced
 by `space.EncodeInvite`. Minted invites are request-to-join: a listed
 invite's `permission` is `"none"` — the role is chosen by the owner at
-`/acl/accept`, not carried by the invite. A mint the ACL refuses as a
-duplicate is `409 invite.duplicate`. A mint by a non-owner is
-`403 acl.forbidden`: the coordinator's make-shareable, which the mint
-runs first, is owner-only. A mint that would take the owner past the
-plan's shared-spaces limit (`GET /v1/account/limits`) is
+`/acl/accept`, not carried by the invite. A space holds one such invite
+at a time: a mint while it exists is `409 invite.duplicate` and
+replaces nothing. Revoke the invite (`DELETE …/invites/:recordId`, or
+`DELETE …/invites`) to mint another. The owner and the admins mint; a
+mint by any other member is `403 acl.forbidden`. An admin accepts a
+request at any role below `admin`: the `admin` role is the owner's to
+give (§ ACL operations). The owner's mint first
+makes the space shareable on the coordinator: one that would take the
+owner past the plan's shared-spaces limit (`GET /v1/account/limits`) is
 `409 acl.limit_reached`; the guest key and a direct add share a space
 the same way. On a derived space all
 three answer `409 space.derived_unshareable`. Owners share the token
@@ -4678,7 +4682,10 @@ required field or an empty batch is `400 request.missing_field`; an
 unknown permission string is `400 request.schema`. `oldOwnerPerm` on
 `ownership` is the role the previous owner keeps, `reader`, `writer` or
 `admin`: it is required, and `none`, `guest` or `owner` is
-`400 request.invalid_field`. SDK refusals map to
+`400 request.invalid_field`. Admins run these operations below their
+own role. Giving the `admin` role — an `accept`, an `add` or a
+`permissions` change at `admin` — and changing or removing an admin are
+the owner's, and `403 acl.forbidden` for an admin. SDK refusals map to
 `403 acl.forbidden` (insufficient permissions),
 `404 acl.record_not_found` (no such ACL record) and
 `409 acl.limit_reached` (the owner's plan is at its limit of readers or

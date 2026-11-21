@@ -11,7 +11,7 @@ An invite is a shareable token. The owner mints it, passes the string out of ban
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/v1/spaces/:spaceId/invites` | mint an invite → `201`; replaces any prior invite; owner only |
+| POST | `/v1/spaces/:spaceId/invites` | mint an invite → `201`; one per space, `409 invite.duplicate` while one exists; owner and admins |
 | GET | `/v1/spaces/:spaceId/invites` | list active invite records |
 | GET | `/v1/spaces/:spaceId/invites/:recordId` | one record; `404 invite.not_found` |
 | DELETE | `/v1/spaces/:spaceId/invites` | revoke all invites |
@@ -31,7 +31,7 @@ curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/invites
 { "spaceId": "bafyrei…", "inviteToken": "5ZHbdx…" }
 ```
 
-`inviteToken` is a base58-packed `(spaceId, invitePrivKey)`. Share the string however you like — a link, a QR code, a message. Only the owner can mint: the coordinator refuses to make the space shareable for anyone else, and the call answers `403 acl.forbidden`. It also refuses once the owner's plan is at its [shared-spaces limit](../auth/profile.html#reading-the-accounts-limits), and the call answers `409 acl.limit_reached`.
+`inviteToken` is a base58-packed `(spaceId, invitePrivKey)`. Share the string however you like — a link, a QR code, a message. A space holds one invite at a time: a mint while it exists answers `409 invite.duplicate` and replaces nothing, so revoke the invite to mint another. The owner and the admins mint; any other member gets `403 acl.forbidden`. The invite carries no role: it is chosen at [accept](acl.html), where an admin grants any role below `admin` and the owner alone grants `admin`. The owner's mint first makes the space shareable on the coordinator, which refuses once the owner's plan is at its [shared-spaces limit](../auth/profile.html#reading-the-accounts-limits): the call answers `409 acl.limit_reached`.
 
 ```bash
 any invite create <spaceId>

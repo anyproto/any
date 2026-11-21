@@ -112,8 +112,9 @@ func aclOpError(c echo.Context, err error, details map[string]any) error {
 	if resp, done := childSpaceError(c, err, details); done {
 		return resp
 	}
-	// The coordinator's own refusal: make-shareable, the precondition
-	// of invite create and direct add, is owner-only.
+	// The coordinator's own refusal: the owner's invite create, guest
+	// key and direct add first make the space shareable, and it holds
+	// another account as the owner.
 	if errors.Is(err, space.ErrCoordinatorForbidden) {
 		return writeError(c, http.StatusForbidden, "acl.forbidden",
 			"the coordinator refuses this operation for this account", details)

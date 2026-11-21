@@ -10,11 +10,12 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-// TestE2E_MultipeerInviteRefusals covers the two invite refusals that
-// carry a typed 4xx: a join with an invite the owner revoked is
-// 410 invite.revoked and posts no request, and a mint by an admin is
-// 403 acl.forbidden. The ACL lets an admin mint; the coordinator's
-// make-shareable is what refuses.
+// TestE2E_MultipeerInviteRefusals: a join with an invite the owner
+// revoked is 410 invite.revoked and posts no request. A space holds one
+// request-to-join invite, so an admin's mint is 409 invite.duplicate
+// while the owner's exists. The admin revokes it and mints its own: the
+// ACL lets an admin do both, and only the owner's mint asks the
+// coordinator to make the space shareable.
 func TestE2E_MultipeerInviteRefusals(t *testing.T) {
 	if _, err := os.Stat(stagingFixture); err != nil {
 		t.Skipf("staging fixture not present at %s: %v", stagingFixture, err)
@@ -85,8 +86,18 @@ func TestE2E_MultipeerInviteRefusals(t *testing.T) {
 
 	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionAdmin)
 
+	// The join left the owner's invite in place.
 	if code := mustErrorCode(t, http.MethodPost, joiner.base+"/v1/spaces/"+sp.Id+"/invites",
-		"", http.StatusForbidden); code != "acl.forbidden" {
-		t.Fatalf("admin invite create: code = %q, want acl.forbidden", code)
+		"", http.StatusConflict); code != "invite.duplicate" {
+		t.Fatalf("admin invite create beside the owner's invite: code = %q, want invite.duplicate", code)
+	}
+
+	mustStatus(t, http.MethodDelete, joiner.base+"/v1/spaces/"+sp.Id+"/invites",
+		"", http.StatusNoContent)
+	var byAdmin api.InviteCreateResponse
+	mustJSON(t, http.MethodPost, joiner.base+"/v1/spaces/"+sp.Id+"/invites",
+		"", http.StatusCreated, &byAdmin)
+	if byAdmin.SpaceId != sp.Id || byAdmin.InviteToken == "" {
+		t.Fatalf("admin invite create after the revoke: %+v, want a token for %s", byAdmin, sp.Id)
 	}
 }

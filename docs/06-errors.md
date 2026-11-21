@@ -96,11 +96,11 @@ space.derived_unshareable        # 409 — invite create, guest key or direct ad
 space.unsupported                # 405 — the route is not available on the tech space (allowed there: bundles, type reads and dataset declarations on bundle roots, records on bundle roots, GET space, sync-status, debug)
 
 members.not_found                # 404 — the member a members / ACL operation names is unknown (e.g. GET …/members/:identity)
-acl.forbidden                    # 403 — the ACL refuses the operation for this account's permissions, or the coordinator refuses it (make-shareable on invite create is owner-only)
+acl.forbidden                    # 403 — the ACL refuses the operation for this account's permissions (invite create and direct add take an admin or the owner; giving the admin role on an accept, a direct add or a permission change, and changing or removing an admin, take the owner), or the coordinator refuses the owner's make-shareable for an account it does not hold as the owner
 acl.limit_reached                # 409 — the coordinator refuses an ACL operation for the space owner's plan, whoever calls: the owner's shared spaces on the first share of a space (invite create, guest key, direct add), or the space's readers or writers (accept, change permissions, direct add, guest key). One code for both limits; GET /v1/account/limits reads the shared-spaces limit
 acl.record_not_found             # 404 — the ACL record the operation names does not exist
 invite.invalid                   # 400 — invite token malformed or not decodable as an invite
-invite.duplicate                 # 409 — POST …/invites while an invite already exists
+invite.duplicate                 # 409 — POST …/invites while the space's invite exists, whoever minted it: a space holds one, and a mint replaces nothing — revoke it to mint another
 invite.not_found                 # 404 — GET …/invites/:recordId for an unknown record
 invite.revoked                   # 410 — POST /v1/spaces/join with an invite the space's ACL no longer holds: revoked, replaced or never minted
 guest_key.not_found              # 404 — revoke with no active guest key

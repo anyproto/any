@@ -340,18 +340,18 @@ See [Files](../files/index.html).
 | GET | `/v1/spaces/:spaceId/members/requests` | — | `{requests: [{recordId, identity, name?, description?, iconCid?}]}` | pass `recordId` as `requestRecordId` to `acl/accept` |
 | GET | `/v1/spaces/:spaceId/members/subscribe` | — | SSE `member` frames | |
 | GET | `/v1/spaces/:spaceId/members/:identity` | — | `Member` | |
-| POST | `/v1/spaces/:spaceId/invites` | — | 201 `{spaceId, inviteToken}` | replaces any prior invite; owner only (`403 acl.forbidden`); `409 invite.duplicate` when the engine refuses a second one; `409 acl.limit_reached` at the owner's shared-spaces limit; `409 space.derived_unshareable` on a derived space |
+| POST | `/v1/spaces/:spaceId/invites` | — | 201 `{spaceId, inviteToken}` | one invite per space: `409 invite.duplicate` while one exists, revoke it to mint another; owner and admins (`403 acl.forbidden` for any other member); `409 acl.limit_reached` at the owner's shared-spaces limit; `409 space.derived_unshareable` on a derived space |
 | GET | `/v1/spaces/:spaceId/invites` | — | `{invites: [{recordId, permission, inviteToken?}]}` | token only on the minting account's devices |
 | GET | `/v1/spaces/:spaceId/invites/:recordId` | — | one invite | `404 invite.not_found` |
 | DELETE | `/v1/spaces/:spaceId/invites` | — | 204 | revoke all |
 | DELETE | `/v1/spaces/:spaceId/invites/:recordId` | — | 204 | |
 | POST | `/v1/spaces/:spaceId/guest-key` | — | 201 `{spaceId, inviteToken}` | public read-only token; owner only, idempotent; `409 acl.limit_reached` at the owner's limit of shared spaces or of the space's readers; `409 space.derived_unshareable` on a derived space |
 | DELETE | `/v1/spaces/:spaceId/guest-key` | — | 204 | rotates the read key; `404 guest_key.not_found` |
-| POST | `/v1/spaces/:spaceId/acl/accept` | `{requestRecordId, permission}` | 204 | `409 acl.limit_reached` at the owner's limit of readers or writers |
+| POST | `/v1/spaces/:spaceId/acl/accept` | `{requestRecordId, permission}` | 204 | owner and admins, `admin` granted by the owner alone (`403 acl.forbidden`); `409 acl.limit_reached` at the owner's limit of readers or writers |
 | POST | `/v1/spaces/:spaceId/acl/decline` | `{identity}` | 204 | |
 | POST | `/v1/spaces/:spaceId/acl/permissions` | `{changes: [{identity, permission}]}` | 204 | `409 acl.limit_reached` at the owner's limit of readers or writers |
 | POST | `/v1/spaces/:spaceId/acl/remove` | `{identities}` | 204 | rotates the read key |
-| POST | `/v1/spaces/:spaceId/acl/add` | `{accounts: [{identity, permission, metadata?}]}` | 204 | added accounts see an `invite_pending` row; `409 acl.limit_reached` at the owner's limit of shared spaces, readers or writers; `409 space.derived_unshareable` on a derived space |
+| POST | `/v1/spaces/:spaceId/acl/add` | `{accounts: [{identity, permission, metadata?}]}` | 204 | owner and admins, `admin` granted by the owner alone (`403 acl.forbidden`); added accounts see an `invite_pending` row; `409 acl.limit_reached` at the owner's limit of shared spaces, readers or writers; `409 space.derived_unshareable` on a derived space |
 | POST | `/v1/spaces/:spaceId/acl/ownership` | `{newOwner, oldOwnerPerm}` | 204 | `oldOwnerPerm` is `reader`, `writer` or `admin`: `400 request.missing_field` without it, `400 request.invalid_field` for another role |
 | POST | `/v1/spaces/:spaceId/acl/self-remove` | — | 204 | |
 | POST | `/v1/spaces/:spaceId/acl/cancel-join` | — | 204 | joiner row reads `deleted`, re-request via `/v1/spaces/join`; `404 space.not_found`, `409 space.join_not_pending` |

@@ -110,12 +110,12 @@ Panics are converted to `500 internal` with a generic message.
 | `space.read_only` | 403 | a guest or reader tried to write |
 | `space.unsupported` | 405 | the surface is not available on the tech space (object and type lifecycle, members, files, chat, editor, history, search, shared-dataset reads, metadata, settings, non-bundle writes, catalog setup) |
 | `members.not_found` | 404 | unknown member identity in this space |
-| `acl.forbidden` | 403 | the caller's role does not allow this ACL operation (minting an invite is owner-only) |
+| `acl.forbidden` | 403 | the caller's role does not allow this ACL operation (minting an invite and a direct add take an admin or the owner; giving the `admin` role, and changing or removing an admin, take the owner) |
 | `acl.limit_reached` | 409 | the coordinator refuses for the space owner's plan: shared spaces on the first share of a space (invite create, guest key, direct add), or the space's readers or writers (accept, change permissions, direct add, guest key) |
 | `acl.record_not_found` | 404 | the ACL record named (a join request) does not exist |
 | `invite.invalid` | 400 | invite token malformed or not decodable as an invite |
 | `invite.not_found` | 404 | unknown invite record |
-| `invite.duplicate` | 409 | an invite already exists for this space |
+| `invite.duplicate` | 409 | the space's invite exists: a space holds one, and a mint replaces nothing |
 | `invite.revoked` | 410 | join with an invite the space no longer holds: revoked, replaced or never minted |
 | `guest_key.not_found` | 404 | revoke with no active guest key |
 

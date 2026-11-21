@@ -42,6 +42,8 @@ any acl decline <spaceId> --identity <identity>
 
 On the joiner's side the space row flips from `joining` to `active`, or to `deleted` on a decline; the owner's members list shows `active` or `declined`.
 
+An admin accepts at any role below its own. The `admin` role is the owner's to give: an accept, a direct add or a permission change at `admin` by an admin answers `403 acl.forbidden`, and so does an admin changing or removing another admin.
+
 A request takes no seat until it is accepted. An accept the owner's plan has no reader or writer seat for answers `409 acl.limit_reached`, and so does a permission change or a direct add that needs one:
 
 ```json
