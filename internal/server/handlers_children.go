@@ -16,6 +16,16 @@ import (
 func registerChildSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/retry-push", d.spaceRetryPush)
 	g.GET("/spaces/:spaceId/children", d.spaceChildren)
+
+	// A child reached from outside it, by its id alone: the account
+	// need not be a member of the child, and nothing of it is loaded.
+	// The network accepts the removal from the parent's admins and
+	// owner, the owner change and the delete from the parent's owner
+	// and from the child's own owner.
+	g.GET("/children/:childId/members", d.childMembers)
+	g.POST("/children/:childId/acl/remove", d.childRemoveMembers)
+	g.POST("/children/:childId/acl/ownership", d.childChangeOwner)
+	g.DELETE("/children/:childId", d.childDelete)
 }
 
 // spaceChildren handles GET /v1/spaces/:spaceId/children —
@@ -61,6 +71,153 @@ func childStatusString(s space.ChildStatus) string {
 	default:
 		return api.ChildStatusUnknown
 	}
+}
+
+// childMembers handles GET /v1/children/:childId/members —
+// Service.ChildMembers with Service.ChildRotationPending, both read
+// from the ACL the nodes serve.
+//
+//	@Summary		List the accounts of a child space from the parent side
+//	@Description	The accounts of the child with role and status, read from the ACL the nodes serve: the identities to remove, and the active members one of whom can become the owner. No names: the caller holds no key of the child. rotationPending is true while members removed from the parent side still hold the child's read key. The nodes serve a space's ACL to any account, so no role is checked. Needs the network.
+//	@Tags			children
+//	@Produce		json
+//	@Param			childId	path		string	true	"Space ID of the child"
+//	@Success		200		{object}	api.ChildMembersResponse
+//	@Failure		400		{object}	api.ErrorEnvelope	"request.invalid_field — childId is not a space id"
+//	@Failure		404		{object}	api.ErrorEnvelope	"space.not_found — the coordinator does not know the space"
+//	@Failure		409		{object}	api.ErrorEnvelope	"space.not_child — the account's space list shows the space has no parent; space.deleted — the coordinator holds the space as deleted or in deletion"
+//	@Failure		503		{object}	api.ErrorEnvelope	"network.unreachable — no node could be reached"
+//	@Router			/children/{childId}/members [get]
+func (d *deps) childMembers(c echo.Context) error {
+	id := c.Param("childId")
+	members, err := d.sdk.Spaces().ChildMembers(c.Request().Context(), id)
+	if err != nil {
+		return childOpError(c, err, id, "")
+	}
+	pending, err := d.sdk.Spaces().ChildRotationPending(c.Request().Context(), id)
+	if err != nil {
+		return childOpError(c, err, id, "")
+	}
+	return c.JSON(http.StatusOK, childMembersToAPI(members, pending))
+}
+
+// childMembersToAPI shapes the parent-side read of a child's accounts.
+func childMembersToAPI(members []space.ChildMember, rotationPending bool) api.ChildMembersResponse {
+	out := make([]api.ChildMember, 0, len(members))
+	for _, m := range members {
+		out = append(out, api.ChildMember{
+			Identity:   m.Identity,
+			Permission: spacePermissionString(m.Permission),
+			Status:     memberStatusString(m.Status),
+		})
+	}
+	return api.ChildMembersResponse{Members: out, RotationPending: rotationPending}
+}
+
+// childRemoveMembers handles POST /v1/children/:childId/acl/remove —
+// Service.RemoveChildMembers.
+//
+//	@Summary		Remove members of a child space as an admin or the owner of its parent
+//	@Description	For an admin or the owner of the parent, and nobody else: no role in the child allows it. The members lose their permissions at once. The read key is not changed, since the caller does not hold it: the removed members read what is written until a device of an admin or the owner of the child changes the key, which it does by itself (rotationPending on GET /children/{childId}/members, and on GET /spaces/{spaceId}/members for the child's members). The child's owner cannot be removed. Needs the network.
+//	@Tags			children
+//	@Accept			json
+//	@Param			childId	path	string					true	"Space ID of the child"
+//	@Param			body	body	api.ACLRemoveRequest	true	"Identities to remove"
+//	@Success		204
+//	@Failure		400	{object}	api.ErrorEnvelope
+//	@Failure		403	{object}	api.ErrorEnvelope	"space.parent_permission_denied — the account is not an admin or the owner of the parent, or an admin removes an account that is an admin or the owner of the parent; acl.forbidden — the child's owner or the caller is among the identities"
+//	@Failure		404	{object}	api.ErrorEnvelope	"members.not_found — an identity is no member of the child; space.not_found — the coordinator does not know the space"
+//	@Failure		409	{object}	api.ErrorEnvelope	"space.not_child — the account's space list shows the space has no parent; space.deleted — the coordinator holds the space as deleted or in deletion"
+//	@Failure		503	{object}	api.ErrorEnvelope	"network.unreachable — the network could not be reached; nothing changed"
+//	@Router			/children/{childId}/acl/remove [post]
+func (d *deps) childRemoveMembers(c echo.Context) error {
+	req, ok := bindBodyStrict[api.ACLRemoveRequest](c, "")
+	if !ok {
+		return nil
+	}
+	if len(req.Identities) == 0 {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "identities must be non-empty", nil)
+	}
+	id := c.Param("childId")
+	if err := d.sdk.Spaces().RemoveChildMembers(c.Request().Context(), id, req.Identities); err != nil {
+		return childOpError(c, err, id, "identities")
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// childChangeOwner handles POST /v1/children/:childId/acl/ownership —
+// Service.ChangeChildOwner.
+//
+//	@Summary		Hand a child space to another of its members, as the owner of its parent or its own owner
+//	@Description	newOwner, an active member of the child and a member of the parent, becomes its owner. The previous owner stays a member with oldOwnerPerm; removing them is a separate call. The network accepts the call from the owner of the parent and from the child's own owner, whatever its role in the parent. Needs the network.
+//	@Tags			children
+//	@Accept			json
+//	@Param			childId	path	string					true	"Space ID of the child"
+//	@Param			body	body	api.ACLOwnershipRequest	true	"New owner + the role the previous owner keeps: reader, writer or admin"
+//	@Success		204
+//	@Failure		400	{object}	api.ErrorEnvelope	"request.missing_field — newOwner or oldOwnerPerm is missing; request.invalid_field — oldOwnerPerm is none, guest or owner, or childId is not a space id; request.schema — an unknown permission"
+//	@Failure		403	{object}	api.ErrorEnvelope	"space.parent_permission_denied — the account is neither the owner of the parent nor the child's own owner; acl.forbidden — the new owner is the owner already or a guest identity"
+//	@Failure		404	{object}	api.ErrorEnvelope	"members.not_found — the new owner is no member of the child; space.not_found — the coordinator does not know the space"
+//	@Failure		409	{object}	api.ErrorEnvelope	"space.not_child — the account's space list shows the space has no parent; space.deleted — the coordinator holds the space as deleted or in deletion; acl.not_parent_member — the new owner is no member of the parent"
+//	@Failure		503	{object}	api.ErrorEnvelope	"network.unreachable — the network could not be reached; nothing changed"
+//	@Router			/children/{childId}/acl/ownership [post]
+func (d *deps) childChangeOwner(c echo.Context) error {
+	req, ok := bindBodyStrict[api.ACLOwnershipRequest](c, "")
+	if !ok {
+		return nil
+	}
+	if req.NewOwner == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "newOwner required", nil)
+	}
+	perm, errResp, done := parseOldOwnerPerm(c, req.OldOwnerPerm)
+	if done {
+		return errResp
+	}
+	id := c.Param("childId")
+	if err := d.sdk.Spaces().ChangeChildOwner(c.Request().Context(), id, req.NewOwner, perm); err != nil {
+		return childOpError(c, err, id, "newOwner")
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// childDelete handles DELETE /v1/children/:childId —
+// Service.DeleteChild. The coordinator answers before the reply.
+//
+//	@Summary		Delete a child space, as the owner of its parent or its own owner
+//	@Description	Deletes the child on the network, for everyone, without access to its data. The network accepts the call from the owner of the parent and from the child's own owner, whatever its role in the parent. When the account also holds the child in its own list, the row then reads deleted and the local copy is removed. DELETE /spaces/{spaceId} stays the call for a space of the account's own list: on a child it deletes on the network only for the child's owner. Needs the network.
+//	@Tags			children
+//	@Param			childId	path	string	true	"Space ID of the child"
+//	@Success		204
+//	@Failure		400	{object}	api.ErrorEnvelope	"request.invalid_field — childId is not a space id"
+//	@Failure		403	{object}	api.ErrorEnvelope	"space.parent_permission_denied — the account is neither the owner of the parent nor the child's own owner"
+//	@Failure		404	{object}	api.ErrorEnvelope	"space.not_found — the coordinator does not know the space"
+//	@Failure		409	{object}	api.ErrorEnvelope	"space.not_child — the account's space list shows the space has no parent"
+//	@Failure		503	{object}	api.ErrorEnvelope	"network.unreachable — the coordinator could not be reached; nothing changed"
+//	@Router			/children/{childId} [delete]
+func (d *deps) childDelete(c echo.Context) error {
+	id := c.Param("childId")
+	if err := d.sdk.Spaces().DeleteChild(c.Request().Context(), id); err != nil {
+		return childOpError(c, err, id, "")
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// childOpError maps the errors of the calls made on a child from the
+// parent side. field is the request field that carries identities.
+func childOpError(c echo.Context, err error, childId, field string) error {
+	if errors.Is(err, space.ErrBadSpaceId) {
+		return badSpaceIdError(c, "childId")
+	}
+	// The coordinator does not know the space, or holds it as deleted.
+	if errors.Is(err, space.ErrSpaceUnknown) || errors.Is(err, space.ErrSpaceDeleted) {
+		return spaceError(c, err, childId)
+	}
+	details := map[string]any{"spaceId": childId}
+	if errors.Is(err, space.ErrInsufficientPermissions) {
+		return writeError(c, http.StatusForbidden, "acl.forbidden",
+			"the child's ACL forbids this record", details)
+	}
+	return aclIdentityOpError(c, err, field, details)
 }
 
 // badSpaceIdError answers an id that is not a space id; field names the

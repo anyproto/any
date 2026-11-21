@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/anyproto/any-sync-sdk/space"
+	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/util/crypto"
 
 	"github.com/anyproto/any/internal/api"
@@ -48,6 +49,7 @@ var childSpaceMappers = map[string]func(echo.Context, error) error{
 	"aclIdentityOpError": func(c echo.Context, err error) error {
 		return aclIdentityOpError(c, err, "identities", map[string]any{"spaceId": "s1"})
 	},
+	"childOpError": func(c echo.Context, err error) error { return childOpError(c, err, "s1", "identities") },
 }
 
 // mapError runs one error mapper and returns the status and the
@@ -67,8 +69,10 @@ func mapError(t *testing.T, mapper func(echo.Context) error) (int, api.ErrorEnve
 }
 
 // Every mapper answers a child-space sentinel with the same code: the
-// space mapper, the generic one and the ACL ones. The ACL mappers must
-// match the typed error before their "permission denied" text match.
+// space mapper (create, delete, retry-push, children), the generic one,
+// the ACL ones (members, invites, join) and the one of the parent-side
+// routes. The ACL mappers must match the typed error before their
+// "permission denied" text match.
 func TestChildSpaceError_Mapping(t *testing.T) {
 	for _, tc := range childSpaceErrors {
 		for name, mapper := range childSpaceMappers {
@@ -462,6 +466,90 @@ func TestChildStatusString(t *testing.T) {
 	}
 }
 
+// The parent-side routes answer what the child's ACL and the request
+// itself refuse, beside the child-space sentinels.
+func TestChildOpError_Mapping(t *testing.T) {
+	for _, tc := range []struct {
+		err       error
+		wantHTTP  int
+		wantCode  string
+		wantField string
+	}{
+		{space.ErrInsufficientPermissions, http.StatusForbidden, "acl.forbidden", ""},
+		{space.ErrAccountNotFound, http.StatusNotFound, "members.not_found", ""},
+		{space.ErrSpaceUnknown, http.StatusNotFound, "space.not_found", ""},
+		{space.ErrSpaceDeleted, http.StatusConflict, "space.deleted", ""},
+		{space.ErrBadSpaceId, http.StatusBadRequest, "request.invalid_field", "childId"},
+		{space.ErrBadIdentity, http.StatusBadRequest, "request.invalid_field", "newOwner"},
+	} {
+		wrapped := fmt.Errorf("spaceimpl: ChangeChildOwner: %w", tc.err)
+		code, env := mapError(t, func(c echo.Context) error { return childOpError(c, wrapped, "s1", "newOwner") })
+		if code != tc.wantHTTP || env.Error.Code != tc.wantCode {
+			t.Errorf("childOpError(%v): %d %s, want %d %s", tc.err, code, env.Error.Code, tc.wantHTTP, tc.wantCode)
+		}
+		if got, _ := env.Error.Details["field"].(string); got != tc.wantField {
+			t.Errorf("childOpError(%v): details %v, want field %q", tc.err, env.Error.Details, tc.wantField)
+		}
+	}
+}
+
+// A space the coordinator does not know, or holds as deleted or in
+// deletion, answers on the children list and on the parent-side routes
+// the codes of a space the account's own list lacks or holds deleted.
+// The SDK wraps the coordinator's own error in its sentinel.
+func TestChildSpace_CoordinatorUnknownOrDeleted(t *testing.T) {
+	mappers := map[string]func(echo.Context, error) error{
+		"children list": func(c echo.Context, err error) error { return spaceError(c, err, "s1") },
+		"parent side":   func(c echo.Context, err error) error { return childOpError(c, err, "s1", "identities") },
+	}
+	for _, tc := range []struct {
+		sentinel, cause error
+		wantHTTP        int
+		wantCode        string
+	}{
+		{space.ErrSpaceUnknown, coordinatorproto.ErrSpaceNotExists, http.StatusNotFound, "space.not_found"},
+		{space.ErrSpaceDeleted, coordinatorproto.ErrSpaceIsDeleted, http.StatusConflict, "space.deleted"},
+		{space.ErrSpaceDeleted, coordinatorproto.ErrSpaceDeletionPending, http.StatusConflict, "space.deleted"},
+	} {
+		for name, mapper := range mappers {
+			err := fmt.Errorf("spaceimpl: Op: %w: %w", tc.sentinel, tc.cause)
+			code, env := mapError(t, func(c echo.Context) error { return mapper(c, err) })
+			if code != tc.wantHTTP || env.Error.Code != tc.wantCode {
+				t.Errorf("%s (%v): %d %s, want %d %s", name, tc.cause, code, env.Error.Code, tc.wantHTTP, tc.wantCode)
+			}
+			if got := env.Error.Details["spaceId"]; got != "s1" {
+				t.Errorf("%s (%v): details %v, want the spaceId", name, tc.cause, env.Error.Details)
+			}
+		}
+	}
+}
+
+// The parent-side members read carries identity, role and status and no
+// profile, and always says whether a key rotation is pending.
+func TestChildMembersToAPI(t *testing.T) {
+	members := []space.ChildMember{
+		{Identity: "A1", Permission: space.PermissionOwner, Status: space.MemberStatusActive},
+		{Identity: "A2", Permission: space.PermissionNone, Status: space.MemberStatusRemoved},
+	}
+	for pending, want := range map[bool]string{
+		true: `{"members":[{"identity":"A1","permission":"owner","status":"active"},` +
+			`{"identity":"A2","permission":"none","status":"removed"}],"rotationPending":true}`,
+		false: `{"members":[{"identity":"A1","permission":"owner","status":"active"},` +
+			`{"identity":"A2","permission":"none","status":"removed"}],"rotationPending":false}`,
+	} {
+		body, err := json.Marshal(childMembersToAPI(members, pending))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(body) != want {
+			t.Errorf("pending %v: %s, want %s", pending, body, want)
+		}
+	}
+	if body, _ := json.Marshal(childMembersToAPI(nil, false)); string(body) != `{"members":[],"rotationPending":false}` {
+		t.Errorf("no members: %s", body)
+	}
+}
+
 // newIdentity returns the account identity of a fresh key.
 func newIdentity(t *testing.T) string {
 	t.Helper()
@@ -472,16 +560,77 @@ func newIdentity(t *testing.T) string {
 	return pub.Account()
 }
 
-// The role the previous owner keeps is reader, writer or admin on the
-// ownership route of a space. The server refuses any other value with
-// a 400 before the ACL is asked.
+// The parent-side routes take the child's id alone. Each refuses what
+// the request and the account's own list rule out, and with no network
+// in reach answers 503 and changes nothing.
+func TestServer_ChildSpace_ParentSide(t *testing.T) {
+	d, e := newOfflineServer(t)
+	parent := createSpace(t, e, "parent")
+	child := createChild(t, e, parent, "child")
+	member := newIdentity(t)
+	remove := fmt.Sprintf(`{"identities":[%q]}`, member)
+	handOver := fmt.Sprintf(`{"newOwner":%q,"oldOwnerPerm":"writer"}`, member)
+
+	routes := []struct {
+		name, method, suffix, body string
+	}{
+		{"members", http.MethodGet, "/members", ""},
+		{"remove", http.MethodPost, "/acl/remove", remove},
+		{"ownership", http.MethodPost, "/acl/ownership", handOver},
+		{"delete", http.MethodDelete, "", ""},
+	}
+	for _, r := range routes {
+		for _, tc := range []struct {
+			name     string
+			childId  string
+			wantHTTP int
+			wantCode string
+		}{
+			{"no network in reach", child.Id, http.StatusServiceUnavailable, "network.unreachable"},
+			{"a top-level space", parent, http.StatusConflict, "space.not_child"},
+			{"the tech space", d.sdk.TechSpaceId(), http.StatusConflict, "space.not_child"},
+			{"not a space id", "not-a-space-id", http.StatusBadRequest, "request.invalid_field"},
+		} {
+			rec := doJSON(t, e, r.method, "/v1/children/"+tc.childId+r.suffix, r.body)
+			expectError(t, r.name+": "+tc.name, rec, tc.wantHTTP, tc.wantCode)
+		}
+	}
+
+	for _, tc := range []struct {
+		name, suffix, body string
+		wantHTTP           int
+		wantCode           string
+	}{
+		{"remove nobody", "/acl/remove", `{"identities":[]}`, http.StatusBadRequest, "request.missing_field"},
+		{"remove a malformed identity", "/acl/remove", `{"identities":["nope"]}`, http.StatusBadRequest, "request.invalid_field"},
+		{"remove with an unknown key", "/acl/remove", `{"identity":"x"}`, http.StatusBadRequest, "request.unknown_field"},
+		{"ownership without a new owner", "/acl/ownership", `{"oldOwnerPerm":"writer"}`, http.StatusBadRequest, "request.missing_field"},
+		{"ownership to a malformed identity", "/acl/ownership", `{"newOwner":"nope","oldOwnerPerm":"writer"}`, http.StatusBadRequest, "request.invalid_field"},
+	} {
+		rec := doJSON(t, e, http.MethodPost, "/v1/children/"+child.Id+tc.suffix, tc.body)
+		expectError(t, tc.name, rec, tc.wantHTTP, tc.wantCode)
+	}
+
+	// Nothing above reached the network, so the child is as it was.
+	var got api.SpaceInfo
+	rec := doJSON(t, e, http.MethodGet, "/v1/spaces/"+child.Id, "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.Status != api.SpaceStatusActive {
+		t.Errorf("the child after the refused calls: %v %s, want it active", err, rec.Body.String())
+	}
+}
+
+// The role the previous owner keeps is reader, writer or admin, on the
+// ownership route of a space and on the parent-side one of a child. The
+// server refuses any other value with a 400 before the ACL is asked.
 func TestServer_Ownership_OldOwnerPerm(t *testing.T) {
 	_, e := newOfflineServer(t)
 	parent := createSpace(t, e, "parent")
+	child := createChild(t, e, parent, "child")
 	member := newIdentity(t)
 
 	for route, path := range map[string]string{
-		"a space": "/v1/spaces/" + parent + "/acl/ownership",
+		"a space":              "/v1/spaces/" + parent + "/acl/ownership",
+		"a child, parent side": "/v1/children/" + child.Id + "/acl/ownership",
 	} {
 		for _, tc := range []struct {
 			name, oldOwnerPerm string

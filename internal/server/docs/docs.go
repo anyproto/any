@@ -1023,6 +1023,53 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.ChildMember": {
+                "properties": {
+                    "identity": {
+                        "type": "string"
+                    },
+                    "permission": {
+                        "enum": [
+                            "owner",
+                            "admin",
+                            "writer",
+                            "reader",
+                            "guest",
+                            "none"
+                        ],
+                        "type": "string"
+                    },
+                    "status": {
+                        "enum": [
+                            "unknown",
+                            "joining",
+                            "active",
+                            "removed",
+                            "declined",
+                            "removing",
+                            "canceled"
+                        ],
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.ChildMembersResponse": {
+                "properties": {
+                    "members": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.ChildMember"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "rotationPending": {
+                        "description": "RotationPending reports that members removed from the child\nstill hold its current read key: true from a removal made from\nthe parent side until an admin or the owner of the child has\nchanged the key. A child that stays pending has no device of an\nadmin or the owner left to change it.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "api.ChildSpace": {
                 "properties": {
                     "id": {
@@ -5327,6 +5374,343 @@ const docTemplate = `{
                 "summary": "Set a usecase up in a space, dependencies included",
                 "tags": [
                     "catalog"
+                ]
+            }
+        },
+        "/children/{childId}": {
+            "delete": {
+                "description": "Deletes the child on the network, for everyone, without access to its data. The network accepts the call from the owner of the parent and from the child's own owner, whatever its role in the parent. When the account also holds the child in its own list, the row then reads deleted and the local copy is removed. DELETE /spaces/{spaceId} stays the call for a space of the account's own list: on a child it deletes on the network only for the child's owner. Needs the network.",
+                "parameters": [
+                    {
+                        "description": "Space ID of the child",
+                        "in": "path",
+                        "name": "childId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "request.invalid_field — childId is not a space id"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "space.parent_permission_denied — the account is neither the owner of the parent nor the child's own owner"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "space.not_found — the coordinator does not know the space"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "space.not_child — the account's space list shows the space has no parent"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "network.unreachable — the coordinator could not be reached; nothing changed"
+                    }
+                },
+                "summary": "Delete a child space, as the owner of its parent or its own owner",
+                "tags": [
+                    "children"
+                ]
+            }
+        },
+        "/children/{childId}/acl/ownership": {
+            "post": {
+                "description": "newOwner, an active member of the child and a member of the parent, becomes its owner. The previous owner stays a member with oldOwnerPerm; removing them is a separate call. The network accepts the call from the owner of the parent and from the child's own owner, whatever its role in the parent. Needs the network.",
+                "parameters": [
+                    {
+                        "description": "Space ID of the child",
+                        "in": "path",
+                        "name": "childId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.ACLOwnershipRequest",
+                                        "summary": "body",
+                                        "description": "New owner + the role the previous owner keeps: reader, writer or admin"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "New owner + the role the previous owner keeps: reader, writer or admin",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "request.missing_field — newOwner or oldOwnerPerm is missing; request.invalid_field — oldOwnerPerm is none, guest or owner, or childId is not a space id; request.schema — an unknown permission"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "space.parent_permission_denied — the account is neither the owner of the parent nor the child's own owner; acl.forbidden — the new owner is the owner already or a guest identity"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "members.not_found — the new owner is no member of the child; space.not_found — the coordinator does not know the space"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "space.not_child — the account's space list shows the space has no parent; space.deleted — the coordinator holds the space as deleted or in deletion; acl.not_parent_member — the new owner is no member of the parent"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "network.unreachable — the network could not be reached; nothing changed"
+                    }
+                },
+                "summary": "Hand a child space to another of its members, as the owner of its parent or its own owner",
+                "tags": [
+                    "children"
+                ]
+            }
+        },
+        "/children/{childId}/acl/remove": {
+            "post": {
+                "description": "For an admin or the owner of the parent, and nobody else: no role in the child allows it. The members lose their permissions at once. The read key is not changed, since the caller does not hold it: the removed members read what is written until a device of an admin or the owner of the child changes the key, which it does by itself (rotationPending on GET /children/{childId}/members, and on GET /spaces/{spaceId}/members for the child's members). The child's owner cannot be removed. Needs the network.",
+                "parameters": [
+                    {
+                        "description": "Space ID of the child",
+                        "in": "path",
+                        "name": "childId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.ACLRemoveRequest",
+                                        "summary": "body",
+                                        "description": "Identities to remove"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Identities to remove",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "space.parent_permission_denied — the account is not an admin or the owner of the parent, or an admin removes an account that is an admin or the owner of the parent; acl.forbidden — the child's owner or the caller is among the identities"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "members.not_found — an identity is no member of the child; space.not_found — the coordinator does not know the space"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "space.not_child — the account's space list shows the space has no parent; space.deleted — the coordinator holds the space as deleted or in deletion"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "network.unreachable — the network could not be reached; nothing changed"
+                    }
+                },
+                "summary": "Remove members of a child space as an admin or the owner of its parent",
+                "tags": [
+                    "children"
+                ]
+            }
+        },
+        "/children/{childId}/members": {
+            "get": {
+                "description": "The accounts of the child with role and status, read from the ACL the nodes serve: the identities to remove, and the active members one of whom can become the owner. No names: the caller holds no key of the child. rotationPending is true while members removed from the parent side still hold the child's read key. The nodes serve a space's ACL to any account, so no role is checked. Needs the network.",
+                "parameters": [
+                    {
+                        "description": "Space ID of the child",
+                        "in": "path",
+                        "name": "childId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ChildMembersResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "request.invalid_field — childId is not a space id"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "space.not_found — the coordinator does not know the space"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "space.not_child — the account's space list shows the space has no parent; space.deleted — the coordinator holds the space as deleted or in deletion"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "network.unreachable — no node could be reached"
+                    }
+                },
+                "summary": "List the accounts of a child space from the parent side",
+                "tags": [
+                    "children"
                 ]
             }
         },
