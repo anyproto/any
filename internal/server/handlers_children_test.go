@@ -659,3 +659,28 @@ func TestServer_Ownership_OldOwnerPerm(t *testing.T) {
 		}
 	}
 }
+
+// A removal that names an identity twice is the request's fault on both
+// removal routes: 400 with the list named, before the ACL is asked.
+func TestServer_ACLRemove_DuplicateIdentities(t *testing.T) {
+	_, e := newOfflineServer(t)
+	parent := createSpace(t, e, "parent")
+	child := createChild(t, e, parent, "child")
+	twice := newIdentity(t)
+	body := fmt.Sprintf(`{"identities":[%q,%q,%q]}`, twice, newIdentity(t), twice)
+
+	for route, path := range map[string]string{
+		"a space":              "/v1/spaces/" + parent + "/acl/remove",
+		"a child, parent side": "/v1/children/" + child.Id + "/acl/remove",
+	} {
+		rec := doJSON(t, e, http.MethodPost, path, body)
+		expectError(t, route, rec, http.StatusBadRequest, "request.invalid_field")
+		var env api.ErrorEnvelope
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatal(err)
+		}
+		if got := env.Error.Details["field"]; got != "identities" {
+			t.Errorf("%s: details %v, want field identities", route, env.Error.Details)
+		}
+	}
+}

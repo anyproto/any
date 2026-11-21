@@ -76,7 +76,7 @@ curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/acl/remove \
 any acl remove <spaceId> <identity>...
 ```
 
-Removal rotates the space's read key. Content written after the rotation is encrypted under a key the removed accounts never receive. An identity the ACL holds no account of answers `404 members.not_found`.
+Removal rotates the space's read key. Content written after the rotation is encrypted under a key the removed accounts never receive. An identity the ACL holds no account of answers `404 members.not_found`; one listed more than once answers `400 request.invalid_field`, before anything is written.
 
 An admin or the owner of a parent space removes members of a [child space](child-spaces.html) with `POST /v1/children/:childId/acl/remove`, without the child's read key; the rotation then follows from a device of the child's own admin or owner.
 

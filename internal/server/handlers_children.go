@@ -124,7 +124,7 @@ func childMembersToAPI(members []space.ChildMember, rotationPending bool) api.Ch
 //	@Param			childId	path	string					true	"Space ID of the child"
 //	@Param			body	body	api.ACLRemoveRequest	true	"Identities to remove"
 //	@Success		204
-//	@Failure		400	{object}	api.ErrorEnvelope
+//	@Failure		400	{object}	api.ErrorEnvelope	"request.missing_field — identities is empty; request.invalid_field — an identity is listed more than once or is malformed, or childId is not a space id"
 //	@Failure		403	{object}	api.ErrorEnvelope	"space.parent_permission_denied — the account is not an admin or the owner of the parent, or an admin removes an account that is an admin or the owner of the parent; acl.forbidden — the child's owner or the caller is among the identities"
 //	@Failure		404	{object}	api.ErrorEnvelope	"members.not_found — an identity is no member of the child; space.not_found — the coordinator does not know the space"
 //	@Failure		409	{object}	api.ErrorEnvelope	"space.not_child — the account's space list shows the space has no parent; space.deleted — the coordinator holds the space as deleted or in deletion"
@@ -137,6 +137,9 @@ func (d *deps) childRemoveMembers(c echo.Context) error {
 	}
 	if len(req.Identities) == 0 {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "identities must be non-empty", nil)
+	}
+	if resp, done := duplicateIdentityError(c, req.Identities, "identities"); done {
+		return resp
 	}
 	id := c.Param("childId")
 	if err := d.sdk.Spaces().RemoveChildMembers(c.Request().Context(), id, req.Identities); err != nil {

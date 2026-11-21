@@ -127,7 +127,7 @@ func (d *deps) aclChangePermissions(c echo.Context) error {
 //	@Param		spaceId	path	string				true	"Space ID"
 //	@Param		body	body	api.ACLRemoveRequest	true	"Identities to remove"
 //	@Success	204
-//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	400	{object}	api.ErrorEnvelope	"request.missing_field — identities is empty; request.invalid_field — an identity is listed more than once or is malformed"
 //	@Failure	404	{object}	api.ErrorEnvelope	"members.not_found — an identity the ACL holds no account of"
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/remove [post]
@@ -138,6 +138,9 @@ func (d *deps) aclRemove(c echo.Context) error {
 	}
 	if len(req.Identities) == 0 {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "identities must be non-empty", nil)
+	}
+	if resp, done := duplicateIdentityError(c, req.Identities, "identities"); done {
+		return resp
 	}
 	sp, errResp, done := d.resolveSpace(c)
 	if done {

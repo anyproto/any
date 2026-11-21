@@ -1123,7 +1123,7 @@ is removed.
 | `409 space.not_child` | The account's list shows the space has no parent. |
 | `404 space.not_found` | The coordinator does not know the space. |
 | `409 space.deleted` | The coordinator holds the space as deleted or in deletion. `DELETE` of such a child is done and answers `204`. |
-| `400 request.invalid_field` | `childId` is not a space id (`details.field: "childId"`), an identity is malformed, or `oldOwnerPerm` is `none`, `guest` or `owner`. |
+| `400 request.invalid_field` | `childId` is not a space id (`details.field: "childId"`), an identity is malformed or listed more than once (`details.field: "identities"`), or `oldOwnerPerm` is `none`, `guest` or `owner`. |
 | `400 request.missing_field`, `400 request.schema` | An empty `identities`, a missing `newOwner` or `oldOwnerPerm`; an unknown permission string. |
 
 `acl/remove` and `acl/ownership` fail when the child's ACL changes
@@ -5012,7 +5012,9 @@ Bodies (every successful op returns `204 No Content`):
 
 `self-remove`, `cancel-join`, and `stop-sharing` take no body. A missing
 required field or an empty batch is `400 request.missing_field`; an
-unknown permission string is `400 request.schema`. `oldOwnerPerm` on
+unknown permission string is `400 request.schema`; an identity listed
+more than once on `remove` is `400 request.invalid_field`
+(`details.field: "identities"`). `oldOwnerPerm` on
 `ownership` is the role the previous owner keeps, `reader`, `writer` or
 `admin`: it is required, and `none`, `guest` or `owner` is
 `400 request.invalid_field`. Admins run these operations below their

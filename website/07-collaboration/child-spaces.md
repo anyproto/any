@@ -198,7 +198,7 @@ The rows carry no `name` and no `iconCid`: an ACL names accounts by identity, an
 | 409 | `space.not_child` | the account's list shows the space has no parent |
 | 404 | `space.not_found` | the coordinator does not know the space |
 | 409 | `space.deleted` | the coordinator holds the space as deleted or in deletion; `DELETE` of such a child is done and answers `204` |
-| 400 | `request.invalid_field` | the id is not a space id, an identity is malformed, or `oldOwnerPerm` is `none`, `guest` or `owner` |
+| 400 | `request.invalid_field` | the id is not a space id, an identity is malformed or listed more than once, or `oldOwnerPerm` is `none`, `guest` or `owner` |
 | 400 | `request.missing_field` | no `identities`, no `newOwner`, or no `oldOwnerPerm`: the role the previous owner keeps is always named |
 
 `acl/remove` and `acl/ownership` fail when the child's ACL changes while they run, and are safe to repeat.

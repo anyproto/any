@@ -5609,7 +5609,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "Bad Request"
+                        "description": "request.missing_field — identities is empty; request.invalid_field — an identity is listed more than once or is malformed, or childId is not a space id"
                     },
                     "403": {
                         "content": {
@@ -9196,7 +9196,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "Bad Request"
+                        "description": "request.missing_field — identities is empty; request.invalid_field — an identity is listed more than once or is malformed"
                     },
                     "404": {
                         "content": {

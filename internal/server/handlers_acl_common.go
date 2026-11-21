@@ -55,6 +55,21 @@ func parseOldOwnerPerm(c echo.Context, raw string) (perm space.Permission, resp 
 		"oldOwnerPerm is reader, writer or admin", map[string]any{"field": "oldOwnerPerm", "got": raw}), true
 }
 
+// duplicateIdentityError answers a list that names an identity twice;
+// field is the request field that carries the list. done is false for
+// a list of distinct identities.
+func duplicateIdentityError(c echo.Context, identities []string, field string) (resp error, done bool) {
+	seen := make(map[string]struct{}, len(identities))
+	for _, id := range identities {
+		if _, twice := seen[id]; twice {
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"an identity is listed more than once", map[string]any{"field": field}), true
+		}
+		seen[id] = struct{}{}
+	}
+	return nil, false
+}
+
 // memberStatusString mirrors the SDK enum onto the wire constants.
 func memberStatusString(s space.MemberStatus) string {
 	switch s {
