@@ -128,7 +128,7 @@ any acl stop-sharing <spaceId>
 
 | Operation | Effect |
 |-----------|--------|
-| `ownership` | hands the owner role to `newOwner`; the previous owner keeps `oldOwnerPerm` |
+| `ownership` | hands the owner role to `newOwner`; the previous owner keeps `oldOwnerPerm`, which is `reader`, `writer` or `admin` (`400 request.missing_field` without it, `400 request.invalid_field` for `none`, `guest` or `owner`) |
 | `self-remove` | requests your own removal; your row shows `removing` until applied |
 | `cancel-join` | withdraws your own pending join request: the owner's members row shows `canceled`, your space row reads `deleted` on every device of the account, and a fresh `POST /v1/spaces/join` re-requests |
 | `stop-sharing` | drops every other member and rotates the read key — the space becomes private to the owner again |

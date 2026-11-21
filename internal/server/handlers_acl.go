@@ -209,9 +209,9 @@ func (d *deps) aclAdd(c echo.Context) error {
 //	@Tags		acl
 //	@Accept		json
 //	@Param		spaceId	path	string					true	"Space ID"
-//	@Param		body	body	api.ACLOwnershipRequest	true	"New owner + old owner permission"
+//	@Param		body	body	api.ACLOwnershipRequest	true	"New owner + the role the previous owner keeps: reader, writer or admin"
 //	@Success	204
-//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	400	{object}	api.ErrorEnvelope	"request.missing_field — newOwner or oldOwnerPerm is missing; request.invalid_field — oldOwnerPerm is none, guest or owner; request.schema — an unknown permission"
 //	@Failure	404	{object}	api.ErrorEnvelope	"members.not_found — the new owner is no member of the space"
 //	@Failure	409	{object}	api.ErrorEnvelope	"acl.not_parent_member — in a child space, the new owner is not a member of the parent"
 //	@Failure	500	{object}	api.ErrorEnvelope
@@ -224,10 +224,9 @@ func (d *deps) aclOwnership(c echo.Context) error {
 	if req.NewOwner == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "newOwner required", nil)
 	}
-	perm, ok := parsePermission(req.OldOwnerPerm)
-	if !ok {
-		return writeError(c, http.StatusBadRequest, "request.schema",
-			"unknown permission", map[string]any{"got": req.OldOwnerPerm})
+	perm, errResp, done := parseOldOwnerPerm(c, req.OldOwnerPerm)
+	if done {
+		return errResp
 	}
 	sp, errResp, done := d.resolveSpace(c)
 	if done {

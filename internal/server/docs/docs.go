@@ -71,6 +71,12 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "oldOwnerPerm": {
+                        "description": "OldOwnerPerm is the role the previous owner keeps. Required.",
+                        "enum": [
+                            "reader",
+                            "writer",
+                            "admin"
+                        ],
                         "type": "string"
                     }
                 },
@@ -8601,13 +8607,13 @@ const docTemplate = `{
                                     {
                                         "$ref": "#/components/schemas/api.ACLOwnershipRequest",
                                         "summary": "body",
-                                        "description": "New owner + old owner permission"
+                                        "description": "New owner + the role the previous owner keeps: reader, writer or admin"
                                     }
                                 ]
                             }
                         }
                     },
-                    "description": "New owner + old owner permission",
+                    "description": "New owner + the role the previous owner keeps: reader, writer or admin",
                     "required": true
                 },
                 "responses": {
@@ -8622,7 +8628,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "Bad Request"
+                        "description": "request.missing_field — newOwner or oldOwnerPerm is missing; request.invalid_field — oldOwnerPerm is none, guest or owner; request.schema — an unknown permission"
                     },
                     "404": {
                         "content": {

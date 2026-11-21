@@ -352,7 +352,7 @@ See [Files](../files/index.html).
 | POST | `/v1/spaces/:spaceId/acl/permissions` | `{changes: [{identity, permission}]}` | 204 | `409 acl.limit_reached` at the owner's limit of readers or writers |
 | POST | `/v1/spaces/:spaceId/acl/remove` | `{identities}` | 204 | rotates the read key |
 | POST | `/v1/spaces/:spaceId/acl/add` | `{accounts: [{identity, permission, metadata?}]}` | 204 | added accounts see an `invite_pending` row; `409 acl.limit_reached` at the owner's limit of shared spaces, readers or writers; `409 space.derived_unshareable` on a derived space |
-| POST | `/v1/spaces/:spaceId/acl/ownership` | `{newOwner, oldOwnerPerm}` | 204 | |
+| POST | `/v1/spaces/:spaceId/acl/ownership` | `{newOwner, oldOwnerPerm}` | 204 | `oldOwnerPerm` is `reader`, `writer` or `admin`: `400 request.missing_field` without it, `400 request.invalid_field` for another role |
 | POST | `/v1/spaces/:spaceId/acl/self-remove` | — | 204 | |
 | POST | `/v1/spaces/:spaceId/acl/cancel-join` | — | 204 | joiner row reads `deleted`, re-request via `/v1/spaces/join`; `404 space.not_found`, `409 space.join_not_pending` |
 | POST | `/v1/spaces/:spaceId/acl/stop-sharing` | — | 204 | drops everyone |

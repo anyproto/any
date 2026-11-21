@@ -35,6 +35,26 @@ func parsePermission(s string) (space.Permission, bool) {
 	}
 }
 
+// parseOldOwnerPerm reads the role the previous owner keeps after an
+// ownership change: reader, writer or admin. done reports that it wrote
+// the 400 for any other value.
+func parseOldOwnerPerm(c echo.Context, raw string) (perm space.Permission, resp error, done bool) {
+	if raw == "" {
+		return perm, writeError(c, http.StatusBadRequest, "request.missing_field", "oldOwnerPerm required", nil), true
+	}
+	perm, ok := parsePermission(raw)
+	if !ok {
+		return perm, writeError(c, http.StatusBadRequest, "request.schema",
+			"unknown permission", map[string]any{"got": raw}), true
+	}
+	switch perm {
+	case space.PermissionReader, space.PermissionWriter, space.PermissionAdmin:
+		return perm, nil, false
+	}
+	return perm, writeError(c, http.StatusBadRequest, "request.invalid_field",
+		"oldOwnerPerm is reader, writer or admin", map[string]any{"field": "oldOwnerPerm", "got": raw}), true
+}
+
 // memberStatusString mirrors the SDK enum onto the wire constants.
 func memberStatusString(s space.MemberStatus) string {
 	switch s {

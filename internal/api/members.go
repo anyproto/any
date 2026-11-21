@@ -155,6 +155,7 @@ type ACLAddRequest struct {
 
 // ACLOwnershipRequest is the body of POST /v1/spaces/:spaceId/acl/ownership.
 type ACLOwnershipRequest struct {
-	NewOwner     string `json:"newOwner"`
-	OldOwnerPerm string `json:"oldOwnerPerm"`
+	NewOwner string `json:"newOwner"`
+	// OldOwnerPerm is the role the previous owner keeps. Required.
+	OldOwnerPerm string `json:"oldOwnerPerm" enums:"reader,writer,admin"`
 }

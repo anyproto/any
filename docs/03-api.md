@@ -4675,7 +4675,10 @@ Bodies (every successful op returns `204 No Content`):
 
 `self-remove`, `cancel-join`, and `stop-sharing` take no body. A missing
 required field or an empty batch is `400 request.missing_field`; an
-unknown permission string is `400 request.schema`. SDK refusals map to
+unknown permission string is `400 request.schema`. `oldOwnerPerm` on
+`ownership` is the role the previous owner keeps, `reader`, `writer` or
+`admin`: it is required, and `none`, `guest` or `owner` is
+`400 request.invalid_field`. SDK refusals map to
 `403 acl.forbidden` (insufficient permissions),
 `404 acl.record_not_found` (no such ACL record) and
 `409 acl.limit_reached` (the owner's plan is at its limit of readers or

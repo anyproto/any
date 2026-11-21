@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/anyproto/any-sync-sdk/space"
+	"github.com/anyproto/any-sync/util/crypto"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/client"
@@ -457,6 +458,55 @@ func TestChildStatusString(t *testing.T) {
 	} {
 		if got := childStatusString(status); got != want || got != status.String() {
 			t.Errorf("status %d: %q, want %q, the SDK's label %q", status, got, want, status.String())
+		}
+	}
+}
+
+// newIdentity returns the account identity of a fresh key.
+func newIdentity(t *testing.T) string {
+	t.Helper()
+	_, pub, err := crypto.GenerateRandomEd25519KeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pub.Account()
+}
+
+// The role the previous owner keeps is reader, writer or admin on the
+// ownership route of a space. The server refuses any other value with
+// a 400 before the ACL is asked.
+func TestServer_Ownership_OldOwnerPerm(t *testing.T) {
+	_, e := newOfflineServer(t)
+	parent := createSpace(t, e, "parent")
+	member := newIdentity(t)
+
+	for route, path := range map[string]string{
+		"a space": "/v1/spaces/" + parent + "/acl/ownership",
+	} {
+		for _, tc := range []struct {
+			name, oldOwnerPerm string
+			wantCode           string
+		}{
+			{"omitted", "", "request.missing_field"},
+			{"none", `"none"`, "request.invalid_field"},
+			{"guest", `"guest"`, "request.invalid_field"},
+			{"owner", `"owner"`, "request.invalid_field"},
+			{"unknown", `"boss"`, "request.schema"},
+		} {
+			body := fmt.Sprintf(`{"newOwner":%q}`, member)
+			if tc.oldOwnerPerm != "" {
+				body = fmt.Sprintf(`{"newOwner":%q,"oldOwnerPerm":%s}`, member, tc.oldOwnerPerm)
+			}
+			rec := doJSON(t, e, http.MethodPost, path, body)
+			expectError(t, route+": oldOwnerPerm "+tc.name, rec, http.StatusBadRequest, tc.wantCode)
+		}
+		// The three roles pass the check: what answers next is the ACL
+		// or the network, never the request validation.
+		for _, role := range []string{"reader", "writer", "admin"} {
+			rec := doJSON(t, e, http.MethodPost, path, fmt.Sprintf(`{"newOwner":%q,"oldOwnerPerm":%q}`, member, role))
+			if rec.Code == http.StatusBadRequest {
+				t.Errorf("%s: oldOwnerPerm %s: %d %s, want it past the request validation", route, role, rec.Code, rec.Body.String())
+			}
 		}
 	}
 }
