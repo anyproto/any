@@ -8,12 +8,9 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-// `any child ...` — a child space reached from outside it. The commands
-// take the child's id alone; the account need not be a member of the
-// child. The network accepts `remove` from an admin or the owner of the
-// parent, `ownership` and `delete` from the owner of the parent and
-// from the child's own owner. Each needs the network. The children of a
-// parent are listed by `any space children`.
+// `any child ...` — a child space reached from outside it, by its id
+// alone: the account need not be a member of the child. Each command
+// needs the network.
 func newChildCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "child",

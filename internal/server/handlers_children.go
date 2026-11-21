@@ -19,9 +19,6 @@ func registerChildSpaceRoutes(g *echo.Group, d *deps) {
 
 	// A child reached from outside it, by its id alone: the account
 	// need not be a member of the child, and nothing of it is loaded.
-	// The network accepts the removal from the parent's admins and
-	// owner, the owner change and the delete from the parent's owner
-	// and from the child's own owner.
 	g.GET("/children/:childId/members", d.childMembers)
 	g.POST("/children/:childId/acl/remove", d.childRemoveMembers)
 	g.POST("/children/:childId/acl/ownership", d.childChangeOwner)
