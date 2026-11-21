@@ -10,6 +10,7 @@
   - [Auth](#auth)
   - [Account](#account)
   - [Spaces](#spaces)
+    - [Child spaces](#child-spaces)
     - [Query / subscribe the space list](#query--subscribe-the-space-list)
     - [Dataset schema discovery](#dataset-schema-discovery)
     - [Update space metadata](#update-space-metadata)
@@ -398,7 +399,7 @@ full).
 | GET    | `/v1/account/icon`           | `Account.OpenIcon` — raw bytes          |
 | DELETE | `/v1/account/icon`           | `Account.DeleteIcon`                   |
 | POST   | `/v1/account/access-code`    | redeem an alpha invite code (any-invite) |
-| GET    | `/v1/account/limits`         | `Account.Limits` — storage pool, shared-spaces limit |
+| GET    | `/v1/account/limits`         | `Account.Limits` — storage pool, shared-spaces limit, child-spaces limit |
 
 `GET /v1/account` → `{id, techSpaceId, metadata?}`. `metadata`
 (`{name?, description?, iconCid?}`) is the locally stored profile,
@@ -497,14 +498,24 @@ network grants the account:
   "sharedSpaces": {
     "limit":     3,                 // shared spaces the account may own
     "fetchedAt": "2026-08-20T17:06:40Z"
+  },
+  "childSpaces": {
+    "limit":     10,                // child spaces the spaces this account owns may have together
+    "fetchedAt": "2026-08-20T17:06:40Z"
   }
 }
 ```
 
-The file nodes answer `storage` and the coordinator answers
-`sharedSpaces`. The server keeps each answer on the device, and
-`fetchedAt` says when the network gave it. Requests a few seconds apart
-share one answer.
+The file nodes answer `storage`, and the coordinator answers
+`sharedSpaces` and `childSpaces` together. The server keeps each answer
+on the device, and `fetchedAt` says when the network gave it. Requests
+a few seconds apart share one answer.
+
+`childSpaces.limit` is a limit of its own, apart from `sharedSpaces`: it
+counts the children of all the spaces the account owns, whoever created
+them (§ Child spaces). A child past it is refused with
+`refusal: "child_limit_reached"`, and it is the owner of the parent who
+reads the number here, not the member who created the child.
 
 A request waits for the network at most five seconds, and not at all
 while the network is failing or slower than that, so give it a longer
@@ -512,7 +523,8 @@ timeout than five seconds. A part the network has not answered is its
 last answer. A part is omitted when the network never answered for it
 on this device: a device that has never been online, or runs with no
 network, reads `{}`. `storage` is also omitted on a network that has no
-file nodes or keeps no account pool. An unreachable network is never an
+file nodes or keeps no account pool, and `childSpaces` while the
+coordinator gives no such limit. An unreachable network is never an
 error: the route answers `200` offline.
 
 The network accounts the pool on its own schedule: a new grant or a
@@ -587,7 +599,7 @@ streams — see [events](04-events.md)).
 
 | Method | Path                            | Purpose                             |
 |--------|---------------------------------|-------------------------------------|
-| POST   | `/v1/spaces`                    | `Service.Create`                    |
+| POST   | `/v1/spaces`                    | `Service.Create`; `Service.CreateChild` with `parentSpaceId` |
 | GET    | `/v1/spaces`                    | `Service.List` → `{spaces: [SpaceInfo]}` (active-only by default, see note) |
 | POST   | `/v1/spaces/query`              | `Service.Query` (spaces dataset) snapshot |
 | POST   | `/v1/spaces/query/subscribe`    | `Service.Query` (spaces dataset) subscribe (SSE) |
@@ -595,6 +607,12 @@ streams — see [events](04-events.md)).
 | PATCH  | `/v1/spaces/:spaceId`           | `Space.SetMetadata`                 |
 | PATCH  | `/v1/spaces/:spaceId/settings`  | `Spaces().SetSettings` — account-private settings |
 | POST   | `/v1/spaces/:spaceId/sync`      | `Space.SyncHeads`                   |
+| POST   | `/v1/spaces/:spaceId/retry-push` | `Service.RetryPush` — ask again for a refused child (§ Child spaces) |
+| GET    | `/v1/spaces/:spaceId/children`  | `Service.Children` — the children of a parent |
+| GET    | `/v1/children/:childId/members` | `Service.ChildMembers` — a child from the parent side (§ Child spaces) |
+| POST   | `/v1/children/:childId/acl/remove` | `Service.RemoveChildMembers`     |
+| POST   | `/v1/children/:childId/acl/ownership` | `Service.ChangeChildOwner`    |
+| DELETE | `/v1/children/:childId`         | `Service.DeleteChild`               |
 | DELETE | `/v1/spaces/:spaceId`           | `Service.Delete`                    |
 | POST   | `/v1/spaces/join`               | `Service.Join`                      |
 | POST   | `/v1/spaces/one-to-one`         | `Service.OneToOne` — open a 1-1 (direct) space |
@@ -607,9 +625,10 @@ streams — see [events](04-events.md)).
 | GET    | `/v1/spaces/derived`            | embedded registry → `Service.DeriveId` per entry |
 | POST   | `/v1/spaces/derived/:name`      | `Service.Derive` for a registry entry |
 
-`POST /v1/spaces` takes `{name?, description?, iconCid?, spaceType?}`
-(`spaceType` is `any.space` or empty; anything else is
-`400 request.invalid_field`) → `201 SpaceInfo`.
+`POST /v1/spaces` takes `{name?, description?, iconCid?, spaceType?,
+parentSpaceId?}` (`spaceType` is `any.space` or empty; anything else is
+`400 request.invalid_field`) → `201 SpaceInfo`. With `parentSpaceId`
+the space is created as a child of that space (§ Child spaces).
 
 **Raw `Service.Derive` / `DeriveId` are not exposed.** A client-supplied
 seed would mint a *permanent* space (derived spaces cannot be deleted)
@@ -617,22 +636,46 @@ and invite silent seed collisions between consumers. Derivation is
 reachable only through the closed registry vocabulary of
 `/v1/spaces/derived` (below).
 
-**`DELETE` is a real, offline-first deletion.** It returns `204` as
-soon as the local half is done — no network round trip on the call
-path: the SDK writes the synced `remoteStatus=deleted` tombstone
-(propagates to the account's other devices), offloads all local state
-(watchers, the any-sync space, the per-space CRDT collections and DB
-file — disk is reclaimed even offline; on a partial sweep failure the
-storage file is kept and the next boot retries), and kicks a background
-reconciler that sends the signed `coordinator.SpaceDelete` now (if
-online) or on a later tick. Owner-only on the network side: deleting a
-non-owned space offloads locally and the reconciler skips the
-coordinator call. The reconciler also runs inbound — spaces the
-coordinator reports gone (deleted on another device, or an owner
-deleted a space you joined) are offloaded locally on the next poll.
+**`DELETE` is a real, offline-first deletion.** It has two halves. The
+local half is the same for every space: the SDK writes the synced
+`remoteStatus=deleted` tombstone (propagates to the account's other
+devices) and offloads all local state (watchers, the any-sync space,
+the per-space CRDT collections and DB file — disk is reclaimed even
+offline; on a partial sweep failure the storage file is kept and the
+next boot retries). The network half is the signed
+`coordinator.SpaceDelete`, and it is the owner's: deleting a space the
+account does not own offloads it locally and sends nothing. A
+background reconciler sends a delete the call did not, now (if online)
+or on a later tick. It also runs inbound — spaces the coordinator
+reports gone (deleted on another device, or an owner deleted a space
+you joined) are offloaded locally on the next poll.
 **Derived spaces are refused** with `409 space.derived_undeletable`
 (§ Derived spaces); an id the account doesn't know is
 `404 space.not_found`.
+
+**The owner's delete of a space that can be a parent asks the
+coordinator first.** A regular top-level space the account owns is
+deleted after its child spaces, so its delete is settled before
+anything is written:
+
+- a child in the account's own space list refuses it with no network;
+- otherwise the signed delete is sent on the call path, and the call
+  waits for the coordinator at most five seconds.
+
+`409 space.has_children` when a child is left: one of the account's own
+list, or one the coordinator holds, the children the account is no
+member of and the ones still in deletion included. Nothing is changed,
+local or remote. When the coordinator accepts the delete, or does not
+settle it in that time, the call does the local half and returns `204`;
+the reconciler sends a delete the coordinator did not take. If the
+coordinator then refuses that deferred delete for children, the deleted
+row reads `refusal: "has_children"` until they are gone (§ Child
+spaces).
+
+The delete of any other space the account is a member of returns `204`
+with no network round trip on the call path: a space it does not own, a
+child, a one-to-one space, a guest copy. On a `joining` row the call is
+a withdrawal of the join request (§ Invites).
 
 **`GET /v1/spaces` defaults to active spaces only.** The tech-space row
 is never physically removed — it stays in `Service.List` with
@@ -719,6 +762,13 @@ rotates). Omitted until the SDK's per-space mirror has run — e.g. a
 joiner whose access is still pending. Full receiver contract — cache
 rules, keystore placement, decrypt steps — in docs/20-push.md
 § Receiver-side keys.
+
+`SpaceInfo.parentSpaceId` and `SpaceInfo.refusal` describe a child
+space (§ Child spaces): the parent it was created under, and what the
+coordinator refused for it. Both are plain synced row fields, omitted
+when empty: list rows carry them, and the raw rows on
+`POST /v1/spaces/query[/subscribe]` stream a refusal being set and
+cleared.
 
 #### Derived spaces
 
@@ -884,6 +934,279 @@ POST /v1/spaces/:spaceId/invite/decline   → 204
   marker (`status:"invite_declined"`) suppressing the invite on every
   device; a later accept overrides it. **No ACL change** — the account
   remains a member on the space's ACL. Returns 204.
+
+#### Child spaces
+
+A space can be created under a **parent** space. The child is a full
+space with its own ACL, read key and members: membership in the parent
+gives no access to it. The parent's owner and admins govern a child,
+and read it only when they are members of it. Authoritative SDK contract:
+[`docs/child-spaces.md`](https://github.com/anyproto/any-sync-sdk/blob/main/docs/child-spaces.md).
+
+| Action | Who |
+|--------|-----|
+| Create a child | a writer, an admin or the owner of the parent |
+| Read or write a child's data | the members of the child |
+| Add a member to a child | the child's admins and owner, an admin below the `admin` role; only members of the parent can be added |
+| Give outsiders read-only access to a child | the child's owner, with a guest key |
+| List a parent's children | the parent's admins and owner |
+| Remove a member of a child | the child's admins and owner; the parent's admins and owner, without the child's read key |
+| Change a child's owner | the child's owner; the parent's owner |
+| Delete a child | the child's owner; the parent's owner |
+| Delete a parent | the parent's owner, once it has no children |
+
+A parent is a regular top-level space. The tech space, a one-to-one
+space, a derived space and a child have no children: nesting has one
+level. The number of child spaces is a limit of the account that owns
+the parent, counted across all the spaces it owns, whoever creates the
+children (`childSpaces` on that account's `GET /v1/account/limits`).
+
+**Creating a child.** `POST /v1/spaces` with `parentSpaceId`
+(`Service.CreateChild`) creates the space under that parent and returns
+its `201 SpaceInfo`. Like any create it is local and needs no network.
+The caller owns the child, and nothing is written to the parent.
+
+```json
+// POST /v1/spaces
+{ "name": "Design", "parentSpaceId": "bafyrei…" }
+// → 201
+{ "id": "bafyrei…", "parentSpaceId": "bafyrei…", "name": "Design",
+  "status": "active", "ownRole": "owner", "spaceType": "any.space", … }
+```
+
+The parent is a space of the account's own list. The call refuses what
+that list already shows, and names the parent in `details.parentSpaceId`:
+
+| Parent | Error |
+|--------|-------|
+| not a space id | `400 request.invalid_field` (`details.field: "parentSpaceId"`) |
+| not in the account's list | `404 space.not_found` |
+| deleted | `409 space.deleted` |
+| a join or an invite not accepted yet | `409 space.not_accepted` |
+| the tech space, a one-to-one space, a derived space, a child | `409 space.parent_invalid` |
+
+The caller's role in the parent is not checked here. The coordinator
+checks it when the child is first pushed: the account must then be a
+writer, an admin or the owner of the parent, and the parent's owner
+below its child-spaces limit. Read the role from the parent's
+`SpaceInfo.ownRole` to decide whether to offer the action. A child of a
+parent the account owns, for example one created offline right after
+it, is pushed once a node holds the parent.
+
+**The parent link.** `SpaceInfo.parentSpaceId` is the parent of a child
+space, as the signed space header names it. It never changes. It is
+omitted on a top-level space, and on a joined child until this device
+first loads it. A member finds the children it belongs to in the space
+list, by this field.
+
+**A refused child.** The network accepts a child when it is first
+pushed, and the coordinator can refuse it. A refused child stays a
+usable local space: `status` is `active`, reads and writes work, and no
+node holds it. `SpaceInfo.refusal` names the failed check:
+
+| `refusal` | Cause | What ends it |
+|-----------|-------|--------------|
+| `parent_not_available` | the parent does not exist on the network or is deleted | nothing, for a deleted parent |
+| `parent_invalid` | the parent is not a regular top-level space | nothing |
+| `parent_permission_denied` | the account is below writer in the parent | a role of writer or above in the parent |
+| `child_limit_reached` | the parent's owner is at its child-spaces limit | a higher limit of that account, or fewer children |
+
+One more value is set on a deleted space, not on a child:
+`has_children`, the deletion on the network waits for the space's
+children. `refusal` is omitted when nothing is refused; on the raw
+space-list rows it is absent or `"none"`.
+
+The refusal is synced: every device of the account reads it, also one
+that holds no copy of the child. It clears when the coordinator accepts
+the space for any device that holds it. Each such device asks again by
+itself — a minute after a refusal, then after two, four and so on, up
+to once an hour, and once after a restart — except after
+`parent_invalid`, which no retry changes.
+
+`POST /v1/spaces/:spaceId/retry-push` (`Service.RetryPush`) asks the
+coordinator at once, for a child whose cause is gone. No body. The
+coordinator's answer is on the row before the reply:
+
+| Reply | Meaning |
+|-------|---------|
+| `204` | Accepted. `refusal` is cleared and the space is pushed to the nodes in the background. |
+| `409 space.parent_not_available`, `409 space.parent_invalid`, `403 space.parent_permission_denied`, `409 space.child_limit_reached` | Refused again. `refusal` names that check. |
+| `409 space.parent_not_available` with `refusal` unchanged | The parent is the account's own and no node holds it yet. The coordinator was not asked; the server asks when one does. |
+| `503 network.unreachable` | The coordinator could not be reached. Nothing changed. |
+| `409 space.not_child` | The account's list shows the space has no parent. |
+| `409 space.not_stored` | This device has no copy of the space. A device that holds it retries the push. |
+| `404 space.not_found`, `409 space.deleted`, `409 space.not_accepted` | The account does not hold the space as an accepted one. |
+| `400 request.invalid_field` | `spaceId` is not a space id (`details.field: "spaceId"`). |
+
+A refused child that is no longer wanted is removed with
+`DELETE /v1/spaces/:spaceId`.
+
+**Listing the children of a parent.** `GET /v1/spaces/:spaceId/children`
+(`Service.Children`) answers an admin or the owner of the parent with
+every child, the ones the account is no member of included:
+
+```json
+// GET /v1/spaces/:parentId/children
+{ "children": [
+  { "id": "bafyrei…", "status": "active" },
+  { "id": "bafyrei…", "status": "deletion_pending" }
+] }
+```
+
+`status` is the child's state on the network: `active`, or
+`deletion_pending` when its deletion was requested and is not finished.
+A deleted child is listed as `deletion_pending` until the coordinator
+has finished deleting it, and not at all after that. The coordinator
+answers on every call and
+nothing is stored: no row is created for a listed child, and the call
+needs the network (`503 network.unreachable`). Any other caller is
+`403 space.parent_permission_denied`; an id that is not a space id is
+`400 request.invalid_field`. A space the coordinator does not know is
+`404 space.not_found`, the account's own space that has not reached the
+network yet included; one it holds as deleted or in deletion is
+`409 space.deleted`. A member below admin finds the children it belongs
+to in the space list, by `parentSpaceId`.
+
+**Governing a child from the parent.** The routes under
+`/v1/children/:childId` reach a child from outside it. They take the
+child's id alone: the coordinator reads the parent from the child's
+header. The caller need not be a member of the child, and the child is
+not added to the space list, loaded or synced. Each needs the network.
+
+```
+GET    /v1/children/:childId/members                                    → 200 {members: [{identity, permission, status}], rotationPending}
+POST   /v1/children/:childId/acl/remove      { identities }             → 204
+POST   /v1/children/:childId/acl/ownership   { newOwner, oldOwnerPerm } → 204
+DELETE /v1/children/:childId                                            → 204
+```
+
+| Route | The network accepts it from | Effect in the child |
+|-------|-----------------------------|---------------------|
+| `GET …/members` | any account: it is the read of the parent's admins and owner, and the nodes serve the ACL of a space to whoever asks | None. Lists the accounts of the child with role and status, and says whether a key rotation is pending. |
+| `POST …/acl/remove` | an admin or the owner of the parent, and nobody else: no role in the child allows it | The members lose their permissions at once. The read key is not changed. The child's owner cannot be removed, and an admin of the parent does not remove an account that is an admin or the owner of the parent. |
+| `POST …/acl/ownership` | the owner of the parent; the child's own owner | `newOwner`, an active member of the child and a member of the parent, becomes its owner. The previous owner stays a member with `oldOwnerPerm` (`reader`, `writer` or `admin`); removing them is a separate call. |
+| `DELETE` | the owner of the parent; the child's own owner | The child is deleted on the network, for all its members. |
+
+The child's own owner is accepted on the last two whatever its role in
+the parent, as the owner of any space changes its owner and deletes it.
+
+`GET …/members` is how the parent side learns who is in a child: the
+identities to remove, and the active members one of whom can become the
+owner. It reads the child's ACL off the nodes. An ACL names accounts by
+identity, so a row is `{identity, permission, status}` with no `name`
+or `iconCid`: those are not readable without the child's keys. Resolve
+a name from the parent's own roster (`GET /v1/spaces/:parentId/members`)
+or the identities directory.
+
+The bodies are those of `POST /v1/spaces/:spaceId/acl/remove` and
+`…/acl/ownership`. Those two stay the calls of a member of the child
+with the role for it: an admin or the owner of the child removes
+members there, which changes the read key in the same record.
+
+`DELETE /v1/children/:childId` and `DELETE /v1/spaces/:spaceId` are
+different calls. The second is for a space of the account's own list:
+on a child it deletes on the network only for the child's owner, and
+for any other member, the parent's owner included, it removes the child
+from the account alone. The first deletes the child for everyone, for
+the parent's owner and for the child's own owner, and the coordinator
+answers before the reply. When the account also holds
+the child in its list, the row then reads `deleted` and the local copy
+is removed.
+
+| Error | Meaning |
+|-------|---------|
+| `503 network.unreachable` | No node or coordinator could be reached. Nothing changed. |
+| `403 space.parent_permission_denied` | The network does not accept the call from this account (the table above), or an admin of the parent removes an account that is an admin or the owner of the parent. |
+| `409 acl.not_parent_member` | The new owner is no member of the parent. |
+| `404 members.not_found` | An identity is no member of the child: one of the removed, or the new owner. |
+| `403 acl.forbidden` | The child's ACL forbids the record: the child's owner or the caller among the removed identities; a new owner who is the owner already or a guest identity. |
+| `409 space.not_child` | The account's list shows the space has no parent. |
+| `404 space.not_found` | The coordinator does not know the space. |
+| `409 space.deleted` | The coordinator holds the space as deleted or in deletion. `DELETE` of such a child is done and answers `204`. |
+| `400 request.invalid_field` | `childId` is not a space id (`details.field: "childId"`), an identity is malformed, or `oldOwnerPerm` is `none`, `guest` or `owner`. |
+| `400 request.missing_field`, `400 request.schema` | An empty `identities`, a missing `newOwner` or `oldOwnerPerm`; an unknown permission string. |
+
+`acl/remove` and `acl/ownership` fail when the child's ACL changes
+while they run, and are safe to repeat.
+
+**Rotation pending.** `POST /v1/children/:childId/acl/remove` removes
+without the child's read key, so the removed members keep the current
+key: they are members no longer, and read what is written until the key
+changes. `GET /v1/spaces/:spaceId/members` of the child reports it as
+`rotationPending: true`, to the members of the child.
+`GET /v1/children/:childId/members` reports the same state to the
+parent side (`Service.ChildRotationPending`), read from the ACL the
+nodes serve: `true` from the removal until the child's key is changed.
+
+No call ends it. A device writes the key change by itself when its
+account is an admin or the owner of the child and the device holds the
+child with its read key:
+
+- when the server starts, for every child the device holds;
+- while it runs, when the removal reaches a child that is loaded: one
+  loaded at start, or opened by a request since;
+- with the network reachable: a change that could not be published is
+  retried for as long as the rotation is pending;
+- once: when two devices write it at the same time, the network takes
+  one record.
+
+A device holds a child once it has loaded it: the device that created
+it or accepted the invite or the join, and any other device of the
+account after the first request that opens the space there
+(`GET /v1/spaces` opens every active space). A device that has only the
+row of the child does not rotate.
+
+`rotationPending` reads `false` on a device once the change is applied
+there; the same change gives the space row a new `push.encKeyId`, which
+the space-list stream delivers.
+
+When no key-holder is left in a child, the rotation cannot happen: the
+child has no device of an admin or the owner that holds it,
+`rotationPending` stays `true`, and deleting the child with
+`DELETE /v1/children/:childId` is the only lever.
+
+**Members of a child.** Only a member of the parent becomes a member of
+a child. The coordinator checks every way in, and its refusal is
+`409 acl.not_parent_member`:
+
+| Call | Refused when |
+|------|--------------|
+| `POST …/acl/add` | one of the added accounts is not a member of the parent; nobody of the batch is added |
+| `POST …/acl/accept` | the joiner is not a member of the parent any more: it left the parent after it asked |
+| `POST /v1/spaces/join` | this account is not a member of the parent; no row is written |
+| `POST …/acl/ownership` | the new owner is not a member of the parent, whoever hands the child over |
+
+The guest key is the exception: `POST …/guest-key` works on a child as
+on any space, and its token gives read-only access to holders outside
+the parent. Every other members, invite and ACL route works on a child
+as on any space, on the caller's role in the child.
+
+**Deleting.** `DELETE /v1/spaces/:spaceId` on a child deletes it on the
+network only for its owner; for any other member, the parent's owner
+included, it removes the child from the account alone.
+
+A parent is deleted after its children, and a deleted child is one
+until the coordinator has finished deleting it. So delete the children,
+and delete the parent once `GET /v1/spaces/:spaceId/children` lists
+none:
+
+```
+GET    /v1/spaces/:parentId/children     → the children; DELETE /v1/children/:childId each active one
+GET    /v1/spaces/:parentId/children     → later: {"children": []}
+DELETE /v1/spaces/:parentId              → 204
+```
+
+While the list still holds a child, one in deletion included, the
+delete of the parent answers `409 space.has_children` with nothing
+changed (§ Spaces, above), and is made again later.
+
+A parent deleted with no coordinator in reach reads
+`refusal: "has_children"` on its deleted row when the coordinator later
+refuses the delete. `GET …/children` and `DELETE /v1/children/:childId`
+work on such a parent. The server sends the waiting delete again by
+itself, on every pass of its reconciler and after each accepted child
+delete; it goes through once the last child is finally deleted, and
+`refusal` clears.
 
 #### Query / subscribe the space list
 
@@ -4504,9 +4827,16 @@ account-global and carries no rights.
       "status":"active",
       "name":"Alice",
       "iconCid":"…" }
-  ]
+  ],
+  "rotationPending": false
 }
 ```
+
+`rotationPending` (`ACL.RotationPending`) is `true` while members
+removed without a read key change still hold the current key, which is
+how an admin or the owner of a parent removes members of a child
+(§ Child spaces → Rotation pending). It reads `false` on every other
+space.
 
 `GET …/members/subscribe` streams membership changes as `event: member`
 frames carrying `{kind, member, previous}` — `kind` is `added` /
@@ -4569,7 +4899,10 @@ A revoked guest key is not refused here; the joined copy reads
 `guest_revoked` (§ Guest key). A
 token for a space this account deleted returns `409 space.deleted` before
 anything reaches the network — the tombstone is sticky. A guest token for
-a space this account already tracks is `409 space.already_member`. A join
+a space this account already tracks is `409 space.already_member`. A
+token of a child space whose parent this account is not a member of is
+`409 acl.not_parent_member`: the network refuses the join request, and
+no row is written (§ Child spaces). A join
 that merely ended (the owner declined, or the joiner withdrew it with
 `cancel-join`) is not a tombstone: the same call re-requests and the row
 returns to `joining`.
@@ -4687,11 +5020,14 @@ own role. Giving the `admin` role — an `accept`, an `add` or a
 `permissions` change at `admin` — and changing or removing an admin are
 the owner's, and `403 acl.forbidden` for an admin. SDK refusals map to
 `403 acl.forbidden` (insufficient permissions),
-`404 acl.record_not_found` (no such ACL record) and
+`404 acl.record_not_found` (no such ACL record),
+`404 members.not_found` (`remove`, `permissions` or `ownership` names
+an identity the ACL holds no account of) and
 `409 acl.limit_reached` (the owner's plan is at its limit of readers or
 writers for the space, or of shared spaces). A join request counts
 against neither limit: the space takes it, and the refusal comes when
-the owner accepts.
+the owner accepts. In a child space `add` and `accept` also answer
+`409 acl.not_parent_member` (§ Child spaces).
 
 `cancel-join` is the one ACL op that never resolves the space: a
 pending join is never materialized, so the server posts the withdrawal
