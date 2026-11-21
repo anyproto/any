@@ -92,6 +92,16 @@ type SpaceInfo struct {
 	// 409 space.derived_undeletable. Absent on created / joined / 1-1
 	// spaces.
 	Derived bool `json:"derived,omitempty"`
+	// ParentSpaceId is the parent of a child space, as the space header
+	// names it. Absent on a top-level space, and on a joined child
+	// until its first load.
+	ParentSpaceId string `json:"parentSpaceId,omitempty"`
+	// Refusal names what the coordinator refused for the space: the
+	// check a child failed when it was not accepted on the network, or
+	// has_children on a deleted space whose deletion waits for its
+	// children. Synced across the account's devices; absent when
+	// nothing is refused.
+	Refusal string `json:"refusal,omitempty" enums:"parent_not_available,parent_invalid,parent_permission_denied,child_limit_reached,has_children"`
 }
 
 // DerivedSpaceInfo is one row of GET /v1/spaces/derived — a registry
@@ -200,6 +210,26 @@ const (
 	// public access. The local copy stays readable; new content no longer
 	// arrives. Remove with DELETE /v1/spaces/:spaceId.
 	SpaceStatusGuestRevoked = "guest_revoked"
+)
+
+// Space refusal string values for SpaceInfo.Refusal. Mirror the
+// space.Refusal enum; "none" is an absent field.
+const (
+	// SpaceRefusalParentNotAvailable: the parent does not exist on the
+	// network or is deleted.
+	SpaceRefusalParentNotAvailable = "parent_not_available"
+	// SpaceRefusalParentInvalid: the parent is not a regular top-level
+	// space. Final.
+	SpaceRefusalParentInvalid = "parent_invalid"
+	// SpaceRefusalParentPermissionDenied: the account is below writer
+	// in the parent.
+	SpaceRefusalParentPermissionDenied = "parent_permission_denied"
+	// SpaceRefusalChildLimitReached: the parent's owner is at its
+	// child-spaces limit.
+	SpaceRefusalChildLimitReached = "child_limit_reached"
+	// SpaceRefusalHasChildren: on a deleted space, its deletion on the
+	// network waits for its child spaces.
+	SpaceRefusalHasChildren = "has_children"
 )
 
 // Space permission string values for SpaceInfo.OwnRole. Mirror the

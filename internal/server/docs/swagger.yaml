@@ -3203,8 +3203,28 @@ components:
           - guest
           - none
           type: string
+        parentSpaceId:
+          description: |-
+            ParentSpaceId is the parent of a child space, as the space header
+            names it. Absent on a top-level space, and on a joined child
+            until its first load.
+          type: string
         push:
           $ref: '#/components/schemas/api.SpacePushKeys'
+        refusal:
+          description: |-
+            Refusal names what the coordinator refused for the space: the
+            check a child failed when it was not accepted on the network, or
+            has_children on a deleted space whose deletion waits for its
+            children. Synced across the account's devices; absent when
+            nothing is refused.
+          enum:
+          - parent_not_available
+          - parent_invalid
+          - parent_permission_denied
+          - child_limit_reached
+          - has_children
+          type: string
         settings:
           additionalProperties: {}
           type: object

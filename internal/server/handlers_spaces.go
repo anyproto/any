@@ -728,6 +728,9 @@ func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {
 		CreatedAt:   info.CreatedAt,
 		Settings:    info.Settings,
 		Derived:     info.Derived,
+
+		ParentSpaceId: info.ParentSpaceId,
+		Refusal:       spaceRefusalString(info.Refusal),
 	}
 	if pk := info.PushKeys; pk != nil {
 		out.Push = &api.SpacePushKeys{
@@ -779,6 +782,25 @@ func spaceStatusString(s space.Status) string {
 		return api.SpaceStatusGuestRevoked
 	default:
 		return api.SpaceStatusUnknown
+	}
+}
+
+// spaceRefusalString is the wire label of a refusal; "" for none, so
+// the field is omitted.
+func spaceRefusalString(r space.Refusal) string {
+	switch r {
+	case space.RefusalParentNotAvailable:
+		return api.SpaceRefusalParentNotAvailable
+	case space.RefusalParentInvalid:
+		return api.SpaceRefusalParentInvalid
+	case space.RefusalParentPermissionDenied:
+		return api.SpaceRefusalParentPermissionDenied
+	case space.RefusalChildLimitReached:
+		return api.SpaceRefusalChildLimitReached
+	case space.RefusalHasChildren:
+		return api.SpaceRefusalHasChildren
+	default:
+		return ""
 	}
 }
 
