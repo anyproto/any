@@ -103,7 +103,7 @@ any account redeem K7QX-4MDP-…
 
 ## Reading the account's limits
 
-The any-sync network grants each account a file-storage pool and a number of shared spaces it may own. `GET /v1/account/limits` reads both:
+The any-sync network grants each account a file-storage pool, a number of shared spaces it may own and a number of child spaces its spaces may have. `GET /v1/account/limits` reads them:
 
 ```bash
 curl -s http://127.0.0.1:2046/v1/account/limits
@@ -120,6 +120,10 @@ any account limits
   "sharedSpaces": {
     "limit": 3,
     "fetchedAt": "2026-08-20T17:06:40Z"
+  },
+  "childSpaces": {
+    "limit": 10,
+    "fetchedAt": "2026-08-20T17:06:40Z"
   }
 }
 ```
@@ -128,13 +132,15 @@ any account limits
 
 `sharedSpaces.limit` is how many shared spaces the account may own. The coordinator refuses to make another space shareable beyond it, and the share answers `409 acl.limit_reached`.
 
+`childSpaces.limit` is a limit of its own: how many [child spaces](../collaboration/child-spaces.html) the spaces the account owns may have together, whoever created them. A child past it is refused with `refusal: "child_limit_reached"` on its row.
+
 The network accounts the pool on its own schedule, so a redeemed code or a finished backup shows some minutes later. A file the pool has no room for stays `limited` ([status and durability](../files/status-and-durability.html)) until the pool grows or files are deleted.
 
-The file nodes answer `storage` and the coordinator answers `sharedSpaces`. The server keeps each answer in the device's database, and `fetchedAt` says when the network gave it. Requests a few seconds apart share one answer.
+The file nodes answer `storage`, and the coordinator answers `sharedSpaces` and `childSpaces` together. The server keeps each answer in the device's database, and `fetchedAt` says when the network gave it. Requests a few seconds apart share one answer.
 
 A request waits for the network at most five seconds, and not at all while the network is failing or slower than that, so give it a longer timeout than five seconds. A part the network has not answered is its last answer.
 
-A part is missing when the network never answered for it on this device: a device that has never been online, or one that runs with no network, reads `{}`. `storage` is also missing on a network that has no file nodes or keeps no account pool. The route answers `200` in every one of these cases.
+A part is missing when the network never answered for it on this device: a device that has never been online, or one that runs with no network, reads `{}`. `storage` is also missing on a network that has no file nodes or keeps no account pool, and `childSpaces` while the coordinator gives no such limit. The route answers `200` in every one of these cases.
 
 > **Why it matters.** On a hosted backend a quota is a gate in front of the database. Here the limits bound only what the network stores and shares for the account: every read, write and query runs on the device without them, so this route answers with no network at all.
 

@@ -76,7 +76,9 @@ curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/acl/remove \
 any acl remove <spaceId> <identity>...
 ```
 
-Removal rotates the space's read key. Content written after the rotation is encrypted under a key the removed accounts never receive.
+Removal rotates the space's read key. Content written after the rotation is encrypted under a key the removed accounts never receive. An identity the ACL holds no account of answers `404 members.not_found`.
+
+An admin or the owner of a parent space removes members of a [child space](child-spaces.html) with `POST /v1/children/:childId/acl/remove`, without the child's read key; the rotation then follows from a device of the child's own admin or owner.
 
 > **Why it matters.** Removal is enforced by cryptography rather than by a server refusing reads: what a removed member keeps is the ciphertext they already had, and the sync nodes cannot hand them anything newer they could decrypt.
 
@@ -93,6 +95,8 @@ curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/acl/add \
 ```bash
 any acl add <spaceId> <identity>[,<identity>...] <permission>
 ```
+
+In a [child space](child-spaces.html) only members of the parent can be added: an account outside it refuses the whole batch with `409 acl.not_parent_member`, and so does an accept of a joiner who left the parent.
 
 The whole batch lands in one ACL record, and every added account is notified through the coordinator inbox (durable, retried). On their side the space shows up as a **synced** `invite_pending` row in the space list, carrying the sender-supplied name hint. They are already full ACL members; the pending state only governs whether their device materializes the space — nothing is downloaded until accepted.
 
