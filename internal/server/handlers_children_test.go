@@ -349,3 +349,39 @@ func TestServer_ChildSpace_DeleteParentAfterChildren(t *testing.T) {
 		t.Fatalf("delete the parent after its child: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// POST …/retry-push answers from the account's own list before any
+// coordinator is asked: an unknown, a deleted and a top-level space, the
+// tech space, and a child of the account's own parent no node holds.
+func TestServer_ChildSpace_RetryPush(t *testing.T) {
+	d, e := newOfflineServer(t)
+	parent := createSpace(t, e, "parent")
+	child := createChild(t, e, parent, "child")
+	gone := createChild(t, e, parent, "gone")
+	if rec := doJSON(t, e, http.MethodDelete, "/v1/spaces/"+gone.Id, ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete %s: %d %s", gone.Id, rec.Code, rec.Body.String())
+	}
+
+	for _, tc := range []struct {
+		name     string
+		spaceId  string
+		wantHTTP int
+		wantCode string
+	}{
+		{"a space the account does not hold", unknownSpaceId(parent), http.StatusNotFound, "space.not_found"},
+		{"not a space id", "bafyunknown.space", http.StatusBadRequest, "request.invalid_field"},
+		{"a top-level space", parent, http.StatusConflict, "space.not_child"},
+		{"a deleted child", gone.Id, http.StatusConflict, "space.deleted"},
+		{"the tech space", d.sdk.TechSpaceId(), http.StatusMethodNotAllowed, "space.unsupported"},
+		{"a child of an own parent no node holds", child.Id, http.StatusConflict, "space.parent_not_available"},
+	} {
+		expectError(t, tc.name, doJSON(t, e, http.MethodPost, "/v1/spaces/"+tc.spaceId+"/retry-push", ""), tc.wantHTTP, tc.wantCode)
+	}
+
+	// The coordinator was not asked, so nothing is recorded as refused.
+	var got api.SpaceInfo
+	rec := doJSON(t, e, http.MethodGet, "/v1/spaces/"+child.Id, "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.Refusal != "" {
+		t.Errorf("the child after a retry with no coordinator: %v %s, want no refusal", err, rec.Body.String())
+	}
+}

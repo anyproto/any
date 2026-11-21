@@ -10046,6 +10046,61 @@ paths:
       summary: List the changes that became unread on this device after a cursor
       tags:
       - readstate
+  /spaces/{spaceId}/retry-push:
+    post:
+      description: 'For a child whose SpaceInfo.refusal is set, once the cause is
+        gone; left alone, the server asks again by itself, less and less often. 204:
+        the coordinator accepted the space, the refusal is cleared and the space is
+        pushed to the nodes in the background. A refusal answers its own code and
+        is recorded on the row.'
+      parameters:
+      - description: Space ID of the child
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: request.invalid_field — spaceId is not a space id
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: 'space.parent_permission_denied — refused again: the account
+            is below writer in the parent'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.not_found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.parent_not_available, space.parent_invalid, space.child_limit_reached
+            — refused again; space.not_child — the account's space list shows the
+            space has no parent; space.not_stored — this device holds no copy of the
+            space; space.deleted; space.not_accepted
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: network.unreachable — the coordinator could not be reached;
+            nothing changed
+      summary: Ask the coordinator now to accept a refused child space
+      tags:
+      - spaces
   /spaces/{spaceId}/search:
     post:
       parameters:

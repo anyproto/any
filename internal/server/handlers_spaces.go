@@ -35,6 +35,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.PATCH("/spaces/:spaceId/settings", d.spaceSettingsPatch)
 	g.DELETE("/spaces/:spaceId", d.spaceDelete)
 	g.POST("/spaces/:spaceId/sync", d.spaceSync)
+	registerChildSpaceRoutes(g, d)
 	g.POST("/spaces/:spaceId/search", d.search)
 
 	g.POST("/spaces/join", d.spaceJoin)
