@@ -63,6 +63,13 @@ func walletMnemonic(t *testing.T, dataDir string) string {
 // generated.
 func startPeerWithMnemonic(t *testing.T, bin, name, mnemonic string) *peer {
 	t.Helper()
+	return startPeerWithMnemonicConf(t, bin, name, mnemonic, absStagingPath(t))
+}
+
+// startPeerWithMnemonicConf is startPeerWithMnemonic against an
+// explicit nodeconf.
+func startPeerWithMnemonicConf(t *testing.T, bin, name, mnemonic, nodeconfAbs string) *peer {
+	t.Helper()
 	dataDir := t.TempDir()
 	initCmd := exec.Command(bin, "init", "--data-dir", dataDir, "--mnemonic", mnemonic)
 	initCmd.Env = append(os.Environ(), "ANY_DATA_DIR="+dataDir)
@@ -71,7 +78,7 @@ func startPeerWithMnemonic(t *testing.T, bin, name, mnemonic string) *peer {
 	}
 	addr := freeLoopbackAddr(t)
 	t.Logf("peer %s: addr=%s data=%s (same account, fresh device key)", name, addr, dataDir)
-	srv := startServer(t, bin, addr, dataDir)
+	srv := startServerConf(t, bin, addr, dataDir, true, nodeconfAbs)
 	waitForReady(t, addr, 60*time.Second)
 	return &peer{name: name, addr: addr, dataDir: dataDir, base: "http://" + addr, srv: srv}
 }
