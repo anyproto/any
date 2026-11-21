@@ -1165,7 +1165,9 @@ Retry with `POST /v1/spaces/:spaceId/retry-push`: `204` means accepted,
 and the row's `refusal` clears; a refusal answers the code of the
 failed check, and the row holds the same answer. The server also asks
 again by itself, so the button is for "the cause is gone, ask now", not
-a requirement. `503 network.unreachable` changed nothing.
+a requirement. `503 network.unreachable` changed nothing. A refused
+child is on no node, so sharing it (invite, guest key, direct add)
+answers the refusal's code at once: clear the refusal first.
 
 **Members.** Only a member of the parent becomes a member of a child. A
 direct add, an accept or a join that would admit an outsider answers

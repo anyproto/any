@@ -33,6 +33,16 @@ curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/invites
 
 `inviteToken` is a base58-packed `(spaceId, invitePrivKey)`. Share the string however you like — a link, a QR code, a message. A space holds one invite at a time: a mint while it exists answers `409 invite.duplicate` and replaces nothing, so revoke the invite to mint another. The check reads this device's copy of the ACL: a mint fails when another invite reaches the ACL while it runs, or has not reached this device yet, and is safe to repeat; once the device has that invite, the repeat answers `409 invite.duplicate`. The owner and the admins mint; any other member gets `403 acl.forbidden`. The invite carries no role: it is chosen at [accept](acl.html), where an admin grants any role below `admin` and the owner alone grants `admin`. The owner's mint first makes the space shareable on the coordinator, which refuses once the owner's plan is at its [shared-spaces limit](../auth/profile.html#reading-the-accounts-limits): the call answers `409 acl.limit_reached`.
 
+The mint, the guest key and a direct add need the space on the network. For a space the coordinator does not know yet, the owner's call waits for the space's first push, up to 35 seconds, and answers `409 space.not_pushed` when it has not landed:
+
+```json
+{"error": {"code": "space.not_pushed", "message": "the space has not reached the network yet; retry once its first push has landed", "details": {"spaceId": "bafyrei…"}}}
+```
+
+The space is the account's own and reaches the network by itself, so repeat the call. The wait outlasts the CLI's default request timeout of 30 seconds, which ends the call first with a timeout and no code. A client that needs the code gives these calls 60 seconds: `--timeout 60s` on the CLI (`any invite create <spaceId> --timeout 60s`), a request timeout of 60 seconds in an HTTP client.
+
+A [child space](child-spaces.html#a-refused-child) the coordinator refused is not waited for: the three calls answer the code of its refusal.
+
 ```bash
 any invite create <spaceId>
 ```

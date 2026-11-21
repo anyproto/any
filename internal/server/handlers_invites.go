@@ -20,8 +20,8 @@ import (
 //	@Produce		json
 //	@Param			spaceId	path		string	true	"Space ID"
 //	@Success		201		{object}	api.InviteCreateResponse
-//	@Failure		403		{object}	api.ErrorEnvelope	"acl.forbidden — the account is neither an admin nor the owner of the space"
-//	@Failure		409		{object}	api.ErrorEnvelope	"invite.duplicate — this device's copy of the ACL holds the space's invite; acl.limit_reached — the owner's plan is at its shared-spaces limit; space.derived_unshareable — a derived space"
+//	@Failure		403		{object}	api.ErrorEnvelope	"acl.forbidden — the account is neither an admin nor the owner of the space; space.parent_permission_denied — a child the coordinator refused for the role in its parent"
+//	@Failure		409		{object}	api.ErrorEnvelope	"invite.duplicate — this device's copy of the ACL holds the space's invite; acl.limit_reached — the owner's plan is at its shared-spaces limit; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed; space.parent_not_available, space.parent_invalid, space.child_limit_reached — a child the coordinator refused"
 //	@Failure		500		{object}	api.ErrorEnvelope
 //	@Router			/spaces/{spaceId}/invites [post]
 func (d *deps) inviteCreate(c echo.Context) error {
@@ -39,7 +39,7 @@ func (d *deps) inviteCreate(c echo.Context) error {
 				"an invite already exists for this space",
 				map[string]any{"spaceId": sp.Id()})
 		}
-		return aclOpError(c, err, map[string]any{"spaceId": sp.Id()})
+		return shareOpError(c, err, "", map[string]any{"spaceId": sp.Id()})
 	}
 	token, err := space.EncodeInvite(inv)
 	if err != nil {
@@ -179,7 +179,8 @@ func (d *deps) inviteRevokeAll(c echo.Context) error {
 //	@Produce	json
 //	@Param		spaceId	path		string	true	"Space ID"
 //	@Success	201		{object}	api.InviteCreateResponse
-//	@Failure	409		{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of shared spaces or of this space's readers; space.derived_unshareable — a derived space"
+//	@Failure	403		{object}	api.ErrorEnvelope	"space.parent_permission_denied — a child the coordinator refused for the role in its parent"
+//	@Failure	409		{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of shared spaces or of this space's readers; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed; space.parent_not_available, space.parent_invalid, space.child_limit_reached — a child the coordinator refused"
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/guest-key [post]
 func (d *deps) guestKeyCreate(c echo.Context) error {
@@ -192,7 +193,7 @@ func (d *deps) guestKeyCreate(c echo.Context) error {
 	}
 	inv, err := sp.ACL().CreateGuestKey(c.Request().Context())
 	if err != nil {
-		return aclOpError(c, err, map[string]any{"spaceId": sp.Id()})
+		return shareOpError(c, err, "", map[string]any{"spaceId": sp.Id()})
 	}
 	token, err := space.EncodeInvite(inv)
 	if err != nil {

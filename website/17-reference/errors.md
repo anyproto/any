@@ -116,6 +116,7 @@ Panics are converted to `500 internal` with a generic message.
 | `space.child_limit_reached` | 409 | the owner of the parent space is at its child-spaces limit |
 | `space.not_child` | 409 | a child-space operation on a space the account's list shows has no parent |
 | `space.not_stored` | 409 | `POST …/retry-push` on a device that holds no copy of the space |
+| `space.not_pushed` | 409 | invite create, guest key or direct add by the owner of a space the coordinator does not know yet: the first push of the account's own space has not landed within the call's 35-second wait; repeat the call. The CLI's default request timeout of 30 seconds ends the call first, with no code: a client that needs the code gives these calls 60 seconds (`--timeout 60s`) |
 | `members.not_found` | 404 | unknown member identity in this space, on a read or on an ACL removal, permission change or ownership change |
 | `acl.forbidden` | 403 | the caller's role does not allow this ACL operation (minting an invite and a direct add take an admin or the owner; giving the `admin` role, and changing or removing an admin, take the owner) |
 | `acl.limit_reached` | 409 | the coordinator refuses for the space owner's plan: shared spaces on the first share of a space (invite create, guest key, direct add), or the space's readers or writers (accept, change permissions, direct add, guest key) |

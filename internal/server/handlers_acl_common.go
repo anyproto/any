@@ -157,6 +157,28 @@ func aclIdentityOpError(c echo.Context, err error, field string, details map[str
 	return aclOpError(c, err, details)
 }
 
+// shareOpError maps the errors of the calls that share a space: invite
+// create, guest key and direct add, which need the space on the
+// network. field is the request field that carries identities, "" for
+// a call that takes none.
+func shareOpError(c echo.Context, err error, field string, details map[string]any) error {
+	// The wait for the space's first push ran out.
+	if errors.Is(err, space.ErrSpaceUnknown) {
+		return spaceNotPushedError(c, details)
+	}
+	if field != "" {
+		return aclIdentityOpError(c, err, field, details)
+	}
+	return aclOpError(c, err, details)
+}
+
+// spaceNotPushedError answers for a space of the account's own that the
+// coordinator does not know yet.
+func spaceNotPushedError(c echo.Context, details map[string]any) error {
+	return writeError(c, http.StatusConflict, "space.not_pushed",
+		"the space has not reached the network yet; retry once its first push has landed", details)
+}
+
 // derivedUnshareable refuses to share a derived space. Such a space
 // belongs to one account for good: the network admits no second
 // member, and words that refusal as a plan limit.

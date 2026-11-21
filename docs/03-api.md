@@ -1038,6 +1038,12 @@ coordinator's answer is on the row before the reply:
 | `404 space.not_found`, `409 space.deleted`, `409 space.not_accepted` | The account does not hold the space as an accepted one. |
 | `400 request.invalid_field` | `spaceId` is not a space id (`details.field: "spaceId"`). |
 
+A refused child is shared with nobody: no node holds it. On it
+`POST …/invites`, `POST …/guest-key` and `POST …/acl/add` answer at
+once with the code of the recorded refusal, the one `retry-push`
+answers: `409 space.parent_not_available`, `409 space.parent_invalid`,
+`403 space.parent_permission_denied` or `409 space.child_limit_reached`.
+
 A refused child that is no longer wanted is removed with
 `DELETE /v1/spaces/:spaceId`.
 
@@ -4883,8 +4889,22 @@ makes the space shareable on the coordinator: one that would take the
 owner past the plan's shared-spaces limit (`GET /v1/account/limits`) is
 `409 acl.limit_reached`; the guest key and a direct add share a space
 the same way. On a derived space all
-three answer `409 space.derived_unshareable`. Owners share the token
-out-of-band; joiners pass it back verbatim:
+three answer `409 space.derived_unshareable`.
+
+The three need the space on the network. For a space the coordinator
+does not know yet, the owner's call waits for the space's first push,
+up to 35 seconds, and answers `409 space.not_pushed` when it has not
+landed. The space is the account's own and reaches the network by
+itself: repeat the call. A child the coordinator refused is not waited
+for and answers the code of its refusal (§ Child spaces).
+
+The wait outlasts the default request timeout of the CLI (`--timeout`)
+and of the Go client (`internal/client`), 30 seconds, which ends the
+call first with a timeout and no code. A client that needs the code
+gives these calls 60 seconds: `--timeout 60s` on the CLI, a timeout of
+60 seconds in `client.New`.
+
+Owners share the token out-of-band; joiners pass it back verbatim:
 
 ```json
 // POST /v1/spaces/join

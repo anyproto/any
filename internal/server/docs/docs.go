@@ -8837,6 +8837,16 @@ const docTemplate = `{
                         },
                         "description": "Bad Request"
                     },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "space.parent_permission_denied — a child the coordinator refused for the role in its parent"
+                    },
                     "409": {
                         "content": {
                             "application/json": {
@@ -8845,7 +8855,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "acl.limit_reached — the owner's plan is at its limit of shared spaces, or of readers or writers for the space; acl.not_parent_member — in a child space, an added account is not a member of the parent; space.derived_unshareable — a derived space"
+                        "description": "acl.limit_reached — the owner's plan is at its limit of shared spaces, or of readers or writers for the space; acl.not_parent_member — in a child space, an added account is not a member of the parent; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed; space.parent_not_available, space.parent_invalid, space.child_limit_reached — a child the coordinator refused"
                     },
                     "500": {
                         "content": {
@@ -11763,6 +11773,16 @@ const docTemplate = `{
                         },
                         "description": "Created"
                     },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "space.parent_permission_denied — a child the coordinator refused for the role in its parent"
+                    },
                     "409": {
                         "content": {
                             "application/json": {
@@ -11771,7 +11791,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "acl.limit_reached — the owner's plan is at its limit of shared spaces or of this space's readers; space.derived_unshareable — a derived space"
+                        "description": "acl.limit_reached — the owner's plan is at its limit of shared spaces or of this space's readers; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed; space.parent_not_available, space.parent_invalid, space.child_limit_reached — a child the coordinator refused"
                     },
                     "500": {
                         "content": {
@@ -12019,7 +12039,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "acl.forbidden — the account is neither an admin nor the owner of the space"
+                        "description": "acl.forbidden — the account is neither an admin nor the owner of the space; space.parent_permission_denied — a child the coordinator refused for the role in its parent"
                     },
                     "409": {
                         "content": {
@@ -12029,7 +12049,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "invite.duplicate — this device's copy of the ACL holds the space's invite; acl.limit_reached — the owner's plan is at its shared-spaces limit; space.derived_unshareable — a derived space"
+                        "description": "invite.duplicate — this device's copy of the ACL holds the space's invite; acl.limit_reached — the owner's plan is at its shared-spaces limit; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed; space.parent_not_available, space.parent_invalid, space.child_limit_reached — a child the coordinator refused"
                     },
                     "500": {
                         "content": {

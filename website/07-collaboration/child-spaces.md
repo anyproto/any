@@ -103,6 +103,8 @@ any space retry-push $CHILD
 | `409 space.not_stored` | this device has no copy of the space; a device that holds it retries the push |
 | `400 request.invalid_field` | the id is not a space id |
 
+A refused child is shared with nobody: no node holds it. On it `POST …/invites`, `POST …/guest-key` and `POST …/acl/add` answer at once with the code of the recorded refusal, the one `retry-push` answers.
+
 A refused child that is no longer wanted is removed with `DELETE /v1/spaces/:spaceId`.
 
 ## Members of a child

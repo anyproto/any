@@ -161,7 +161,8 @@ func (d *deps) aclRemove(c echo.Context) error {
 //	@Param		body	body	api.ACLAddRequest	true	"Accounts to add"
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
-//	@Failure	409	{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of shared spaces, or of readers or writers for the space; acl.not_parent_member — in a child space, an added account is not a member of the parent; space.derived_unshareable — a derived space"
+//	@Failure	403	{object}	api.ErrorEnvelope	"space.parent_permission_denied — a child the coordinator refused for the role in its parent"
+//	@Failure	409	{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of shared spaces, or of readers or writers for the space; acl.not_parent_member — in a child space, an added account is not a member of the parent; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed; space.parent_not_available, space.parent_invalid, space.child_limit_reached — a child the coordinator refused"
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/add [post]
 func (d *deps) aclAdd(c echo.Context) error {
@@ -201,7 +202,7 @@ func (d *deps) aclAdd(c echo.Context) error {
 		return resp
 	}
 	if err := sp.ACL().AddAccounts(c.Request().Context(), out); err != nil {
-		return aclIdentityOpError(c, err, "accounts", map[string]any{"spaceId": sp.Id()})
+		return shareOpError(c, err, "accounts", map[string]any{"spaceId": sp.Id()})
 	}
 	return c.NoContent(http.StatusNoContent)
 }

@@ -684,3 +684,38 @@ func TestServer_ACLRemove_DuplicateIdentities(t *testing.T) {
 		}
 	}
 }
+
+// The routes that share a space (invite create, guest key, direct add)
+// answer the code of a child's recorded refusal, as retry-push does, and
+// 409 space.not_pushed for a space whose first push has not landed. The
+// errors are shaped as the SDK returns them.
+func TestShareOpError_Mapping(t *testing.T) {
+	refused := func(cause error, label string) error {
+		return fmt.Errorf("acl: space %q is on no node, the coordinator refused it (%s): %w", "s1", label, cause)
+	}
+	for _, tc := range []struct {
+		err      error
+		wantHTTP int
+		wantCode string
+	}{
+		{refused(space.ErrParentSpaceNotAvailable, "parent_not_available"), http.StatusConflict, "space.parent_not_available"},
+		{refused(space.ErrParentSpaceInvalid, "parent_invalid"), http.StatusConflict, "space.parent_invalid"},
+		{refused(space.ErrParentPermissionDenied, "parent_permission_denied"), http.StatusForbidden, "space.parent_permission_denied"},
+		{refused(space.ErrChildSpacesLimitReached, "child_limit_reached"), http.StatusConflict, "space.child_limit_reached"},
+		{fmt.Errorf("acl: make shareable (after %d attempts): %w: %w", 35, space.ErrSpaceUnknown, coordinatorproto.ErrSpaceNotExists),
+			http.StatusConflict, "space.not_pushed"},
+	} {
+		// "" is a call that takes no identities; accounts is the direct add.
+		for _, field := range []string{"", "accounts"} {
+			code, env := mapError(t, func(c echo.Context) error {
+				return shareOpError(c, tc.err, field, map[string]any{"spaceId": "s1"})
+			})
+			if code != tc.wantHTTP || env.Error.Code != tc.wantCode {
+				t.Errorf("shareOpError(%v, %q): %d %s, want %d %s", tc.err, field, code, env.Error.Code, tc.wantHTTP, tc.wantCode)
+			}
+			if got := env.Error.Details["spaceId"]; got != "s1" {
+				t.Errorf("shareOpError(%v, %q): details %v, want the spaceId", tc.err, field, env.Error.Details)
+			}
+		}
+	}
+}
