@@ -254,19 +254,25 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.GET("/spaces/:spaceId/debug/objects/:objectId", d.debugObject)
 }
 
-// @Summary	Create a space
-// @Tags		spaces
-// @Accept		json
-// @Produce	json
-// @Param		body	body		api.SpaceCreateRequest	true	"Space params"
-// @Success	201		{object}	api.SpaceInfo
-// @Failure	400		{object}	api.ErrorEnvelope
-// @Failure	500		{object}	api.ErrorEnvelope
-// @Router		/spaces [post]
+// @Summary		Create a space
+// @Description	With parentSpaceId the space is created as a child of that space. Creation is local either way; the network accepts a child when it is first pushed, and SpaceInfo.refusal names a check it failed.
+// @Tags			spaces
+// @Accept			json
+// @Produce		json
+// @Param			body	body		api.SpaceCreateRequest	true	"Space params"
+// @Success		201		{object}	api.SpaceInfo
+// @Failure		400		{object}	api.ErrorEnvelope	"request.invalid_field — spaceType is not any.space, or parentSpaceId is not a space id"
+// @Failure		404		{object}	api.ErrorEnvelope	"space.not_found — the account has no space parentSpaceId"
+// @Failure		409		{object}	api.ErrorEnvelope	"space.parent_invalid — the parent cannot have children; space.deleted, space.not_accepted — the parent is not an accepted space of the account"
+// @Failure		500		{object}	api.ErrorEnvelope
+// @Router			/spaces [post]
 func (d *deps) spaceCreate(c echo.Context) error {
 	req, ok := bindBodyStrict[api.SpaceCreateRequest](c, "")
 	if !ok {
 		return nil
+	}
+	if req.ParentSpaceId != "" {
+		return d.spaceCreateChild(c, req)
 	}
 	sp, err := d.sdk.Spaces().Create(c.Request().Context(), space.CreateRequest{
 		Name:        req.Name,
@@ -283,6 +289,30 @@ func (d *deps) spaceCreate(c echo.Context) error {
 				map[string]any{"spaceType": req.SpaceType})
 		}
 		return spaceError(c, err, "")
+	}
+	return c.JSON(http.StatusCreated, d.spaceToAPI(c.Request().Context(), sp))
+}
+
+// spaceCreateChild serves POST /v1/spaces with a parentSpaceId —
+// Service.CreateChild. A child is always a regular space, so spaceType
+// names that type or nothing.
+func (d *deps) spaceCreateChild(c echo.Context, req *api.SpaceCreateRequest) error {
+	if req.SpaceType != "" && req.SpaceType != space.SpaceTypeAny {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"unsupported spaceType (allowed: any.space or empty)",
+			map[string]any{"spaceType": req.SpaceType})
+	}
+	sp, err := d.sdk.Spaces().CreateChild(c.Request().Context(), space.CreateChildRequest{
+		ParentSpaceId: req.ParentSpaceId,
+		Name:          req.Name,
+		Description:   req.Description,
+		IconCID:       req.IconCID,
+	})
+	if err != nil {
+		if errors.Is(err, space.ErrBadSpaceId) {
+			return badSpaceIdError(c, "parentSpaceId")
+		}
+		return spaceErrorDetails(c, err, map[string]any{"parentSpaceId": req.ParentSpaceId})
 	}
 	return c.JSON(http.StatusCreated, d.spaceToAPI(c.Request().Context(), sp))
 }

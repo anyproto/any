@@ -3,12 +3,16 @@ package api
 import "time"
 
 // SpaceCreateRequest is the body of POST /v1/spaces. Mirrors
-// space.CreateRequest.
+// space.CreateRequest, and space.CreateChildRequest when ParentSpaceId
+// is set.
 type SpaceCreateRequest struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	IconCID     string `json:"iconCid,omitempty"`
 	SpaceType   string `json:"spaceType,omitempty"`
+	// ParentSpaceId creates the space as a child of that space, which
+	// the account holds as a writer, an admin or the owner.
+	ParentSpaceId string `json:"parentSpaceId,omitempty"`
 }
 
 // SpaceOneToOneRequest is the body of POST /v1/spaces/one-to-one. The

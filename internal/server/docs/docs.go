@@ -3728,6 +3728,10 @@ const docTemplate = `{
                     "name": {
                         "type": "string"
                     },
+                    "parentSpaceId": {
+                        "description": "ParentSpaceId creates the space as a child of that space, which\nthe account holds as a writer, an admin or the owner.",
+                        "type": "string"
+                    },
                     "spaceType": {
                         "type": "string"
                     }
@@ -7638,6 +7642,7 @@ const docTemplate = `{
                 ]
             },
             "post": {
+                "description": "With parentSpaceId the space is created as a child of that space. Creation is local either way; the network accepts a child when it is first pushed, and SpaceInfo.refusal names a check it failed.",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -7677,7 +7682,27 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "Bad Request"
+                        "description": "request.invalid_field — spaceType is not any.space, or parentSpaceId is not a space id"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "space.not_found — the account has no space parentSpaceId"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "space.parent_invalid — the parent cannot have children; space.deleted, space.not_accepted — the parent is not an accepted space of the account"
                     },
                     "500": {
                         "content": {

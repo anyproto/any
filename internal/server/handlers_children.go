@@ -9,6 +9,13 @@ import (
 	"github.com/anyproto/any-sync-sdk/space"
 )
 
+// badSpaceIdError answers an id that is not a space id; field names the
+// path parameter or the body field that carried it.
+func badSpaceIdError(c echo.Context, field string) error {
+	return writeError(c, http.StatusBadRequest, "request.invalid_field",
+		"invalid space id", map[string]any{"field": field})
+}
+
 // childSpaceError maps the SDK's parent and child space sentinels.
 // Shared by the space, op and ACL mappers, so a refusal reads the same
 // on every route.
