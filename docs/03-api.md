@@ -5032,8 +5032,9 @@ an identity the ACL holds no account of) and
 `409 acl.limit_reached` (the owner's plan is at its limit of readers or
 writers for the space, or of shared spaces). A join request counts
 against neither limit: the space takes it, and the refusal comes when
-the owner accepts. In a child space `add` and `accept` also answer
-`409 acl.not_parent_member` (§ Child spaces).
+the owner accepts. In a child space `add`, `accept` and `ownership`
+also answer `409 acl.not_parent_member` (§ Child spaces): an added
+account, a joiner or a new owner that is not a member of the parent.
 
 `cancel-join` is the one ACL op that never resolves the space: a
 pending join is never materialized, so the server posts the withdrawal
