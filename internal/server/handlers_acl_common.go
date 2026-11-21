@@ -83,6 +83,15 @@ func aclOpError(c echo.Context, err error, details map[string]any) error {
 	if errors.Is(err, space.ErrNotFound) {
 		return writeError(c, http.StatusNotFound, "members.not_found", err.Error(), details)
 	}
+	if errors.Is(err, space.ErrAccountNotFound) {
+		return writeError(c, http.StatusNotFound, "members.not_found",
+			"the space's ACL holds no account of this identity", details)
+	}
+	// Before the text matches below: the parent's refusal is worded
+	// "permission denied" too.
+	if resp, done := childSpaceError(c, err, details); done {
+		return resp
+	}
 	// The coordinator's own refusal: make-shareable, the precondition
 	// of invite create and direct add, is owner-only.
 	if errors.Is(err, space.ErrCoordinatorForbidden) {

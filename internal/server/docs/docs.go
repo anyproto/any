@@ -7848,7 +7848,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "space.deleted — the space was deleted on this account (any token); space.already_member — guest token for a space this account already tracks"
+                        "description": "space.deleted — the space was deleted on this account (any token); space.already_member — guest token for a space this account already tracks; acl.not_parent_member — a child space, and this account is not a member of its parent"
                     },
                     "410": {
                         "content": {
@@ -8133,7 +8133,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "Conflict"
+                        "description": "space.has_children — the space still has child spaces; space.derived_undeletable — a derived space"
                     },
                     "500": {
                         "content": {
@@ -8308,7 +8308,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "acl.limit_reached — the owner's plan is at its limit of readers or writers for the space"
+                        "description": "acl.limit_reached — the owner's plan is at its limit of readers or writers for the space; acl.not_parent_member — in a child space, the joiner is not a member of the parent"
                     },
                     "500": {
                         "content": {
@@ -8382,7 +8382,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "acl.limit_reached — the owner's plan is at its limit of shared spaces, or of readers or writers for the space; space.derived_unshareable — a derived space"
+                        "description": "acl.limit_reached — the owner's plan is at its limit of shared spaces, or of readers or writers for the space; acl.not_parent_member — in a child space, an added account is not a member of the parent; space.derived_unshareable — a derived space"
                     },
                     "500": {
                         "content": {
@@ -8567,6 +8567,26 @@ const docTemplate = `{
                         },
                         "description": "Bad Request"
                     },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "members.not_found — the new owner is no member of the space"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "acl.not_parent_member — in a child space, the new owner is not a member of the parent"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -8630,6 +8650,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "members.not_found — an identity the ACL holds no account of"
                     },
                     "409": {
                         "content": {
@@ -8704,6 +8734,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "members.not_found — an identity the ACL holds no account of"
                     },
                     "500": {
                         "content": {

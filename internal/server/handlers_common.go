@@ -345,6 +345,9 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 	if resp, done := unsupportedError(c, err, details); done {
 		return resp
 	}
+	if resp, done := childSpaceError(c, err, details); done {
+		return resp
+	}
 	// The coordinator refuses for the space owner's plan: shared spaces
 	// on make-shareable, readers or writers on an ACL record. A derived
 	// space never gets here: derivedUnshareable answers for it.
