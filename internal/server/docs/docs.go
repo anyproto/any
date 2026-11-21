@@ -145,6 +145,19 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.AccountChildSpacesLimits": {
+                "properties": {
+                    "fetchedAt": {
+                        "description": "FetchedAt is when the network gave this answer.",
+                        "type": "string"
+                    },
+                    "limit": {
+                        "description": "Limit is how many child spaces the spaces the account owns may\nhave together.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "api.AccountDiscoveryStatus": {
                 "description": "Account is the account-level discovery record (pkarr).",
                 "properties": {
@@ -186,6 +199,9 @@ const docTemplate = `{
             },
             "api.AccountLimitsResponse": {
                 "properties": {
+                    "childSpaces": {
+                        "$ref": "#/components/schemas/api.AccountChildSpacesLimits"
+                    },
                     "sharedSpaces": {
                         "$ref": "#/components/schemas/api.AccountSharedSpacesLimits"
                     },
@@ -4865,7 +4881,7 @@ const docTemplate = `{
         },
         "/account/limits": {
             "get": {
-                "description": "The file-storage pool with its usage and the shared-spaces limit. Each part is the network's last answer, kept on the device (see fetchedAt), and omitted when the network never answered. A request waits for the network at most five seconds; an unreachable network is a 200.",
+                "description": "The file-storage pool with its usage, the shared-spaces limit and the child-spaces limit. Each part is the network's last answer, kept on the device (see fetchedAt), and omitted when the network never answered. A request waits for the network at most five seconds; an unreachable network is a 200.",
                 "responses": {
                     "200": {
                         "content": {

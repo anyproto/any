@@ -49,7 +49,7 @@ func (d *deps) accountGet(c echo.Context) error {
 // last answer, and is omitted when there never was one.
 //
 //	@Summary		Network limits of the account
-//	@Description	The file-storage pool with its usage and the shared-spaces limit. Each part is the network's last answer, kept on the device (see fetchedAt), and omitted when the network never answered. A request waits for the network at most five seconds; an unreachable network is a 200.
+//	@Description	The file-storage pool with its usage, the shared-spaces limit and the child-spaces limit. Each part is the network's last answer, kept on the device (see fetchedAt), and omitted when the network never answered. A request waits for the network at most five seconds; an unreachable network is a 200.
 //	@Tags			account
 //	@Produce		json
 //	@Success		200	{object}	api.AccountLimitsResponse
@@ -60,6 +60,12 @@ func (d *deps) accountLimits(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, nil)
 	}
+	return c.JSON(http.StatusOK, accountLimitsToAPI(limits))
+}
+
+// accountLimitsToAPI shapes the SDK's limits onto the wire; a part the
+// network never answered for stays out.
+func accountLimitsToAPI(limits space.AccountLimits) api.AccountLimitsResponse {
 	var resp api.AccountLimitsResponse
 	if s := limits.Storage; s != nil {
 		resp.Storage = &api.AccountStorageLimits{LimitBytes: s.LimitBytes, UsageBytes: s.UsageBytes, FetchedAt: s.FetchedAt}
@@ -67,7 +73,10 @@ func (d *deps) accountLimits(c echo.Context) error {
 	if s := limits.SharedSpaces; s != nil {
 		resp.SharedSpaces = &api.AccountSharedSpacesLimits{Limit: s.Limit, FetchedAt: s.FetchedAt}
 	}
-	return c.JSON(http.StatusOK, resp)
+	if s := limits.ChildSpaces; s != nil {
+		resp.ChildSpaces = &api.AccountChildSpacesLimits{Limit: s.Limit, FetchedAt: s.FetchedAt}
+	}
+	return resp
 }
 
 // accountUpdateMetadata handles PUT /v1/account/metadata.
