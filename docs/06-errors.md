@@ -108,7 +108,7 @@ acl.limit_reached                # 409 — the coordinator refuses an ACL operat
 acl.record_not_found             # 404 — the ACL record the operation names does not exist
 acl.not_parent_member            # 409 — only a member of the parent space becomes a member of a child space: POST …/acl/add when an added account is not one (nobody of the batch is added), POST …/acl/accept when the joiner left the parent after asking, POST /v1/spaces/join when this account is not one (no row is written), an ownership change (POST …/acl/ownership on the child, or under /v1/children/:childId) whose new owner is not one. A guest key is exempt
 invite.invalid                   # 400 — invite token malformed or not decodable as an invite
-invite.duplicate                 # 409 — POST …/invites while the space's invite exists, whoever minted it: a space holds one, and a mint replaces nothing — revoke it to mint another
+invite.duplicate                 # 409 — POST …/invites while this device's copy of the ACL holds the space's invite, whoever minted it: a space holds one, and a mint replaces nothing — revoke it to mint another. A mint fails when another invite reaches the ACL while it runs, or has not reached this device yet, and is safe to repeat: repeated once the device has that invite, it answers this code
 invite.not_found                 # 404 — GET …/invites/:recordId for an unknown record
 invite.revoked                   # 410 — POST /v1/spaces/join with an invite the space's ACL no longer holds: revoked, replaced or never minted
 guest_key.not_found              # 404 — revoke with no active guest key

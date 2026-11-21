@@ -4871,7 +4871,11 @@ invite's `permission` is `"none"` — the role is chosen by the owner at
 `/acl/accept`, not carried by the invite. A space holds one such invite
 at a time: a mint while it exists is `409 invite.duplicate` and
 replaces nothing. Revoke the invite (`DELETE …/invites/:recordId`, or
-`DELETE …/invites`) to mint another. The owner and the admins mint; a
+`DELETE …/invites`) to mint another. The check reads this device's copy
+of the ACL: a mint fails when another invite reaches the ACL while it
+runs, or has not reached this device yet, and is safe to repeat. Once
+the device has that invite, the repeat is `409 invite.duplicate`. The
+owner and the admins mint; a
 mint by any other member is `403 acl.forbidden`. An admin accepts a
 request at any role below `admin`: the `admin` role is the owner's to
 give (§ ACL operations). The owner's mint first

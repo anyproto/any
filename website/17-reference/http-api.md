@@ -346,7 +346,7 @@ See [Files](../files/index.html).
 | GET | `/v1/spaces/:spaceId/members/requests` | — | `{requests: [{recordId, identity, name?, description?, iconCid?}]}` | pass `recordId` as `requestRecordId` to `acl/accept` |
 | GET | `/v1/spaces/:spaceId/members/subscribe` | — | SSE `member` frames | |
 | GET | `/v1/spaces/:spaceId/members/:identity` | — | `Member` | |
-| POST | `/v1/spaces/:spaceId/invites` | — | 201 `{spaceId, inviteToken}` | one invite per space: `409 invite.duplicate` while one exists, revoke it to mint another; owner and admins (`403 acl.forbidden` for any other member); `409 acl.limit_reached` at the owner's shared-spaces limit; `409 space.derived_unshareable` on a derived space |
+| POST | `/v1/spaces/:spaceId/invites` | — | 201 `{spaceId, inviteToken}` | one invite per space: `409 invite.duplicate` while this device's copy of the ACL holds one, revoke it to mint another; a mint that fails beside another one is safe to repeat; owner and admins (`403 acl.forbidden` for any other member); `409 acl.limit_reached` at the owner's shared-spaces limit; `409 space.derived_unshareable` on a derived space |
 | GET | `/v1/spaces/:spaceId/invites` | — | `{invites: [{recordId, permission, inviteToken?}]}` | token only on the minting account's devices |
 | GET | `/v1/spaces/:spaceId/invites/:recordId` | — | one invite | `404 invite.not_found` |
 | DELETE | `/v1/spaces/:spaceId/invites` | — | 204 | revoke all |

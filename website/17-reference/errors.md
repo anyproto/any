@@ -123,7 +123,7 @@ Panics are converted to `500 internal` with a generic message.
 | `acl.not_parent_member` | 409 | only a member of the parent space becomes a member of a child space: a direct add, an accept or a join that would admit an account outside the parent |
 | `invite.invalid` | 400 | invite token malformed or not decodable as an invite |
 | `invite.not_found` | 404 | unknown invite record |
-| `invite.duplicate` | 409 | the space's invite exists: a space holds one, and a mint replaces nothing |
+| `invite.duplicate` | 409 | this device's copy of the ACL holds the space's invite: a space holds one, and a mint replaces nothing. A mint fails when another invite reaches the ACL while it runs, or has not reached this device yet, and is safe to repeat: it then answers this code |
 | `invite.revoked` | 410 | join with an invite the space no longer holds: revoked, replaced or never minted |
 | `guest_key.not_found` | 404 | revoke with no active guest key |
 
