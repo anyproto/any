@@ -916,6 +916,20 @@ components:
         text:
           type: string
       type: object
+    api.ChildSpace:
+      properties:
+        id:
+          type: string
+        status:
+          description: |-
+            Status is the child's state on the network. A deleted child is
+            listed as deletion_pending until the coordinator has finished
+            deleting it, and not at all after that.
+          enum:
+          - active
+          - deletion_pending
+          type: string
+      type: object
     api.CollectionInfo:
       properties:
         builtIn:
@@ -3071,6 +3085,14 @@ components:
           type: string
         truncated:
           type: boolean
+      type: object
+    api.SpaceChildrenResponse:
+      properties:
+        children:
+          items:
+            $ref: '#/components/schemas/api.ChildSpace'
+          type: array
+          uniqueItems: false
       type: object
     api.SpaceCreateRequest:
       properties:
@@ -6493,6 +6515,61 @@ paths:
       summary: Resolve a losing root
       tags:
       - bundles
+  /spaces/{spaceId}/children:
+    get:
+      description: Every child of the space as the coordinator holds it, the ones
+        this account is no member of included. For an admin or the owner of the parent;
+        a member finds the children it belongs to in the space list, by SpaceInfo.parentSpaceId.
+        Needs the network.
+      parameters:
+      - description: Space ID of the parent
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.SpaceChildrenResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: request.invalid_field — spaceId is not a space id
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.parent_permission_denied — the account is not an admin
+            or the owner of the space
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.not_found — the coordinator does not know the space
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.deleted — the coordinator holds the space as deleted
+            or in deletion
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: network.unreachable — the coordinator could not be reached
+      summary: List the child spaces of a parent space
+      tags:
+      - spaces
   /spaces/{spaceId}/collections:
     get:
       parameters:

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -205,6 +206,45 @@ func unknownSpaceId(spaceId string) string {
 	return spaceId[:strings.LastIndexByte(spaceId, '.')] + ".1"
 }
 
+// A parentSpaceId that is not a space id is the request's fault on
+// create, 400 with the field named, for exactly the ids the children
+// list refuses the same way; a well-formed id the account does not hold
+// is 404.
+func TestServer_ChildSpace_Create_MalformedParent(t *testing.T) {
+	_, e := newOfflineServer(t)
+	parent := createSpace(t, e, "parent")
+	contentId := parent[:strings.LastIndexByte(parent, '.')]
+
+	for id, malformed := range map[string]bool{
+		"not-a-space-id":        true,
+		"bafyunknown.space":     true,
+		contentId:               true,
+		contentId + ".":         true,
+		".1apx":                 true,
+		contentId + ".not base": true,
+		unknownSpaceId(parent):  false,
+		parent:                  false,
+	} {
+		create := doJSON(t, e, http.MethodPost, "/v1/spaces", fmt.Sprintf(`{"parentSpaceId":%q}`, id))
+		children := doJSON(t, e, http.MethodGet, "/v1/spaces/"+url.PathEscape(id)+"/children", "")
+		if !malformed {
+			if create.Code == http.StatusBadRequest || children.Code == http.StatusBadRequest {
+				t.Errorf("%q: create %d, children %d, want neither refused as malformed", id, create.Code, children.Code)
+			}
+			continue
+		}
+		expectError(t, fmt.Sprintf("children of %q", id), children, http.StatusBadRequest, "request.invalid_field")
+		expectError(t, fmt.Sprintf("create under %q", id), create, http.StatusBadRequest, "request.invalid_field")
+		var env api.ErrorEnvelope
+		if err := json.Unmarshal(create.Body.Bytes(), &env); err != nil {
+			t.Fatal(err)
+		}
+		if got := env.Error.Details["field"]; got != "parentSpaceId" {
+			t.Errorf("create under %q: details %v, want field parentSpaceId", id, env.Error.Details)
+		}
+	}
+}
+
 // The parent id of a child survives every way the server serialises a
 // space: the create reply, the single read, the list, the raw
 // space-list rows and their stream.
@@ -383,5 +423,40 @@ func TestServer_ChildSpace_RetryPush(t *testing.T) {
 	rec := doJSON(t, e, http.MethodGet, "/v1/spaces/"+child.Id, "")
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.Refusal != "" {
 		t.Errorf("the child after a retry with no coordinator: %v %s, want no refusal", err, rec.Body.String())
+	}
+}
+
+// GET …/children is the coordinator's answer and nothing else: with no
+// coordinator in reach it is 503, also for the account's own parent.
+func TestServer_ChildSpace_Children(t *testing.T) {
+	d, e := newOfflineServer(t)
+	parent := createSpace(t, e, "parent")
+	createChild(t, e, parent, "child")
+
+	for _, tc := range []struct {
+		name     string
+		spaceId  string
+		wantHTTP int
+		wantCode string
+	}{
+		{"no coordinator in reach", parent, http.StatusServiceUnavailable, "network.unreachable"},
+		{"not a space id", "not-a-space-id", http.StatusBadRequest, "request.invalid_field"},
+		{"the tech space", d.sdk.TechSpaceId(), http.StatusMethodNotAllowed, "space.unsupported"},
+	} {
+		expectError(t, tc.name, doJSON(t, e, http.MethodGet, "/v1/spaces/"+tc.spaceId+"/children", ""), tc.wantHTTP, tc.wantCode)
+	}
+}
+
+// The coordinator's states of a child keep their wire labels.
+func TestChildStatusString(t *testing.T) {
+	for status, want := range map[space.ChildStatus]string{
+		space.ChildStatusUnknown:         api.ChildStatusUnknown,
+		space.ChildStatusActive:          api.ChildStatusActive,
+		space.ChildStatusDeletionPending: api.ChildStatusDeletionPending,
+		space.ChildStatusDeleted:         api.ChildStatusDeleted,
+	} {
+		if got := childStatusString(status); got != want || got != status.String() {
+			t.Errorf("status %d: %q, want %q, the SDK's label %q", status, got, want, status.String())
+		}
 	}
 }

@@ -7,12 +7,60 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/anyproto/any-sync-sdk/space"
+
+	"github.com/anyproto/any/internal/api"
 )
 
 // registerChildSpaceRoutes registers the routes of child spaces: a
 // space created under a parent space.
 func registerChildSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/retry-push", d.spaceRetryPush)
+	g.GET("/spaces/:spaceId/children", d.spaceChildren)
+}
+
+// spaceChildren handles GET /v1/spaces/:spaceId/children —
+// Service.Children. The coordinator answers on every call; nothing is
+// stored, and no row is created for a listed child.
+//
+//	@Summary		List the child spaces of a parent space
+//	@Description	Every child of the space as the coordinator holds it, the ones this account is no member of included. For an admin or the owner of the parent; a member finds the children it belongs to in the space list, by SpaceInfo.parentSpaceId. Needs the network.
+//	@Tags			spaces
+//	@Produce		json
+//	@Param			spaceId	path		string	true	"Space ID of the parent"
+//	@Success		200		{object}	api.SpaceChildrenResponse
+//	@Failure		400		{object}	api.ErrorEnvelope	"request.invalid_field — spaceId is not a space id"
+//	@Failure		403		{object}	api.ErrorEnvelope	"space.parent_permission_denied — the account is not an admin or the owner of the space"
+//	@Failure		404		{object}	api.ErrorEnvelope	"space.not_found — the coordinator does not know the space"
+//	@Failure		409		{object}	api.ErrorEnvelope	"space.deleted — the coordinator holds the space as deleted or in deletion"
+//	@Failure		503		{object}	api.ErrorEnvelope	"network.unreachable — the coordinator could not be reached"
+//	@Router			/spaces/{spaceId}/children [get]
+func (d *deps) spaceChildren(c echo.Context) error {
+	id := c.Param("spaceId")
+	children, err := d.sdk.Spaces().Children(c.Request().Context(), id)
+	if err != nil {
+		if errors.Is(err, space.ErrBadSpaceId) {
+			return badSpaceIdError(c, "spaceId")
+		}
+		return spaceError(c, err, id)
+	}
+	out := make([]api.ChildSpace, 0, len(children))
+	for _, child := range children {
+		out = append(out, api.ChildSpace{Id: child.Id, Status: childStatusString(child.Status)})
+	}
+	return c.JSON(http.StatusOK, api.SpaceChildrenResponse{Children: out})
+}
+
+func childStatusString(s space.ChildStatus) string {
+	switch s {
+	case space.ChildStatusActive:
+		return api.ChildStatusActive
+	case space.ChildStatusDeletionPending:
+		return api.ChildStatusDeletionPending
+	case space.ChildStatusDeleted:
+		return api.ChildStatusDeleted
+	default:
+		return api.ChildStatusUnknown
+	}
 }
 
 // badSpaceIdError answers an id that is not a space id; field names the

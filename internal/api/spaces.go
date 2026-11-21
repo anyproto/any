@@ -108,6 +108,33 @@ type SpaceInfo struct {
 	Refusal string `json:"refusal,omitempty" enums:"parent_not_available,parent_invalid,parent_permission_denied,child_limit_reached,has_children"`
 }
 
+// ChildSpace is a child of a parent space as the coordinator lists it
+// for the parent's admins and owner. Mirrors space.ChildSpace.
+type ChildSpace struct {
+	Id string `json:"id"`
+	// Status is the child's state on the network. A deleted child is
+	// listed as deletion_pending until the coordinator has finished
+	// deleting it, and not at all after that.
+	Status string `json:"status" enums:"active,deletion_pending"`
+}
+
+// SpaceChildrenResponse is the body of GET /v1/spaces/:spaceId/children.
+type SpaceChildrenResponse struct {
+	Children []ChildSpace `json:"children"`
+}
+
+// Child status string values for ChildSpace.Status. Mirror the
+// space.ChildStatus enum 1:1; the children list carries the active and
+// the deletion-pending ones.
+const (
+	ChildStatusUnknown = "unknown"
+	ChildStatusActive  = "active"
+	// ChildStatusDeletionPending: the deletion of the child was
+	// requested and is not finished.
+	ChildStatusDeletionPending = "deletion_pending"
+	ChildStatusDeleted         = "deleted"
+)
+
 // DerivedSpaceInfo is one row of GET /v1/spaces/derived — a registry
 // entry resolved against the account: the deterministic spaceId the
 // entry derives to, and whether a usable space row exists (materialized
