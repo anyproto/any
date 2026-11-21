@@ -1146,10 +1146,11 @@ is removed.
 `acl/remove` and `acl/ownership` fail when the child's ACL changes
 while they run, and are safe to repeat.
 
-On a regular top-level space of another account, `acl/remove` and
-`acl/ownership` see only the ACL of that space: they answer
+A regular top-level space of another account has no parent to refuse
+the caller for. On it `acl/remove` and `acl/ownership` answer
 `403 acl.forbidden`, or `404 members.not_found` for an identity that is
-no account of it, and not `space.parent_permission_denied`.
+no account of that space, and not `space.parent_permission_denied`;
+`GET …/members` lists its accounts.
 
 **Rotation pending.** `POST /v1/children/:childId/acl/remove` removes
 without the child's read key, so the removed members keep the current

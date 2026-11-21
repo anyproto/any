@@ -209,7 +209,7 @@ The rows carry no `name` and no `iconCid`: an ACL names accounts by identity, an
 
 `acl/remove` and `acl/ownership` fail when the child's ACL changes while they run, and are safe to repeat.
 
-On a regular top-level space of another account, `acl/remove` and `acl/ownership` see only the ACL of that space: they answer `403 acl.forbidden`, or `404 members.not_found` for an identity that is no account of it, and not `space.parent_permission_denied`.
+A regular top-level space of another account has no parent to refuse the caller for. On it `acl/remove` and `acl/ownership` answer `403 acl.forbidden`, or `404 members.not_found` for an identity that is no account of that space, and not `space.parent_permission_denied`; `GET …/members` lists its accounts.
 
 An admin or the owner of the child removes members with the child's own [ACL](acl.html) route instead: `POST /v1/spaces/:spaceId/acl/remove` changes the read key in the same record. The child's owner transfers the ownership with `POST /v1/spaces/:spaceId/acl/ownership` as well.
 
