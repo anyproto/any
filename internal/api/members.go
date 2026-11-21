@@ -30,6 +30,14 @@ type Member struct {
 // MembersListResponse is the body of GET /v1/spaces/:spaceId/members.
 type MembersListResponse struct {
 	Members []Member `json:"members"`
+	// RotationPending reports that members were removed from the space
+	// without a read key change and still hold the current key: they
+	// read what is written until it changes. An admin or the owner of
+	// the parent removes members of a child space this way. A device
+	// of an admin or the owner of this space that holds the space
+	// changes the key by itself, at start and while it runs; the field
+	// reads false once that record is applied here.
+	RotationPending bool `json:"rotationPending"`
 }
 
 // JoinRequest mirrors space.JoinRequestInfo.

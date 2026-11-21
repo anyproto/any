@@ -2799,6 +2799,10 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "rotationPending": {
+                        "description": "RotationPending reports that members were removed from the space\nwithout a read key change and still hold the current key: they\nread what is written until it changes. An admin or the owner of\nthe parent removes members of a child space this way. A device\nof an admin or the owner of this space that holds the space\nchanges the key by itself, at start and while it runs; the field\nreads false once that record is applied here.",
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -11760,6 +11764,7 @@ const docTemplate = `{
         },
         "/spaces/{spaceId}/members": {
             "get": {
+                "description": "The roster with roles, and rotationPending: true while members removed without a read key change still hold the current key.",
                 "parameters": [
                     {
                         "description": "Space ID",
