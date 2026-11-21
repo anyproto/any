@@ -95,7 +95,7 @@ func newInviteCmd() *cobra.Command {
 	cmd.AddCommand(
 		&cobra.Command{
 			Use:   "create <spaceId>",
-			Short: "mint a fresh invite (replaces any prior one)",
+			Short: "mint the space's invite (one per space: revoke the existing one first)",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
 				cl := newClient(flags.Timeout)

@@ -9,8 +9,8 @@ godebug x509sslcertoverrideplatform=0
 require (
 	github.com/anyproto/any-store v1.0.3
 	github.com/anyproto/any-store/v2 v2.5.0
-	github.com/anyproto/any-sync v0.13.8
-	github.com/anyproto/any-sync-sdk v0.8.0
+	github.com/anyproto/any-sync v0.13.9-0.20261121032002-4988b94a1621
+	github.com/anyproto/any-sync-sdk v0.8.1-0.20261121162719-734b3949725d
 	github.com/anyproto/anytype-push-server/pushclient v0.0.0-20261014142855-af71aa8b1662
 	github.com/anyproto/go-sqlite v1.4.2-any
 	github.com/anyproto/lexid v0.0.6
@@ -136,7 +136,7 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/sv-tools/openapi v0.4.0 // indirect
 	github.com/tetratelabs/wazero v1.10.1 // indirect
-	github.com/tmc/go-iroh v0.2.1 // indirect
+	github.com/tmc/go-iroh v0.3.0 // indirect
 	github.com/urfave/cli/v2 v2.27.7 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect

@@ -31,6 +31,7 @@ type AccountMetadata struct {
 type AccountLimitsResponse struct {
 	Storage      *AccountStorageLimits      `json:"storage,omitempty"`
 	SharedSpaces *AccountSharedSpacesLimits `json:"sharedSpaces,omitempty"`
+	ChildSpaces  *AccountChildSpacesLimits  `json:"childSpaces,omitempty"`
 }
 
 // AccountStorageLimits is the account's file-storage pool: every file
@@ -48,6 +49,17 @@ type AccountStorageLimits struct {
 // AccountSharedSpacesLimits bounds the shared spaces the account owns.
 type AccountSharedSpacesLimits struct {
 	// Limit is how many shared spaces the account may own.
+	Limit uint32 `json:"limit"`
+	// FetchedAt is when the network gave this answer.
+	FetchedAt time.Time `json:"fetchedAt"`
+}
+
+// AccountChildSpacesLimits bounds the child spaces of all the spaces the
+// account owns, whoever created them. A limit of its own, apart from
+// the shared-spaces limit.
+type AccountChildSpacesLimits struct {
+	// Limit is how many child spaces the spaces the account owns may
+	// have together.
 	Limit uint32 `json:"limit"`
 	// FetchedAt is when the network gave this answer.
 	FetchedAt time.Time `json:"fetchedAt"`

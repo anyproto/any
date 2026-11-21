@@ -42,6 +42,8 @@ any acl decline <spaceId> --identity <identity>
 
 On the joiner's side the space row flips from `joining` to `active`, or to `deleted` on a decline; the owner's members list shows `active` or `declined`.
 
+An admin accepts at any role below its own. The `admin` role is the owner's to give: an accept, a direct add or a permission change at `admin` by an admin answers `403 acl.forbidden`, and so does an admin changing or removing another admin.
+
 A request takes no seat until it is accepted. An accept the owner's plan has no reader or writer seat for answers `409 acl.limit_reached`, and so does a permission change or a direct add that needs one:
 
 ```json
@@ -74,7 +76,9 @@ curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/acl/remove \
 any acl remove <spaceId> <identity>...
 ```
 
-Removal rotates the space's read key. Content written after the rotation is encrypted under a key the removed accounts never receive.
+Removal rotates the space's read key. Content written after the rotation is encrypted under a key the removed accounts never receive. An identity the ACL holds no account of answers `404 members.not_found`; one listed more than once answers `400 request.invalid_field`, before anything is written.
+
+An admin or the owner of a parent space removes members of a [child space](child-spaces.html) with `POST /v1/children/:childId/acl/remove`, without the child's read key; the rotation then follows from a device of the child's own admin or owner.
 
 > **Why it matters.** Removal is enforced by cryptography rather than by a server refusing reads: what a removed member keeps is the ciphertext they already had, and the sync nodes cannot hand them anything newer they could decrypt.
 
@@ -91,6 +95,8 @@ curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/acl/add \
 ```bash
 any acl add <spaceId> <identity>[,<identity>...] <permission>
 ```
+
+In a [child space](child-spaces.html) only members of the parent can be added: an account outside it refuses the whole batch with `409 acl.not_parent_member`, and so do an accept of a joiner who left the parent and an ownership change to a new owner who is not a member of the parent.
 
 The whole batch lands in one ACL record, and every added account is notified through the coordinator inbox (durable, retried). On their side the space shows up as a **synced** `invite_pending` row in the space list, carrying the sender-supplied name hint. They are already full ACL members; the pending state only governs whether their device materializes the space — nothing is downloaded until accepted.
 
@@ -128,7 +134,7 @@ any acl stop-sharing <spaceId>
 
 | Operation | Effect |
 |-----------|--------|
-| `ownership` | hands the owner role to `newOwner`; the previous owner keeps `oldOwnerPerm` |
+| `ownership` | hands the owner role to `newOwner`; the previous owner keeps `oldOwnerPerm`, which is `reader`, `writer` or `admin` (`400 request.missing_field` without it, `400 request.invalid_field` for `none`, `guest` or `owner`) |
 | `self-remove` | requests your own removal; your row shows `removing` until applied |
 | `cancel-join` | withdraws your own pending join request: the owner's members row shows `canceled`, your space row reads `deleted` on every device of the account, and a fresh `POST /v1/spaces/join` re-requests |
 | `stop-sharing` | drops every other member and rotates the read key — the space becomes private to the owner again |

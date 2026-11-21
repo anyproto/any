@@ -115,7 +115,7 @@ printed.`,
 
 	limits := &cobra.Command{
 		Use:   "limits",
-		Short: "the network's storage pool and shared-spaces limit (GET /v1/account/limits)",
+		Short: "the network's storage pool, shared-spaces limit and child-spaces limit (GET /v1/account/limits)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := newClient(flags.Timeout)

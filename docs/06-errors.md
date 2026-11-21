@@ -36,14 +36,14 @@ Every error response — regardless of status code — has the same body:
 | 500    | Internal error — unexpected SDK or server failure; typed: `auth.device_key_corrupt`, `auth.network_pin_corrupt`, `sdk.store_corrupt`, `server.internal` |
 | 501    | `sdk.not_implemented` — `GET …/sync-status/peers` |
 | 502    | `access.unavailable`                                           |
-| 503    | Request cancelled or the engine tearing down (`server.unavailable`); embedder unreachable (`index.embedder_unavailable`) |
+| 503    | Request cancelled or the engine tearing down (`server.unavailable`); embedder unreachable (`index.embedder_unavailable`); the any-sync network out of reach for a call that needs its answer (`network.unreachable`) |
 | 507    | `storage.no_space` — the device has no disk space left (`POST /v1/auth`) |
 
 No caller authentication in v1 (loopback is the trust boundary). The
 single 401 the server raises itself is `auth.required` — no account is
 booted yet (see `03-api.md` § Auth). 403 covers permission rules
 (`chat.not_author`, `acl.forbidden`, `space.read_only`,
-`events.topic_not_owned`) and the **ownership gates** of `02-server.md`
+`space.parent_permission_denied`, `events.topic_not_owned`) and the **ownership gates** of `02-server.md`
 § Modes: an operation the server's mode refuses (`auth.not_managed`,
 `shutdown.not_managed`) or a managed control operation without the
 host's token (`control.forbidden`). Those express ownership, not
@@ -83,9 +83,9 @@ auth.network_pin_corrupt         # 500 — the account's network.json is unreada
 control.forbidden                # 403 — managed server: control token (X-Any-Control-Token) missing or wrong
 shutdown.not_managed             # 403 — standalone server refuses POST /v1/shutdown; use `any stop` or a signal
 
-space.not_found                  # 404
+space.not_found                  # 404 — the account has no such space; on GET …/children and the /v1/children/:childId routes, which ask the network: the coordinator does not know the space. GET …/children answers space.not_pushed instead for a space the account holds as active; the /v1/children/:childId routes answer space.not_found for the account's own child that has not reached the network yet too
 space.not_accepted               # 409 — join pending approval; space not materialized yet
-space.deleted                    # 409 — space is deleted (row is a tombstone); 1-1s re-creatable via one-to-one start; a declined or withdrawn join re-requestable via POST /v1/spaces/join
+space.deleted                    # 409 — space is deleted (row is a tombstone); 1-1s re-creatable via one-to-one start; a declined or withdrawn join re-requestable via POST /v1/spaces/join; on GET …/children and on the members and acl routes under /v1/children/:childId: the coordinator holds the space as deleted or in deletion
 space.already_member             # 409 — POST /v1/spaces/join for a space this account already tracks as a member
 space.not_invite_pending         # 409 — invite accept/decline on a space not awaiting direct-add approval
 space.join_not_pending           # 409 — POST …/acl/cancel-join with nothing to withdraw: the row is not joining, or the owner accepted first (the row settles to active on its own); a request gone with no membership behind it is settled by the call itself (204, row deleted)
@@ -94,13 +94,22 @@ space.derived_unknown            # 404 — POST /v1/spaces/derived/:name outside
 space.derived_undeletable        # 409 — DELETE on a derived space; derived spaces are permanent
 space.derived_unshareable        # 409 — invite create, guest key or direct add on a derived space; a derived space belongs to its account alone
 space.unsupported                # 405 — the route is not available on the tech space (allowed there: bundles, type reads and dataset declarations on bundle roots, records on bundle roots, GET space, sync-status, debug)
+space.has_children               # 409 — DELETE /v1/spaces/:spaceId on a space this account owns that still has child spaces, the ones the account is no member of and the ones still in deletion included; nothing is changed — delete the children (DELETE /v1/children/:childId), then the space once GET …/children lists none
+space.parent_not_available       # 409 — POST …/retry-push: the parent of the child does not exist on the network or is deleted (recorded as the row's refusal); also the account's own parent while no node holds it yet (nothing recorded). The same code, at once, from POST …/invites, …/guest-key, …/acl/add and GET …/children on a child refused for it. GET …/children: the coordinator knows the parent and its ACL has not reached the network yet, which passes by itself. POST /v1/children/:childId/acl/remove, …/acl/ownership and DELETE /v1/children/:childId: the coordinator cannot read the ACL of the child's parent
+space.parent_invalid             # 409 — POST /v1/spaces with a parentSpaceId that cannot have children: a child, a derived, a one-to-one or the tech space; POST …/retry-push when the coordinator says the same (final), and POST …/invites, …/guest-key, …/acl/add and GET …/children on a child refused for it
+space.parent_permission_denied   # 403 — this account's role in the parent space does not allow the operation: POST …/retry-push below writer, GET …/children and POST /v1/children/:childId/acl/remove below admin, a removal by an admin of an account that is an admin or the owner of the parent, POST /v1/children/:childId/acl/ownership and DELETE /v1/children/:childId from an account that is neither the owner of the parent nor the child's own owner; POST …/invites, …/guest-key, …/acl/add and GET …/children on a child refused for the role
+space.child_limit_reached        # 409 — POST …/retry-push: the owner of the parent space is at its child-spaces limit (childSpaces on GET /v1/account/limits of that account), whoever created the child; the same code from POST …/invites, …/guest-key, …/acl/add and GET …/children on a child refused for it
+space.not_child                  # 409 — POST …/retry-push or a /v1/children/:childId route on a space the account's list shows has no parent; DELETE /v1/children/:childId also on an active regular top-level space of another account, which the coordinator shows. On such a space POST /v1/children/:childId/acl/remove and …/acl/ownership answer acl.forbidden, or members.not_found for an identity that is no account of it
+space.not_stored                 # 409 — POST …/retry-push on a device that holds no copy of the space; a device that holds it retries the push
+space.not_pushed                 # 409 — POST …/invites, …/guest-key or …/acl/add by the owner of a space the coordinator does not know yet: the first push of the account's own space has not landed within the call's wait of 35 seconds. The space is in the account's list and reaches the network by itself: repeat the call. The wait outlasts the default request timeout of the CLI and of the Go client, 30 seconds, which ends the call with a timeout and no code: a client that needs the code gives these calls 60 seconds (--timeout 60s). Also GET …/children, at once, for a space the account holds as active and the coordinator does not know yet: a parent created a moment ago. Only a row with no refusal answers it: a refused child answers the code of its refusal
 
-members.not_found                # 404 — the member a members / ACL operation names is unknown (e.g. GET …/members/:identity)
-acl.forbidden                    # 403 — the ACL refuses the operation for this account's permissions, or the coordinator refuses it (make-shareable on invite create is owner-only)
+members.not_found                # 404 — the member a members / ACL operation names is unknown: GET …/members/:identity, or an identity the space's ACL holds no account of on POST …/acl/remove, …/acl/permissions and …/acl/ownership, under /v1/spaces/:spaceId and /v1/children/:childId alike
+acl.forbidden                    # 403 — the ACL refuses the operation for this account's permissions (invite create and direct add take an admin or the owner; giving the admin role on an accept, a direct add or a permission change, and changing or removing an admin, take the owner), or the coordinator refuses the owner's make-shareable for an account it does not hold as the owner
 acl.limit_reached                # 409 — the coordinator refuses an ACL operation for the space owner's plan, whoever calls: the owner's shared spaces on the first share of a space (invite create, guest key, direct add), or the space's readers or writers (accept, change permissions, direct add, guest key). One code for both limits; GET /v1/account/limits reads the shared-spaces limit
 acl.record_not_found             # 404 — the ACL record the operation names does not exist
+acl.not_parent_member            # 409 — only a member of the parent space becomes a member of a child space: POST …/acl/add when an added account is not one (nobody of the batch is added), POST …/acl/accept when the joiner left the parent after asking, POST /v1/spaces/join when this account is not one (no row is written), an ownership change (POST …/acl/ownership on the child, or under /v1/children/:childId) whose new owner is not one. A guest key is exempt
 invite.invalid                   # 400 — invite token malformed or not decodable as an invite
-invite.duplicate                 # 409 — POST …/invites while an invite already exists
+invite.duplicate                 # 409 — POST …/invites while this device's copy of the ACL holds the space's invite, whoever minted it: a space holds one, and a mint replaces nothing — revoke it to mint another. A mint fails when another invite reaches the ACL while it runs, or has not reached this device yet, and is safe to repeat: repeated once the device has that invite, it answers this code
 invite.not_found                 # 404 — GET …/invites/:recordId for an unknown record
 invite.revoked                   # 410 — POST /v1/spaces/join with an invite the space's ACL no longer holds: revoked, replaced or never minted
 guest_key.not_found              # 404 — revoke with no active guest key
@@ -251,6 +260,7 @@ sdk.store_corrupt                # 500 — the account's SDK store (sdk.db) has 
 
 storage.no_space                 # 507 — the device has no disk space left: POST /v1/auth could not create the account dir, write the device key or open a store; free space and retry
 
+network.unreachable              # 503 — a call that needs an answer from the any-sync network reached no coordinator or node: POST …/retry-push, GET …/children, the /v1/children/:childId routes; nothing was changed, retry when the network is back
 server.unavailable               # 503 — request cancelled / engine tearing down
 server.internal                  # 500 — the embedded usecase catalog failed to compile (catalog routes, and every write the catalog handles gate: type and collection create, a bundle install, an xkey rename)
 internal                         # 500 — catch-all

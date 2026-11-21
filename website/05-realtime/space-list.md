@@ -47,6 +47,8 @@ Fields worth knowing on a raw row:
 | `settings` | the account-private settings object written via `PATCH /v1/spaces/:id/settings` (e.g. `notifyMode`) |
 | `push` | `{spaceKey, encKey, encKeyId}` push key material; absent until the mirror has run for the space |
 | `derived` | set on well-known [derived spaces](../collaboration/derived-spaces.html), which cannot be deleted |
+| `parentSpaceId` | the parent of a [child space](../collaboration/child-spaces.html); absent on a top-level space |
+| `refusal` | what the coordinator refused for the space, in the `SpaceInfo.refusal` strings; absent or `none` when nothing is refused |
 
 `GET /v1/spaces` folds `remoteStatus` and `localStatus` into the one `status` string of `SpaceInfo` (`active`, `joining`, `one_to_one_pending`, `deleted`, …); on raw rows, filter on the two fields themselves.
 
@@ -58,6 +60,7 @@ Because these are plain row fields, changes to them arrive as ordinary `updated`
 - **A role change** — a grant, promotion or demotion applied by another peer — updates `ownRole` on the row. Role-dependent UI can key off the list subscription instead of fanning out `GET …/members/me` calls per space. Caveats: an absent `ownRole` (`"none"` on `SpaceInfo`) also means "not mirrored yet" (a space this device has not loaded, a pending join, a tombstone), and both participants of a [one-to-one](../collaboration/one-to-one.html) space report `writer`; `GET /v1/spaces/:id/members/me` stays the authoritative per-space read.
 - **A read-key rotation** updates `push.encKey` / `push.encKeyId`. Mobile clients keep this stream open while the app is in the foreground so the new key is cached before the first push encrypted under it lands — see [Push notifications](../notifications/push.html).
 - **A settings change on another device** (muting a space, say) updates `settings`.
+- **A refusal of a child space** by the coordinator, on whichever device asked, sets `refusal`; it returns to `none` when the coordinator accepts the space.
 - **A deletion** on any device sets `remoteStatus` to a deleted marker (`deleted`; `oneToOneDeleted` / `guestDeleted` for one-to-one and guest spaces) — the row stays as a tombstone, so it arrives as an `updated` event, or as `removed` with `reason: "filtered-out"` when your filter excludes deleted rows. Consumers holding derived per-space state (caches, indexes) purge on it.
 
 ```bash

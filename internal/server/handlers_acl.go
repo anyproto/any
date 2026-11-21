@@ -20,7 +20,7 @@ import (
 //	@Param		body	body	api.ACLAcceptRequest	true	"Request record + permission"
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
-//	@Failure	409	{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of readers or writers for the space"
+//	@Failure	409	{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of readers or writers for the space; acl.not_parent_member — in a child space, the joiner is not a member of the parent"
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/accept [post]
 func (d *deps) aclAccept(c echo.Context) error {
@@ -84,6 +84,7 @@ func (d *deps) aclDecline(c echo.Context) error {
 //	@Param		body	body	api.ACLChangePermissionsRequest	true	"Permission changes"
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	404	{object}	api.ErrorEnvelope	"members.not_found — an identity the ACL holds no account of"
 //	@Failure	409	{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of readers or writers for the space"
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/permissions [post]
@@ -126,7 +127,8 @@ func (d *deps) aclChangePermissions(c echo.Context) error {
 //	@Param		spaceId	path	string				true	"Space ID"
 //	@Param		body	body	api.ACLRemoveRequest	true	"Identities to remove"
 //	@Success	204
-//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	400	{object}	api.ErrorEnvelope	"request.missing_field — identities is empty; request.invalid_field — an identity is listed more than once or is malformed"
+//	@Failure	404	{object}	api.ErrorEnvelope	"members.not_found — an identity the ACL holds no account of"
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/remove [post]
 func (d *deps) aclRemove(c echo.Context) error {
@@ -136,6 +138,9 @@ func (d *deps) aclRemove(c echo.Context) error {
 	}
 	if len(req.Identities) == 0 {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "identities must be non-empty", nil)
+	}
+	if resp, done := duplicateIdentityError(c, req.Identities, "identities"); done {
+		return resp
 	}
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -156,7 +161,8 @@ func (d *deps) aclRemove(c echo.Context) error {
 //	@Param		body	body	api.ACLAddRequest	true	"Accounts to add"
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
-//	@Failure	409	{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of shared spaces, or of readers or writers for the space; space.derived_unshareable — a derived space"
+//	@Failure	403	{object}	api.ErrorEnvelope	"space.parent_permission_denied — a child the coordinator refused for the role in its parent"
+//	@Failure	409	{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of shared spaces, or of readers or writers for the space; acl.not_parent_member — in a child space, an added account is not a member of the parent; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed; space.parent_not_available, space.parent_invalid, space.child_limit_reached — a child the coordinator refused"
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/add [post]
 func (d *deps) aclAdd(c echo.Context) error {
@@ -196,7 +202,7 @@ func (d *deps) aclAdd(c echo.Context) error {
 		return resp
 	}
 	if err := sp.ACL().AddAccounts(c.Request().Context(), out); err != nil {
-		return aclIdentityOpError(c, err, "accounts", map[string]any{"spaceId": sp.Id()})
+		return shareOpError(c, err, "accounts", map[string]any{"spaceId": sp.Id()})
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -207,9 +213,11 @@ func (d *deps) aclAdd(c echo.Context) error {
 //	@Tags		acl
 //	@Accept		json
 //	@Param		spaceId	path	string					true	"Space ID"
-//	@Param		body	body	api.ACLOwnershipRequest	true	"New owner + old owner permission"
+//	@Param		body	body	api.ACLOwnershipRequest	true	"New owner + the role the previous owner keeps: reader, writer or admin"
 //	@Success	204
-//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	400	{object}	api.ErrorEnvelope	"request.missing_field — newOwner or oldOwnerPerm is missing; request.invalid_field — oldOwnerPerm is none, guest or owner; request.schema — an unknown permission"
+//	@Failure	404	{object}	api.ErrorEnvelope	"members.not_found — the new owner is no member of the space"
+//	@Failure	409	{object}	api.ErrorEnvelope	"acl.not_parent_member — in a child space, the new owner is not a member of the parent"
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/ownership [post]
 func (d *deps) aclOwnership(c echo.Context) error {
@@ -220,10 +228,9 @@ func (d *deps) aclOwnership(c echo.Context) error {
 	if req.NewOwner == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "newOwner required", nil)
 	}
-	perm, ok := parsePermission(req.OldOwnerPerm)
-	if !ok {
-		return writeError(c, http.StatusBadRequest, "request.schema",
-			"unknown permission", map[string]any{"got": req.OldOwnerPerm})
+	perm, errResp, done := parseOldOwnerPerm(c, req.OldOwnerPerm)
+	if done {
+		return errResp
 	}
 	sp, errResp, done := d.resolveSpace(c)
 	if done {

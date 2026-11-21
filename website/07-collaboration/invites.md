@@ -11,7 +11,7 @@ An invite is a shareable token. The owner mints it, passes the string out of ban
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/v1/spaces/:spaceId/invites` | mint an invite → `201`; replaces any prior invite; owner only |
+| POST | `/v1/spaces/:spaceId/invites` | mint an invite → `201`; one per space, `409 invite.duplicate` while one exists; owner and admins |
 | GET | `/v1/spaces/:spaceId/invites` | list active invite records |
 | GET | `/v1/spaces/:spaceId/invites/:recordId` | one record; `404 invite.not_found` |
 | DELETE | `/v1/spaces/:spaceId/invites` | revoke all invites |
@@ -31,7 +31,17 @@ curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/invites
 { "spaceId": "bafyrei…", "inviteToken": "5ZHbdx…" }
 ```
 
-`inviteToken` is a base58-packed `(spaceId, invitePrivKey)`. Share the string however you like — a link, a QR code, a message. Only the owner can mint: the coordinator refuses to make the space shareable for anyone else, and the call answers `403 acl.forbidden`. It also refuses once the owner's plan is at its [shared-spaces limit](../auth/profile.html#reading-the-accounts-limits), and the call answers `409 acl.limit_reached`.
+`inviteToken` is a base58-packed `(spaceId, invitePrivKey)`. Share the string however you like — a link, a QR code, a message. A space holds one invite at a time: a mint while it exists answers `409 invite.duplicate` and replaces nothing, so revoke the invite to mint another. The check reads this device's copy of the ACL: a mint fails when another invite reaches the ACL while it runs, or has not reached this device yet, and is safe to repeat; once the device has that invite, the repeat answers `409 invite.duplicate`. The owner and the admins mint; any other member gets `403 acl.forbidden`. The invite carries no role: it is chosen at [accept](acl.html), where an admin grants any role below `admin` and the owner alone grants `admin`. The owner's mint first makes the space shareable on the coordinator, which refuses once the owner's plan is at its [shared-spaces limit](../auth/profile.html#reading-the-accounts-limits): the call answers `409 acl.limit_reached`.
+
+The mint, the guest key and a direct add need the space on the network. For a space the coordinator does not know yet, the owner's call waits for the space's first push, up to 35 seconds, and answers `409 space.not_pushed` when it has not landed:
+
+```json
+{"error": {"code": "space.not_pushed", "message": "the space has not reached the network yet; retry once its first push has landed", "details": {"spaceId": "bafyrei…"}}}
+```
+
+The space is the account's own and reaches the network by itself, so repeat the call. The wait outlasts the CLI's default request timeout of 30 seconds, which ends the call first with a timeout and no code. A client that needs the code gives these calls 60 seconds: `--timeout 60s` on the CLI (`any invite create <spaceId> --timeout 60s`), a request timeout of 60 seconds in an HTTP client.
+
+A [child space](child-spaces.html#a-refused-child) the coordinator refused is not waited for: the three calls answer the code of its refusal.
 
 ```bash
 any invite create <spaceId>
@@ -49,7 +59,7 @@ curl -s -X POST http://127.0.0.1:2046/v1/spaces/join \
 any join --token <invite> [--name Bob] [--icon-cid CID]
 ```
 
-The join is a **request**: the SDK posts it, writes a `joining` row into the joiner's space list, and returns `202`. The row is synced, so every device of the joiner's account lists the space as `joining` and none loads it — anything that would open the space answers `409 space.not_accepted` until the verdict. Watch `GET /v1/spaces/:id` or the [live space list](../realtime/space-list.html) for `status` to flip to `active` once the owner accepts with [`POST …/acl/accept`](acl.html); a decline turns the row `deleted`. `metadata` seeds the name other members see until the joiner's encrypted [profile](../auth/profile.html) resolves. A malformed or unrecognized token returns `400 invite.invalid`; an invite token the owner revoked or replaced returns `410 invite.revoked` (a revoked guest key is not refused here); a token for a space this account deleted returns `409 space.deleted` (a declined or withdrawn join is not deleted in that sense — the same call re-requests).
+The join is a **request**: the SDK posts it, writes a `joining` row into the joiner's space list, and returns `202`. The row is synced, so every device of the joiner's account lists the space as `joining` and none loads it — anything that would open the space answers `409 space.not_accepted` until the verdict. Watch `GET /v1/spaces/:id` or the [live space list](../realtime/space-list.html) for `status` to flip to `active` once the owner accepts with [`POST …/acl/accept`](acl.html); a decline turns the row `deleted`. `metadata` seeds the name other members see until the joiner's encrypted [profile](../auth/profile.html) resolves. A malformed or unrecognized token returns `400 invite.invalid`; an invite token the owner revoked or replaced returns `410 invite.revoked` (a revoked guest key is not refused here); a token for a space this account deleted returns `409 space.deleted` (a declined or withdrawn join is not deleted in that sense — the same call re-requests); a token of a [child space](child-spaces.html) whose parent this account is not a member of returns `409 acl.not_parent_member`, with no row written.
 
 Until accepted, the joiner can withdraw from any device of the account with `POST /v1/spaces/:spaceId/acl/cancel-join` (or `DELETE /v1/spaces/:spaceId`, which on a `joining` row is a withdrawal, not a tombstone): the row then reads `deleted` everywhere and a later join with a valid token re-requests. If the owner accepted first, or the row is no longer `joining`, the call answers `409 space.join_not_pending` — re-read `GET /v1/spaces/:id` instead of retrying.
 

@@ -22,15 +22,17 @@ func ensureMembersWatcher(sp space.Space) {
 	_ = sp.Members().Query()
 }
 
-// memberList handles GET /v1/spaces/:spaceId/members.
+// memberList handles GET /v1/spaces/:spaceId/members — MembersAPI.List
+// with ACL.RotationPending, both read off the space's ACL state.
 //
-//	@Summary	List space members
-//	@Tags		members
-//	@Produce	json
-//	@Param		spaceId	path		string	true	"Space ID"
-//	@Success	200		{object}	api.MembersListResponse
-//	@Failure	500		{object}	api.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/members [get]
+//	@Summary		List space members
+//	@Description	The roster with roles, and rotationPending: true while members removed without a read key change still hold the current key.
+//	@Tags			members
+//	@Produce		json
+//	@Param			spaceId	path		string	true	"Space ID"
+//	@Success		200		{object}	api.MembersListResponse
+//	@Failure		500		{object}	api.ErrorEnvelope
+//	@Router			/spaces/{spaceId}/members [get]
 func (d *deps) memberList(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -41,11 +43,15 @@ func (d *deps) memberList(c echo.Context) error {
 	if err != nil {
 		return aclOpError(c, err, map[string]any{"spaceId": sp.Id()})
 	}
+	pending, err := sp.ACL().RotationPending(c.Request().Context())
+	if err != nil {
+		return aclOpError(c, err, map[string]any{"spaceId": sp.Id()})
+	}
 	out := make([]api.Member, 0, len(members))
 	for _, m := range members {
 		out = append(out, memberToAPI(m))
 	}
-	return c.JSON(http.StatusOK, api.MembersListResponse{Members: out})
+	return c.JSON(http.StatusOK, api.MembersListResponse{Members: out, RotationPending: pending})
 }
 
 // memberMe handles GET /v1/spaces/:spaceId/members/me.

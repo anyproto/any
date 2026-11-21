@@ -285,3 +285,25 @@ func TestServer_MemberGet_BadIdentity(t *testing.T) {
 		t.Errorf("error = %+v, want request.invalid_field on field identity", env.Error)
 	}
 }
+
+// GET …/members always says whether a key rotation is pending; a space
+// nobody was removed from without one reads false.
+func TestServer_Members_RotationPending(t *testing.T) {
+	_, e := newOfflineServer(t)
+	parent := createSpace(t, e, "parent")
+	child := createChild(t, e, parent, "child")
+
+	for _, id := range []string{parent, child.Id} {
+		rec := doJSON(t, e, http.MethodGet, "/v1/spaces/"+id+"/members", "")
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || rec.Code != http.StatusOK {
+			t.Fatalf("GET members of %s: %d %v %s", id, rec.Code, err, rec.Body.String())
+		}
+		if pending, ok := body["rotationPending"].(bool); !ok || pending {
+			t.Errorf("GET members of %s: rotationPending = %v (present %v), want false: %s", id, body["rotationPending"], ok, rec.Body.String())
+		}
+		if members, _ := body["members"].([]any); len(members) != 1 {
+			t.Errorf("GET members of %s: %s, want the owner alone", id, rec.Body.String())
+		}
+	}
+}

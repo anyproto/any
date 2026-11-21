@@ -42,7 +42,7 @@ Every error response from the any server — whatever the status code — has th
 | 500 | unexpected engine or server failure (`internal`); the stack goes to the server log only — plus the typed `auth.device_key_corrupt`, `auth.network_pin_corrupt`, `sdk.store_corrupt`, `server.internal` |
 | 501 | route registered for an SDK surface that is not implemented yet |
 | 502 | the invite service is unreachable or answered unexpectedly (`access.unavailable`) |
-| 503 | not ready — request cancelled, shutting down, or the embedder is unreachable |
+| 503 | not ready — request cancelled, shutting down, the embedder is unreachable, or the any-sync network is out of reach for a call that needs its answer |
 | 507 | the device has no disk space left (`storage.no_space`) |
 
 Panics are converted to `500 internal` with a generic message.
@@ -98,9 +98,9 @@ Panics are converted to `500 internal` with a generic message.
 
 | Code | Status | Meaning |
 |---|---|---|
-| `space.not_found` | 404 | unknown space id |
+| `space.not_found` | 404 | unknown space id; on `GET …/children` and the `/v1/children/:childId` routes, a space the coordinator does not know (`GET …/children` answers `space.not_pushed` for one the account holds as active) |
 | `space.not_accepted` | 409 | join pending approval; space not materialized |
-| `space.deleted` | 409 | the row is a tombstone; a declined or withdrawn join is re-requestable via `POST /v1/spaces/join` |
+| `space.deleted` | 409 | the row is a tombstone; a declined or withdrawn join is re-requestable via `POST /v1/spaces/join`; on `GET …/children` and the `/v1/children/:childId` routes, a space the coordinator holds as deleted or in deletion |
 | `space.join_not_pending` | 409 | `POST …/acl/cancel-join` with nothing to withdraw: the row is not `joining`, or the owner already accepted (the row settles to `active` on its own) |
 | `space.derived_unknown` | 404 | name outside the derived-spaces registry |
 | `space.derived_undeletable` | 409 | derived spaces are permanent |
@@ -109,13 +109,22 @@ Panics are converted to `500 internal` with a generic message.
 | `space.already_member` | 409 | a guest token for a space this account already tracks as a member |
 | `space.read_only` | 403 | a guest or reader tried to write |
 | `space.unsupported` | 405 | the surface is not available on the tech space (object and type lifecycle, members, files, chat, editor, history, search, shared-dataset reads, metadata, settings, non-bundle writes, catalog setup) |
-| `members.not_found` | 404 | unknown member identity in this space |
-| `acl.forbidden` | 403 | the caller's role does not allow this ACL operation (minting an invite is owner-only) |
+| `space.has_children` | 409 | `DELETE` of a space that still has [child spaces](../collaboration/child-spaces.html); nothing is deleted |
+| `space.parent_not_available` | 409 | the parent of a child space does not exist on the network or is deleted; also the account's own parent while no node holds it yet, and `GET …/children` of a parent whose ACL has not reached the network yet |
+| `space.parent_invalid` | 409 | the space named as a parent has no children: a child, a derived, a one-to-one or the tech space |
+| `space.parent_permission_denied` | 403 | the network does not accept the operation on the child from this account: its role in the parent is too low, and on an ownership change or a delete it is not the child's own owner either; also an admin of the parent removing an account that is an admin or the owner of the parent |
+| `space.child_limit_reached` | 409 | the owner of the parent space is at its child-spaces limit |
+| `space.not_child` | 409 | a child-space operation on a space the account's list shows has no parent; `DELETE /v1/children/:childId` also on an active regular top-level space of another account |
+| `space.not_stored` | 409 | `POST …/retry-push` on a device that holds no copy of the space |
+| `space.not_pushed` | 409 | invite create, guest key or direct add by the owner of a space the coordinator does not know yet: the first push of the account's own space has not landed within the call's 35-second wait; repeat the call. The CLI's default request timeout of 30 seconds ends the call first, with no code: a client that needs the code gives these calls 60 seconds (`--timeout 60s`). Also `GET …/children`, at once, for a parent the account created a moment ago; a refused child answers the code of its refusal |
+| `members.not_found` | 404 | unknown member identity in this space, on a read or on an ACL removal, permission change or ownership change |
+| `acl.forbidden` | 403 | the caller's role does not allow this ACL operation (minting an invite and a direct add take an admin or the owner; giving the `admin` role, and changing or removing an admin, take the owner) |
 | `acl.limit_reached` | 409 | the coordinator refuses for the space owner's plan: shared spaces on the first share of a space (invite create, guest key, direct add), or the space's readers or writers (accept, change permissions, direct add, guest key) |
 | `acl.record_not_found` | 404 | the ACL record named (a join request) does not exist |
+| `acl.not_parent_member` | 409 | only a member of the parent space becomes a member of a child space: a direct add, an accept or a join that would admit an account outside the parent |
 | `invite.invalid` | 400 | invite token malformed or not decodable as an invite |
 | `invite.not_found` | 404 | unknown invite record |
-| `invite.duplicate` | 409 | an invite already exists for this space |
+| `invite.duplicate` | 409 | this device's copy of the ACL holds the space's invite: a space holds one, and a mint replaces nothing. A mint fails when another invite reaches the ACL while it runs, or has not reached this device yet, and is safe to repeat: it then answers this code |
 | `invite.revoked` | 410 | join with an invite the space no longer holds: revoked, replaced or never minted |
 | `guest_key.not_found` | 404 | revoke with no active guest key |
 
@@ -268,6 +277,7 @@ Panics are converted to `500 internal` with a generic message.
 | `sdk.crdt_version_newer` | 409 | the account's data was written by a newer release (`details.stored` > `details.supported`): booting it refuses, a running server turns read-only until upgraded (`GET /v1/health` → `crdtVersion`) |
 | `sdk.store_corrupt` | 500 | the account's SDK store `sdk.db` has a broken header or a page that fails its checksum while opening (in the quick check on a dirty open or a later read); booting it refuses and it is never repaired in place — remove `sdk.db` and the files named after it from the account's `sdk/` dir and boot again: the SDK replays the synced trees into a fresh one; what lived only in `sdk.db` is lost: the local store, local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone) |
 | `storage.no_space` | 507 | the device has no disk space left — `POST /v1/auth` could not create the account dir, write the device key or open a store; free space and retry |
+| `network.unreachable` | 503 | a call that needs an answer from the any-sync network reached no coordinator or node; nothing changed |
 | `server.unavailable` | 503 | request cancelled / server shutting down |
 | `server.internal` | 500 | the embedded usecase catalog failed to compile — on the catalog routes and on every write the catalog handles gate (type and collection create, a bundle install, an `xkey` rename) |
 | `internal` | 500 | catch-all |

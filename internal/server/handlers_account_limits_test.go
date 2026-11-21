@@ -13,6 +13,8 @@ import (
 	"github.com/anyproto/any-sync/app/logger"
 	"gopkg.in/yaml.v3"
 
+	"github.com/anyproto/any-sync-sdk/space"
+
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
 )
@@ -124,7 +126,13 @@ func TestServer_AccountLimits(t *testing.T) {
 	for part, fields := range map[string][]string{
 		"storage":      {"limitBytes", "usageBytes", "fetchedAt"},
 		"sharedSpaces": {"limit", "fetchedAt"},
+		"childSpaces":  {"limit", "fetchedAt"},
 	} {
+		// A coordinator that gives no child-spaces limit leaves the
+		// part out.
+		if part == "childSpaces" && live.ChildSpaces == nil {
+			continue
+		}
 		if len(wire[part]) != len(fields) {
 			t.Errorf("%s = %v, want exactly %v", part, wire[part], fields)
 		}
@@ -200,5 +208,37 @@ func TestServer_AccountLimits_NoNetwork(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The child-spaces limit is a part of its own beside the shared-spaces
+// one, with the wire names of the other parts; a part the network never
+// answered for is left out.
+func TestAccountLimitsToAPI(t *testing.T) {
+	at := time.Date(2026, 8, 20, 17, 6, 40, 0, time.UTC)
+	body, err := json.Marshal(accountLimitsToAPI(space.AccountLimits{
+		Storage:      &space.StorageLimits{LimitBytes: 10, UsageBytes: 4, FetchedAt: at},
+		SharedSpaces: &space.SharedSpacesLimits{Limit: 3, FetchedAt: at},
+		ChildSpaces:  &space.ChildSpacesLimits{Limit: 7, FetchedAt: at},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"storage":{"limitBytes":10,"usageBytes":4,"fetchedAt":"2026-08-20T17:06:40Z"},` +
+		`"sharedSpaces":{"limit":3,"fetchedAt":"2026-08-20T17:06:40Z"},` +
+		`"childSpaces":{"limit":7,"fetchedAt":"2026-08-20T17:06:40Z"}}`
+	if string(body) != want {
+		t.Errorf("limits = %s, want %s", body, want)
+	}
+
+	// An answer stored before the coordinator gave a child-spaces limit.
+	body, err = json.Marshal(accountLimitsToAPI(space.AccountLimits{
+		SharedSpaces: &space.SharedSpacesLimits{Limit: 3, FetchedAt: at},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"sharedSpaces":{"limit":3,"fetchedAt":"2026-08-20T17:06:40Z"}}`; string(body) != want {
+		t.Errorf("limits = %s, want %s", body, want)
 	}
 }

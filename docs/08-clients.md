@@ -1118,6 +1118,124 @@ Call patterns:
 - **Retention is deleting objects.** Deleting an object removes its
   records; a live stream sees them leave as `removed`.
 
+## 17. Child spaces: read the row, govern by the child's id
+
+A child space is a full space created under a parent: its own members,
+its own read key. Membership in the parent gives no access to it; the
+parent's owner and admins govern it, and read it only as members of it.
+Full contract: `03-api.md` § Child spaces.
+
+**Create** with the parent's id. Offer the action when the parent's
+`SpaceInfo.ownRole` is `writer`, `admin` or `owner`: the call itself is
+local and does not check the role.
+
+```json
+POST /v1/spaces
+{ "name": "Design", "parentSpaceId": "<parent id>" }   // → 201 SpaceInfo, parentSpaceId set
+```
+
+**List** from two sides. A member reads the children it belongs to off
+its own space list, live, by `parentSpaceId`:
+
+```json
+POST /v1/spaces/query/subscribe
+{ "filter": { "parentSpaceId": "<parent id>" }, "sort": ["-createdAt", "-id"], "limit": 100 }
+```
+
+An admin or the owner of the parent reads every child, the ones they
+are no member of included, from the coordinator:
+`GET /v1/spaces/:parentId/children` → `{children: [{id, status}]}`,
+`status` being `active` or `deletion_pending`.
+That call needs the network and stores nothing, so read it when the
+screen opens, not on a timer. For a parent created a moment ago it
+answers `409 space.not_pushed`, then `409 space.parent_not_available`,
+until the parent is on the network: show no children and read again.
+A refused child has no children, and the list answers the code of its
+refusal for it until the refusal clears.
+
+**A refused child.** The network accepts a child when it is first
+pushed. Until then, and after a refusal, it is a working local space
+that no node holds: its content is on this device alone. Read `refusal`
+off the row (it is synced to every device of the account) and offer:
+
+| `refusal` | Offer |
+|-----------|-------|
+| `parent_permission_denied` | Ask an admin of the parent for the writer role, then retry. |
+| `child_limit_reached` | Tell the owner of the parent: the limit is theirs (`GET /v1/account/limits` → `childSpaces` on their account). Retry once they have room. |
+| `parent_not_available` | The parent is deleted, or not on the network yet. For a deleted parent, delete the child or keep it as a local space. |
+| `parent_invalid` | Final. Delete the child or keep it as a local space. |
+
+Retry with `POST /v1/spaces/:spaceId/retry-push`: `204` means accepted,
+and the row's `refusal` clears; a refusal answers the code of the
+failed check, and the row holds the same answer. The server also asks
+again by itself, so the button is for "the cause is gone, ask now", not
+a requirement. `503 network.unreachable` changed nothing. A refused
+child is on no node, so sharing it (invite, guest key, direct add)
+answers the refusal's code at once: clear the refusal first.
+
+**Members.** Only a member of the parent becomes a member of a child. A
+direct add, an accept or a join that would admit an outsider answers
+`409 acl.not_parent_member`: the account joins the parent first. A
+guest key is the way to give read-only access outside the parent.
+
+**Govern from the parent** by the child's id, under `/v1/children`. The
+caller need not be a member of the child; each call needs the network.
+
+```
+GET    /v1/children/:childId/members                                   // {members: [{identity, permission, status}], rotationPending}
+POST   /v1/children/:childId/acl/remove     { "identities": [...] }    // admin or owner of the parent, nobody else
+POST   /v1/children/:childId/acl/ownership  { "newOwner": "...", "oldOwnerPerm": "writer" }   // owner of the parent, or the child's own owner
+DELETE /v1/children/:childId                                           // owner of the parent, or the child's own owner; for every member
+```
+
+Offer the removal to the parent's admins and owner, and the hand-over
+and the delete to the parent's owner. The network also takes those two
+from the child's own owner, whatever its role in the parent. The new
+owner is a member of the parent (`409 acl.not_parent_member`
+otherwise), and an admin of the parent does not remove an account that
+is an admin or the owner of the parent
+(`403 space.parent_permission_denied`).
+
+The members read has no names: the caller holds no key of the child.
+Resolve them through the parent's roster or the identities directory
+(§ 8), and render an identity alone when neither knows it. Take the
+identities to remove and the new owner (an `active` member) from this
+read. The two ACL routes fail when the child's ACL changes while they
+run, and are safe to repeat.
+
+A removal from the parent side does not change the read key. The child
+shows `rotationPending: true` on `GET /v1/spaces/:childId/members` to
+its members until a device of an admin or the owner of the child
+changes the key. Such a device does it by itself once it holds the
+child: when its server starts, and while it runs. Show the state to the
+child's admins; no call ends it. The parent side reads the same
+flag on `GET /v1/children/:childId/members`: read it again after a
+removal to see whether the child rotated. A child that stays pending
+has no key-holder left to change the key, and deleting the child is the
+only lever.
+
+**Delete.** `DELETE /v1/spaces/:spaceId` on a child removes the
+account's own copy, and deletes the child on the network only for its
+owner. `DELETE /v1/children/:childId` is the delete for everyone, by
+the parent's owner or the child's own owner.
+
+A parent is deleted after its children, and a deleted child counts
+until the coordinator has finished deleting it. Delete the children,
+then delete the parent once the list is empty:
+
+```
+GET    /v1/spaces/:parentId/children     // DELETE /v1/children/:childId each "active" one
+GET    /v1/spaces/:parentId/children     // later, until {"children": []}
+DELETE /v1/spaces/:parentId              // 204
+```
+
+A child in deletion stays in the list as `deletion_pending` and leaves
+it when its deletion is final. Until then the parent's delete answers
+`409 space.has_children` and changes nothing: wait for the empty list
+instead of retrying the delete. A deleted parent whose row reads
+`refusal: "has_children"` was deleted offline and waits for the same
+thing; the server sends its delete again by itself.
+
 ## See also
 
 - `03-api.md` — endpoint catalog and request/response bodies.
