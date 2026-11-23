@@ -868,8 +868,9 @@ func (b *coreMLBackend) load(length int) (_ aneFunction, _ string, err error) {
 	}
 	opened := time.Since(start)
 	// As in serving, one failed prediction does not retire the function.
+	var first time.Duration
 	for try := 1; ; try++ {
-		if err = validateFunction(fn, length, b.dim); err == nil {
+		if first, err = validateFunction(fn, length, b.dim); err == nil {
 			break
 		}
 		if try == aneMaxFailures {
@@ -877,8 +878,10 @@ func (b *coreMLBackend) load(length int) (_ aneFunction, _ string, err error) {
 			return nil, "", fmt.Errorf("it does not predict: %w", err)
 		}
 	}
-	info := fmt.Sprintf("open %s, validate %s",
-		opened.Round(time.Millisecond), (time.Since(start) - opened).Round(time.Millisecond))
+	// The first prediction's time is in the line: off the Neural Engine
+	// it is several times what it is on it.
+	info := fmt.Sprintf("open %s, first predict %s, validate %s", opened.Round(time.Millisecond),
+		first.Round(100*time.Microsecond), (time.Since(start) - opened).Round(time.Millisecond))
 	return scrubbedFunction{fn, b}, info, nil
 }
 
@@ -920,7 +923,8 @@ func (f scrubbedFunction) embed(tokens []int32, out []float32) error {
 // validateFunction has a freshly opened function predict four texts: two
 // short ones and two of its full length, each pair alike but for its
 // tokens. Each output is the model's unit vector, and no two are alike.
-func validateFunction(fn aneFunction, length, dim int) error {
+// first is how long the first of them took.
+func validateFunction(fn aneFunction, length, dim int) (first time.Duration, err error) {
 	full, other := make([]int32, length), make([]int32, length)
 	for i := range full {
 		full[i] = int32(1000 + i%512)
@@ -935,11 +939,15 @@ func validateFunction(fn aneFunction, length, dim int) error {
 	outs := make([][]float32, len(probes))
 	for i, tokens := range probes {
 		outs[i] = make([]float32, dim)
+		start := time.Now()
 		if err := fn.embed(tokens, outs[i]); err != nil {
-			return err
+			return 0, err
+		}
+		if i == 0 {
+			first = time.Since(start)
 		}
 		if !unitVector(outs[i]) {
-			return errors.New("output is not a unit vector")
+			return 0, errors.New("output is not a unit vector")
 		}
 	}
 	for i := range outs {
@@ -952,11 +960,11 @@ func validateFunction(fn aneFunction, length, dim int) error {
 			}
 			// By both norms: an output only has to be near unit length.
 			if dot/math.Sqrt(ni*nj) > validateMaxCosine {
-				return errors.New("different texts got one vector")
+				return 0, errors.New("different texts got one vector")
 			}
 		}
 	}
-	return nil
+	return first, nil
 }
 
 // validateMaxCosine is how alike the vectors of two unrelated texts may

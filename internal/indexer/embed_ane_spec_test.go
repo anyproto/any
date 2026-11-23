@@ -1065,17 +1065,17 @@ func TestWorkerEmbedder_PrepareBulkSaysWhenItWaits(t *testing.T) {
 
 func TestANESettles(t *testing.T) {
 	for status, want := range map[string]bool{
-		"s128 ready (open 3.4s, validate 1.3s; asked for 5s ago)":             true,
-		"s128 not used: coreml: load s128: test error 1":                      true,
-		"s128 not used any more: 3 failures in a row":                         true,
-		aneOffStatus + "llama.cpp embeds everything: no function can be used": true,
+		"s128 ready (open 3.4s, first predict 41ms, validate 1.3s; asked for 5s ago)": true,
+		"s128 not used: coreml: load s128: test error 1":                              true,
+		"s128 not used any more: 3 failures in a row":                                 true,
+		aneOffStatus + "llama.cpp embeds everything: no function can be used":         true,
 		// Another function's report is not the first one's.
-		"s2048 not used: coreml: load s2048: test error 1": false,
-		"s256 ready (open 1s, validate 1s)":                false,
-		"starting":                                         false,
-		"package compiled in 6.909s":                       false,
-		"s512 released after 5m0s unused":                  false,
-		"s128 failed: prediction":                          false,
+		"s2048 not used: coreml: load s2048: test error 1":    false,
+		"s256 ready (open 1s, first predict 1s, validate 1s)": false,
+		"starting":                        false,
+		"package compiled in 6.909s":      false,
+		"s512 released after 5m0s unused": false,
+		"s128 failed: prediction":         false,
 	} {
 		if got := aneSettles(status, "s128"); got != want {
 			t.Errorf("aneSettles(%q) = %v, want %v", status, got, want)

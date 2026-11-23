@@ -117,7 +117,7 @@ func runEmbedHelper(mode string) int {
 	case "loaded": // the first function is loaded and nothing else is under way
 		aneStderrLog("starting")
 		aneStderrLog("s128 loading")
-		aneStderrLog("s128 ready (open 1ms, validate 1ms; asked for 2ms ago)")
+		aneStderrLog("s128 ready (open 1ms, first predict 1ms, validate 1ms; asked for 2ms ago)")
 	case "loading": // inside the first function's load
 		aneStderrLog("starting")
 		aneStderrLog("s128 loading")
@@ -130,7 +130,7 @@ func runEmbedHelper(mode string) int {
 		aneStderrLog("s512 not used: coreml: load s512: test error 1")
 		go func() {
 			time.Sleep(delay)
-			aneStderrLog("s128 ready (open 1ms, validate 1ms; asked for 2ms ago)")
+			aneStderrLog("s128 ready (open 1ms, first predict 1ms, validate 1ms; asked for 2ms ago)")
 		}()
 	case "offthenfail": // the path goes off, then a prediction in flight fails
 		aneStderrLog("starting")

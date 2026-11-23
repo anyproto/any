@@ -84,8 +84,8 @@ func newTestBackend(t *testing.T, dir string) *testBackend {
 	return tb
 }
 
-// A load opens the function and has it predict, and says how long each
-// took.
+// A load opens the function and has it predict, and says how long the
+// open, the first prediction and all four took.
 func TestCoreMLBackend_Load(t *testing.T) {
 	b := newTestBackend(t, t.TempDir())
 	fn, info, err := b.load(128)
@@ -95,8 +95,10 @@ func TestCoreMLBackend_Load(t *testing.T) {
 	if got := b.fns[0].calls; got != 4 || fn == nil || !reflect.DeepEqual(b.opened, []string{"s128"}) {
 		t.Fatalf("%d predictions on a load of %v, want 4 on s128", got, b.opened)
 	}
-	if !strings.Contains(info, "open ") || !strings.Contains(info, "validate ") {
-		t.Fatalf("load info %q, want the open and validate times", info)
+	for _, part := range []string{"open ", ", first predict ", ", validate "} {
+		if !strings.Contains(info, part) {
+			t.Fatalf("load info %q, want the open, first predict and validate times", info)
+		}
 	}
 }
 
@@ -120,7 +122,7 @@ func TestCoreMLBackend_LoadValidates(t *testing.T) {
 			t.Errorf("%s: left open", name)
 		}
 	}
-	if err := validateFunction(&fakeFn{parent: &fakeANE{notUnit: true}, length: 128}, 128, 4); err == nil {
+	if _, err := validateFunction(&fakeFn{parent: &fakeANE{notUnit: true}, length: 128}, 128, 4); err == nil {
 		t.Error("a vector that is not unit length passed")
 	}
 	// One failed prediction is not the end of the function, as in serving.

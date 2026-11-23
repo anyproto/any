@@ -1104,7 +1104,9 @@ else on llama.cpp. With several documents to a decode
 **Placement.** A machine that lists no Neural Engine never loads the
 package. Past that the child reads no compute plan: a function that
 loads and predicts is used, wherever Core ML runs it, and nothing about
-it is kept on disk. A function that fails to load (`s<N> not used: …`)
+it is kept on disk. Its ready line has the time of its first prediction
+(§ In the log), which is several times longer off the Neural Engine
+than on it. A function that fails to load (`s<N> not used: …`)
 is not used for the life of that child, and the next child loads it
 again. Where Core ML plans each function on a given machine is read on
 demand, outside the server: `any debug neural-engine` (`01-cli.md`
@@ -1131,9 +1133,11 @@ that stays without it for the rest of the process.
 `local embedder neural engine` with a `status`: `starting`, before the
 first Core ML call; `package compiled in …` when this child compiled
 it; `s<N> loading`, then
-`s<N> ready (open …, validate …; asked for … ago)` or `s<N> not used:
-…`, or `s<N> loaded and discarded` for a function whose path was closed
-while it loaded;
+`s<N> ready (open …, first predict …, validate …; asked for … ago)` or
+`s<N> not used: …`, or `s<N> loaded and discarded` for a function whose
+path was closed while it loaded (`first predict` is the first of the
+four predictions `validate` times: off the Neural Engine it is several
+times what it is on it);
 `s<N> failed: …` for a prediction and `s<N> not used any more: 3
 failures in a row`; `s<N> still loading after …`; `s<N> releasing`, then
 `s<N> released after …`; and `off, …`. `bulk embedding opened` is logged once per run, when
