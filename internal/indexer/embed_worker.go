@@ -35,9 +35,13 @@ const (
 	workerDefaultRequestTimeout = 3 * time.Minute
 	// workerStopGrace is how long a child gets to exit on stdin EOF
 	// before it is killed.
-	workerStopGrace  = 5 * time.Second
-	workerMinBackoff = time.Second
-	workerMaxBackoff = time.Minute
+	workerStopGrace = 5 * time.Second
+	// workerOrphanGrace is how long a child whose stdin ended waits for its
+	// own cleanup before it exits anyway: past workerStopGrace, so a parent
+	// that is still there kills it first.
+	workerOrphanGrace = 2 * workerStopGrace
+	workerMinBackoff  = time.Second
+	workerMaxBackoff  = time.Minute
 	// workerStderrTail is how many of the child's last stderr lines are
 	// quoted when it dies, or of those printed before a crash report.
 	workerStderrTail = 12

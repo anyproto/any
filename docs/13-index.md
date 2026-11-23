@@ -891,7 +891,10 @@ registers; what killed the child is at the report's start or just above
 it. A caller that
 goes away is not a fault either: a request already on the wire is read
 to completion so the stream stays usable, the child is kept, and the
-next caller finds it ready.
+next caller finds it ready. A child whose stdin ends exits: at once
+mid-decode, else once it has closed its runtimes, and 10 s after the
+end when that close does not return, so a child whose server died does
+not outlive it wedged in a native close.
 
 **Priority.** The child runs below the server: `index.local.niceness`
 (default 10, 0 disables) nices it on Unix and lowers its priority class

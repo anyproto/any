@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"sync/atomic"
+	"time"
 
 	"github.com/anyproto/any/internal/config"
 )
@@ -70,6 +71,8 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 	if cfg.GpuLayers >= 0 {
 		local.GpuLayers = &cfg.GpuLayers
 	}
+	closed := make(chan struct{}) // closes after the Local's Close
+	defer close(closed)
 	l, err := NewLocal(local, "", "", nil)
 	if err != nil {
 		return err
@@ -113,6 +116,9 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 				if decoding.Load() {
 					os.Exit(0)
 				}
+				// The parent may be gone, and with it the kill that ends a
+				// cleanup wedged in a native close.
+				go exitUnless(closed, workerOrphanGrace)
 				return
 			}
 			reqs <- req
@@ -145,6 +151,17 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 		return err
 	default:
 		return nil // parent gone
+	}
+}
+
+// exitUnless ends the process unless done closes within d.
+func exitUnless(done <-chan struct{}, d time.Duration) {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-done:
+	case <-t.C:
+		os.Exit(1)
 	}
 }
 
