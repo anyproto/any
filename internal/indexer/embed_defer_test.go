@@ -17,7 +17,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anyproto/any-sync/app/logger"
 	"github.com/hybridgroup/yzma/pkg/llama"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/anyproto/any/internal/config"
 )
@@ -746,16 +749,24 @@ func TestWorkerEmbedder_ReplacementOfADeathInCoreMLRunsWithoutIt(t *testing.T) {
 	}
 }
 
-// idleDeath runs a child with a Core ML path in the helper's mode, kills
-// it once idle and returns what its death cost: a runtime, a backoff.
-func idleDeath(t *testing.T, mode string) (coremlOff, gpuOff, backoff bool) {
+// idleCost is what the death of a child the idle timer found dead cost:
+// a runtime, a restart backoff; foundDead: it was reaped as an idle death.
+type idleCost struct{ coremlOff, gpuOff, backoff, foundDead bool }
+
+// idleDeath runs a child in the helper's Core ML mode ("" = a child
+// without a Core ML path), kills it and has the idle timer find it dead.
+func idleDeath(t *testing.T, mode string) idleCost {
 	t.Helper()
+	core, logs := observer.New(zap.WarnLevel)
 	h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ANE=" + mode, "ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"}}
 	w := newTestWorker(t, h, -1)
-	w.mu.Lock()
-	w.spec.coremlDir = filepath.Join(t.TempDir(), "eg2.mlpackage")
-	w.mu.Unlock()
-	w.idleTimeout = time.Hour
+	w.lg = logger.CtxLogger{Logger: zap.New(core)}
+	if mode != "" {
+		w.mu.Lock()
+		w.spec.coremlDir = filepath.Join(t.TempDir(), "eg2.mlpackage")
+		w.mu.Unlock()
+	}
+	w.idleTimeout = time.Hour // the timer's turn is taken below
 	ctx := context.Background()
 	if _, err := w.EmbedDocs(ctx, []string{"a"}); err != nil {
 		t.Fatal(err)
@@ -765,7 +776,7 @@ func idleDeath(t *testing.T, mode string) (coremlOff, gpuOff, backoff bool) {
 	w.slot.release(false)
 	// The helper wrote its lines before it answered; all are read by the
 	// time its stderr ends.
-	if err := w.live.Load().Kill(); err != nil {
+	if err := c.cmd.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
 	<-c.errDone
@@ -777,53 +788,39 @@ func idleDeath(t *testing.T, mode string) (coremlOff, gpuOff, backoff bool) {
 	if hasChild(w) {
 		t.Fatal("the dead child was not reaped")
 	}
-	backoff = nextTry(w).After(time.Now())
+	cost := idleCost{
+		backoff:   !nextTry(w).IsZero(),
+		foundDead: logs.FilterMessage("local embedder child found dead while idle").Len() == 1,
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.coremlDisabled, w.gpuDisabled, backoff
+	cost.coremlOff, cost.gpuOff = w.coremlDisabled, w.gpuDisabled
+	return cost
 }
 
 // A child with a Core ML path found dead by the idle timer had nothing
-// asked of it: its death costs neither runtime, whether its path was on
-// or off, unless it died inside a Core ML call of its own, which costs
-// the Neural Engine path and never the GPU.
+// asked of it: its death costs neither runtime nor a backoff, whether its
+// path was on or off, unless it died inside a Core ML call of its own,
+// which costs the Neural Engine path and never the GPU.
 func TestWorkerEmbedder_IdleDeathCostsNoRuntime(t *testing.T) {
-	for mode, wantCoreMLOff := range map[string]bool{
+	for mode, charged := range map[string]bool{
 		"off":        false, // the path was off
 		"loaded":     false, // the path was on, nothing in flight
 		"loading":    true,  // inside a load
 		"1":          true,  // inside the preparation
 		"offloading": true,  // inside a load, whatever its path said since
 	} {
-		coremlOff, gpuOff, backoff := idleDeath(t, mode)
-		if coremlOff != wantCoreMLOff || gpuOff {
-			t.Errorf("%s: core ml off %v, gpu off %v; want core ml off %v and the gpu kept", mode, coremlOff, gpuOff, wantCoreMLOff)
-		}
-		if backoff && !wantCoreMLOff {
-			t.Errorf("%s: a death that cost nothing put off the next child", mode)
+		if got, want := idleDeath(t, mode), (idleCost{coremlOff: charged, backoff: charged, foundDead: !charged}); got != want {
+			t.Errorf("%s: %+v, want %+v", mode, got, want)
 		}
 	}
 }
 
 // A child without a Core ML path that died while idle is reaped as an
-// idle one: its death does not count against the GPU.
+// idle one: its death costs neither the GPU nor a backoff.
 func TestWorkerEmbedder_IdleDeathWithoutCoreMLKeepsTheGPU(t *testing.T) {
-	h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"}}
-	w := newTestWorker(t, h, -1)
-	w.idleTimeout = 100 * time.Millisecond
-	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := w.live.Load().Kill(); err != nil {
-		t.Fatal(err)
-	}
-	for deadline := time.Now().Add(10 * time.Second); hasChild(w); time.Sleep(10 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("the dead child was never reaped")
-		}
-	}
-	if gpuDisabled(w) {
-		t.Fatal("an idle child's death turned GPU offload off")
+	if got := idleDeath(t, ""); got != (idleCost{foundDead: true}) {
+		t.Fatalf("%+v, want it found dead while idle, at no cost", got)
 	}
 }
 
@@ -982,10 +979,30 @@ func TestWorkerEmbedder_PrepareBulkWaitsForThePackageDownload(t *testing.T) {
 	w, _ := aneWorker(t, append(delayEnv(50*time.Millisecond), "ANY_EMBED_WORKER_ANE=ready")...)
 	w.pkgPoll = time.Millisecond
 	pkg := withDownloadingPackage(w)
-	said := make(chan struct{}, 4)
+	// A look that finds no package after the call said it waits is the
+	// wait for the download: the wait for the first function says the
+	// same and never looks.
+	var said atomic.Int32
+	looked := make(chan struct{}, 1)
+	w.pkgOnDisk = func() bool {
+		on := pkg.onDisk.Load()
+		if !on && said.Load() > 0 {
+			select {
+			case looked <- struct{}{}:
+			default:
+			}
+		}
+		return on
+	}
 	done := make(chan string, 1)
-	go func() { done <- w.PrepareBulk(context.Background(), func() { said <- struct{}{} }) }()
-	<-said // it waits for the download
+	go func() { done <- w.PrepareBulk(context.Background(), func() { said.Add(1) }) }()
+	select {
+	case <-looked:
+	case got := <-done:
+		t.Fatalf("PrepareBulk = %q before the package landed", got)
+	case <-time.After(10 * time.Second):
+		t.Fatal("PrepareBulk did not wait for the package's download")
+	}
 	// The package lands only after the search has returned: a search held
 	// by the wait would never come back.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -999,11 +1016,16 @@ func TestWorkerEmbedder_PrepareBulkWaitsForThePackageDownload(t *testing.T) {
 	default:
 	}
 	pkg.onDisk.Store(true) // whole, before the download is done with its licence texts
-	if got := <-done; got != BulkReady {
-		t.Fatalf("PrepareBulk = %q, want %q", got, BulkReady)
+	select {
+	case got := <-done:
+		if got != BulkReady {
+			t.Fatalf("PrepareBulk = %q, want %q", got, BulkReady)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("PrepareBulk did not return once the package landed")
 	}
-	if len(said) != 0 {
-		t.Fatalf("said it waits %d times, want once", 1+len(said))
+	if n := said.Load(); n != 1 {
+		t.Fatalf("said it waits %d times, want once", n)
 	}
 }
 
