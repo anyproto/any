@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -95,20 +94,14 @@ func runEmbedHelper(mode string) int {
 	if err := writeFrame(out, workerResp{Op: workerOpReady, Dim: helperDim, Hardware: hw}, nil); err != nil {
 		return 1
 	}
-	// ANY_EMBED_WORKER_ROUTES="<ane>,<llama>,<miss>[,<coreml>]" rides
-	// every document frame, as the real child's count of its texts per
-	// runtime.
+	// ANY_EMBED_WORKER_ROUTES="<ane>,<llama>,<miss>" rides every document
+	// frame, as the real child's count of its texts per runtime.
 	var routes *workerRoutes
 	if parts := strings.Split(os.Getenv("ANY_EMBED_WORKER_ROUTES"), ","); len(parts) >= 3 {
 		ane, _ := strconv.Atoi(parts[0])
 		llm, _ := strconv.Atoi(parts[1])
 		routes = &workerRoutes{ANE: ane, Llama: llm, Miss: parts[2]}
-		if len(parts) > 3 {
-			routes.CoreML, _ = strconv.Atoi(parts[3])
-		}
 	}
-	// auditing: the child refuses to be stopped as idle, as under an audit.
-	var auditing, overdue atomic.Bool
 	switch os.Getenv("ANY_EMBED_WORKER_ANE") {
 	case "":
 	case "off": // Core ML started, then gave up
@@ -121,66 +114,23 @@ func runEmbedHelper(mode string) int {
 			time.Sleep(delay)
 			aneStderrLog("s128 ready (plan 1ms, load 1ms, 10 operations on the neural engine, 0 on the cpu)")
 		}()
-	case "audit": // the first function serves while its placement is audited
-		aneStderrLog("starting")
-		aneStderrLog("s128 loading")
-		aneStderrLog("s128 ready (open 1ms, validate 1ms, placement not verified yet; asked for 2ms ago)")
-		aneStderrLog("s128 " + aneAuditStarted)
-		// Predictions fail under the audit: that is not its end.
-		aneStderrLog("s128 not used any more: 3 failures in a row")
-		auditing.Store(true)
-		go func() {
-			time.Sleep(delay)
-			aneStderrLog("s128 placement verified (plan 1ms, 10 operations on the neural engine, 0 on the cpu)")
-			aneStderrLog("s128 " + aneAuditFinished)
-			auditing.Store(false)
-		}()
-	case "silentaudit": // audits for the delay; its report has not reached the server
-		aneStderrLog("starting")
-		auditing.Store(true)
-		go func() {
-			time.Sleep(delay)
-			auditing.Store(false)
-		}()
-	case "stuckaudit": // an audit that never returns, past any bound
-		aneStderrLog("starting")
-		aneStderrLog("s128 loading")
-		aneStderrLog("s128 ready (open 1ms, validate 1ms, placement not verified yet; asked for 2ms ago)")
-		aneStderrLog("s128 " + aneAuditStarted)
-		auditing.Store(true)
-		overdue.Store(true)
 	case "loaded": // the first function is loaded and nothing else is under way
 		aneStderrLog("starting")
 		aneStderrLog("s128 loading")
-		aneStderrLog("s128 ready (open 1ms, validate 1ms, placement on record, plan skipped; asked for 2ms ago)")
+		aneStderrLog("s128 ready (open 1ms, validate 1ms; asked for 2ms ago)")
 	case "loading": // inside the first function's load
 		aneStderrLog("starting")
 		aneStderrLog("s128 loading")
-	case "offauditexit": // the path is off; the audit still running then kills the child
-		aneStderrLog("starting")
-		aneStderrLog("s128 " + aneAuditStarted)
-		aneStderrLog(aneOffStatus + "llama.cpp embeds everything: no function can be used")
-		auditing.Store(true)
-		go func() {
-			time.Sleep(delay)
-			os.Exit(3)
-		}()
-	case "auditexit": // dies inside a placement audit
+	case "offloading": // the path is off with a load still open
 		aneStderrLog("starting")
 		aneStderrLog("s128 loading")
-		aneStderrLog("s128 ready (open 1ms, validate 1ms, placement not verified yet; asked for 2ms ago)")
-		aneStderrLog("s128 " + aneAuditStarted)
-		auditing.Store(true)
-		go func() {
-			time.Sleep(delay)
-			os.Exit(3)
-		}()
-	case "refusedlarger": // a larger function is not used; the first one loads after the delay
+		aneStderrLog(aneOffStatus + "llama.cpp embeds everything: no function can be used")
+	case "failedlarger": // a larger function is not used; the first one loads after the delay
 		aneStderrLog("starting")
-		aneStderrLog("s512 not used: core ml plans it off the neural engine")
+		aneStderrLog("s512 not used: coreml: load s512: test error 1")
 		go func() {
 			time.Sleep(delay)
-			aneStderrLog("s128 ready (open 1ms, validate 1ms, placement on record, plan skipped; asked for 2ms ago)")
+			aneStderrLog("s128 ready (open 1ms, validate 1ms; asked for 2ms ago)")
 		}()
 	case "offthenfail": // the path goes off, then a prediction in flight fails
 		aneStderrLog("starting")
@@ -188,7 +138,7 @@ func runEmbedHelper(mode string) int {
 		aneStderrLog("s128 failed: late")
 	case "failed": // the first function does not load
 		aneStderrLog("starting")
-		aneStderrLog("s128 not used: core ml plans it off the neural engine")
+		aneStderrLog("s128 not used: coreml: load s128: test error 1")
 	default: // a child that began using Core ML
 		aneStderrLog("starting")
 	}
@@ -200,15 +150,6 @@ func runEmbedHelper(mode string) int {
 				exitWhenOrphaned()
 			}
 			return 0 // parent closed stdin: clean exit, like the real child
-		}
-		if req.Op == workerOpIdle || req.Op == workerOpHeld {
-			if os.Getenv("ANY_EMBED_WORKER_MUTE") != "" { // wedged: the ask gets no answer
-				exitWithParent()
-			}
-			if err := writeFrame(out, workerResp{Op: req.Op, Busy: auditing.Load(), Overdue: overdue.Load()}, nil); err != nil {
-				return 1
-			}
-			continue
 		}
 		if crashAfter > 0 && served >= crashAfter {
 			fmt.Fprintln(os.Stderr, "GGML_ASSERT(false) failed")

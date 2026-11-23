@@ -575,33 +575,6 @@ func TestWorkerEmbedder_DeferredWake(t *testing.T) {
 	}
 }
 
-// A line that changes nothing for a deferred text does not wake the
-// drain: an audit's verdict and its finished line are such lines.
-func TestWorkerEmbedder_AuditLinesDoNotWake(t *testing.T) {
-	const delay = 200 * time.Millisecond
-	w, _ := aneWorker(t, append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=audit")...)
-	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(delay / 4) // the lines before the audit's end are in
-	wake := w.DeferredWake()
-	if err := w.slot.acquire(context.Background(), false); err != nil {
-		t.Fatal(err)
-	}
-	c := w.child
-	w.slot.release(false)
-	for deadline := time.Now().Add(10 * time.Second); c.calls.Load() != 0; time.Sleep(5 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("the audit's finished line never came")
-		}
-	}
-	select {
-	case <-wake:
-		t.Fatal("an audit's lines woke the drain")
-	default:
-	}
-}
-
 // A drain's hold keeps the child from being retired as idle until it is
 // released, once.
 func TestWorkerEmbedder_HoldBulk(t *testing.T) {
@@ -676,192 +649,8 @@ func TestWorkerEmbedder_DeferredTextsDoNotOutliveTheirChild(t *testing.T) {
 	}
 }
 
-// A child is not retired as idle while it audits a placement: the
-// verdict would never be written.
-func TestWorkerEmbedder_AuditHoldsOffIdleRetirement(t *testing.T) {
-	const idle, audit = 50 * time.Millisecond, 600 * time.Millisecond
-	w, h := aneWorker(t, append(delayEnv(audit), "ANY_EMBED_WORKER_ANE=audit")...)
-	w.idleTimeout = idle
-	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(audit / 2)
-	if !hasChild(w) {
-		t.Fatal("the child was retired under its audit")
-	}
-	for deadline := time.Now().Add(10 * time.Second); hasChild(w); time.Sleep(10 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("the child was never retired after its audit")
-		}
-	}
-	if h.spawns() != 1 {
-		t.Fatalf("spawned %d children, want 1", h.spawns())
-	}
-}
-
-// A child that dies inside a placement audit is not held for it: it is
-// reaped, as a failed one.
-func TestWorkerEmbedder_AuditDoesNotHoldADeadChild(t *testing.T) {
-	const idle, dies = 50 * time.Millisecond, 300 * time.Millisecond
-	w, _ := aneWorker(t, append(delayEnv(dies), "ANY_EMBED_WORKER_ANE=auditexit")...)
-	w.idleTimeout = idle
-	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
-		t.Fatal(err)
-	}
-	for deadline := time.Now().Add(10 * time.Second); hasChild(w); time.Sleep(10 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("the dead child was never reaped")
-		}
-	}
-	w.mu.Lock()
-	demoted := w.coremlDisabled
-	w.mu.Unlock()
-	if !demoted {
-		t.Fatal("a death under an audit did not count against Core ML")
-	}
-}
-
-// The child itself says whether it may be stopped as idle: an audit the
-// server has read no report of yet is not cut short.
-func TestWorkerEmbedder_ChildRefusesIdleStopUnderAnAudit(t *testing.T) {
-	const idle, audit = 50 * time.Millisecond, 600 * time.Millisecond
-	w, h := aneWorker(t, append(delayEnv(audit), "ANY_EMBED_WORKER_ANE=silentaudit")...)
-	w.idleTimeout = idle
-	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(audit / 2)
-	if !hasChild(w) {
-		t.Fatal("the child was stopped under an audit it had not reported yet")
-	}
-	for deadline := time.Now().Add(10 * time.Second); hasChild(w); time.Sleep(10 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("the child was never retired after its audit")
-		}
-	}
-	if h.spawns() != 1 {
-		t.Fatalf("spawned %d children, want 1", h.spawns())
-	}
-}
-
-// A child whose audit never returns is not held for it for ever: once
-// the child says the audit is overdue it is stopped. Nothing failed that
-// was asked of it: it costs neither runtime.
-func TestWorkerEmbedder_StuckAuditDoesNotPinTheChild(t *testing.T) {
-	h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ANE=stuckaudit", "ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"}}
-	w := newTestWorker(t, h, -1)
-	w.mu.Lock()
-	w.spec.coremlDir = filepath.Join(t.TempDir(), "eg2.mlpackage")
-	w.mu.Unlock()
-	w.idleTimeout = 50 * time.Millisecond
-	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
-		t.Fatal(err)
-	}
-	for deadline := time.Now().Add(10 * time.Second); hasChild(w); time.Sleep(10 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("the child stuck in an audit was never reaped")
-		}
-	}
-	w.mu.Lock()
-	coreml, gpu := w.coremlDisabled, w.gpuDisabled
-	w.mu.Unlock()
-	if coreml || gpu {
-		t.Fatalf("after a stuck audit: core ml off %v, gpu off %v; want neither", coreml, gpu)
-	}
-}
-
-// A child stuck in an audit past its bound is replaced though it is never
-// idle: under a frame every few moments, and under a drain's hold with no
-// frame at all. It costs neither runtime.
-func TestWorkerEmbedder_OverdueAuditDoesNotPinABusyChild(t *testing.T) {
-	for _, held := range []bool{false, true} {
-		h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ANE=stuckaudit", "ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"}}
-		w := newTestWorker(t, h, -1)
-		w.mu.Lock()
-		w.spec.coremlDir = filepath.Join(t.TempDir(), "eg2.mlpackage")
-		w.mu.Unlock()
-		w.callMax = 100 * time.Millisecond
-		w.askTimeout = 20 * time.Millisecond
-		w.idleTimeout = time.Hour
-		if held {
-			w.idleTimeout = 50 * time.Millisecond
-			defer w.HoldBulk()()
-		}
-		ctx := context.Background()
-		if _, err := w.EmbedQuery(ctx, "q"); err != nil {
-			t.Fatal(err)
-		}
-		for deadline := time.Now().Add(10 * time.Second); h.spawns() < 2 && hasChild(w); time.Sleep(20 * time.Millisecond) {
-			if time.Now().After(deadline) {
-				t.Fatalf("hold %v: the child stuck in an audit was never stopped", held)
-			}
-			if !held {
-				if _, err := w.EmbedQuery(ctx, "q"); err != nil {
-					t.Fatal(err)
-				}
-			}
-		}
-		if _, err := w.EmbedQuery(ctx, "q"); err != nil {
-			t.Fatalf("hold %v: the query after the stop: %v", held, err)
-		}
-		if h.spawns() != 2 {
-			t.Fatalf("hold %v: spawned %d children, want the stuck one and its replacement", held, h.spawns())
-		}
-		w.mu.Lock()
-		coreml, gpu := w.coremlDisabled, w.gpuDisabled
-		w.mu.Unlock()
-		if coreml || gpu {
-			t.Fatalf("hold %v: core ml off %v, gpu off %v; want neither", held, coreml, gpu)
-		}
-	}
-}
-
-// A child held by Core ML work that is not overdue is left alone by the
-// ask, and so is one whose calls have not been open for long.
-func TestWorkerEmbedder_HeldChildIsKeptUntilOverdue(t *testing.T) {
-	const audit = 400 * time.Millisecond
-	w, h := aneWorker(t, append(delayEnv(audit), "ANY_EMBED_WORKER_ANE=audit")...)
-	w.callMax = 50 * time.Millisecond
-	w.askTimeout = 10 * time.Millisecond
-	ctx := context.Background()
-	for end := time.Now().Add(audit / 2); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
-		if _, err := w.EmbedQuery(ctx, "q"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if h.spawns() != 1 || !hasChild(w) {
-		t.Fatalf("spawned %d children; a child whose audit is not overdue was stopped", h.spawns())
-	}
-}
-
-// The calls a child has open keep the time each was first seen; the
-// oldest is what the server measures against the bound.
-func TestOldestCall(t *testing.T) {
-	open, since := map[string]bool{}, map[string]int64{}
-	if got := oldestCall(open, since, 10); got != 0 {
-		t.Fatalf("no call open: %d", got)
-	}
-	open["s128 audit"] = true
-	if got := oldestCall(open, since, 20); got != 20 {
-		t.Fatalf("one call: %d, want 20", got)
-	}
-	open["s256 load"] = true
-	if got := oldestCall(open, since, 30); got != 20 {
-		t.Fatalf("two calls: %d, want the first one's 20", got)
-	}
-	delete(open, "s128 audit")
-	if got := oldestCall(open, since, 40); got != 30 {
-		t.Fatalf("the older call ended: %d, want 30", got)
-	}
-	delete(open, "s256 load")
-	open["s128 audit"] = true
-	if got := oldestCall(open, since, 50); got != 50 {
-		t.Fatalf("a call opened again: %d, want 50", got)
-	}
-}
-
 // A child that ended while idle and is found so by the next request,
-// before the idle ask, is reaped as an idle one: the request does not
+// before the idle timer, is reaped as an idle one: the request does not
 // charge it to the GPU, and no backoff holds the next child.
 func TestWorkerEmbedder_RequestFindsAnIdleChildDead(t *testing.T) {
 	h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ANE=off", "ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"}}
@@ -966,18 +755,27 @@ func idleDeath(t *testing.T, mode string) (coremlOff, gpuOff, backoff bool) {
 	w.mu.Lock()
 	w.spec.coremlDir = filepath.Join(t.TempDir(), "eg2.mlpackage")
 	w.mu.Unlock()
-	w.idleTimeout = 200 * time.Millisecond
-	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
+	w.idleTimeout = time.Hour
+	ctx := context.Background()
+	if _, err := w.EmbedDocs(ctx, []string{"a"}); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(50 * time.Millisecond) // its lines are in
+	_ = w.slot.acquire(ctx, false)
+	c := w.child
+	w.slot.release(false)
+	// The helper wrote its lines before it answered; all are read by the
+	// time its stderr ends.
 	if err := w.live.Load().Kill(); err != nil {
 		t.Fatal(err)
 	}
-	for deadline := time.Now().Add(10 * time.Second); hasChild(w); time.Sleep(10 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("the dead child was never reaped")
-		}
+	<-c.errDone
+	// The idle timer's turn, with the idle time over.
+	_ = w.slot.acquire(ctx, false)
+	w.idleTimeout = time.Nanosecond
+	w.slot.release(false)
+	w.retireIdle()
+	if hasChild(w) {
+		t.Fatal("the dead child was not reaped")
 	}
 	backoff = nextTry(w).After(time.Now())
 	w.mu.Lock()
@@ -985,16 +783,17 @@ func idleDeath(t *testing.T, mode string) (coremlOff, gpuOff, backoff bool) {
 	return w.coremlDisabled, w.gpuDisabled, backoff
 }
 
-// A child with a Core ML path found dead by the idle ask had nothing
+// A child with a Core ML path found dead by the idle timer had nothing
 // asked of it: its death costs neither runtime, whether its path was on
 // or off, unless it died inside a Core ML call of its own, which costs
 // the Neural Engine path and never the GPU.
 func TestWorkerEmbedder_IdleDeathCostsNoRuntime(t *testing.T) {
 	for mode, wantCoreMLOff := range map[string]bool{
-		"off":     false, // the path was off
-		"loaded":  false, // the path was on, nothing in flight
-		"loading": true,  // inside a load
-		"1":       true,  // inside the preparation
+		"off":        false, // the path was off
+		"loaded":     false, // the path was on, nothing in flight
+		"loading":    true,  // inside a load
+		"1":          true,  // inside the preparation
+		"offloading": true,  // inside a load, whatever its path said since
 	} {
 		coremlOff, gpuOff, backoff := idleDeath(t, mode)
 		if coremlOff != wantCoreMLOff || gpuOff {
@@ -1003,65 +802,6 @@ func TestWorkerEmbedder_IdleDeathCostsNoRuntime(t *testing.T) {
 		if backoff && !wantCoreMLOff {
 			t.Errorf("%s: a death that cost nothing put off the next child", mode)
 		}
-	}
-}
-
-// A child that does not answer the idle ask is stopped after the ask's
-// own short bound, not the request timeout: a search behind the ask gets
-// a fresh child, and no runtime is charged.
-func TestWorkerEmbedder_IdleAskIsBounded(t *testing.T) {
-	h := &helperSpawner{modes: []string{"ok", "ok"}, env: []string{"ANY_EMBED_WORKER_ANE=loaded", "ANY_EMBED_WORKER_MUTE=1",
-		"ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"}}
-	w := newTestWorker(t, h, -1)
-	w.mu.Lock()
-	w.spec.coremlDir = filepath.Join(t.TempDir(), "eg2.mlpackage")
-	w.mu.Unlock()
-	w.reqTimeout = time.Minute
-	w.askTimeout = 200 * time.Millisecond
-	w.idleTimeout = 100 * time.Millisecond
-	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(200 * time.Millisecond) // the ask is on the wire
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if _, err := w.EmbedQuery(ctx, "q"); err != nil {
-		t.Fatalf("a search behind an unanswered idle ask: %v", err)
-	}
-	if h.spawns() != 2 {
-		t.Fatalf("spawned %d children, want the mute one and its replacement", h.spawns())
-	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.coremlDisabled || w.gpuDisabled {
-		t.Fatalf("after an unanswered idle ask: core ml off %v, gpu off %v; want neither", w.coremlDisabled, w.gpuDisabled)
-	}
-}
-
-// A child that dies in an audit died in Core ML, whatever its path said
-// before: Core ML is what the next child goes without, not the GPU.
-func TestWorkerEmbedder_DeathUnderAnAuditIsCoreMLs(t *testing.T) {
-	const idle, dies = 50 * time.Millisecond, 300 * time.Millisecond
-	h := &helperSpawner{modes: []string{"ok"}, env: append(delayEnv(dies), "ANY_EMBED_WORKER_ANE=offauditexit",
-		"ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)")}
-	w := newTestWorker(t, h, -1)
-	w.mu.Lock()
-	w.spec.coremlDir = filepath.Join(t.TempDir(), "eg2.mlpackage")
-	w.mu.Unlock()
-	w.idleTimeout = idle
-	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
-		t.Fatal(err)
-	}
-	for deadline := time.Now().Add(10 * time.Second); hasChild(w); time.Sleep(10 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("the dead child was never reaped")
-		}
-	}
-	w.mu.Lock()
-	coreml, gpu := w.coremlDisabled, w.gpuDisabled
-	w.mu.Unlock()
-	if !coreml || gpu {
-		t.Fatalf("after a death under an audit: core ml off %v, gpu off %v; want core ml alone", coreml, gpu)
 	}
 }
 
@@ -1088,10 +828,10 @@ func TestWorkerEmbedder_IdleDeathWithoutCoreMLKeepsTheGPU(t *testing.T) {
 }
 
 // A report on another function does not settle the wait for the first:
-// a refusal on record for a larger one comes before the first loads.
-func TestWorkerEmbedder_LargerRefusalDoesNotSettle(t *testing.T) {
+// a larger one that failed to load comes before the first loads.
+func TestWorkerEmbedder_LargerFailureDoesNotSettle(t *testing.T) {
 	const delay = 400 * time.Millisecond
-	w, _ := aneWorker(t, append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=refusedlarger")...)
+	w, _ := aneWorker(t, append(delayEnv(delay), "ANY_EMBED_WORKER_ANE=failedlarger")...)
 	w.mu.Lock()
 	w.spec.profile = config.LocalModelEmbeddingGemma2
 	w.mu.Unlock()

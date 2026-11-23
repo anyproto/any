@@ -53,8 +53,7 @@ const (
 	EmbedPhasePreparing = "preparing" // the embedder readies a runtime the pending texts wait for
 	EmbedPhaseEmbedding = "embedding"
 
-	EmbedBackendANE    = "ane"    // Core ML, in a function whose placement on the Neural Engine is verified
-	EmbedBackendCoreML = "coreml" // Core ML, in a function whose placement is not verified yet
+	EmbedBackendANE    = "ane"    // Core ML on the Neural Engine
 	EmbedBackendGPU    = "gpu"    // llama.cpp with the model loaded on a GPU device
 	EmbedBackendCPU    = "cpu"    // llama.cpp without offload, or with no device to offload to
 	EmbedBackendLlama  = "llama"  // llama.cpp in a child that did not report its hardware
@@ -63,7 +62,7 @@ const (
 	EmbedReasonPackageNotReady  = "package_not_ready" // the Core ML package is not on disk or not compiled yet
 	EmbedReasonFunctionLoading  = "function_loading"  // the Neural Engine function for the text's length was not loaded
 	EmbedReasonTooLong          = "too_long"          // longer than every function
-	EmbedReasonANEFailed        = "ane_failed"        // a prediction failed, or no function that holds the text is used: failed to load or predict, or refused by its audit
+	EmbedReasonANEFailed        = "ane_failed"        // a prediction failed, or no function that holds the text is used: failed to load or predict
 	EmbedReasonANEOff           = "ane_off"           // the Neural Engine path is off for this run
 	EmbedReasonReadinessTimeout = "readiness_timeout" // bulk work stopped waiting for a function that was loading
 	EmbedReasonGPUFailed        = "gpu_failed"        // GPU offload was demoted after a child died

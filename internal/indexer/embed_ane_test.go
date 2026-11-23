@@ -14,8 +14,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/anyproto/any/internal/indexer/coreml"
 )
 
 // fakeANE stands in for Core ML: functions return a unit vector and
@@ -39,61 +37,8 @@ type fakeANE struct {
 	served     []int
 	tokens     [][]int32 // what each served text was, in order
 	closed     []int
-	// recorded: every function's placement is on record, so none is
-	// audited. Otherwise audits lists the audited lengths, auditErr is
-	// what each audit answers, and auditGate, when set, holds it first.
-	recorded  bool
-	audits    []int
-	auditErr  map[int]error
-	auditGate chan struct{}
-	order     []string // "load <length>" and "audit <length>", as they began
-	// unsettled are the functions on record as audited without a verdict;
-	// abandoned, those whose audit the engine gave up; strained, what
-	// strain answers.
-	unsettled map[int]bool
-	abandoned []int
-	strained  string
-	// auditLate: the audit's plan is not answered in time; Core ML is
-	// back from it when the channel closes.
-	auditLate map[int]chan struct{}
 	// onClose, when set, runs at the start of every function's close.
 	onClose func(length int)
-}
-
-func (f *fakeANE) audited(length int) (placed, known bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.recorded, f.recorded || f.unsettled[length]
-}
-
-func (f *fakeANE) abandon(length int) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.abandoned = append(f.abandoned, length)
-}
-
-func (f *fakeANE) strain() string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.strained
-}
-
-func (f *fakeANE) audit(length int) (string, error) {
-	f.mu.Lock()
-	gate, err := f.auditGate, f.auditErr[length]
-	f.audits = append(f.audits, length)
-	f.order = append(f.order, fmt.Sprintf("audit %d", length))
-	f.mu.Unlock()
-	if gate != nil {
-		<-gate
-	}
-	f.mu.Lock()
-	late := f.auditLate[length]
-	f.mu.Unlock()
-	if late != nil {
-		return "", &coreml.LatePlanError{Function: fmt.Sprintf("s%d", length), Waited: time.Minute, Done: late}
-	}
-	return "fake plan", err
 }
 
 // present: the package is on disk unless absent says otherwise.
@@ -123,7 +68,6 @@ func (f *fakeANE) prepare() error {
 func (f *fakeANE) load(length int) (aneFunction, string, error) {
 	f.mu.Lock()
 	gate, started, err := f.gate, f.started, f.loadErr[length]
-	f.order = append(f.order, fmt.Sprintf("load %d", length))
 	f.mu.Unlock()
 	if started != nil {
 		started <- length
@@ -310,7 +254,7 @@ func TestNeuralEngine_OneLoadPerFunction(t *testing.T) {
 
 // A text runs on a larger loaded function while its own is missing.
 func TestNeuralEngine_UsesLargerLoadedFunction(t *testing.T) {
-	f := &fakeANE{loadErr: map[int]error{128: errors.New("planned on the cpu")}}
+	f := &fakeANE{loadErr: map[int]error{128: errors.New("coreml: load s128: test error 1")}}
 	n, _ := newTestANE(t, f)
 	n.start()
 	n.loads.Wait()
@@ -640,10 +584,10 @@ func TestNeuralEngine_FailureCountEndsWithInstance(t *testing.T) {
 	}
 }
 
-// With every function refused there is nothing left to try.
+// With every function failed there is nothing left to try.
 func TestNeuralEngine_OffWhenNoFunctionLeft(t *testing.T) {
-	refused := errors.New("planned on the cpu")
-	f := &fakeANE{loadErr: map[int]error{128: refused, 256: refused, 512: refused}}
+	broken := errors.New("coreml: load: test error 1")
+	f := &fakeANE{loadErr: map[int]error{128: broken, 256: broken, 512: broken}}
 	var mu sync.Mutex
 	var lines []string
 	n := newNeuralEngine(f, []int{128, 256, 512}, 4, func(format string, args ...any) {
@@ -663,7 +607,7 @@ func TestNeuralEngine_OffWhenNoFunctionLeft(t *testing.T) {
 	off := n.off
 	n.mu.Unlock()
 	if !off {
-		t.Fatal("still on with every function refused")
+		t.Fatal("still on with every function failed")
 	}
 	mu.Lock()
 	defer mu.Unlock()

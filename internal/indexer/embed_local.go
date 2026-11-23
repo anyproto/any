@@ -280,28 +280,6 @@ func (l *Local) newNeuralEngine(backend aneBackend) *neuralEngine {
 	return newNeuralEngine(backend, l.coreml.lengths, int(l.nEmbd), aneStderrLog)
 }
 
-// quiesce reports whether the process may be stopped as idle now; once
-// it has said so the Neural Engine path starts nothing it would lose.
-func (l *Local) quiesce() (ok, overdue bool) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.ane == nil {
-		return true, false
-	}
-	return l.ane.quiesce()
-}
-
-// held reports whether Core ML work holds the process, and whether for
-// longer than it takes (neuralEngine.held).
-func (l *Local) held() (held, overdue bool) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.ane == nil {
-		return false, false
-	}
-	return l.ane.held()
-}
-
 // llamaRuntime guards the process-global llama.cpp state (Load + Init
 // happen once per process, shared by every Local instance). Failures
 // stay retryable: a missing lib dir now may be populated later.
@@ -671,11 +649,7 @@ func (l *Local) embedTokenized(ctx context.Context, tokenized [][]llama.Token, l
 		vec, ok, deferred := l.embedANE(tokenized[start], bulk)
 		if ok {
 			out = append(out, vec)
-			if l.ane.lastPlaced() {
-				l.routes.ANE++
-			} else {
-				l.routes.CoreML++
-			}
+			l.routes.ANE++
 			start++
 			continue
 		}

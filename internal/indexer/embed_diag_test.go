@@ -84,7 +84,7 @@ func TestWorkerEmbedder_LogsBulkRouting(t *testing.T) {
 	}
 
 	// The first batch off it is said at once, with the work before it.
-	w.noteBulk(routeTally{ane: 60, coreml: 1, deferred: 2,
+	w.noteBulk(routeTally{ane: 60, deferred: 2,
 		llama:   map[string]int{EmbedBackendGPU: 3},
 		reasons: map[string]int{EmbedReasonTooLong: 2, EmbedReasonANEFailed: 1}})
 	lines := routingLines(logs)
@@ -92,7 +92,7 @@ func TestWorkerEmbedder_LogsBulkRouting(t *testing.T) {
 		t.Fatalf("%d lines, want 1: %v", len(lines), lines)
 	}
 	l := lines[0]
-	if l["ane"] != int64(124) || l["coreml"] != int64(1) || l["llama"] != int64(3) || l["deferred"] != int64(2) ||
+	if l["ane"] != int64(124) || l["llama"] != int64(3) || l["deferred"] != int64(2) ||
 		l["llamaReasons"] != "ane_failed=1 too_long=2" || l["llamaBackends"] != "gpu" {
 		t.Fatalf("line %v", l)
 	}

@@ -966,17 +966,6 @@ func TestWorkerEmbedder_EmbedDocsRouted(t *testing.T) {
 		t.Errorf("all on the neural engine: %+v", rt)
 	}
 
-	// Functions whose placement is not verified yet are Core ML, not the
-	// Neural Engine.
-	w, _ = aneWorker(t, "ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_ROUTES=0,0,,1")
-	if rt := embed(w); !is(rt, "", EmbedBackendCoreML) {
-		t.Errorf("all on unverified functions: %+v", rt)
-	}
-	w, _ = aneWorker(t, "ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_ROUTES=1,0,,1")
-	if rt := embed(w); !is(rt, "", EmbedBackendANE, EmbedBackendCoreML) {
-		t.Errorf("verified and unverified functions: %+v", rt)
-	}
-
 	// A mixed batch on a child that loaded the model on a device.
 	h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ANE=1", "ANY_EMBED_WORKER_ROUTES=1,2," + EmbedReasonFunctionLoading, device}}
 	w = planned(newTestWorker(t, h, -1))
@@ -1076,25 +1065,24 @@ func TestWorkerEmbedder_PrepareBulkSaysWhenItWaits(t *testing.T) {
 
 func TestANESettles(t *testing.T) {
 	for status, want := range map[string]bool{
-		"s128 ready (open 3.4s, validate 1.3s, placement on record, plan skipped; asked for 5s ago)": true,
-		"s128 not used: core ml plans it off the neural engine":                                      true,
-		"s128 not used any more: 3 failures in a row":                                                true,
-		aneOffStatus + "llama.cpp embeds everything: no function can be used":                        true,
+		"s128 ready (open 3.4s, validate 1.3s; asked for 5s ago)":             true,
+		"s128 not used: coreml: load s128: test error 1":                      true,
+		"s128 not used any more: 3 failures in a row":                         true,
+		aneOffStatus + "llama.cpp embeds everything: no function can be used": true,
 		// Another function's report is not the first one's.
-		"s2048 not used: core ml plans it off the neural engine (on record)": false,
-		"s256 ready (open 1s, validate 1s, placement not verified yet)":      false,
-		"starting":                        false,
-		"package compiled in 6.909s":      false,
-		"s512 released after 5m0s unused": false,
-		"s128 failed: prediction":         false,
-		"s128 placement audit finished":   false,
+		"s2048 not used: coreml: load s2048: test error 1": false,
+		"s256 ready (open 1s, validate 1s)":                false,
+		"starting":                                         false,
+		"package compiled in 6.909s":                       false,
+		"s512 released after 5m0s unused":                  false,
+		"s128 failed: prediction":                          false,
 	} {
 		if got := aneSettles(status, "s128"); got != want {
 			t.Errorf("aneSettles(%q) = %v, want %v", status, got, want)
 		}
 	}
 	// With no first function named, any function's report settles.
-	if !aneSettles("s2048 not used: refused", "") || aneSettles("starting", "") {
+	if !aneSettles("s2048 not used: broken", "") || aneSettles("starting", "") {
 		t.Error("aneSettles without a first function")
 	}
 	if got := firstFunction(localSpec{profile: config.LocalModelEmbeddingGemma2}); got != "s128" {

@@ -49,9 +49,6 @@ const (
 	// long, returning the memory its decode buffers keep
 	// (docs/13-index.md § The embedder child process).
 	workerIdleTimeout = 5 * time.Minute
-	// workerAskTimeout bounds the idle ask, which holds the slot: a child
-	// answers it without touching a runtime.
-	workerAskTimeout = 10 * time.Second
 )
 
 // workerEmbedder runs the local model in a child process (`any run
@@ -79,12 +76,7 @@ type workerEmbedder struct {
 	reqTimeout   time.Duration
 	startTimeout time.Duration
 	// idleTimeout is workerIdleTimeout; 0 never retires an idle child.
-	// askTimeout is workerAskTimeout.
 	idleTimeout time.Duration
-	askTimeout  time.Duration
-	// callMax is aneAuditMax: a child whose Core ML call has been open
-	// this long is asked whether it is overdue (stopOverdue).
-	callMax time.Duration
 	// bulkWait is aneBulkWait, pkgWait anePackageWait; pkgWaitUntil is when
 	// the wait for the package's download ends, set by its first waiter.
 	bulkWait     time.Duration
@@ -222,8 +214,6 @@ func newWorkerEmbedderFromSpec(spec localSpec, reqTimeout time.Duration) *worker
 		reqTimeout:   reqTimeout,
 		startTimeout: workerStartTimeout,
 		idleTimeout:  workerIdleTimeout,
-		askTimeout:   workerAskTimeout,
-		callMax:      aneAuditMax,
 		bulkWait:     aneBulkWait,
 		pkgWait:      anePackageWait,
 		pkgPoll:      time.Second,
@@ -382,7 +372,7 @@ type bulkRouting struct {
 	every         time.Duration // bulkLogEvery
 	last          time.Time     // the last line
 	from          time.Time     // the first batch counted since
-	ane, coreml   int
+	ane           int
 	llama         map[string]int // by EmbedReason*; "" = none to give
 	llamaBackends map[string]bool
 	deferred      int
@@ -413,7 +403,6 @@ func (w *workerEmbedder) noteBulk(t routeTally) {
 		r.from = now
 	}
 	r.ane += t.ane
-	r.coreml += t.coreml
 	for reason, n := range t.reasons {
 		if r.llama == nil {
 			r.llama = map[string]int{}
@@ -462,7 +451,7 @@ func (w *workerEmbedder) logBulk(now bool) {
 	if llama > 0 || r.deferred > 0 {
 		fields := []zap.Field{
 			zap.Duration("window", time.Since(r.from).Round(time.Millisecond)),
-			zap.Int("ane", r.ane), zap.Int("coreml", r.coreml), zap.Int("llama", llama),
+			zap.Int("ane", r.ane), zap.Int("llama", llama),
 		}
 		if llama > 0 {
 			fields = append(fields, zap.String("llamaBackends", strings.Join(backends, ",")),
@@ -475,7 +464,7 @@ func (w *workerEmbedder) logBulk(now bool) {
 		w.lg.Info("local embedder bulk routing", fields...)
 		r.last = time.Now()
 		r.from, r.deferredFrom = time.Time{}, time.Time{}
-		r.ane, r.coreml, r.deferred, r.llama, r.llamaBackends = 0, 0, 0, nil, nil
+		r.ane, r.deferred, r.llama, r.llamaBackends = 0, 0, nil, nil
 	}
 }
 
@@ -502,7 +491,6 @@ func orDefaultString(v, def string) string {
 // and the reason each frame had when it was served.
 type routeTally struct {
 	ane      int
-	coreml   int
 	llama    map[string]int // per EmbedBackend* of the child that served the frame
 	reasons  map[string]int // llama.cpp texts per EmbedReason*; "" = none to give
 	deferred int
@@ -515,7 +503,6 @@ func (t *routeTally) add(r frameResult) {
 		return
 	}
 	t.ane += rt.ANE
-	t.coreml += rt.CoreML
 	t.deferred += len(rt.Deferred)
 	if rt.Llama > 0 {
 		if t.llama == nil {
@@ -539,9 +526,6 @@ func (t routeTally) route() EmbedRoute {
 	rt := EmbedRoute{Reason: t.reason, Deferred: t.deferred}
 	if t.ane > 0 {
 		rt.Backends = append(rt.Backends, EmbedBackendANE)
-	}
-	if t.coreml > 0 {
-		rt.Backends = append(rt.Backends, EmbedBackendCoreML)
 	}
 	for _, b := range []string{EmbedBackendGPU, EmbedBackendCPU, EmbedBackendLlama} {
 		if t.llama[b] > 0 {
@@ -762,7 +746,6 @@ func (w *workerEmbedder) run(ctx context.Context, req workerReq) frameResult {
 	go func() {
 		r := w.serve(ctx, req)
 		w.noteFrame(req, r)
-		w.stopOverdue()
 		w.armIdle()
 		w.slot.release(urgent) // before the send: a caller that returns finds the slot free
 		res <- r
@@ -828,22 +811,11 @@ func (w *workerEmbedder) serve(ctx context.Context, req workerReq) frameResult {
 // (the wedged-GPU case) or a desynchronized frame — so the caller
 // retires the child rather than reusing it. Caller holds the slot.
 func (w *workerEmbedder) roundTrip(req workerReq) (workerResp, []byte, error) {
-	return w.roundTripWithin(req, w.reqTimeout)
-}
-
-// errChildMute is a child that did not answer in time; errChildGone, one
-// the request could not be written to.
-var (
-	errChildMute = errors.New("embedder child did not answer")
-	errChildGone = errors.New("embedder child is gone")
-)
-
-func (w *workerEmbedder) roundTripWithin(req workerReq, within time.Duration) (workerResp, []byte, error) {
 	c := w.child
 	if err := writeFrame(c.w, req, nil); err != nil {
 		return workerResp{}, nil, fmt.Errorf("%w: write to it: %v", errChildGone, err)
 	}
-	timer := time.NewTimer(within)
+	timer := time.NewTimer(w.reqTimeout)
 	defer timer.Stop()
 	select {
 	case m, ok := <-c.resp:
@@ -855,9 +827,12 @@ func (w *workerEmbedder) roundTripWithin(req workerReq, within time.Duration) (w
 		}
 		return m.hdr, m.bin, nil
 	case <-timer.C:
-		return workerResp{}, nil, fmt.Errorf("%w in %s", errChildMute, within)
+		return workerResp{}, nil, fmt.Errorf("embedder child did not answer in %s", w.reqTimeout)
 	}
 }
+
+// errChildGone is a child the request could not be written to.
+var errChildGone = errors.New("embedder child is gone")
 
 // ensureChild spawns the child if needed, honoring the restart backoff.
 // With retireStale, a running child whose spec has moved on (threads
@@ -1009,8 +984,7 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 // How a child the worker lets go of as failed was found.
 const (
 	diedInFrame = iota // its stream broke under a request
-	diedIdle           // the idle ask found it dead
-	muteIdle           // it did not answer the idle ask in time
+	diedIdle           // it ended with nothing asked of it
 )
 
 // failChild retires a child whose stream broke under a request and
@@ -1028,7 +1002,7 @@ const (
 func (w *workerEmbedder) failChild(cause error) { w.reapChild(cause, diedInFrame) }
 
 // reapChild is failChild for a child found in the state how names. One
-// found dead or mute while idle had nothing asked of it: it costs neither
+// found dead while idle had nothing asked of it: it costs neither
 // runtime, unless it died inside a Core ML call of its own (aneCalls),
 // which costs the Neural Engine path. Caller holds the slot.
 func (w *workerEmbedder) reapChild(cause error, how int) {
@@ -1056,11 +1030,7 @@ func (w *workerEmbedder) reapChild(cause error, how int) {
 	}
 	// Read after stop, which joined the stderr pump.
 	inCall := c.calls.Load() > 0
-	switch {
-	case how == muteIdle:
-		w.lg.Warn("local embedder child did not answer while idle; stopped", fields...)
-		return
-	case how == diedIdle && !inCall:
+	if how == diedIdle && !inCall {
 		w.lg.Warn("local embedder child found dead while idle", fields...)
 		return
 	}
@@ -1305,7 +1275,7 @@ func (w *workerEmbedder) retireIdle() {
 		return
 	}
 	defer w.slot.release(false)
-	if w.child == nil || w.closing.Load() || w.stopOverdue() {
+	if w.child == nil || w.closing.Load() {
 		return
 	}
 	// Not under a wait for the first function, nor, with a Core ML path,
@@ -1319,59 +1289,15 @@ func (w *workerEmbedder) retireIdle() {
 		w.idleTimer.Reset(rest)
 		return
 	}
-	// A child with a Core ML path is asked: it refuses under a placement
-	// audit, whose verdict it would never write, and under a load. One
-	// held past the bound of either is stopped: it gave the audit up, and
-	// nothing was asked of it, so no runtime is charged. A child of
-	// another build does not know the question and is stopped.
-	if coreML {
-		hdr, _, err := w.roundTripWithin(workerReq{Op: workerOpIdle}, w.askTimeout)
-		switch {
-		case errors.Is(err, errChildMute):
-			w.reapChild(err, muteIdle)
-			return
-		case err != nil:
-			w.reapChild(err, diedIdle)
-			return
-		case hdr.Op == workerOpIdle && hdr.Busy && hdr.Overdue:
-			w.lg.Warn("local embedder child held by core ml work past its bound; stopped while idle")
-			w.stopChild(false)
-			return
-		case hdr.Op == workerOpIdle && hdr.Busy:
-			w.idleTimer.Reset(w.idleTimeout)
-			return
-		}
+	select {
+	case <-w.child.errDone:
+		// It ended by itself, with nothing asked of it.
+		w.reapChild(errors.New("embedder child exited"), diedIdle)
+		return
+	default:
 	}
 	w.lg.Info("local embedder child retired while idle", zap.Duration("idle", w.idleTimeout))
 	w.stopChild(true)
-}
-
-// stopOverdue stops a child that Core ML work has held past its bound,
-// by its lines and then its own word: steady frames or a drain's hold
-// keep the idle ask from it. No runtime is charged. Caller holds the slot.
-func (w *workerEmbedder) stopOverdue() (stopped bool) {
-	c := w.child
-	if c == nil || w.closing.Load() {
-		return false
-	}
-	from := c.callFrom.Load()
-	if from == 0 || time.Since(time.Unix(0, from)) < w.callMax || time.Since(c.heldAsked) < w.askTimeout {
-		return false
-	}
-	c.heldAsked = time.Now()
-	hdr, _, err := w.roundTripWithin(workerReq{Op: workerOpHeld}, w.askTimeout)
-	switch {
-	case errors.Is(err, errChildMute):
-		w.reapChild(err, muteIdle)
-	case err != nil:
-		w.reapChild(err, diedIdle)
-	case hdr.Op == workerOpHeld && hdr.Busy && hdr.Overdue:
-		w.lg.Warn("local embedder child held by core ml work past its bound; stopped")
-		w.stopChild(false)
-	default:
-		return false
-	}
-	return true
 }
 
 func (w *workerEmbedder) penalize() {
@@ -1492,11 +1418,6 @@ type embedChild struct {
 	// ended (aneCalls). Left set by a child that died in one: reapChild
 	// reads it.
 	calls atomic.Int32
-	// callFrom is when the oldest of those calls was reported begun, in
-	// Unix nanoseconds; 0 = none is open. heldAsked: when the child was
-	// last asked whether it is held (slot-guarded).
-	callFrom  atomic.Int64
-	heldAsked time.Time
 	// first names the path's first function ("s128"), the one whose
 	// report settles it; "" = any function's does.
 	first string
@@ -1543,7 +1464,7 @@ func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 		}
 	}()
 	br := bufio.NewReaderSize(r, 8<<10)
-	open, since := map[string]bool{}, map[string]int64{}
+	open := map[string]bool{}
 	for {
 		line, err := br.ReadString('\n')
 		if line = strings.TrimRight(line, "\r\n"); line != "" {
@@ -1559,7 +1480,6 @@ func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 				c.coreml.Store(!c.aneOff)
 				aneCalls(open, status)
 				c.calls.Store(int32(len(open)))
-				c.callFrom.Store(oldestCall(open, since, time.Now().UnixNano()))
 				if aneSettles(status, c.first) {
 					c.settleOnce.Do(func() {
 						c.settledAs = aneSettledAs(status)
@@ -1581,25 +1501,6 @@ func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 			return
 		}
 	}
-}
-
-// oldestCall keeps in since when each open call was first seen, now for
-// a new one, and returns the earliest; 0 = none is open.
-func oldestCall(open map[string]bool, since map[string]int64, now int64) (oldest int64) {
-	for call := range since {
-		if !open[call] {
-			delete(since, call)
-		}
-	}
-	for call := range open {
-		if since[call] == 0 {
-			since[call] = now
-		}
-		if oldest == 0 || since[call] < oldest {
-			oldest = since[call]
-		}
-	}
-	return oldest
 }
 
 // stop terminates the child and reaps it. Graceful closes stdin (the

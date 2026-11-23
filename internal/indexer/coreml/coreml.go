@@ -105,29 +105,3 @@ func awaitPlan(done <-chan planned, function string, timeout time.Duration, rele
 	}()
 	return 0, &LatePlanError{Function: function, Waited: timeout, Done: returned}
 }
-
-// Thermal states of NSProcessInfo, in its order.
-const (
-	ThermalNominal = iota
-	ThermalFair
-	ThermalSerious
-	ThermalCritical
-)
-
-// Power is what the system says about its power and heat.
-type Power struct {
-	LowPower bool // Low Power Mode is on
-	Thermal  int  // Thermal*
-}
-
-// Strain names what makes this a bad moment for minutes of extra work;
-// "" = nothing does.
-func (p Power) Strain() string {
-	switch {
-	case p.LowPower:
-		return "low power mode"
-	case p.Thermal >= ThermalSerious:
-		return "thermal pressure"
-	}
-	return ""
-}

@@ -67,25 +67,6 @@ func TestCoreOperator(t *testing.T) {
 	}
 }
 
-func TestPower_Strain(t *testing.T) {
-	cases := []struct {
-		p    Power
-		want string
-	}{
-		{Power{}, ""},
-		{Power{Thermal: ThermalFair}, ""},
-		{Power{LowPower: true}, "low power mode"},
-		{Power{Thermal: ThermalSerious}, "thermal pressure"},
-		{Power{Thermal: ThermalCritical}, "thermal pressure"},
-		{Power{LowPower: true, Thermal: ThermalCritical}, "low power mode"},
-	}
-	for _, c := range cases {
-		if got := c.p.Strain(); got != c.want {
-			t.Errorf("%+v: Strain = %q, want %q", c.p, got, c.want)
-		}
-	}
-}
-
 // A plan that comes in time is the caller's, and a handler's error is the
 // call's.
 func TestAwaitPlan(t *testing.T) {

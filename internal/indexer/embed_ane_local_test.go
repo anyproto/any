@@ -69,7 +69,7 @@ func TestLocal_NeuralEngineRouting(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The long text is llama.cpp's, counted under its reason.
-	if rt := l.lastRoutes(); rt.ANE+rt.CoreML != 2 || rt.Llama != 1 || rt.Misses[EmbedReasonTooLong] != 1 || len(rt.Misses) != 1 {
+	if rt := l.lastRoutes(); rt.ANE != 2 || rt.Llama != 1 || rt.Misses[EmbedReasonTooLong] != 1 || len(rt.Misses) != 1 {
 		t.Fatalf("routes %+v, want two texts on core ml and one on llama.cpp as too long", rt)
 	}
 	_, served, _, _ := f.snapshot()

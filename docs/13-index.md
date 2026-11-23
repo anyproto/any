@@ -835,36 +835,22 @@ process, over 1 GB after one 2048-token document. The countdown starts
 when a frame ends, so a frame in flight is never cut; a slot held
 without a frame when it runs out only postpones the check. A child
 with a Core ML path is also kept under a drain, from its start delay
-until it returns, and is asked before it is stopped as idle: it refuses
-while a placement audit runs and while its loader compiles the package
-or loads a function (§ Neural Engine), and from the moment it agrees
-it starts no audit. The ask holds the slot, so it has a bound of its
-own, 10 s, not the request timeout. Nothing was asked of an idle child,
-so what the ask finds charges no runtime: a child that does not answer
-in time is killed; one whose audit or load has run for 15 minutes is
-killed too, and gives that audit up first (§ Neural Engine); one found
-dead is reaped with no demotion and no restart backoff, whether its
-Neural Engine path was on or off. The one exception is a child found
-dead inside a Core ML call of its own, which the server follows by the
-child's lines (the preparation from `starting`, a load from `s<N>
-loading`, an audit between its started and finished lines, an idle
-release between `s<N> releasing` and `s<N> released`): it died in
-Core ML, and the next child runs without the Neural Engine. The GPU is
-never charged for an idle death. A child without a Core ML path is not
-asked, and one found dead is reaped the same way. So is a child of
-either kind that a request finds already ended: it ended between
-frames, and the request spawns its own child, with the runtimes as that
-reap left them. A request that cannot be written to its child was never
-asked of it either: the child is reaped the same way, that request
-fails as embedder-unavailable, and the next one spawns the child. A
-death that cost no runtime sets no backoff. Steady frames and a
-drain's hold both keep the idle ask from a child, so a child whose
-Core ML call has been open for 15 minutes by its lines is also asked
-after a frame, and from the idle timer ahead of the hold, whether that
-work is overdue (`held`, which changes nothing in a child that is not
-held); one that says so is killed like the idle one, with no runtime
-charged. A thread-count change
-(`SetThreads`) and a spec that moved on stop a child without asking.
+until it returns. A load the stop cuts short is asked for again by the
+next text that needs its function. Nothing was asked of an idle child,
+so one the timer finds dead is reaped with no demotion and no restart
+backoff, whether its Neural Engine path was on or off. The one
+exception is a child found dead inside a Core ML call of its own, which
+the server follows by the child's lines (the preparation from
+`starting`, a load from `s<N> loading`, an idle release between `s<N>
+releasing` and `s<N> released`): it died in Core ML, and the next child
+runs without the Neural Engine. The GPU is never charged for an idle
+death. A child that a request finds already ended is reaped the same
+way: it ended between frames, and the request spawns its own child,
+with the runtimes as that reap left them. A request that cannot be written to its child
+was never asked of it either: the child is reaped the same way, that
+request fails as embedder-unavailable, and the next one spawns the
+child. A death that cost no runtime sets no backoff. A thread-count
+change (`SetThreads`) and a spec that moved on stop a child as well.
 The stop
 holds the slot: a request that arrives meanwhile waits for it and spawns
 a fresh child (about a second warm; a cold model load takes longer), and
@@ -982,8 +968,8 @@ model, not the runtime.
   or downloadable. Anywhere else llama.cpp embeds alone.
 - `on` is `auto` that refuses to boot when one of those conditions
   fails. What only the child can see leaves llama.cpp embedding alone
-  under `on` too: no Neural Engine listed, every function planned on
-  the CPU, a failed compile.
+  under `on` too: no Neural Engine listed, no function that loads, a
+  failed compile.
 - `off` is llama.cpp alone.
 
 **The package.** Its three files are downloaded, each sha256-pinned,
@@ -1019,8 +1005,8 @@ a function specializes it for the Neural Engine, which takes minutes
 for the longest ones; Core ML keeps the result, and a later load takes
 seconds. While a function loads, a larger loaded
 one serves its texts; with none, a query goes to llama.cpp and a
-document waits. A function that is not used (it failed to load, kept
-failing or was refused by its audit) hands its texts to the next larger
+document waits. A function that is not used (it failed to load or kept
+failing) hands its texts to the next larger
 one that is, which is asked for and waited for like any other. The path
 keeps every function of the package for that, whatever
 `index.local.contextSize` caps a text at: with texts of at most 128
@@ -1034,7 +1020,7 @@ of the start delay and that function. The drain's process row is
 announced before the wait. The
 wait ends when the child reports its first function loaded or not
 used, or the path off (a report on another function, such as a larger
-one's refusal, does not end it), when the child exits, or 10 min after the
+one's failed load, does not end it), when the child exits, or 10 min after the
 child's first waiter, for every waiter at once; a wait that ran into that bound ends
 every other one and is the last until the next boot. While the package
 is still downloading, queued behind the GGUF or transferring, the wait
@@ -1067,14 +1053,14 @@ read (`Store.PendingAfter`), which no write ahead of it or delete
 behind it can move, so
 texts that fit a loaded function keep landing. When nothing else is
 pending the drain waits, its row in `preparing`, until the child
-reports a function loaded, not used or refused, llama.cpp taking a
+reports a function loaded or not used, llama.cpp taking a
 function's texts past the bound, or the path off, the
 child stops or exits, or a minute after the pass began; then it starts
 over from the head of the queue, which sends the texts it left again.
 The same report heard in the middle of a pass restarts it
-from the head at the next page. No other line of the child does: an
-audit, a release and a single failed prediction change nothing for a
-text that waits. Newly written texts do not start the pass over
+from the head at the next page. No other line of the child does: a
+release and a single failed prediction change nothing for a text that
+waits. Newly written texts do not start the pass over
 either. The advance's nudge names the docs its page left newly pending,
 a renamed or unnamed object's windows included, and the drain reads
 those by id (`Store.PendingByIds`) and embeds them in a page of their
@@ -1116,83 +1102,13 @@ else on llama.cpp. With several documents to a decode
 (`index.local.batchDocs`), each is routed on its own.
 
 **Placement.** A machine that lists no Neural Engine never loads the
-package. Core ML's compute plan says where it prefers to run each
-operation of a function; reading it costs about a load of its own, so
-it is not read on the way to a function's first text. A loaded function
-serves at once, and when the child has nothing left to load it audits
-the functions it has loaded and has no record for, one at a time, beside
-the loader: a function asked for under an audit loads without waiting
-for it. The plan must put
-more than 100 operations on the Neural Engine and no convolution,
-matmul, linear or softmax operation on the CPU.
-
-No audit starts in Low Power Mode or under serious or critical thermal
-pressure (`NSProcessInfo`): it waits, the child looks again every
-minute, and the functions serve as `coreml` meanwhile. A first audit is
-minutes of system compiler work, which the gate keeps off a machine
-that is saving power or shedding heat. A `fair` thermal state does not
-hold an audit.
-
-An audit ends in one of three ways, and two of them are written to
-`<name>-<digest>.placement.<setup>.v<version>.s<N>.json` beside the
-compiled model, one file per function, machine setup (`<setup>` is a
-digest of the chip and the OS build) and record version, with the
-model's name and digest, the function and the setup:
-
-- **On the Neural Engine** is recorded as `on` with the plan's counts,
-  those of its operations of unknown placement included. Every later
-  child on that setup takes it from there without a plan.
-- **No verdict** is recorded as `none`: a plan that names no device for
-  operations the verdict depends on, a plan Core ML did not answer
-  within its 10 minutes, and an audit the child gave up when the server
-  found it running for 15. The function keeps serving as `coreml` and
-  no later child on that setup audits it again. A plan Core ML fails to
-  give is not recorded: the next child reads it again.
-- **Refused** (a core operator on the CPU, or a plan that cannot put
-  more than 100 operations on the Neural Engine wherever its unknown
-  ones run) is never written, and removes a record that stood for the
-  function (`s<N> refused: …`). The function is closed, once any prediction in flight has
-  returned, and not loaded again in that child (a reload already under
-  way is discarded); the next larger function, or llama.cpp when none
-  is left, takes its texts. The next child loads it and plans it for
-  itself, so a refusal that holds costs every child one plan of that
-  function, and one that came from passing conditions does not outlive
-  its child.
-
-A file is a record only with every field present, for this model, setup
-and function, and, for `on`, with counts that can be a plan's and that
-the rule puts on the Neural Engine; anything else is as if not audited.
-The version is part of the name, so builds with different record
-versions keep files of their own. Children of several servers
-share the files without a lock: an audit replaces its own function's
-file whole, so there is nothing to merge, and a file that is there and
-cannot be read is not replaced (a refusal still removes it). Within a
-child a verdict and its file change under one lock, so an audit given
-up as overdue just as its plan comes back refused leaves no `none`
-behind the refusal. A staging file left by a child that died
-writing a record is removed, once it is an hour old, by the next child
-that prepares. Another chip or OS build, or a
-removed file, is audited afresh, and coming back to an earlier build
-finds its files.
-
-A child is not retired as idle while it audits, and one that dies between
-an audit's started and finished lines died in Core ML: the next child
-runs without it, whatever the path said. A plan that was not answered
-in time keeps its audit in flight until Core ML is back from that call:
-the finished line waits for it, and no other audit starts meanwhile; a
-child held so for 15 minutes is stopped, busy or idle (§ The embedder
-child process), and the next one audits the functions left. A refusal
-ends its audit and no load: a function released under its audit and
-loading again is still in Core ML until the loader's own line.
-For the same reason the `off`
-line is written only when no Core ML call is left in flight, the
-release of a function that is being discarded included, and after the
-finished line of an audit that turned the path off. Until
-a function has its verdict the texts it embeds are reported as
-`coreml`, after it as `ane` (`22-processes.md` § Internal producers).
-The digest in the package's directory name is of its pinned checksums,
-so another pin is another directory with a compiled model and a record
-of its own.
+package. Past that the child reads no compute plan: a function that
+loads and predicts is used, wherever Core ML runs it, and nothing about
+it is kept on disk. A function that fails to load (`s<N> not used: …`)
+is not used for the life of that child, and the next child loads it
+again. The digest in the package's directory name is of its pinned
+checksums, so another pin is another directory with a compiled model of
+its own.
 
 **Failure.** A prediction that fails, or returns a vector that is not
 unit length, leaves that text to llama.cpp. Three in a row on one
@@ -1210,18 +1126,9 @@ that stays without it for the rest of the process.
 `local embedder neural engine` with a `status`: `starting`, before the
 first Core ML call; `package compiled in …` when this child compiled
 it; `s<N> loading`, then
-`s<N> ready (open …, validate …, <placement>; asked for … ago)`, where
-the placement is `placement on record, plan skipped`, `placement
-verified` (by this child, earlier), `audit ended without a verdict,
-plan skipped` or `placement not verified yet`, or `s<N> not used: …`,
-or `s<N> loaded and discarded` for a function refused while it loaded;
-`s<N> placement verified (plan …, … operations on the neural engine, …
-on the cpu)`, `s<N> placement not verified: …` and `s<N> refused: …`
-from the audit,
-between `s<N> placement audit started` and `s<N> placement audit
-finished`; `s<N> placement not recorded: …` when its file could not be
-written; `placement audits wait: low power mode` or `… thermal
-pressure`, once per wait;
+`s<N> ready (open …, validate …; asked for … ago)` or `s<N> not used:
+…`, or `s<N> loaded and discarded` for a function whose path was closed
+while it loaded;
 `s<N> failed: …` for a prediction and `s<N> not used any more: 3
 failures in a row`; `s<N> still loading after …`; `s<N> releasing`, then
 `s<N> released after …`; and `off, …`. `bulk embedding opened` is logged once per run, when
@@ -1233,7 +1140,7 @@ for the first function, `timeout`, `no_child`, `download_failed`,
 `download_timeout`, `no_package` (not on disk, not downloaded) or `no_wait`
 (no Neural Engine path); a drain cancelled under its wait logs nothing. With a Neural Engine path,
 `local embedder bulk routing` counts the bulk texts since the previous
-such line (`ane`, `coreml`, `llama`) over `window`, at most every 30 s,
+such line (`ane`, `llama`) over `window`, at most every 30 s,
 when the child stops, and only when some ran on llama.cpp or were left
 pending (work with nothing to say stays counted for the next line; a
 child demoted off Core ML counts as `ane_off`): `llamaReasons` has the count per reason (`none` = no reason to

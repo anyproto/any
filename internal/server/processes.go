@@ -75,7 +75,7 @@ const processKindEmbed = "index.embed"
 var (
 	processEmbedPhases   = []string{indexer.EmbedPhaseWaiting, indexer.EmbedPhasePreparing, indexer.EmbedPhaseEmbedding}
 	processEmbedBackends = []string{
-		indexer.EmbedBackendANE, indexer.EmbedBackendCoreML, indexer.EmbedBackendGPU, indexer.EmbedBackendCPU,
+		indexer.EmbedBackendANE, indexer.EmbedBackendGPU, indexer.EmbedBackendCPU,
 		indexer.EmbedBackendLlama, indexer.EmbedBackendRemote,
 	}
 	processEmbedReasons = []string{

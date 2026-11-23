@@ -4,7 +4,6 @@ package coreml
 
 import (
 	"encoding/json"
-	"errors"
 	"math"
 	"os"
 	"sort"
@@ -350,21 +349,4 @@ func TestDescribeNamesNoPath(t *testing.T) {
 	if describe(0) != "no error reported" {
 		t.Fatalf("describe(nil) = %q", describe(0))
 	}
-}
-
-// The power state is read from the running system: whatever it is, the
-// call answers with a thermal state NSProcessInfo has.
-func TestPowerState(t *testing.T) {
-	p, err := PowerState()
-	// A macOS whose Core ML lacks a call this package binds has no reader.
-	if errors.Is(err, ErrUnsupported) {
-		t.Skip(err)
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.Thermal < ThermalNominal || p.Thermal > ThermalCritical {
-		t.Fatalf("thermal state %d", p.Thermal)
-	}
-	t.Logf("low power mode %v, thermal state %d, strain %q", p.LowPower, p.Thermal, p.Strain())
 }

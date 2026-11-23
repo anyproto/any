@@ -135,11 +135,6 @@ func TestProcessRegistry_Embedding(t *testing.T) {
 	if e := row(); e == nil || e.Phase != "embedding" || !slices.Equal(e.Backends, []string{"ane", "cpu"}) || e.Reason != "function_loading" {
 		t.Fatalf("a mixed batch: %+v", e)
 	}
-	frame(api.EventProcessProgress, &api.ProcessEmbedding{Phase: "embedding", Backends: []string{"coreml", "ane"}})
-	if e := row(); e == nil || !slices.Equal(e.Backends, []string{"ane", "coreml"}) {
-		t.Fatalf("verified and unverified functions: %+v", e)
-	}
-	frame(api.EventProcessProgress, &api.ProcessEmbedding{Phase: "embedding", Backends: []string{"cpu", "ane", "cpu"}, Reason: "function_loading"})
 	frame(api.EventProcessProgress, nil) // a partial frame keeps the state
 	if e := row(); e == nil || len(e.Backends) != 2 {
 		t.Fatalf("a frame without the object: %+v", e)

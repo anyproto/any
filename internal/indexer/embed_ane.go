@@ -5,7 +5,6 @@ package indexer
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -44,13 +43,6 @@ const (
 	// anePackageWait bounds how long bulk work waits for the package's
 	// download, from its first waiter.
 	anePackageWait = 30 * time.Minute
-	// aneAuditMax is how long a placement audit, or the loader's call into
-	// Core ML, may hold an idle child. The plan's own timeout ends well
-	// inside it; reading the plan is not bounded by that one.
-	aneAuditMax = 15 * time.Minute
-	// aneAuditPoll spaces the looks at the power state while audits wait
-	// for it.
-	aneAuditPoll = time.Minute
 	// aneMaxFailures consecutive failed predictions retire a function
 	// for the rest of the process.
 	aneMaxFailures = 3
@@ -62,10 +54,6 @@ const (
 	// the child: any line says it is, until one starts with aneOffStatus.
 	aneLogPrefix = "neural engine: "
 	aneOffStatus = "off, "
-	// aneAuditStarted and aneAuditFinished follow "s<length> " around a
-	// placement audit; the second comes however the audit went.
-	aneAuditStarted  = "placement audit started"
-	aneAuditFinished = "placement audit finished"
 	// aneStarting comes before the path's first Core ML call, aneLoading
 	// after "s<length> " before a function's load; aneLoadDiscarded ends a
 	// load whose function was closed unused.
@@ -73,10 +61,8 @@ const (
 	aneLoading       = "loading"
 	aneLoadDiscarded = "loaded and discarded"
 	// aneNotUsed opens what follows "s<length> " for a function that did
-	// not load; aneRefused, for one its placement audit refused, which can
-	// be loading again then: the line ends no load.
+	// not load.
 	aneNotUsed  = "not used: "
-	aneRefused  = "refused: "
 	aneCompiled = "package compiled"
 	// aneReleasing and aneReleased follow "s<length> " around the close of
 	// a function that went unused.
@@ -86,8 +72,8 @@ const (
 )
 
 // aneCalls keeps, in open, the Core ML calls a child's status lines say
-// are in flight: its preparation, its loads, its audits and its idle
-// releases. A child that dies with one open died in Core ML.
+// are in flight: its preparation, its loads and its idle releases. A
+// child that dies with one open died in Core ML.
 func aneCalls(open map[string]bool, status string) {
 	if status == aneStarting {
 		open[anePreparing] = true
@@ -107,10 +93,6 @@ func aneCalls(open map[string]bool, status string) {
 		open[name+" load"] = true
 	case strings.HasPrefix(rest, "ready"), strings.HasPrefix(rest, aneNotUsed), rest == aneLoadDiscarded:
 		delete(open, name+" load")
-	case rest == aneAuditStarted:
-		open[name+" audit"] = true
-	case rest == aneAuditFinished:
-		delete(open, name+" audit")
 	case rest == aneReleasing:
 		open[name+" release"] = true
 	case strings.HasPrefix(rest, aneReleased):
@@ -119,8 +101,8 @@ func aneCalls(open map[string]bool, status string) {
 }
 
 // aneWakes reports whether a status line changes what a deferred text
-// can do: its function is loaded, not used or refused, llama.cpp takes
-// its texts past the bound, or the path is off.
+// can do: its function is loaded or not used, llama.cpp takes its texts
+// past the bound, or the path is off.
 func aneWakes(status string) bool {
 	if strings.HasPrefix(status, aneOffStatus) {
 		return true
@@ -130,7 +112,7 @@ func aneWakes(status string) bool {
 		return false
 	}
 	return strings.HasPrefix(rest, "ready") || strings.HasPrefix(rest, "not used") ||
-		strings.HasPrefix(rest, aneRefused) || strings.HasPrefix(rest, "still loading")
+		strings.HasPrefix(rest, "still loading")
 }
 
 // aneSettles reports whether a status line ends the wait for the path's
@@ -163,10 +145,6 @@ func aneSettledAs(status string) string {
 // failure.
 var errANENotReady = errors.New("core ml package not on disk yet")
 
-// errOffNeuralEngine is a function whose core Core ML plans off the
-// Neural Engine: it is not used.
-var errOffNeuralEngine = errors.New("core ml plans it off the neural engine")
-
 // aneBackend is the Core ML side of the Neural Engine path.
 type aneBackend interface {
 	// present reports, cheaply, whether the package is on disk: prepare
@@ -178,18 +156,6 @@ type aneBackend interface {
 	// load readies the function for one length, checks that it predicts
 	// and describes it for the log.
 	load(length int) (aneFunction, string, error)
-	// audited reports what is on record for the function: placed, on the
-	// Neural Engine; known, that or an audit that ended without a verdict,
-	// which is not run again.
-	audited(length int) (placed, known bool)
-	// audit reads where Core ML plans the function, records what it found
-	// and describes it for the log; errOffNeuralEngine is a function
-	// planned off the Neural Engine. It needs no loaded function.
-	audit(length int) (string, error)
-	// abandon records that the function's audit ended without a verdict.
-	abandon(length int)
-	// strain names why no audit should start now (coreml.Power.Strain).
-	strain() string
 }
 
 type aneFunction interface {
@@ -199,19 +165,17 @@ type aneFunction interface {
 
 // neuralEngine routes tokenized texts to loaded functions. embed and
 // close are called by one goroutine at a time (Local.mu); start also
-// runs from the retry timer. Loads, placement audits and idle releases
-// run on goroutines of their own and never touch a predicting function.
+// runs from the retry timer. Loads and idle releases run on goroutines
+// of their own and never touch a predicting function.
 type neuralEngine struct {
-	lengths   []int // ascending
-	dim       int
-	backend   aneBackend
-	idle      time.Duration // aneIdleRelease
-	retryIn   time.Duration // aneRetryInterval
-	wait      time.Duration // aneBulkWait
-	auditMax  time.Duration // aneAuditMax
-	auditPoll time.Duration // aneAuditPoll
-	now       func() time.Time
-	logf      func(format string, args ...any)
+	lengths []int // ascending
+	dim     int
+	backend aneBackend
+	idle    time.Duration // aneIdleRelease
+	retryIn time.Duration // aneRetryInterval
+	wait    time.Duration // aneBulkWait
+	now     func() time.Time
+	logf    func(format string, args ...any)
 
 	mu       sync.Mutex
 	off      bool
@@ -226,57 +190,34 @@ type neuralEngine struct {
 	// owed is when the wait of bulk documents for a function ends: set
 	// with the first one deferred, kept until one embeds on the function
 	// or the wait runs out with it loaded. late runs lateTick then.
-	owed map[int]time.Time
-	late map[int]*time.Timer
-	// verified are the lengths whose placement on the Neural Engine is
-	// on record; audits, the loaded ones still to check, each once.
-	verified  map[int]bool
-	audited   map[int]bool
-	audits    []int
-	auditing  bool      // the auditor runs
-	auditOf   int       // length inside backend.audit now; 0 = none
-	auditFrom time.Time // when that audit began
-	quiet     bool      // quiesce was accepted: no audit starts any more
-	// strained is why audits wait (backend.strain), said once; auditRetry
-	// looks again. abandoned: the audit in flight was given up as overdue.
-	strained   string
-	auditRetry *time.Timer
-	abandoned  bool
-	// offReason is the off line still to write: it waits for the Core ML
-	// calls in flight, so a child that dies in one died with Core ML on.
-	offReason string
-	inflight  int         // length the loader is loading; 0 = none
-	inUse     int         // length predicting now; 0 = none
-	loading   bool        // the loader runs
-	callFrom  time.Time   // when the loader went into Core ML; zero = it is not there
-	miss      string      // why embed last left a text to llama.cpp (EmbedReason*)
-	placed    bool        // the function embed last used is a verified one
-	release   *time.Timer // runs releaseTick; nil until a function can go idle
-	retry     *time.Timer // runs start again after a package that was not on disk
-	loads     sync.WaitGroup
+	owed     map[int]time.Time
+	late     map[int]*time.Timer
+	inflight int         // length the loader is loading; 0 = none
+	inUse    int         // length predicting now; 0 = none
+	loading  bool        // the loader runs
+	miss     string      // why embed last left a text to llama.cpp (EmbedReason*)
+	release  *time.Timer // runs releaseTick; nil until a function can go idle
+	retry    *time.Timer // runs start again after a package that was not on disk
+	loads    sync.WaitGroup
 }
 
 func newNeuralEngine(backend aneBackend, lengths []int, dim int, logf func(string, ...any)) *neuralEngine {
 	return &neuralEngine{
-		lengths:   lengths,
-		dim:       dim,
-		backend:   backend,
-		idle:      aneIdleRelease,
-		retryIn:   aneRetryInterval,
-		wait:      aneBulkWait,
-		auditMax:  aneAuditMax,
-		auditPoll: aneAuditPoll,
-		asked:     map[int]time.Time{},
-		owed:      map[int]time.Time{},
-		late:      map[int]*time.Timer{},
-		verified:  map[int]bool{},
-		audited:   map[int]bool{},
-		now:       time.Now,
-		logf:      logf,
-		fns:       map[int]aneFunction{},
-		used:      map[int]time.Time{},
-		failed:    map[int]bool{},
-		failures:  map[int]int{},
+		lengths:  lengths,
+		dim:      dim,
+		backend:  backend,
+		idle:     aneIdleRelease,
+		retryIn:  aneRetryInterval,
+		wait:     aneBulkWait,
+		asked:    map[int]time.Time{},
+		owed:     map[int]time.Time{},
+		late:     map[int]*time.Timer{},
+		now:      time.Now,
+		logf:     logf,
+		fns:      map[int]aneFunction{},
+		used:     map[int]time.Time{},
+		failed:   map[int]bool{},
+		failures: map[int]int{},
 	}
 }
 
@@ -319,7 +260,6 @@ func (n *neuralEngine) embedFor(tokens []int32, bulk bool) (vec []float32, ok, d
 	}
 	n.used[use] = n.now()
 	n.inUse = use
-	n.placed = n.verified[use]
 	n.armReleaseLocked()
 	n.mu.Unlock()
 
@@ -332,12 +272,11 @@ func (n *neuralEngine) embedFor(tokens []int32, bulk bool) (vec []float32, ok, d
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.inUse = 0
-	// Refused by an audit, or the path went off, while it predicted.
-	if (n.off || n.failed[use]) && n.fns[use] == fn {
+	// The path went off while it predicted.
+	if n.off && n.fns[use] == fn {
 		fn.close()
 		delete(n.fns, use)
 	}
-	defer n.sayOffLocked()
 	if err != nil {
 		n.failures[use]++
 		n.logf("s%d failed: %v", use, statusErr(err))
@@ -429,14 +368,6 @@ func (n *neuralEngine) lastMiss() string {
 	return n.miss
 }
 
-// lastPlaced reports whether the function embed last answered from has
-// its placement on the Neural Engine on record.
-func (n *neuralEngine) lastPlaced() bool {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	return n.placed
-}
-
 // unitVector reports whether vec is finite with length 1, which every
 // function's output is.
 func unitVector(vec []float32) bool {
@@ -482,17 +413,12 @@ func (n *neuralEngine) loader() {
 	defer n.loads.Done()
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	defer func() {
-		n.loading = false
-		n.startAuditorLocked()
-	}()
+	defer func() { n.loading = false }()
 	for !n.off && len(n.queue) > 0 {
 		if !n.prepared {
-			n.callFrom = n.now()
 			n.mu.Unlock()
 			err := n.backend.prepare()
 			n.mu.Lock()
-			n.callFrom = time.Time{}
 			switch {
 			case errors.Is(err, errANENotReady):
 				n.nextTry = n.now().Add(n.retryIn)
@@ -530,12 +456,11 @@ func (n *neuralEngine) loader() {
 			delete(n.asked, length)
 			continue
 		}
-		n.inflight, n.callFrom = length, n.now()
+		n.inflight = length
 		n.logf("s%d %s", length, aneLoading)
 		n.mu.Unlock()
 		fn, info, err := n.backend.load(length)
 		n.mu.Lock()
-		n.callFrom = time.Time{}
 		var asked time.Duration
 		if t := n.asked[length]; !t.IsZero() {
 			asked = n.now().Sub(t).Round(time.Millisecond)
@@ -547,8 +472,8 @@ func (n *neuralEngine) loader() {
 			n.settleOwedLocked(length)
 			n.logf("s%d %s%v", length, aneNotUsed, statusErr(err))
 			n.offIfUselessLocked()
-		case n.off || n.failed[length] || n.fns[length] != nil:
-			// Refused by its audit while it loaded again, among others.
+		case n.off:
+			// The path went off while it loaded.
 			fn.close()
 			n.logf("s%d %s", length, aneLoadDiscarded)
 		default:
@@ -559,146 +484,11 @@ func (n *neuralEngine) loader() {
 				n.settleOwedLocked(length)
 			}
 			delete(n.failures, length) // counted on an earlier instance
-			switch placed, known := n.backend.audited(length); {
-			case placed:
-				n.verified[length] = true
-			case known:
-				n.audited[length] = true // ended without a verdict: not again
-			case !n.audited[length]:
-				n.audited[length] = true
-				n.audits = append(n.audits, length)
-			}
 			n.logf("s%d ready (%s; asked for %s ago)", length, info, asked)
 			n.armReleaseLocked()
 		}
-		// After a discarded handle is closed: that is a Core ML call too.
 		n.inflight = 0
-		n.sayOffLocked()
 	}
-}
-
-// startAuditorLocked starts the auditor when functions wait for it and
-// the loader has nothing to load.
-func (n *neuralEngine) startAuditorLocked() {
-	if n.off || n.auditing || n.loading || len(n.audits) == 0 {
-		return
-	}
-	n.auditing = true
-	n.loads.Add(1)
-	go n.auditor()
-}
-
-// auditor checks the placement of the functions waiting for it, one at
-// a time. It starts an audit only while the loader is idle and never
-// holds it back: a function asked for under an audit loads beside it.
-// None starts while the machine saves power or runs hot (strain).
-func (n *neuralEngine) auditor() {
-	defer n.loads.Done()
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	defer func() { n.auditing = false }()
-	for !n.off && !n.loading && !n.quiet && len(n.audits) > 0 {
-		length := n.audits[0]
-		if n.failed[length] || n.verified[length] {
-			n.audits = n.audits[1:]
-			continue
-		}
-		if why := n.backend.strain(); why != "" {
-			if why != n.strained {
-				n.strained = why
-				n.logf("placement audits wait: %s", why)
-			}
-			if n.auditRetry != nil {
-				n.auditRetry.Stop()
-			}
-			n.auditRetry = time.AfterFunc(n.auditPoll, n.auditTick)
-			return
-		}
-		n.strained = ""
-		n.audits = n.audits[1:]
-		n.logf("s%d %s", length, aneAuditStarted)
-		n.auditOf, n.auditFrom, n.abandoned = length, n.now(), false
-		n.mu.Unlock()
-		info, err := n.backend.audit(length)
-		n.mu.Lock()
-		// Core ML is still inside a plan it did not answer in time: the
-		// audit is in flight until that call is back.
-		var late *coreml.LatePlanError
-		if errors.As(err, &late) {
-			n.logf("s%d placement not verified: %v", length, statusErr(err))
-			n.mu.Unlock()
-			<-late.Done
-			n.mu.Lock()
-		}
-		switch {
-		case n.off:
-		case late != nil:
-		case errors.Is(err, errOffNeuralEngine):
-			n.failed[length] = true
-			n.settleOwedLocked(length)
-			// One that is predicting is closed when it returns (embedFor).
-			if fn := n.fns[length]; fn != nil && n.inUse != length {
-				fn.close()
-				delete(n.fns, length)
-			}
-			n.logf("s%d %s%v", length, aneRefused, statusErr(err))
-			n.offIfUselessLocked()
-		case err != nil:
-			n.logf("s%d placement not verified: %v", length, statusErr(err))
-		default:
-			n.verified[length] = true
-			n.logf("s%d placement verified (%s)", length, info)
-		}
-		// Whatever the outcome: an audit the server saw start and not
-		// finish is Core ML work a child died in. The off line follows it.
-		n.logf("s%d %s", length, aneAuditFinished)
-		n.auditOf = 0
-		n.sayOffLocked()
-	}
-}
-
-// auditTick looks again at audits that waited for the power state.
-func (n *neuralEngine) auditTick() {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	n.startAuditorLocked()
-}
-
-// quiesce is the server asking to stop an idle child. It is refused
-// while Core ML work holds the child (held). Once accepted, no audit
-// starts any more.
-func (n *neuralEngine) quiesce() (ok, overdue bool) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	if held, overdue := n.heldLocked(); held {
-		return false, overdue
-	}
-	n.quiet = true
-	return true, false
-}
-
-// held reports whether stopping the child now would lose Core ML work:
-// an audit's verdict, or what the loader compiles or loads. overdue: for
-// longer than either takes; an audit is then given up and not run again.
-func (n *neuralEngine) held() (held, overdue bool) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	return n.heldLocked()
-}
-
-func (n *neuralEngine) heldLocked() (held, overdue bool) {
-	if n.auditOf != 0 {
-		overdue = n.now().Sub(n.auditFrom) >= n.auditMax
-		if overdue && !n.abandoned {
-			n.abandoned = true
-			n.backend.abandon(n.auditOf)
-		}
-		return true, overdue
-	}
-	if n.loading {
-		return true, !n.callFrom.IsZero() && n.now().Sub(n.callFrom) >= n.auditMax
-	}
-	return false, false
 }
 
 // settleOwedLocked ends the bulk wait for the given functions, or for
@@ -812,7 +602,6 @@ func (n *neuralEngine) turnOffLocked(reason string) {
 	}
 	n.off = true
 	n.queue = nil
-	n.audits = nil
 	clear(n.asked)
 	n.settleOwedLocked()
 	if n.release != nil {
@@ -820,9 +609,6 @@ func (n *neuralEngine) turnOffLocked(reason string) {
 	}
 	if n.retry != nil {
 		n.retry.Stop()
-	}
-	if n.auditRetry != nil {
-		n.auditRetry.Stop()
 	}
 	// The one that is predicting is closed when it returns (embedFor).
 	for l, fn := range n.fns {
@@ -832,17 +618,10 @@ func (n *neuralEngine) turnOffLocked(reason string) {
 		fn.close()
 		delete(n.fns, l)
 	}
-	n.offReason = reason
-	n.sayOffLocked()
-}
-
-// sayOffLocked writes the off line once no Core ML call is in flight.
-func (n *neuralEngine) sayOffLocked() {
-	if n.offReason == "" || n.inUse != 0 || n.inflight != 0 || n.auditOf != 0 {
-		return
+	// After the closes: a child that dies in one died with Core ML on.
+	if reason != "" {
+		n.logf(aneOffStatus+"llama.cpp embeds everything: %s", reason)
 	}
-	n.logf(aneOffStatus+"llama.cpp embeds everything: %s", n.offReason)
-	n.offReason = ""
 }
 
 // close releases every function. A load in flight is not waited for; its
@@ -969,106 +748,23 @@ func (f coreMLFile) verify(dir string) error {
 }
 
 // coreMLBackend runs a package through Core ML. The compiled model sits
-// next to the package and is shared by every process under the root, and
-// so are the records of where Core ML places its functions.
+// next to the package and is shared by every process under the root.
 type coreMLBackend struct {
 	pkg      *coreMLPackage
 	dir      string // the .mlpackage
 	compiled string // the .mlmodelc
 	dim      int
 	logf     func(format string, args ...any)
-	// record is what the placement files beside the compiled model are
-	// named after, and host the machine setup a placement holds for;
-	// "" = nothing is kept between processes.
-	record string
-	host   string
-	// placements is what is known about each function: read from its
-	// record, or audited by this process. mu guards it and this process's
-	// writes of the records: a load, an audit and an abandon can overlap.
-	mu         sync.Mutex
-	placements map[int]placement
-	plan       func(compiled, function string) (coreml.Placement, error)
-	power      func() (coreml.Power, error)
-	open       func(compiled, function string, length, dim int) (aneFunction, error)
-}
-
-// placementVersion is the version of the placement records, which their
-// file names carry: builds of different versions keep files of their own.
-// Raise it when the rule that reads a plan changes
-// (coreml.Placement.OnNeuralEngine), or what a record means.
-const placementVersion = 2
-
-// What a placement record says of its function.
-const (
-	verdictOn   = "on"   // its core is planned on the Neural Engine
-	verdictNone = "none" // its audit ended without a verdict and is not run again
-)
-
-// placement is what is known of one function's plan: On; open, an audit
-// that ended without a verdict; or neither, a refusal, which only the
-// process that found it holds. recorded: it came from a record.
-type placement struct {
-	On           bool
-	open         bool
-	NeuralEngine int
-	GPU          int
-	CPU          int
-	Unknown      int // operations the plan named no device for
-	CPUCore      []string
-	recorded     bool
-}
-
-// plan is the placement as the compute plan gave it, less the names of
-// its core operators of unknown placement: a verdict does not hang on
-// them (coreml.Placement.Conclusive).
-func (p placement) plan() coreml.Placement {
-	return coreml.Placement{NeuralEngine: p.NeuralEngine, GPU: p.GPU, CPU: p.CPU, Unknown: p.Unknown, CPUCore: p.CPUCore}
-}
-
-// valid reports whether a recorded placement on the Neural Engine is the
-// verdict the placement rule gives for its counts. An entry cut short or
-// edited is not.
-func (p placement) valid() bool {
-	if p.NeuralEngine < 0 || p.GPU < 0 || p.CPU < 0 || p.Unknown < 0 || len(p.CPUCore) > p.CPU {
-		return false
-	}
-	return p.plan().Conclusive() && p.plan().OnNeuralEngine()
-}
-
-func (p placement) refusal() error {
-	return fmt.Errorf("%w: %d operations there, %d on the gpu, %d on the cpu, %d unknown, cpu core %v",
-		errOffNeuralEngine, p.NeuralEngine, p.GPU, p.CPU, p.Unknown, p.CPUCore)
-}
-
-// placementRecord is one function's file: how its audit ended (verdict*)
-// for one model on one machine setup, with the plan's counts behind a
-// verdictOn. A field that is absent makes it no record. A refusal is
-// never written: it holds for the process that found it.
-type placementRecord struct {
-	Model        *string  `json:"model"` // coreMLPackage.id
-	Host         *string  `json:"host"`
-	Function     *string  `json:"function"`
-	Verdict      *string  `json:"verdict"`
-	NeuralEngine *int     `json:"neuralEngine,omitempty"`
-	GPU          *int     `json:"gpu,omitempty"`
-	CPU          *int     `json:"cpu,omitempty"`
-	Unknown      *int     `json:"unknown,omitempty"`
-	CPUCore      []string `json:"cpuCore,omitempty"`
+	open     func(compiled, function string, length, dim int) (aneFunction, error)
 }
 
 func newCoreMLBackend(pkg *coreMLPackage, dir string, dim int, logf func(string, ...any)) *coreMLBackend {
-	base := strings.TrimSuffix(dir, ".mlpackage")
 	return &coreMLBackend{
-		pkg:        pkg,
-		dir:        dir,
-		compiled:   base + ".mlmodelc",
-		dim:        dim,
-		logf:       logf,
-		record:     base + ".placement",
-		host:       aneHostSetup(),
-		placements: map[int]placement{},
-		plan:       coreml.Plan,
-		power:      coreml.PowerState,
+		pkg:      pkg,
+		dir:      dir,
+		compiled: strings.TrimSuffix(dir, ".mlpackage") + ".mlmodelc",
+		dim:      dim,
+		logf:     logf,
 		open: func(compiled, function string, length, dim int) (aneFunction, error) {
 			fn, err := coreml.Open(compiled, function, length, dim)
 			if err != nil {
@@ -1096,7 +792,7 @@ func (b *coreMLBackend) prepare() (err error) {
 	if !ok {
 		return errors.New("this machine has no neural engine")
 	}
-	b.adopt()
+	removeStaleStages(b.compiled)
 	if _, err := os.Stat(b.compiled); err == nil {
 		return nil
 	}
@@ -1117,21 +813,12 @@ func (b *coreMLBackend) prepare() (err error) {
 	return nil
 }
 
-// adopt takes over what earlier processes left beside the package: it
-// clears their abandoned staging files and reads the placement records.
-func (b *coreMLBackend) adopt() {
-	removeStaleStages(b.compiled)
-	removeStaleStages(b.record)
-	b.readPlacements()
-}
-
 func stagePath(dst string, pid int) string {
 	return dst + "." + strconv.Itoa(pid) + ".tmp"
 }
 
-// removeStaleStages deletes the staging files and directories of
-// installs toward dst, or toward a name that starts with it, that a dead
-// process left behind.
+// removeStaleStages deletes the staging directories of installs toward
+// dst that a dead process left behind.
 func removeStaleStages(dst string) {
 	// By name, not a pattern: the directory's own path can hold a bracket.
 	dir, base := filepath.Dir(dst), filepath.Base(dst)
@@ -1171,16 +858,11 @@ func installDir(src, dst string) error {
 	return nil
 }
 
-// load opens the function and has it predict. No compute plan is read
-// here: a plan costs a load of its own (audit).
+// load opens the function and has it predict.
 func (b *coreMLBackend) load(length int) (_ aneFunction, _ string, err error) {
 	defer func() { err = b.scrub(err) }()
-	name := "s" + strconv.Itoa(length)
-	b.mu.Lock()
-	known, audited := b.placements[length]
-	b.mu.Unlock()
 	start := time.Now()
-	fn, err := b.open(b.compiled, name, length, b.dim)
+	fn, err := b.open(b.compiled, "s"+strconv.Itoa(length), length, b.dim)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1195,96 +877,9 @@ func (b *coreMLBackend) load(length int) (_ aneFunction, _ string, err error) {
 			return nil, "", fmt.Errorf("it does not predict: %w", err)
 		}
 	}
-	how := "placement not verified yet"
-	switch {
-	case audited && known.open:
-		how = "audit ended without a verdict, plan skipped"
-	case audited && known.On && known.recorded:
-		how = "placement on record, plan skipped"
-	case audited && known.On:
-		how = "placement verified"
-	}
-	info := fmt.Sprintf("open %s, validate %s, %s",
-		opened.Round(time.Millisecond), (time.Since(start) - opened).Round(time.Millisecond), how)
+	info := fmt.Sprintf("open %s, validate %s",
+		opened.Round(time.Millisecond), (time.Since(start) - opened).Round(time.Millisecond))
 	return scrubbedFunction{fn, b}, info, nil
-}
-
-func (b *coreMLBackend) audited(length int) (placed, known bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	p := b.placements[length]
-	return p.On, p.On || p.open
-}
-
-// strain: no audit starts in Low Power Mode or under serious thermal
-// pressure. A system that does not say is taken as calm.
-func (b *coreMLBackend) strain() string {
-	p, err := b.power()
-	if err != nil {
-		return ""
-	}
-	return p.Strain()
-}
-
-// audit reads the function's compute plan. A placement on the Neural
-// Engine is recorded, and so is a plan that settles nothing or never
-// came: no later process on this machine setup plans the function again.
-// A refusal is this process's alone, and a plan that failed is read again.
-func (b *coreMLBackend) audit(length int) (_ string, err error) {
-	defer func() { err = b.scrub(err) }()
-	start := time.Now()
-	plan, err := b.plan(b.compiled, "s"+strconv.Itoa(length))
-	var late *coreml.LatePlanError
-	switch {
-	case errors.As(err, &late):
-		b.abandon(length)
-		return "", err
-	case err != nil:
-		return "", err
-	case !plan.Conclusive():
-		b.abandon(length)
-		return "", fmt.Errorf("the compute plan names no device for %d operations, core %v", plan.Unknown, plan.UnknownCore)
-	}
-	p := placement{On: plan.OnNeuralEngine(), NeuralEngine: plan.NeuralEngine, GPU: plan.GPU, CPU: plan.CPU,
-		Unknown: plan.Unknown, CPUCore: plan.CPUCore}
-	// With its file, under the lock: an abandon beside it then finds the
-	// verdict, or wrote before it.
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.placements[length] = p
-	if !p.On {
-		// Nothing on record stands for a refused function: the next
-		// process plans it for itself.
-		if b.host != "" {
-			_ = os.Remove(b.recordPath(length))
-		}
-		return "", p.refusal()
-	}
-	b.record1(length, p)
-	return fmt.Sprintf("plan %s, %d operations on the neural engine, %d on the cpu",
-		time.Since(start).Round(time.Millisecond), p.NeuralEngine, p.CPU), nil
-}
-
-// abandon records that the function's audit ended without a verdict,
-// unless one is known by now.
-func (b *coreMLBackend) abandon(length int) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if _, known := b.placements[length]; known {
-		return
-	}
-	b.placements[length] = placement{open: true}
-	// Another process's verdict for it stays.
-	if _, on := b.readPlacement(length); on {
-		return
-	}
-	b.record1(length, placement{open: true})
-}
-
-func (b *coreMLBackend) record1(length int, p placement) {
-	if err := b.writePlacement(length, p); err != nil {
-		b.logf("s%d placement not recorded: %s", length, statusErr(b.scrub(err)))
-	}
 }
 
 // scrubbed is an error whose text names no path under the models
@@ -1320,90 +915,6 @@ type scrubbedFunction struct {
 
 func (f scrubbedFunction) embed(tokens []int32, out []float32) error {
 	return f.b.scrub(f.aneFunction.embed(tokens, out))
-}
-
-// recordPath is the placement file of one function on this machine
-// setup, which its name carries with the records' version: another
-// setup's records stay, and another version's.
-func (b *coreMLBackend) recordPath(length int) string {
-	setup := sha256.Sum256([]byte(b.host))
-	return b.record + "." + hex.EncodeToString(setup[:4]) + ".v" + strconv.Itoa(placementVersion) +
-		".s" + strconv.Itoa(length) + ".json"
-}
-
-// readPlacements takes over the records of the package's functions for
-// this machine setup.
-func (b *coreMLBackend) readPlacements() {
-	for _, length := range b.pkg.lengths {
-		p, ok := b.readPlacement(length)
-		b.mu.Lock()
-		if _, mine := b.placements[length]; ok && !mine {
-			b.placements[length] = p
-		}
-		b.mu.Unlock()
-	}
-}
-
-// readPlacement reads one function's record. One that is missing,
-// unreadable, incomplete, another model's or another setup's is none.
-func (b *coreMLBackend) readPlacement(length int) (p placement, ok bool) {
-	if b.host == "" {
-		return p, false
-	}
-	raw, err := os.ReadFile(b.recordPath(length))
-	if err != nil {
-		return p, false
-	}
-	var r placementRecord
-	if json.Unmarshal(raw, &r) != nil ||
-		r.Model == nil || r.Host == nil || r.Function == nil || r.Verdict == nil ||
-		*r.Model != b.pkg.id() || *r.Host != b.host || *r.Function != "s"+strconv.Itoa(length) {
-		return p, false
-	}
-	switch *r.Verdict {
-	case verdictNone:
-		return placement{open: true, recorded: true}, true
-	case verdictOn:
-		if r.NeuralEngine == nil || r.GPU == nil || r.CPU == nil || r.Unknown == nil {
-			return p, false
-		}
-		p = placement{On: true, NeuralEngine: *r.NeuralEngine, GPU: *r.GPU, CPU: *r.CPU, Unknown: *r.Unknown,
-			CPUCore: r.CPUCore, recorded: true}
-		return p, p.valid()
-	}
-	return p, false
-}
-
-// writePlacement replaces one function's record, whole or not at all.
-// A file per function: processes auditing different ones have nothing
-// to merge and need no lock. An unreadable record is left alone.
-func (b *coreMLBackend) writePlacement(length int, p placement) error {
-	if b.host == "" {
-		return nil
-	}
-	path := b.recordPath(length)
-	if _, err := os.ReadFile(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	model, name, verdict := b.pkg.id(), "s"+strconv.Itoa(length), verdictNone
-	rec := placementRecord{Model: &model, Host: &b.host, Function: &name, Verdict: &verdict}
-	if p.On {
-		verdict = verdictOn
-		rec.NeuralEngine, rec.GPU, rec.CPU, rec.Unknown, rec.CPUCore = &p.NeuralEngine, &p.GPU, &p.CPU, &p.Unknown, p.CPUCore
-	}
-	raw, err := json.Marshal(rec)
-	if err != nil {
-		return err
-	}
-	tmp := stagePath(path, os.Getpid())
-	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
 }
 
 // validateFunction has a freshly opened function predict four texts: two

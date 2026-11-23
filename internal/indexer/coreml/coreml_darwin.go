@@ -423,29 +423,6 @@ func readVector(arr objc.ID, out []float32) error {
 	return nil
 }
 
-// PowerState reads Low Power Mode and the thermal state from
-// NSProcessInfo. A system that answers neither is ErrUnsupported.
-func PowerState() (Power, error) {
-	var p Power
-	if err := load(); err != nil {
-		return p, err
-	}
-	err := scope(func() error {
-		cls := objc.GetClass("NSProcessInfo")
-		if cls == 0 {
-			return fmt.Errorf("%w: no class NSProcessInfo", ErrUnsupported)
-		}
-		info := classSend(cls, "processInfo")
-		if !responds(info, "isLowPowerModeEnabled") || !responds(info, "thermalState") {
-			return fmt.Errorf("%w: no power state in NSProcessInfo", ErrUnsupported)
-		}
-		p.LowPower = objc.Send[bool](info, sel("isLowPowerModeEnabled"))
-		p.Thermal = objc.Send[int](info, sel("thermalState"))
-		return nil
-	})
-	return p, err
-}
-
 // Plan loads the compute plan of one function of the compiled model and
 // counts the preferred device of every operation. It needs no loaded
 // function, and costs about what loading one does.

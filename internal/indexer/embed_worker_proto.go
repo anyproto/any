@@ -34,15 +34,8 @@ const (
 // Frame ops. Requests: embed / dim / close. Responses: ready (the
 // handshake, carrying the model dimension) / vectors / dim / error.
 const (
-	workerOpEmbed = "embed"
-	workerOpDim   = "dim"
-	// workerOpIdle asks a child whether it may be stopped as idle; it
-	// answers with the same op, Busy when stopping would lose work.
-	workerOpIdle = "idle"
-	// workerOpHeld asks a child whether Core ML work holds it; it answers
-	// with the same op, Busy and Overdue as for idle, and changes nothing
-	// in a child that is not held.
-	workerOpHeld    = "held"
+	workerOpEmbed   = "embed"
+	workerOpDim     = "dim"
 	workerOpClose   = "close"
 	workerOpReady   = "ready"
 	workerOpVectors = "vectors"
@@ -67,9 +60,8 @@ type workerReq struct {
 // workerRoutes rides a `vectors` frame of documents: how many of its
 // texts each runtime embedded.
 type workerRoutes struct {
-	ANE    int `json:"ane,omitempty"`    // Core ML, placement verified
-	CoreML int `json:"coreml,omitempty"` // Core ML, placement not verified
-	Llama  int `json:"llama,omitempty"`
+	ANE   int `json:"ane,omitempty"` // Core ML
+	Llama int `json:"llama,omitempty"`
 	// Miss is why the last text that missed the Neural Engine did
 	// (EmbedReason*), and Misses the llama.cpp texts per such reason.
 	Miss   string         `json:"miss,omitempty"`
@@ -116,14 +108,11 @@ func unpackVectors(vecs [][]float32, deferred []int, n int) ([][]float32, error)
 }
 
 type workerResp struct {
-	Op    string `json:"op"`
-	Dim   int    `json:"dim,omitempty"`
-	N     int    `json:"n,omitempty"`
-	Error string `json:"error,omitempty"`
-	Busy  bool   `json:"busy,omitempty"`
-	// Overdue, with Busy: what keeps the child busy has run too long.
-	Overdue bool          `json:"overdue,omitempty"`
-	Routes  *workerRoutes `json:"routes,omitempty"`
+	Op     string        `json:"op"`
+	Dim    int           `json:"dim,omitempty"`
+	N      int           `json:"n,omitempty"`
+	Error  string        `json:"error,omitempty"`
+	Routes *workerRoutes `json:"routes,omitempty"`
 	// Hardware rides the `ready` frame: what llama.cpp reports about the
 	// machine it just initialized on.
 	Hardware *Hardware `json:"hardware,omitempty"`
