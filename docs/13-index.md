@@ -993,9 +993,10 @@ the compile is renamed there to a staging name with the child's pid and
 copied from it, and a compile that cannot be renamed is removed and not
 installed. A staging directory, there or beside the compiled model,
 that a child stopped mid-install left behind is removed by a later
-preparation once it is an hour old and no process has its pid. A copy
-that fails after another child installed the compiled model leaves
-that model in use. Until the package is complete
+preparation once it is an hour old and no process has its pid; a file
+or a link under a staging name is left alone. A rename or a copy that
+fails after another child installed the compiled model leaves that
+model in use. Until the package is complete
 llama.cpp embeds queries, the child looks for the package again every
 30 s, and bulk work waits for its download (below). The package's licence texts
 (`LICENSE`, `NOTICE` and the licence the notice refers to) follow it

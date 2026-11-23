@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -798,25 +797,38 @@ func TestInstallDir_FromAnotherVolume(t *testing.T) {
 
 // A compile on another volume whose rename to a stage in the temporary
 // directory fails too is not copied from Core ML's own name, which a stop
-// mid-copy would strand: it is removed, and the install fails.
+// mid-copy would strand: it is removed, and the install fails, unless
+// another process installed the compiled model meanwhile.
 func TestInstallDir_NoStageForTheCopy(t *testing.T) {
-	root, tmp := t.TempDir(), t.TempDir()
-	src := filepath.Join(tmp, "compiled")
-	if err := os.MkdirAll(filepath.Join(src, "weights"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	dst := filepath.Join(root, "model.mlmodelc")
-	rename := renameDir
-	renameDir = func(from, to string) error {
-		return &os.LinkError{Op: "rename", Old: from, New: to, Err: errors.New("cross-device link")}
-	}
-	defer func() { renameDir = rename }()
-	if err := installDir(src, dst, tmp); err == nil {
-		t.Fatal("installed with no stage to copy from")
-	}
-	for _, dir := range []string{root, tmp} {
-		if entries, _ := os.ReadDir(dir); len(entries) != 0 {
-			t.Fatalf("%d entries left in %s", len(entries), dir)
+	for _, installed := range []bool{false, true} {
+		root, tmp := t.TempDir(), t.TempDir()
+		src := filepath.Join(tmp, "compiled")
+		if err := os.MkdirAll(filepath.Join(src, "weights"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		dst := filepath.Join(root, "model.mlmodelc")
+		rename := renameDir
+		renameDir = func(from, to string) error {
+			if installed && filepath.Dir(to) == tmp {
+				if err := os.MkdirAll(filepath.Join(dst, "weights"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return &os.LinkError{Op: "rename", Old: from, New: to, Err: errors.New("cross-device link")}
+		}
+		err := installDir(src, dst, tmp)
+		renameDir = rename
+		if installed != (err == nil) {
+			t.Fatalf("another install %v: the install with no stage to copy from returned %v", installed, err)
+		}
+		left := map[string]int{root: 0, tmp: 0}
+		if installed {
+			left[root] = 1 // the model
+		}
+		for dir, want := range left {
+			if entries, _ := os.ReadDir(dir); len(entries) != want {
+				t.Fatalf("another install %v: %d entries left in %s, want %d", installed, len(entries), dir, want)
+			}
 		}
 	}
 }
@@ -869,29 +881,55 @@ func TestInstallDir_CopyFailsAfterAnotherInstall(t *testing.T) {
 }
 
 // A staging directory a dead process left, beside the compiled model or
-// in the temporary directory, is removed once it is old. A fresh one, one
-// of a process that runs and a name stagePath does not make are kept.
+// in the temporary directory, is removed once it is old, also under the
+// earlier ".tmp" name. A fresh one, one of a process that runs, a file or
+// a link with a stage's name and a name stagePath does not make are kept.
 func TestRemoveStaleStages(t *testing.T) {
 	// A bracket in the path is a name like any other, not a pattern.
 	base := t.TempDir()
 	root, tmp := filepath.Join(base, "cache[1]"), filepath.Join(base, "tmp")
 	dst := filepath.Join(root, "model.mlmodelc")
-	dead := exec.Command(os.Args[0], "-test.run=^$")
-	if err := dead.Run(); err != nil {
-		t.Fatal(err)
-	}
-	old, fresh, mine := stagePath(dst, dead.Process.Pid), stagePath(dst, 222), stagePath(dst, os.Getpid())
+	// Every pid but live's has no process.
+	const dead, alsoDead, live = 111, 333, 222
+	alive := func(pid int) bool { return pid == live }
+	earlier := func(dst string, pid int) string { return fmt.Sprintf("%s.%d.tmp", dst, pid) }
 	held := func(stage string) string { return filepath.Join(tmp, filepath.Base(stage)) }
-	elsewhere := stagePath(filepath.Join(base, "cache1", "model.mlmodelc"), dead.Process.Pid)
+	both := func(stages ...string) (out []string) {
+		for _, s := range stages {
+			out = append(out, s, held(s))
+		}
+		return out
+	}
+	old := both(stagePath(dst, dead), earlier(dst, dead))
+	fresh := both(stagePath(dst, alsoDead), earlier(dst, alsoDead))
+	inUse := both(stagePath(dst, live), earlier(dst, live))
+	elsewhere := stagePath(filepath.Join(base, "cache1", "model.mlmodelc"), dead)
 	var unrelated []string
-	for _, name := range []string{"model.mlmodelc.tmp", "model.mlmodelc.backup.tmp", "model.mlmodelc.0123.tmp", "model.mlmodelc.-1.tmp"} {
+	for _, name := range []string{"model.mlmodelc.tmp", "model.mlmodelc.backup.tmp", "model.mlmodelc.0123.tmp", "model.mlmodelc.-1.tmp",
+		"model.mlmodelc.stage", "model.mlmodelc.0123.stage", "model.mlmodelc.111.stage.tmp", "model.mlmodelc.111.part"} {
 		unrelated = append(unrelated, filepath.Join(root, name), filepath.Join(tmp, name))
 	}
-	aged := append([]string{old, held(old), mine, held(mine), elsewhere}, unrelated...)
-	for _, d := range append([]string{fresh, held(fresh), dst}, aged...) {
+	aged := append(append(append([]string{elsewhere}, old...), inUse...), unrelated...)
+	for _, d := range append(append([]string{dst}, fresh...), aged...) {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// A file and a link to an old directory, named as a dead process's
+	// stages: the sweep removes only directories, and does not follow links.
+	file, link, target := stagePath(dst, 444), held(stagePath(dst, 555)), filepath.Join(base, "target")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	aged = append(aged, file)
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Logf("no link: %v", err) // Windows without the privilege
+		link = ""
+	} else {
+		aged = append(aged, link)
 	}
 	past := time.Now().Add(-2 * aneStageMaxAge)
 	for _, d := range aged {
@@ -899,16 +937,37 @@ func TestRemoveStaleStages(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	removeStaleStages(dst, tmp)
-	for _, d := range []string{old, held(old)} {
-		if _, err := os.Stat(d); err == nil {
+	removeStaleStages(dst, tmp, alive)
+	for _, d := range old {
+		if _, err := os.Lstat(d); err == nil {
 			t.Errorf("an abandoned staging directory was kept: %s", d[len(base):])
 		}
 	}
-	for _, d := range append([]string{fresh, held(fresh), mine, held(mine), dst, elsewhere}, unrelated...) {
-		if _, err := os.Stat(d); err != nil {
+	kept := append(append(append([]string{dst, elsewhere, file, target}, fresh...), inUse...), unrelated...)
+	if link != "" {
+		kept = append(kept, link)
+	}
+	for _, d := range kept {
+		if _, err := os.Lstat(d); err != nil {
 			t.Errorf("%s was removed", d[len(base):])
 		}
+	}
+}
+
+// An earlier release's child removes every hour-old <dst>.*.tmp whoever
+// owns it: an install's stages, beside dst and in the temporary directory
+// under the same name, are named apart.
+func TestStagePath_ApartFromTheEarlierSweep(t *testing.T) {
+	stage := filepath.Base(stagePath(filepath.Join(t.TempDir(), "model.mlmodelc"), os.Getpid()))
+	if m, err := filepath.Match("model.mlmodelc.*.tmp", stage); err != nil || m {
+		t.Fatalf("the stage %s is in the earlier sweep's pattern (%v)", stage, err)
+	}
+}
+
+// A process that runs is alive: the sweep spares its stages.
+func TestProcessAlive(t *testing.T) {
+	if !processAlive(os.Getpid()) {
+		t.Fatal("this test's own process is not alive")
 	}
 }
 

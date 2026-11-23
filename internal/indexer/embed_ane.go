@@ -799,7 +799,7 @@ func (b *coreMLBackend) prepare() (err error) {
 	if !ok {
 		return errors.New("this machine has no neural engine")
 	}
-	removeStaleStages(b.compiled, b.tempDir)
+	removeStaleStages(b.compiled, b.tempDir, processAlive)
 	if _, err := os.Stat(b.compiled); err == nil {
 		return nil
 	}
@@ -820,14 +820,20 @@ func (b *coreMLBackend) prepare() (err error) {
 	return nil
 }
 
+// stageSuffix ends a stage's name. Not ".tmp": an earlier release's child
+// removes an hour-old <dst>.*.tmp whoever owns it, a live copy that slept
+// included.
+const stageSuffix = ".stage"
+
 func stagePath(dst string, pid int) string {
-	return dst + "." + strconv.Itoa(pid) + ".tmp"
+	return dst + "." + strconv.Itoa(pid) + stageSuffix
 }
 
 // removeStaleStages deletes the staging directories of installs toward
 // dst that a dead process left behind, beside dst and in tempDir: named
-// as stagePath names them, old, and of a pid that no process has.
-func removeStaleStages(dst, tempDir string) {
+// as stagePath names them or with the earlier ".tmp" suffix, old, and of
+// a pid that alive reports gone.
+func removeStaleStages(dst, tempDir string, alive func(pid int) bool) {
 	base := filepath.Base(dst)
 	for _, dir := range []string{filepath.Dir(dst), tempDir} {
 		if dir == "" {
@@ -840,10 +846,11 @@ func removeStaleStages(dst, tempDir string) {
 			if !ok {
 				continue
 			}
-			// A live owner's stage is in use, however old: its copy can
-			// have slept through the age bound.
+			// Only a directory, which is all an install makes: a file or a
+			// link with a stage's name is not one. A live owner's stage is
+			// in use however old: its copy can have slept through the bound.
 			s := filepath.Join(dir, e.Name())
-			if st, err := os.Stat(s); err == nil && time.Since(st.ModTime()) > aneStageMaxAge && !processAlive(pid) {
+			if st, err := os.Lstat(s); err == nil && st.IsDir() && time.Since(st.ModTime()) > aneStageMaxAge && !alive(pid) {
 				_ = os.RemoveAll(s)
 			}
 		}
@@ -851,13 +858,16 @@ func removeStaleStages(dst, tempDir string) {
 }
 
 // stagePID is the pid in name, a stage that stagePath names for a
-// destination named base; false for any other name.
+// destination named base or one with the earlier ".tmp" suffix; false for
+// any other name.
 func stagePID(name, base string) (int, bool) {
 	digits, ok := strings.CutPrefix(name, base+".")
-	if ok {
-		digits, ok = strings.CutSuffix(digits, ".tmp")
-	}
 	if !ok {
+		return 0, false
+	}
+	if d, isStage := strings.CutSuffix(digits, stageSuffix); isStage {
+		digits = d
+	} else if digits, ok = strings.CutSuffix(digits, ".tmp"); !ok {
 		return 0, false
 	}
 	n, err := strconv.ParseInt(digits, 10, 32)
@@ -884,7 +894,7 @@ func installDir(src, dst, tempDir string) error {
 			_ = os.RemoveAll(held)
 			if err := renameDir(src, held); err != nil {
 				_ = os.RemoveAll(src)
-				return err
+				return installedMeanwhile(dst, err)
 			}
 			src = held
 			_ = os.Chtimes(held, time.Time{}, time.Now()) // its age counts from here
