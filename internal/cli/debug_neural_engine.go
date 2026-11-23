@@ -41,15 +41,12 @@ func newDebugNeuralEngineCmd() *cobra.Command {
 				return err
 			}
 			// A reader that went away (`| head`) fails a write instead of
-			// killing the process before the temporary directory is removed.
-			pipe := make(chan os.Signal, 1)
-			signal.Notify(pipe, syscall.SIGPIPE)
-			defer signal.Stop(pipe)
-			// The first interrupt ends the run with its temporary directory
-			// removed; the next one, handled by default again, kills a stuck call.
-			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
-			defer stop()
-			context.AfterFunc(ctx, stop)
+			// killing the process, until it exits: the temporary directory's
+			// removal and the error line come after the last progress line.
+			signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE)
+			ctx, cancel := context.WithCancel(cmd.Context())
+			defer cancel()
+			exitOnSecondInterrupt(cancel)
 			progress := func(format string, args ...any) {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), format+"\n", args...) // a closed stderr does not end the run
 			}
@@ -69,6 +66,24 @@ func newDebugNeuralEngineCmd() *cobra.Command {
 	addDataDirFlags(c)
 	c.Flags().StringSliceVar(&functions, "function", nil, "measure only this function (s128, s256, …); repeatable")
 	return c
+}
+
+// exitOnSecondInterrupt has the first SIGINT or SIGTERM cancel the run,
+// which then removes its temporary directory, and the second end the
+// process at once (130, 143), also when the shell had them ignored.
+func exitOnSecondInterrupt(cancel context.CancelFunc) {
+	sigs := make(chan os.Signal, 2)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigs
+		cancel()
+		sig := <-sigs
+		code := 1
+		if s, ok := sig.(syscall.Signal); ok {
+			code = 128 + int(s)
+		}
+		os.Exit(code)
+	}()
 }
 
 // coreMLEmbedderChildren lists the `any run embedder` processes on this

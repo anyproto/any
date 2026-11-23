@@ -199,12 +199,13 @@ func readTextInput(text, file string) (string, error) {
 }
 
 // printJSON pretty-prints v to stdout. House style matches `any
-// status`, `any chat list`, etc. — one big indented JSON block.
+// status`, `any chat list`, etc. — one big indented JSON block. A
+// failed write is the command's error: the caller did not get its output.
 func printJSON(v any) error {
 	buf, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
-	fmt.Println(string(buf))
-	return nil
+	_, err = fmt.Println(string(buf))
+	return err
 }
