@@ -33,10 +33,20 @@ type NeuralEngineReport struct {
 	Functions []NeuralEngineFunction `json:"functions"`
 }
 
-// NeuralEngineFunction is one function's compute plan and timings. A
-// step that failed leaves its error and the fields after it empty.
+// NeuralEngineFunction is one function's timings and compute plan, in the
+// order they are taken. A failed load or prediction leaves Error and the
+// timings it did not reach empty; a failed plan leaves PlanError.
 type NeuralEngineFunction struct {
-	Function     string   `json:"function"`
+	Function string `json:"function"`
+	// LoadMs is the first load from the model this command compiled.
+	LoadMs         float64 `json:"loadMs"`
+	FirstPredictMs float64 `json:"firstPredictMs"`
+	// The speed run: texts of SpeedTokens tokens, one after another.
+	SpeedTokens    int     `json:"speedTokens"`
+	MsPerText      float64 `json:"msPerText"`
+	TextsPerSecond float64 `json:"textsPerSecond"`
+	Error          string  `json:"error,omitempty"` // the load or a prediction failed
+	// PlanMs is the plan read after that load.
 	PlanMs       float64  `json:"planMs"`
 	NeuralEngine int      `json:"neuralEngine"`
 	GPU          int      `json:"gpu"`
@@ -45,15 +55,8 @@ type NeuralEngineFunction struct {
 	CPUCore      []string `json:"cpuCore,omitempty"`     // core operators planned on the CPU
 	UnknownCore  []string `json:"unknownCore,omitempty"` // core operators without a device
 	// Placement is the verdict on the plan (coreml.Verdict*); "" = no plan.
-	Placement      string  `json:"placement,omitempty"`
-	PlanError      string  `json:"planError,omitempty"`
-	LoadMs         float64 `json:"loadMs"`
-	FirstPredictMs float64 `json:"firstPredictMs"`
-	// The speed run: texts of SpeedTokens tokens, one after another.
-	SpeedTokens    int     `json:"speedTokens"`
-	MsPerText      float64 `json:"msPerText"`
-	TextsPerSecond float64 `json:"textsPerSecond"`
-	Error          string  `json:"error,omitempty"` // the load or a prediction failed
+	Placement string `json:"placement,omitempty"`
+	PlanError string `json:"planError,omitempty"`
 }
 
 // neuralEngineProbe is Core ML as the report uses it.
@@ -65,9 +68,8 @@ type neuralEngineProbe struct {
 }
 
 // DebugNeuralEngine measures the default model's Core ML package in
-// modelsDir on this machine. functions, when set, names the ones to
-// measure ("s128"). progress, when set, is told what is under way. A ctx
-// that ends stops the measurement between two Core ML calls or inside one.
+// modelsDir, the functions named ("s128") or all; progress, when set, is
+// told what is under way. An ended ctx returns at once, mid-call too.
 func DebugNeuralEngine(ctx context.Context, modelsDir string, functions []string, progress func(format string, args ...any)) (*NeuralEngineReport, error) {
 	if !aneHost() {
 		return nil, fmt.Errorf("%w: it needs an Apple Silicon Mac, not a virtual machine, on macOS 15 or later", ErrNeuralEngineUnsupported)
@@ -107,9 +109,16 @@ func (p neuralEngineProbe) report(ctx context.Context, pkg *coreMLPackage, model
 	if !pkg.complete(dir) {
 		return nil, fmt.Errorf("the Core ML package is not installed: %s is missing or incomplete (the server downloads it for the local embedder)", dir)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	progress("checking %s against its pin", pkg.id())
 	if err := pkg.verify(dir); err != nil {
 		return nil, fmt.Errorf("the Core ML package is not the pinned one: %w", err)
+	}
+	// An interrupt under the check compiles nothing.
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	// Core ML compiles into a temporary directory of its own: the model
 	// the embedder compiled beside the package is not read or written.
@@ -136,13 +145,30 @@ func (p neuralEngineProbe) report(ctx context.Context, pkg *coreMLPackage, model
 }
 
 // functions measures the functions of the given lengths, one after
-// another, until ctx ends.
+// another, until ctx ends. Each is loaded first, as the embedder does
+// after a compile, and its plan is read after that load.
 func (p neuralEngineProbe) functions(ctx context.Context, compiled string, lengths []int, dim int, progress func(string, ...any)) (out []NeuralEngineFunction) {
 	for _, length := range lengths {
 		if ctx.Err() != nil {
 			return out
 		}
 		f := NeuralEngineFunction{Function: "s" + strconv.Itoa(length)}
+		progress("%s: loading and predicting", f.Function)
+		t, fn, err := p.measure(compiled, f.Function, length, dim, debugSpeedRounds)
+		// A step that failed leaves those before it measured.
+		f.LoadMs, f.FirstPredictMs = millis(t.Load), millis(t.FirstPredict)
+		if err != nil {
+			f.Error = err.Error()
+		} else {
+			fn.Close()
+			f.SpeedTokens, f.MsPerText = t.Tokens, millis(t.PerText)
+			if t.PerText > 0 {
+				f.TextsPerSecond = float64(int(10*float64(time.Second)/float64(t.PerText))) / 10
+			}
+		}
+		if ctx.Err() != nil {
+			return out
+		}
 		progress("%s: reading its compute plan", f.Function)
 		start := time.Now()
 		plan, err := p.plan(compiled, f.Function)
@@ -153,18 +179,6 @@ func (p neuralEngineProbe) functions(ctx context.Context, compiled string, lengt
 			f.NeuralEngine, f.GPU, f.CPU, f.Unknown = plan.NeuralEngine, plan.GPU, plan.CPU, plan.Unknown
 			f.CPUCore, f.UnknownCore = plan.CPUCore, plan.UnknownCore
 			f.Placement = plan.Verdict()
-		}
-		progress("%s: loading and predicting", f.Function)
-		t, fn, err := p.measure(compiled, f.Function, length, dim, debugSpeedRounds)
-		if err != nil {
-			f.Error = err.Error()
-		} else {
-			fn.Close()
-			f.LoadMs, f.FirstPredictMs = millis(t.Load), millis(t.FirstPredict)
-			f.SpeedTokens, f.MsPerText = t.Tokens, millis(t.PerText)
-			if t.PerText > 0 {
-				f.TextsPerSecond = float64(int(10*float64(time.Second)/float64(t.PerText))) / 10
-			}
 		}
 		out = append(out, f)
 	}
