@@ -889,9 +889,15 @@ func (b *coreMLBackend) load(length int) (_ aneFunction, _ string, err error) {
 	}
 	opened := time.Since(start)
 	// As in serving, one failed prediction does not retire the function.
+	// The line has the very first prediction's time, also after a retry.
 	var first time.Duration
 	for try := 1; ; try++ {
-		if first, err = validateFunction(fn, length, b.dim); err == nil {
+		var took time.Duration
+		took, err = validateFunction(fn, length, b.dim)
+		if try == 1 {
+			first = took
+		}
+		if err == nil {
 			break
 		}
 		if try == aneMaxFailures {
@@ -944,7 +950,7 @@ func (f scrubbedFunction) embed(tokens []int32, out []float32) error {
 // validateFunction has a freshly opened function predict four texts: two
 // short ones and two of its full length, each pair alike but for its
 // tokens. Each output is the model's unit vector, and no two are alike.
-// first is how long the first of them took.
+// first is how long the first of them took, also when it failed.
 func validateFunction(fn aneFunction, length, dim int) (first time.Duration, err error) {
 	full, other := make([]int32, length), make([]int32, length)
 	for i := range full {
@@ -961,14 +967,15 @@ func validateFunction(fn aneFunction, length, dim int) (first time.Duration, err
 	for i, tokens := range probes {
 		outs[i] = make([]float32, dim)
 		start := time.Now()
-		if err := fn.embed(tokens, outs[i]); err != nil {
-			return 0, err
-		}
+		err := fn.embed(tokens, outs[i])
 		if i == 0 {
 			first = time.Since(start)
 		}
+		if err != nil {
+			return first, err
+		}
 		if !unitVector(outs[i]) {
-			return 0, errors.New("output is not a unit vector")
+			return first, errors.New("output is not a unit vector")
 		}
 	}
 	for i := range outs {
@@ -981,7 +988,7 @@ func validateFunction(fn aneFunction, length, dim int) (first time.Duration, err
 			}
 			// By both norms: an output only has to be near unit length.
 			if dot/math.Sqrt(ni*nj) > validateMaxCosine {
-				return 0, errors.New("different texts got one vector")
+				return first, errors.New("different texts got one vector")
 			}
 		}
 	}

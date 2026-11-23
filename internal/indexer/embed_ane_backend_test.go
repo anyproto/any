@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hybridgroup/yzma/pkg/llama"
 )
@@ -21,21 +22,26 @@ import (
 // a longer one.
 type planFn struct {
 	err       error
-	failFirst int     // predictions that fail before the rest succeed
-	constant  bool    // one vector whatever the text
-	scale     float32 // the vectors' length; 0 = 1
-	blind     bool    // the vector depends on the text's length alone
-	collapse  bool    // one vector for every long text
+	failFirst int           // predictions that fail before the rest succeed
+	failAt    int           // the one prediction that fails, counted from 1; 0 = none
+	slowFirst time.Duration // how long the first prediction takes
+	constant  bool          // one vector whatever the text
+	scale     float32       // the vectors' length; 0 = 1
+	blind     bool          // the vector depends on the text's length alone
+	collapse  bool          // one vector for every long text
 	calls     int
 	closed    bool
 }
 
 func (f *planFn) embed(tokens []int32, out []float32) error {
 	f.calls++
+	if f.calls == 1 {
+		time.Sleep(f.slowFirst)
+	}
 	if f.err != nil {
 		return f.err
 	}
-	if f.calls <= f.failFirst {
+	if f.calls <= f.failFirst || f.calls == f.failAt {
 		return errors.New("a passing failure")
 	}
 	clear(out)
@@ -131,6 +137,24 @@ func TestCoreMLBackend_LoadValidates(t *testing.T) {
 	b.open = func(string, string, int, int) (aneFunction, error) { return flaky, nil }
 	if _, _, err := b.load(128); err != nil || flaky.closed {
 		t.Errorf("a function whose first prediction failed: %v, closed %v", err, flaky.closed)
+	}
+}
+
+// The load's line has the time of the very first prediction: a retry
+// after a failed validation does not put a warm one in its place.
+func TestCoreMLBackend_LoadKeepsTheFirstPredictionAcrossRetries(t *testing.T) {
+	const slow = 30 * time.Millisecond
+	b := newTestBackend(t, t.TempDir())
+	fn := &planFn{slowFirst: slow, failAt: 2}
+	b.open = func(string, string, int, int) (aneFunction, error) { return fn, nil }
+	_, info, err := b.load(128)
+	if err != nil || fn.calls != 6 {
+		t.Fatalf("load after a failed second prediction: %v, %d predictions, want 2 then 4", err, fn.calls)
+	}
+	_, rest, _ := strings.Cut(info, "first predict ")
+	first, err := time.ParseDuration(strings.SplitN(rest, ",", 2)[0])
+	if err != nil || first < slow {
+		t.Fatalf("load info %q: first predict %v, want the first prediction's %v or more", info, first, slow)
 	}
 }
 
