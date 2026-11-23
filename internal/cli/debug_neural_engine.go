@@ -76,10 +76,9 @@ func newDebugNeuralEngineCmd() *cobra.Command {
 	return c
 }
 
-// exitOnSecondInterrupt has the first SIGINT or SIGTERM cancel the run,
-// which then removes its temporary directory, and the second end the
-// process at once (130, 143), also when the shell had them ignored.
-// Once cleanedUp is called, nothing is left to remove: the first ends it.
+// exitOnSecondInterrupt has the first SIGINT or SIGTERM cancel the run and
+// the second end the process (130, 143), also when the shell ignored them;
+// once cleanedUp is called, nothing is left to remove and the first ends it.
 func exitOnSecondInterrupt(cancel context.CancelFunc) (cleanedUp func()) {
 	sigs := make(chan os.Signal, 2)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)

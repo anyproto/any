@@ -834,10 +834,9 @@ func stagePath(dst string, pid int) string {
 	return dst + "." + strconv.Itoa(pid) + stageSuffix
 }
 
-// removeStaleStages deletes the staging directories of installs toward
-// dst that a dead process left behind, beside dst and in tempDir: named
-// as stagePath names them or with the earlier ".tmp" suffix, old, and of
-// a pid that alive reports gone.
+// removeStaleStages deletes old staging directories toward dst, beside it
+// and in tempDir, under stagePath's name or the earlier ".tmp" suffix, whose
+// pid alive reports gone.
 func removeStaleStages(dst, tempDir string, alive func(pid int) bool) {
 	base := filepath.Base(dst)
 	for _, dir := range []string{filepath.Dir(dst), tempDir} {

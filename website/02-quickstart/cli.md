@@ -1,6 +1,6 @@
 ---
 title: CLI
-description: The any command is a thin HTTP client for the server's data — one subcommand per endpoint, pretty JSON on stdout — shown here for the create → query → subscribe loop.
+description: The any command is a thin HTTP client for the server's data — each command that works on it makes HTTP requests and prints pretty JSON on stdout, and some endpoints have no command — shown here for the create → query → subscribe loop.
 order: 30
 ---
 # CLI

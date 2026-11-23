@@ -795,10 +795,9 @@ func TestInstallDir_FromAnotherVolume(t *testing.T) {
 	}
 }
 
-// A compile on another volume whose rename to a stage in the temporary
-// directory fails too is not copied from Core ML's own name, which a stop
-// mid-copy would strand: it is removed, and the install fails, unless
-// another process installed the compiled model meanwhile.
+// A compile on another volume that cannot be renamed to a temporary stage is
+// removed, not copied from a name a stop mid-copy would strand; the install
+// fails unless another process installed the compiled model meanwhile.
 func TestInstallDir_NoStageForTheCopy(t *testing.T) {
 	for _, installed := range []bool{false, true} {
 		root, tmp := t.TempDir(), t.TempDir()
@@ -880,10 +879,9 @@ func TestInstallDir_CopyFailsAfterAnotherInstall(t *testing.T) {
 	}
 }
 
-// A staging directory a dead process left, beside the compiled model or
-// in the temporary directory, is removed once it is old, also under the
-// earlier ".tmp" name. A fresh one, one of a process that runs, a file or
-// a link with a stage's name and a name stagePath does not make are kept.
+// An old stage of a dead process, beside the model or in the temporary
+// directory and also under the earlier ".tmp" name, is removed; a fresh or
+// live one, a file or link under a stage's name and any other name are kept.
 func TestRemoveStaleStages(t *testing.T) {
 	// A bracket in the path is a name like any other, not a pattern.
 	base := t.TempDir()

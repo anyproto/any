@@ -137,9 +137,8 @@ type Timing struct {
 }
 
 // Measure opens one function of the compiled model and times its first
-// prediction, then rounds predictions of a text three quarters of its
-// length. An ended ctx stops it before the next prediction and closes the
-// function. The caller closes the function it returns.
+// prediction, then rounds predictions of a text 3/4 its length. An ended ctx
+// stops it before the next prediction; the caller closes a returned function.
 func Measure(ctx context.Context, compiled, function string, length, dim, rounds int) (Timing, *Function, error) {
 	start := time.Now()
 	fn, err := Open(compiled, function, length, dim)

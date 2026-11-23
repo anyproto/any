@@ -5,7 +5,7 @@
 - **Default mode is client.** `any space get <id>` sends a GET to the
   running server.
 - **Running the server is an explicit subcommand.** `any run`.
-- **Commands that work on the server's data map 1:1 onto endpoints.**
+- **Commands that work on the server's data make HTTP requests to it.**
   Not every endpoint has a command; the ones below without one are
   HTTP-only (`03-api.md`). A few commands work without HTTP: `any init`
   and `any debug neural-engine` need no server, and `any stop` signals

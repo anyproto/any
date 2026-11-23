@@ -88,8 +88,8 @@ func newRootCmd() *cobra.Command {
 		Long: `any is a single binary that provides an HTTP/JSON server over
 the any-sync-sdk plus a CLI client. Run 'any run' to start the server,
 then every 'any <cmd>' that works on its data makes HTTP calls to it.
-'any init' and 'any debug neural-engine' need no server, and 'any stop'
-signals the server that holds the account's lock, without HTTP.`,
+'any init' and 'any debug neural-engine' need no server, and on Unix
+'any stop' signals the server that holds the account's lock, without HTTP.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		// Without --addr a client command reaches the server serving the data
