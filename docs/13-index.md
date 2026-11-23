@@ -873,8 +873,8 @@ child they kill only the child: the round fails, its docs stay
 and answers with vectors. It never opens the index db, the data dir or
 any-store; the cursor, `pending` marking, `SetVectors`, the vector index,
 model discovery and the downloads all stay in the server. What it
-writes is in the model cache: the compiled Core ML model and the record
-of where Core ML places its functions (§ Neural Engine).
+writes is in the model cache: the compiled Core ML model (§ Neural
+Engine).
 
 **Failure handling.** A dead child, a desynchronized stream, or a frame
 that outlives `index.local.requestTimeout` (default 3 min) kills the
@@ -1147,8 +1147,8 @@ it; `s<N> loading`, then
 `s<N> ready (open …, first predict …, validate …; asked for … ago)` or
 `s<N> not used: …`, or `s<N> loaded and discarded` for a function whose
 path was closed while it loaded (`first predict` is the first of the
-four predictions `validate` times: off the Neural Engine it is several
-times what it is on it);
+predictions `validate` times, four or more after a retry: off the
+Neural Engine it is several times what it is on it);
 `s<N> failed: …` for a prediction and `s<N> not used any more: 3
 failures in a row`; `s<N> still loading after …`; `s<N> releasing`, then
 `s<N> released after …`; and `off, …`. `bulk embedding opened` is logged once per run, when

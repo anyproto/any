@@ -5,7 +5,7 @@ order: 20
 ---
 # CLI
 
-`any` is one binary in two roles: `any run` starts the server, and every other subcommand is an HTTP call to it. The CLI never opens the SDK or touches storage, so anything you can do from the terminal you can do from `curl` — and vice versa.
+`any` is one binary in two roles: `any run` starts the server, and every subcommand that needs it is an HTTP call to it; a few run locally without one, such as `any init`, `any stop` and `any debug neural-engine`. The CLI never opens the SDK or touches storage, so anything a server-facing command does you can do from `curl` — and vice versa.
 
 ## Global flags and exit codes
 

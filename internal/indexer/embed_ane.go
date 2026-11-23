@@ -846,9 +846,8 @@ func removeStaleStages(dst, tempDir string) {
 var renameDir = os.Rename
 
 // installDir moves directory src to dst, which appears whole or not at
-// all. A dst another process installed meanwhile is kept. A src on
-// another volume is copied from a stage in tempDir, which a stop mid-copy
-// leaves for removeStaleStages.
+// all; a dst another process installed meanwhile is kept. A src on another
+// volume is copied from a stage in tempDir that removeStaleStages sweeps.
 func installDir(src, dst, tempDir string) error {
 	stage := stagePath(dst, os.Getpid())
 	_ = os.RemoveAll(stage)
@@ -947,10 +946,9 @@ func (f scrubbedFunction) embed(tokens []int32, out []float32) error {
 	return f.b.scrub(f.aneFunction.embed(tokens, out))
 }
 
-// validateFunction has a freshly opened function predict four texts: two
-// short ones and two of its full length, each pair alike but for its
-// tokens. Each output is the model's unit vector, and no two are alike.
-// first is how long the first of them took, also when it failed.
+// validateFunction has a fresh function predict two short texts and two of
+// its full length, each pair alike but for its tokens: every output a unit
+// vector, no two alike. first times the first prediction, failed or not.
 func validateFunction(fn aneFunction, length, dim int) (first time.Duration, err error) {
 	full, other := make([]int32, length), make([]int32, length)
 	for i := range full {

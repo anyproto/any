@@ -54,8 +54,10 @@ else.
 
 - `any run` starts a foreground HTTP/JSON server on `127.0.0.1:2046`. The
   same server runs in-process for the mobile shims (`internal/embedded`).
-- Every other `any <cmd>` is a thin CLI client that calls that server over
-  HTTP.
+- Every server-facing `any <cmd>` is a thin CLI client that calls that
+  server over HTTP. A few run locally without it, such as `any init`,
+  `any stop` (signals the lock holder) and `any debug neural-engine`
+  (runs Core ML in the CLI).
 
 v1 is a prototype. Breaking wire changes are expected and are absorbed
 by bumping the `/v1/` prefix. Start with `docs/00-overview.md` (scope,
