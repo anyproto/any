@@ -36,8 +36,9 @@ façade; breaking changes to the API are expected.
 ```
 
 The CLI never opens the SDK, never touches any-store, never talks to
-any-sync peers. Every caller — human, script, language binding — goes
-through HTTP.
+any-sync peers. Every caller of the server's data — human, script,
+language binding — goes through HTTP; a few commands, such as
+`any init` and `any stop`, run without a server (`01-cli.md`).
 
 The same server also runs in-process: `internal/embedded` owns the
 lifecycle for the mobile bindings (`mobile/ios`, `mobile/android`).

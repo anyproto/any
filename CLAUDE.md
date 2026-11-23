@@ -112,16 +112,16 @@ CI and release artifacts: `docs/18-ci.md`.
 
 ## Architecture invariants
 
-- **The CLI never opens the SDK or any-store and never talks to peers.**
-  Every caller goes through HTTP. If the CLI needs something, add an
-  endpoint.
+- **A CLI command that works on server data goes through HTTP.** It
+  never opens the SDK or any-store and never talks to peers; if it needs
+  something, add an endpoint.
 - **echo v4, every route under `/v1/`**, with routes grouped per SDK
   section (`docs/02-server.md`).
-- **Endpoints map 1:1 onto SDK methods, and CLI commands map 1:1 onto
-  endpoints.** No convenience endpoints that aggregate SDK calls. The
-  consumer-side exceptions are search and backlinks (the local index), the
-  event bus and processes, the local store, the editor markdown bridge and
-  catalog setup.
+- **Endpoints map 1:1 onto SDK methods, and server-facing CLI commands
+  map 1:1 onto endpoints.** No convenience endpoints that aggregate SDK
+  calls. The consumer-side exceptions are search and backlinks (the
+  local index), the event bus and processes, the local store, the editor
+  markdown bridge and catalog setup.
 - **Localhost-only.** The listener refuses non-loopback addresses. There
   is no caller authentication and no rate limiting. `/v1` answers
   `401 auth.required` until an account is booted, and a managed server's

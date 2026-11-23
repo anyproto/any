@@ -74,7 +74,7 @@ Where encryption happens: here. The SDK's auth module derives account keys from 
 
 ## any — the local server
 
-any wraps the SDK in a single binary: `any run` opens the SDK and serves HTTP/JSON on `127.0.0.1:2046`; every other `any <cmd>` is an HTTP client for that server. Endpoints map 1:1 onto SDK methods, and the server adds only what the SDK deliberately leaves to consumers: the search and link index over the change feed, the ephemeral event bus, the markdown bridge, the bundles engine and usecase catalog, the device-local store, process reporting. The rules it holds itself to are on [The zen of any](zen-of-any.html).
+any wraps the SDK in a single binary: `any run` opens the SDK and serves HTTP/JSON on `127.0.0.1:2046`; every other `any <cmd>` that works on its data is an HTTP client for that server. Endpoints map 1:1 onto SDK methods, and the server adds only what the SDK deliberately leaves to consumers: the search and link index over the change feed, the ephemeral event bus, the markdown bridge, the bundles engine and usecase catalog, the device-local store, process reporting. The rules it holds itself to are on [The zen of any](zen-of-any.html).
 
 ```bash
 curl http://127.0.0.1:2046/v1/health

@@ -17,7 +17,7 @@ Third-party dependencies and models retain their respective licenses. For exampl
 
 ## What runs on your device
 
-The `any` binary is the server and the CLI: `any run` owns the any-store database, the search index and the sync engine; every other `any <cmd>` is an HTTP client of it. The companion `anyrt` runtime executes programs, agent sessions and triggers in a wasm cage against that server. Standalone, they are two processes; a host app can embed both ([Install](../quickstart/install.html), [anyrt](../quickstart/anyrt.html), [Embedding anyrt](../agents/embedding-anyrt.html)).
+The `any` binary is the server and the CLI: `any run` owns the any-store database, the search index and the sync engine; every other `any <cmd>` that works on its data is an HTTP client of it. The companion `anyrt` runtime executes programs, agent sessions and triggers in a wasm cage against that server. Standalone, they are two processes; a host app can embed both ([Install](../quickstart/install.html), [anyrt](../quickstart/anyrt.html), [Embedding anyrt](../agents/embedding-anyrt.html)).
 
 The server binds to loopback. Its API serves the account loaded into that process and currently has no per-caller authentication — with the plan to ship proper auth and access capabilities support. It is designed to be used by software on the same device. [Security model →](../operations/security-model.html)
 
