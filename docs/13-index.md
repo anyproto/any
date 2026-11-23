@@ -836,7 +836,10 @@ when a frame ends, so a frame in flight is never cut; a slot held
 without a frame when it runs out only postpones the check. A child
 with a Core ML path is also kept under a drain, from its start delay
 until it returns. A load the stop cuts short is asked for again by the
-next text that needs its function. Nothing was asked of an idle child,
+next text that needs its function. The timer reaps a child it finds
+dead before it looks at a hold or the idle time, so one that died under
+a drain is reaped at the timer's next turn, not by the next request.
+Nothing was asked of an idle child,
 so one the timer finds dead is reaped with no demotion and no restart
 backoff, whether its Neural Engine path was on or off. The one
 exception is a child found dead inside a Core ML call of its own, which

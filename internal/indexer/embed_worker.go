@@ -1278,6 +1278,14 @@ func (w *workerEmbedder) retireIdle() {
 	if w.child == nil || w.closing.Load() {
 		return
 	}
+	// One that ended by itself, with nothing asked of it, is reaped now,
+	// under a hold too: its restart backoff runs from here.
+	select {
+	case <-w.child.errDone:
+		w.reapChild(errors.New("embedder child exited"), diedIdle)
+		return
+	default:
+	}
 	// Not under a wait for the first function, nor, with a Core ML path,
 	// under a drain, which may be waiting for a function.
 	coreML := w.child.spec.coremlDir != ""
@@ -1288,13 +1296,6 @@ func (w *workerEmbedder) retireIdle() {
 	if rest := w.idleTimeout - time.Since(w.lastFrame); rest > 0 {
 		w.idleTimer.Reset(rest)
 		return
-	}
-	select {
-	case <-w.child.errDone:
-		// It ended by itself, with nothing asked of it.
-		w.reapChild(errors.New("embedder child exited"), diedIdle)
-		return
-	default:
 	}
 	w.lg.Info("local embedder child retired while idle", zap.Duration("idle", w.idleTimeout))
 	w.stopChild(true)

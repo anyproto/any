@@ -754,8 +754,9 @@ func TestWorkerEmbedder_ReplacementOfADeathInCoreMLRunsWithoutIt(t *testing.T) {
 type idleCost struct{ coremlOff, gpuOff, backoff, foundDead bool }
 
 // idleDeath runs a child in the helper's Core ML mode ("" = a child
-// without a Core ML path), kills it and has the idle timer find it dead.
-func idleDeath(t *testing.T, mode string) idleCost {
+// without a Core ML path), kills it and has the idle timer find it dead,
+// under a drain's hold when hold is set.
+func idleDeath(t *testing.T, mode string, hold bool) idleCost {
 	t.Helper()
 	core, logs := observer.New(zap.WarnLevel)
 	h := &helperSpawner{modes: []string{"ok"}, env: []string{"ANY_EMBED_WORKER_ANE=" + mode, "ANY_EMBED_WORKER_MODEL_DEVICE=Vulkan0 (Test GPU)"}}
@@ -767,6 +768,9 @@ func idleDeath(t *testing.T, mode string) idleCost {
 		w.mu.Unlock()
 	}
 	w.idleTimeout = time.Hour // the timer's turn is taken below
+	if hold {
+		defer w.HoldBulk()()
+	}
 	ctx := context.Background()
 	if _, err := w.EmbedDocs(ctx, []string{"a"}); err != nil {
 		t.Fatal(err)
@@ -810,7 +814,7 @@ func TestWorkerEmbedder_IdleDeathCostsNoRuntime(t *testing.T) {
 		"1":          true,  // inside the preparation
 		"offloading": true,  // inside a load, whatever its path said since
 	} {
-		if got, want := idleDeath(t, mode), (idleCost{coremlOff: charged, backoff: charged, foundDead: !charged}); got != want {
+		if got, want := idleDeath(t, mode, false), (idleCost{coremlOff: charged, backoff: charged, foundDead: !charged}); got != want {
 			t.Errorf("%s: %+v, want %+v", mode, got, want)
 		}
 	}
@@ -819,8 +823,19 @@ func TestWorkerEmbedder_IdleDeathCostsNoRuntime(t *testing.T) {
 // A child without a Core ML path that died while idle is reaped as an
 // idle one: its death costs neither the GPU nor a backoff.
 func TestWorkerEmbedder_IdleDeathWithoutCoreMLKeepsTheGPU(t *testing.T) {
-	if got := idleDeath(t, ""); got != (idleCost{foundDead: true}) {
+	if got := idleDeath(t, "", false); got != (idleCost{foundDead: true}) {
 		t.Fatalf("%+v, want it found dead while idle, at no cost", got)
+	}
+}
+
+// A child that died while a drain holds it is reaped at the idle timer's
+// next turn, its death charged as any idle death: the restart wait runs
+// from there, not from the next search.
+func TestWorkerEmbedder_IdleDeathUnderAHold(t *testing.T) {
+	for mode, charged := range map[string]bool{"loaded": false, "loading": true} {
+		if got, want := idleDeath(t, mode, true), (idleCost{coremlOff: charged, backoff: charged, foundDead: !charged}); got != want {
+			t.Errorf("%s: %+v, want %+v", mode, got, want)
+		}
 	}
 }
 
