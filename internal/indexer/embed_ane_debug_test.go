@@ -42,7 +42,7 @@ func debugPackage(t *testing.T) (pkg *coreMLPackage, models string, probe neural
 			}
 			return coreml.Placement{NeuralEngine: 6000, CPU: 14}, nil
 		},
-		measure: func(_, _ string, length, _, rounds int) (coreml.Timing, *coreml.Function, error) {
+		measure: func(_ context.Context, _, _ string, length, _, rounds int) (coreml.Timing, *coreml.Function, error) {
 			return coreml.Timing{Load: time.Second, FirstPredict: 40 * time.Millisecond, Norm: 1,
 				Tokens: length * 3 / 4, PerText: 20 * time.Millisecond}, nil, nil
 		},
@@ -61,9 +61,9 @@ func TestNeuralEngineReport(t *testing.T) {
 		calls = append(calls, "plan "+function)
 		return plan(compiled, function)
 	}
-	probe.measure = func(compiled, function string, length, dim, rounds int) (coreml.Timing, *coreml.Function, error) {
+	probe.measure = func(ctx context.Context, compiled, function string, length, dim, rounds int) (coreml.Timing, *coreml.Function, error) {
 		calls = append(calls, "load "+function)
-		return measure(compiled, function, length, dim, rounds)
+		return measure(ctx, compiled, function, length, dim, rounds)
 	}
 	var said []string
 	r, err := probe.report(context.Background(), pkg, models, 4, nil, func(format string, _ ...any) { said = append(said, format) })
@@ -108,11 +108,11 @@ func TestNeuralEngineReport_FilterAndFailures(t *testing.T) {
 		return coreml.Placement{}, errors.New("coreml: compute plan for " + function + ": no answer")
 	}
 	measure := probe.measure
-	probe.measure = func(compiled, function string, length, dim, rounds int) (coreml.Timing, *coreml.Function, error) {
+	probe.measure = func(ctx context.Context, compiled, function string, length, dim, rounds int) (coreml.Timing, *coreml.Function, error) {
 		if function == "s128" {
 			return coreml.Timing{}, nil, errors.New("coreml: load s128: test error 1")
 		}
-		return measure(compiled, function, length, dim, rounds)
+		return measure(ctx, compiled, function, length, dim, rounds)
 	}
 	r, err = probe.report(context.Background(), pkg, models, 4, nil, nil)
 	if err != nil || len(r.Functions) != 2 {
@@ -124,7 +124,7 @@ func TestNeuralEngineReport_FilterAndFailures(t *testing.T) {
 	if f := r.Functions[1]; f.PlanError == "" || f.Error != "" || f.LoadMs != 1000 {
 		t.Fatalf("s256: %+v", f)
 	}
-	probe.measure = func(_, _ string, length, _, _ int) (coreml.Timing, *coreml.Function, error) {
+	probe.measure = func(_ context.Context, _, _ string, length, _, _ int) (coreml.Timing, *coreml.Function, error) {
 		return coreml.Timing{Load: time.Second, FirstPredict: 40 * time.Millisecond, Norm: 1, Tokens: length * 3 / 4},
 			nil, errors.New("coreml: s128 predict: test error 2")
 	}
@@ -211,9 +211,9 @@ func TestNeuralEngineReport_InterruptedBeforeACall(t *testing.T) {
 			calls = append(calls, "compile")
 			return compile(pkg)
 		}
-		probe.measure = func(compiled, function string, length, dim, rounds int) (coreml.Timing, *coreml.Function, error) {
+		probe.measure = func(ctx context.Context, compiled, function string, length, dim, rounds int) (coreml.Timing, *coreml.Function, error) {
 			calls = append(calls, "load")
-			return measure(compiled, function, length, dim, rounds)
+			return measure(ctx, compiled, function, length, dim, rounds)
 		}
 		probe.plan = func(compiled, function string) (coreml.Placement, error) {
 			calls = append(calls, "plan")
@@ -221,9 +221,16 @@ func TestNeuralEngineReport_InterruptedBeforeACall(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		progress := func(format string, _ ...any) {
-			if strings.HasPrefix(format, line) {
-				cancel()
+			if !strings.HasPrefix(format, line) {
+				return
 			}
+			// A check that ran after this line would fail on another error.
+			if line == "checking " {
+				if err := os.WriteFile(filepath.Join(pkg.dir(models), "weight.bin"), []byte("other"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cancel()
 		}
 		// The functions' steps run on a goroutine of report's: they are
 		// taken here, on the test's.
@@ -236,5 +243,21 @@ func TestNeuralEngineReport_InterruptedBeforeACall(t *testing.T) {
 			t.Errorf("interrupted at %q: calls %v, want %v", line, calls, want)
 		}
 		cancel()
+	}
+}
+
+// An interrupt that came before the run, while the CLI wrote its
+// contention note say, does not look for the Neural Engine.
+func TestNeuralEngineReport_InterruptedBeforeTheDeviceCheck(t *testing.T) {
+	pkg, models, probe, _ := debugPackage(t)
+	looked := false
+	probe.hasEngine = func() (bool, error) {
+		looked = true
+		return true, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if r, err := probe.report(ctx, pkg, models, 4, nil, nil); !errors.Is(err, context.Canceled) || r != nil || looked {
+		t.Fatalf("an interrupted run: %+v, %v, looked for the neural engine %v", r, err, looked)
 	}
 }

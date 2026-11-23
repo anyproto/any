@@ -64,7 +64,7 @@ type neuralEngineProbe struct {
 	hasEngine func() (bool, error)
 	compile   func(pkg string) (string, error)
 	plan      func(compiled, function string) (coreml.Placement, error)
-	measure   func(compiled, function string, length, dim, rounds int) (coreml.Timing, *coreml.Function, error)
+	measure   func(ctx context.Context, compiled, function string, length, dim, rounds int) (coreml.Timing, *coreml.Function, error)
 }
 
 // DebugNeuralEngine measures the default model's Core ML package in
@@ -95,6 +95,11 @@ func (p neuralEngineProbe) report(ctx context.Context, pkg *coreMLPackage, model
 	}
 	lengths, err := pickFunctions(pkg, functions)
 	if err != nil {
+		return nil, err
+	}
+	// An interrupt that came first, while the caller wrote to a full
+	// stderr say, starts no Core ML call.
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	switch ok, err := p.hasEngine(); {
@@ -150,7 +155,7 @@ func (p neuralEngineProbe) functions(ctx context.Context, compiled string, lengt
 		if !debugStep(ctx, progress, "%s: loading and predicting", f.Function) {
 			return out
 		}
-		t, fn, err := p.measure(compiled, f.Function, length, dim, debugSpeedRounds)
+		t, fn, err := p.measure(ctx, compiled, f.Function, length, dim, debugSpeedRounds)
 		// A step that failed leaves those before it measured.
 		f.LoadMs, f.FirstPredictMs = millis(t.Load), millis(t.FirstPredict)
 		if err != nil {

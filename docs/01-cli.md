@@ -916,7 +916,9 @@ with a `note`, and the times can be higher. The first `SIGINT` or
 `SIGTERM` stops the run and removes the temporary directory; a second
 one ends the process at once (exit `130` after `SIGINT`, `143` after
 `SIGTERM`), inside a Core ML call too and also when the shell started it
-with interrupts ignored, and can leave the directory behind. Exit `1`
+with interrupts ignored, and can leave the directory behind. Once the
+directory is removed, while the result or the error is written (which a
+full pipe can hold up), the first one ends the process at once. Exit `1`
 with `unsupported: …` off an Apple Silicon Mac, in a virtual machine,
 without a Neural Engine and in a build without the local embedder; exit
 `1` too when the package is not installed or is not the pinned one,

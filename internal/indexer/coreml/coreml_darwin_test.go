@@ -117,7 +117,7 @@ func TestPackage(t *testing.T) {
 		if plan.Verdict() != VerdictOn {
 			t.Errorf("%s: core not planned on the neural engine", name)
 		}
-		m, fn, err := Measure(compiled, name, l, dim, 50)
+		m, fn, err := Measure(t.Context(), compiled, name, l, dim, 50)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}

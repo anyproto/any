@@ -4,6 +4,7 @@
 package coreml
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -137,20 +138,43 @@ type Timing struct {
 
 // Measure opens one function of the compiled model and times its first
 // prediction, then rounds predictions of a text three quarters of its
-// length. The caller closes the function it returns.
-func Measure(compiled, function string, length, dim, rounds int) (Timing, *Function, error) {
-	var t Timing
+// length. An ended ctx stops it before the next prediction and closes the
+// function. The caller closes the function it returns.
+func Measure(ctx context.Context, compiled, function string, length, dim, rounds int) (Timing, *Function, error) {
 	start := time.Now()
 	fn, err := Open(compiled, function, length, dim)
 	if err != nil {
+		return Timing{}, nil, err
+	}
+	t, err := measure(ctx, fn, time.Since(start), length, dim, rounds)
+	if err != nil {
 		return t, nil, err
 	}
-	t.Load = time.Since(start)
+	return t, fn, nil
+}
+
+// predictor is a loaded function as measure times it.
+type predictor interface {
+	Embed(tokens []int32, out []float32) error
+	Close()
+}
+
+// measure is Measure's timing of fn, opened in load: fn is closed on an
+// error, an ended ctx included.
+func measure(ctx context.Context, fn predictor, load time.Duration, length, dim, rounds int) (t Timing, err error) {
+	defer func() {
+		if err != nil {
+			fn.Close()
+		}
+	}()
+	t.Load = load
+	if err := ctx.Err(); err != nil {
+		return t, err
+	}
 	out := make([]float32, dim)
-	start = time.Now()
+	start := time.Now()
 	if err := fn.Embed(filler(3), out); err != nil {
-		fn.Close()
-		return t, nil, err
+		return t, err
 	}
 	t.FirstPredict = time.Since(start)
 	var sum float64
@@ -159,19 +183,21 @@ func Measure(compiled, function string, length, dim, rounds int) (Timing, *Funct
 	}
 	t.Norm = math.Sqrt(sum)
 	if rounds <= 0 {
-		return t, fn, nil
+		return t, nil
 	}
 	tokens := filler(max(length*3/4, 3))
 	t.Tokens = len(tokens)
 	start = time.Now()
 	for range rounds {
+		if err := ctx.Err(); err != nil {
+			return t, err
+		}
 		if err := fn.Embed(tokens, out); err != nil {
-			fn.Close()
-			return t, nil, err
+			return t, err
 		}
 	}
 	t.PerText = time.Since(start) / time.Duration(rounds)
-	return t, fn, nil
+	return t, nil
 }
 
 // filler is a token sequence of n ids, at least two: BOS, one repeated

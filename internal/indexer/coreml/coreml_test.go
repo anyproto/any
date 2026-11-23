@@ -1,6 +1,7 @@
 package coreml
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -147,7 +148,47 @@ func TestAwaitPlan_Late(t *testing.T) {
 
 // A function that cannot be opened is an error and leaves nothing to close.
 func TestMeasure_NoModel(t *testing.T) {
-	if _, fn, err := Measure(t.TempDir()+"/missing.mlmodelc", "s128", 128, 768, 1); err == nil || fn != nil {
+	if _, fn, err := Measure(context.Background(), t.TempDir()+"/missing.mlmodelc", "s128", 128, 768, 1); err == nil || fn != nil {
 		t.Fatalf("Measure of a missing model = %v, %v", fn, err)
+	}
+}
+
+// fakePredictor counts predictions; cancel, when set, runs in the one
+// numbered cancelAt.
+type fakePredictor struct {
+	predicts, cancelAt int
+	cancel             func()
+	closed             bool
+}
+
+func (f *fakePredictor) Embed(_ []int32, out []float32) error {
+	f.predicts++
+	if f.predicts == f.cancelAt {
+		f.cancel()
+	}
+	out[0] = 1
+	return nil
+}
+
+func (f *fakePredictor) Close() { f.closed = true }
+
+// An interrupt stops the measurement before the next prediction and
+// closes the function: before the first one, and in the first or a later
+// one of the speed run.
+func TestMeasure_Cancelled(t *testing.T) {
+	for _, cancelAt := range []int{0, 1, 2, 5} {
+		ctx, cancel := context.WithCancel(context.Background())
+		if cancelAt == 0 {
+			cancel()
+		}
+		f := &fakePredictor{cancelAt: cancelAt, cancel: cancel}
+		if _, err := measure(ctx, f, time.Second, 128, 4, 10); !errors.Is(err, context.Canceled) || !f.closed || f.predicts != cancelAt {
+			t.Errorf("cancelled in prediction %d: %v, closed %v, %d predictions", cancelAt, err, f.closed, f.predicts)
+		}
+		cancel()
+	}
+	f := &fakePredictor{}
+	if m, err := measure(context.Background(), f, time.Second, 128, 4, 10); err != nil || f.closed || f.predicts != 11 || m.Norm != 1 || m.Tokens != 96 {
+		t.Errorf("a whole run: %+v, %v, closed %v, %d predictions", m, err, f.closed, f.predicts)
 	}
 }
