@@ -703,7 +703,7 @@ func TestWorkerEmbedder_PrepareBulkIgnoresARetiringChild(t *testing.T) {
 	case <-time.After(delay):
 	}
 	_ = h.cmdAt(0).Process.Kill() // end the grace
-	<-retired
+	recvWithin(t, "end of the retirement", retired)
 	select {
 	case <-asked:
 	case <-time.After(10 * time.Second):
@@ -913,7 +913,7 @@ func TestWorkerEmbedder_PrepareBulkLeavesWithItsContext(t *testing.T) {
 	case <-time.After(frame / 2):
 		t.Fatal("the cancelled caller waited behind another frame")
 	}
-	if err := <-served; err != nil {
+	if err := recvWithin(t, "return of the search", served); err != nil {
 		t.Fatalf("search during the wait: %v", err)
 	}
 	if h.spawns() != 1 {

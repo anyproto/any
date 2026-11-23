@@ -672,7 +672,7 @@ func TestWorkerEmbedder_RequestFindsAnIdleChildDead(t *testing.T) {
 	if err := w.live.Load().Kill(); err != nil {
 		t.Fatal(err)
 	}
-	<-c.errDone // the server has seen it end
+	recvWithin(t, "stderr EOF of the killed child", c.errDone) // the server has seen it end
 	if _, err := w.EmbedQuery(ctx, "q"); err != nil {
 		t.Fatalf("the query after an idle child's death: %v", err)
 	}
@@ -739,7 +739,7 @@ func TestWorkerEmbedder_ReplacementOfADeathInCoreMLRunsWithoutIt(t *testing.T) {
 	if err := w.live.Load().Kill(); err != nil {
 		t.Fatal(err)
 	}
-	<-c.errDone
+	recvWithin(t, "stderr EOF of the killed child", c.errDone)
 	if _, err := w.EmbedQuery(ctx, "q"); err != nil {
 		t.Fatalf("the query after the death: %v", err)
 	}
@@ -783,12 +783,12 @@ func idleDeath(t *testing.T, mode string, hold bool) idleCost {
 	if err := c.cmd.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
-	<-c.errDone
+	recvWithin(t, "stderr EOF of the killed child", c.errDone)
 	// The idle timer's turn, with the idle time over.
 	_ = w.slot.acquire(ctx, false)
 	w.idleTimeout = time.Nanosecond
 	w.slot.release(false)
-	w.retireIdle()
+	doneWithin(t, "end of the idle timer's turn", w.retireIdle)
 	if hasChild(w) {
 		t.Fatal("the dead child was not reaped")
 	}
