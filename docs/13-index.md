@@ -844,7 +844,8 @@ so one the timer finds dead is reaped with no demotion and no restart
 backoff, whether its Neural Engine path was on or off. The one
 exception is a child found dead inside a Core ML call of its own, which
 the server follows by the child's lines (the preparation from
-`starting`, a load from `s<N> loading`, an idle release between `s<N>
+`starting` to the first `s<N> loading`, `s<N> ready`, `s<N> not used`
+or `off`, a load from `s<N> loading`, an idle release between `s<N>
 releasing` and `s<N> released`): it died in Core ML, and the next child
 runs without the Neural Engine. The GPU is never charged for an idle
 death. A child that a request finds already ended is reaped the same

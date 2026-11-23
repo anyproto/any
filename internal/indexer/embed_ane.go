@@ -72,14 +72,14 @@ const (
 )
 
 // aneCalls keeps, in open, the Core ML calls a child's status lines say
-// are in flight: its preparation, its loads and its idle releases. A
-// child that dies with one open died in Core ML.
+// are in flight: its preparation until a function's line or off, its
+// loads and its idle releases. A child that dies with one open died in it.
 func aneCalls(open map[string]bool, status string) {
 	if status == aneStarting {
 		open[anePreparing] = true
 		return
 	}
-	if strings.HasPrefix(status, aneOffStatus) || strings.HasPrefix(status, aneCompiled) {
+	if strings.HasPrefix(status, aneOffStatus) {
 		delete(open, anePreparing)
 		return
 	}
@@ -91,7 +91,12 @@ func aneCalls(open map[string]bool, status string) {
 	case rest == aneLoading:
 		delete(open, anePreparing)
 		open[name+" load"] = true
-	case strings.HasPrefix(rest, "ready"), strings.HasPrefix(rest, aneNotUsed), rest == aneLoadDiscarded:
+	case strings.HasPrefix(rest, "ready"), strings.HasPrefix(rest, aneNotUsed):
+		// An earlier release's child prints no "loading" line: its
+		// preparation runs through its first load.
+		delete(open, anePreparing)
+		delete(open, name+" load")
+	case rest == aneLoadDiscarded:
 		delete(open, name+" load")
 	case rest == aneReleasing:
 		open[name+" release"] = true

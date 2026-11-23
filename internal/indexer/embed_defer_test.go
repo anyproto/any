@@ -802,17 +802,18 @@ func idleDeath(t *testing.T, mode string, hold bool) idleCost {
 	return cost
 }
 
-// A child with a Core ML path found dead by the idle timer had nothing
-// asked of it: its death costs neither runtime nor a backoff, whether its
-// path was on or off, unless it died inside a Core ML call of its own,
-// which costs the Neural Engine path and never the GPU.
+// An idle child found dead costs neither runtime nor a backoff, its path
+// on or off, unless it died inside a Core ML call of its own: that costs
+// the Neural Engine path, never the GPU.
 func TestWorkerEmbedder_IdleDeathCostsNoRuntime(t *testing.T) {
 	for mode, charged := range map[string]bool{
-		"off":        false, // the path was off
-		"loaded":     false, // the path was on, nothing in flight
-		"loading":    true,  // inside a load
-		"1":          true,  // inside the preparation
-		"offloading": true,  // inside a load, whatever its path said since
+		"off":             false, // the path was off
+		"loaded":          false, // the path was on, nothing in flight
+		"loading":         true,  // inside a load
+		"1":               true,  // inside the preparation
+		"offloading":      true,  // inside a load, whatever its path said since
+		"earliercached":   false, // an earlier release's child, its first function loaded
+		"earliercompiled": true,  // an earlier release's child, inside its first load
 	} {
 		if got, want := idleDeath(t, mode, false), (idleCost{coremlOff: charged, backoff: charged, foundDead: !charged}); got != want {
 			t.Errorf("%s: %+v, want %+v", mode, got, want)

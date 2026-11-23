@@ -121,6 +121,12 @@ func runEmbedHelper(mode string) int {
 	case "loading": // inside the first function's load
 		aneStderrLog("starting")
 		aneStderrLog("s128 loading")
+	case "earliercached": // an earlier release's child, its first function loaded from a cached compile
+		aneStderrLog("starting")
+		aneStderrLog("s128 ready (plan 2.1s, load 1.2s, 6000 operations on the neural engine, 14 on the cpu)")
+	case "earliercompiled": // an earlier release's child inside its first load, after a compile
+		aneStderrLog("starting")
+		aneStderrLog("package compiled in 40s")
 	case "offloading": // the path is off with a load still open
 		aneStderrLog("starting")
 		aneStderrLog("s128 loading")

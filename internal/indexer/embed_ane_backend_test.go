@@ -167,9 +167,21 @@ func TestANECalls(t *testing.T) {
 		status string
 		want   []string
 	}{
+		// A compile is followed by the first load.
 		{"starting", []string{"prepare"}},
 		{"s256 still loading after 10m0s: llama.cpp embeds its texts until it is ready", []string{"prepare"}},
-		{"package compiled in 40s", nil},
+		{"package compiled in 40s", []string{"prepare"}},
+		{"s128 loading", []string{"s128 load"}},
+		{"s128 ready (open 1s, first predict 30ms, validate 50ms; asked for 41s ago)", nil},
+		// An earlier release's child prints no "loading" line: on a cached
+		// compile, on a fresh one, and with a first function not used.
+		{"starting", []string{"prepare"}},
+		{"s128 ready (plan 2.1s, load 1.2s, 6000 operations on the neural engine, 14 on the cpu)", nil},
+		{"starting", []string{"prepare"}},
+		{"package compiled in 40s", []string{"prepare"}},
+		{"s128 ready (plan 2.1s, load 1.2s, 6000 operations on the neural engine, 14 on the cpu)", nil},
+		{"starting", []string{"prepare"}},
+		{"s128 not used: core ml plans it off the neural engine: 0 operations there, 0 on the gpu, 6014 on the cpu, cpu core [ios18.matmul]", nil},
 		{"starting", []string{"prepare"}},
 		{"s128 loading", []string{"s128 load"}},
 		{"s128 ready (open 1s)", nil},
