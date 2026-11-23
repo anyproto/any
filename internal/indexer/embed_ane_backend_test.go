@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/hybridgroup/yzma/pkg/llama"
@@ -141,21 +142,25 @@ func TestCoreMLBackend_LoadValidates(t *testing.T) {
 }
 
 // The load's line has the time of the very first prediction: a retry
-// after a failed validation does not put a warm one in its place.
+// after a failed validation does not put a warm one in its place. On a
+// fake clock only the first prediction takes time.
 func TestCoreMLBackend_LoadKeepsTheFirstPredictionAcrossRetries(t *testing.T) {
 	const slow = 30 * time.Millisecond
-	b := newTestBackend(t, t.TempDir())
-	fn := &planFn{slowFirst: slow, failAt: 2}
-	b.open = func(string, string, int, int) (aneFunction, error) { return fn, nil }
-	_, info, err := b.load(128)
-	if err != nil || fn.calls != 6 {
-		t.Fatalf("load after a failed second prediction: %v, %d predictions, want 2 then 4", err, fn.calls)
-	}
-	_, rest, _ := strings.Cut(info, "first predict ")
-	first, err := time.ParseDuration(strings.SplitN(rest, ",", 2)[0])
-	if err != nil || first < slow {
-		t.Fatalf("load info %q: first predict %v, want the first prediction's %v or more", info, first, slow)
-	}
+	dir := t.TempDir()
+	synctest.Test(t, func(t *testing.T) {
+		b := newTestBackend(t, dir)
+		fn := &planFn{slowFirst: slow, failAt: 2}
+		b.open = func(string, string, int, int) (aneFunction, error) { return fn, nil }
+		_, info, err := b.load(128)
+		if err != nil || fn.calls != 6 {
+			t.Fatalf("load after a failed second prediction: %v, %d predictions, want 2 then 4", err, fn.calls)
+		}
+		_, rest, _ := strings.Cut(info, "first predict ")
+		first, err := time.ParseDuration(strings.SplitN(rest, ",", 2)[0])
+		if err != nil || first != slow {
+			t.Fatalf("load info %q: first predict %v, want the first prediction's %v", info, first, slow)
+		}
+	})
 }
 
 // The server follows a child's Core ML calls by its lines: its
