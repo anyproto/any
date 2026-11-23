@@ -753,6 +753,7 @@ type coreMLBackend struct {
 	pkg      *coreMLPackage
 	dir      string // the .mlpackage
 	compiled string // the .mlmodelc
+	tempDir  string // where a compile bound for another volume waits for its copy
 	dim      int
 	logf     func(format string, args ...any)
 	open     func(compiled, function string, length, dim int) (aneFunction, error)
@@ -763,6 +764,7 @@ func newCoreMLBackend(pkg *coreMLPackage, dir string, dim int, logf func(string,
 		pkg:      pkg,
 		dir:      dir,
 		compiled: strings.TrimSuffix(dir, ".mlpackage") + ".mlmodelc",
+		tempDir:  os.TempDir(),
 		dim:      dim,
 		logf:     logf,
 		open: func(compiled, function string, length, dim int) (aneFunction, error) {
@@ -792,7 +794,7 @@ func (b *coreMLBackend) prepare() (err error) {
 	if !ok {
 		return errors.New("this machine has no neural engine")
 	}
-	removeStaleStages(b.compiled)
+	removeStaleStages(b.compiled, b.tempDir)
 	if _, err := os.Stat(b.compiled); err == nil {
 		return nil
 	}
@@ -806,7 +808,7 @@ func (b *coreMLBackend) prepare() (err error) {
 	if err != nil {
 		return err
 	}
-	if err := installDir(tmp, b.compiled); err != nil {
+	if err := installDir(tmp, b.compiled, b.tempDir); err != nil {
 		return fmt.Errorf("install the compiled model: %w", err)
 	}
 	b.logf(aneCompiled+" in %s", time.Since(start).Round(time.Millisecond))
@@ -818,35 +820,54 @@ func stagePath(dst string, pid int) string {
 }
 
 // removeStaleStages deletes the staging directories of installs toward
-// dst that a dead process left behind.
-func removeStaleStages(dst string) {
-	// By name, not a pattern: the directory's own path can hold a bracket.
-	dir, base := filepath.Dir(dst), filepath.Base(dst)
-	entries, _ := os.ReadDir(dir)
-	for _, e := range entries {
-		name := e.Name()
-		if !strings.HasPrefix(name, base+".") || !strings.HasSuffix(name, ".tmp") || len(name) < len(base)+len("..tmp") {
+// dst that a dead process left behind, beside dst and in tempDir.
+func removeStaleStages(dst, tempDir string) {
+	base := filepath.Base(dst)
+	for _, dir := range []string{filepath.Dir(dst), tempDir} {
+		if dir == "" {
 			continue
 		}
-		s := filepath.Join(dir, name)
-		if st, err := os.Stat(s); err == nil && time.Since(st.ModTime()) > aneStageMaxAge {
-			_ = os.RemoveAll(s)
+		// By name, not a pattern: the directory's own path can hold a bracket.
+		entries, _ := os.ReadDir(dir)
+		for _, e := range entries {
+			name := e.Name()
+			if !strings.HasPrefix(name, base+".") || !strings.HasSuffix(name, ".tmp") || len(name) < len(base)+len("..tmp") {
+				continue
+			}
+			s := filepath.Join(dir, name)
+			if st, err := os.Stat(s); err == nil && time.Since(st.ModTime()) > aneStageMaxAge {
+				_ = os.RemoveAll(s)
+			}
 		}
 	}
 }
 
+// renameDir is os.Rename; tests make it fail as across volumes.
+var renameDir = os.Rename
+
 // installDir moves directory src to dst, which appears whole or not at
-// all. A dst another process installed meanwhile is kept.
-func installDir(src, dst string) error {
+// all. A dst another process installed meanwhile is kept. A src on
+// another volume is copied from a stage in tempDir, which a stop mid-copy
+// leaves for removeStaleStages.
+func installDir(src, dst, tempDir string) error {
 	stage := stagePath(dst, os.Getpid())
 	_ = os.RemoveAll(stage)
-	if err := os.Rename(src, stage); err != nil {
-		// src can sit on another volume.
-		if err := os.CopyFS(stage, os.DirFS(src)); err != nil {
+	if err := renameDir(src, stage); err != nil {
+		// src can sit on another volume: Core ML compiles into the system
+		// temporary directory, where src then waits under a known name.
+		if held := filepath.Join(tempDir, filepath.Base(stage)); tempDir != "" && held != src {
+			_ = os.RemoveAll(held)
+			if renameDir(src, held) == nil {
+				src = held
+				_ = os.Chtimes(held, time.Time{}, time.Now()) // its age counts from here
+			}
+		}
+		err := os.CopyFS(stage, os.DirFS(src))
+		_ = os.RemoveAll(src)
+		if err != nil {
 			_ = os.RemoveAll(stage)
 			return err
 		}
-		_ = os.RemoveAll(src)
 	}
 	if err := os.Rename(stage, dst); err != nil {
 		_ = os.RemoveAll(stage)

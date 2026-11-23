@@ -725,7 +725,7 @@ func TestInstallDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	dst := filepath.Join(root, "model.mlmodelc")
-	if err := installDir(src, dst); err != nil {
+	if err := installDir(src, dst, t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 	if b, err := os.ReadFile(filepath.Join(dst, "weights", "weight.bin")); err != nil || string(b) != "w" {
@@ -740,7 +740,7 @@ func TestInstallDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(again, "other"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := installDir(again, dst); err != nil {
+	if err := installDir(again, dst, t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dst, "other")); err == nil {
@@ -755,32 +755,76 @@ func TestInstallDir(t *testing.T) {
 	}
 }
 
-// A staging directory a dead process left is removed once it is old; a
-// fresh one belongs to a compile in flight.
+// A compiled model on another volume is copied, from a stage in the
+// temporary directory it was renamed to first: a copy cut short leaves it
+// there for removeStaleStages, and a whole one leaves nothing behind.
+func TestInstallDir_FromAnotherVolume(t *testing.T) {
+	root, tmp := t.TempDir(), t.TempDir()
+	src := filepath.Join(tmp, "compiled")
+	if err := os.MkdirAll(filepath.Join(src, "weights"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "weights", "weight.bin"), []byte("w"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(root, "model.mlmodelc")
+	var moved []string
+	rename := renameDir
+	renameDir = func(from, to string) error {
+		if filepath.Dir(from) != filepath.Dir(to) && (filepath.Dir(from) == root || filepath.Dir(to) == root) {
+			return &os.LinkError{Op: "rename", Old: from, New: to, Err: errors.New("cross-device link")}
+		}
+		moved = append(moved, from+" -> "+to)
+		return rename(from, to)
+	}
+	defer func() { renameDir = rename }()
+	if err := installDir(src, dst, tmp); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dst, "weights", "weight.bin")); err != nil || string(b) != "w" {
+		t.Fatalf("installed file: %q, %v", b, err)
+	}
+	held := filepath.Join(tmp, filepath.Base(stagePath(dst, os.Getpid())))
+	if want := []string{src + " -> " + held}; !reflect.DeepEqual(moved, want) {
+		t.Fatalf("moved %v, want the compile renamed to %s before the copy", moved, held)
+	}
+	for _, dir := range []string{root, tmp} {
+		if entries, _ := os.ReadDir(dir); len(entries) != map[string]int{root: 1, tmp: 0}[dir] {
+			t.Fatalf("%d entries left in %s", len(entries), dir)
+		}
+	}
+}
+
+// A staging directory a dead process left, beside the compiled model or
+// in the temporary directory, is removed once it is old; a fresh one
+// belongs to a compile in flight.
 func TestRemoveStaleStages(t *testing.T) {
 	// A bracket in the path is a name like any other, not a pattern.
 	base := t.TempDir()
-	root := filepath.Join(base, "cache[1]")
+	root, tmp := filepath.Join(base, "cache[1]"), filepath.Join(base, "tmp")
 	dst := filepath.Join(root, "model.mlmodelc")
 	old, fresh := stagePath(dst, 111), stagePath(dst, 222)
+	oldHeld, freshHeld := filepath.Join(tmp, filepath.Base(old)), filepath.Join(tmp, filepath.Base(fresh))
 	elsewhere := stagePath(filepath.Join(base, "cache1", "model.mlmodelc"), 111)
 	unrelated := filepath.Join(root, "model.mlmodelc.tmp")
-	for _, d := range []string{old, fresh, dst, elsewhere, unrelated} {
+	for _, d := range []string{old, fresh, oldHeld, freshHeld, dst, elsewhere, unrelated} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	past := time.Now().Add(-2 * aneStageMaxAge)
-	for _, d := range []string{old, elsewhere, unrelated} {
+	for _, d := range []string{old, oldHeld, elsewhere, unrelated} {
 		if err := os.Chtimes(d, past, past); err != nil {
 			t.Fatal(err)
 		}
 	}
-	removeStaleStages(dst)
-	if _, err := os.Stat(old); err == nil {
-		t.Error("an abandoned staging directory was kept")
+	removeStaleStages(dst, tmp)
+	for _, d := range []string{old, oldHeld} {
+		if _, err := os.Stat(d); err == nil {
+			t.Errorf("an abandoned staging directory was kept: %s", d[len(base):])
+		}
 	}
-	for _, d := range []string{fresh, dst, elsewhere, unrelated} {
+	for _, d := range []string{fresh, freshHeld, dst, elsewhere, unrelated} {
 		if _, err := os.Stat(d); err != nil {
 			t.Errorf("%s was removed", d[len(base):])
 		}
