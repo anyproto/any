@@ -252,7 +252,8 @@ func TestNeuralEngine_OneLoadPerFunction(t *testing.T) {
 	}
 }
 
-// A text runs on a larger loaded function while its own is missing.
+// A text runs on a larger function when its own is not used: the text
+// asks for the larger one and the next text finds it loaded.
 func TestNeuralEngine_UsesLargerLoadedFunction(t *testing.T) {
 	f := &fakeANE{loadErr: map[int]error{128: errors.New("coreml: load s128: test error 1")}}
 	n, _ := newTestANE(t, f)
@@ -261,7 +262,7 @@ func TestNeuralEngine_UsesLargerLoadedFunction(t *testing.T) {
 	if _, ok := n.embed(tokensOf(10)); ok {
 		t.Fatal("served with nothing loaded")
 	}
-	loadFor(n, 200)
+	n.loads.Wait() // the load that text asked for has landed
 	if _, ok := n.embed(tokensOf(10)); !ok {
 		t.Fatal("short text not served by the larger function")
 	}

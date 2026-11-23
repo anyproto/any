@@ -979,32 +979,31 @@ func withDownloadingPackage(w *workerEmbedder) *downloadingPackage {
 // the first function, as for a package being prepared. A search is not
 // held meanwhile.
 func TestWorkerEmbedder_PrepareBulkWaitsForThePackageDownload(t *testing.T) {
-	const lands = 300 * time.Millisecond
-	ctx := context.Background()
 	w, _ := aneWorker(t, append(delayEnv(50*time.Millisecond), "ANY_EMBED_WORKER_ANE=ready")...)
+	w.pkgPoll = time.Millisecond
 	pkg := withDownloadingPackage(w)
-	go func() {
-		time.Sleep(lands)
-		pkg.onDisk.Store(true) // whole, before the download is done with its licence texts
-	}()
-	said := 0
-	start := time.Now()
+	said := make(chan struct{}, 4)
 	done := make(chan string, 1)
-	go func() { done <- w.PrepareBulk(ctx, func() { said++ }) }()
+	go func() { done <- w.PrepareBulk(context.Background(), func() { said <- struct{}{} }) }()
+	<-said // it waits for the download
+	// The package lands only after the search has returned: a search held
+	// by the wait would never come back.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	if _, err := w.EmbedQuery(ctx, "a search under the download"); err != nil {
 		t.Fatalf("a search under the download: %v", err)
 	}
-	if waited := time.Since(start); waited > lands {
-		t.Fatalf("the search took %s: it was held", waited)
+	select {
+	case got := <-done:
+		t.Fatalf("PrepareBulk = %q before the package landed", got)
+	default:
 	}
+	pkg.onDisk.Store(true) // whole, before the download is done with its licence texts
 	if got := <-done; got != BulkReady {
 		t.Fatalf("PrepareBulk = %q, want %q", got, BulkReady)
 	}
-	if waited := time.Since(start); waited < lands {
-		t.Fatalf("returned after %s, before the package landed at %s", waited, lands)
-	}
-	if said != 1 {
-		t.Fatalf("said it waits %d times, want once", said)
+	if len(said) != 0 {
+		t.Fatalf("said it waits %d times, want once", 1+len(said))
 	}
 }
 
