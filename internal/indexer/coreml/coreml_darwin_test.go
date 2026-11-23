@@ -81,6 +81,7 @@ func TestPackage(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		defer os.RemoveAll(tmp) // left by a failed copy; gone after a rename
 		if err := os.Rename(tmp, compiled); err != nil {
 			// Core ML's temporary directory can sit on another volume:
 			// copy beside the destination, then move into place whole.
@@ -93,7 +94,6 @@ func TestPackage(t *testing.T) {
 			if err := os.Rename(stage, compiled); err != nil {
 				t.Fatal(err)
 			}
-			_ = os.RemoveAll(tmp)
 		}
 		t.Logf("compiled in %s", time.Since(start).Round(time.Millisecond))
 	} else {
